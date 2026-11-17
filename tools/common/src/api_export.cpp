@@ -6,11 +6,13 @@
 #include <filesystem>
 #include <functional>
 #include <map>
+#include <mutex>
 #include <optional>
 #include <sstream>
 
 #include "fa/core/capability.h"
 #include "fa/core/command.h"
+#include "fa/core/deprecation.h"
 #include "fa/core/fs.h"
 #include "fa/core/reflect.h"
 #include "fa/core/strings.h"
@@ -57,6 +59,23 @@ std::string since_line(const std::string& since) {
     if (since.empty() || since == "0.1.0") return {};
     return api_since_label(since) + ".";
 }
+// "Deprecated since 0.30.0 - use `x`. Removed in 0.32.0. <note>" under a heading; "" for what is not deprecated.
+std::string deprecated_line(const Json& entry) {
+    if (!entry.is_object()) return {};
+    std::string out = entry.value("summary", "");
+    if (!entry.value("note", "").empty()) out += " " + entry.value("note", "");
+    return out;
+}
+// The text after `@deprecated ` in the typings: "0.30.0: use `x`. Removed in 0.32.0. <note>".
+std::string deprecated_tag(const Json& entry) {
+    if (!entry.is_object()) return {};
+    std::string out = entry.value("since", "") +
+                      (entry.value("use", "").empty() ? ": no replacement" : ": use `" + entry.value("use", "") + "`");
+    out += entry.value("removedIn", "").empty() ? "." : ". Removed in " + entry.value("removedIn", "") + ".";
+    if (!entry.value("note", "").empty()) out += " " + entry.value("note", "");
+    return out;
+}
+
 // The explanation under "# Components reference" / "# Commands reference". The full paged docs.components / docs.commands
 // put it on their first page, so the paged text carries the same marks and conventions as the single file.
 std::string components_preamble() {
@@ -67,6 +86,9 @@ std::string components_preamble() {
            "for what existed in 0.1.0; if your factoria is older than a mark, that item is missing there. "
            "The scripting API at the end marks its functions, types and members the same way, with a JSDoc `@since` "
            "tag. "
+           "A deprecated component, field or command (it still works; it will be removed two minor versions after the "
+           "one "
+           "that deprecated it) has a bold \"Deprecated since 0.x.y - use ...\" line. "
            "In scene JSON a component is `\"Name\": { field: value, ... }` "
            "(omitted fields keep their defaults); in scripts use `entity.get(\"Name\")`. Vectors accept `[x, y]` or "
            "`{x, y}`; "
@@ -82,6 +104,7 @@ void write_component(std::ostream& o, const Json& t, const char* heading) {
     const std::string compSince = t.value("since", "");
     o << heading << " " << t.value("name", "") << "\n\n";
     if (!since_line(compSince).empty()) o << since_line(compSince) << "\n\n";
+    if (t.contains("deprecated")) o << "**" << deprecated_line(t["deprecated"]) << "**\n\n";
     o << t.value("doc", "") << "\n\n";
     if (t["fields"].empty()) {
         o << "_No fields._\n\n";
@@ -105,6 +128,7 @@ void write_component(std::ostream& o, const Json& t, const char* heading) {
                     bound_text(f["max"], f.value("kind", "") == "int") + ".";
         if (f.value("readOnly", false)) desc += " Read-only.";
         if (f.value("runtimeOnly", false)) desc += " Runtime-only (not saved).";
+        if (f.contains("deprecated")) desc += " **" + deprecated_line(f["deprecated"]) + "**";
         const std::string fieldSince = f.value("since", "");
         if (!fieldSince.empty() && fieldSince != compSince && fieldSince != "0.1.0")
             desc += fieldSince == "unreleased" ? " (not released yet, on main after " FA_ENGINE_VERSION ")"
@@ -121,6 +145,8 @@ void write_command(std::ostream& o, const CommandInfo* c, const char* heading) {
     o << heading << " `" << c->name << "`" << (c->readOnly ? "" : " (modifies state)") << "\n\n";
     const std::string since = since_line(api_since("commands", c->name));
     if (!since.empty()) o << since << "\n\n";
+    if (const std::string dep = deprecated_line(deprecation_json("commands", c->name)); !dep.empty())
+        o << "**" << dep << "**\n\n";
     o << c->summary << "\n\n";
     o << "Capabilities: " << capabilities_line(*c) << "\n\n";
     if (!c->description.empty()) o << c->description << "\n\n";
@@ -138,7 +164,7 @@ void write_command(std::ostream& o, const CommandInfo* c, const char* heading) {
             bool req = std::find(required.begin(), required.end(), it.key()) != required.end();
             std::string desc = p.value("description", "");
             if (p.contains("default")) desc += " Default " + short_json(p["default"]) + ".";
-            // "x-fa-path" (docs/ARCHITECTURE.md, "Commands"): what the command does with a path argument.
+            // "x-fa-path" (docs/design/ARCHITECTURE_COMMANDS.md, "Commands"): what the command does with a path argument.
             if (p.contains("x-fa-path") && p["x-fa-path"].is_string()) {
                 const std::string kind = p["x-fa-path"].get<std::string>();
                 desc += kind == "write" ? " Path the command writes; the write rules apply (docs/CLI.md, \"Paths\")."
@@ -181,6 +207,32 @@ std::string api_since_label(const std::string& since) {
     return "Since " + since;
 }
 
+void install_deprecations(bool reload) {
+    static std::once_flag once;
+    auto load = [] {
+        const Json& d = since_data();
+        Deprecations::global().set(d.contains("deprecated") ? d["deprecated"] : Json::object());
+    };
+    // The first call loads inside call_once: a second thread waits for it, so it never sees the table half way.
+    bool first = false;
+    std::call_once(once, [&] {
+        first = true;
+        load();
+    });
+    if (!first && reload) load();
+}
+
+Json deprecation_json(std::string_view section, std::string_view key) {
+    install_deprecations();
+    const std::optional<Deprecation> d = Deprecations::global().find(section, key);
+    if (!d) return nullptr;
+    Json out = Json::object({{"since", d->since}, {"use", d->use}, {"note", d->note}});
+    const std::string removed = deprecation_removal_version(d->since);
+    if (!removed.empty()) out["removedIn"] = removed;
+    out["summary"] = deprecation_summary(*d);
+    return out;
+}
+
 Json export_components_json() {
     ensure_builtin_components();
     Json all = TypeRegistry::global().describe_all();
@@ -188,9 +240,12 @@ Json export_components_json() {
         std::string name = t.value("name", "");
         std::string since = api_since("components", name);
         if (!since.empty()) t["since"] = since;
+        if (Json dep = deprecation_json("components", name); !dep.is_null()) t["deprecated"] = std::move(dep);
         for (Json& f : t["fields"]) {
             std::string fs = api_since("components", name + "." + f.value("name", ""));
             if (!fs.empty()) f["since"] = fs;
+            if (Json dep = deprecation_json("components", name + "." + f.value("name", "")); !dep.is_null())
+                f["deprecated"] = std::move(dep);
         }
     }
     return all;
@@ -198,6 +253,12 @@ Json export_components_json() {
 
 std::string export_typescript(const ScriptSystem& scripts) {
     return scripts.typescript_declarations([](const std::string& section, const std::string& key) {
+        if (section == "deprecated") {  // "script:NavAPI.x" or "components:Sprite.x": the text of a @deprecated tag
+            const size_t colon = key.find(':');
+            return colon == std::string::npos
+                       ? std::string()
+                       : deprecated_tag(deprecation_json(key.substr(0, colon), key.substr(colon + 1)));
+        }
         std::string v = api_since(section, key);
         return v == "0.1.0" ? std::string() : v;
     });
@@ -224,6 +285,8 @@ Json export_commands_json(const CommandRegistry& registry) {
     for (Json& c : all) {
         std::string since = api_since("commands", c.value("name", ""));
         if (!since.empty()) c["since"] = since;
+        if (Json dep = deprecation_json("commands", c.value("name", "")); !dep.is_null())
+            c["deprecated"] = std::move(dep);
     }
     return all;
 }
@@ -329,7 +392,8 @@ std::vector<ApiReferencePage> export_api_reference(const CommandRegistry& regist
             const std::string name = t.value("name", "");
             write_component(page, t, "##");
             idx << "- [" << name << "](" << file << "#" << heading_anchor(name)
-                << "): " << first_sentence(t.value("doc", "")) << index_mark(t.value("since", "")) << "\n";
+                << "): " << first_sentence(t.value("doc", "")) << index_mark(t.value("since", ""))
+                << (t.contains("deprecated") ? " _Deprecated._" : "") << "\n";
         }
         idx << "\n";
         catPages.push_back({"reference/" + file, page.str()});
@@ -349,7 +413,8 @@ std::vector<ApiReferencePage> export_api_reference(const CommandRegistry& regist
             write_command(page, c, "##");
             const std::string heading = "`" + c->name + "`" + (c->readOnly ? "" : " (modifies state)");
             idx << "- [`" << c->name << "`](" << file << "#" << heading_anchor(heading)
-                << "): " << md_escape(c->summary) << index_mark(api_since("commands", c->name)) << "\n";
+                << "): " << md_escape(c->summary) << index_mark(api_since("commands", c->name))
+                << (deprecation_json("commands", c->name).is_null() ? "" : " _Deprecated._") << "\n";
         }
         idx << "\n";
         catPages.push_back({"reference/" + file, page.str()});
@@ -688,7 +753,8 @@ void register_api_reference_command(CommandRegistry& registry, const ScriptSyste
             "<out>/reference/: README.md (index of every component and command), "
             "components/<category>.md and commands/<category>.md, and it refreshes the generated tools table between "
             "the markers in "
-            "section 4 of <out>/AI_GUIDE.md (an <out> without that file, or a file without the markers, gives a "
+            "section 4 of <out>/ai-guide/AI_GUIDE_TOOLS.md (an <out> without that file, or a file without the markers, "
+            "gives a "
             "`warnings` entry and "
             "nothing else changes); all generated from the registries of this session. Run it outside a project (the "
             "scratch session) "
@@ -721,22 +787,22 @@ void register_api_reference_command(CommandRegistry& registry, const ScriptSyste
             const std::filesystem::path out = resolvedOut.value();
             Json written = Json::array();
             Json warnings = Json::array();
-            // The generated tools table inside <out>/AI_GUIDE.md (the rest of that hand-written page stays). It is spliced BEFORE any
-            // page is written: a guide without the markers is a warning (the reference pages are still written), not a failure after
-            // half the pages are on disk; no AI_GUIDE.md in <out> is a warning too.
-            std::optional<std::string> guide = tooling_detail::read_file(out / "AI_GUIDE.md");
+            // The generated tools table inside <out>/ai-guide/AI_GUIDE_TOOLS.md (the page that holds section 4 of the guide; the rest of
+            // that hand-written page stays). It is spliced BEFORE any
+            // page is written: a page without the markers is a warning (the reference pages are still written), not a failure after
+            // half the pages are on disk; no AI_GUIDE_TOOLS.md in <out>/ai-guide is a warning too.
+            std::optional<std::string> guide = tooling_detail::read_file(out / "ai-guide" / "AI_GUIDE_TOOLS.md");
             bool guideReady = false;
             if (guide) {
                 guide->erase(std::remove(guide->begin(), guide->end(), '\r'), guide->end());
                 std::string err;
                 guideReady = splice_ai_guide_tools_table(*guide, registry, &err);
                 if (!guideReady)
-                    warnings.push_back(
-                        err +
-                        " AI_GUIDE.md was left as it is; restore the markers in section 4 and run the command again.");
+                    warnings.push_back(err + " AI_GUIDE_TOOLS.md was left as it is; restore the markers in section 4 "
+                                             "and run the command again.");
             } else {
                 warnings.push_back(
-                    "No AI_GUIDE.md in " + out.generic_string() +
+                    "No ai-guide/AI_GUIDE_TOOLS.md in " + out.generic_string() +
                     ": the generated tools table was not written (fine outside the repository's docs folder).");
             }
             for (const ApiReferencePage& p : export_api_reference(registry, scripts)) {
@@ -749,11 +815,12 @@ void register_api_reference_command(CommandRegistry& registry, const ScriptSyste
             }
             if (guideReady) {
                 std::string err;
-                if (!tooling_detail::write_file(out / "AI_GUIDE.md", *guide, &err))
+                if (!tooling_detail::write_file(out / "ai-guide" / "AI_GUIDE_TOOLS.md", *guide, &err))
                     throw CommandError("write_failed",
-                                       "Cannot write AI_GUIDE.md under " + out.generic_string() + ": " + err,
+                                       "Cannot write ai-guide/AI_GUIDE_TOOLS.md under " + out.generic_string() + ": " +
+                                           err,
                                        "Check that the file is writable.");
-                written.push_back("AI_GUIDE.md");
+                written.push_back("ai-guide/AI_GUIDE_TOOLS.md");
             }
             Json result = Json::object({{"out", out.generic_string()}, {"written", written}});
             if (!warnings.empty()) result["warnings"] = warnings;

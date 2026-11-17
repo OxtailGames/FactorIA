@@ -46,7 +46,7 @@ An open entry that fails the check is not a gap. It gets the status `rejected`, 
   you tick **closed**, with the status and a `*` marker; hover the status for who decided and why. Its window shows the reason.
 - A person who disagrees reopens it (status `open`): the entry then carries `claimCheck: "dismissed"` and the engine never rejects it again.
 - Do not confuse it with `shared.status: "rejected"`: that one says the feedback SERVER refused the text of a report (privacy or format
-  check, docs/design/FEEDBACK_SHARING.md). A report the engine developers refused is `shared.status: "declined"`.
+  check, docs/design/FEEDBACK_SHARING.md, repository only, not in the binary). A report the engine developers refused is `shared.status: "declined"`.
 - Delete: `feedback.delete` (CLI `factoria feedback discard <id>`; the editor's Delete button asks first). It removes a closed entry (from the
   file or the archive) or an open entry the engine developers refused. An open entry that is somebody's question for the engine
   developers is refused with the reason. Ids are never reused (`nextId` in both files), and what was already sent stays with the
@@ -510,7 +510,7 @@ The score of a group is the sum, over the projects (a pulled installation is one
   ten installations that each report it once count as ten. `totalOccurrences` in the report is not capped.
 
 A score with a half shows one decimal (1.5). The entries that `factoria feedback pull` writes
-(see docs/EXTENDING.md, section F) are collected like any project: `factoria feedback collect ~/.factoria/feedback-inbox`.
+(see docs/design/EXTENDING_FEEDBACK.md, section F; repository only, not in the binary) are collected like any project: `factoria feedback collect ~/.factoria/feedback-inbox`.
 The inbox's `quarantine/` folder holds `quarantine.json`, not an `ENGINE_FEEDBACK.json`, so collect ignores it.
 
 Two entries merge when their title, category, `suggestion` and `missing` text are alike enough (a title that merely
@@ -554,7 +554,7 @@ its arguments, exits 0 when everything was done and 1 when a `shareId` is not on
 3. **Reject or keep.**
    - `factoria feedback reject --suggested` rejects every suggested report with its ready reason; add shareIds to narrow it
      (`reject --suggested r_8f3k2m`), `--reason TEXT` to replace the ready reason.
-   - `factoria feedback reject r_8f3k2m r_9abcde --reason "Collider2D.oneWay exists (docs/COMPONENTS.md). File a bug if it fails."`: the same
+   - `factoria feedback reject r_8f3k2m r_9abcde --reason "Collider2D.oneWay exists (docs.components). File a bug if it fails."`: the same
      reason for each; `--file batch.json` takes `[{"shareId": "r_8f3k2m", "reason": "..."}]`, one reason each.
    - `factoria feedback reject --quarantined --reason TEXT` tells the installations of the quarantined (junk) reports why (only the text you write is sent).
    - `factoria feedback keep r_8f3k2m` drops a wrong suggestion (without shareIds: all); nothing is sent.

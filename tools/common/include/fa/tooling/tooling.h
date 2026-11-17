@@ -6,6 +6,7 @@
 #include "fa/tooling/asset_import.h"
 #include "fa/tooling/audio_analysis.h"
 #include "fa/tooling/bundle.h"
+#include "fa/tooling/examples.h"
 #include "fa/tooling/checkpoint.h"
 #include "fa/tooling/docs.h"
 #include "fa/tooling/export.h"

@@ -1,5 +1,6 @@
 #include "script_storage.h"
 
+#include <algorithm>
 #include <cstdio>
 
 #include "fa/core/compress.h"
@@ -56,15 +57,56 @@ std::string file_name(const std::string& key) {
     return out + ".json";
 }
 
-std::string encode(const std::string& key, const std::string& valueText, bool compress) {
-    const std::string keyText = Json(key).dump(-1, ' ', false, Json::error_handler_t::replace);
-    if (!compress) return "{\"key\": " + keyText + ", \"value\": " + valueText + "}\n";
-    const std::string z = zlib_compress(valueText);
-    return "{\"key\": " + keyText + ", \"z\": \"zlib\", \"n\": " + std::to_string(valueText.size()) + ", \"data\": \"" +
-           base64_encode(z.data(), z.size()) + "\"}\n";
+namespace {
+constexpr const char* kEncName = "chacha20poly1305";
+constexpr const char* kContext = "factoria.storage.v1:";
+constexpr std::size_t kMinSecretSize = 16;  // a random secret is 64 hex characters; shorter is a typed word, not a key
+}  // namespace
+
+Result<crypto::Key> derive_key(const KeyMaterial& material, const std::string& key) {
+    if (material.secret.empty())
+        return make_error(
+            "this project has no storage encryption secret, so a value cannot be encrypted or decrypted",
+            "Create it once with `factoria call project.create_storage_secret` (the same command runs from the editor "
+            "console or MCP): it writes a random \"storage\": {\"encryptionSecret\"} into factoria.json. Commit that "
+            "file "
+            "and keep the secret: saves written with another one cannot be opened. "
+            "docs/scripting/SCRIPTING_UI_SCENES.md, "
+            "\"Encrypted saves\".");
+    if (material.secret.size() < kMinSecretSize)
+        return make_error("storage.encryptionSecret in factoria.json is too short to be a key (" +
+                              std::to_string(material.secret.size()) + " characters, at least 16 needed)",
+                          "Do not write it by hand: delete the field and run `factoria call "
+                          "project.create_storage_secret` for a random one (saves written with the old secret cannot "
+                          "be opened afterwards).");
+    auto okm = crypto::hkdf_sha256(crypto::as_bytes(material.secret), crypto::as_bytes(material.gameId),
+                                   crypto::as_bytes(std::string(kContext) + key), crypto::kKeySize);
+    if (!okm) return okm.error();
+    crypto::Key k{};
+    std::copy(okm.value().begin(), okm.value().end(), k.begin());
+    crypto::secure_zero(okm.value().data(), okm.value().size());
+    return k;
 }
 
-bool decode(const std::string& text, Decoded& out, std::string& problem) {
+Result<std::string> encode(const std::string& key, const std::string& valueText, bool compress,
+                           const crypto::Key* sealKey) {
+    const std::string keyText = Json(key).dump(-1, ' ', false, Json::error_handler_t::replace);
+    if (!sealKey) {
+        if (!compress) return "{\"key\": " + keyText + ", \"value\": " + valueText + "}\n";
+        const std::string z = zlib_compress(valueText);
+        return "{\"key\": " + keyText + ", \"z\": \"zlib\", \"n\": " + std::to_string(valueText.size()) +
+               ", \"data\": \"" + base64_encode(z.data(), z.size()) + "\"}\n";
+    }
+    const std::string body = compress ? zlib_compress(valueText) : valueText;
+    auto blob = crypto::seal_blob(*sealKey, crypto::as_bytes(std::string_view(compress ? "zlib" : "json")), body);
+    if (!blob) return blob.error();
+    std::string out = "{\"key\": " + keyText + ", \"enc\": \"" + kEncName + "\"";
+    if (compress) out += ", \"z\": \"zlib\", \"n\": " + std::to_string(valueText.size());
+    out += ", \"data\": \"" + base64_encode(blob.value().data(), blob.value().size()) + "\"}\n";
+    return out;
+}
+
+bool decode(const std::string& text, Decoded& out, std::string& problem, const KeyMaterial* material) {
     Json j = parse_json_lenient(text);
     if (!j.is_object()) {
         problem = "it is not a JSON object";
@@ -75,33 +117,79 @@ bool decode(const std::string& text, Decoded& out, std::string& problem) {
         return false;
     }
     out.key = j["key"].get<std::string>();
-    if (j.contains("z")) {
-        if (!j["z"].is_string() || j["z"].get<std::string>() != "zlib" || !j.contains("data") ||
-            !j["data"].is_string()) {
-            problem = "its compressed value is not {\"z\": \"zlib\", \"data\": \"<base64>\"}";
-            return false;
-        }
-        const std::vector<unsigned char> raw = base64_decode(j["data"].get<std::string>());
-        const std::size_t n = j.contains("n") && j["n"].is_number_unsigned() ? j["n"].get<std::size_t>() : 0;
-        auto plain = zlib_decompress(std::string_view(reinterpret_cast<const char*>(raw.data()), raw.size()), n);
-        if (!plain) {
-            problem = plain.error().message;
-            return false;
-        }
-        out.value = parse_json_lenient(plain.value());
-        if (out.value.is_discarded()) {
-            problem = "its compressed value does not parse as JSON";
-            return false;
-        }
-        out.compressed = true;
-        return true;
-    }
-    if (!j.contains("value")) {
-        problem = "it has no \"value\"";
+    const bool zlibbed = j.contains("z");
+    if (zlibbed && (!j["z"].is_string() || j["z"].get<std::string>() != "zlib")) {
+        problem = "its \"z\" is not \"zlib\"";
         return false;
     }
-    out.value = std::move(j["value"]);
-    out.compressed = false;
+    if (!zlibbed && !j.contains("enc")) {
+        if (!j.contains("value")) {
+            problem = "it has no \"value\"";
+            return false;
+        }
+        out.value = std::move(j["value"]);
+        out.compressed = false;
+        return true;
+    }
+    if (!j.contains("data") || !j["data"].is_string()) {
+        problem = zlibbed ? "its compressed value is not {\"z\": \"zlib\", \"data\": \"<base64>\"}"
+                          : "its encrypted value has no \"data\" string";
+        return false;
+    }
+    std::vector<unsigned char> raw = base64_decode(j["data"].get<std::string>());
+    std::string body(reinterpret_cast<const char*>(raw.data()), raw.size());
+    const bool encrypted = j.contains("enc");
+    if (encrypted) {
+        if (!j["enc"].is_string() || j["enc"].get<std::string>() != kEncName) {
+            problem = "its \"enc\" is not \"" + std::string(kEncName) +
+                      "\" (a save from a newer engine version, or a hand edit)";
+            return false;
+        }
+        if (!material) {
+            problem = "it is encrypted and this reader has no key";
+            return false;
+        }
+        auto key = derive_key(*material, out.key);
+        if (!key) {
+            problem = "it is encrypted and cannot be opened: " + key.error().message + " " + key.error().hint;
+            return false;
+        }
+        auto opened =
+            crypto::open_blob(key.value(), crypto::as_bytes(std::string_view(zlibbed ? "zlib" : "json")), body);
+        crypto::secure_zero(key.value());
+        if (!opened) {
+            problem =
+                "its encrypted value failed authentication: the save was modified or damaged, or it was written with "
+                "another storage.encryptionSecret or another game id (\"id\" in factoria.json), or it was copied from "
+                "another storage key (" +
+                opened.error().message + ")";
+            return false;
+        }
+        body = std::move(opened.value());
+    }
+    std::string plain;
+    if (zlibbed) {
+        // "n" is only a buffer-size hint, and in an encrypted file it is not authenticated: a hand-edited huge value must not
+        // make a big allocation, so a sealed value lets the decoder grow its buffer from the (authenticated) body.
+        const std::size_t n =
+            !encrypted && j.contains("n") && j["n"].is_number_unsigned() ? j["n"].get<std::size_t>() : 0;
+        auto z = zlib_decompress(body, n);
+        if (!z) {
+            problem = z.error().message;
+            return false;
+        }
+        plain = std::move(z.value());
+    } else {
+        plain = std::move(body);
+    }
+    out.value = parse_json_lenient(plain);
+    if (out.value.is_discarded()) {
+        problem =
+            zlibbed ? "its compressed value does not parse as JSON" : "its encrypted value does not parse as JSON";
+        return false;
+    }
+    out.compressed = zlibbed;
+    out.encrypted = encrypted;
     return true;
 }
 
@@ -118,7 +206,19 @@ Writer::~Writer() {
 }
 
 void Writer::run(Job& job) {
-    const std::string text = encode(job.key, job.valueText, job.compress);
+    if (job.encrypt && !job.sealKey) {  // never write a value in plain that was meant to be sealed
+        job.ok = false;
+        job.error = "no encryption key was given for an encrypted write";
+        return;
+    }
+    auto encoded = encode(job.key, job.valueText, job.compress, job.encrypt ? job.sealKey.get() : nullptr);
+    job.sealKey.reset();  // zeroes the key
+    if (!encoded) {
+        job.ok = false;
+        job.error = encoded.error().message;
+        return;
+    }
+    const std::string& text = encoded.value();
     job.bytes = text.size();
     if (!job.persist) return;
     auto r = fs::write_bytes(job.file.generic_string(), text.data(), text.size());  // temporary file, then rename

@@ -1,4 +1,4 @@
-// audio.info, audio.render, audio.bake, audio.create, audio.edit: audio documents as project files (docs/SOUND.md "Audio documents"). The
+// audio.info, audio.render, audio.bake, audio.create, audio.edit: audio documents as project files (docs/sound/SOUND_DOCUMENTS.md "Audio documents"). The
 // format and the DSP are tested in fa_audio (engine/audio/tests/test_audio_doc.cpp); here: the files, the recipe, staleness, loop points
 // in assets.json, validation, the editing commands and their errors.
 #include <doctest.h>

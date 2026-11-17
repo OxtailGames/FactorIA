@@ -161,7 +161,7 @@ std::vector<std::string> run_hashes(const TempProject& p, const std::string& job
 }
 
 // A scene like a physics-heavy example: a 2D basin (Box2D) of 300 bodies and a 3D yard of 150, hinged pairs in both, a trigger, and
-// a static floor. Both are above the sizes at which a step goes to the job pool (docs/ARCHITECTURE.md, "Physics on jobs").
+// a static floor. Both are above the sizes at which a step goes to the job pool (docs/performance/PERFORMANCE_PROFILING.md, "Physics on jobs").
 void build_physics_scene(World& w) {
     auto wall2 = [&](const char* id, Vec3 pos, Vec2 size) {
         Entity e = w.create(id, id);

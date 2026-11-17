@@ -759,7 +759,12 @@ void Editor::ai_start(const std::string& task) {
     // The entity selected in the viewport is what "this" and "it" mean. The transcript shows only what was typed.
     std::string prompt = task;
     if (const Entity sel = selected(); !sel.is_null()) {
-        prompt = selection_line(world().info(sel).name, world().id_of(sel)) + "\n" + task;
+        std::vector<std::pair<std::string, std::string>> others;  // the rest of a multi-selection, in selection order
+        for (const std::string& oid : selection_peek().ids()) {
+            const Entity o = oid == world().id_of(sel) ? kNullEntity : world().find_by_id(oid);
+            if (!o.is_null()) others.emplace_back(world().info(o).name, oid);
+        }
+        prompt = selection_line(world().info(sel).name, world().id_of(sel), others) + "\n" + task;
     }
     if (!revertNote.empty()) prompt = revertNote + "\n" + prompt;
 

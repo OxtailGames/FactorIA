@@ -112,7 +112,7 @@ inline Gfx& gfx() {
 
 // Compares against engine/render/tests/golden/<name>.png with the limits of ../../core/tests/golden_check.h: the mean error,
 // the share of pixels over the per-pixel threshold and the largest error. A missing golden FAILS; FA_UPDATE_GOLDENS=1
-// writes it (docs/BUILDING.md, "Golden images"). One golden serves every backend (Metal, D3D11, GL on llvmpipe).
+// writes it (docs/design/BUILDING_TESTS.md, "Golden images"). One golden serves every backend (Metal, D3D11, GL on llvmpipe).
 inline GoldenResult expect_golden(const Image& img, const std::string& name, const GoldenLimits& limits) {
     return expect_golden_file(img, fs::path_from_utf8(FA_RENDER_GOLDEN_DIR) / fs::path_from_utf8(name + ".png"),
                               limits);

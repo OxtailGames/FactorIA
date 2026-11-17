@@ -80,22 +80,22 @@ warnings. A `.gltf`/`.glb` whose texture or buffer file is missing is an error (
 Packages the game (linux/windows/macos bundle, Android APK or AAB, iOS project, `--platform web`: a page, the web player and `game.pak` plus a zip for itch.io). Without `--platform` the
 current machine's platform is used; `--out` is the parent folder (default `<project>/build/export`); the export is written to `<out>/<slug>-<platform>/`,
 which is replaced only when it is empty or an earlier export wrote it (it holds `.factoria-export`): any other folder of
-that name is an error, never deleted ([EXPORTING.md](EXPORTING.md#replacing-an-earlier-export)).
+that name is an error, never deleted ([EXPORTING.md](exporting/EXPORTING_CONTENTS.md#replacing-an-earlier-export)).
 The exported game (and `factoria_player <game folder>`) takes `--frames N`: draw N frames, then exit 0, or 1 after a script error (a smoke test for CI, [EXPORTING.md](EXPORTING.md#ci-for-your-game)). With `--frames N` it also takes `--input <replay>`, `--dump-state <file>` and `--screenshot <file>`: a headless run like `factoria run --headless`, so a shipped build can be checked against the editor's ([EXPORTING.md](EXPORTING.md#checking-an-exported-build)).
 
-`--single-file` (web only) writes ONE html page with the player, the wasm and the game inlined, that opens from a double click; it is refused over `--single-file-max-mb` megabytes (default 64, 1 to 256, a fraction such as 1.5 is fine) or with a threaded web player ([EXPORTING.md](EXPORTING.md#one-html-file-singlefile)). `--player` selects the `factoria_player` binary to bundle (web: the folder with `factoria_player.js` and `.wasm`). Android/iOS exports are `prebuilt` (the ready-made `mobile/`
+`--single-file` (web only) writes ONE html page with the player, the wasm and the game inlined, that opens from a double click; it is refused over `--single-file-max-mb` megabytes (default 64, 1 to 256, a fraction such as 1.5 is fine) or with a threaded web player ([EXPORTING.md](exporting/EXPORTING_WEB.md#one-html-file-singlefile)). `--player` selects the `factoria_player` binary to bundle (web: the folder with `factoria_player.js` and `.wasm`). Android/iOS exports are `prebuilt` (the ready-made `mobile/`
 folder next to `factoria`, or `--mobile-dir`) or `source` (`--engine-root`, `$FACTORIA_ENGINE_DIR`, or the checkout a
 development build came from); the mode is printed and reported as `mode`, and the rule is in [EXPORTING.md](EXPORTING.md).
-A desktop export checks that the `factoria_player` comes from the same build as `factoria` and stops with an error naming both builds when it does not; `--allow-player-mismatch` bundles it anyway ([EXPORTING.md](EXPORTING.md#desktop-linux-windows-macos)). `--allow-missing-plugins` exports without the native plugins whose build for that platform is missing and lists them ([EXPORTING.md](EXPORTING.md#desktop-linux-windows-macos)).
+A desktop export checks that the `factoria_player` comes from the same build as `factoria` and stops with an error naming both builds when it does not; `--allow-player-mismatch` bundles it anyway ([EXPORTING.md](exporting/EXPORTING_DESKTOP.md#desktop-linux-windows-macos)). `--allow-missing-plugins` exports without the native plugins whose build for that platform is missing and lists them ([EXPORTING.md](exporting/EXPORTING_DESKTOP.md#desktop-linux-windows-macos)).
 Android builds the app itself with the Gradle wrapper it writes into the project: `--format apk` (default), `aab` (the
 Google Play bundle) or `gradle` (only the project; no JDK or SDK needed), `--release` for the signed release build (without a keystore it fails; `--allow-debug-key` signs with the debug key for tests on your own device); Gradle's
-output scrolls on stderr (not with `--json`) and is kept in `build.log` of the export (see [EXPORTING.md](EXPORTING.md#android)).
+output scrolls on stderr (not with `--json`) and is kept in `build.log` of the export (see [EXPORTING.md](exporting/EXPORTING_MOBILE.md#android)).
 `--release` on linux, windows and macos puts the whole game in one `game.pak` next to the executable instead of a `game/` folder, with the
-scripts compiled to bytecode unless `export.scriptBytecode` is `false` in `factoria.json` ([EXPORTING.md](EXPORTING.md#release-build-gamepak)),
-each file compressed with its type's codec and the files in the order play sessions first read them (`export.pack`, [EXPORTING.md](EXPORTING.md#compression-and-pack-order)).
+scripts compiled to bytecode unless `export.scriptBytecode` is `false` in `factoria.json` ([EXPORTING.md](exporting/EXPORTING_DESKTOP.md#release-build-gamepak)),
+each file compressed with its type's codec and the files in the order play sessions first read them (`export.pack`, [EXPORTING.md](exporting/EXPORTING_DESKTOP.md#compression-and-pack-order)).
 Linux: `--format appimage` also builds `<slug>-x86_64.AppImage`, the game as one file (Linux x86_64 or WSL, after
-`factoria setup appimage`; see [EXPORTING.md](EXPORTING.md#linux-appimage)). On a Mac, `factoria call sign.macos` signs and
-notarizes the exported app ([EXPORTING.md](EXPORTING.md#signing-and-notarizing-for-macos)), and
+`factoria setup appimage`; see [EXPORTING.md](exporting/EXPORTING_DESKTOP.md#linux-appimage)). On a Mac, `factoria call sign.macos` signs and
+notarizes the exported app ([EXPORTING.md](exporting/EXPORTING_DESKTOP.md#signing-and-notarizing-for-macos)), and
 `factoria call project.new_ci_workflow` writes a GitHub Actions workflow for the game ([EXPORTING.md](EXPORTING.md#ci-for-your-game)).
 Prints the output folder, the built file, warnings and the next steps. The command `project.export` (`platform`, `format`,
 `out`, `release`, `dryRun`) does the same for MCP clients and `factoria call`, and the editor's Export Game item in the menu bar for people; see
@@ -103,7 +103,7 @@ Prints the output folder, the built file, warnings and the next steps. The comma
 
 Uploading a build to a store has no flags of its own: the commands `publish.steam`, `publish.itch`, `publish.epic`,
 `publish.gog` (desktop exports), `publish.appstore` and `publish.googleplay` (the iOS `.ipa` and the Android `.aab`) run the store's
-uploader (`factoria call publish.itch '{"dryRun":true}'`); see [Uploading to stores](EXPORTING.md#uploading-to-stores).
+uploader (`factoria call publish.itch '{"dryRun":true}'`); see [Uploading to stores](exporting/EXPORTING_STORES.md#uploading-to-stores).
 
 ### `factoria editor [project]`
 Opens the visual editor (only in builds with the editor). It is AI-first: the viewport, the AI Assistant chat, the Console and View > Audio
@@ -141,7 +141,7 @@ installs again even when something is found.
 Progress goes to stderr; `--json` prints the report (status: components with `state`, `problems`, `licenses`). Every download is
 checked against its publisher's checksum. Details, what is trusted and what an AI may do (`setup.status` checks; `setup.install` is the
 user's call and an AI gets `capability_denied`):
-[EXPORTING.md](EXPORTING.md#setting-up-this-computer).
+[EXPORTING.md](exporting/EXPORTING_SETUP.md#setting-up-this-computer).
 ```
 factoria setup
 factoria setup android
@@ -294,7 +294,7 @@ Lists commands by category (`*` = modifies state). With an exact name it prints 
 With an exact name the text also has a `Capabilities:` line (for example `Capabilities: read, state`): the capabilities the
 command needs, in camelCase, `none` for a command that needs nothing, or `not declared yet` when the command has not declared
 them (its set is then derived from `readOnly`). The generated reference prints the same line on every command page, and
-`--json` has `capabilities` and `capabilitiesDeclared` on every command (docs/ARCHITECTURE.md, "Capabilities").
+`--json` has `capabilities` and `capabilitiesDeclared` on every command (docs/design/ARCHITECTURE_COMMANDS.md, "Capabilities"; repository only, not in the binary).
 
 ### `factoria api [--md|--json|--dts|--schema scene|prefab|project] [--out FILE] [--project DIR]`
 Prints the API reference: components, commands, scripting. `--dts` writes the TypeScript declarations; with
@@ -306,10 +306,17 @@ component, field and command, and `--dts` has `@since` in the JSDoc. `Not releas
 what is only on the main branch, so a factoria download does not have it. Nothing is printed for what 0.1.0 had; if
 your `factoria --version` is older than a mark, that item is missing in your install.
 
+A deprecated component, field, command or script export (it still works and has a replacement, or a reason for none) is
+marked the same way: a `Deprecated since 0.30.0 - use `x`. Removed in 0.32.0.` line, `@deprecated` in the typings and a
+`deprecated` object in `--json` (also in `factoria commands <name>`); using it logs one warning that names the replacement,
+once per process, from a command call, a scene or prefab load, a component patch or a script call (a field a script assigns
+through a component view does not warn). It is removed two minor versions
+after the one that deprecated it (docs/design/ARCHITECTURE_CORE.md, "Deprecations"; repository only, not in the binary).
+
 The repository keeps the same reference as browsable Markdown: `docs/reference/` (an index plus one page per component
-and per command category) and `docs/COMPONENTS.md` (the whole `factoria api --md` text). The command
+and per command category) and `docs/COMPONENTS.md` (the whole `factoria api --md` text, 1.8 MB; for GitHub readers). The command
 `factoria call docs.write_reference '{"out":"docs"}'` regenerates both from the repository root, outside any game project;
-the test `api_reference` fails when the committed files differ. The pages are not embedded in the binary: AIs get the
+the test `api_reference` fails when the committed files differ. Neither is embedded in the binary: AIs get the
 same data through `docs.components`, `docs.commands` and `factoria api`.
 
 ## MCP
@@ -346,7 +353,7 @@ program: the event as JSON on stdin, the module's answer as JSON on stdout ([HOO
 Hooks of `beforeCommand` / `afterCommand` also apply to `factoria call` and to every command the CLI runs.
 
 `ai run`, `ai review` and the commands above run in the project given as argument or `--project`, else the one that contains the current
-folder, and use its AI settings (`<project>/.factoria/ai/settings.json`; [AI_PROVIDERS.md](AI_PROVIDERS.md#per-project)): `ai run --role artist` in a
+folder, and use its AI settings (`<project>/.factoria/ai/settings.json`; [AI_PROVIDERS.md](ai-providers/AI_PROVIDERS_CONFIG.md#per-project)): `ai run --role artist` in a
 project that turned the artist off is refused and says which setting did it. To read or change those settings use the commands
 `factoria call ai.settings.get '{"scope":"resolved"}'` and `factoria call ai.settings.set '{"scope":"project","pointer":"/roles/artist/enabled","value":false}'`
 (a project change waits until you accept the file in the editor).
@@ -367,7 +374,7 @@ factoria feedback list --status open
 factoria feedback update games/my-game FB-001 --status fixed-in-engine --engine-issue abc123 [--note TEXT] [--json]
 factoria feedback check --title "No fluid simulation" --missing "There is no liquid solver"   # the check `add` runs; exit 1 = the engine has it
 factoria feedback check --entries [--reject]    # the open entries that claim something the engine has (--reject closes them as rejected)
-factoria feedback update FB-001 --status rejected --reason "Collider2D.oneWay exists (docs/COMPONENTS.md)"   # rejected needs --reason
+factoria feedback update FB-001 --status rejected --reason "Collider2D.oneWay exists (docs.components)"   # rejected needs --reason
 factoria feedback discard FB-004                # delete a closed entry (file or archive); ids are never reused
 factoria feedback validate
 factoria feedback collect games/ examples/ --out roadmap.md      # .json => JSON; --include-closed
@@ -388,7 +395,7 @@ cluster may span categories). The score of a group is `sum over projects of seve
 installations and occurrences. See [ENGINE_FEEDBACK.md](ENGINE_FEEDBACK.md).
 
 The engine developer's side of feedback sharing (needs `feedback-admin.json` next to `ai.json`, written by
-`tools/feedback-server/deploy.sh`; routine in [EXTENDING.md](EXTENDING.md), section F.1):
+`tools/feedback-server/deploy.sh`; routine in [EXTENDING_FEEDBACK.md](design/EXTENDING_FEEDBACK.md), section F.1; repository only, not in the binary):
 ```
 factoria feedback pull [--out DIR] [--full] [--classify | --no-classify] [--json]
 factoria feedback reject <shareId>... --reason TEXT | --file batch.json | --suggested [shareId...] | --quarantined --reason TEXT [--json]
@@ -434,6 +441,11 @@ case-insensitive, an exact title wins, else part of a title), `--start-line N`, 
 so a long guide is read by section like over MCP. When the read is cut, stderr gets the exact next call and the page's
 contents (headings with line numbers); stdout stays the text. With `--json` stdout is the `docs.read` result instead
 (`content`, `startLine`, `endLine`, `totalLines`, `truncated`, `next`, `contents`).
+A big doc is split into an entry page (the name you know, with an index of its pages) and pages (`scripting-input`, ...):
+a `--heading` that is not in the entry page but is on one of its pages is read from that page, and stderr says
+`this section is on page \`scripting-input\``; `--json` then has `page` and `requestedName`. A heading on two pages is an
+error that lists both. `--contents` of an entry page also lists its pages (name, title, size), `--json` has them as `pages`, and
+`docs list --json` gives a page its `family` (the entry page's name).
 Read `ai-guide` this way, never whole: `factoria docs read ai-guide --heading Index`, then `factoria docs read ai-guide --heading "Platformer character"`.
 
 ### `factoria version` / `--version`, `factoria help [command]`

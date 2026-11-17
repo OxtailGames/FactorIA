@@ -1,6 +1,6 @@
 // Audio: the game side of the mixer. Decoded clips -> voices -> buses -> master -> (device | null sink | recorder).
 //
-// Threads (docs/SOUND.md, "The audio callback"). Every public call runs on the game thread side under Impl::apiMu, a
+// Threads (docs/sound/SOUND_MIXER.md, "The audio callback"). Every public call runs on the game thread side under Impl::apiMu, a
 // mutex the audio callback never takes: the mixer (audio_mixer.h) owns what it mixes and the two sides talk through
 // lock-free single-producer single-consumer rings. The game keeps a mirror of what it asked for (the voices, the buses,
 // the music players) and answers every question from it; it sends what changes as commands, and reads back the commands
@@ -30,6 +30,7 @@
 #include <optional>
 #include <set>
 #include <thread>
+#include <utility>
 
 #include "audio_decoder.h"
 #include "audio_mixer.h"
@@ -60,6 +61,10 @@ namespace fa {
 
 namespace {
 
+// A value the mixer is sent: a NaN or an infinity (a source at a place that is no place gives them through the distance) is the
+// fallback, never a volume or a pitch that poisons the voice for good (clamp() and max() let a NaN through).
+inline float finite_or(float x, float fallback) { return std::isfinite(x) ? x : fallback; }
+
 using audio_detail::BusBuiltin;
 using audio_detail::BusMusic;
 using audio_detail::BusRuntime;
@@ -68,6 +73,7 @@ using audio_detail::BusUi;
 using audio_detail::Clip;
 using audio_detail::Cmd;
 using audio_detail::CmdKind;
+using audio_detail::HrtfAim;
 using audio_detail::kFirstProjectBus;
 using audio_detail::kMasterBus;
 using audio_detail::kMaxPlayers;
@@ -122,6 +128,10 @@ struct GameVoice {
     std::string path, source;
     int bus = BusSfx;
     float volume = 1.0f, pitch = 1.0f, pan = 0.0f;  // as last set (the target of a ramp)
+    float lowpass = 0.0f;                           // the voice's own low-pass in Hz as last set; 0 = none (occlusion)
+    float occGain =
+        1.0f;  // the gain of a blocked path on a sound played at a place, apart from `volume` (see MixVoice::occGain)
+    HrtfAim hrtf;  // where the head model places it (a listener with spatialization "hrtf"); `on` false = panned
     bool loop = false, notify = false, music = false;
     bool stopped = false;    // stopped by the game: gone for every query, erased once the mixer confirms the end
     bool fadingOut = false;  // fading out to its end: still playing, the first a full mixer steals
@@ -151,6 +161,111 @@ struct EntityVideo {
     std::uint64_t seen = 0;
 };
 
+// A sound's motion for doppler: where it was in the last frame, and the natural log of the pitch factor it follows.
+struct DopplerTrack {
+    Vec3 prev{};
+    bool have = false;
+    float logPitch = 0.0f;
+};
+
+// A sound's occlusion: the answer of the last ray and the amount (0 open .. 1 blocked) the volume and the low-pass follow.
+struct OcclusionTrack {
+    float amount = 0.0f;
+    bool blocked = false;
+    bool measured = false;  // a ray has answered since the sound started wanting one
+    float age = 0.0f;       // seconds since that ray (or since the sound started wanting one, while it has none)
+    bool known = false;  // a frame has already seen the sound wanting a ray: plan_occlusion_rays() can put it in line
+    bool grant = false;  // the plan gave it a ray for this frame (and kept one of the budget for it: `reserved`)
+};
+
+// Moves a track one frame and returns the pitch factor to use: exactly 1 with doppler off (level <= 0).
+float doppler_step(DopplerTrack& t, Vec3 lpos, Vec3 lvel, float c, Vec3 spos, Vec3 svel, float level, float dt) {
+    if (!(level > 0.0f)) {
+        t.logPitch = 0.0f;
+        return 1.0f;
+    }
+    const float target = std::log(audio_doppler_pitch(lpos, lvel, spos, svel, c, level));
+    if (dt > 0.0f) t.logPitch += (target - t.logPitch) * (1.0f - std::exp(-dt / kDopplerSmoothing));
+    return std::exp(t.logPitch);
+}
+
+// Moves a track one frame and returns the amount blocked (0..1). `wanted`: the sound asks for occlusion and is audible. A ray is
+// asked for the first time a wanted sound is seen and then every kAudioOcclusionRecheck seconds, while `budget` has rays left (the
+// first answer sets the amount at once, so a sound that starts behind a wall starts muffled; later answers are walked towards over
+// kAudioOcclusionSmoothing seconds). Without a probe nothing is ever blocked. The rays are shared fairly when there are more sounds
+// than rays: plan_occlusion_rays() gives a ray (`grant`) to the first sounds of the frame (never measured first, then the oldest
+// answer) and keeps them out of `reserved`, so a sound that is new this frame, or one that was not planned, only takes what the
+// grants leave (`budget` - `reserved`). A grant that is not used (the sound stopped wanting a ray) is given back at the end of its step.
+float occlusion_step(OcclusionTrack& t, bool wanted, World& world, const AudioOcclusionProbe& probe,
+                     const AudioOcclusionRay& ray, float dt, int& budget, int& reserved) {
+    const bool granted = t.grant;
+    if (wanted && probe) {
+        t.age += dt;
+        const bool due = !t.measured || t.age >= kAudioOcclusionRecheck;
+        t.known = true;
+        if (due && budget > 0 && (granted || budget > reserved)) {
+            --budget;
+            t.blocked = probe(world, ray);
+            t.age = 0.0f;
+            if (!t.measured) {
+                t.measured = true;
+                t.amount = t.blocked ? 1.0f : 0.0f;
+            }
+        }
+    } else if (!wanted) {
+        t.measured = false;
+        t.blocked = false;
+        t.age = 0.0f;
+        t.known = false;
+    }
+    if (granted) {  // used or not, the sound's share of the budget is no longer kept for it
+        t.grant = false;
+        if (reserved > 0) --reserved;
+    }
+    const float target = t.blocked ? 1.0f : 0.0f;
+    const float step = dt > 0.0f ? dt / kAudioOcclusionSmoothing : 0.0f;
+    if (t.amount < target)
+        t.amount = std::min(target, t.amount + step);
+    else if (t.amount > target)
+        t.amount = std::max(target, t.amount - step);
+    return t.amount;
+}
+
+// The cutoff of the low-pass an occluded sound gets: `lowpass` Hz when fully blocked, geometrically on the way (20000 = off).
+float occlusion_cutoff(float amount, float lowpass) {
+    if (!(amount > 0.0f) || !(lowpass < 19900.0f)) return 0.0f;
+    const float hz = 20000.0f * std::pow(std::max(lowpass, 20.0f) / 20000.0f, std::min(amount, 1.0f));
+    return hz > 19900.0f ? 0.0f : hz;
+}
+
+// A sound played at a place (Audio::play_at) that doppler or occlusion keeps following while it plays.
+struct SpatialShot {
+    VoiceId voice = 0;
+    Vec3 pos{}, vel{};
+    float level = 0.0f;
+    float basePitch =
+        1.0f;  // the pitch the sound would have with no doppler (its volume is the voice's own: set_voice_volume)
+    bool occlusion = false;
+    std::int32_t mask = -1;
+    float occGain = 0.4f, occLowpass = 1500.0f;
+    DopplerTrack dopp;
+    OcclusionTrack occl;
+};
+
+// The most sounds played at a place that doppler, occlusion or the head model keep following.
+constexpr std::size_t kMaxShots = 256;
+
+// The headRadius and speedOfSound a head-size warning was last given for (`given` false: none yet).
+struct HrtfWarned {
+    float radius = 0.0f, speed = 0.0f;
+    bool given = false;
+    // A NaN is the same as a NaN here (it is never == itself, so it would warn again every frame).
+    bool is(float r, float c) const {
+        const auto same = [](float a, float b) { return a == b || (a != a && b != b); };
+        return given && same(radius, r) && same(speed, c);
+    }
+};
+
 struct EntityAudio {
     Entity e;
     std::string id;
@@ -160,6 +275,11 @@ struct EntityAudio {
     std::uint64_t seen = 0;
     int lastVariant = 0;      // AudioSource.variants: the variant played last (1-based), never picked twice in a row
     std::uint32_t plays = 0;  // how many plays picked a variant: part of the pick's seed
+    Json curveSrc;            // AudioSource.rolloffCurve as it was parsed into `curve`
+    Curve curve;
+    bool curveOk = false;  // `curve` is the parse of curveSrc
+    DopplerTrack dopp;
+    OcclusionTrack occl;
 };
 
 // Import settings come from a file people edit: read them without assuming their types.
@@ -344,6 +464,15 @@ struct Audio::Impl {
     // gameplay-side state
     const World* lastWorld = nullptr;
     std::map<std::uint64_t, EntityAudio> ents;
+    std::vector<SpatialShot> shots;  // sounds from Audio::play_at that doppler or occlusion follow
+    AudioOcclusionProbe occlusionProbe;
+    int rayBudget = kAudioOcclusionRaysPerFrame;  // rays left for this frame (update() refills it when it is done)
+    int rayReserved = 0;                    // of those, the ones plan_occlusion_rays() granted to sounds not yet served
+    std::vector<OcclusionTrack*> rayPlan;   // scratch of plan_occlusion_rays()
+    bool shotCapWarned = false;             // the 256-sounds limit of `shots` has been said once
+    Vec3 lastListenerPos{}, listenerVel{};  // the listener's position at the last update() and its velocity
+    HrtfWarned hrtfWarned;                  // the headRadius and speedOfSound the clamp warning was last given for
+    bool haveLastListener = false;
     std::map<std::uint64_t, EntityVideo> videos;
     std::vector<float> videoScratch;
     std::uint64_t stamp = 0;
@@ -776,7 +905,7 @@ struct Audio::Impl {
         return g;
     }
 
-    // Voice stealing (docs/SOUND.md, "Voice stealing"). With every voice taken, the new voice replaces the voice with the
+    // Voice stealing (docs/sound/SOUND_MIXER.md, "Voice stealing"). With every voice taken, the new voice replaces the voice with the
     // lowest priority, the quietest of those (ties: the one started first), when it has a higher priority, or the same
     // priority and is louder; otherwise the new one is refused. Age never decides. True when there is room now.
     bool make_room(int priority, float loud) {
@@ -910,13 +1039,79 @@ struct Audio::Impl {
     }
 
     // A voice's volume, pitch and pan (an AudioSource every frame).
-    void send_params(VoiceId id, float volume, float pitch, float pan) {
-        Cmd* c = make(CmdKind::Droppable, [id, volume, pitch, pan](Mixer& m, Cmd&) {
+    // `lowpass`: the voice's own low-pass in Hz (0 = none; occlusion).
+    // `ramp`: the volume and the low-pass move to the new values over a few ms, per frame in the mixer (a frame's step of occlusion is
+    // 60 times a second, which would be heard as a buzz); false for what a voice starts with.
+    void send_params(VoiceId id, float volume, float pitch, float pan, float lowpass, bool ramp = false) {
+        volume = finite_or(volume, 0.0f);
+        pitch = finite_or(pitch, 1.0f);
+        pan = finite_or(pan, 0.0f);
+        lowpass = finite_or(lowpass, 0.0f);
+        Cmd* c = make(CmdKind::Droppable, [id, volume, pitch, pan, lowpass, ramp](Mixer& m, Cmd&) {
             if (MixVoice* v = m.find_voice(id)) {
-                v->volume = volume;
+                m.start_volume_ramp(*v, volume, ramp ? audio_detail::kVoiceParamRamp : 0.0f);
                 v->pitch = pitch;
                 v->pan = pan;
+                m.set_voice_lowpass(*v, lowpass, ramp);
             }
+        });
+        c->sync = SyncTarget::Voice;
+        c->syncId = id;
+        send(c);
+    }
+
+    // What doppler and occlusion change on a sound played at a place: its pitch, its low-pass and the gain of a blocked path.
+    // Not its `volume`, which stays the script's (set_voice_volume and its fade).
+    void send_shaping(VoiceId id, float pitch, float lowpass, float occGain, bool ramp = false) {
+        pitch = finite_or(pitch, 1.0f);
+        lowpass = finite_or(lowpass, 0.0f);
+        occGain = finite_or(occGain, 1.0f);
+        Cmd* c = make(CmdKind::Droppable, [id, pitch, lowpass, occGain, ramp](Mixer& m, Cmd&) {
+            if (MixVoice* v = m.find_voice(id)) {
+                v->pitch = pitch;
+                m.set_voice_occ_gain(*v, occGain, ramp);
+                m.set_voice_lowpass(*v, lowpass, ramp);
+            }
+        });
+        c->sync = SyncTarget::Voice;
+        c->syncId = id;
+        send(c);
+    }
+
+    // Which sounds get a ray this frame when there are fewer rays than sounds that want one: the ones never measured first, then the
+    // ones whose answer is the oldest (so none waits for good, and a sound played at a place is not behind every source of the scene).
+    // Only sounds that earlier frames saw (OcclusionTrack::known) are planned; a new one takes what the grants leave (rayReserved).
+    // What decides it is the tracks' own state and the frame's dt: the same on every machine.
+    void plan_occlusion_rays(float dt) {
+        std::vector<OcclusionTrack*>& due = rayPlan;
+        due.clear();
+        rayReserved = 0;
+        const auto look = [&](OcclusionTrack& t) {
+            t.grant = false;
+            if (t.known && (!t.measured || t.age + dt >= kAudioOcclusionRecheck)) due.push_back(&t);
+        };
+        for (auto& [key, ea] : ents) look(ea.occl);
+        for (SpatialShot& sh : shots) look(sh.occl);
+        if (!occlusionProbe) return;
+        std::stable_sort(due.begin(), due.end(), [](const OcclusionTrack* a, const OcclusionTrack* b) {
+            if (a->measured != b->measured) return !a->measured;
+            return a->age > b->age;
+        });
+        const std::size_t rays = std::size_t(std::max(rayBudget, 0));
+        for (std::size_t i = 0; i < due.size() && i < rays; ++i) due[i]->grant = true;
+        rayReserved = int(std::min(due.size(), rays));
+    }
+
+    // A track that is thrown away or reset before its step gives back the ray the plan kept for it.
+    void drop_grant(OcclusionTrack& t) {
+        if (t.grant && rayReserved > 0) --rayReserved;
+        t.grant = false;
+    }
+
+    // Where the head model places a voice (aim.on = false: the pan does).
+    void send_hrtf(VoiceId id, const HrtfAim& aim) {
+        Cmd* c = make(CmdKind::Droppable, [id, aim](Mixer& m, Cmd&) {
+            if (MixVoice* v = m.find_voice(id)) m.set_voice_hrtf(*v, aim);
         });
         c->sync = SyncTarget::Voice;
         c->syncId = id;
@@ -925,14 +1120,18 @@ struct Audio::Impl {
 
     // Everything the mirror knows of a voice's settings, at once and without a ramp (a dropped setting is sent again).
     void send_voice_state(VoiceId id, const GameVoice& gv) {
-        const float volume = gv.volume, pitch = gv.pitch, pan = gv.pan;
+        const float volume = gv.volume, pitch = gv.pitch, pan = gv.pan, lowpass = gv.lowpass, occGain = gv.occGain;
+        const HrtfAim aim = gv.hrtf;
         const int b = gv.bus;
-        Cmd* c = make(CmdKind::Droppable, [id, volume, pitch, pan, b](Mixer& m, Cmd&) {
+        Cmd* c = make(CmdKind::Droppable, [id, volume, pitch, pan, lowpass, occGain, aim, b](Mixer& m, Cmd&) {
             MixVoice* v = m.find_voice(id);
             if (!v) return;
             m.start_volume_ramp(*v, volume, 0.0f);
             v->pitch = pitch;
             v->pan = pan;
+            m.set_voice_occ_gain(*v, occGain, false);
+            m.set_voice_lowpass(*v, lowpass);
+            m.set_voice_hrtf(*v, aim);
             if (b >= 0 && std::size_t(b) < m.table->bus.size() && b != kMasterBus) v->bus = b;
         });
         c->sync = SyncTarget::Voice;
@@ -1452,6 +1651,23 @@ bool Audio::init(bool device, std::string* error) {
     if (im.device && !im.web)
         im.start_music_service();  // streamed music is kept decoded without the game (Impl::MusicService)
     return true;
+}
+
+void Audio::close_device() {
+    Impl& im = *impl_;
+    Impl::Call call(im);
+    if (!im.inited || !im.device || im.manual) return;
+#if defined(__EMSCRIPTEN__)
+    audio_web_close();
+#else
+    saudio_shutdown();  // joins the audio thread: nothing mixes from here on
+#endif
+    im.device = false;  // shutdown() later finds it closed, and every command runs at once on this thread
+    // What was staged or in the ring before the close runs first, so a command sent after it cannot overtake an older one
+    // (send() applies at once without a device and assumes the ring is empty). sync_fill stays as it was: the music
+    // service still decodes on its own thread. settle() may run with the music service alive: it only reads what the
+    // mixer has already published.
+    im.settle();
 }
 
 void Audio::shutdown() {
@@ -2400,7 +2616,7 @@ Json Audio::stats() const {
     j["music"] = im.musicPath;
     j["recording"] = im.recording;
     j["recordedSeconds"] = double(im.rec.size() / 2) / double(im.recRate);
-    // The real-time path (docs/SOUND.md, "The audio callback"). Relaxed loads: counters the mixer alone writes.
+    // The real-time path (docs/sound/SOUND_MIXER.md, "The audio callback"). Relaxed loads: counters the mixer alone writes.
     j["musicUnderruns"] = musicUnderruns;
     j["musicUnderrunFrames"] = musicUnderrunFrames;
     // Streamed clips and streamed music together.
@@ -3473,39 +3689,111 @@ float audio_spatial_gain(AudioRolloff rolloff, float distance, float reach, floa
     const float d = std::max(distance, 0.0f);
     if (d >= reach) return 0.0f;
     factor = std::max(factor, 0.0f);
-    float r = refDistance > 0.0f ? refDistance : (rolloff == AudioRolloff::Linear ? 0.0f : reach / 20.0f);
+    float r = refDistance > 0.0f
+                  ? refDistance
+                  : (rolloff == AudioRolloff::Linear || rolloff == AudioRolloff::Curve ? 0.0f : reach / 20.0f);
     r = std::min(r, reach * 0.999f);
     const float dc = std::max(d, r);
     switch (rolloff) {
         case AudioRolloff::Inverse: return saturate(r / std::max(r + factor * (dc - r), r));
         case AudioRolloff::Exponential: return r > 0.0f ? saturate(std::pow(dc / r, -factor)) : 1.0f;
-        case AudioRolloff::Linear: break;
+        case AudioRolloff::Linear:
+        case AudioRolloff::Curve: break;
     }
     return saturate(1.0f - factor * (dc - r) / (reach - r));
+}
+
+float audio_curve_gain(const Curve& curve, float distance, float reach) {
+    reach = std::max(reach, 1e-3f);
+    const float d = std::max(distance, 0.0f);
+    if (d >= reach) return 0.0f;
+    return curve.empty() ? saturate(1.0f - d / reach) : saturate(curve.eval(d / reach));
+}
+
+float audio_hrtf_head_time(float headRadius, float speedOfSound, bool* clamped) {
+    const float c = speedOfSound > 0.0f ? speedOfSound : 343.0f;  // false for NaN too
+    const float lo = audio_detail::kHrtfMinHeadTime, hi = audio_detail::kHrtfMaxHeadTime;
+    const float t = headRadius / c;
+    const bool inside = t >= lo && t <= hi;  // false for NaN too
+    if (clamped) *clamped = !inside;
+    return inside ? t : (t > hi ? hi : lo);
+}
+
+float audio_hrtf_itd(float lateral, float headTime) { return audio_detail::hrtf_itd(lateral, headTime); }
+
+float audio_cone_gain(Vec3 axis, Vec3 toListener, float innerAngle, float outerAngle, float outerGain) {
+    if (innerAngle >= 360.0f || length_sq(axis) < 1e-12f || length_sq(toListener) < 1e-12f) return 1.0f;
+    outerGain = saturate(outerGain);
+    const float inner = std::max(innerAngle, 0.0f) * 0.5f;
+    const float outer = std::max(std::min(outerAngle, 360.0f) * 0.5f, inner);
+    const float c = clamp(dot(normalize(axis), normalize(toListener)), -1.0f, 1.0f);
+    const float angle = std::acos(c) * (180.0f / 3.14159265358979f);  // 0 = in front, 180 = behind
+    if (angle <= inner) return 1.0f;
+    if (angle >= outer) return outerGain;
+    return 1.0f + (outerGain - 1.0f) * (angle - inner) / (outer - inner);
+}
+
+Vec3 audio_velocity(Vec3 delta, float dt, float speedOfSound) {
+    if (!(dt > 0.0f)) return {0, 0, 0};
+    const Vec3 v = delta * (1.0f / dt);
+    const float jump = kDopplerJumpSpeeds * std::max(speedOfSound, 1e-3f);
+    if (!(length_sq(v) <= jump * jump)) return {0, 0, 0};  // also false for NaN
+    return v;
+}
+
+float audio_doppler_pitch(Vec3 listenerPos, Vec3 listenerVelocity, Vec3 sourcePos, Vec3 sourceVelocity,
+                          float speedOfSound, float level) {
+    if (!(level > 0.0f) || !(speedOfSound > 0.0f)) return 1.0f;
+    const Vec3 d = sourcePos - listenerPos;
+    const float dist = length(d);
+    if (!(dist > 1e-6f)) return 1.0f;
+    const Vec3 u = d * (1.0f / dist);  // from the listener to the source
+    const float limit = 0.9f * speedOfSound;
+    const float vl = clamp(dot(listenerVelocity, u), -limit, limit);  // towards the source
+    const float vs = clamp(dot(sourceVelocity, u), -limit, limit);    // away from the listener
+    const float ratio = (speedOfSound + vl) / (speedOfSound + vs);
+    return clamp(std::pow(ratio, std::min(level, 10.0f)), kDopplerMinPitch, kDopplerMaxPitch);
 }
 
 namespace {
 // The listener spatial sounds are heard from: the first active AudioListener entity, else the primary (or first) camera.
 struct ListenerPose {
     bool have = false;
-    Vec3 pos{}, right{1, 0, 0};
+    Entity entity;  // null when there is none
+    Vec3 pos{}, right{1, 0, 0}, up{0, 1, 0}, forward{0, 0, -1};
     float volume = 1.0f, zoom = 1.0f;
+    float speedOfSound = 343.0f;
+    bool hrtf = false;  // an AudioListener entity with spatialization "hrtf" (a camera is never one)
+    float headRadius = 0.0875f;
 };
 }  // namespace
 
 static ListenerPose find_listener(World& world) {
     ListenerPose l;
-    auto take = [&](Entity e, float vol, float zoom) {
+    auto take = [&](Entity e, float vol, float zoom, float speed) {
+        l.entity = e;
+        l.speedOfSound = speed;
         Mat4 m = world.world_matrix(e);
         l.pos = {m.at(3, 0), m.at(3, 1), m.at(3, 2)};
         Vec3 r{m.at(0, 0), m.at(0, 1), m.at(0, 2)};
         l.right = length_sq(r) > 1e-8f ? normalize(r) : Vec3{1, 0, 0};
+        // The head's other axes (the engine looks down -Z): taken from the matrix and made perpendicular to `right`.
+        Vec3 u{m.at(1, 0), m.at(1, 1), m.at(1, 2)};
+        Vec3 b{m.at(2, 0), m.at(2, 1), m.at(2, 2)};
+        u = u - l.right * dot(u, l.right);
+        l.up = length_sq(u) > 1e-8f ? normalize(u) : Vec3{0, 1, 0};
+        b = b - l.right * dot(b, l.right) - l.up * dot(b, l.up);
+        l.forward = length_sq(b) > 1e-8f ? normalize(b) * -1.0f : cross(l.right, l.up) * -1.0f;
         l.volume = vol;
         l.zoom = zoom > 1e-3f ? zoom : 1e-3f;
         l.have = true;
     };
     world.each<AudioListener>([&](Entity e, AudioListener& al) {
-        if (!l.have && world.active_in_hierarchy(e)) take(e, al.volume, al.zoom);
+        if (!l.have && world.active_in_hierarchy(e)) {
+            take(e, al.volume, al.zoom, al.speedOfSound);
+            l.hrtf = al.spatialization == AudioSpatialization::Hrtf;
+            l.headRadius = al.headRadius;
+        }
     });
     if (!l.have) {
         // The first camera drawn (the lowest depth of the primary ones; a split screen has several), else any camera.
@@ -3524,31 +3812,159 @@ static ListenerPose find_listener(World& world) {
             }
         });
         if (!primary.is_null())
-            take(primary, 1.0f, 1.0f);
+            take(primary, 1.0f, 1.0f, 343.0f);
         else if (!first.is_null())
-            take(first, 1.0f, 1.0f);
+            take(first, 1.0f, 1.0f, 343.0f);
     }
     return l;
 }
 
 VoiceId Audio::play_at(World& world, std::string_view clipPath, const PlayParams& params, Vec3 position, float range,
                        AudioRolloff rolloff, float refDistance, float rolloffFactor, bool* outOfRange) {
+    SpatialSound sound;
+    sound.range = range;
+    sound.rolloff = rolloff;
+    sound.refDistance = refDistance;
+    sound.rolloffFactor = rolloffFactor;
+    return play_at(world, clipPath, params, position, sound, outOfRange);
+}
+
+// The head time of an HRTF listener, with the warning (once per pair of values) when its headRadius and speedOfSound make a head the
+// model does not take.
+static float listener_head_time(const ListenerPose& l, HrtfWarned& warned) {
+    bool clamped = false;
+    const float t = audio_hrtf_head_time(l.headRadius, l.speedOfSound, &clamped);
+    if (clamped && !warned.is(l.headRadius, l.speedOfSound)) {
+        warned = {l.headRadius, l.speedOfSound, true};
+        const float c = l.speedOfSound > 0.0f ? l.speedOfSound : 343.0f;
+        FA_WARN(
+            "audio",
+            "AudioListener.headRadius {} with speedOfSound {} is a head of {:.3f} m at 343 m/s, and the head model "
+            "takes "
+            "{} to {} m; using {:.3f} m (hint: headRadius / speedOfSound is the head's size in seconds, 0.000255 for a "
+            "human head: in a world of meters leave headRadius at 0.0875, in another unit set it to speedOfSound * "
+            "0.000255)",
+            l.headRadius, l.speedOfSound, l.headRadius / c * 343.0f, kHrtfMinHeadRadius, kHrtfMaxHeadRadius,
+            t * 343.0f);
+    }
+    return t;
+}
+
+// Where `source` is in the head frame of the HRTF listener `l`: the aim the head model takes. A sound inside the head (nearer than
+// its radius) is pulled towards the middle. Off when the listener is not an HRTF one or the device is not stereo (a mono output
+// would add the two ears together: comb filters).
+static HrtfAim hrtf_aim(const ListenerPose& l, Vec3 source, int deviceChannels, HrtfWarned& warned) {
+    HrtfAim aim;
+    // Two channels exactly: the model makes the two ears of headphones. A mono output would add them together (comb filters) and
+    // a 5.1 or 7.1 one has speakers, which the model would feed with its ears through the two front ones.
+    if (!l.hrtf || deviceChannels != 2) return aim;
+    aim.on = true;
+    aim.headTime = listener_head_time(l, warned);
+    const Vec3 d = source - l.pos;
+    const float dist = length(d);
+    if (!(dist > 1e-6f))
+        return aim;  // at the head (or a place that is not a number): straight ahead, no difference between the ears
+    const Vec3 u = d * (1.0f / dist);
+    const float c = l.speedOfSound > 0.0f ? l.speedOfSound : 343.0f;
+    const float inside =
+        std::min(1.0f, dist / std::max(aim.headTime * c, 1e-6f));  // the head the model uses, in world units
+    // A listener or a source with an infinite coordinate gives NaN here (an infinity over an infinity): that is the centre, not an aim
+    // that would poison the voice's delay for good.
+    const auto finite = [](float x, float fallback) { return std::isfinite(x) ? x : fallback; };
+    aim.side = finite(dot(u, l.right) * inside, 0.0f);
+    aim.front = finite(dot(u, l.forward), 1.0f);
+    return aim;
+}
+
+VoiceId Audio::play_at(World& world, std::string_view clipPath, const PlayParams& params, Vec3 position,
+                       const SpatialSound& sound, bool* outOfRange) {
     if (outOfRange) *outOfRange = false;
+    Impl::Call call(*impl_);  // the play and what follows it (a low-pass) reach the mixer together
+    Impl& im = *impl_;
     const ListenerPose l = find_listener(world);
     PlayParams p = params;
+    SpatialShot shot;
+    float lowpass = 0.0f, occMul = 1.0f;
+    const HrtfAim aim = l.have ? hrtf_aim(l, position, im.deviceChannels, im.hrtfWarned) : HrtfAim{};
+    const bool follows = l.have && (sound.dopplerLevel > 0.0f || sound.occlusion || aim.on);
     if (l.have) {
         // The same model as an AudioSource with spatial = true (update() below).
         const Vec3 d = position - l.pos;
-        const float reach = std::max(range, 1e-3f) * l.zoom;
+        const float reach = std::max(sound.range, 1e-3f) * l.zoom;
         if (length(d) >= reach) {
             if (outOfRange) *outOfRange = true;
             return 0;
         }  // out of range: no voice taken (a quiet sound in range still gets an id)
-        p.volume = params.volume * audio_spatial_gain(rolloff, length(d), reach, refDistance * l.zoom, rolloffFactor) *
-                   l.volume;
-        p.pan = clamp(dot(d, l.right) / (reach * 0.5f), -1.0f, 1.0f);
+        const float gain =
+            sound.rolloff == AudioRolloff::Curve
+                ? audio_curve_gain(sound.rolloffCurve, length(d), reach)
+                : audio_spatial_gain(sound.rolloff, length(d), reach, sound.refDistance * l.zoom, sound.rolloffFactor);
+        const float cone =
+            audio_cone_gain(sound.direction, -d, sound.coneInnerAngle, sound.coneOuterAngle, sound.coneOuterGain);
+        p.volume = params.volume * gain * cone * l.volume;
+        p.pan = finite_or(clamp(dot(d, l.right) / (reach * 0.5f), -1.0f, 1.0f), 0.0f);
+        p.volume = finite_or(p.volume, 0.0f);
+        if (follows) {
+            shot.pos = position;
+            shot.vel = sound.velocity;
+            shot.level = clamp(sound.dopplerLevel, 0.0f, 10.0f);
+            shot.basePitch = params.pitch;
+            shot.occlusion = sound.occlusion;
+            shot.mask = sound.occlusionMask;
+            shot.occGain = saturate(sound.occlusionGain);
+            shot.occLowpass = sound.occlusionLowpass;
+            if (shot.level > 0.0f) {  // a new sound has no earlier pitch to glide from
+                shot.dopp.logPitch = std::log(
+                    audio_doppler_pitch(l.pos, im.listenerVel, position, shot.vel, l.speedOfSound, shot.level));
+                p.pitch = params.pitch * std::exp(shot.dopp.logPitch);
+            }
+            if (shot.occlusion) {
+                const AudioOcclusionRay ray{l.pos, position, kNullEntity, l.entity, shot.mask};
+                const float amount =
+                    occlusion_step(shot.occl, true, world, im.occlusionProbe, ray, 0.0f, im.rayBudget, im.rayReserved);
+                if (amount > 0.0f) {
+                    occMul = 1.0f + (shot.occGain - 1.0f) * amount;
+                    lowpass = occlusion_cutoff(amount, shot.occLowpass);
+                }
+            }
+        }
     }
-    return play(clipPath, p);
+    const VoiceId id = im.start(clipPath, p, "");
+    if (id != 0 && follows) {
+        if (aim.on) {  // heard through the head model, which then follows the listener (update() below)
+            if (GameVoice* gv = im.live_voice(id)) {
+                gv->hrtf = aim;
+                im.send_hrtf(id, aim);
+            }
+        }
+        if (lowpass > 0.0f || occMul != 1.0f) {
+            if (GameVoice* gv = im.live_voice(id)) {
+                gv->lowpass = lowpass;
+                gv->occGain = occMul;
+                im.send_shaping(id, gv->pitch, lowpass, occMul);
+            }
+        }
+        shot.voice = id;
+        if (im.shots.size() < kMaxShots) {
+            im.shots.push_back(std::move(shot));
+        } else if (!im.shotCapWarned) {
+            im.shotCapWarned = true;
+            FA_WARN("audio",
+                    "{} sounds played at a place are being followed already (the most there can be): this one and the "
+                    "next ones "
+                    "keep the doppler pitch, the occlusion and the head model they started with until they end "
+                    "(hint: sounds played at a place that follow the listener are short; a looping one belongs on an "
+                    "AudioSource "
+                    "with spatial: true, which has no such limit)",
+                    kMaxShots);
+        }
+    }
+    return id;
+}
+
+void Audio::set_occlusion_probe(AudioOcclusionProbe probe) {
+    Impl::Call call(*impl_);
+    impl_->occlusionProbe = std::move(probe);
 }
 
 void Audio::update(World& world, float dt) {
@@ -3565,9 +3981,14 @@ void Audio::update(World& world, float dt) {
         for (auto& [k, ev] : im.videos)
             if (ev.voice) stop(ev.voice);
         im.videos.clear();
+        im.shots.clear();
+        im.shotCapWarned = false;  // the new world's sounds can fill the cap again, and that is told again
+        im.haveLastListener = false;
+        im.listenerVel = {0, 0, 0};
         im.lastWorld = &world;
     }
     ++im.stamp;
+    im.plan_occlusion_rays(dt);
 
     // ---- sounds that game feel actions (clip events, feel.do) queued since the last frame: one-shots on their bus
     for (const FeelSound& fs : feel_take_sounds(world)) {
@@ -3588,6 +4009,21 @@ void Audio::update(World& world, float dt) {
     const bool haveListener = listener.have;
     const Vec3 lpos = listener.pos, lright = listener.right;
     const float lvol = listener.volume, lzoom = listener.zoom;
+    // The listener's velocity (doppler): its move since the last update over dt. Nothing the first time, and nothing for a jump
+    // (another listener, a scene change).
+    if (haveListener) {
+        if (dt > 0.0f) {
+            im.listenerVel = im.haveLastListener ? audio_velocity(lpos - im.lastListenerPos, dt, listener.speedOfSound)
+                                                 : Vec3{0, 0, 0};
+            im.lastListenerPos = lpos;
+            im.haveLastListener = true;
+        }
+    } else {
+        im.haveLastListener = false;
+        im.listenerVel = {0, 0, 0};
+    }
+    const Vec3 lvel = im.listenerVel;
+    const float lspeed = listener.speedOfSound;
 
     // ---- AudioSource components
     for (Entity e : world.entities_with(&World::type_of<AudioSource>())) {
@@ -3597,6 +4033,7 @@ void Audio::update(World& world, float dt) {
         auto it = im.ents.find(e.bits());
         if (it != im.ents.end() && it->second.id != world.id_of(e)) {  // slot reused after World::clear()
             if (it->second.voice) stop(it->second.voice);
+            im.drop_grant(it->second.occl);
             im.ents.erase(it);
             it = im.ents.end();
         }
@@ -3615,6 +4052,11 @@ void Audio::update(World& world, float dt) {
                 ea.voice = 0;
                 src->playing = false;
             }
+            // Where it was and what a ray said are of the time before: a source that is switched on again after it moved would
+            // otherwise have a velocity over the whole gap (a blip of pitch) and a stale answer.
+            ea.dopp = DopplerTrack{};
+            im.drop_grant(ea.occl);
+            ea.occl = OcclusionTrack{};
             continue;
         }
         if (!ea.started) {
@@ -3634,13 +4076,65 @@ void Audio::update(World& world, float dt) {
             ea.voice = 0;
         }
 
-        float gain = 1.0f, pan = 0.0f;
+        float gain = 1.0f, pan = 0.0f, dopplerFactor = 1.0f, lowpassHz = 0.0f;
+        HrtfAim aim;
         if (src->spatial && haveListener) {
-            Vec3 d = world.world_position(e) - lpos;
+            const Vec3 spos = world.world_position(e);
+            aim = hrtf_aim(listener, spos, im.deviceChannels, im.hrtfWarned);
+            Vec3 d = spos - lpos;
             // The listener's zoom stretches the distance a sound is heard at: a zoom of 2 doubles the reach (and the pan's span).
             float range = std::max(src->range, 1e-3f) * lzoom;
-            gain = audio_spatial_gain(src->rolloff, length(d), range, src->refDistance * lzoom, src->rolloffFactor);
+            if (src->rolloff == AudioRolloff::Curve) {
+                if (!ea.curveOk || ea.curveSrc != src->rolloffCurve) {  // parse again only when the field changed
+                    ea.curveSrc = src->rolloffCurve;
+                    ea.curveOk = true;
+                    ea.curve = Curve{};
+                    if (!src->rolloffCurve.is_null() && !(src->rolloffCurve.is_array() && src->rolloffCurve.empty())) {
+                        Result<Curve> parsed = Curve::parse(src->rolloffCurve, "AudioSource.rolloffCurve");
+                        if (parsed)
+                            ea.curve = std::move(*parsed);
+                        else
+                            FA_WARN("audio", "{} ({}); the sound falls off linearly instead", parsed.error().message,
+                                    parsed.error().hint);
+                    }
+                }
+                gain = audio_curve_gain(ea.curve, length(d), range);
+            } else {
+                gain = audio_spatial_gain(src->rolloff, length(d), range, src->refDistance * lzoom, src->rolloffFactor);
+            }
+            if (src->coneInnerAngle < 360.0f && length_sq(src->coneAxis) > 1e-12f) {
+                const Mat4 m = world.world_matrix(e);
+                const Vec3 a = src->coneAxis;
+                const Vec3 axis{a.x * m.at(0, 0) + a.y * m.at(1, 0) + a.z * m.at(2, 0),
+                                a.x * m.at(0, 1) + a.y * m.at(1, 1) + a.z * m.at(2, 1),
+                                a.x * m.at(0, 2) + a.y * m.at(1, 2) + a.z * m.at(2, 2)};
+                gain *= audio_cone_gain(axis, -d, src->coneInnerAngle, src->coneOuterAngle, src->coneOuterGain);
+            }
             pan = clamp(dot(d, lright) / (range * 0.5f), -1.0f, 1.0f);
+            gain = finite_or(gain, 0.0f);  // a source at a place that is no place is silent, not a NaN in the mixer
+            pan = finite_or(pan, 0.0f);
+            // Doppler: the source's velocity is its move since the last frame (RigidBody is not read), the pitch follows it smoothly.
+            if (src->dopplerLevel > 0.0f) {
+                const Vec3 svel = ea.dopp.have ? audio_velocity(spos - ea.dopp.prev, dt, lspeed) : Vec3{0, 0, 0};
+                dopplerFactor = doppler_step(ea.dopp, lpos, lvel, lspeed, spos, svel, src->dopplerLevel, dt);
+            } else {
+                ea.dopp.logPitch = 0.0f;
+            }
+            ea.dopp.prev = spos;
+            ea.dopp.have = true;
+            // Occlusion: asks the probe (a few rays per frame, see kAudioOcclusionRaysPerFrame) while the sound is audible.
+            const AudioOcclusionRay ray{lpos, spos, e, listener.entity, src->occlusionMask};
+            const float blocked =
+                occlusion_step(ea.occl, src->occlusion && src->playing && !src->clip.empty() && gain > 0.0f, world,
+                               im.occlusionProbe, ray, dt, im.rayBudget, im.rayReserved);
+            if (blocked > 0.0f) {
+                gain *= 1.0f + (saturate(src->occlusionGain) - 1.0f) * blocked;
+                lowpassHz = occlusion_cutoff(blocked, src->occlusionLowpass);
+            }
+        } else {
+            ea.dopp = DopplerTrack{};
+            im.drop_grant(ea.occl);
+            ea.occl = OcclusionTrack{};
         }
         const float volume = src->volume * gain * (haveListener ? lvol : 1.0f);
 
@@ -3650,7 +4144,7 @@ void Audio::update(World& world, float dt) {
             } else {
                 PlayParams p;
                 p.volume = volume;
-                p.pitch = src->pitch;
+                p.pitch = src->pitch * dopplerFactor;
                 p.pan = pan;
                 p.loop = src->loop;
                 p.priority = src->priority;
@@ -3670,24 +4164,84 @@ void Audio::update(World& world, float dt) {
                 }
                 ea.voice = im.start(clip, p, ea.id);
                 ea.clip = src->clip;
-                if (ea.voice == 0) src->playing = false;  // load failed, or a full mixer refused it (both logged)
+                if (ea.voice == 0) {
+                    src->playing = false;  // load failed, or a full mixer refused it (both logged)
+                } else {
+                    if (lowpassHz > 0.0f) {  // a sound that starts behind a wall starts muffled
+                        if (GameVoice* v = im.live_voice(ea.voice)) {
+                            v->lowpass = lowpassHz;
+                            im.send_params(ea.voice, v->volume, v->pitch, v->pan, lowpassHz);
+                        }
+                    }
+                    if (aim.on) {
+                        if (GameVoice* v = im.live_voice(ea.voice)) {
+                            v->hrtf = aim;
+                            im.send_hrtf(ea.voice, aim);
+                        }
+                    }
+                }
             }
         } else if (ea.voice != 0) {
             if (GameVoice* v = im.live_voice(ea.voice)) {
-                const float vol = std::max(volume, 0.0f), pitch = std::max(src->pitch, 0.001f);
-                if (vol != v->volume || pitch != v->pitch || pan != v->pan) {  // a command only for what changed
+                const float vol = std::max(volume, 0.0f), pitch = std::max(src->pitch * dopplerFactor, 0.001f);
+                if (vol != v->volume || pitch != v->pitch || pan != v->pan || lowpassHz != v->lowpass) {
+                    // a command only for what changed
                     v->volume = vol;
                     v->pitch = pitch;
                     v->pan = pan;
-                    im.send_params(ea.voice, vol, pitch, pan);
+                    v->lowpass = lowpassHz;
+                    im.send_params(ea.voice, vol, pitch, pan, lowpassHz, true);
+                }
+                if (!(aim == v->hrtf)) {
+                    v->hrtf = aim;
+                    im.send_hrtf(ea.voice, aim);
                 }
             }
         }
+    }
+    // ---- sounds played at a place (audio.play with a position) that doppler or occlusion follow: their place does not move,
+    // their `velocity` is the one they were given, the listener's is the one measured above
+    for (auto it = im.shots.begin(); it != im.shots.end();) {
+        SpatialShot& sh = *it;
+        GameVoice* v = sh.voice != 0 && is_playing(sh.voice) ? im.live_voice(sh.voice) : nullptr;
+        if (!v) {
+            im.drop_grant(sh.occl);
+            it = im.shots.erase(it);
+            continue;
+        }
+        float factor = 1.0f, lowpassHz = 0.0f, occlusionGain = 1.0f;
+        // The head model follows the listener (a sound played at a place does not move, but the head does).
+        const HrtfAim aim = haveListener ? hrtf_aim(listener, sh.pos, im.deviceChannels, im.hrtfWarned) : HrtfAim{};
+        if (!(aim == v->hrtf)) {
+            v->hrtf = aim;
+            im.send_hrtf(sh.voice, aim);
+        }
+        if (haveListener) {
+            if (sh.level > 0.0f) factor = doppler_step(sh.dopp, lpos, lvel, lspeed, sh.pos, sh.vel, sh.level, dt);
+            const AudioOcclusionRay ray{lpos, sh.pos, kNullEntity, listener.entity, sh.mask};
+            const float blocked =
+                occlusion_step(sh.occl, sh.occlusion, world, im.occlusionProbe, ray, dt, im.rayBudget, im.rayReserved);
+            if (blocked > 0.0f) {
+                occlusionGain = 1.0f + (sh.occGain - 1.0f) * blocked;
+                lowpassHz = occlusion_cutoff(blocked, sh.occLowpass);
+            }
+        }
+        // The voice's volume stays what the script made it (set_voice_volume, a fade running in the mixer): occlusion
+        // multiplies it by a gain of its own.
+        const float gain = std::max(occlusionGain, 0.0f), pitch = std::max(sh.basePitch * factor, 0.001f);
+        if (gain != v->occGain || pitch != v->pitch || lowpassHz != v->lowpass) {
+            v->occGain = gain;
+            v->pitch = pitch;
+            v->lowpass = lowpassHz;
+            im.send_shaping(sh.voice, pitch, lowpassHz, gain, true);
+        }
+        ++it;
     }
     // sweep entities that disappeared (destroyed or component removed)
     for (auto it = im.ents.begin(); it != im.ents.end();) {
         if (it->second.seen != im.stamp) {
             if (it->second.voice) stop(it->second.voice);
+            im.drop_grant(it->second.occl);
             it = im.ents.erase(it);
         } else {
             ++it;
@@ -3786,6 +4340,9 @@ void Audio::update(World& world, float dt) {
             }));
         }
     }
+    im.rayReserved = 0;
+    im.rayBudget =
+        kAudioOcclusionRaysPerFrame;  // scripts that play a sound at a place before the next update may use these
 }
 
 // ============================================================ test access ==
@@ -3810,6 +4367,37 @@ void AudioTestAccess::render(Audio& audio, float* out, int frames, int channels)
 }
 
 std::recursive_mutex& AudioTestAccess::api_mutex(Audio& audio) { return audio.impl_->apiMu; }
+
+float AudioTestAccess::voice_lowpass(Audio& audio, VoiceId voice) {
+    Audio::Impl::Call call(*audio.impl_);
+    const GameVoice* v = audio.impl_->live_voice(voice);
+    return v ? v->lowpass : -1.0f;
+}
+
+float AudioTestAccess::voice_occlusion_gain(Audio& audio, VoiceId voice) {
+    Audio::Impl::Call call(*audio.impl_);
+    const GameVoice* v = audio.impl_->live_voice(voice);
+    return v ? v->occGain : -1.0f;
+}
+
+bool AudioTestAccess::voice_hrtf(Audio& audio, VoiceId voice) {
+    Audio::Impl::Call call(*audio.impl_);
+    const GameVoice* v = audio.impl_->live_voice(voice);
+    return v && v->hrtf.on;
+}
+
+void AudioTestAccess::set_device_channels(Audio& audio, int channels) {
+    Audio::Impl::Call call(*audio.impl_);
+    audio.impl_->deviceChannels = channels;
+}
+
+void AudioTestAccess::set_voice_lowpass(Audio& audio, VoiceId voice, float hz) {
+    Audio::Impl::Call call(*audio.impl_);
+    if (GameVoice* v = audio.impl_->live_voice(voice)) {
+        v->lowpass = hz;
+        audio.impl_->send_params(voice, v->volume, v->pitch, v->pan, hz);
+    }
+}
 
 void AudioTestAccess::set_music_cache_budget(Audio& audio, std::size_t bytes) {
     Audio::Impl::Call call(*audio.impl_);

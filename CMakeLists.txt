@@ -5,7 +5,7 @@ if(POLICY CMP0141)
 endif()
 
 project(FactorIA
-    VERSION 0.29.1
+    VERSION 0.30.0
     DESCRIPTION "AI-native 2D/3D game engine"
     LANGUAGES C CXX)
 
@@ -65,10 +65,10 @@ option(FA_BUILD_TESTS  "Build unit tests"                                   ON)
 option(FA_BUILD_TOOLS  "Build the factoria CLI, MCP server, AI hub, editor" ${FA_DESKTOP})
 option(FA_BUILD_EDITOR "Build the visual editor (requires FA_BUILD_TOOLS)"   ${FA_DESKTOP})
 option(FA_WARNINGS_AS_ERRORS "Treat engine warnings as errors"              OFF)
-# The CI jobs that measure the player (scripts/player-size.sh, docs/BUILDING.md "Player size budgets") turn it on: the player's
+# The CI jobs that measure the player (scripts/player-size.sh, docs/design/BUILDING_RELEASE.md "Player size budgets") turn it on: the player's
 # link writes a map next to it and the list of the archives it links, so the report says what each library adds.
 option(FA_PLAYER_LINK_MAP "Write the player's link map and the list of archives it links (player size report)" OFF)
-# ctest runs every test with the "Windows file rules" emulation of fa::fs (docs/BUILDING.md, "Windows file rules in tests"):
+# ctest runs every test with the "Windows file rules" emulation of fa::fs (docs/design/BUILDING_TESTS.md, "Windows file rules in tests"):
 # macOS and Linux then find the file bugs that only Windows had (a replace of a file another thread has open, a file time
 # that moves in 15.6 ms steps). OFF registers the tests without it; one run: `FA_FS_WINDOWS_RULES=0 ctest ...`.
 option(FA_TEST_WINDOWS_FILE_RULES "Run the tests with the Windows file rules emulation (not on Windows)" ON)
@@ -121,7 +121,7 @@ endif()
 #  * -fmath-errno (Clang; GCC has it already): sin, cos, atan2... stay calls into the C library. Without it Clang folds them with
 #    its own arithmetic and merges sin(x) with cos(x) into one sincos call (macOS: __sincosf_stret), which rounds differently
 #    from the two calls, so the same source gave different physics at -O0 and -O3.
-# Nothing uses -ffast-math. docs/AI_GUIDE.md ("Physics and platforms") says what this does and does not give.
+# Nothing uses -ffast-math. docs/ai-guide/AI_GUIDE_CHECKS.md ("Physics and platforms") says what this does and does not give.
 # One genex per language: the Visual Studio generators only accept $<COMPILE_LANGUAGE:> with a single language.
 set(_fa_fp_langs C CXX)
 if(APPLE)
@@ -135,7 +135,7 @@ foreach(_lang ${_fa_fp_langs})
     endif()
 endforeach()
 
-# ---- sanitizers (FA_SANITIZE; docs/BUILDING.md, "Sanitizers") --------------------------------------------------------
+# ---- sanitizers (FA_SANITIZE; docs/design/BUILDING_TESTS.md, "Sanitizers") --------------------------------------------------------
 # Before the first add_subdirectory: the flags reach every target, external/ included.
 include(FactoriaSanitize)
 
@@ -175,7 +175,7 @@ if(FA_BUILD_TOOLS)
     add_subdirectory(tools/bench)   # fa_bench     microbenchmarks with a baseline per machine kind (docs/PERFORMANCE.md)
 endif()
 
-# Fuzz targets: ctests that replay their corpus, or libFuzzer programs with FA_FUZZ (docs/BUILDING.md, "Fuzzing").
+# Fuzz targets: ctests that replay their corpus, or libFuzzer programs with FA_FUZZ (docs/design/BUILDING_TESTS.md, "Fuzzing").
 if(FA_DESKTOP AND (FA_BUILD_TESTS OR FA_FUZZ))
     add_subdirectory(tools/fuzz)
 endif()
@@ -186,8 +186,9 @@ add_subdirectory(tools/feedback-server)
 # ---- ThreadSanitizer: the tests that run threads (FA_SANITIZE=thread; label `tsan`) -------------------------------------
 # The whole suite under TSan takes hours and most of it is single-threaded, so the CI job linux-tsan (and
 # `ctest --preset linux-tsan -L tsan` locally) runs only: the job system and the background reads (core), the jobs engine and the
-# background loads (runtime), the audio thread (all of audio) and the MCP server (all of mcp). The full binaries stay registered too.
-# (engine/audio and tools/mcp label their own tests with fa_label_tsan(): a test is only visible in its own directory.)
+# background loads (runtime), the audio thread (all of audio), the MCP server (all of mcp) and the WebSocket clients (the cases "websocket*" of platform). The full
+# binaries stay registered too. (engine/audio, engine/platform and tools/mcp register their own tests: a test is only visible in its
+# own directory.)
 if(FA_SANITIZE_THREAD AND FA_BUILD_TESTS)
     if(TARGET fa_test_core)
         add_test(NAME tsan_core COMMAND fa_test_core "-tc=jobs*,background io*" WORKING_DIRECTORY ${FA_ROOT})

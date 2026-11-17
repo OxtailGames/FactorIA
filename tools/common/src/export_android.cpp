@@ -118,16 +118,10 @@ bool is_file(const stdfs::path& p) {
     return stdfs::is_regular_file(os_path(p), ec);
 }
 
-bool is_folder(const stdfs::path& p) {
-    std::error_code ec;
-    return stdfs::is_directory(os_path(p), ec);
-}
-
 // What the native plugins add to the Gradle project (docs/MOBILE.md, "Native plugins on Android").
 struct PluginGradle {
     std::string projects;      // settings.gradle: the modules, one "\ninclude ..." + "\nproject(...)" pair each
     std::string dependencies;  // app/build.gradle: a dependencies block, or ""
-    bool hasCode = false;      // Java / Kotlin sources or .aar / .jar files: the APK carries classes (android:hasCode)
 };
 
 // A plugin's Android build (<plugin folder>/android, see plugin_build) is a Gradle library module, copied to plugins/<name>
@@ -171,11 +165,8 @@ Result<PluginGradle> export_plugins(const Project& p, const stdfs::path& outRoot
             g.projects += "\ninclude ':plugin_" + name + "'\nproject(':plugin_" + name +
                           "').projectDir = file('plugins/" + name + "')";
             deps += "\n    implementation project(':plugin_" + name + "')";
-            g.hasCode =
-                g.hasCode || is_folder(from / "src" / "main" / "java") || is_folder(from / "src" / "main" / "kotlin");
         } else {
             deps += "\n    implementation fileTree(dir: 'libs/" + name + "', include: ['*.aar', '*.jar'])";
-            g.hasCode = true;
         }
     }
     if (!deps.empty()) g.dependencies = "\n\ndependencies {" + deps + "\n}";
@@ -449,7 +440,6 @@ Result<void> export_android(const Project& p, const MobileSetup& setup, const An
         {"SIGNING_PROPERTIES", signingProperties},
         {"PLUGIN_PROJECTS", plugins->projects},
         {"PLUGIN_DEPENDENCIES", plugins->dependencies},
-        {"HAS_CODE", plugins->hasCode ? "true" : "false"},
         // The prebuilt libraries are stripped already (and Gradle has no NDK to strip them with): say so instead of a warning.
         {"PACKAGING_OPTIONS",
          setup.prebuilt

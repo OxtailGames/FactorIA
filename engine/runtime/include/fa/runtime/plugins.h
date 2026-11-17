@@ -43,7 +43,7 @@ std::string plugin_library(const std::string& name, const std::string& platform)
 Result<std::string> plugin_build(const std::string& projectDir, const PluginSettings& plugin,
                                  const std::string& platform);
 
-// A platform backend a plugin registered with api->add_backend (ABI version 2; docs/PLATFORM.md, "Writing a backend").
+// A platform backend a plugin registered with api->add_backend (ABI version 2; docs/platform/PLATFORM_BACKENDS.md, "Writing a backend plugin").
 struct PluginBackend {
     std::string plugin;                 // the plugin's name in factoria.json
     std::string name;                   // the backend's name ("steam"): the keys of the catalog's "ids"

@@ -15,6 +15,7 @@
 #include "fa/core/perf.h"
 #include "fa/core/strings.h"
 #include "fa/platform/accessibility.h"
+#include "fa/platform/gamepad.h"
 #include "fa/platform/local_date.h"
 #include "fa/services/fake_platform.h"
 #include "fa/runtime/play_session.h"
@@ -57,6 +58,8 @@ void apply_input_requests(WindowedState& st) {
     if (in.keyboard_shown() != st.keyboardShown) app_show_keyboard(st.keyboardShown = in.keyboard_shown());
     for (float seconds : in.vibrations()) app_vibrate(seconds);  // headless runs keep the list; a window plays it
     in.clear_vibrations();
+    apply_gamepad_rumble(in);  // the motors of the pads follow Input's rumble (XInput, the browser's Gamepad API)
+    in.clear_rumble_requests();
 }
 
 // A player whose date came from the clock reads it again about once a minute and when the app comes back (resume, focus), before
@@ -325,6 +328,8 @@ AppDesc build_app_desc(const EngineConfig& config, std::shared_ptr<WindowedState
             case AppEvent::Type::Resized: apply_expand(st->engine, e.width, e.height); break;
             case AppEvent::Type::FocusLost:
                 st->engine.input().release_all();
+                st->engine.input().stop_all_rumble();
+                apply_gamepad_rumble(st->engine.input());  // at once: no pad keeps shaking in a window nobody looks at
                 st->engine.scripts().app_event(ScriptSystem::AppLifecycle::Blur);  // game.on("blur")
                 break;
             case AppEvent::Type::FocusGained:
@@ -337,6 +342,8 @@ AppDesc build_app_desc(const EngineConfig& config, std::shared_ptr<WindowedState
             case AppEvent::Type::Suspended:
                 FA_INFO("player", "suspended");
                 st->engine.input().release_all();  // no key stays held while the app is away
+                st->engine.input().stop_all_rumble();
+                apply_gamepad_rumble(st->engine.input());
                 st->engine.scripts().app_event(
                     ScriptSystem::AppLifecycle::Suspend);  // game.on("suspend"), pauseOnSuspend
                 break;
@@ -355,11 +362,21 @@ AppDesc build_app_desc(const EngineConfig& config, std::shared_ptr<WindowedState
                     !st->engine.quit_requested())
                     app_cancel_quit();
                 break;
+            case AppEvent::Type::Ending:
+                // Android destroyed the activity (Back, game.quit(), a relaunch, the system closing the app): the process ends
+                // right after this, and its surface is gone, so the game's last code runs without the GPU teardown.
+                st->engine.end_app();
+                apply_gamepad_rumble(st->engine.input());
+                FA_INFO("player", "ended");  // scripts/android-smoke.sh looks for it
+                break;
             default: break;
         }
     };
     d.cleanup = [st] {
-        st->engine.shutdown();
+        st->engine.shutdown();  // stops Input's rumble
+        apply_gamepad_rumble(
+            st->engine
+                .input());  // send the stop to the hardware too: a pad would keep its last effect after the window closes
         if (st->contextOpened) Renderer::close_context();  // the renderer kept the context open (or never took it)
     };
     d.exit_code = [st] { return st->exitCode; };
@@ -691,6 +708,7 @@ int run_headless(const EngineConfig& configIn, const HeadlessRunOptions& options
         if (auto it = replay.find(f); it != replay.end()) apply_replay_entry(I, it->second, replayProblems, f);
         const double cpu0 = process_cpu_seconds();
         if (std::size_t(f) < timing.size()) {
+            I.interpAlpha = 1.0;  // a recorded run draws the real pose, like Engine::step
             I.run_frame(timing[f].first, timing[f].second);
         } else {
             engine.step(1);

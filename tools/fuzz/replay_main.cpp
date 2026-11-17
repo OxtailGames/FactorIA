@@ -10,7 +10,7 @@
 // `--mutate N` also runs N deterministic mutations of every input (bit flips, byte changes, inserts, deletes, copies of a
 // chunk, a splice with another input; the same N and seed give the same inputs on every machine). It is not libFuzzer: no
 // coverage feedback, so it finds the shallow bugs only. Where libFuzzer is not installed (Apple Clang), a build with
-// -fsanitize=address,undefined and --mutate gives a quick look (docs/BUILDING.md, "Fuzzing").
+// -fsanitize=address,undefined and --mutate gives a quick look (docs/design/BUILDING_TESTS.md, "Fuzzing").
 #include <algorithm>
 #include <cstdint>
 #include <cstdio>

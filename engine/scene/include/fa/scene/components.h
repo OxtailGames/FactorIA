@@ -9,6 +9,7 @@
 // Angles are degrees. Colors are linear 0..1 RGBA.
 #pragma once
 
+#include <algorithm>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -18,6 +19,7 @@
 #include "fa/core/math.h"
 #include "fa/core/typed_array.h"
 #include "fa/core/types.h"
+#include "fa/core/utf8.h"
 #include "fa/scene/skeleton.h"
 
 namespace fa {
@@ -447,6 +449,15 @@ struct Parallax {
     Vec2 offset{0, 0};        // runtime: the shift applied to the drawing this frame (written by the renderer)
 };
 
+// Render interpolation of one entity (fa/scene/interpolation.h): whether it is DRAWN at the pose between the last two fixed steps
+// (smooth on a display faster than the simulation) instead of the pose the last step left. Inherit follows factoria.json
+// render.interpolation. Only the drawing changes: Transform, physics and scripts always see the real pose.
+enum class InterpolationMode : std::int32_t { Inherit, On, Off };
+struct Interpolation {
+    InterpolationMode mode =
+        InterpolationMode::On;  // On: interpolated whatever the project says; Off: never; Inherit: the project
+};
+
 // Colour multiplied into every 2D visual of this entity and of all its descendants (Sprite, Shape2D, Text, Tilemap, particles
 // and screen-space UI widgets): fade or colour a whole group with one component. The tints of the entity and its ancestors
 // multiply, alpha included.
@@ -733,7 +744,27 @@ struct TextField : UiControl {
     std::string placeholder;
     std::int32_t maxLength = 64;  // code points; 0 = unlimited
     bool caret = false;           // runtime: the caret is in the visible half of its blink
+    // The editing contract (M98.6): code-point indices into `text`. selectionStart == selectionEnd means no selection.
+    std::int32_t caretIndex = 0;
+    std::int32_t selectionStart = 0, selectionEnd = 0;
+    std::string composition;  // runtime: the IME's pre-edit string while the player is composing in this field, UTF-8
+    std::int32_t compositionCaret = 0;  // runtime: the IME's caret inside `composition`, in code points
+    // runtime: code points from compositionCaret the IME is converting (0 = none)
+    std::int32_t compositionSelection = 0;
+    bool password = false;  // draws every character as '*', and Copy / Cut do nothing
+    float scrollX = 0.0f;   // runtime: how many UI units the text is scrolled to the left (keeps the caret in view)
     TextField() { size = {320, 48}; }
+    // Puts caretIndex, selectionStart and selectionEnd inside 0..(code points of `text`). Called by the UI every frame, so a
+    // scene that was loaded with a wrong index, or a script that shortened `text`, never leaves one outside. The usual state
+    // of a field nobody edits (all three at 0) costs three comparisons, not a walk over the text; one that was edited costs a
+    // count of the code points of its text (no allocation).
+    void clamp_indices() {
+        if (caretIndex == 0 && selectionStart == 0 && selectionEnd == 0) return;
+        const std::int32_t n = std::int32_t(std::min<std::size_t>(utf8_length(text), 1000000));
+        caretIndex = std::clamp(caretIndex, 0, n);
+        selectionStart = std::clamp(selectionStart, 0, n);
+        selectionEnd = std::clamp(selectionEnd, 0, n);
+    }
 };
 
 // Container whose children are stacked in a column, scrolled and clipped to its rectangle.
@@ -749,7 +780,10 @@ struct ScrollList : UiBox {
 
 // On-screen gamepad for phones and tablets: a stick and buttons that drive a virtual pad (Input's touch pad), so the
 // actions bound to GamepadA, GamepadLeftStickRight... work on a touch screen without a change to the game. fa_ui hands
-// their rectangles to Input and writes the runtime fields; fa_render draws them. Neither is focusable.
+// their rectangles to Input and writes the runtime fields; fa_render draws them. Neither is focusable. Input takes only an
+// axis-aligned rectangle: a TouchStick or TouchButton whose Transform (or a parent's) turns or scales it is drawn turned, but a
+// finger is tested against (and the stick's offset measured in) the bounding box of that turned rectangle, so keep their
+// rotation at 0 (a scale only grows the box).
 enum class TouchStickSide : std::int32_t { Left, Right };
 // A pad button, in fa::GamepadButton order (fa_ui checks the count), so scene does not depend on fa_platform.
 enum class PadButton : std::int32_t {
@@ -1313,7 +1347,11 @@ struct NavLink3D {
 
 // ---------------------------------------------------------------- audio ---
 // How a spatial sound gets quieter with distance (AudioSource.rolloff, audio.play's rolloff): see audio_spatial_gain in fa/audio/audio.h.
-enum class AudioRolloff : std::int32_t { Linear, Inverse, Exponential };
+enum class AudioRolloff : std::int32_t { Linear, Inverse, Exponential, Curve };
+
+// How an AudioListener places a spatial sound for the ears: Pan (the classic left/right pan and volume) or Hrtf (headphones; the
+// parametric head model of docs/sound/SOUND_SPATIAL.md, "Headphones").
+enum class AudioSpatialization : std::int32_t { Pan, Hrtf };
 
 struct AudioSource {
     std::string clip;  // asset path (.wav, .ogg, .mp3)
@@ -1331,6 +1369,20 @@ struct AudioSource {
         0.0f;  // spatial: distance up to which the sound is at full volume (0: linear starts at 0, the others use range / 20)
     float rolloffFactor =
         1.0f;  // spatial: steepness of the curve (linear: 1 reaches 0 at range; inverse and exponential: higher = faster)
+    Json rolloffCurve =
+        Json::array();  // spatial, rolloff "curve": gain over distance / range (fa/scene/curve.h); [] = linear
+    // Cone (spatial): the sound is louder in front. The angles are full cone angles in degrees, as in OpenAL and Web Audio.
+    float coneInnerAngle = 360.0f;  // full volume inside this cone around coneAxis (360 = no cone)
+    float coneOuterAngle = 360.0f;  // outside this cone the volume is coneOuterGain; between the two it blends
+    float coneOuterGain = 0.0f;     // volume multiplier outside the outer cone (0..1)
+    Vec3 coneAxis{0, 0, -1};        // the cone's direction in the entity's local space (default: forward, -Z)
+    // Doppler. Velocities come from the change of the world position between frames.
+    float dopplerLevel = 0.0f;  // 0 = off; 1 = the real shift; more exaggerates
+    // Occlusion by physics rays.
+    bool occlusion = false;  // a ray from the listener to the source that hits a collider of occlusionMask muffles it
+    std::int32_t occlusionMask = -1;   // physics layers that block the sound (bitmask, -1 = all)
+    float occlusionGain = 0.4f;        // volume multiplier of a blocked path (ramped in about 20 ms, no click)
+    float occlusionLowpass = 1500.0f;  // low-pass cutoff in Hz of a blocked path (20000 = none)
     std::int32_t priority = 128;  // 0..255: voice stealing with every voice taken (higher wins; equal: the louder wins)
 };
 
@@ -1376,6 +1428,11 @@ struct MusicPlayer {
 struct AudioListener {
     float volume = 1.0f;
     float zoom = 1.0f;  // scales the distance positional sounds are heard at (AudioSource.range * zoom)
+    AudioSpatialization spatialization = AudioSpatialization::Pan;  // Hrtf: headphones (a parametric head model)
+    float headRadius =
+        0.0875f;  // Hrtf: radius of the listener's head in world units (sets the time difference between the ears)
+    float speedOfSound =
+        343.0f;  // world units per second the sound travels at: the doppler shift, and the hrtf ear delay (headRadius / this)
 };
 
 // ------------------------------------------------------------- scripting ---

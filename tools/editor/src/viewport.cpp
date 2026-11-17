@@ -162,6 +162,67 @@ Entity Editor::pick_at(Vec2 design) {
     return best;
 }
 
+// The entities a marquee from `a` to `b` (design pixels) selects: those whose whole picked outline lies inside it (the same boxes
+// the selection outline draws), among what the game's camera draws, in scene order.
+std::vector<std::string> Editor::marquee_hits(Vec2 a, Vec2 b) {
+    std::vector<std::string> out;
+    if (!engine_ || !engine_->renderer()) return out;
+    Renderer* r = engine_->renderer();
+    World& w = world();
+    // With split-screen cameras the marquee belongs to the camera under its centre: it filters, projects and decides what
+    // is behind the camera, so the same entity goes to all three.
+    const Entity cam = r->camera_at(Vec2{(a.x + b.x) * 0.5f, (a.y + b.y) * 0.5f});
+    const CameraMask mask = CameraMask::of(w, cam);
+    // The projection and the way it looks are the camera's own (split screen can mix an orthographic and a perspective one).
+    const Camera* cam_data = cam.is_null() ? nullptr : w.get<Camera>(cam);
+    const bool ortho = cam_data ? cam_data->projection == Projection::Orthographic : primary_is_ortho();
+    const Vec2 designSize{float(r->target_width()), float(r->target_height())};
+    const VisualMeasure measure = visual_measure();
+    // The camera's position and the way it looks, from its matrix (a viewport counted in design pixels, or the Expand
+    // scale mode, would tilt a ray through a screen point). Without a camera entity: the ray through the screen centre.
+    Vec3 eye, forward;
+    if (cam_data) {
+        const Mat4 cm = w.world_matrix(cam);
+        eye = cm.transform_point(Vec3{0, 0, 0});
+        forward = normalize(cm.transform_dir(Vec3{0, 0, -1}));
+    } else {
+        // Practically unreachable: no camera draws here, yet primary_is_ortho() found a primary perspective camera (an
+        // inactive one, say). The eye and direction then come from the ray through the screen centre.
+        r->screen_ray(Vec2{designSize.x * 0.5f, designSize.y * 0.5f}, eye, forward, cam);
+    }
+    for (Entity e : w.entities()) {
+        if (!w.active_in_hierarchy(e)) continue;
+        std::vector<Vec2> pts;
+        if (w.has<MeshRenderer>(e) && !ortho) {
+            if (!mask.draws(w, e)) continue;
+            Vec3 lo, hi;
+            mesh_local_box(e, lo, hi);
+            const Mat4 m = w.world_matrix(e);
+            bool behind = false;
+            for (int i = 0; i < 8 && !behind; ++i) {
+                const Vec3 corner =
+                    m.transform_point(Vec3{(i & 1) ? hi.x : lo.x, (i & 2) ? hi.y : lo.y, (i & 4) ? hi.z : lo.z});
+                // A corner at or behind the camera has no screen point (the projection divides by w <= 0): the box is not
+                // wholly inside any rectangle, so the entity is not picked.
+                if (dot(corner - eye, forward) <= 1e-3f)
+                    behind = true;
+                else
+                    pts.push_back(r->world_to_screen(corner, cam));
+            }
+            if (behind) continue;
+        } else {
+            const PickBounds pb = pick_bounds(w, e, measure);
+            if (!pb.valid || (!pb.screenSpace && !mask.draws(w, e))) continue;
+            const float z = w.world_position(e).z;
+            for (const PickOutline& o : pick_outlines(w, e, pb, designSize))
+                for (const Vec2 p : o.box)
+                    pts.push_back(o.screenSpace ? p : r->world_to_screen(Vec3{p.x, p.y, z}, cam));
+        }
+        if (!pts.empty() && marquee_covers(a, b, pts)) out.push_back(w.id_of(e));
+    }
+    return out;
+}
+
 void Editor::draw_viewport() {
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
     // Status goes in the title (the ### id keeps docking/layout stable); an overlay would hide the game's HUD.
@@ -247,14 +308,43 @@ void Editor::draw_viewport() {
         } else {
             onHandle = gizmo_frame(*r, imgMin, sz, hovered);
         }
-        if (hovered && !onHandle && !gizmoDrag_.active && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
-            select(pick_at(design_of(io.MousePos)));
+        // A click on an entity selects it (Ctrl/Cmd toggles it, Shift adds it); a press on empty space starts a marquee, which a
+        // release without a drag turns into the old "click on nothing" (clears the selection unless Ctrl or Shift is held).
+        const SelectMods mods{io.KeyCtrl, io.KeyShift};
+        if (hovered && !onHandle && !gizmoDrag_.active && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+            const Entity hit = pick_at(design_of(io.MousePos));
+            if (!hit.is_null()) {
+                click_in_space(selection_, w.id_of(hit), mods);
+            } else {
+                marquee_.pending = true;
+                marquee_.active = false;
+                marquee_.start = marquee_.now = io.MousePos;
+                marquee_.mods = mods;
+            }
+        }
+        if (marquee_.pending) {
+            marquee_.now = io.MousePos;
+            const float dx = marquee_.now.x - marquee_.start.x, dy = marquee_.now.y - marquee_.start.y;
+            if (!marquee_.active && dx * dx + dy * dy > 16.0f)
+                marquee_.active = true;  // 4 px: a click is not a marquee
+            if (ImGui::IsKeyPressed(ImGuiKey_Escape, false) || gizmoDrag_.active) {
+                marquee_ = Marquee{};
+            } else if (ImGui::IsMouseReleased(ImGuiMouseButton_Left)) {
+                std::vector<std::string> hits;
+                if (marquee_.active) hits = marquee_hits(design_of(marquee_.start), design_of(marquee_.now));
+                apply_marquee(selection_, hits, marquee_.mods);
+                marquee_ = Marquee{};
+            }
+        }
         if (hovered && gizmoHover_)
             ImGui::SetItemTooltip("Drag to %s (hold Ctrl to snap, Esc cancels)", gizmo_mode_name(gizmoMode_));
-        else if (hovered)
-            ImGui::SetItemTooltip("Click: select (point at something for the AI)\nQ / W / E / R: select only, move, "
-                                  "rotate, scale the selection");
+        else if (hovered && !marquee_.active)
+            ImGui::SetItemTooltip(
+                "Click: select (point at something for the AI)\nCtrl+click: add or remove one, Shift+click: "
+                "add one\nDrag on empty space: select what the rectangle covers\nQ / W / E / R: select "
+                "only, move, rotate, scale the selection");
     } else {
+        marquee_ = Marquee{};
         gizmo_end_drag(false);
         gizmoShapes_.clear();
         if (vpFocused_)
@@ -320,9 +410,10 @@ void Editor::draw_viewport() {
             }
         }
     }
-    Entity sel = selected();
-    if (showOverlay_ && !sel.is_null()) {
-        const ImU32 col = IM_COL32(255, 205, 60, 255);
+    // Every selected entity is outlined: the primary (what the Inspector and the gizmo follow) in yellow, the others in orange.
+    // selection_peek(): the set is read every frame, so it is not pruned here; an id that is gone is skipped.
+    auto draw_outline = [&](Entity sel, bool isPrimary) {
+        const ImU32 col = isPrimary ? IM_COL32(255, 205, 60, 255) : IM_COL32(255, 135, 40, 235);
         if (w.has<MeshRenderer>(sel) && !primary_is_ortho()) {
             ImVec2 c8[8];
             Vec3 lo, hi;
@@ -345,7 +436,7 @@ void Editor::draw_viewport() {
                     h[i] = outline_pt(o.hull[size_t(i)], o.screenSpace, z);
                 }
                 dl->AddPolyline(p, 4, col, ImDrawFlags_Closed, 2.0f);
-                if (o.hasHull) dl->AddPolyline(h, 4, IM_COL32(255, 205, 60, 150), ImDrawFlags_Closed, 1.0f);
+                if (o.hasHull) dl->AddPolyline(h, 4, (col & 0x00FFFFFFu) | 0x96000000u, ImDrawFlags_Closed, 1.0f);
                 for (auto& q : p) dl->AddRectFilled(ImVec2(q.x - 3, q.y - 3), ImVec2(q.x + 3, q.y + 3), col);
             }
             const Vec2 org = pick_origin(w, sel, b, designSize);
@@ -353,6 +444,16 @@ void Editor::draw_viewport() {
             dl->AddCircleFilled(o, 4.0f, IM_COL32(255, 80, 60, 255));
             dl->AddCircle(o, 4.5f, IM_COL32(0, 0, 0, 200));
         }
+    };
+    Entity sel = selected();  // the primary (bones below are the primary's)
+    if (showOverlay_) {
+        const Selection& shown = selection_peek();
+        for (const std::string& id : shown.ids()) {
+            if (id == shown.primary()) continue;
+            const Entity other = w.find_by_id(id);
+            if (!other.is_null()) draw_outline(other, false);
+        }
+        if (!sel.is_null()) draw_outline(sel, true);  // last: on top of the others
     }
     // Bones (Bone2D) of the selection: the selected entity's own bone and the ones below it, and the bones of its SpriteSkin. A thin
     // kite from each bone's origin to its tip, the selected bone in yellow (View > Bone tools draws and edits them).
@@ -380,6 +481,10 @@ void Editor::draw_viewport() {
     }
     bone_tools_draw(dl, *r, imgMin, sz);
     gizmo_draw(dl);
+    if (marquee_.active) {
+        dl->AddRectFilled(marquee_.start, marquee_.now, IM_COL32(80, 160, 255, 40));
+        dl->AddRect(marquee_.start, marquee_.now, IM_COL32(120, 190, 255, 230), 0.0f, 0, 1.0f);
+    }
     anim_draw_record_frame(dl, imgMin, sz);
     dl->PopClipRect();
 

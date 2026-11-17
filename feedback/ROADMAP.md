@@ -356,9 +356,11 @@ Kept here because later work has to respect them (the full story is in done/M1.m
 
 What the finished milestones left open and the code or docs still show today (each line checked on 2026-11-11; the
 story of each milestone is in `feedback/done/`). Hardware and accounts are in M99.
-- `TextField`: the caret stays at the end; no selection, IME composition, multiline, password or right-to-left text
-  (`engine/ui/include/fa/ui/ui.h` `TextRequest`, docs/COMPONENTS.md; [M10](done/M10.md), [M14](done/M14.md),
-  [M27](done/M27.md)).
+- `TextField` (M98.6 added caret, selection, clipboard, password and IME composition): no multiline and no right-to-left
+  caret or selection (`engine/ui/include/fa/ui/ui.h` `TextInputRequest`, docs/TEXT.md "Typing text"; [M10](done/M10.md),
+  [M14](done/M14.md), [M27](done/M27.md)). The editor's Play view has no IME: the editor's window has no `AppDesc::input`,
+  so a `TextField` there takes typed text but does not compose (`engine/platform/include/fa/platform/ime.h`). A Korean
+  input method that commits and inserts a newline on one Enter has that Enter swallowed.
 - Android does not shut the engine down in `onDestroy` and the game gets no callback (docs/MOBILE.md "Lifecycle";
   [M9](done/M9.md); planned as M98.4).
 - Line breaking is not UAX #14 (no rules for numbers with units or after hyphens), and Thai, Khmer, Lao and Burmese have
@@ -1234,13 +1236,34 @@ entry of `examples/*` opens each milestone.
   its audience (the game's AI, the user, the engine developer).
 - M97.2 (M) — DONE in 0.24.0 Paging: `docs.components` and `docs.commands {full:true}` page with a cursor; MCP `tools/list` offers
   profiles (core, a group, all) for clients without tool search, like M45's catalog does for the API providers.
-- M97.3 (M) Structure: a size budget per doc (about 60 KB, references aside) checked by a test; MENUS.md's copy of the
+- M97.3 (M) — DONE in M98 (97.3a-f) Structure: a size budget per doc (about 60 KB, references aside) checked by a test; MENUS.md's copy of the
   kit (82 % of it) served from the kit instead of embedded; COMPONENTS.md served per component instead of embedded
   whole; the docs for engine developers (releasing, extending, architecture) under `docs/design/`; the 15 docs the
   README does not link reached from its index; the README restructured (what it is, try it, docs by audience).
+  **Decision (user, 2026-11-15):** every doc over the budget (about 60 KB) is split into smaller pages, with no list of
+  exceptions; only the generated references (docs/COMPONENTS.md, docs/reference/) are outside the budget.
+  - M97.3a — DONE (structure; the big docs are not split yet): docs/COMPONENTS.md is no longer embedded
+    (`docs.read components` answers with a pointer to `docs.components`); MENUS.md prints no file of the kit
+    (`docs.read menu-kit`, `menu-kit/<file>`; 257 KB to 85 KB); ARCHITECTURE.md and BUILDING.md moved to `docs/design/`
+    (out of the binary; ENGINE_FEEDBACK.md and EXTENDING.md stay: a game's AI needs them, and EXTENDING's sections B-F
+    for engine developers are to be split out into `docs/design/` by M97.3b-d); README.md and README.es.md restructured
+    and link every doc (a test checks it).
+  - M97.3b-d still split the 17 docs over 60 KB (bytes, 2026-11-15): AI_GUIDE 274829, EXPORTING 190347, SCRIPTING
+    186034, EDITOR 152447, design/ARCHITECTURE 145870, AI_PROVIDERS 128804, ASSETS 127746, PLATFORM 120622,
+    design/BUILDING 112341, MODELING 88078, MENUS 85377, IMAGES 84581, MOBILE 77524, ANIMATION 71991, PERFORMANCE
+    70945, MUSIC 68372, EXTENDING 65008. M97.3d adds the budget test.
+  - M97.3f — DONE: the last three docs are split: docs/design/ARCHITECTURE.md (index + ARCHITECTURE_CORE, _COMMANDS,
+    _FILES, _THREADS, _RENDERING, _RUNTIME), docs/design/BUILDING.md (index + BUILDING_SCRIPTS, _TESTS, _RELEASE, _CI) and
+    EXTENDING.md (its sections B-F moved to docs/design/EXTENDING_COMMANDS, _COMPONENTS, _CHECKLISTS, _FEEDBACK; A, G and
+    "Where things go" stay embedded); every reference in code, docs, CLAUDE.md and `.claude/` follows its section. New
+    tests (tools/common/tests/docs_structure_test.cpp): no doc over 60 KB (generated references and translations aside)
+    and every relative Markdown link (docs, READMEs, CLAUDE.md) names an existing file and heading (it found and fixed 30
+    anchors that earlier splits had left broken); an embedded doc that links a doc outside the binary says so.
 - M97.4 (M) Doc tests: every JS block parses and uses only existing script API (checked against the typings); every
   command, component and field a doc names exists; counts and sizes come from their source; every doc is reachable
   from the README; a translation records the English commit it follows and is flagged when the original moves on.
+  DONE for links, citations, reachability, the "not in the binary" notes, duplicate headings and translation hashes (97.4c); the
+  JS blocks, the names a doc mentions and the counts are 97.4a and 97.4b.
 - M97.5 (M) Example games a user can get: the download carries none (only a clone of the repository has `examples/`),
   yet 12 embedded docs cite `examples/...` paths and the editor's start window scans `~/FactorIA/examples`, a folder no
   package creates. Each release publishes every example as its own zip (the project without `.factoria/`) with its
@@ -1250,6 +1273,29 @@ entry of `examples/*` opens each milestone.
   what to read first. Every `examples/...` citation in the docs keeps the recipe in the doc itself and names the
   example as optional ("if you got it with `project.create {example}`"); M97.4's test flags one without that. The
   base download stays without examples (user, 2026-11-09).
+  - M97.5a — DONE (the release publishes the examples): `examples/examples.json` (title, what it shows, docs to read
+    first; a test keeps it in step with the folders), `project.package_examples` (a zip per example, deterministic, and
+    `examples-manifest.json` with size and SHA-256), the Linux leg of the release workflow packs and checks them and the
+    `publish` job attaches them, and `fa/tooling/examples.h` reads the manifest, builds the asset URL
+    (`examples_asset_url`) and checks a download (`verify_example_bytes`). docs/design/BUILDING.md, "Example games in
+    the release". M97.5b-d build on it.
+  - M97.5b — DONE (examples downloaded by command): `project.examples` (the release manifest of the installed version, kept in
+    `<factoria home>/cache/examples/<version>`; offline it answers with that copy marked `stale`) and
+    `project.create {example, dir}` (download, size and SHA-256 check before opening, safe unpack into a hidden folder renamed
+    at the end, did-you-mean, a non-empty `dir` is an error), both with the `network` capability, both registrations of
+    `project.create`; tests inject the downloader (`set_examples_context`). The packer leaves out secrets and a folder it
+    cannot read is an Error. `list_examples` / `cached_examples` / `create_example_project` are what M97.5c's Examples tab calls.
+  - M97.5c — DONE (the Examples tab of the start window): the Open or create a project dialog has an Examples tab built on
+    `cached_examples` (shown at once), `list_examples` (refreshed on a worker thread) and `create_example_project` (a worker thread
+    with progress and Cancel, then the project opens as New project does); `tools/editor/src/examples_browser.{h,cpp}` holds the
+    logic (jobs with a generation: a result after the dialog closed or after another refresh is ignored; size, read-first and
+    folder-name helpers with doctests), a stale list shows its reason and Retry, offline with no copy the teaching error and Retry.
+    The `~/FactorIA/examples` scan is gone (the current-folder detection stays). Autotest section X2 drives it against a fake
+    release (at 1024x642 too when run with `FA_EDITOR_AUTOTEST_SIZE=1024x642`). docs/EDITOR.md "The Examples tab".
+  - M97.5d — DONE (READMEs and docs): every example's README opens with what it shows and what to read first (from
+    `examples.json`); the docs a user gets keep the recipe in the doc itself and name an `examples/<name>` only as optional
+    ("if you got it with `project.create {example}`"); a test of `fs_docs_test.cpp` fails an embedded doc whose paragraph
+    cites `examples/<name>` without `project.create`.
 
 ## M98. What games expect and the engine lacks (L; 9 packages) — outside review, 2026-11-09
 

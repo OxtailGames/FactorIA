@@ -48,7 +48,7 @@ Read one file as it was at a checkpoint (text inline; a binary as base64 or into
 
 Capabilities: read
 
-Returns the content `path` (project-relative, forward slashes) had at checkpoint `id`, so you can compare or copy one old file without checkpoint.restore touching the rest of the project. Text (valid UTF-8, no NUL bytes) comes back in `text` when it is at most 262144 bytes. A binary comes back as `base64` when it is at most 262144 bytes. Anything bigger, and any file when you pass `out`, is written to the project-relative path `out` instead (the folders are created, an existing file there is overwritten) and only {path, size, binary, out} is returned. `out` stays inside the project and cannot start with '.' folders or go through '..' (not into .factoria). Errors: an unknown id or a path the checkpoint does not hold fails with a "did you mean". Returns {id, path, size, binary, text | base64 | out}. Example: {"id":"20261022-153012-7","path":"scripts/player.js"}.
+Returns the content `path` (project-relative, forward slashes) had at checkpoint `id`, so you can compare or copy one old file without checkpoint.restore touching the rest of the project. Text (valid UTF-8, no NUL bytes) comes back in `text` when it is at most 262144 bytes. A binary comes back as `base64` when it is at most 262144 bytes. Anything bigger, and any file when you pass `out`, is written to the project-relative path `out` instead (the folders are created, an existing file there is overwritten) and only {path, size, binary, out} is returned. `out` stays inside the project and cannot start with '.' folders or go through '..' (not into .factoria). Errors: an unknown id or a path the checkpoint does not hold fails with a "did you mean". factoria.json is returned with the value of storage.encryptionSecret shown as "(hidden)" and cannot be copied with `out` (checkpoint.restore brings the real file back). Returns {id, path, size, binary, text | base64 | out}. Example: {"id":"20261022-153012-7","path":"scripts/player.js"}.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -194,14 +194,39 @@ Create a new game project from a template.
 
 Capabilities: read, writeProject
 
-Creates `dir` (relative to the server's working directory unless absolute) with factoria.json, a scene, scripts, a test, AGENTS.md, ENGINE_FEEDBACK.json and the real types/factoria.d.ts. Afterwards start `factoria mcp --project <dir>` to work on it. Example: {"dir":"my-game","template":"2d-platformer","name":"My Game"}.
+Creates `dir` (relative to the server's working directory unless absolute) with factoria.json, a scene, scripts, a test, AGENTS.md, ENGINE_FEEDBACK.json and the real types/factoria.d.ts. Afterwards start `factoria mcp --project <dir>` to work on it. With `example` instead of `template` the project is a copy of an example game of the installed version (project.examples lists them): its zip is downloaded from the GitHub release (needs the network capability and the internet the first time; it is kept in FactorIA's cache folder), checked against the release's size and SHA-256, and unpacked into a hidden folder that is renamed to `dir` at the end, so a failure leaves nothing. Examples: {"dir":"my-game","template":"2d-platformer","name":"My Game"} and {"dir":"block-push","example":"block-push"}.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `dir` | string | yes | Target folder (created; must be empty or new). With a project open, a caller that may not write anywhere (an agent, an MCP client) gives a folder inside the project, relative to it; the command line may name any folder. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
-| `template` | string | no | 2d-empty, 2d-platformer or 3d-empty (see project.templates). Default "2d-empty". |
-| `name` | string | no | Display name (default: folder name). |
-| `id` | string | no | Reverse-DNS id, e.g. com.example.mygame. |
+| `template` | string | no | 2d-empty, 2d-platformer or 3d-empty (see project.templates). Default 2d-empty; not together with `example`. |
+| `example` | string | no | Start from this example game of the installed version instead of a template (names: project.examples). Downloads it the first time. Not together with `template`. |
+| `name` | string | no | Display name (default: folder name; an example keeps its own unless given). |
+| `id` | string | no | Reverse-DNS id, e.g. com.example.mygame (an example keeps its own unless given). |
+
+## `project.create_storage_secret` (modifies state)
+
+Since 0.30.0.
+
+Create the random secret that makes storage.set(..., {encrypt: true}) work, in factoria.json.
+
+Capabilities: read, state, writeProject
+
+Writes "storage": {"encryptionSecret": <64 random hex characters>} into factoria.json, once. Save encryption (storage.set(key, value, {encrypt: true}), the Slots kit's `encrypt` option) derives one key per storage key from it, so run this before the game's first encrypted save and keep the secret for the life of the game: saves written with another secret cannot be opened (they are set aside as damaged files). A project that already has one is left alone (`created: false`) unless `replace` is true, which makes every encrypted save written so far unreadable. The secret is never returned or logged; it ships inside the exported game, so encryption is tamper-evidence, not secrecy from a determined player (docs/scripting/SCRIPTING_UI_SCENES.md, "Encrypted saves"). The file is written back in the engine's own layout (2-space indent, one array element per line, a trailing newline; key order and values are kept), so a factoria.json formatted by hand shows more changed lines than the new "storage" section. If the file cannot be replaced (read-only, or open in another program: Windows refuses to replace an open file) the command fails with `write_failed` and changes nothing: close the program and run it again. Commit factoria.json. Result: {created, replaced, file}. Example: project.create_storage_secret {}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `replace` | boolean | no | Make a new secret even when the project has one. Every save written with {encrypt: true} so far stops opening: use it only when the secret leaked and the saves can be lost. Default false. |
+
+## `project.examples` (modifies state)
+
+Since 0.30.0.
+
+List the example games of the installed FactorIA version: what each shows and the docs to read first.
+
+Capabilities: read, network
+
+The download of FactorIA carries no example games; every release publishes them as assets. This downloads examples-manifest.json of the release of the INSTALLED version (a few KB), keeps a copy in <FACTORIA_HOME or ~/.factoria>/cache/examples/<version>/ and returns, per example, `name`, `title`, `shows` (what it shows), `readFirst` (docs to read before opening it: `docs.read` them), `size` (bytes to download) and `downloaded` (its zip is already in the cache). `stale` is true, and `staleReason` says why, when the network failed and the copy of an earlier call is returned: the list may then be older than the release. With no network and no copy it fails and says what to do. Create a project from one with project.create {example}. Example: {}.
 
 ## `project.export` (modifies state)
 
@@ -264,7 +289,7 @@ Create a native plugin (C/C++) for this game and declare it in factoria.json.
 
 Capabilities: read, writeProject
 
-Writes a plugin folder (default plugins/<name>, or `path`: project-relative, absolute, or with ${VARIABLE} parts for a private folder outside the repository) holding src/plugin.c, include/fa_plugin.h (the whole C API), CMakeLists.txt, README.md and android/ (the Gradle module of its Android build), and adds "plugins": {"<name>": {"path", "platforms", "optional"}} to factoria.json (`platforms` defaults to this computer's; `optional` to true: the game runs, and exports with allowMissingPlugins, without the build). The plugin adds the script function plugins.<name>.add(a, b) and the command <name>.info: build it with CMake (nextSteps), then `factoria run` loads it. `template` (default "basic") picks another starting point: a platform backend for a store (the folders of platforms/plugins/ in the engine; docs/PLATFORM.md, "Writing a backend"). The name: lower-case letters, digits and underscores, not an engine area (scene, game, ...). Fails when factoria.json already declares the plugin or the folder is not empty. Only that key of factoria.json changes: the other keys, their order and the layout stay as they are. Example: {"name": "example"}.
+Writes a plugin folder (default plugins/<name>, or `path`: project-relative, absolute, or with ${VARIABLE} parts for a private folder outside the repository) holding src/plugin.c, include/fa_plugin.h (the whole C API), CMakeLists.txt, README.md and android/ (the Gradle module of its Android build), and adds "plugins": {"<name>": {"path", "platforms", "optional"}} to factoria.json (`platforms` defaults to this computer's; `optional` to true: the game runs, and exports with allowMissingPlugins, without the build). The plugin adds the script function plugins.<name>.add(a, b) and the command <name>.info: build it with CMake (nextSteps), then `factoria run` loads it. `template` (default "basic") picks another starting point: a platform backend for a store (the folders of platforms/plugins/ in the engine; docs/platform/PLATFORM_BACKENDS.md, "Writing a backend plugin"). The name: lower-case letters, digits and underscores, not an engine area (scene, game, ...). Fails when factoria.json already declares the plugin or the folder is not empty. Only that key of factoria.json changes: the other keys, their order and the layout stay as they are. Example: {"name": "example"}.
 
 With `dryRun` true nothing is written: the result lists the `files` and the `keys` of factoria.json it would write. An argument that does not exist is an error with a "did you mean". Returns {folder, files[], keys[], plugin, nextSteps[], dryRun?}. Details: docs_read {"name":"extending"} (section G).
 
@@ -276,6 +301,23 @@ With `dryRun` true nothing is written: the result lists the `files` and the `key
 | `platforms` | array | no | The platforms it will be built for (default: this computer's). |
 | `optional` | boolean | no | Written as "optional" in factoria.json: true = the game runs without the plugin (a missing build is a validate warning, not an error). Pass false when the game cannot work without it. Default true. |
 | `dryRun` | boolean | no | true = write nothing: list the files and the factoria.json keys it would write. Default false. |
+
+## `project.package_examples` (modifies state)
+
+Since 0.30.0.
+
+Zip every example game of examples/ and write examples-manifest.json, the files a release publishes.
+
+Capabilities: read, writeAnywhere
+
+For the engine's release (docs/design/BUILDING_RELEASE.md, "Example games in the release"). Reads `examples`/examples.json (the title, what each example shows and the docs to read first), checks that every project folder has an entry and every entry a folder, writes <name>.zip per example into `out` (the project without .factoria/ and every other hidden folder, node_modules/, a top-level build/, .DS_Store, Thumbs.db, desktop.ini, *.actual.png, *.fa-tmp and the secrets and local settings .env, ai.local.json, *.key, *.keystore, *.jks, *.p12 and *.pem; a link is never followed; the same files give the same bytes) and examples-manifest.json beside them (format, engineVersion, and per example name, title, shows, readFirst, file, size and sha256). Replaces files of the same names in `out`. Returns the manifest. Run it from a checkout of the repository: a download has no examples/. Example: {"examples":"examples","out":"dist/examples"}.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `examples` | string | no | The folder that holds the example projects and examples.json (default: examples, relative to the current directory). Default "examples". |
+| `out` | string | yes | The folder the zips and examples-manifest.json are written to (created). |
+| `only` | array | no | Pack only these examples (default: all). |
+| `version` | string | no | The engine version written to the manifest (default: this factoria's version). |
 
 ## `project.serve_web` (modifies state)
 

@@ -24,10 +24,15 @@
 #   FactorIA-linux-x64.tar.gz         the Linux package; the editor's updater uses it. Built in the Steam Runtime "sniper"
 #                                     container (scripts/build-sniper.sh): runs on glibc 2.31 and newer
 #   FactorIA-linux-x64.AppImage       the same files as one file (scripts/package-appimage.sh); does not update itself
+#   <name>.zip, examples-manifest.json
+#                                     every example game of examples/ as its own zip, and the list with their title, what they
+#                                     show, size and SHA-256 (the Linux leg of `package` makes them; docs/design/BUILDING_RELEASE.md,
+#                                     "Example games in the release"). The download carries no examples: project.create
+#                                     {example} fetches them from releases/download/v<version>/ (fa/tooling/examples.h)
 #
 # Signing: with the repository secrets set, the executables are signed on Windows (signtool; the installer too) and
 # signed + notarized on macOS (codesign, notarytool). Without them these steps only print a notice and the packages
-# are unsigned. Which secrets, what to buy: docs/BUILDING.md, "Releasing".
+# are unsigned. Which secrets, what to buy: docs/design/BUILDING_RELEASE.md, "Releasing".
 # Mobile: `mobile-android` and `mobile-ios` build the game-independent player libraries once (libfactoria_player.so
 # per ABI; static archives per iOS SDK) and every package carries them in FactorIA/mobile/ (Android in all packages, iOS
 # in the macOS one), so `factoria export --platform android|ios` works from the download without the engine source
@@ -41,7 +46,13 @@ on:
   push:
     tags: ['v*']
   pull_request:
-    paths: ['.github/workflows/release.yml']
+    paths:
+      - '.github/workflows/release.yml'
+      - 'examples/examples.json'
+      - 'tools/common/src/examples.cpp'
+      - 'tools/common/src/examples_download.cpp'
+      - 'tools/common/src/examples_names.h'
+      - 'tools/common/src/export_zip.cpp'
   workflow_dispatch:
 
 permissions:
@@ -109,7 +120,7 @@ jobs:
           path: mobile
           if-no-files-found: error
 
-      # Size of the player against tools/size/player_size_budget.json (scripts/player-size.sh, docs/BUILDING.md "Player size
+      # Size of the player against tools/size/player_size_budget.json (scripts/player-size.sh, docs/design/BUILDING_RELEASE.md "Player size
       # budgets"): a release whose player went over its budget does not ship. The report is an artifact and in the job summary.
       # Last in the job: a player over its budget fails the job (so the release does not ship) after the artifacts are up.
       - name: Player size (android-${{ matrix.abi }})
@@ -189,7 +200,7 @@ jobs:
           path: player-size/
           if-no-files-found: ignore
 
-  # The web player (factoria_player.js + .wasm), built once with Emscripten (the SDK version of docs/BUILDING.md, "Web") and
+  # The web player (factoria_player.js + .wasm), built once with Emscripten (the SDK version of docs/design/BUILDING.md, "Web") and
   # carried by every package in FactorIA/web/, so `factoria export --platform web` works from the download. Like the
   # Android libraries it does not depend on the game: the game is game.pak next to the page.
   web-player:
@@ -338,7 +349,7 @@ jobs:
       # The Linux programs are built in the Steam Runtime "sniper" SDK container (glibc 2.31, GCC 14, libstdc++ and libgcc
       # linked statically), so the download, the AppImage and every exported Linux game run on the Steam Linux Runtime
       # (Steam, the Steam Deck), Ubuntu 20.04 and newer, Debian 11 and newer: a build on the runner's Ubuntu 24.04 needs
-      # glibc 2.38. The script (also what ci.yml runs; docs/BUILDING.md) builds the preset `linux-sniper` into
+      # glibc 2.38. The script (also what ci.yml runs; docs/design/BUILDING.md) builds the preset `linux-sniper` into
       # build/linux-sniper, fails when a program imports a symbol version newer than sniper has, and runs them in the
       # sniper runtime image: `--version`, a new project, a headless frame.
       - name: Build in the Steam Runtime sniper container, check and run there (Linux)
@@ -354,7 +365,7 @@ jobs:
             [[ " $archs " == *" arm64 "* && " $archs " == *" x86_64 "* ]] || { echo "::error::$f is not universal ($archs)"; exit 1; }
           done
 
-      # The Release player against its size budget, one report per package (scripts/player-size.sh, docs/BUILDING.md "Player
+      # The Release player against its size budget, one report per package (scripts/player-size.sh, docs/design/BUILDING_RELEASE.md "Player
       # size budgets"). Before signing: a signature adds bytes the budget does not count. continue-on-error so the signing,
       # packaging and smoke tests below still run (one round shows every failure); "Player size verdict" at the end of the
       # job fails it when this step found the player over its budget, so the release does not ship.
@@ -379,7 +390,7 @@ jobs:
       - name: Add the pinned shader compiler (sokol-shdc)
         run: ./scripts/bundle-sokol-shdc.sh build/sokol-shdc
 
-      # Code signing (docs/BUILDING.md, "Releasing"). Each script prints a notice and does nothing without its secrets.
+      # Code signing (docs/design/BUILDING_RELEASE.md, "Releasing"). Each script prints a notice and does nothing without its secrets.
       # The signed files are what the packages and the installer are made of, so this comes before "Package".
       - name: Sign executables (Windows)
         if: runner.os == 'Windows'
@@ -696,6 +707,51 @@ jobs:
           path: dist/FactorIA-linux-x64.AppImage
           if-no-files-found: error
           compression-level: 0
+
+      # The example games of examples/ as release assets (docs/design/BUILDING_RELEASE.md, "Example games in the release"): one zip per
+      # example and examples-manifest.json, made by `project.package_examples` of the Linux package just built, so the release
+      # publishes what its own factoria writes and reads. The `publish` job attaches the artifact FactorIA-examples.
+      - name: Package the example games (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          fail() { echo "::error::$*"; exit 1; }
+          fa="$PWD/dist/FactorIA/factoria"
+          version="$("$fa" version | awk '{print $2}')"
+          out="$PWD/dist-examples"
+          src="$PWD/examples"
+          # From outside the checkout, so no project is found around the working directory.
+          mkdir -p "$RUNNER_TEMP/examples-work"
+          cd "$RUNNER_TEMP/examples-work"
+          "$fa" call project.package_examples "{\"examples\":\"$src\",\"out\":\"$out\"}" --no-graphics > /dev/null
+          # The same files give the same manifest (and so the same zips).
+          "$fa" call project.package_examples "{\"examples\":\"$src\",\"out\":\"$RUNNER_TEMP/examples-again\"}" --no-graphics > /dev/null
+          cmp "$out/examples-manifest.json" "$RUNNER_TEMP/examples-again/examples-manifest.json" || fail "packing the examples twice gave different files"
+
+          # Checked with tools that share no code with the packer.
+          [[ "$(jq -r .engineVersion "$out/examples-manifest.json")" == "$version" ]] || fail "examples-manifest.json has another engineVersion than $version"
+          [[ "$(jq '.examples | length' "$out/examples-manifest.json")" == "$(jq '.examples | length' "$src/examples.json")" ]] || fail "an example is missing from the manifest"
+          jq -r '.examples[] | "\(.sha256)  \(.file)"' "$out/examples-manifest.json" > "$RUNNER_TEMP/examples-sums.txt"
+          (cd "$out" && sha256sum -c "$RUNNER_TEMP/examples-sums.txt") || fail "a zip does not match the SHA-256 of the manifest"
+          while read -r size file; do
+            [[ "$(stat -c %s "$out/$file")" == "$size" ]] || fail "$file is not $size bytes, as the manifest says"
+            unzip -tq "$out/$file" > /dev/null || fail "$file is not a valid zip"
+            if unzip -Z1 "$out/$file" | grep -E '^\.factoria/' > /dev/null; then fail "$file holds .factoria/"; fi
+          done < <(jq -r '.examples[] | "\(.size) \(.file)"' "$out/examples-manifest.json")
+          ls -l "$out"
+
+          # An example unpacked from its zip is a project that the package alone validates.
+          mkdir "$RUNNER_TEMP/examples-unpacked"
+          unzip -q "$out/block-push.zip" -d "$RUNNER_TEMP/examples-unpacked"
+          "$fa" call project.validate '{}' --project "$RUNNER_TEMP/examples-unpacked" --no-graphics | tee "$RUNNER_TEMP/examples-validate.json"
+          jq -e '.ok == true' "$RUNNER_TEMP/examples-validate.json" > /dev/null || fail "the unpacked block-push does not validate"
+
+      - uses: actions/upload-artifact@v4
+        if: runner.os == 'Linux'
+        with:
+          name: FactorIA-examples
+          path: dist-examples/*
+          if-no-files-found: error
+          compression-level: 0  # already compressed
 
       - name: Player size verdict
         if: ${{ !cancelled() && steps.size.outcome == 'failure' }}

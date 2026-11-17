@@ -1,4 +1,4 @@
-// The generated tools table of docs/AI_GUIDE.md section 4 (see api_export.h).
+// The generated tools table of docs/ai-guide/AI_GUIDE_TOOLS.md, section 4 of the AI guide (see api_export.h).
 #include <algorithm>
 #include <map>
 #include <string>
@@ -108,7 +108,8 @@ bool splice_ai_guide_tools_table(std::string& guide, const CommandRegistry& regi
     const size_t e = b == std::string::npos ? std::string::npos : guide.find(kEnd, b);
     if (e == std::string::npos) {
         if (error)
-            *error = std::string("AI_GUIDE.md section 4 has no `") + kBegin + "` ... `" + kEnd + "` block to fill.";
+            *error = std::string("docs/ai-guide/AI_GUIDE_TOOLS.md (section 4 of the AI guide) has no `") + kBegin +
+                     "` ... `" + kEnd + "` block to fill.";
         return false;
     }
     size_t end = e + std::string(kEnd).size();

@@ -10,7 +10,7 @@
 
 // The test executables of fa_authoring and of every module above it (tooling, mcp, dap, ai, editor, cli) see the header of
 // fa_authoring through their link dependencies and get its commands in every Engine; the runtime's own tests do not link it,
-// so they test exactly what the player has (docs/ARCHITECTURE.md, "Repository layout").
+// so they test exactly what the player has (docs/design/ARCHITECTURE.md, "Repository layout").
 #if defined(__has_include)
 #if __has_include("fa/authoring/authoring.h")
 #include "fa/authoring/authoring.h"

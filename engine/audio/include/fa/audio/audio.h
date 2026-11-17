@@ -12,7 +12,7 @@
 // mixed, with its effects and volume, and then summed into its parent. All of it runs in the same mixer on the null device,
 // so the result is deterministic.
 //
-// Threads (docs/SOUND.md, "The audio callback"): every call below is thread-safe and answers from the game side's own record
+// Threads (docs/sound/SOUND_MIXER.md, "The audio callback"): every call below is thread-safe and answers from the game side's own record
 // of what it asked for. The device's callback never waits for it: the calls send commands through bounded lock-free queues,
 // the callback applies them at the start of its next block, and it takes no lock and allocates nothing. With a device the
 // commands of one call reach the mixer together; on the null device each is applied at once, so a headless run stays
@@ -26,6 +26,7 @@
 #pragma once
 
 #include <cstdint>
+#include <functional>
 #include <map>
 #include <memory>
 #include <optional>
@@ -36,6 +37,7 @@
 #include "fa/audio/music_player.h"
 #include "fa/core/json.h"
 #include "fa/core/types.h"
+#include "fa/scene/curve.h"
 #include "fa/scene/world.h"
 
 namespace fa {
@@ -123,8 +125,98 @@ struct AudioTestAccess;  // tests only (engine/audio/src/audio_testing.h)
 //   linear:      1 - factor * (d - r) / (reach - r)            (d >= r; 1 below)
 //   inverse:     r / (r + factor * (d - r))
 //   exponential: (d / r) ^ -factor
+//   curve:       audio_curve_gain with the curve you give (this function, with no curve, treats it as linear)
 float audio_spatial_gain(AudioRolloff rolloff, float distance, float reach, float refDistance = 0.0f,
                          float factor = 1.0f);
+
+// The gain (0..1) of `curve` at distance / reach, for AudioRolloff::Curve: the curve's value clamped to 0..1, 0 at or beyond
+// `reach`. An empty curve is the linear one (1 - distance / reach).
+float audio_curve_gain(const Curve& curve, float distance, float reach);
+
+// The gain (0..1) of a sound cone (AudioSource.coneInnerAngle/coneOuterAngle/coneOuterGain, full angles in degrees). `axis` is the
+// direction the cone points in the world and `toListener` the vector from the source to the listener (neither needs to be
+// normalized). Inside the inner cone it is 1, outside the outer cone `outerGain`, between them it blends linearly in the angle.
+// 1 for an inner angle of 360 or more, a zero axis or a listener at the source.
+float audio_cone_gain(Vec3 axis, Vec3 toListener, float innerAngle, float outerAngle, float outerGain);
+
+// Everything about a sound from a place that Audio::play_at takes beyond the clip and the position (audio.play's options with a
+// `position`). The defaults are the plain linear, omnidirectional sound of an AudioSource with spatial = true.
+// A sound with doppler, occlusion or (under an hrtf listener) the head model is followed by Audio::update while it plays; at
+// most 256 such sounds are followed at once, the next ones keep what they started with (the log says so once).
+struct SpatialSound {
+    float range = 800.0f;
+    AudioRolloff rolloff = AudioRolloff::Linear;
+    float refDistance = 0.0f;
+    float rolloffFactor = 1.0f;
+    Curve rolloffCurve;       // rolloff Curve: gain over distance / range (empty = linear)
+    Vec3 direction{0, 0, 0};  // the way the sound points in the world, for the cone (zero = omnidirectional)
+    float coneInnerAngle = 360.0f;
+    float coneOuterAngle = 360.0f;
+    float coneOuterGain = 0.0f;
+    Vec3 velocity{0, 0, 0};     // world units per second of the sound's place, for doppler (kept for the sound's life)
+    float dopplerLevel = 0.0f;  // 0 = off (the default); 1 = the real shift; up to 10
+    bool occlusion = false;  // a ray from the listener to `position` that hits a collider of occlusionMask muffles it
+    std::int32_t occlusionMask = -1;
+    float occlusionGain = 0.4f;
+    float occlusionLowpass = 1500.0f;  // Hz; 20000 = no filter
+};
+
+// ---- Doppler (docs/sound/SOUND_SPATIAL.md, "Doppler"). The velocities of an AudioSource and of the listener are the change of their world
+// position between two frames over the frame's dt (never RigidBody): `audio_velocity`. The pitch factor of a sound is
+// audio_doppler_pitch, smoothed over kDopplerSmoothing seconds by Audio::update before it multiplies the voice's pitch.
+constexpr float kDopplerMinPitch =
+    0.25f;  // the pitch factor stays in kDopplerMinPitch..kDopplerMaxPitch (two octaves each way)
+constexpr float kDopplerMaxPitch = 4.0f;
+constexpr float kDopplerJumpSpeeds = 4.0f;  // a move faster than this many speeds of sound is a teleport: velocity 0
+constexpr float kDopplerSmoothing = 0.05f;  // seconds the pitch factor takes to follow its target (63% of the way)
+
+// The velocity (world units per second) of something that moved by `delta` in `dt` seconds. Zero for dt <= 0, and for a jump
+// of more than kDopplerJumpSpeeds * speedOfSound per second (a teleport, a respawn, a scene change), so those give no shift.
+Vec3 audio_velocity(Vec3 delta, float dt, float speedOfSound);
+
+// The pitch factor (kDopplerMinPitch..kDopplerMaxPitch; 1 = none) a listener hears from a source: with u the unit vector from
+// the listener to the source and c the speed of sound, the real shift is (c + listenerVelocity.u) / (c + sourceVelocity.u),
+// each speed along u first limited to 0.9 c. `level` is the exponent of that ratio: 0 (or less) gives exactly 1, 1 the real
+// shift, 2 doubles it in octaves. Exactly 1 too when the two are at the same place or c <= 0.
+float audio_doppler_pitch(Vec3 listenerPos, Vec3 listenerVelocity, Vec3 sourcePos, Vec3 sourceVelocity,
+                          float speedOfSound, float level);
+
+// ---- HRTF for headphones (docs/sound/SOUND_SPATIAL.md, "Headphones"): an AudioListener with spatialization "hrtf" places a spatial sound with a
+// parametric head model instead of the pan (a delay and a head-shadow filter per ear; no measured data). The head is the listener's
+// headRadius over its speedOfSound, in seconds ("head time"); the model takes heads of kHrtfMinHeadRadius to kHrtfMaxHeadRadius meters
+// (at a speed of sound of 343 m/s): outside it the head time is clamped and Audio warns once.
+constexpr float kHrtfMinHeadRadius = 0.03f;
+constexpr float kHrtfMaxHeadRadius = 0.12f;
+
+// The head time of a listener (seconds): headRadius / speedOfSound, clamped to the heads the model takes (kHrtfMinHeadRadius ..
+// kHrtfMaxHeadRadius meters at 343 m/s). `clamped` (when given) says whether it had to be; a speedOfSound <= 0 or NaN counts as 343.
+float audio_hrtf_head_time(float headRadius, float speedOfSound, bool* clamped = nullptr);
+
+// The interaural time difference of the model (Woodworth's formula for a sphere, (a / c) (beta + sin beta)) in seconds, for a sound
+// whose direction makes the angle beta with the median plane, `lateral` = sin(beta) (+1 straight to the right, -1 to the left, 0 in
+// front, behind, above or below), and a head time a / c. Positive when the right ear hears it first.
+float audio_hrtf_itd(float lateral, float headTime);
+
+// ---- Occlusion (docs/sound/SOUND_SPATIAL.md, "Occlusion"). The audio module cannot cast rays (physics is above it): the engine gives it a
+// probe, and Audio decides when to ask, smooths the answer and applies it. Audio asks at most kAudioOcclusionRaysPerFrame
+// times per update(), a source at most every kAudioOcclusionRecheck seconds (a source never measured first, then the one asked
+// longest ago, so none waits for good), and the volume and the low-pass move to the answer over kAudioOcclusionSmoothing
+// seconds (the mixer then ramps the voice to each step in about 20 ms).
+constexpr int kAudioOcclusionRaysPerFrame = 8;
+constexpr float kAudioOcclusionRecheck = 0.1f;
+constexpr float kAudioOcclusionSmoothing = 0.1f;
+
+// The segment a probe checks: from the listener to the source.
+struct AudioOcclusionRay {
+    Vec3 from;  // the listener's world position
+    Vec3 to;    // the source's world position
+    Entity
+        source;  // the source's entity (its colliders do not block); null for a sound played with audio.play at a position
+    Entity listener;         // the listener's entity (its colliders do not block); null when there is none
+    std::int32_t mask = -1;  // the physics layers that block
+};
+// True when something of `ray.mask` stands between `ray.from` and `ray.to`. Called on the game thread, from update().
+using AudioOcclusionProbe = std::function<bool(World&, const AudioOcclusionRay&)>;
 
 class Audio {
 public:
@@ -136,6 +228,12 @@ public:
     // True when init opened a real output device (a null device only mixes when advance_null_device is called).
     bool has_device() const;
     void shutdown();
+    // Stops and closes the output device only (the audio thread is joined: nothing mixes from here on), keeping everything
+    // else: the music, the clips and the voices stay as they are and nothing is waited for. For an app whose process ends right after
+    // (Android's end, Engine::end_app); shutdown() still works afterwards. The commands still waiting for the device are
+    // applied first and later ones run at once, but nothing mixes any more: only shutdown() is expected after it.
+    // Does nothing without a real device.
+    void close_device();
 
     // Preload (optional; play() loads on demand). Returns false + logs a
     // helpful error if the file is missing or unsupported. When the file is missing but `<clipPath>.qoa` exists (the
@@ -158,6 +256,11 @@ public:
     // and takes no voice (a volume of 0 inside the range, or a muted listener, still plays and returns an id, as play() does).
     // `outOfRange`, when given, tells whether the 0 returned is for the range (not a clip that failed or a mixer with no free voice).
     // Game thread only: it reads the World.
+    // The same with every option of SpatialSound (a rolloff curve, a cone, doppler and occlusion). A sound with doppler or
+    // occlusion is followed by update() for as long as it plays: its pitch moves with the listener's velocity and the
+    // `velocity` given (its place does not move), and its volume and low-pass follow the occlusion probe.
+    VoiceId play_at(World& world, std::string_view clipPath, const PlayParams& params, Vec3 position,
+                    const SpatialSound& sound, bool* outOfRange = nullptr);
     VoiceId play_at(World& world, std::string_view clipPath, const PlayParams& params, Vec3 position,
                     float range = 800.0f, AudioRolloff rolloff = AudioRolloff::Linear, float refDistance = 0.0f,
                     float rolloffFactor = 1.0f, bool* outOfRange = nullptr);
@@ -303,8 +406,11 @@ public:
     void clear_play_log();
     std::uint64_t play_log_dropped() const;
 
-    // Drives AudioSource/AudioListener components, the sound of Video components and scene music.
+    // Drives AudioSource/AudioListener components (doppler and occlusion included), the sound of Video components and scene
+    // music. `dt` is the frame's time: velocities for doppler are position changes over it.
     void update(World& world, float dt);
+    // Who answers the occlusion rays (the engine sets one that casts physics rays). Without a probe nothing is occluded.
+    void set_occlusion_probe(AudioOcclusionProbe probe);
 
     // Headless: mix `seconds` of audio (called by the engine per frame with dt). With a device it mixes nothing and does
     // what service() does.

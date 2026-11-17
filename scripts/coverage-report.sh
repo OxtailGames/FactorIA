@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Coverage report per module from a build configured with -DFA_COVERAGE=ON, after ctest ran (docs/BUILDING.md, "Coverage").
+# Coverage report per module from a build configured with -DFA_COVERAGE=ON, after ctest ran (docs/design/BUILDING_TESTS.md, "Coverage").
 #
 #   scripts/coverage-report.sh <build-dir> [out-dir]      out-dir defaults to <build-dir>/coverage/report
 #

@@ -67,7 +67,11 @@ TypeBuilder<T>& ui_box_fields(TypeBuilder<T>& b) {
             "is still the visual top-left. So the pivot counts Y UP while `anchor` counts Y DOWN: anchor [0.5, 1] with "
             "pivot [0.5, 0] puts "
             "the widget's bottom edge on the bottom of the screen, and with pivot [0.5, 1] it hangs below the screen "
-            "(docs/MENUS.md, \"Anchors and pivots\"). Layout does not care about the pivot of its children.")
+            "(docs/MENUS.md, \"Anchors and pivots\"). Layout does not care about the pivot of its children. It is also "
+            "the "
+            "point the Transform's rotation.z (degrees, clockwise on screen) and scale.x / .y turn and scale the "
+            "widget around: drawing, hovering, clicking, dragging, the TextField caret and navigation follow the "
+            "turned rectangle, and a scale also changes the room a parent's layout gives it (since 0.30.0).")
         .field(
             "anchor", static_cast<Vec2 T::*>(&UiBox::anchor),
             "Screen point the position is relative to, as a fraction of the screen: [0, 0] top-left (default), [1, 0] "
@@ -122,7 +126,7 @@ TypeBuilder<T>& ui_box_fields(TypeBuilder<T>& b) {
                "below it) stays "
                "where it is written, for what is not text-like: a map, a joystick, a clock face. A CameraView changes "
                "side with the layout but its picture is never mirrored. Does nothing in a left-to-right "
-               "language or with ui.mirrorRtl off (docs/LOCALIZATION.md, \"Right to left\").");
+               "language or with ui.mirrorRtl off (docs/LOCALIZATION.md, \"Right-to-left text\").");
 }
 
 // maxTextScale of Text and of the UI widgets.
@@ -300,7 +304,10 @@ void register_builtin_components(TypeRegistry& r) {
                      "Core")
         .field("position", &Transform::position,
                "Local position relative to the parent [x, y, z]. 2D: x right, y up, z is only used for depth ordering "
-               "of 3D content. Units: world units (design pixels in 2D, meters in 3D).")
+               "of 3D content. Units: world units (design pixels in 2D, meters in 3D). A child that a Panel `layout` "
+               "or a ScrollList places is not moved by writing here: the engine keeps the layout's place apart (never "
+               "saved), so this is your own offset from the slot, 0 = exactly in it, and entity.worldPosition is "
+               "where it ends up (since 0.30.0).")
         .field("rotation", &Transform::rotation,
                "Local rotation as euler angles in DEGREES [pitch around X, yaw around Y, roll around Z], applied in "
                "the order Y, X, Z. 2D games only use the z value (counter-clockwise).")
@@ -700,7 +707,9 @@ void register_builtin_components(TypeRegistry& r) {
          "is a foreground. With the camera at (0, 0) the entity is exactly where its Transform says. Only the "
          "drawing moves: Transform, physics and picking positions stay put, while entity.bounds() reports "
          "where it is drawn for the first camera (with several cameras, or a render target, each one draws the layer "
-         "shifted for itself). Deterministic: it depends only on the camera position.",
+         "shifted for itself). With render interpolation the drawing follows the camera's blended pose, while "
+         "offset and bounds() follow its real pose, so they do not depend on the frame time. Deterministic: it "
+         "depends only on the camera position.",
          "2D")
         .field("factor", &Parallax::factor,
                "[x, y] fraction of the camera's movement this layer follows (0 = fixed on screen, 1 = a normal world "
@@ -715,10 +724,32 @@ void register_builtin_components(TypeRegistry& r) {
                "smaller value "
                "to overlap soft edges, a larger one for gaps.")
         .field("offset", &Parallax::offset,
-               "Runtime: the shift [x, y] currently applied to the drawing, for the first camera (written every frame, "
-               "by the renderer or by the simulation when there is no renderer).")
+               "Runtime: the shift [x, y] for the first camera's real pose (written every frame, by the renderer or by "
+               "the simulation when there is no renderer). With render interpolation a frame is drawn up to one "
+               "fixed step away from it.")
         .runtime_only()
         .read_only();
+
+    r.add<Interpolation>("Interpolation",
+                         "Draws this entity at the pose BETWEEN the last two fixed simulation steps, so a 60 Hz "
+                         "simulation moves smoothly on "
+                         "a 120-144 Hz display (docs/RENDERING.md, \"Render interpolation\"). Only the drawing "
+                         "changes: Transform, physics, "
+                         "scripts, bounds and commands always see the real, latest pose; the blend is never written to "
+                         "the Transform. Children "
+                         "follow an interpolated parent and a Camera is viewed from its blended pose. A pose set "
+                         "outside the fixed step "
+                         "(a script's update, a command) or after entity.teleport() is not smeared: it is drawn where "
+                         "it is. The project "
+                         "default is factoria.json render.interpolation (false); add this component to opt one entity "
+                         "in (\"on\") or out "
+                         "(\"off\"). Nothing is blended while the game is paused or stepped.",
+                         "Core")
+        .enum_field(
+            "mode", &Interpolation::mode, {"inherit", "on", "off"},
+            "on: interpolated whatever the project says. off: never interpolated (a cursor that must follow the "
+            "pointer at once, an entity a script moves every frame). inherit: what factoria.json render.interpolation "
+            "says.");
 
     r.add<Light2D>(
          "Light2D",
@@ -2520,16 +2551,18 @@ void register_builtin_components(TypeRegistry& r) {
                "the rolloff). "
                "The AudioListener's zoom multiplies it.")
         .range(0, 1000000)
-        .enum_field("rolloff", &AudioSource::rolloff, {"linear", "inverse", "exponential"},
-                    "Spatial only: how the volume falls with the distance d from the listener (r = refDistance, k = "
-                    "rolloffFactor, "
-                    "d clamped to at least r). linear (default): 1 - k*(d-r)/(range-r), down to 0 at range; with the "
-                    "defaults it is "
-                    "1 - d/range. inverse: r/(r + k*(d-r)), a loud close sound that fades slowly far away (like Web "
-                    "Audio and OpenAL). "
-                    "exponential: (d/r)^-k. inverse and exponential do not reach 0 by themselves: the sound is cut at "
-                    "`range`, so set "
-                    "`range` where they are already quiet. Same curves as audio.play({position, range, rolloff}).")
+        .enum_field(
+            "rolloff", &AudioSource::rolloff, {"linear", "inverse", "exponential", "curve"},
+            "Spatial only: how the volume falls with the distance d from the listener (r = refDistance, k = "
+            "rolloffFactor, "
+            "d clamped to at least r). linear (default): 1 - k*(d-r)/(range-r), down to 0 at range; with the "
+            "defaults it is "
+            "1 - d/range. inverse: r/(r + k*(d-r)), a loud close sound that fades slowly far away (like Web "
+            "Audio and OpenAL). "
+            "exponential: (d/r)^-k. inverse and exponential do not reach 0 by themselves: the sound is cut at "
+            "`range`, so set "
+            "`range` where they are already quiet. curve: the gain is `rolloffCurve` evaluated at d / range (0 = at "
+            "the listener, 1 = at `range`). Same curves as audio.play({position, range, rolloff}).")
         .field("refDistance", &AudioSource::refDistance,
                "Spatial only: the reference distance r in world units: up to it the sound is at full volume. 0 "
                "(default) = linear "
@@ -2543,6 +2576,57 @@ void register_builtin_components(TypeRegistry& r) {
                "less leaves some volume there (cut at range anyway); for inverse and exponential higher = quieter far "
                "away.")
         .range(0, 100)
+        .field("rolloffCurve", &AudioSource::rolloffCurve,
+               "Spatial only, used when rolloff is \"curve\": the volume over the distance, as a curve of [position, "
+               "gain] keys where position is the distance divided by `range` (0 = at the listener, 1 = at `range`, "
+               "where the sound is cut anyway) and gain is 0 to 1: [[0, 1], [0.3, 0.8], [1, 0]]. Same form as "
+               "ParticleEmitter.sizeCurve: {\"keys\": [...], \"interp\": \"smooth\"} eases between keys, at most 16 "
+               "keys. [] (default) or a form that does not parse (the log says why) = the linear curve. refDistance "
+               "and rolloffFactor do not apply to it.")
+        .field("coneInnerAngle", &AudioSource::coneInnerAngle,
+               "Spatial only: full angle in degrees of the cone around `coneAxis` where the sound is at full volume. "
+               "360 (default) = no cone, the sound is the same in every direction. The cone points where the entity "
+               "faces (its rotation turns coneAxis), in 2D and 3D.")
+        .range(0, 360)
+        .field("coneOuterAngle", &AudioSource::coneOuterAngle,
+               "Spatial only: full angle in degrees of the outer cone: outside it the volume is multiplied by "
+               "`coneOuterGain`; between the inner and the outer cone it blends linearly in the angle. 360 (default) "
+               "with an inner angle below 360 blends all the way to straight behind. A value below coneInnerAngle is "
+               "taken as coneInnerAngle.")
+        .range(0, 360)
+        .field("coneOuterGain", &AudioSource::coneOuterGain,
+               "Spatial only: volume multiplier outside the outer cone, 0 (silent, default) to 1 (no effect).")
+        .range(0, 1)
+        .field("coneAxis", &AudioSource::coneAxis,
+               "Spatial only: the direction the cone points in the entity's local space. Default (0, 0, -1) is forward "
+               "in 3D (as lights and cameras); in a 2D game, where sprites face +X, use (1, 0, 0). A zero vector "
+               "turns the cone off.")
+        .field("dopplerLevel", &AudioSource::dopplerLevel,
+               "Spatial only: how much the pitch shifts with the speed the source and the listener approach or "
+               "separate at (the AudioListener's speedOfSound). 0 (default) = off, 1 = the real shift, more "
+               "exaggerates (it is the exponent of the real pitch ratio). The pitch factor is limited to 0.25..4 and "
+               "glides "
+               "over about 0.05 s. Velocities come from the change of each one's world position between frames (not "
+               "from RigidBody), so scripted and animated movement shifts too; the first frame and a teleport give "
+               "velocity 0.")
+        .range(0, 10)
+        .field(
+            "occlusion", &AudioSource::occlusion,
+            "Spatial only: true = a physics ray from the listener to the source that hits a collider of "
+            "`occlusionMask` muffles the sound (occlusionGain, occlusionLowpass). Default false. Each source is asked "
+            "every 0.1 s, but at most 8 rays per frame go out in the whole game: with more sources than that the "
+            "ones not asked yet come first, then the one asked longest ago, so none is left out for good. The "
+            "change is smoothed over 0.1 s and the mixer ramps the volume and the low-pass to it (no click).")
+        .field("occlusionMask", &AudioSource::occlusionMask,
+               "Spatial only: the physics layers (bitmask, -1 = all) whose colliders block the sound when `occlusion` "
+               "is on. The source's own colliders, the listener's and triggers are ignored.")
+        .field("occlusionGain", &AudioSource::occlusionGain,
+               "Spatial only: volume multiplier while the path is blocked, 0 to 1 (default 0.4).")
+        .range(0, 1)
+        .field("occlusionLowpass", &AudioSource::occlusionLowpass,
+               "Spatial only: low-pass cutoff in Hz while the path is blocked (default 1500; 20000 = no filtering): "
+               "a wall makes a sound dull. The voice gets its own 12 dB/octave low-pass.")
+        .range(20, 20000)
         .field(
             "priority", &AudioSource::priority,
             "Voice stealing, 0..255 (default 128): when all 64 voices play, a new sound replaces the voice of the "
@@ -2650,7 +2734,30 @@ void register_builtin_components(TypeRegistry& r) {
                "A game with a zoomable 2D camera sets it from the camera's orthoSize each frame. When the camera is "
                "the listener "
                "(no AudioListener component) the zoom is 1.")
-        .range(0.01f, 100);
+        .range(0.01f, 100)
+        .enum_field(
+            "spatialization", &AudioListener::spatialization, {"pan", "hrtf"},
+            "How spatial sounds are placed for the ears. pan (default): left/right pan and volume, for "
+            "speakers. hrtf: a head model for headphones (time and level differences between the ears and "
+            "the shadow of the head, from a parametric model with no recorded data; stereo clips are mixed to mono "
+            "first). It needs this AudioListener entity (a 2D camera as the listener keeps pan) and a stereo "
+            "output (a mono device and a surround one, 5.1 and more, keep pan). A change between pan and hrtf "
+            "crossfades over 4 ms. See docs/sound/SOUND_SPATIAL.md, Headphones.")
+        .field(
+            "headRadius", &AudioListener::headRadius,
+            "hrtf only: radius of the listener's head in world units (default 0.0875, a human head in meters; "
+            "scale it with the world in a game that does not use meters). It sets the time difference between "
+            "the ears (Woodworth: about 0.66 ms at 90 degrees for the default). A head smaller than 0.03 m or larger "
+            "than 0.12 m at speedOfSound 343 (the ratio headRadius / speedOfSound is what counts) is clamped, with "
+            "a warning that says how to fix it.")
+        .range(0.001f, 100000)
+        .field(
+            "speedOfSound", &AudioListener::speedOfSound,
+            "Doppler only: the world units per second a sound travels at (default 343, meters per second in air). "
+            "A 2D game in pixels sets it to the pixels per meter it uses times 343. The doppler shift of a source "
+            "is its dopplerLevel as the exponent of the pitch ratio this speed gives. With hrtf it is also the speed "
+            "the head model divides headRadius by to get the time between the ears.")
+        .range(1, 10000000);
 
     // --------------------------------------------------------------- UI ---
     {
@@ -2671,8 +2778,14 @@ void register_builtin_components(TypeRegistry& r) {
                 "How children are placed, every frame: none = they keep their own positions; row / column = one after "
                 "the other along that axis; grid = `columns` per row, every cell as large as the largest child. "
                 "Children are the active child entities that have a size (a widget, or a Text / Sprite / Shape2D in "
-                "screen space); the rest are skipped. A child's own position, anchor and pivot do not matter: layout "
-                "moves its Transform.position so it lands in its slot.")
+                "screen space); the rest are skipped. A child's own anchor and pivot do not matter: layout puts it in "
+                "its slot every frame without writing its Transform.position, which stays the child's own offset "
+                "from the slot (0 = exactly in it; a script or the inspector can nudge it, and the layout keeps the "
+                "nudge; since 0.30.0). A widget moved into a laid-out Panel with scene.set_parent goes to its slot "
+                "(position 0, as the layout would put it). A child's Transform.scale multiplies the "
+                "room its slot takes (a row makes room for a child at scale 2); its rotation.z does not: the slot "
+                "stays and the child turns in place around its pivot. A turned or scaled Panel lays its children out "
+                "as if it were not and then turns and scales them with it (since 0.30.0).")
             .field("spacing", &Panel::spacing,
                    "Gap in UI units between children (a grid uses it on both axes; `ui.scale` multiplies it).")
             .range(0, 10000)
@@ -3051,20 +3164,74 @@ void register_builtin_components(TypeRegistry& r) {
     {
         auto field = r.add<TextField>(
             "TextField",
-            "Single-line text input. While focused it appends the typed characters (Input text), Backspace removes "
-            "the last one (it repeats while held) and Enter submits. There is no caret movement: the caret stays at "
-            "the end. Events: ui.change {id, value} on every edit (one per frame), ui.submit {id, value} on Enter. "
-            "Left / right do nothing in a TextField and Space types a space (ui_submit is ignored).",
+            "Single-line text input with a caret, a selection, the clipboard and IME composition. While focused it "
+            "takes "
+            "the typed characters at the caret (replacing the selection); Left / Right move the caret (with Ctrl, or "
+            "Alt on macOS, a word at a time; with Shift they extend the selection), Home / End go to the ends, "
+            "Backspace and Delete remove the selection or the character (they repeat while held), Ctrl+A (Cmd+A on "
+            "macOS) selects all, Ctrl+C / X / V (Cmd on macOS) copy, cut and paste, and Enter submits. A click places "
+            "the caret, a drag selects, a double click selects a word, a triple click all of it. Focusing a field puts "
+            "the caret at the end of its text. The caret never stops inside a base character plus its combining marks "
+            "or an emoji sequence. Text composed with an input method shows at the caret, underlined, and is typed "
+            "when the player commits it (a click in the field, or the focus moving to another field, commits it too). "
+            "Caret and selection assume left-to-right text for now. A field that loses the focus keeps its last "
+            "scroll. Events: ui.change {id, value} on every edit (one per frame), ui.submit "
+            "{id, value} on Enter. Space types a space (ui_submit is ignored); Up / Down move the focus.",
             "UI");
         ui_control_fields(field)
             .field("text", &TextField::text, "The text, UTF-8. Scripts may write it; no event is sent for a write.")
             .field("placeholder", &TextField::placeholder, "Hint drawn at half alpha while `text` is empty.")
             .field("maxLength", &TextField::maxLength, "Longest text, in characters (code points). 0 = unlimited.")
             .range(0, 1000000)
+            .field("password", &TextField::password,
+                   "Draws every character (and the composition) as '*'; Copy and Cut do nothing, the platform's input "
+                   "method "
+                   "is off, and the whole text is one word (word keys go to its ends, a double click selects all). "
+                   "`text` still holds what was typed and scripts can read it, and the composition.")
             .field("caret", &TextField::caret,
                    "Runtime: the caret is in the visible half of its blink (a 1 second cycle of the UI's own unscaled "
                    "clock; it "
                    "restarts visible on every edit). Drawn only while focused.")
+            .runtime_only()
+            .read_only()
+            .field(
+                "caretIndex", &TextField::caretIndex,
+                "Where the caret is, in code points from the start of `text` (0 = before the first character). It "
+                "follows "
+                "the player's edits and clicks, and a script may write it to move the caret. Clamped to 0..length of "
+                "`text` every frame. A script that changes `text` without touching the caret, selection or caretIndex "
+                "puts the caret at the end.")
+            .range(0, 1000000)
+            .field(
+                "selectionStart", &TextField::selectionStart,
+                "Start of the selected text, in code points. selectionStart == selectionEnd means nothing is selected. "
+                "Either may be the larger one (the selection's anchor is selectionStart, its moving end selectionEnd, "
+                "the caret). A script selects a range by writing both (caretIndex follows selectionEnd when it is not "
+                "written). Clamped to 0..length of `text` every frame.")
+            .range(0, 1000000)
+            .field(
+                "selectionEnd", &TextField::selectionEnd,
+                "End of the selected text, in code points (see selectionStart). Clamped to 0..length of `text` every "
+                "frame.")
+            .range(0, 1000000)
+            .field(
+                "composition", &TextField::composition,
+                "Runtime: the text an input method (IME) is composing in this field, UTF-8, \"\" when none. It is not "
+                "part of `text` until the player commits it. Only the focused field has one.")
+            .runtime_only()
+            .read_only()
+            .field("compositionCaret", &TextField::compositionCaret,
+                   "Runtime: the input method's caret inside `composition`, in code points (0 = at its start).")
+            .runtime_only()
+            .read_only()
+            .field("compositionSelection", &TextField::compositionSelection,
+                   "Runtime: how many code points from compositionCaret the input method is converting (the clause "
+                   "drawn highlighted); 0 = none.")
+            .runtime_only()
+            .read_only()
+            .field("scrollX", &TextField::scrollX,
+                   "Runtime: how many UI units the text is scrolled to the left so that the caret stays visible in a "
+                   "field narrower than its text.")
             .runtime_only()
             .read_only();
     }
@@ -3246,7 +3413,8 @@ void register_builtin_components(TypeRegistry& r) {
     {
         auto video = r.add<Video>(
             "Video",
-            "A video on the screen (docs/MENUS.md, \"Studio intro\"): plays an .mpg file (MPEG-1 video with MP2 sound, "
+            "A video on the screen (docs/menus/MENUS_RECIPES.md, \"A studio intro\"): plays an .mpg file (MPEG-1 video "
+            "with MP2 sound, "
             "the same "
             "decoder on every platform) in this entity's rectangle, the way an image fills a widget. Convert any other "
             "video with "

@@ -474,7 +474,7 @@ Acceptance:
 
 - `docs/SHADERS.md` (game makers: material file, contract, every `fa_` value, five worked examples: pulse emission,
   dissolve with `"clip"`, scrolling water, wind on grass with `vertex()`, rim light), links from COMPONENTS.md,
-  AI_GUIDE.md and the generated `AGENTS.md`; ARCHITECTURE.md "Rendering" section; EXPORTING.md; CHANGELOG.md in
+  AI_GUIDE.md and the generated `AGENTS.md`; ARCHITECTURE_RENDERING.md "Rendering" section; EXPORTING.md; CHANGELOG.md in
   plain words.
 - The editor inspector of `material`/`materialParams`, the error under the field, the editor autotest step.
 - One example game uses a material (gem-roller: a pulsing gem), so CI smoke runs exercise it on every platform; its
@@ -487,7 +487,7 @@ Built (2026-10-19):
 - `docs/SHADERS.md` with the five examples; `shaders_docs_test.cpp` writes every block that follows a ``File `path`:``
   line into a scratch project, checks the materials against the schema and compiles all five for every dialect with the
   real tool. Linked from AI_GUIDE.md, the generated AGENTS.md, README.md, EXPORTING.md and the `MeshRenderer.material`
-  doc string (COMPONENTS.md); ARCHITECTURE.md has a "Rendering" section.
+  doc string (COMPONENTS.md); ARCHITECTURE_RENDERING.md has a "Rendering" section.
 - The editor had no inspector then (built in M20: the material inspector and the error under the field are in
   docs/EDITOR.md, Hierarchy and Inspector). Instead the editor runs with `EngineConfig::hotReloadAssets`: the engine polls only what the
   renderer rebuilds in place (materials, snippets, textures, fonts, models), while edit mode and Play, and leaves scenes,

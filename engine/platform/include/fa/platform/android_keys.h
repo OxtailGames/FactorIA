@@ -6,9 +6,10 @@
 //
 // The characters are the part the NDK cannot tell: AKeyEvent has no "unicode char". The glue asks the Java side
 // (KeyEvent.getUnicodeChar, through JNI) only for the keys that can type (may_type below) and hands the answer in.
-// Limits, on purpose: an IME that composes (CJK, emoji, a keyboard that commits whole words) sends text, not key events,
-// and a NativeActivity cannot receive it; the characters are those of the key's own layout (Latin letters, digits,
-// punctuation). Documented in docs/MOBILE.md.
+// Limits, on purpose: an IME that composes (CJK, emoji, a keyboard that commits whole words) sends text, not key events;
+// while a TextField has the focus the IME backend receives it (ime_android.cpp, through an InputConnection), and
+// otherwise the characters are those of the key's own layout (Latin letters, digits, punctuation). Documented in
+// docs/TEXT.md ("What composes where").
 #pragma once
 
 #include <cstdint>
@@ -38,16 +39,22 @@ public:
     bool on_key(int androidKeyCode, bool down, std::uint32_t unicode, bool repeat);
 
     // Feeds everything that came in since the last call to `input`, in order: key edges, typed characters, Back. Once per
-    // frame, before the game runs.
+    // frame, before the game runs. For the tests of this class: the Android build hands its keys to take() instead, and
+    // ime_ic::Session::feed puts them in Input in the one order with the input method's calls.
     void feed(Input& input);
 
-private:
+    // What one key event turned into: a key edge, a character it typed (right after the key's press), or Back.
     struct Item {
         enum class Kind : std::uint8_t { Key, Text, Back } kind;
         Key key = Key::Unknown;
         bool down = false;
         std::uint32_t codepoint = 0;
     };
+    // Instead of feed(): hands over what came in since the last call, in order, and forgets it. mobile_android.cpp gives
+    // it to the IME's session (ime_ic.h), which feeds the keys and what the input method sends in the one order they came.
+    std::vector<Item> take();
+
+private:
     std::vector<Item> items_;
 };
 

@@ -251,3 +251,49 @@ TEST_CASE("gizmo: scale never reaches 0 or flips sign by accident") {
     CHECK(scale_uniform_factor({0, 0}, {0, 80}, 80.0f) == kMinScaleFactor);  // down shrinks, held at the minimum
     CHECK(scale_uniform_factor({0, 0}, {40, -40}, 80.0f) == doctest::Approx(2.0f));
 }
+
+// ----------------------------------------------------------------------------------- a drag of several entities
+TEST_CASE("orbit_about turns a point about the pivot and leaves the pivot alone") {
+    const Vec3 pivot{2, 1, 0};
+    const Vec3 p = orbit_about({4, 1, 0}, pivot, {0, 0, 1}, 90.0f);  // two units right of the pivot, a quarter turn
+    CHECK(p.x == doctest::Approx(2.0f).epsilon(1e-4));
+    CHECK(p.y == doctest::Approx(3.0f).epsilon(1e-4));
+    CHECK(p.z == doctest::Approx(0.0f).epsilon(1e-4));
+    const Vec3 q = orbit_about(pivot, pivot, {0, 1, 0}, 33.0f);
+    CHECK(q.x == doctest::Approx(2.0f));
+    CHECK(q.y == doctest::Approx(1.0f));
+    // a full turn is where it began; a turn about y moves a point of the x axis in z
+    const Vec3 full = orbit_about({5, 0, 0}, {0, 0, 0}, {0, 1, 0}, 360.0f);
+    CHECK(full.x == doctest::Approx(5.0f).epsilon(1e-3));
+    const Vec3 half = orbit_about({5, 0, 0}, {0, 0, 0}, {0, 1, 0}, 180.0f);
+    CHECK(half.x == doctest::Approx(-5.0f).epsilon(1e-3));
+}
+
+TEST_CASE("scale_ratio and scale_offset: a group scale moves the offsets along the primary's axes") {
+    const Vec3 r = scale_ratio({2, 1, 0}, {4, 3, 5});
+    CHECK(r.x == doctest::Approx(2.0f));
+    CHECK(r.y == doctest::Approx(3.0f));
+    CHECK(r.z == doctest::Approx(1.0f));  // a start of 0 has no ratio: the axis stays as it is
+    const Vec3 axes[3] = {{1, 0, 0}, {0, 1, 0}, {0, 0, 1}};
+    const Vec3 o = scale_offset({1, 1, 1}, axes, {2, 3, 1});
+    CHECK(o.x == doctest::Approx(2.0f));
+    CHECK(o.y == doctest::Approx(3.0f));
+    CHECK(o.z == doctest::Approx(1.0f));
+    // axes turned 90 degrees about z: the primary's local x is the world y
+    const Vec3 turned[3] = {{0, 1, 0}, {-1, 0, 0}, {0, 0, 1}};
+    const Vec3 t = scale_offset({0, 1, 0}, turned, {2, 1, 1});  // along its local x: doubled
+    CHECK(t.x == doctest::Approx(0.0f).epsilon(1e-5));
+    CHECK(t.y == doctest::Approx(2.0f));
+    // an offset of zero stays zero, whatever the ratio
+    const Vec3 z = scale_offset({0, 0, 0}, axes, {9, 9, 9});
+    CHECK(z.x == 0.0f);
+}
+
+TEST_CASE("marquee_covers: every point inside, the corners in any order") {
+    const std::vector<Vec2> box = {{10, 10}, {20, 10}, {20, 20}, {10, 20}};
+    CHECK(marquee_covers({0, 0}, {30, 30}, box));
+    CHECK(marquee_covers({30, 30}, {0, 0}, box));        // dragged up and to the left
+    CHECK(marquee_covers({10, 10}, {20, 20}, box));      // the edges count as inside
+    CHECK_FALSE(marquee_covers({0, 0}, {15, 30}, box));  // one corner out
+    CHECK_FALSE(marquee_covers({0, 0}, {30, 30}, {}));   // nothing to cover is not covered
+}

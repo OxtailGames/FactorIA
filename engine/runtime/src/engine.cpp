@@ -15,12 +15,14 @@
 #include "fa/core/screenshot_files.h"
 #include "fa/core/strings.h"
 #include "fa/platform/app.h"
+#include "fa/runtime/audio_occlusion.h"
 #include "fa/runtime/command_extension.h"
 #include "fa/runtime/platform_backend.h"
 #include "fa/runtime/plugins.h"
 #include "fa/scene/camera_mask.h"
 #include "fa/scene/camera_query.h"
 #include "fa/scene/feel.h"
+#include "fa/scene/interpolation.h"
 #include "fa/script/script_budget.h"
 #include "fa/scene/animation.h"
 #include "fa/scene/bones2d.h"
@@ -97,6 +99,8 @@ bool Engine::Impl::inject_named(const std::string& name, bool down, std::string*
 
 void Engine::Impl::apply_project_settings() {
     fixedDt = 1.0 / std::max(1.0, project.fixedHz);
+    world.interp().enabled = project.renderInterpolation;  // fa/scene/interpolation.h
+    world.interp().snapDistance = project.renderInterpolationSnapDistance;
     world.feel().pixelsPerMeter = project.pixelsPerMeter;  // the 2D default speed of entity.knockback (fa/scene/feel.h)
     input.set_gamepad_deadzone(float(project.inputDeadzone));
     if (cfg.forceTouch) input.set_force_touch(true);
@@ -296,6 +300,7 @@ bool Engine::Impl::load_scene_impl(const std::string& pathIn, std::string* error
 
 void Engine::Impl::finish_scene_load(const LoadReport& report, const std::string& label, std::string* error) {
     world.reset_clock();
+    input.stop_all_rumble();  // a pad never keeps shaking into the next scene; its own onStart may rumble again
     sceneIssues.clear();
     sceneErrorCount = report.error_count();
     for (const LoadMessage& m : report.messages) {
@@ -549,6 +554,28 @@ void Engine::Impl::poll_hot_reload(bool force) {
     }
 }
 
+// The engine clock of pad rumble: the frame's own duration (real time, not scaled by time.scale: a slow-motion hit-stop does not
+// stretch a rumble) runs every pad's request down, at the START of the frame, so a request of one frame is still seen once by
+// the hardware layer. The game pausing itself (game.paused = true, time.scale 0) stops every pad at that moment; a request made
+// while it stays paused (a menu click) plays on, ending with its seconds.
+void Engine::Impl::advance_pad_rumble(double dt) {
+    input.advance_rumble(dt);
+    cut_pad_rumble_on_pause();
+}
+
+// The edge of the game pausing itself: true when the game paused since the last check (then every pad is stopped). Checked at
+// the start of a frame (a pause a command or the editor made between frames), after the scripts' onUpdate and after onLateUpdate;
+// run_frame stops the pads once more at its end when the frame had the edge, so a script that pauses and rumbles in the same
+// frame, in either order and in either callback, does not buzz for one frame: the hardware layer runs after the frame and never
+// sees that request.
+bool Engine::Impl::cut_pad_rumble_on_pause() {
+    const bool userPaused = scripts.user_time_scale() <= 0.0;
+    const bool edge = userPaused && !wasUserPaused;
+    if (edge) input.stop_all_rumble();
+    wasUserPaused = userPaused;
+    return edge;
+}
+
 void Engine::Impl::run_frame(double dt, int fixedSteps) {
     const jobs::OwnerScope jobScope(&jobOwner);  // the jobs a system or script of this frame queues are this engine's
     const LoadTrace::ReadingFor reading(traceOwner);  // play.auto and the headless runner call this directly
@@ -558,6 +585,7 @@ void Engine::Impl::run_frame(double dt, int fixedSteps) {
         scripts.begin_frame();  // so a scene load applied at the end of this frame is told apart (script budget)
     inFrame = true;
     set_log_frame(frame);
+    advance_pad_rumble(dt);
     // OnDemand: debug-draw primitives of undrawn frames are dropped (immediate mode: one frame each), but the last
     // frame's survive until the next frame starts so a screenshot still shows them.
     if (renderStale && renderer) renderer->debug().clear();
@@ -583,6 +611,7 @@ void Engine::Impl::run_frame(double dt, int fixedSteps) {
         // view: a press or release reaches exactly one step, however many (0 to 5) a frame runs, and one that arrives in a
         // frame with no step waits for the next (fa/platform/input.h, "TWO VIEWS").
         Input::FixedScope fixedInput(input);
+        interp_begin_step(world);  // the pose now is the "before" pose of this step (render interpolation)
         {
             ProfSystemScope prof(ProfSystem::Physics);
             physics.sync(world);  // entities spawned since the last step get bodies before scripts query physics
@@ -660,6 +689,8 @@ void Engine::Impl::run_frame(double dt, int fixedSteps) {
         input.end_fixed_step();  // what this step saw is taken: the next one gets only what arrives from now on
         ++fixedStep;
     }
+    // Render interpolation: the poses the steps left are the "after" poses; this frame is drawn interpAlpha of the way there.
+    interp_update(world, interpAlpha, fixedSteps > 0);
     // The UI reads this frame's input and sends its events, which scripts get right away. Real time: it works at time.scale 0.
     {
         ProfSystemScope prof(ProfSystem::Ui);
@@ -675,6 +706,8 @@ void Engine::Impl::run_frame(double dt, int fixedSteps) {
         ProfSystemScope prof(ProfSystem::ScriptsUpdate);
         scripts.update(float(dt));
     }
+    const bool pausedInUpdate =
+        cut_pad_rumble_on_pause();  // a script that paused this frame: its rumble of the frame is cut too
     {
         ProfSystemScope prof(ProfSystem::Audio);
         audio.update(world, float(dt));
@@ -686,6 +719,9 @@ void Engine::Impl::run_frame(double dt, int fixedSteps) {
         scripts
             .settle_activation();  // panels shown or hidden this frame: onStart / onEnable / onDisable before drawing
     }
+    // Paused in onLateUpdate (after a rumble of onUpdate), or paused in onUpdate and rumbled in onLateUpdate (a behaviour that
+    // runs while paused): the pads stop again, so the hardware layer never sees a request of the frame that paused the game.
+    if (cut_pad_rumble_on_pause() || pausedInUpdate) input.stop_all_rumble();
     {
         ProfSystemScope prof(ProfSystem::Localization);
         apply_localization();  // keys of entities scripts spawned or edited this frame
@@ -694,6 +730,7 @@ void Engine::Impl::run_frame(double dt, int fixedSteps) {
     // drawing, so the poses the renderer reads belong to this frame. The lifetimes of spawned effects run on the game clock
     // (`time_scale()`: a hit-stop or a pause holds them).
     feel_update(world, dt * scripts.user_time_scale(), dt * scripts.time_scale());
+    interp_update(world, interpAlpha, false);  // what scripts moved since the steps is drawn where it is, not blended
     render(dt);
     {
         ProfSystemScope prof(ProfSystem::EndOfFrame);
@@ -930,6 +967,10 @@ bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::st
         I.startupProblems.push_back("audio: " + aerr);
     }
     I.audio.set_clock(&I.world);  // play log entries carry the frame/time scripts see
+    I.audio.set_occlusion_probe(
+        [&I](World& w, const AudioOcclusionRay& ray) {  // docs/sound/SOUND_SPATIAL.md, "Occlusion"
+            return audio_occlusion_blocked(I.physics, w, ray);
+        });
     device_overridden(
         device_info());  // MusicPlayer.mode "auto" chooses between live synthesis and stems for this device (docs/MUSIC.md)
     register_builtin_commands(*this, I);  // before scripts.init: JS tools (tools/*.js) are added on top
@@ -1005,6 +1046,16 @@ bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::st
         }
         I.platform.set_http_backend(make_http_backend(std::move(client)), why);
     }
+    // websocket.connect: the platform's WebSocket client, except where the fake backend is asked for (headless runs, tests, `factoria
+    // call`, the MCP server): there a scripted in-memory server answers (game.websocket) and nothing touches the network.
+    if (config.platformBackend == "fake") {
+        I.websocketClient = std::make_unique<MemoryWebSocketClient>();
+    } else {
+        I.websocketClient = make_system_websocket_client();
+        if (!I.websocketClient->available())
+            FA_INFO("platform", "websocket.connect is not available on this computer: {}",
+                    I.websocketClient->unavailable_reason());
+    }
     std::string serr;
     if (config.scriptDebugger) I.scripts.set_debugger(config.scriptDebugger);
     I.scripts.set_exported_player(config.exportedPlayer);
@@ -1058,6 +1109,7 @@ void Engine::shutdown() {
     end_load_trace();  // also after a failed init
     if (!I.initialized) return;
     I.initialized = false;
+    I.input.stop_all_rumble();  // quit: the window layer sends the stop to the hardware (apply_gamepad_rumble)
     // This engine's jobs run to the end before the systems they may touch go away; its main-thread tasks still queued
     // are dropped. Other engines' jobs keep running: the pool joins its threads when the last engine stops it.
     {
@@ -1083,6 +1135,15 @@ void Engine::shutdown() {
     I.renderer.reset();
     if (I.gpu) I.gpu->shutdown();
     I.gpu.reset();
+}
+
+void Engine::end_app() {
+    Impl& I = *impl_;
+    if (!I.initialized || I.appEnded) return;
+    I.appEnded = true;
+    I.scripts.app_ending();
+    I.input.stop_all_rumble();
+    I.audio.close_device();  // the device stops before the process ends under it (no wait for the music's decodes)
 }
 
 void Engine::begin_load_trace() {
@@ -1146,9 +1207,13 @@ void Engine::frame(double dt) {
     if (I.paused) {
         const jobs::OwnerScope jobScope(&I.jobOwner);
         I.inFrame = true;
+        I.input.advance_rumble(dt);  // a request made while the engine is paused (the console) still ends by itself
+        I.wasUserPaused =
+            I.scripts.user_time_scale() <= 0.0;  // a pause the game made meanwhile is not an edge on resume
         I.jobOwner.run_main_thread_tasks();  // a paused game still takes the results of its jobs (a load that finished)
         jobs::run_main_thread_tasks();
         I.audio.service();  // the sounds a paused game (or the editor) still plays keep their streams decoded
+        I.world.interp().clear_poses();  // a paused game (and the editor's pause / step) shows the real pose
         I.render(0.0);
         I.end_of_frame(dt, false);
         I.inFrame = false;
@@ -1162,6 +1227,7 @@ void Engine::frame(double dt) {
         ++steps;
     }
     if (steps == 5 && I.accumulator > I.fixedDt) I.accumulator = 0.0;  // spiral of death: drop the backlog
+    I.interpAlpha = interp_alpha(I.accumulator, I.fixedDt);
     I.run_frame(dt, steps);
 }
 
@@ -1169,6 +1235,7 @@ void Engine::step(int frames) {
     const LoadTrace::ReadingFor reading(impl_->traceOwner);
     Impl& I = *impl_;
     if (!I.initialized) return;
+    I.interpAlpha = 1.0;  // a stepped game is drawn at the pose the step left (deterministic frames)
     for (int i = 0; i < frames && !I.quit; ++i) I.run_frame(I.fixedDt, 1);
 }
 
@@ -1210,7 +1277,10 @@ void Engine::reload_scene() {
 }
 
 bool Engine::paused() const { return impl_->paused; }
-void Engine::set_paused(bool p) { impl_->paused = p; }
+void Engine::set_paused(bool p) {
+    if (p && !impl_->paused) impl_->input.stop_all_rumble();  // a paused game does not keep a pad shaking
+    impl_->paused = p;
+}
 std::uint64_t Engine::frame_index() const { return impl_->frame; }
 std::uint64_t Engine::fixed_step_index() const { return impl_->fixedStep; }
 bool Engine::quit_requested() const { return impl_->quit; }
@@ -1218,6 +1288,7 @@ const ProjectSettings& Engine::project() const { return impl_->project; }
 const EngineConfig& Engine::config() const { return impl_->cfg; }
 HeadlessGpu* Engine::headless_gpu() { return impl_->gpu.get(); }
 PlatformServices* Engine::platform_services() { return &impl_->platform; }
+WebSocketClient* Engine::websocket_client() { return impl_->websocketClient.get(); }
 const I18n* Engine::i18n() { return &impl_->i18n; }
 const RichTextStyle* Engine::rich_text_style() { return &impl_->richStyle; }
 std::string Engine::set_language(std::string_view language) {
@@ -1481,11 +1552,21 @@ Renderer* Engine::renderer() {
 }
 UiSystem* Engine::ui() { return &impl_->ui; }
 CommandRegistry& Engine::commands() { return impl_->commands; }
-void Engine::set_design_to_window(std::function<Vec2(Vec2)> mapper) { impl_->designToWindow = std::move(mapper); }
+void Engine::set_design_to_window(std::function<Vec2(Vec2)> mapper) {
+    impl_->ui.set_design_to_window(mapper);  // the IME caret rectangle (fa/platform/ime.h)
+    impl_->designToWindow = std::move(mapper);
+}
 
 Vec2 Engine::design_size() const { return impl_->design_size(); }
+void Engine::storage_key_material(std::string& secret, std::string& gameId) const {
+    gameId = impl_->project.id;
+    const Json& raw = impl_->project.raw;
+    if (auto st = raw.find("storage"); st != raw.end() && st->is_object())
+        if (auto sec = st->find("encryptionSecret"); sec != st->end() && sec->is_string())
+            secret = sec->get<std::string>();
+}
 Json Engine::project_settings() const {
-    Json j = impl_->project.to_json();
+    Json j = impl_->project.to_json_redacted();
     j["seed"] = impl_->cfg.seed;  // the effective run seed (scripts reseed test files with it)
     return j;
 }

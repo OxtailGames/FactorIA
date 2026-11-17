@@ -1,0 +1,260 @@
+Part of [EDITOR.md](../EDITOR.md): The asset panels: project, image, vector, sound and music.
+
+# Editor: panels
+
+## Project panel
+
+View > Project (a tab next to Console; the View menu reopens it). A folder tree on the left (**Project** is every file; hidden
+folders, `build`, `node_modules`, `dist` and `export` are left out) and the files on the right: a thumbnail for pictures, a
+badge (`WAV`, `JS`, `SCN`, `PFB`, `MAT`...) for the rest. Hover a file for its path, type and size.
+
+- **Type filter** (all, texture, audio, font, mesh, script, scene, prefab, material; the same types as `assets.list` and the
+  Inspector's file lists, one classifier: `asset_type_of`) and **search** (case-insensitive part of the path; a search looks
+  through the whole project, not only the chosen folder). **Sort** by name, type or size.
+- The listing is cached: the panel does not read the disk every frame. It reads again on **Refresh**, when you click into the
+  panel and after the editor itself writes or deletes a file (a command that changes files, such as `fs.write`, `fs.delete`,
+  `prefab.save` or `scene.save`, from you, the Console or the AI; or Save). A file another program adds shows up on Refresh.
+- **Drag a file** (the payload `FA_ASSET` is its project-relative path). Onto an Inspector file field: only a file of the field's
+  type is taken (a picture on `Sprite.texture`; a sound there is refused) and it is written like picking it from the list.
+  Onto the Viewport: a `.prefab.json` is spawned with `scene.spawn {prefab, position}` and the new entity is selected (one Undo
+  step). The position is the world point under the mouse: in 2D on the z = 0 plane; in 3D where the mouse ray meets the
+  ground plane (y = 0), and 10 units in front of the camera when it misses it (the ray points up or the ground is farther than
+  1000 units). Other types do nothing on the Viewport (the tooltip says only prefabs).
+- **Double-click** a `.scene.json` to open it (with the same "Unsaved changes" question as File > Open Scene).
+- **Sprite sheets.** Select a picture that has a `sheet` entry in `assets.json` and a strip appears under the file list: a menu
+  of its clips ("(all frames)" first) and the chosen clip playing, frame by frame at the clip's `fps`, the way a
+  `SpriteAnimator` plays it (same code: padding and a non-looping clip's last frame included), with the frame number and
+  range. A picture without a `sheet` entry shows no strip.
+- **Right-click** a file: **Show in Finder** (Explorer, file manager), **Copy path**, **Delete...** (asks first, then `fs.delete`;
+  it is not an Undo step, the file is gone from disk).
+
+## Image panel
+
+View > Image opens the Image panel; double-clicking a `*.image.json` in the Project panel opens that document in it
+([IMAGES.md](../IMAGES.md)). It is a floating window the first time (1100 x 720; dock it like any panel) and edits ONE document at a time.
+Every edit runs the same `image.*` command an AI would call (`image.layer.*`, `image.paint`, `image.select`, `image.edit`) and the
+brush, fill and transform use the code of `fa/tooling/image_paint.h`, so a stroke, a fill or a selection made with the mouse is the
+same pixels the command writes. The picture on the canvas is drawn by the one compositor (`composite_image_document`), never a second
+one. An edit writes the document (and the layer's PNG) as it happens; the baked picture next to the document is written only by
+**Save** (the toolbar shows "baked" or "not baked"; the tooltip of "not baked" says why: stale, missing...), like `image.save`.
+
+- **Toolbar.** The document (a menu of the project's `*.image.json`), **New** (a name and a square size: `image.create` makes `assets/<name>.image.json` with a white background layer),
+  **Save**, **Reload** (re-reads the files; the panel also re-reads them by itself when they change on disk and no gesture is
+  running), **Fit**, **1:1**, a zoom percentage, **Grid** (a pixel grid from 800% up) and **Checker** (the transparency
+  checkerboard).
+- **Canvas.** The wheel zooms around the pointer, Ctrl+wheel (a trackpad pinch) too; Shift+wheel and a sideways wheel pan, and so do
+  the middle button or Space + left drag. Above 100% the picture is drawn with nearest-neighbour sampling, below it smoothed. The
+  selection is outlined with marching ants (they crawl up to 3000 edges, stand still above that, and a selection of more than 60000
+  edges is shown as a tint only); **Tint** shows it as a tint as well.
+- **Tools** (left column, shortcut in brackets): Move (V), Brush (B), Eraser (E), Fill (G), Picker (I; Alt+click picks with any
+  Brush, Eraser and Fill), Rectangle and Ellipse selection (M, Shift+M), Lasso and Polygon selection (L, Shift+L; a click on the first
+  point, a double click or Enter closes a polygon, Esc drops it), Magic wand (W) and Transform (T). `[` and `]` change the brush size. The options bar above the canvas has
+  the brush colour, size, hardness and opacity, the wand's tolerance and contiguous switch, and the selection operation.
+- **Painting** draws on the selected layer, inside the selection if there is one, as one undo step per stroke. On an `indexed` layer
+  the brush paints palette indices only (hardness and opacity do not apply). A locked layer or a layer that is not `pixels` or
+  `indexed` is not painted on (the status line says why). The right mouse button paints, erases and fills with the secondary colour
+  (X swaps the two).
+- **Pixel-art tools** (a document with a palette). The **Grid** box draws the pixel grid from a zoom of 800% (a stronger line every 8
+  pixels, or at the tile size in a tile document) and the tools that work on one pixel (Fill, Picker, Magic wand) outline the pixel
+  under the mouse; the picture is always drawn with nearest-neighbour filtering when zoomed in. The **Tiled** box shows the picture
+  repeated 3 x 3 so the seams show (a `tile` document opens with it on; the tools still work on the middle copy). A document that
+  has a `tileset` layer gets a **Terrain preview** under the layer list: a small map painted with the sheet's tiles, each one chosen
+  from its neighbours by the same autotile rules the `Tilemap` uses.
+- **Palette bar** (under the canvas, for a document with a palette). A swatch: left click = primary colour (white frame), right
+  click = secondary colour (orange frame). **+** adds a colour at the end (hex and optional name, `image.palette`), **Edit** changes
+  the primary colour (every pixel that uses it changes with it), **<** and **>** move it (`image.palette.move`: the pixels follow
+  it), **Remove** deletes it (`image.palette.remove`: its pixels take the secondary colour, or become transparent when the secondary
+  is the same colour) and **Swap** swaps primary and secondary. Each is one undo step and is off while the game plays.
+- **Selections.** Plain drag replaces the selection, Shift adds, Alt subtracts and Shift+Alt intersects (the same as the operation
+  menu). All (Ctrl+A), None (Ctrl+D), Invert, Grow, Shrink and Feather are buttons of the options bar. The selection is the stored
+  selection `image.select` writes, so a command sees it too.
+- **Provider pictures.** Under the layer list, **Inpaint selection...** and **Generate layer...** ask for a prompt and make what
+  `image.inpaint` and `image.generate_layer` make ([IMAGES.md](../IMAGES.md), "Pictures from a provider"): the plan (provider, selection,
+  size) is made first, on the same thread as the call and before anything is paid for, so a mistake is shown under the panel as a
+  failure with nothing charged; the plan, the cost check and the provider call run on that thread (the
+  panel stays usable, a line shows the seconds and a **Cancel** button) and the picture is added as one undo step, selected, as a new
+  `provider` layer masked by the selection. The popup shows the estimate for the provider's call (looked up when it opens), and **Make it** is your approval of that cost: the
+  spending limits still hold, and a refusal is shown in the panel. The two are off, with a tooltip saying why, when no image provider is configured, the
+  configured one cannot inpaint, there is no selection (Inpaint) or the game is running. An answer that arrives after another document
+  was opened is dropped with a message instead of being added to it.
+- **Transform** shows a box with eight handles around the selected pixels (or the whole layer without a selection): drag a handle to
+  scale, inside the box to move, outside it to rotate; Shift keeps the aspect ratio or snaps the angle to 15 degrees. The numeric
+  fields of the options bar do the same by value, and the **Nearest** box chooses hard pixel edges (on by default in a document with a
+  palette) or smooth ones. **Apply** (or Enter) runs `image.edit` once, **Cancel** (Esc) drops it. It works on the pixels of a
+  `pixels` layer only; for another kind the status line says to convert the layer first.
+- **Layers** (right column, top layer first): a kind badge, an eye (visible), a padlock (locked), the name (double-click to rename),
+  a triangle that opens or closes a group; drag a row to reorder it or to drop it into a group; **+ Add** (pixels, indexed, fill,
+  gradient, text, group, adjustment), **Duplicate** and **Remove**. The lock and the open/closed state of a group are kept for this
+  editor session only, by layer name: they are not in the document. Procedural, svg and provider layers are added with the Console
+  (`image.layer.add`); once there they can be selected, reordered, hidden and have their opacity, blend mode and offset edited.
+- **Layer inspector.** Visible, clip, opacity, blend mode, offset, and the fields of the layer's kind (colour, text, gradient angle).
+  Under it the **Adjustments** and **Effects** lists: add one by type, remove, reorder, and edit each field. A slider previews on the
+  canvas while it is dragged, writes nothing until it is released and is then one undo step. The curve and stops fields (`curves`,
+  `gradientMap`) are typed as JSON text.
+- **Frame timeline** (under the palette bar; a pixel-art document shows it even with one frame). One button per frame, **Add**
+  (an empty frame after the current one; the first one makes the picture an animation), **Duplicate**, **Delete**, **<** and **>**
+  (move the frame) and a duration box in milliseconds (Enter applies): they run `image.frame.add`, `.remove`, `.move` and `.set`, one
+  undo step each. **Play** shows the frames one after the other for their durations: only the frame shown changes, nothing is
+  written, and a click on the canvas stops it. **Onion skin** draws the frames before (red) and after (blue) faint under the current
+  one; the boxes set how many on each side (0 to 8), how strong the nearest ghost is and whether the frames wrap around. It is a
+  preview the bake never has ([IMAGES.md](../IMAGES.md), "Onion skin"). Switching frame only changes what the panel shows and where
+  painting goes.
+- **Undo and redo** are the editor's (Ctrl+Z, Ctrl+Shift+Z, Edit menu): each stroke, selection, layer edit, adjustment edit and
+  transform is one step, and one slider drag is one step. An undo puts back the files the edit changed (the document, the PNGs of
+  the layers, the stored selection) from a table the panel keeps in memory; a step of another document opens that document first. The
+  editor's stacks hold only a pointer to the step, so the files are not part of a scene's undo history on disk.
+- **Speed.** While a stroke, a slider or a transform is live, the shared compositor draws the document with the changing layer taken
+  from memory instead of its PNG on disk, and nothing is written until the gesture ends. The layers under the one being edited are
+  composited once and reused for every frame of the gesture (the layers above it, and the whole picture when the edited layer is
+  clipped or the onion skin is on, are drawn each time). The status line shows the last composite time in ms.
+
+## Vector panel
+
+View > Vector opens the Vector panel; double-clicking a `*.svg` in the Project panel opens that drawing in it, and **Edit in Vector
+panel** in the Image panel's inspector opens the svg layer of the selected layer ([IMAGES.md](../IMAGES.md)). It is a floating window the first
+time (1100 x 720) and edits ONE drawing at a time. SVG is the document: every edit that is kept runs the `vector.*` command an AI would
+call (`vector.add`, `vector.nodes`, `vector.transform`, `vector.set`, `vector.boolean`, `vector.reorder`, ...), so the SVG keeps its ids,
+groups, transforms and untouched text exactly as [VECTOR.md](../VECTOR.md) says, and a person and an AI can take turns on the same file.
+The picture on the canvas is the engine's own SVG rasterizer (`vector_rasterize`, the one `assets.rasterize_svg` uses), never a second
+renderer. While a handle, a slider or a box is being dragged the canvas shows the same command run with `dryRun` on the text in memory;
+nothing is written until the mouse is released, and then the edit is ONE undo step. Edits are written to the file as they happen (the
+toolbar's **Save** says so); for an svg layer of an image document the edits go into the layer without baking, and **Save + bake**
+(`image.save`) bakes the document's PNG. The panel reads the file again by itself when it changes on disk (an AI, the Console, the Image
+panel) and no gesture is running.
+
+- **Toolbar.** The drawing (a menu of the project's `*.svg`), **New** (a name and a square size: writes `assets/<name>.svg` with a `viewBox`),
+  **Save**, **Reload**, **Fit**, **1:1** and a zoom percentage, then the snapping switches **Grid**, **Points** and **Guides** and **Snap...**
+  (the grid size and the guides). Grid snaps to a grid of that size in drawing units; Points snaps to the nodes, bounding-box corners and
+  centres of the other shapes and to the canvas corners and centre (a point wins over the grid and the guides); Guides are vertical and
+  horizontal lines added in **Snap...** by their position. Snapping applies to the Pen, the shape tools, node drags and moving shapes.
+- **Canvas.** The wheel zooms around the pointer, Shift+wheel and a sideways wheel pan, and so do the middle button or Space + left drag.
+  The drawing is drawn as a texture of the visible part (plus a margin, at most 4096 px a side) that is made again when the drawing
+  changes or, after the view stops moving for a few frames, when it no longer covers the view or the zoom changed; while the view moves
+  the old picture is stretched. The status line shows the selection's size, the zoom and the milliseconds the last read and picture took.
+- **Tools** (left column, shortcut in brackets): Select (V), Node (A), Pen (P), Rectangle (R), Ellipse (O), Line (L) and Shape (S).
+  Below them the style new shapes start with (fill, an optional line, its width and, when the project has a style palette in
+  `assets.json`, the palette's swatches).
+- **Select.** A click picks the topmost unlocked shape at the current group level (a click on a shape inside a group picks the group; a
+  double click on a group goes into it, a double click on empty space or Esc with nothing selected leaves it). A drag from empty space is a marquee: left to right picks the
+  shapes it contains, right to left the shapes it only touches; Shift adds and toggles. The selection's box has eight handles (drag to
+  scale, Shift keeps the aspect ratio, Alt scales from the centre), a drag outside a corner rotates (Shift snaps to 15 degrees) and a drag
+  inside moves (Shift locks to an axis). The arrow keys nudge by 1 drawing unit, with Shift by 10. Moving, scaling and rotating write a
+  `vector.transform` on the selection (the shapes keep their ids and get a `transform`, their nodes are not rewritten). Esc during a drag cancels it and changes nothing.
+- **Pen.** A click adds a corner, a drag adds a curve node (the out handle follows the mouse, the in handle is its mirror), a click on the
+  first node closes the path, Enter or a double click ends an open path, Esc drops it. A click on the end node of an open path continues
+  it from there (from its start, the new nodes are added before the first one and the path keeps its direction). A path needs two nodes.
+  The result is `vector.add` (a new path) or `vector.nodes` with `append` (a continued one).
+- **Node.** Shows the anchors and handles of the selected shapes. Drag an anchor or a handle; Alt while dragging a handle breaks the link
+  to the other handle; a double click on a segment inserts a node there; a double click on a node switches corner and smooth;
+  Shift-click and a marquee select several nodes, Delete removes them and the arrow keys push them (1 unit, 10 with Shift). When several shapes are selected a drag moves the selected
+  nodes of the shape that was grabbed. The **Nodes** row has Add node, Delete, Corner, Smooth, Symmetric, Break, Join, Close and Reverse:
+  each is a `vector.nodes` op (move, handle, insert, delete, convert, break, join, close, reverse, append).
+- **Rectangle, Ellipse, Line, Shape.** Drag a box (Shift makes it square or a circle, Alt draws from the centre; Shift on a Line snaps the
+  angle to 45 degrees). **Shape** drags out one of the `vector.shape` kinds chosen in the tools column (star, gear, polygon, arrow,
+  bubble, ribbon) with `parametric: true`: the element keeps `data-fa-shape` and `data-fa-args`, and the inspector shows its parameters
+  (points, inner ratio, teeth, sides, tail...) as live fields that call `vector.shape` with `replace`. Editing its nodes makes it a plain path.
+- **Actions.** Rows of buttons above the canvas, each one command and one undo step: **Shapes** (Union, Subtract, Intersect, Exclude =
+  `vector.boolean`; Group, Ungroup, Front, Back), **Path** (Offset..., Simplify..., Smooth..., Mirror..., Outline = `vector.stroke_to_path`),
+  **Arrange** (Align..., Distribute...) and **Style** (House style = `vector.style`, To palette, Shade... = `vector.shade`). The
+  buttons that need numbers open a small popup with the command's own arguments. A button that cannot act (too few shapes selected)
+  is greyed; a command that fails shows its message with the fix in a toast and the status line, and changes nothing.
+- **Layers** (right column, in drawing order, the top one first): the elements of the SVG as a tree of groups and shapes, each with an eye
+  (hide = `display="none"`), a padlock (lock = `data-locked="true"`: the canvas does not pick or move it), its id (double-click to rename: it
+  updates the `href` and `url(#...)` that point to it) and a triangle that opens or closes a group. Click selects (Ctrl, Cmd or Shift toggle a row of the same group level);
+  drag a row onto another to reorder it or drop it into a group (`vector.reorder` with `parent` and `before`, which compensates the
+  transforms of the old and new group so the picture does not change). Elements with no id show their selector in grey; an edit gives
+  them an id first (`vector.assign_ids`, in the same undo step), or **Give them ids** names every one.
+- **Inspector** (below the layers): the position and size of the selection (typing moves or scales it), Flip H, Flip V and Rotate 90,
+  fill and stroke (a colour popup, **none**, and, when the project has a palette, its swatches: the exact palette colour is written),
+  stroke width, opacity and fill rule, and the parameters of a parametric shape. A slider previews on the canvas while it is dragged
+  and is one undo step when released; a colour is one step when its popup closes. With several shapes selected it edits them all (the fields show the first one's values).
+- **Keys** (while the panel has the keyboard): V A P R O L S pick the tool, Delete and Backspace delete the selection, Ctrl+A selects
+  everything at the group level, Ctrl+D duplicates (a copy 10 units down and to the right), Ctrl+G and Ctrl+Shift+G group and ungroup,
+  Home fits the view, Esc drops the pen path, then the node selection, then the shape selection, then leaves the group. Ctrl+S saves.
+- **Undo and redo** are the editor's (Ctrl+Z, Ctrl+Shift+Z, Edit menu), the same stacks as the Image panel's: each edit is one step, and
+  an undo puts the files the edit changed back from a table the panel keeps in memory (so a file written byte for byte is restored
+  byte for byte); a step of another drawing, or of an svg layer, opens it first. The stacks hold only a pointer to the step.
+- **Speed.** A drawing of 600 paths, measured in a Release build on an Apple M-series Mac (the `vector_tests` case "a drawing of several
+  hundred paths" prints the times on every run): open and read in about 2 ms, a drag step (the command run with `dryRun` on the text in
+  memory) in about 1 ms, the edit written to the file in about 2.5 ms and a 1024 x 1024 picture of the drawing in about 21 ms. A Debug
+  build is ten to twenty times slower. The status line shows the last read and picture times. The hit test, the marquee and the snapping
+  use the scene read once per edit (bounds and flattened outlines), not the SVG text.
+
+## Sound panel
+
+View > Sound opens the Sound panel; double-clicking a `*.sfx.json`, a `*.audio.json`, a `.wav` or an `.ogg` in the Project panel opens
+that sound in it. It edits ONE sound at a time and is a floating window the first time. The documents are the source ([SOUND.md](../SOUND.md)):
+every edit that is kept runs the command an AI would call (`sfx.tweak` for the knobs, `sfx.edit` for any other field and for adding,
+removing and moving list items, `sfx.preset`, `sfx.family`, `audio.edit` for the steps of an audio document, `audio.create` for a
+new one), so a person and an AI can take turns on the same file and an edit is ONE step of the editor's Undo. The sound you hear is the
+engine's own offline renderer (`render_sound` in `fa/tooling/audio_view.h`, which calls `render_sfx` and the audio document renderer that `sfx.render` and `audio.render` use), never a second synthesizer.
+Edits are written to the document as they happen and the picture and the sound follow after a short pause (the render runs on a worker
+thread and the last request wins); **Save + bake** writes the WAV (`sfx.render`, with `variants` when the patch has variations, or
+`audio.bake`) and its recipe. A plain `.wav` or `.ogg` is shown read-only, with **Make an audio document from this**. The panel reads
+the file again by itself when it changes on disk and no gesture is running.
+
+- **Toolbar.** The sound (a menu of the project's patches, documents and recordings), **Save + bake**, **Replace foreign file** (bake
+  over a WAV the engine did not make; off by default), **Reload**.
+- **Waveform.** Drag to select a range, Shift-drag or middle-drag to pan, the wheel to zoom (Shift + wheel scrolls), click to place the play cursor.
+  **-**, **+**, **Fit** and **To selection** zoom too. The playhead moves while it plays. A **Spectrogram** (frequency against time) can
+  be shown under it, and the measurements (length, LUFS, peak, true peak, centroid, dominant band) are listed from the rendered samples.
+- **Transport.** Play / Stop (Space while the panel has focus), **Loop** and **Selection** (play only the selected range). Playback goes
+  through the engine's audio mixer; on a machine with no audio device the null device is advanced by the panel so the playhead still runs.
+- **Macros.** One knob per macro of the patch (`brightness`, `tail`, ...) with the macro's doc as tooltip; drag up and down (Shift for fine steps, double click for 0); the
+  edit is debounced and kept as one `sfx.tweak` undo step.
+- **Inspector.** Every field of the patch, taken from `schemas/sfx.schema.json`, so a new field of the format appears with its
+  description, minimum, maximum and default as the tooltip. Lists (layers, oscillators, effects, modulators, variations) can be
+  added to, removed from and reordered. **Start from a preset** replaces the patch; **Make a UI family** runs `sfx.family` with the
+  `ui` preset (click, hover, confirm, cancel, error, ...).
+- **Variants and A/B.** The variations of a patch are listed with a play button each; two of them can be put in slots A and B and
+  heard in turn. **Same loudness** matches their levels by the measured LUFS so the louder one does not win. **Swap** exchanges the slots.
+- **Audio documents.** The chain of steps is a list: add a step of any type, move it up or down, switch it off, hear the chain up to
+  it, remove it, and edit its fields. A `loop` step shows two draggable markers on the waveform, the loop start and the loop end.
+  The source and the output are shown with the recipe's freshness.
+
+**Autotest.** Section K3 of `fa_editor_autotest` opens a patch, drags a macro knob (one undo step, a brighter centroid), plays and stops,
+selects and zooms the waveform, adds variations and compares A and B with and without level matching, undoes and redoes, saves
+(the variant WAVs exist), then builds an audio document, adds a step, moves and enables it, drags the loop end marker, undoes it
+and saves again (`loopEnd` in `assets.json`).
+
+## Music panel
+
+View > Music opens the Music panel; double-clicking a `*.song.json` in the Project panel opens that song in it. It edits ONE song at a time and
+is a floating window the first time. The document is the source ([MUSIC.md](../MUSIC.md)): every edit that is kept runs the command an AI would
+call (`music.edit` for notes, drum grids, sections, layers, tracks, buses and the master; `music.chord`, `music.arpeggio`, `music.bassline` and
+`music.drums` for the helpers, `music.mix` for the loudness), so a person and an AI can take turns on the same file and an edit is ONE step of
+the editor's Undo. The sound you hear is the engine's own: the song is rendered by the same code a game's `MusicPlayer` uses
+(`music_render_source`, the live mode) and played through `MusicTransport`, so what the panel plays with its intensity slider is what
+`entity.music.setIntensity` plays in the game. Edits are written to the song as they happen and **do not bake**; a few frames after a change
+the song is rendered again on a worker thread (the last request wins) and the next Play hears it. **Save + bake** runs `music.render`
+(the mix and, when the song declares layers, one stem per layer) and records the recipe. The panel reads the file again by itself when it
+changes on disk (an AI's edit, another editor) and no gesture is running; the undo steps stay.
+
+- **Toolbar.** The song (a menu of the project's `*.song.json`), **Save + bake** (Ctrl+S while the panel has the keyboard), **Replace foreign file**
+  (bake over a WAV the engine did not make; off by default), **Reload**, and the last edit's name ("Undo: Mute arp").
+- **Transport.** Play / Stop (Space), the **section** menu, **Play section** (starts at the first pass of that section: a section is the granularity of
+  play-from-here), **Loop** (the section plays again and again), the **intensity** slider with **Calm** (0), **Tense** (0.5) and **Intense** (1) buttons, and the
+  gain of each layer as a row of bars. The position reads `bar 3 beat 2  00:05.4  loop`; a playhead runs through the roll and the grid while it plays. On a
+  machine with no audio device the null device is advanced by the panel so the playhead still runs. Edits wait while it plays: Stop first.
+- **Piano roll.** The tracks' patterns as notes on a keyboard. Click and drag on empty space to **draw** a note (it takes the snap length and stretches as you drag),
+  drag a note to **move** it (with the other selected notes), drag its right edge to **resize** it, right click or Delete to **delete**, Shift-click to add to the
+  selection. **Snap** (1/4 to 1/32 and triplets) and the **velocity** a new note gets are in the roll's toolbar, **Scale** shades the rows outside the song's key and mode,
+  **-/+** zoom and **Up/Down** an octave. A **velocity lane** under the roll sets a note's velocity by dragging its bar. A drag is a working copy: letting go makes ONE `music.edit set_pattern`
+  with the notes as a list, so it is ONE undo step. The playhead of the pattern shows when the track plays it. The pattern menu, **New pattern**, **Remove pattern** and the bars
+  **-/+** change the pattern; **Insert chord** (a name such as `Am7`) adds the chord's notes at the yellow cursor, **Arpeggio** and **Bass line** replace the pattern with a
+  generated one over a progression.
+- **Drums.** A kit track's patterns as a grid: one row per lane, one cell per step. A click on a cell steps it through hit, accent, ghost note and empty, a right click clears it; the step value
+  (`4` to `32` and triplets) and the bars are set above it, **Add lane** / **Remove last lane**, **Clear**, and **Generate** a groove in a style (`music.drums`, with a tom fill).
+- **Arrangement.** The sections in order with their kind, the **repeat** count (**-** / **+**), **up** / **down**, **remove**, **play**, and **Add section**; under each, what every
+  track plays there (the pattern names, `a a b*2`, or `rest`) and a **muted** box that silences the track in that section only. **Layers** lists the song's layers with the intensity each fades in at
+  and the tracks in it; **Add layer** makes one.
+- **Mixer.** One strip per track: volume, pan, **M**ute, **S**olo, its sends to the buses, its effects chain (add and remove any effect the engine has, with every field
+  and its range from `audio_step_types()`), and the instrument. **Buses** with volume, mute and effects; the **master** with the song volume, the limiter and its ceiling, the
+  loudness target (`style`, `off` or a LUFS number) and **Measure loudness** (`music.mix`: LUFS and peak of the whole mix).
+
+A change a command refuses (an unknown pattern, a bar that does not add up) is shown in the panel's status line with the command's hint and the file stays as it was. Dragging a
+number (volume, pan, a repeat) is one edit when the mouse is released, not one per frame.
+
+**Autotest.** Section M3 of `fa_editor_autotest` opens a layered song, draws a note by dragging on the roll, moves it, deletes it with a right click and walks
+Undo and Redo through the editor's stack, clicks a snare into the drum grid, raises a section's repeat and mutes a track in the mixer (each one undo step), plays and
+checks that the playhead moves, fades the top layer in and out with the Intense and Calm buttons, loops a section, and saves (the mix and the stems exist).

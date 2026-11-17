@@ -111,7 +111,7 @@ if(FA_BUILD_TESTS)
             WORKING_DIRECTORY ${FA_ROOT})
         set_tests_properties(cli_mcp_update PROPERTIES TIMEOUT 300)
 
-        # scripts/player-size.sh (player size budgets, docs/BUILDING.md): the schema of tools/size/player_size_budget.json, the
+        # scripts/player-size.sh (player size budgets, docs/design/BUILDING.md): the schema of tools/size/player_size_budget.json, the
         # link map readers (GNU ld, lld, ld64, MSVC) on sample maps, and `measure` on a fake binary over, under and with no
         # budget, a missing file, `update`, and the archive fallback. Needs no build: a second or two.
         add_test(NAME player_size_script
@@ -207,7 +207,7 @@ if(FA_BUILD_TESTS)
             endforeach()
         endif()
     endforeach()
-    # The same frames with jobs inline and on 8 threads (docs/ARCHITECTURE.md, "Systems that run as jobs"): Tidewater
+    # The same frames with jobs inline and on 8 threads (docs/design/ARCHITECTURE_THREADS.md, "Systems that run as jobs"): Tidewater
     # Market's stress scene gathers its sprites as jobs, Larkspur Lodge's 3D ground scene (shadows, skinned guests) stays
     # under the thresholds and must not change either.
     add_test(NAME example_jobs_same_frames

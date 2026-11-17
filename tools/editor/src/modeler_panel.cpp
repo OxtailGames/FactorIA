@@ -114,7 +114,6 @@ void Editor::modeler_edited(const ModelerEditOutcome& out) {
     }
     if (out.step <= 0 || !u.model) return;
     undo_.push_back(Json::object({{"$modeler", Json::object({{"step", out.step}})}}));
-    if (undo_.size() > 100) undo_.erase(undo_.begin());
     redo_.clear();
     lastEditKey_.clear();
     modeler_collect_steps();

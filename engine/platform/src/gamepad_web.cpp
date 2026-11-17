@@ -7,6 +7,14 @@
 // A pad without that mapping is used with the same numbers (the best a page can do) and logged once as untested.
 // A pad keeps its slot while it stays connected: a new pad takes the slot it had before when that is free (else the first
 // free one), an unplugged pad frees its own. Each pad has a stable id (GamepadInfo) built from the browser's Gamepad.id.
+// Rumble: Gamepad.vibrationActuator.playEffect("dual-rumble", ...) where the browser has it (Chrome and Edge; Firefox and
+// Safari do not, so canRumble is false there). Everything is checked with typeof before use: a missing actuator, a
+// missing effect type or a refused promise (the browser wants a user activation first) never throws. While the page has
+// had none (navigator.userActivation: a click on the page or a key press; in some Chrome versions a button of the pad does not
+// count) a pad answers canRumble: false with that reason, so the engine starts the rumble that is still running as soon as the
+// player clicked or pressed a key, instead of losing it. The browser's pad list is asked for once per frame by poll_gamepads(),
+// and again by the rumble hooks when it is older than 2 ms (poll_gamepads() is not called while the page has no focus).
+#include <emscripten.h>
 #include <emscripten/html5.h>
 
 #include <cstdint>
@@ -15,6 +23,55 @@
 
 #include "fa/core/log.h"
 #include "fa/platform/gamepad.h"
+
+// The JavaScript of EM_JS is not C++: clang-format must not touch it. No apostrophes in it: it travels through the C
+// preprocessor.
+// clang-format off
+EM_JS(void, fa_web_pad_new_frame, (), {
+    Module["faPadList"] = null;  // navigator.getGamepads() is asked once per frame, not once per pad and call
+});
+EM_JS(void, fa_web_pad_refresh, (), {
+    // The list of this frame: poll_gamepads() drops it at the start of each frame, but it is not called while the page has no
+    // focus, and the rumble hooks still run then (the stop of a pad): a list older than 2 ms is asked for again. Both rumble
+    // functions below read Module["faPadList"], so the C++ calls this first.
+    const now = typeof performance !== "undefined" ? performance.now() : 0;
+    if (!Module["faPadList"] || now - (Module["faPadListAt"] || 0) > 2) {
+        Module["faPadList"] = typeof navigator.getGamepads === "function" ? navigator.getGamepads() : null;
+        Module["faPadListAt"] = now;
+    }
+});
+EM_JS(int, fa_web_pad_rumble_kind, (int index), {
+    // 1: Gamepad.vibrationActuator takes "dual-rumble"; 2: it does, but the browser will not play it before the page has
+    // had a user activation; 0: it does not.
+    const pads = Module["faPadList"];
+    const pad = pads ? pads[index] : null;
+    const act = pad ? pad.vibrationActuator : null;
+    if (!act || typeof act.playEffect !== "function") return 0;
+    if (act.effects && typeof act.effects.includes === "function" && !act.effects.includes("dual-rumble")) return 0;
+    if (!act.effects && act.type && act.type !== "dual-rumble") return 0;
+    if (navigator.userActivation && navigator.userActivation.hasBeenActive === false) return 2;
+    return 1;
+});
+EM_JS(int, fa_web_pad_rumble, (int index, double strong, double weak, int ms), {
+    const pads = Module["faPadList"];
+    const pad = pads ? pads[index] : null;
+    const act = pad ? pad.vibrationActuator : null;
+    if (!act || typeof act.playEffect !== "function") return 0;
+    try {
+        let p;
+        if (ms <= 0) {
+            if (typeof act.reset === "function") p = act.reset();
+            else p = act.playEffect("dual-rumble", { startDelay: 0, duration: 1, weakMagnitude: 0, strongMagnitude: 0 });
+        } else {
+            p = act.playEffect("dual-rumble", { startDelay: 0, duration: ms, weakMagnitude: weak, strongMagnitude: strong });
+        }
+        if (p && typeof p.catch === "function") p.catch(function () {});
+    } catch (e) {
+        return 0;
+    }
+    return 1;
+});
+// clang-format on
 
 namespace fa {
 namespace {
@@ -106,6 +163,7 @@ void feed(Input& in, int slot, const EmscriptenGamepadEvent& pad) {
 
 void poll_gamepads(Input& in) {
     init_slots();
+    fa_web_pad_new_frame();
     if (emscripten_sample_gamepad_data() != EMSCRIPTEN_RESULT_SUCCESS) {
         if (!g_unsupportedLogged) {
             g_unsupportedLogged = true;
@@ -151,6 +209,29 @@ void poll_gamepads(Input& in) {
         else
             in.on_gamepad_connected(s, false);
     }
+}
+
+GamepadRumbleSupport gamepad_backend_rumble_support(int slot) {
+    if (slot < 0 || slot >= kMaxGamepads || g_slotOf[slot] < 0) return {false, "there is no pad in this slot"};
+    fa_web_pad_refresh();
+    const int kind = fa_web_pad_rumble_kind(g_slotOf[slot]);
+    if (kind == 1) return {true, {}};
+    if (kind == 2)
+        return {
+            false,
+            "the browser lets a pad rumble only after the player clicked the page or pressed a key (a button of the "
+            "pad may not count): do one of them, and a rumble still running starts then"};
+    return {false,
+            "this browser or this pad has no rumble (Gamepad.vibrationActuator): Chrome and Edge rumble Xbox and "
+            "PlayStation pads, Firefox and Safari do not"};
+}
+
+// low is the heavy motor (the spec's strongMagnitude), high the light one (weakMagnitude). seconds 0 stops the effect.
+bool gamepad_backend_rumble(int slot, float low, float high, float seconds) {
+    if (slot < 0 || slot >= kMaxGamepads || g_slotOf[slot] < 0) return false;
+    const int ms = seconds > 0.0f ? int(seconds * 1000.0f + 0.5f) : 0;
+    fa_web_pad_refresh();
+    return fa_web_pad_rumble(g_slotOf[slot], double(low), double(high), seconds > 0.0f && ms < 1 ? 1 : ms) != 0;
 }
 
 }  // namespace fa

@@ -13,6 +13,7 @@
 #include <filesystem>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "ai_usage.h"
@@ -170,6 +171,12 @@ Result<ChatAttachment> attach_bytes(const std::string& projectDir, const std::st
 
 // The line that tells the AI which entity the user is pointing at ("" when nothing is selected).
 std::string selection_line(const std::string& entityName, const std::string& entityId);
+// Same with several entities selected: `others` are the (name, id) of the selected entities besides the primary one. "this" and
+// "it" stay the primary; "these" and "them" are all of them. At most kSelectionLineMax ids are listed (the rest is counted), so a
+// "select all" of a thousand entities does not become a thousand ids in every prompt. Without `others` it is the line above.
+inline constexpr std::size_t kSelectionLineMax = 20;
+std::string selection_line(const std::string& entityName, const std::string& entityId,
+                           const std::vector<std::pair<std::string, std::string>>& others);
 
 // The line that tells the AI that the user took back what it did, from the Revert / Undo revert items after the chat's last
 // user message ("" when there are none; a revert and its Undo revert cancel out). The editor puts it before the next prompt,

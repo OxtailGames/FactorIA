@@ -36,7 +36,7 @@ namespace stdfs = std::filesystem;
 
 void Editor::at_section_E3(AtScript& at) {
     AT_SCRIPT_LOCALS(at)
-    // The Extensions tab of the AI settings window (docs/EDITOR.md, "AI settings"): a plugin folder added with the form, hooks pasted,
+    // The Extensions tab of the AI settings window (docs/ai-providers/AI_PROVIDERS_AGENT.md, "The AI settings window"): a plugin folder added with the form, hooks pasted,
     // a role switched off, Save writing only "extensions" (the other keys of ai.json stay, owner-only); then the project's own
     // file: a skill and hooks kept "only for this project", the hooks not running until Trust this project, and the trust dropped
     // when the file changes.

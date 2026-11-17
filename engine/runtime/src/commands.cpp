@@ -13,6 +13,7 @@
 #include "fa/runtime/test_files.h"
 #include "fa/scene/serialize.h"
 #include "fa/scene/state_hash.h"
+#include "fa/scene/ui_rect.h"
 #include "fa/services/platform_commands.h"
 
 namespace fa {
@@ -223,7 +224,7 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
          parse_schema(R"({"type":"object","properties":{}})"), true, "project"},
         [&I](const Json&) {
             Json j = Json::object();
-            j["project"] = I.project.to_json();
+            j["project"] = I.project.to_json_redacted();
             j["currentScene"] = I.currentScene;
             Json scenes = Json::array(), scripts = Json::array(), prefabs = Json::array();
             for (const auto& f : fs::list("scenes", true, ".json")) scenes.push_back(f);
@@ -396,14 +397,21 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
          "`parent` null or \"\" makes it a root. By default (`keepWorldTransform` true) the entity stays where it is "
          "on "
          "screen: its local Transform is recomputed for the new parent; with false the local Transform is kept, so the "
-         "entity moves with the new parent. The entity becomes the LAST child of its new parent unless `index` says "
-         "where: 0 = first; it counts the new parent's other children, so moving within the same parent works (index 0 "
-         "on the "
-         "last child makes it first); an index below 0 or above the number of other children is refused, and `index` "
-         "needs a "
-         "parent (top-level order is creation order). Scene files keep the order. A parent that is the "
-         "entity itself or one of its children is refused (a cycle), and so is an entity being destroyed this frame or "
-         "a new parent being destroyed. Example: scene.set_parent {\"id\":\"coin_3\",\"parent\":\"chest\"}",
+         "entity moves with the new parent. Into a parent that lays its children out (a Panel with a `layout`, a "
+         "ScrollList) a widget's Transform.position becomes [0, 0] and the result says `positionReset` true. The "
+         "entity becomes the LAST child unless `index` says where; moving under the SAME parent changes only the "
+         "order. A cycle is refused. Example: scene.set_parent "
+         "{\"id\":\"coin_3\",\"parent\":\"chest\"}" FA_COMMAND_DETAILS
+         "The exception (with `keepWorldTransform` true, into a DIFFERENT parent that lays its children out) applies "
+         "to "
+         "a widget and to a screen-space Text, Sprite or Shape2D: the position goes to its slot, as the layout would "
+         "have put it, rotation and scale are kept. That decision looks only at the child's component type and space "
+         "(ui_layout_places): the layout skips an inactive child, and a Text with no text or a Sprite with no size, "
+         "which therefore also get position [0, 0] without being placed. `index` counts the new parent's other "
+         "children (0 = first; index 0 on the last child makes it first); an index below 0 or above the number of "
+         "other children is refused, and `index` needs a parent (top-level order is creation order). Scene files keep "
+         "the order. A parent that is the entity itself or one of its children is refused (a cycle), and so is an "
+         "entity being destroyed this frame or a new parent being destroyed.",
          parse_schema(R"({"type":"object","required":["id"],"properties":{
                "id":{"type":"string","description":"Entity id (or name) to move."},
                "parent":{"type":["string","null"],"description":"New parent's id (or name); null or empty = top level."},
@@ -439,10 +447,13 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
                                        "scene.get_entity on the parent lists its children in order.");
                 index = a["index"].get<int>();
             }
-            I.world.set_parent(e, parent, a.value("keepWorldTransform", true), index);
+            const bool keepWorld = a.value("keepWorldTransform", true);
+            const Entity before = I.world.parent(e);
+            I.world.set_parent(e, parent, keepWorld, index);
             Entity now = I.world.parent(e);
             Json out =
                 Json::object({{"id", I.world.id_of(e)}, {"parent", now ? Json(I.world.id_of(now)) : Json(nullptr)}});
+            if (keepWorld && now != before && ui_layout_places(I.world, now, e)) out["positionReset"] = true;
             if (now) {
                 const auto& sib = I.world.children(now);
                 out["index"] = std::find(sib.begin(), sib.end(), e) - sib.begin();
@@ -792,6 +803,84 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
         });
 
     I.commands.add(
+        {"game.rumble",
+         "Rumble a gamepad (the heavy and the light motor, 0..1, for some seconds), stop it, or just read what every "
+         "pad "
+         "does and whether it can rumble.",
+         "Give `low` (the heavy, low-frequency motor), `high` (the light, high-frequency one) and `seconds` (above 0, "
+         "up "
+         "to 10) to start the motors of pad `pad` (0..3, default 0); the same as input.rumble() in a script. `stop: "
+         "true` "
+         "stops the pad instead (without `pad`, every pad). With neither, nothing changes and the result only reports. "
+         "The result lists every pad: connected, canRumble, reason (why it cannot, e.g. the pad has no motors the "
+         "platform can drive), and the motors now (low, high, seconds left). Strengths outside 0..1 are clamped, and a "
+         "request with both at 0 is a stop; a "
+         "request for a pad that is not connected or cannot rumble is accepted and does nothing. The seconds run down "
+         "with "
+         "the frames' own duration (game.step), not scaled by time.scale; the engine stops every pad when the game "
+         "pauses "
+         "itself (time.scale 0), changes scene or quits. " FA_COMMAND_DETAILS
+         "Example: game.rumble {\"pad\":0,\"low\":0.6,\"high\":0.2,\"seconds\":0.3}, then "
+         "game.rumble {\"stop\":true}. A "
+         "headless run has no hardware: connect a test pad first (game.input "
+         "{\"gamepad\":{\"index\":0,\"connected\":true}}) "
+         "and read the motors in the result; real motors need a game running in its own window (`factoria run`, an "
+         "export; the editor's Game view reads no physical pads): Windows pads (XInput, DualShock 4, DualSense, Switch "
+         "Pro), Linux pads with kernel force feedback, macOS and iOS pads with GameController haptics, Android pads "
+         "with "
+         "vibrators, Chrome-based browsers.",
+         parse_schema(R"({"type":"object","properties":{
+               "pad":{"type":"integer","minimum":0,"maximum":3,"description":"Gamepad slot 0..3 (default 0; with `stop`, default every pad)."},
+               "low":{"type":"number","description":"Strength of the heavy, low-frequency motor, 0..1 (clamped)."},
+               "high":{"type":"number","description":"Strength of the light, high-frequency motor, 0..1 (clamped)."},
+               "seconds":{"type":"number","description":"How long, above 0 and up to 10. Required with low or high."},
+               "stop":{"type":"boolean","default":false,"description":"true: stop the pad (every pad when `pad` is left out)."}}})"),
+         false, "game"},
+        [&I](const Json& a) {
+            const bool stop = a.value("stop", false);
+            const bool start = a.contains("low") || a.contains("high") || a.contains("seconds");
+            if (stop && start)
+                throw CommandError(
+                    "invalid_argument",
+                    "`stop` cannot be combined with low, high or seconds: a call either starts the motors "
+                    "or stops them.",
+                    "Call game.rumble twice: {\"stop\":true}, then {\"low\":0.5,\"high\":0.5,\"seconds\":0.3}.");
+            if (start && !a.contains("seconds"))
+                throw CommandError("invalid_argument", "`seconds` is required to start the motors.",
+                                   "Add how long the rumble lasts, e.g. {\"low\":0.5,\"high\":0.5,\"seconds\":0.3}.");
+            if (start && !a.contains("low") && !a.contains("high"))
+                throw CommandError(
+                    "invalid_argument",
+                    "`seconds` alone starts nothing: give `low` and/or `high` (the strength of a motor, 0..1).",
+                    "Add the strengths, e.g. {\"low\":0.5,\"high\":0.5,\"seconds\":0.3}; to stop the "
+                    "pad use {\"stop\":true}.");
+            const auto num = [&a](const char* key) {
+                return a.contains(key) && a[key].is_number() ? a[key].get<double>() : 0.0;
+            };
+            if (stop) {
+                I.input.stop_rumble(a.contains("pad") ? a.value("pad", 0) : -1);
+            } else if (start) {
+                auto r = make_rumble_request("game.rumble", a.value("pad", 0), num("low"), num("high"), num("seconds"));
+                if (!r.ok()) throw CommandError("invalid_argument", r.error().message, r.error().hint);
+                I.input.rumble(*r);
+            }
+            Json pads = Json::array();
+            for (int i = 0; i < kMaxGamepads; ++i) {
+                const RumbleState st = I.input.rumble_state(i);
+                pads.push_back(
+                    Json::object({{"pad", i},
+                                  {"connected", I.input.gamepad_connected(i)},
+                                  {"canRumble", I.input.gamepad_can_rumble(i)},
+                                  {"reason", I.input.gamepad_connected(i) ? I.input.gamepad_rumble_reason(i)
+                                                                          : std::string("no pad in this slot")},
+                                  {"low", std::round(st.low * 1000.0f) / 1000.0},
+                                  {"high", std::round(st.high * 1000.0f) / 1000.0},
+                                  {"seconds", std::round(st.remaining * 1000.0f) / 1000.0}}));
+            }
+            return Json::object({{"pads", pads}});
+        });
+
+    I.commands.add(
         {"game.click",
          "Click the game like a player: move the mouse, press, release; scripts see pressed/released and UI widgets "
          "get the click.",
@@ -1125,6 +1214,32 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
                    });
 
     I.commands.add(
+        {"ui.reset_layout_positions",
+         "Migrate a scene saved before 0.30: set Transform.position x and y to 0 on the laid-out children whose "
+         "position holds the old layout result.",
+         "Before 0.30 a Panel or ScrollList wrote where it placed a child into the child's Transform.position, and a "
+         "saved scene kept it. Now the layout keeps its own offset and Transform.position of a laid-out child is the "
+         "author's nudge from the slot (0 = in the slot), so such a child sits that far from where it was. This runs a "
+         "layout pass and sets x and y of the position to 0 on every laid-out child whose position equals its layout "
+         "offset (within half a pixel), so the picture stays what the old engine drew. It changes the open scene only: "
+         "save it afterwards (scene.save); in the editor it is one undo step. Returns {count, ids, dryRun}. The test "
+         "is "
+         "a guess. A nudge you made on purpose that happens to equal the slot offset is reset too (the log names each "
+         "such child the first time a layout sees it), and a child of a ScrollList is compared with the offset it has "
+         "at the list's current scroll, so a list scrolled since the scene was loaded can hide a baked position: run "
+         "this right after loading the scene. With `dryRun` true nothing is written: look at the ids first. Example: "
+         "ui.reset_layout_positions {\"dryRun\":true}",
+         parse_schema(R"({"type":"object","properties":{
+               "dryRun":{"type":"boolean","default":false,"description":"true = only list the entities that would be reset (count and ids), change nothing."}}})"),
+         false, "ui"},
+        [&I](const Json& a) {
+            const bool dryRun = a.value("dryRun", false);
+            I.ui.layout(I.world, I.design_size(), I.measure(), false);
+            const std::vector<std::string> ids = I.ui.reset_baked_positions(I.world, dryRun);
+            return Json::object({{"count", ids.size()}, {"ids", ids}, {"dryRun", dryRun}});
+        });
+
+    I.commands.add(
         {"ui.set_slider", "Set a Slider the way a drag does: clamped, snapped to step, and ui.change is sent.",
          "For tests and tools (game.setSlider(id, value) in a test calls it). The slider takes focus, `value` is "
          "clamped to "
@@ -1238,7 +1353,8 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
 
     I.commands.add(
         {"ui.set_mirror_rtl", "Turn the mirroring of the screen-space UI in a right-to-left language on or off.",
-         "The same as `ui.mirrorRtl = value` in a script (docs/LOCALIZATION.md, \"Right to left\"). On (the default, "
+         "The same as `ui.mirrorRtl = value` in a script (docs/LOCALIZATION.md, \"Right-to-left text\"). On (the "
+         "default, "
          "or the "
          "\"ui\": {\"mirrorRtl\"} of factoria.json) and with i18n.direction \"rtl\", the screen-space widgets and the "
          "Text, Sprite "
@@ -1607,7 +1723,7 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
                     "List the keys of the game's save storage (storage.set): the ones the running game holds and the "
                     "key files in the save folder.",
                     "Shows what `storage.get/set` keeps for this project: each key with `inMemory`, `onDisk`, "
-                    "`compressed` and `bytes`, the "
+                    "`compressed`, `encrypted` and `bytes`, the "
                     "storage `mode`, and the `dir` (<user dir>/storage, one JSON file per key) that the editor and "
                     "`factoria run` write to. "
                     "`factoria mcp` and `factoria call` keep the game's storage in memory (--persist-storage opts in), "
@@ -1618,7 +1734,8 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
                     "storage and never "
                     "reads or writes the save folder, so a stale save cannot change a test result. `damaged` lists key "
                     "files that do not "
-                    "parse. Example: storage.list {}",
+                    "parse or, for an encrypted one, do not authenticate (edited, damaged, or written with another "
+                    "storage.encryptionSecret). Example: storage.list {}",
                     parse_schema(R"({"type":"object","properties":{}})"), true, "script"},
                    [&I](const Json&) { return I.scripts.storage_list(); });
 
@@ -2182,9 +2299,11 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
             {"game.step", capability_sets::changes_state()},
             {"game.input", capability_sets::changes_state()},
             {"game.click", capability_sets::changes_state()},
+            {"game.rumble", capability_sets::changes_state()},
             {"ui.set_slider", capability_sets::changes_state()},
             {"ui.set_text_scale", capability_sets::changes_state()},
             {"ui.force_touch", capability_sets::changes_state()},
+            {"ui.reset_layout_positions", capability_sets::changes_state()},
             {"ui.set_scale", capability_sets::changes_state()},
             {"ui.set_mirror_rtl", capability_sets::changes_state()},
             {"ui.speak", capability_sets::changes_state()},

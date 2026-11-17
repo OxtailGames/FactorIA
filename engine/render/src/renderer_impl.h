@@ -93,6 +93,9 @@ struct Renderer::Impl {
     // The rendering cameras of the last update()/draw in draw order (never empty after the first one: a world without a camera
     // gets one default camera). [0] is "the" camera: the lowest depth.
     std::vector<CameraInfo> lastCams;
+    // The same cameras seen from their REAL pose, filled only while render interpolation blends a camera (it or an ancestor): scripts, picking and UI
+    // hit tests ask these (camera_for), so an answer never depends on alpha. Empty = lastCams.
+    std::vector<CameraInfo> logicCams;
     bool warnedNoLight = false;
     std::string
         warnedViewport;  // the last "bad Camera.viewport" problem logged (a viewport a script sets live is clamped)
@@ -200,8 +203,11 @@ struct Renderer::Impl {
     sg_view upload_shadow_rows(const Frame& fr);
     void destroy_light_resources();
     // `view` (a CameraView's rectangle in design pixels) makes the camera fill an image of that size instead of its viewport.
-    CameraInfo build_camera(World& world, Entity entity, const Vec2* viewSize = nullptr, bool renderTarget = false);
-    std::vector<CameraInfo> collect_cameras(World& world);
+    CameraInfo build_camera(World& world, Entity entity, const Vec2* viewSize = nullptr, bool renderTarget = false,
+                            bool blended = true);
+    std::vector<CameraInfo> collect_cameras(World& world, bool blended = true);
+    void refresh_logic_cameras(World& world);
+    Vec2 logic_camera_xy() const;  // the first camera's real position: lastCams, or logicCams while a camera is blended
     const CameraInfo& camera_for(Entity camera, const Vec2* screenPoint) const;
     // The 3D world of the frame, gathered once by render() (capture_world: scoped to its subject) before any job and read by the
     // gather_meshes of every camera, render target and CameraView.

@@ -37,6 +37,8 @@ inline constexpr AutotestSection kAutotestSections[] = {
     {"K", "Custom material: params, snippet reload, a broken snippet"},
     {"L", "Hand editing in the Hierarchy and the Inspector"},
     {"M", "Transform gizmos: 2D, 3D and a HUD entity"},
+    {"M4", "Several entities selected: Ctrl and Shift clicks in the Hierarchy, a marquee and Ctrl click in the viewport, the move gizmo and the Inspector write to all of them as one undo step, Esc puts them back, Add Component, Duplicate and Delete on the selection"},
+    {"M5", "Copy, cut and paste of entities: Ctrl+C, Ctrl+X and Ctrl+V in the Hierarchy through the system clipboard, one undo step each, the copy of the primary selected last, text that is not entities pastes nothing, another panel keeps the keys, the row menu's Copy and Paste"},
     {"N", "Project panel"},
     {"O", "CLI agent through the editor's MCP endpoint"},
     {"P", "Revert an AI run: checkpoint, Revert, Undo revert"},
@@ -72,6 +74,8 @@ inline constexpr AutotestSection kAutotestSections[] = {
     {"T2", "Play on phone window: Start without a web player says how to get one, with a stand-in player the server answers on its token, the LAN address is drawn as a QR code, a log line POSTed like the phone's page lands in the log (category phone), a new file exports again, Stop closes the port; the checklist for a phone that cannot connect"},
     {"S3", "Play > Let the AI Play: the Play sessions list marks the AI's sessions, Attach last play session picks the one you played, a real play.auto run on a worker thread ends with its session listed and opened, Cancel writes none"},
     {"R4", "Review window: a sheet made by a command is offered in a toast and opens on its button, 3 and the arrows select, Compare shows 1 and 2 side by side, Enter and the confirmation pick through review.pick (the other files move to the drop folder), History shows the pick and opens the sheet read-only, the Level generator's Sheet of seeds makes a sheet in a child factoria whose pick sets the seed"},
+    {"P4", "Prefab overrides in the Inspector: an overridden field is marked and counted, Revert to prefab and Apply to prefab from the field's menu, Undo, the other instance follows an apply, Apply all asks first, a removed component named and given back, Apply greyed out while the game plays"},
+    {"X2", "Start window, Examples tab (a fake release): offline with no saved copy the error and Retry, the list, the saved list shown at once and dropped when the window closes mid-refresh, a failed refresh marked stale, a bad hash is an error that leaves nothing, Cancel, Create makes and opens the project"},
 };
 // clang-format on
 

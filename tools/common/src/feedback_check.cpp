@@ -342,9 +342,13 @@ void add_match(ClaimResult& r, ClaimMatch m) {
 }
 
 bool path_is_about_feedback(const std::string& path) {
-    static const char* const skip[] = {
-        "docs/ENGINE_FEEDBACK.md", "docs/EXTENDING.md", "docs/ARCHITECTURE.md", "docs/design/",
-        "docs/ROADMAP.md",         "CHANGELOG.md",      "docs/CLI.md"};
+    static const char* const skip[] = {"docs/ENGINE_FEEDBACK.md",
+                                       "docs/EXTENDING.md",
+                                       "docs/design/ARCHITECTURE.md",
+                                       "docs/design/",
+                                       "docs/ROADMAP.md",
+                                       "CHANGELOG.md",
+                                       "docs/CLI.md"};
     for (const char* s : skip)
         if (path.rfind(s, 0) == 0) return true;
     return false;

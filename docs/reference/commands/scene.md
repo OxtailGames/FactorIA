@@ -47,6 +47,58 @@ With `id`: that load (from scene.preload, assets.preload, scene.load {async:true
 |---|---|---|---|
 | `id` | integer | no | A loadId. Default: every running and recent load. |
 
+## `prefab.apply` (modifies state)
+
+Since 0.30.0.
+
+Write an instance's values into its prefab file: one field, one component, or everything; the other instances follow.
+
+Capabilities: read, state, writeProject
+
+`id` is the instance's root or a part of it; `component` and `field` narrow it as in prefab.revert (without them: everything the entity and what is below it overrides, added components and children included; a component the instance lost is deleted from the file). The prefab file keeps its own structure (its nested prefabs and the parts you did not touch stay) but is written back in the engine's own JSON layout, like scene.save: the indentation and line endings of a hand-formatted file are normalized, so the first Apply of such a file shows up as a whole-file diff. Every other instance of the prefab in the open scene gets the same change, except where it overrides that thing itself (a component the instance lost is also removed from an instance that overrides some of its fields: a note says so; the call looks at every instance of the prefab in the scene, so it takes longer with hundreds). Example: prefab.apply {"id":"enemy_1","component":"Sprite","field":"/color"}
+
+Returns {id, root, prefab, applied: [the entries prefab.overrides lists], files: [the prefab file written], updated: [ids of the other instances that were updated], skipped: [{id, reason}] (instances whose differences cannot be listed: left as they are), notes?}. Where the instance stands (the root's Transform.position) is not written unless named, like prefab.save. Refuses, changing nothing, a read-only file (code read_only), a prefab that does not exist, an instance whose differences cannot be listed (not_expressible) and changes the file has no place for (cannot_apply; each entry of prefab.overrides says so in `applyBlocked`). The file is written for good (the editor's Ctrl+Z puts the open scene back, not the file: use version control to go back), and instances of this prefab inside other prefabs are only updated after a scene.reload. The editor does not offer it while the game runs: a call made then writes what the running game holds.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `id` | string | yes | Id (or name) of the instance's root or of a part of it. |
+| `component` | string | no | Only this component of the entity (e.g. Sprite, Transform, EntityInfo). Without it: everything of the entity and below. |
+| `field` | string | no | With `component`: only this field, as a JSON pointer inside the component, e.g. "/color" ("color" works too). |
+
+## `prefab.overrides`
+
+Since 0.30.0.
+
+List what a prefab instance of the open scene overrides: what differs from its prefab.
+
+Capabilities: read
+
+`id` is an entity of a prefab instance, its root or a part of it; the list covers that entity and what is below it (the whole instance for the root). Returns {id, root, prefab, expressible, count, overrides: [{kind, entity, component, field, value, prefabValue}]}: kind "field" (a field of a component, as a JSON pointer: "/position"; name, tags and active are fields of EntityInfo), "component" (one the prefab lacks, with its whole value), "removedComponent" (one the prefab has and the instance lost; prefabValue comes back) or "child" (added under the instance's root). Example: prefab.overrides {"id":"enemy_1"}
+
+`prefabValue` is what prefab.revert puts back; an Entity field gives the id of the instance's own entity. The root's Transform.position is listed with placement: true and not counted: where an instance stands is not an override of the prefab. An entry with `applyBlocked` cannot be written to the prefab file by prefab.apply (it points at an entity outside the prefab, or at a part that a prefab inside the prefab made): the text says why. When the differences cannot be listed (a child of the prefab was removed, a child was added under a part of it) `expressible` is false, `reason` says what to fix and the list is empty. It reads the prefab file and changes nothing.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `id` | string | yes | Id (or name) of the instance's root or of a part of it. |
+
+## `prefab.revert` (modifies state)
+
+Since 0.30.0.
+
+Put the prefab's values back into an instance: one field, one component, or everything.
+
+Capabilities: read, state
+
+`id` is the instance's root or a part of it. Without `component` everything the entity and what is below it overrides goes back to the prefab (for the root: the whole instance, added components and children included); with `component`, that component of the entity; with `component` and `field`, that one field (a JSON pointer such as "/position"; name, tags and active are fields of EntityInfo). Changes the open scene only: the prefab file stays as it is. Example: prefab.revert {"id":"enemy_1","component":"Sprite","field":"/color"}
+
+Where the instance stands (the root's Transform.position) is not reverted unless named: {"component": "Transform", "field": "/position"}. A component the prefab lacks is removed, one it lost comes back, a child added under the instance is destroyed. All or nothing: when one change cannot be put back, none is. Returns {id, root, prefab, reverted: [the entries prefab.overrides lists], notes?}. Refuses (code not_expressible) an instance whose differences cannot be listed (a removed child); prefab.overrides says why. The editor calls it through its command undo, so Ctrl+Z puts the values back.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `id` | string | yes | Id (or name) of the instance's root or of a part of it. |
+| `component` | string | no | Only this component of the entity (e.g. Sprite, Transform, EntityInfo). Without it: everything of the entity and below. |
+| `field` | string | no | With `component`: only this field, as a JSON pointer inside the component, e.g. "/color" ("color" works too). |
+
 ## `prefab.save` (modifies state)
 
 Save an entity of the running world, with its children, as a prefab file.
@@ -81,6 +133,23 @@ The edited `rows` are written back to `file` (one row per line, every other key 
 | `ops` | array | yes | Operations applied in order, all-or-nothing. fill {rect:[col,row,w,h], glyph}; replace {from, to, rect?}; insertColumns {at, count, glyph?}; deleteColumns {at, count}; put {col, glyph, row \| above}. 0-based, row 0 = top. |
 | `rebuild` | boolean | no | Rebuild the level with scene.import_ascii on the edited file when it has a `path`. Default true. |
 | `dryRun` | boolean | no | Write nothing; return the edited rows (and the import's dry run). Needs no writeProject: `file` is only read. Default false. |
+
+## `scene.copy_entities`
+
+Since 0.30.0.
+
+Write entities of the running world, with their subtrees, as one JSON text.
+
+Capabilities: read
+
+Returns {text, count, roots}: `text` is self-contained (components, children, links to prefabs), so it can be kept, sent, or given to scene.paste_entities in this scene, another scene or another editor. `ids` are ids or names; an entity whose ancestor is also listed is copied with that ancestor, once. `count` is every entity in the text, `roots` the ids that head it. The world is not changed. Example: scene.copy_entities {"ids":["player","coin_3"]}
+
+The text is {"format":"factoria.entities/1","entities":[{"parent":"<id the root had>"?,"entity":{...}}]}. The entity JSON is the one the editor's undo keeps: every serialized field that differs from its default, the children inline, and the `$prefab` / `$fromPrefab` keys that keep an instance of a prefab linked to it. Runtime state (velocities, animation time) is not copied, and a field an animation drives is copied at its rest value. Entity fields stay as the ids they hold; scene.paste_entities remaps them.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `ids` | array | yes | Ids (or names) of the entities to copy; each is copied with all its children. |
+| `primary` | string | no | One of the copied entities (or one below them): scene.paste_entities returns the pasted root that holds its copy as `primary`, so the editor can select it last. |
 
 ## `scene.destroy` (modifies state)
 
@@ -178,6 +247,25 @@ Loads immediately (outside a frame) or at the end of the current frame. Like sce
 | `props` | object | no | Plain JSON the new scene's scripts read with game.sceneProps() (default: none, {}). |
 | `async` | boolean | no | Read the scene's files in the background and switch once they are ready (answers {async, loadId} at once). Default false: load now (or at the end of the frame). Default false. |
 
+## `scene.paste_entities` (modifies state)
+
+Since 0.30.0.
+
+Create the entities of a scene.copy_entities text in the running world.
+
+Capabilities: read, state
+
+`text` is what scene.copy_entities returned, from this scene or another. Every pasted entity gets an id that is free here (the copied id when it is free, else the next number: coin_3 -> coin_4). Entity fields that name an entity of the copied set name its new copy; a field that names an entity outside the set keeps it when this scene has an entity with that id and is cleared when it has not (listed in `cleared`). The pasted roots go under `parent` (null or "" = top level), or with keepParents under the parent each had when copied (top level when that parent is gone); without either, at the top level. Returns {ids, count, cleared, primary?, messages?}: `ids` are the new roots in the order of the text; `primary` is the pasted root that is or holds the copy of the entity scene.copy_entities got as `primary`. Nothing is created when anything is wrong. Example: scene.paste_entities {"text":"<what scene.copy_entities returned>","parent":"level"}
+
+`nameSuffix` is appended to the name of every pasted root (an unnamed one becomes "Entity" + suffix): nameSuffix " copy" with keepParents is a duplicate. `parent` and keepParents together are refused. A text that is not an entity clipboard (not JSON, another `format`, another version) is an error that names the JSON pointer of the problem; a text with a "prefab" key, a `$prefab` path outside the project or more than 64 levels of children is refused. Only Entity fields are remapped: an id inside a Json field (Script.props, for example) is copied as it is. `cleared` entries are {entity, component, field, target}.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `text` | string | yes | The text scene.copy_entities returned (the system clipboard in the editor). |
+| `parent` | any | no | Id of the entity the pasted roots go under; null or "" = top level. Not with keepParents. |
+| `keepParents` | boolean | no | Put each pasted root under the parent it had when copied, when that entity exists here. Not with parent. Default false. |
+| `nameSuffix` | string | no | Appended to the name of every pasted root, e.g. " copy". |
+
 ## `scene.place_ascii` (modifies state)
 
 Since 0.25.0.
@@ -270,7 +358,9 @@ Move an entity under another entity, or to the top level of the scene.
 
 Capabilities: read, state
 
-`parent` null or "" makes it a root. By default (`keepWorldTransform` true) the entity stays where it is on screen: its local Transform is recomputed for the new parent; with false the local Transform is kept, so the entity moves with the new parent. The entity becomes the LAST child of its new parent unless `index` says where: 0 = first; it counts the new parent's other children, so moving within the same parent works (index 0 on the last child makes it first); an index below 0 or above the number of other children is refused, and `index` needs a parent (top-level order is creation order). Scene files keep the order. A parent that is the entity itself or one of its children is refused (a cycle), and so is an entity being destroyed this frame or a new parent being destroyed. Example: scene.set_parent {"id":"coin_3","parent":"chest"}
+`parent` null or "" makes it a root. By default (`keepWorldTransform` true) the entity stays where it is on screen: its local Transform is recomputed for the new parent; with false the local Transform is kept, so the entity moves with the new parent. Into a parent that lays its children out (a Panel with a `layout`, a ScrollList) a widget's Transform.position becomes [0, 0] and the result says `positionReset` true. The entity becomes the LAST child unless `index` says where; moving under the SAME parent changes only the order. A cycle is refused. Example: scene.set_parent {"id":"coin_3","parent":"chest"}
+
+The exception (with `keepWorldTransform` true, into a DIFFERENT parent that lays its children out) applies to a widget and to a screen-space Text, Sprite or Shape2D: the position goes to its slot, as the layout would have put it, rotation and scale are kept. That decision looks only at the child's component type and space (ui_layout_places): the layout skips an inactive child, and a Text with no text or a Sprite with no size, which therefore also get position [0, 0] without being placed. `index` counts the new parent's other children (0 = first; index 0 on the last child makes it first); an index below 0 or above the number of other children is refused, and `index` needs a parent (top-level order is creation order). Scene files keep the order. A parent that is the entity itself or one of its children is refused (a cycle), and so is an entity being destroyed this frame or a new parent being destroyed.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|

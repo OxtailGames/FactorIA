@@ -1,5 +1,9 @@
 # Block Push
 
+**What it shows:** A Sokoban puzzle: level data as text, tile rules, undo, a project tool that checks the levels, and headless tests.
+
+**Read first:** `docs/GETTING_STARTED.md`, `docs/SCRIPTING.md` (`docs.read`, or `factoria docs read <name>`).
+
 A Sokoban-style puzzle made with FactorIA. Push every box onto a target. Three levels.
 
 ```bash

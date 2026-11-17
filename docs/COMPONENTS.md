@@ -1,6 +1,6 @@
 # Components reference
 
-Generated from the engine's reflection data. Version marks: a component added after 0.1.0 has a "Since 0.1.x." line under its heading, and a field added later than its component ends with "(since 0.1.x)"; "Not released yet" means it is only on the main branch, in no download. Nothing is printed for what existed in 0.1.0; if your factoria is older than a mark, that item is missing there. The scripting API at the end marks its functions, types and members the same way, with a JSDoc `@since` tag. In scene JSON a component is `"Name": { field: value, ... }` (omitted fields keep their defaults); in scripts use `entity.get("Name")`. Vectors accept `[x, y]` or `{x, y}`; colors accept `[r, g, b, a]` (0..1) or `"#rrggbb"`.
+Generated from the engine's reflection data. Version marks: a component added after 0.1.0 has a "Since 0.1.x." line under its heading, and a field added later than its component ends with "(since 0.1.x)"; "Not released yet" means it is only on the main branch, in no download. Nothing is printed for what existed in 0.1.0; if your factoria is older than a mark, that item is missing there. The scripting API at the end marks its functions, types and members the same way, with a JSDoc `@since` tag. A deprecated component, field or command (it still works; it will be removed two minor versions after the one that deprecated it) has a bold "Deprecated since 0.x.y - use ..." line. In scene JSON a component is `"Name": { field: value, ... }` (omitted fields keep their defaults); in scripts use `entity.get("Name")`. Vectors accept `[x, y]` or `{x, y}`; colors accept `[r, g, b, a]` (0..1) or `"#rrggbb"`.
 
 ## Core
 
@@ -20,7 +20,7 @@ Position, rotation and scale of an entity relative to its parent. Present on eve
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `position` | vec3 | `[0.0,0.0,0.0]` | Local position relative to the parent [x, y, z]. 2D: x right, y up, z is only used for depth ordering of 3D content. Units: world units (design pixels in 2D, meters in 3D). |
+| `position` | vec3 | `[0.0,0.0,0.0]` | Local position relative to the parent [x, y, z]. 2D: x right, y up, z is only used for depth ordering of 3D content. Units: world units (design pixels in 2D, meters in 3D). A child that a Panel `layout` or a ScrollList places is not moved by writing here: the engine keeps the layout's place apart (never saved), so this is your own offset from the slot, 0 = exactly in it, and entity.worldPosition is where it ends up (since 0.30.0). |
 | `rotation` | vec3 | `[0.0,0.0,0.0]` | Local rotation as euler angles in DEGREES [pitch around X, yaw around Y, roll around Z], applied in the order Y, X, Z. 2D games only use the z value (counter-clockwise). |
 | `scale` | vec3 | `[1.0,1.0,1.0]` | Local scale [x, y, z]. 1 = original size; negative values mirror. |
 
@@ -100,7 +100,7 @@ Multiplies a colour (and an opacity) into every 2D visual of this entity and of 
 
 Since 0.2.0.
 
-Shifts the drawing of this entity's world-space visuals (Sprite, Shape2D, Text, Tilemap) with the camera so far layers slide slower than near ones. Offset = camera position * (1 - factor) per axis: factor 1 behaves like any world object, 0 stays glued to the camera (a sky), 0.5 is half as fast (distant hills), above 1 is a foreground. With the camera at (0, 0) the entity is exactly where its Transform says. Only the drawing moves: Transform, physics and picking positions stay put, while entity.bounds() reports where it is drawn for the first camera (with several cameras, or a render target, each one draws the layer shifted for itself). Deterministic: it depends only on the camera position.
+Shifts the drawing of this entity's world-space visuals (Sprite, Shape2D, Text, Tilemap) with the camera so far layers slide slower than near ones. Offset = camera position * (1 - factor) per axis: factor 1 behaves like any world object, 0 stays glued to the camera (a sky), 0.5 is half as fast (distant hills), above 1 is a foreground. With the camera at (0, 0) the entity is exactly where its Transform says. Only the drawing moves: Transform, physics and picking positions stay put, while entity.bounds() reports where it is drawn for the first camera (with several cameras, or a render target, each one draws the layer shifted for itself). With render interpolation the drawing follows the camera's blended pose, while offset and bounds() follow its real pose, so they do not depend on the frame time. Deterministic: it depends only on the camera position.
 
 | Field | Type | Default | Description |
 |---|---|---|---|
@@ -108,7 +108,21 @@ Shifts the drawing of this entity's world-space visuals (Sprite, Shape2D, Text, 
 | `repeatX` | bool | `false` | Sprite only. Tile the sprite endlessly left and right (at `repeatSize.x` spacing, or its own width) so a background strip never runs out. The copies are drawn only where the camera sees them. |
 | `repeatY` | bool | `false` | Sprite only. Same as repeatX, up and down. |
 | `repeatSize` | vec2 | `[0.0,0.0]` | Distance between repeated copies in world units [x, y]. 0 = the sprite's own width / height. Use a smaller value to overlap soft edges, a larger one for gaps. |
-| `offset` | vec2 | `[0.0,0.0]` | Runtime: the shift [x, y] currently applied to the drawing, for the first camera (written every frame, by the renderer or by the simulation when there is no renderer). Read-only. Runtime-only (not saved). |
+| `offset` | vec2 | `[0.0,0.0]` | Runtime: the shift [x, y] for the first camera's real pose (written every frame, by the renderer or by the simulation when there is no renderer). With render interpolation a frame is drawn up to one fixed step away from it. Read-only. Runtime-only (not saved). |
+
+## Core
+
+### Interpolation
+
+Since 0.30.0.
+
+Draws this entity at the pose BETWEEN the last two fixed simulation steps, so a 60 Hz simulation moves smoothly on a 120-144 Hz display (docs/RENDERING.md, "Render interpolation"). Only the drawing changes: Transform, physics, scripts, bounds and commands always see the real, latest pose; the blend is never written to the Transform. Children follow an interpolated parent and a Camera is viewed from its blended pose. A pose set outside the fixed step (a script's update, a command) or after entity.teleport() is not smeared: it is drawn where it is. The project default is factoria.json render.interpolation (false); add this component to opt one entity in ("on") or out ("off"). Nothing is blended while the game is paused or stepped.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `mode` | enum: inherit \| on \| off | `"on"` | on: interpolated whatever the project says. off: never interpolated (a cursor that must follow the pointer at once, an entity a script moves every frame). inherit: what factoria.json render.interpolation says. |
+
+## 2D
 
 ### Light2D
 
@@ -650,9 +664,19 @@ Plays a sound clip from the entity. Set playOnStart to start automatically, or s
 | `playing` | bool | `false` | Runtime state: true while a voice is playing. Set true to play, false to stop. Runtime-only (not saved). |
 | `spatial` | bool | `false` | true = pan and attenuate relative to the AudioListener; false = plain stereo (music, UI). |
 | `range` | float | `800.0` | Spatial only: distance in world units where the volume reaches 0 (the sound is cut beyond it, whatever the rolloff). The AudioListener's zoom multiplies it. Range 0.0..1000000.0. |
-| `rolloff` | enum: linear \| inverse \| exponential | `"linear"` | Spatial only: how the volume falls with the distance d from the listener (r = refDistance, k = rolloffFactor, d clamped to at least r). linear (default): 1 - k*(d-r)/(range-r), down to 0 at range; with the defaults it is 1 - d/range. inverse: r/(r + k*(d-r)), a loud close sound that fades slowly far away (like Web Audio and OpenAL). exponential: (d/r)^-k. inverse and exponential do not reach 0 by themselves: the sound is cut at `range`, so set `range` where they are already quiet. Same curves as audio.play({position, range, rolloff}). (since 0.23.0) |
+| `rolloff` | enum: linear \| inverse \| exponential \| curve | `"linear"` | Spatial only: how the volume falls with the distance d from the listener (r = refDistance, k = rolloffFactor, d clamped to at least r). linear (default): 1 - k*(d-r)/(range-r), down to 0 at range; with the defaults it is 1 - d/range. inverse: r/(r + k*(d-r)), a loud close sound that fades slowly far away (like Web Audio and OpenAL). exponential: (d/r)^-k. inverse and exponential do not reach 0 by themselves: the sound is cut at `range`, so set `range` where they are already quiet. curve: the gain is `rolloffCurve` evaluated at d / range (0 = at the listener, 1 = at `range`). Same curves as audio.play({position, range, rolloff}). (since 0.23.0) |
 | `refDistance` | float | `0.0` | Spatial only: the reference distance r in world units: up to it the sound is at full volume. 0 (default) = linear starts at 0 (the classic 1 - d/range), inverse and exponential use range / 20. A value at or above `range` is held just under it (99.9% of range), so linear drops to 0 right before `range`. Range 0.0..1000000.0. (since 0.23.0) |
 | `rolloffFactor` | float | `1.0` | Spatial only: the curve parameter k (default 1): how fast the volume falls. For linear 1 reaches 0 at `range`, less leaves some volume there (cut at range anyway); for inverse and exponential higher = quieter far away. Range 0.0..100.0. (since 0.23.0) |
+| `rolloffCurve` | json | `[]` | Spatial only, used when rolloff is "curve": the volume over the distance, as a curve of [position, gain] keys where position is the distance divided by `range` (0 = at the listener, 1 = at `range`, where the sound is cut anyway) and gain is 0 to 1: [[0, 1], [0.3, 0.8], [1, 0]]. Same form as ParticleEmitter.sizeCurve: {"keys": [...], "interp": "smooth"} eases between keys, at most 16 keys. [] (default) or a form that does not parse (the log says why) = the linear curve. refDistance and rolloffFactor do not apply to it. (since 0.30.0) |
+| `coneInnerAngle` | float | `360.0` | Spatial only: full angle in degrees of the cone around `coneAxis` where the sound is at full volume. 360 (default) = no cone, the sound is the same in every direction. The cone points where the entity faces (its rotation turns coneAxis), in 2D and 3D. Range 0.0..360.0. (since 0.30.0) |
+| `coneOuterAngle` | float | `360.0` | Spatial only: full angle in degrees of the outer cone: outside it the volume is multiplied by `coneOuterGain`; between the inner and the outer cone it blends linearly in the angle. 360 (default) with an inner angle below 360 blends all the way to straight behind. A value below coneInnerAngle is taken as coneInnerAngle. Range 0.0..360.0. (since 0.30.0) |
+| `coneOuterGain` | float | `0.0` | Spatial only: volume multiplier outside the outer cone, 0 (silent, default) to 1 (no effect). Range 0.0..1.0. (since 0.30.0) |
+| `coneAxis` | vec3 | `[0.0,0.0,-1.0]` | Spatial only: the direction the cone points in the entity's local space. Default (0, 0, -1) is forward in 3D (as lights and cameras); in a 2D game, where sprites face +X, use (1, 0, 0). A zero vector turns the cone off. (since 0.30.0) |
+| `dopplerLevel` | float | `0.0` | Spatial only: how much the pitch shifts with the speed the source and the listener approach or separate at (the AudioListener's speedOfSound). 0 (default) = off, 1 = the real shift, more exaggerates (it is the exponent of the real pitch ratio). The pitch factor is limited to 0.25..4 and glides over about 0.05 s. Velocities come from the change of each one's world position between frames (not from RigidBody), so scripted and animated movement shifts too; the first frame and a teleport give velocity 0. Range 0.0..10.0. (since 0.30.0) |
+| `occlusion` | bool | `false` | Spatial only: true = a physics ray from the listener to the source that hits a collider of `occlusionMask` muffles the sound (occlusionGain, occlusionLowpass). Default false. Each source is asked every 0.1 s, but at most 8 rays per frame go out in the whole game: with more sources than that the ones not asked yet come first, then the one asked longest ago, so none is left out for good. The change is smoothed over 0.1 s and the mixer ramps the volume and the low-pass to it (no click). (since 0.30.0) |
+| `occlusionMask` | int | `-1` | Spatial only: the physics layers (bitmask, -1 = all) whose colliders block the sound when `occlusion` is on. The source's own colliders, the listener's and triggers are ignored. (since 0.30.0) |
+| `occlusionGain` | float | `0.4` | Spatial only: volume multiplier while the path is blocked, 0 to 1 (default 0.4). Range 0.0..1.0. (since 0.30.0) |
+| `occlusionLowpass` | float | `1500.0` | Spatial only: low-pass cutoff in Hz while the path is blocked (default 1500; 20000 = no filtering): a wall makes a sound dull. The voice gets its own 12 dB/octave low-pass. Range 20.0..20000.0. (since 0.30.0) |
 | `priority` | int | `128` | Voice stealing, 0..255 (default 128): when all 64 voices play, a new sound replaces the voice of the lowest priority, the quietest of those, if its own priority is higher, or the same and it is louder; otherwise the new sound does not play (and `playing` goes back to false). Raise it for sounds that must be heard (dialogue, alarms), lower it for ambient detail. Range 0..255. (since 0.21.0) |
 
 ### MusicPlayer
@@ -693,6 +717,9 @@ The 'ears' for spatial audio, usually on the camera or player. If no listener ex
 |---|---|---|---|
 | `volume` | float | `1.0` | Master volume multiplier for everything this listener hears. Range 0.0..4.0. |
 | `zoom` | float | `1.0` | Scales how far positional sounds are heard: a spatial AudioSource is silent at `range * zoom` from the listener (gain = 1 - distance / (range * zoom), and the pan spans the same distance), so 2 doubles the reach and 0.5 halves it. A game with a zoomable 2D camera sets it from the camera's orthoSize each frame. When the camera is the listener (no AudioListener component) the zoom is 1. Range 0.01..100.0. (since 0.3.0) |
+| `spatialization` | enum: pan \| hrtf | `"pan"` | How spatial sounds are placed for the ears. pan (default): left/right pan and volume, for speakers. hrtf: a head model for headphones (time and level differences between the ears and the shadow of the head, from a parametric model with no recorded data; stereo clips are mixed to mono first). It needs this AudioListener entity (a 2D camera as the listener keeps pan) and a stereo output (a mono device and a surround one, 5.1 and more, keep pan). A change between pan and hrtf crossfades over 4 ms. See docs/sound/SOUND_SPATIAL.md, Headphones. (since 0.30.0) |
+| `headRadius` | float | `0.0875` | hrtf only: radius of the listener's head in world units (default 0.0875, a human head in meters; scale it with the world in a game that does not use meters). It sets the time difference between the ears (Woodworth: about 0.66 ms at 90 degrees for the default). A head smaller than 0.03 m or larger than 0.12 m at speedOfSound 343 (the ratio headRadius / speedOfSound is what counts) is clamped, with a warning that says how to fix it. Range 0.001..100000.0. (since 0.30.0) |
+| `speedOfSound` | float | `343.0` | Doppler only: the world units per second a sound travels at (default 343, meters per second in air). A 2D game in pixels sets it to the pixels per meter it uses times 343. The doppler shift of a source is its dopplerLevel as the exponent of the pitch ratio this speed gives. With hrtf it is also the speed the head model divides headRadius by to get the time between the ears. Range 1.0..10000000.0. (since 0.30.0) |
 
 ## UI
 
@@ -705,7 +732,7 @@ Container widget: a background rectangle (solid or 9-slice) whose children are l
 | Field | Type | Default | Description |
 |---|---|---|---|
 | `size` | vec2 | `[320.0,240.0]` | Size [w, h] in UI units: design pixels, drawn `ui.scale` times as big (the interface scale; 1 by default). The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180, Video 640 x 360, Chart 480 x 200, CameraView 320 x 240). A Panel with fit = true recomputes it every frame (within its minSize and maxSize). |
-| `pivot` | vec2 | `[0.5,0.5]` | Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. So the pivot counts Y UP while `anchor` counts Y DOWN: anchor [0.5, 1] with pivot [0.5, 0] puts the widget's bottom edge on the bottom of the screen, and with pivot [0.5, 1] it hangs below the screen (docs/MENUS.md, "Anchors and pivots"). Layout does not care about the pivot of its children. |
+| `pivot` | vec2 | `[0.5,0.5]` | Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. So the pivot counts Y UP while `anchor` counts Y DOWN: anchor [0.5, 1] with pivot [0.5, 0] puts the widget's bottom edge on the bottom of the screen, and with pivot [0.5, 1] it hangs below the screen (docs/MENUS.md, "Anchors and pivots"). Layout does not care about the pivot of its children. It is also the point the Transform's rotation.z (degrees, clockwise on screen) and scale.x / .y turn and scale the widget around: drawing, hovering, clicking, dragging, the TextField caret and navigation follow the turned rectangle, and a scale also changes the room a parent's layout gives it (since 0.30.0). |
 | `anchor` | vec2 | `[0.0,0.0]` | Screen point the position is relative to, as a fraction of the screen: [0, 0] top-left (default), [1, 0] top-right, [0.5, 0.5] centre. Anchor [0.5, 0.5] with position [0, 0] centres the widget on any aspect ratio. The interface scale (`ui.scale`) never moves the anchor point: a widget anchored to a corner stays in it. The anchor of the widget itself is used, not its parent's: children of a Panel normally keep anchor [0, 0] and are placed by the Panel's layout. |
 | `safeArea` | bool | `false` | Screen space only. true: the anchor names a point of the SAFE area, the screen minus the notch, rounded corners and system bars of a phone (screen.safeArea in scripts), instead of the whole screen: anchor [0, 0] is the top-left corner of the safe area, [1, 1] its bottom-right. Keeps HUD and buttons out of the notch. On a screen without cutouts (desktop, most tablets) it changes nothing. Default false (true on TouchStick and TouchButton). (since 0.2.0) |
 | `layer` | int | `200` | Draw order of the background; higher is on top. Defaults to 200, above HUD Text (layer 100). The label draws at layer + 1 and the focus ring at layer + 2. Pointer hit-testing follows the same order: the highest layer, then the latest entity, under the pointer is the hovered widget. |
@@ -714,8 +741,8 @@ Container widget: a background rectangle (solid or 9-slice) whose children are l
 | `slice` | vec4 | `[0.0,0.0,0.0,0.0]` | 9-slice borders in TEXTURE pixels [left, top, right, bottom]. The four corners are drawn unscaled (1 texture pixel = 1 design pixel), the edges stretch along one axis and the centre along both, so one small image gives panels of any size. [0, 0, 0, 0] (default) stretches the whole image. When the widget is smaller than left + right (or top + bottom) the borders shrink proportionally. |
 | `tooltip` | json | `null` | The hint that shows next to the pointer after it rests on the widget for `ui.tooltipDelay` seconds (0.5 by default) and goes away when the pointer moves, a button is pressed or another widget is reached. null (default) = none. A string is one line of text, or a localization key (docs/LOCALIZATION.md: a string that is a key of the current language is replaced by its translation, anything else is shown as written). An object {"title": text, "lines": [text or {"text", "color"}], "args": {...}} has a title and body lines; every text may be a key, `args` fills the {placeholders} of the keys, and the tooltip follows a language change while it shows. A widget without a tooltip of its own uses its parent Panel's, so one on a Panel covers its children. It is styled by the `ui.tooltip` section of factoria.json, placed beside the pointer and kept on the screen, and off while the last input was a touch (unless `ui.tooltipOnTouch` is true). A script that returns the text when it shows registers it with ui.setTooltip(entity, () => content) instead. docs/MENUS.md, "Tooltips". (since 0.3.0) |
 | `draggable` | json | `null` | Lets the player drag the widget with the mouse, a finger or a gamepad cursor (ui.setPointer). null or false (default) = not draggable; true = draggable with the default slop; an object {"payload": any JSON, "slop": pixels} sets what the drag carries (default null) and how far the pointer must move after the press before the drag starts (default 6, 0 to 100). A press that is released before the slop is a normal click. When the drag starts the widget is no longer pressed, the click the release would make is swallowed, a tooltip hides, and ui.on("dragStart" \| "dragOver" \| "drop" \| "dragCancel") report it with the widget as source; a press on a child that is not draggable itself drags the nearest draggable ancestor. Slider and TextField keep their own pointer handling and ignore it. docs/MENUS.md, "Drag and drop". (since 0.3.0) |
-| `mirror` | bool | `true` | true (default): in a right-to-left language the widget is mirrored when `ui.mirrorRtl` is on (it is, by default, when i18n.direction is rtl): its anchor.x, pivot.x and position.x flip, so it sits where its mirror image about the middle of the screen would, with the same size; a Toggle's box is at the right of its label, a Slider fills from its right end, a Button's icon changes side, and a Panel with direction auto runs its rows right to left. Text, Sprite and Shape2D below the widget are mirrored with it. false: the widget (and everything below it) stays where it is written, for what is not text-like: a map, a joystick, a clock face. A CameraView changes side with the layout but its picture is never mirrored. Does nothing in a left-to-right language or with ui.mirrorRtl off (docs/LOCALIZATION.md, "Right to left"). (since 0.3.0) |
-| `layout` | enum: none \| row \| column \| grid | `"none"` | How children are placed, every frame: none = they keep their own positions; row / column = one after the other along that axis; grid = `columns` per row, every cell as large as the largest child. Children are the active child entities that have a size (a widget, or a Text / Sprite / Shape2D in screen space); the rest are skipped. A child's own position, anchor and pivot do not matter: layout moves its Transform.position so it lands in its slot. |
+| `mirror` | bool | `true` | true (default): in a right-to-left language the widget is mirrored when `ui.mirrorRtl` is on (it is, by default, when i18n.direction is rtl): its anchor.x, pivot.x and position.x flip, so it sits where its mirror image about the middle of the screen would, with the same size; a Toggle's box is at the right of its label, a Slider fills from its right end, a Button's icon changes side, and a Panel with direction auto runs its rows right to left. Text, Sprite and Shape2D below the widget are mirrored with it. false: the widget (and everything below it) stays where it is written, for what is not text-like: a map, a joystick, a clock face. A CameraView changes side with the layout but its picture is never mirrored. Does nothing in a left-to-right language or with ui.mirrorRtl off (docs/LOCALIZATION.md, "Right-to-left text"). (since 0.3.0) |
+| `layout` | enum: none \| row \| column \| grid | `"none"` | How children are placed, every frame: none = they keep their own positions; row / column = one after the other along that axis; grid = `columns` per row, every cell as large as the largest child. Children are the active child entities that have a size (a widget, or a Text / Sprite / Shape2D in screen space); the rest are skipped. A child's own anchor and pivot do not matter: layout puts it in its slot every frame without writing its Transform.position, which stays the child's own offset from the slot (0 = exactly in it; a script or the inspector can nudge it, and the layout keeps the nudge; since 0.30.0). A widget moved into a laid-out Panel with scene.set_parent goes to its slot (position 0, as the layout would put it). A child's Transform.scale multiplies the room its slot takes (a row makes room for a child at scale 2); its rotation.z does not: the slot stays and the child turns in place around its pivot. A turned or scaled Panel lays its children out as if it were not and then turns and scales them with it (since 0.30.0). |
 | `spacing` | float | `8.0` | Gap in UI units between children (a grid uses it on both axes; `ui.scale` multiplies it). Range 0.0..10000.0. |
 | `padding` | vec4 | `[16.0,16.0,16.0,16.0]` | Space [left, top, right, bottom] in UI units between the panel's edge and its children (`ui.scale` multiplies it). |
 | `columns` | int | `2` | Grid only: number of columns. Range 1..64. |
@@ -740,7 +767,7 @@ Clickable button with a text label. Activated by the mouse / a touch, or by ui_s
 | Field | Type | Default | Description |
 |---|---|---|---|
 | `size` | vec2 | `[240.0,56.0]` | Size [w, h] in UI units: design pixels, drawn `ui.scale` times as big (the interface scale; 1 by default). The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180, Video 640 x 360, Chart 480 x 200, CameraView 320 x 240). A Panel with fit = true recomputes it every frame (within its minSize and maxSize). |
-| `pivot` | vec2 | `[0.5,0.5]` | Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. So the pivot counts Y UP while `anchor` counts Y DOWN: anchor [0.5, 1] with pivot [0.5, 0] puts the widget's bottom edge on the bottom of the screen, and with pivot [0.5, 1] it hangs below the screen (docs/MENUS.md, "Anchors and pivots"). Layout does not care about the pivot of its children. |
+| `pivot` | vec2 | `[0.5,0.5]` | Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. So the pivot counts Y UP while `anchor` counts Y DOWN: anchor [0.5, 1] with pivot [0.5, 0] puts the widget's bottom edge on the bottom of the screen, and with pivot [0.5, 1] it hangs below the screen (docs/MENUS.md, "Anchors and pivots"). Layout does not care about the pivot of its children. It is also the point the Transform's rotation.z (degrees, clockwise on screen) and scale.x / .y turn and scale the widget around: drawing, hovering, clicking, dragging, the TextField caret and navigation follow the turned rectangle, and a scale also changes the room a parent's layout gives it (since 0.30.0). |
 | `anchor` | vec2 | `[0.0,0.0]` | Screen point the position is relative to, as a fraction of the screen: [0, 0] top-left (default), [1, 0] top-right, [0.5, 0.5] centre. Anchor [0.5, 0.5] with position [0, 0] centres the widget on any aspect ratio. The interface scale (`ui.scale`) never moves the anchor point: a widget anchored to a corner stays in it. The anchor of the widget itself is used, not its parent's: children of a Panel normally keep anchor [0, 0] and are placed by the Panel's layout. |
 | `safeArea` | bool | `false` | Screen space only. true: the anchor names a point of the SAFE area, the screen minus the notch, rounded corners and system bars of a phone (screen.safeArea in scripts), instead of the whole screen: anchor [0, 0] is the top-left corner of the safe area, [1, 1] its bottom-right. Keeps HUD and buttons out of the notch. On a screen without cutouts (desktop, most tablets) it changes nothing. Default false (true on TouchStick and TouchButton). (since 0.2.0) |
 | `layer` | int | `200` | Draw order of the background; higher is on top. Defaults to 200, above HUD Text (layer 100). The label draws at layer + 1 and the focus ring at layer + 2. Pointer hit-testing follows the same order: the highest layer, then the latest entity, under the pointer is the hovered widget. |
@@ -749,7 +776,7 @@ Clickable button with a text label. Activated by the mouse / a touch, or by ui_s
 | `slice` | vec4 | `[0.0,0.0,0.0,0.0]` | 9-slice borders in TEXTURE pixels [left, top, right, bottom]. The four corners are drawn unscaled (1 texture pixel = 1 design pixel), the edges stretch along one axis and the centre along both, so one small image gives panels of any size. [0, 0, 0, 0] (default) stretches the whole image. When the widget is smaller than left + right (or top + bottom) the borders shrink proportionally. |
 | `tooltip` | json | `null` | The hint that shows next to the pointer after it rests on the widget for `ui.tooltipDelay` seconds (0.5 by default) and goes away when the pointer moves, a button is pressed or another widget is reached. null (default) = none. A string is one line of text, or a localization key (docs/LOCALIZATION.md: a string that is a key of the current language is replaced by its translation, anything else is shown as written). An object {"title": text, "lines": [text or {"text", "color"}], "args": {...}} has a title and body lines; every text may be a key, `args` fills the {placeholders} of the keys, and the tooltip follows a language change while it shows. A widget without a tooltip of its own uses its parent Panel's, so one on a Panel covers its children. It is styled by the `ui.tooltip` section of factoria.json, placed beside the pointer and kept on the screen, and off while the last input was a touch (unless `ui.tooltipOnTouch` is true). A script that returns the text when it shows registers it with ui.setTooltip(entity, () => content) instead. docs/MENUS.md, "Tooltips". (since 0.3.0) |
 | `draggable` | json | `null` | Lets the player drag the widget with the mouse, a finger or a gamepad cursor (ui.setPointer). null or false (default) = not draggable; true = draggable with the default slop; an object {"payload": any JSON, "slop": pixels} sets what the drag carries (default null) and how far the pointer must move after the press before the drag starts (default 6, 0 to 100). A press that is released before the slop is a normal click. When the drag starts the widget is no longer pressed, the click the release would make is swallowed, a tooltip hides, and ui.on("dragStart" \| "dragOver" \| "drop" \| "dragCancel") report it with the widget as source; a press on a child that is not draggable itself drags the nearest draggable ancestor. Slider and TextField keep their own pointer handling and ignore it. docs/MENUS.md, "Drag and drop". (since 0.3.0) |
-| `mirror` | bool | `true` | true (default): in a right-to-left language the widget is mirrored when `ui.mirrorRtl` is on (it is, by default, when i18n.direction is rtl): its anchor.x, pivot.x and position.x flip, so it sits where its mirror image about the middle of the screen would, with the same size; a Toggle's box is at the right of its label, a Slider fills from its right end, a Button's icon changes side, and a Panel with direction auto runs its rows right to left. Text, Sprite and Shape2D below the widget are mirrored with it. false: the widget (and everything below it) stays where it is written, for what is not text-like: a map, a joystick, a clock face. A CameraView changes side with the layout but its picture is never mirrored. Does nothing in a left-to-right language or with ui.mirrorRtl off (docs/LOCALIZATION.md, "Right to left"). (since 0.3.0) |
+| `mirror` | bool | `true` | true (default): in a right-to-left language the widget is mirrored when `ui.mirrorRtl` is on (it is, by default, when i18n.direction is rtl): its anchor.x, pivot.x and position.x flip, so it sits where its mirror image about the middle of the screen would, with the same size; a Toggle's box is at the right of its label, a Slider fills from its right end, a Button's icon changes side, and a Panel with direction auto runs its rows right to left. Text, Sprite and Shape2D below the widget are mirrored with it. false: the widget (and everything below it) stays where it is written, for what is not text-like: a map, a joystick, a clock face. A CameraView changes side with the layout but its picture is never mirrored. Does nothing in a left-to-right language or with ui.mirrorRtl off (docs/LOCALIZATION.md, "Right-to-left text"). (since 0.3.0) |
 | `font` | asset (font) | `""` | Font of the label: project path of a .ttf, empty = the built-in font (same values as Text.font). |
 | `key` | string | `""` | Localization key, e.g. "menu.play" (docs/LOCALIZATION.md). Empty (default) = not translated. With a key, the runtime writes the translation into the widget's own text: Button.text, Toggle.label, Slider.label, or TextField.placeholder (never TextField.text, which is what the player typed). It does so when a scene or prefab loads, every frame and when the language changes, so that field is overwritten at run time while `key` is set. A key that no string table has keeps the text written in the field and logs one warning. It is a TRANSLATION key, not a hotkey: a Button has no field for a keyboard key or pad button. To press a button with one, declare an input action in factoria.json ("input") and read it with input.pressed in a script. (since 0.2.0) |
 | `keyArgs` | json | `{}` | Values for the {placeholders} of `key`, an object of name -> string or number: {"score": 12} fills "Score: {score}" (and `count` picks the form of a plural entry). Set it once from a script (`entity.set("Text", { keyArgs: { score } })` or `scene.set_component`) instead of rewriting the text every frame: the engine formats the translation with them when the text is localized, when the args change and when the language changes, so a language switch keeps them. Empty (default) = no arguments. Ignored while `key` is empty. (since 0.3.0) |
@@ -783,7 +810,7 @@ Check box with a label: a square box at the left (a filled inner square in accen
 | Field | Type | Default | Description |
 |---|---|---|---|
 | `size` | vec2 | `[240.0,40.0]` | Size [w, h] in UI units: design pixels, drawn `ui.scale` times as big (the interface scale; 1 by default). The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180, Video 640 x 360, Chart 480 x 200, CameraView 320 x 240). A Panel with fit = true recomputes it every frame (within its minSize and maxSize). |
-| `pivot` | vec2 | `[0.5,0.5]` | Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. So the pivot counts Y UP while `anchor` counts Y DOWN: anchor [0.5, 1] with pivot [0.5, 0] puts the widget's bottom edge on the bottom of the screen, and with pivot [0.5, 1] it hangs below the screen (docs/MENUS.md, "Anchors and pivots"). Layout does not care about the pivot of its children. |
+| `pivot` | vec2 | `[0.5,0.5]` | Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. So the pivot counts Y UP while `anchor` counts Y DOWN: anchor [0.5, 1] with pivot [0.5, 0] puts the widget's bottom edge on the bottom of the screen, and with pivot [0.5, 1] it hangs below the screen (docs/MENUS.md, "Anchors and pivots"). Layout does not care about the pivot of its children. It is also the point the Transform's rotation.z (degrees, clockwise on screen) and scale.x / .y turn and scale the widget around: drawing, hovering, clicking, dragging, the TextField caret and navigation follow the turned rectangle, and a scale also changes the room a parent's layout gives it (since 0.30.0). |
 | `anchor` | vec2 | `[0.0,0.0]` | Screen point the position is relative to, as a fraction of the screen: [0, 0] top-left (default), [1, 0] top-right, [0.5, 0.5] centre. Anchor [0.5, 0.5] with position [0, 0] centres the widget on any aspect ratio. The interface scale (`ui.scale`) never moves the anchor point: a widget anchored to a corner stays in it. The anchor of the widget itself is used, not its parent's: children of a Panel normally keep anchor [0, 0] and are placed by the Panel's layout. |
 | `safeArea` | bool | `false` | Screen space only. true: the anchor names a point of the SAFE area, the screen minus the notch, rounded corners and system bars of a phone (screen.safeArea in scripts), instead of the whole screen: anchor [0, 0] is the top-left corner of the safe area, [1, 1] its bottom-right. Keeps HUD and buttons out of the notch. On a screen without cutouts (desktop, most tablets) it changes nothing. Default false (true on TouchStick and TouchButton). (since 0.2.0) |
 | `layer` | int | `200` | Draw order of the background; higher is on top. Defaults to 200, above HUD Text (layer 100). The label draws at layer + 1 and the focus ring at layer + 2. Pointer hit-testing follows the same order: the highest layer, then the latest entity, under the pointer is the hovered widget. |
@@ -792,7 +819,7 @@ Check box with a label: a square box at the left (a filled inner square in accen
 | `slice` | vec4 | `[0.0,0.0,0.0,0.0]` | 9-slice borders in TEXTURE pixels [left, top, right, bottom]. The four corners are drawn unscaled (1 texture pixel = 1 design pixel), the edges stretch along one axis and the centre along both, so one small image gives panels of any size. [0, 0, 0, 0] (default) stretches the whole image. When the widget is smaller than left + right (or top + bottom) the borders shrink proportionally. |
 | `tooltip` | json | `null` | The hint that shows next to the pointer after it rests on the widget for `ui.tooltipDelay` seconds (0.5 by default) and goes away when the pointer moves, a button is pressed or another widget is reached. null (default) = none. A string is one line of text, or a localization key (docs/LOCALIZATION.md: a string that is a key of the current language is replaced by its translation, anything else is shown as written). An object {"title": text, "lines": [text or {"text", "color"}], "args": {...}} has a title and body lines; every text may be a key, `args` fills the {placeholders} of the keys, and the tooltip follows a language change while it shows. A widget without a tooltip of its own uses its parent Panel's, so one on a Panel covers its children. It is styled by the `ui.tooltip` section of factoria.json, placed beside the pointer and kept on the screen, and off while the last input was a touch (unless `ui.tooltipOnTouch` is true). A script that returns the text when it shows registers it with ui.setTooltip(entity, () => content) instead. docs/MENUS.md, "Tooltips". (since 0.3.0) |
 | `draggable` | json | `null` | Lets the player drag the widget with the mouse, a finger or a gamepad cursor (ui.setPointer). null or false (default) = not draggable; true = draggable with the default slop; an object {"payload": any JSON, "slop": pixels} sets what the drag carries (default null) and how far the pointer must move after the press before the drag starts (default 6, 0 to 100). A press that is released before the slop is a normal click. When the drag starts the widget is no longer pressed, the click the release would make is swallowed, a tooltip hides, and ui.on("dragStart" \| "dragOver" \| "drop" \| "dragCancel") report it with the widget as source; a press on a child that is not draggable itself drags the nearest draggable ancestor. Slider and TextField keep their own pointer handling and ignore it. docs/MENUS.md, "Drag and drop". (since 0.3.0) |
-| `mirror` | bool | `true` | true (default): in a right-to-left language the widget is mirrored when `ui.mirrorRtl` is on (it is, by default, when i18n.direction is rtl): its anchor.x, pivot.x and position.x flip, so it sits where its mirror image about the middle of the screen would, with the same size; a Toggle's box is at the right of its label, a Slider fills from its right end, a Button's icon changes side, and a Panel with direction auto runs its rows right to left. Text, Sprite and Shape2D below the widget are mirrored with it. false: the widget (and everything below it) stays where it is written, for what is not text-like: a map, a joystick, a clock face. A CameraView changes side with the layout but its picture is never mirrored. Does nothing in a left-to-right language or with ui.mirrorRtl off (docs/LOCALIZATION.md, "Right to left"). (since 0.3.0) |
+| `mirror` | bool | `true` | true (default): in a right-to-left language the widget is mirrored when `ui.mirrorRtl` is on (it is, by default, when i18n.direction is rtl): its anchor.x, pivot.x and position.x flip, so it sits where its mirror image about the middle of the screen would, with the same size; a Toggle's box is at the right of its label, a Slider fills from its right end, a Button's icon changes side, and a Panel with direction auto runs its rows right to left. Text, Sprite and Shape2D below the widget are mirrored with it. false: the widget (and everything below it) stays where it is written, for what is not text-like: a map, a joystick, a clock face. A CameraView changes side with the layout but its picture is never mirrored. Does nothing in a left-to-right language or with ui.mirrorRtl off (docs/LOCALIZATION.md, "Right-to-left text"). (since 0.3.0) |
 | `font` | asset (font) | `""` | Font of the label: project path of a .ttf, empty = the built-in font (same values as Text.font). |
 | `key` | string | `""` | Localization key, e.g. "menu.play" (docs/LOCALIZATION.md). Empty (default) = not translated. With a key, the runtime writes the translation into the widget's own text: Button.text, Toggle.label, Slider.label, or TextField.placeholder (never TextField.text, which is what the player typed). It does so when a scene or prefab loads, every frame and when the language changes, so that field is overwritten at run time while `key` is set. A key that no string table has keeps the text written in the field and logs one warning. It is a TRANSLATION key, not a hotkey: a Button has no field for a keyboard key or pad button. To press a button with one, declare an input action in factoria.json ("input") and read it with input.pressed in a script. (since 0.2.0) |
 | `keyArgs` | json | `{}` | Values for the {placeholders} of `key`, an object of name -> string or number: {"score": 12} fills "Score: {score}" (and `count` picks the form of a plural entry). Set it once from a script (`entity.set("Text", { keyArgs: { score } })` or `scene.set_component`) instead of rewriting the text every frame: the engine formats the translation with them when the text is localized, when the args change and when the language changes, so a language switch keeps them. Empty (default) = no arguments. Ignored while `key` is empty. (since 0.3.0) |
@@ -823,7 +850,7 @@ Horizontal value slider: label in the left 35% (when not empty), the track in th
 | Field | Type | Default | Description |
 |---|---|---|---|
 | `size` | vec2 | `[320.0,40.0]` | Size [w, h] in UI units: design pixels, drawn `ui.scale` times as big (the interface scale; 1 by default). The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180, Video 640 x 360, Chart 480 x 200, CameraView 320 x 240). A Panel with fit = true recomputes it every frame (within its minSize and maxSize). |
-| `pivot` | vec2 | `[0.5,0.5]` | Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. So the pivot counts Y UP while `anchor` counts Y DOWN: anchor [0.5, 1] with pivot [0.5, 0] puts the widget's bottom edge on the bottom of the screen, and with pivot [0.5, 1] it hangs below the screen (docs/MENUS.md, "Anchors and pivots"). Layout does not care about the pivot of its children. |
+| `pivot` | vec2 | `[0.5,0.5]` | Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. So the pivot counts Y UP while `anchor` counts Y DOWN: anchor [0.5, 1] with pivot [0.5, 0] puts the widget's bottom edge on the bottom of the screen, and with pivot [0.5, 1] it hangs below the screen (docs/MENUS.md, "Anchors and pivots"). Layout does not care about the pivot of its children. It is also the point the Transform's rotation.z (degrees, clockwise on screen) and scale.x / .y turn and scale the widget around: drawing, hovering, clicking, dragging, the TextField caret and navigation follow the turned rectangle, and a scale also changes the room a parent's layout gives it (since 0.30.0). |
 | `anchor` | vec2 | `[0.0,0.0]` | Screen point the position is relative to, as a fraction of the screen: [0, 0] top-left (default), [1, 0] top-right, [0.5, 0.5] centre. Anchor [0.5, 0.5] with position [0, 0] centres the widget on any aspect ratio. The interface scale (`ui.scale`) never moves the anchor point: a widget anchored to a corner stays in it. The anchor of the widget itself is used, not its parent's: children of a Panel normally keep anchor [0, 0] and are placed by the Panel's layout. |
 | `safeArea` | bool | `false` | Screen space only. true: the anchor names a point of the SAFE area, the screen minus the notch, rounded corners and system bars of a phone (screen.safeArea in scripts), instead of the whole screen: anchor [0, 0] is the top-left corner of the safe area, [1, 1] its bottom-right. Keeps HUD and buttons out of the notch. On a screen without cutouts (desktop, most tablets) it changes nothing. Default false (true on TouchStick and TouchButton). (since 0.2.0) |
 | `layer` | int | `200` | Draw order of the background; higher is on top. Defaults to 200, above HUD Text (layer 100). The label draws at layer + 1 and the focus ring at layer + 2. Pointer hit-testing follows the same order: the highest layer, then the latest entity, under the pointer is the hovered widget. |
@@ -832,7 +859,7 @@ Horizontal value slider: label in the left 35% (when not empty), the track in th
 | `slice` | vec4 | `[0.0,0.0,0.0,0.0]` | 9-slice borders in TEXTURE pixels [left, top, right, bottom]. The four corners are drawn unscaled (1 texture pixel = 1 design pixel), the edges stretch along one axis and the centre along both, so one small image gives panels of any size. [0, 0, 0, 0] (default) stretches the whole image. When the widget is smaller than left + right (or top + bottom) the borders shrink proportionally. |
 | `tooltip` | json | `null` | The hint that shows next to the pointer after it rests on the widget for `ui.tooltipDelay` seconds (0.5 by default) and goes away when the pointer moves, a button is pressed or another widget is reached. null (default) = none. A string is one line of text, or a localization key (docs/LOCALIZATION.md: a string that is a key of the current language is replaced by its translation, anything else is shown as written). An object {"title": text, "lines": [text or {"text", "color"}], "args": {...}} has a title and body lines; every text may be a key, `args` fills the {placeholders} of the keys, and the tooltip follows a language change while it shows. A widget without a tooltip of its own uses its parent Panel's, so one on a Panel covers its children. It is styled by the `ui.tooltip` section of factoria.json, placed beside the pointer and kept on the screen, and off while the last input was a touch (unless `ui.tooltipOnTouch` is true). A script that returns the text when it shows registers it with ui.setTooltip(entity, () => content) instead. docs/MENUS.md, "Tooltips". (since 0.3.0) |
 | `draggable` | json | `null` | Lets the player drag the widget with the mouse, a finger or a gamepad cursor (ui.setPointer). null or false (default) = not draggable; true = draggable with the default slop; an object {"payload": any JSON, "slop": pixels} sets what the drag carries (default null) and how far the pointer must move after the press before the drag starts (default 6, 0 to 100). A press that is released before the slop is a normal click. When the drag starts the widget is no longer pressed, the click the release would make is swallowed, a tooltip hides, and ui.on("dragStart" \| "dragOver" \| "drop" \| "dragCancel") report it with the widget as source; a press on a child that is not draggable itself drags the nearest draggable ancestor. Slider and TextField keep their own pointer handling and ignore it. docs/MENUS.md, "Drag and drop". (since 0.3.0) |
-| `mirror` | bool | `true` | true (default): in a right-to-left language the widget is mirrored when `ui.mirrorRtl` is on (it is, by default, when i18n.direction is rtl): its anchor.x, pivot.x and position.x flip, so it sits where its mirror image about the middle of the screen would, with the same size; a Toggle's box is at the right of its label, a Slider fills from its right end, a Button's icon changes side, and a Panel with direction auto runs its rows right to left. Text, Sprite and Shape2D below the widget are mirrored with it. false: the widget (and everything below it) stays where it is written, for what is not text-like: a map, a joystick, a clock face. A CameraView changes side with the layout but its picture is never mirrored. Does nothing in a left-to-right language or with ui.mirrorRtl off (docs/LOCALIZATION.md, "Right to left"). (since 0.3.0) |
+| `mirror` | bool | `true` | true (default): in a right-to-left language the widget is mirrored when `ui.mirrorRtl` is on (it is, by default, when i18n.direction is rtl): its anchor.x, pivot.x and position.x flip, so it sits where its mirror image about the middle of the screen would, with the same size; a Toggle's box is at the right of its label, a Slider fills from its right end, a Button's icon changes side, and a Panel with direction auto runs its rows right to left. Text, Sprite and Shape2D below the widget are mirrored with it. false: the widget (and everything below it) stays where it is written, for what is not text-like: a map, a joystick, a clock face. A CameraView changes side with the layout but its picture is never mirrored. Does nothing in a left-to-right language or with ui.mirrorRtl off (docs/LOCALIZATION.md, "Right-to-left text"). (since 0.3.0) |
 | `font` | asset (font) | `""` | Font of the label: project path of a .ttf, empty = the built-in font (same values as Text.font). |
 | `key` | string | `""` | Localization key, e.g. "menu.play" (docs/LOCALIZATION.md). Empty (default) = not translated. With a key, the runtime writes the translation into the widget's own text: Button.text, Toggle.label, Slider.label, or TextField.placeholder (never TextField.text, which is what the player typed). It does so when a scene or prefab loads, every frame and when the language changes, so that field is overwritten at run time while `key` is set. A key that no string table has keeps the text written in the field and logs one warning. It is a TRANSLATION key, not a hotkey: a Button has no field for a keyboard key or pad button. To press a button with one, declare an input action in factoria.json ("input") and read it with input.pressed in a script. (since 0.2.0) |
 | `keyArgs` | json | `{}` | Values for the {placeholders} of `key`, an object of name -> string or number: {"score": 12} fills "Score: {score}" (and `count` picks the form of a plural entry). Set it once from a script (`entity.set("Text", { keyArgs: { score } })` or `scene.set_component`) instead of rewriting the text every frame: the engine formats the translation with them when the text is localized, when the args change and when the language changes, so a language switch keeps them. Empty (default) = no arguments. Ignored while `key` is empty. (since 0.3.0) |
@@ -913,12 +940,12 @@ Makes this entity follow the state of an Interactable with no script. Show: the 
 
 Since 0.1.6.
 
-Single-line text input. While focused it appends the typed characters (Input text), Backspace removes the last one (it repeats while held) and Enter submits. There is no caret movement: the caret stays at the end. Events: ui.change {id, value} on every edit (one per frame), ui.submit {id, value} on Enter. Left / right do nothing in a TextField and Space types a space (ui_submit is ignored).
+Single-line text input with a caret, a selection, the clipboard and IME composition. While focused it takes the typed characters at the caret (replacing the selection); Left / Right move the caret (with Ctrl, or Alt on macOS, a word at a time; with Shift they extend the selection), Home / End go to the ends, Backspace and Delete remove the selection or the character (they repeat while held), Ctrl+A (Cmd+A on macOS) selects all, Ctrl+C / X / V (Cmd on macOS) copy, cut and paste, and Enter submits. A click places the caret, a drag selects, a double click selects a word, a triple click all of it. Focusing a field puts the caret at the end of its text. The caret never stops inside a base character plus its combining marks or an emoji sequence. Text composed with an input method shows at the caret, underlined, and is typed when the player commits it (a click in the field, or the focus moving to another field, commits it too). Caret and selection assume left-to-right text for now. A field that loses the focus keeps its last scroll. Events: ui.change {id, value} on every edit (one per frame), ui.submit {id, value} on Enter. Space types a space (ui_submit is ignored); Up / Down move the focus.
 
 | Field | Type | Default | Description |
 |---|---|---|---|
 | `size` | vec2 | `[320.0,48.0]` | Size [w, h] in UI units: design pixels, drawn `ui.scale` times as big (the interface scale; 1 by default). The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180, Video 640 x 360, Chart 480 x 200, CameraView 320 x 240). A Panel with fit = true recomputes it every frame (within its minSize and maxSize). |
-| `pivot` | vec2 | `[0.5,0.5]` | Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. So the pivot counts Y UP while `anchor` counts Y DOWN: anchor [0.5, 1] with pivot [0.5, 0] puts the widget's bottom edge on the bottom of the screen, and with pivot [0.5, 1] it hangs below the screen (docs/MENUS.md, "Anchors and pivots"). Layout does not care about the pivot of its children. |
+| `pivot` | vec2 | `[0.5,0.5]` | Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. So the pivot counts Y UP while `anchor` counts Y DOWN: anchor [0.5, 1] with pivot [0.5, 0] puts the widget's bottom edge on the bottom of the screen, and with pivot [0.5, 1] it hangs below the screen (docs/MENUS.md, "Anchors and pivots"). Layout does not care about the pivot of its children. It is also the point the Transform's rotation.z (degrees, clockwise on screen) and scale.x / .y turn and scale the widget around: drawing, hovering, clicking, dragging, the TextField caret and navigation follow the turned rectangle, and a scale also changes the room a parent's layout gives it (since 0.30.0). |
 | `anchor` | vec2 | `[0.0,0.0]` | Screen point the position is relative to, as a fraction of the screen: [0, 0] top-left (default), [1, 0] top-right, [0.5, 0.5] centre. Anchor [0.5, 0.5] with position [0, 0] centres the widget on any aspect ratio. The interface scale (`ui.scale`) never moves the anchor point: a widget anchored to a corner stays in it. The anchor of the widget itself is used, not its parent's: children of a Panel normally keep anchor [0, 0] and are placed by the Panel's layout. |
 | `safeArea` | bool | `false` | Screen space only. true: the anchor names a point of the SAFE area, the screen minus the notch, rounded corners and system bars of a phone (screen.safeArea in scripts), instead of the whole screen: anchor [0, 0] is the top-left corner of the safe area, [1, 1] its bottom-right. Keeps HUD and buttons out of the notch. On a screen without cutouts (desktop, most tablets) it changes nothing. Default false (true on TouchStick and TouchButton). (since 0.2.0) |
 | `layer` | int | `200` | Draw order of the background; higher is on top. Defaults to 200, above HUD Text (layer 100). The label draws at layer + 1 and the focus ring at layer + 2. Pointer hit-testing follows the same order: the highest layer, then the latest entity, under the pointer is the hovered widget. |
@@ -927,7 +954,7 @@ Single-line text input. While focused it appends the typed characters (Input tex
 | `slice` | vec4 | `[0.0,0.0,0.0,0.0]` | 9-slice borders in TEXTURE pixels [left, top, right, bottom]. The four corners are drawn unscaled (1 texture pixel = 1 design pixel), the edges stretch along one axis and the centre along both, so one small image gives panels of any size. [0, 0, 0, 0] (default) stretches the whole image. When the widget is smaller than left + right (or top + bottom) the borders shrink proportionally. |
 | `tooltip` | json | `null` | The hint that shows next to the pointer after it rests on the widget for `ui.tooltipDelay` seconds (0.5 by default) and goes away when the pointer moves, a button is pressed or another widget is reached. null (default) = none. A string is one line of text, or a localization key (docs/LOCALIZATION.md: a string that is a key of the current language is replaced by its translation, anything else is shown as written). An object {"title": text, "lines": [text or {"text", "color"}], "args": {...}} has a title and body lines; every text may be a key, `args` fills the {placeholders} of the keys, and the tooltip follows a language change while it shows. A widget without a tooltip of its own uses its parent Panel's, so one on a Panel covers its children. It is styled by the `ui.tooltip` section of factoria.json, placed beside the pointer and kept on the screen, and off while the last input was a touch (unless `ui.tooltipOnTouch` is true). A script that returns the text when it shows registers it with ui.setTooltip(entity, () => content) instead. docs/MENUS.md, "Tooltips". (since 0.3.0) |
 | `draggable` | json | `null` | Lets the player drag the widget with the mouse, a finger or a gamepad cursor (ui.setPointer). null or false (default) = not draggable; true = draggable with the default slop; an object {"payload": any JSON, "slop": pixels} sets what the drag carries (default null) and how far the pointer must move after the press before the drag starts (default 6, 0 to 100). A press that is released before the slop is a normal click. When the drag starts the widget is no longer pressed, the click the release would make is swallowed, a tooltip hides, and ui.on("dragStart" \| "dragOver" \| "drop" \| "dragCancel") report it with the widget as source; a press on a child that is not draggable itself drags the nearest draggable ancestor. Slider and TextField keep their own pointer handling and ignore it. docs/MENUS.md, "Drag and drop". (since 0.3.0) |
-| `mirror` | bool | `true` | true (default): in a right-to-left language the widget is mirrored when `ui.mirrorRtl` is on (it is, by default, when i18n.direction is rtl): its anchor.x, pivot.x and position.x flip, so it sits where its mirror image about the middle of the screen would, with the same size; a Toggle's box is at the right of its label, a Slider fills from its right end, a Button's icon changes side, and a Panel with direction auto runs its rows right to left. Text, Sprite and Shape2D below the widget are mirrored with it. false: the widget (and everything below it) stays where it is written, for what is not text-like: a map, a joystick, a clock face. A CameraView changes side with the layout but its picture is never mirrored. Does nothing in a left-to-right language or with ui.mirrorRtl off (docs/LOCALIZATION.md, "Right to left"). (since 0.3.0) |
+| `mirror` | bool | `true` | true (default): in a right-to-left language the widget is mirrored when `ui.mirrorRtl` is on (it is, by default, when i18n.direction is rtl): its anchor.x, pivot.x and position.x flip, so it sits where its mirror image about the middle of the screen would, with the same size; a Toggle's box is at the right of its label, a Slider fills from its right end, a Button's icon changes side, and a Panel with direction auto runs its rows right to left. Text, Sprite and Shape2D below the widget are mirrored with it. false: the widget (and everything below it) stays where it is written, for what is not text-like: a map, a joystick, a clock face. A CameraView changes side with the layout but its picture is never mirrored. Does nothing in a left-to-right language or with ui.mirrorRtl off (docs/LOCALIZATION.md, "Right-to-left text"). (since 0.3.0) |
 | `font` | asset (font) | `""` | Font of the label: project path of a .ttf, empty = the built-in font (same values as Text.font). |
 | `key` | string | `""` | Localization key, e.g. "menu.play" (docs/LOCALIZATION.md). Empty (default) = not translated. With a key, the runtime writes the translation into the widget's own text: Button.text, Toggle.label, Slider.label, or TextField.placeholder (never TextField.text, which is what the player typed). It does so when a scene or prefab loads, every frame and when the language changes, so that field is overwritten at run time while `key` is set. A key that no string table has keeps the text written in the field and logs one warning. It is a TRANSLATION key, not a hotkey: a Button has no field for a keyboard key or pad button. To press a button with one, declare an input action in factoria.json ("input") and read it with input.pressed in a script. (since 0.2.0) |
 | `keyArgs` | json | `{}` | Values for the {placeholders} of `key`, an object of name -> string or number: {"score": 12} fills "Score: {score}" (and `count` picks the form of a plural entry). Set it once from a script (`entity.set("Text", { keyArgs: { score } })` or `scene.set_component`) instead of rewriting the text every frame: the engine formats the translation with them when the text is localized, when the args change and when the language changes, so a language switch keeps them. Empty (default) = no arguments. Ignored while `key` is empty. (since 0.3.0) |
@@ -943,7 +970,15 @@ Single-line text input. While focused it appends the typed characters (Input tex
 | `text` | string | `""` | The text, UTF-8. Scripts may write it; no event is sent for a write. |
 | `placeholder` | string | `""` | Hint drawn at half alpha while `text` is empty. |
 | `maxLength` | int | `64` | Longest text, in characters (code points). 0 = unlimited. Range 0..1000000. |
+| `password` | bool | `false` | Draws every character (and the composition) as '*'; Copy and Cut do nothing, the platform's input method is off, and the whole text is one word (word keys go to its ends, a double click selects all). `text` still holds what was typed and scripts can read it, and the composition. (since 0.30.0) |
 | `caret` | bool | `false` | Runtime: the caret is in the visible half of its blink (a 1 second cycle of the UI's own unscaled clock; it restarts visible on every edit). Drawn only while focused. Read-only. Runtime-only (not saved). |
+| `caretIndex` | int | `0` | Where the caret is, in code points from the start of `text` (0 = before the first character). It follows the player's edits and clicks, and a script may write it to move the caret. Clamped to 0..length of `text` every frame. A script that changes `text` without touching the caret, selection or caretIndex puts the caret at the end. Range 0..1000000. (since 0.30.0) |
+| `selectionStart` | int | `0` | Start of the selected text, in code points. selectionStart == selectionEnd means nothing is selected. Either may be the larger one (the selection's anchor is selectionStart, its moving end selectionEnd, the caret). A script selects a range by writing both (caretIndex follows selectionEnd when it is not written). Clamped to 0..length of `text` every frame. Range 0..1000000. (since 0.30.0) |
+| `selectionEnd` | int | `0` | End of the selected text, in code points (see selectionStart). Clamped to 0..length of `text` every frame. Range 0..1000000. (since 0.30.0) |
+| `composition` | string | `""` | Runtime: the text an input method (IME) is composing in this field, UTF-8, "" when none. It is not part of `text` until the player commits it. Only the focused field has one. Read-only. Runtime-only (not saved). (since 0.30.0) |
+| `compositionCaret` | int | `0` | Runtime: the input method's caret inside `composition`, in code points (0 = at its start). Read-only. Runtime-only (not saved). (since 0.30.0) |
+| `compositionSelection` | int | `0` | Runtime: how many code points from compositionCaret the input method is converting (the clause drawn highlighted); 0 = none. Read-only. Runtime-only (not saved). (since 0.30.0) |
+| `scrollX` | float | `0.0` | Runtime: how many UI units the text is scrolled to the left so that the caret stays visible in a field narrower than its text. Read-only. Runtime-only (not saved). (since 0.30.0) |
 
 ### ScrollList
 
@@ -954,7 +989,7 @@ Scrolling container: its children are stacked in a column (aligned left, packed 
 | Field | Type | Default | Description |
 |---|---|---|---|
 | `size` | vec2 | `[320.0,240.0]` | Size [w, h] in UI units: design pixels, drawn `ui.scale` times as big (the interface scale; 1 by default). The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180, Video 640 x 360, Chart 480 x 200, CameraView 320 x 240). A Panel with fit = true recomputes it every frame (within its minSize and maxSize). |
-| `pivot` | vec2 | `[0.5,0.5]` | Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. So the pivot counts Y UP while `anchor` counts Y DOWN: anchor [0.5, 1] with pivot [0.5, 0] puts the widget's bottom edge on the bottom of the screen, and with pivot [0.5, 1] it hangs below the screen (docs/MENUS.md, "Anchors and pivots"). Layout does not care about the pivot of its children. |
+| `pivot` | vec2 | `[0.5,0.5]` | Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. So the pivot counts Y UP while `anchor` counts Y DOWN: anchor [0.5, 1] with pivot [0.5, 0] puts the widget's bottom edge on the bottom of the screen, and with pivot [0.5, 1] it hangs below the screen (docs/MENUS.md, "Anchors and pivots"). Layout does not care about the pivot of its children. It is also the point the Transform's rotation.z (degrees, clockwise on screen) and scale.x / .y turn and scale the widget around: drawing, hovering, clicking, dragging, the TextField caret and navigation follow the turned rectangle, and a scale also changes the room a parent's layout gives it (since 0.30.0). |
 | `anchor` | vec2 | `[0.0,0.0]` | Screen point the position is relative to, as a fraction of the screen: [0, 0] top-left (default), [1, 0] top-right, [0.5, 0.5] centre. Anchor [0.5, 0.5] with position [0, 0] centres the widget on any aspect ratio. The interface scale (`ui.scale`) never moves the anchor point: a widget anchored to a corner stays in it. The anchor of the widget itself is used, not its parent's: children of a Panel normally keep anchor [0, 0] and are placed by the Panel's layout. |
 | `safeArea` | bool | `false` | Screen space only. true: the anchor names a point of the SAFE area, the screen minus the notch, rounded corners and system bars of a phone (screen.safeArea in scripts), instead of the whole screen: anchor [0, 0] is the top-left corner of the safe area, [1, 1] its bottom-right. Keeps HUD and buttons out of the notch. On a screen without cutouts (desktop, most tablets) it changes nothing. Default false (true on TouchStick and TouchButton). (since 0.2.0) |
 | `layer` | int | `200` | Draw order of the background; higher is on top. Defaults to 200, above HUD Text (layer 100). The label draws at layer + 1 and the focus ring at layer + 2. Pointer hit-testing follows the same order: the highest layer, then the latest entity, under the pointer is the hovered widget. |
@@ -963,7 +998,7 @@ Scrolling container: its children are stacked in a column (aligned left, packed 
 | `slice` | vec4 | `[0.0,0.0,0.0,0.0]` | 9-slice borders in TEXTURE pixels [left, top, right, bottom]. The four corners are drawn unscaled (1 texture pixel = 1 design pixel), the edges stretch along one axis and the centre along both, so one small image gives panels of any size. [0, 0, 0, 0] (default) stretches the whole image. When the widget is smaller than left + right (or top + bottom) the borders shrink proportionally. |
 | `tooltip` | json | `null` | The hint that shows next to the pointer after it rests on the widget for `ui.tooltipDelay` seconds (0.5 by default) and goes away when the pointer moves, a button is pressed or another widget is reached. null (default) = none. A string is one line of text, or a localization key (docs/LOCALIZATION.md: a string that is a key of the current language is replaced by its translation, anything else is shown as written). An object {"title": text, "lines": [text or {"text", "color"}], "args": {...}} has a title and body lines; every text may be a key, `args` fills the {placeholders} of the keys, and the tooltip follows a language change while it shows. A widget without a tooltip of its own uses its parent Panel's, so one on a Panel covers its children. It is styled by the `ui.tooltip` section of factoria.json, placed beside the pointer and kept on the screen, and off while the last input was a touch (unless `ui.tooltipOnTouch` is true). A script that returns the text when it shows registers it with ui.setTooltip(entity, () => content) instead. docs/MENUS.md, "Tooltips". (since 0.3.0) |
 | `draggable` | json | `null` | Lets the player drag the widget with the mouse, a finger or a gamepad cursor (ui.setPointer). null or false (default) = not draggable; true = draggable with the default slop; an object {"payload": any JSON, "slop": pixels} sets what the drag carries (default null) and how far the pointer must move after the press before the drag starts (default 6, 0 to 100). A press that is released before the slop is a normal click. When the drag starts the widget is no longer pressed, the click the release would make is swallowed, a tooltip hides, and ui.on("dragStart" \| "dragOver" \| "drop" \| "dragCancel") report it with the widget as source; a press on a child that is not draggable itself drags the nearest draggable ancestor. Slider and TextField keep their own pointer handling and ignore it. docs/MENUS.md, "Drag and drop". (since 0.3.0) |
-| `mirror` | bool | `true` | true (default): in a right-to-left language the widget is mirrored when `ui.mirrorRtl` is on (it is, by default, when i18n.direction is rtl): its anchor.x, pivot.x and position.x flip, so it sits where its mirror image about the middle of the screen would, with the same size; a Toggle's box is at the right of its label, a Slider fills from its right end, a Button's icon changes side, and a Panel with direction auto runs its rows right to left. Text, Sprite and Shape2D below the widget are mirrored with it. false: the widget (and everything below it) stays where it is written, for what is not text-like: a map, a joystick, a clock face. A CameraView changes side with the layout but its picture is never mirrored. Does nothing in a left-to-right language or with ui.mirrorRtl off (docs/LOCALIZATION.md, "Right to left"). (since 0.3.0) |
+| `mirror` | bool | `true` | true (default): in a right-to-left language the widget is mirrored when `ui.mirrorRtl` is on (it is, by default, when i18n.direction is rtl): its anchor.x, pivot.x and position.x flip, so it sits where its mirror image about the middle of the screen would, with the same size; a Toggle's box is at the right of its label, a Slider fills from its right end, a Button's icon changes side, and a Panel with direction auto runs its rows right to left. Text, Sprite and Shape2D below the widget are mirrored with it. false: the widget (and everything below it) stays where it is written, for what is not text-like: a map, a joystick, a clock face. A CameraView changes side with the layout but its picture is never mirrored. Does nothing in a left-to-right language or with ui.mirrorRtl off (docs/LOCALIZATION.md, "Right-to-left text"). (since 0.3.0) |
 | `spacing` | float | `8.0` | Gap in design pixels between children. Range 0.0..10000.0. |
 | `padding` | vec4 | `[8.0,8.0,8.0,8.0]` | Space [left, top, right, bottom] between the list's edge and its children. |
 | `scroll` | float | `0.0` | Runtime: pixels scrolled from the top. Scripts may write it; it is clamped to [0, content height - inner height] every frame. Runtime-only (not saved). |
@@ -980,7 +1015,7 @@ On-screen analog stick for phones and tablets (docs/MOBILE.md): a disc in `color
 | Field | Type | Default | Description |
 |---|---|---|---|
 | `size` | vec2 | `[200.0,200.0]` | Size [w, h] in UI units: design pixels, drawn `ui.scale` times as big (the interface scale; 1 by default). The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180, Video 640 x 360, Chart 480 x 200, CameraView 320 x 240). A Panel with fit = true recomputes it every frame (within its minSize and maxSize). |
-| `pivot` | vec2 | `[0.5,0.5]` | Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. So the pivot counts Y UP while `anchor` counts Y DOWN: anchor [0.5, 1] with pivot [0.5, 0] puts the widget's bottom edge on the bottom of the screen, and with pivot [0.5, 1] it hangs below the screen (docs/MENUS.md, "Anchors and pivots"). Layout does not care about the pivot of its children. |
+| `pivot` | vec2 | `[0.5,0.5]` | Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. So the pivot counts Y UP while `anchor` counts Y DOWN: anchor [0.5, 1] with pivot [0.5, 0] puts the widget's bottom edge on the bottom of the screen, and with pivot [0.5, 1] it hangs below the screen (docs/MENUS.md, "Anchors and pivots"). Layout does not care about the pivot of its children. It is also the point the Transform's rotation.z (degrees, clockwise on screen) and scale.x / .y turn and scale the widget around: drawing, hovering, clicking, dragging, the TextField caret and navigation follow the turned rectangle, and a scale also changes the room a parent's layout gives it (since 0.30.0). |
 | `anchor` | vec2 | `[0.0,0.0]` | Screen point the position is relative to, as a fraction of the screen: [0, 0] top-left (default), [1, 0] top-right, [0.5, 0.5] centre. Anchor [0.5, 0.5] with position [0, 0] centres the widget on any aspect ratio. The interface scale (`ui.scale`) never moves the anchor point: a widget anchored to a corner stays in it. The anchor of the widget itself is used, not its parent's: children of a Panel normally keep anchor [0, 0] and are placed by the Panel's layout. |
 | `safeArea` | bool | `true` | Screen space only. true: the anchor names a point of the SAFE area, the screen minus the notch, rounded corners and system bars of a phone (screen.safeArea in scripts), instead of the whole screen: anchor [0, 0] is the top-left corner of the safe area, [1, 1] its bottom-right. Keeps HUD and buttons out of the notch. On a screen without cutouts (desktop, most tablets) it changes nothing. Default false (true on TouchStick and TouchButton). |
 | `layer` | int | `200` | Draw order of the background; higher is on top. Defaults to 200, above HUD Text (layer 100). The label draws at layer + 1 and the focus ring at layer + 2. Pointer hit-testing follows the same order: the highest layer, then the latest entity, under the pointer is the hovered widget. |
@@ -989,7 +1024,7 @@ On-screen analog stick for phones and tablets (docs/MOBILE.md): a disc in `color
 | `slice` | vec4 | `[0.0,0.0,0.0,0.0]` | 9-slice borders in TEXTURE pixels [left, top, right, bottom]. The four corners are drawn unscaled (1 texture pixel = 1 design pixel), the edges stretch along one axis and the centre along both, so one small image gives panels of any size. [0, 0, 0, 0] (default) stretches the whole image. When the widget is smaller than left + right (or top + bottom) the borders shrink proportionally. |
 | `tooltip` | json | `null` | The hint that shows next to the pointer after it rests on the widget for `ui.tooltipDelay` seconds (0.5 by default) and goes away when the pointer moves, a button is pressed or another widget is reached. null (default) = none. A string is one line of text, or a localization key (docs/LOCALIZATION.md: a string that is a key of the current language is replaced by its translation, anything else is shown as written). An object {"title": text, "lines": [text or {"text", "color"}], "args": {...}} has a title and body lines; every text may be a key, `args` fills the {placeholders} of the keys, and the tooltip follows a language change while it shows. A widget without a tooltip of its own uses its parent Panel's, so one on a Panel covers its children. It is styled by the `ui.tooltip` section of factoria.json, placed beside the pointer and kept on the screen, and off while the last input was a touch (unless `ui.tooltipOnTouch` is true). A script that returns the text when it shows registers it with ui.setTooltip(entity, () => content) instead. docs/MENUS.md, "Tooltips". (since 0.3.0) |
 | `draggable` | json | `null` | Lets the player drag the widget with the mouse, a finger or a gamepad cursor (ui.setPointer). null or false (default) = not draggable; true = draggable with the default slop; an object {"payload": any JSON, "slop": pixels} sets what the drag carries (default null) and how far the pointer must move after the press before the drag starts (default 6, 0 to 100). A press that is released before the slop is a normal click. When the drag starts the widget is no longer pressed, the click the release would make is swallowed, a tooltip hides, and ui.on("dragStart" \| "dragOver" \| "drop" \| "dragCancel") report it with the widget as source; a press on a child that is not draggable itself drags the nearest draggable ancestor. Slider and TextField keep their own pointer handling and ignore it. docs/MENUS.md, "Drag and drop". (since 0.3.0) |
-| `mirror` | bool | `true` | true (default): in a right-to-left language the widget is mirrored when `ui.mirrorRtl` is on (it is, by default, when i18n.direction is rtl): its anchor.x, pivot.x and position.x flip, so it sits where its mirror image about the middle of the screen would, with the same size; a Toggle's box is at the right of its label, a Slider fills from its right end, a Button's icon changes side, and a Panel with direction auto runs its rows right to left. Text, Sprite and Shape2D below the widget are mirrored with it. false: the widget (and everything below it) stays where it is written, for what is not text-like: a map, a joystick, a clock face. A CameraView changes side with the layout but its picture is never mirrored. Does nothing in a left-to-right language or with ui.mirrorRtl off (docs/LOCALIZATION.md, "Right to left"). (since 0.3.0) |
+| `mirror` | bool | `true` | true (default): in a right-to-left language the widget is mirrored when `ui.mirrorRtl` is on (it is, by default, when i18n.direction is rtl): its anchor.x, pivot.x and position.x flip, so it sits where its mirror image about the middle of the screen would, with the same size; a Toggle's box is at the right of its label, a Slider fills from its right end, a Button's icon changes side, and a Panel with direction auto runs its rows right to left. Text, Sprite and Shape2D below the widget are mirrored with it. false: the widget (and everything below it) stays where it is written, for what is not text-like: a map, a joystick, a clock face. A CameraView changes side with the layout but its picture is never mirrored. Does nothing in a left-to-right language or with ui.mirrorRtl off (docs/LOCALIZATION.md, "Right-to-left text"). (since 0.3.0) |
 | `stick` | enum: left \| right | `"left"` | Which stick of the touch pad it moves. |
 | `knobColor` | color | `[1.0,1.0,1.0,0.6]` | Colour of the knob, a disc 45% as wide as the stick. |
 | `touchOnly` | bool | `true` | true (default): drawn and listed as visible only while the last input came from a finger (input.lastDevice "touch"; a phone or tablet starts that way), so it hides when the player picks up a gamepad or a keyboard and comes back on the next touch. A finger landing on it always works. false: always drawn (desktop previews, screenshots, tests). To see them on a desktop without editing the scene: ui.force_touch, game.screenshot {forceTouch} or factoria run --touch. |
@@ -1006,7 +1041,7 @@ On-screen button for phones and tablets (docs/MOBILE.md): a disc in `color` (dar
 | Field | Type | Default | Description |
 |---|---|---|---|
 | `size` | vec2 | `[96.0,96.0]` | Size [w, h] in UI units: design pixels, drawn `ui.scale` times as big (the interface scale; 1 by default). The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180, Video 640 x 360, Chart 480 x 200, CameraView 320 x 240). A Panel with fit = true recomputes it every frame (within its minSize and maxSize). |
-| `pivot` | vec2 | `[0.5,0.5]` | Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. So the pivot counts Y UP while `anchor` counts Y DOWN: anchor [0.5, 1] with pivot [0.5, 0] puts the widget's bottom edge on the bottom of the screen, and with pivot [0.5, 1] it hangs below the screen (docs/MENUS.md, "Anchors and pivots"). Layout does not care about the pivot of its children. |
+| `pivot` | vec2 | `[0.5,0.5]` | Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. So the pivot counts Y UP while `anchor` counts Y DOWN: anchor [0.5, 1] with pivot [0.5, 0] puts the widget's bottom edge on the bottom of the screen, and with pivot [0.5, 1] it hangs below the screen (docs/MENUS.md, "Anchors and pivots"). Layout does not care about the pivot of its children. It is also the point the Transform's rotation.z (degrees, clockwise on screen) and scale.x / .y turn and scale the widget around: drawing, hovering, clicking, dragging, the TextField caret and navigation follow the turned rectangle, and a scale also changes the room a parent's layout gives it (since 0.30.0). |
 | `anchor` | vec2 | `[0.0,0.0]` | Screen point the position is relative to, as a fraction of the screen: [0, 0] top-left (default), [1, 0] top-right, [0.5, 0.5] centre. Anchor [0.5, 0.5] with position [0, 0] centres the widget on any aspect ratio. The interface scale (`ui.scale`) never moves the anchor point: a widget anchored to a corner stays in it. The anchor of the widget itself is used, not its parent's: children of a Panel normally keep anchor [0, 0] and are placed by the Panel's layout. |
 | `safeArea` | bool | `true` | Screen space only. true: the anchor names a point of the SAFE area, the screen minus the notch, rounded corners and system bars of a phone (screen.safeArea in scripts), instead of the whole screen: anchor [0, 0] is the top-left corner of the safe area, [1, 1] its bottom-right. Keeps HUD and buttons out of the notch. On a screen without cutouts (desktop, most tablets) it changes nothing. Default false (true on TouchStick and TouchButton). |
 | `layer` | int | `200` | Draw order of the background; higher is on top. Defaults to 200, above HUD Text (layer 100). The label draws at layer + 1 and the focus ring at layer + 2. Pointer hit-testing follows the same order: the highest layer, then the latest entity, under the pointer is the hovered widget. |
@@ -1015,7 +1050,7 @@ On-screen button for phones and tablets (docs/MOBILE.md): a disc in `color` (dar
 | `slice` | vec4 | `[0.0,0.0,0.0,0.0]` | 9-slice borders in TEXTURE pixels [left, top, right, bottom]. The four corners are drawn unscaled (1 texture pixel = 1 design pixel), the edges stretch along one axis and the centre along both, so one small image gives panels of any size. [0, 0, 0, 0] (default) stretches the whole image. When the widget is smaller than left + right (or top + bottom) the borders shrink proportionally. |
 | `tooltip` | json | `null` | The hint that shows next to the pointer after it rests on the widget for `ui.tooltipDelay` seconds (0.5 by default) and goes away when the pointer moves, a button is pressed or another widget is reached. null (default) = none. A string is one line of text, or a localization key (docs/LOCALIZATION.md: a string that is a key of the current language is replaced by its translation, anything else is shown as written). An object {"title": text, "lines": [text or {"text", "color"}], "args": {...}} has a title and body lines; every text may be a key, `args` fills the {placeholders} of the keys, and the tooltip follows a language change while it shows. A widget without a tooltip of its own uses its parent Panel's, so one on a Panel covers its children. It is styled by the `ui.tooltip` section of factoria.json, placed beside the pointer and kept on the screen, and off while the last input was a touch (unless `ui.tooltipOnTouch` is true). A script that returns the text when it shows registers it with ui.setTooltip(entity, () => content) instead. docs/MENUS.md, "Tooltips". (since 0.3.0) |
 | `draggable` | json | `null` | Lets the player drag the widget with the mouse, a finger or a gamepad cursor (ui.setPointer). null or false (default) = not draggable; true = draggable with the default slop; an object {"payload": any JSON, "slop": pixels} sets what the drag carries (default null) and how far the pointer must move after the press before the drag starts (default 6, 0 to 100). A press that is released before the slop is a normal click. When the drag starts the widget is no longer pressed, the click the release would make is swallowed, a tooltip hides, and ui.on("dragStart" \| "dragOver" \| "drop" \| "dragCancel") report it with the widget as source; a press on a child that is not draggable itself drags the nearest draggable ancestor. Slider and TextField keep their own pointer handling and ignore it. docs/MENUS.md, "Drag and drop". (since 0.3.0) |
-| `mirror` | bool | `true` | true (default): in a right-to-left language the widget is mirrored when `ui.mirrorRtl` is on (it is, by default, when i18n.direction is rtl): its anchor.x, pivot.x and position.x flip, so it sits where its mirror image about the middle of the screen would, with the same size; a Toggle's box is at the right of its label, a Slider fills from its right end, a Button's icon changes side, and a Panel with direction auto runs its rows right to left. Text, Sprite and Shape2D below the widget are mirrored with it. false: the widget (and everything below it) stays where it is written, for what is not text-like: a map, a joystick, a clock face. A CameraView changes side with the layout but its picture is never mirrored. Does nothing in a left-to-right language or with ui.mirrorRtl off (docs/LOCALIZATION.md, "Right to left"). (since 0.3.0) |
+| `mirror` | bool | `true` | true (default): in a right-to-left language the widget is mirrored when `ui.mirrorRtl` is on (it is, by default, when i18n.direction is rtl): its anchor.x, pivot.x and position.x flip, so it sits where its mirror image about the middle of the screen would, with the same size; a Toggle's box is at the right of its label, a Slider fills from its right end, a Button's icon changes side, and a Panel with direction auto runs its rows right to left. Text, Sprite and Shape2D below the widget are mirrored with it. false: the widget (and everything below it) stays where it is written, for what is not text-like: a map, a joystick, a clock face. A CameraView changes side with the layout but its picture is never mirrored. Does nothing in a left-to-right language or with ui.mirrorRtl off (docs/LOCALIZATION.md, "Right-to-left text"). (since 0.3.0) |
 | `button` | enum: A \| B \| X \| Y \| Start \| Back \| Guide \| DpadLeft \| DpadRight \| DpadUp \| DpadDown \| LeftShoulder \| RightShoulder \| LeftThumb \| RightThumb | `"A"` | The pad button it holds down: actions bound to "Gamepad" + this name (GamepadA, GamepadDpadUp...) fire. Bind the game's actions to pad buttons in factoria.json input.actions to use them. |
 | `text` | string | `""` | Label centred on the button, e.g. "A" or "Jump". Empty (default) draws none. |
 | `key` | string | `""` | Localization key, e.g. "touch.jump" (docs/LOCALIZATION.md). Empty (default) = not translated. With a key, the runtime writes the translation into `text` when a scene loads, every frame and when the language changes. A key that no string table has keeps `text` and logs one warning. (since 0.3.0) |
@@ -1041,7 +1076,7 @@ The subtitles of the game (docs/TEXT.md, "Captions"): draws the lines that `audi
 | Field | Type | Default | Description |
 |---|---|---|---|
 | `size` | vec2 | `[960.0,180.0]` | Size [w, h] in UI units: design pixels, drawn `ui.scale` times as big (the interface scale; 1 by default). The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180, Video 640 x 360, Chart 480 x 200, CameraView 320 x 240). A Panel with fit = true recomputes it every frame (within its minSize and maxSize). |
-| `pivot` | vec2 | `[0.5,0.0]` | Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. So the pivot counts Y UP while `anchor` counts Y DOWN: anchor [0.5, 1] with pivot [0.5, 0] puts the widget's bottom edge on the bottom of the screen, and with pivot [0.5, 1] it hangs below the screen (docs/MENUS.md, "Anchors and pivots"). Layout does not care about the pivot of its children. |
+| `pivot` | vec2 | `[0.5,0.0]` | Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. So the pivot counts Y UP while `anchor` counts Y DOWN: anchor [0.5, 1] with pivot [0.5, 0] puts the widget's bottom edge on the bottom of the screen, and with pivot [0.5, 1] it hangs below the screen (docs/MENUS.md, "Anchors and pivots"). Layout does not care about the pivot of its children. It is also the point the Transform's rotation.z (degrees, clockwise on screen) and scale.x / .y turn and scale the widget around: drawing, hovering, clicking, dragging, the TextField caret and navigation follow the turned rectangle, and a scale also changes the room a parent's layout gives it (since 0.30.0). |
 | `anchor` | vec2 | `[0.5,1.0]` | Screen point the position is relative to, as a fraction of the screen: [0, 0] top-left (default), [1, 0] top-right, [0.5, 0.5] centre. Anchor [0.5, 0.5] with position [0, 0] centres the widget on any aspect ratio. The interface scale (`ui.scale`) never moves the anchor point: a widget anchored to a corner stays in it. The anchor of the widget itself is used, not its parent's: children of a Panel normally keep anchor [0, 0] and are placed by the Panel's layout. |
 | `safeArea` | bool | `true` | Screen space only. true: the anchor names a point of the SAFE area, the screen minus the notch, rounded corners and system bars of a phone (screen.safeArea in scripts), instead of the whole screen: anchor [0, 0] is the top-left corner of the safe area, [1, 1] its bottom-right. Keeps HUD and buttons out of the notch. On a screen without cutouts (desktop, most tablets) it changes nothing. Default false (true on TouchStick and TouchButton). |
 | `layer` | int | `200` | Draw order of the background; higher is on top. Defaults to 200, above HUD Text (layer 100). The label draws at layer + 1 and the focus ring at layer + 2. Pointer hit-testing follows the same order: the highest layer, then the latest entity, under the pointer is the hovered widget. |
@@ -1050,7 +1085,7 @@ The subtitles of the game (docs/TEXT.md, "Captions"): draws the lines that `audi
 | `slice` | vec4 | `[0.0,0.0,0.0,0.0]` | 9-slice borders in TEXTURE pixels [left, top, right, bottom]. The four corners are drawn unscaled (1 texture pixel = 1 design pixel), the edges stretch along one axis and the centre along both, so one small image gives panels of any size. [0, 0, 0, 0] (default) stretches the whole image. When the widget is smaller than left + right (or top + bottom) the borders shrink proportionally. |
 | `tooltip` | json | `null` | The hint that shows next to the pointer after it rests on the widget for `ui.tooltipDelay` seconds (0.5 by default) and goes away when the pointer moves, a button is pressed or another widget is reached. null (default) = none. A string is one line of text, or a localization key (docs/LOCALIZATION.md: a string that is a key of the current language is replaced by its translation, anything else is shown as written). An object {"title": text, "lines": [text or {"text", "color"}], "args": {...}} has a title and body lines; every text may be a key, `args` fills the {placeholders} of the keys, and the tooltip follows a language change while it shows. A widget without a tooltip of its own uses its parent Panel's, so one on a Panel covers its children. It is styled by the `ui.tooltip` section of factoria.json, placed beside the pointer and kept on the screen, and off while the last input was a touch (unless `ui.tooltipOnTouch` is true). A script that returns the text when it shows registers it with ui.setTooltip(entity, () => content) instead. docs/MENUS.md, "Tooltips". (since 0.3.0) |
 | `draggable` | json | `null` | Lets the player drag the widget with the mouse, a finger or a gamepad cursor (ui.setPointer). null or false (default) = not draggable; true = draggable with the default slop; an object {"payload": any JSON, "slop": pixels} sets what the drag carries (default null) and how far the pointer must move after the press before the drag starts (default 6, 0 to 100). A press that is released before the slop is a normal click. When the drag starts the widget is no longer pressed, the click the release would make is swallowed, a tooltip hides, and ui.on("dragStart" \| "dragOver" \| "drop" \| "dragCancel") report it with the widget as source; a press on a child that is not draggable itself drags the nearest draggable ancestor. Slider and TextField keep their own pointer handling and ignore it. docs/MENUS.md, "Drag and drop". (since 0.3.0) |
-| `mirror` | bool | `true` | true (default): in a right-to-left language the widget is mirrored when `ui.mirrorRtl` is on (it is, by default, when i18n.direction is rtl): its anchor.x, pivot.x and position.x flip, so it sits where its mirror image about the middle of the screen would, with the same size; a Toggle's box is at the right of its label, a Slider fills from its right end, a Button's icon changes side, and a Panel with direction auto runs its rows right to left. Text, Sprite and Shape2D below the widget are mirrored with it. false: the widget (and everything below it) stays where it is written, for what is not text-like: a map, a joystick, a clock face. A CameraView changes side with the layout but its picture is never mirrored. Does nothing in a left-to-right language or with ui.mirrorRtl off (docs/LOCALIZATION.md, "Right to left"). (since 0.3.0) |
+| `mirror` | bool | `true` | true (default): in a right-to-left language the widget is mirrored when `ui.mirrorRtl` is on (it is, by default, when i18n.direction is rtl): its anchor.x, pivot.x and position.x flip, so it sits where its mirror image about the middle of the screen would, with the same size; a Toggle's box is at the right of its label, a Slider fills from its right end, a Button's icon changes side, and a Panel with direction auto runs its rows right to left. Text, Sprite and Shape2D below the widget are mirrored with it. false: the widget (and everything below it) stays where it is written, for what is not text-like: a map, a joystick, a clock face. A CameraView changes side with the layout but its picture is never mirrored. Does nothing in a left-to-right language or with ui.mirrorRtl off (docs/LOCALIZATION.md, "Right-to-left text"). (since 0.3.0) |
 | `maxLines` | int | `3` | How many captions show at once. When more are on the list the oldest are not drawn (they stay on the list until their sound ends or their seconds run out). Range 1..16. |
 | `padding` | vec4 | `[16.0,8.0,16.0,8.0]` | Space [left, top, right, bottom] between the edge of the background and the text. |
 | `font` | asset (font) | `""` | Font of the captions: project path of a .ttf, empty = the built-in font (same values as Text.font). |
@@ -1065,12 +1100,12 @@ The subtitles of the game (docs/TEXT.md, "Captions"): draws the lines that `audi
 
 Since 0.3.0.
 
-A video on the screen (docs/MENUS.md, "Studio intro"): plays an .mpg file (MPEG-1 video with MP2 sound, the same decoder on every platform) in this entity's rectangle, the way an image fills a widget. Convert any other video with `factoria call assets.import '{"source":"intro.mp4"}'` (needs ffmpeg: `factoria setup ffmpeg`). The sound plays on the mixer bus `bus` at `volume`. Time follows the game clock: the video pauses with the game (time.scale 0) and a headless run shows the same pictures at the same times as a windowed one. Control it from a script with `entity.video.play()`, `pause()`, `stop()`, `seek(seconds)` and read `time`, `duration`, `playing`; when it reaches its end the game event `video.ended` ({id, path}) fires once (`entity.video.on("ended", fn)`). The picture is decoded on the CPU: keep videos at most about 1280 x 720. Defaults: 640 x 360, a black background (shown as bars where the picture does not fill the rectangle), starts playing at once.
+A video on the screen (docs/menus/MENUS_RECIPES.md, "A studio intro"): plays an .mpg file (MPEG-1 video with MP2 sound, the same decoder on every platform) in this entity's rectangle, the way an image fills a widget. Convert any other video with `factoria call assets.import '{"source":"intro.mp4"}'` (needs ffmpeg: `factoria setup ffmpeg`). The sound plays on the mixer bus `bus` at `volume`. Time follows the game clock: the video pauses with the game (time.scale 0) and a headless run shows the same pictures at the same times as a windowed one. Control it from a script with `entity.video.play()`, `pause()`, `stop()`, `seek(seconds)` and read `time`, `duration`, `playing`; when it reaches its end the game event `video.ended` ({id, path}) fires once (`entity.video.on("ended", fn)`). The picture is decoded on the CPU: keep videos at most about 1280 x 720. Defaults: 640 x 360, a black background (shown as bars where the picture does not fill the rectangle), starts playing at once.
 
 | Field | Type | Default | Description |
 |---|---|---|---|
 | `size` | vec2 | `[640.0,360.0]` | Size [w, h] in UI units: design pixels, drawn `ui.scale` times as big (the interface scale; 1 by default). The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180, Video 640 x 360, Chart 480 x 200, CameraView 320 x 240). A Panel with fit = true recomputes it every frame (within its minSize and maxSize). |
-| `pivot` | vec2 | `[0.5,0.5]` | Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. So the pivot counts Y UP while `anchor` counts Y DOWN: anchor [0.5, 1] with pivot [0.5, 0] puts the widget's bottom edge on the bottom of the screen, and with pivot [0.5, 1] it hangs below the screen (docs/MENUS.md, "Anchors and pivots"). Layout does not care about the pivot of its children. |
+| `pivot` | vec2 | `[0.5,0.5]` | Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. So the pivot counts Y UP while `anchor` counts Y DOWN: anchor [0.5, 1] with pivot [0.5, 0] puts the widget's bottom edge on the bottom of the screen, and with pivot [0.5, 1] it hangs below the screen (docs/MENUS.md, "Anchors and pivots"). Layout does not care about the pivot of its children. It is also the point the Transform's rotation.z (degrees, clockwise on screen) and scale.x / .y turn and scale the widget around: drawing, hovering, clicking, dragging, the TextField caret and navigation follow the turned rectangle, and a scale also changes the room a parent's layout gives it (since 0.30.0). |
 | `anchor` | vec2 | `[0.0,0.0]` | Screen point the position is relative to, as a fraction of the screen: [0, 0] top-left (default), [1, 0] top-right, [0.5, 0.5] centre. Anchor [0.5, 0.5] with position [0, 0] centres the widget on any aspect ratio. The interface scale (`ui.scale`) never moves the anchor point: a widget anchored to a corner stays in it. The anchor of the widget itself is used, not its parent's: children of a Panel normally keep anchor [0, 0] and are placed by the Panel's layout. |
 | `safeArea` | bool | `false` | Screen space only. true: the anchor names a point of the SAFE area, the screen minus the notch, rounded corners and system bars of a phone (screen.safeArea in scripts), instead of the whole screen: anchor [0, 0] is the top-left corner of the safe area, [1, 1] its bottom-right. Keeps HUD and buttons out of the notch. On a screen without cutouts (desktop, most tablets) it changes nothing. Default false (true on TouchStick and TouchButton). |
 | `layer` | int | `200` | Draw order of the background; higher is on top. Defaults to 200, above HUD Text (layer 100). The label draws at layer + 1 and the focus ring at layer + 2. Pointer hit-testing follows the same order: the highest layer, then the latest entity, under the pointer is the hovered widget. |
@@ -1079,7 +1114,7 @@ A video on the screen (docs/MENUS.md, "Studio intro"): plays an .mpg file (MPEG-
 | `slice` | vec4 | `[0.0,0.0,0.0,0.0]` | 9-slice borders in TEXTURE pixels [left, top, right, bottom]. The four corners are drawn unscaled (1 texture pixel = 1 design pixel), the edges stretch along one axis and the centre along both, so one small image gives panels of any size. [0, 0, 0, 0] (default) stretches the whole image. When the widget is smaller than left + right (or top + bottom) the borders shrink proportionally. |
 | `tooltip` | json | `null` | The hint that shows next to the pointer after it rests on the widget for `ui.tooltipDelay` seconds (0.5 by default) and goes away when the pointer moves, a button is pressed or another widget is reached. null (default) = none. A string is one line of text, or a localization key (docs/LOCALIZATION.md: a string that is a key of the current language is replaced by its translation, anything else is shown as written). An object {"title": text, "lines": [text or {"text", "color"}], "args": {...}} has a title and body lines; every text may be a key, `args` fills the {placeholders} of the keys, and the tooltip follows a language change while it shows. A widget without a tooltip of its own uses its parent Panel's, so one on a Panel covers its children. It is styled by the `ui.tooltip` section of factoria.json, placed beside the pointer and kept on the screen, and off while the last input was a touch (unless `ui.tooltipOnTouch` is true). A script that returns the text when it shows registers it with ui.setTooltip(entity, () => content) instead. docs/MENUS.md, "Tooltips". |
 | `draggable` | json | `null` | Lets the player drag the widget with the mouse, a finger or a gamepad cursor (ui.setPointer). null or false (default) = not draggable; true = draggable with the default slop; an object {"payload": any JSON, "slop": pixels} sets what the drag carries (default null) and how far the pointer must move after the press before the drag starts (default 6, 0 to 100). A press that is released before the slop is a normal click. When the drag starts the widget is no longer pressed, the click the release would make is swallowed, a tooltip hides, and ui.on("dragStart" \| "dragOver" \| "drop" \| "dragCancel") report it with the widget as source; a press on a child that is not draggable itself drags the nearest draggable ancestor. Slider and TextField keep their own pointer handling and ignore it. docs/MENUS.md, "Drag and drop". |
-| `mirror` | bool | `true` | true (default): in a right-to-left language the widget is mirrored when `ui.mirrorRtl` is on (it is, by default, when i18n.direction is rtl): its anchor.x, pivot.x and position.x flip, so it sits where its mirror image about the middle of the screen would, with the same size; a Toggle's box is at the right of its label, a Slider fills from its right end, a Button's icon changes side, and a Panel with direction auto runs its rows right to left. Text, Sprite and Shape2D below the widget are mirrored with it. false: the widget (and everything below it) stays where it is written, for what is not text-like: a map, a joystick, a clock face. A CameraView changes side with the layout but its picture is never mirrored. Does nothing in a left-to-right language or with ui.mirrorRtl off (docs/LOCALIZATION.md, "Right to left"). |
+| `mirror` | bool | `true` | true (default): in a right-to-left language the widget is mirrored when `ui.mirrorRtl` is on (it is, by default, when i18n.direction is rtl): its anchor.x, pivot.x and position.x flip, so it sits where its mirror image about the middle of the screen would, with the same size; a Toggle's box is at the right of its label, a Slider fills from its right end, a Button's icon changes side, and a Panel with direction auto runs its rows right to left. Text, Sprite and Shape2D below the widget are mirrored with it. false: the widget (and everything below it) stays where it is written, for what is not text-like: a map, a joystick, a clock face. A CameraView changes side with the layout but its picture is never mirrored. Does nothing in a left-to-right language or with ui.mirrorRtl off (docs/LOCALIZATION.md, "Right-to-left text"). |
 | `path` | asset (video) | `""` | Project path of the video (.mpg). Changing it opens the new file (and starts it again when `autoplay`). A file that is missing or is not MPEG-1 video is logged once and the entity draws only its background. |
 | `autoplay` | bool | `true` | true (default): `playing` becomes true as soon as the file is open. false: it waits for `entity.video.play()` or `playing = true`, showing the first picture. |
 | `loop` | bool | `false` | true: at the end the video starts over from the beginning, picture and sound (no `video.ended` event). false: it stops on its last picture and fires `video.ended`. |
@@ -1122,7 +1157,7 @@ A 3D (or 2D) view inside the UI (docs/MENUS.md, "A camera inside the UI"): draws
 | Field | Type | Default | Description |
 |---|---|---|---|
 | `size` | vec2 | `[320.0,240.0]` | Size [w, h] in UI units: design pixels, drawn `ui.scale` times as big (the interface scale; 1 by default). The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180, Video 640 x 360, Chart 480 x 200, CameraView 320 x 240). A Panel with fit = true recomputes it every frame (within its minSize and maxSize). |
-| `pivot` | vec2 | `[0.5,0.5]` | Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. So the pivot counts Y UP while `anchor` counts Y DOWN: anchor [0.5, 1] with pivot [0.5, 0] puts the widget's bottom edge on the bottom of the screen, and with pivot [0.5, 1] it hangs below the screen (docs/MENUS.md, "Anchors and pivots"). Layout does not care about the pivot of its children. |
+| `pivot` | vec2 | `[0.5,0.5]` | Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. So the pivot counts Y UP while `anchor` counts Y DOWN: anchor [0.5, 1] with pivot [0.5, 0] puts the widget's bottom edge on the bottom of the screen, and with pivot [0.5, 1] it hangs below the screen (docs/MENUS.md, "Anchors and pivots"). Layout does not care about the pivot of its children. It is also the point the Transform's rotation.z (degrees, clockwise on screen) and scale.x / .y turn and scale the widget around: drawing, hovering, clicking, dragging, the TextField caret and navigation follow the turned rectangle, and a scale also changes the room a parent's layout gives it (since 0.30.0). |
 | `anchor` | vec2 | `[0.0,0.0]` | Screen point the position is relative to, as a fraction of the screen: [0, 0] top-left (default), [1, 0] top-right, [0.5, 0.5] centre. Anchor [0.5, 0.5] with position [0, 0] centres the widget on any aspect ratio. The interface scale (`ui.scale`) never moves the anchor point: a widget anchored to a corner stays in it. The anchor of the widget itself is used, not its parent's: children of a Panel normally keep anchor [0, 0] and are placed by the Panel's layout. |
 | `safeArea` | bool | `false` | Screen space only. true: the anchor names a point of the SAFE area, the screen minus the notch, rounded corners and system bars of a phone (screen.safeArea in scripts), instead of the whole screen: anchor [0, 0] is the top-left corner of the safe area, [1, 1] its bottom-right. Keeps HUD and buttons out of the notch. On a screen without cutouts (desktop, most tablets) it changes nothing. Default false (true on TouchStick and TouchButton). |
 | `layer` | int | `200` | Draw order of the background; higher is on top. Defaults to 200, above HUD Text (layer 100). The label draws at layer + 1 and the focus ring at layer + 2. Pointer hit-testing follows the same order: the highest layer, then the latest entity, under the pointer is the hovered widget. |
@@ -1131,7 +1166,7 @@ A 3D (or 2D) view inside the UI (docs/MENUS.md, "A camera inside the UI"): draws
 | `slice` | vec4 | `[0.0,0.0,0.0,0.0]` | 9-slice borders in TEXTURE pixels [left, top, right, bottom]. The four corners are drawn unscaled (1 texture pixel = 1 design pixel), the edges stretch along one axis and the centre along both, so one small image gives panels of any size. [0, 0, 0, 0] (default) stretches the whole image. When the widget is smaller than left + right (or top + bottom) the borders shrink proportionally. |
 | `tooltip` | json | `null` | The hint that shows next to the pointer after it rests on the widget for `ui.tooltipDelay` seconds (0.5 by default) and goes away when the pointer moves, a button is pressed or another widget is reached. null (default) = none. A string is one line of text, or a localization key (docs/LOCALIZATION.md: a string that is a key of the current language is replaced by its translation, anything else is shown as written). An object {"title": text, "lines": [text or {"text", "color"}], "args": {...}} has a title and body lines; every text may be a key, `args` fills the {placeholders} of the keys, and the tooltip follows a language change while it shows. A widget without a tooltip of its own uses its parent Panel's, so one on a Panel covers its children. It is styled by the `ui.tooltip` section of factoria.json, placed beside the pointer and kept on the screen, and off while the last input was a touch (unless `ui.tooltipOnTouch` is true). A script that returns the text when it shows registers it with ui.setTooltip(entity, () => content) instead. docs/MENUS.md, "Tooltips". |
 | `draggable` | json | `null` | Lets the player drag the widget with the mouse, a finger or a gamepad cursor (ui.setPointer). null or false (default) = not draggable; true = draggable with the default slop; an object {"payload": any JSON, "slop": pixels} sets what the drag carries (default null) and how far the pointer must move after the press before the drag starts (default 6, 0 to 100). A press that is released before the slop is a normal click. When the drag starts the widget is no longer pressed, the click the release would make is swallowed, a tooltip hides, and ui.on("dragStart" \| "dragOver" \| "drop" \| "dragCancel") report it with the widget as source; a press on a child that is not draggable itself drags the nearest draggable ancestor. Slider and TextField keep their own pointer handling and ignore it. docs/MENUS.md, "Drag and drop". |
-| `mirror` | bool | `true` | true (default): in a right-to-left language the widget is mirrored when `ui.mirrorRtl` is on (it is, by default, when i18n.direction is rtl): its anchor.x, pivot.x and position.x flip, so it sits where its mirror image about the middle of the screen would, with the same size; a Toggle's box is at the right of its label, a Slider fills from its right end, a Button's icon changes side, and a Panel with direction auto runs its rows right to left. Text, Sprite and Shape2D below the widget are mirrored with it. false: the widget (and everything below it) stays where it is written, for what is not text-like: a map, a joystick, a clock face. A CameraView changes side with the layout but its picture is never mirrored. Does nothing in a left-to-right language or with ui.mirrorRtl off (docs/LOCALIZATION.md, "Right to left"). |
+| `mirror` | bool | `true` | true (default): in a right-to-left language the widget is mirrored when `ui.mirrorRtl` is on (it is, by default, when i18n.direction is rtl): its anchor.x, pivot.x and position.x flip, so it sits where its mirror image about the middle of the screen would, with the same size; a Toggle's box is at the right of its label, a Slider fills from its right end, a Button's icon changes side, and a Panel with direction auto runs its rows right to left. Text, Sprite and Shape2D below the widget are mirrored with it. false: the widget (and everything below it) stays where it is written, for what is not text-like: a map, a joystick, a clock face. A CameraView changes side with the layout but its picture is never mirrored. Does nothing in a left-to-right language or with ui.mirrorRtl off (docs/LOCALIZATION.md, "Right-to-left text"). |
 | `camera` | string | `""` | Id or name of the Camera entity to draw (an id is tried first, then a name). "" or an entity that is missing, inactive or has no Camera draws only the background `color`. The same camera may be shown by several CameraViews: each gets its own image. |
 | `tint` | color | `[1.0,1.0,1.0,1.0]` | Colour multiplied with the picture: white (default) leaves it as it is, alpha below 1 fades the view over what is behind it. `color` (the background) is a separate colour. |
 | `pointerEvents` | bool | `true` | true (default): a pointer (mouse or finger) pressed over the view sends ui.viewPointer events "down", then "drag" while it moves and "up" when it is released, to the view that was pressed. false: no events, the widget still blocks clicks to what is below it. |
@@ -1147,7 +1182,7 @@ A bar or line chart (docs/MENUS.md, "Charts"): draws `values` as bars or lines i
 | Field | Type | Default | Description |
 |---|---|---|---|
 | `size` | vec2 | `[480.0,200.0]` | Size [w, h] in UI units: design pixels, drawn `ui.scale` times as big (the interface scale; 1 by default). The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180, Video 640 x 360, Chart 480 x 200, CameraView 320 x 240). A Panel with fit = true recomputes it every frame (within its minSize and maxSize). |
-| `pivot` | vec2 | `[0.5,0.5]` | Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. So the pivot counts Y UP while `anchor` counts Y DOWN: anchor [0.5, 1] with pivot [0.5, 0] puts the widget's bottom edge on the bottom of the screen, and with pivot [0.5, 1] it hangs below the screen (docs/MENUS.md, "Anchors and pivots"). Layout does not care about the pivot of its children. |
+| `pivot` | vec2 | `[0.5,0.5]` | Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. So the pivot counts Y UP while `anchor` counts Y DOWN: anchor [0.5, 1] with pivot [0.5, 0] puts the widget's bottom edge on the bottom of the screen, and with pivot [0.5, 1] it hangs below the screen (docs/MENUS.md, "Anchors and pivots"). Layout does not care about the pivot of its children. It is also the point the Transform's rotation.z (degrees, clockwise on screen) and scale.x / .y turn and scale the widget around: drawing, hovering, clicking, dragging, the TextField caret and navigation follow the turned rectangle, and a scale also changes the room a parent's layout gives it (since 0.30.0). |
 | `anchor` | vec2 | `[0.0,0.0]` | Screen point the position is relative to, as a fraction of the screen: [0, 0] top-left (default), [1, 0] top-right, [0.5, 0.5] centre. Anchor [0.5, 0.5] with position [0, 0] centres the widget on any aspect ratio. The interface scale (`ui.scale`) never moves the anchor point: a widget anchored to a corner stays in it. The anchor of the widget itself is used, not its parent's: children of a Panel normally keep anchor [0, 0] and are placed by the Panel's layout. |
 | `safeArea` | bool | `false` | Screen space only. true: the anchor names a point of the SAFE area, the screen minus the notch, rounded corners and system bars of a phone (screen.safeArea in scripts), instead of the whole screen: anchor [0, 0] is the top-left corner of the safe area, [1, 1] its bottom-right. Keeps HUD and buttons out of the notch. On a screen without cutouts (desktop, most tablets) it changes nothing. Default false (true on TouchStick and TouchButton). |
 | `layer` | int | `200` | Draw order of the background; higher is on top. Defaults to 200, above HUD Text (layer 100). The label draws at layer + 1 and the focus ring at layer + 2. Pointer hit-testing follows the same order: the highest layer, then the latest entity, under the pointer is the hovered widget. |
@@ -1156,7 +1191,7 @@ A bar or line chart (docs/MENUS.md, "Charts"): draws `values` as bars or lines i
 | `slice` | vec4 | `[0.0,0.0,0.0,0.0]` | 9-slice borders in TEXTURE pixels [left, top, right, bottom]. The four corners are drawn unscaled (1 texture pixel = 1 design pixel), the edges stretch along one axis and the centre along both, so one small image gives panels of any size. [0, 0, 0, 0] (default) stretches the whole image. When the widget is smaller than left + right (or top + bottom) the borders shrink proportionally. |
 | `tooltip` | json | `null` | The hint that shows next to the pointer after it rests on the widget for `ui.tooltipDelay` seconds (0.5 by default) and goes away when the pointer moves, a button is pressed or another widget is reached. null (default) = none. A string is one line of text, or a localization key (docs/LOCALIZATION.md: a string that is a key of the current language is replaced by its translation, anything else is shown as written). An object {"title": text, "lines": [text or {"text", "color"}], "args": {...}} has a title and body lines; every text may be a key, `args` fills the {placeholders} of the keys, and the tooltip follows a language change while it shows. A widget without a tooltip of its own uses its parent Panel's, so one on a Panel covers its children. It is styled by the `ui.tooltip` section of factoria.json, placed beside the pointer and kept on the screen, and off while the last input was a touch (unless `ui.tooltipOnTouch` is true). A script that returns the text when it shows registers it with ui.setTooltip(entity, () => content) instead. docs/MENUS.md, "Tooltips". |
 | `draggable` | json | `null` | Lets the player drag the widget with the mouse, a finger or a gamepad cursor (ui.setPointer). null or false (default) = not draggable; true = draggable with the default slop; an object {"payload": any JSON, "slop": pixels} sets what the drag carries (default null) and how far the pointer must move after the press before the drag starts (default 6, 0 to 100). A press that is released before the slop is a normal click. When the drag starts the widget is no longer pressed, the click the release would make is swallowed, a tooltip hides, and ui.on("dragStart" \| "dragOver" \| "drop" \| "dragCancel") report it with the widget as source; a press on a child that is not draggable itself drags the nearest draggable ancestor. Slider and TextField keep their own pointer handling and ignore it. docs/MENUS.md, "Drag and drop". |
-| `mirror` | bool | `true` | true (default): in a right-to-left language the widget is mirrored when `ui.mirrorRtl` is on (it is, by default, when i18n.direction is rtl): its anchor.x, pivot.x and position.x flip, so it sits where its mirror image about the middle of the screen would, with the same size; a Toggle's box is at the right of its label, a Slider fills from its right end, a Button's icon changes side, and a Panel with direction auto runs its rows right to left. Text, Sprite and Shape2D below the widget are mirrored with it. false: the widget (and everything below it) stays where it is written, for what is not text-like: a map, a joystick, a clock face. A CameraView changes side with the layout but its picture is never mirrored. Does nothing in a left-to-right language or with ui.mirrorRtl off (docs/LOCALIZATION.md, "Right to left"). |
+| `mirror` | bool | `true` | true (default): in a right-to-left language the widget is mirrored when `ui.mirrorRtl` is on (it is, by default, when i18n.direction is rtl): its anchor.x, pivot.x and position.x flip, so it sits where its mirror image about the middle of the screen would, with the same size; a Toggle's box is at the right of its label, a Slider fills from its right end, a Button's icon changes side, and a Panel with direction auto runs its rows right to left. Text, Sprite and Shape2D below the widget are mirrored with it. false: the widget (and everything below it) stays where it is written, for what is not text-like: a map, a joystick, a clock face. A CameraView changes side with the layout but its picture is never mirrored. Does nothing in a left-to-right language or with ui.mirrorRtl off (docs/LOCALIZATION.md, "Right-to-left text"). |
 | `values` | json | `[]` | The data: an array of numbers (one series), or an array of arrays of numbers (a series each, oldest value first). Anything that is not a number counts as 0. Series may have different lengths; the samples line up from the newest (right) end. |
 | `kind` | enum: bar \| line | `"bar"` | bar (default): one column per sample, the series side by side in it, each bar growing from `baseline`. line: one polyline per series through its points, spanning the plot from edge to edge. |
 | `colors` | json | `[]` | Colour of each series: an array of colours ("#rrggbb", a name or [r, g, b, a]). Series beyond the list start over from its first colour; an empty list uses a built-in palette. |
@@ -2360,7 +2395,7 @@ Make the store page images (capsules, heroes, covers, screenshots) at each store
 
 Capabilities: read, writeProject
 
-Cover-crops `keyArt` (an image in the project, e.g. a screenshot taken with game.screenshot {scale}) around `focus` to every image size the `stores` ask for and writes store/capsules/<store>/<name>_<w>x<h>.png (folders are created, files replaced). Stores: steam, epic, gog, microsoft, googleplay, appstore, itch (default: all). The sizes are in one table (docs/EXPORTING.md#store-page-material, as of 2026-10); assets with the same size in one store are one file.
+Cover-crops `keyArt` (an image in the project, e.g. a screenshot taken with game.screenshot {scale}) around `focus` to every image size the `stores` ask for and writes store/capsules/<store>/<name>_<w>x<h>.png (folders are created, files replaced). Stores: steam, epic, gog, microsoft, googleplay, appstore, itch (default: all). The sizes are in one table (docs/exporting/EXPORTING_STORES.md#store-page-material, as of 2026-10); assets with the same size in one store are one file.
 The `logo` is placed by the rule of each asset: capsules and covers get it centred (Microsoft: in the upper part, the bottom third is overlaid; Steam library capsule: low), heroes, page backgrounds and screenshots get none (Steam's library hero must have no text), and the logo-only assets (Steam library logo 1280x720, Epic logo 960x540) are a transparent PNG with just the logo. `logo` is {"image": "assets/logo.png"} (transparent PNG) or {"text": "My Game", font, fill, outline} (title drawn like assets.draw_icon draws text; fill default white, outline default a dark one, false = none).
 
 Example: {"keyArt":"store/keyart.png","focus":[0.5,0.4],"logo":{"text":"Lantern Keep"},"stores":["steam"]}.
@@ -3105,7 +3140,7 @@ Check an audio document and say what its chain renders to; with no arguments, li
 
 Capabilities: read
 
-An audio document (`*.audio.json`, docs/SOUND.md "Audio documents") is a non-destructive chain over a sound: a WAV/OGG, an .sfx.json patch or another audio document, then steps (trim, fade, normalize, gain, pitch, stretch, speed, eq, filter, compressor, distortion, bitcrush, reverb, delay, reverse, layer, loop, granular). With `path` (or an inline `document`) this checks it: a document with mistakes returns valid false and ALL its issues, each with the JSON pointer, what is wrong and the fix; a valid one returns its steps, where it bakes to and whether that sound is fresh or stale, and (unless render is false) renders it in memory: seconds, loudness, peak, brightness (centroidHz), the loop points of a loop step and the length and peak after each step. With no argument it returns the catalog of step types with every field, its range, default and doc string. Example: {"path":"assets/audio/door.audio.json"}
+An audio document (`*.audio.json`, docs/sound/SOUND_DOCUMENTS.md "Audio documents") is a non-destructive chain over a sound: a WAV/OGG, an .sfx.json patch or another audio document, then steps (trim, fade, normalize, gain, pitch, stretch, speed, eq, filter, compressor, distortion, bitcrush, reverb, delay, reverse, layer, loop, granular). With `path` (or an inline `document`) this checks it: a document with mistakes returns valid false and ALL its issues, each with the JSON pointer, what is wrong and the fix; a valid one returns its steps, where it bakes to and whether that sound is fresh or stale, and (unless render is false) renders it in memory: seconds, loudness, peak, brightness (centroidHz), the loop points of a loop step and the length and peak after each step. With no argument it returns the catalog of step types with every field, its range, default and doc string. Example: {"path":"assets/audio/door.audio.json"}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -3284,7 +3319,7 @@ Read one file as it was at a checkpoint (text inline; a binary as base64 or into
 
 Capabilities: read
 
-Returns the content `path` (project-relative, forward slashes) had at checkpoint `id`, so you can compare or copy one old file without checkpoint.restore touching the rest of the project. Text (valid UTF-8, no NUL bytes) comes back in `text` when it is at most 262144 bytes. A binary comes back as `base64` when it is at most 262144 bytes. Anything bigger, and any file when you pass `out`, is written to the project-relative path `out` instead (the folders are created, an existing file there is overwritten) and only {path, size, binary, out} is returned. `out` stays inside the project and cannot start with '.' folders or go through '..' (not into .factoria). Errors: an unknown id or a path the checkpoint does not hold fails with a "did you mean". Returns {id, path, size, binary, text | base64 | out}. Example: {"id":"20261022-153012-7","path":"scripts/player.js"}.
+Returns the content `path` (project-relative, forward slashes) had at checkpoint `id`, so you can compare or copy one old file without checkpoint.restore touching the rest of the project. Text (valid UTF-8, no NUL bytes) comes back in `text` when it is at most 262144 bytes. A binary comes back as `base64` when it is at most 262144 bytes. Anything bigger, and any file when you pass `out`, is written to the project-relative path `out` instead (the folders are created, an existing file there is overwritten) and only {path, size, binary, out} is returned. `out` stays inside the project and cannot start with '.' folders or go through '..' (not into .factoria). Errors: an unknown id or a path the checkpoint does not hold fails with a "did you mean". factoria.json is returned with the value of storage.encryptionSecret shown as "(hidden)" and cannot be copied with `out` (checkpoint.restore brings the real file back). Returns {id, path, size, binary, text | base64 | out}. Example: {"id":"20261022-153012-7","path":"scripts/player.js"}.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -3349,7 +3384,7 @@ List the engine documentation available offline.
 
 Capabilities: read
 
-Start here. Returns {docs:[{name, title, summary, audience[], path, bytes}]}: `summary` is one sentence on what the page is for, `audience` says who it is for (gameAi: the AI making a game, user: the person using the engine, engineDev: working on the engine itself), `bytes` its size. Pick by summary and read only what the task needs with docs.read (by `heading`). The document 'ai-guide' explains how to build games with FactorIA. Example: {"audience":"gameAi"}.
+Start here. Returns {docs:[{name, title, summary, audience[], path, bytes, family?}]}: `family` is only on a page of a big doc that is split (the name of its entry page: read the entry page first, it indexes its pages); `summary` is one sentence on what the page is for, `audience` says who it is for (gameAi: the AI making a game, user: the person using the engine, engineDev: working on the engine itself), `bytes` its size. Pick by summary and read only what the task needs with docs.read (by `heading`). The document 'ai-guide' explains how to build games with FactorIA. Example: {"audience":"gameAi"}.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -3361,7 +3396,7 @@ Read a documentation page (Markdown), a section or a line range; long pages come
 
 Capabilities: read
 
-Example: {"name":"scripting"}. A result is at most `maxBytes` (default 40000, about 10k tokens; an MCP client refuses much more), so a long page is cut and the result then carries `contents` (the headings with their line numbers) and `next`, the exact call that continues. Read one section by heading: {"name":"ai-guide","heading":"Platformer character"} (case-insensitive; an exact title wins, else a part of a title; several matches list them), or a range with startLine/maxLines. Names: see docs.list (e.g. ai-guide, architecture, scripting, components, licenses). To find where something is, docs.search returns sections with their line numbers.
+Example: {"name":"scripting"}. A result is at most `maxBytes` (default 40000, about 10k tokens; an MCP client refuses much more), so a long page is cut and the result then carries `contents` (the headings with their line numbers) and `next`, the exact call that continues. Read one section by heading: {"name":"ai-guide","heading":"Platformer character"} (case-insensitive; an exact title wins, else a part of a title; several matches list them), or a range with startLine/maxLines. Names: see docs.list (e.g. ai-guide, scripting, licenses). The menu kit's files are `menu-kit/<file>` (the name "menu-kit" lists them). The component and command references are not pages: use docs.components and docs.commands. To find where something is, docs.search returns sections with their line numbers. A big doc is split: its entry page (the name you know) indexes its pages, and a read of it without `heading` carries `pages` ([{name,title,bytes,path}]; a cut read lists them in `contents` too). A `heading` that is not in the entry page but is a heading of one of its pages is served from that page: the result then has `page` (its name; `name` is the page too, so `next` continues there), `requestedName` and a `note`. A heading on two pages is an error that lists both; read the page by name.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -3377,7 +3412,7 @@ Search the documentation by keywords.
 
 Capabilities: read
 
-Case-insensitive; every word counts, headings weigh more. Returns best sections with a snippet. Example: {"query":"input actions"}
+Case-insensitive; every word counts, headings weigh more. Returns best sections with a snippet; `doc` names the page that holds it (`family` too when that is a page of a split doc: read it with docs.read {name:doc}). Example: {"query":"input actions"}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -3392,7 +3427,7 @@ Write the browsable API reference pages (docs/reference/) and docs/COMPONENTS.md
 
 Capabilities: read, writeProject
 
-Writes <out>/COMPONENTS.md (the whole `factoria api --md` text, including the scripting API) and <out>/reference/: README.md (index of every component and command), components/<category>.md and commands/<category>.md, and it refreshes the generated tools table between the markers in section 4 of <out>/AI_GUIDE.md (an <out> without that file, or a file without the markers, gives a `warnings` entry and nothing else changes); all generated from the registries of this session. Run it outside a project (the scratch session) so plugin and project commands are not included; the unit test api_reference compares the committed files with this output. The files are identical on every platform. Example: {"out":"docs"} from the repository root.
+Writes <out>/COMPONENTS.md (the whole `factoria api --md` text, including the scripting API) and <out>/reference/: README.md (index of every component and command), components/<category>.md and commands/<category>.md, and it refreshes the generated tools table between the markers in section 4 of <out>/ai-guide/AI_GUIDE_TOOLS.md (an <out> without that file, or a file without the markers, gives a `warnings` entry and nothing else changes); all generated from the registries of this session. Run it outside a project (the scratch session) so plugin and project commands are not included; the unit test api_reference compares the committed files with this output. The files are identical on every platform. Example: {"out":"docs"} from the repository root.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -3779,7 +3814,7 @@ Replace exact text in a file (must match exactly once unless replaceAll).
 
 Capabilities: read, writeProject
 
-Example: {"path":"scripts/player.js","find":"speed = 300","replace":"speed = 360"}. Fails if 'find' is not found or matches several places; include more surrounding text to make it unique. Same write rule as fs.write (inside .factoria/ only .factoria/tmp/ may be edited).
+Example: {"path":"scripts/player.js","find":"speed = 300","replace":"speed = 360"}. Fails if 'find' is not found or matches several places; include more surrounding text to make it unique. Same write rule as fs.write (inside .factoria/ only .factoria/tmp/ may be edited). In a factoria.json the text is matched as fs.read shows it, with storage.encryptionSecret as "(hidden)": an edit that leaves "(hidden)" as the secret keeps the real one.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -3809,7 +3844,7 @@ Read a text file (optionally a line range).
 
 Capabilities: read
 
-Example: {"path":"scripts/player.js","startLine":1,"endLine":80}. Binary files are refused. Set numbered=true to get line numbers for fs.edit planning.
+Example: {"path":"scripts/player.js","startLine":1,"endLine":80}. Binary files are refused. Set numbered=true to get line numbers for fs.edit planning. In any file called factoria.json (the project's, or one of a project inside it) the value of storage.encryptionSecret (the key that seals the game's saves) is shown as "(hidden)", here and in fs.search; fs.write of a file that says "(hidden)" keeps the real secret.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -3934,6 +3969,26 @@ Resume the simulation after game.pause.
 Capabilities: read, state
 
 Example: game.resume {}
+
+### `game.rumble` (modifies state)
+
+Since 0.30.0.
+
+Rumble a gamepad (the heavy and the light motor, 0..1, for some seconds), stop it, or just read what every pad does and whether it can rumble.
+
+Capabilities: read, state
+
+Give `low` (the heavy, low-frequency motor), `high` (the light, high-frequency one) and `seconds` (above 0, up to 10) to start the motors of pad `pad` (0..3, default 0); the same as input.rumble() in a script. `stop: true` stops the pad instead (without `pad`, every pad). With neither, nothing changes and the result only reports. The result lists every pad: connected, canRumble, reason (why it cannot, e.g. the pad has no motors the platform can drive), and the motors now (low, high, seconds left). Strengths outside 0..1 are clamped, and a request with both at 0 is a stop; a request for a pad that is not connected or cannot rumble is accepted and does nothing. The seconds run down with the frames' own duration (game.step), not scaled by time.scale; the engine stops every pad when the game pauses itself (time.scale 0), changes scene or quits.
+
+Example: game.rumble {"pad":0,"low":0.6,"high":0.2,"seconds":0.3}, then game.rumble {"stop":true}. A headless run has no hardware: connect a test pad first (game.input {"gamepad":{"index":0,"connected":true}}) and read the motors in the result; real motors need a game running in its own window (`factoria run`, an export; the editor's Game view reads no physical pads): Windows pads (XInput, DualShock 4, DualSense, Switch Pro), Linux pads with kernel force feedback, macOS and iOS pads with GameController haptics, Android pads with vibrators, Chrome-based browsers.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `pad` | integer | no | Gamepad slot 0..3 (default 0; with `stop`, default every pad). |
+| `low` | number | no | Strength of the heavy, low-frequency motor, 0..1 (clamped). |
+| `high` | number | no | Strength of the light, high-frequency motor, 0..1 (clamped). |
+| `seconds` | number | no | How long, above 0 and up to 10. Required with low or high. |
+| `stop` | boolean | no | true: stop the pad (every pad when `pad` is left out). Default false. |
 
 ### `game.screenshot` (modifies state)
 
@@ -5724,7 +5779,7 @@ Capabilities: read, writeProject
 
 Applies `ops` in order to the song at `path` and writes it, but only if the result is a valid song (otherwise it fails with `invalid_song`, every problem in data.issues, and the file is untouched). Example: {"path":"assets/music/theme.song.json","ops":[{"op":"set_pattern","track":"bass","pattern":"line","notes":"A2:8 A2 E3 A2 | G2:8 G2 D3 G2"},{"op":"mute","section":"intro","tracks":["drums"]}]}
 
-Each op is an object with `op` and its fields: set_song {tempo, meter, key, mode, swing, swingGrid, seed, volume, doc} (null removes a field); add_track {track, instrument, volume, pan, mute, solo, voices, effects, sends, transpose, swing, range, kit, patterns, automation, play}; set_track {track, name (renames and updates the sections), instrument (a name, a .sfx.json, "x.sf2#Preset" or {soundfont, preset, bank}), volume, pan, mute, solo, voices, effects, sends, transpose, swing, range, kit, automation} (null removes); set_mixer {buses: {name: {volume, pan, mute, effects} | null}, master: {effects, limiter, loudness}} (docs/MUSIC.md "Mixer"; a bus merges field by field, null removes a bus or a field); set_layers {layers: {name: [tracks] | {tracks, intensity, doc} | null}} (the groups of tracks music.render writes as stems and a layered player brings in; docs/MUSIC.md "Layers"); remove_track {track} (and every mention in the sections); set_pattern {track, pattern, notes (note text, or a list of {pitch, tick, duration, velocity, accent, staccato} that is written as note text) | grid+step+bars, play}; remove_pattern {track, pattern} (and its uses in the sections); add_section {section, kind (intro, loop, outro, section), repeat, bars, mute, play, index}; set_section {section, name, kind, repeat, bars, mute, play} (play changes only the tracks named, null stops one); remove_section {section}; move_section {section, index}; arrange {section, track, entries} ("a a b*2 rest", a list, or null to stop the track in that section); mute {section, tracks, muted}; set_automation {track (omit for the whole song), param (volume, pan, filter, macro.<name>), points [[beat, value], ...], curve (linear, step, smooth)} (no points removes the lane). `play` in add_track and set_pattern is {section: entries} to place the pattern at once. Note text is in docs/MUSIC.md. Returns the song's summary and what each op did.
+Each op is an object with `op` and its fields: set_song {tempo, meter, key, mode, swing, swingGrid, seed, volume, doc} (null removes a field); add_track {track, instrument, volume, pan, mute, solo, voices, effects, sends, transpose, swing, range, kit, patterns, automation, play}; set_track {track, name (renames and updates the sections), instrument (a name, a .sfx.json, "x.sf2#Preset" or {soundfont, preset, bank}), volume, pan, mute, solo, voices, effects, sends, transpose, swing, range, kit, automation} (null removes); set_mixer {buses: {name: {volume, pan, mute, effects} | null}, master: {effects, limiter, loudness}} (docs/music/MUSIC_SONGS.md "The mixer"; a bus merges field by field, null removes a bus or a field); set_layers {layers: {name: [tracks] | {tracks, intensity, doc} | null}} (the groups of tracks music.render writes as stems and a layered player brings in; docs/music/MUSIC_SONGS.md "Layers and stems"); remove_track {track} (and every mention in the sections); set_pattern {track, pattern, notes (note text, or a list of {pitch, tick, duration, velocity, accent, staccato} that is written as note text) | grid+step+bars, play}; remove_pattern {track, pattern} (and its uses in the sections); add_section {section, kind (intro, loop, outro, section), repeat, bars, mute, play, index}; set_section {section, name, kind, repeat, bars, mute, play} (play changes only the tracks named, null stops one); remove_section {section}; move_section {section, index}; arrange {section, track, entries} ("a a b*2 rest", a list, or null to stop the track in that section); mute {section, tracks, muted}; set_automation {track (omit for the whole song), param (volume, pan, filter, macro.<name>), points [[beat, value], ...], curve (linear, step, smooth)} (no points removes the lane). `play` in add_track and set_pattern is {section: entries} to place the pattern at once. Note text is in docs/MUSIC.md. Returns the song's summary and what each op did.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -6422,6 +6477,58 @@ The replay is applied by frame number to the window's frames at their real durat
 
 ## scene
 
+### `prefab.apply` (modifies state)
+
+Since 0.30.0.
+
+Write an instance's values into its prefab file: one field, one component, or everything; the other instances follow.
+
+Capabilities: read, state, writeProject
+
+`id` is the instance's root or a part of it; `component` and `field` narrow it as in prefab.revert (without them: everything the entity and what is below it overrides, added components and children included; a component the instance lost is deleted from the file). The prefab file keeps its own structure (its nested prefabs and the parts you did not touch stay) but is written back in the engine's own JSON layout, like scene.save: the indentation and line endings of a hand-formatted file are normalized, so the first Apply of such a file shows up as a whole-file diff. Every other instance of the prefab in the open scene gets the same change, except where it overrides that thing itself (a component the instance lost is also removed from an instance that overrides some of its fields: a note says so; the call looks at every instance of the prefab in the scene, so it takes longer with hundreds). Example: prefab.apply {"id":"enemy_1","component":"Sprite","field":"/color"}
+
+Returns {id, root, prefab, applied: [the entries prefab.overrides lists], files: [the prefab file written], updated: [ids of the other instances that were updated], skipped: [{id, reason}] (instances whose differences cannot be listed: left as they are), notes?}. Where the instance stands (the root's Transform.position) is not written unless named, like prefab.save. Refuses, changing nothing, a read-only file (code read_only), a prefab that does not exist, an instance whose differences cannot be listed (not_expressible) and changes the file has no place for (cannot_apply; each entry of prefab.overrides says so in `applyBlocked`). The file is written for good (the editor's Ctrl+Z puts the open scene back, not the file: use version control to go back), and instances of this prefab inside other prefabs are only updated after a scene.reload. The editor does not offer it while the game runs: a call made then writes what the running game holds.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `id` | string | yes | Id (or name) of the instance's root or of a part of it. |
+| `component` | string | no | Only this component of the entity (e.g. Sprite, Transform, EntityInfo). Without it: everything of the entity and below. |
+| `field` | string | no | With `component`: only this field, as a JSON pointer inside the component, e.g. "/color" ("color" works too). |
+
+### `prefab.overrides`
+
+Since 0.30.0.
+
+List what a prefab instance of the open scene overrides: what differs from its prefab.
+
+Capabilities: read
+
+`id` is an entity of a prefab instance, its root or a part of it; the list covers that entity and what is below it (the whole instance for the root). Returns {id, root, prefab, expressible, count, overrides: [{kind, entity, component, field, value, prefabValue}]}: kind "field" (a field of a component, as a JSON pointer: "/position"; name, tags and active are fields of EntityInfo), "component" (one the prefab lacks, with its whole value), "removedComponent" (one the prefab has and the instance lost; prefabValue comes back) or "child" (added under the instance's root). Example: prefab.overrides {"id":"enemy_1"}
+
+`prefabValue` is what prefab.revert puts back; an Entity field gives the id of the instance's own entity. The root's Transform.position is listed with placement: true and not counted: where an instance stands is not an override of the prefab. An entry with `applyBlocked` cannot be written to the prefab file by prefab.apply (it points at an entity outside the prefab, or at a part that a prefab inside the prefab made): the text says why. When the differences cannot be listed (a child of the prefab was removed, a child was added under a part of it) `expressible` is false, `reason` says what to fix and the list is empty. It reads the prefab file and changes nothing.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `id` | string | yes | Id (or name) of the instance's root or of a part of it. |
+
+### `prefab.revert` (modifies state)
+
+Since 0.30.0.
+
+Put the prefab's values back into an instance: one field, one component, or everything.
+
+Capabilities: read, state
+
+`id` is the instance's root or a part of it. Without `component` everything the entity and what is below it overrides goes back to the prefab (for the root: the whole instance, added components and children included); with `component`, that component of the entity; with `component` and `field`, that one field (a JSON pointer such as "/position"; name, tags and active are fields of EntityInfo). Changes the open scene only: the prefab file stays as it is. Example: prefab.revert {"id":"enemy_1","component":"Sprite","field":"/color"}
+
+Where the instance stands (the root's Transform.position) is not reverted unless named: {"component": "Transform", "field": "/position"}. A component the prefab lacks is removed, one it lost comes back, a child added under the instance is destroyed. All or nothing: when one change cannot be put back, none is. Returns {id, root, prefab, reverted: [the entries prefab.overrides lists], notes?}. Refuses (code not_expressible) an instance whose differences cannot be listed (a removed child); prefab.overrides says why. The editor calls it through its command undo, so Ctrl+Z puts the values back.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `id` | string | yes | Id (or name) of the instance's root or of a part of it. |
+| `component` | string | no | Only this component of the entity (e.g. Sprite, Transform, EntityInfo). Without it: everything of the entity and below. |
+| `field` | string | no | With `component`: only this field, as a JSON pointer inside the component, e.g. "/color" ("color" works too). |
+
 ### `prefab.save` (modifies state)
 
 Save an entity of the running world, with its children, as a prefab file.
@@ -6463,14 +6570,39 @@ Create a new game project from a template.
 
 Capabilities: read, writeProject
 
-Creates `dir` (relative to the server's working directory unless absolute) with factoria.json, a scene, scripts, a test, AGENTS.md, ENGINE_FEEDBACK.json and the real types/factoria.d.ts. Afterwards start `factoria mcp --project <dir>` to work on it. Example: {"dir":"my-game","template":"2d-platformer","name":"My Game"}.
+Creates `dir` (relative to the server's working directory unless absolute) with factoria.json, a scene, scripts, a test, AGENTS.md, ENGINE_FEEDBACK.json and the real types/factoria.d.ts. Afterwards start `factoria mcp --project <dir>` to work on it. With `example` instead of `template` the project is a copy of an example game of the installed version (project.examples lists them): its zip is downloaded from the GitHub release (needs the network capability and the internet the first time; it is kept in FactorIA's cache folder), checked against the release's size and SHA-256, and unpacked into a hidden folder that is renamed to `dir` at the end, so a failure leaves nothing. Examples: {"dir":"my-game","template":"2d-platformer","name":"My Game"} and {"dir":"block-push","example":"block-push"}.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `dir` | string | yes | Target folder (created; must be empty or new). With a project open, a caller that may not write anywhere (an agent, an MCP client) gives a folder inside the project, relative to it; the command line may name any folder. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
-| `template` | string | no | 2d-empty, 2d-platformer or 3d-empty (see project.templates). Default "2d-empty". |
-| `name` | string | no | Display name (default: folder name). |
-| `id` | string | no | Reverse-DNS id, e.g. com.example.mygame. |
+| `template` | string | no | 2d-empty, 2d-platformer or 3d-empty (see project.templates). Default 2d-empty; not together with `example`. |
+| `example` | string | no | Start from this example game of the installed version instead of a template (names: project.examples). Downloads it the first time. Not together with `template`. |
+| `name` | string | no | Display name (default: folder name; an example keeps its own unless given). |
+| `id` | string | no | Reverse-DNS id, e.g. com.example.mygame (an example keeps its own unless given). |
+
+### `project.create_storage_secret` (modifies state)
+
+Since 0.30.0.
+
+Create the random secret that makes storage.set(..., {encrypt: true}) work, in factoria.json.
+
+Capabilities: read, state, writeProject
+
+Writes "storage": {"encryptionSecret": <64 random hex characters>} into factoria.json, once. Save encryption (storage.set(key, value, {encrypt: true}), the Slots kit's `encrypt` option) derives one key per storage key from it, so run this before the game's first encrypted save and keep the secret for the life of the game: saves written with another secret cannot be opened (they are set aside as damaged files). A project that already has one is left alone (`created: false`) unless `replace` is true, which makes every encrypted save written so far unreadable. The secret is never returned or logged; it ships inside the exported game, so encryption is tamper-evidence, not secrecy from a determined player (docs/scripting/SCRIPTING_UI_SCENES.md, "Encrypted saves"). The file is written back in the engine's own layout (2-space indent, one array element per line, a trailing newline; key order and values are kept), so a factoria.json formatted by hand shows more changed lines than the new "storage" section. If the file cannot be replaced (read-only, or open in another program: Windows refuses to replace an open file) the command fails with `write_failed` and changes nothing: close the program and run it again. Commit factoria.json. Result: {created, replaced, file}. Example: project.create_storage_secret {}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `replace` | boolean | no | Make a new secret even when the project has one. Every save written with {encrypt: true} so far stops opening: use it only when the secret leaked and the saves can be lost. Default false. |
+
+### `project.examples` (modifies state)
+
+Since 0.30.0.
+
+List the example games of the installed FactorIA version: what each shows and the docs to read first.
+
+Capabilities: read, network
+
+The download of FactorIA carries no example games; every release publishes them as assets. This downloads examples-manifest.json of the release of the INSTALLED version (a few KB), keeps a copy in <FACTORIA_HOME or ~/.factoria>/cache/examples/<version>/ and returns, per example, `name`, `title`, `shows` (what it shows), `readFirst` (docs to read before opening it: `docs.read` them), `size` (bytes to download) and `downloaded` (its zip is already in the cache). `stale` is true, and `staleReason` says why, when the network failed and the copy of an earlier call is returned: the list may then be older than the release. With no network and no copy it fails and says what to do. Create a project from one with project.create {example}. Example: {}.
 
 ### `project.export` (modifies state)
 
@@ -6533,7 +6665,7 @@ Create a native plugin (C/C++) for this game and declare it in factoria.json.
 
 Capabilities: read, writeProject
 
-Writes a plugin folder (default plugins/<name>, or `path`: project-relative, absolute, or with ${VARIABLE} parts for a private folder outside the repository) holding src/plugin.c, include/fa_plugin.h (the whole C API), CMakeLists.txt, README.md and android/ (the Gradle module of its Android build), and adds "plugins": {"<name>": {"path", "platforms", "optional"}} to factoria.json (`platforms` defaults to this computer's; `optional` to true: the game runs, and exports with allowMissingPlugins, without the build). The plugin adds the script function plugins.<name>.add(a, b) and the command <name>.info: build it with CMake (nextSteps), then `factoria run` loads it. `template` (default "basic") picks another starting point: a platform backend for a store (the folders of platforms/plugins/ in the engine; docs/PLATFORM.md, "Writing a backend"). The name: lower-case letters, digits and underscores, not an engine area (scene, game, ...). Fails when factoria.json already declares the plugin or the folder is not empty. Only that key of factoria.json changes: the other keys, their order and the layout stay as they are. Example: {"name": "example"}.
+Writes a plugin folder (default plugins/<name>, or `path`: project-relative, absolute, or with ${VARIABLE} parts for a private folder outside the repository) holding src/plugin.c, include/fa_plugin.h (the whole C API), CMakeLists.txt, README.md and android/ (the Gradle module of its Android build), and adds "plugins": {"<name>": {"path", "platforms", "optional"}} to factoria.json (`platforms` defaults to this computer's; `optional` to true: the game runs, and exports with allowMissingPlugins, without the build). The plugin adds the script function plugins.<name>.add(a, b) and the command <name>.info: build it with CMake (nextSteps), then `factoria run` loads it. `template` (default "basic") picks another starting point: a platform backend for a store (the folders of platforms/plugins/ in the engine; docs/platform/PLATFORM_BACKENDS.md, "Writing a backend plugin"). The name: lower-case letters, digits and underscores, not an engine area (scene, game, ...). Fails when factoria.json already declares the plugin or the folder is not empty. Only that key of factoria.json changes: the other keys, their order and the layout stay as they are. Example: {"name": "example"}.
 
 With `dryRun` true nothing is written: the result lists the `files` and the `keys` of factoria.json it would write. An argument that does not exist is an error with a "did you mean". Returns {folder, files[], keys[], plugin, nextSteps[], dryRun?}. Details: docs_read {"name":"extending"} (section G).
 
@@ -6545,6 +6677,23 @@ With `dryRun` true nothing is written: the result lists the `files` and the `key
 | `platforms` | array | no | The platforms it will be built for (default: this computer's). |
 | `optional` | boolean | no | Written as "optional" in factoria.json: true = the game runs without the plugin (a missing build is a validate warning, not an error). Pass false when the game cannot work without it. Default true. |
 | `dryRun` | boolean | no | true = write nothing: list the files and the factoria.json keys it would write. Default false. |
+
+### `project.package_examples` (modifies state)
+
+Since 0.30.0.
+
+Zip every example game of examples/ and write examples-manifest.json, the files a release publishes.
+
+Capabilities: read, writeAnywhere
+
+For the engine's release (docs/design/BUILDING_RELEASE.md, "Example games in the release"). Reads `examples`/examples.json (the title, what each example shows and the docs to read first), checks that every project folder has an entry and every entry a folder, writes <name>.zip per example into `out` (the project without .factoria/ and every other hidden folder, node_modules/, a top-level build/, .DS_Store, Thumbs.db, desktop.ini, *.actual.png, *.fa-tmp and the secrets and local settings .env, ai.local.json, *.key, *.keystore, *.jks, *.p12 and *.pem; a link is never followed; the same files give the same bytes) and examples-manifest.json beside them (format, engineVersion, and per example name, title, shows, readFirst, file, size and sha256). Replaces files of the same names in `out`. Returns the manifest. Run it from a checkout of the repository: a download has no examples/. Example: {"examples":"examples","out":"dist/examples"}.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `examples` | string | no | The folder that holds the example projects and examples.json (default: examples, relative to the current directory). Default "examples". |
+| `out` | string | yes | The folder the zips and examples-manifest.json are written to (created). |
+| `only` | array | no | Pack only these examples (default: all). |
+| `version` | string | no | The engine version written to the manifest (default: this factoria's version). |
 
 ### `project.serve_web` (modifies state)
 
@@ -6992,6 +7141,23 @@ The edited `rows` are written back to `file` (one row per line, every other key 
 | `rebuild` | boolean | no | Rebuild the level with scene.import_ascii on the edited file when it has a `path`. Default true. |
 | `dryRun` | boolean | no | Write nothing; return the edited rows (and the import's dry run). Needs no writeProject: `file` is only read. Default false. |
 
+### `scene.copy_entities`
+
+Since 0.30.0.
+
+Write entities of the running world, with their subtrees, as one JSON text.
+
+Capabilities: read
+
+Returns {text, count, roots}: `text` is self-contained (components, children, links to prefabs), so it can be kept, sent, or given to scene.paste_entities in this scene, another scene or another editor. `ids` are ids or names; an entity whose ancestor is also listed is copied with that ancestor, once. `count` is every entity in the text, `roots` the ids that head it. The world is not changed. Example: scene.copy_entities {"ids":["player","coin_3"]}
+
+The text is {"format":"factoria.entities/1","entities":[{"parent":"<id the root had>"?,"entity":{...}}]}. The entity JSON is the one the editor's undo keeps: every serialized field that differs from its default, the children inline, and the `$prefab` / `$fromPrefab` keys that keep an instance of a prefab linked to it. Runtime state (velocities, animation time) is not copied, and a field an animation drives is copied at its rest value. Entity fields stay as the ids they hold; scene.paste_entities remaps them.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `ids` | array | yes | Ids (or names) of the entities to copy; each is copied with all its children. |
+| `primary` | string | no | One of the copied entities (or one below them): scene.paste_entities returns the pasted root that holds its copy as `primary`, so the editor can select it last. |
+
 ### `scene.destroy` (modifies state)
 
 Destroy an entity and its children.
@@ -7088,6 +7254,25 @@ Loads immediately (outside a frame) or at the end of the current frame. Like sce
 | `props` | object | no | Plain JSON the new scene's scripts read with game.sceneProps() (default: none, {}). |
 | `async` | boolean | no | Read the scene's files in the background and switch once they are ready (answers {async, loadId} at once). Default false: load now (or at the end of the frame). Default false. |
 
+### `scene.paste_entities` (modifies state)
+
+Since 0.30.0.
+
+Create the entities of a scene.copy_entities text in the running world.
+
+Capabilities: read, state
+
+`text` is what scene.copy_entities returned, from this scene or another. Every pasted entity gets an id that is free here (the copied id when it is free, else the next number: coin_3 -> coin_4). Entity fields that name an entity of the copied set name its new copy; a field that names an entity outside the set keeps it when this scene has an entity with that id and is cleared when it has not (listed in `cleared`). The pasted roots go under `parent` (null or "" = top level), or with keepParents under the parent each had when copied (top level when that parent is gone); without either, at the top level. Returns {ids, count, cleared, primary?, messages?}: `ids` are the new roots in the order of the text; `primary` is the pasted root that is or holds the copy of the entity scene.copy_entities got as `primary`. Nothing is created when anything is wrong. Example: scene.paste_entities {"text":"<what scene.copy_entities returned>","parent":"level"}
+
+`nameSuffix` is appended to the name of every pasted root (an unnamed one becomes "Entity" + suffix): nameSuffix " copy" with keepParents is a duplicate. `parent` and keepParents together are refused. A text that is not an entity clipboard (not JSON, another `format`, another version) is an error that names the JSON pointer of the problem; a text with a "prefab" key, a `$prefab` path outside the project or more than 64 levels of children is refused. Only Entity fields are remapped: an id inside a Json field (Script.props, for example) is copied as it is. `cleared` entries are {entity, component, field, target}.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `text` | string | yes | The text scene.copy_entities returned (the system clipboard in the editor). |
+| `parent` | any | no | Id of the entity the pasted roots go under; null or "" = top level. Not with keepParents. |
+| `keepParents` | boolean | no | Put each pasted root under the parent it had when copied, when that entity exists here. Not with parent. Default false. |
+| `nameSuffix` | string | no | Appended to the name of every pasted root, e.g. " copy". |
+
 ### `scene.place_ascii` (modifies state)
 
 Since 0.25.0.
@@ -7180,7 +7365,9 @@ Move an entity under another entity, or to the top level of the scene.
 
 Capabilities: read, state
 
-`parent` null or "" makes it a root. By default (`keepWorldTransform` true) the entity stays where it is on screen: its local Transform is recomputed for the new parent; with false the local Transform is kept, so the entity moves with the new parent. The entity becomes the LAST child of its new parent unless `index` says where: 0 = first; it counts the new parent's other children, so moving within the same parent works (index 0 on the last child makes it first); an index below 0 or above the number of other children is refused, and `index` needs a parent (top-level order is creation order). Scene files keep the order. A parent that is the entity itself or one of its children is refused (a cycle), and so is an entity being destroyed this frame or a new parent being destroyed. Example: scene.set_parent {"id":"coin_3","parent":"chest"}
+`parent` null or "" makes it a root. By default (`keepWorldTransform` true) the entity stays where it is on screen: its local Transform is recomputed for the new parent; with false the local Transform is kept, so the entity moves with the new parent. Into a parent that lays its children out (a Panel with a `layout`, a ScrollList) a widget's Transform.position becomes [0, 0] and the result says `positionReset` true. The entity becomes the LAST child unless `index` says where; moving under the SAME parent changes only the order. A cycle is refused. Example: scene.set_parent {"id":"coin_3","parent":"chest"}
+
+The exception (with `keepWorldTransform` true, into a DIFFERENT parent that lays its children out) applies to a widget and to a screen-space Text, Sprite or Shape2D: the position goes to its slot, as the layout would have put it, rotation and scale are kept. That decision looks only at the child's component type and space (ui_layout_places): the layout skips an inactive child, and a Text with no text or a Sprite with no size, which therefore also get position [0, 0] without being placed. `index` counts the new parent's other children (0 = first; index 0 on the last child makes it first); an index below 0 or above the number of other children is refused, and `index` needs a parent (top-level order is creation order). Scene files keep the order. A parent that is the entity itself or one of its children is refused (a cycle), and so is an entity being destroyed this frame or a new parent being destroyed.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -7535,7 +7722,7 @@ Capabilities: read, writeProject, network, process
 
 Signs <out>/<game-slug>-windows.msix (what `project.export {"platform":"windows","format":"msix"}` writes) in place, and with `exe` the game's .exe of the export folder. A package for the Microsoft Store is uploaded UNSIGNED (Microsoft signs it), so this is for installing the package on a PC outside the Store (yours, a tester's) or for a game sold elsewhere. The certificate is a code-signing .pfx: `pfx`, else FACTORIA_WINDOWS_PFX, else sign.windows.pfx of ~/.factoria/export.json; its password ONLY in FACTORIA_WINDOWS_PFX_PASSWORD (never an argument of any program, a file of the game, a result or a log: on Windows the .pfx is imported into the user's certificate store for the run and removed afterwards, also after a failure or a cancel, signtool signs by thumbprint; two runs at once with one .pfx can take the certificate from each other; osslsigncode reads the password on stdin). The subject of the certificate must equal the Publisher of the package (checked with openssl when it is installed). Examples: {"dryRun":true}, {"pfx":"C:/keys/code-signing.pfx"}, {"testCertificate":true}.
 
-`testCertificate: true` (Windows) instead creates a self-signed certificate for the package's Publisher in your user certificate store, signs with it and saves the public part as <slug>-windows-test-certificate.cer: trust it once (Import-Certificate ... -CertStoreLocation Cert:\LocalMachine\TrustedPeople as Administrator) and `Add-AppxPackage -Path <the .msix>` installs the game (docs/EXPORTING.md, "Trying the package on your PC"). The tool: signtool.exe on Windows (FACTORIA_SIGNTOOL, else the newest Windows SDK, else PATH); osslsigncode on macOS and Linux (FACTORIA_OSSLSIGNCODE, else PATH; 2.9 or newer). Digest SHA-256 and an RFC 3161 time stamp (`timestampUrl`, default http://timestamp.digicert.com). `dryRun: true` checks everything and returns the exact command lines in steps[] on any computer. Returns {msix, exe, publisher, certificate, certificateFrom, tool, toolPath, timestampUrl, dryRun, signedMsix, signedExe, testCertificateFile, steps[{title, command, commandLine, ran, exitCode, env, stdinSecret}] (env lists the NAMES of the environment variables a step sets, never values; stdinSecret marks a step whose password goes on its standard input), warnings[], nextSteps[]}. Signing again after every export is needed: the next project.export replaces the package.
+`testCertificate: true` (Windows) instead creates a self-signed certificate for the package's Publisher in your user certificate store, signs with it and saves the public part as <slug>-windows-test-certificate.cer: trust it once (Import-Certificate ... -CertStoreLocation Cert:\LocalMachine\TrustedPeople as Administrator) and `Add-AppxPackage -Path <the .msix>` installs the game (docs/exporting/EXPORTING_STORES.md, "Try it on a PC without the Store"). The tool: signtool.exe on Windows (FACTORIA_SIGNTOOL, else the newest Windows SDK, else PATH); osslsigncode on macOS and Linux (FACTORIA_OSSLSIGNCODE, else PATH; 2.9 or newer). Digest SHA-256 and an RFC 3161 time stamp (`timestampUrl`, default http://timestamp.digicert.com). `dryRun: true` checks everything and returns the exact command lines in steps[] on any computer. Returns {msix, exe, publisher, certificate, certificateFrom, tool, toolPath, timestampUrl, dryRun, signedMsix, signedExe, testCertificateFile, steps[{title, command, commandLine, ran, exitCode, env, stdinSecret}] (env lists the NAMES of the environment variables a step sets, never values; stdinSecret marks a step whose password goes on its standard input), warnings[], nextSteps[]}. Signing again after every export is needed: the next project.export replaces the package.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -7882,7 +8069,7 @@ List the keys of the game's save storage (storage.set): the ones the running gam
 
 Capabilities: read
 
-Shows what `storage.get/set` keeps for this project: each key with `inMemory`, `onDisk`, `compressed` and `bytes`, the storage `mode`, and the `dir` (<user dir>/storage, one JSON file per key) that the editor and `factoria run` write to. `factoria mcp` and `factoria call` keep the game's storage in memory (--persist-storage opts in), but this command still lists the key files on disk, so a stale save left by the editor or a play run (a "Continue" button that should not be there) is visible. `project.test` runs every test file on its own fresh in-memory storage and never reads or writes the save folder, so a stale save cannot change a test result. `damaged` lists key files that do not parse. Example: storage.list {}
+Shows what `storage.get/set` keeps for this project: each key with `inMemory`, `onDisk`, `compressed`, `encrypted` and `bytes`, the storage `mode`, and the `dir` (<user dir>/storage, one JSON file per key) that the editor and `factoria run` write to. `factoria mcp` and `factoria call` keep the game's storage in memory (--persist-storage opts in), but this command still lists the key files on disk, so a stale save left by the editor or a play run (a "Continue" button that should not be there) is visible. `project.test` runs every test file on its own fresh in-memory storage and never reads or writes the save folder, so a stale save cannot change a test result. `damaged` lists key files that do not parse or, for an encrypted one, do not authenticate (edited, damaged, or written with another storage.encryptionSecret). Example: storage.list {}
 
 ## assets
 
@@ -8194,6 +8381,20 @@ TouchStick and TouchButton with touchOnly (the default) are drawn only while the
 |---|---|---|---|
 | `enabled` | boolean | no | true: force the touch interface on; false: back to following the real last input. Default true. |
 
+### `ui.reset_layout_positions` (modifies state)
+
+Since 0.30.0.
+
+Migrate a scene saved before 0.30: set Transform.position x and y to 0 on the laid-out children whose position holds the old layout result.
+
+Capabilities: read, state
+
+Before 0.30 a Panel or ScrollList wrote where it placed a child into the child's Transform.position, and a saved scene kept it. Now the layout keeps its own offset and Transform.position of a laid-out child is the author's nudge from the slot (0 = in the slot), so such a child sits that far from where it was. This runs a layout pass and sets x and y of the position to 0 on every laid-out child whose position equals its layout offset (within half a pixel), so the picture stays what the old engine drew. It changes the open scene only: save it afterwards (scene.save); in the editor it is one undo step. Returns {count, ids, dryRun}. The test is a guess. A nudge you made on purpose that happens to equal the slot offset is reset too (the log names each such child the first time a layout sees it), and a child of a ScrollList is compared with the offset it has at the list's current scroll, so a list scrolled since the scene was loaded can hide a baked position: run this right after loading the scene. With `dryRun` true nothing is written: look at the ids first. Example: ui.reset_layout_positions {"dryRun":true}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `dryRun` | boolean | no | true = only list the entities that would be reset (count and ids), change nothing. Default false. |
+
 ### `ui.set_mirror_rtl` (modifies state)
 
 Since 0.3.0.
@@ -8202,7 +8403,7 @@ Turn the mirroring of the screen-space UI in a right-to-left language on or off.
 
 Capabilities: read, state
 
-The same as `ui.mirrorRtl = value` in a script (docs/LOCALIZATION.md, "Right to left"). On (the default, or the "ui": {"mirrorRtl"} of factoria.json) and with i18n.direction "rtl", the screen-space widgets and the Text, Sprite and Shape2D under them are mirrored: anchor.x, pivot.x and position.x flip, Toggle boxes sit on the right and Sliders run right to left; a widget with UiBox.mirror false stays. Returns {mirrorRtl, mirrored}: `mirrored` is whether the UI is mirrored now (the option and a right-to-left language). Example: ui.set_mirror_rtl {"value":false}
+The same as `ui.mirrorRtl = value` in a script (docs/LOCALIZATION.md, "Right-to-left text"). On (the default, or the "ui": {"mirrorRtl"} of factoria.json) and with i18n.direction "rtl", the screen-space widgets and the Text, Sprite and Shape2D under them are mirrored: anchor.x, pivot.x and position.x flip, Toggle boxes sit on the right and Sliders run right to left; a widget with UiBox.mirror false stays. Returns {mirrorRtl, mirrored}: `mirrored` is whether the UI is mirrored now (the option and a right-to-left language). Example: ui.set_mirror_rtl {"value":false}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -9747,6 +9948,11 @@ declare module "factoria" {
      */
     squash(opts?: SquashOptions): void;
     /**
+     * Marks the pose the entity has NOW as a jump, not a move: with render interpolation (factoria.json render.interpolation, docs/RENDERING.md) the next frames draw it where it is instead of blending from where it was. Set the position first, then call teleport() in the same fixed step (a respawn, a door, a warp). A Transform written outside the fixed step (update, lateUpdate, a command) and a new entity are never smeared, so they need no call. Does nothing for an entity that is not interpolated. Example: me.position = spawn.position; me.teleport();
+     * @since 0.30.0
+     */
+    teleport(): void;
+    /**
      * Pushes the entity away: `speed` world units per second along `direction` (any length, it is normalised). A dynamic RigidBody2D/RigidBody3D gets the impulse on its velocity; an entity without one moves with a velocity that decays (opts.decay) and is integrated on the fixed clock. For opts.lockTime seconds isKnockedBack is true so your movement script can leave the player without control. Frozen by hit-stop like the rest of the simulation. Example: if (!me.isKnockedBack) move(); me.knockback(vec2(-1, 0.3), { speed: 8 });
      * @since 0.17.0
      */
@@ -9970,7 +10176,7 @@ declare module "factoria" {
      */
     readonly connected: boolean;
     /**
-     * The family of the pad: "xbox", "playstation", "nintendo", "steamdeck" or "generic" (also for a pad that is not connected). Found from its vendor id and name where the platform tells (Windows: XInput pads are xbox; Linux and macOS/iOS: from the ids or names; Android always "generic"). Use input.buttonName() to get the label, not this.
+     * The family of the pad: "xbox", "playstation", "nintendo", "steamdeck" or "generic" (also for a pad that is not connected). Found from its vendor id and name where the platform tells (Windows: XInput pads are xbox, the other pads from their vendor id and name; Linux and macOS/iOS: from the ids or names; Android always "generic"). Use input.buttonName() to get the label, not this.
      * @since 0.1.6
      */
     readonly type: GamepadType;
@@ -9984,6 +10190,11 @@ declare module "factoria" {
      * @since 0.3.0
      */
     readonly name: string;
+    /**
+     * True when this pad has motors the platform can drive now, so input.rumble(pad, ...) shakes it; false for a slot with no pad and for a platform or pad without rumble. Windows (XInput pads, and the DualShock 4, DualSense and Switch Pro over USB or Bluetooth), Linux (pads with kernel force feedback, when /dev/input/eventN is writable), macOS and iOS (pads with GameController haptics), Android (pads whose InputDevice has vibrators) and Chrome-based browsers (Xbox and PlayStation pads) can today; Firefox and Safari never, nor other Windows HID pads; a Windows pad another program holds exclusively (DS4Windows, HidHide) or that stopped taking reports answers false too. Games need not check it: input.rumble on a pad that cannot rumble does nothing. Check it to show a Vibration option only where it works. A test pad answers false unless game.gamepad(i).connect({ canRumble: true }), at every connect. It is already right in the frame a pad connects.
+     * @since 0.30.0
+     */
+    readonly canRumble: boolean;
     /**
      * Button held. Unknown names throw with a suggestion.
      */
@@ -10147,10 +10358,20 @@ declare module "factoria" {
      */
     deadzone: number;
     /**
-     * The characters typed this frame, as UTF-8 text ("" when none): from the keyboard or the on-screen keyboard, control characters left out. Append it to a text field's string; handle Backspace and Enter with input.keyPressed(). Desktop and iOS deliver composed text (shift, dead keys, IME). Android delivers what a key types in its layout (letters, digits, punctuation, accents through dead keys): a keyboard app that composes words or emoji (CJK input, emoji) cannot be received by a NativeActivity. docs/MOBILE.md lists the limits.
+     * The characters typed this frame, as UTF-8 text ("" when none): from the keyboard or the on-screen keyboard, control characters left out. Append it to a text field's string; handle Backspace and Enter with input.keyPressed(). Desktop and iOS deliver composed text (shift, dead keys, IME). Android delivers composed text (CJK input, predictive words, emoji) while a TextField has the focus, and otherwise what a key types in its layout (letters, digits, punctuation, accents through dead keys). docs/TEXT.md ("What composes where") lists each platform.
      * @since 0.1.6
      */
     readonly text: string;
+    /**
+     * True while an input method (IME: Japanese, Chinese, Korean, dead keys) is composing text that is not typed yet: from its first pre-edit string until the player commits it or cancels. The committed text then arrives once in input.text. A focused TextField keeps the pre-edit string in TextField.composition (drawn at its caret, underlined). Needs a platform that sends composition events (from M98.6c / 6d); until then it stays false.
+     * @since 0.30.0
+     */
+    readonly composing: boolean;
+    /**
+     * The pre-edit string of the IME composition in progress, as UTF-8 ("" when input.composing is false). It is not part of any text yet: do not append it to a string, wait for input.text.
+     * @since 0.30.0
+     */
+    readonly compositionText: string;
     /**
      * Shows (default) or hides the on-screen keyboard of phones and tablets while a text field has focus; its characters arrive in input.text. Desktop ignores it, a headless run only records it (input.keyboardShown). A text field does this by itself when it gets and loses focus.
      * @since 0.1.6
@@ -10181,6 +10402,16 @@ declare module "factoria" {
      * @since 0.2.0
      */
     onBack(handler: () => boolean | void): () => void;
+    /**
+     * Shakes the motors of gamepad pad (0..3, the slot input.gamepad(i) reads): low is the heavy, low-frequency motor (the left one of an Xbox pad) and high the light, high-frequency one, each 0..1 (a value outside is clamped), for seconds above 0 and up to 10 (0.05 to 0.15 is a tap, 0.3 a hit, 1 an explosion). A new call on the same pad replaces the one playing; both strengths 0 is a stop. It ends by itself when the seconds run out, counted in the frames' own duration (not scaled by time.scale); to go on, ask again before. The engine also stops every pad when the game pauses itself (game.paused = true or time.scale 0, the editor's pause), loses the window focus, changes scene or quits, so a pad never keeps shaking: a rumble asked in the same frame that pauses never reaches the pad, one asked while the game stays paused plays, and one asked in a scene's onStart plays. The editor's Game view reads no physical pad, so nothing rumbles there; run the game on its own (factoria run, an export). A pad that is not connected or cannot rumble (input.gamepad(pad).canRumble) ignores it; on the web a browser may refuse it until the player clicked the page or pressed a key (a button of the pad may not count). Phones vibrate with input.vibrate(), a different motor. Throws for a pad outside 0..3, a strength or seconds that is not a number, and seconds outside 0..10; a headless run or test records the request (game.rumbles(), game.rumbleState(pad)). Example: input.rumble(0, 0.7, 0.3, 0.2) when the player is hit.
+     * @since 0.30.0
+     */
+    rumble(pad: number, low: number, high: number, seconds: number): void;
+    /**
+     * Stops the rumble of gamepad pad (0..3) now; without an argument, of every pad. Does nothing for a pad that is not rumbling. A pad outside 0..3 throws.
+     * @since 0.30.0
+     */
+    stopRumble(pad?: number): void;
     /**
      * One pulse of the vibration motor of a phone, seconds above 0 and up to 5 (default 0.1): 0.02 to 0.05 is a tap, 0.2 a buzz. iOS cannot pick a length: a short pulse is a haptic tap, a long one the system vibration; iPads have no motor. Android needs the VIBRATE permission, which the FactorIA Android template declares. A no-op on desktop; a headless run or test records the pulse (game.vibrations()). Throws for anything but a number in range.
      * @since 0.2.0
@@ -10311,10 +10542,10 @@ declare module "factoria" {
      */
     position?: number[] | { x: number, y: number, z?: number };
     /**
-     * With `position`: the fall-off curve, as AudioSource.rolloff. With d the distance, r `refDistance` and k `rolloffFactor`: "linear" (default) 1 - k*(d-r)/(range-r); "inverse" r/(r + k*(d-r)); "exponential" (d/r)^-k (d is at least r). The sound is cut at `range` for all of them, so with inverse and exponential give a `range` where they are already quiet. Throws without a position or for another value.
+     * With `position`: the fall-off curve, as AudioSource.rolloff. With d the distance, r `refDistance` and k `rolloffFactor`: "linear" (default) 1 - k*(d-r)/(range-r); "inverse" r/(r + k*(d-r)); "exponential" (d/r)^-k (d is at least r); "curve" is the gain of `rolloffCurve` at d / range. The sound is cut at `range` for all of them, so with inverse and exponential give a `range` where they are already quiet. Throws without a position or for another value.
      * @since 0.23.0
      */
-    rolloff?: "linear" | "inverse" | "exponential";
+    rolloff?: "linear" | "inverse" | "exponential" | "curve";
     /**
      * With `position`: distance in world units up to which the sound is at full volume (default 0: linear starts at 0, inverse and exponential use range / 20; the listener's zoom stretches it). Throws without a position.
      * @since 0.23.0
@@ -10325,6 +10556,61 @@ declare module "factoria" {
      * @since 0.23.0
      */
     rolloffFactor?: number;
+    /**
+     * With `position` and rolloff: "curve" (required with it, and only then): the volume over the distance, [position, gain] keys where position is d / range (0 = at the listener, 1 = at `range`) and gain 0 to 1, e.g. [[0, 1], [0.3, 0.8], [1, 0]]; same form as ParticleEmitter.sizeCurve, at most 16 keys. Throws for a curve that does not parse.
+     * @since 0.30.0
+     */
+    rolloffCurve?: number[][] | { keys: number[][], interp?: "linear" | "smooth" | "step" };
+    /**
+     * With `position`: the world direction the sound points in, for the cone (coneInnerAngle ...). Omitted or [0, 0, 0] = the same in every direction. The cone is worked out once, when the sound starts.
+     * @since 0.30.0
+     */
+    direction?: number[] | { x: number, y: number, z?: number };
+    /**
+     * With `position` and `direction`: full angle in degrees of the cone where the sound is at full volume, 0 to 360 (default 360 = no cone).
+     * @since 0.30.0
+     */
+    coneInnerAngle?: number;
+    /**
+     * With `position` and `direction`: full angle in degrees of the outer cone, 0 to 360 (default 360); outside it the volume is multiplied by coneOuterGain, between the cones it blends linearly in the angle.
+     * @since 0.30.0
+     */
+    coneOuterAngle?: number;
+    /**
+     * With `position` and `direction`: volume multiplier outside the outer cone, 0 to 1 (default 0).
+     * @since 0.30.0
+     */
+    coneOuterGain?: number;
+    /**
+     * With `position`: the velocity of the source in world units per second, for doppler (kept for the whole life of the sound; the listener's velocity is measured each frame).
+     * @since 0.30.0
+     */
+    velocity?: number[] | { x: number, y: number, z?: number };
+    /**
+     * With `position`: how much the pitch shifts with the speed of the source and the listener, 0 (default, off) to 10: the exponent of the real pitch ratio (1 = the real shift); the factor is limited to 0.25..4.
+     * @since 0.30.0
+     */
+    dopplerLevel?: number;
+    /**
+     * With `position`: true = a physics ray from the listener that hits a collider of `occlusionMask` muffles the sound (default false). At most 8 rays per frame in the whole game; the change is smoothed over 0.1 s.
+     * @since 0.30.0
+     */
+    occlusion?: boolean;
+    /**
+     * With `position`: the physics layers (bitmask, default -1 = all) that block the sound when `occlusion` is on.
+     * @since 0.30.0
+     */
+    occlusionMask?: number;
+    /**
+     * With `position`: volume multiplier of a blocked path, 0 to 1 (default 0.4).
+     * @since 0.30.0
+     */
+    occlusionGain?: number;
+    /**
+     * With `position`: low-pass cutoff in Hz of a blocked path, 20 to 20000 (default 1500; 20000 = no filter).
+     * @since 0.30.0
+     */
+    occlusionLowpass?: number;
     /**
      * With `position`: the distance in world units where the sound reaches 0 (default 800, the same as AudioSource.range; the listener's zoom stretches it). Throws without a position, or for a value that is not above 0.
      * @since 0.23.0
@@ -11631,6 +11917,9 @@ declare module "factoria" {
   }
 
   export interface GameAPI {
+    /**
+     * Ends the game: the analytics events that wait are sent first (up to 3 seconds for the request), then the window closes (desktop) or the activity finishes (Android: the system destroys it and the process ends). Does not raise game.on("quit"). In a test it only sets game.quitRequested. Example: if (input.pressed("quit")) game.quit();
+     */
     quit(): void;
     /**
      * True while time.scale is 0. Setting it true sets time.scale to 0 (physics, particles, animators, timers and onUpdate stop; runWhilePaused behaviours and the UI keep running), false restores the time.scale it had when it was set true (1 if it was already 0). Setting time.scale while paused changes the scale to restore, the game stays paused.
@@ -11657,12 +11946,12 @@ declare module "factoria" {
      */
     on(event: "suspend" | "resume" | "focus" | "blur" | "dayChanged", fn: (today: { readonly iso: string }) => void): () => void;
     /**
-     * Listens for a pad being plugged in or out (or paired or lost over Bluetooth). fn gets { slot, id, name, type }: slot is the number input.gamepad(slot) answers for (0 to 3), id is the same for the same physical pad every time (the vendor and product ids, the name and, where the platform has one, a serial number, GUID or device path: use it to give a player their pad back), name is what the OS calls it and type is "xbox", "playstation", "nintendo", "steamdeck" or "generic". A pad that comes back takes the slot it had when that is free (Windows, macOS, iOS, Android and the web; on Linux the kernel's joystick number is the slot). What each platform can put in the id: Windows XInput has no ids, so an XInput pad is "an Xbox pad in XInput slot N" (its id ends with "#xinputN"); Linux adds the kernel's serial (uniq) when the pad has one; macOS and iOS (GameController) and the web (Gamepad.id, no serial: browsers hide it) give the name and, on the web, the vendor and product; Android adds the InputDevice descriptor. Two pads of one model without a serial share an id. Losing the window focus does not disconnect a pad that is still plugged in. Pads already plugged in when the first scene starts are not announced: read input.gamepad(i).connected and .id at the start. Listeners end with the scene, like world.on. Example: game.on("gamepadConnected", (pad) => hud.toast(`${pad.name} is player ${pad.slot + 1}`));
+     * Listens for a pad being plugged in or out (or paired or lost over Bluetooth). fn gets { slot, id, name, type }: slot is the number input.gamepad(slot) answers for (0 to 3), id is the same for the same physical pad every time (the vendor and product ids, the name and, where the platform has one, a serial number, GUID or device path: use it to give a player their pad back), name is what the OS calls it and type is "xbox", "playstation", "nintendo", "steamdeck" or "generic". A pad that comes back takes the slot it had when that is free (Windows, macOS, iOS, Android and the web; on Linux the kernel's joystick number is the slot). What each platform can put in the id: Windows XInput has no ids, so an XInput pad is "an Xbox pad in XInput slot N" (its id ends with "#xinputN"), while the other Windows pads (HID) give the vendor and product, the name and the serial number when the pad has one (a Bluetooth pad's address); Linux adds the kernel's serial (uniq) when the pad has one; macOS and iOS (GameController) and the web (Gamepad.id, no serial: browsers hide it) give the name and, on the web, the vendor and product; Android adds the InputDevice descriptor. Two pads of one model without a serial share an id. Losing the window focus does not disconnect a pad that is still plugged in. Pads already plugged in when the first scene starts are not announced: read input.gamepad(i).connected and .id at the start. Listeners end with the scene, like world.on. Example: game.on("gamepadConnected", (pad) => hud.toast(`${pad.name} is player ${pad.slot + 1}`));
      * @since 0.3.0
      */
     on(event: "gamepadConnected" | "gamepadDisconnected", fn: (pad: { readonly slot: number; readonly id: string; readonly name: string; readonly type: GamepadType }) => void): () => void;
     /**
-     * Listens for the player closing the window (the close button, Cmd+Q, Alt+F4). Desktop windows only: the web and phones never raise it. The handler gets an event whose cancel() keeps the window open (to ask "Really quit?", to save or to send a last analytics event with a short timeout); game.quit() closes it afterwards and does not come back to this handler, so a handler that cancelled can still end the game later. Not raised by game.quit() itself, nor in headless runs (tests simulate it with game.closeWindow()). Returns a function that stops listening; listeners end with the scene. Example: game.on("quit", (e) => { e.cancel(); flush().then(() => game.quit()); });
+     * Listens for the player closing the window (the close button, Cmd+Q, Alt+F4). The handler gets an event whose cancel() keeps the window open (to ask "Really quit?", to save or to send a last analytics event with a short timeout); game.quit() closes it afterwards and does not come back to this handler, so a handler that cancelled can still end the game later. The web raises it when the page goes away (pagehide) and Android when the system destroys the game's activity (a Back no input.onBack handler consumed, the system closing the app, a relaunch for a theme change); there it cannot be cancelled, and on Android the process ends right after the handlers and the storage.setAsync writes still waiting, within about 1.5 s, so keep it short: the surface is gone by then, so load no scene or asset and draw nothing, and the code after an await of storage.setAsync runs (the writes that code starts too, up to 16 in a row) but not after any other await. iOS never raises it; a force-stop raises nothing anywhere. Not raised by game.quit() itself, nor in headless runs (tests simulate it with game.closeWindow()). Returns a function that stops listening; listeners end with the scene. Example (a desktop window; on the web and Android cancel() and the game.quit() after it do nothing, the page or the activity ends anyway, so save inside the handler): game.on("quit", (e) => { e.cancel(); flush().then(() => game.quit()); });
      * @since 0.3.0
      */
     on(event: "quit", fn: (event: { readonly cancelled: boolean; cancel(): void }) => void): () => void;
@@ -12302,18 +12591,26 @@ declare module "factoria" {
    * Persistent JSON save data, one file per key in <user dir>/storage/ (an older storage.json is split into them at the first start). Tests and `--storage memory` runs use a throw-away in-memory object instead.
    */
   export interface StorageAPI {
-    get<T = any>(key: string, fallback?: T): T;
     /**
-     * Stores `value` under `key` and writes that key's file now (atomically: temporary file, then rename), so a save costs the size of its own key only. `{compress: true}` stores the value zlib-compressed (smaller on disk, for big saves; storage.get returns the same value either way). The write blocks the frame; use setAsync for a big value. Throws on an empty key or an unknown option.
+     * The value stored under `key`, or `fallback`. A value written with `{encrypt: true}` is opened at the first use of storage and returned like any other; one that fails authentication (edited, damaged, or written with another secret) is kept aside as a damaged file, storage.corrupt is true and the value is missing. A plain file is read as it is by default, so a game can turn encryption on later; but then a player can replace a sealed file with a hand-written plain one. `{encrypted: true}` refuses that: a value that was read from a plain file is treated like one that failed authentication (the file is kept aside, storage.corrupt is true, a warning names the key) and `fallback` is returned. Keeping the file aside reads it and moves it (or copies it, when it cannot be moved) on the calling thread, in the frame, once per such key (the key is dropped from memory afterwards). Use it for a key the game has always sealed, or once every player's save is sealed (storage.isEncrypted tells which are). A value the game itself stored in plain in this run is not the subject of the check: it is simply not returned. It is tamper evidence, not secrecy: the secret ships with the game, so a player who takes it out of the game can still write a sealed value (docs/scripting/SCRIPTING_UI_SCENES.md, "Encrypted saves"). Throws on an unknown option.
      */
-    set(key: string, value: Json, options?: { compress?: boolean }): void;
+    get<T = any>(key: string, fallback?: T, options?: { encrypted?: boolean }): T;
     /**
-     * Like set, but the file is encoded (and compressed when asked) and written off the frame: on a worker thread on desktop and mobile, between frames on the web (no threads there). storage.get returns the new value at once; the Promise resolves with the file's size in bytes when the file is written, and rejects with the reason if it could not be. Writes to one key land in the order they were asked, and a later set, remove, clear or size waits for the pending ones. Serializing `value` into JSON still happens in this call.
+     * Stores `value` under `key` and writes that key's file now (atomically: temporary file, then rename), so a save costs the size of its own key only. `{compress: true}` stores the value zlib-compressed (smaller on disk, for big saves; storage.get returns the same value either way). `{encrypt: true}` seals the file with ChaCha20-Poly1305 under a key derived from the project's secret (factoria.json storage.encryptionSecret, created once with the command project.create_storage_secret), so a player cannot read it, and cannot change a byte of it without the sealed value failing to open; it combines with compress (compressed first, then sealed). It makes a CHANGED sealed file refuse to load; it does not stop a player from replacing the file with a plain one unless the game reads the key with storage.get(key, fallback, {encrypted: true}). It is tamper evidence, not secrecy: the secret ships with the game (docs/scripting/SCRIPTING_UI_SCENES.md, "Encrypted saves"). Each call decides for its key: a set without encrypt writes the key in plain again. Throws, changing nothing, when encrypt is asked and the project has no secret (the error names the command). The write blocks the frame; use setAsync for a big value. When the file cannot be written (the disk is full, or on Windows another program holds the file open so it cannot be replaced) the old file stays, the value stays in memory only and the log has the warning "cannot write <file> for storage key '<key>': ..."; set does not throw for it (it throws when the value cannot be encoded or encrypted), setAsync rejects with the reason. Throws on an empty key or an unknown option.
+     */
+    set(key: string, value: Json, options?: { compress?: boolean, encrypt?: boolean }): void;
+    /**
+     * Like set (compress and encrypt work the same, and encrypt throws at once when the project has no secret), but the file is encoded (compressed and sealed when asked) and written off the frame: on a worker thread on desktop and mobile, between frames on the web (no threads there). storage.get returns the new value at once; the Promise resolves with the file's size in bytes when the file is written, and rejects with the reason if it could not be. Writes to one key land in the order they were asked, and a later set, remove, clear or size waits for the pending ones. Serializing `value` into JSON still happens in this call.
      * @since 0.3.0
      */
-    setAsync(key: string, value: Json, options?: { compress?: boolean }): Promise<number>;
+    setAsync(key: string, value: Json, options?: { compress?: boolean, encrypt?: boolean }): Promise<number>;
     /**
-     * Bytes the key's file takes (the compressed size for a compressed value); 0 when the key is not stored. Waits for pending setAsync writes.
+     * true when the value under `key` is stored sealed ({encrypt: true}), false when it is plain, undefined when the key is not stored. It does not move or change anything, so a game can show "this save is not protected" or decide what to do with a plain value before it trusts it (storage.get(key, fallback, {encrypted: true}) refuses it instead).
+     * @since 0.30.0
+     */
+    isEncrypted(key: string): boolean | undefined;
+    /**
+     * Bytes the key's file takes (the compressed size for a compressed value, the sealed size for an encrypted one); 0 when the key is not stored. Waits for pending setAsync writes.
      * @since 0.3.0
      */
     size(key: string): number;
@@ -13571,6 +13868,269 @@ declare module "factoria" {
   }
 
   /**
+   * How websocket.connect tries again after a connection you did not close ends (the server went away, the network dropped, an attempt failed). The wait before attempt n is min(maxDelay, minDelay * factor^(n-1)) seconds, moved by up to +-jitter of itself with a pseudo-random sequence that is the same on every run (seeded by the URL and the connection's number: no rand(), no wall clock), counted on the engine clock.
+   * @since 0.30.0
+   */
+  export interface WebSocketReconnectOptions {
+    /**
+     * Reconnects tried in a row before the connection closes for good: a whole number of 1 or more, or Infinity. Default 10. The count starts again when a connection opens.
+     * @since 0.30.0
+     */
+    maxAttempts?: number;
+    /**
+     * Seconds before the first attempt, above 0. Default 1.
+     * @since 0.30.0
+     */
+    minDelay?: number;
+    /**
+     * The longest wait in seconds, at least minDelay. Default 30.
+     * @since 0.30.0
+     */
+    maxDelay?: number;
+    /**
+     * Each attempt waits this many times longer than the one before, 1 or more. Default 2.
+     * @since 0.30.0
+     */
+    factor?: number;
+    /**
+     * A fraction from 0 to 1 of the wait that the delay may move up or down, so that many players do not reconnect at the same instant. Default 0.25.
+     * @since 0.30.0
+     */
+    jitter?: number;
+  }
+
+  /**
+   * Options of websocket.connect.
+   * @since 0.30.0
+   */
+  export interface WebSocketOptions {
+    /**
+     * Subprotocols to offer the server, in order of preference (Sec-WebSocket-Protocol); the one it picks is WebSocketConnection.protocol. Each must be a token like "chat.v1".
+     * @since 0.30.0
+     */
+    protocols?: string[];
+    /**
+     * Extra headers of the handshake, string values, no line breaks. Host, Upgrade, Connection and Sec-* are set by the system and throw. The browser's WebSocket cannot send headers: a game for the web puts what the server needs in the URL or in the first message.
+     * @since 0.30.0
+     */
+    headers?: Record<string, string>;
+    /**
+     * Seconds to wait for the connection and the handshake together, above 0 and at most 120. Default 15; a connection that takes longer gets an "error" event and a "close" event with code 1006.
+     * @since 0.30.0
+     */
+    timeout?: number;
+    /**
+     * The longest message in either direction, 4194304 (4 MB) by default and at most 67108864. A longer incoming message fails the connection (an "error" event, then "close" with code 1006; the server is told 1009); send() throws for a longer outgoing one.
+     * @since 0.30.0
+     */
+    maxMessageBytes?: number;
+    /**
+     * true or an object: connect again after a close you did not ask for. false (default): never. A connection you close() yourself, and one that the platform cannot open at all, never reconnect.
+     * @since 0.30.0
+     */
+    reconnect?: boolean | WebSocketReconnectOptions;
+  }
+
+  /**
+   * The "open" event of a connection: the handshake is done and send() works.
+   * @since 0.30.0
+   */
+  export interface WebSocketOpenEvent {
+    /**
+     * The subprotocol the server chose, "" when none.
+     * @since 0.30.0
+     */
+    readonly protocol: string;
+    /**
+     * True when this is a reconnect (the connection was open before), so the game can ask the server for what it missed.
+     * @since 0.30.0
+     */
+    readonly reconnected: boolean;
+  }
+
+  /**
+   * The "message" event: one whole message. Messages of a connection arrive in order, at the start of an engine frame.
+   * @since 0.30.0
+   */
+  export interface WebSocketMessageEvent {
+    /**
+     * A text message as a string; a binary message as an ArrayBuffer (wrap it in new Uint8Array(data) to read it).
+     * @since 0.30.0
+     */
+    readonly data: string | ArrayBuffer;
+    /**
+     * True when data is an ArrayBuffer.
+     * @since 0.30.0
+     */
+    readonly binary: boolean;
+  }
+
+  /**
+   * The "error" event: something went wrong. A "close" event always follows with code 1006.
+   * @since 0.30.0
+   */
+  export interface WebSocketErrorEvent {
+    /**
+     * What went wrong, in a sentence that says what to do.
+     * @since 0.30.0
+     */
+    readonly message: string;
+    /**
+     * What to try, "" when the platform gave none.
+     * @since 0.30.0
+     */
+    readonly hint: string;
+    /**
+     * The HTTP status the server answered to the handshake when it refused it (403, 404...), 0 when there was none.
+     * @since 0.30.0
+     */
+    readonly httpStatus: number;
+  }
+
+  /**
+   * The "close" event: the end of a connection (or of one attempt, when it reconnects). Nothing more is delivered on it.
+   * @since 0.30.0
+   */
+  export interface WebSocketCloseEvent {
+    /**
+     * The close code: 1000 normal, 1001 going away, 1006 the connection failed or broke with no closing handshake (could not connect, a message too big, a server that breaks the protocol), 1008 the game did not read its messages, 3000 to 4999 the server's own.
+     * @since 0.30.0
+     */
+    readonly code: number;
+    /**
+     * The reason text the closer sent, "" when none.
+     * @since 0.30.0
+     */
+    readonly reason: string;
+    /**
+     * True when the closing handshake completed.
+     * @since 0.30.0
+     */
+    readonly wasClean: boolean;
+    /**
+     * True when websocket.connect was given reconnect and will try again: a "reconnecting" event follows. Call connection.close() in this handler to stop it.
+     * @since 0.30.0
+     */
+    readonly willReconnect: boolean;
+  }
+
+  /**
+   * The "reconnecting" event: the next attempt is scheduled.
+   * @since 0.30.0
+   */
+  export interface WebSocketReconnectingEvent {
+    /**
+     * 1 for the first reconnect since the connection was last open, 2 for the second...
+     * @since 0.30.0
+     */
+    readonly attempt: number;
+    /**
+     * Seconds until the attempt starts (engine time).
+     * @since 0.30.0
+     */
+    readonly delay: number;
+  }
+
+  /**
+   * One WebSocket connection, from websocket.connect. Events are delivered at the start of an engine frame, never in the middle of a script. A scene change or a script unload closes the connection WITHOUT events (readyState becomes "closed"): open the connections of a scene in that scene.
+   * @since 0.30.0
+   */
+  export interface WebSocketConnection {
+    /**
+     * The address given to websocket.connect.
+     * @since 0.30.0
+     */
+    readonly url: string;
+    /**
+     * "connecting" until the handshake completes and also while a connection waits to reconnect; "closing" after close() until the "close" event.
+     * @since 0.30.0
+     */
+    readonly readyState: "connecting" | "open" | "closing" | "closed";
+    /**
+     * The subprotocol the server chose, "" when none or not open yet.
+     * @since 0.30.0
+     */
+    readonly protocol: string;
+    /**
+     * Reconnects tried since the connection was last open: 0 while it is open.
+     * @since 0.30.0
+     */
+    readonly attempt: number;
+    /**
+     * Bytes that send() accepted and the network has not taken yet.
+     * @since 0.30.0
+     */
+    readonly bufferedAmount: number;
+    /**
+     * Calls fn when the connection opens (again after each reconnect). Returns a function that removes the handler. A handler that throws is reported as a script error and the others still run.
+     * @since 0.30.0
+     */
+    on(event: "open", fn: (e: WebSocketOpenEvent) => void): () => void;
+    /**
+     * Calls fn for every message the server sends. Example: `ws.on("message", (e) => { if (!e.binary) handle(JSON.parse(e.data)); });`.
+     * @since 0.30.0
+     */
+    on(event: "message", fn: (e: WebSocketMessageEvent) => void): () => void;
+    /**
+     * Calls fn when the connection fails: could not connect, refused (e.httpStatus), a broken stream, a message over maxMessageBytes. Followed by a "close" event.
+     * @since 0.30.0
+     */
+    on(event: "error", fn: (e: WebSocketErrorEvent) => void): () => void;
+    /**
+     * Calls fn when the connection ends, whoever ended it.
+     * @since 0.30.0
+     */
+    on(event: "close", fn: (e: WebSocketCloseEvent) => void): () => void;
+    /**
+     * Calls fn when a reconnect is scheduled (options.reconnect only).
+     * @since 0.30.0
+     */
+    on(event: "reconnecting", fn: (e: WebSocketReconnectingEvent) => void): () => void;
+    /**
+     * Removes a handler added with on(). An unknown handler does nothing.
+     * @since 0.30.0
+     */
+    off(event: "open" | "message" | "error" | "close" | "reconnecting", fn: Function): void;
+    /**
+     * Queues one message: a string goes as a text message, an ArrayBuffer or typed array as a binary one. Returns true when queued, false when the connection is not open (still connecting, waiting to reconnect, closing, closed): nothing is queued or kept for later. Throws for data of another type (send an object as ws.send(JSON.stringify(obj))) and for a message over maxMessageBytes. Example: `if (!ws.send(JSON.stringify({ move: "left" }))) ui.toast("Reconnecting...");`.
+     * @since 0.30.0
+     */
+    send(data: string | ArrayBuffer | ArrayBufferView): boolean;
+    /**
+     * Starts the closing handshake; the "close" event follows when the server answers (or after a few seconds). code is 1000 (default) or 3000 to 4999, reason at most 123 bytes of UTF-8; others throw. Never reconnects afterwards, and stops a connection that waits to reconnect. Closing twice does nothing.
+     * @since 0.30.0
+     */
+    close(code?: number, reason?: string): void;
+  }
+
+  /**
+   * WebSocket connections to the hosts the game declares in factoria.json "network" (docs/NETWORKING.md, "WebSocket"), the same list as http.fetch: ws:// and wss://, wss:// everywhere except plain ws:// to localhost for development. A host that is not declared throws at once with the same hint and "did you mean". At most 32 connections at once. Which platforms can connect depends on the build (docs/NETWORKING.md says which): `websocket.supported` tells; where it is false, connect() still returns a connection, which fails with an "error" and a "close" event at the next frame. In tests and headless runs a scripted in-memory server answers (game.websocket) and nothing touches the network. Replays do not record WebSocket traffic.
+   * @since 0.30.0
+   */
+  export interface WebSocketAPI {
+    /**
+     * Starts connecting and returns at once: attach handlers with on() before the next frame. A mistake in the call (an undeclared host, a bad scheme, an unknown option, a header the handshake refuses, more than 32 connections) throws with what to change. Example: `const ws = websocket.connect("wss://game.example.com/room", { reconnect: true }); ws.on("open", () => ws.send("hello"));`.
+     * @since 0.30.0
+     */
+    connect(url: string, options?: WebSocketOptions): WebSocketConnection;
+    /**
+     * True when this platform has a WebSocket client that can connect.
+     * @since 0.30.0
+     */
+    readonly supported: boolean;
+    /**
+     * The client in use: "memory" (tests, headless), "winhttp", "network" (macOS, iOS), "curl", "socket", "browser" or "unavailable".
+     * @since 0.30.0
+     */
+    readonly backend: string;
+    /**
+     * Why supported is false, "" when it is true.
+     * @since 0.30.0
+     */
+    readonly unsupportedReason: string;
+  }
+
+  /**
    * What analytics.status() returns, for debugging.
    * @since 0.3.0
    */
@@ -13798,7 +14358,7 @@ declare module "factoria" {
      */
     has(key: string): boolean;
     /**
-     * The grammatical gender of the string `key` in the current language ("f" feminine, "m" masculine, "n" neuter), from a table entry written {"text": "Ligera", "gender": "f"}; "" when the string has none or no table has the key. Pass it as args.gender to a select entry (an object with forms f, m, n and other) to get the article or adjective that agrees: i18n.t("ship.the", { name: i18n.t("ship.light"), gender: i18n.gender("ship.light") }) is "la Ligera" in Spanish. Throws for a key that is not a string. See docs/LOCALIZATION.md, "Gender".
+     * The grammatical gender of the string `key` in the current language ("f" feminine, "m" masculine, "n" neuter), from a table entry written {"text": "Ligera", "gender": "f"}; "" when the string has none or no table has the key. Pass it as args.gender to a select entry (an object with forms f, m, n and other) to get the article or adjective that agrees: i18n.t("ship.the", { name: i18n.t("ship.light"), gender: i18n.gender("ship.light") }) is "la Ligera" in Spanish. Throws for a key that is not a string. See docs/LOCALIZATION.md, "Gender and agreement".
      * @since 0.3.0
      */
     gender(key: string): "f" | "m" | "n" | "";
@@ -14006,6 +14566,12 @@ declare module "factoria" {
    * @since 0.3.0
    */
   export const http: HttpAPI;
+
+  /**
+   * websocket.connect(url, options): WebSocket connections to the hosts declared in factoria.json "network", with reconnects (docs/NETWORKING.md, "WebSocket").
+   * @since 0.30.0
+   */
+  export const websocket: WebSocketAPI;
 
   /**
    * analytics.event(name, props), setConsent(yes), consent(), flush(): anonymous usage events sent in batches after the player consented (docs/ANALYTICS.md).
@@ -14972,7 +15538,7 @@ declare module "factoria" {
    */
   export interface TransformComponent {
     /**
-     * Local position relative to the parent [x, y, z]. 2D: x right, y up, z is only used for depth ordering of 3D content. Units: world units (design pixels in 2D, meters in 3D).
+     * Local position relative to the parent [x, y, z]. 2D: x right, y up, z is only used for depth ordering of 3D content. Units: world units (design pixels in 2D, meters in 3D). A child that a Panel `layout` or a ScrollList places is not moved by writing here: the engine keeps the layout's place apart (never saved), so this is your own offset from the slot, 0 = exactly in it, and entity.worldPosition is where it ends up (since 0.30.0).
      */
     get position(): Vec3;
     set position(value: Vec3Like);
@@ -15222,7 +15788,7 @@ declare module "factoria" {
     set color(value: ColorLike);
   }
   /**
-   * Shifts the drawing of this entity's world-space visuals (Sprite, Shape2D, Text, Tilemap) with the camera so far layers slide slower than near ones. Offset = camera position * (1 - factor) per axis: factor 1 behaves like any world object, 0 stays glued to the camera (a sky), 0.5 is half as fast (distant hills), above 1 is a foreground. With the camera at (0, 0) the entity is exactly where its Transform says. Only the drawing moves: Transform, physics and picking positions stay put, while entity.bounds() reports where it is drawn for the first camera (with several cameras, or a render target, each one draws the layer shifted for itself). Deterministic: it depends only on the camera position.
+   * Shifts the drawing of this entity's world-space visuals (Sprite, Shape2D, Text, Tilemap) with the camera so far layers slide slower than near ones. Offset = camera position * (1 - factor) per axis: factor 1 behaves like any world object, 0 stays glued to the camera (a sky), 0.5 is half as fast (distant hills), above 1 is a foreground. With the camera at (0, 0) the entity is exactly where its Transform says. Only the drawing moves: Transform, physics and picking positions stay put, while entity.bounds() reports where it is drawn for the first camera (with several cameras, or a render target, each one draws the layer shifted for itself). With render interpolation the drawing follows the camera's blended pose, while offset and bounds() follow its real pose, so they do not depend on the frame time. Deterministic: it depends only on the camera position.
    * 
    * Category: 2D
    * @since 0.2.0
@@ -15251,10 +15817,23 @@ declare module "factoria" {
     get repeatSize(): Vec2;
     set repeatSize(value: Vec2Like);
     /**
-     * Runtime: the shift [x, y] currently applied to the drawing, for the first camera (written every frame, by the renderer or by the simulation when there is no renderer). Read-only.
+     * Runtime: the shift [x, y] for the first camera's real pose (written every frame, by the renderer or by the simulation when there is no renderer). With render interpolation a frame is drawn up to one fixed step away from it. Read-only.
      * @since 0.2.0
      */
     readonly offset: Vec2;
+  }
+  /**
+   * Draws this entity at the pose BETWEEN the last two fixed simulation steps, so a 60 Hz simulation moves smoothly on a 120-144 Hz display (docs/RENDERING.md, "Render interpolation"). Only the drawing changes: Transform, physics, scripts, bounds and commands always see the real, latest pose; the blend is never written to the Transform. Children follow an interpolated parent and a Camera is viewed from its blended pose. A pose set outside the fixed step (a script's update, a command) or after entity.teleport() is not smeared: it is drawn where it is. The project default is factoria.json render.interpolation (false); add this component to opt one entity in ("on") or out ("off"). Nothing is blended while the game is paused or stepped.
+   * 
+   * Category: Core
+   * @since 0.30.0
+   */
+  export interface InterpolationComponent {
+    /**
+     * on: interpolated whatever the project says. off: never interpolated (a cursor that must follow the pointer at once, an entity a script moves every frame). inherit: what factoria.json render.interpolation says.
+     * @since 0.30.0
+     */
+    mode: "inherit" | "on" | "off";
   }
   /**
    * A light for lit 2D visuals: sprites, shapes and tilemaps with `lit` true. Their colour is multiplied by SceneSettings.ambientLight plus the light of every Light2D (point: color * intensity * (1 - distance / radius)^falloff, scaled by the normal map's angle to the light when the sprite has a normalMap; directional: even light from one direction). Unlit visuals ignore lights, so existing games look the same. Point lights are added up in a light buffer the size of the picture (SceneSettings.lightScale), so a scene can have hundreds: at most 256 lights shade a frame, directional lights first, then the point lights whose radius reaches the camera view (the ones with more of their radius in view first, then the more intense ones); a light entirely off-view is left out. More than 256 in view logs one warning per scene, and renderStats().lights2d / lights2dDropped count what was kept and left out. A lit sprite or tile WITH a normal map is shaded per pixel by the first 16 of those lights (directional first), the rest only lights flat surfaces. `castShadows` lets the solid tiles of a Tilemap with occludesLight cast shadows (at most 32 shadow-casting lights per frame). The light sits at the entity's position (Transform) and ignores layers.
@@ -17074,10 +17653,10 @@ declare module "factoria" {
      */
     range: number;
     /**
-     * Spatial only: how the volume falls with the distance d from the listener (r = refDistance, k = rolloffFactor, d clamped to at least r). linear (default): 1 - k*(d-r)/(range-r), down to 0 at range; with the defaults it is 1 - d/range. inverse: r/(r + k*(d-r)), a loud close sound that fades slowly far away (like Web Audio and OpenAL). exponential: (d/r)^-k. inverse and exponential do not reach 0 by themselves: the sound is cut at `range`, so set `range` where they are already quiet. Same curves as audio.play({position, range, rolloff}).
+     * Spatial only: how the volume falls with the distance d from the listener (r = refDistance, k = rolloffFactor, d clamped to at least r). linear (default): 1 - k*(d-r)/(range-r), down to 0 at range; with the defaults it is 1 - d/range. inverse: r/(r + k*(d-r)), a loud close sound that fades slowly far away (like Web Audio and OpenAL). exponential: (d/r)^-k. inverse and exponential do not reach 0 by themselves: the sound is cut at `range`, so set `range` where they are already quiet. curve: the gain is `rolloffCurve` evaluated at d / range (0 = at the listener, 1 = at `range`). Same curves as audio.play({position, range, rolloff}).
      * @since 0.23.0
      */
-    rolloff: "linear" | "inverse" | "exponential";
+    rolloff: "linear" | "inverse" | "exponential" | "curve";
     /**
      * Spatial only: the reference distance r in world units: up to it the sound is at full volume. 0 (default) = linear starts at 0 (the classic 1 - d/range), inverse and exponential use range / 20. A value at or above `range` is held just under it (99.9% of range), so linear drops to 0 right before `range`.
      * @since 0.23.0
@@ -17088,6 +17667,57 @@ declare module "factoria" {
      * @since 0.23.0
      */
     rolloffFactor: number;
+    /**
+     * Spatial only, used when rolloff is "curve": the volume over the distance, as a curve of [position, gain] keys where position is the distance divided by `range` (0 = at the listener, 1 = at `range`, where the sound is cut anyway) and gain is 0 to 1: [[0, 1], [0.3, 0.8], [1, 0]]. Same form as ParticleEmitter.sizeCurve: {"keys": [...], "interp": "smooth"} eases between keys, at most 16 keys. [] (default) or a form that does not parse (the log says why) = the linear curve. refDistance and rolloffFactor do not apply to it. Returns a plain-object COPY; assign a new value to write.
+     * @since 0.30.0
+     */
+    rolloffCurve: any;
+    /**
+     * Spatial only: full angle in degrees of the cone around `coneAxis` where the sound is at full volume. 360 (default) = no cone, the sound is the same in every direction. The cone points where the entity faces (its rotation turns coneAxis), in 2D and 3D.
+     * @since 0.30.0
+     */
+    coneInnerAngle: number;
+    /**
+     * Spatial only: full angle in degrees of the outer cone: outside it the volume is multiplied by `coneOuterGain`; between the inner and the outer cone it blends linearly in the angle. 360 (default) with an inner angle below 360 blends all the way to straight behind. A value below coneInnerAngle is taken as coneInnerAngle.
+     * @since 0.30.0
+     */
+    coneOuterAngle: number;
+    /**
+     * Spatial only: volume multiplier outside the outer cone, 0 (silent, default) to 1 (no effect).
+     * @since 0.30.0
+     */
+    coneOuterGain: number;
+    /**
+     * Spatial only: the direction the cone points in the entity's local space. Default (0, 0, -1) is forward in 3D (as lights and cameras); in a 2D game, where sprites face +X, use (1, 0, 0). A zero vector turns the cone off.
+     * @since 0.30.0
+     */
+    get coneAxis(): Vec3;
+    set coneAxis(value: Vec3Like);
+    /**
+     * Spatial only: how much the pitch shifts with the speed the source and the listener approach or separate at (the AudioListener's speedOfSound). 0 (default) = off, 1 = the real shift, more exaggerates (it is the exponent of the real pitch ratio). The pitch factor is limited to 0.25..4 and glides over about 0.05 s. Velocities come from the change of each one's world position between frames (not from RigidBody), so scripted and animated movement shifts too; the first frame and a teleport give velocity 0.
+     * @since 0.30.0
+     */
+    dopplerLevel: number;
+    /**
+     * Spatial only: true = a physics ray from the listener to the source that hits a collider of `occlusionMask` muffles the sound (occlusionGain, occlusionLowpass). Default false. Each source is asked every 0.1 s, but at most 8 rays per frame go out in the whole game: with more sources than that the ones not asked yet come first, then the one asked longest ago, so none is left out for good. The change is smoothed over 0.1 s and the mixer ramps the volume and the low-pass to it (no click).
+     * @since 0.30.0
+     */
+    occlusion: boolean;
+    /**
+     * Spatial only: the physics layers (bitmask, -1 = all) whose colliders block the sound when `occlusion` is on. The source's own colliders, the listener's and triggers are ignored.
+     * @since 0.30.0
+     */
+    occlusionMask: number;
+    /**
+     * Spatial only: volume multiplier while the path is blocked, 0 to 1 (default 0.4).
+     * @since 0.30.0
+     */
+    occlusionGain: number;
+    /**
+     * Spatial only: low-pass cutoff in Hz while the path is blocked (default 1500; 20000 = no filtering): a wall makes a sound dull. The voice gets its own 12 dB/octave low-pass.
+     * @since 0.30.0
+     */
+    occlusionLowpass: number;
     /**
      * Voice stealing, 0..255 (default 128): when all 64 voices play, a new sound replaces the voice of the lowest priority, the quietest of those, if its own priority is higher, or the same and it is louder; otherwise the new sound does not play (and `playing` goes back to false). Raise it for sounds that must be heard (dialogue, alarms), lower it for ambient detail.
      * @since 0.21.0
@@ -17222,6 +17852,21 @@ declare module "factoria" {
      * @since 0.3.0
      */
     zoom: number;
+    /**
+     * How spatial sounds are placed for the ears. pan (default): left/right pan and volume, for speakers. hrtf: a head model for headphones (time and level differences between the ears and the shadow of the head, from a parametric model with no recorded data; stereo clips are mixed to mono first). It needs this AudioListener entity (a 2D camera as the listener keeps pan) and a stereo output (a mono device and a surround one, 5.1 and more, keep pan). A change between pan and hrtf crossfades over 4 ms. See docs/sound/SOUND_SPATIAL.md, Headphones.
+     * @since 0.30.0
+     */
+    spatialization: "pan" | "hrtf";
+    /**
+     * hrtf only: radius of the listener's head in world units (default 0.0875, a human head in meters; scale it with the world in a game that does not use meters). It sets the time difference between the ears (Woodworth: about 0.66 ms at 90 degrees for the default). A head smaller than 0.03 m or larger than 0.12 m at speedOfSound 343 (the ratio headRadius / speedOfSound is what counts) is clamped, with a warning that says how to fix it.
+     * @since 0.30.0
+     */
+    headRadius: number;
+    /**
+     * Doppler only: the world units per second a sound travels at (default 343, meters per second in air). A 2D game in pixels sets it to the pixels per meter it uses times 343. The doppler shift of a source is its dopplerLevel as the exponent of the pitch ratio this speed gives. With hrtf it is also the speed the head model divides headRadius by to get the time between the ears.
+     * @since 0.30.0
+     */
+    speedOfSound: number;
   }
   /**
    * Container widget: a background rectangle (solid or 9-slice) whose children are laid out in a row, a column or a grid. Children are ordinary entities parented to it (Button, Toggle, Slider, TextField, Text, other Panels...). Every UI widget is SCREEN SPACE only (design pixels, origin top-left, +Y down; no `space` field); rotation and scale of UI entities are ignored by layout and hit-testing. Widgets draw above the world and above HUD Text; the interface scale `ui.scale` (docs/SCRIPTING.md) multiplies every size, offset, padding, spacing and font size of them; events (ui.click, ui.change...) and focus are in docs/SCRIPTING.md.
@@ -17237,7 +17882,7 @@ declare module "factoria" {
     get size(): Vec2;
     set size(value: Vec2Like);
     /**
-     * Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. So the pivot counts Y UP while `anchor` counts Y DOWN: anchor [0.5, 1] with pivot [0.5, 0] puts the widget's bottom edge on the bottom of the screen, and with pivot [0.5, 1] it hangs below the screen (docs/MENUS.md, "Anchors and pivots"). Layout does not care about the pivot of its children.
+     * Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. So the pivot counts Y UP while `anchor` counts Y DOWN: anchor [0.5, 1] with pivot [0.5, 0] puts the widget's bottom edge on the bottom of the screen, and with pivot [0.5, 1] it hangs below the screen (docs/MENUS.md, "Anchors and pivots"). Layout does not care about the pivot of its children. It is also the point the Transform's rotation.z (degrees, clockwise on screen) and scale.x / .y turn and scale the widget around: drawing, hovering, clicking, dragging, the TextField caret and navigation follow the turned rectangle, and a scale also changes the room a parent's layout gives it (since 0.30.0).
      * @since 0.1.6
      */
     get pivot(): Vec2;
@@ -17286,12 +17931,12 @@ declare module "factoria" {
      */
     draggable: any;
     /**
-     * true (default): in a right-to-left language the widget is mirrored when `ui.mirrorRtl` is on (it is, by default, when i18n.direction is rtl): its anchor.x, pivot.x and position.x flip, so it sits where its mirror image about the middle of the screen would, with the same size; a Toggle's box is at the right of its label, a Slider fills from its right end, a Button's icon changes side, and a Panel with direction auto runs its rows right to left. Text, Sprite and Shape2D below the widget are mirrored with it. false: the widget (and everything below it) stays where it is written, for what is not text-like: a map, a joystick, a clock face. A CameraView changes side with the layout but its picture is never mirrored. Does nothing in a left-to-right language or with ui.mirrorRtl off (docs/LOCALIZATION.md, "Right to left").
+     * true (default): in a right-to-left language the widget is mirrored when `ui.mirrorRtl` is on (it is, by default, when i18n.direction is rtl): its anchor.x, pivot.x and position.x flip, so it sits where its mirror image about the middle of the screen would, with the same size; a Toggle's box is at the right of its label, a Slider fills from its right end, a Button's icon changes side, and a Panel with direction auto runs its rows right to left. Text, Sprite and Shape2D below the widget are mirrored with it. false: the widget (and everything below it) stays where it is written, for what is not text-like: a map, a joystick, a clock face. A CameraView changes side with the layout but its picture is never mirrored. Does nothing in a left-to-right language or with ui.mirrorRtl off (docs/LOCALIZATION.md, "Right-to-left text").
      * @since 0.3.0
      */
     mirror: boolean;
     /**
-     * How children are placed, every frame: none = they keep their own positions; row / column = one after the other along that axis; grid = `columns` per row, every cell as large as the largest child. Children are the active child entities that have a size (a widget, or a Text / Sprite / Shape2D in screen space); the rest are skipped. A child's own position, anchor and pivot do not matter: layout moves its Transform.position so it lands in its slot.
+     * How children are placed, every frame: none = they keep their own positions; row / column = one after the other along that axis; grid = `columns` per row, every cell as large as the largest child. Children are the active child entities that have a size (a widget, or a Text / Sprite / Shape2D in screen space); the rest are skipped. A child's own anchor and pivot do not matter: layout puts it in its slot every frame without writing its Transform.position, which stays the child's own offset from the slot (0 = exactly in it; a script or the inspector can nudge it, and the layout keeps the nudge; since 0.30.0). A widget moved into a laid-out Panel with scene.set_parent goes to its slot (position 0, as the layout would put it). A child's Transform.scale multiplies the room its slot takes (a row makes room for a child at scale 2); its rotation.z does not: the slot stays and the child turns in place around its pivot. A turned or scaled Panel lays its children out as if it were not and then turns and scales them with it (since 0.30.0).
      * @since 0.1.6
      */
     layout: "none" | "row" | "column" | "grid";
@@ -17383,7 +18028,7 @@ declare module "factoria" {
     get size(): Vec2;
     set size(value: Vec2Like);
     /**
-     * Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. So the pivot counts Y UP while `anchor` counts Y DOWN: anchor [0.5, 1] with pivot [0.5, 0] puts the widget's bottom edge on the bottom of the screen, and with pivot [0.5, 1] it hangs below the screen (docs/MENUS.md, "Anchors and pivots"). Layout does not care about the pivot of its children.
+     * Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. So the pivot counts Y UP while `anchor` counts Y DOWN: anchor [0.5, 1] with pivot [0.5, 0] puts the widget's bottom edge on the bottom of the screen, and with pivot [0.5, 1] it hangs below the screen (docs/MENUS.md, "Anchors and pivots"). Layout does not care about the pivot of its children. It is also the point the Transform's rotation.z (degrees, clockwise on screen) and scale.x / .y turn and scale the widget around: drawing, hovering, clicking, dragging, the TextField caret and navigation follow the turned rectangle, and a scale also changes the room a parent's layout gives it (since 0.30.0).
      * @since 0.1.6
      */
     get pivot(): Vec2;
@@ -17432,7 +18077,7 @@ declare module "factoria" {
      */
     draggable: any;
     /**
-     * true (default): in a right-to-left language the widget is mirrored when `ui.mirrorRtl` is on (it is, by default, when i18n.direction is rtl): its anchor.x, pivot.x and position.x flip, so it sits where its mirror image about the middle of the screen would, with the same size; a Toggle's box is at the right of its label, a Slider fills from its right end, a Button's icon changes side, and a Panel with direction auto runs its rows right to left. Text, Sprite and Shape2D below the widget are mirrored with it. false: the widget (and everything below it) stays where it is written, for what is not text-like: a map, a joystick, a clock face. A CameraView changes side with the layout but its picture is never mirrored. Does nothing in a left-to-right language or with ui.mirrorRtl off (docs/LOCALIZATION.md, "Right to left").
+     * true (default): in a right-to-left language the widget is mirrored when `ui.mirrorRtl` is on (it is, by default, when i18n.direction is rtl): its anchor.x, pivot.x and position.x flip, so it sits where its mirror image about the middle of the screen would, with the same size; a Toggle's box is at the right of its label, a Slider fills from its right end, a Button's icon changes side, and a Panel with direction auto runs its rows right to left. Text, Sprite and Shape2D below the widget are mirrored with it. false: the widget (and everything below it) stays where it is written, for what is not text-like: a map, a joystick, a clock face. A CameraView changes side with the layout but its picture is never mirrored. Does nothing in a left-to-right language or with ui.mirrorRtl off (docs/LOCALIZATION.md, "Right-to-left text").
      * @since 0.3.0
      */
     mirror: boolean;
@@ -17572,7 +18217,7 @@ declare module "factoria" {
     get size(): Vec2;
     set size(value: Vec2Like);
     /**
-     * Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. So the pivot counts Y UP while `anchor` counts Y DOWN: anchor [0.5, 1] with pivot [0.5, 0] puts the widget's bottom edge on the bottom of the screen, and with pivot [0.5, 1] it hangs below the screen (docs/MENUS.md, "Anchors and pivots"). Layout does not care about the pivot of its children.
+     * Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. So the pivot counts Y UP while `anchor` counts Y DOWN: anchor [0.5, 1] with pivot [0.5, 0] puts the widget's bottom edge on the bottom of the screen, and with pivot [0.5, 1] it hangs below the screen (docs/MENUS.md, "Anchors and pivots"). Layout does not care about the pivot of its children. It is also the point the Transform's rotation.z (degrees, clockwise on screen) and scale.x / .y turn and scale the widget around: drawing, hovering, clicking, dragging, the TextField caret and navigation follow the turned rectangle, and a scale also changes the room a parent's layout gives it (since 0.30.0).
      * @since 0.1.6
      */
     get pivot(): Vec2;
@@ -17621,7 +18266,7 @@ declare module "factoria" {
      */
     draggable: any;
     /**
-     * true (default): in a right-to-left language the widget is mirrored when `ui.mirrorRtl` is on (it is, by default, when i18n.direction is rtl): its anchor.x, pivot.x and position.x flip, so it sits where its mirror image about the middle of the screen would, with the same size; a Toggle's box is at the right of its label, a Slider fills from its right end, a Button's icon changes side, and a Panel with direction auto runs its rows right to left. Text, Sprite and Shape2D below the widget are mirrored with it. false: the widget (and everything below it) stays where it is written, for what is not text-like: a map, a joystick, a clock face. A CameraView changes side with the layout but its picture is never mirrored. Does nothing in a left-to-right language or with ui.mirrorRtl off (docs/LOCALIZATION.md, "Right to left").
+     * true (default): in a right-to-left language the widget is mirrored when `ui.mirrorRtl` is on (it is, by default, when i18n.direction is rtl): its anchor.x, pivot.x and position.x flip, so it sits where its mirror image about the middle of the screen would, with the same size; a Toggle's box is at the right of its label, a Slider fills from its right end, a Button's icon changes side, and a Panel with direction auto runs its rows right to left. Text, Sprite and Shape2D below the widget are mirrored with it. false: the widget (and everything below it) stays where it is written, for what is not text-like: a map, a joystick, a clock face. A CameraView changes side with the layout but its picture is never mirrored. Does nothing in a left-to-right language or with ui.mirrorRtl off (docs/LOCALIZATION.md, "Right-to-left text").
      * @since 0.3.0
      */
     mirror: boolean;
@@ -17742,7 +18387,7 @@ declare module "factoria" {
     get size(): Vec2;
     set size(value: Vec2Like);
     /**
-     * Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. So the pivot counts Y UP while `anchor` counts Y DOWN: anchor [0.5, 1] with pivot [0.5, 0] puts the widget's bottom edge on the bottom of the screen, and with pivot [0.5, 1] it hangs below the screen (docs/MENUS.md, "Anchors and pivots"). Layout does not care about the pivot of its children.
+     * Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. So the pivot counts Y UP while `anchor` counts Y DOWN: anchor [0.5, 1] with pivot [0.5, 0] puts the widget's bottom edge on the bottom of the screen, and with pivot [0.5, 1] it hangs below the screen (docs/MENUS.md, "Anchors and pivots"). Layout does not care about the pivot of its children. It is also the point the Transform's rotation.z (degrees, clockwise on screen) and scale.x / .y turn and scale the widget around: drawing, hovering, clicking, dragging, the TextField caret and navigation follow the turned rectangle, and a scale also changes the room a parent's layout gives it (since 0.30.0).
      * @since 0.1.6
      */
     get pivot(): Vec2;
@@ -17791,7 +18436,7 @@ declare module "factoria" {
      */
     draggable: any;
     /**
-     * true (default): in a right-to-left language the widget is mirrored when `ui.mirrorRtl` is on (it is, by default, when i18n.direction is rtl): its anchor.x, pivot.x and position.x flip, so it sits where its mirror image about the middle of the screen would, with the same size; a Toggle's box is at the right of its label, a Slider fills from its right end, a Button's icon changes side, and a Panel with direction auto runs its rows right to left. Text, Sprite and Shape2D below the widget are mirrored with it. false: the widget (and everything below it) stays where it is written, for what is not text-like: a map, a joystick, a clock face. A CameraView changes side with the layout but its picture is never mirrored. Does nothing in a left-to-right language or with ui.mirrorRtl off (docs/LOCALIZATION.md, "Right to left").
+     * true (default): in a right-to-left language the widget is mirrored when `ui.mirrorRtl` is on (it is, by default, when i18n.direction is rtl): its anchor.x, pivot.x and position.x flip, so it sits where its mirror image about the middle of the screen would, with the same size; a Toggle's box is at the right of its label, a Slider fills from its right end, a Button's icon changes side, and a Panel with direction auto runs its rows right to left. Text, Sprite and Shape2D below the widget are mirrored with it. false: the widget (and everything below it) stays where it is written, for what is not text-like: a map, a joystick, a clock face. A CameraView changes side with the layout but its picture is never mirrored. Does nothing in a left-to-right language or with ui.mirrorRtl off (docs/LOCALIZATION.md, "Right-to-left text").
      * @since 0.3.0
      */
     mirror: boolean;
@@ -18110,7 +18755,7 @@ declare module "factoria" {
     set disabled(value: ColorLike);
   }
   /**
-   * Single-line text input. While focused it appends the typed characters (Input text), Backspace removes the last one (it repeats while held) and Enter submits. There is no caret movement: the caret stays at the end. Events: ui.change {id, value} on every edit (one per frame), ui.submit {id, value} on Enter. Left / right do nothing in a TextField and Space types a space (ui_submit is ignored).
+   * Single-line text input with a caret, a selection, the clipboard and IME composition. While focused it takes the typed characters at the caret (replacing the selection); Left / Right move the caret (with Ctrl, or Alt on macOS, a word at a time; with Shift they extend the selection), Home / End go to the ends, Backspace and Delete remove the selection or the character (they repeat while held), Ctrl+A (Cmd+A on macOS) selects all, Ctrl+C / X / V (Cmd on macOS) copy, cut and paste, and Enter submits. A click places the caret, a drag selects, a double click selects a word, a triple click all of it. Focusing a field puts the caret at the end of its text. The caret never stops inside a base character plus its combining marks or an emoji sequence. Text composed with an input method shows at the caret, underlined, and is typed when the player commits it (a click in the field, or the focus moving to another field, commits it too). Caret and selection assume left-to-right text for now. A field that loses the focus keeps its last scroll. Events: ui.change {id, value} on every edit (one per frame), ui.submit {id, value} on Enter. Space types a space (ui_submit is ignored); Up / Down move the focus.
    * 
    * Category: UI
    * @since 0.1.6
@@ -18123,7 +18768,7 @@ declare module "factoria" {
     get size(): Vec2;
     set size(value: Vec2Like);
     /**
-     * Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. So the pivot counts Y UP while `anchor` counts Y DOWN: anchor [0.5, 1] with pivot [0.5, 0] puts the widget's bottom edge on the bottom of the screen, and with pivot [0.5, 1] it hangs below the screen (docs/MENUS.md, "Anchors and pivots"). Layout does not care about the pivot of its children.
+     * Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. So the pivot counts Y UP while `anchor` counts Y DOWN: anchor [0.5, 1] with pivot [0.5, 0] puts the widget's bottom edge on the bottom of the screen, and with pivot [0.5, 1] it hangs below the screen (docs/MENUS.md, "Anchors and pivots"). Layout does not care about the pivot of its children. It is also the point the Transform's rotation.z (degrees, clockwise on screen) and scale.x / .y turn and scale the widget around: drawing, hovering, clicking, dragging, the TextField caret and navigation follow the turned rectangle, and a scale also changes the room a parent's layout gives it (since 0.30.0).
      * @since 0.1.6
      */
     get pivot(): Vec2;
@@ -18172,7 +18817,7 @@ declare module "factoria" {
      */
     draggable: any;
     /**
-     * true (default): in a right-to-left language the widget is mirrored when `ui.mirrorRtl` is on (it is, by default, when i18n.direction is rtl): its anchor.x, pivot.x and position.x flip, so it sits where its mirror image about the middle of the screen would, with the same size; a Toggle's box is at the right of its label, a Slider fills from its right end, a Button's icon changes side, and a Panel with direction auto runs its rows right to left. Text, Sprite and Shape2D below the widget are mirrored with it. false: the widget (and everything below it) stays where it is written, for what is not text-like: a map, a joystick, a clock face. A CameraView changes side with the layout but its picture is never mirrored. Does nothing in a left-to-right language or with ui.mirrorRtl off (docs/LOCALIZATION.md, "Right to left").
+     * true (default): in a right-to-left language the widget is mirrored when `ui.mirrorRtl` is on (it is, by default, when i18n.direction is rtl): its anchor.x, pivot.x and position.x flip, so it sits where its mirror image about the middle of the screen would, with the same size; a Toggle's box is at the right of its label, a Slider fills from its right end, a Button's icon changes side, and a Panel with direction auto runs its rows right to left. Text, Sprite and Shape2D below the widget are mirrored with it. false: the widget (and everything below it) stays where it is written, for what is not text-like: a map, a joystick, a clock face. A CameraView changes side with the layout but its picture is never mirrored. Does nothing in a left-to-right language or with ui.mirrorRtl off (docs/LOCALIZATION.md, "Right-to-left text").
      * @since 0.3.0
      */
     mirror: boolean;
@@ -18254,10 +18899,50 @@ declare module "factoria" {
      */
     maxLength: number;
     /**
+     * Draws every character (and the composition) as '*'; Copy and Cut do nothing, the platform's input method is off, and the whole text is one word (word keys go to its ends, a double click selects all). `text` still holds what was typed and scripts can read it, and the composition.
+     * @since 0.30.0
+     */
+    password: boolean;
+    /**
      * Runtime: the caret is in the visible half of its blink (a 1 second cycle of the UI's own unscaled clock; it restarts visible on every edit). Drawn only while focused. Read-only.
      * @since 0.1.6
      */
     readonly caret: boolean;
+    /**
+     * Where the caret is, in code points from the start of `text` (0 = before the first character). It follows the player's edits and clicks, and a script may write it to move the caret. Clamped to 0..length of `text` every frame. A script that changes `text` without touching the caret, selection or caretIndex puts the caret at the end.
+     * @since 0.30.0
+     */
+    caretIndex: number;
+    /**
+     * Start of the selected text, in code points. selectionStart == selectionEnd means nothing is selected. Either may be the larger one (the selection's anchor is selectionStart, its moving end selectionEnd, the caret). A script selects a range by writing both (caretIndex follows selectionEnd when it is not written). Clamped to 0..length of `text` every frame.
+     * @since 0.30.0
+     */
+    selectionStart: number;
+    /**
+     * End of the selected text, in code points (see selectionStart). Clamped to 0..length of `text` every frame.
+     * @since 0.30.0
+     */
+    selectionEnd: number;
+    /**
+     * Runtime: the text an input method (IME) is composing in this field, UTF-8, "" when none. It is not part of `text` until the player commits it. Only the focused field has one. Read-only.
+     * @since 0.30.0
+     */
+    readonly composition: string;
+    /**
+     * Runtime: the input method's caret inside `composition`, in code points (0 = at its start). Read-only.
+     * @since 0.30.0
+     */
+    readonly compositionCaret: number;
+    /**
+     * Runtime: how many code points from compositionCaret the input method is converting (the clause drawn highlighted); 0 = none. Read-only.
+     * @since 0.30.0
+     */
+    readonly compositionSelection: number;
+    /**
+     * Runtime: how many UI units the text is scrolled to the left so that the caret stays visible in a field narrower than its text. Read-only.
+     * @since 0.30.0
+     */
+    readonly scrollX: number;
   }
   /**
    * Scrolling container: its children are stacked in a column (aligned left, packed at the top) at -scroll, and everything drawn by them and their descendants (widgets, Text, Sprite, Shape2D) is CLIPPED to the list's rectangle. The mouse wheel over the list scrolls it (the innermost list under the pointer) when it has more content than it shows; that wheel is then consumed: input.mouse.wheel reads 0 for the frame and ui.wheelConsumed is true. Focusing a widget inside scrolls just enough to show it.
@@ -18273,7 +18958,7 @@ declare module "factoria" {
     get size(): Vec2;
     set size(value: Vec2Like);
     /**
-     * Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. So the pivot counts Y UP while `anchor` counts Y DOWN: anchor [0.5, 1] with pivot [0.5, 0] puts the widget's bottom edge on the bottom of the screen, and with pivot [0.5, 1] it hangs below the screen (docs/MENUS.md, "Anchors and pivots"). Layout does not care about the pivot of its children.
+     * Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. So the pivot counts Y UP while `anchor` counts Y DOWN: anchor [0.5, 1] with pivot [0.5, 0] puts the widget's bottom edge on the bottom of the screen, and with pivot [0.5, 1] it hangs below the screen (docs/MENUS.md, "Anchors and pivots"). Layout does not care about the pivot of its children. It is also the point the Transform's rotation.z (degrees, clockwise on screen) and scale.x / .y turn and scale the widget around: drawing, hovering, clicking, dragging, the TextField caret and navigation follow the turned rectangle, and a scale also changes the room a parent's layout gives it (since 0.30.0).
      * @since 0.1.6
      */
     get pivot(): Vec2;
@@ -18322,7 +19007,7 @@ declare module "factoria" {
      */
     draggable: any;
     /**
-     * true (default): in a right-to-left language the widget is mirrored when `ui.mirrorRtl` is on (it is, by default, when i18n.direction is rtl): its anchor.x, pivot.x and position.x flip, so it sits where its mirror image about the middle of the screen would, with the same size; a Toggle's box is at the right of its label, a Slider fills from its right end, a Button's icon changes side, and a Panel with direction auto runs its rows right to left. Text, Sprite and Shape2D below the widget are mirrored with it. false: the widget (and everything below it) stays where it is written, for what is not text-like: a map, a joystick, a clock face. A CameraView changes side with the layout but its picture is never mirrored. Does nothing in a left-to-right language or with ui.mirrorRtl off (docs/LOCALIZATION.md, "Right to left").
+     * true (default): in a right-to-left language the widget is mirrored when `ui.mirrorRtl` is on (it is, by default, when i18n.direction is rtl): its anchor.x, pivot.x and position.x flip, so it sits where its mirror image about the middle of the screen would, with the same size; a Toggle's box is at the right of its label, a Slider fills from its right end, a Button's icon changes side, and a Panel with direction auto runs its rows right to left. Text, Sprite and Shape2D below the widget are mirrored with it. false: the widget (and everything below it) stays where it is written, for what is not text-like: a map, a joystick, a clock face. A CameraView changes side with the layout but its picture is never mirrored. Does nothing in a left-to-right language or with ui.mirrorRtl off (docs/LOCALIZATION.md, "Right-to-left text").
      * @since 0.3.0
      */
     mirror: boolean;
@@ -18372,7 +19057,7 @@ declare module "factoria" {
     get size(): Vec2;
     set size(value: Vec2Like);
     /**
-     * Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. So the pivot counts Y UP while `anchor` counts Y DOWN: anchor [0.5, 1] with pivot [0.5, 0] puts the widget's bottom edge on the bottom of the screen, and with pivot [0.5, 1] it hangs below the screen (docs/MENUS.md, "Anchors and pivots"). Layout does not care about the pivot of its children.
+     * Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. So the pivot counts Y UP while `anchor` counts Y DOWN: anchor [0.5, 1] with pivot [0.5, 0] puts the widget's bottom edge on the bottom of the screen, and with pivot [0.5, 1] it hangs below the screen (docs/MENUS.md, "Anchors and pivots"). Layout does not care about the pivot of its children. It is also the point the Transform's rotation.z (degrees, clockwise on screen) and scale.x / .y turn and scale the widget around: drawing, hovering, clicking, dragging, the TextField caret and navigation follow the turned rectangle, and a scale also changes the room a parent's layout gives it (since 0.30.0).
      * @since 0.2.0
      */
     get pivot(): Vec2;
@@ -18421,7 +19106,7 @@ declare module "factoria" {
      */
     draggable: any;
     /**
-     * true (default): in a right-to-left language the widget is mirrored when `ui.mirrorRtl` is on (it is, by default, when i18n.direction is rtl): its anchor.x, pivot.x and position.x flip, so it sits where its mirror image about the middle of the screen would, with the same size; a Toggle's box is at the right of its label, a Slider fills from its right end, a Button's icon changes side, and a Panel with direction auto runs its rows right to left. Text, Sprite and Shape2D below the widget are mirrored with it. false: the widget (and everything below it) stays where it is written, for what is not text-like: a map, a joystick, a clock face. A CameraView changes side with the layout but its picture is never mirrored. Does nothing in a left-to-right language or with ui.mirrorRtl off (docs/LOCALIZATION.md, "Right to left").
+     * true (default): in a right-to-left language the widget is mirrored when `ui.mirrorRtl` is on (it is, by default, when i18n.direction is rtl): its anchor.x, pivot.x and position.x flip, so it sits where its mirror image about the middle of the screen would, with the same size; a Toggle's box is at the right of its label, a Slider fills from its right end, a Button's icon changes side, and a Panel with direction auto runs its rows right to left. Text, Sprite and Shape2D below the widget are mirrored with it. false: the widget (and everything below it) stays where it is written, for what is not text-like: a map, a joystick, a clock face. A CameraView changes side with the layout but its picture is never mirrored. Does nothing in a left-to-right language or with ui.mirrorRtl off (docs/LOCALIZATION.md, "Right-to-left text").
      * @since 0.3.0
      */
     mirror: boolean;
@@ -18471,7 +19156,7 @@ declare module "factoria" {
     get size(): Vec2;
     set size(value: Vec2Like);
     /**
-     * Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. So the pivot counts Y UP while `anchor` counts Y DOWN: anchor [0.5, 1] with pivot [0.5, 0] puts the widget's bottom edge on the bottom of the screen, and with pivot [0.5, 1] it hangs below the screen (docs/MENUS.md, "Anchors and pivots"). Layout does not care about the pivot of its children.
+     * Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. So the pivot counts Y UP while `anchor` counts Y DOWN: anchor [0.5, 1] with pivot [0.5, 0] puts the widget's bottom edge on the bottom of the screen, and with pivot [0.5, 1] it hangs below the screen (docs/MENUS.md, "Anchors and pivots"). Layout does not care about the pivot of its children. It is also the point the Transform's rotation.z (degrees, clockwise on screen) and scale.x / .y turn and scale the widget around: drawing, hovering, clicking, dragging, the TextField caret and navigation follow the turned rectangle, and a scale also changes the room a parent's layout gives it (since 0.30.0).
      * @since 0.2.0
      */
     get pivot(): Vec2;
@@ -18520,7 +19205,7 @@ declare module "factoria" {
      */
     draggable: any;
     /**
-     * true (default): in a right-to-left language the widget is mirrored when `ui.mirrorRtl` is on (it is, by default, when i18n.direction is rtl): its anchor.x, pivot.x and position.x flip, so it sits where its mirror image about the middle of the screen would, with the same size; a Toggle's box is at the right of its label, a Slider fills from its right end, a Button's icon changes side, and a Panel with direction auto runs its rows right to left. Text, Sprite and Shape2D below the widget are mirrored with it. false: the widget (and everything below it) stays where it is written, for what is not text-like: a map, a joystick, a clock face. A CameraView changes side with the layout but its picture is never mirrored. Does nothing in a left-to-right language or with ui.mirrorRtl off (docs/LOCALIZATION.md, "Right to left").
+     * true (default): in a right-to-left language the widget is mirrored when `ui.mirrorRtl` is on (it is, by default, when i18n.direction is rtl): its anchor.x, pivot.x and position.x flip, so it sits where its mirror image about the middle of the screen would, with the same size; a Toggle's box is at the right of its label, a Slider fills from its right end, a Button's icon changes side, and a Panel with direction auto runs its rows right to left. Text, Sprite and Shape2D below the widget are mirrored with it. false: the widget (and everything below it) stays where it is written, for what is not text-like: a map, a joystick, a clock face. A CameraView changes side with the layout but its picture is never mirrored. Does nothing in a left-to-right language or with ui.mirrorRtl off (docs/LOCALIZATION.md, "Right-to-left text").
      * @since 0.3.0
      */
     mirror: boolean;
@@ -18615,7 +19300,7 @@ declare module "factoria" {
     get size(): Vec2;
     set size(value: Vec2Like);
     /**
-     * Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. So the pivot counts Y UP while `anchor` counts Y DOWN: anchor [0.5, 1] with pivot [0.5, 0] puts the widget's bottom edge on the bottom of the screen, and with pivot [0.5, 1] it hangs below the screen (docs/MENUS.md, "Anchors and pivots"). Layout does not care about the pivot of its children.
+     * Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. So the pivot counts Y UP while `anchor` counts Y DOWN: anchor [0.5, 1] with pivot [0.5, 0] puts the widget's bottom edge on the bottom of the screen, and with pivot [0.5, 1] it hangs below the screen (docs/MENUS.md, "Anchors and pivots"). Layout does not care about the pivot of its children. It is also the point the Transform's rotation.z (degrees, clockwise on screen) and scale.x / .y turn and scale the widget around: drawing, hovering, clicking, dragging, the TextField caret and navigation follow the turned rectangle, and a scale also changes the room a parent's layout gives it (since 0.30.0).
      * @since 0.2.0
      */
     get pivot(): Vec2;
@@ -18664,7 +19349,7 @@ declare module "factoria" {
      */
     draggable: any;
     /**
-     * true (default): in a right-to-left language the widget is mirrored when `ui.mirrorRtl` is on (it is, by default, when i18n.direction is rtl): its anchor.x, pivot.x and position.x flip, so it sits where its mirror image about the middle of the screen would, with the same size; a Toggle's box is at the right of its label, a Slider fills from its right end, a Button's icon changes side, and a Panel with direction auto runs its rows right to left. Text, Sprite and Shape2D below the widget are mirrored with it. false: the widget (and everything below it) stays where it is written, for what is not text-like: a map, a joystick, a clock face. A CameraView changes side with the layout but its picture is never mirrored. Does nothing in a left-to-right language or with ui.mirrorRtl off (docs/LOCALIZATION.md, "Right to left").
+     * true (default): in a right-to-left language the widget is mirrored when `ui.mirrorRtl` is on (it is, by default, when i18n.direction is rtl): its anchor.x, pivot.x and position.x flip, so it sits where its mirror image about the middle of the screen would, with the same size; a Toggle's box is at the right of its label, a Slider fills from its right end, a Button's icon changes side, and a Panel with direction auto runs its rows right to left. Text, Sprite and Shape2D below the widget are mirrored with it. false: the widget (and everything below it) stays where it is written, for what is not text-like: a map, a joystick, a clock face. A CameraView changes side with the layout but its picture is never mirrored. Does nothing in a left-to-right language or with ui.mirrorRtl off (docs/LOCALIZATION.md, "Right-to-left text").
      * @since 0.3.0
      */
     mirror: boolean;
@@ -18718,7 +19403,7 @@ declare module "factoria" {
     readonly lines: any;
   }
   /**
-   * A video on the screen (docs/MENUS.md, "Studio intro"): plays an .mpg file (MPEG-1 video with MP2 sound, the same decoder on every platform) in this entity's rectangle, the way an image fills a widget. Convert any other video with `factoria call assets.import '{"source":"intro.mp4"}'` (needs ffmpeg: `factoria setup ffmpeg`). The sound plays on the mixer bus `bus` at `volume`. Time follows the game clock: the video pauses with the game (time.scale 0) and a headless run shows the same pictures at the same times as a windowed one. Control it from a script with `entity.video.play()`, `pause()`, `stop()`, `seek(seconds)` and read `time`, `duration`, `playing`; when it reaches its end the game event `video.ended` ({id, path}) fires once (`entity.video.on("ended", fn)`). The picture is decoded on the CPU: keep videos at most about 1280 x 720. Defaults: 640 x 360, a black background (shown as bars where the picture does not fill the rectangle), starts playing at once.
+   * A video on the screen (docs/menus/MENUS_RECIPES.md, "A studio intro"): plays an .mpg file (MPEG-1 video with MP2 sound, the same decoder on every platform) in this entity's rectangle, the way an image fills a widget. Convert any other video with `factoria call assets.import '{"source":"intro.mp4"}'` (needs ffmpeg: `factoria setup ffmpeg`). The sound plays on the mixer bus `bus` at `volume`. Time follows the game clock: the video pauses with the game (time.scale 0) and a headless run shows the same pictures at the same times as a windowed one. Control it from a script with `entity.video.play()`, `pause()`, `stop()`, `seek(seconds)` and read `time`, `duration`, `playing`; when it reaches its end the game event `video.ended` ({id, path}) fires once (`entity.video.on("ended", fn)`). The picture is decoded on the CPU: keep videos at most about 1280 x 720. Defaults: 640 x 360, a black background (shown as bars where the picture does not fill the rectangle), starts playing at once.
    * 
    * Category: UI
    * @since 0.3.0
@@ -18731,7 +19416,7 @@ declare module "factoria" {
     get size(): Vec2;
     set size(value: Vec2Like);
     /**
-     * Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. So the pivot counts Y UP while `anchor` counts Y DOWN: anchor [0.5, 1] with pivot [0.5, 0] puts the widget's bottom edge on the bottom of the screen, and with pivot [0.5, 1] it hangs below the screen (docs/MENUS.md, "Anchors and pivots"). Layout does not care about the pivot of its children.
+     * Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. So the pivot counts Y UP while `anchor` counts Y DOWN: anchor [0.5, 1] with pivot [0.5, 0] puts the widget's bottom edge on the bottom of the screen, and with pivot [0.5, 1] it hangs below the screen (docs/MENUS.md, "Anchors and pivots"). Layout does not care about the pivot of its children. It is also the point the Transform's rotation.z (degrees, clockwise on screen) and scale.x / .y turn and scale the widget around: drawing, hovering, clicking, dragging, the TextField caret and navigation follow the turned rectangle, and a scale also changes the room a parent's layout gives it (since 0.30.0).
      * @since 0.3.0
      */
     get pivot(): Vec2;
@@ -18780,7 +19465,7 @@ declare module "factoria" {
      */
     draggable: any;
     /**
-     * true (default): in a right-to-left language the widget is mirrored when `ui.mirrorRtl` is on (it is, by default, when i18n.direction is rtl): its anchor.x, pivot.x and position.x flip, so it sits where its mirror image about the middle of the screen would, with the same size; a Toggle's box is at the right of its label, a Slider fills from its right end, a Button's icon changes side, and a Panel with direction auto runs its rows right to left. Text, Sprite and Shape2D below the widget are mirrored with it. false: the widget (and everything below it) stays where it is written, for what is not text-like: a map, a joystick, a clock face. A CameraView changes side with the layout but its picture is never mirrored. Does nothing in a left-to-right language or with ui.mirrorRtl off (docs/LOCALIZATION.md, "Right to left").
+     * true (default): in a right-to-left language the widget is mirrored when `ui.mirrorRtl` is on (it is, by default, when i18n.direction is rtl): its anchor.x, pivot.x and position.x flip, so it sits where its mirror image about the middle of the screen would, with the same size; a Toggle's box is at the right of its label, a Slider fills from its right end, a Button's icon changes side, and a Panel with direction auto runs its rows right to left. Text, Sprite and Shape2D below the widget are mirrored with it. false: the widget (and everything below it) stays where it is written, for what is not text-like: a map, a joystick, a clock face. A CameraView changes side with the layout but its picture is never mirrored. Does nothing in a left-to-right language or with ui.mirrorRtl off (docs/LOCALIZATION.md, "Right-to-left text").
      * @since 0.3.0
      */
     mirror: boolean;
@@ -18903,7 +19588,7 @@ declare module "factoria" {
     get size(): Vec2;
     set size(value: Vec2Like);
     /**
-     * Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. So the pivot counts Y UP while `anchor` counts Y DOWN: anchor [0.5, 1] with pivot [0.5, 0] puts the widget's bottom edge on the bottom of the screen, and with pivot [0.5, 1] it hangs below the screen (docs/MENUS.md, "Anchors and pivots"). Layout does not care about the pivot of its children.
+     * Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. So the pivot counts Y UP while `anchor` counts Y DOWN: anchor [0.5, 1] with pivot [0.5, 0] puts the widget's bottom edge on the bottom of the screen, and with pivot [0.5, 1] it hangs below the screen (docs/MENUS.md, "Anchors and pivots"). Layout does not care about the pivot of its children. It is also the point the Transform's rotation.z (degrees, clockwise on screen) and scale.x / .y turn and scale the widget around: drawing, hovering, clicking, dragging, the TextField caret and navigation follow the turned rectangle, and a scale also changes the room a parent's layout gives it (since 0.30.0).
      * @since 0.3.0
      */
     get pivot(): Vec2;
@@ -18952,7 +19637,7 @@ declare module "factoria" {
      */
     draggable: any;
     /**
-     * true (default): in a right-to-left language the widget is mirrored when `ui.mirrorRtl` is on (it is, by default, when i18n.direction is rtl): its anchor.x, pivot.x and position.x flip, so it sits where its mirror image about the middle of the screen would, with the same size; a Toggle's box is at the right of its label, a Slider fills from its right end, a Button's icon changes side, and a Panel with direction auto runs its rows right to left. Text, Sprite and Shape2D below the widget are mirrored with it. false: the widget (and everything below it) stays where it is written, for what is not text-like: a map, a joystick, a clock face. A CameraView changes side with the layout but its picture is never mirrored. Does nothing in a left-to-right language or with ui.mirrorRtl off (docs/LOCALIZATION.md, "Right to left").
+     * true (default): in a right-to-left language the widget is mirrored when `ui.mirrorRtl` is on (it is, by default, when i18n.direction is rtl): its anchor.x, pivot.x and position.x flip, so it sits where its mirror image about the middle of the screen would, with the same size; a Toggle's box is at the right of its label, a Slider fills from its right end, a Button's icon changes side, and a Panel with direction auto runs its rows right to left. Text, Sprite and Shape2D below the widget are mirrored with it. false: the widget (and everything below it) stays where it is written, for what is not text-like: a map, a joystick, a clock face. A CameraView changes side with the layout but its picture is never mirrored. Does nothing in a left-to-right language or with ui.mirrorRtl off (docs/LOCALIZATION.md, "Right-to-left text").
      * @since 0.3.0
      */
     mirror: boolean;
@@ -18997,7 +19682,7 @@ declare module "factoria" {
     get size(): Vec2;
     set size(value: Vec2Like);
     /**
-     * Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. So the pivot counts Y UP while `anchor` counts Y DOWN: anchor [0.5, 1] with pivot [0.5, 0] puts the widget's bottom edge on the bottom of the screen, and with pivot [0.5, 1] it hangs below the screen (docs/MENUS.md, "Anchors and pivots"). Layout does not care about the pivot of its children.
+     * Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. So the pivot counts Y UP while `anchor` counts Y DOWN: anchor [0.5, 1] with pivot [0.5, 0] puts the widget's bottom edge on the bottom of the screen, and with pivot [0.5, 1] it hangs below the screen (docs/MENUS.md, "Anchors and pivots"). Layout does not care about the pivot of its children. It is also the point the Transform's rotation.z (degrees, clockwise on screen) and scale.x / .y turn and scale the widget around: drawing, hovering, clicking, dragging, the TextField caret and navigation follow the turned rectangle, and a scale also changes the room a parent's layout gives it (since 0.30.0).
      * @since 0.3.0
      */
     get pivot(): Vec2;
@@ -19046,7 +19731,7 @@ declare module "factoria" {
      */
     draggable: any;
     /**
-     * true (default): in a right-to-left language the widget is mirrored when `ui.mirrorRtl` is on (it is, by default, when i18n.direction is rtl): its anchor.x, pivot.x and position.x flip, so it sits where its mirror image about the middle of the screen would, with the same size; a Toggle's box is at the right of its label, a Slider fills from its right end, a Button's icon changes side, and a Panel with direction auto runs its rows right to left. Text, Sprite and Shape2D below the widget are mirrored with it. false: the widget (and everything below it) stays where it is written, for what is not text-like: a map, a joystick, a clock face. A CameraView changes side with the layout but its picture is never mirrored. Does nothing in a left-to-right language or with ui.mirrorRtl off (docs/LOCALIZATION.md, "Right to left").
+     * true (default): in a right-to-left language the widget is mirrored when `ui.mirrorRtl` is on (it is, by default, when i18n.direction is rtl): its anchor.x, pivot.x and position.x flip, so it sits where its mirror image about the middle of the screen would, with the same size; a Toggle's box is at the right of its label, a Slider fills from its right end, a Button's icon changes side, and a Panel with direction auto runs its rows right to left. Text, Sprite and Shape2D below the widget are mirrored with it. false: the widget (and everything below it) stays where it is written, for what is not text-like: a map, a joystick, a clock face. A CameraView changes side with the layout but its picture is never mirrored. Does nothing in a left-to-right language or with ui.mirrorRtl off (docs/LOCALIZATION.md, "Right-to-left text").
      * @since 0.3.0
      */
     mirror: boolean;
@@ -19245,6 +19930,7 @@ declare module "factoria" {
     Sprite: SpriteComponent;
     Tint: TintComponent;
     Parallax: ParallaxComponent;
+    Interpolation: InterpolationComponent;
     Light2D: Light2DComponent;
     SpriteAnimator: SpriteAnimatorComponent;
     Bone2D: Bone2DComponent;
@@ -19297,6 +19983,7 @@ declare module "factoria" {
     Sprite: { texture?: string; region?: RectLike; size?: Vec2Like; pivot?: Vec2Like; color?: ColorLike; flipX?: boolean; flipY?: boolean; layer?: number; space?: "world" | "screen"; pixelArt?: boolean; blend?: "alpha" | "additive" | "multiply"; anchor?: Vec2Like; safeArea?: boolean; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; lit?: boolean; normalMap?: string; skew?: Vec2Like; meshColumns?: number; meshRows?: number; vertexOffsets?: Float32Array; vertexColors?: Float32Array };
     Tint: { color?: ColorLike };
     Parallax: { factor?: Vec2Like; repeatX?: boolean; repeatY?: boolean; repeatSize?: Vec2Like };
+    Interpolation: { mode?: "inherit" | "on" | "off" };
     Light2D: { type?: "point" | "directional"; color?: ColorLike; intensity?: number; radius?: number; falloff?: number; height?: number; direction?: number; elevation?: number; castShadows?: boolean };
     SpriteAnimator: { columns?: number; rows?: number; firstFrame?: number; lastFrame?: number; fps?: number; loop?: boolean; loopMode?: "inherit" | "loop" | "once"; playing?: boolean; clip?: string; mode?: "forward" | "reverse" | "pingpong"; sheetPivot?: boolean; events?: any; ended?: boolean; playedClip?: string; time?: number; frame?: number };
     Bone2D: { length?: number; minAngle?: number; maxAngle?: number };
@@ -19320,16 +20007,16 @@ declare module "factoria" {
     CharacterController3D: { radius?: number; height?: number; center?: Vec3Like; stepOffset?: number; slopeLimit?: number; skin?: number; layer?: number; mask?: number; velocity?: Vec3Like; carriedByPlatforms?: boolean; applyWeight?: boolean; mass?: number; pushStrength?: number };
     NavMesh3D: { size?: Vec3Like; cellSize?: number; cellHeight?: number; agentRadius?: number; agentHeight?: number; stepHeight?: number; maxSlope?: number; autoBake?: boolean; enabled?: boolean };
     NavLink3D: { end?: Vec3Like; bidirectional?: boolean; cost?: number };
-    AudioSource: { clip?: string; variants?: number; volume?: number; pitch?: number; loop?: boolean; playOnStart?: boolean; playing?: boolean; spatial?: boolean; range?: number; rolloff?: "linear" | "inverse" | "exponential"; refDistance?: number; rolloffFactor?: number; priority?: number };
+    AudioSource: { clip?: string; variants?: number; volume?: number; pitch?: number; loop?: boolean; playOnStart?: boolean; playing?: boolean; spatial?: boolean; range?: number; rolloff?: "linear" | "inverse" | "exponential" | "curve"; refDistance?: number; rolloffFactor?: number; rolloffCurve?: any; coneInnerAngle?: number; coneOuterAngle?: number; coneOuterGain?: number; coneAxis?: Vec3Like; dopplerLevel?: number; occlusion?: boolean; occlusionMask?: number; occlusionGain?: number; occlusionLowpass?: number; priority?: number };
     MusicPlayer: { song?: string; mode?: "auto" | "live" | "stems"; volume?: number; bus?: string; intensity?: number; playOnStart?: boolean; loop?: boolean; startSection?: string; quantize?: "none" | "beat" | "bar" | "section"; layerQuantize?: "none" | "beat" | "bar" | "section"; layerFade?: number; layerRange?: number; transitionFade?: number; crossfadeBars?: number; playing?: boolean; ready?: boolean; section?: string; bar?: number; beat?: number; tempo?: number; activeMode?: string };
-    AudioListener: { volume?: number; zoom?: number };
+    AudioListener: { volume?: number; zoom?: number; spatialization?: "pan" | "hrtf"; headRadius?: number; speedOfSound?: number };
     Panel: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; draggable?: any; mirror?: boolean; layout?: "none" | "row" | "column" | "grid"; spacing?: number; padding?: readonly number[] | { x: number; y: number; z: number; w: number }; columns?: number; align?: "start" | "center" | "end"; justify?: "start" | "center" | "end"; direction?: "ltr" | "auto" | "rtl"; fit?: boolean; minSize?: Vec2Like; maxSize?: Vec2Like; uniformSize?: boolean; modal?: boolean; wheelPassThrough?: boolean; fallbackLayout?: "none" | "row" | "column" | "grid" };
     Button: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; draggable?: any; mirror?: boolean; font?: string; key?: string; keyArgs?: any; fontSize?: number; maxTextScale?: number; textColor?: ColorLike; accentColor?: ColorLike; interactable?: boolean; autoFocus?: boolean; text?: string; maxWidth?: number; autoSize?: boolean; autoShrink?: boolean; minFontSize?: number; markup?: boolean; bold?: boolean; icon?: string; iconRegion?: RectLike; iconSize?: Vec2Like; iconPosition?: "left" | "top" | "alone" };
     Toggle: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; draggable?: any; mirror?: boolean; font?: string; key?: string; keyArgs?: any; fontSize?: number; maxTextScale?: number; textColor?: ColorLike; accentColor?: ColorLike; interactable?: boolean; autoFocus?: boolean; label?: string; maxWidth?: number; autoSize?: boolean; autoShrink?: boolean; minFontSize?: number; markup?: boolean; bold?: boolean; value?: boolean };
     Slider: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; draggable?: any; mirror?: boolean; font?: string; key?: string; keyArgs?: any; fontSize?: number; maxTextScale?: number; textColor?: ColorLike; accentColor?: ColorLike; interactable?: boolean; autoFocus?: boolean; label?: string; maxWidth?: number; labelAbove?: boolean; autoSize?: boolean; autoShrink?: boolean; minFontSize?: number; markup?: boolean; bold?: boolean; value?: number; min?: number; max?: number; step?: number; showValue?: boolean; format?: string; formatKey?: string };
     Interactable: { kind?: "button" | "toggle" | "slider"; enabled?: boolean; autoFocus?: boolean; focusOnHover?: boolean; size?: Vec2Like; offset?: Vec2Like; space?: "auto" | "world" | "screen"; on?: boolean; value?: number; min?: number; max?: number; step?: number; axis?: "x" | "y"; knob?: EntityLike; fill?: EntityLike; label?: string; key?: string; keyArgs?: any };
     InteractableVisual: { target?: EntityLike; mode?: "show" | "tint"; when?: "always" | "normal" | "hover" | "pressed" | "focused" | "highlighted" | "disabled" | "on" | "off"; normal?: ColorLike; hover?: ColorLike; pressed?: ColorLike; focused?: ColorLike; disabled?: ColorLike };
-    TextField: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; draggable?: any; mirror?: boolean; font?: string; key?: string; keyArgs?: any; fontSize?: number; maxTextScale?: number; textColor?: ColorLike; accentColor?: ColorLike; interactable?: boolean; autoFocus?: boolean; text?: string; placeholder?: string; maxLength?: number };
+    TextField: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; draggable?: any; mirror?: boolean; font?: string; key?: string; keyArgs?: any; fontSize?: number; maxTextScale?: number; textColor?: ColorLike; accentColor?: ColorLike; interactable?: boolean; autoFocus?: boolean; text?: string; placeholder?: string; maxLength?: number; password?: boolean; caretIndex?: number; selectionStart?: number; selectionEnd?: number };
     ScrollList: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; draggable?: any; mirror?: boolean; spacing?: number; padding?: readonly number[] | { x: number; y: number; z: number; w: number }; scroll?: number; scrollSpeed?: number; fill?: boolean; shrink?: boolean };
     TouchStick: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; draggable?: any; mirror?: boolean; stick?: "left" | "right"; knobColor?: ColorLike; touchOnly?: boolean };
     TouchButton: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; draggable?: any; mirror?: boolean; button?: "A" | "B" | "X" | "Y" | "Start" | "Back" | "Guide" | "DpadLeft" | "DpadRight" | "DpadUp" | "DpadDown" | "LeftShoulder" | "RightShoulder" | "LeftThumb" | "RightThumb"; text?: string; key?: string; keyArgs?: any; font?: string; fontSize?: number; autoShrink?: boolean; minFontSize?: number; maxTextScale?: number; markup?: boolean; bold?: boolean; textColor?: ColorLike; touchOnly?: boolean };
@@ -19557,9 +20244,9 @@ declare module "factoria:test" {
      */
     axis(axis: GamepadAxis, value: number): void;
     /**
-     * Plugs the pad in (input.gamepad(i).connected becomes true) and raises game.on("gamepadConnected") at the next step. info says who the pad is: its id, name, family and USB ids (0 to 65535); a field left out keeps what the slot had, and without an id one is made from the ids and the name. A mistake throws with a suggestion. Example: game.gamepad(1).connect({ id: "pad-red", name: "Red pad", type: "playstation" }).
+     * Plugs the pad in (input.gamepad(i).connected becomes true) and raises game.on("gamepadConnected") at the next step. info says who the pad is: its id, name, family and USB ids (0 to 65535); a field left out keeps what the slot had, and without an id one is made from the ids and the name. canRumble: true makes input.gamepad(i).canRumble true, to test what a game does with a pad that has motors (a test pad has none unless you say so). A mistake throws with a suggestion. Example: game.gamepad(1).connect({ id: "pad-red", name: "Red pad", type: "playstation" }).
      */
-    connect(info?: { id?: string; name?: string; type?: GamepadType; vendor?: number; product?: number }): void;
+    connect(info?: { id?: string; name?: string; type?: GamepadType; vendor?: number; product?: number; canRumble?: boolean }): void;
     /**
      * Unplugs the pad; what it held is released.
      */
@@ -19650,6 +20337,120 @@ declare module "factoria:test" {
      * @since 0.3.0
      */
     restart(): void;
+  }
+
+  /**
+   * One connection the game made, seen from the scripted server side (game.websocket.connections()).
+   * @since 0.30.0
+   */
+  export interface TestWebSocketConnection {
+    /**
+     * The number to pass to the other game.websocket calls: connections count in the order websocket.connect started them, reconnects included.
+     * @since 0.30.0
+     */
+    index: number;
+    /**
+     * The address the game asked for.
+     * @since 0.30.0
+     */
+    url: string;
+    /**
+     * The subprotocols the game offered.
+     * @since 0.30.0
+     */
+    protocols: string[];
+    /**
+     * The handshake headers the game set.
+     * @since 0.30.0
+     */
+    headers: Record<string, string>;
+    /**
+     * Accepted and not closed.
+     * @since 0.30.0
+     */
+    open: boolean;
+    /**
+     * Over, whoever closed it. A connection the game never closed but that its scene dropped counts as closed by the game with code 1001.
+     * @since 0.30.0
+     */
+    closed: boolean;
+    /**
+     * The game closed it (close(), or its scene ended).
+     * @since 0.30.0
+     */
+    closedByGame: boolean;
+    /**
+     * The code of the game's close, 0 when it did not close.
+     * @since 0.30.0
+     */
+    closeCode: number;
+    /**
+     * The reason of the game's close.
+     * @since 0.30.0
+     */
+    closeReason: string;
+    /**
+     * What the game sent, oldest first: a string for a text message, an ArrayBuffer for a binary one.
+     * @since 0.30.0
+     */
+    received: (string | ArrayBuffer)[];
+  }
+
+  /**
+   * The server side of the game's WebSocket connections in tests (docs/NETWORKING.md, "Testing"): every websocket.connect meets a scripted in-memory server, nothing touches the network. The events of an action reach the game at the next game.step(). Connection numbers are the `index` of game.websocket.connections(); an unknown number throws.
+   * @since 0.30.0
+   */
+  export interface TestWebSocket {
+    /**
+     * Every connection made since the last reset(), in order, closed ones included, with what the game sent.
+     * @since 0.30.0
+     */
+    connections(): TestWebSocketConnection[];
+    /**
+     * Completes the handshake: the game's "open" event. Needed only after autoAccept(false). protocol is the subprotocol the server picks: one the game offered, else it throws.
+     * @since 0.30.0
+     */
+    accept(i: number, protocol?: string): void;
+    /**
+     * The handshake fails: the game gets an "error" event (with httpStatus, e.g. 403) and then "close" with code 1006.
+     * @since 0.30.0
+     */
+    refuse(i: number, message?: string, httpStatus?: number): void;
+    /**
+     * The server sends a message to the game: text for a string, binary for an ArrayBuffer or typed array.
+     * @since 0.30.0
+     */
+    send(i: number, data: string | ArrayBuffer | ArrayBufferView): void;
+    /**
+     * The server closes cleanly (code 1000 by default): the game gets "close" with that code, reason and wasClean true.
+     * @since 0.30.0
+     */
+    close(i: number, code?: number, reason?: string): void;
+    /**
+     * The connection breaks with no closing handshake: "error" then "close" with code 1006.
+     * @since 0.30.0
+     */
+    drop(i: number, message?: string): void;
+    /**
+     * false: new connections wait for accept(i) or refuse(i) (default true: they open at the next step).
+     * @since 0.30.0
+     */
+    autoAccept(on?: boolean): void;
+    /**
+     * The next `count` connection attempts (default 1) fail like an unreachable server: "error" then "close" 1006. What a reconnect test needs.
+     * @since 0.30.0
+     */
+    refuseNext(count?: number, message?: string): void;
+    /**
+     * false: the server does not answer the game's close() until close(i) is called, so the game stays "closing". Default true.
+     * @since 0.30.0
+     */
+    autoCloseReply(i: number, on?: boolean): void;
+    /**
+     * Closes the game's connections without events, forgets every connection of the server and restores autoAccept and refuseNext. Every test file starts this way; call it at the start of a test that counts connections.
+     * @since 0.30.0
+     */
+    reset(): void;
   }
 
   /**
@@ -19839,6 +20640,16 @@ declare module "factoria:test" {
      */
     setStorageText(text: string | null): void;
     /**
+     * The requests input.rumble() and input.stopRumble() made since the test started, oldest first (cleared before each test, at most 256): pad, the strengths low and high already clamped to 0..1, and seconds (0 for a stop). They are recorded for any pad, connected or not; what a pad does is rumbleState(pad).
+     * @since 0.30.0
+     */
+    rumbles(): { pad: number; low: number; high: number; seconds: number }[];
+    /**
+     * What the motors of pad (default 0) do now: the strengths and the seconds left (game.step runs it down with the frames' own duration, not scaled by time.scale). All 0 for a pad that is not connected and once the rumble ended by itself, was stopped, or was cut by the game pausing, a scene change or the window losing focus.
+     * @since 0.30.0
+     */
+    rumbleState(pad?: number): { low: number; high: number; seconds: number };
+    /**
      * The pulses input.vibrate() asked for since the test started, in seconds, oldest first (cleared before each test).
      * @since 0.2.0
      */
@@ -19974,6 +20785,11 @@ declare module "factoria:test" {
      * @since 0.3.0
      */
     readonly remoteConfig: TestRemoteConfig;
+    /**
+     * The scripted server of the game's WebSocket connections: game.websocket.connections(), accept(i), send(i, data), close(i), drop(i), refuseNext(n), reset().
+     * @since 0.30.0
+     */
+    readonly websocket: TestWebSocket;
   }
 
   /**

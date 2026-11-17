@@ -87,6 +87,19 @@ Json ProjectSettings::to_json() const {
     physics["fixedHz"] = fixedHz;
     physics["pixelsPerMeter"] = pixelsPerMeter;
     j["physics"] = physics;
+    if (renderInterpolation || renderInterpolationSnapDistance > 0.0f) {
+        Json render = j.contains("render") && j["render"].is_object() ? j["render"] : Json::object();
+        render["interpolation"] = renderInterpolation;
+        if (renderInterpolationSnapDistance > 0.0f)
+            render["interpolationSnapDistance"] = renderInterpolationSnapDistance;
+        else
+            render.erase("interpolationSnapDistance");
+        j["render"] = render;
+    } else if (j.contains("render") && j["render"].is_object()) {
+        j["render"].erase("interpolation");
+        j["render"].erase("interpolationSnapDistance");
+        if (j["render"].empty()) j.erase("render");
+    }
     Json input = j.contains("input") && j["input"].is_object() ? j["input"] : Json::object();
     input["actions"] = inputActions;
     input["deadzone"] = inputDeadzone;
@@ -120,6 +133,15 @@ Json ProjectSettings::to_json() const {
         j["runtime"].erase("jobThreads");
         if (j["runtime"].empty()) j.erase("runtime");
     }
+    return j;
+}
+
+Json ProjectSettings::to_json_redacted() const {
+    Json j = to_json();
+    if (auto st = j.find("storage"); st != j.end() && st->is_object())
+        if (auto sec = st->find("encryptionSecret");
+            sec != st->end() && sec->is_string() && !sec->get<std::string>().empty())
+            *sec = "(hidden)";
     return j;
 }
 
@@ -533,6 +555,25 @@ Result<ProjectSettings> load_project(std::string_view projectDir) {
         FA_TRY(read_double(*it, "pixelsPerMeter", "/physics", ppm, 0.0, true));
         s.pixelsPerMeter = float(ppm);
     }
+    if (auto it = j.find("render"); it != j.end() && !it->is_null()) {
+        if (!it->is_object()) return field_error("/render", "an object like {\"interpolation\": true}", *it);
+        FA_TRY(read_bool(*it, "interpolation", "/render", s.renderInterpolation));
+        double snap = s.renderInterpolationSnapDistance;
+        FA_TRY(read_double(*it, "interpolationSnapDistance", "/render", snap, 0.0, false));
+        s.renderInterpolationSnapDistance = float(snap);
+    }
+    if (auto it = j.find("storage"); it != j.end() && !it->is_null()) {
+        if (!it->is_object()) return field_error("/storage", "an object like {\"encryptionSecret\": \"...\"}", *it);
+        std::string secret;
+        FA_TRY(read_string(*it, "encryptionSecret", "/storage", secret));
+        if (it->contains("encryptionSecret") && !(*it)["encryptionSecret"].is_null() && secret.size() < 16)
+            return make_error(
+                at("/storage/encryptionSecret") + ": the secret is " + std::to_string(secret.size()) +
+                    " characters, too short to be a key",
+                "Do not write it by hand: delete the field and run `factoria call "
+                "project.create_storage_secret` for a random one (saves written with the old secret cannot "
+                "be opened afterwards).");
+    }
     if (auto it = j.find("runtime"); it != j.end() && !it->is_null()) {
         if (!it->is_object()) return field_error("/runtime", "an object like {\"jobThreads\": \"auto\"}", *it);
         if (auto jt = it->find("jobThreads"); jt != it->end() && !jt->is_null()) {
@@ -775,11 +816,11 @@ constexpr const char* kSchemaText =
           "type": "number",
           "minimum": 0.5,
           "maximum": 3,
-          "description": "The interface scale the game starts with (default 1): the size, offset, padding, spacing, margins and font size of every screen-space widget (Panel, Button, Label, Text with space \"screen\"...) are multiplied by it, on top of the text size option (ui.textScale). Scripts and the Options menu change it while the game runs (ui.scale = 1.25, the ui.set_scale command); tests start from this value. docs/COMPONENTS.md, \"Interface scale\"."
+          "description": "The interface scale the game starts with (default 1): the size, offset, padding, spacing, margins and font size of every screen-space widget (Panel, Button, Label, Text with space \"screen\"...) are multiplied by it, on top of the text size option (ui.textScale). Scripts and the Options menu change it while the game runs (ui.scale = 1.25, the ui.set_scale command); tests start from this value. docs/TEXT.md, \"Interface size\"."
         },
         "mirrorRtl": {
           "type": "boolean",
-          "description": "Whether a right-to-left language (i18n.direction \"rtl\") mirrors the screen-space UI (default true): anchor.x, pivot.x and position.x flip, Toggle boxes and Sliders run right to left, and a widget with UiBox.mirror false stays. Scripts change it with ui.mirrorRtl, the ui.set_mirror_rtl command too. docs/LOCALIZATION.md, \"Right to left\"."
+          "description": "Whether a right-to-left language (i18n.direction \"rtl\") mirrors the screen-space UI (default true): anchor.x, pivot.x and position.x flip, Toggle boxes and Sliders run right to left, and a widget with UiBox.mirror false stays. Scripts change it with ui.mirrorRtl, the ui.set_mirror_rtl command too. docs/LOCALIZATION.md, \"Right-to-left text\"."
         },
         "tooltipDelay": {
           "type": "number",
@@ -861,6 +902,23 @@ constexpr const char* kSchemaText =
           "type": "number",
           "exclusiveMinimum": 0,
           "description": "2D world units per physics meter (default 100)."
+        }
+      }
+    },
+    "render": {
+      "type": "object",
+      "description": "Drawing settings.",
+      "properties": {
+        "interpolation": {
+          "type": "boolean",
+          "default": false,
+          "description": "Draw entities at the pose between the last two fixed simulation steps, so a 60 Hz simulation looks smooth on a 120-144 Hz display (the picture is one step behind the simulation). Only the drawing changes: Transform, physics and scripts see the real pose. Cameras, physics bodies and children of interpolated entities are included; a Transform written outside the fixed step, a new entity and entity.teleport() are not smeared. The Interpolation component overrides it per entity. Default false (docs/RENDERING.md, \"Render interpolation\")."
+        },
+        "interpolationSnapDistance": {
+          "type": "number",
+          "minimum": 0,
+          "default": 0,
+          "description": "With interpolation: a fixed step that moves an entity farther than this many world units (pixels in 2D) is a jump and is drawn without blending. 0 (default) = no limit; use entity.teleport() for known jumps."
         }
       }
     },
@@ -964,12 +1022,23 @@ constexpr const char* kSchemaText =
       }
     },
 )JSON"
-    R"JSON(    "runtime": {
+    R"JSON(    "storage": {
+      "type": "object",
+      "description": "Save storage settings (docs/scripting/SCRIPTING_UI_SCENES.md, \"Encrypted saves\").",
+      "properties": {
+        "encryptionSecret": {
+          "type": "string",
+          "minLength": 16,
+          "description": "The random secret that storage.set(key, value, {encrypt: true}) derives its keys from (HKDF-SHA256, salted with \"id\", one key per storage key). Create it ONCE with the command project.create_storage_secret (`factoria call project.create_storage_secret`), never by hand and never in the running game. Keep it for the life of the game: saves written with another secret cannot be opened. It is packed into the exported game, so it makes saves tamper-evident, not secret from a determined player. project.info and `game.project` show it as \"(hidden)\"."
+        }
+      }
+    },
+    "runtime": {
       "type": "object",
       "description": "How the engine runs the game on the player's machine. These settings never change what the game computes: a game gives the same result with any of them (docs/PERFORMANCE.md, \"Job threads\").",
       "properties": {
         "jobThreads": {
-          "description": "Worker threads of the job system (docs/ARCHITECTURE.md, \"Jobs and threads\"): \"auto\" (the default: hardware threads - 1, at most 8 on desktop and 4 on phones; 0 in a web build, which has no threads), a number from 0 to 32 written as a number, not in quotes (0: jobs run on the main thread when it waits for them or at the end of the frame), or \"inline\" (debugging: every job runs on the main thread when it is submitted, in order). The FA_JOB_THREADS environment variable overrides it.",
+          "description": "Worker threads of the job system (docs/design/ARCHITECTURE_THREADS.md, \"Jobs and threads\"): \"auto\" (the default: hardware threads - 1, at most 8 on desktop and 4 on phones; 0 in a web build, which has no threads), a number from 0 to 32 written as a number, not in quotes (0: jobs run on the main thread when it waits for them or at the end of the frame), or \"inline\" (debugging: every job runs on the main thread when it is submitted, in order). The FA_JOB_THREADS environment variable overrides it.",
           "oneOf": [
             {
               "type": "string",
@@ -1595,7 +1664,7 @@ constexpr const char* kSchemaText =
 )JSON"
     R"JSON(        "pack": {
           "type": "object",
-          "description": "How a release build packs game.pak (factoria export --release for windows, macos, linux, and every web export): the codec of each file type and the order of the files. The pack is compressed in blocks of 256 KiB, each one decoded on its own, so a game reads only the blocks it needs. See docs/EXPORTING.md, \"The game pack\".",
+          "description": "How a release build packs game.pak (factoria export --release for windows, macos, linux, and every web export): the codec of each file type and the order of the files. The pack is compressed in blocks of 256 KiB, each one decoded on its own, so a game reads only the blocks it needs. See docs/exporting/EXPORTING_DESKTOP.md, \"Release build\".",
           "properties": {
             "codecs": {
               "type": "object",

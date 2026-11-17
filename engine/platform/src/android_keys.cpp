@@ -89,4 +89,10 @@ void AndroidKeys::feed(Input& input) {
     items_.clear();
 }
 
+std::vector<AndroidKeys::Item> AndroidKeys::take() {
+    std::vector<Item> out;
+    out.swap(items_);
+    return out;
+}
+
 }  // namespace fa

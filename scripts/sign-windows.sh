@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # Authenticode-signs the given files with signtool (timestamped). Used by .github/workflows/release.yml (Git Bash on
-# the windows-2022 runner); setup in docs/BUILDING.md, "Releasing".
+# the windows-2022 runner); setup in docs/design/BUILDING_RELEASE.md, "Releasing".
 #
 #   scripts/sign-windows.sh factoria.exe FactorIA-Editor.exe ...
 #
@@ -13,7 +13,7 @@
 set -euo pipefail
 
 if [[ -z "${WINDOWS_CERT_PFX_BASE64:-}" ]]; then
-    echo "::notice title=Windows code signing skipped::WINDOWS_CERT_PFX_BASE64 is not set, so $* stay unsigned (docs/BUILDING.md, Releasing)"
+    echo "::notice title=Windows code signing skipped::WINDOWS_CERT_PFX_BASE64 is not set, so $* stay unsigned (docs/design/BUILDING_RELEASE.md, Releasing)"
     exit 0
 fi
 if [[ -z "${WINDOWS_CERT_PASSWORD:-}" ]]; then

@@ -42,8 +42,20 @@ bool fa_sapp_set_vsync(bool on);
 // macOS: shows `rgba` (w x h RGBA8, not premultiplied, row 0 = top) as the Dock icon while the app runs (AppDesc::dockIcon).
 // false: not available here (every other platform: their window icon is sapp_desc.icon).
 bool fa_sapp_set_dock_icon(const unsigned char* rgba, int w, int h);
+// IME (ime_apple.mm), Apple only. The views sokol_app made, as Objective-C objects behind void* (NSView* of macOS, UITextField* of
+// iOS; nil when there is none yet: the iOS text field exists after the first sapp_show_keyboard).
+void* fa_sapp_macos_view(void);
+void* fa_sapp_ios_textfield(void);
+// macOS: what sokol_app's keyDown: does for `nsevent` (an NSEvent*): the KEY_DOWN event and, when `chars`, a CHAR event per
+// character of NSEvent.characters (and the paste event of Cmd+V). ime_apple.mm calls it with chars = false when an input method
+// already delivered that text.
+void fa_sapp_macos_key_down(const void* nsevent, bool chars);
 // Linux: sets the window's WM_CLASS to `name` (AppDesc::appName). false: not available here.
 bool fa_sapp_set_class_name(const char* name);
+// The web only: sokol_app's key, focus and blur handlers on the window go through the IME backend first (ime_web.cpp:
+// what the browser's input method takes is not a game key, and the focus moving to the hidden <input> is not the page
+// losing it). app.cpp calls it once, when the app starts.
+void fa_sapp_web_route_events(void);
 
 #ifdef __cplusplus
 }

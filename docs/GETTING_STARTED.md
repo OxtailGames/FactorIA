@@ -1,6 +1,6 @@
 # Getting started with FactorIA
 
-**English** | [Español](i18n/es/GETTING_STARTED.md)
+**English** | [Español](i18n/es/GETTING_STARTED.md) (translation: repository only, not in the binary)
 
 > AI agents: read [AI_GUIDE.md](AI_GUIDE.md) first, the complete English guide for building a game (also available as `factoria docs read ai-guide`).
 
@@ -75,7 +75,7 @@ built into `factoria`, and on Windows the C++ runtime is too, so a fresh PC need
 5. Export (`factoria export`) works from the download for desktop and mobile. Android needs the JDK 17 and the
    Android SDK (no NDK, no CMake, no separate Gradle): the `mobile/` folder next to `factoria` holds the engine's Android
    runtime, so the export only packages it and builds the APK itself (`factoria export --platform android`). iOS (on a Mac, with Xcode and CMake) uses the iOS libraries of the macOS
-   package the same way. No engine source is involved; see [EXPORTING.md](EXPORTING.md#mobile-exports-prebuilt-or-source)
+   package the same way. No engine source is involved; see [EXPORTING.md](exporting/EXPORTING_MOBILE.md#mobile-exports-prebuilt-or-source)
    and [MOBILE.md](MOBILE.md). Build from source if you want to change the engine itself.
 
 #### Updates
@@ -89,7 +89,7 @@ every version newer than yours, and the editor waits for your answer:
 - **Not now** keeps your version. The editor asks again the next time it opens.
 
 Files you copy over the installation yourself (without the updater) are noticed too: the running editor offers a
-**Restart** notice at the bottom of its window ([EDITOR.md, Updates](EDITOR.md#updates)), and a `factoria mcp` that your AI
+**Restart** notice at the bottom of its window ([EDITOR.md, Updates](editor/EDITOR_SETUP.md#updates)), and a `factoria mcp` that your AI
 client started restarts itself in place (Linux and macOS) or asks you to reconnect it with `/mcp` (Windows)
 ([MCP.md, After an update](MCP.md#after-an-update)). You do not need to restart the client yourself, except when it
 says that its `.mcp.json` changed after it started.
@@ -189,7 +189,7 @@ If the machine runs out of memory, limit the number of parallel jobs: `cmake --b
 - **`cl.exe not found`**: use *Developer PowerShell for VS 2022*.
 - **`running scripts is disabled on this system`**: run the script with `-ExecutionPolicy Bypass`.
 
-More details in `docs/BUILDING.md`.
+More details in `docs/design/BUILDING.md` (repository only, not in the binary).
 
 ## 2. Create your first game
 
@@ -207,6 +207,24 @@ Available templates:
 - `3d-empty`: an empty 3D scene with only a perspective camera.
 
 `factoria templates` lists the available templates with their descriptions.
+
+Or start from an **example game**. The download carries no examples (only a clone of the repository has the `examples/`
+folder), so FactorIA fetches the one you pick from the GitHub release of the version you installed. In the editor, the
+**Examples** tab of the Open or create a project window lists them and creates the project with a click (docs/EDITOR.md,
+"The Examples tab"); from a terminal:
+
+```bash
+factoria call project.examples                                  # name, title, what it shows, what to read first, download size
+factoria call project.create '{"dir":"my-game","example":"block-push"}'
+```
+
+`project.examples` downloads the list of the installed version and keeps a copy in FactorIA's cache folder (`$FACTORIA_HOME/cache/examples/<version>`,
+by default `~/.factoria/cache/examples/<version>`); without internet it answers with that copy and says `"stale": true`, and
+without a copy it tells you that you need the internet once (the base download has no examples). `project.create` with
+`example` downloads the zip, checks its size and SHA-256 against the list, refuses any file name that could write outside `dir`,
+unpacks it next to `dir` and renames it at the end, so a failure leaves nothing behind. `dir` must be new or empty. The
+zip stays in the cache folder, so the same example again needs no internet. Both commands need the `network` capability, which an MCP client
+has by default (`factoria mcp --read-only` does not).
 
 The project contains:
 
@@ -401,11 +419,11 @@ Example entry:
 {
   "category": "input",
   "severity": "minor",
-  "title": "No gamepad rumble",
-  "missing": "The game wants to vibrate the controller when the player is hit, but scripts have no rumble API.",
-  "workaround": "none: feature dropped. A hit is shown with a screen shake only.",
+  "title": "No adaptive triggers",
+  "missing": "The game wants the DualSense triggers to resist when the bow is drawn, but scripts have no trigger-effect API.",
+  "workaround": "none: feature dropped. The draw is shown with a camera zoom only.",
   "workaroundFiles": [],
-  "suggestion": "Add input.gamepad(i).rumble(strong, weak, seconds) that vibrates the pad.",
+  "suggestion": "Add input.gamepad(i).setTriggerResistance(side, start, strength) that stiffens one trigger.",
   "effort": "small"
 }
 ```
@@ -435,17 +453,17 @@ Keys and fixed values (`category`, `severity`) are in English, as in the example
 | Built-in AI with an API key (`factoria ai`) | `doctor`, `providers` and `config` work. `ai run` needs an API key or an installed CLI (Claude Code or Codex) |
 | Exporting games (`factoria export`) | Linux tested (`--platform linux`); CI exports an Android game and builds its APK. Windows, macOS, Android and iOS: see `docs/EXPORTING.md` and `docs/MOBILE.md`. `--platform web` writes a browser build and the zip itch.io takes as an HTML5 game (`docs/EXPORTING.md`, "Web"); CI exports a template for the web and runs it in headless Chrome (Firefox, Safari and phone browsers untested) |
 | Documentation for AI | In English: `docs/AI_GUIDE.md`, `factoria docs read ai-guide` |
-| Gamepads | Bindings (`GamepadA`, `GamepadLeftStickLeft`, ...), `input.gamepad(i)` and `game.gamepad(i)` in tests. Real pads: Windows (XInput), Linux (joystick API; the Linux lines of SDL's GameControllerDB are built in, extra lines go in `SDL_GAMECONTROLLERCONFIG` or a `gamecontrollerdb.txt` next to `factoria.json`), macOS/iOS (GameController) and Android; all compiled by CI, none tested with a physical pad yet. The web build reads pads through the browser Gamepad API (`docs/MOBILE.md`, "Web") |
+| Gamepads | Bindings (`GamepadA`, `GamepadLeftStickLeft`, ...), `input.gamepad(i)` and `game.gamepad(i)` in tests. Real pads: Windows (XInput for Xbox pads, Raw Input and HID for the others, with the Windows lines of SDL's GameControllerDB built in), Linux (joystick API; the Linux lines of SDL's GameControllerDB are built in, extra lines go in `SDL_GAMECONTROLLERCONFIG` or a `gamecontrollerdb.txt` next to `factoria.json`), macOS/iOS (GameController) and Android; all compiled by CI, none tested with a physical pad yet. The web build reads pads through the browser Gamepad API (`docs/MOBILE.md`, "Web") |
 
 ## 9. Where to read next
 
 - `factoria help <command>` shows the help and examples for each command. `docs/CLI.md` describes all commands and options.
 - `docs/AI_GUIDE.md` (in English): the complete guide for an AI that builds a game. If you are an AI, read it before touching a game. It is also available with `factoria docs read ai-guide`.
-- `docs/ARCHITECTURE.md`: design, modules and conventions.
+- `docs/design/ARCHITECTURE.md`: design, modules and conventions.
 - `docs/SCRIPTING.md`: the JavaScript API: behaviors, tools and tests.
 - `docs/EXTENDING.md`: how to add project tools and engine commands.
 - `docs/MCP.md`, `docs/AI_PROVIDERS.md` and `docs/ENGINE_FEEDBACK.md`: connecting AI and recording what the engine is missing.
-- `docs/BUILDING.md`: requirements and builds per platform.
+- `docs/design/BUILDING.md`: requirements and builds per platform.
 - `docs/EXPORTING.md` and `docs/MOBILE.md`: exporting games and building them for mobile.
 - `docs/FIRST_GAME_WITH_AI.md` (`factoria docs read first-game-with-ai`): a first session with the AI in the editor, round by round, for a person.
 - `docs/MAKE_BY_HAND.md` (`factoria docs read make-by-hand`): write a small game yourself (scene, script, test, export) to see what the AI does for you.

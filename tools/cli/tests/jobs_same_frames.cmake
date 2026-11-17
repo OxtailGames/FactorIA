@@ -1,4 +1,4 @@
-# The render passes and animation poses run as jobs (docs/ARCHITECTURE.md, "Systems that run as jobs"): an example game
+# The render passes and animation poses run as jobs (docs/design/ARCHITECTURE_THREADS.md, "Systems that run as jobs"): an example game
 # must draw the same picture whatever the thread count. Captures each scene after the same frames with
 # FA_JOB_THREADS=inline (every pass one chunk on the main thread) and with 8 workers (the big passes split into chunks)
 # and compares the PNG files byte for byte.

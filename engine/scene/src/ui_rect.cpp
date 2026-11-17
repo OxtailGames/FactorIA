@@ -4,6 +4,9 @@
 #include <cmath>
 #include <format>
 
+#include "fa/core/det_math.h"
+#include "fa/scene/bounds.h"
+
 namespace fa {
 
 const char* ui_kind_name(UiKind k) {
@@ -58,6 +61,19 @@ const UiBox* ui_box(const World& w, Entity e) {
         case UiKind::None: break;
     }
     return nullptr;
+}
+
+bool ui_layout_places(const World& w, Entity parent, Entity child) {
+    if (!parent || !child) return false;
+    bool container = w.has<ScrollList>(parent);
+    if (const Panel* p = w.get<Panel>(parent))
+        container = container || p->layout != UiLayout::None || p->fallbackLayout != UiLayout::None;
+    if (!container) return false;
+    if (ui_box(w, child)) return true;
+    if (const Text* t = w.get<Text>(child)) return t->space == RenderSpace::Screen;
+    if (const Sprite* s = w.get<Sprite>(child)) return s->space == RenderSpace::Screen;
+    if (const Shape2D* s = w.get<Shape2D>(child)) return s->space == RenderSpace::Screen;
+    return false;
 }
 
 const UiControl* ui_control(const World& w, Entity e) {
@@ -115,10 +131,66 @@ EdgeInsets ui_layout_insets(const World& w) {
     return {i.left / k, i.top / k, i.right / k, i.bottom / k};
 }
 
-std::optional<Rect> ui_layout_rect(const World& w, Entity e, Vec2 designSize) {
+namespace {
+
+float finite_or(float v, float fallback) { return std::isfinite(v) ? v : fallback; }
+
+// True when `t` turns or scales its entity (a NaN counts as none).
+bool turns_or_scales(const Transform& t) {
+    return finite_or(t.rotation.z, 0.0f) != 0.0f || finite_or(t.scale.x, 1.0f) != 1.0f ||
+           finite_or(t.scale.y, 1.0f) != 1.0f;
+}
+
+bool chain_transforms(const World& w, Entity e) {
+    for (Entity a = e; a; a = w.parent(a))
+        if (const Transform* t = w.get<Transform>(a))
+            if (turns_or_scales(*t)) return true;
+    return false;
+}
+
+// Transform.position plus the layout's placement (World::ui_layout_offset): what an entity adds to the layout-space
+// sum.
+Vec3 layout_position(const World& w, Entity e) {
+    Vec3 p{0, 0, 0};
+    if (const Transform* tr = w.get<Transform>(e)) p = tr->position;
+    const Vec2 o = w.ui_layout_offset(e);
+    return {p.x + o.x, p.y + o.y, p.z};
+}
+
+// ui_layout_translation when the caller already knows whether the chain turns or scales (chain_transforms): the parents are
+// walked once, not twice, per ui_rect.
+Vec3 layout_translation(const World& w, Entity e, bool turns) {
+    if (!turns) return w.world_matrix(e).translation();
+    Vec3 t{0, 0, 0};
+    for (Entity a = e; a; a = w.parent(a)) t = t + layout_position(w, a);
+    return t;
+}
+
+}  // namespace
+
+// The translation in layout space: the sum of the local positions (and layout offsets) up the parents. Without rotation
+// or scale in the chain it is the world translation, bit for bit.
+Vec3 ui_layout_translation(const World& w, Entity e) { return layout_translation(w, e, chain_transforms(w, e)); }
+
+bool ui_widget_ancestor_turns(const World& w, Entity e) {
+    for (Entity a = w.parent(e); a; a = w.parent(a))
+        if (const Transform* t = w.get<Transform>(a))
+            if (turns_or_scales(*t) && ui_box(w, a)) return true;
+    return false;
+}
+
+namespace {
+
+struct Place {
+    Rect rect;    // own frame, UI units
+    Vec2 origin;  // where the entity's origin is: position + anchor point
+    Vec2 pivot;   // the pivot used (flipped when mirrored)
+};
+
+std::optional<Place> place_of(const World& w, Entity e, Vec2 designSize, bool turns) {
     const UiBox* b = ui_box(w, e);
     if (!b) return std::nullopt;
-    Vec3 t = w.world_matrix(e).translation();
+    Vec3 t = layout_translation(w, e, turns);
     Vec2 anchor = b->anchor, pivot = b->pivot;
     if (ui_mirrored(w, e)) {  // the mirror image: anchor, pivot and position flip left to right
         anchor.x = 1.0f - anchor.x;
@@ -126,14 +198,221 @@ std::optional<Rect> ui_layout_rect(const World& w, Entity e, Vec2 designSize) {
         t.x = -t.x;
     }
     const Vec2 a = anchor_point(anchor, b->safeArea, ui_layout_screen(w, designSize), ui_layout_insets(w));
-    return Rect{t.x + a.x - pivot.x * b->size.x, t.y + a.y - (1.0f - pivot.y) * b->size.y, b->size.x, b->size.y};
+    return Place{Rect{t.x + a.x - pivot.x * b->size.x, t.y + a.y - (1.0f - pivot.y) * b->size.y, b->size.x, b->size.y},
+                 Vec2{t.x + a.x, t.y + a.y}, pivot};
+}
+
+UiAffine compose(const UiAffine& g, const UiAffine& v) {  // g after v
+    UiAffine r;
+    r.a = g.a * v.a + g.c * v.b;
+    r.b = g.b * v.a + g.d * v.b;
+    r.c = g.a * v.c + g.c * v.d;
+    r.d = g.b * v.c + g.d * v.d;
+    r.tx = g.a * v.tx + g.c * v.ty + g.tx;
+    r.ty = g.b * v.tx + g.d * v.ty + g.ty;
+    return r;
+}
+
+float to_k(const World& w) { return ui_scale_clamped(w.ui_scale()); }
+
+}  // namespace
+
+std::optional<UiAffine> UiAffine::inverse() const {
+    const float det = a * d - b * c;
+    if (!std::isfinite(det) || std::fabs(det) < 1e-12f) return std::nullopt;
+    UiAffine r;
+    r.a = d / det;
+    r.b = -b / det;
+    r.c = -c / det;
+    r.d = a / det;
+    r.tx = -(r.a * tx + r.c * ty);
+    r.ty = -(r.b * tx + r.d * ty);
+    return r;
+}
+
+bool UiAffine::axis_aligned() const {
+    const float m = std::max({std::fabs(a), std::fabs(b), std::fabs(c), std::fabs(d)});
+    const float eps = 1e-4f * std::max(m, 1e-6f);
+    return (std::fabs(b) <= eps && std::fabs(c) <= eps) || (std::fabs(a) <= eps && std::fabs(d) <= eps);
+}
+
+std::optional<Rect> ui_layout_rect(const World& w, Entity e, Vec2 designSize) {
+    const std::optional<Place> p = place_of(w, e, designSize, chain_transforms(w, e));
+    if (!p) return std::nullopt;
+    return p->rect;
+}
+
+std::optional<Rect> ui_footprint_rect(const World& w, Entity e, Vec2 designSize) {
+    const std::optional<Place> p = place_of(w, e, designSize, chain_transforms(w, e));
+    if (!p) return std::nullopt;
+    const Transform* t = w.get<Transform>(e);
+    const float sx = t ? std::fabs(finite_or(t->scale.x, 1.0f)) : 1.0f,
+                sy = t ? std::fabs(finite_or(t->scale.y, 1.0f)) : 1.0f;
+    if (sx == 1.0f && sy == 1.0f) return p->rect;
+    const float ww = p->rect.w * sx, hh = p->rect.h * sy;
+    return Rect{p->origin.x - p->pivot.x * ww, p->origin.y - (1.0f - p->pivot.y) * hh, ww, hh};
+}
+
+Mat4 ui_layout_matrix(const World& w, Entity e) {
+    if (!chain_transforms(w, e)) return w.world_matrix(e);
+    const Transform* t = w.get<Transform>(e);
+    const Vec3 s = t ? Vec3{finite_or(t->scale.x, 1.0f), finite_or(t->scale.y, 1.0f), 1.0f} : Vec3{1, 1, 1};
+    return Mat4::translate(ui_layout_translation(w, e)) * Mat4::scale(s);
+}
+
+namespace {
+
+// The chain of `e` up to the root, e first. Up to 32 levels sit on the stack (ui_transform runs several times per widget per
+// frame); a deeper tree spills into a vector.
+class Chain {
+public:
+    Chain(const World& w, Entity e) {
+        for (Entity a = e; a; a = w.parent(a)) {
+            if (n_ < kInline)
+                inline_[n_] = a;
+            else {
+                if (spill_.empty()) spill_.assign(inline_, inline_ + kInline);
+                spill_.push_back(a);
+            }
+            ++n_;
+        }
+    }
+    std::size_t size() const { return n_; }
+    Entity operator[](std::size_t i) const { return n_ <= kInline ? inline_[i] : spill_[i]; }
+
+private:
+    static constexpr std::size_t kInline = 32;
+    Entity inline_[kInline];
+    std::vector<Entity> spill_;
+    std::size_t n_ = 0;
+};
+
+// ui_transform when the caller already knows whether the chain turns or scales.
+UiAffine transform_of(const World& w, Entity e, Vec2 designSize, bool turns) {
+    UiAffine v;
+    if (!turns) return v;
+    const Chain chain(w, e);
+    // The layout translation of chain[i] is the positions from the root down to it: summed root first, as layout_translation
+    // does, so the two agree to the last bit. Running sums are kept on the stack for the usual shallow tree.
+    constexpr std::size_t kInline = 32;
+    Vec3 inlineSums[kInline];
+    std::vector<Vec3> spill;
+    if (chain.size() > kInline) spill.resize(chain.size());
+    Vec3* sums = chain.size() > kInline ? spill.data() : inlineSums;
+    Vec3 sum{0, 0, 0};
+    for (std::size_t i = chain.size(); i-- > 0;) {
+        sum = sum + layout_position(w, chain[i]);
+        sums[i] = sum;
+    }
+    for (std::size_t i = 0; i < chain.size(); ++i) {  // e's own turn first, then each parent's around its own origin
+        const Transform* tr = w.get<Transform>(chain[i]);
+        if (!tr || !turns_or_scales(*tr)) continue;
+        const bool mirrored = ui_mirrored(w, chain[i]);
+        Vec3 t = sums[i];
+        Vec2 anchor{0, 0};
+        if (const UiBox* b = ui_box(w, chain[i])) {
+            Vec2 an = b->anchor;
+            if (mirrored) an.x = 1.0f - an.x;
+            anchor = anchor_point(an, b->safeArea, ui_layout_screen(w, designSize), ui_layout_insets(w));
+        }
+        if (mirrored) t.x = -t.x;
+        const float ox = t.x + anchor.x, oy = t.y + anchor.y;
+        const float deg = finite_or(tr->rotation.z, 0.0f) * (mirrored ? -1.0f : 1.0f);
+        const float sx = finite_or(tr->scale.x, 1.0f), sy = finite_or(tr->scale.y, 1.0f);
+        float sn = 0.0f, cs = 1.0f;
+        det::sin_cos(deg * kDegToRad, sn, cs);
+        UiAffine g;
+        g.a = cs * sx;
+        g.b = sn * sx;
+        g.c = -sn * sy;
+        g.d = cs * sy;
+        g.tx = ox - (g.a * ox + g.c * oy);
+        g.ty = oy - (g.b * ox + g.d * oy);
+        v = compose(g, v);
+    }
+    return v;
+}
+
+std::optional<std::array<Vec2, 4>> quad_of(const World& w, Entity e, Vec2 designSize, bool turns) {
+    const std::optional<Place> p = place_of(w, e, designSize, turns);
+    if (!p) return std::nullopt;
+    const Rect& r = p->rect;
+    const UiAffine x = transform_of(w, e, designSize, turns);
+    const float k = to_k(w);
+    const Vec2 c[4] = {{r.x, r.y}, {r.x + r.w, r.y}, {r.x + r.w, r.y + r.h}, {r.x, r.y + r.h}};
+    std::array<Vec2, 4> out;
+    for (int i = 0; i < 4; ++i) {
+        const Vec2 q = x.apply(c[i]);
+        out[std::size_t(i)] = {q.x * k, q.y * k};
+    }
+    return out;
+}
+
+std::optional<Rect> own_rect_of(const World& w, Entity e, Vec2 designSize, bool turns) {
+    const std::optional<Place> p = place_of(w, e, designSize, turns);
+    if (!p) return std::nullopt;
+    const float k = to_k(w);
+    return Rect{p->rect.x * k, p->rect.y * k, p->rect.w * k, p->rect.h * k};
+}
+
+}  // namespace
+
+UiAffine ui_transform(const World& w, Entity e, Vec2 designSize) {
+    return transform_of(w, e, designSize, chain_transforms(w, e));
+}
+
+std::optional<std::array<Vec2, 4>> ui_quad(const World& w, Entity e, Vec2 designSize) {
+    return quad_of(w, e, designSize, chain_transforms(w, e));
+}
+
+std::optional<Rect> ui_own_rect(const World& w, Entity e, Vec2 designSize) {
+    return own_rect_of(w, e, designSize, chain_transforms(w, e));
 }
 
 std::optional<Rect> ui_rect(const World& w, Entity e, Vec2 designSize) {
-    std::optional<Rect> r = ui_layout_rect(w, e, designSize);
-    if (!r) return r;
-    const float k = ui_scale_clamped(w.ui_scale());
-    return Rect{r->x * k, r->y * k, r->w * k, r->h * k};
+    const bool turns = chain_transforms(w, e);  // the parents are walked once for all of it
+    if (!turns) return own_rect_of(w, e, designSize, false);
+    const std::optional<std::array<Vec2, 4>> q = quad_of(w, e, designSize, true);
+    if (!q) return std::nullopt;
+    float x0 = (*q)[0].x, y0 = (*q)[0].y, x1 = x0, y1 = y0;
+    for (const Vec2& p : *q) {
+        x0 = std::min(x0, p.x);
+        y0 = std::min(y0, p.y);
+        x1 = std::max(x1, p.x);
+        y1 = std::max(y1, p.y);
+    }
+    return Rect{x0, y0, x1 - x0, y1 - y0};
+}
+
+bool ui_contains(const World& w, Entity e, Vec2 designSize, Vec2 p) {
+    const bool turns = chain_transforms(w, e);
+    if (!turns) {
+        const std::optional<Rect> r = own_rect_of(w, e, designSize, false);
+        return r && r->contains(p);
+    }
+    const std::optional<std::array<Vec2, 4>> q = quad_of(w, e, designSize, true);
+    if (!q) return false;
+    for (const Vec2& c : *q)
+        if (!std::isfinite(c.x) || !std::isfinite(c.y)) return false;  // point_in_quad answers true on NaN
+    return point_in_quad(p, *q);
+}
+
+Vec2 ui_local_point(const World& w, Entity e, Vec2 designSize, Vec2 p) {
+    const UiAffine x = ui_transform(w, e, designSize);
+    if (x.is_identity()) return p;
+    const std::optional<UiAffine> inv = x.inverse();
+    if (!inv) return p;
+    const float k = to_k(w);
+    const Vec2 u = inv->apply({p.x / k, p.y / k});
+    return {u.x * k, u.y * k};
+}
+
+Vec2 ui_world_point(const World& w, Entity e, Vec2 designSize, Vec2 p) {
+    const UiAffine x = ui_transform(w, e, designSize);
+    if (x.is_identity()) return p;
+    const float k = to_k(w);
+    const Vec2 u = x.apply({p.x / k, p.y / k});
+    return {u.x * k, u.y * k};
 }
 
 Rect ui_intersect(const Rect& a, const Rect& b) {
@@ -150,6 +429,12 @@ std::optional<Rect> ui_clip_rect(const World& w, Entity e, Vec2 designSize) {
         if (r) clip = clip ? ui_intersect(*clip, *r) : *r;
     }
     return clip;
+}
+
+bool ui_clip_contains(const World& w, Entity e, Vec2 designSize, Vec2 p) {
+    for (Entity a = w.parent(e); a; a = w.parent(a))
+        if (w.has<ScrollList>(a) && ui_box(w, a) && !ui_contains(w, a, designSize, p)) return false;
+    return true;
 }
 
 float ui_slider_fraction(std::pair<float, float> track, float x, bool mirrored) {

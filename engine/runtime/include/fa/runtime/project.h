@@ -103,6 +103,10 @@ struct ProjectSettings {
         true;  // "pauseOnSuspend": freeze the game and the music while the app is in the background (docs/MOBILE.md, "Lifecycle")
     double fixedHz = 60.0;
     float pixelsPerMeter = 100.0f;
+    // "render": {"interpolation", "interpolationSnapDistance"}: draw the pose between the last two fixed steps (docs/RENDERING.md,
+    // "Render interpolation"); the Interpolation component overrides it per entity. Snap distance 0 = no limit.
+    bool renderInterpolation = false;
+    float renderInterpolationSnapDistance = 0.0f;
     Json inputActions = Json::object();
     Json inputSchemes = Json::
         object();  // "input.schemes": the key sets local players can use (Input::set_key_schemes checks them at start)
@@ -138,6 +142,9 @@ struct ProjectSettings {
     std::vector<std::string> plugin_platforms(const PluginSettings& plugin) const;
 
     Json to_json() const;
+    // to_json() with storage.encryptionSecret replaced by "(hidden)": what project.info and `game.project` show, so the secret never
+    // reaches a log, an AI client or a script that prints the settings. The running engine reads the secret itself.
+    Json to_json_redacted() const;
 };
 
 // Loads <dir>/factoria.json (lenient, with defaults). Errors name the field.

@@ -1,4 +1,4 @@
-# FA_SANITIZE: build everything with the sanitizers of Clang or GCC (docs/BUILDING.md, "Sanitizers").
+# FA_SANITIZE: build everything with the sanitizers of Clang or GCC (docs/design/BUILDING_TESTS.md, "Sanitizers").
 #
 #   -DFA_SANITIZE=address;undefined   AddressSanitizer + UndefinedBehaviorSanitizer (the CI job `linux-asan`)
 #   -DFA_SANITIZE=thread              ThreadSanitizer (the CI job `linux-tsan`)

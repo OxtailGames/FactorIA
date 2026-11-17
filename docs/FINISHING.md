@@ -3,12 +3,12 @@
 A prototype that plays is not a game a store accepts. Players expect a menu, options that stay set, saves that survive an
 update, their own language, text they can read, and no surprises on a bad day. This is the path from one to the other, in
 the order that costs least. Each section is a short recipe with real code from **Lantern Keep**
-(`examples/lantern-keep` in the FactorIA repository), a complete 2D platformer built exactly this way, and a link to the
+(a complete 2D platformer built exactly this way; if you got it with `project.create {example: "lantern-keep"}` it is `examples/lantern-keep`), and a link to the
 reference doc instead of a copy of it. Paths in the snippets are relative to the game's folder. For a 3D game made for
-phones, **Clockwork Courier** (`examples/clockwork-courier`) is the second model: on-screen controls, haptics, pause on
+phones, **Clockwork Courier** (`project.create {example: "clockwork-courier"}`, optional) is the second model: on-screen controls, haptics, pause on
 suspend, Android Back, a Japanese font cut to the game's characters (`assets/fonts/make_subset.py`) and every screen
 checked at 200 % text. For a desktop game for several players at one screen, **Burrow Brigade**
-(`examples/burrow-brigade`) is the third: a join screen, per-player rebinding, save slots whose format changed once
+(`project.create {example: "burrow-brigade"}`, optional) is the third: a join screen, per-player rebinding, save slots whose format changed once
 (with the migration and fixtures of both versions), a game speed and hold-or-toggle for assist, a Thai fallback font
 (its `tools/thai_spaces.py` puts real spaces between Thai words; a line also breaks after U+200B, which takes no width, so
 a translation can mark word boundaries with that instead), and `SHIPPING.md` for
@@ -107,14 +107,16 @@ applied when the game starts again and the tab shows them").
 The engine part: `storage` (JSON values, one file per key in `<save folder>/storage/`) saves each key through a temporary file and a
 rename, so a crash during a save leaves the previous file intact. A storage file that does not parse is **kept** as
 `storage.corrupt.json` (then `storage.corrupt.2.json`...) with a warning, `storage.corrupt` is `true` and the game starts
-without that key (the others load); the kept file is never overwritten ([SCRIPTING.md](SCRIPTING.md), "storage"). That protects the file as
-a whole. Everything below is the game's part, and Lantern Keep's recipe for it is `scripts/saves.js`:
+without that key (the others load); the kept file is never overwritten ([SCRIPTING_UI_SCENES.md](scripting/SCRIPTING_UI_SCENES.md), "scene / game / storage"). That protects the file as
+a whole. (The engine also has the encryption primitive for save files, ChaCha20-Poly1305 with a tamper check, in C++ since M98.1a; the
+save slots that expose it to scripts come with M98.1b. It keeps players from editing a save in a text editor, it is not copy protection:
+a key inside the game can be extracted.) Everything below is the game's part, and Lantern Keep's recipe for it is `scripts/saves.js`:
 
 **A version field, one migration step per old version.** A slot is a string of JSON text under `slot1`, `slot2`, `slot3`
 (plus `lastSlot`, a number). Keep the layout in one table, bump `VERSION` when you change it, and write one
 `migrateN` per old version that turns version N into N+1. `parse` reads any version and always returns the newest:
 
-```js
+```js fragment
 // scripts/saves.js
 export const VERSION = 2;
 const version = raw.version === undefined ? 1 : raw.version;           // a file from before `version` existed is 1
@@ -216,7 +218,7 @@ expect(problems).toEqual([]);                   // no text wider than its box, p
 ```
 
    Also look: `FA_LANGUAGE=ar factoria run --headless --frames 3 --screenshot-at 2`, then open the PNG
-   (`examples/lantern-keep/screenshots/` has the Arabic menu and German at 200 % as models).
+   (the Lantern Keep example, `project.create {example: "lantern-keep"}`, has the Arabic menu and German at 200 % in `screenshots/`; optional).
 6. Plurals: a language can have up to six forms (Arabic does); a text with a count needs every form the language has, and
    the `i18n.import` check says which are missing.
 7. Store page texts have their own translations (`nameKey`/`descriptionKey` for the platform catalog, store texts per
@@ -273,7 +275,7 @@ achievements, 4 stats, 7 leaderboards and 2 products.
 - **Best effort, in a queue.** A store that is down, a player who is not signed in or a failed call never stops the game.
   Lantern Keep sends everything from one script fed by the game's events, one request after the other:
 
-```js
+```js fragment
 // scripts/store_stats.js
 unlock(id) {
   if (platform.has("achievements")) this.run(() => platform.achievements.unlock(id));
@@ -300,11 +302,11 @@ run(fn) { this.chain = this.chain.then(() => fn()).catch(() => {}); return this.
   runtime from `game.notices()`. Put your team, music and font credits in the string table (`credits.*`), not in the script.
 - **License notices.** Every export writes `FACTORIA_NOTICES.txt` where the platform ships it; keep it in what you
   distribute. `factoria docs licenses` prints the same list. Your own third-party assets (fonts, music, sprites) need their
-  licenses honoured: put their credits on the credits screen and keep their license files ([EXPORTING.md](EXPORTING.md#license-notices)).
+  licenses honoured: put their credits on the credits screen and keep their license files ([EXPORTING.md](exporting/EXPORTING_CONTENTS.md#license-notices)).
 - **AI content disclosure.** Stores ask whether the game has AI-generated content. Record where every asset came from
   (`assets.set_provenance` for files you did not generate through the engine), and `assets.disclosure` answers
   from the records; the export writes the same text as `AI_CONTENT_DISCLOSURE.md` next to the game
-  ([EXPORTING.md](EXPORTING.md#ai-content-disclosure), [ASSETS.md](ASSETS.md)). Fix the "assets without provenance" list
+  ([EXPORTING.md](exporting/EXPORTING_CONTENTS.md#ai-content-disclosure), [ASSETS.md](ASSETS.md)). Fix the "assets without provenance" list
   before you export.
 - **`log.txt` and crash reports.** Every desktop run writes `log.txt` in the save folder (rewritten at each start); a
   crash writes a report to `crashes/` next to it, and the next start logs one line naming it. Nothing is sent anywhere. Tell

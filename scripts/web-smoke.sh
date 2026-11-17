@@ -7,6 +7,8 @@
 #
 #   scripts/web-smoke.sh <factoria> <web player folder> [work dir (default build/web-smoke)]
 #
+# The game also opens a WebSocket to a local echo server (platforms/web/ws-echo.mjs, started here) and one to a port nobody
+# listens on, and logs what the browser's WebSocket client did ("smoke ws: ..."); the smoke waits for those lines.
 # The game also runs tools/cli/tests/determinism_probe.js (M91.3); its "FA_DET_HASH ..." console line (Math, 2D and 3D physics, nav)
 # must carry the hashes of tools/cli/tests/determinism_expected.txt, the committed values every desktop CI job compares with (scripts/det-hash-check.sh).
 #
@@ -41,6 +43,66 @@ scene["entities"].append({"id": "smoke_name", "components": {
 scene["entities"].append({"id": "detProbe", "name": "Determinism probe", "components": {"Script": {"path": "scripts/determinism_probe.js"}}})
 json.dump(scene, open(path, "w"), indent=2)
 PY
+
+# The browser's WebSocket (engine/platform/src/websocket_web.cpp): a local echo server (platforms/web/ws-echo.mjs), and a script
+# that connects with a subprotocol, sends a text and a binary message, reads both echoes and closes with 3001. It logs
+# "smoke ws: ..." lines that the smoke waits for. A second connection goes to a port that nothing listens on: the page gets an
+# error and then a close 1006 that is not clean ("smoke ws: closed port ...").
+free_port() { python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])'; }
+# Two different ports: the dead one must not be the echo server's.
+wsport="$(free_port)"
+deadport="$(free_port)"
+while [ "$deadport" = "$wsport" ]; do deadport="$(free_port)"; done
+cat > "$work/game/scripts/smoke_ws.js" <<JS
+import { Behaviour, websocket } from "factoria";
+
+export default class SmokeWs extends Behaviour {
+  onStart() {
+    const ws = websocket.connect("ws://127.0.0.1:$wsport/", { protocols: ["smoke.v1", "smoke.v2"] });
+    ws.on("open", (e) => {
+      console.log("smoke ws: open " + e.protocol);
+      ws.send("hello");
+      ws.send(new Uint8Array([1, 2, 3]));
+    });
+    ws.on("message", (e) => {
+      if (!e.binary) { console.log("smoke ws: text " + e.data); return; }
+      console.log("smoke ws: binary " + Array.from(new Uint8Array(e.data)).join(","));
+      ws.close(3001, "done");
+    });
+    ws.on("error", (e) => console.log("smoke ws: error " + e.message));
+    ws.on("close", (e) => console.log("smoke ws: close " + e.code + " " + e.wasClean));
+    const dead = websocket.connect("ws://127.0.0.1:$deadport/");
+    dead.on("error", () => console.log("smoke ws: closed port error"));
+    dead.on("close", (e) => console.log("smoke ws: closed port close " + e.code + " " + e.wasClean));
+  }
+}
+JS
+python3 - "$work/game" <<'PY'
+import json, sys
+game = sys.argv[1]
+project = json.load(open(game + "/factoria.json"))
+project["network"] = {"hosts": ["127.0.0.1"], "purpose": "The web smoke test talks to a local echo server."}
+json.dump(project, open(game + "/factoria.json", "w"), indent=2)
+scene_path = game + "/scenes/main.scene.json"
+scene = json.load(open(scene_path))
+scene["entities"].append({"id": "smokeWs", "components": {"Script": {"path": "scripts/smoke_ws.js"}}})
+json.dump(scene, open(scene_path, "w"), indent=2)
+PY
+node "$here/platforms/web/ws-echo.mjs" "$wsport" > "$work/ws-echo.log" 2>&1 &
+echo_pid=$!
+trap 'kill "$echo_pid" 2>/dev/null || true' EXIT
+# The echo server must be listening before the game runs: a server that did not start (no Node, the port taken) says why here
+# and not as a missing "smoke ws:" line a minute later.
+for _ in $(seq 1 100); do
+    grep -q "ws-echo listening" "$work/ws-echo.log" && break
+    kill -0 "$echo_pid" 2>/dev/null || break
+    sleep 0.1
+done
+if ! grep -q "ws-echo listening" "$work/ws-echo.log"; then
+    echo "FAIL: the WebSocket echo server did not start:"
+    cat "$work/ws-echo.log"
+    exit 1
+fi
 cp "$here/tools/cli/tests/determinism_probe.js" "$work/game/scripts/determinism_probe.js"
 "$factoria" export "$work/game" --platform web --player "$player" --out "$work/export"
 
@@ -64,7 +126,10 @@ PY
 # log so the hashes can be compared.
 set +e
 node "$here/platforms/web/smoke.mjs" "$dir" --timeout 90 --screenshot "$work/web-smoke.png" \
-    --type hello --expect "smoke text: " --also "FA_DET_HASH " 2>&1 | tee "$work/console.log"
+    --type hello --expect "smoke text: " --also "FA_DET_HASH " --also "smoke ws: open smoke.v1" --also "smoke ws: text hello" \
+    --also "smoke ws: binary 1,2,3" --also "smoke ws: close 3001 true" \
+    --also "smoke ws: closed port error" --also "smoke ws: closed port close 1006 false" \
+    --allow-log "WebSocket connection to 'ws://127.0.0.1:$deadport/' failed" 2>&1 | tee "$work/console.log"
 smoke_status="${PIPESTATUS[0]}"
 set -e
 "$here/scripts/det-hash-check.sh" "$work/console.log" || smoke_status=1

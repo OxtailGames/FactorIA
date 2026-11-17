@@ -1,5 +1,5 @@
 // Loudness of a project's sounds, for the tools: the command `assets.analyze_audio`, the loudness check of
-// `project.validate` and the audio step of `factoria export` (docs/ASSETS.md, "Import settings > Audio").
+// `project.validate` and the audio step of `factoria export` (docs/assets/ASSETS_IMPORT.md, "Import settings").
 //
 // The measurement is ITU-R BS.1770-4 / EBU R128 integrated loudness and sample peak (fa/audio/analysis.h). It is cached in
 // assets.json under the sound's `analysis` together with the size and SHA-256 of the file it describes, so a record whose

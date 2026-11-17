@@ -502,10 +502,10 @@ TEST_CASE("model.create and model.edit: the texturing and vertexColors sections 
     CHECK_FALSE(p.exists("assets/models/other.model.json"));
 }
 
-TEST_CASE("docs/MODELING.md: the examples of Texturing are valid documents") {
+TEST_CASE("docs/modeling/MODELING_EDITING.md: the examples of Texturing are valid documents") {
     namespace stdfs = std::filesystem;
-    const std::string text = read_text(stdfs::path(FA_REPO_ROOT) / "docs" / "MODELING.md");
-    const std::size_t from = text.find("\n## Texturing\n"), to = text.find("\n## Game-ready models\n");
+    const std::string text = read_text(stdfs::path(FA_REPO_ROOT) / "docs" / "modeling" / "MODELING_EDITING.md");
+    const std::size_t from = text.find("\n## Texturing\n"), to = text.size();
     REQUIRE(from != std::string::npos);
     REQUIRE(to != std::string::npos);
     int found = 0;
@@ -518,9 +518,9 @@ TEST_CASE("docs/MODELING.md: the examples of Texturing are valid documents") {
         REQUIRE(dots != std::string::npos);  // the examples leave the nodes out; a box stands in for them
         block.replace(dots, 7, R"([{"op": "box", "part": "body", "size": [1, 1, 1]}])");
         ++found;
-        auto json = parse_json(block, "MODELING.md");
+        auto json = parse_json(block, "MODELING_EDITING.md");
         REQUIRE_MESSAGE(json.ok(), (json.ok() ? std::string() : json.error().to_string()));
-        auto doc = parse_model_doc(*json, "MODELING.md");
+        auto doc = parse_model_doc(*json, "MODELING_EDITING.md");
         CHECK_MESSAGE(doc.ok(), (doc.ok() ? std::string() : doc.error().to_string()));
     }
     CHECK(found == 2);

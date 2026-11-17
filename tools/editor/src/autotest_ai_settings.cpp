@@ -217,7 +217,7 @@ void Editor::at_section_X(AtScript& at) {
 void Editor::at_section_Q2(AtScript& at) {
     AT_SCRIPT_LOCALS(at)
     // ------------------------------------------------------------------------------------------ Q2. AI settings per project
-    // The AI settings window edits the open project's <project>/.factoria/ai/settings.json (docs/EDITOR.md, "AI settings"). Two
+    // The AI settings window edits the open project's <project>/.factoria/ai/settings.json (docs/ai-providers/AI_PROVIDERS_AGENT.md, "The AI settings window"). Two
     // projects with different worker models: a file that came with a project waits for Accept (Ignore leaves it off, Save is locked
     // until then), then applies; switching project shows the other project's roles and the AI runs use them; Reset puts one row back
     // on the user's value; Save as my defaults writes ai.json and leaves the project's file with what still differs; an invalid
@@ -695,7 +695,7 @@ void Editor::at_section_Q2(AtScript& at) {
 
 void Editor::at_section_D2(AtScript& at) {
     AT_SCRIPT_LOCALS(at)
-    // The External tools tab of the AI settings window (docs/EDITOR.md, "AI settings"): a server added with the form (a name that
+    // The External tools tab of the AI settings window (docs/ai-providers/AI_PROVIDERS_AGENT.md, "The AI settings window"): a server added with the form (a name that
     // cannot be used stops Apply), Test against a fake MCP server (the key goes out in the header), a Claude Code style JSON pasted,
     // Save writes only "mcpServers" (the other keys of the file stay, owner-only, the key never in the log), Remove, Save again.
     {

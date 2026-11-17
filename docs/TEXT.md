@@ -55,7 +55,7 @@ DejaVu Sans, as for any font.
 
 **They cost nothing for games that do not use them.** DejaVu Sans and Press Start 2P are inside every player; the other four
 are files that live in `factoria` and the editor. `factoria export` copies the files of the families a game names into
-`builtin-fonts/` and adds their licenses to `FACTORIA_NOTICES.txt` ([EXPORTING.md](EXPORTING.md#license-notices)); the
+`builtin-fonts/` and adds their licenses to `FACTORIA_NOTICES.txt` ([EXPORTING.md](exporting/EXPORTING_CONTENTS.md#license-notices)); the
 player reads them from there. The export finds a font by its name written out in full in a scene, prefab, script, data file
 or `factoria.json`, so `font: "builtin:" + kind` is not seen: write the whole name somewhere (a comment in a script is enough).
 A player that lacks the file (a folder copied by hand) logs one error and falls back to DejaVu Sans. Files are not subset:
@@ -437,13 +437,28 @@ them (`color`, `padding`). Text uses `font`, `fontSize`, `textColor` and, before
 
 ## Typing text
 
-A `TextField` takes the characters in `input.text`, Backspace (it repeats while held) and Enter (`ui.submit`). Where those
-come from depends on the device, and the game does not change for any of them:
+A `TextField` takes the characters in `input.text` at its caret and Enter (`ui.submit`), and edits like any text box
+(docs/MENUS.md, "Editing a TextField"). On Windows and Linux: Left / Right move the caret, with Ctrl a word, with Shift they
+extend the selection; Home / End; Backspace and Delete (they repeat while held; with Ctrl by word); Ctrl+A, Ctrl+C, Ctrl+X,
+Ctrl+V. On macOS the same with Cmd for A, C, X, V and Alt for the word (a web page opened on a Mac too: the page asks the
+browser what it runs on). A click places the caret, a drag selects, a double click selects a word. Text an input method
+composes shows at the caret, underlined, and is typed when committed; a click in the field, or the focus moving to another
+field, commits it at once (the backend then forgets it and delivers nothing more). A password field keeps the input method
+off. There is one input method per process: when two UIs run in it (the editor's and a game's), only the `TextField` that
+took it first has it; a field of the other UI is typed into as a plain field (no composition, no candidate window) until that
+one lets go (or stops updating: after more than 30 updates of the other UI without one of its own, the other takes it).
+The editor's own window has no input method wired to the game's Input: a `TextField` in the Play view of the editor takes
+typed text and pastes, but does not compose (no IME, no candidate window); a built game does. A turned TextField gives
+the input method the axis-aligned bounding box of its caret bar as drawn (the candidate window of a rotated field sits
+at that box, not on the tilted bar). Where the characters come from depends on the device, and the game does not change
+for any of them:
 
-- **Desktop.** The operating system's text input: composed text (shift, dead keys, IME) arrives as typed.
+- **Desktop.** The operating system's text input: what the keyboard types (shift, AltGr) arrives as typed text. What an input
+  method composes (IME) arrives as a composition: on **macOS**, **Windows** and **Linux** a focused `TextField`
+  composes natively (below).
 - **Phones and tablets.** The `TextField` raises the system keyboard when it gets the focus and hides it when it loses it
-  (the UI does this by itself: [MOBILE.md](MOBILE.md#the-on-screen-keyboard)). iOS delivers composed text; Android
-  delivers what each key types in its layout.
+  (the UI does this by itself: [MOBILE.md](mobile/MOBILE_DEVICE.md#the-on-screen-keyboard)). iOS and Android deliver composed
+  text (below); with no field focused Android delivers what each key types in its layout.
 - **A gamepad alone.** The kit's on-screen keyboard ([MENUS.md](MENUS.md), "On-screen keyboard (gamepad players)"): the
   d-pad walks the keys, its layout follows the language's script.
 - **Web.** The page gets typed text from the browser's **`keypress`** events (`keydown` and `keyup` give the keys: Backspace,
@@ -451,10 +466,181 @@ come from depends on the device, and the game does not change for any of them:
   `keypress` for it. A real keyboard does; a browser pane's or automation tool's synthetic events may send `keydown`
   only, and then letters do not appear (the key still works as a button). To test typing in a page, send events the
   browser treats as typed (Chrome DevTools `Input.dispatchKeyEvent` with `text`, as `platforms/web/smoke.mjs` does for the
-  CI check), or use the page's own keyboard. On a touch device a hidden `<input>` takes the focus while a `TextField`
-  has it, which is what makes a phone browser show its keyboard; what it receives (typed text, Backspace) goes to the same
-  `input.text` and Backspace. Text that a keyboard composes (predictive words, swipe, IME) arrives when the composition
-  ends.
+  CI check), or use the page's own keyboard. While a `TextField` has the focus a hidden `<input>` takes the browser's
+  focus (on a touch device also for a password field), which is what makes a phone browser show its keyboard and a
+  desktop browser's input method compose; what it receives outside a composition (typed text, Backspace) goes to the same
+  `input.text` and Backspace, and what a keyboard composes (an IME, predictive words, swipe) is a composition (below).
+
+### What composes where
+
+While a `TextField` has the focus the platform's input method (IME) is on, and what it is still building (Japanese kana
+turning into kanji, Chinese pinyin, Korean jamo, a dead key) reaches the game as a composition (`input.composing`,
+`input.compositionText`, an `Input::on_composition_*` event in C++), not as typed text. Only its end types: the text of
+the commit goes to `input.text` once. With no `TextField` focused the IME is off and the keys are the game's.
+
+| Platform | Composes natively | How |
+|---|---|---|
+| macOS | yes | the game's view takes marked text (`NSTextInputClient`) while a field has the focus: the candidate window sits under the caret, a dead key shows its pending accent as a composition |
+| iOS | yes | the keyboard's marked text in the hidden text field, on-screen and hardware keyboards; the candidate bar follows the field |
+| Windows | yes | the input method (IMM32, which the Windows text services also serve) composes into the game's window while a field has the focus: its own composition window stays hidden (the field draws the composition), its candidate list sits under the caret. A dead key types its accented letter once it is finished, as before |
+| Linux | yes | XIM (ibus, fcitx and the other input methods `XMODIFIERS` names) on the game's X11 window while a field has the focus: on the spot when the input method offers it (the field draws the composition), else in the input method's own window; its candidate window sits under the caret |
+| Web | yes | the browser's input method composes into a hidden `<input>` that sits at the field's caret while the field has the focus: the browser's candidate window follows the caret |
+| Android | yes | the keyboard composes into the engine's input connection (a view that is a text editor only while a field has the focus): the pre-edit string shows in the field, underlined, the clause it converts selected; on-screen and hardware keyboards |
+
+On macOS and iOS:
+
+- A key the input method used (it composes, converts or confirms) is not also a game key: Enter that confirms a conversion
+  does not submit the field. Known limit: an input method that both commits and inserts a newline on one Enter (some
+  Korean setups) has the Enter swallowed, so the field is not submitted; press Enter again. Every other key,
+  Backspace, arrows and Enter included, reaches the game as before, and so do all keys while no field has the focus.
+  Command and Control chords are never offered to the input method (shortcuts, Cmd+V).
+- The clause the input method is converting is the composition's selection (`compositionCaret` .. `+ selectionLength`, in code
+  points; the platform counts UTF-16 and the engine converts).
+- When the system ends a composition without a commit (the window loses the focus, the input source changes, a click) the
+  text built so far is accepted and typed, as `NSTextInputClient` says. A cancel (the focus moving to another field) and a
+  marked text the input method emptied (Backspace on the last character) type nothing.
+- macOS only: text the system inserts with no key behind it (the emoji picker, dictation) is typed as `input.text` also
+  while no field has the focus or the IME is off (a password field); control characters are dropped. On iOS the keyboard's
+  text reaches the game as typed characters, as before, whatever the IME does.
+- iOS: `input.showKeyboard` (the UI does it with the focus) is still what shows the keyboard; turning the IME on or off
+  shows and hides nothing. The IME starts working at the first time the keyboard is shown.
+- iOS reads the keyboard's text field after each change; its text starts with a fixed first character that the engine puts
+  back after every change. If the keyboard (autocorrect) ever replaces it, the composition is cancelled, the field starts over
+  and one log line says so.
+- Not attached when the game runs inside the editor: the editor's own windows and its Play mode take their text as before.
+
+On Windows:
+
+- With no `TextField` focused the game's window has no input context: the IME is off for it (its mode indicator shows it
+  disabled) and every key is the game's, so WASD stays WASD with a Japanese IME in hiragana mode.
+- A key the IME took (Windows reports it as `VK_PROCESSKEY`: a letter it composes, Space that converts, Enter that confirms,
+  Backspace or Escape inside a composition) does not reach the game, and neither does its release. Every other key reaches
+  it as before; a key whose press reached the game always gets its release (Shift that switches a Chinese IME's mode).
+- The clause the IME is converting (the one it marks as the target) is the composition's selection; without one the caret
+  is the IME's cursor. Code points, as on macOS.
+- The commit types once: the characters Windows could send again for it (`WM_IME_CHAR`, `WM_CHAR`) are not typed.
+- A composition the IME ends without a result (Escape, Backspace on its last character) types nothing. When the field
+  ends one itself (it types what was built, then cancels the IME's: `ime_cancel`) the IME's composition is dropped
+  (`CPS_CANCEL`), and nothing the IME still sends about it is used: no later commit, and no `WM_IME_CHAR` / `WM_CHAR` of
+  its text. When the window loses the focus the IME decides: the Microsoft IMEs commit what was built, which types.
+- A field that turns the IME off (`ime_set_enabled(false)`: no field focused, a password field) drops the IME's
+  composition the same way and takes the window's input context away.
+- Not attached inside the editor either.
+
+On Linux:
+
+- X11 only: sokol_app has no Wayland backend, so on a Wayland desktop the game runs through XWayland, where ibus and fcitx
+  serve XIM as on X11. The input method is the one `XMODIFIERS` names (`@im=ibus`, `@im=fcitx`); with none, Xlib's own
+  (dead keys and the Compose key) is used. One that starts after the game is picked up when it starts (it writes
+  `XIM_SERVERS` on the root window). One that stops (an ibus or fcitx restart, a switch to another) is noticed by Xlib
+  when its window is destroyed: Xlib ends the composition (`XNDestroyCallback`, which drops the rest of it) and frees the
+  input method without a request to the server, and the game opens the one running now, if any, or the next one that
+  starts. Xlib's own input method stays open when a server starts: Xlib picks it whenever `XMODIFIERS` names no server
+  and the locale has a Compose file, whatever servers run, so it would open again (only a dead key half typed would be
+  lost). Every request that waits for the server's answer (a key it filters, the caret's spot on every caret move, the
+  reset of `ime_cancel`, opening the input method) stalls the game if the server hangs or dies before it answers, as in
+  every Xlib XIM client. No input method, or a locale Xlib does not support (`LANG`), leaves the IME off: one log line,
+  keys unchanged. A game that left `LC_CTYPE` at "C" keeps it: the environment's is set only while Xlib opens the input
+  method, which keeps it. That `setlocale` is the whole process's, so another thread that reads `LC_CTYPE` right then
+  (the C library's multibyte functions) sees the environment's; it happens only when an input method opens.
+- With no `TextField` focused the input context does not have the focus and no key goes to the input method: every key is
+  the game's.
+- A key the input method took (it composes, converts, confirms) does not reach the game, and neither does its release; a
+  key whose press reached the game always gets its release. A key the input method sends back twice is used once.
+- The clause the input method is converting (the run it draws reversed, else highlighted) is the composition's selection;
+  without one the caret is the input method's. Code points, as on macOS.
+- The commit types once. A composition the input method ends without one types nothing. When the field ends one itself
+  (`ime_cancel`) the input context is reset (`XmbResetIC`, whose text is dropped) and nothing the input method still sends
+  about it is used, until the next key or composition. A field that turns the IME off does the same.
+- An input method without on-the-spot drawing shows the composition in its own window, and only its commit reaches the
+  field.
+- Not attached inside the editor either.
+
+On the web:
+
+- The hidden `<input>` has the browser's focus while a field has it, at the field's caret (CSS pixels from the canvas's
+  box), so the browser's candidate window shows there; with no field focused the canvas has it back and every key is the
+  game's. Keys keep reaching the game through the window, as before: the `<input>` takes no ordinary typing.
+- A key the input method took (the browser's `keyCode` 229, or any key while a composition is open) does not reach the
+  game, and neither does its release; the browser keeps its default action for it, so the composition goes on.
+- `compositionupdate` shows the composition, `compositionend` types its text once. Browsers report no clause: the caret is
+  the `<input>`'s caret inside the composition.
+- When the field ends a composition itself (`ime_cancel`) the `<input>` loses the focus and gets it back at once, which
+  ends the browser's composition; what it still sends about it is dropped. On a touch device the value is reset instead
+  (a phone keeps its keyboard only for a focus inside a tap).
+- A touch device's keyboard in a password field (IME off): what it composes is not shown, and typed when it ends, as
+  before the IME existed. Paste is the page's paste event, never the `<input>`'s; a cut, an undo or a redo of the
+  `<input>` itself does nothing. A phone keyboard's replacement (autocorrect, a suggestion) and a yank (Ctrl+Y on macOS)
+  type their text: the `<input>` holds none of the field's, so nothing is replaced. A transpose (Ctrl+T) does nothing.
+- When the page loses the focus the keys held then are forgotten: their release is the game's, unless the input method
+  takes it as any other (a `keyCode` 229, or a key while a composition is open and the IME is on).
+- The page (`platforms/web/shell.html`) gives the canvas the focus on a click unless the `<input>` has it.
+
+To check it by hand on Windows 10 or 11 (Settings > Time & language > Language & region: add Japanese, Chinese
+(Simplified) and Korean; Win+Space switches), in a game with a `TextField`:
+
+- **Microsoft IME, Japanese** (hiragana mode): type `nihongo`, the kana show in the field with the caret at their end and
+  no IME window of their own; Space converts (日本語, the converted clause selected) and Space again opens the candidate
+  list under the caret; `kyouhaiitenki` then Space, Left/Right move between clauses; Enter types the text once and does not
+  submit the field, a second Enter submits. Escape, or Backspace down to nothing, types nothing.
+- **Microsoft Pinyin**: `zhongwen`, a digit or Space picks a candidate (typed once); Shift switches to English and back
+  without the game keeping Shift held; full-width punctuation (。) types once.
+- **Microsoft IME, Korean** (2-set): `gksrmf` composes 한 then 글, each syllable typed when the next begins; Space after it
+  types one space.
+- Emoji and CJK Extension B: the emoji panel (Win+.) and a rare kanji such as 𠮟 (U+20B9F, among the candidates of
+  `shikaru`) type one character each.
+- Mid-composition: click inside the field, and click into another field: what was built is typed once into the first
+  field and nothing more of it appears anywhere; Alt+Tab away and back.
+- A password field: the IME stays off (letters type as letters).
+- No field focused, IME on: WASD and Space play the game and no composition appears.
+
+On Android:
+
+- The engine's Java class `factoria.engine.Ime` (part of every project `factoria export` writes) adds a 1x1 view that draws
+  nothing. While a `TextField` has the focus that view is a text editor and the keyboard composes into its input
+  connection; with no field focused, or a password field, it is none, so the keyboard sends keys, as without the IME.
+- Keys still come from the activity's input queue: a hardware keyboard, and the keys a keyboard sends as key events
+  (Backspace on an empty composition, Enter, arrows, digits on some keyboards), reach the field and the game as before,
+  in the order they came with what the keyboard composes and commits (a word committed and then a digit sent as a key
+  types `word1`).
+- What the keyboard asks of the connection turns into the engine's events: the pre-edit string (`setComposingText`) is the
+  composition, its highlighted clause the selection; `commitText` types its text once (a line break in it is Enter, a tab
+  Tab); `finishComposingText` types the pre-edit string; `deleteSurroundingText` is presses of Backspace (before the
+  caret) and Delete (after it), at most 64 each way; the keyboard's action key is Enter (the field decides what it does:
+  `ui.submit`). A frame holds either text and composition changes or one press of an editing key, never both: three
+  deletes are three frames of Backspace, and a key press that comes after text or a composition update waits for the
+  next frame, as does text that comes after a key press (a commit "a\t" is `a` in one frame and Tab in the next). The
+  Back button is delivered at once, even when a burst of input has filled the queue.
+- The connection holds only the pre-edit string, never what the field already has: a keyboard cannot read back typed text,
+  so it cannot recompose a word already typed, and its suggestions start fresh at the caret.
+- When the field ends a composition itself (a tap in the field, the focus moving to another field: `ime_cancel`) the
+  input restarts with a new connection, and nothing the old one still sends is used. When the app goes to the background
+  or another window takes the focus the keyboard decides, as in an `EditText`: Gboard and most keyboards finish the
+  composition, which types what was built once; a connection that closes with its composition still open drops it, and
+  nothing is typed.
+- If the class cannot be loaded (a project with its own manifest and `android:hasCode="false"`) or a call into it fails,
+  the IME stays off for the rest of the run, with one log line: the keyboard sends keys, nothing typed is lost.
+- The class sets the window's soft input mode to "state unchanged" (so a window that gets the focus back does not open
+  the keyboard by itself) and keeps the manifest's `adjust` bits; the manifest's `state` bits (`stateHidden`,
+  `stateAlwaysVisible`) are replaced by it. The engine shows and hides the keyboard when a field asks.
+- Not attached inside the editor (the editor does not run on Android).
+
+To check it by hand on a phone (Settings > System > Languages & input), in a game with a `TextField`:
+
+- **Gboard, Japanese** (12-key or QWERTY kana): `nihongo` shows にほんご in the field, underlined; a candidate types 日本語
+  once; the keyboard's Enter while composing confirms and does not submit, a second Enter submits.
+- **Gboard, Chinese (Pinyin)**: `zhongwen`, a candidate types 中文 once; a full-width punctuation mark types once.
+- **Gboard, English with suggestions**: a word composes underlined, a suggestion or Space types it once; swipe typing types
+  one word per swipe; Backspace removes one character per press, and deletes into the text already typed.
+- **Samsung Keyboard** (Korean and English): `gksrmf` on 2-set builds 한글, a syllable at a time; predictive words type once.
+- **Cancel by tap**: mid-composition tap inside the field, then tap into another field: what was built is typed once into
+  the first field and nothing more of it appears anywhere.
+- **A password field**: no composition appears and letters type as letters (keys); moving the focus between a normal
+  field and a password field keeps the keyboard up.
+- **Hardware keyboard** (Bluetooth or a Chromebook): letters, Backspace, Enter and arrows work in the field; with no field
+  focused WASD plays the game.
+- **Background**: compose, press Home, come back: what was built is typed once at most (Gboard commits it), never twice,
+  and the next composition starts normally.
 
 ## Limits
 

@@ -200,7 +200,6 @@ void Editor::image_edited(const ImageEditOutcome& out) {
     }
     if (out.step <= 0 || !u.model) return;
     undo_.push_back(Json::object({{"$image", Json::object({{"step", out.step}})}}));
-    if (undo_.size() > 100) undo_.erase(undo_.begin());
     redo_.clear();
     lastEditKey_.clear();
     image_collect_steps();

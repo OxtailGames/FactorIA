@@ -1,4 +1,4 @@
-// list_models: which models a provider offers (docs/AI_PROVIDERS.md, "Choosing models").
+// list_models: which models a provider offers (docs/ai-providers/AI_PROVIDERS_CONFIG.md, "Choosing a model").
 #include <algorithm>
 
 #include "fa/ai/anthropic.h"

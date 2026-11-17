@@ -459,6 +459,42 @@ void Editor::at_section_B2(AtScript& at) {
             anim_.dirtyPose = true;
         });
 
+        // ---- Undo and Redo of a Command entry while the panel poses (M98.7e1): the pose must not hide the undone value
+        step(4, [this] {
+            at_check(anim_.posed, "(Undo while posing) the panel poses the entity");
+            std::string err;
+            const Json fields = Json::object({{"position", Json::array({123.0f, 0.0f, 0.0f})}});
+            at_check(edit_command("at:pose:edit", "scene.set_component",
+                                  Json::object({{"id", "puppet_body"}, {"component", "Transform"}, {"fields", fields}}),
+                                  &err)
+                         .ok,
+                     "(Undo while posing) an edit of the animated field goes through: " + err);
+            at_check(undo_.back().kind == UndoEntry::Kind::Command, "...as a Command entry");
+        });
+        step(4, [this] {
+            at_check(anim_.posed, "(Undo while posing) the panel poses again after the edit");
+            undo();
+            at_check(anim_.dirtyPose, "...Undo of a Command entry asks for a new pose");
+        });
+        step(4, [this, body_x] {
+            anim_unpose();
+            at_check(std::fabs(body_x()) < 0.001f, "...and the rest value is the undone one, not the edited one");
+            anim_.dirtyPose = true;
+        });
+        step(4, [this] { redo(); });
+        step(4, [this, body_x] {
+            anim_unpose();
+            at_check(std::fabs(body_x() - 123.0f) < 0.001f, "Redo while posing: the rest value is the redone one");
+            anim_.dirtyPose = true;
+        });
+        step(4, [this] { undo(); });
+        step(4, [this, body_x] {
+            anim_unpose();
+            at_check(std::fabs(body_x()) < 0.001f, "...and Undo again puts the scene as it was");
+            anim_.dirtyPose = true;
+            dirty_ = false;  // the scene is as it was again; the sections below count on "no unsaved changes"
+        });
+
         // ---- move a key, undo it
         // On a small window the dopesheet rows scroll: bring the Position track's keys into the visible part first.
         auto rows_point = [] {  // the visible bottom of the Animation window

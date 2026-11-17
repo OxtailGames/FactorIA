@@ -56,12 +56,17 @@ that.)
   an ignored typo cannot look like a success. An object that takes open-ended keys says `additionalProperties: true` in its
   schema. `_meta` is the protocol's own key: it normally sits in `params`, and a client that puts it in `arguments` is not
   refused (the server drops it before checking).
-- **Resources**: `factoria://docs/<file>` (embedded docs, `factoria://docs/components` generated),
+- **Resources**: `factoria://docs/<file>` (embedded docs; the component reference is the `docs.components` command),
+  `factoria://docs/menu-kit` (the files of the menu kit, `templates/menus/`) and `factoria://docs/menu-kit/<file>` (one of them),
   `factoria://project/factoria.json`, `.../ENGINE_FEEDBACK.json`, `.../AGENTS.md`.
 - **Prompts**: `make-game` (idea), `add-feature` (feature), `fix-bug` (description), `report-engine-gap`. They tell the AI to read by section, not whole: the guide's index first
   (`docs_read {"name":"ai-guide","heading":"Index"}`), then only the sections the task needs, `docs_list` (a summary and
-  an `audience` per doc, filter `{"audience":"gameAi"}`) to find other docs, and components or commands one at a time
+  an `audience` per doc, filter `{"audience":"gameAi"}`; a page of a big doc has `family`, the name of its entry page) to find other docs, and components or commands one at a time
   (`docs_components {"name":"Sprite"}`), never with `full`.
+- **Split docs**: a big doc is an entry page (`scripting`) with an index of pages (`scripting-input`, ...). `docs_read` of the
+  entry page carries `pages` (name, title, bytes) and, when cut, lists them in `contents`; a `heading` that is only on a page is
+  served from it (`page`, `requestedName`, `note` in the result; `name` is then the page, so `next` continues there); a heading on
+  two pages is an error that lists both. `docs_search` names the page in `doc` (and `family`).
 - **Notifications**: `notifications/tools/list_changed` when project tools (`tools/*.js`) change;
   `notifications/message` for logs (`logging/setLevel`); `notifications/resources/list_changed` and a log message after the
   server restarted itself because FactorIA was updated (see [After an update](#after-an-update)). Project tools are also
@@ -117,7 +122,7 @@ that.)
   `.factoria/`), so a client does not ask before each screenshot. Each tool also has `_meta`:
   `factoria/capabilities` (the capability names the command needs) and `factoria/capabilitiesDeclared` (false when the
   command did not declare them and the set was derived from `readOnly`); `tool_describe` returns the same two as
-  `capabilities` and `capabilitiesDeclared`, next to `readOnly` and the input schema.
+  `capabilities` and `capabilitiesDeclared`, next to `readOnly` and the input schema. A deprecated command's description ends with the line "Deprecated since 0.30.0 - use `x`. Removed in 0.32.0." and `_meta.deprecated` carries `{since, use, note, removedIn, summary}` (`tool_describe` returns the same object as `deprecated`); calling it still works and logs one warning that names the replacement.
 - **User-only commands**: `ai_plugin_install` (it installs a Claude Code plugin on the user's computer) is never listed or run by any MCP
   server, read-only or not: the user starts it from the editor's AI settings or the CLI (`docs/AI_PROVIDERS.md`, "Installing a plugin").
 - **Roles of `ai_run`**: `ai_run {role, task}` runs the `worker`, `fast`, `artist` or `audio` role (and `orchestrator`, the default of the
@@ -149,7 +154,7 @@ should pick a profile (next section); `factoria mcp --read-only` also gives a sm
 ### Tool profiles
 
 `factoria mcp --tools <profile>` chooses what `tools/list` offers (the same core set and group rules as the built-in agent's
-catalog, [AI_PROVIDERS.md](AI_PROVIDERS.md#tool-groups-and-the-catalog); `fa/tooling/tool_groups.h`):
+catalog, [AI_PROVIDERS.md](ai-providers/AI_PROVIDERS_AGENT.md#tool-groups-and-the-catalog); `fa/tooling/tool_groups.h`):
 
 | Profile | `tools/list` | Size (0.23, `2d-empty`, about) | Pick it when |
 |---|---|---|---|

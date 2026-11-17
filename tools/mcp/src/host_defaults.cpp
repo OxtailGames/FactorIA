@@ -175,10 +175,14 @@ Result<std::vector<McpPromptMessage>> default_mcp_prompt_messages(std::string_vi
 
 std::vector<McpResource> default_mcp_resources(const std::string& projectDir) {
     std::vector<McpResource> out;
-    for (const auto& d : list_docs())
-        out.push_back(
-            {"factoria://docs/" + d.path.substr(5), d.name, d.title.empty() ? d.name : d.title, "text/markdown"});
-    out.push_back({"factoria://docs/components", "components", "Components reference (generated from reflection)",
+    for (const auto& d : list_docs()) {
+        // A page of a split doc has only its own H1 as title: say whose page it is.
+        std::string description = d.title.empty() ? d.name : d.title;
+        if (!d.family.empty()) description += " (page of " + d.family + ")";
+        out.push_back({"factoria://docs/" + d.path.substr(5), d.name, std::move(description), "text/markdown"});
+    }
+    out.push_back({"factoria://docs/menu-kit", "menu-kit",
+                   "The files of the menu kit (templates/menus/); read one as factoria://docs/menu-kit/<file>",
                    "text/markdown"});
     std::error_code ec;
     auto exists = [&](const char* f) { return stdfs::exists(stdfs::path(projectDir) / f, ec); };
@@ -218,7 +222,9 @@ Result<McpResourceContent> default_mcp_read_resource(const std::string& projectD
         if (!in) return make_error("File '" + rel + "' does not exist in the project.", "Create it first.");
         std::ostringstream ss;
         ss << in.rdbuf();
-        return McpResourceContent{std::string(uri), mime_for(rel), ss.str()};
+        // factoria.json holds the secret that seals the game's saves: a model gets it as "(hidden)", like fs_read shows it.
+        return McpResourceContent{std::string(uri), mime_for(rel),
+                                  rel == "factoria.json" ? mask_project_secrets(ss.str()) : ss.str()};
     }
     return make_error("Unknown resource '" + std::string(uri) + "'.",
                       "Use resources/list; URIs start with factoria://docs/ or factoria://project/.");

@@ -522,7 +522,7 @@ def over_message(platform, entry, files, size, libs, source):
         "  If the growth is intended: download the artifact player-size-" + platform + " of this run and run",
         f"    scripts/player-size.sh update player-size-{platform}.json",
         f"    which sets the baseline to this size and maxBytes to the baseline plus {DEFAULT_PERCENT}%; commit {BUDGET_REL}",
-        "    in the same change and say in the commit message why the player grew (docs/BUILDING.md, \"Player size budgets\").",
+        "    in the same change and say in the commit message why the player grew (docs/design/BUILDING_RELEASE.md, \"Player size budgets\").",
     ]
     return "\n".join(lines)
 
