@@ -176,16 +176,15 @@ example games with each release, to get from the start window or `project.create
   inside a layout Panel returns with its nudge). Each editor action is still one step. Deleting a top-level entity that
   is not the last one still takes a snapshot, so the order of the top-level entities (the file's order, and the
   tie-break of drawing order) is kept exactly; deleting the last one or a child is a command step. `scene.import_ascii`,
-  `scene.ascii_edit`, `script.eval`, `prefab.revert`/`apply`, `skin.*` and the AI revert still take a snapshot.
-  docs/EDITOR.md, "Undo entries".
+  `scene.ascii_edit`, `script.eval`, `prefab.revert`/`apply`, `skin.*` and the AI revert still take a snapshot, and so
+  does an edit whose subtree is deeper than 64 levels (a paste would refuse it). A reparent that changes nothing (to the
+  place the entity already has) records no step. docs/EDITOR.md, "Undo entries".
 - **WebSocket on macOS and iOS, polish:** a redirect answer to the upgrade is not followed (it ends the attempt with an
   `"error"` whose `httpStatus` is the redirect's, as the hint always said), a TLS handshake failure (`wss://` to a port
   that does not speak TLS) says so, a close the system reports as 1006 or 1015 is a failure (`"error"`, then
   `"close"` 1006) and not a clean close, and a game destroyed while its close handshake runs still sends its close
   frame. The docs now say which clients send keep-alive pings (only Windows). On Linux, the memory of a large `send`
-  burst is given back after it. `scene.ascii_edit`, `script.eval`, `prefab.revert`/`apply`, `skin.*` and the AI revert
-  still take a snapshot, and so does an edit whose subtree is deeper than 64 levels (a paste would refuse it). A
-  reparent that changes nothing (to the place the entity already has) records no step. docs/EDITOR.md, "Undo entries".
+  burst is given back after it.
 - **Editor undo as commands, first half (M98.7e1):** an edit of a field or a component (Inspector fields, rename, the
   active box, Transform gizmo drags, adding and removing a component) no longer stores a copy of the whole scene on the
   undo stack: it stores the command and its inverse, built from the scene before the edit, so 100 edits cost less than
