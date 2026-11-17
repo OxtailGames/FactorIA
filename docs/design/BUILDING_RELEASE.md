@@ -99,14 +99,14 @@ game as its own asset, plus one manifest. The pieces and where they live:
 - The Linux leg of the `package` job of `.github/workflows/release.yml` runs that command with the `factoria` it just
   packed (so it also runs on a pull request that changes the workflow, `examples/examples.json` or the packer, that is
   `examples.cpp`, `examples_download.cpp`, `examples_names.h` and `export_zip.cpp`: a change to the files of an example
-  alone does not start it, since that would build every package for each example edit). The doctest "every example of
-  examples/ packs" of `examples_test.cpp` runs in the regular CI run instead: it packs `block-push` and `ember-descent` whole
-  and, for every example, checks what the packer refuses without deflating (the list of files, the entry names, every file
-  readable, the size and entry-count limits of the zip writer), so it stays cheap under a sanitizer and next to the
-  `example_*` tests that write in `examples/`. The release job packs twice and compares the manifests,
-  checks every zip against the manifest with `sha256sum`, `stat` and `unzip -t` (tools that share no code with the
-  packer), validates the unpacked `block-push`, and uploads the files as the artifact `FactorIA-examples`; the `publish`
-  job attaches them to the release with the packages.
+  alone does not start it, since that would build every package for each example edit).
+- The release job packs twice and compares the manifests, checks every zip against the manifest with `sha256sum`,
+  `stat` and `unzip -t` (tools that share no code with the packer), validates the unpacked `block-push`, and uploads the
+  files as the artifact `FactorIA-examples`; the `publish` job attaches them to the release with the packages.
+- The doctest "every example of examples/ packs" of `examples_test.cpp` runs in the regular CI run instead of the release
+  job: it packs `block-push` and `ember-descent` whole and, for every example, checks what the packer refuses without
+  deflating (the list of files, the entry names, every file readable, the size and entry-count limits of the zip
+  writer), so it stays cheap under a sanitizer and next to the `example_*` tests that write in `examples/`.
 - The **release manifest** `examples-manifest.json` (format `factoria.examples/1`):
 
   ```json
