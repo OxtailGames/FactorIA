@@ -253,6 +253,10 @@ protocol code, the test server) is the same everywhere; this table says what eac
 | Android | the engine's own WebSocket protocol code over a socket: `wss://` through Java's `SSLSocket` (JNI; the system's certificates, and the certificate must name the host), `ws://` (localhost only) over a plain socket | yes; built by CI, not yet run on a device. It needs the `INTERNET` permission, which the export adds when `network.hosts` is declared; without it the connection fails with an error that says so. Destroying an open `wss://` connection (a scene change) closes the socket without a close frame, so the server sees 1006 |
 | Web | the browser's `WebSocket` | yes (see below) |
 
+On every platform, a `ws.close()` that the server does not answer with its own close frame within 5 seconds ends with an
+`"error"` event whose message says that the server did not answer the close (the wording differs a little between
+platforms), then `"close"` with code 1006 and `wasClean` false.
+
 **On the web** the player uses the browser's own `WebSocket`, so a few things differ. There is **no CORS** for WebSocket: the
 browser always sends the page's `Origin` header and it is the *server's* policy to accept or refuse it (a refusal is a 403
 the page cannot see, so it looks like any failed connection). A page loaded over `https://` may only open `wss://`
@@ -264,15 +268,18 @@ sends 1000 and 3000 to 4999). A connection that a scene change destroys closes w
 without a code sends 1000. The timeout and the 5 s wait for the server's answer to `close()` are the engine's own timers.
 
 **On macOS and iOS** Network.framework opens the connection (the name lookup, TCP and, for `wss://`, TLS with the
-system's certificates) and the engine's own WebSocket protocol code does the rest, as on Linux and Android: the handshake,
-the messages, the answers to the server's pings (it sends no pings of its own), the `maxMessageBytes` check as the bytes
-arrive, and the closing handshake. So `ws.close()` sends a close frame with the code and reason you gave (no code at all
-when you gave none) and the `"close"` event comes with the server's answer, or after 5 seconds without one as `"error"`
-(it says the server did not answer the close) and `"close"` 1006. A redirect answer to the upgrade is not followed: it
-ends the attempt with an `"error"` whose `httpStatus` is the redirect's. Network.framework is not under App Transport
+system's certificates) and the engine's own WebSocket protocol code does the rest, as on Linux and Android: the
+handshake, the messages, the answers to the server's pings (it sends no pings of its own), the `maxMessageBytes` check
+as the bytes arrive, and the closing handshake. So `ws.close()` sends a close frame with the code and reason you gave
+(no code at all when you gave none) and the `"close"` event comes with the server's answer (or the 5 second error
+described above). A redirect answer to the upgrade is not followed: it ends the attempt with an `"error"` whose
+`httpStatus` is the redirect's. The system's proxy settings (an HTTP or SOCKS proxy, a PAC file) are Network.framework's
+to apply: the engine leaves its default (proxies used) and does not set a proxy of its own, so a network that only lets
+connections out through a proxy needs the proxy in System Settings. Network.framework is not under App Transport
 Security, so the `ws://` addresses the address rules allow (your own computer) work in an exported iOS app too. On iOS
-the system suspends a game that goes to the background, and its connections usually break with it: the game then gets the `"error"` and `"close"` 1006 events (and `reconnect` takes over,
-if you asked for it), at the latest when it comes back.
+the system suspends a game that goes to the background, and its connections usually break with it: the game then gets
+the `"error"` and `"close"` 1006 events (and `reconnect` takes over, if you asked for it), at the latest when it comes
+back.
 
 Where there is no client (a Linux machine without a libcurl from 7.45), `websocket.supported` is `false` and
 `websocket.unsupportedReason` says why. `websocket.connect` still returns a connection after the usual

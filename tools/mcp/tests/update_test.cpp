@@ -6,7 +6,6 @@
 #include <fstream>
 #include <mutex>
 #include <sstream>
-#include <thread>
 
 #include "fa/core/fs.h"
 #include "fa/mcp/server.h"
@@ -88,6 +87,15 @@ struct Rig {
         return content.empty() ? std::string() : content.back().value("text", "");
     }
 };
+
+// Gives a file the modification time `offset` from now. The tests never sleep to get a file "after" or "before" the
+// server's start: file times step by up to ~15 ms on Windows and by a kernel tick on Linux, so a 30 ms sleep does not
+// promise an order, while a minute does.
+void set_mtime_from_now(const stdfs::path& p, std::chrono::seconds offset) {
+    std::error_code ec;
+    stdfs::last_write_time(p, stdfs::file_time_type::clock::now() + offset, ec);
+    REQUIRE_FALSE(ec);
+}
 
 McpUpdateOptions quick(const Rig& rig, bool inPlace = true) {
     McpUpdateOptions o;
@@ -261,10 +269,10 @@ TEST_CASE("mcp update: a client that started before .mcp.json changed is told on
     Rig rig;
     const std::string mcpJson = (rig.dir.path / ".mcp.json").string();
     write_bytes(mcpJson, R"({"mcpServers":{"factoria":{"command":"factoria","args":["mcp","--project","."]}}})");
+    set_mtime_from_now(mcpJson, -60s);  // the file is older than the client
     rig.initialize("claude-code");
     UpdateWatch watch(rig.exe, BuildId{"0.4.0", "aaaaaaaaaaaa"});
     McpUpdateMonitor monitor(rig.server, watch, quick(rig));
-    std::this_thread::sleep_for(30ms);
     monitor.poll();  // the file has no timeout: FactorIA adds it (the write is after the server's start) and says so
     const Json after = read_claude_code_mcp_state(rig.dir.path.string()).to_json();
     CHECK(after["hasTimeout"] == true);  // added by FactorIA
@@ -286,9 +294,9 @@ TEST_CASE("mcp update: a client that is not Claude Code is not told about .mcp.j
     rig.initialize("some-other-client");
     UpdateWatch watch(rig.exe, BuildId{"0.4.0", "aaaaaaaaaaaa"});
     McpUpdateMonitor monitor(rig.server, watch, quick(rig));
-    std::this_thread::sleep_for(30ms);
     write_bytes(rig.dir.path / ".mcp.json",
                 R"({"mcpServers":{"factoria":{"command":"factoria","args":["mcp"],"timeout":2}}})");
+    set_mtime_from_now(rig.dir.path / ".mcp.json", 60s);  // changed after the start, but the client does not read it
     monitor.poll();
     CHECK(rig.server.pending_tool_notices().empty());
     CHECK(monitor.status()["projectConfig"]["clientReadsIt"] == false);
@@ -298,14 +306,15 @@ TEST_CASE("mcp update: .mcp.json edited after the client started is reported, an
     Rig rig;
     write_bytes(rig.dir.path / ".mcp.json",
                 R"({"mcpServers":{"factoria":{"command":"factoria","args":["mcp"],"timeout":14400000}}})");
+    set_mtime_from_now(rig.dir.path / ".mcp.json", -60s);  // the file is older than the client
     rig.initialize("claude-code");
     UpdateWatch watch(rig.exe, BuildId{"0.4.0", "aaaaaaaaaaaa"});
     McpUpdateMonitor monitor(rig.server, watch, quick(rig));
     monitor.poll();
     CHECK(rig.server.pending_tool_notices().empty());  // the client read the file as it is
-    std::this_thread::sleep_for(30ms);
     write_bytes(rig.dir.path / ".mcp.json",
                 R"({"mcpServers":{"factoria":{"command":"factoria","args":["mcp"],"timeout":28800000}}})");
+    set_mtime_from_now(rig.dir.path / ".mcp.json", 60s);  // edited after the client started
     monitor.poll();
     REQUIRE(rig.server.pending_tool_notices().size() == 1);
     CHECK(rig.server.pending_tool_notices()[0].find("changed after the AI client started") != std::string::npos);
@@ -394,10 +403,14 @@ TEST_CASE("mcp stdio: a request that arrives while a restart is due is not lost:
     StdioLoopOptions opt;
     opt.idle = 10ms;
     bool due = false;
-    opt.poll = [&] { due = true; };  // the executable changed
+    // The executable changes once the first message is answered (not at the first idle look: on a loaded machine the
+    // reading thread may not have read the message yet, and the restart would then happen before it).
+    opt.poll = [&] {
+        if (out.str().find("\"id\":1") != std::string::npos) due = true;
+    };
     opt.restart_due = [&] { return due; };
-    // The first message is answered; the restart then happens between messages. A second message written meanwhile is not
-    // read by this loop once the restart is due and no input is held: it stays in the pipe.
+    // The restart then happens between messages. A second message written meanwhile is not read by this loop once the
+    // restart is due and no input is held: it stays in the pipe.
     CHECK(run_stdio_loop(rig.server, *reader, out, opt) == StdioExit::Restart);
     CHECK(out.str().find("\"id\":1") != std::string::npos);
     p.write(ping(2));
@@ -417,7 +430,9 @@ TEST_CASE("mcp stdio: a restart waits while the reader holds input that was not 
     std::ostringstream out;
     StdioLoopOptions opt;
     opt.idle = 10ms;
-    opt.restart_due = [] { return true; };
+    // The restart is due from the first answer on, not from the start: the reading thread may not have read anything yet
+    // at the first idle look, and a restart then would leave all three messages in the pipe.
+    opt.restart_due = [&] { return out.str().find("\"id\":1") != std::string::npos; };
     CHECK(run_stdio_loop(rig.server, *reader, out, opt) == StdioExit::Restart);
     // All three were read from the pipe, so all three are answered before the loop leaves: nothing a restart would lose.
     const std::string text = out.str();
