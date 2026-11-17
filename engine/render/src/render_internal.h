@@ -23,6 +23,7 @@
 #include "fa/scene/rich_text.h"
 #include "fa/scene/world.h"
 #include "gpu_types.h"
+#include "postprocess_resolve.h"
 
 namespace fa::render {
 
@@ -507,6 +508,9 @@ struct CameraInfo : CameraGeometry {
     BloomSettings bloom;           // Camera.bloom* after clamping to the supported ranges
     int colorFilter =
         0;  // Camera.colorFilter as an int (0 none, 1 greyscale, 2 highContrast, 3 protanopia, 4 deuteranopia, 5 tritanopia)
+    // The PostProcess stack of this camera (its own component plus the volumes it is inside, postprocess_resolve.h). Resolved
+    // every time the camera is built; no pass reads it yet (M71.1 and later do): the bloom and colorFilter above still drive the picture.
+    PostStack postStack;
 };
 
 // Texture/mesh/font caches keyed by project-relative path.

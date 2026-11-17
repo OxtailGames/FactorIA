@@ -442,6 +442,18 @@ public:
     // gpuMs is -1 where there is no measurement (gpu_timing_supported(), and the profiler must be on). Measurement only.
     Json frame_graph_report() const;
 
+    // Whether this renderer can do `feature` on the backend and GPU it runs on: a capability of the GPU ("floatTargets",
+    // "r11g11b10", "sampledDepth", "computeShaders"), an engine feature ("linearColor", "hdrOutput") or a post effect (the
+    // names of kPostEffectOrder: "bloom", "tonemap", ...). False for a name that is not in feature_names(), before init(), on the
+    // headless (dummy) backend, and for what the engine does not draw yet (every effect and linearColor / hdrOutput while M71 is
+    // in progress): it never claims what the renderer cannot do. `render.supports` answers the same with the reason.
+    bool supports(std::string_view feature) const;
+    // Every name supports() knows, in a fixed order.
+    static std::vector<std::string> feature_names();
+    // The answer of the `render.supports` command: {backend, backendLabel, features: [{name, kind, supported, status, doc,
+    // backends}]}. Empty object before init().
+    Json supports_report() const;
+
     struct Impl;
 
 private:

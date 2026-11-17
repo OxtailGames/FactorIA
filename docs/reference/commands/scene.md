@@ -47,6 +47,51 @@ With `id`: that load (from scene.preload, assets.preload, scene.load {async:true
 |---|---|---|---|
 | `id` | integer | no | A loadId. Default: every running and recent load. |
 
+## `postprocess.get`
+
+Not released yet (on main after 0.30.1).
+
+Read the PostProcess component of an entity: its fields and the effects it switches on.
+
+Capabilities: read
+
+The PostProcess component (a camera's own stack, or a volume: an entity with a shape and a size) holds one block of fields per post effect, named `<effect>Enabled` and `<effect>Parameter`: bloomEnabled, bloomIntensity, tonemapMode, vignetteIntensity... and the meta fields enabled, shape (global, box, circle, sphere), size, blendDistance, priority and weight. Result: {id, effects, order, value}; `effects` lists the effects this component switches on, in the order they run; `order` is the order of every effect (the same as render.supports lists them); `value` has every field (or only the names in `fields`). Example: postprocess.get {"id":"camera","fields":["bloomEnabled","bloomIntensity"]}
+
+While M71 is in progress the fields are stored and saved with the scene, and an effect is drawn once the renderer supports it (render.supports names which). Errors: `not_found` for an unknown entity, `invalid_argument` for an entity without a PostProcess (add one with postprocess.set) or a field name that does not exist (with a did-you-mean).
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `id` | string | yes | Entity id (or name) that has the PostProcess component. |
+| `fields` | array | no | Only these fields (names as in api.components, e.g. bloomIntensity). Default: every field. |
+
+## `postprocess.presets`
+
+Not released yet (on main after 0.30.1).
+
+List the named post-processing looks that postprocess.set can apply.
+
+Capabilities: read
+
+A preset is a named set of PostProcess fields (a look: cinematic, retro...). There are none yet: the list is empty until the effects that make them worth having are drawn. Result: {presets: [{name, doc, fields}]}. Example: postprocess.presets {}
+
+## `postprocess.set` (modifies state)
+
+Not released yet (on main after 0.30.1).
+
+Set fields of the PostProcess component of an entity (added when missing).
+
+Capabilities: read, state
+
+Like scene.set_component with component "PostProcess": `fields` is a partial object, the fields you do not name keep their value, a bad field or value changes nothing and the error names the field, the allowed values and the range. Turn an effect on with `<effect>Enabled` and tune it with its parameters in one call. Example: postprocess.set {"id":"camera","fields":{"tonemapEnabled":true,"tonemapMode":"aces","bloomEnabled":true,"bloomIntensity":0.8}}. A volume: an entity without a Camera whose PostProcess has shape box, circle or sphere (size, blendDistance, priority, weight): postprocess.set {"id":"cave","fields":{"shape":"box","size":[10,6,10],"blendDistance":3,"vignetteEnabled":true}}
+
+Result: {id, effects, value} as postprocess.get. `merge` reads `fields` as an RFC 7386 merge-patch like scene.set_component (a null resets a field to its default). The picture changes when the renderer draws the effect (render.supports says which it does); the fields are stored either way.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `id` | string | yes | Entity id (or name). The PostProcess is added when it has none. |
+| `fields` | object | yes | Field name -> value, e.g. {"bloomEnabled": true, "bloomIntensity": 0.8}. |
+| `merge` | boolean | no | true = read `fields` as an RFC 7386 merge-patch: a null resets the field to its default. Default false. |
+
 ## `prefab.apply` (modifies state)
 
 Since 0.30.0.
