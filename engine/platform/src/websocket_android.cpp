@@ -590,8 +590,8 @@ private:
             const jint n = env->CallIntMethod(in_, inRead_, buf, 0, kChunk);
             if (android_clear_exception(env) || n < 0) {
                 ending.lost = true;
-                ending.closeTimedOut =
-                    closeTimedOut_;  // the writer closed the socket: the peer did not answer our close
+                // the writer or tick() closed the socket because the peer did not answer our close
+                ending.closeTimedOut = closeTimedOut_;
                 break;
             }
             if (n == 0) continue;
