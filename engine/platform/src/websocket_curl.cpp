@@ -522,7 +522,7 @@ private:
         std::vector<ws::Event> events;
         int closeCode = ws::close_code::kAbnormal;
         std::string closeReason;
-        bool peerClosed = false, failed = false, lost = false, failedSeen = false;
+        bool peerClosed = false, failed = false, lost = false, failedSeen = false, closeTimedOut = false;
         Clock::time_point failedAt;
         if (!leftover.empty()) {
             std::lock_guard<std::mutex> lock(mutex_);
@@ -550,8 +550,12 @@ private:
                 failedAt = Clock::now();
             }
             // The server does not answer our close frame, or (after a failure) does not read the one we sent: give up.
-            if ((waitingForPeer && Clock::now() - asked > kCloseWait) ||
-                (failedSeen && Clock::now() - failedAt > kCloseWait)) {
+            if (waitingForPeer && !failed && Clock::now() - asked > kCloseWait) {
+                lost = true;
+                closeTimedOut = true;  // reported as "the server did not answer the close"
+                break;
+            }
+            if (failedSeen && Clock::now() - failedAt > kCloseWait) {
                 lost = true;
                 break;
             }
@@ -609,8 +613,13 @@ private:
         }
         state_ = WebSocketState::Closed;  // before the Close event: when the game reads it, state() is Closed
         if (lost && !peerClosed && !failed) {
-            emit(WebSocketEvent::failure("the connection to " + url_.host + " was lost",
-                                         "Check the connection; try again."));
+            if (closeTimedOut)  // the same words as ws_stream::StreamCore::finish
+                emit(WebSocketEvent::failure("the server did not answer the close within " +
+                                                 std::to_string(static_cast<int>(kWebSocketCloseWaitSec)) + " seconds",
+                                             "The connection was dropped; the server may be stuck or slow to read."));
+            else
+                emit(WebSocketEvent::failure("the connection to " + url_.host + " was lost",
+                                             "Check the connection; try again."));
             emit(WebSocketEvent::close(ws::close_code::kAbnormal, "", false));
         } else if (failed) {
             // A failed connection ends with 1006 whatever the codec sent the server (1002, 1007, 1009): the browser's rule.
