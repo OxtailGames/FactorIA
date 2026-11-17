@@ -20,6 +20,13 @@ Older versions, one file per minor version with its patch releases: [0.29](chang
 - **Commands:** `render.supports` says what the renderer can do on this graphics backend and GPU (float targets, R11G11B10, sampled
   depth, compute shaders, linear colour, HDR output and each post effect; false for what is not drawn yet); `postprocess.get`,
   `postprocess.set` and `postprocess.presets` read and write the PostProcess component.
+- **HDR display output, platform side:** with `SceneSettings.hdrOutput` `auto`, a Mac or iPhone (iOS 16+) window on a screen with
+  extended dynamic range switches its swapchain to 16-bit float EDR (extended sRGB), and back when the window moves to a screen
+  without it; the picture stays within white until the HDR encode of M71, so it looks as before. Windows reads the monitor's HDR
+  state and luminances (DXGI 1.6) and has the scRGB and HDR10 swapchain switch, kept off until the renderer writes those
+  encodings. The new `render.output` command says what the window shows (encoding, swapchain format, peak nits, paper white,
+  headroom) and why not HDR; `render.supports` answers `hdrOutput` from the display the window is on (docs/RENDERING.md,
+  "HDR output").
 
 ## 0.30.1
 
