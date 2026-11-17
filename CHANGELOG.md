@@ -180,8 +180,8 @@ example games with each release, to get from the start window or `project.create
   docs/EDITOR.md, "Undo entries".
 - **WebSocket on macOS and iOS, polish:** a redirect answer to the upgrade is not followed (it ends the attempt with an
   `"error"` whose `httpStatus` is the redirect's, as the hint always said), a TLS handshake failure (`wss://` to a port
-  that does not speak TLS) says so, a close the system reports as 1006 or 1015 is a failure (`"error"`, then `"close"`
-  1006) and not a clean close, and a game destroyed while its close handshake runs still sends its close frame. The docs
+  that does not speak TLS) says so, a close the system reports as 1006 or 1015 is a failure (`"error"`, then
+  `"close"` 1006) and not a clean close, and a game destroyed while its close handshake runs still sends its close frame. The docs
   now say which clients send keep-alive pings (only Windows). On Linux, the memory of a large `send` burst is given back
   after it. `scene.ascii_edit`, `script.eval`, `prefab.revert`/`apply`, `skin.*` and the AI revert still take a
   snapshot, and so does an edit whose subtree is deeper than 64 levels (a paste would refuse it). A reparent that
