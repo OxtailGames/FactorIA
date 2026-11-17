@@ -1,4 +1,4 @@
-// The real-time path with a device (docs/SOUND.md, "The audio callback"): the game thread hands commands to the mixer
+// The real-time path with a device (docs/sound/SOUND_MIXER.md, "The audio callback"): the game thread hands commands to the mixer
 // through a bounded lock-free ring and the device callback applies them, mixes and hands back what it is done with. These
 // tests drive the mixer as a device would (AudioTestAccess::use_manual_device + render) so they can count the callback's
 // allocations, hold the API lock while it runs, starve its streams and hammer it from several threads.

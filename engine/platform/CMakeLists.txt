@@ -3,10 +3,18 @@
 fa_add_module(platform
     DEPS fa_core fa_ext_sokol)
 
-# SDL_GameControllerDB (Linux lines) is baked into the binary as text; gamepad_mapping.cpp indexes it on first use
-# (namespace fa::gamepad_db, header embedded_gamepad_db.h). Compiled on every OS so the tests cover it everywhere.
+# SDL_GameControllerDB (Linux lines) is baked into the binary as text; src/gamepad_mapping_db.cpp indexes it on first
+# use (namespace fa::gamepad_db, header embedded_gamepad_db.h). Compiled on every OS so the tests cover it everywhere;
+# only that file references it, and only gamepad_linux.cpp and the tests reference that file, so the static link of
+# another platform's player leaves both out.
 fa_embed_files(fa_platform fa::gamepad_db embedded_gamepad_db
     FILES ${FA_ROOT}/external/sdl_gamecontrollerdb/gamecontrollerdb_linux.txt
+    BASE ${FA_ROOT}/external/sdl_gamecontrollerdb)
+# Its Windows lines, for the HID pads of gamepad_win32.cpp (namespace fa::gamepad_db_windows, header
+# embedded_gamepad_db_windows.h). Compiled on every OS for the tests; only src/gamepad_hid_db.cpp references it, and only
+# gamepad_win32.cpp and the tests reference that file, so the static link of another platform's player leaves both out.
+fa_embed_files(fa_platform fa::gamepad_db_windows embedded_gamepad_db_windows
+    FILES ${FA_ROOT}/external/sdl_gamecontrollerdb/gamecontrollerdb_windows.txt
     BASE ${FA_ROOT}/external/sdl_gamecontrollerdb)
 
 # sokol is third-party code: silence warnings in its implementation TU.
@@ -17,7 +25,7 @@ else()
 endif()
 if(APPLE)
     set_source_files_properties(src/sokol_impl_apple.m PROPERTIES COMPILE_OPTIONS "-fobjc-arc;-w")
-    set_source_files_properties(src/headless_apple.mm src/gamepad_apple.mm src/mobile_apple.mm src/speech_apple.mm src/http_apple.mm PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
+    set_source_files_properties(src/headless_apple.mm src/gamepad_apple.mm src/mobile_apple.mm src/speech_apple.mm src/http_apple.mm src/websocket_apple.mm src/ime_apple.mm PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
 endif()
 
 if(FA_PLATFORM STREQUAL "linux")
@@ -40,18 +48,26 @@ if(FA_PLATFORM STREQUAL "linux")
         target_compile_definitions(fa_platform PRIVATE FA_NO_AUDIO_DEVICE=1)
     endif()
 elseif(FA_PLATFORM STREQUAL "windows")
-    target_link_libraries(fa_platform PUBLIC d3d11 dxgi dxguid ole32 advapi32 user32 gdi32 shell32 kernel32 winhttp)
+    target_link_libraries(fa_platform PUBLIC d3d11 dxgi dxguid ole32 advapi32 user32 gdi32 shell32 kernel32 winhttp imm32)
 elseif(FA_PLATFORM STREQUAL "macos")
     target_link_libraries(fa_platform PUBLIC "-framework Cocoa" "-framework QuartzCore" "-framework Metal"
-        "-framework MetalKit" "-framework AudioToolbox" "-framework AVFoundation" "-framework Foundation" "-framework GameController")
+        "-framework MetalKit" "-framework AudioToolbox" "-framework AVFoundation" "-framework Foundation" "-framework GameController" "-framework CoreHaptics"
+        "-framework Network" "-framework Security")
 elseif(FA_PLATFORM STREQUAL "ios")
     target_link_libraries(fa_platform PUBLIC "-framework UIKit" "-framework CoreGraphics" "-framework QuartzCore" "-framework Metal"
         "-framework MetalKit" "-framework AudioToolbox" "-framework AVFoundation" "-framework Foundation"
-        "-framework GameController")
+        "-framework GameController" "-framework CoreHaptics" "-framework Network"
+        "-framework Security")
 elseif(FA_PLATFORM STREQUAL "android")
     target_link_libraries(fa_platform PUBLIC GLESv3 EGL android log aaudio)
 endif()
 fa_add_tests(platform)
+# The threaded WebSocket clients and the loopback test server (a reader thread per connection) belong to the CI job linux-tsan
+# (`ctest -L tsan`); the rest of the platform tests stay out of it.
+if(FA_SANITIZE_THREAD AND TARGET fa_test_platform)
+    add_test(NAME tsan_platform_websocket COMMAND fa_test_platform "-tc=websocket*" WORKING_DIRECTORY ${FA_ROOT})
+    set_tests_properties(tsan_platform_websocket PROPERTIES LABELS tsan)
+endif()
 if(WIN32 AND TARGET fa_test_platform)
     target_link_libraries(fa_test_platform PRIVATE ws2_32)  # tests/http_test_server.h: a local HTTP server
 endif()

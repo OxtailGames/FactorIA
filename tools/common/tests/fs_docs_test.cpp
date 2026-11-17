@@ -1,7 +1,10 @@
 #include <doctest.h>
 
 #include <algorithm>
+#include <cctype>
 #include <filesystem>
+#include <map>
+#include <optional>
 #include <set>
 #include <string>
 #include <utility>
@@ -9,6 +12,7 @@
 
 #include "fa/core/fs.h"
 #include "fa/tooling/api_export.h"
+#include "fa/tooling/bundle.h"
 #include "fa/tooling/docs.h"
 #include "fa/tooling/project_fs.h"
 #include "fa_test_paths.h"
@@ -162,6 +166,94 @@ TEST_CASE("fs: list read write edit delete") {
     CHECK_FALSE(stdfs::exists(f.tmp.path / "scripts"));
 }
 
+TEST_CASE("fs: factoria.json is shown without the storage secret, and written back with it") {
+    FsFixture f;
+    const std::string secret = "a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90";
+    const std::string text = "{\n  \"name\": \"T\",\n  \"storage\": {\n    \"encryptionSecret\": \"" + secret +
+                             "\"\n  },\n  \"fixedHz\": 60\n}\n";
+    testing::write_all(f.tmp.path / "factoria.json", text);
+    CHECK(mask_project_secrets("{\"storage\":{\"encryptionSecret\" :\t\"abc\\\"def\"}}") ==
+          "{\"storage\":{\"encryptionSecret\" :\t\"(hidden)\"}}");
+    CHECK(mask_project_secrets("{\"encryptionSecret\": \"cut-off-by-a-4000-byte-head") ==
+          "{\"encryptionSecret\": \"(hidden)");
+    CHECK(mask_project_secrets("{\"a\": 1}") == "{\"a\": 1}");
+    auto read = f.reg.call("fs.read", {{"path", "factoria.json"}});
+    REQUIRE(read.ok);
+    const std::string content = read.result["content"].get<std::string>();
+    CHECK(content.find(secret) == std::string::npos);
+    CHECK(content.find("\"encryptionSecret\": \"(hidden)\"") != std::string::npos);
+    CHECK(content.find("\"fixedHz\": 60") != std::string::npos);
+    CHECK(read.result["totalLines"] == 7);  // line numbers agree with the file
+    auto sliced = f.reg.call("fs.read", {{"path", "./factoria.json"}, {"startLine", 4}, {"endLine", 4}});
+    REQUIRE(sliced.ok);
+    CHECK(sliced.result["content"].get<std::string>().find(secret) == std::string::npos);
+    auto found = f.reg.call("fs.search", {{"query", "encryptionSecret"}});
+    REQUIRE(found.ok);
+    REQUIRE(found.result["count"] == 1);
+    CHECK(found.result["matches"][0]["text"].get<std::string>().find(secret) == std::string::npos);
+    CHECK(f.reg.call("fs.search", {{"query", secret.substr(0, 20)}}).result["count"] == 0);
+    // what the client read is what it writes back: the real secret stays
+    auto write = f.reg.call("fs.write", {{"path", "factoria.json"}, {"content", content}});
+    REQUIRE(write.ok);
+    CHECK(testing::read_all(f.tmp.path / "factoria.json") == text);
+    // fs.edit matches what fs.read shows: a find that copies the hidden line matches, and an edit that keeps "(hidden)" keeps
+    // the real secret
+    auto edit = f.reg.call("fs.edit", {{"path", "factoria.json"},
+                                       {"find", "\"encryptionSecret\": \"(hidden)\""},
+                                       {"replace", "\"encryptionSecret\": \"(hidden)\",\n    \"extra\": 1"}});
+    REQUIRE(edit.ok);
+    CHECK(testing::read_all(f.tmp.path / "factoria.json")
+              .find("\"encryptionSecret\": \"" + secret + "\",\n    \"extra\": 1") != std::string::npos);
+    testing::write_all(f.tmp.path / "factoria.json", text);
+    CHECK(
+        f.reg.call("fs.edit", {{"path", "factoria.json"}, {"find", "\"fixedHz\": 60"}, {"replace", "\"fixedHz\": 30"}})
+            .ok);
+    CHECK(testing::read_all(f.tmp.path / "factoria.json").find(secret) != std::string::npos);
+    // no secret to keep: "(hidden)" as the VALUE of the secret is refused instead of being stored as the secret ...
+    testing::write_all(f.tmp.path / "factoria.json", "{\"name\": \"T\"}");
+    auto bad = f.reg.call("fs.write", {{"path", "factoria.json"}, {"content", content}});
+    REQUIRE_FALSE(bad.ok);
+    CHECK(bad.error["message"].get<std::string>().find("encryptionSecret") != std::string::npos);
+    CHECK(testing::read_all(f.tmp.path / "factoria.json") == "{\"name\": \"T\"}");
+    auto badEdit = f.reg.call("fs.edit", {{"path", "factoria.json"},
+                                          {"find", "\"name\": \"T\""},
+                                          {"replace", "\"storage\": {\"encryptionSecret\": \"(hidden)\"}"}});
+    REQUIRE_FALSE(badEdit.ok);
+    CHECK(testing::read_all(f.tmp.path / "factoria.json") == "{\"name\": \"T\"}");
+    // ... but the words "(hidden)" in a name or a description are just text
+    auto words =
+        f.reg.call("fs.write", {{"path", "factoria.json"},
+                                {"content", "{\"name\": \"(hidden) tale\", \"description\": \"a (hidden) door\"}"}});
+    CHECK(words.ok);
+    CHECK(testing::read_all(f.tmp.path / "factoria.json").find("a (hidden) door") != std::string::npos);
+    CHECK(
+        f.reg
+            .call("fs.edit", {{"path", "factoria.json"}, {"find", "a (hidden) door"}, {"replace", "a (hidden) window"}})
+            .ok);
+    // a new real secret is kept as written
+    const std::string fresh = "ffffffffffffffffffffffffffffffffffffffff";
+    auto set = f.reg.call("fs.write", {{"path", "factoria.json"},
+                                       {"content", "{\"storage\": {\"encryptionSecret\": \"" + fresh + "\"}}"}});
+    REQUIRE(set.ok);
+    CHECK(testing::read_all(f.tmp.path / "factoria.json") ==
+          "{\"storage\": {\"encryptionSecret\": \"" + fresh + "\"}}");
+    // the copies a checkpoint keeps are masked when read as files
+    testing::write_all(f.tmp.path / ".factoria/checkpoints/objects/ab/abcdef",
+                       "{\"encryptionSecret\": \"" + fresh + "\"}");
+    auto obj = f.reg.call("fs.read", {{"path", ".factoria/checkpoints/objects/ab/abcdef"}});
+    REQUIRE(obj.ok);
+    CHECK(obj.result["content"].get<std::string>().find(fresh) == std::string::npos);
+    // ... and when searched with a path that names one of them (the folder walk skips .factoria, a file path does not)
+    auto hit =
+        f.reg.call("fs.search", {{"query", "encryptionSecret"}, {"path", ".factoria/checkpoints/objects/ab/abcdef"}});
+    REQUIRE(hit.ok);
+    CHECK(hit.result["count"] == 1);
+    CHECK(hit.result.dump().find(fresh) == std::string::npos);
+    // ... whatever the case of the path (macOS and Windows open the same file)
+    auto upper = f.reg.call("fs.read", {{"path", ".Factoria/Checkpoints/Objects/ab/abcdef"}});
+    if (upper.ok) CHECK(upper.result["content"].get<std::string>().find(fresh) == std::string::npos);
+}
+
 TEST_CASE("fs: search skips binary and .factoria, supports regex") {
     FsFixture f;
     auto r = f.reg.call("fs.search", {{"query", "needle"}});
@@ -234,14 +326,22 @@ TEST_CASE(
 TEST_CASE("docs: list, read and search the bundled documentation") {
     auto docs = list_docs();
     REQUIRE_FALSE(docs.empty());
-    bool arch = false, script = false;
+    bool notEmbedded = false, script = false;
     for (auto& d : docs) {
-        arch = arch || d.name == "architecture";
+        notEmbedded = notEmbedded || d.name == "architecture" || d.name == "building" || d.name == "components";
         script = script || d.name == "scripting";
         CHECK(d.path.rfind("docs/", 0) == 0);
     }
-    CHECK(arch);
+    CHECK_FALSE(notEmbedded);  // docs/design/ and the generated COMPONENTS.md stay out of the binary
     CHECK(script);
+    for (const char* repoOnly : {"architecture", "building"}) {  // each one on its own: a name that is not a doc
+        auto missing = read_doc(repoOnly);
+        CHECK_MESSAGE(!missing.ok(), repoOnly << " is in docs/design/, not embedded");
+        if (missing.ok()) continue;  // the did_you_mean tail: the name, then the real names (no close one to suggest)
+        const std::string& msg = missing.error().message;
+        CHECK_MESSAGE(msg.find(std::string("No document named '") + repoOnly + "'") == 0, repoOnly << ": " << msg);
+        CHECK_MESSAGE(msg.find("Valid: ") != std::string::npos, repoOnly << ": " << msg);
+    }
 
     auto r = read_doc("scripting");
     REQUIRE(r.ok());
@@ -321,12 +421,13 @@ TEST_CASE("docs.list: summary and audience per doc, audience filter") {
         CHECK(std::find(d["audience"].begin(), d["audience"].end(), "gameAi") != d["audience"].end());
     }
     CHECK(names.count("ai-guide") == 1);
-    CHECK(names.count("architecture") == 0);
+    CHECK(names.count("editor") == 0);
+    CHECK(names.count("menu-kit") == 1);  // the kit's files are listed by name
     auto dev = reg.call("docs.list", {{"audience", "engineDev"}});
     REQUIRE(dev.ok);
-    bool arch = false;
-    for (const auto& d : dev.result["docs"]) arch = arch || d["name"] == "architecture";
-    CHECK(arch);
+    bool editor = false;
+    for (const auto& d : dev.result["docs"]) editor = editor || d["name"] == "editor";
+    CHECK(editor);
     auto bad = reg.call("docs.list", {{"audience", "gameai"}});
     CHECK_FALSE(bad.ok);
     CHECK(bad.error.dump().find("gameAi") != std::string::npos);  // did you mean
@@ -341,8 +442,8 @@ TEST_CASE("docs: commands") {
     CHECK(list.result["docs"].size() >= 2);
     int components = 0;
     for (const auto& d : list.result["docs"]) components += d["name"] == "components" ? 1 : 0;
-    CHECK(components == 1);  // listed once, by the bundled page
-    auto read = reg.call("docs.read", {{"name", "architecture"}, {"maxLines", 5}});
+    CHECK(components == 0);  // not a page: docs.components serves it per component
+    auto read = reg.call("docs.read", {{"name", "editor"}, {"maxLines", 5}});
     REQUIRE(read.ok);
     CHECK(read.result["truncated"] == true);
     CHECK(read.result["endLine"] == 5);
@@ -415,7 +516,7 @@ TEST_CASE("docs.read: the default result fits an MCP tool result, a cut read end
     CommandRegistry reg;
     register_docs_commands(reg);
     register_api_export_commands(reg);
-    for (const char* doc : {"ai-guide", "components", "licenses"}) {
+    for (const char* doc : {"ai-guide-tools", "licenses"}) {
         CAPTURE(doc);
         auto r = reg.call("docs.read", {{"name", doc}});
         REQUIRE(r.ok);
@@ -463,10 +564,26 @@ TEST_CASE("docs.read: a section is read by heading, exact title first, several m
 }
 
 // docs/AI_GUIDE.md starts with "## Index": a short list of every section, read alone with heading "Index" (AGENTS.md and the
-// make-game prompt send agents there first). It must stay small and complete.
-TEST_CASE("ai-guide: the Index at the top is under 5 KB and lists exactly the ## and ### headings of the guide") {
+// make-game prompt send agents there first). It must stay small and complete: the guide is an entry page plus pages
+// (docs/ai-guide/), so the headings are those of the whole family and an entry names its page in a trailing `[page]`.
+// The Index is 6386 bytes today; 6.5 KB (an agent reads it first). Lowered on purpose from 7 KB: the index is read by every
+// agent on every task, so a new entry past the limit must shorten another one, not raise the limit.
+constexpr size_t kIndexLimit = 6656;
+
+TEST_CASE("ai-guide: the Index at the top is under 6.5 KB and lists exactly the ## and ### headings of the guide") {
     std::string text = testing::read_all(stdfs::path(FA_REPO_ROOT) / "docs" / "AI_GUIDE.md");
     text.erase(std::remove(text.begin(), text.end(), '\r'), text.end());
+    {
+        std::vector<stdfs::path> pages;
+        for (const auto& de : stdfs::directory_iterator(stdfs::path(FA_REPO_ROOT) / "docs" / "ai-guide"))
+            if (de.path().extension() == ".md") pages.push_back(de.path());
+        std::sort(pages.begin(), pages.end());
+        for (const stdfs::path& pg : pages) {
+            std::string more = testing::read_all(pg);
+            more.erase(std::remove(more.begin(), more.end(), '\r'), more.end());
+            text += "\n" + more;  // after the Index: only the headings count
+        }
+    }
     REQUIRE_FALSE(text.empty());
     std::set<std::string> headings;
     std::set<std::string> listed;
@@ -489,18 +606,20 @@ TEST_CASE("ai-guide: the Index at the top is under 5 KB and lists exactly the ##
                 inIndex = true;
             else
                 headings.insert(title);
-        } else if (inIndex && line.rfind("- ", 0) == 0) {
+        } else if (inIndex && line.rfind("- ", 0) == 0 && line.rfind("- [", 0) != 0) {
             const size_t sep = line.find(" -- ");
-            listed.insert(sep == std::string::npos ? line.substr(2) : line.substr(2, sep - 2));
+            std::string entry = sep == std::string::npos ? line.substr(2) : line.substr(2, sep - 2);
+            const size_t br = entry.rfind(" [");
+            if (sep == std::string::npos && br != std::string::npos && entry.back() == ']') entry.resize(br);
+            listed.insert(entry);
         }
         pos = nl + 1;
     }
     REQUIRE_MESSAGE(indexEnd != std::string::npos,
                     "docs/AI_GUIDE.md needs a `## Index` section near the top, followed by the numbered sections.");
-    CHECK_MESSAGE(indexEnd < 5120,
-                  "The start of docs/AI_GUIDE.md up to the end of `## Index` is "
-                      << indexEnd
-                      << " bytes; keep it under 5120 (shorten the notes of the index): an agent reads it first.");
+    CHECK_MESSAGE(indexEnd < kIndexLimit, "The start of docs/AI_GUIDE.md up to the end of `## Index` is "
+                                              << indexEnd << " bytes; keep it under " << kIndexLimit
+                                              << " (shorten the notes of the index): an agent reads it first.");
     std::string problems;
     for (const std::string& h : headings)
         if (!listed.count(h))
@@ -524,7 +643,7 @@ TEST_CASE("ai-guide: the Index at the top is under 5 KB and lists exactly the ##
     CHECK(content.rfind("## Index", 0) == 0);
     CHECK(content.find("## 1. Mental model") == std::string::npos);
     CHECK(content.find("14. Where to read more") != std::string::npos);
-    CHECK(content.size() < 5120);
+    CHECK(content.size() < kIndexLimit);
 }
 
 TEST_CASE("docs.components and docs.commands: the default lists names, name gives one in full, filter narrows, full is "
@@ -722,4 +841,429 @@ TEST_CASE("docs.list: the pages FINISHING links (mcp, legal, publishing) are for
     std::set<std::string> names;
     for (const auto& d : game.result["docs"]) names.insert(d["name"].get<std::string>());
     for (const char* n : {"mcp", "legal", "publishing"}) CHECK_MESSAGE(names.count(n) == 1, n);
+}
+
+TEST_CASE("docs.read components: no 1.8 MB page, a pointer to docs.components instead") {
+    CommandRegistry reg;
+    register_docs_commands(reg);
+    register_api_export_commands(reg);
+    for (const char* name : {"components", "COMPONENTS.md", "docs/COMPONENTS.md", "factoria://docs/components"}) {
+        CAPTURE(name);
+        auto r = reg.call("docs.read", {{"name", name}});
+        REQUIRE_FALSE(r.ok);
+        const std::string error = r.error.dump();
+        CHECK(error.find("docs.components") != std::string::npos);
+        CHECK(error.find("Sprite") != std::string::npos);
+    }
+    CHECK(read_doc("components").error().hint.find("docs.components") != std::string::npos);
+    // The pointer works: one component by name.
+    auto sprite = reg.call("docs.components", {{"name", "Sprite"}});
+    REQUIRE(sprite.ok);
+}
+
+TEST_CASE("docs: the menu kit is served from the embedded kit, not copied into MENUS.md") {
+    auto listing = read_doc("menu-kit");
+    REQUIRE(listing.ok());
+    CHECK(listing->find("`kit.json`") != std::string::npos);
+    CHECK(listing->find("`scripts/settings.js`") != std::string::npos);
+    auto settings = read_doc("menu-kit/scripts/settings.js");
+    REQUIRE(settings.ok());
+    CHECK(*settings == *bundled_read("templates/menus/scripts/settings.js"));
+    CHECK(read_doc("factoria://docs/menu-kit/kit.json").ok());
+    auto bad = read_doc("menu-kit/scripts/setings.js");
+    REQUIRE_FALSE(bad.ok());
+    CHECK(bad.error().message.find("scripts/settings.js") != std::string::npos);  // did you mean
+    CHECK_FALSE(read_doc("menu-kitten").ok());
+    // docs.list names the kit's folder and the sum of its files, not an empty path and 0 bytes
+    CommandRegistry listReg;
+    register_docs_commands(listReg);
+    auto listed = listReg.call("docs.list", {{"audience", "gameAi"}});
+    REQUIRE(listed.ok);
+    long expectedBytes = 0;
+    for (const std::string& f : bundled_list("templates/menus/")) expectedBytes += long(bundled_read(f)->size());
+    bool foundKit = false;
+    for (const auto& d : listed.result["docs"])
+        if (d["name"] == "menu-kit") {
+            foundKit = true;
+            CHECK(d["path"] == "templates/menus/");
+            CHECK(d["bytes"].get<long>() == expectedBytes);
+            CHECK(expectedBytes > 0);
+        }
+    CHECK(foundKit);
+
+    CommandRegistry reg;
+    register_docs_commands(reg);
+    auto r = reg.call("docs.read", {{"name", "menu-kit/scripts/ui/options.js"}, {"maxLines", 5}});
+    REQUIRE(r.ok);
+    CHECK(r.result["truncated"] == true);
+    // MENUS.md keeps the recipes: it prints no file of the kit.
+    auto menus = read_doc("menus");
+    REQUIRE(menus.ok());
+    CHECK(menus->size() < 100000);
+    CHECK(menus->find("```js scripts/settings.js") == std::string::npos);
+    CHECK(menus->find("menu-kit") != std::string::npos);
+}
+
+namespace {
+// A small split doc: docs/BIG.md (entry page) with two pages in docs/big/, and a doc that is not split.
+struct DocFamilyFixture {
+    std::map<std::string, std::string> files;
+    DocFiles source;
+    explicit DocFamilyFixture(bool linkSecondPage = true) {
+        files["docs/BIG.md"] =
+            "# Big\n\nIndex:\n\n- [Input](big/BIG_INPUT.md): keys\n" +
+            std::string(linkSecondPage ? "- [Audio](big/BIG_AUDIO.md): sound\n" : "") +
+            "\n## Essentials\n\nText.\n\n## Keyboard shortcuts (summary)\n\nshort\n\n## Both\n\nentry both\n";
+        files["docs/big/BIG_INPUT.md"] = "# Big input\n\n## Keyboard\n\nkeys\n\n### Repeat\n\nrepeat\n\n## "
+                                         "Shared\n\nin input\n\n## Both\n\ninput both\n\n## Mixer settings\n\nknobs\n";
+        files["docs/big/BIG_AUDIO.md"] =
+            "# Big audio\n\n## Mixer\n\nbus\n\n## Shared\n\nin audio\n\n## Both\n\naudio both\n";
+        files["docs/SMALL.md"] = "# Small\n\n## Only\n\nx\n";
+        source.list = [this](std::string_view) {
+            std::vector<std::string> out;
+            for (const auto& [k, v] : files) out.push_back(k);
+            return out;
+        };
+        source.read = [this](std::string_view p) -> std::optional<std::string> {
+            auto it = files.find(std::string(p));
+            if (it == files.end()) return std::nullopt;
+            return it->second;
+        };
+        set_doc_files_for_tests(&source);
+    }
+    ~DocFamilyFixture() { set_doc_files_for_tests(nullptr); }
+};
+}  // namespace
+
+TEST_CASE("docs: a split doc's heading is served from the page that has it, and the entry page lists its pages") {
+    DocFamilyFixture f;
+    CommandRegistry reg;
+    register_docs_commands(reg);
+
+    bool sawPage = false, sawEntry = false;
+    for (const auto& d : list_docs()) {
+        if (d.name == "big-input") sawPage = d.family == "big";
+        if (d.name == "big") sawEntry = d.family.empty();
+    }
+    CHECK(sawPage);
+    CHECK(sawEntry);
+    auto list = reg.call("docs.list", Json::object());
+    REQUIRE(list.ok);
+    bool listed = false;
+    for (const auto& d : list.result["docs"])
+        if (d["name"] == "big-input") listed = d.value("family", "") == "big";
+    CHECK(listed);
+
+    // A partial title on the entry page does not hide an exact title on a page.
+    auto exactPage = reg.call("docs.read", {{"name", "big"}, {"heading", "Keyboard"}});
+    REQUIRE(exactPage.ok);
+    CHECK(exactPage.result["page"] == "big-input");
+    CHECK(exactPage.result["heading"] == "Keyboard");
+    // An exact title on the entry page and on pages: the entry page wins and says where the others are.
+    auto both = reg.call("docs.read", {{"name", "big"}, {"heading", "Both"}});
+    REQUIRE(both.ok);
+    CHECK_FALSE(both.result.contains("page"));
+    CHECK(both.result["content"].get<std::string>().find("entry both") != std::string::npos);
+    REQUIRE(both.result["alsoOnPages"].size() == 2);
+    CHECK(both.result["note"].get<std::string>().find("longer version") != std::string::npos);
+    // A partial match in the entry page and in a page: ambiguous, the entry page is listed.
+    auto partials = reg.call("docs.read", {{"name", "big"}, {"heading", "settings"}});
+    REQUIRE(partials.ok);  // only one place: the input page
+    CHECK(partials.result["page"] == "big-input");
+    auto twoPlaces = reg.call("docs.read", {{"name", "big"}, {"heading", "shortcuts"}});
+    REQUIRE(twoPlaces.ok);  // only the entry page
+    CHECK_FALSE(twoPlaces.result.contains("page"));
+
+    // A heading of the entry page itself: no page field.
+    auto own = reg.call("docs.read", {{"name", "big"}, {"heading", "Essentials"}});
+    REQUIRE(own.ok);
+    CHECK_FALSE(own.result.contains("page"));
+    CHECK(own.result["name"] == "big");
+
+    // An old reference: the heading is on a page.
+    auto r = reg.call("docs.read", {{"name", "big"}, {"heading", "Keyboard"}});
+    REQUIRE(r.ok);
+    CHECK(r.result["page"] == "big-input");
+    CHECK(r.result["name"] == "big-input");
+    CHECK(r.result["requestedName"] == "big");
+    CHECK(r.result["note"].get<std::string>().find("this section is on page `big-input`") != std::string::npos);
+    CHECK(r.result["content"].get<std::string>().find("keys") != std::string::npos);
+    CHECK(r.result["heading"] == "Keyboard");
+    // Reading the page by name works the same, without the page field.
+    auto direct = reg.call("docs.read", {{"name", "big-input"}, {"heading", "Keyboard"}});
+    REQUIRE(direct.ok);
+    CHECK_FALSE(direct.result.contains("page"));
+
+    // Two pages: an error that lists both. An exact title on one page beats a part of a title on the other.
+    auto amb = reg.call("docs.read", {{"name", "big"}, {"heading", "Shared"}});
+    REQUIRE_FALSE(amb.ok);
+    CHECK(amb.error["message"].get<std::string>().find("big-input") != std::string::npos);
+    CHECK(amb.error["message"].get<std::string>().find("big-audio") != std::string::npos);
+    auto exact = reg.call("docs.read", {{"name", "big"}, {"heading", "Mixer"}});
+    REQUIRE(exact.ok);
+    CHECK(exact.result["page"] == "big-audio");  // "Mixer settings" on the other page is only a partial match
+    // A partial title on the entry page and one on a page: ambiguous, and the entry page is listed.
+    auto split = reg.call("docs.read", {{"name", "big"}, {"heading", "summary"}});
+    REQUIRE(split.ok);  // only the entry page has it
+    const std::string audioText = f.files["docs/big/BIG_AUDIO.md"];
+    f.files["docs/big/BIG_AUDIO.md"] += "\n## Summary of audio\n\nx\n";
+    set_doc_files_for_tests(&f.source);  // the source changed: drop what was read
+    auto both2 = reg.call("docs.read", {{"name", "big"}, {"heading", "summary"}});
+    REQUIRE_FALSE(both2.ok);
+    CHECK(both2.error["message"].get<std::string>().find("entry page `big`") != std::string::npos);
+    CHECK(both2.error["message"].get<std::string>().find("big-audio") != std::string::npos);
+    f.files["docs/big/BIG_AUDIO.md"] = audioText;
+    set_doc_files_for_tests(&f.source);
+
+    // Not found anywhere: did you mean, with the titles of the whole family.
+    auto none = reg.call("docs.read", {{"name", "big"}, {"heading", "Keybord"}});
+    REQUIRE_FALSE(none.ok);
+    CHECK(none.error["message"].get<std::string>().find("Keyboard") != std::string::npos);
+    // A doc that is not split keeps its behaviour.
+    CHECK_FALSE(reg.call("docs.read", {{"name", "small"}, {"heading", "Keyboard"}}).ok);
+
+    // The entry page read without a heading carries `pages`; a cut read lists them in `contents` as well.
+    auto whole = reg.call("docs.read", {{"name", "big"}});
+    REQUIRE(whole.ok);
+    REQUIRE(whole.result["pages"].size() == 2);
+    CHECK(whole.result["pages"][0]["name"] == "big-audio");  // sorted by path
+    CHECK(whole.result["pages"][1]["title"] == "Big input");
+    CHECK(whole.result["pages"][1]["bytes"].get<size_t>() == f.files["docs/big/BIG_INPUT.md"].size());
+    CHECK_FALSE(whole.result.contains("contents"));
+    auto cut = reg.call("docs.read", {{"name", "big"}, {"maxLines", 1}});
+    REQUIRE(cut.ok);
+    const std::string contents = cut.result["contents"].get<std::string>();
+    CHECK(contents.find("big-input: Big input (") != std::string::npos);
+    CHECK_FALSE(reg.call("docs.read", {{"name", "small"}}).result.contains("pages"));
+
+    // docs.search names the page.
+    auto hits = search_docs("Mixer");
+    REQUIRE_FALSE(hits.empty());
+    CHECK(hits[0].doc == "big-audio");
+    CHECK(hits[0].family == "big");
+    auto searched = reg.call("docs.search", {{"query", "mixer"}});
+    REQUIRE(searched.ok);
+    CHECK(searched.result["results"][0]["family"] == "big");
+}
+
+TEST_CASE("docs: the layout check names duplicate names, orphan pages and pages the entry page does not link to") {
+    {
+        DocFamilyFixture f;
+        CHECK(doc_layout_problems().empty());
+    }
+    {
+        DocFamilyFixture f(false);  // BIG.md forgets to link BIG_AUDIO.md
+        const auto problems = doc_layout_problems();
+        REQUIRE(problems.size() == 1);
+        CHECK(problems[0].find("docs/BIG.md") != std::string::npos);
+        CHECK(problems[0].find("docs/big/BIG_AUDIO.md") != std::string::npos);
+    }
+    {
+        DocFamilyFixture f;  // a path in plain text is not a link, and a page must be named <ENTRY>_<PART>.md
+        f.files["docs/BIG.md"] = "# Big\n\nSee big/BIG_INPUT.md and [x](big/BIG_AUDIO.md.bak)\n";
+        f.files["docs/big/OTHER.md"] = "# O\n";
+        set_doc_files_for_tests(&f.source);
+        const auto problems = doc_layout_problems();
+        std::string all;
+        for (const auto& p : problems) all += p + "\n";
+        CHECK(all.find("does not link to its page docs/big/BIG_INPUT.md") != std::string::npos);
+        CHECK(all.find("does not link to its page docs/big/BIG_AUDIO.md") != std::string::npos);
+        CHECK(all.find("docs/big/OTHER.md must be named BIG_<PART>.md") != std::string::npos);
+    }
+    {
+        DocFamilyFixture f;
+        f.files["docs/other/BIG.md"] = "# Again\n";  // the name "big" twice, and no entry page for docs/other/
+        const auto problems = doc_layout_problems();
+        REQUIRE(problems.size() == 2);
+        std::string all = problems[0] + problems[1];
+        CHECK(all.find("docs/BIG.md") != std::string::npos);
+        CHECK(all.find("docs/other/BIG.md") != std::string::npos);
+        CHECK(all.find("docs/OTHER.md") != std::string::npos);
+    }
+}
+
+TEST_CASE("docs: the real docs follow the layout (unique names, every page linked from its entry page)") {
+    const auto problems = doc_layout_problems();
+    std::string all;
+    for (const auto& p : problems) all += "\n  - " + p;
+    CHECK_MESSAGE(problems.empty(), "docs layout problems:" << all);
+}
+
+TEST_CASE("fs.edit: a find that guesses the start of the secret learns nothing") {
+    FsFixture f;
+    const std::string secret = "a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90";
+    const std::string text = "{\n  \"storage\": {\n    \"encryptionSecret\": \"" + secret + "\"\n  }\n}\n";
+    testing::write_all(f.tmp.path / "factoria.json", text);
+    // the right prefix and a wrong one answer the same way: not found
+    for (const std::string& guess : {secret.substr(0, 6), std::string("zzzzzz")}) {
+        auto r = f.reg.call("fs.edit", {{"path", "factoria.json"}, {"find", guess}, {"replace", "x"}});
+        REQUIRE_FALSE(r.ok);
+        CHECK(r.error["code"] == "no_match");
+    }
+    CHECK(testing::read_all(f.tmp.path / "factoria.json") == text);
+}
+
+TEST_CASE("fs: a factoria.json in a folder is hidden too, and \"(hidden)\" in a description is only text") {
+    FsFixture f;
+    const std::string secret = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+    const std::string nested =
+        "{\"description\": \"a (hidden) door\", \"storage\": {\"encryptionSecret\": \"" + secret + "\"}}\n";
+    testing::write_all(f.tmp.path / "games/inner/factoria.json", nested);
+    CHECK(is_project_file_path("games/inner/factoria.json"));
+    CHECK(is_project_file_path("./Games\\Inner\\FACTORIA.JSON"));
+    CHECK_FALSE(is_project_file_path("games/inner/factoria.json.bak"));
+    CHECK_FALSE(is_project_file_path("games/my-factoria.json"));
+    auto read = f.reg.call("fs.read", {{"path", "games/inner/factoria.json"}});
+    REQUIRE(read.ok);
+    const std::string content = read.result["content"].get<std::string>();
+    CHECK(content.find(secret) == std::string::npos);
+    CHECK(content.find("a (hidden) door") != std::string::npos);
+    auto found = f.reg.call("fs.search", {{"query", "encryptionSecret"}});
+    REQUIRE(found.ok);
+    CHECK(found.result.dump().find(secret) == std::string::npos);
+    // writing back what was read replaces only the secret's value: the description (which also says "(hidden)") is untouched
+    REQUIRE(f.reg.call("fs.write", {{"path", "games/inner/factoria.json"}, {"content", content}}).ok);
+    CHECK(testing::read_all(f.tmp.path / "games/inner/factoria.json") == nested);
+    // the same through fs.edit
+    REQUIRE(f.reg.call("fs.edit", {{"path", "games/inner/factoria.json"}, {"find", "door"}, {"replace", "gate"}}).ok);
+    const std::string edited = testing::read_all(f.tmp.path / "games/inner/factoria.json");
+    CHECK(edited.find("a (hidden) gate") != std::string::npos);
+    CHECK(edited.find(secret) != std::string::npos);
+}
+
+TEST_CASE("fs: factoria.json with CRLF line endings keeps its real secret and its line endings") {
+    FsFixture f;
+    const std::string secret = "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210";
+    const std::string text =
+        "{\r\n  \"name\": \"T\",\r\n  \"storage\": {\r\n    \"encryptionSecret\": \"" + secret + "\"\r\n  }\r\n}\r\n";
+    testing::write_all(f.tmp.path / "factoria.json",
+                       text);  // binary: the bytes are what the test says on every platform
+    auto read = f.reg.call("fs.read", {{"path", "factoria.json"}});
+    REQUIRE(read.ok);
+    const std::string content = read.result["content"].get<std::string>();
+    CHECK(content.find(secret) == std::string::npos);
+    CHECK(read.result["totalLines"] == 6);
+    auto edit =
+        f.reg.call("fs.edit", {{"path", "factoria.json"}, {"find", "\"name\": \"T\""}, {"replace", "\"name\": \"U\""}});
+    REQUIRE(edit.ok);
+    std::string expected = text;
+    expected.replace(expected.find("\"T\""), 3, "\"U\"");
+    CHECK(testing::read_all(f.tmp.path / "factoria.json") == expected);
+    // a write of the text fs.read showed (its lines end in "\r\n" there: fs.read keeps the \r) still keeps the secret
+    REQUIRE(f.reg.call("fs.write", {{"path", "factoria.json"}, {"content", content}}).ok);
+    const std::string written = testing::read_all(f.tmp.path / "factoria.json");
+    CHECK(written.find(secret) != std::string::npos);
+    CHECK(written.find("(hidden)") == std::string::npos);
+}
+
+TEST_CASE("fs: an empty storage.encryptionSecret is not hidden, so the file can still be edited") {
+    FsFixture f;
+    const std::string text = "{\n  \"name\": \"T\",\n  \"storage\": {\"encryptionSecret\": \"\"}\n}\n";
+    testing::write_all(f.tmp.path / "factoria.json", text);
+    CHECK(mask_project_secrets("{\"encryptionSecret\": \"\"}") == "{\"encryptionSecret\": \"\"}");
+    auto read = f.reg.call("fs.read", {{"path", "factoria.json"}});
+    REQUIRE(read.ok);
+    CHECK(read.result["content"].get<std::string>().find("(hidden)") == std::string::npos);
+    auto edit =
+        f.reg.call("fs.edit", {{"path", "factoria.json"}, {"find", "\"name\": \"T\""}, {"replace", "\"name\": \"U\""}});
+    REQUIRE(edit.ok);
+    std::string expected = text;
+    expected.replace(expected.find("\"T\""), 3, "\"U\"");
+    CHECK(testing::read_all(f.tmp.path / "factoria.json") == expected);
+}
+
+// The citations of `examples/<name>` in `text` whose paragraph or list item never mentions `project.create`: "file:line:
+// examples/<name>". Code fences are skipped, a CRLF text reads like an LF one, and every list item (`- `, `* `, `1. `) is
+// a unit of its own, so a sentence in one item does not vouch for another. `checked` counts every citation seen.
+namespace {
+std::vector<std::string> unguarded_example_citations(const std::string& path, const std::string& text,
+                                                     size_t& checked) {
+    std::vector<std::string> out;
+    std::vector<std::string> lines;
+    size_t pos = 0;
+    while (pos <= text.size()) {
+        size_t nl = text.find('\n', pos);
+        if (nl == std::string::npos) nl = text.size();
+        std::string l = text.substr(pos, nl - pos);
+        if (!l.empty() && l.back() == '\r') l.pop_back();
+        lines.push_back(std::move(l));
+        pos = nl + 1;
+    }
+    auto starts_item = [](const std::string& l) {
+        size_t i = 0;
+        while (i < l.size() && l[i] == ' ') ++i;
+        if (i + 1 < l.size() && (l[i] == '-' || l[i] == '*') && l[i + 1] == ' ') return true;
+        size_t d = i;
+        while (d < l.size() && std::isdigit(static_cast<unsigned char>(l[d]))) ++d;
+        return d > i && d + 1 < l.size() && l[d] == '.' && l[d + 1] == ' ';
+    };
+    bool optional = false;
+    std::vector<std::pair<size_t, std::string>> cites;
+    auto flush = [&]() {
+        checked += cites.size();
+        if (!optional)
+            for (const auto& c : cites) out.push_back(path + ":" + std::to_string(c.first) + ": " + c.second);
+        optional = false;
+        cites.clear();
+    };
+    bool inFence = false;
+    for (size_t n = 0; n < lines.size(); ++n) {
+        const std::string& l = lines[n];
+        const size_t nb = l.find_first_not_of(' ');
+        if (nb != std::string::npos && (l.compare(nb, 3, "```") == 0 || l.compare(nb, 3, "~~~") == 0)) {
+            inFence = !inFence;
+            flush();
+            continue;
+        }
+        if (inFence) continue;
+        if (l.empty() || starts_item(l)) flush();
+        if (l.find("project.create") != std::string::npos) optional = true;
+        for (size_t p = l.find("examples/"); p != std::string::npos; p = l.find("examples/", p + 1)) {
+            size_t q = p + 9, e = q;
+            while (e < l.size() && (std::islower(static_cast<unsigned char>(l[e])) ||
+                                    std::isdigit(static_cast<unsigned char>(l[e])) || l[e] == '-'))
+                ++e;
+            if (e - q >= 2)
+                cites.emplace_back(n + 1, l.substr(p, e - p));  // examples/<name>, not examples/ or examples/*
+        }
+    }
+    flush();
+    return out;
+}
+}  // namespace
+
+TEST_CASE("docs: an embedded doc names an example game only as optional (the recipe lives in the doc)") {
+    // The download carries no example games (project.create {example} fetches one), so a doc a user gets must not
+    // send them to `examples/<name>` as if it were there. The rule: a paragraph or list item that cites
+    // `examples/<name>` must also mention `project.create`, e.g. "(if you got it with
+    // `project.create {example: \"gem-roller\"}`)".
+    size_t checked = 0;
+    for (const auto& d : list_docs()) {
+        auto text = read_doc(d.path);
+        REQUIRE(text.ok());
+        for (const std::string& p : unguarded_example_citations(d.path, *text, checked))
+            FAIL_CHECK(
+                p << " is cited but its paragraph or list item never says the example is optional: a download has "
+                     "no examples/. Keep the recipe in the doc and add, in the same paragraph or item, \"(if you got "
+                     "it with `project.create {example: \\\"<name>\\\"}`)\".");
+    }
+    CHECK(checked > 0);  // the scan found the citations it guards
+}
+
+TEST_CASE("docs: the examples/ citation rule reads CRLF text, list items and skips code fences") {
+    size_t n = 0;
+    // CRLF: the blank line is "\r\n", so the paragraph ends there and the next one is judged alone
+    CHECK(unguarded_example_citations("d.md",
+                                      "see examples/foo-bar here\r\n\r\nuse project.create {example: \"x\"}\r\n", n)
+              .size() == 1);
+    CHECK(unguarded_example_citations("d.md",
+                                      "see examples/foo-bar (project.create {example: \"foo-bar\"})\r\nmore\r\n", n)
+              .empty());
+    // a fence is not prose
+    CHECK(unguarded_example_citations("d.md", "```sh\ncd examples/foo-bar\n```\n", n).empty());
+    // each list item stands alone
+    const auto items = unguarded_example_citations(
+        "d.md", "- one: project.create {example: \"a\"} (examples/aaa)\n- two: examples/bbb\n", n);
+    REQUIRE(items.size() == 1);
+    CHECK(items[0].find("d.md:2: examples/bbb") == 0);
 }

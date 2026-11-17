@@ -19,9 +19,43 @@
 #if defined(__ANDROID__)
 #define ANativeActivity_onCreate fa_sokol_ANativeActivity_onCreate
 #endif
+// Linux: the IME backend (ime_linux.cpp) sees every X event before sokol_app does. sokol_app's loop reads the queue with
+// XPending (once per frame) and XNextEvent (each event); here they get wrappers that call the real ones and then the
+// backend, which may turn an event the input method took into one sokol_app ignores. Xlib.h comes first, so its own
+// declarations keep their names.
+#if defined(__linux__) && !defined(__ANDROID__)
+#include <X11/Xlib.h>
+#include <string.h>
+
+#include "ime_linux.h"
+static int fa_x11_pending(Display* display) {
+    fa_ime_x11_batch();
+    return XPending(display);
+}
+static int fa_x11_next_event(Display* display, XEvent* event) {
+    // sokol_app reads XPending's count once and then that many events. The input method may take some of them meanwhile
+    // (XFilterEvent and XOpenIM wait for their server's answers with XIfEvent), and XNextEvent on an empty queue would
+    // block until the next X event, the game not drawing: what is missing becomes an event sokol_app skips (its switch
+    // has no case for NoExpose), and the backend does not see it.
+    if (XQLength(display) == 0 && XPending(display) == 0) {  // XPending flushes and reads the socket: only when empty
+        memset(event, 0, sizeof *event);
+        event->type = NoExpose;
+        return 0;
+    }
+    const int r = XNextEvent(display, event);
+    fa_ime_x11_event(event);
+    return r;
+}
+#define XPending fa_x11_pending
+#define XNextEvent fa_x11_next_event
+#endif
 #include "sokol_app.h"
 #if defined(__ANDROID__)
 #undef ANativeActivity_onCreate
+#endif
+#if defined(__linux__) && !defined(__ANDROID__)
+#undef XPending
+#undef XNextEvent
 #endif
 
 #if defined(__ANDROID__)
@@ -453,11 +487,16 @@ bool fa_sapp_set_class_name(const char* name) {
 // is closed and on every relaunch the manifest cannot opt out of (an assets-path change: wallpaper colours or theme
 // on Android 12+, an overlay; see AndroidManifest.xml). So the entry point below wraps sokol_app's and turns that
 // exit(0) into _exit(0): the process ends at once, nothing is torn down under a running thread.
+//
+// Before that, the game ends (activity_end_android.cpp): its "quit" handlers, the storage writes still waiting, the audio
+// device, all on sokol_app's loop thread while this main thread waits for them, at most about 1.5 s. A loop thread that
+// does not answer in time is busy: sokol's onDestroy would wait for it without a limit, so the process ends here at once.
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
 
 static void (*fa_sokol_on_destroy)(ANativeActivity* activity);
+int fa_android_activity_ending(void);  // activity_end_android.cpp
 
 static void fa_exit_now(void) {
     fflush(NULL);  // what exit() would still do for stdio
@@ -465,6 +504,7 @@ static void fa_exit_now(void) {
 }
 
 static void fa_on_destroy(ANativeActivity* activity) {
+    if (!fa_android_activity_ending()) _exit(0);  // the game's end timed out (and logged it): no stdio flush either
     // Registered after every static object was constructed, so exit() calls it before any static destructor.
     atexit(fa_exit_now);
     fa_sokol_on_destroy(activity);  // sokol: stop the loop thread, close the pipe, exit(0)
@@ -479,5 +519,46 @@ JNIEXPORT void ANativeActivity_onCreate(ANativeActivity* activity, void* saved_s
     }
 }
 #endif  // __ANDROID__
+
+#if defined(__EMSCRIPTEN__)
+// The web: sokol_app listens for keys, focus and blur on the window (capture phase). The IME backend (ime_web.cpp) sees
+// each first, through these wrappers of sokol_app's own handlers:
+//  - a key the browser's input method takes (keyCode 229, or any key while a composition is open) is the IME's: sokol_app
+//    does not see it, and the browser gets it with its default action (no preventDefault), so the composition goes on;
+//  - the focus moving to or from the hidden <input> the IME and the phone's keyboard type into is not the page losing it.
+#include "ime_web.h"
+
+static EM_BOOL fa_emsc_key_cb(int type, const EmscriptenKeyboardEvent* e, void* user_data) {
+    const int kind = type == EMSCRIPTEN_EVENT_KEYDOWN ? 0 : (type == EMSCRIPTEN_EVENT_KEYUP ? 1 : 2);
+    const sapp_keycode key = _sapp_emsc_translate_key(e->code[0] != 0 ? e->code : e->key);
+    if (fa_ime_web_key(kind, (int)e->keyCode, (int)key)) return false;
+    return _sapp_emsc_key_cb(type, e, user_data);
+}
+
+static EM_BOOL fa_emsc_focus_cb(int type, const EmscriptenFocusEvent* e, void* user_data) {
+    if (fa_ime_web_ignore_focus(e->id)) return true;
+    return _sapp_emsc_focus_cb(type, e, user_data);
+}
+
+static EM_BOOL fa_emsc_blur_cb(int type, const EmscriptenFocusEvent* e, void* user_data) {
+    if (fa_ime_web_ignore_focus(e->id)) return true;
+    fa_ime_web_blur();
+    return _sapp_emsc_blur_cb(type, e, user_data);
+}
+
+void fa_sapp_web_route_events(void) {
+    // A NULL callback removes the handlers sokol_app registered for that event on the window; then the wrappers go on.
+    emscripten_set_keydown_callback(EMSCRIPTEN_EVENT_TARGET_WINDOW, 0, true, 0);
+    emscripten_set_keyup_callback(EMSCRIPTEN_EVENT_TARGET_WINDOW, 0, true, 0);
+    emscripten_set_keypress_callback(EMSCRIPTEN_EVENT_TARGET_WINDOW, 0, true, 0);
+    emscripten_set_focus_callback(EMSCRIPTEN_EVENT_TARGET_WINDOW, 0, true, 0);
+    emscripten_set_blur_callback(EMSCRIPTEN_EVENT_TARGET_WINDOW, 0, true, 0);
+    emscripten_set_keydown_callback(EMSCRIPTEN_EVENT_TARGET_WINDOW, 0, true, fa_emsc_key_cb);
+    emscripten_set_keyup_callback(EMSCRIPTEN_EVENT_TARGET_WINDOW, 0, true, fa_emsc_key_cb);
+    emscripten_set_keypress_callback(EMSCRIPTEN_EVENT_TARGET_WINDOW, 0, true, fa_emsc_key_cb);
+    emscripten_set_focus_callback(EMSCRIPTEN_EVENT_TARGET_WINDOW, 0, true, fa_emsc_focus_cb);
+    emscripten_set_blur_callback(EMSCRIPTEN_EVENT_TARGET_WINDOW, 0, true, fa_emsc_blur_cb);
+}
+#endif  // __EMSCRIPTEN__
 
 #endif  // !__APPLE__

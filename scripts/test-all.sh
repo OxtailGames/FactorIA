@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The full check before a push, in one command (CLAUDE.md, "Finishing a task"; docs/BUILDING.md, "Testing"):
+# The full check before a push, in one command (CLAUDE.md, "Finishing a task"; docs/design/BUILDING_TESTS.md, "Running tests"):
 #
 #   1. a Debug build of every target and the whole Debug ctest suite (the example games' tests are registered DISABLED
 #      there: they run the engine for minutes and a Debug build is several times slower), then

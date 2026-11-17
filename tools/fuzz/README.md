@@ -1,7 +1,7 @@
 # Fuzzing
 
 Programs that feed random and mutated bytes to the parts of the engine that read files and messages other people wrote,
-looking for crashes, hangs, runaway memory and undefined behaviour. Full instructions: [docs/BUILDING.md](../../docs/BUILDING.md),
+looking for crashes, hangs, runaway memory and undefined behaviour. Full instructions: [docs/design/BUILDING_TESTS.md](../../docs/design/BUILDING_TESTS.md),
 "Fuzzing". This folder:
 
 | Path | What |

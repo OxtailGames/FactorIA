@@ -1,4 +1,4 @@
-// Catmull-Clark subdivision (docs/MODELING.md, "subdivide").
+// Catmull-Clark subdivision (docs/modeling/MODELING_SHAPES.md, "Modifiers").
 //
 // The welded triangles are first joined back into quads where two coplanar triangles of one part form a convex quad, so a box made of
 // 12 triangles subdivides like a box of 6 quads. Each level then turns every n-gon into n quads (face point, edge point, vertex point,

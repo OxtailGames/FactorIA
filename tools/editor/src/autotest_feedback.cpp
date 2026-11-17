@@ -115,7 +115,7 @@ public:
 
 void Editor::at_section_E2(AtScript& at) {
     AT_SCRIPT_LOCALS(at)
-    // Feedback sharing (docs/EDITOR.md, "Feedback sharing"): the consent dialog (also what Send feedback shows while no mode is
+    // Feedback sharing (docs/editor/EDITOR_ASSISTANT.md, "Sharing feedback"): the consent dialog (also what Send feedback shows while no mode is
     // chosen), the Send feedback window (every entry that would go, checked by default, with the exact text; a text without a share
     // is made from the entry; an AI check of each text against a mock model; uncheck, Send and Cancel), the Add feedback window,
     // the panel's share column, the closed entries going to the archive, Feedback Settings (GitHub sign-in with a code on screen,

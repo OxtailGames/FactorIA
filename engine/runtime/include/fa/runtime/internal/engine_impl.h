@@ -17,6 +17,7 @@
 #include "fa/runtime/internal/background_loader.h"
 #include "fa/core/i18n.h"
 #include "fa/core/jobs.h"
+#include "fa/platform/websocket.h"
 #include "fa/render/text_measure.h"
 #include "fa/runtime/engine.h"
 #include "fa/runtime/input_recorder.h"
@@ -134,6 +135,8 @@ struct Engine::Impl {
         cpuText;  // text sizes when there is no renderer: the same fonts and shaping (fa/render/text_measure.h); settings kept in step either way
     std::unique_ptr<AppWindowControl> appWindow;  // windowed game only
     EngineClipboard clipboard;
+    std::unique_ptr<WebSocketClient>
+        websocketClient;     // websocket.connect: the platform's, or the memory one in headless runs and tests
     InputRecorder recorder;  // the Input observer; records only between start_input_recording and stop_input_recording
 
     // Scene props (scene.load(path, {props}), `factoria run --props`): the running scene's, and the ones the next load takes.
@@ -150,9 +153,16 @@ struct Engine::Impl {
     std::uint64_t frame = 0;
     std::uint64_t fixedStep = 0;  // fixed simulation steps run so far (several per frame when the frame was slow)
     bool paused = false;
+    bool wasUserPaused =
+        false;  // scripts.user_time_scale() was 0 at the start of the last frame (pad rumble stops on the edge)
+    void advance_pad_rumble(double dt);
+    bool cut_pad_rumble_on_pause();  // true on the edge of the game pausing itself (and then stops every pad)
     bool quit = false;
-    bool inFrame = false;  // between the start and the end of run_frame (commands defer risky work)
+    bool appEnded = false;  // end_app() ran
+    bool inFrame = false;   // between the start and the end of run_frame (commands defer risky work)
     double accumulator = 0.0;
+    double interpAlpha =
+        1.0;  // render interpolation: how far past the latest fixed step this frame is, 0..1 (1 = real pose)
     double fixedDt = 1.0 / 60.0;
     std::string pendingScene;
     bool hasPendingScene = false;

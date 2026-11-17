@@ -1,4 +1,4 @@
-# Fuzzing (tools/fuzz, docs/BUILDING.md "Fuzzing").
+# Fuzzing (tools/fuzz, docs/design/BUILDING_TESTS.md "Fuzzing").
 #
 #   FA_FUZZ=ON   Clang only: every target of tools/fuzz links libFuzzer, and the whole tree is built with AddressSanitizer
 #                and UndefinedBehaviorSanitizer (a UBSan finding stops the run like a crash, except inside external/: tools/fuzz/ubsan_ignorelist.txt), so the fuzzer sees the coverage
@@ -9,7 +9,7 @@
 # fa_add_fuzz_target(<name> DEPS <libraries>) in tools/fuzz/CMakeLists.txt builds tools/fuzz/targets/<name>.cpp as
 # fa_fuzz_<name> with the corpus tools/fuzz/corpus/<name>/. `fa_fuzz_all` builds every target.
 
-option(FA_FUZZ "Build the fuzz targets with libFuzzer, ASan and UBSan (Clang only; docs/BUILDING.md, 'Fuzzing')" OFF)
+option(FA_FUZZ "Build the fuzz targets with libFuzzer, ASan and UBSan (Clang only; docs/design/BUILDING_TESTS.md, 'Fuzzing')" OFF)
 
 if(FA_FUZZ)
     # AppleClang has no libFuzzer (a Homebrew LLVM clang does, and its id is plain "Clang").

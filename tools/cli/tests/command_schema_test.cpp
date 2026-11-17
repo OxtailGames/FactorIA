@@ -1,4 +1,4 @@
-// Every command's input schema is closed or explicitly open (docs/ARCHITECTURE.md, "Commands (the tool system)"):
+// Every command's input schema is closed or explicitly open (docs/design/ARCHITECTURE_COMMANDS.md, "Commands (the tool system)"):
 // CommandRegistry::add closes each object schema that declares `properties`, so an argument a handler reads but its schema
 // does not declare cannot be added without the schema saying so. This test builds the REAL registry of a project (engine,
 // tooling, ai and skills commands, as `factoria mcp` serves them) and holds it to that, so a new command with an undeclared

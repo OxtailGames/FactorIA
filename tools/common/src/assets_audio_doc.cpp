@@ -1,4 +1,4 @@
-// audio.info, audio.render, audio.bake, audio.create and audio.edit: audio documents (`*.audio.json`, docs/SOUND.md "Audio documents") as
+// audio.info, audio.render, audio.bake, audio.create and audio.edit: audio documents (`*.audio.json`, docs/sound/SOUND_DOCUMENTS.md "Audio documents") as
 // project files. The format and the renderer are fa_audio's (fa/audio/audio_doc.h); baking and its recipe are audio_doc_bake.cpp.
 #include <algorithm>
 #include <cmath>
@@ -557,7 +557,8 @@ void register_audio_doc_commands(CommandRegistry& registry, const std::string& p
         info.summary = "Check an audio document and say what its chain renders to; with no arguments, list the step "
                        "types and their fields.";
         info.description =
-            "An audio document (`*.audio.json`, docs/SOUND.md \"Audio documents\") is a non-destructive chain over a "
+            "An audio document (`*.audio.json`, docs/sound/SOUND_DOCUMENTS.md \"Audio documents\") is a "
+            "non-destructive chain over a "
             "sound: a WAV/OGG, an .sfx.json patch or another audio document, then steps (trim, fade, "
             "normalize, gain, pitch, stretch, speed, eq, filter, compressor, distortion, bitcrush, reverb, delay, "
             "reverse, layer, loop, granular). With `path` (or an inline `document`) this checks it: a document with "

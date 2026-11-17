@@ -125,3 +125,21 @@ TEST_CASE("scene.set_parent: index places the child among its siblings and bad i
     CHECK_FALSE(s.call("scene.spawn", R"({"id":"w","parent":"box","index":9})").ok);
     CHECK(order() == "kid,x,y,z");
 }
+
+TEST_CASE("scene.set_parent: positionReset says the child went to the slot of a parent that lays out") {
+    Session s;
+    REQUIRE(s.call("scene.set_component", R"({"id":"box","component":"Panel","fields":{"layout":"column"}})").ok);
+    REQUIRE(s.call("scene.set_component", R"({"id":"kid","component":"Button","fields":{}})").ok);
+    auto r = s.call("scene.set_parent", R"({"id":"kid","parent":"box","keepWorldTransform":false})");
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+    CHECK_FALSE(r.result.contains("positionReset"));  // the local Transform was kept on request
+    REQUIRE(s.call("scene.set_parent", R"({"id":"kid","parent":""})").ok);
+    r = s.call("scene.set_parent", R"({"id":"kid","parent":"box"})");
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+    CHECK(r.result["positionReset"] == true);
+    r = s.call("scene.get_entity", R"({"id":"kid"})");
+    CHECK(r.result["components"]["Transform"]["position"][0].get<double>() == doctest::Approx(0));
+    r = s.call("scene.set_parent", R"({"id":"kid","parent":"box","index":0})");  // the same parent: only the order
+    REQUIRE(r.ok);
+    CHECK_FALSE(r.result.contains("positionReset"));
+}

@@ -1,4 +1,4 @@
-// Every command the runtime registers declares its capabilities (core/capability.h, docs/ARCHITECTURE.md, "Commands",
+// Every command the runtime registers declares its capabilities (core/capability.h, docs/design/ARCHITECTURE_COMMANDS.md, "Commands",
 // "Capabilities"), and a few of them are checked for the set that matters most: what a game script may and may not call.
 #include <doctest.h>
 

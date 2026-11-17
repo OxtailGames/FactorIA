@@ -4,15 +4,19 @@
 // iOS smoke tests wait for). Fails on a page error, a console.error line, or when the marker does not come in time.
 //
 //   node platforms/web/smoke.mjs <export folder> [--browser <path>] [--timeout <seconds>] [--screenshot <png>]
-//                                [--type <text> --expect <console line>] [--also <text>]
+//                                [--type <text> --expect <console line>] [--also <text>] [--allow-log <text>]
 //
 // --type: once the frames are rendered, clicks the canvas and types <text> with real key events (CDP Input.dispatchKeyEvent:
 // keydown, keypress and input, like a keyboard), and waits for a console line containing <text> after --expect (the game
 // logs what its TextField holds). The web player takes typed text from the keypress events of the window, so this is the
 // check that typing works in a browser; scripts/web-smoke.sh puts a TextField in the game for it.
 //
-// --also: the run passes only once a console line containing <text> has been seen as well (before or after the typing), within the
-// timeout; without --type it is waited for after the frames are rendered. web-smoke.sh waits for the determinism probe's line.
+// --also (it can be repeated): the run passes only once a console line containing each <text> has been seen as well (before or
+// after the typing), within the timeout; without --type it is waited for after the frames are rendered. web-smoke.sh waits for the determinism probe's line.
+//
+// --allow-log (it can be repeated): a browser log line of level error that contains <text> is an expected error and does not fail
+// the run (it is printed as "[log.error, expected]"); any other error still fails it, and an expected one that never comes is not a
+// failure. web-smoke.sh uses it for the error Chrome writes itself when the game opens a WebSocket to a closed port.
 //
 // The browser: --browser, else $CHROME_BIN, else the first of google-chrome, chromium, chrome, msedge found in PATH or in
 // the usual install folders of Windows and macOS. Needs Node 22 or newer (built-in WebSocket and fetch), nothing to install.
@@ -32,10 +36,15 @@ const timeoutMs = Number(opt('--timeout', '60')) * 1000;
 const screenshot = opt('--screenshot', '');
 const typeText = opt('--type', '');
 const expectPrefix = opt('--expect', '');
-const alsoText = opt('--also', '');
+// --also can be given several times: every text has to be seen.
+const alsoTexts = [];
+for (let i = args.indexOf('--also'); i >= 0; i = args.indexOf('--also')) alsoTexts.push(args.splice(i, 2)[1]);
+// --allow-log can be given several times: a browser error line that contains one of the texts does not fail the run.
+const allowedLogs = [];
+for (let i = args.indexOf('--allow-log'); i >= 0; i = args.indexOf('--allow-log')) allowedLogs.push(args.splice(i, 2)[1]);
 const dir = args[0];
 if (!dir || !fs.existsSync(path.join(dir, 'index.html'))) {
-  console.error('usage: node smoke.mjs <export folder with index.html> [--browser path] [--timeout seconds] [--screenshot out.png] [--type text --expect prefix]');
+  console.error('usage: node smoke.mjs <export folder with index.html> [--browser path] [--timeout seconds] [--screenshot out.png] [--type text --expect prefix] [--also text] [--allow-log text]');
   process.exit(2);
 }
 
@@ -75,7 +84,10 @@ const browser = spawn(findBrowser(), [
 ], { stdio: ['ignore', 'ignore', 'pipe'] });
 
 let code = 1;
+let finished = false;
 function finish(status, why) {
+  if (finished) return;  // the first verdict stands: a failure is not overwritten by a pass that comes within the 500 ms
+  finished = true;
   if (why) console.log(why);
   code = status;
   try { browser.kill(); } catch {}
@@ -99,11 +111,12 @@ else {
   let nextId = 1;
   let typing = false, typeTimer = null;
   // --also: the pass waits for a console line containing alsoText as well.
-  let alsoSeen = !alsoText, passMessage = null, alsoTimer = null;
+  const alsoLeft = new Set(alsoTexts);
+  let passMessage = null, alsoTimer = null;
   const pass = (message) => {
     passMessage = message;
-    if (alsoSeen) finish(0, message);
-    else alsoTimer = setTimeout(() => finish(1, `FAIL: no console line containing "${alsoText}" within 30 s of the rest passing`), 30000);
+    if (!alsoLeft.size) finish(0, message);
+    else alsoTimer = setTimeout(() => finish(1, `FAIL: no console line containing "${[...alsoLeft].join('" and "')}" within 30 s of the rest passing`), 30000);
   };
   const pending = new Map();
   const send = (method, params = {}, sessionId) => new Promise((resolve) => {
@@ -133,10 +146,8 @@ else {
       const text = msg.params.args.map((a) => a.value ?? a.description ?? '').join(' ');
       console.log(`[console.${msg.params.type}] ${text}`);
       if (msg.params.type === 'error') { clearTimeout(timer); finish(1, `FAIL: console.error: ${text}`); }
-      if (alsoText && text.includes(alsoText)) {
-        alsoSeen = true;
-        if (passMessage) { clearTimeout(alsoTimer); finish(0, passMessage); }
-      }
+      for (const wanted of [...alsoLeft]) if (text.includes(wanted)) alsoLeft.delete(wanted);
+      if (passMessage && !alsoLeft.size) { clearTimeout(alsoTimer); finish(0, passMessage); }
       if (typing && text.includes(expectPrefix + typeText)) {
         clearTimeout(typeTimer);
         pass(`OK: the player rendered 60 frames and the field took "${typeText}"`);
@@ -158,7 +169,12 @@ else {
       clearTimeout(timer);
       finish(1, `FAIL: page error: ${d.exception?.description || d.text}`);
     } else if (msg.method === 'Log.entryAdded' && msg.params.entry.level === 'error') {
-      console.log(`[log.error] ${msg.params.entry.text} ${msg.params.entry.url || ''}`);
+      const entryText = `${msg.params.entry.text} ${msg.params.entry.url || ''}`;
+      if (allowedLogs.some((allowed) => entryText.includes(allowed))) {
+        console.log(`[log.error, expected] ${entryText}`);
+        return;
+      }
+      console.log(`[log.error] ${entryText}`);
       if (/favicon/.test(msg.params.entry.url || '')) return;  // a missing favicon is not a failure
       clearTimeout(timer);
       finish(1, `FAIL: ${msg.params.entry.text} ${msg.params.entry.url || ''}`);

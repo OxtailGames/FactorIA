@@ -12,8 +12,13 @@ namespace {
 void register_authoring_commands(Engine& engine) {
     Engine::Impl& impl = engine.runtime_impl();
 
+    // project settings
+    register_project_secret_commands(engine, impl);  // project.create_storage_secret
+
     // scenes, prefabs
     register_scene_file_commands(engine, impl);
+    register_prefab_override_commands(engine, impl);  // prefab.overrides, prefab.revert, prefab.apply
+    register_scene_clipboard_commands(engine, impl);  // scene.copy_entities, scene.paste_entities
 
     // animation, rigs
     register_anim_commands(engine, impl);   // anim.create_clip, anim.set_keys, anim.list, anim.check, ...

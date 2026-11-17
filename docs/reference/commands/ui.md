@@ -66,6 +66,20 @@ TouchStick and TouchButton with touchOnly (the default) are drawn only while the
 |---|---|---|---|
 | `enabled` | boolean | no | true: force the touch interface on; false: back to following the real last input. Default true. |
 
+## `ui.reset_layout_positions` (modifies state)
+
+Since 0.30.0.
+
+Migrate a scene saved before 0.30: set Transform.position x and y to 0 on the laid-out children whose position holds the old layout result.
+
+Capabilities: read, state
+
+Before 0.30 a Panel or ScrollList wrote where it placed a child into the child's Transform.position, and a saved scene kept it. Now the layout keeps its own offset and Transform.position of a laid-out child is the author's nudge from the slot (0 = in the slot), so such a child sits that far from where it was. This runs a layout pass and sets x and y of the position to 0 on every laid-out child whose position equals its layout offset (within half a pixel), so the picture stays what the old engine drew. It changes the open scene only: save it afterwards (scene.save); in the editor it is one undo step. Returns {count, ids, dryRun}. The test is a guess. A nudge you made on purpose that happens to equal the slot offset is reset too (the log names each such child the first time a layout sees it), and a child of a ScrollList is compared with the offset it has at the list's current scroll, so a list scrolled since the scene was loaded can hide a baked position: run this right after loading the scene. With `dryRun` true nothing is written: look at the ids first. Example: ui.reset_layout_positions {"dryRun":true}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `dryRun` | boolean | no | true = only list the entities that would be reset (count and ids), change nothing. Default false. |
+
 ## `ui.set_mirror_rtl` (modifies state)
 
 Since 0.3.0.
@@ -74,7 +88,7 @@ Turn the mirroring of the screen-space UI in a right-to-left language on or off.
 
 Capabilities: read, state
 
-The same as `ui.mirrorRtl = value` in a script (docs/LOCALIZATION.md, "Right to left"). On (the default, or the "ui": {"mirrorRtl"} of factoria.json) and with i18n.direction "rtl", the screen-space widgets and the Text, Sprite and Shape2D under them are mirrored: anchor.x, pivot.x and position.x flip, Toggle boxes sit on the right and Sliders run right to left; a widget with UiBox.mirror false stays. Returns {mirrorRtl, mirrored}: `mirrored` is whether the UI is mirrored now (the option and a right-to-left language). Example: ui.set_mirror_rtl {"value":false}
+The same as `ui.mirrorRtl = value` in a script (docs/LOCALIZATION.md, "Right-to-left text"). On (the default, or the "ui": {"mirrorRtl"} of factoria.json) and with i18n.direction "rtl", the screen-space widgets and the Text, Sprite and Shape2D under them are mirrored: anchor.x, pivot.x and position.x flip, Toggle boxes sit on the right and Sliders run right to left; a widget with UiBox.mirror false stays. Returns {mirrorRtl, mirrored}: `mirrored` is whether the UI is mirrored now (the option and a right-to-left language). Example: ui.set_mirror_rtl {"value":false}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|

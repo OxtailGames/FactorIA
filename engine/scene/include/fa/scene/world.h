@@ -32,6 +32,7 @@
 #include "fa/core/reflect.h"
 #include "fa/scene/components.h"
 #include "fa/scene/feel.h"
+#include "fa/scene/interpolation.h"
 #include "fa/scene/mesh_store.h"
 #include "fa/scene/ui_tooltip.h"
 
@@ -233,7 +234,7 @@ public:
 
     // The parent's world matrix * the local TRS, from the root down (identity for a dead entity). It comes from a cache
     // that is filled on demand and kept until something that can change it is written, so reading the same entities
-    // again costs a copy of 16 floats. THE RULES (docs/ARCHITECTURE.md, "The hierarchy cache"):
+    // again costs a copy of 16 floats. THE RULES (docs/design/ARCHITECTURE_CORE.md, "The hierarchy cache"):
     //  * Every MUTABLE access to a Transform or an EntityInfo invalidates: World::get<T>(e) / get(e, type) / add /
     //    info(e) on a non-const World, a callback of each<Transform>, set_parent, set_world_position and set_active. So
     //    any way of writing (C++, reflection, scripts, commands, the inspector, animation) is seen, and a reader that
@@ -252,12 +253,35 @@ public:
     // world_matrix() with the visual poses of the game feel effects (shake, squash; feel.h) multiplied into each entity
     // of the chain: what is DRAWN. Equal to world_matrix() while no such effect runs. Only drawing uses it; picking,
     // bounds, physics, audio and scripts read world_matrix() / the Transform, which an effect never changes.
-    Mat4 drawn_matrix(Entity e) const;
+    // With render interpolation (interpolation.h) each entity of the chain is also blended between its last two fixed steps.
+    // blended = false leaves the render interpolation out (the game feel poses stay): what scripts, picking and UI hit tests
+    // build their camera views from, so an answer never depends on how far past the last step the frame is.
+    Mat4 drawn_matrix(Entity e, bool blended = true) const;
+    // The LOCAL part of drawn_matrix: e's own matrix (position + layout offset, rotation, scale) with its visual pose, relative
+    // to its parent. drawn_matrix(e) == drawn_matrix(parent) * drawn_local_matrix(e) in exact arithmetic; building it directly
+    // never inverts the parent, so a parent that scales to zero cannot turn it into garbage. Identity for a dead entity.
+    Mat4 drawn_local_matrix(Entity e, bool blended = true) const;
     void set_world_position(Entity e, Vec3 p);  // converts into the parent's space
     // How many writes dropped a cached world matrix or active-in-hierarchy answer that was valid (see world_matrix);
     // the entries below it that go with it are not counted one by one. It never goes down; reading through a const
     // World does not move it.
     std::uint64_t hierarchy_version() const;
+
+    // The UI layout's placement of a laid-out child (Panel / ScrollList children, ui.h): where the slot is, as an offset in UI
+    // units in the parent's layout space, kept OUT of Transform.position (the author's own offset from the slot). It is
+    // part of the entity's local matrix, so world_matrix / world_position / drawn_matrix of the child and of everything
+    // below it include it, and `set_world_position` / the editor's gizmo subtract it again; it is never saved, never
+    // snapshotted and never read by scripts as a field (`entity.position` stays the author's offset). Written only by
+    // UiSystem::layout every frame (it clears the offset of what it did not place), erased with the entity and by clear().
+    // Zero (no entry) for everything else; reading costs nothing while no entry exists.
+    Vec2 ui_layout_offset(Entity e) const;
+    // Sets the offset (zero removes the entry). Drops the cached matrices of the entity and its subtree when it changes.
+    void set_ui_layout_offset(Entity e, Vec2 offset);
+    // Every entity with a non-zero offset, in no particular order.
+    std::vector<Entity> ui_layout_offset_entities() const;
+    // Removes every offset except those of the entities `keep` answers true for, in place (no list of the entities is built).
+    // Returns how many it removed. The cached matrices of the removed entities and their subtrees are dropped.
+    std::size_t clear_ui_layout_offsets_except(const std::function<bool(Entity)>& keep);
 
     // --------------------------------------------------------------- misc
     SceneSettings& settings() { return settings_; }
@@ -269,6 +293,15 @@ public:
     // reduce motion / reduced effects choices. clear() drops the effects and keeps the choices.
     FeelState& feel() { return feel_; }
     const FeelState& feel() const { return feel_; }
+    // Render interpolation (interpolation.h): the project default, the records of the interpolated entities and the poses
+    // drawn_matrix blends this frame. clear() forgets the records and keeps the settings.
+    InterpState& interp() { return interp_; }
+    const InterpState& interp() const { return interp_; }
+    // The pose `e` has now is a jump, not a move: the next draw shows it where it is instead of blending from where it was.
+    void interp_teleport(Entity e);
+    // Calls visit(ctx, entity, transform) for every Transform, in place, WITHOUT counting as a write (the hierarchy cache
+    // keeps what it holds): for systems that only read every pose (render interpolation).
+    void walk_transforms_readonly(void* ctx, void (*visit)(void* ctx, Entity e, const Transform& t)) const;
     // The part of the screen covered by a notch, rounded corners or system bars, in DESIGN pixels (the renderer's
     // target size, origin top-left). The windowed runtime sets it every frame from the device; a headless run or a test
     // sets it to try a "notched device". Anchored items with `safeArea` stay inside what is left (anchor_point,
@@ -363,11 +396,14 @@ private:
     // A mutable reference to a component of `type` of `e` is about to be given out: drops what the hierarchy cache
     // keeps when it is a Transform or an EntityInfo.
     void note_mutable_access(Entity e, const TypeInfo& type);
+    // The local matrix of `e` with its game feel and (when `ip` is not null) render interpolation poses.
+    Mat4 drawn_local(Entity e, const InterpState* ip) const;
     std::unique_ptr<Impl> impl_;
     SceneSettings settings_;
     WorldEvents events_;
     Rng rng_;
     FeelState feel_;
+    InterpState interp_;
     EdgeInsets safeInsets_;
     float uiScale_ = 1.0f;
     UiTooltipSettings tooltipSettings_;

@@ -1,4 +1,4 @@
-// The string-table and font-coverage checks of project.validate (docs/LOCALIZATION.md, "factoria validate"). validate.cpp collects
+// The string-table and font-coverage checks of project.validate (docs/LOCALIZATION.md, "Checks"). validate.cpp collects
 // the texts the scenes and prefabs put on screen while it walks them, and hands them over with the "localization" section.
 #pragma once
 

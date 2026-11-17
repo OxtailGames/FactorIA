@@ -47,7 +47,7 @@ struct ModelIssue {
 //   [x, y, z]), "count3" (an integer for all three, or [x, y, z]), "count2" (an integer for both, or [x, z]), "color" ([r, g, b] or
 //   [r, g, b, a] in 0..1, or "#rrggbb" / "#rrggbbaa"), "points2" (a list of [a, b] pairs), "points3" (a list of [x, y, z]), "rings" (a list
 //   of lists of [x, y, z]: the sections of a loft), "nodes" (a list of nodes), "faces" / "edges" (a selection query, an object with a `by`:
-//   model_select.h, docs/MODELING.md "Selections").
+//   model_select.h, docs/modeling/MODELING_EDITING.md "Selections and edits").
 // `min` / `max` bound every number inside a vec / points field; `minItems` / `maxItems` bound the length of a points list or of the list of
 // sections of "rings", and `innerMinItems` / `innerMaxItems` the points of each section.
 struct ModelFieldInfo {

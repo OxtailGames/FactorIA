@@ -64,7 +64,9 @@ struct TextInputRequest {
     Rect rect;            // the field's rectangle, design pixels (empty when the field is gone)
     std::string text;
     std::int32_t maxLength = 0;
-    bool multiline = false, password = false;  // no TextField has either yet
+    bool multiline = false;  // no TextField is multi-line yet
+    // The field's `password`: the platform's keyboard must not suggest or remember what is typed.
+    bool password = false;
 };
 // Returns true when the platform shows its own keyboard for the field. For a request with `focused` false it is ignored.
 using TextInputHandler = std::function<bool(const TextInputRequest&)>;
@@ -177,6 +179,12 @@ struct UiClickAim {
 
 class UiSystem {
 public:
+    UiSystem() = default;
+    // Gives the IME back (a UiSystem that turned it on turns it off, see set_design_to_window).
+    ~UiSystem();
+    UiSystem(const UiSystem&) = delete;
+    UiSystem& operator=(const UiSystem&) = delete;
+
     // Every frame, before scripts.update: lays out containers, then updates hover / press / focus / values from `input`
     // and pushes ui.* events. `dt` is REAL (unscaled) seconds: the UI works while time.scale is 0. `designSize` is the
     // renderer's target size (anchors are relative to it). It also hands the rectangles of the active TouchStick and
@@ -189,11 +197,20 @@ public:
     void sync_touch_controls(World& world, Input& input, Vec2 designSize);
 
     // Lays out Panel (layout != none) and ScrollList children only, in UI units (ui_rect.h: the world's ui_scale()), and holds a
-    // Panel between its minSize and maxSize. update() calls it first; the runtime calls it again
+    // Panel between its minSize and maxSize. A child is placed by World::ui_layout_offset, never by writing its Transform.position
+    // (that stays the author's nudge from the slot); the offset of anything the pass did not place is cleared. update() calls it first; the runtime calls it again
     // right before drawing so changes a script made during the frame are drawn in place. `warn` false (ui.layout() from a
     // script, which is still changing the menu) skips the "fit panel larger than the screen" warning: the frame's own
     // layout logs it if the final menu is still too big.
     void layout(World& world, Vec2 designSize, const VisualMeasure& measure, bool warn = true);
+
+    // Migrates a scene saved before 0.30, whose laid-out children carry the layout's result in Transform.position: sets x and y of
+    // the position to 0 for every laid-out child whose position equals its layout offset (what the old engine wrote), after a
+    // layout pass has run. Returns the ids of the entities it changed (dryRun: the ids it WOULD change, nothing is written). The
+    // picture does not change: the offset stays. The test is a guess: a nudge made on purpose that equals the slot offset counts
+    // too, and a child of a ScrollList is compared with the offset it has at the list's CURRENT scroll, so a list scrolled since
+    // the scene was loaded can hide a baked position: run it right after loading the scene, and look at a dryRun first.
+    std::vector<std::string> reset_baked_positions(World& world, bool dryRun = false);
 
     // The clipboard a focused TextField pastes from (Ctrl+V / Cmd+V) and copies to (Ctrl+C / Cmd+C). The Engine sets it;
     // without one the keys do nothing.
@@ -204,6 +221,19 @@ public:
     // is true until the field loses the focus, and the menu kit's on-screen keyboard stays closed. Without a handler nothing
     // changes. The handler runs inside update() and reset() on the game thread.
     void set_text_input_handler(TextInputHandler handler) { textInput_ = std::move(handler); }
+    // How the IME is told where the caret is (fa/platform/ime.h): the UI turns the IME on while a TextField has the focus and
+    // sends the exact rectangle of the field's caret every frame (a thin bar at the caret, or inside the composition).
+    // `mapper` takes a design pixel to a FRAMEBUFFER pixel (the Engine sets it from its window, the same mapping as the platform
+    // keyboard's rectangle: not divided by the DPI scale); without one, design pixels are framebuffer pixels. The editor's
+    // embedded game view sets none, so a candidate window there sits at the design pixel, not under the viewport's caret.
+    // A turned TextField gives the IME the axis-aligned bounding box of its caret bar as drawn: the candidate window of a
+    // rotated field sits at that box, not on the tilted bar.
+    // The IME is one per process, so only ONE UiSystem has it at a time: the first whose focused field wants it keeps it until that
+    // field loses the focus, the UiSystem is reset or destroyed, or it stops updating (more than 30 update() calls of other
+    // UiSystems go by without one of its own: the editor's panels while a game runs, left with a focused field; the other UI then
+    // drops what was composing and takes over). Another UiSystem's TextField is typed into as a plain field (no composition, no
+    // candidate window) meanwhile and takes the IME on the update after it is free. Neither UiSystem is thread-safe: the game thread.
+    void set_design_to_window(std::function<Vec2(Vec2)> mapper) { designToWindow_ = std::move(mapper); }
     // Text the platform keyboard returned: replaces the text of the field that took the keyboard if it still has the focus
     // (cut to its maxLength, control characters dropped) and sends ui.change when the text changed. False when no field is
     // waiting for it: the text is dropped.
@@ -339,7 +369,12 @@ private:
         Vec2 design, applied;
     };
     std::unordered_map<u64, AutoSizeMemo> autoSizes_;
-    std::unordered_set<u64> warnedFit_;  // fit panels already reported as larger than the screen
+    std::unordered_set<u64> warnedClip_;  // turned ScrollLists already reported (their scissor is the bounding box)
+    std::unordered_set<u64> warnedFit_;   // fit panels already reported as larger than the screen
+    std::unordered_set<u64>
+        warnedBaked_;  // laid-out children whose position looks baked by an older engine, already reported
+    std::unordered_set<u64>
+        placed_;  // what the running layout pass gave a layout offset (the rest is cleared at its end)
 
     Entity focus_, hover_, press_;
     Entity hoverFocused_;  // the hovered Interactable whose focusOnHover entry already moved the focus
@@ -356,18 +391,57 @@ private:
          wheelConsumed_ = false;
     Vec2 pointerPos_{};
     TextInputHandler textInput_;
+    std::function<Vec2(Vec2)> designToWindow_;
+    // This UI holds the IME (a TextField has the focus and no other UiSystem had it first).
+    bool holds_ime() const;
+    std::uint64_t imeUpdate_ =
+        0;             // the process-wide count of update() calls at this UI's last one (a holder that stopped)
+    Entity imeField_;  // the TextField the IME is working for (the focused one; kNullEntity = none)
+    // Gives the IME back if this UI holds it: (cancels the composition,) turns it off.
+    void release_ime(bool cancel = true);
     Clipboard* clipboard_ = nullptr;
     Entity platformField_;  // the TextField the platform keyboard was taken for (kNullEntity = none)
     Entity askedField_;     // the TextField the handler was asked about since it got the focus
     void release_platform_keyboard(const World* world);
     void drop_focus(World& world);  // lets go of the focus: the flag goes down, an Interactable sends ui.blur
-    bool keyboardRaised_ =
-        false;                    // the UI asked for the phone's keyboard (a TextField has focus, last input not a pad)
+    // The UI asked for the phone's keyboard (a TextField has focus, last input not a pad).
+    bool keyboardRaised_ = false;
     bool scrollToFocus_ = false;  // the focus changed: the next layout scrolls the focused widget into view
     float clock_ = 0.0f;          // the UI's own unscaled clock (caret blink)
     float caretStart_ = 0.0f;     // clock_ at the last edit or focus change: the caret is visible then
     std::array<Repeat, 4> nav_;   // up, down, left, right
-    Repeat backspace_;
+    Repeat backspace_, delete_;
+
+    // TextField editing (textfield.cpp). The UI remembers what it last wrote to the focused field, so a script that writes the
+    // text, caretIndex or the selection in between is told from the player's edits.
+    struct FieldMemo {
+        Entity e;
+        std::string text;
+        std::int32_t caret = 0, selStart = 0, selEnd = 0;
+    };
+    FieldMemo fieldMemo_;
+    float clickTime_ = -100.0f;  // clock_ at the last press on a TextField (double and triple click)
+    Entity clickField_;
+    Vec2 clickPos_;
+    int clickCount_ = 0;
+    Rect imeCaret_;  // the focused field's caret in design pixels, this frame (valid when imeCaretValid_)
+    bool imeCaretValid_ = false;
+    void field_focus(World& world, Entity e);  // the caret goes to the end of a field that got the focus
+    // Reads the caret and the anchor of the selection from the field, after what a script may have written since
+    // the UI last did.
+    void field_sync(Entity e, TextField& tf, std::int32_t& caret, std::int32_t& anchor);
+    // Writes them (`text` is already written); the memo follows only when `e` is the field it is about.
+    void field_store(Entity e, TextField& tf, std::int32_t caret, std::int32_t anchor);
+    // Typing, deleting, clipboard, Home / End.
+    void field_keys(World& world, Entity e, TextField& tf, Input& in, float dt);
+    void field_arrow(World& world, Entity e, TextField& tf, Input& in, bool left);
+    // Types the IME's composition into field `e` at its caret (once) and ends it in `in`; the caller then tells the backend.
+    void field_commit_composition(World& world, Entity e, Input& in);
+    // A press, drag or release of the pointer on the focused TextField `e` (mouse in screen pixels).
+    void field_pointer(World& world, Entity e, TextField& tf, Input& in, Vec2 design, Vec2 mouse, bool pressed,
+                       bool down, const VisualMeasure& measure);
+    // Per frame, for the focused or any field: the scroll, composition caret and (focused) the IME's caret rectangle.
+    void field_frame(World& world, Entity e, TextField& tf, Input& in, Vec2 design, const VisualMeasure& measure);
 
     // Chart hover: the chart and sample the pointer was over at the last update (ui.chartHover is sent when it changes).
     void update_chart_hover(World& world, Vec2 designSize, Vec2 mouse);

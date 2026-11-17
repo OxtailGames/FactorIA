@@ -89,6 +89,21 @@ const char* kGizmo3dScene = R"({
     { "id": "gem", "components": { "Transform": { "rotation": [10, 20, 0] }, "MeshRenderer": { "mesh": "cube", "color": [0.9, 0.5, 0.2, 1] } } }
   ]
 })";
+// Section M4: the marquee over 3D meshes, under a perspective camera that draws the left half of the design area (a viewport
+// counted in design pixels). "front" and "far" are in front of the camera, "behind" is behind it, "straddle" is a thin bar through the
+// camera plane (its corners in front of the camera project inside any rectangle around the centre, the others cannot be projected).
+const char* kMarquee3dScene = R"({
+  "format": "factoria.scene/1",
+  "entities": [
+    { "id": "camera", "components": { "Transform": { "position": [0, 0, 6] },
+        "Camera": { "projection": "perspective", "fov": 60, "primary": true, "viewport": [0, 0, 0.5, 1], "viewportSpace": "design" } } },
+    { "id": "sun", "components": { "Transform": { "position": [0, 5, 0], "rotation": [-50, 30, 0] }, "Light": { "intensity": 0.8 } } },
+    { "id": "front", "components": { "Transform": { "position": [0, 0, 0] }, "MeshRenderer": { "mesh": "cube" } } },
+    { "id": "far", "components": { "Transform": { "position": [0, 0, -20] }, "MeshRenderer": { "mesh": "cube" } } },
+    { "id": "behind", "components": { "Transform": { "position": [0, 0, 10] }, "MeshRenderer": { "mesh": "cube" } } },
+    { "id": "straddle", "components": { "Transform": { "position": [0, 0, 6], "scale": [0.01, 0.01, 3] }, "MeshRenderer": { "mesh": "cube" } } }
+  ]
+})";
 const char* kGizmoHudScene = R"({
   "format": "factoria.scene/1",
   "entities": [
@@ -230,7 +245,7 @@ void Editor::at_section_K(AtScript& at) {
         step(2, [this, ms] {
             const Renderer* r = engine_->renderer();
             ms->skip = !r || !r->stats(false).materialFallbacks.empty();
-            // CI installs the compiler and sets FA_REQUIRE_SHDC=1 (docs/BUILDING.md): there a material that did not build fails.
+            // CI installs the compiler and sets FA_REQUIRE_SHDC=1 (docs/design/BUILDING.md): there a material that did not build fails.
             const char* required = std::getenv("FA_REQUIRE_SHDC");
             if (ms->skip && required && std::string(required) == "1")
                 at_check(false, "the custom material builds (FA_REQUIRE_SHDC=1)");
@@ -622,6 +637,296 @@ void Editor::at_section_L(AtScript& at) {
             reload_scene_from_disk();
         });
     }
+
+    // ------------------------------------------------------- L2. Command entries: field and component edits store commands
+    // An edit of a field or a component is a Command entry (two command lists, undo_inverse.h), not a copy of the scene: it undoes
+    // and redoes, a drag or a typed value is one entry, a snapshot and a command entry never merge, a refused edit leaves nothing,
+    // 100 edits cost less than one snapshot of a big scene, and a step that fails midway puts the scene back.
+    {
+        struct CmdEdit {
+            size_t depth = 0, redoDepth = 0, bytes = 0;
+        };
+        auto ce = std::make_shared<CmdEdit>();
+        auto pos_x = [this] {
+            Entity e = world().find_by_id("coin_2");
+            const Transform* t = e.is_null() ? nullptr : world().get<Transform>(e);
+            return t ? t->position.x : 9999.0f;
+        };
+        auto move_to = [this](const std::string& key, float x) {
+            std::string err;
+            return edit_command(key, "scene.set_component",
+                                field_edit_args("coin_2", "Transform", "position", Json::array({x, -160.0f, 0.0f})),
+                                &err);
+        };
+        step(2, [this, project_file] {
+            stop();
+            select_id("");
+            write_file(project_file(scenePath_), kFixtureScene);
+            reload_scene_from_disk();
+            toasts_.clear();
+        });
+        // One field edit: a Command entry with one command each way; Undo and Redo apply it.
+        step(2, [this, ce, move_to, pos_x] {
+            at_check(undo_depth() == 0, "(L2) a reloaded scene starts with an empty undo stack");
+            at_check(move_to("at:cmd:one", 40.0f).ok && pos_x() == 40.0f, "(L2) a field edit goes through");
+            at_check(undo_depth() == 1 && undo_.back().kind == UndoEntry::Kind::Command,
+                     "(L2) an edit of a field is a Command entry, not a snapshot");
+            at_check(undo_.back().forward.size() == 1 && undo_.back().inverse.size() == 1 &&
+                         undo_.back().forward[0].cmd == "scene.set_component",
+                     "(L2) ...with one forward and one inverse command");
+            at_check(undo_.back().inverse[0].args["fields"]["position"][0] == 250,
+                     "(L2) ...whose inverse holds the value the field had");
+            undo();
+            at_check(pos_x() == 250.0f && undo_depth() == 0 && redo_depth() == 1, "(L2) Undo puts the old value back");
+            redo();
+            at_check(pos_x() == 40.0f && undo_depth() == 1 && redo_depth() == 0, "(L2) Redo sets the new value again");
+            // A drag: the same key within kEditCoalesceSeconds is the same entry, which keeps the first inverse.
+            move_to("at:cmd:drag", 41.0f);
+            ce->depth = undo_depth();
+            for (float x : {42.0f, 43.0f}) move_to("at:cmd:drag", x);
+            at_check(undo_depth() == ce->depth && pos_x() == 43.0f, "(L2) the same key in a drag stays ONE entry");
+            undo();
+            at_check(pos_x() == 40.0f, "(L2) ...and Undo goes back to the value before the whole drag");
+            redo();
+            at_check(pos_x() == 43.0f, "(L2) ...Redo to the last value of it");
+            // A command edit right after a snapshot step with its key joins that step (the snapshot restores the scene from
+            // before both); a snapshot after a command step with its key is a step of its own (docs/EDITOR.md, "Undo entries").
+            ce->depth = undo_depth();
+            begin_edit("at:cmd:mix");
+            move_to("at:cmd:mix", 50.0f);
+            at_check(undo_depth() == ce->depth + 1 && undo_.back().kind == UndoEntry::Kind::Snapshot,
+                     "(L2) a command edit with the key of the snapshot step just before it joins that step");
+            move_to("at:cmd:mix2", 51.0f);
+            at_check(undo_depth() == ce->depth + 2 && undo_.back().kind == UndoEntry::Kind::Command,
+                     "(L2) a command edit with another key is a command step");
+            begin_edit("at:cmd:mix2");
+            at_check(undo_depth() == ce->depth + 3 && undo_.back().kind == UndoEntry::Kind::Snapshot,
+                     "(L2) ...and a snapshot never merges into a command entry, even with the same key");
+            // A refused edit leaves no entry and keeps the redo list.
+            undo();
+            undo();
+            ce->depth = undo_depth();
+            ce->redoDepth = redo_depth();
+            at_check(ce->redoDepth == 2, "(L2) two undone steps wait in the redo list");
+            std::string err;
+            const CommandResult bad = edit_command("at:cmd:bad", "scene.set_component",
+                                                   field_edit_args("coin_2", "Shape2D", "thickness", -5.0f), &err);
+            at_check(!bad.ok && undo_depth() == ce->depth && redo_depth() == ce->redoDepth,
+                     "(L2) a refused edit leaves no entry and keeps the redo list");
+            at_check(!bad.ok && err.find("thickness") != std::string::npos &&
+                         err.find("outside the allowed range") != std::string::npos,
+                     "(L2) ...because the value is out of the field's range: " + err);
+            // A component that was absent: set adds it, undo removes it, redo adds it with its value; remove and undo.
+            const CommandResult added = edit_command(
+                "at:cmd:add", "scene.set_component",
+                Json::object(
+                    {{"id", "coin_2"}, {"component", "Light"}, {"fields", Json::object({{"intensity", 3.0}})}}),
+                &err);
+            Entity coin = world().find_by_id("coin_2");
+            const TypeInfo& light = *TypeRegistry::global().find("Light");
+            at_check(added.ok && world().get(coin, light) != nullptr && undo_.back().kind == UndoEntry::Kind::Command &&
+                         undo_.back().inverse[0].cmd == "scene.remove_component",
+                     "(L2) adding a component is a Command entry whose inverse removes it");
+            undo();
+            at_check(world().get(coin, light) == nullptr, "(L2) Undo removes the component again");
+            redo();
+            at_check(world().get(coin, light) != nullptr &&
+                         component_to_json(world(), coin, light, true, false)["intensity"] == 3.0,
+                     "(L2) Redo adds it back with its value");
+            edit_command("at:cmd:rm", "scene.remove_component",
+                         Json::object({{"id", "coin_2"}, {"component", "Light"}}), &err);
+            at_check(world().get(coin, light) == nullptr && undo_.back().kind == UndoEntry::Kind::Command,
+                     "(L2) removing a component is a Command entry");
+            undo();
+            at_check(world().get(coin, light) != nullptr &&
+                         component_to_json(world(), coin, light, true, false)["intensity"] == 3.0,
+                     "(L2) Undo gives the component back with its old value");
+        });
+        // 100 edits of a big scene: the stack holds commands, so it stays far below one snapshot of the scene.
+        step(2, [this, ce] {
+            for (int i = 0; i < 1000; ++i)
+                engine_->commands().call(
+                    "scene.spawn",
+                    Json::object(
+                        {{"name", "bulk" + std::to_string(i)},
+                         {"components",
+                          Json::object({{"Transform", Json::object({{"position", Json::array({i, 5, 0})}})},
+                                        {"Shape2D", Json::object({{"size", Json::array({8, 9})}})},
+                                        {"Script", Json::object({{"props", Json::object({{"speed", 3}})}})}})}}));
+            undo_.clear();
+            redo_.clear();
+            const size_t sceneBytes = estimate_json_bytes(snapshot_scene(world()));
+            for (int i = 0; i < 100; ++i) {
+                std::string err;
+                edit_command("at:cmd:bulk:" + std::to_string(i), "scene.set_component",
+                             field_edit_args("bulk" + std::to_string(i % 50), "Transform", "position",
+                                             Json::array({float(i), 1.0f, 0.0f})),
+                             &err);
+            }
+            ce->bytes = undo_.bytes();
+            at_check(undo_depth() == 100 && undo_.back().kind == UndoEntry::Kind::Command,
+                     "(L2) 100 edits are 100 command entries");
+            at_check(ce->bytes * 4 < sceneBytes,
+                     "(L2) ...that hold less than a quarter of ONE snapshot of the scene (" +
+                         std::to_string(ce->bytes) + " against " + std::to_string(sceneBytes) + " bytes)");
+        });
+        // A step that fails midway puts the scene back, drops the entry and says which command failed.
+        step(2, [this, ce, pos_x] {
+            undo_.clear();
+            redo_.clear();
+            toasts_.clear();
+            std::string err;
+            engine_->commands().call("scene.set_component", field_edit_args("coin_2", "Transform", "position",
+                                                                            Json::array({99.0f, 5.0f, 0.0f})));
+            auto call = [](const char* cmd, Json args) {
+                UndoCommand c;
+                c.cmd = cmd;
+                c.args = std::move(args);
+                return c;
+            };
+            const UndoCommand fwd = call("scene.set_component", field_edit_args("coin_2", "Transform", "position",
+                                                                                Json::array({99.0f, 5.0f, 0.0f})));
+            const UndoCommand back = call("scene.set_component", field_edit_args("coin_2", "Transform", "position",
+                                                                                 Json::array({7.0f, 5.0f, 0.0f})));
+            const UndoCommand bogus = call("no.such.command", Json::object());
+            push_command_entry("at:cmd:partial", {fwd}, {back, bogus});
+            ce->depth = undo_depth();
+            undo();
+            at_check(pos_x() == 99.0f, "(L2) a step that fails midway leaves the scene as it was, not half undone");
+            at_check(undo_depth() == ce->depth - 1 && redo_depth() == 0, "(L2) ...and drops the entry");
+            at_check(!toasts_.empty() && toasts_.back().level == 2 &&
+                         toasts_.back().text.find("no.such.command") != std::string::npos,
+                     "(L2) ...with an error that names the command");
+            toasts_.clear();
+            select_id("");
+            reload_scene_from_disk();
+        });
+
+        // L3. The structural edits are Command entries too: Duplicate, Delete (of a multi-selection), Paste and a drag-reparent are
+        // each ONE step that undoes and redoes with the same ids, and none of them stores a copy of the scene.
+        struct Structural {
+            Json before, after;
+            size_t depth = 0;
+        };
+        auto st = std::make_shared<Structural>();
+        auto sorted = [this] {
+            Json j = snapshot_scene(world());
+            std::vector<Json> ents(j["entities"].begin(), j["entities"].end());
+            std::sort(ents.begin(), ents.end(), [](const Json& a, const Json& b) { return a["id"] < b["id"]; });
+            j["entities"] = Json(ents);
+            return j;
+        };
+        auto only_commands = [this](size_t from) {
+            for (size_t i = from; i < undo_.size(); ++i)
+                if (undo_[i].kind != UndoEntry::Kind::Command) return false;
+            return true;
+        };
+        step(2, [this, project_file, st, sorted] {
+            stop();
+            select_id("");
+            write_file(project_file(scenePath_), kFixtureScene);
+            reload_scene_from_disk();
+            toasts_.clear();
+            undo_.clear();
+            redo_.clear();
+            st->before = sorted();
+            st->depth = undo_depth();
+        });
+        step(2, [this, st, sorted, only_commands] {  // Duplicate
+            select_ids({"coin_1", "coin_2"}, "coin_1");
+            hierarchy_duplicate_selection();
+            st->after = sorted();
+            at_check(undo_depth() == st->depth + 1 && st->after != st->before,
+                     "(L3) Duplicate of two entities is ONE step");
+            at_check(only_commands(st->depth), "(L3) ...a Command step, not a snapshot");
+            undo();
+            at_check(sorted() == st->before && undo_depth() == st->depth && redo_depth() == 1,
+                     "(L3) Undo of a Duplicate removes both copies");
+            redo();
+            at_check(sorted() == st->after && undo_depth() == st->depth + 1 && redo_depth() == 0,
+                     "(L3) Redo of a Duplicate brings back the same ids");
+            undo();
+        });
+        step(2, [this, st, sorted] {  // Delete of top-level entities that are not the last ones
+            at_check(sorted() == st->before, "(L3) the scene is as it was before the Duplicate");
+            const Json exact = snapshot_scene(world());  // not sorted: the order of the top-level entities counts
+            select_ids({"coin_1", "player"}, "coin_1");
+            hierarchy_destroy_selection();
+            at_check(undo_depth() == st->depth + 1 && world().find_by_id("coin_1").is_null() &&
+                         world().find_by_id("player").is_null(),
+                     "(L3) Delete of two entities is ONE step");
+            at_check(undo_.back().kind == UndoEntry::Kind::Snapshot,
+                     "(L3) ...a snapshot: an inverse would put a top-level entity last, and their order is the file's");
+            undo();
+            at_check(snapshot_scene(world()) == exact && redo_depth() == 1,
+                     "(L3) Undo gives back both entities, the order of the top-level entities exactly as it was");
+            redo();
+            at_check(world().find_by_id("coin_1").is_null() && redo_depth() == 0,
+                     "(L3) Redo of a Delete deletes them again");
+            undo();
+            at_check(snapshot_scene(world()) == exact && undo_depth() == st->depth, "(L3) ...and Undo again");
+        });
+        step(2, [this, st, sorted, only_commands] {  // Cut and Paste
+            const Json exact = snapshot_scene(world());
+            select_ids({"coin_2"}, "coin_2");
+            at_check(entity_copy(), "(L3) Copy puts the selection on the clipboard");
+            entity_paste();
+            st->after = sorted();
+            at_check(undo_depth() == st->depth + 1 && st->after != st->before, "(L3) Paste is ONE step");
+            at_check(only_commands(st->depth), "(L3) ...a Command step, not a snapshot");
+            undo();
+            at_check(sorted() == st->before, "(L3) Undo of a Paste removes what it made");
+            redo();
+            at_check(sorted() == st->after, "(L3) Redo of a Paste makes the same ids again");
+            undo();
+            at_check(sorted() == st->before && undo_depth() == st->depth, "(L3) ...and Undo again");
+            select_ids({"coin_3"},
+                       "coin_3");  // the Paste above selected what it made; coin_3 is the last top-level entity
+            entity_cut();
+            at_check(undo_depth() == st->depth + 1 && world().find_by_id("coin_3").is_null() &&
+                         only_commands(st->depth),
+                     "(L3) Cut of the last top-level entity is ONE Command step");
+            undo();
+            at_check(snapshot_scene(world()) == exact && !world().find_by_id("coin_3").is_null(),
+                     "(L3) Undo of a Cut brings the entity back, in its place");
+        });
+        step(2, [this, st, sorted, only_commands] {  // drag-reparent
+            const Vec3 local = world().get<Transform>(world().find_by_id("coin_3"))->position;
+            hierarchy_reparent("coin_3", "platform_1");
+            st->after = sorted();
+            World& w = world();
+            at_check(w.parent(w.find_by_id("coin_3")) == w.find_by_id("platform_1") && undo_depth() == st->depth + 1,
+                     "(L3) a drag-reparent is ONE step");
+            at_check(only_commands(st->depth), "(L3) ...a Command step, not a snapshot");
+            undo();
+            at_check(sorted() == st->before && w.get<Transform>(w.find_by_id("coin_3"))->position == local,
+                     "(L3) Undo of a reparent gives back the parent and the exact local position");
+            redo();
+            at_check(sorted() == st->after, "(L3) Redo reparents again");
+            undo();
+        });
+        step(2, [this, st, only_commands] {  // Delete of a child and of the last top-level entity: Command steps
+            hierarchy_reparent("coin_3", "platform_1");  // coin_3 is a child now
+            const size_t depth = undo_depth();
+            const Json exact = snapshot_scene(world());
+            select_ids({"coin_3", "coin_2"}, "coin_3");
+            hierarchy_destroy_selection();
+            at_check(undo_depth() == depth + 1 && world().find_by_id("coin_3").is_null() &&
+                         world().find_by_id("coin_2").is_null(),
+                     "(L3) Delete of a child and of the last top-level entity is ONE step");
+            at_check(only_commands(st->depth), "(L3) ...a Command step, not a snapshot");
+            undo();
+            at_check(snapshot_scene(world()) == exact, "(L3) Undo gives back both, in their places");
+            redo();
+            at_check(world().find_by_id("coin_3").is_null() && world().find_by_id("coin_2").is_null(),
+                     "(L3) Redo deletes them again");
+            undo();
+            undo();  // the reparent
+            at_check(undo_depth() == st->depth && only_commands(0), "(L3) no snapshot is left by these edits");
+            toasts_.clear();
+            select_id("");
+        });
+    }
 }
 
 void Editor::at_section_M(AtScript& at) {
@@ -766,6 +1071,8 @@ void Editor::at_section_M(AtScript& at) {
             at_check(t.position.y == g->pos.y && t.position.z == g->pos.z,
                      "...and position.y / z did not change (the drag followed the axis)");
             at_check(undo_depth() == g->undo + 1, "the whole drag is ONE undo step");
+            at_check(undo_.back().kind == UndoEntry::Kind::Command && undo_.back().forward.size() == 1,
+                     "...a Command entry holding one scene.set_component, not a copy of the scene");
             at_check(dirty_, "...and marks the scene dirty");
             undo();
             at_check(tf("player").position.x == g->pos.x, "Undo puts the position back");
@@ -1404,6 +1711,821 @@ void Editor::at_section_N(AtScript& at) {
                      "confirming removes the file from disk (fs.delete)");
             at_check(!at_visible("proj:file:assets/autotest_trash.txt"),
                      "...and the panel stops listing it without a Refresh");
+        });
+    }
+}
+
+void Editor::at_section_M4(AtScript& at) {
+    AT_SCRIPT_LOCALS(at)
+    // ------------------------------------------------------------------- M4. Several entities selected
+    // Ctrl/Cmd+click toggles and Shift+click selects a range in the Hierarchy, a marquee in the viewport selects what it covers
+    // (Shift adds), Ctrl+click toggles in the viewport, the move gizmo moves the whole selection as one undo step (Esc puts all of
+    // it back), the Inspector edits the shared fields of all of them, Add Component adds to all, and Delete and Duplicate act on
+    // the whole selection, each as one undo step.
+    {
+        struct Multi {
+            size_t undo = 0, entities = 0;
+            Vec3 player{}, coin3{};
+            Vec2 grab{}, cur{};
+        };
+        auto m = std::make_shared<Multi>();
+        auto pos_of = [this](const char* id) {
+            Entity e = world().find_by_id(id);
+            const Transform* t = e.is_null() ? nullptr : world().get<Transform>(e);
+            return t ? t->position : Vec3{9999, 9999, 9999};
+        };
+        auto sel_is = [this](std::vector<std::string> want) {
+            std::vector<std::string> got = selection_peek().ids();
+            std::sort(got.begin(), got.end());
+            std::sort(want.begin(), want.end());
+            return got == want;
+        };
+        // A point of the world, in panel pixels (the viewport image maps the design pixels the renderer reports).
+        auto panel_of = [this](Vec3 world) {
+            const Vec2 d = engine_->renderer()->world_to_screen(world);
+            return Vec2{vpImageMin_.x + d.x / float(engine_->renderer()->target_width()) * vpImageSize_.x,
+                        vpImageMin_.y + d.y / float(engine_->renderer()->target_height()) * vpImageSize_.y};
+        };
+        auto sc = [this] { return vpImageSize_.x / float(engine_->renderer()->target_width()); };
+        auto hold = [this, &step](bool shift, bool down) {
+            step(2, [this, shift, down] {
+#if defined(__APPLE__)
+                const int mod =
+                    shift ? SAPP_MODIFIER_SHIFT : SAPP_MODIFIER_SUPER;  // Dear ImGui swaps Cmd and Ctrl on macOS
+                const int key = shift ? SAPP_KEYCODE_LEFT_SHIFT : SAPP_KEYCODE_LEFT_SUPER;
+#else
+                const int mod = shift ? SAPP_MODIFIER_SHIFT : SAPP_MODIFIER_CTRL;
+                const int key = shift ? SAPP_KEYCODE_LEFT_SHIFT : SAPP_KEYCODE_LEFT_CONTROL;
+#endif
+                atMods_ = down ? mod : 0;
+                inject_key(down ? SAPP_EVENTTYPE_KEY_DOWN : SAPP_EVENTTYPE_KEY_UP, key);
+            });
+        };
+        auto wait_until = [this, &step](std::function<bool()> cond) {
+            step(1, [this, cond] {
+                atWaitCount_ = 0;
+                atWaitUntil_ = cond;
+            });
+        };
+        auto right_click = [this, &step](const std::string& name) {
+            step(2, [this, name] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, at_widget(name)); });
+            step(2, [this, name] { inject_mouse(SAPP_EVENTTYPE_MOUSE_DOWN, at_widget(name), 1); });
+            step(4, [this, name] { inject_mouse(SAPP_EVENTTYPE_MOUSE_UP, at_widget(name), 1); });
+        };
+        auto vp_click = [this, &step](std::function<Vec2()> where) {
+            step(2, [this, where] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, where()); });
+            step(2, [this, where] { inject_mouse(SAPP_EVENTTYPE_MOUSE_DOWN, where()); });
+            step(4, [this, where] { inject_mouse(SAPP_EVENTTYPE_MOUSE_UP, where()); });
+        };
+        // A rectangle dragged in the viewport from one world point to another (the mouse travels, so it is a drag, not a click).
+        auto marquee = [this, &step](std::function<Vec2()> from, std::function<Vec2()> to) {
+            step(2, [this, from] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, from()); });
+            step(2, [this, from] { inject_mouse(SAPP_EVENTTYPE_MOUSE_DOWN, from()); });
+            step(3, [this, from, to] {
+                const Vec2 a = from(), b = to();
+                inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, Vec2{(a.x + b.x) * 0.5f, (a.y + b.y) * 0.5f});
+            });
+            step(3, [this, to] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, to()); });
+            step(3, [this] {
+                at_check(marquee_.active, "the rectangle is live while the mouse is down and has travelled");
+            });
+            step(2, [this, to] { inject_mouse(SAPP_EVENTTYPE_MOUSE_UP, to()); });
+            step(4, [] {});
+        };
+
+        step(2, [this, project_file] {
+            stop();
+            select_id("");
+            gizmoMode_ = GizmoMode::Select;
+            showHierarchy_ = showInspector_ = true;
+            write_file(project_file(scenePath_), kFixtureScene);
+            reload_scene_from_disk();
+            focus_window("###Viewport");
+        });
+        step(10, [this] {
+            at_check(at_visible("tree:coin_2") && at_visible("tree:player"), "the Hierarchy lists the entities");
+        });
+
+        // 1. The Hierarchy: Ctrl/Cmd toggles, Shift selects the rows between, in the order the tree shows them.
+        click("tree:player");
+        step(3, [this, sel_is] {
+            at_check(sel_is({"player"}) && selected_id() == "player", "a plain click selects one row");
+        });
+        hold(false, true);
+        click("tree:coin_2");
+        hold(false, false);
+        step(3, [this, sel_is] {
+            at_check(sel_is({"player", "coin_2"}), "Ctrl/Cmd+click adds a row to the selection");
+            at_check(selected_id() == "coin_2", "...and the row clicked last is the primary");
+        });
+        hold(false, true);
+        click("tree:player");
+        hold(false, false);
+        step(3,
+             [this, sel_is] { at_check(sel_is({"coin_2"}), "Ctrl/Cmd+click on a selected row takes it out again"); });
+        click("tree:ground");
+        hold(true, true);
+        click("tree:coin_1");
+        hold(true, false);
+        step(3, [this, sel_is] {
+            at_check(sel_is({"ground", "platform_1", "player", "coin_1"}),
+                     "Shift+click selects the rows from the last one clicked to this one, in tree order");
+            at_check(selected_id() == "coin_1", "...and the row clicked is the primary");
+        });
+        // a second Shift click starts from the same row (ground), not from the row the first one ended on
+        hold(true, true);
+        click("tree:platform_1");
+        hold(true, false);
+        step(3, [this, sel_is] {
+            at_check(sel_is({"ground", "platform_1"}),
+                     "a second Shift+click still selects from the row clicked without Shift (the anchor stays)");
+            at_check(selected_id() == "platform_1", "...and the row of the second Shift+click is the primary");
+        });
+        hold(true, true);
+        click("tree:coin_1");
+        hold(true, false);
+        step(3, [this, sel_is] {
+            at_check(sel_is({"ground", "platform_1", "player", "coin_1"}), "...as often as you like");
+        });
+        snap("editor_multi_hierarchy.png");
+
+        // 2. The viewport: a marquee selects what it covers entirely; Shift adds; Ctrl+click toggles one.
+        step(2, [this] { select_id(""); });
+        marquee([panel_of] { return panel_of(Vec3{-340, -195, 0}); },
+                [panel_of] { return panel_of(Vec3{-60, -300, 0}); });
+        step(3, [this, sel_is] {
+            at_check(
+                sel_is({"player", "coin_1"}),
+                "a marquee on empty space selects the entities it covers entirely (not the ground it only crosses)");
+        });
+        hold(true, true);
+        marquee([panel_of] { return panel_of(Vec3{380, -225, 0}); },
+                [panel_of] { return panel_of(Vec3{460, -300, 0}); });
+        hold(true, false);
+        step(3, [this, sel_is] {
+            at_check(sel_is({"player", "coin_1", "coin_3"}), "Shift+marquee adds to the selection");
+        });
+        snap("editor_multi_viewport.png");
+        hold(false, true);
+        vp_click([panel_of, pos_of] { return panel_of(pos_of("coin_1")); });
+        hold(false, false);
+        step(3, [this, sel_is] {
+            at_check(sel_is({"player", "coin_3"}), "Ctrl/Cmd+click on a selected entity in the viewport takes it out");
+        });
+        vp_click([panel_of, pos_of] { return panel_of(pos_of("platform_1")); });
+        step(3, [this, sel_is] {
+            at_check(sel_is({"platform_1"}), "a plain click in the viewport selects that entity only");
+        });
+        vp_click([panel_of] { return panel_of(Vec3{-340, -195, 0}); });
+        step(3, [this, sel_is] { at_check(sel_is({}), "a click on empty space (no travel) clears the selection"); });
+
+        // 3. The move gizmo moves all of them as one undo step; Esc puts them all back.
+        step(2, [this] {
+            select_id("player");
+            selection_mut().add("coin_3");
+            gizmoMode_ = GizmoMode::Move;
+            inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE,
+                         Vec2{vpImageMin_.x + vpImageSize_.x * 0.5f, vpImageMin_.y + vpImageSize_.y * 0.25f});
+        });
+        step(4, [this] {
+            at_check(at_visible("gizmo:move:x"), "the move gizmo is shown for the primary of a selection");
+        });
+        step(2, [this, m, pos_of] {
+            m->undo = undo_depth();
+            m->player = pos_of("player");
+            m->coin3 = pos_of("coin_3");
+            m->grab = m->cur = at_widget("gizmo:move:x");
+            inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, m->grab);
+        });
+        step(2, [this, m] { inject_mouse(SAPP_EVENTTYPE_MOUSE_DOWN, m->grab); });
+        wait_until([this] { return gizmoDrag_.active; });
+        step(2, [this, m] {
+            m->cur = Vec2{m->grab.x + 60.0f, m->grab.y + 25.0f};
+            inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, m->cur);
+        });
+        wait_until([this] { return gizmoDrag_.wrote; });
+        step(3, [] {});
+        step(2, [this, m] { inject_mouse(SAPP_EVENTTYPE_MOUSE_UP, m->cur); });
+        wait_until([this] { return !gizmoDrag_.active; });
+        step(3, [this, m, pos_of, sc] {
+            const Vec3 p = pos_of("player"), c = pos_of("coin_3");
+            const float dx = 60.0f / sc();
+            at_check(std::fabs(p.x - (m->player.x + dx)) < 0.05f && std::fabs(c.x - (m->coin3.x + dx)) < 0.05f,
+                     "dragging the X arrow moves every selected entity by the same distance");
+            at_check(p.y == m->player.y && c.y == m->coin3.y, "...and y did not change (the drag followed the axis)");
+            at_check(undo_depth() == m->undo + 1, "...the whole drag of both entities is ONE undo step");
+            undo();
+            at_check(pos_of("player").x == m->player.x && pos_of("coin_3").x == m->coin3.x,
+                     "Undo puts every entity back");
+        });
+        step(2, [this, m] {  // Esc: drag again and cancel
+            m->undo = undo_depth();
+            m->grab = m->cur = at_widget("gizmo:move:x");
+            inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, m->grab);
+        });
+        step(2, [this, m] { inject_mouse(SAPP_EVENTTYPE_MOUSE_DOWN, m->grab); });
+        wait_until([this] { return gizmoDrag_.active; });
+        step(2, [this, m] {
+            m->cur = Vec2{m->grab.x + 40.0f, m->grab.y};
+            inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, m->cur);
+        });
+        wait_until([this] { return gizmoDrag_.wrote; });
+        step(3, [this] { inject_key(SAPP_EVENTTYPE_KEY_DOWN, SAPP_KEYCODE_ESCAPE); });
+        step(3, [this] { inject_key(SAPP_EVENTTYPE_KEY_UP, SAPP_KEYCODE_ESCAPE); });
+        step(2, [this, m] { inject_mouse(SAPP_EVENTTYPE_MOUSE_UP, m->cur); });
+        step(4, [this, m, pos_of] {
+            at_check(pos_of("player").x == m->player.x && pos_of("coin_3").x == m->coin3.x,
+                     "Esc during a drag of several entities puts all of them back");
+            at_check(undo_depth() == m->undo, "...and leaves no undo step");
+            gizmoMode_ = GizmoMode::Select;
+        });
+
+        // 4. The Inspector: one header for all, a field edit writes to every entity as one undo step.
+        step(2, [this, m] {
+            m->undo = undo_depth();
+            inspScrollTo_ = "Transform.position";
+        });
+        step(4, [this] {
+            at_check(at_visible("insp:Transform.position.0"), "the Inspector lists the components all of them share");
+        });
+        snap("editor_multi_inspector.png");
+        click("insp:Transform.position.0");
+        step(3,
+             [this] { at_check(ImGui::GetIO().WantTextInput, "a number of a field that differs opens for typing"); });
+        step(3, [this] {
+            for (char c : std::string("100")) inject_char(unsigned(static_cast<unsigned char>(c)));
+        });
+        step(2, [this] { inject_key(SAPP_EVENTTYPE_KEY_DOWN, SAPP_KEYCODE_ENTER); });
+        step(4, [this] { inject_key(SAPP_EVENTTYPE_KEY_UP, SAPP_KEYCODE_ENTER); });
+        step(4, [this, m, pos_of] {
+            at_check(pos_of("player").x == 100.0f && pos_of("coin_3").x == 100.0f,
+                     "typing a value writes it to the field of every selected entity");
+            at_check(pos_of("player").y == m->player.y && pos_of("coin_3").y == m->coin3.y,
+                     "...and the numbers that were not edited keep each entity's own value");
+            at_check(undo_depth() == m->undo + 1, "...as ONE undo step");
+            undo();
+            at_check(pos_of("player").x == m->player.x && pos_of("coin_3").x == m->coin3.x, "Undo restores both");
+        });
+        // Typing exactly the primary's own value into the "—" number still writes it to the others (ImGui reports no change).
+        step(2, [this, m, pos_of] {
+            at_check(pos_of("player").x != pos_of("coin_3").x, "the two entities differ in x again");
+            m->undo = undo_depth();
+        });
+        click("insp:Transform.position.0");
+        step(3, [this, pos_of] {
+            char text[32];
+            std::snprintf(text, sizeof text, "%g", pos_of("coin_3").x);  // the primary is the last one selected
+            for (const char* c = text; *c; ++c) inject_char(unsigned(static_cast<unsigned char>(*c)));
+        });
+        step(2, [this] { inject_key(SAPP_EVENTTYPE_KEY_DOWN, SAPP_KEYCODE_ENTER); });
+        step(4, [this] { inject_key(SAPP_EVENTTYPE_KEY_UP, SAPP_KEYCODE_ENTER); });
+        step(4, [this, m, pos_of] {
+            at_check(pos_of("player").x == pos_of("coin_3").x,
+                     "typing the primary's own value into a number that differs writes it to every entity");
+            at_check(undo_depth() == m->undo + 1, "...as one undo step");
+            undo();
+            at_check(pos_of("player").x == m->player.x && pos_of("coin_3").x == m->coin3.x, "Undo restores both");
+        });
+        // Leaving the box with Tab after typing the primary's own value commits it too.
+        step(2, [this, m, pos_of] {
+            at_check(pos_of("player").x != pos_of("coin_3").x, "the two entities differ in x once more");
+            m->undo = undo_depth();
+        });
+        click("insp:Transform.position.0");
+        step(3, [this, pos_of] {
+            char text[32];
+            std::snprintf(text, sizeof text, "%g", pos_of("coin_3").x);
+            for (const char* c = text; *c; ++c) inject_char(unsigned(static_cast<unsigned char>(*c)));
+        });
+        step(2, [this] { inject_key(SAPP_EVENTTYPE_KEY_DOWN, SAPP_KEYCODE_TAB); });
+        step(4, [this] { inject_key(SAPP_EVENTTYPE_KEY_UP, SAPP_KEYCODE_TAB); });
+        // Tab moves to the next field with its box open: Esc closes it, so the next step starts with no active box.
+        step(2, [this] { inject_key(SAPP_EVENTTYPE_KEY_DOWN, SAPP_KEYCODE_ESCAPE); });
+        step(2, [this] { inject_key(SAPP_EVENTTYPE_KEY_UP, SAPP_KEYCODE_ESCAPE); });
+        step(4, [this, m, pos_of] {
+            at_check(pos_of("player").x == pos_of("coin_3").x,
+                     "leaving the box with Tab after typing the primary's own value writes it to every entity");
+            at_check(undo_depth() == m->undo + 1, "...as one undo step");
+            undo();
+            at_check(pos_of("player").x == m->player.x && pos_of("coin_3").x == m->coin3.x, "Undo restores both");
+        });
+
+        // 5. Add Component with several selected: added to each entity that lacks it, one undo step.
+        step(2, [this, m] { m->undo = undo_depth(); });
+        click("insp:add");
+        step(3, [this] {
+            at_check(at_visible("insp:add:Sprite"), "Add Component lists what some of the selected entities lack");
+        });
+        click("insp:add:Sprite");
+        step(4, [this, m] {
+            World& w = world();
+            at_check(w.has<Sprite>(w.find_by_id("player")) && w.has<Sprite>(w.find_by_id("coin_3")),
+                     "Add Component adds the component to every selected entity");
+            at_check(undo_depth() == m->undo + 1, "...as one undo step");
+            undo();
+            at_check(!w.has<Sprite>(w.find_by_id("player")) && !w.has<Sprite>(w.find_by_id("coin_3")),
+                     "Undo takes it off all of them");
+        });
+
+        // 6. Duplicate and Delete act on the whole selection, one undo step each.
+        click("tree:coin_1");
+        hold(false, true);
+        click("tree:coin_2");
+        hold(false, false);
+        step(3, [this, m, sel_is] {
+            at_check(sel_is({"coin_1", "coin_2"}), "two coins selected in the tree");
+            m->undo = undo_depth();
+            m->entities = world().entities().size();
+        });
+        right_click("tree:coin_2");
+        step(3, [this, sel_is] {
+            at_check(at_visible("tree:ctx:duplicate") && sel_is({"coin_1", "coin_2"}),
+                     "the context menu of a selected row keeps the whole selection");
+        });
+        click("tree:ctx:duplicate");
+        step(4, [this, m, sel_is] {
+            at_check(world().entities().size() == m->entities + 2, "Duplicate copies every selected entity");
+            at_check(undo_depth() == m->undo + 1, "...as one undo step");
+            at_check(selection_peek().size() == 2 && !sel_is({"coin_1", "coin_2"}), "...and selects the copies");
+            undo();
+            at_check(world().entities().size() == m->entities, "Undo removes both copies");
+        });
+        click("tree:coin_1");
+        hold(false, true);
+        click("tree:coin_2");
+        hold(false, false);
+        step(2, [this, m] { m->undo = undo_depth(); });
+        right_click("tree:coin_2");
+        step(3, [] {});
+        click("tree:ctx:delete");
+        step(4, [this, m] {
+            at_check(world().find_by_id("coin_1").is_null() && world().find_by_id("coin_2").is_null(),
+                     "Delete removes every selected entity");
+            at_check(undo_depth() == m->undo + 1, "...as one undo step");
+            at_check(selection_peek().empty() || selection().empty(), "...and the selection is empty");
+            undo();
+            at_check(!world().find_by_id("coin_1").is_null() && !world().find_by_id("coin_2").is_null(),
+                     "Undo brings both back");
+            select_id("");
+        });
+
+        // 7. A marquee over 3D meshes: a perspective camera drawing half of the design area; a mesh whole in front of the
+        // camera is picked, one behind it or across its plane is not.
+        step(2, [this, project_file] {
+            write_file(project_file(scenePath_), kMarquee3dScene);
+            reload_scene_from_disk();
+            select_id("");
+        });
+        step(4, [this] {
+            Renderer* r = engine_->renderer();
+            const Vec2 design{float(r->target_width()), float(r->target_height())};
+            auto sorted = [](std::vector<std::string> v) {
+                std::sort(v.begin(), v.end());
+                return v;
+            };
+            // The left half (the camera's viewport) holds every mesh that is in front; the marquee's centre is in it.
+            const std::vector<std::string> half = sorted(marquee_hits(Vec2{0, 0}, Vec2{design.x * 0.5f, design.y}));
+            at_check(
+                half == std::vector<std::string>({"far", "front"}),
+                "a marquee over a perspective camera's viewport picks the meshes in front of the camera, not the one "
+                "behind it nor the one across its plane");
+            // A small rectangle on the camera's axis covers "far" (a few pixels wide at that distance) but not the nearer
+            // "front", whose outline is far larger.
+            const Vec2 c = r->world_to_screen(Vec3{0, 0, -20}, world().find_by_id("camera"));
+            const std::vector<std::string> small = marquee_hits(Vec2{c.x - 40, c.y - 40}, Vec2{c.x + 40, c.y + 40});
+            at_check(small == std::vector<std::string>({"far"}),
+                     "a small marquee on the far cube picks it and not the nearer cube it does not wholly cover");
+        });
+        step(2, [this, project_file] {  // back to the fixture the next sections expect
+            write_file(project_file(scenePath_), kFixtureScene);
+            reload_scene_from_disk();
+            select_id("");
+        });
+    }
+}
+
+void Editor::at_section_M5(AtScript& at) {
+    AT_SCRIPT_LOCALS(at)
+    // ------------------------------------------------------------------------------ M5. Copy, cut and paste of entities
+    // Ctrl/Cmd+C puts the selected entities on the system clipboard as text and changes nothing else; Ctrl+V creates them next
+    // to the primary (one undo step), selects the copies with the copy of the old primary as the primary; Ctrl+X is Copy and
+    // delete (one undo step). The keys belong to the Hierarchy and the Viewport: another panel with the keyboard keeps them, and
+    // text that is not entities pastes nothing and leaves no undo step.
+    {
+        struct Clip {
+            size_t undo = 0, entities = 0;
+            std::string big;
+        };
+        auto m = std::make_shared<Clip>();
+        auto hold_ctrl = [this, &step](bool down) {
+            step(2, [this, down] {
+#if defined(__APPLE__)
+                atMods_ = down ? SAPP_MODIFIER_SUPER : 0;  // Dear ImGui swaps Cmd and Ctrl on macOS
+                inject_key(down ? SAPP_EVENTTYPE_KEY_DOWN : SAPP_EVENTTYPE_KEY_UP, SAPP_KEYCODE_LEFT_SUPER);
+#else
+                atMods_ = down ? SAPP_MODIFIER_CTRL : 0;
+                inject_key(down ? SAPP_EVENTTYPE_KEY_DOWN : SAPP_EVENTTYPE_KEY_UP, SAPP_KEYCODE_LEFT_CONTROL);
+#endif
+            });
+        };
+        // Ctrl+C and Ctrl+X arrive as key events; sokol_app turns Ctrl+V into CLIPBOARD_PASTED, which sokol_imgui presses for ImGui.
+        auto chord = [this, &step, hold_ctrl](int keyCode) {
+            hold_ctrl(true);
+            step(3, [this, keyCode] { inject_key(SAPP_EVENTTYPE_KEY_DOWN, keyCode); });
+            step(3, [this, keyCode] { inject_key(SAPP_EVENTTYPE_KEY_UP, keyCode); });
+            hold_ctrl(false);
+        };
+        auto paste_key = [this, &step] {
+            step(4, [this] {
+                sapp_event ev{};
+                ev.type = SAPP_EVENTTYPE_CLIPBOARD_PASTED;
+                on_event(&ev);
+            });
+        };
+        auto clip_has = [](const char* needle) {
+            const char* c = sapp_get_clipboard_string();
+            return c && std::string(c).find(needle) != std::string::npos;
+        };
+        auto pos_of_id = [this](const std::string& id) {
+            Entity e = world().find_by_id(id);
+            const Transform* t = e.is_null() ? nullptr : world().get<Transform>(e);
+            return t ? t->position : Vec3{9999, 9999, 9999};
+        };
+
+        // 1. Two coins selected in the tree (coin_2 last: the primary), Ctrl+C: text on the clipboard, nothing else changes.
+        step(3, [this, m] {
+            select_id("");
+            sapp_set_clipboard_string("not entities");
+            m->undo = undo_depth();
+            m->entities = world().entities().size();
+        });
+        click("tree:coin_1");
+        hold_ctrl(true);
+        click("tree:coin_2");
+        hold_ctrl(false);
+        chord(SAPP_KEYCODE_C);
+        step(3, [this, m, clip_has] {
+            at_check(clip_has("factoria.entities/1"), "Ctrl+C puts the selected entities on the clipboard as text");
+            at_check(world().entities().size() == m->entities && undo_depth() == m->undo,
+                     "...and changes nothing in the scene, with no undo step");
+            at_check(selection_peek().size() == 2 && selected_id() == "coin_2", "...and keeps the selection");
+        });
+
+        // 2. Select the player and paste: two copies next to it, one undo step, the copy of coin_2 is the primary.
+        click("tree:player");
+        paste_key();
+        step(4, [this, m, pos_of_id] {
+            at_check(world().entities().size() == m->entities + 2, "Ctrl+V creates a copy of every copied entity");
+            at_check(undo_depth() == m->undo + 1, "...as one undo step");
+            const std::vector<std::string>& ids = selection_peek().ids();
+            at_check(ids.size() == 2 && ids[0] != "coin_1" && ids[1] != "coin_2", "...and selects the copies");
+            const Vec3 a = pos_of_id(selected_id()), b = pos_of_id("coin_2");
+            at_check(a.x == b.x && a.y == b.y && selected_id() != "coin_2",
+                     "...with the copy of the old primary as the primary");
+            undo();
+            at_check(world().entities().size() == m->entities, "Undo removes both copies");
+            select_id("");
+        });
+
+        // 3. Cut: Ctrl+X removes them (one undo step), the clipboard holds them; Ctrl+V puts them back, Undo twice undoes both.
+        click("tree:coin_1");
+        step(2, [this, m] {
+            m->undo = undo_depth();
+            m->entities = world().entities().size();
+            sapp_set_clipboard_string("not entities");
+        });
+        chord(SAPP_KEYCODE_X);
+        step(3, [this, m, clip_has] {
+            at_check(world().find_by_id("coin_1").is_null(), "Ctrl+X deletes the selected entity");
+            at_check(undo_depth() == m->undo + 1, "...as one undo step");
+            at_check(clip_has("factoria.entities/1"), "...after copying it to the clipboard");
+        });
+        paste_key();
+        step(4, [this, m] {
+            at_check(!world().find_by_id("coin_1").is_null() && world().entities().size() == m->entities,
+                     "Ctrl+V puts the cut entity back under its own id");
+            at_check(undo_depth() == m->undo + 2, "...as its own undo step");
+            undo();
+            at_check(world().find_by_id("coin_1").is_null(), "Undo takes the pasted entity away");
+            undo();
+            at_check(!world().find_by_id("coin_1").is_null() && world().entities().size() == m->entities,
+                     "Undo again brings the cut entity back");
+            select_id("");
+        });
+
+        // 3b. Cut, Undo, Paste: Undo brings the entity back, so the paste gets a new id and the clipboard still has the text.
+        click("tree:coin_1");
+        step(2, [this, m] {
+            m->undo = undo_depth();
+            m->entities = world().entities().size();
+        });
+        chord(SAPP_KEYCODE_X);
+        step(3, [this, m] {
+            at_check(world().find_by_id("coin_1").is_null() && undo_depth() == m->undo + 1,
+                     "Ctrl+X cuts the entity again");
+            undo();
+            at_check(!world().find_by_id("coin_1").is_null() && world().entities().size() == m->entities,
+                     "Undo of the Cut brings it back");
+            select_id("");
+        });
+        paste_key();
+        step(4, [this, m] {
+            at_check(world().entities().size() == m->entities + 1 && selected_id() != "coin_1" &&
+                         !selected_id().empty(),
+                     "Ctrl+V after the Undo pastes a copy under a new id (the original is back) and selects it");
+            at_check(undo_depth() == m->undo + 1, "...as one undo step");
+            undo();
+            at_check(world().entities().size() == m->entities && !world().find_by_id("coin_1").is_null(),
+                     "...which Undo removes, leaving the original");
+            select_id("");
+        });
+
+        // 4. Text that is not entities pastes nothing and records no undo step.
+        click("tree:player");
+        step(2, [this, m] {
+            sapp_set_clipboard_string("hello, not an entity");
+            m->undo = undo_depth();
+            m->entities = world().entities().size();
+        });
+        paste_key();
+        step(4, [this, m] {
+            at_check(world().entities().size() == m->entities && undo_depth() == m->undo,
+                     "Ctrl+V of text that is not entities creates nothing and leaves no undo step");
+        });
+
+        // 4b. A copy that does not fit the clipboard is refused, and Cut deletes nothing. The big text sits in Script.props,
+        // which nothing draws as a label, and the whole check runs inside one step: no frame of the Hierarchy, the Inspector
+        // or the viewport ever shows the 1 MB entity.
+        step(2, [this, m, clip_has] {
+            const CommandResult r = engine_->commands().call(
+                "scene.spawn",
+                Json::object(
+                    {{"name", "Big"},
+                     {"components",
+                      Json::object(
+                          {{"Script", Json::object({{"props", Json::object({{"blob", std::string(kClipboardBytes + 1000,
+                                                                                                 'x')}})}})}})}}));
+            at_check(r.ok, "an entity with a property longer than the clipboard is made");
+            m->big = r.result.value("id", std::string());
+            select_id(m->big);
+            sapp_set_clipboard_string("sentinel");
+            m->undo = undo_depth();
+            m->entities = world().entities().size();
+            entity_cut();
+            at_check(clip_has("sentinel"), "a copy bigger than the clipboard leaves the clipboard alone");
+            at_check(!world().find_by_id(m->big).is_null() && world().entities().size() == m->entities &&
+                         undo_depth() == m->undo,
+                     "...and Cut deletes nothing");
+            (void)engine_->commands().call("scene.destroy", Json::object({{"id", m->big}}));
+            select_id("");
+        });
+
+        // 5. Another panel holding the keyboard keeps Ctrl+C: the Inspector does not copy the selection.
+        step(2, [this] {
+            sapp_set_clipboard_string("sentinel");
+            focus_window("Inspector");
+        });
+        step(4, [] {});
+        chord(SAPP_KEYCODE_C);
+        step(3, [this, clip_has] {
+            at_check(clip_has("sentinel"), "Ctrl+C with the Inspector focused leaves the clipboard alone");
+            focus_window("Hierarchy");
+        });
+        step(4, [] {});
+
+        // 6. The context menu has Copy and Paste too.
+        auto right_click = [this, &step](const std::string& name) {
+            step(2, [this, name] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, at_widget(name)); });
+            step(2, [this, name] { inject_mouse(SAPP_EVENTTYPE_MOUSE_DOWN, at_widget(name), 1); });
+            step(4, [this, name] { inject_mouse(SAPP_EVENTTYPE_MOUSE_UP, at_widget(name), 1); });
+        };
+        click("tree:coin_2");
+        right_click("tree:coin_2");
+        step(3, [this] {
+            at_check(at_visible("tree:ctx:copy") && at_visible("tree:ctx:paste"), "the row menu lists Copy and Paste");
+        });
+        click("tree:ctx:copy");
+        step(3, [this, m, clip_has] {
+            at_check(clip_has("factoria.entities/1"), "Copy in the row menu puts the entity on the clipboard");
+            m->undo = undo_depth();
+            m->entities = world().entities().size();
+        });
+        right_click("tree:coin_2");
+        step(3, [] {});
+        click("tree:ctx:paste");
+        step(4, [this, m] {
+            at_check(world().entities().size() == m->entities + 1 && undo_depth() == m->undo + 1,
+                     "Paste in the row menu creates a copy, one undo step");
+            at_check(selection_peek().size() == 1 && selected_id() != "coin_2", "...and selects it");
+            undo();
+            select_id("");
+        });
+    }
+}
+
+void Editor::at_section_P4(AtScript& at) {
+    AT_SCRIPT_LOCALS(at)
+    // ------------------------------------------------------- P4. Prefab overrides: marked, reverted, applied, undone
+    // Two instances of a prefab. An edit of the first is marked in the Inspector (blue label, count, header buttons); the right-click
+    // menu reverts it (prefab.revert, one undo step) and applies it (prefab.apply: the file is written and the second instance
+    // follows); Apply all asks first. Every button is a command call, so the checks read the world and the prefab file.
+    {
+        auto right_click = [this, &step](const std::string& name) {
+            step(2, [this, name] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, at_widget(name)); });
+            step(2, [this, name] { inject_mouse(SAPP_EVENTTYPE_MOUSE_DOWN, at_widget(name), 1); });
+            step(4, [this, name] { inject_mouse(SAPP_EVENTTYPE_MOUSE_UP, at_widget(name), 1); });
+        };
+        auto layer_of = [this](const char* id) {
+            Entity e = world().find_by_id(id);
+            const Shape2D* s = e.is_null() ? nullptr : world().get<Shape2D>(e);
+            return s ? s->layer : -999;
+        };
+        auto prefab_json = [project_file] {
+            auto loaded = load_json_file(project_file("prefabs/panel.prefab.json"));
+            return loaded ? *loaded : Json::object();
+        };
+        auto set_layer = [this](const char* id, int layer) {
+            std::string err;
+            const CommandResult r = edit_command(
+                "at:p4:" + std::to_string(uiFrame_), "scene.set_component",
+                Json::object({{"id", id}, {"component", "Shape2D"}, {"fields", Json::object({{"layer", layer}})}}),
+                &err);
+            at_check(r.ok, "scene.set_component on the instance: " + err);
+        };
+        auto undos = std::make_shared<size_t>(0);
+        // A small window shows only the top of the Inspector, and the field is below Transform and the prefab header.
+        auto scroll_to_layer = [this, &step] {
+            step(2, [this] { inspScrollTo_ = "Shape2D.layer"; });
+            step(3, [] {});
+        };
+
+        step(2, [this, project_file] {
+            stop();
+            select_id("");
+            showHierarchy_ = showInspector_ = true;
+            write_file(project_file("prefabs/panel.prefab.json"), R"({
+  "format": "factoria.prefab/1",
+  "entity": { "id": "panel", "name": "Panel",
+    "components": { "Shape2D": { "size": [120, 40], "color": [0.3, 0.5, 0.8, 1], "layer": 1 } },
+    "children": [ { "id": "label", "name": "Label", "components": { "Shape2D": { "size": [60, 10], "layer": 2 } } } ] }
+})");
+            write_file(project_file(scenePath_), R"({
+  "format": "factoria.scene/1",
+  "entities": [
+    { "id": "camera", "name": "Main Camera", "components": { "Camera": { "primary": true } } },
+    { "id": "panel_1", "prefab": "prefabs/panel.prefab.json", "components": { "Transform": { "position": [-100, 0, 0] } } },
+    { "id": "panel_2", "prefab": "prefabs/panel.prefab.json", "components": { "Transform": { "position": [100, 0, 0] } } }
+  ]
+})");
+            reload_scene_from_disk();
+            focus_window("###Viewport");
+            select_id("panel_1");
+        });
+        step(10, [this, layer_of] {
+            at_check(at_visible("insp:prefab") && !inspOvRoot_.empty() && inspOvRoot_ == "panel_1",
+                     "the Inspector says the selected entity is an instance of a prefab");
+            at_check(prefab_override_count(inspOv_) == 0 && !at_enabled("insp:prefab:revert") &&
+                         !at_enabled("insp:prefab:apply"),
+                     "...with no overrides, so Revert all and Apply all are disabled");
+            at_check(layer_of("panel_1") == 1 && layer_of("panel_2") == 1,
+                     "both instances start with the prefab's layer");
+        });
+
+        // 1. An edit of the instance is marked.
+        step(2, [this, undos, set_layer] {
+            *undos = undo_depth();
+            set_layer("panel_1", 7);
+        });
+        scroll_to_layer();
+        step(8, [this, undos] {
+            at_check(undo_depth() == *undos + 1, "the edit is one undo step");
+            at_check(prefab_field_override(inspOv_, "panel_1", "Shape2D", "layer") != nullptr &&
+                         prefab_override_count(inspOv_) == 1,
+                     "prefab.overrides lists Shape2D.layer, and the Inspector counted one override");
+            at_check(at_enabled("insp:prefab:revert") && at_enabled("insp:prefab:apply"),
+                     "Revert all and Apply all are enabled");
+            at_check(at_visible("insp:label:Shape2D.layer"), "the field's label is on screen");
+        });
+        snap("editor_prefab_override.png");
+
+        // 2. Revert to prefab from the field's menu.
+        scroll_to_layer();
+        right_click("insp:label:Shape2D.layer");
+        step(4, [this] {
+            at_check(at_enabled("insp:ctx:revert") && at_enabled("insp:ctx:apply"),
+                     "the menu of an overridden field offers Revert to prefab and Apply to prefab");
+        });
+        step(2, [this, undos] { *undos = undo_depth(); });
+        click("insp:ctx:revert");
+        step(8, [this, undos, layer_of] {
+            at_check(layer_of("panel_1") == 1, "Revert to prefab puts the prefab's value back");
+            at_check(undo_depth() == *undos + 1, "...as one undo step");
+            at_check(prefab_override_count(inspOv_) == 0, "...and the Inspector shows no override");
+        });
+        click("toolbar:undo");
+        step(8, [this, layer_of] {
+            at_check(layer_of("panel_1") == 7, "Undo brings the override back");
+            at_check(prefab_override_count(inspOv_) == 1, "...and the field is marked again");
+        });
+
+        // 3. Apply to prefab: the file is written, the other instance follows.
+        scroll_to_layer();
+        right_click("insp:label:Shape2D.layer");
+        step(4, [this] { at_check(at_enabled("insp:ctx:apply"), "the menu is open again"); });
+        click("insp:ctx:apply");
+        step(8, [this, layer_of, prefab_json] {
+            const Json file = prefab_json();
+            at_check(file["entity"]["components"]["Shape2D"]["layer"] == 7,
+                     "Apply to prefab writes the value into the prefab file");
+            at_check(file["entity"]["components"]["Shape2D"].contains("size"), "...and keeps the rest of the file");
+            at_check(layer_of("panel_2") == 7, "the other instance of the prefab follows");
+            at_check(prefab_override_count(inspOv_) == 0, "the instance has nothing left to override");
+        });
+        click("toolbar:undo");
+        step(8, [this, layer_of, prefab_json] {
+            at_check(layer_of("panel_2") == 1 && layer_of("panel_1") == 7,
+                     "Undo puts the scene back (the other instance keeps the old layer, this one its override)");
+            at_check(prefab_json()["entity"]["components"]["Shape2D"]["layer"] == 7,
+                     "...but not the prefab file, which the popup said");
+        });
+
+        // 4. Apply all asks first; Cancel changes nothing.
+        step(2, [set_layer] { set_layer("panel_1", 9); });
+        step(8, [this] { at_check(at_enabled("insp:prefab:apply"), "a new override enables Apply all"); });
+        click("insp:prefab:apply");
+        step(6, [this] { at_check(at_visible("insp:prefab:apply-yes"), "Apply all asks before it writes the file"); });
+        snap("editor_prefab_apply_ask.png");
+        click("insp:prefab:apply-no");
+        step(6, [this, prefab_json] {
+            at_check(prefab_json()["entity"]["components"]["Shape2D"]["layer"] == 7, "Cancel writes nothing");
+        });
+        click("insp:prefab:apply");
+        step(6, [this] { at_check(at_visible("insp:prefab:apply-yes"), "the question is back"); });
+        click("insp:prefab:apply-yes");
+        step(8, [this, layer_of, prefab_json] {
+            at_check(prefab_json()["entity"]["components"]["Shape2D"]["layer"] == 9,
+                     "Apply writes the instance's layer");
+            at_check(layer_of("panel_2") == 1,
+                     "...and the other instance keeps its own layer (after the Undo above it overrides the file's 7)");
+            at_check(inspApplyDepth_ >= 0, "the Inspector watches the undo depth after the Apply");
+            undo_.clear();  // a scene load or the cap does this: the depth no longer names the step of the Apply
+        });
+        step(3, [this] {
+            at_check(inspApplyDepth_ == -1,
+                     "a cleared undo stack stops the watch, so no false \"Undo put the scene back\"");
+        });
+
+        // 5. A component the instance lost is named in the header and counted; Revert gives it back.
+        step(2, [this, undos] {
+            *undos = undo_depth();
+            std::string err;
+            const CommandResult r = edit_command("at:p4:rm", "scene.remove_component",
+                                                 Json::object({{"id", "panel_1"}, {"component", "Shape2D"}}), &err);
+            at_check(r.ok, "scene.remove_component on the instance: " + err);
+        });
+        step(8, [this] {
+            at_check(prefab_removed_components(inspOv_, "panel_1") == std::vector<std::string>{"Shape2D"},
+                     "prefab.overrides lists the lost Shape2D as removedComponent");
+            at_check(at_visible("insp:prefab:removed") && at_enabled("insp:prefab:revert"),
+                     "the header names the removed component and Revert all is enabled");
+        });
+        click("insp:prefab:revert");
+        step(8, [this] {
+            at_check(world().get<Shape2D>(world().find_by_id("panel_1")) != nullptr, "Revert all gives it back");
+            at_check(prefab_override_count(inspOv_) == 0, "...and nothing is left to override");
+        });
+
+        // 6. While the game runs Apply is not offered (the running game's values are not the scene's); Revert still is.
+        step(2, [this, set_layer] {
+            set_layer("panel_1", 3);
+            play();
+        });
+        step(10, [this] {
+            at_check(play_state() != PlayState::Edit, "the game runs");
+            at_check(at_visible("insp:prefab:apply") && !at_enabled("insp:prefab:apply"),
+                     "Apply all is disabled while the game runs");
+            at_check(at_enabled("insp:prefab:revert"), "...and Revert all is not");
+            at_check(selected_id() == "panel_1", "the selection survives Play");
+            selection_mut().add("panel_2");  // two selected: panel_1 stays the primary after the game removes panel_2
+            selection_mut().add("panel_1");
+            // The game destroys a selected entity: the selection keeps its id (it comes back on Stop).
+            const CommandResult r = engine_->commands().call("scene.destroy", Json::object({{"id", "panel_2"}}));
+            at_check(r.ok, "the running game destroys panel_2");
+        });
+        step(6, [this] {
+            at_check(world().find_by_id("panel_2").is_null(), "panel_2 is gone from the running world");
+            at_check(selection().contains("panel_2") && selection_peek().size() == 2,
+                     "...but the selection is not pruned while the game runs");
+            at_check(selection_roots() == std::vector<std::string>{"panel_1"},
+                     "...and the readers skip the id that is gone");
+            stop();
+        });
+        step(6, [this] {
+            at_check(play_state() == PlayState::Edit, "Stop returns to edit mode");
+            at_check(!world().find_by_id("panel_2").is_null() && selection().contains("panel_2") &&
+                         selection().contains("panel_1"),
+                     "Stop brings panel_2 back, and it is still selected");
+            select_id("");
         });
     }
 }

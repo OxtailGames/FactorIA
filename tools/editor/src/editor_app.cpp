@@ -17,6 +17,7 @@
 #include "fa/core/build_info.h"
 #include "fa/core/command.h"
 #include "fa/core/crash.h"
+#include "fa/core/deprecation.h"
 #include "fa/core/fs.h"
 #include "imgui_internal.h"
 #include "sokol_app.h"
@@ -255,6 +256,7 @@ Editor::~Editor() {
     if (atThread_.joinable()) atThread_.join();
     atWatchdogStop_ = true;
     if (atWatchdog_.joinable()) atWatchdog_.join();
+    examples_.shutdown();  // the Examples tab's list and create: cancelled, joined
     if (updateThread_.joinable()) updateThread_.join();
     if (launcherThread_.joinable()) launcherThread_.join();
     share_.join_all();  // sign-in, flush and AI review threads (they only touch share_)
@@ -315,7 +317,7 @@ int Editor::run() {
     // Copy and paste: sokol_imgui pastes on sokol_app's CLIPBOARD_PASTED event (it swallows the Ctrl+V key), and both
     // need the clipboard enabled. 1 MB, not sokol's 8 KB: a pasted log or design doc must not be refused.
     s.enable_clipboard = true;
-    s.clipboard_size = 1 << 20;
+    s.clipboard_size = int(kClipboardBytes);
     sapp_run(&s);  // macOS: does not return, the platform layer exits with d.exit_code()
     return d.exit_code();
 }
@@ -652,7 +654,7 @@ bool Editor::boot(const std::string& dirIn) {
     imageSizes_.clear();
     undo_.clear();
     redo_.clear();
-    selectedId_.clear();
+    selection_.clear();
     play_ = PlayState::Edit;
     dirty_ = false;
     feedbackMtime_ = INT64_MIN;
@@ -750,6 +752,7 @@ bool Editor::boot(const std::string& dirIn) {
         }
         scenePath_ = world().scene_path();
         if (scenePath_.empty()) scenePath_ = engine_->project().mainScene;
+        Deprecations::global().reset_warned();  // a deprecation is warned about once per project load
         register_project_commands(*engine_, projectDir_);
         engine_->set_paused(true);
         install_command_overrides();
@@ -1023,10 +1026,14 @@ std::optional<CommandResult> Editor::run_queued(const std::string& name, const J
 
     const CommandInfo* info = engine_->commands().info(name);
     const bool mutating = info && !info->readOnly && command_edits_scene(name, args);
-    if (mutating && play_ == PlayState::Edit) begin_edit("ai:" + name + ":" + std::to_string(uiFrame_));
-    CommandResult r = engine_->commands().call(name, args);
-    if (mutating && r.ok && play_ == PlayState::Edit) dirty_ = true;
-    after_command(name, args, r);
+    CommandResult r;
+    if (mutating && play_ == PlayState::Edit) {
+        // A command with an inverse is a Command step, any other one a snapshot; a refused call leaves no step (edit_command).
+        r = edit_command("ai:" + name + ":" + std::to_string(uiFrame_), name, args, nullptr, false, false);
+    } else {
+        r = engine_->commands().call(name, args);
+        after_command(name, args, r);
+    }
     if (!queue_.current_tag().empty())
         ai_note_command(queue_.current_tag(), name, args, r);  // which chat's run changed what
     // A sheet the AI (or an MCP client) made for the person: offered in the Review window, without taking the focus. Any command that
@@ -1144,6 +1151,8 @@ bool Editor::command_edits_scene(const std::string& name, const Json& args) cons
         return false;  // game feel effects are a moment of the running game, not part of the scene
     if (name == "scene.import_ascii" && args.is_object() && args.contains("path"))
         return false;  // file mode: the world is not touched
+    if (name == "ui.reset_layout_positions" && args.is_object() && args.value("dryRun", false))
+        return false;  // only lists what it would reset
     return true;
 }
 
@@ -1210,7 +1219,7 @@ bool Editor::open_scene(const std::string& path) {
     world().set_scene_path(path);
     undo_.clear();
     redo_.clear();
-    selectedId_.clear();
+    selection_.clear();
     dirty_ = false;
     notify("Opened " + path);
     return true;
@@ -1331,161 +1340,167 @@ void Editor::stop() {
 // ------------------------------------------------------------------------------------------
 // Selection and edits
 Entity Editor::selected() {
-    if (!engine_ || selectedId_.empty()) return kNullEntity;
-    Entity e = world().find_by_id(selectedId_);
+    if (!engine_ || selection_.primary().empty()) return kNullEntity;
+    Entity e = world().find_by_id(selection_.primary());
     if (e.is_null() || !world().alive(e)) return kNullEntity;
     return e;
 }
 
-void Editor::select(Entity e) { selectedId_ = (e.is_null() || !engine_) ? std::string() : world().id_of(e); }
+void Editor::select(Entity e) { selection_.replace((e.is_null() || !engine_) ? std::string() : world().id_of(e)); }
 
-void Editor::begin_edit(const std::string& key) {
-    if (play_ != PlayState::Edit || !engine_) return;
-    const bool coalesce = key == lastEditKey_ && (time_ - lastEditTime_) < 0.8;
+const Selection& Editor::selection() {
+    // Only in Edit: the game may destroy a selected entity (or load another scene) while it runs, and on Stop the scene comes
+    // back as it was, with the selection the user made. Pruning in Play/Pause would drop those ids for good. The readers skip an
+    // id that is gone (selected() is null when the primary is).
+    if (engine_ && play_ == PlayState::Edit) {
+        World& w = world();
+        selection_.prune([&w](const std::string& id) {
+            const Entity e = w.find_by_id(id);
+            return !e.is_null() && w.alive(e);
+        });
+    }
+    return selection_;
+}
+
+std::vector<std::string> Editor::selection_roots() {
+    if (!engine_) return {};
+    const Selection& sel = selection();  // Edit: drops what no longer exists
+    World& w = world();
+    std::vector<std::string> alive;  // in Play/Pause the set is not pruned: leave out what the game destroyed
+    for (const std::string& id : sel.ids()) {
+        const Entity e = w.find_by_id(id);
+        if (!e.is_null() && w.alive(e)) alive.push_back(id);
+    }
+    std::vector<std::string> ids = without_selected_descendants(alive, [&w](const std::string& id) {
+        const Entity e = w.find_by_id(id);
+        const Entity p = e.is_null() ? kNullEntity : w.parent(e);
+        return p.is_null() ? std::string() : w.id_of(p);
+    });
+    if (ids.size() < 2) return ids;
+    // The order the Hierarchy shows: a depth-first walk of the scene, keeping the selected ones. A selected entity's children are
+    // not walked: none of them is in `ids`.
+    const std::set<std::string> wanted(ids.begin(), ids.end());
+    std::vector<std::string> ordered;
+    std::vector<Entity> stack;
+    const std::vector<Entity> roots = w.roots();
+    stack.assign(roots.rbegin(), roots.rend());
+    while (!stack.empty() && ordered.size() < ids.size()) {
+        const Entity e = stack.back();
+        stack.pop_back();
+        if (!w.alive(e)) continue;
+        const std::string id = w.id_of(e);
+        if (wanted.count(id)) {
+            ordered.push_back(id);
+            continue;
+        }
+        const std::vector<Entity> kids = w.children(e);
+        stack.insert(stack.end(), kids.rbegin(), kids.rend());
+    }
+    return ordered;
+}
+
+bool Editor::begin_edit(const std::string& key) {
+    if (play_ != PlayState::Edit || !engine_) return false;
+    const bool coalesce =
+        lastEditKind_ == UndoEntry::Kind::Snapshot && edit_coalesces(key, lastEditKey_, time_, lastEditTime_);
     lastEditTime_ = time_;
     lastEditKey_ = key;
+    lastEditKind_ = UndoEntry::Kind::Snapshot;
     dirty_ = true;
-    if (coalesce) return;
-    undo_.push_back(snapshot_scene(world()));
-    if (undo_.size() > 100) undo_.erase(undo_.begin());
+    if (coalesce) return false;
+    undo_.push_back(UndoEntry::snapshot(snapshot_scene(world())));  // the stack drops the oldest beyond its caps
     redo_.clear();
+    return true;
 }
 
-void Editor::undo() {
-    if (play_ != PlayState::Edit || undo_.empty() || !engine_) return;
+bool Editor::push_command_entry(const std::string& key, std::vector<UndoCommand> forward,
+                                std::vector<UndoCommand> inverse, CoalesceMode mode) {
+    if (play_ != PlayState::Edit || !engine_) return false;
+    const bool coalesce =
+        lastEditKind_ == UndoEntry::Kind::Command && edit_coalesces(key, lastEditKey_, time_, lastEditTime_);
+    lastEditTime_ = time_;
+    lastEditKey_ = key;
+    lastEditKind_ = UndoEntry::Kind::Command;
+    dirty_ = true;
+    if (undo_.push_command(std::move(forward), std::move(inverse), coalesce, mode)) redo_.clear();
+    return true;
+}
+
+// Runs the commands of a Command entry in order. A list of several commands that fails midway is run back: the scene is
+// put to what it was before the first one (a transient snapshot, never stored), so a step is applied whole or not at
+// all, and the error names the command that failed. A list of one command needs no snapshot: a refused command changes
+// nothing.
+bool Editor::run_undo_commands(const std::vector<UndoCommand>& cmds, bool forward) {
+    Json before;
+    if (cmds.size() > 1) before = snapshot_scene(world());
+    for (const UndoCommand& c : cmds) {
+        const CommandResult r = engine_->commands().call(c.cmd, c.args);
+        after_command(c.cmd, c.args, r);
+        if (r.ok) continue;
+        if (!before.is_null()) restore_scene(before);
+        notify("Could not " + std::string(forward ? "redo" : "undo") + " the edit: " + c.cmd + ": " +
+                   command_error_text(r.error) + (before.is_null() ? "" : " (the scene was put back as it was)"),
+               2);
+        return false;
+    }
+    return true;
+}
+
+// Undo (forward false) or redo (forward true) of the newest entry of `from`; the entry moves to the other stack.
+void Editor::step_history(bool forward) {
+    UndoStack& from = forward ? redo_ : undo_;
+    UndoStack& to = forward ? undo_ : redo_;
+    if (play_ != PlayState::Edit || from.empty() || !engine_) return;
     levelGenSampleStale_ = true;  // the Level generator window reads its sample again
-    if (undo_.back().is_object() && undo_.back().contains("$clip")) {  // a step of a clip file (anim_panel.cpp)
-        Json entry = std::move(undo_.back());
-        undo_.pop_back();
+    // A step of a document panel (clip file, image, drawing, sound, effect, song, model): the panel undoes it and pushes
+    // the entry on the other stack itself.
+    using Apply = void (Editor::*)(const Json&, bool);
+    struct Special {
+        const char* key;
+        Apply apply;
+    };
+    static const Special kSpecials[] = {
+        {"$clip", &Editor::anim_apply_clip_undo},     // anim_panel.cpp
+        {"$clip3d", &Editor::anim3d_apply_undo},      // anim3d_panel.cpp
+        {"$image", &Editor::image_apply_undo},        // image_panel.cpp
+        {"$vector", &Editor::vector_apply_undo},      // vector_panel.cpp
+        {"$sound", &Editor::sound_apply_undo},        // sound_panel.cpp
+        {"$particle", &Editor::particle_apply_undo},  // particle_panel.cpp
+        {"$music", &Editor::music_apply_undo},        // music_panel.cpp
+        {"$modeler", &Editor::modeler_apply_undo},    // modeler_panel.cpp
+    };
+    if (from.back().kind == UndoEntry::Kind::Special) {
+        for (const Special& sp : kSpecials) {
+            if (!from.back().is_special(sp.key)) continue;
+            const UndoEntry entry = from.take_back();
+            lastEditKey_.clear();
+            (this->*sp.apply)(entry.data, forward);
+            return;
+        }
+    }
+    if (from.back().kind == UndoEntry::Kind::Command) {  // forward and inverse command lists (M98.7e)
+        UndoEntry entry = from.take_back();
         lastEditKey_.clear();
-        anim_apply_clip_undo(entry, false);
+        // The pose holds rest values (boneRest, savedClip) taken before this step: put them back first, so the step changes
+        // the rest values the panel then poses again (the snapshot path got this from the new scene generation).
+        if (anim_.posed) anim_unpose();
+        anim_.dirtyPose = true;
+        // An entry that cannot be applied is dropped (after the scene was put back): it would block every older step.
+        const bool ok = run_undo_commands(forward ? entry.forward : entry.inverse, forward);
+        if (ok) to.push_back(std::move(entry));
+        dirty_ = true;
         return;
     }
-    if (undo_.back().is_object() && undo_.back().contains("$clip3d")) {  // a step of a 3D clip file (anim3d_panel.cpp)
-        Json entry = std::move(undo_.back());
-        undo_.pop_back();
-        lastEditKey_.clear();
-        anim3d_apply_undo(entry, false);
-        return;
-    }
-    if (undo_.back().is_object() && undo_.back().contains("$image")) {  // a step of an image document (image_panel.cpp)
-        Json entry = std::move(undo_.back());
-        undo_.pop_back();
-        lastEditKey_.clear();
-        image_apply_undo(entry, false);
-        return;
-    }
-    if (undo_.back().is_object() && undo_.back().contains("$vector")) {  // a step of a drawing (vector_panel.cpp)
-        Json entry = std::move(undo_.back());
-        undo_.pop_back();
-        lastEditKey_.clear();
-        vector_apply_undo(entry, false);
-        return;
-    }
-    if (undo_.back().is_object() && undo_.back().contains("$sound")) {  // a step of a sound (sound_panel.cpp)
-        Json entry = std::move(undo_.back());
-        undo_.pop_back();
-        lastEditKey_.clear();
-        sound_apply_undo(entry, false);
-        return;
-    }
-    if (undo_.back().is_object() &&
-        undo_.back().contains("$particle")) {  // a step of an effect document (particle_panel.cpp)
-        Json entry = std::move(undo_.back());
-        undo_.pop_back();
-        lastEditKey_.clear();
-        particle_apply_undo(entry, false);
-        return;
-    }
-    if (undo_.back().is_object() && undo_.back().contains("$music")) {  // a step of a song (music_panel.cpp)
-        Json entry = std::move(undo_.back());
-        undo_.pop_back();
-        lastEditKey_.clear();
-        music_apply_undo(entry, false);
-        return;
-    }
-    if (undo_.back().is_object() && undo_.back().contains("$modeler")) {  // a step of a model (modeler_panel.cpp)
-        Json entry = std::move(undo_.back());
-        undo_.pop_back();
-        lastEditKey_.clear();
-        modeler_apply_undo(entry, false);
-        return;
-    }
-    redo_.push_back(snapshot_scene(world()));
-    Json s = std::move(undo_.back());
-    undo_.pop_back();
-    restore_scene(s);
+    to.push_back(UndoEntry::snapshot(snapshot_scene(world())));
+    UndoEntry s = from.take_back();
+    restore_scene(s.data);
     dirty_ = true;
     lastEditKey_.clear();
 }
 
-void Editor::redo() {
-    if (play_ != PlayState::Edit || redo_.empty() || !engine_) return;
-    levelGenSampleStale_ = true;  // the Level generator window reads its sample again
-    if (redo_.back().is_object() && redo_.back().contains("$clip")) {
-        Json entry = std::move(redo_.back());
-        redo_.pop_back();
-        lastEditKey_.clear();
-        anim_apply_clip_undo(entry, true);
-        return;
-    }
-    if (redo_.back().is_object() && redo_.back().contains("$clip3d")) {
-        Json entry = std::move(redo_.back());
-        redo_.pop_back();
-        lastEditKey_.clear();
-        anim3d_apply_undo(entry, true);
-        return;
-    }
-    if (redo_.back().is_object() && redo_.back().contains("$image")) {
-        Json entry = std::move(redo_.back());
-        redo_.pop_back();
-        lastEditKey_.clear();
-        image_apply_undo(entry, true);
-        return;
-    }
-    if (redo_.back().is_object() && redo_.back().contains("$vector")) {
-        Json entry = std::move(redo_.back());
-        redo_.pop_back();
-        lastEditKey_.clear();
-        vector_apply_undo(entry, true);
-        return;
-    }
-    if (redo_.back().is_object() && redo_.back().contains("$sound")) {
-        Json entry = std::move(redo_.back());
-        redo_.pop_back();
-        lastEditKey_.clear();
-        sound_apply_undo(entry, true);
-        return;
-    }
-    if (redo_.back().is_object() &&
-        redo_.back().contains("$particle")) {  // a step of an effect document (particle_panel.cpp)
-        Json entry = std::move(redo_.back());
-        redo_.pop_back();
-        lastEditKey_.clear();
-        particle_apply_undo(entry, true);
-        return;
-    }
-    if (redo_.back().is_object() && redo_.back().contains("$music")) {
-        Json entry = std::move(redo_.back());
-        redo_.pop_back();
-        lastEditKey_.clear();
-        music_apply_undo(entry, true);
-        return;
-    }
-    if (redo_.back().is_object() && redo_.back().contains("$modeler")) {
-        Json entry = std::move(redo_.back());
-        redo_.pop_back();
-        lastEditKey_.clear();
-        modeler_apply_undo(entry, true);
-        return;
-    }
-    undo_.push_back(snapshot_scene(world()));
-    Json s = std::move(redo_.back());
-    redo_.pop_back();
-    restore_scene(s);
-    dirty_ = true;
-    lastEditKey_.clear();
-}
+void Editor::undo() { step_history(false); }
+
+void Editor::redo() { step_history(true); }
 
 void Editor::set_window_title(const std::string& title) {
     windowTitle_ = title;
@@ -1631,6 +1646,14 @@ void Editor::build_ui() {
         if ((ctrl && ImGui::IsKeyPressed(ImGuiKey_Y, false)) ||
             (ctrl && io.KeyShift && ImGui::IsKeyPressed(ImGuiKey_Z, false)))
             redo();
+        // Copy, Cut and Paste of entities, while the Hierarchy or the Viewport has the keyboard (the other panels keep these keys).
+        // The native menu on macOS binds none of them (it would take the key from the Animation panel too), so the key is
+        // always seen here, with Cmd as io.KeyCtrl.
+        if (io.KeyCtrl && !io.KeyShift && !io.KeyAlt && entity_clipboard_keys_active()) {
+            if (ImGui::IsKeyPressed(ImGuiKey_C, false)) entity_copy();
+            if (ImGui::IsKeyPressed(ImGuiKey_X, false)) entity_cut();
+            if (ImGui::IsKeyPressed(ImGuiKey_V, false)) entity_paste();
+        }
         if (ImGui::IsKeyPressed(ImGuiKey_F5, false)) {
             if (play_ == PlayState::Edit)
                 play();
@@ -1694,6 +1717,9 @@ void Editor::build_ui() {
     draw_status_bar();
 
     if (engine_) {
+        // The panels below only peek at the selection (selection_peek()). An AI command or an undo may have deleted entities
+        // since the last frame: drop them once here, so no panel counts a dead id and a dead primary hands over to a live one.
+        selection();
         if (showViewport_) draw_viewport();
         if (showHierarchy_) draw_hierarchy_panel();
         if (showInspector_) draw_inspector_panel();

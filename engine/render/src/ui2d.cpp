@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "fa/scene/chart.h"
+#include "fa/scene/text_field_view.h"
 #include "fa/scene/ui_rect.h"
 #include "frame.h"
 #include "nine_slice.h"
@@ -51,13 +52,50 @@ struct Ctx {
     TextDirection dir =
         TextDirection::Auto;  // base direction of the labels: the language's for a widget with a localization key
     QuadList& list() const { return f.screen; }
-    Mat4 to_screen() const { return Mat4::scale({k, k, 1.0f}); }
+    // The widget's Transform and its parents' (ui_transform, UI units), when it turns or scales; else nothing and every quad
+    // is just scaled by k, as before.
+    bool turned = false;
+    Mat4 toScreen = Mat4::identity();
+    Mat4 to_screen() const { return turned ? toScreen : Mat4::scale({k, k, 1.0f}); }
+    void set_transform(const UiAffine& x) {
+        turned = !x.is_identity();
+        if (!turned) return;
+        Mat4 m;  // the affine map of the xy plane (column-major), then the interface scale
+        m.at(0, 0) = x.a;
+        m.at(0, 1) = x.b;
+        m.at(1, 0) = x.c;
+        m.at(1, 1) = x.d;
+        m.at(3, 0) = x.tx;
+        m.at(3, 1) = x.ty;
+        toScreen = Mat4::scale({k, k, 1.0f}) * m;
+    }
+    // How much bigger than the interface scale a turned or scaled widget's text is drawn (glyphs are rasterized at that size).
+    float raster_scale() const {
+        if (!turned) return 1.0f;
+        const float s =
+            std::sqrt(std::fabs(toScreen.at(0, 0) * toScreen.at(1, 1) - toScreen.at(1, 0) * toScreen.at(0, 1))) / k;
+        return std::isfinite(s) ? std::clamp(s, 0.25f, 8.0f) : 1.0f;
+    }
+    // Where a text laid out at (x, y) UI units goes: its origin rounded to a whole pixel when nothing turns (crisp glyphs).
+    Mat4 text_matrix(float x, float y) const {
+        if (!turned) return Mat4::translate({std::round(x * k), std::round(y * k), 0}) * to_screen();
+        return toScreen * Mat4::translate({x, y, 0});
+    }
 };
 
 // A UI coordinate rounded so it lands on a whole screen pixel once scaled by k.
 float snap(const Ctx& c, float v) { return std::round(v * c.k) / c.k; }
 // A rectangle of UI units as screen pixels (for the scissor).
-Rect to_pixels(const Ctx& c, const Rect& r) { return Rect{r.x * c.k, r.y * c.k, r.w * c.k, r.h * c.k}; }
+// A turned widget: the bounding box of the corners as drawn.
+Rect to_pixels(const Ctx& c, const Rect& r) {
+    if (!c.turned) return Rect{r.x * c.k, r.y * c.k, r.w * c.k, r.h * c.k};
+    const Vec3 p[4] = {c.toScreen.transform_point({r.x, r.y, 0}), c.toScreen.transform_point({r.x + r.w, r.y, 0}),
+                       c.toScreen.transform_point({r.x + r.w, r.y + r.h, 0}),
+                       c.toScreen.transform_point({r.x, r.y + r.h, 0})};
+    const float x0 = std::min({p[0].x, p[1].x, p[2].x, p[3].x}), y0 = std::min({p[0].y, p[1].y, p[2].y, p[3].y});
+    return Rect{x0, y0, std::max({p[0].x, p[1].x, p[2].x, p[3].x}) - x0,
+                std::max({p[0].y, p[1].y, p[2].y, p[3].y}) - y0};
+}
 
 std::uint32_t pack(Color c, const Ctx& ctx) {
     c = c * ctx.tint;
@@ -131,7 +169,7 @@ TextLayout line(const Ctx& c, const std::string& s, const std::string& font, flo
     t.direction = c.dir;
     // Same layout as screen-space Text at scale 1, including the player's text size option.
     return c.f.fonts->layout(t, px > 0.0f ? px : size * effective_text_scale(c.f.textScale, c.capScale),
-                             c.f.renderScale * c.k, true);
+                             c.f.renderScale * c.k * c.raster_scale(), true);
 }
 
 // The font size of the label of widget `e` in rectangle `r`: autoShrink decides it from the laid-out size (fit_text, the same
@@ -145,8 +183,7 @@ void text(const Ctx& c, const TextLayout& lay, float x, float y, Color col, int 
     if (lay.quads.empty() && lay.icons.empty()) return;
     col = col * c.tint;
     col.a *= c.fade;
-    emit_text(c.list(), Mat4::translate({std::round(x * c.k), std::round(y * c.k), 0}) * c.to_screen(), true, lay, col,
-              *c.f.fonts, *c.f.assets, layer, 0, clip, -1, c.tint);
+    emit_text(c.list(), c.text_matrix(x, y), true, lay, col, *c.f.fonts, *c.f.assets, layer, 0, clip, -1, c.tint);
     c.f.stats->textGlyphs += int(lay.quads.size());
 }
 
@@ -408,8 +445,10 @@ void draw_widget(Frame& f, const World& world, Entity e, UiKind kind, const UiBo
     Ctx c{f, Rect{}};
     if (!screen_clip(world, e, f, c.clip)) return;
     c.k = ui_scale_clamped(world.ui_scale());
+    c.set_transform(ui_transform(world, e, Vec2{float(f.targetW), float(f.targetH)}));
     c.tint = inherited_tint(world, f, e);
-    const Rect r = *ui_layout_rect(world, e, Vec2{float(f.targetW), float(f.targetH)});  // UI units
+    const Rect r =
+        *ui_layout_rect(world, e, Vec2{float(f.targetW), float(f.targetH)});  // UI units, the widget's own frame
     const bool mirrored = ui_mirrored(world, e);
     if (kind == UiKind::TouchButton) c.capScale = world.get<TouchButton>(e)->maxTextScale;
     if (kind == UiKind::TouchStick || kind == UiKind::TouchButton) return draw_touch_control(c, world, e, b, r);
@@ -495,19 +534,32 @@ void draw_widget(Frame& f, const World& world, Entity e, UiKind kind, const UiBo
         }
     } else if (kind == UiKind::TextField) {
         const TextField& tf = *world.get<TextField>(e);
-        const Rect inner{r.x + 12, r.y, std::max(0.0f, r.w - 24), r.h};
+        const TextFieldView v =
+            text_field_view(tf, r, [&](const std::string& s) { return line(c, s, tf.font, tf.fontSize).size; });
         const Rect clip = c.clip.empty()
-                              ? to_pixels(c, inner)
-                              : ui_intersect(to_pixels(c, inner), c.clip);  // the text never leaves the field
+                              ? to_pixels(c, v.inner)
+                              : ui_intersect(to_pixels(c, v.inner), c.clip);  // the text never leaves the field
         if (!clip.empty()) {
-            const bool empty = tf.text.empty();
-            const TextLayout lay = line(c, empty ? tf.placeholder : tf.text, tf.font, tf.fontSize);
-            const float width = empty ? 0.0f : lay.size.x,
-                        x = inner.x + std::min(0.0f, inner.w - width);  // long text shows its end
-            const float y = r.y + (r.h - lay.size.y) * 0.5f;
-            text(c, lay, empty ? inner.x : x, y, with_alpha(tf.textColor, empty ? 0.5f : 1.0f), layer, clip);
+            const float h = std::max(0.0f, v.lineH);
+            if (v.hasSelection && tf.focused)
+                fill(c, layer, Rect{v.selX0, v.lineY, v.selX1 - v.selX0, h}, with_alpha(tf.accentColor, 0.35f), clip);
+            if (v.composing && v.clauseX1 > v.clauseX0)  // the part the input method is converting
+                fill(c, layer, Rect{v.clauseX0, v.lineY, v.clauseX1 - v.clauseX0, h}, with_alpha(tf.accentColor, 0.35f),
+                     clip);
+            if (v.placeholder) {
+                const TextLayout lay = line(c, tf.placeholder, tf.font, tf.fontSize);
+                text(c, lay, v.inner.x, v.lineY, with_alpha(tf.textColor, 0.5f), layer, clip);
+            } else {
+                text(c, line(c, v.display, tf.font, tf.fontSize), v.textX, v.lineY, tf.textColor, layer, clip);
+            }
+            if (v.composing)  // the pre-edit text is underlined
+                fill(c, layer, Rect{v.compX0, v.lineY + h - 2.0f, v.compX1 - v.compX0, 1.5f}, tf.textColor, clip);
+            if (v.composing && v.clauseX1 > v.clauseX0)
+                fill(c, layer, Rect{v.clauseX0, v.lineY + h - 3.0f, v.clauseX1 - v.clauseX0, 2.5f}, tf.accentColor,
+                     clip);
             if (tf.caret)
-                fill(c, layer, Rect{x + width + 1, y + 2, 2, std::max(0.0f, lay.size.y - 4)}, tf.accentColor, clip);
+                fill(c, layer, Rect{v.caretX, v.lineY + 2.0f, kTextFieldCaretWidth, std::max(0.0f, h - 4.0f)},
+                     tf.accentColor, clip);
         }
     }
     if (ctl && ctl->focused && ctl->interactable) outline(c, b.layer + 2, r, 3, ctl->accentColor);

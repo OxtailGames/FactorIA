@@ -252,7 +252,11 @@
 
   // A touch on the page must not scroll or zoom it.
   document.addEventListener('touchmove', function (e) { e.preventDefault(); }, { passive: false });
-  canvas.addEventListener('mousedown', function () { canvas.focus(); });
+  // A click on the game gives it the keyboard, unless the text field the player types into has it (the hidden input of
+  // the engine IME, window.faText): taking it would end what the input method is composing.
+  canvas.addEventListener('mousedown', function () {
+    if (!(window.faText && window.faText.el && document.activeElement === window.faText.el)) canvas.focus();
+  });
   start();
 })();
 </script>

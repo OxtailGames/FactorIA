@@ -615,6 +615,9 @@ void register_checkpoint_commands(CommandRegistry& registry, const std::string& 
             "returned. "
             "`out` stays inside the project and cannot start with '.' folders or go through '..' (not into .factoria). "
             "Errors: an unknown id or a path the checkpoint does not hold fails with a \"did you mean\". "
+            "factoria.json is returned with the value of storage.encryptionSecret shown as \"(hidden)\" and cannot be "
+            "copied with `out` "
+            "(checkpoint.restore brings the real file back). "
             "Returns {id, path, size, binary, text | base64 | out}. Example: "
             "{\"id\":\"20261022-153012-7\",\"path\":\"scripts/player.js\"}.";
         c.inputSchema = Json::parse(R"({"type":"object","required":["id","path"],"properties":{
@@ -628,6 +631,16 @@ void register_checkpoint_commands(CommandRegistry& registry, const std::string& 
                 throw CommandError("invalid_argument", "`out` '" + out + "' is not a usable project-relative path.",
                                    "Use a path like exports/old_player.js: relative, forward slashes, no '..', no "
                                    "folder starting with '.'.");
+            // factoria.json holds the secret that seals the game's saves: it is shown as "(hidden)" (like fs.read) and never copied
+            // to another file, where fs.read would show it. checkpoint.restore {paths: ["factoria.json"]} brings the whole file back.
+            const bool isProjectFile = is_project_file_path(path);
+            if (isProjectFile && !out.empty())
+                throw CommandError(
+                    "invalid_argument",
+                    "`out` is not allowed for factoria.json: it holds the secret that seals the game's saves, "
+                    "and a copy under another name would show it to every file reader.",
+                    "Read it inline (the secret shows as \"(hidden)\"), or restore the real file with "
+                    "checkpoint.restore {\"id\": ..., \"paths\": [\"factoria.json\"]}.");
             // `out` is a write: the caller needs writeProject, the target is judged on its real path (a link into .git or .factoria is refused)
             // and all of it is checked before the checkpoint is read
             stdfs::path outPath;
@@ -647,19 +660,28 @@ void register_checkpoint_commands(CommandRegistry& registry, const std::string& 
             Json j = Json::object({{"id", id}, {"path", path}, {"size", bytes.size()}, {"binary", binary}});
             if (!out.empty() || bytes.size() > kReadInlineLimit) {
                 if (out.empty())
-                    throw CommandError("too_large",
-                                       "'" + path + "' is " + std::to_string(bytes.size()) +
-                                           " bytes, over the inline limit of " + std::to_string(kReadInlineLimit) + ".",
-                                       "Pass `out` (a project-relative path) and the file is written there.");
+                    throw CommandError(
+                        "too_large",
+                        "'" + path + "' is " + std::to_string(bytes.size()) + " bytes, over the inline limit of " +
+                            std::to_string(kReadInlineLimit) + ".",
+                        isProjectFile ? "A factoria.json cannot be copied with `out` (it holds the secret that seals "
+                                        "the game's saves); compare it with checkpoint.diff, or restore it with "
+                                        "checkpoint.restore {\"id\": ..., \"paths\": [\"" +
+                                            path + "\"]}."
+                                      : std::string("Pass `out` (a project-relative path) and the file is written "
+                                                    "there."));
                 std::string err;
                 if (!write_atomic(outPath, bytes.data(), bytes.size(), &err))
                     throw CommandError("failed", "Cannot write '" + out + "': " + err + ".",
                                        "Check the path and the permissions.");
                 j["out"] = out;
+            } else if (binary && isProjectFile) {
+                throw CommandError("invalid_argument", "factoria.json at this checkpoint is not text.",
+                                   "Restore it with checkpoint.restore {\"id\": ..., \"paths\": [\"factoria.json\"]}.");
             } else if (binary) {
                 j["base64"] = base64_encode(bytes.data(), bytes.size());
             } else {
-                j["text"] = bytes;
+                j["text"] = isProjectFile ? mask_project_secrets(bytes) : bytes;
             }
             return j;
         });

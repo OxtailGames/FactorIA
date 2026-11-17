@@ -1,4 +1,4 @@
-// Background file loading: an IO thread that reads files and hands their bytes to decode jobs (docs/ARCHITECTURE.md,
+// Background file loading: an IO thread that reads files and hands their bytes to decode jobs (docs/design/ARCHITECTURE_THREADS.md,
 // "Background loading"; docs/PERFORMANCE.md, "Background loading").
 //
 // Each Engine owns one IoQueue (its jobs owner and its load-trace owner go with it). The IO THREAD is shared by the

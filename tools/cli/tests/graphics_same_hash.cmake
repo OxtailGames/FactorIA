@@ -1,4 +1,4 @@
-# The simulation does not need a renderer (docs/ARCHITECTURE.md, "Animation" and "Simulation without a renderer"): the sprite
+# The simulation does not need a renderer (docs/design/ARCHITECTURE_RUNTIME.md, "Animation" and "Text and cameras without a renderer"): the sprite
 # animators and the particle emitters advance in the fixed step, text is shaped and measured on the CPU with the renderer's fonts, and
 # the cameras (input.mouse.world, camera.worldToScreen, the offset of a Parallax layer) are CPU maths too. So the WHOLE world -- every
 # entity, component and field, the live particles, the clock and the random generator -- is the same with a GPU renderer that draws

@@ -10,7 +10,25 @@
 #include "fa/platform/clipboard.h"
 #include "fa/platform/gamepad.h"
 #include "fa/platform/sokol_entry.h"
+#if defined(__APPLE__)
+#include "ime_apple.h"
+#endif
+#if defined(_WIN32)
+#include "ime_win32.h"
+#endif
+#if defined(__linux__) && !defined(__ANDROID__)
+#include "ime_linux.h"
+#endif
+#if defined(__EMSCRIPTEN__)
+#include "ime_web.h"
+#endif
 #include "mobile_impl.h"
+#if defined(__ANDROID__)
+#include <android/native_activity.h>
+
+#include "activity_end.h"
+#include "ime_android.h"
+#endif
 #include "sokol_window.h"
 #include "sokol_gfx.h"
 #include "sokol_glue.h"
@@ -41,6 +59,7 @@ struct AppState {
     int framesToInsets = 0;
     bool quitFromApp = false;  // app_request_quit() was called and its QuitRequested event has not arrived yet
     bool inQuitEvent = false;  // a QuitRequested event is being handled: app_cancel_quit() may act
+    bool finishing = false;    // Android: app_request_quit() asked the system to finish the activity
 };
 AppState g;
 
@@ -169,6 +188,23 @@ void on_init() {
     g.fbW = sapp_width();
     g.fbH = sapp_height();
     refresh_insets();
+#if defined(__APPLE__)
+    ime_apple_attach(
+        g.desc.input);  // macOS and iOS: the input method composes into this Input while a TextField has the focus
+#endif
+#if defined(_WIN32)
+    ime_win32_attach(g.desc.input);  // Windows: the same, through IMM32 on sokol_app's window
+#endif
+#if defined(__linux__) && !defined(__ANDROID__)
+    ime_linux_attach(g.desc.input);  // Linux: the same, through XIM on sokol_app's X11 window
+#endif
+#if defined(__ANDROID__)
+    ime_android_attach(true);  // Android: the keyboard's composition, through an InputConnection (ime_android.cpp)
+#endif
+#if defined(__EMSCRIPTEN__)
+    fa_sapp_web_route_events();    // the web: the keys the browser's input method takes are not the game's
+    ime_web_attach(g.desc.input);  // and its compositions go to this Input, through a hidden <input>
+#endif
     if (const AppIconImage& dock = g.desc.dockIcon;
         dock.width > 0 && dock.height > 0 && dock.rgba.size() == std::size_t(dock.width) * std::size_t(dock.height) * 4)
         fa_sapp_set_dock_icon(dock.rgba.data(), dock.width, dock.height);  // macOS only; NSApp exists from here on
@@ -178,6 +214,9 @@ void on_init() {
     if (g.desc.input) g.desc.input->set_paste_from_events(true);
     fa_web_install_lifecycle();
 #endif
+#if defined(__ANDROID__)
+    android_end_attach();  // from here on a destroyed activity runs the game's end on this thread (activity_end_android.cpp)
+#endif
     if (g.desc.init) g.desc.init();
 }
 
@@ -185,7 +224,11 @@ void on_frame() {
     double dt = sapp_frame_duration();
     if (!(dt > 0.0)) dt = 1.0 / 60.0;
     dt = std::min(dt, 0.25);
-    if (g.desc.input && g.focused) poll_gamepads(*g.desc.input);  // pads have no events: read them before the game runs
+    if (g.desc.input && g.focused) {
+        poll_gamepads(*g.desc.input);  // pads have no events: read them before the game runs
+        refresh_gamepad_rumble_support(
+            *g.desc.input);  // a pad that just connected answers canRumble in this frame already
+    }
     if (g.desc.input)
         mobile_poll(*g.desc.input);  // Android: keys, typed characters and the Back button of the input queue
     if (--g.framesToInsets <= 0) refresh_insets();
@@ -198,6 +241,21 @@ int exit_code() { return g.desc.exit_code ? g.desc.exit_code() : 0; }
 #endif
 
 void on_cleanup() {
+#if defined(__APPLE__)
+    ime_apple_attach(nullptr);
+#endif
+#if defined(_WIN32)
+    ime_win32_attach(nullptr);
+#endif
+#if defined(__linux__) && !defined(__ANDROID__)
+    ime_linux_attach(nullptr);
+#endif
+#if defined(__EMSCRIPTEN__)
+    ime_web_attach(nullptr);
+#endif
+#if defined(__ANDROID__)
+    ime_android_attach(false);
+#endif
     if (g.desc.cleanup) g.desc.cleanup();
     g.active = false;
 #if defined(__APPLE__) && !TARGET_OS_IPHONE
@@ -403,8 +461,17 @@ int app_framebuffer_width() { return sapp_isvalid() ? sapp_width() : g.fbW; }
 int app_framebuffer_height() { return sapp_isvalid() ? sapp_height() : g.fbH; }
 float app_dpi_scale() { return sapp_isvalid() ? sapp_dpi_scale() : 1.0f; }
 void app_request_quit() {
+#if defined(__ANDROID__)
+    // sokol_app never reads a quit request on Android: finish the activity instead (once; the call only posts to Android's
+    // main thread). The system destroys it, and the onDestroy wrapper of sokol_impl.c sends AppEvent::Type::Ending.
+    if (g.finishing) return;
+    g.finishing = true;
+    if (const void* activity = sapp_android_get_native_activity())
+        ANativeActivity_finish(static_cast<ANativeActivity*>(const_cast<void*>(activity)));
+#else
     g.quitFromApp = true;
     sapp_request_quit();
+#endif
 }
 void app_cancel_quit() {
     if (g.inQuitEvent) sapp_cancel_quit();
@@ -534,6 +601,12 @@ bool app_set_vsync(bool on) {
     g.vsync = on;
     return true;
 }
+
+#if defined(__ANDROID__)
+void app_android_end() {
+    if (g.active) emit(AppEvent::Type::Ending);
+}
+#endif
 
 bool app_is_mobile() {
 #if defined(__ANDROID__)

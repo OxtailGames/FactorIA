@@ -2029,7 +2029,7 @@ TEST_CASE("setup webplayer: the pinned Emscripten version is the one CI, the rel
             testing::read_all((root / file).string()).find(std::string("EMSDK_VERSION: ") + kSetupEmscriptenVersion) !=
             std::string::npos);
     }
-    CHECK(testing::read_all((root / "docs" / "BUILDING.md").string())
+    CHECK(testing::read_all((root / "docs" / "design" / "BUILDING.md").string())
               .find(std::string("emsdk install ") + kSetupEmscriptenVersion) != std::string::npos);
 }
 

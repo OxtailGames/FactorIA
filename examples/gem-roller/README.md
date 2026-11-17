@@ -1,5 +1,9 @@
 # Gem Roller
 
+**What it shows:** A 3D arcade game: moving platforms, checkpoints, a gem model baked from a recipe, a custom shader material and a timer.
+
+**Read first:** `docs/MODELING.md`, `docs/SHADERS.md` (`docs.read`, or `factoria docs read <name>`).
+
 A FactorIA 3D arcade game: roll a ball across floating platforms, ride two moving ones, and collect every gem
 before the 90 second timer runs out. A fall costs 5 seconds and puts you back at the last checkpoint. Meshes are
 built-in primitives plus one gem model, `assets/models/gem.glb`, baked from the recipe `assets/models/gem.model.json` (a cut-gem outline turned with `lathe`, flat shaded: edit it with `model.edit`, look at it with `model.preview` and `model.check`, or open it in the editor's Model panel, then bake with `model.bake`); the sounds are placeholders in `assets/sfx/`. The two textures, `assets/textures/ball.png` and `tile.png`, are baked from layered image documents (`ball.image.json`, `tile.image.json`: fills in a few layers): change a layer and run `image.bake` to remake the PNG.

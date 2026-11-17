@@ -1,6 +1,6 @@
 # Creating tools and extending the engine
 
-This guide has two readers. Game-making AIs read sections A and E to add a repeatable tool to a game project, and section G to add native code (C/C++) to a game without changing the engine. Engine developers read sections B to F to add commands, components, systems and feedback processing to FactorIA itself.
+This guide has two readers. Game-making AIs read section A to add a repeatable tool to a game project, and section G to add native code (C/C++) to a game without changing the engine. Engine developers read sections B to F, which are in [docs/design/EXTENDING_*.md](design/EXTENDING_COMMANDS.md) (repository only, not in the binary) to add commands, components, systems and feedback processing to FactorIA itself.
 
 The examples use the APIs of this build and were checked against it. The reference for the JavaScript side is `docs/SCRIPTING.md`. The reference for the frame and the built-in commands is `engine/runtime/include/fa/runtime/engine.h`.
 
@@ -45,7 +45,7 @@ export default {
 
 - **Schema keywords** the validator checks: `type`, `properties`, `required`, `additionalProperties`, `default`, `enum`, `const`, `minimum`, `maximum`, `minLength`, `pattern`, `items`, `anyOf`, `oneOf`. Invalid arguments are refused before `run` is called. The error names the field and gives a hint, such as the allowed values.
 - **Closed by default.** A key that `input` (or a nested object with `properties`) does not declare is an error, not an ignored extra: `invalid_arguments`, `/crates: unknown property 'crates'`, with a "did you mean" and the accepted keys in the hint. So declare every key `run` reads, with a `description`. A tool without `input`, or with `properties: {}`, takes no arguments. If the keys really are open-ended (a free-form map), say so: `additionalProperties: true` on that object accepts any key, and `additionalProperties: { type: "number" }` accepts any key whose value matches the schema. A project from before 0.13.0 whose tools or scripts pass extra keys now gets this error: add the missing properties to `input` (or drop the key from the call).
-- **Capabilities.** `capabilities` is an optional array of names saying what the tool can do outside the engine's memory: `read`, `state` (changes the running game in memory), `writeProject`, `writeAnywhere`, `network`, `process`, `spend`, `publish` (docs/ARCHITECTURE.md, "Commands", "Capabilities"). A caller that was not granted all of them (a game script gets `read` and `state`) is refused with `capability_denied`. Without the key the set follows `readOnly`: `["read"]` when it is true, `["read", "state", "writeProject"]` otherwise, so a tool that only changes the world in memory should declare `["read", "state"]` and one that talks to a server `["read", "network"]`. A tool with `capabilities` also gets `readOnly: true` only when the set is exactly `["read"]`. A name that does not exist (`"writeProjct"`) is a script error with the file, the position in the array and a "did you mean"; the tool is not registered until it is fixed.
+- **Capabilities.** `capabilities` is an optional array of names saying what the tool can do outside the engine's memory: `read`, `state` (changes the running game in memory), `writeProject`, `writeAnywhere`, `network`, `process`, `spend`, `publish` (docs/design/ARCHITECTURE_COMMANDS.md, "Commands", "Capabilities"; repository only, not in the binary). A caller that was not granted all of them (a game script gets `read` and `state`) is refused with `capability_denied`. Without the key the set follows `readOnly`: `["read"]` when it is true, `["read", "state", "writeProject"]` otherwise, so a tool that only changes the world in memory should declare `["read", "state"]` and one that talks to a server `["read", "network"]`. A tool with `capabilities` also gets `readOnly: true` only when the set is exactly `["read"]`. A name that does not exist (`"writeProjct"`) is a script error with the file, the position in the array and a "did you mean"; the tool is not registered until it is fixed.
 - **Hot reload.** Saving the file reloads the tool. MCP clients receive `notifications/tools/list_changed`.
 - **Errors.** Two kinds, and the caller sees them differently.
   - An *expected* failure, such as a check that found bad level data, is `throw new ToolError(message, hint, data?)` (import it from `"factoria"`). The caller gets code `tool_error`, the message, and your `hint`, which says how to fix the data or the call. `data` is an optional object with details. It appears in the JSON error of `factoria session` and `factoria call --batch`, and as `e.data` on the Error that `fa.call` throws in a script or test; MCP shows only the code, message and hint, so put what a fixer needs into the hint.
@@ -268,538 +268,15 @@ export default {
 
 Call it with `factoria call project.validate_data`, or from a test with `fa.call("project.validate_data")`.
 
-## B. C++ commands in the engine
-
-A command is a named function from JSON to JSON, registered in `CommandRegistry` (`engine/core/include/fa/core/command.h`).
-
-```cpp
-CommandInfo info;
-info.name = "area.verb_object";   // snake_case, "<area>.<verb_object>"
-info.category = "area";           // grouping in docs and listings
-info.readOnly = true;             // false when the command changes game or project state
-info.summary = "One line, imperative.";
-info.description = "What it does, caveats, and one example call.";
-info.inputSchema = Json::parse(R"({ "type": "object", "properties": {}, "required": [] })");
-registry.add(std::move(info), [](const Json& args) -> Json {
-    // args are already validated and defaults are filled in.
-    return Json::object({{"ok", true}});
-});
-```
-
-- **Errors.** Throw `CommandError(code, message, hint, data)` (defined in `command.h`; `hint` and `data` are optional). `command.h` names the codes `not_found`, `invalid_argument`, `failed` and `unavailable`; use the one that fits. Any other exception becomes `failed`. The registry itself reports `unknown_command` (with a did-you-mean hint) and `invalid_arguments`.
-- **Results.** `CommandRegistry::call` returns `CommandResult{ok, result, error}`. `error` is `{code, message, hint}`.
-- **Replacement.** `add` replaces a command with the same name.
-- **Hooks.** `CommandRegistry::set_interceptor` takes a `CommandInterceptor` (`command.h`) whose `before` can refuse a call or change its arguments and whose `after` sees the outcome. `register_ai_commands` installs the one that runs the user's `beforeCommand` / `afterCommand` hooks (docs/HOOKS.md), so every command, whoever calls it, can be hooked without code of its own.
-- **Schema keywords** are the same as in section A, and so is the rule that arguments are closed by default: `add` sets `additionalProperties: false` on every object schema that has `properties` and no `additionalProperties`, so declare every key the handler reads (a handler that reads an undeclared key never sees it). Open an object on purpose with `"additionalProperties": true` or a schema, and say why in the description. `tools/cli/tests/command_schema_test.cpp` fails when a command is open without being listed there.
-
-### Where to register
-
-| The command needs | Write it in | Register it from |
-|---|---|---|
-| The running game (scene, input, screenshots) or only the `World` | `engine/runtime/src/` (with a public header in `engine/runtime/include/fa/runtime/` if tests need it) | `register_builtin_commands` in `engine/runtime/src/commands.cpp` (declared in `engine_impl.h`) |
-| A command only a developer tool uses and a game must not have (writes project files, imports assets, edits animations) | `tools/authoring/src/` (`fa_authoring`; tests in `tools/authoring/tests/`) | `register_<area>_commands(Engine&, Engine::Impl&)` called from `register_authoring_commands` in `tools/authoring/src/authoring.cpp` (declared in `authoring_internal.h`); a process gets it by calling `fa::authoring::install()` (docs/ARCHITECTURE.md, "Where a command goes") |
-| Project tooling: validation, docs, files, feedback | `tools/common/src/` | `register_tooling_commands(registry, projectDir)` (`tooling.h`) |
-| The built-in AI agent | `tools/ai/src/` | `register_ai_commands` (`commands.h`) |
-
-### B.1 Full example: `scene.count_by_tag`
-
-The command returns how many entities carry a tag. It is an exercise: the engine has no `scene.count_by_tag` (to list
-the entities with a tag, use the existing `scene.list_entities` with its `tag` filter), and the files below
-(`scene_commands.h`, `scene_commands.cpp`, `test_scene_commands.cpp`) do not exist either. It needs the `World`, so it
-lives in the runtime, which owns the world. Three new files and one call.
-
-Header, `engine/runtime/include/fa/runtime/scene_commands.h` (new file):
-
-```cpp
-#pragma once
-
-#include "fa/core/command.h"
-#include "fa/scene/world.h"
-
-namespace fa {
-
-// Registers scene.count_by_tag. Called from register_builtin_commands().
-void register_scene_commands(CommandRegistry& registry, World& world);
-
-}  // namespace fa
-```
-
-Source, `engine/runtime/src/scene_commands.cpp` (new file):
-
-```cpp
-#include "fa/runtime/scene_commands.h"
-
-namespace fa {
-
-void register_scene_commands(CommandRegistry& registry, World& world) {
-    CommandInfo info;
-    info.name = "scene.count_by_tag";
-    info.category = "scene";
-    info.readOnly = true;
-    info.summary = "Count the entities that have a tag.";
-    info.description =
-        "Returns 0 when no entity has the tag. Example: {\"tag\":\"enemy\"} returns {\"count\":2}. "
-        "Use scene.list_entities with the same tag to get the entities themselves.";
-    info.inputSchema = Json::parse(R"({
-        "type": "object",
-        "properties": {
-            "tag": {"type": "string", "description": "Tag to search for, for example \"enemy\"."}
-        },
-        "required": ["tag"],
-        "additionalProperties": false
-    })");
-
-    registry.add(std::move(info), [&world](const Json& args) -> Json {
-        const std::string tag = args.at("tag").get<std::string>();
-        if (tag.empty())
-            throw CommandError("invalid_argument", "The tag is empty.", "Pass a tag such as {\"tag\":\"enemy\"}.");
-        return Json::object({{"count", world.find_by_tag(tag).size()}});
-    });
-}
-
-}  // namespace fa
-```
-
-Call it from `register_builtin_commands` in `engine/runtime/src/commands.cpp`, where the registry is `I.commands` and the world is `I.world`. Add this line next to the other registrations:
-
-```cpp
-register_scene_commands(I.commands, I.world);
-```
-
-Test, `engine/runtime/tests/test_scene_commands.cpp` (new file). `fa_add_tests(runtime)` in `engine/runtime/CMakeLists.txt` builds every `tests/*.cpp` into `fa_test_runtime`:
-
-```cpp
-#include <doctest.h>
-
-#include "fa/core/command.h"
-#include "fa/runtime/scene_commands.h"
-#include "fa/scene/world.h"
-
-using namespace fa;
-
-TEST_CASE("scene.count_by_tag counts the entities with a tag") {
-    World world;
-    world.info(world.create("Grunt", "enemy_1")).tags = {"enemy"};
-    world.info(world.create("Coin", "coin_1")).tags = {"pickup"};
-
-    CommandRegistry registry;
-    register_scene_commands(registry, world);
-
-    CommandResult found = registry.call("scene.count_by_tag", Json::object({{"tag", "enemy"}}));
-    REQUIRE(found.ok);
-    CHECK(found.result["count"] == 1);
-
-    CommandResult none = registry.call("scene.count_by_tag", Json::object({{"tag", "boss"}}));
-    REQUIRE(none.ok);
-    CHECK(none.result["count"] == 0);
-
-    CommandResult empty = registry.call("scene.count_by_tag", Json::object({{"tag", ""}}));
-    CHECK_FALSE(empty.ok);
-    CHECK(empty.error["code"] == "invalid_argument");
-}
-```
-
-Build and run it:
-
-```bash
-cmake --build --preset linux-debug --target fa_test_runtime
-ctest --preset linux-debug -R runtime --output-on-failure
-```
-
-After this change the command is available as MCP tool `scene_count_by_tag`, as `factoria call scene.count_by_tag
-'{"tag":"enemy"}'`, in scripts as `fa.call("scene.count_by_tag", {tag: "enemy"})`, and to the built-in agent. Nothing
-else needs to change.
-
-## C. Adding a component
-
-**Components are data.** A component is a reflected struct with no behaviour. Logic belongs in a system (section D) or in a JavaScript behaviour that reads the component.
-
-Steps:
-
-1. **Write the struct** in `engine/scene/include/fa/scene/components.h`. Comment every field with its units, default and meaning.
-2. **Register it** in `register_builtin_components` (`engine/scene/src/components.cpp`). Give it a PascalCase name, a doc string and a category (`Core`, `Camera`, `2D`, `3D`, `Physics`, `Audio`, `Scripting`, `Scene`, or a new one such as `Gameplay`). Add a doc string to every field.
-3. **Write the system** that reads it (section D). Put it in the module that owns the behaviour.
-4. **Test it.** Load a scene that uses the component and check the defaults. Add a system test (section D).
-5. **Document it.** The field docs are the reference, because `docs_components` is generated from them. Add a line to the cheat-sheet in `docs/AI_GUIDE.md` if the component is a common building block.
-
-Do not add a component for something a script can already do with `props`. Add one when several systems or many games need the data.
-
-### C.1 Reflection cheat-sheet
-
-| C++ field type | Field kind | Notes |
-|---|---|---|
-| `bool` | Bool | |
-| `int`, `std::int32_t` | Int | `.range(lo, hi)` works as for `float`. |
-| `float` | Float | Add `.range(lo, hi)`: scene loading, `scene.set_component` and `project.validate` refuse a number outside it (an error with the JSON pointer, the range and the nearest allowed value; nothing is clamped silently). A script that writes a number outside it gets the same error, thrown. |
-| `std::string` | String | |
-| `Vec2`, `Vec3`, `Vec4`, `Color`, `Rect` | Vec2, Vec3, Vec4, Color, Rect | JSON arrays. See `json.h` for the accepted forms. |
-| `fa::Entity` | Entity | Scene files reference entities by string id. |
-| `fa::Json` | Json | Plain JSON value, for example `Script.props`. |
-| `fa::ArrayI32`, `fa::ArrayF32`, `fa::ArrayU8` (`core/typed_array.h`) | ArrayI32, ArrayF32, ArrayU8 | A flat JSON array of integers, numbers or bytes 0..255, typed in memory and in scripts (below the table). `.range(lo, hi)` bounds every element. |
-| `enum class E : std::int32_t` | Enum | `enum_field(name, &T::m, {"a", "b"}, doc)`. Names are lowercase and their index is the value. |
-| `std::string` path | Asset | `asset_field(name, &T::m, "texture", doc)`. Types: `texture`, `mesh`, `audio`, `font`, `script`, `scene`, `prefab`, `any`. Validation checks that the file exists. |
-
-Modifiers apply to the last field: `.range(lo, hi)`, `.runtime_only()` (not saved to scene files) and `.read_only()` (scripts may read but not write).
-
-**Array fields.** `ArrayI32`, `ArrayF32` and `ArrayU8` are thin wrappers of a contiguous `std::vector` that count their
-writes, so a system that derives data from one (a physics body, a render chunk) rebuilds only what changed:
-
-- `version()` grows on every write through a mutable accessor (`a[i] = x`, a mutable `data()`, `set`, `fill`, `assign`,
-  `resize`...). Read through a `const` reference (`std::as_const(a)[i]`, `cdata()`, `span()`) and nothing is counted. A
-  consumer keeps the version it built from and rebuilds when it differs.
-- `dirty_since(seen, begin, end)` gives the smallest half-open index range written after the array had version `seen`
-  (a chunk size C means chunks `begin / C` to `(end - 1) / C`). Each consumer keeps its own `seen` (the `version()` it last
-  read), so any number of consumers ask independently and nothing is "acknowledged": one consumer can never hide an
-  edit from another. The array remembers its last `kHistory` (8) writes; when more than that happened since `seen`, or
-  `seen` is newer than the array, `dirty_since` returns false and the consumer compares or rebuilds everything. A write
-  that changes the size covers the whole array, and `end` may exceed `size()` after a shrink.
-- `set(i, x)`, `fill`, `assign` and copy assignment write only what differs: the same contents change nothing, so a
-  `scene.set_component` that repeats the array, or a patch of another field of the component, does not trigger a rebuild.
-  `a[i] = x` cannot see whether `x` differs and always counts.
-- The version and the range only mean something on one array object (a copy starts at version 0 again). A cache per
-  component keeps `id()` next to the version: `id()` is unique in the process for every constructed or copy-constructed
-  array (a component removed and added again, a world restored from a copy), kept by a move construction (a pool
-  relocating the component) and by assignment (the destination's). The cache is valid while both `id()` and `version()`
-  equal what it was built from. After a copy or move ASSIGNMENT the id is the destination's but the contents (and the
-  version steps) come from another array: a side log of edits kept next to the array (the Tilemap's `edits`) must prove it
-  covers every version step since the cache's version (as `tilemap_edits_since` does) and never be trusted by `(id, version)`
-  alone. Not thread safe.
-- JSON: an array of numbers, validated whole before anything is written (errors name the field and the element index;
-  an integer kind refuses `2.5`, `ArrayU8` refuses 256, `ArrayF32` refuses what a 32-bit float cannot hold; at most
-  16 Mi elements). `type_json_schema` gives `{"type": "array", "items": {"type": "integer"|"number", "minimum", "maximum"}}`.
-- Scripts: reading the field gives an `Int32Array`, `Float32Array` or `Uint8Array` that is a COPY (writing into it changes
-  nothing); assigning a typed array or a plain array of numbers replaces the whole field after every element is checked
-  (`TestComponent.tiles[17] must be an integer from 0 to 255, got 300`). A typed array of the field's own type is copied
-  as bytes.
-- The editor's Inspector shows it as a JSON box with the array on one line, up to 512 elements; a longer array shows only
-  its length (edit it with `scene.set_component` or a script).
-- Not animatable by a clip, and `scene.set_component` with `merge` replaces the array (like any non-object value).
-
-### C.2 Full example: `Wobble`
-
-`Wobble` moves an entity up and down around its starting height. It is an example. Do not add it to the engine unless it is a general need.
-
-Struct, in `engine/scene/include/fa/scene/components.h`:
-
-```cpp
-// Bobs the entity up and down around its starting height. Systems: update_wobble() in wobble_system.h.
-struct Wobble {
-    float amplitude = 8.0f;   // distance above and below the base height, in world units
-    float frequency = 1.0f;   // full up-and-down cycles per second
-    float phase = 0.0f;       // starting offset of the cycle, in degrees (90 starts at the top)
-    float baseY = 0.0f;       // runtime: height the entity oscillates around
-    float elapsed = 0.0f;     // runtime: seconds since the first update
-    bool started = false;     // runtime: true once baseY has been captured
-};
-```
-
-Registration, in `register_builtin_components` in `engine/scene/src/components.cpp`:
-
-```cpp
-    // ---------------------------------------------------------- Gameplay ---
-    r.add<Wobble>("Wobble",
-                  "Bobs the entity up and down around its starting height. Updated every fixed step by update_wobble().",
-                  "Gameplay")
-        .field("amplitude", &Wobble::amplitude, "Distance above and below the base height, in world units.").range(0, 100000)
-        .field("frequency", &Wobble::frequency, "Full up-and-down cycles per second.").range(0, 100)
-        .field("phase", &Wobble::phase, "Starting offset of the cycle in degrees. 90 starts at the top.").range(-360, 360)
-        .field("baseY", &Wobble::baseY, "Runtime state: the height the entity oscillates around.").runtime_only()
-        .field("elapsed", &Wobble::elapsed, "Runtime state: seconds since the first update.").runtime_only()
-        .field("started", &Wobble::started, "Runtime state: true once baseY has been captured.").runtime_only();
-```
-
-Test, `engine/scene/tests/test_wobble.cpp` (new file). The second case calls the system from section D:
-
-```cpp
-#include <doctest.h>
-
-#include "fa/scene/components.h"
-#include "fa/scene/serialize.h"
-#include "fa/scene/wobble_system.h"
-#include "fa/scene/world.h"
-
-using namespace fa;
-
-TEST_CASE("Wobble loads from scene JSON and fills in its defaults") {
-    World world;
-    Json scene = Json::parse(R"({
-        "format": "factoria.scene/1",
-        "entities": [{"id": "bob", "components": {"Wobble": {"amplitude": 4}}}]
-    })");
-    LoadReport report = load_scene(world, scene, "<test>");
-    REQUIRE(report.ok());
-    Entity bob = world.find_by_id("bob");
-    REQUIRE(static_cast<bool>(bob));
-    const Wobble* w = world.get<Wobble>(bob);
-    REQUIRE(w != nullptr);
-    CHECK(w->amplitude == doctest::Approx(4.0f));
-    CHECK(w->frequency == doctest::Approx(1.0f));
-}
-
-TEST_CASE("Wobble oscillates around its starting height") {
-    World world;
-    Entity e = world.create("Bob", "bob");
-    world.get<Transform>(e)->position.y = 100.0f;
-    Wobble& w = world.add<Wobble>(e);
-    w.amplitude = 10.0f;
-    w.frequency = 1.0f;
-
-    const float dt = 1.0f / 60.0f;
-    for (int i = 0; i < 15; ++i) update_wobble(world, dt);  // a quarter cycle: the top
-    CHECK(world.get<Transform>(e)->position.y == doctest::Approx(110.0f).epsilon(1e-3));
-    for (int i = 0; i < 30; ++i) update_wobble(world, dt);  // three quarters: the bottom
-    CHECK(world.get<Transform>(e)->position.y == doctest::Approx(90.0f).epsilon(1e-3));
-}
-```
-
-### C.3 What you get without extra code
-
-Once a component is registered, the engine derives these from the reflection data:
-
-- **Scene and prefab JSON.** Loading, saving and error messages. An unknown field name produces a message with the JSON pointer and a did-you-mean hint (`engine/scene/include/fa/scene/serialize.h`).
-- **JSON Schema.** `scene_json_schema()` and `prefab_json_schema()`, plus `type_json_schema()` for a single type.
-- **Scripts.** `entity.get("Wobble")` returns a live view of exactly the reflected fields (`docs/SCRIPTING.md`). Writing `entity.get("Wobble").amplitude = 2` writes into the engine.
-- **TypeScript typings.** `types/factoria.d.ts`, written by `factoria api --dts` (a project gets its own copy from `factoria validate --fix-types`).
-- **Docs.** `docs_components`, `docs.components` and `factoria://docs/components`.
-- **MCP and CLI.** `scene_set_component` and `scene.set_component` can patch the field.
-- **Editor.** Desktop builds include the visual editor (`FA_BUILD_EDITOR`, on by default there). Start it with `factoria editor`.
-
-## D. Adding a system to the frame loop
-
-A system is a function that reads and writes components. The frame runs in a fixed order, documented at the top of `engine/runtime/include/fa/runtime/engine.h`:
-
-```
-input.begin_frame
-N x fixed step @ fixedHz:  scripts.fixed_update -> physics.step -> scripts.dispatch_events
-scripts.update(dt) -> animators/particles -> audio.update -> scripts.late_update
-renderer: begin_frame -> render_world -> end_frame
-world.flush() (deferred destroys), pending scene change, hot-reload poll
-```
-
-### Choose the phase
-
-| Phase | Use it for | Rules |
-|---|---|---|
-| Fixed step, before `physics.step` | Anything that moves bodies or decides gameplay state | Use the fixed dt. Physics must see the result. |
-| Variable update, after `scripts.update` | Animation, particles, audio effects | Use the frame dt. Do not change state that physics or gameplay read. |
-| Late update (`scripts.late_update`) | Things that follow other things, such as cameras | Runs after all updates. |
-| Rendering | Drawing only | `renderer()` is null when the game runs without graphics (`EngineConfig::graphics = false`). Check it. |
-
-### D.1 Full example: `update_wobble`
-
-The Wobble system from section C belongs to the scene module, because it only touches `World` data. It is a fixed-step system, so physics sees the moved transform.
-
-Header, `engine/scene/include/fa/scene/wobble_system.h` (new file):
-
-```cpp
-#pragma once
-
-#include "fa/scene/world.h"
-
-namespace fa {
-
-// Moves every active Wobble entity around its base height. Call it once per FIXED step, before physics.
-void update_wobble(World& world, float fixedDt);
-
-}  // namespace fa
-```
-
-Source, `engine/scene/src/wobble_system.cpp` (new file):
-
-```cpp
-#include "fa/scene/wobble_system.h"
-
-#include <cmath>
-
-#include "fa/scene/components.h"
-
-namespace fa {
-
-void update_wobble(World& world, float fixedDt) {
-    constexpr float kTwoPi = 6.2831853f;
-    world.each<Wobble, Transform>([&](Entity e, Wobble& w, Transform& t) {
-        if (!world.active_in_hierarchy(e)) return;
-        if (!w.started) {
-            w.baseY = t.position.y;
-            w.started = true;
-        }
-        w.elapsed += fixedDt;  // simulated time, so runs are reproducible
-        const float angle = kTwoPi * w.frequency * w.elapsed + w.phase * kTwoPi / 360.0f;
-        t.position.y = w.baseY + w.amplitude * std::sin(angle);
-    });
-}
-
-}  // namespace fa
-```
-
-Call site: the fixed-step loop of `Engine::Impl::run_frame` in `engine/runtime/src/engine.cpp`. The new line goes after `scripts.fixed_update` and before `physics.step`, so physics reads the moved transform:
-
-```cpp
-const float fdt = float(fixedDt);
-for (int i = 0; i < fixedSteps; ++i) {
-    scripts.fixed_update(fdt);
-    update_wobble(world, fdt);  // new: moves Wobble entities before physics reads them
-    physics.step(world, fdt);
-    scripts.dispatch_events();
-    world.advance_clock(fixedDt);
-}
-```
-
-Add `#include "fa/scene/wobble_system.h"` to that file. The system test in section C runs without the frame loop, so it stays fast.
-
-### D.2 Rules for systems
-
-- **Determinism.** Use the fixed dt, `world.rng()` for random numbers, and no wall clock. The same seed and the same input must give the same frames.
-- **Skip inactive entities.** Check `world.active_in_hierarchy(e)`.
-- **Be safe with deferred work.** `world.destroy(e)` is deferred to the end of the frame, so it is safe inside `world.each`. Do not call `load_scene` in the middle of a frame. Use `ScriptHost::request_scene_change`, which defers the change.
-- **Know the order of `each`.** `world.each<A, B>` walks the pool with the fewest owners, in that pool's insertion order, so the order of a multi-type walk follows the counts. A system whose order is visible (events it queues, ids it hands out) drives by the type that must set the order: `world.each<A>(...)` and `world.get<B>(e)` inside.
-- **Do not keep a `Transform&` or an `EntityInfo&` across a hierarchy read.** `world.world_matrix(e)` and `active_in_hierarchy(e)` come from a cache that a write through a mutable `get` drops; a reference stored before the read and written after it is not seen. Get it again after the read (docs/ARCHITECTURE.md, "The hierarchy cache").
-- **Do not depend on graphics.** Headless runs without graphics have no renderer.
-- **Keep the order documented.** Update the frame comment in `engine.h` and the module table in `docs/ARCHITECTURE.md` when you add a system.
-- **Test it twice.** A C++ test calls the system directly (as in section C). A headless test checks the system inside a real frame when it changes the outcome of a game.
-
-## E. Checklists
-
-### Naming
-
-- Commands are `area.verb_object` in snake_case: `scene.list_entities`, `feedback.report`. Existing areas (the registry
-  of the 0.19.0 engine; `factoria commands` lists the ones of your version, and a new area is a new prefix): `ai`,
-  `anim`, `anim3d`, `api`, `assets`, `audio`, `bones`, `checkpoint`, `docs`, `engine`, `feedback`, `feel`, `fs`, `game`,
-  `i18n`, `ik3d`, `image`, `input`, `jobs`, `load`, `material`, `mesh`, `model`, `music`, `nav`, `perf`, `physics`,
-  `platform`, `play`, `player`, `prefab`, `project`, `publish`, `render`, `review`, `rig`, `scene`, `screen`, `script`,
-  `setup`, `sfx`, `shader`, `sign`, `skills`, `skin`, `skin3d`, `storage`, `tilemap`, `ui`, `vector`, `vfx`.
-- Tool files are snake_case. `tools/spawn_wave.js` becomes `project.spawn_wave`.
-- Components are PascalCase. Fields are camelCase. Enum values are lowercase (`"orthographic"`).
-- C++ functions and variables are snake_case, types are PascalCase, and source files are snake_case (`scene_commands.cpp`).
-- Entity ids are stable and snake_case (`coin_3`).
-
-### Doc strings
-
-- Every reflected field and every command has a doc string. These strings are the documentation that AIs read.
-- A command has a one-line imperative `summary` and a `description` with caveats and one example call.
-- A field has one or two sentences with its units, its default and the meaning of each enum value.
-- Write them for a reader who has never seen the code.
-
-### Errors that teach
-
-- Say where (file, JSON pointer or line), what went wrong, and how to fix it (the hint).
-- Name the alternatives. Use `fa::did_you_mean(input, candidates)` or `fa::closest_match` from `engine/core/include/fa/core/strings.h`.
-- Return a normal empty result for "nothing found" rather than an error.
-
-```cpp
-throw CommandError("not_found", "Entity 'enemy_9' not found.", "Use scene.list_entities to see valid ids.");
-```
-
-### Tests
-
-- C++ tests are doctest cases in `engine/<module>/tests/test_*.cpp`. `fa_add_tests(<module>)` builds them into `fa_test_<module>`. Run one module with `cmake --build --preset linux-debug --target fa_test_<module>` and `ctest --preset linux-debug -R <module> --output-on-failure`.
-- Tests that need a GPU carry the `gpu` label (`fa_add_tests(... LABELS gpu)`). Hosts without a GPU skip them with `ctest --preset linux-debug -LE gpu`.
-- Game-level behaviour goes in `tests/*.test.js` and runs with `factoria test`.
-- Rendering tests compare headless golden images in `engine/render/tests/golden/*.png` (`expect_golden(img, "name")`) against limits on the mean error, the share of differing pixels and the largest error. A missing golden fails the test; `FA_UPDATE_GOLDENS=1` writes it (docs/BUILDING.md, "Golden images").
-- Determinism: fixed seed, fixed steps, no timing assertions.
-- A bug fix starts with a failing test.
-
-### Documentation
-
-- `docs/*.md` is embedded in the binary. Update it in the same change as any user-facing behaviour.
-- Generated references (components, commands) need no edit.
-- `docs/AI_GUIDE.md` is the workflow for game-making AIs. `templates/common/AGENTS.md` is the short guide that `factoria new` writes into each project, so keep the two consistent.
-
-### Rules from `CLAUDE.md`
-
-- Module order is in `docs/ARCHITECTURE.md`: core, scene, platform, then render, physics, audio and ui, then script, runtime, tooling, mcp and ai, then editor and cli. A module includes only modules before it.
-- No exceptions cross module boundaries, except `CommandError` inside command handlers. Return `fa::Result<T>` with a message and a hint.
-- No `rand()`. No wall clock in simulation.
-- Do not edit `external/`. Wrap third-party code from engine code.
-- Sources are globbed: a new `.cpp` in a module's `src/` needs no CMake edit. Platform files use suffixes `_linux`, `_win32`, `_apple` (`.m`, `.mm`), `_android`, `_posix`, `_egl` and `_web`.
-- Record every engine gap you notice in the example's `ENGINE_FEEDBACK.json`.
-
-## F. Processing `ENGINE_FEEDBACK.json` (engine developers)
-
-Each game records what the engine lacked in its `ENGINE_FEEDBACK.json` (`docs/ENGINE_FEEDBACK.md`). Engine developers merge those files to decide what to build next.
-
-```bash
-factoria feedback collect games/ examples/ --out roadmap.md
-factoria feedback collect games/ --out roadmap.json --include-closed
-```
-
-- **Inputs.** Files, or directories. A directory contributes its `ENGINE_FEEDBACK.json` and any below it.
-- **Output file.** `--out` writes the Markdown report, or the JSON report when the name ends in `.json`.
-- **Scoring.** `score = sum over projects of (severity weight x trust x min(occurrences, 3))`, with weights blocker 8, major 4, minor 2 and nice-to-have 1, and trust 1 for your own projects and verified installations, 0.5 for anonymous ones (docs/ENGINE_FEEDBACK.md, "Collecting"). Only `open` entries count unless `--include-closed` is given.
-- **Grouping.** Entries in the same category with similar titles form one cluster. Titles are compared by token overlap and edit distance, with a default threshold of 0.7.
-- **Output (JSON).** `sources`, `projects`, `totalEntries`, `errors` and `clusters`. Each cluster has `rank`, `title`, `category`, `severity`, `score`, `installations`, `verifiedInstallations`, `totalOccurrences`, `projects`, `entries` (with `project`, `id`, `severity` and `status`), `bestSuggestion` and `sampleWorkarounds`.
-
-A triage routine:
-
-1. Collect, then read the top clusters.
-2. For each cluster, decide: build it (a command, component or system, sections B to D), accept the workaround and document it, or mark it `wont-fix`.
-3. When it is fixed, set `status` to `fixed-in-engine` and `engineIssue` to the issue or pull request. Use `feedback.update` from the project that holds the entry, or edit that file:
-
-   ```json
-   { "id": "FB-0001", "status": "fixed-in-engine", "engineIssue": "#42" }
-   ```
-
-4. Collect again. The cluster should disappear or shrink.
-
-Notes:
-
-- `feedback.update` changes only the `ENGINE_FEEDBACK.json` of the project it runs in. Entries in other projects are changed by editing their files.
-- Wording matters for grouping. Reuse the same title for the same gap, and write titles as noun phrases ("No fluid simulation").
-- A duplicate report is merged automatically into an open entry in the same category, so repeated reports raise `occurrences` and the score.
-
-### F.1 Feedback from every installation (users who share)
-
-Users who choose to share send a generic copy of each entry to the feedback server (docs/ENGINE_FEEDBACK.md, "Sharing"; design in docs/design/FEEDBACK_SHARING.md). This is the routine for the engine developer, from the first day to a release.
-
-**Once: deploy the server.** You need Node.js 20 or newer and a free Cloudflare account.
-
-```bash
-tools/feedback-server/deploy.sh        # Windows: powershell -NoProfile -ExecutionPolicy Bypass -File tools\feedback-server\deploy.ps1
-```
-
-It prints the URL (build the engine with it as `FA_FEEDBACK_URL`) and writes `feedback-admin.json` (`{endpoint, adminToken}`) next to your `ai.json` (`~/.factoria/` on macOS and Linux, `%APPDATA%\factoria\` on Windows). The pull cursor is saved in that file too. Without it every command below stops and points at `deploy.sh`. The token is a secret: it never goes into a repository or a command line.
-
-**Each time: pull and triage.**
-
-```bash
-factoria feedback pull                     # new reports since the last pull -> ~/.factoria/feedback-inbox/<installKey>/ENGINE_FEEDBACK.json
-factoria feedback collect ~/.factoria/feedback-inbox --out roadmap.md
-```
-
-- `pull` writes one `ENGINE_FEEDBACK.json` per installation (project `install-<installKey>`). Each entry has a `remote` object (`shareId`, `installKey`, `trust`, and `reporterKey` on a verified report, ...) and the workaround `(not shared)` when the report had none. A report pulled twice is recognised by its `shareId`, never duplicated. The cursor is saved after the files, so a failed pull is simply repeated.
-- The inbox is never inside a git checkout (user reports must not end up in a repository) unless you name it with `--out DIR`.
-- A report the users send again is merged on the server: only its `occurrences` rise, and it keeps its place in the arrival order, so a normal pull does not bring the new count. Run `factoria feedback pull --full` now and then: it ignores the cursor, reads everything and updates the occurrences of the entries already in the inbox.
-- **Classification.** When the `fast` role of your `ai.json` (the cheapest role; the orchestrator when `fast` is off) has a usable provider (an API key or an installed CLI agent, run in an empty folder), each new report is judged `valid`, `doubtful` or `junk` with a reason, ten reports per call. The texts of reports are data for the judge, never instructions. Junk goes to `<inbox>/quarantine/`, a doubtful entry keeps a note, and a model that fails leaves the report in the inbox unjudged (with a warning). Without an AI, `pull` works and says that classification was skipped; `--classify` makes that an error, `--no-classify` skips the judge.
-- Triage before collecting: `pull` lists the reports that claim a gap the engine already has as SUGGESTED rejections (a ready reason each). Read them, then `factoria feedback reject --suggested` (or `reject <shareId>... --reason TEXT`, `reject --file batch.json`) answers them, `feedback keep <shareId>` drops a wrong suggestion and `feedback unreject <shareId>` takes a rejection back. Nothing asks a question, so an AI can run the loop; it is described in docs/ENGINE_FEEDBACK.md, "Triage loop". The installation shows the reason as written, so write only about that report.
-- `factoria feedback quarantine` lists what was judged junk; `quarantine restore <shareId>` puts a report back with a new id; `quarantine clear` forgets the list (the server still has the reports: use `delete` or `ban`).
-- Ranking: `collect` weights anonymous installations by 0.5 and caps the occurrences of one installation at 3, so one noisy installation cannot outvote many.
-
-**Abuse.**
-
-```bash
-factoria feedback ban 3kF9aQ2xLm7Zp0Vt --install --purge --reason "spam wave"   # refuse an installation and delete what it sent
-factoria feedback ban r_8f3k2m                                                   # a pulled report's shareId stands for its installation
-factoria feedback unban 3kF9aQ2xLm7Zp0Vt --install
-factoria feedback bans
-factoria feedback delete r_8f3k2m --local          # one report, on the server and in the inbox
-factoria feedback stats                            # totals, last 7 days, rejections, rate-limit hits
-```
-
-An `installKey` (a folder of the inbox) and a `reporterKey` (a signed-in GitHub identity, `remote.reporterKey` of a verified entry) look alike, so say which with `--install` or `--reporter` (or `install:KEY` / `reporter:KEY`); the command also decides alone when the key is a `shareId` or an inbox folder, and otherwise stops and asks.
-
-**Fix and release.**
-
-1. Build or fix what the top clusters ask for (sections B to D), with tests and docs.
-2. Close the inbox entry: `factoria feedback update ~/.factoria/feedback-inbox/<installKey> FB-0007 --status fixed-in-engine`. For an inbox entry the command prints the `fixed add` line to run next.
-3. Record the fix in the repository list, once per fix, with the version that ships it:
-
-   ```bash
-   factoria feedback fixed add --category physics --title "No fluid simulation" --title "Fluid simulation missing" --version 0.11.0 --note "Fluid2D"
-   factoria feedback fixed list
-   ```
-
-   `--title` is how the gap reads in users' reports (repeat it for other wordings). The same category, version and a title again extends that fix. The command edits `feedback/fixed.json` at the repository root (created with an empty list when missing; run it inside the checkout or pass `--file`). The format is fixed (`{"format": "factoria.feedback-fixed/1", "fixes": [{category, titles, fixedIn, note?}]}`) because the file is embedded in the binary: users' open entries that match a fix are closed with the version that fixed it when their engine ships the list.
-4. Commit `feedback/fixed.json` with the fix, and release as usual (CHANGELOG, version). Collect again after the next pull: the cluster should be gone.
+## B to F. Engine development (commands, components, systems, checklists, feedback)
+
+These sections are for engine developers and live in the engine's source docs (`docs/design/`), which are not embedded in
+the binary: `docs.read` does not serve them, read them in a checkout of the repository.
+
+- **B. C++ commands in the engine** (where to register one, the full example `scene.count_by_tag`, its test): [EXTENDING_COMMANDS.md](design/EXTENDING_COMMANDS.md) (repository only, not in the binary).
+- **C. Adding a component** (reflection cheat-sheet, the full example `Wobble`, what you get without extra code) and **D. Adding a system to the frame loop** (the phase, the full example `update_wobble`, the rules for systems): [EXTENDING_COMPONENTS.md](design/EXTENDING_COMPONENTS.md) (repository only, not in the binary).
+- **E. Checklists** (naming, doc strings, errors that teach, tests, documentation, the rules of `CLAUDE.md`): [EXTENDING_CHECKLISTS.md](design/EXTENDING_CHECKLISTS.md) (repository only, not in the binary).
+- **F. Processing `ENGINE_FEEDBACK.json`** (clusters, feedback from every installation, `feedback fixed`): [EXTENDING_FEEDBACK.md](design/EXTENDING_FEEDBACK.md) (repository only, not in the binary).
 
 ## G. Native plugins (C/C++ for one game)
 
@@ -821,13 +298,13 @@ factoria run
 `project.new_plugin` writes `plugins/example/` (`src/plugin.c`, `include/fa_plugin.h`, `CMakeLists.txt`, `README.md`,
 and `android/`, the Gradle module of the Android build) and a `.gitignore` for its build output, and declares the plugin in `factoria.json` (only `plugins.<name>` is added: the file is patched, not rewritten; `"dryRun": true` lists the `files` and `keys` it would write and writes nothing). Its `CMakeLists.txt`
 copies the library into the plugin's folder for this computer: `windows/example.dll`, `macos/libexample.dylib` or
-`linux/libexample.so` (for Android, [MOBILE.md](MOBILE.md#native-plugins-on-android) builds it once per ABI). The plugin it writes
+`linux/libexample.so` (for Android, [MOBILE.md](mobile/MOBILE_ANDROID.md#native-plugins-on-android) builds it once per ABI). The plugin it writes
 is complete (`"template"` picks another starting point: the folders of `platforms/plugins/` in the engine, ready-made
-store backends: `"steam"` is the Steamworks plugin ([PLATFORM.md](PLATFORM.md#steam-steamworks)), `"googleplay"` the
+store backends: `"steam"` is the Steamworks plugin ([PLATFORM.md](platform/PLATFORM_BACKENDS.md#steam-steamworks)), `"googleplay"` the
 Google Play one, a C bridge plus a Java module with Billing, Play Games and Play Integrity: the example to copy for an
-Android SDK ([PLATFORM.md](PLATFORM.md#7-google-play-billing-play-games-services-and-play-integrity)), and `"admob"` the ads backend for
+Android SDK ([PLATFORM.md](platform/PLATFORM_APPLE_GOOGLE.md#7-google-play-billing-play-games-services-and-play-integrity)), and `"admob"` the ads backend for
 Android and iOS (Google's consent form and rewarded ads, Apple's tracking sheet on iOS; it offers only the `ads` service, so it works next to a store backend,
-[PLATFORM.md](PLATFORM.md#8-ads-google-admob-and-consent-on-android-and-ios)); `factoria call
+[PLATFORM.md](platform/PLATFORM_ADS.md#8-ads-google-admob-and-consent-on-android-and-ios)); `factoria call
 platform.add_backend` sets one up in a single step; an unknown name lists the ones there are):
 
 ```js
@@ -860,7 +337,7 @@ fa.call("example.info", {})     // {plugin: "example", platform: "windows", apiV
   `allowMissingPlugins`) is the deliberate way around it: the export leaves out every plugin whose build is missing, names
   each in a warning and lists them in `pluginsLeftOut`. It works for a plugin that is not `optional` too, and says in
   the warning that scripts calling it will fail. A plugin is built only for the computer it is built on, so for the other
-  platforms take its build from CI or the other computer ([EXPORTING.md](EXPORTING.md#desktop-linux-windows-macos)).
+  platforms take its build from CI or the other computer ([EXPORTING.md](exporting/EXPORTING_DESKTOP.md#desktop-linux-windows-macos)).
 
 The folder holds one build per platform:
 
@@ -869,13 +346,13 @@ The folder holds one build per platform:
 | Windows | `windows/<name>.dll` | copies `windows/` next to the `.exe` |
 | macOS | `macos/lib<name>.dylib` | copies `macos/` into `Contents/Frameworks` (the app is signed with `--deep`) |
 | Linux | `linux/lib<name>.so` | copies `linux/` next to the executable |
-| iOS | `ios/iphoneos/lib<name>.a` and `ios/iphonesimulator/lib<name>.a` | copies `ios/` to `plugins/<name>/` next to `build_ios.sh`, which links the library of the SDK into the app ([MOBILE.md](MOBILE.md#native-plugins-ios)) |
+| iOS | `ios/iphoneos/lib<name>.a` and `ios/iphonesimulator/lib<name>.a` | copies `ios/` to `plugins/<name>/` next to `build_ios.sh`, which links the library of the SDK into the app ([MOBILE.md](mobile/MOBILE_IOS.md#native-plugins-ios)) |
 | Android | `android/`: a Gradle library module (`build.gradle`) with `src/main/jniLibs/<abi>/lib<name>.so` and the Java it calls, or `.aar` / `.jar` files | adds the module to the Gradle project (`plugins/<name>`), or the archives to the app; the APK carries `lib<name>.so` for `arm64-v8a` and `x86_64` |
 
 Libraries the plugin needs go next to it, in the same folder: the template's `CMakeLists.txt` sets the run path to
 the plugin's folder (`$ORIGIN`, `@loader_path`), and Windows looks in the DLL's folder. The Android build (the module,
 the NDK build of the library, Java code) and the iOS build (two static libraries) are described in
-[MOBILE.md](MOBILE.md#native-plugins-on-android).
+[MOBILE.md](mobile/MOBILE_ANDROID.md#native-plugins-on-android).
 
 **The manifest, `ios/plugin.json` and `macos/plugin.json`** (optional). A library cannot tell the export what the app that
 ships it must do, so the plugin says so in a small file in its platform folder:
@@ -896,8 +373,8 @@ different values fail the export, naming both) into the Xcode project's framewor
 `factoria_player.entitlements`. `factoria export --platform macos` reads only `entitlements`, from `macos/plugin.json`: it
 writes them to `<game>.entitlements` next to the app, because only a signature with the developer's certificate and a
 provisioning profile can carry restricted ones. The file never ships inside the app and the plugin never sees it. The
-Apple backend (`platforms/plugins/apple`, [PLATFORM.md](PLATFORM.md#6-apple-storekit-2-game-center-and-icloud)) is the
-example, and [MOBILE.md](MOBILE.md#native-plugins-ios) has the details of the iOS side.
+Apple backend (`platforms/plugins/apple`, [PLATFORM.md](platform/PLATFORM_APPLE_GOOGLE.md#6-apple-storekit-2-game-center-and-icloud)) is the
+example, and [MOBILE.md](mobile/MOBILE_IOS.md#native-plugins-ios) has the details of the iOS side.
 
 A plugin written in Swift needs a small C file for the entry point: the Swift code exports a function with `@_cdecl` (the
 Apple plugin's is `fa_apple_init`) and `FA_PLUGIN_INIT(<name>)` in the C file calls it, so `fa_plugin_init` (a dylib) or
@@ -986,6 +463,6 @@ FA_PLUGIN_INIT(example) {
   writeProject}` otherwise. A command that does more (talks to a server, starts a program, writes outside the project) or
   less (changes only memory: `{read, state}`) says so with `set_command_capabilities(api, "<plugin>.<verb>", "[\"read\",
   \"network\"]")` after its `add_command`, inside the entry point. Names: `read`, `state`, `writeProject`, `writeAnywhere`,
-  `network`, `process`, `spend`, `publish` (docs/ARCHITECTURE.md, "Commands", "Capabilities"). A caller that was not granted
+  `network`, `process`, `spend`, `publish` (docs/design/ARCHITECTURE_COMMANDS.md, "Commands", "Capabilities"; repository only, not in the binary). A caller that was not granted
   all of them (a game script gets `read` and `state`) gets `capability_denied`; `read_only` follows the declaration (1 only
   for `["read"]`). A plugin built for version 5 checks `api->version >= 5` first.

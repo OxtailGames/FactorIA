@@ -1,5 +1,9 @@
 # Tidewater Market
 
+**What it shows:** A mouse-driven isometric management game: building roads, houses and workshops, goods that move, data tables and undo.
+
+**Read first:** `docs/SCRIPTING.md`, `docs/MENUS.md` (`docs.read`, or `factoria docs read <name>`).
+
 A management game played with the mouse: build a small harbour town on an isometric map, lay roads, put up houses and
 workshops, and keep the goods moving. Web and desktop first. This is the fourth FactorIA reference game (milestone M30);
 it was built in eight packages, all done (the table below).

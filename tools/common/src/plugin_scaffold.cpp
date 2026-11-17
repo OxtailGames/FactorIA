@@ -49,8 +49,9 @@ void register_plugin_commands(CommandRegistry& registry, const std::string& proj
         "exports with allowMissingPlugins, without the build). The plugin adds the script function "
         "plugins.<name>.add(a, b) and the command <name>.info: build it with CMake (nextSteps), then "
         "`factoria run` loads it. `template` (default \"basic\") picks another starting point: a platform "
-        "backend for a store (the folders of platforms/plugins/ in the engine; docs/PLATFORM.md, \"Writing a "
-        "backend\"). The name: lower-case letters, digits and underscores, not an engine area (scene, game, "
+        "backend for a store (the folders of platforms/plugins/ in the engine; docs/platform/PLATFORM_BACKENDS.md, "
+        "\"Writing a "
+        "backend plugin\"). The name: lower-case letters, digits and underscores, not an engine area (scene, game, "
         "...). Fails when factoria.json already declares the plugin or the folder is not empty. Only that "
         "key of factoria.json changes: the other keys, their order and the layout stay as they are. Example: "
         "{\"name\": \"example\"}." FA_COMMAND_DETAILS

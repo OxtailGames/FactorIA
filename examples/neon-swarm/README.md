@@ -1,5 +1,9 @@
 # Neon Swarm
 
+**What it shows:** A twin-stick arena shooter: the neon glow comes from camera bloom and additive shapes, with an adaptive score and an animation drawn with code.
+
+**Read first:** `docs/EFFECTS.md`, `docs/PARTICLES.md` (`docs.read`, or `factoria docs read <name>`).
+
 Twin-stick arena shooter. WASD move, mouse aim, Space / left click shoot.
 Run: `factoria run .`   Tests: `factoria test`   Balance: `factoria call project.balance_report '{}' --scene scenes/game.scene.json --frames-before 250`
 Scenes: title -> game -> gameover. High score persists with `storage`.

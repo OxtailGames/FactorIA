@@ -4,6 +4,12 @@ The short effects that make a hit, a landing or an explosion read on screen. Eac
 and one JSON action (the form the events of an animation clip carry, "Effects as data"), and all three run the same C++
 (`fa/scene/feel.h`). Two more actions, `spawn` (an effect prefab) and `sound`, exist as actions and commands only.
 
+Movement that looks stepped on a 120-144 Hz display is a different problem: turn on `render.interpolation` (docs/RENDERING.md,
+"Render interpolation") and the simulation keeps its 60 Hz while the drawing is smooth. A follow camera then moves in
+`onFixedUpdate`, with the target; written in `onLateUpdate` it is drawn at the pose it was given, ahead of a target drawn one
+step behind, unless the target has `Interpolation` `mode: "off"` (docs/RENDERING.md, "A follow camera"). Shake is added on top
+and does not depend on interpolation.
+
 | Effect | Script | Command | What moves |
 |---|---|---|---|
 | Camera shake | `camera.shake(amount, opts)` | `feel.shake` | what the camera DRAWS |
@@ -95,7 +101,7 @@ Action: `{"action":"flash","color":"#ffffff","duration":0.1,"fade":true,"strengt
 
 ## Knockback
 
-```js
+```js fragment
 player.knockback([-1, 0.3]);                             // away from the hit, a little up (default speed)
 enemy.knockback(enemy.transform.position.sub(hitPoint), { speed: 6, lockTime: 0.3 });
 
@@ -276,7 +282,7 @@ The spark, the ring and the sparkle that appear on a hit or a pickup are a sprit
 and refining it is the loop of [EFFECTS.md](EFFECTS.md), with three worked examples (an impact, a pickup, a fire loop).
 An effect made of particles, lights, sounds and these feel commands on one timeline is an effect document (`*.vfx.json`,
 [PARTICLES.md](PARTICLES.md)): its `command` parts call `feel.shake`, `feel.hitStop` and the others.
-Sky Hopper (`examples/sky-hopper`) uses it for its coins, and the shake, hit-stop, flash and squash of its stomp, hurt and jump.
+The Sky Hopper example uses it for its coins, and the shake, hit-stop, flash and squash of its stomp, hurt and jump (`examples/sky-hopper`, if you got it with `project.create {example: "sky-hopper"}`; the recipe is in this doc and in EFFECTS.md).
 
 ## Limits
 

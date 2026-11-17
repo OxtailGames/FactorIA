@@ -1,4 +1,4 @@
-# Fuzz targets (docs/BUILDING.md, "Fuzzing"; tools/fuzz/README.md). cmake/FactoriaFuzz.cmake has fa_add_fuzz_target.
+# Fuzz targets (docs/design/BUILDING_TESTS.md, "Fuzzing"; tools/fuzz/README.md). cmake/FactoriaFuzz.cmake has fa_add_fuzz_target.
 #
 # To add a target: tools/fuzz/targets/<name>.cpp with `extern "C" int LLVMFuzzerTestOneInput(const uint8_t*, size_t)`,
 # a few small seed files in tools/fuzz/corpus/<name>/, and one line below.

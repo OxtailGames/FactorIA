@@ -1,14 +1,16 @@
+<!-- follows README.md sha256:unknown behind -->
 # FactorIA
 
 [English](README.md) | **Español**
 
 > La versión en inglés es la referencia: si esta traducción difiere de ella, prevalece la versión en inglés.
 
-> **Esta traducción va por detrás del texto inglés** ([README.md](README.md), al día en la versión 0.29; este texto sigue
-> en la 0.1). Lo que falta aquí: el estado actual (versión 0.29 y los 11 juegos de ejemplo, no siete), el estado de la
+> **Esta traducción va por detrás del texto inglés** ([README.md](README.md), al día en la versión 0.30; este texto sigue
+> en la 0.1). Lo que falta aquí: el estado actual (versión 0.30 y los 11 juegos de ejemplo, no siete), el estado de la
 > firma en «Descarga» (las descargas de Windows no están firmadas todavía), las licencias de terceros (además de MIT, zlib
 > y dominio público hay Apache-2.0, BSL-1.0 y BSD-3-Clause) y la estructura del repositorio con `skills/` y el contenido
 > actual de `scripts/` y `platforms/`. Lee el texto inglés para esos puntos; esta traducción no se ha puesto al día.
+> La estructura (qué es, pruébalo, documentación por público) sí sigue a la inglesa.
 
 Motor de juegos 2D/3D en C++20 hecho para que las IAs creen juegos.
 
@@ -53,7 +55,9 @@ Android, y los ejecuta en el simulador de iOS y en un emulador de Android (no en
 dispositivos reales; véase [docs/MOBILE.md](docs/MOBILE.md), en inglés). Carencias abiertas y
 próximos hitos: [feedback/ROADMAP.md](feedback/ROADMAP.md) (en inglés).
 
-## Descarga
+## Pruébalo
+
+### Descarga
 
 No hace falta compilador ni herramientas de desarrollo. Descarga una sola vez la última versión para tu sistema:
 [instalador de Windows](https://github.com/OxtailGames/FactorIA/releases/latest/download/FactorIA-windows-x64-setup.exe)
@@ -83,7 +87,14 @@ clave de API. Para usar Claude Code desde un terminal fuera del editor, añade l
 Android e iOS sigue necesitando el código fuente del motor y los SDK de cada plataforma. Detalles:
 [Descarga en GETTING_STARTED](docs/i18n/es/GETTING_STARTED.md#descarga-sin-compilar-nada).
 
-## Inicio rápido (compilar desde el código fuente)
+### Tu primer juego
+
+Abre el editor, crea un proyecto y pide un juego a la IA: [docs/FIRST_GAME_WITH_AI.md](docs/FIRST_GAME_WITH_AI.md) guía
+a una persona paso a paso (en inglés) y [docs/MAKE_BY_HAND.md](docs/MAKE_BY_HAND.md) hace uno pequeño editando tú los
+archivos, para ver qué hace la IA por ti. Desde un terminal: `factoria new mi-juego` y `factoria run mi-juego`
+([docs/i18n/es/GETTING_STARTED.md](docs/i18n/es/GETTING_STARTED.md)).
+
+### Compilar desde el código fuente (desarrollo del motor)
 
 Linux (Debian o Ubuntu) y macOS, desde la raíz del repositorio:
 
@@ -105,7 +116,7 @@ iOS (simulador) y Android (arm64):
 ./scripts/build-android.sh
 ```
 
-Requisitos por plataforma, presets y solución de problemas: [docs/BUILDING.md](docs/BUILDING.md).
+Requisitos por plataforma, presets y solución de problemas: [docs/design/BUILDING.md](docs/design/BUILDING.md).
 
 Después, crea y ejecuta un juego con la CLI `factoria` (se compila en `build/<preset>/tools/cli/`):
 
@@ -126,7 +137,7 @@ player/      factoria_player: runtime mínimo que llevan los juegos exportados
 tools/       herramientas de desarrollo (desktop): CLI, servidor MCP, agente de IA, editor
 cmake/       funciones de CMake y selección de plataforma
 external/    dependencias de terceros integradas (no se editan)
-docs/        documentación en inglés (se incluye en el binario y las IAs la leen vía MCP); traducciones en docs/i18n/
+docs/        documentación en inglés (va dentro del binario y las IAs la leen vía MCP); docs/design/ es para quien trabaja en el motor y no va en el binario; traducciones en docs/i18n/
 scripts/     compilación y preparación del entorno en cada sistema operativo
 templates/   plantillas de proyecto para `factoria new`
 schemas/     esquemas JSON de proyecto, ENGINE_FEEDBACK y configuración de IA
@@ -137,29 +148,57 @@ platforms/   empaquetado para Android (Gradle) e iOS
 
 ## Documentación
 
-La documentación de referencia está en inglés; hay traducción al español de esta
-página y de la guía de primeros pasos.
+Cada página de `docs/` y `docs/design/` está enlazada aquí (un test lo comprueba). La documentación de referencia está
+en inglés; las de `docs/` van dentro del binario y una IA las lee con `factoria docs list` / `docs read` o las
+herramientas `docs_*` de MCP; `docs/design/` es para quien trabaja en el motor y no va en el binario. Hay traducción al
+español de esta página y de la guía de primeros pasos ([docs/i18n/es/GETTING_STARTED.md](docs/i18n/es/GETTING_STARTED.md)).
 
-- [docs/i18n/es/GETTING_STARTED.md](docs/i18n/es/GETTING_STARTED.md): compilar, crear un juego y conectar una IA (en español).
+### Hacer un juego con una IA
+
+- [docs/GETTING_STARTED.md](docs/GETTING_STARTED.md): instalar, crear un juego y conectar una IA (en inglés).
 - [docs/FIRST_GAME_WITH_AI.md](docs/FIRST_GAME_WITH_AI.md): tutorial para personas: tu primer juego con una IA en el editor, paso a paso (en inglés).
 - [docs/MAKE_BY_HAND.md](docs/MAKE_BY_HAND.md): tutorial: haz un juego pequeño a mano (escena, script, test, exportar) para entender qué hace la IA por ti (en inglés).
 - [docs/AI_GUIDE.md](docs/AI_GUIDE.md): cómo crear un juego con FactorIA (para agentes de IA).
-- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): diseño, módulos, convenciones, comandos y reflexión.
 - [docs/SCRIPTING.md](docs/SCRIPTING.md): scripts de JavaScript: comportamientos, herramientas y tests.
-- [docs/reference/README.md](docs/reference/README.md): referencia de la API navegable, una pagina por categoria de componentes y de comandos (generada, en ingles).
-- [docs/COMPONENTS.md](docs/COMPONENTS.md): todos los componentes y campos en un solo archivo (generado).
-- [docs/EXTENDING.md](docs/EXTENDING.md): crear herramientas, comandos, componentes y sistemas.
 - [docs/CLI.md](docs/CLI.md) y [docs/MCP.md](docs/MCP.md): la CLI `factoria` y el servidor MCP.
+- [docs/reference/README.md](docs/reference/README.md): referencia de la API navegable, una página por categoría de componentes y de comandos (generada, en inglés).
+- [docs/COMPONENTS.md](docs/COMPONENTS.md): todos los componentes y campos en un solo archivo (generado, 1,8 MB, no va en el binario: `docs.components` lo sirve por componente).
+- [docs/DEBUGGING.md](docs/DEBUGGING.md): depurar scripts: puntos de interrupción en VS Code, `script.trace` para las IAs.
+- [docs/ENGINE_FEEDBACK.md](docs/ENGINE_FEEDBACK.md): cómo las IAs registran lo que le falta al motor.
+- [docs/SKILLS.md](docs/SKILLS.md): Agent Skills: guías por tema que una IA carga cuando el trabajo las necesita.
+- [docs/HOOKS.md](docs/HOOKS.md): hooks: programas o módulos de JavaScript que se ejecutan antes y después de las llamadas de la IA y de los comandos del motor.
+- [docs/EXTENDING.md](docs/EXTENDING.md): herramientas del proyecto, plugins nativos y (para quien trabaja en el motor) comandos, componentes y sistemas.
+
+Temas, una página cada uno (en inglés):
+
+- Arte 2D y 3D: [docs/ASSETS.md](docs/ASSETS.md), [docs/IMAGES.md](docs/IMAGES.md), [docs/VECTOR.md](docs/VECTOR.md), [docs/MODELING.md](docs/MODELING.md), [docs/RIGGING.md](docs/RIGGING.md), [docs/ANIMATION.md](docs/ANIMATION.md).
+- Aspecto y sensación: [docs/PARTICLES.md](docs/PARTICLES.md), [docs/EFFECTS.md](docs/EFFECTS.md), [docs/GAME_FEEL.md](docs/GAME_FEEL.md), [docs/SHADERS.md](docs/SHADERS.md), [docs/RENDERING.md](docs/RENDERING.md).
+- Sonido: [docs/SOUND.md](docs/SOUND.md), [docs/MUSIC.md](docs/MUSIC.md).
+- Texto y menús: [docs/TEXT.md](docs/TEXT.md), [docs/LOCALIZATION.md](docs/LOCALIZATION.md) (varios idiomas: tablas de textos, campos `key`, la API `i18n`), [docs/MENUS.md](docs/MENUS.md).
+- Mundo y servicios: [docs/NAVIGATION.md](docs/NAVIGATION.md), [docs/NETWORKING.md](docs/NETWORKING.md), [docs/PLATFORM.md](docs/PLATFORM.md), [docs/ANALYTICS.md](docs/ANALYTICS.md).
+
+### Terminar y publicar un juego
+
+- [docs/FINISHING.md](docs/FINISHING.md): termina tu juego: menús, opciones, partidas, idiomas, accesibilidad, servicios de tienda, créditos, tests y lista de comprobación (en inglés).
+- [docs/PERFORMANCE.md](docs/PERFORMANCE.md): presupuestos de tiempo de fotograma, memoria y llamadas de dibujo (en inglés).
+- [docs/EXPORTING.md](docs/EXPORTING.md) y [docs/MOBILE.md](docs/MOBILE.md): exportar juegos, e iOS/Android.
+- [docs/PUBLISHING.md](docs/PUBLISHING.md): una lista de comprobación por tienda (Steam, Epic, GOG, Microsoft Store, Google Play, App Store, itch.io, web).
+- [docs/LEGAL.md](docs/LEGAL.md): plantillas de política de privacidad y EULA para un juego publicado.
+
+### Usar el editor
+
 - [docs/EDITOR.md](docs/EDITOR.md): el editor visual, centrado en la IA (en inglés): vista del juego, chat con la IA, selección, registro de audio.
 - [docs/AI_PROVIDERS.md](docs/AI_PROVIDERS.md): proveedores de IA (Claude Code, Codex, claves de API) y roles.
-- [docs/ASSETS.md](docs/ASSETS.md): generar e importar arte, sonido y modelos; ajustes de importación y procedencia.
-- [docs/ENGINE_FEEDBACK.md](docs/ENGINE_FEEDBACK.md): cómo las IAs registran lo que le falta al motor.
-- [docs/BUILDING.md](docs/BUILDING.md): requisitos por plataforma, presets, CI, tests y solución de problemas.
-- [docs/MOBILE.md](docs/MOBILE.md) y [docs/EXPORTING.md](docs/EXPORTING.md): iOS/Android y exportar juegos.
-- [docs/LOCALIZATION.md](docs/LOCALIZATION.md): varios idiomas: tablas de textos, campos `key` y la API de scripts `i18n` (en inglés).
+- [docs/AI_COSTS.md](docs/AI_COSTS.md): cuánto cuesta hacer un juego con IA y cómo gastar menos (en inglés).
 
-Si vas a modificar el motor, lee primero [CLAUDE.md](CLAUDE.md) y
-[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+### Desarrollo del motor
+
+Lee primero [CLAUDE.md](CLAUDE.md) y [docs/design/ARCHITECTURE.md](docs/design/ARCHITECTURE.md). Estas páginas no van en el binario.
+
+- [docs/design/ARCHITECTURE.md](docs/design/ARCHITECTURE.md): diseño, módulos, convenciones, comandos y reflexión (dividido en páginas: el archivo las enumera).
+- [docs/design/BUILDING.md](docs/design/BUILDING.md): requisitos por plataforma, presets, CI, tests y solución de problemas (dividido en páginas: el archivo las enumera).
+- [docs/design/CUSTOM_SHADERS.md](docs/design/CUSTOM_SHADERS.md), [docs/design/FEEDBACK_SHARING.md](docs/design/FEEDBACK_SHARING.md) y [docs/design/SCRIPT_DEBUGGER.md](docs/design/SCRIPT_DEBUGGER.md): documentos de diseño (en inglés).
+- [feedback/ROADMAP.md](feedback/ROADMAP.md) y [CHANGELOG.md](CHANGELOG.md).
 
 ## Licencia
 
@@ -169,7 +208,7 @@ gratuitos o comerciales, siempre que el aviso de copyright y la licencia acompa�
 - **Tus juegos son tuyos.** Los archivos que `factoria new` pone en un proyecto son [MIT-0](templates/LICENSE) (no
   hace falta ningún aviso). Un juego exportado contiene el runtime de FactorIA, así que `factoria export` escribe
   `FACTORIA_NOTICES.txt` con las licencias del motor y del código de terceros que lleva dentro; inclúyelo en lo que
-  distribuyas ([docs/EXPORTING.md](docs/EXPORTING.md#license-notices), en inglés).
+  distribuyas ([docs/EXPORTING.md](docs/exporting/EXPORTING_CONTENTS.md#license-notices), en inglés).
 - **Código de terceros**: lo que hay en `external/` mantiene su propia licencia ([external/VERSIONS.md](external/VERSIONS.md);
   todas MIT, zlib o dominio público). `factoria docs licenses` muestra todos los avisos; las descargas los incluyen
   en `THIRD_PARTY_NOTICES.txt`.

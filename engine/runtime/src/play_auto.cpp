@@ -706,6 +706,7 @@ Result<Json> play_auto(const EngineConfig& configIn, const PlayAutoOptions& opt)
             replayTiming.push_back(Json::array({dt, stepsThis}));
         }
         const double cpu0 = process_cpu_seconds();
+        I.interpAlpha = 1.0;  // the bot draws the real pose, like Engine::step
         I.run_frame(dt, stepsThis);
         const double ms = (process_cpu_seconds() - cpu0) * 1000.0;
         steps += stepsThis;

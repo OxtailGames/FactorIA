@@ -386,6 +386,10 @@ void Editor::at_build_tools_script() {
     at_section_L(at);
     section("M");
     at_section_M(at);
+    section("M4");
+    at_section_M4(at);
+    section("M5");
+    at_section_M5(at);
     section("N");
     at_section_N(at);
     section("O");
@@ -458,6 +462,10 @@ void Editor::at_build_tools_script() {
     at_section_S3(at);
     section("R4");
     at_section_R4(at);
+    section("P4");
+    at_section_P4(at);
+    section("X2");
+    at_section_X2(at);
 
     // ------------------------------------------------------------------------------------------------------ done
     keep = true;

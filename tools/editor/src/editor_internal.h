@@ -67,6 +67,7 @@
 #include "auto_play_job.h"
 #include "play_sessions_model.h"
 #include "child_command_job.h"
+#include "examples_browser.h"
 #include "review_loader.h"
 #include "review_model.h"
 #include "feedback_share_ui.h"
@@ -84,7 +85,9 @@
 #include "native_menu.h"
 #include "platform_settings.h"
 #include "project_browser_model.h"
+#include "selection.h"
 #include "setup_job.h"
+#include "undo_stack.h"
 
 struct sapp_event;
 
@@ -239,20 +242,54 @@ public:
     void ai_attach_last_session();  // summary into the message + mark pictures
 
     // ---------------------------------------------------------------- selection & edits
-    // The selection is what the user points at in the viewport for the AI; nothing edits it by hand.
+    // The selection is what the user points at in the viewport for the AI; nothing edits it by hand. It is a set of entity
+    // ids with a primary (selection.h); selected() and selected_id() are the primary, so a caller that wants one entity
+    // needs nothing else. Every write goes through `selection_`.
     Entity selected();
     void select(Entity e);
-    void select_id(const std::string& id) { selectedId_ = id; }
-    const std::string& selected_id() const { return selectedId_; }
+    void select_id(const std::string& id) { selection_.replace(id); }
+    // Selects exactly `ids` (in that order) with `primary` as the primary (the last id when `primary` is not in the list),
+    // and makes it the row the next Shift click starts from and the tree scrolls to. Paste and Duplicate select what they made.
+    void select_ids(const std::vector<std::string>& ids, const std::string& primary);
+    const std::string& selected_id() const { return selection_.primary(); }
+    // The whole set. In Edit it first drops the ids whose entity no longer exists (deleted, or removed by an undo or a
+    // scene load), so what it returns is alive; in Play and Pause it does not prune (the game may destroy an entity that
+    // Stop brings back), so the readers skip an id that is gone. selected() and selected_id() never prune, so a selected
+    // entity that an undo removed and a redo brings back is still selected.
+    const Selection& selection();
+    // For the code that edits the set (Ctrl/Shift clicks, select all): add, toggle, range.
+    Selection& selection_mut() { return selection_; }
+    // The set as it is, without pruning: for drawing (every frame) and for reading. A caller that meets an id that is no longer in
+    // the scene skips it; the ones that act (copy, delete, move) call selection() or selection_roots().
+    const Selection& selection_peek() const { return selection_; }
+    // What a delete, a duplicate, a reparent or a gizmo drag of the selection acts on: the selected entities that exist and have
+    // no selected ancestor, in the order the Hierarchy shows them (the tree order of the scene). Prunes the set first.
+    std::vector<std::string> selection_roots();
+    // A click on a Hierarchy row (hierarchy_panel.cpp) with the modifier keys of the moment.
+    void hier_click(const std::string& id);
     // Records an undo snapshot (coalesced per key) and marks the scene dirty. Call BEFORE mutating.
-    void begin_edit(const std::string& key);
+    // Returns true when it pushed a new snapshot entry (false: coalesced into the last one, or not in edit mode).
+    bool begin_edit(const std::string& key);
     void mark_dirty() { dirty_ = true; }
     bool dirty() const { return dirty_; }
     void undo();
     void redo();
+    // Records a command entry (forward and inverse command lists, nothing of the scene) as one undo step, coalesced the
+    // way begin_edit coalesces: the same key within kEditCoalesceSeconds merges into the previous entry if that one is a
+    // command entry (a snapshot entry and a command entry never merge into each other). Clears redo and marks the scene
+    // dirty. Returns false (nothing recorded) outside edit mode. edit_command calls it AFTER the command succeeded, with
+    // the plan undo_inverse.h built before it ran (docs/EDITOR.md, "Undo entries").
+    bool push_command_entry(const std::string& key, std::vector<UndoCommand> forward, std::vector<UndoCommand> inverse,
+                            CoalesceMode mode = CoalesceMode::Replace);
     size_t undo_depth() const { return undo_.size(); }
     size_t redo_depth() const { return redo_.size(); }
 
+private:
+    void step_history(bool forward);
+    // One undo (forward false) or redo step of a Command entry: all of its commands or none (a failure puts the scene back).
+    bool run_undo_commands(const std::vector<UndoCommand>& cmds, bool forward);
+
+public:
     // ---------------------------------------------------------------- UI helpers
     void notify(const std::string& text, int level = 0);
     // A toast with a button: it stays longer and does not vanish while the mouse is over it.
@@ -283,6 +320,8 @@ public:
     // edit_command, so undo, the scene file and "lost on Stop" come with it.
     bool gizmo_frame(Renderer& r, ImVec2 imgMin, ImVec2 size, bool hovered);
     void gizmo_draw(ImDrawList* dl);
+    // One step of a drag of several entities (viewport_gizmo.cpp): writes the move, the turn or the scale to every member.
+    CommandResult write_group_drag(Vec3 primaryValue, Vec3 groupWorld, float turn, std::string* err);
     void gizmo_end_drag(bool cancel);
     void gizmo_toolbar_buttons();
     Vec2 image_size_of(const std::string& path);
@@ -316,7 +355,7 @@ public:
     void ai_settings_load(const ai::AiConfig& cfg, bool keepAssets = false, bool keepTools = false);
     Result<ai::AssetSettings> ai_settings_build(const ai::AiConfig& cfg) const;
     bool ai_settings_dirty(const ai::AiConfig& cfg) const;
-    // The AI settings of the open project (ai_project_ui.cpp; docs/EDITOR.md "AI settings", docs/AI_PROVIDERS.md "Per project"): with a
+    // The AI settings of the open project (ai_project_ui.cpp; docs/ai-providers/AI_PROVIDERS_AGENT.md "The AI settings window", docs/AI_PROVIDERS.md "Per project"): with a
     // project open the window edits <project>/.factoria/ai/settings.json (ai::resolve_ai_config_over says where each value comes
     // from, ai_project_edit.h what to write); without one it edits ai.json. The editor is the only writer that records trust.
     struct AiProjectUi {
@@ -678,20 +717,42 @@ public:
                          Vec2 design);  // a prefab dropped on the Viewport: scene.spawn at the point under the mouse
     void project_files_changed();       // the editor wrote or deleted a file: the Project panel rescans
     // Hierarchy (hierarchy_panel.cpp) and Inspector (inspector_panel.cpp): hand editing. Every change is a command call
-    // (scene.set_component, scene.set_parent, scene.spawn, scene.destroy...) through edit_command(), the Console's path:
-    // an undo snapshot first (one per `key` within 0.8 s, and one per drag), then the call. A refused call leaves no undo
-    // step behind. `error` gets the command's message when it failed.
+    // (scene.set_component, scene.set_parent, scene.spawn, scene.destroy...) through edit_command(), the Console's path.
+    // A command with an inverse builder (undo_inverse.h) becomes one Command undo entry after it succeeded (one per `key`
+    // within kEditCoalesceSeconds, and one per drag); every other command takes a whole-scene snapshot first. A refused call
+    // leaves no undo step behind. `error` gets the command's message when it failed. `snapshot` forces the snapshot for a
+    // caller whose edit changes more than its command says (the IK drag also turns the bones). `record` false never turns a
+    // field edit into a key of the Animation panel's record mode: the Console and the AI edit the scene itself.
     CommandResult edit_command(const std::string& key, const std::string& name, const Json& args,
-                               std::string* error = nullptr);
+                               std::string* error = nullptr, bool snapshot = false, bool record = true);
     void draw_hierarchy_panel();
     void draw_inspector_panel();
     void draw_hierarchy_node(Entity e, const std::string& filter);
     void hierarchy_spawn(const std::string& parentId, const std::string& name);
-    void hierarchy_duplicate(Entity e);
-    void hierarchy_destroy(Entity e);
+    void hierarchy_duplicate_selection();  // one copy of every selected entity (and its children), one undo step
+    // Copy, Cut and Paste of entities (entity_clipboard.cpp). Copy puts the selected entities and their children on the system
+    // clipboard as scene.copy_entities text and returns whether it did; Cut is a Copy and a delete (one undo step); Paste
+    // creates what the clipboard holds next to the primary (under its parent, or at the top level), one undo step, and selects it.
+    bool entity_copy();
+    void entity_cut();
+    void entity_paste();
+    // True when Ctrl+C, X and V (Cmd on macOS) are the entity clipboard's: in Edit mode, with the Hierarchy or the Viewport holding
+    // the keyboard (the Animation, Image... panels use those keys for their own) and no text box.
+    bool entity_clipboard_keys_active() const;
+    void hierarchy_destroy_selection();  // every selected entity, one undo step
+    // Moves `dragged` under `parentId` ("" = the top level); when `dragged` is selected the whole selection moves, in tree order,
+    // as one undo step.
+    void hierarchy_reparent(const std::string& dragged, const std::string& parentId);
     void draw_inspector_component(Entity e, const TypeInfo& type);
+    // Several entities selected (inspector_panel.cpp): the components all of them have, a field shows "—" where their values
+    // differ and an edit writes to all of them, as one undo step. `ents[0]` is the primary.
+    void draw_inspector_multi(const std::vector<Entity>& ents);
+    void draw_inspector_component_multi(const std::vector<Entity>& ents, const TypeInfo& type);
     // Draws the widget of one reflected field for the JSON `current`; returns true and sets `out` when the user changed it.
-    bool draw_field_widget(const std::string& key, const FieldInfo& f, const Json& current, bool disabled, Json& out);
+    // `mix` (several entities selected): where the other entities' values differ from `current`, the primary's (inspector_model.h).
+    // `forced` (several selected, a number array): which numbers the user committed, even when the value typed is the primary's own.
+    bool draw_field_widget(const std::string& key, const FieldInfo& f, const Json& current, bool disabled, Json& out,
+                           const FieldMix* mix = nullptr, std::vector<bool>* forced = nullptr);
     void draw_animator_clips(Entity e, const std::string& id, const Json& current);
     void draw_material_params(Entity e, const Json& current);
     void draw_profiler_panel();
@@ -922,10 +983,13 @@ public:
     std::function<bool()> slicedJob_;
     std::optional<CommandResult> run_queued(const std::string& name, const Json& args);
     Json playSnapshot_;
-    std::string selectedId_;
-    std::vector<Json> undo_, redo_;
+    Selection selection_;
+    UndoStack undo_, redo_;
     std::string lastEditKey_;
     double lastEditTime_ = -100.0;
+    // What the entry of lastEditKey_ is: a snapshot (begin_edit) or a command entry (push_command_entry). An edit only
+    // coalesces into an entry of its own kind.
+    UndoEntry::Kind lastEditKind_ = UndoEntry::Kind::Snapshot;
     double time_ = 0.0;
     double fps_ = 60.0;
     std::uint64_t uiFrame_ = 0;
@@ -945,6 +1009,8 @@ public:
     // viewport (ImGui logical coordinates; sokol event coordinates / dpi match them)
     ImVec2 vpImageMin_{0, 0}, vpImageSize_{1, 1};
     bool vpHovered_ = false, vpFocused_ = false;
+    std::uint64_t hierFocusFrame_ =
+        0;  // the uiFrame_ the Hierarchy window last had the keyboard (the shortcuts run before it is drawn)
     bool vpFocusNext_ = false;  // focus the Viewport window on its next draw (set when Play starts)
     bool vpMouseCaptured_[3] = {false, false, false};
     bool showColliders_ = true;
@@ -956,6 +1022,17 @@ public:
     GizmoMode gizmoMode_ = GizmoMode::Move;
     std::vector<GizmoShape> gizmoShapes_;  // this frame's handles (panel pixels); empty when no gizmo shows
     GizmoHandle gizmoHover_;
+    bool gizmoMixedSpace_ = false;  // the selection mixes screen-space (HUD) and world entities: no group handles
+    // What the mix check last found, kept for the same selection and undo position for half a second (it measures every
+    // selected entity): gizmo_mixed_space().
+    struct GizmoSpaceCache {
+        std::vector<std::string> ids;
+        std::string primary;
+        std::uint64_t stamp = 0;
+        double at = -1.0;
+        bool mixed = false;
+    } gizmoSpaceCache_;
+    bool gizmo_mixed_space(Entity primary);
     struct GizmoDrag {
         bool active = false;
         GizmoHandle handle;
@@ -970,9 +1047,19 @@ public:
         bool hasParent = false, wrote = false,
              recorded = false;  // recorded: the edits went to a clip key (record mode)
         Vec3 planeStart{};      // free move: where the mouse was on the drag plane
+        // The entities a multi-selection drag moves (selection_roots(), the primary included when it has no selected ancestor);
+        // empty for one entity, which `id`, `start` and `parentWorld` describe.
+        struct Member {
+            std::string id;
+            Transform start;
+            Mat4 parentWorld;
+            bool hasParent = false;
+            Vec3 startWorld{};
+        };
+        std::vector<Member> members;
         AngleTracker angle;
         float sign = 1;
-        std::vector<Json> redoBefore;
+        UndoStack redoBefore;
         bool dirtyBefore = false;
     } gizmoDrag_;
     bool showOverlay_ = true;
@@ -1187,6 +1274,18 @@ public:
     std::vector<std::string> detectedProjects_;
     bool dlgScanned_ = false;
     std::string dlgDelete_;  // project waiting for the "Delete project?" confirmation
+    // The Examples tab (examples_browser.h, dialogs.cpp): the list and the create run on worker threads
+    ExamplesBrowser examples_;
+    std::string dlgExampleSel_;      // the example picked in the list
+    std::string dlgExampleName_;     // the new project's folder name (Folder is dlgNewParent_, shared with New project)
+    std::string dlgExampleNameKey_;  // what the proposed name was made for: example | folder; changes -> propose again
+    bool dlgExampleNameEdited_ = false;  // the user typed a name: no more proposals
+    std::string dlgExampleError_;        // the last create's message and hint
+    SetupContext
+    make_examples_context();  // fa::examples_context(): the installed version, curl, ~/.factoria (tests inject)
+    void draw_examples_tab();
+    void poll_examples_tab();   // every frame the window is up: takes a finished create in (opens the project)
+    void close_examples_tab();  // the window is closed: cancels the jobs, forgets the list
 
     // Hierarchy / Inspector
     bool showHierarchy_ = true, showInspector_ = true;
@@ -1195,6 +1294,20 @@ public:
     bool hierRenameOpen_ = false;                // request to open the rename popup this frame
     std::string hierLastSelected_;  // selection the tree last scrolled to (a viewport click moves the tree)
     std::string hierRevealId_;      // entity whose ancestors open and which scrolls into view next frame
+    std::vector<std::string> hierRows_,
+        hierRowsPrev_;        // the rows drawn this frame / last frame, in the order shown (Shift range)
+    std::string hierAnchor_;  // the row a Shift click selects from (the last one clicked without Shift)
+    std::string
+        hierClickPending_;  // a plain click on a selected row of a multi-selection waits for the mouse release (a drag moves them all)
+    // The rectangle dragged on empty space in the viewport (viewport.cpp): `pending` from the press, `active` once the mouse moved
+    // far enough, in panel pixels.
+    struct Marquee {
+        bool pending = false, active = false;
+        ImVec2 start{0, 0}, now{0, 0};
+        SelectMods mods;
+    } marquee_;
+    // The entities whose outline the rectangle (design pixels) covers, in scene order (viewport.cpp).
+    std::vector<std::string> marquee_hits(Vec2 designA, Vec2 designB);
     std::map<std::string, std::string>
         inspErrors_;  // field key -> the last refused edit's message (shown under the field)
     struct JsonBox {
@@ -1202,7 +1315,25 @@ public:
         bool dirty = false;  // the text differs from the value: the user is editing it (or it did not parse)
     };
     std::map<std::string, JsonBox> inspJson_;  // Json fields, by field key
-    std::string inspEntity_;                   // entity the inspector showed last frame (state resets when it changes)
+    unsigned inspTypingId_ = 0;      // the ImGui id of the mixed number being typed into (see draw_field_widget)
+    bool inspTypingEdited_ = false;  // ...and its text was changed since the box opened
+    std::string inspEntity_;         // entity the inspector showed last frame (state resets when it changes)
+    // Prefab instances (inspector_panel.cpp): `prefab.overrides` of the selected entity, asked again twice a second and
+    // after every edit the Inspector makes. `inspOvRoot_` is the instance's root ("" = not part of an instance).
+    Json inspOv_;
+    std::string inspOvId_, inspOvRoot_, inspOvPrefab_, inspOvWhy_;
+    double inspOvAt_ = -1.0;
+    std::uint64_t inspOvStamp_ = 0;
+    bool inspOvStale_ = true, inspApplyAsk_ = false;
+    bool inspOvEditing_ = false;  // a field is being edited (dragged, typed into): ask the overrides when it ends
+    std::string inspApplyId_;
+    long inspApplyDepth_ = -1;  // the undo depth right after the last prefab.apply (-1: none to watch)
+    size_t inspApplyLost_ = 0;  // undo_.lost() then: a clear or a cap since means the depth no longer names that entry
+    void inspector_prefab_refresh(Entity e);
+    void inspector_prefab_header(Entity e);
+    // prefab.revert / prefab.apply through edit_command (one undo step); the Inspector reads the overrides again.
+    void inspector_prefab_edit(const std::string& command, const std::string& id, const std::string& component,
+                               const std::string& field);
     std::string inspScrollTo_;  // "Component" or "Component.field": scroll the Inspector to that row (the autotest)
     struct MaterialInfoEntry {
         Json info;
@@ -1574,7 +1705,9 @@ public:
     void at_section_J(AtScript& at);
     void at_section_K(AtScript& at);
     void at_section_L(AtScript& at);
-    void at_section_M(AtScript& at);  // autotest_editing.cpp
+    void at_section_M(AtScript& at);   // autotest_editing.cpp
+    void at_section_M4(AtScript& at);  // autotest_editing.cpp: several entities selected
+    void at_section_M5(AtScript& at);  // autotest_editing.cpp: copy, cut and paste of entities
     void at_section_N(AtScript& at);
     void at_section_O(AtScript& at);
     void at_section_P(AtScript& at);
@@ -1611,6 +1744,8 @@ public:
     void at_section_T2(AtScript& at);  // autotest_play_review.cpp
     void at_section_S3(AtScript& at);
     void at_section_R4(AtScript& at);
+    void at_section_P4(AtScript& at);  // autotest_editing.cpp
+    void at_section_X2(AtScript& at);  // autotest_examples.cpp
     void at_run_steps(int frame);
     bool capture_window(Image& img);
     void inject_key(int type, int keyCode);
@@ -1711,6 +1846,9 @@ std::string pick_folder(const std::string& title, const std::string& start);
 // Same for one existing file of the given kinds (`filterName` "Images", `extensions` {"png", "jpg"}, no dot).
 std::string pick_file(const std::string& title, const std::string& start, const std::string& filterName,
                       const std::vector<std::string>& extensions);
+// The size of the system clipboard the editor asks sokol_app for: a longer text is cut by sokol, so a copy of entities that
+// does not fit is refused (entity_copy).
+inline constexpr std::size_t kClipboardBytes = std::size_t(1) << 20;
 // The picture on the system clipboard as PNG bytes; empty when there is none (or no tool to read it on Linux).
 std::vector<std::uint8_t> clipboard_image_png();
 // Whether the system clipboard holds text (what Ctrl+V pastes into a text box).

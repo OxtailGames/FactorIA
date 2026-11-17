@@ -19,6 +19,7 @@
 
 #include "fa_script_js.h"
 #include "fa/audio/audio.h"
+#include "fa/core/deprecation.h"
 #include "fa/core/fs.h"
 #include "fa/core/log.h"
 #include "fa/core/strings.h"
@@ -177,7 +178,7 @@ size_t ScriptSystem::Impl::push_guard(const std::string& label, double seconds) 
     const double cpu = thread_cpu_seconds();
     guards.push_back({label, seconds, cpu, cpu + seconds,
                       std::chrono::steady_clock::now() +
-                          std::chrono::microseconds(static_cast<long long>(seconds * kWallCapFactor * 1e6))});
+                          std::chrono::microseconds(static_cast<long long>(seconds * wallCapFactor * 1e6))});
     return depth;
 }
 
@@ -273,7 +274,7 @@ void ScriptSystem::Impl::end_frame(std::uint64_t frame, double dt) {
 }
 
 std::string ScriptSystem::Impl::limit_text(double seconds) const {
-    return timedOutWall ? std::format("> {:g} s on the clock", seconds * kWallCapFactor)
+    return timedOutWall ? std::format("> {:g} s on the clock", seconds * wallCapFactor)
                         : std::format("> {:g} s of CPU time", seconds);
 }
 
@@ -460,7 +461,7 @@ std::string hint_for(const std::string& msg) {
         return "The game was made with a newer FactorIA than the player running it. Run `factoria setup players` and "
                "export again, "
                "or build the player from the same checkout as factoria (docs/EXPORTING.md, \"The player must come from "
-               "the same build\"); "
+               "the same build as `factoria`\"); "
                "for the web, `cmake --build --preset web-release` and export: it prefers build/web-release.";
     if (has("cannot read property") || has("null") || has("undefined"))
         return "A value was null/undefined. world.find(id) and entity.get(name) return null when nothing matches; "
@@ -1285,6 +1286,17 @@ bool ScriptSystem::Impl::init(ScriptHost& h, std::string* error) {
     factoria = JsVal(ctx, JS_GetPropertyStr(ctx, hooks.get(), "factoria"));
     testApi = JsVal(ctx, JS_GetPropertyStr(ctx, hooks.get(), "test"));
 
+    // Deprecated script API: the prelude wraps what the table lists (nothing in a run without the tooling's table).
+    if (!Deprecations::global().keys(kDeprecatedScript).empty()) {
+        Json targets = deprecation_targets();
+        if (!targets.empty()) {
+            JSValue arg = from_json(targets);
+            JSValue r = call_method("deprecated script API", "", hooks.get(), "applyDeprecations", {arg});
+            JS_FreeValue(ctx, r);
+            JS_FreeValue(ctx, arg);
+        }
+    }
+
     // Global conveniences.
     JSValue global = JS_GetGlobalObject(ctx);
     JS_DefinePropertyValueStr(ctx, global, "factoria", JS_DupValue(ctx, factoria.get()),
@@ -1366,6 +1378,7 @@ void ScriptSystem::Impl::shutdown() {
             wfcJobIds);  // the JS handles that would cancel the tilemap.generate jobs die with the context
     if (host) host->drop_script_background_loads();  // so do the handles of its background loads
     wfcJobIds.clear();
+    websockets.clear();  // the connections end with the context that held their handlers
     if (host) host->commands().set_before_call({});
     if (host && observerId >= 0) host->world().remove_observer(observerId);
     observerId = -1;
@@ -1414,6 +1427,7 @@ void ScriptSystem::set_exported_player(bool exported) { impl_->exportedPlayer = 
 void ScriptSystem::set_game_role(GameRole role) { impl_->set_game_role(role); }
 CapabilitySet ScriptSystem::game_capabilities() const { return impl_->gameCaps; }
 void ScriptSystem::set_callback_limit(double seconds) { impl_->callbackLimit = seconds; }
+void ScriptSystem::set_wall_cap_factor(double factor) { impl_->wallCapFactor = std::max(1.0, factor); }
 double ScriptSystem::memory_limit_mb() const { return impl_->memoryLimitMB; }
 double ScriptSystem::frame_budget_ms() const { return impl_->frameBudgetMs; }
 void ScriptSystem::begin_frame() { impl_->frameOpen = true; }
@@ -1459,6 +1473,119 @@ Json platform_answer_json(const PlatformAnswer& a) {
     return j;
 }
 
+// WebSocket events, once per frame: what each connection queued since the last frame goes to the `websocketDeliver` hook of the
+// prelude, which fires the handlers. A frame hands over at most 256 events and 8 MB of messages; the rest waits in the
+// connection's pending list, and a connection is polled again only when its list is empty, so a game that is slow to
+// consume leaves the rest in the connection's own queue, which is capped (fa/platform/websocket.h).
+void ScriptSystem::Impl::deliver_websockets() {
+    if (websockets.empty()) return;
+    constexpr std::size_t kMaxEvents = 256, kMaxBytes = 8u * 1024 * 1024;
+    std::vector<WebSocketEvent> fresh;
+    for (auto& [id, entry] : websockets) {
+        if (!entry.pending.empty()) continue;
+        fresh.clear();
+        entry.ws->poll(fresh);
+        for (WebSocketEvent& e : fresh) entry.pending.push_back(std::move(e));
+    }
+    JSValue list = JS_NewArray(ctx);
+    std::uint32_t count = 0;
+    std::size_t bytes = 0;
+    for (auto it = websockets.begin(); it != websockets.end();) {
+        WebSocketEntry& entry = it->second;
+        bool ended = false;
+        while (!entry.pending.empty() && count < kMaxEvents &&
+               (bytes == 0 || bytes + entry.pending.front().data.size() <= kMaxBytes)) {
+            WebSocketEvent e = std::move(entry.pending.front());
+            entry.pending.pop_front();
+            bytes += e.data.size();
+            JSValue o = JS_NewObject(ctx);
+            JS_SetPropertyStr(ctx, o, "id", JS_NewInt32(ctx, it->first));
+            switch (e.type) {
+                case WebSocketEvent::Type::Open:
+                    JS_SetPropertyStr(ctx, o, "type", JS_NewString(ctx, "open"));
+                    JS_SetPropertyStr(ctx, o, "subprotocol",
+                                      JS_NewStringLen(ctx, e.subprotocol.data(), e.subprotocol.size()));
+                    break;
+                case WebSocketEvent::Type::Text:
+                    JS_SetPropertyStr(ctx, o, "type", JS_NewString(ctx, "text"));
+                    JS_SetPropertyStr(ctx, o, "data", JS_NewStringLen(ctx, e.data.data(), e.data.size()));
+                    break;
+                case WebSocketEvent::Type::Binary: {
+                    static const std::uint8_t kNone = 0;  // an empty ArrayBuffer still needs a pointer
+                    JS_SetPropertyStr(ctx, o, "type", JS_NewString(ctx, "binary"));
+                    JS_SetPropertyStr(
+                        ctx, o, "data",
+                        JS_NewArrayBufferCopy(
+                            ctx, e.data.empty() ? &kNone : reinterpret_cast<const std::uint8_t*>(e.data.data()),
+                            e.data.size()));
+                    break;
+                }
+                case WebSocketEvent::Type::Error:
+                    JS_SetPropertyStr(ctx, o, "type", JS_NewString(ctx, "error"));
+                    JS_SetPropertyStr(ctx, o, "message", JS_NewStringLen(ctx, e.error.data(), e.error.size()));
+                    JS_SetPropertyStr(ctx, o, "hint", JS_NewStringLen(ctx, e.hint.data(), e.hint.size()));
+                    JS_SetPropertyStr(ctx, o, "httpStatus", JS_NewInt32(ctx, e.httpStatus));
+                    break;
+                case WebSocketEvent::Type::Close:
+                    JS_SetPropertyStr(ctx, o, "type", JS_NewString(ctx, "close"));
+                    JS_SetPropertyStr(ctx, o, "code", JS_NewInt32(ctx, e.code));
+                    JS_SetPropertyStr(ctx, o, "reason", JS_NewStringLen(ctx, e.reason.data(), e.reason.size()));
+                    JS_SetPropertyStr(ctx, o, "wasClean", JS_NewBool(ctx, e.wasClean));
+                    ended = true;
+                    break;
+            }
+            JS_SetPropertyUint32(ctx, list, count++, o);
+            if (ended) break;
+        }
+        if (ended)
+            it = websockets.erase(it);  // nothing follows a Close
+        else
+            ++it;
+    }
+    if (count == 0) {
+        JS_FreeValue(ctx, list);
+        return;
+    }
+    JSValue fn = JS_GetPropertyStr(ctx, hooks.get(), "websocketDeliver");
+    JSValue r = call("websocket events", "", fn, hooks.get(), {list});
+    JS_FreeValue(ctx, r);
+    JS_FreeValue(ctx, fn);
+    JS_FreeValue(ctx, list);
+    run_jobs();
+}
+
+// The storage.setAsync writes that finished: tells the scripts (their promises settle) and runs what that wakes. True when
+// there was something to deliver.
+bool ScriptSystem::Impl::deliver_storage_done() {
+    Impl& I = *this;
+    const FrameScope frameScope(I);
+    std::vector<storage_files::Job> done = I.storageWriter.take_done();
+    if (done.empty()) return false;
+    Json list = Json::array();
+    for (const storage_files::Job& j : done) {
+        auto m = I.storageMeta.find(j.key);
+        if (m != I.storageMeta.end() && m->second.compressed == j.compress && m->second.encrypted == j.encrypt &&
+            m->second.bytes < 0)
+            m->second.bytes = static_cast<std::int64_t>(j.bytes);
+        if (j.persist) {
+            if (j.ok)
+                fs::user_dir_changed();
+            else
+                log(LogLevel::Warn, "script",
+                    "storage.setAsync could not write " + j.file.string() + " for key '" + j.key + "': " + j.error);
+        }
+        list.push_back(Json::object({{"id", j.id}, {"ok", j.ok}, {"error", j.error}, {"bytes", j.bytes}}));
+    }
+    JSValue lv = I.from_json(list);
+    JSValue fn = JS_GetPropertyStr(I.ctx, I.hooks.get(), "storageDeliver");
+    JSValue r = I.call("storage.setAsync", "", fn, I.hooks.get(), {lv});
+    JS_FreeValue(I.ctx, r);
+    JS_FreeValue(I.ctx, fn);
+    JS_FreeValue(I.ctx, lv);
+    I.run_jobs();
+    return true;
+}
+
 void ScriptSystem::dispatch_platform() {
     Impl& I = *impl_;
     if (!I.initialized || !I.host) return;
@@ -1466,29 +1593,7 @@ void ScriptSystem::dispatch_platform() {
     I.storageWriter
         .pump();  // storage.setAsync without a worker thread (the web, memory storage): its writes run here, between frames
     const Impl::FrameScope frameScope(I);  // the answers and loads below are script time of this frame
-    if (std::vector<storage_files::Job> done = I.storageWriter.take_done(); !done.empty()) {
-        Json list = Json::array();
-        for (const storage_files::Job& j : done) {
-            auto m = I.storageMeta.find(j.key);
-            if (m != I.storageMeta.end() && m->second.compressed == j.compress && m->second.bytes < 0)
-                m->second.bytes = static_cast<std::int64_t>(j.bytes);
-            if (j.persist) {
-                if (j.ok)
-                    fs::user_dir_changed();
-                else
-                    log(LogLevel::Warn, "script",
-                        "storage.setAsync could not write " + j.file.string() + " for key '" + j.key + "': " + j.error);
-            }
-            list.push_back(Json::object({{"id", j.id}, {"ok", j.ok}, {"error", j.error}, {"bytes", j.bytes}}));
-        }
-        JSValue lv = I.from_json(list);
-        JSValue fn = JS_GetPropertyStr(I.ctx, I.hooks.get(), "storageDeliver");
-        JSValue r = I.call("storage.setAsync", "", fn, I.hooks.get(), {lv});
-        JS_FreeValue(I.ctx, r);
-        JS_FreeValue(I.ctx, fn);
-        JS_FreeValue(I.ctx, lv);
-        I.run_jobs();
-    }
+    I.deliver_storage_done();
     if (I.generateJobs > 0) {  // tilemap.generate: this frame's share of the work
         JSValue budget = JS_NewFloat64(I.ctx, I.host->preload_time_budget_ms());
         JSValue fn = JS_GetPropertyStr(I.ctx, I.hooks.get(), "generateTick");
@@ -1498,6 +1603,7 @@ void ScriptSystem::dispatch_platform() {
         JS_FreeValue(I.ctx, budget);
         I.run_jobs();
     }
+    I.deliver_websockets();
     PlatformServices* services = I.host->platform_services();
     if (!services) return;
     const std::vector<PlatformAnswer> answers = services->take_answers();
@@ -1798,6 +1904,33 @@ bool ScriptSystem::close_requested() {
         return false;
     }
     return true;
+}
+
+// Rounds of write, deliver and run that the app's end gives to chained awaited storage.setAsync calls (see app_ending).
+constexpr int kEndStorageRounds = 16;
+
+void ScriptSystem::app_ending() {
+    Impl& I = *impl_;
+    if (!I.initialized || I.appEnded) return;
+    I.appEnded = true;
+    if (!I.quitByGame) {  // game.quit() raises no "quit", on the desktop either
+        I.quitCancelled = false;
+        I.host->world().events().game.push_back(GameEvent{"app.quit", Json::object(), kNullEntity});
+        dispatch_events();
+        I.quitCancelled = false;  // too late: the system ends the app whatever the handlers say
+    }
+    // The analytics request for the events that wait starts now; nothing waits for it (the process ends within the system's
+    // budget, so it may not reach the server).
+    I.service_call("serviceQuit", {});
+    I.run_jobs();  // the promise jobs the handlers left (a .then) run before the drain
+    // An awaited storage.setAsync settles only when its write is delivered (dispatch_platform, one frame later in a game), so
+    // the code after the await runs here: write, deliver, run what that woke, and again for the writes it started. A fixed
+    // count of rounds, so a handler that writes forever cannot hold the end; the last drain leaves nothing unwritten.
+    for (int round = 0; round < kEndStorageRounds; ++round) {
+        I.storage_drain();
+        if (!I.deliver_storage_done()) break;
+    }
+    I.storage_drain();  // every storage.setAsync write is on disk before the process ends
 }
 
 void ScriptSystem::reset_app_state() {

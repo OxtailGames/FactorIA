@@ -1,6 +1,6 @@
 // Command capabilities: what a command can do to the world outside the engine's memory, and the sets of them that a
 // caller is granted. A command declares the capabilities it needs (CommandInfo::capabilities, command.h); the registry
-// refuses a call whose caller is not granted all of them (error code "capability_denied", docs/ARCHITECTURE.md,
+// refuses a call whose caller is not granted all of them (error code "capability_denied", docs/design/ARCHITECTURE_COMMANDS.md,
 // "Commands", "Capabilities"). This header only holds the vocabulary: the enum, the bitmask set and the named sets.
 #pragma once
 

@@ -10,9 +10,9 @@ name: CI
 # before tagging), and release.yml builds the packages on the tag. Pushing to a branch without a
 # PR does not trigger a run, so PR branches are not built twice; use "Run
 # workflow" (workflow_dispatch) for those. The same checks can run locally with
-# ./scripts/ci-local.sh (see docs/BUILDING.md).
+# ./scripts/ci-local.sh (see docs/design/BUILDING.md).
 # Each run only builds what the change can break, and `CI result` is the check that
-# auto-merge waits for: docs/BUILDING.md, "Continuous integration".
+# auto-merge waits for: docs/design/BUILDING_CI.md, "Continuous integration".
 on:
   push:
     branches: [main]
@@ -191,7 +191,7 @@ jobs:
 
   # Linux with Clang and AddressSanitizer + UndefinedBehaviorSanitizer (and LeakSanitizer, which only Linux has): the whole
   # Debug suite on a build whose every target, external/ included, is instrumented (FA_SANITIZE, preset linux-asan;
-  # docs/BUILDING.md, "Sanitizers"). A finding fails the test (UBSan stops at the first one). The suppressions are
+  # docs/design/BUILDING_TESTS.md, "Sanitizers"). A finding fails the test (UBSan stops at the first one). The suppressions are
   # tools/ci/sanitizers/*.supp. Debug: the example games' tests are disabled, as in any Debug build.
   # Two machines, each builds (a warm ccache makes that quick) and runs half of the tests: scripts/ctest_shard.py gives every
   # test to exactly one shard, balanced by the times of its linux-asan table. The `tooling` test alone took 19 minutes when
@@ -282,7 +282,7 @@ jobs:
           retention-days: 7
 
   # Linux with Clang and ThreadSanitizer: only the tests that run threads (ctest label `tsan`: the job system and the background
-  # reads in core, the jobs engine and the background loads in runtime, all of audio and of mcp; CMakeLists.txt, "ThreadSanitizer").
+  # reads in core, the jobs engine and the background loads in runtime, all of audio and of mcp, the WebSocket cases of platform; CMakeLists.txt, "ThreadSanitizer").
   # A data race fails the test (TSan's exit code). The suppressions are tools/ci/sanitizers/tsan.supp.
   linux-tsan:
     name: Linux (Clang, TSan, threaded tests)
@@ -315,7 +315,7 @@ jobs:
         run: |
           ccache --zero-stats
           cmake --preset linux-tsan -DFA_WARNINGS_AS_ERRORS=ON
-          cmake --build --preset linux-tsan --target fa_test_core fa_test_runtime fa_test_audio fa_test_mcp -- -k 0
+          cmake --build --preset linux-tsan --target fa_test_core fa_test_runtime fa_test_audio fa_test_mcp fa_test_platform -- -k 0
           ccache --show-stats --verbose
 
       # Trim, save and prune: see the linux job.
@@ -358,7 +358,7 @@ jobs:
   # and newer, Debian 11 and newer. Builds the preset linux-sniper (no tests: the `linux` job has them), fails when factoria
   # or factoria_player imports a glibc/GLIBCXX/CXXABI version newer than sniper has, then runs them in the sniper RUNTIME
   # image (the `platform` one, with no compilers and nothing installed): `--version`, a new project, a headless frame on
-  # Mesa's software renderer. All of it is scripts/build-sniper.sh (docs/BUILDING.md), so it runs locally with Docker or Podman.
+  # Mesa's software renderer. All of it is scripts/build-sniper.sh (docs/design/BUILDING.md), so it runs locally with Docker or Podman.
   linux-sniper:
     name: Linux (Steam Runtime sniper)
     needs: changes
@@ -408,7 +408,7 @@ jobs:
         run: ./scripts/build-sniper.sh smoke
 
       # Size of the Release player against tools/size/player_size_budget.json: fails above maxBytes, always writes the report
-      # (the library table is in the job summary). scripts/player-size.sh, docs/BUILDING.md "Player size budgets". Last in
+      # (the library table is in the job summary). scripts/player-size.sh, docs/design/BUILDING_RELEASE.md "Player size budgets". Last in
       # the job, so a player over its budget does not skip the tests: one round shows both.
       - name: Player size (linux-x64)
         id: size
@@ -553,7 +553,7 @@ jobs:
           retention-days: 7
 
       # Size of the Release player against tools/size/player_size_budget.json: fails above maxBytes, always writes the report
-      # (the library table is in the job summary). scripts/player-size.sh, docs/BUILDING.md "Player size budgets". Last in
+      # (the library table is in the job summary). scripts/player-size.sh, docs/design/BUILDING_RELEASE.md "Player size budgets". Last in
       # the job, so a player over its budget does not skip the tests: one round shows both.
       - name: Player size (windows-x64)
         id: size
@@ -661,7 +661,7 @@ jobs:
           retention-days: 7
 
       # Size of the Release player against tools/size/player_size_budget.json: fails above maxBytes, always writes the report
-      # (the library table is in the job summary). scripts/player-size.sh, docs/BUILDING.md "Player size budgets". Last in
+      # (the library table is in the job summary). scripts/player-size.sh, docs/design/BUILDING_RELEASE.md "Player size budgets". Last in
       # the job, so a player over its budget does not skip the tests: one round shows both.
       - name: Player size (macos-arm64)
         id: size
@@ -1000,7 +1000,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.mobile == 'true'
     runs-on: macos-latest
-    timeout-minutes: 60
+    timeout-minutes: 75
     permissions:
       contents: read
       actions: read  # gh run download: the app of ios-build, from this same run
@@ -1009,12 +1009,15 @@ jobs:
 
       # Not `needs: ios-build`, which would only start the boot after the build. So that a build that ends without an app
       # (a failure, or a cancel when GitHub found no macOS runner for it: 2026-11-04) does not leave this loop spinning
-      # until the step's 20 minutes run out, it asks for the build job's conclusion on every turn and stops at the first
+      # until the step's time limit runs out, it asks for the build job's conclusion on every turn and stops at the first
       # one that is not "success".
       # --boot also builds the touch UI test meanwhile (1-4 minutes on this busy runner); `wait` lets it finish before
       # the smoke test, which then only runs it.
+      # 40 minutes: the build takes 11-14 and may first wait for a macOS runner, the account's few are shared with the
+      # Release workflow's macOS jobs when a pull request changes release.yml (PR 223: 7 and 16 minutes in the queue, the
+      # old 20-minute limit ran out twice before the app existed).
       - name: Boot the simulator and build the touch UI test while ios-build builds the app, then download the app
-        timeout-minutes: 20
+        timeout-minutes: 40
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -1048,7 +1051,7 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
-  # Web: the player built with Emscripten (the preset web-release, SDK pinned to the version in docs/BUILDING.md), the CLI,
+  # Web: the player built with Emscripten (the preset web-release, SDK pinned to the version in docs/design/BUILDING.md), the CLI,
   # a game exported with `factoria export --platform web`, the zip checked as itch.io takes it, and the export opened in the
   # runner's headless Chrome until the player has rendered 60 frames (scripts/web-smoke.sh, platforms/web/smoke.mjs).
   web:
@@ -1150,7 +1153,7 @@ jobs:
           retention-days: 7
 
       # Size of the Release player against tools/size/player_size_budget.json: fails above maxBytes, always writes the report
-      # (the library table is in the job summary). scripts/player-size.sh, docs/BUILDING.md "Player size budgets". Last in
+      # (the library table is in the job summary). scripts/player-size.sh, docs/design/BUILDING_RELEASE.md "Player size budgets". Last in
       # the job, so a player over its budget does not skip the tests: one round shows both.
       - name: Player size (web-wasm)
         id: size
@@ -1231,7 +1234,7 @@ jobs:
           grep -q ANativeActivity_onCreate /tmp/symbols.txt
 
       # Size of the Release player against tools/size/player_size_budget.json: fails above maxBytes, always writes the report
-      # (the library table is in the job summary). scripts/player-size.sh, docs/BUILDING.md "Player size budgets". Last in
+      # (the library table is in the job summary). scripts/player-size.sh, docs/design/BUILDING_RELEASE.md "Player size budgets". Last in
       # the job, so a player over its budget does not skip the tests: one round shows both.
       - name: Player size (android-arm64-v8a)
         id: size
@@ -1368,8 +1371,9 @@ jobs:
           PY
 
       # What a phone adds to the scripts (tools/cli/tests/mobile_probe.js): the game logs its safe area, buzzes once through the
-      # Vibrator and consumes the Back button with input.onBack; scripts/android-smoke.sh sends KEYCODE_BACK and waits for that log
-      # line (FA_SMOKE_BACK below), and the game must stay alive.
+      # Vibrator and consumes the first Back with input.onBack; scripts/android-smoke.sh sends KEYCODE_BACK and waits for that log
+      # line (FA_SMOKE_BACK below), and the game must stay alive. The second Back ends the game, and its game.on("quit") handler
+      # logs a marker and counts the quits in storage (FA_SMOKE_QUIT).
       - name: Add the mobile probe (safe area, vibration, Back)
         run: |
           cp tools/cli/tests/mobile_probe.js /tmp/ci-game/scripts/mobile_probe.js
@@ -1442,6 +1446,7 @@ jobs:
           grep -q 'android:hasCode="true"' /tmp/ci-out/ci-game-android/app/src/main/AndroidManifest.xml
           unzip -p /tmp/ci-out/ci-game-android/ci-game-debug.apk 'classes*.dex' > /tmp/apk-classes.dex
           grep -aq 'Lfactoria/plugin/example/Plugin;' /tmp/apk-classes.dex
+          grep -aq 'Lfactoria/engine/Ime;' /tmp/apk-classes.dex  # the engine's IME connection (ime_android.cpp loads it)
 
       # The Google Play backend: its C bridge for both ABIs, its Java class and the three Google libraries in the dex, the Play Games
       # id in the app's resources, and the manifest merged: the Play Games meta-data in, the library's auto-start provider out.
@@ -1486,7 +1491,8 @@ jobs:
   # Android on a virtual device: boot an x86_64 emulator, install the APK of the job above, start it and assert that the
   # process stays alive, the player logged "player: 60 frames rendered", an audio stream runs, a tap reaches the player,
   # the app survives HOME and coming back and a font-size change, nothing crashed, the display shows a picture, and the
-  # game comes back in a new process after a relaunch it cannot opt out of (`am update-appinfo`)
+  # game comes back in a new process after a relaunch it cannot opt out of (`am update-appinfo`); both the relaunch and a
+  # Back the game lets through run the game's end (game.on("quit"), its storage write) before the process ends
   # (scripts/android-smoke.sh; it waits for the system to be ready, no fixed sleep). Needs KVM, which GitHub's Linux
   # runners offer once the udev rule below is set. There is no arm64 emulator job: no hosted runner can run one
   # (docs/MOBILE.md).
@@ -1516,12 +1522,17 @@ jobs:
       # answers (tools/cli/tests/admob_probe.js): it runs as the ads backend next to Google Play, with the manifest's test app id.
       # FA_SMOKE_BACK: the line tools/cli/tests/mobile_probe.js logs when its input.onBack handler consumes the Back button; the
       # smoke test sends `adb shell input keyevent KEYCODE_BACK` and needs that line once more, with the game still running.
+      # FA_SMOKE_QUIT: the line the probe's game.on("quit") handler logs; the process the relaunch ends must log it once, and so
+      # must the one a second Back ends (the last step). "probe quits stored=1" (FA_SMOKE_EXPECT) is the count that handler
+      # wrote with storage.setAsync before its process ended, read by the process the relaunch started (a fresh emulator).
       - name: Run the APK in the emulator (smoke test)
         uses: reactivecircus/android-emulator-runner@v2.38.0
         env:
           FA_SMOKE_BACK: probe back=consumed
+          FA_SMOKE_QUIT: probe quit n=
           FA_SMOKE_DET_HASH: 1
           FA_SMOKE_EXPECT: |
+            probe quits stored=1
             probe safearea=
             probe vibrate=sent
             probe add=3
@@ -1554,7 +1565,7 @@ jobs:
 
   # libFuzzer with AddressSanitizer and UBSan (Clang, -DFA_FUZZ=ON) on the data-format targets of tools/fuzz: each one runs
   # for about a minute over a copy of its corpus (tools/fuzz/run.sh). A crash, a sanitizer report or a timeout fails the job
-  # and its input is uploaded. The ordinary builds replay the same corpus as the ctests labelled `fuzz` (docs/BUILDING.md,
+  # and its input is uploaded. The ordinary builds replay the same corpus as the ctests labelled `fuzz` (docs/design/BUILDING_TESTS.md,
   # "Fuzzing"). Nothing here runs the editor, a GPU or the tests: only the fuzz programs are built.
   linux-fuzz:
     name: Fuzz (Clang, libFuzzer, ASan + UBSan)
@@ -1638,7 +1649,7 @@ jobs:
       - name: Say that the fuzz run found something
         if: steps.fuzz.outputs.status == '1'
         run: |
-          echo "::warning title=Fuzzing found a crash::The random fuzz run failed. It does not block this pull request, but the input is a real bug: download the artifact fuzz-crashes, reproduce it with build/fuzz/tools/fuzz/fa_fuzz_<target> <file>, fix it and add the input to tools/fuzz/corpus/<target>/ (docs/BUILDING.md, Fuzzing)."
+          echo "::warning title=Fuzzing found a crash::The random fuzz run failed. It does not block this pull request, but the input is a real bug: download the artifact fuzz-crashes, reproduce it with build/fuzz/tools/fuzz/fa_fuzz_<target> <file>, fix it and add the input to tools/fuzz/corpus/<target>/ (docs/design/BUILDING_TESTS.md, \"Fuzzing\")."
           {
             echo "### Fuzzing found something"
             echo
@@ -1652,7 +1663,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       # crash-*, timeout-*, oom-* and leak-* files: `build/fuzz/tools/fuzz/fa_fuzz_<target> <file>` reproduces one; to keep it,
-      # copy it into tools/fuzz/corpus/<target>/ (docs/BUILDING.md, "Fuzzing").
+      # copy it into tools/fuzz/corpus/<target>/ (docs/design/BUILDING_TESTS.md, "Fuzzing").
       - name: Upload the inputs that failed
         if: failure() || steps.fuzz.outputs.status == '1'
         uses: actions/upload-artifact@v4
@@ -1662,7 +1673,7 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
-  # Source coverage per module (llvm-cov, docs/BUILDING.md "Coverage"): the Debug suite with the editor autotest under Xvfb.
+  # Source coverage per module (llvm-cov, docs/design/BUILDING_TESTS.md "Coverage"): the Debug suite with the editor autotest under Xvfb.
   # Informative: NOT in the `needs` of `result`, so a failing test or a lower number here never blocks a merge (the `linux`
   # job already gates the tests; this one runs them again instrumented, and instrumented Debug runs are slow).
   coverage:
@@ -1762,7 +1773,7 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
-  # Formatting and bug-finding lint (docs/BUILDING.md, "Formatting and lint"). Cheap: nothing is compiled, CMake only
+  # Formatting and bug-finding lint (docs/design/BUILDING_CI.md, "Formatting and lint"). Cheap: nothing is compiled, CMake only
   # writes compile_commands.json for clang-tidy.
   lint:
     name: Lint (format, clang-tidy)

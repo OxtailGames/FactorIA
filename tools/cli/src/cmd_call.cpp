@@ -369,7 +369,7 @@ Command make_commands_command() {
     c.flags = {{"project", "DIR", "Project folder (default: the project containing the current directory)."},
                {"json", "",
                 "Machine-readable list (name, summary, description, inputSchema, readOnly, capabilities, "
-                "capabilitiesDeclared, category)."}};
+                "capabilitiesDeclared, category; deprecated for a deprecated command)."}};
     c.examples = {"factoria commands", "factoria commands scene", "factoria commands scene.spawn",
                   "factoria commands --json"};
     c.run = [](Context& ctx) {
@@ -378,20 +378,27 @@ Command make_commands_command() {
         std::string filter = ctx.args.pos(0);
         if (!filter.empty() && reg.has(filter)) {
             const CommandInfo* info = reg.info(filter);
+            // {since, use, note, removedIn, summary} of a deprecated command, null for any other.
+            const Json deprecated = deprecation_json("commands", info->name);
             if (ctx.args.has("json")) {
-                print_json(ctx.out, Json::object({{"name", info->name},
-                                                  {"summary", info->summary},
-                                                  {"description", info->description},
-                                                  {"details", info->details},
-                                                  {"inputSchema", info->inputSchema},
-                                                  {"readOnly", info->readOnly},
-                                                  {"capabilities", info->capabilities.to_json()},
-                                                  {"capabilitiesDeclared", info->capabilitiesDeclared},
-                                                  {"category", info->category}}));
+                Json one = Json::object({{"name", info->name},
+                                         {"summary", info->summary},
+                                         {"description", info->description},
+                                         {"details", info->details},
+                                         {"inputSchema", info->inputSchema},
+                                         {"readOnly", info->readOnly},
+                                         {"capabilities", info->capabilities.to_json()},
+                                         {"capabilitiesDeclared", info->capabilitiesDeclared},
+                                         {"category", info->category}});
+                if (!deprecated.is_null()) one["deprecated"] = deprecated;
+                print_json(ctx.out, one);
                 return 0;
             }
-            ctx.out << info->name << " - " << info->summary << (info->readOnly ? "" : "  [modifies state]") << "\n\n"
-                    << info->description << (info->details.empty() ? "" : "\n\n" + info->details)
+            ctx.out << info->name << " - " << info->summary << (info->readOnly ? "" : "  [modifies state]") << "\n\n";
+            if (!deprecated.is_null())
+                ctx.out << deprecated.value("summary", "")
+                        << (deprecated.value("note", "").empty() ? "" : " " + deprecated.value("note", "")) << "\n\n";
+            ctx.out << info->description << (info->details.empty() ? "" : "\n\n" + info->details)
                     << "\n\nCapabilities: " << capabilities_line(*info) << "\n\nArguments (JSON schema):\n"
                     << info->inputSchema.dump(2) << "\n";
             return 0;
@@ -403,15 +410,18 @@ Command make_commands_command() {
             names.push_back(i->name);
             if (!filter.empty() && !starts_with(i->name, filter) && !starts_with(i->name, filter + ".")) continue;
             byCat[i->category.empty() ? "other" : i->category].push_back(i);
-            all.push_back(Json::object({{"name", i->name},
-                                        {"summary", i->summary},
-                                        {"description", i->description},
-                                        {"details", i->details},
-                                        {"inputSchema", i->inputSchema},
-                                        {"readOnly", i->readOnly},
-                                        {"capabilities", i->capabilities.to_json()},
-                                        {"capabilitiesDeclared", i->capabilitiesDeclared},
-                                        {"category", i->category}}));
+            Json one = Json::object({{"name", i->name},
+                                     {"summary", i->summary},
+                                     {"description", i->description},
+                                     {"details", i->details},
+                                     {"inputSchema", i->inputSchema},
+                                     {"readOnly", i->readOnly},
+                                     {"capabilities", i->capabilities.to_json()},
+                                     {"capabilitiesDeclared", i->capabilitiesDeclared},
+                                     {"category", i->category}});
+            if (Json deprecated = deprecation_json("commands", i->name); !deprecated.is_null())
+                one["deprecated"] = std::move(deprecated);
+            all.push_back(std::move(one));
         }
         if (all.empty())
             return report_failure(ctx, "No command matches '" + filter + "'.", fa::did_you_mean(filter, names));

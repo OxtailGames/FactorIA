@@ -14,6 +14,7 @@
 
 #include "fa/audio/audio.h"
 #include "fa/audio/sfx.h"
+#include "fa/core/deprecation.h"
 #include "fa/core/fs.h"
 #include "fa/core/image.h"
 #include "fa/core/log.h"
@@ -24,6 +25,8 @@
 #include "fa/platform/clipboard.h"
 #include "fa/platform/input.h"
 #include "fa/platform/system_language.h"
+#include "fa/platform/websocket.h"
+#include "fa/platform/websocket_codec.h"
 #include "fa/physics/physics.h"
 #include "fa/render/renderer.h"
 #include "fa/render/text_measure.h"
@@ -410,7 +413,8 @@ std::string read_whole_file(const std::filesystem::path& file, bool& ok) {
 }
 
 // Keeps a damaged file under a name nothing else uses, and says so. Returns false when it could not be kept.
-bool keep_damaged(const std::filesystem::path& file, const std::string& text, const std::string& what) {
+bool keep_damaged(const std::filesystem::path& file, const std::string& text, const std::string& what,
+                  const std::string& why = "does not parse (damaged by a crash or a bad edit?)") {
     const std::filesystem::path keep = corrupt_keep_path();
     std::error_code ec;
     fs::replace_file(file, keep, ec);
@@ -418,23 +422,44 @@ bool keep_damaged(const std::filesystem::path& file, const std::string& text, co
         auto w = fs::write_bytes(keep.generic_string(), text.data(), text.size());
         if (!w) {
             log(LogLevel::Warn, "script",
-                what + " does not parse and could not be kept as " + keep.string() + ": " + w.error().message +
+                what + " " + why + " and could not be kept as " + keep.string() + ": " + w.error().message +
                     ". The next save will replace it; copy it by hand now if it matters.");
             return false;
         }
     }
     fs::user_dir_changed();
     log(LogLevel::Warn, "script",
-        what + " does not parse (damaged by a crash or a bad edit?); it was kept as " + keep.filename().string() +
-            " in " + fs::user_dir().string() +
+        what + " " + why + "; it was kept as " + keep.filename().string() + " in " + fs::user_dir().string() +
             " and the game starts without it. A script can check storage.corrupt at start to tell the player.");
     return true;
 }
 }  // namespace
 
-void Impl::storage_write(const std::string& key, bool compress) {
+storage_files::KeyMaterial Impl::storage_material() const {
+    storage_files::KeyMaterial m;
+    if (host) host->storage_key_material(m.secret, m.gameId);
+    return m;
+}
+
+void Impl::storage_write(const std::string& key, bool compress, bool encrypt, std::string* encodeError) {
     const std::string valueText = storage[key].dump(-1, ' ', false, Json::error_handler_t::replace);
-    const std::string text = storage_files::encode(key, valueText, compress);
+    crypto::Key sealKey{};
+    auto fail = [&](const std::string& what, const Error& e) {
+        if (encodeError)
+            *encodeError = what + ": " + e.message + (e.hint.empty() ? "" : ". " + e.hint);
+        else
+            log(LogLevel::Warn, "script", what + ": " + e.message);
+    };
+    if (encrypt) {
+        auto k = storage_files::derive_key(storage_material(), key);
+        if (!k) return fail("cannot encrypt storage key '" + key + "'", k.error());
+        sealKey = k.value();
+        crypto::secure_zero(k.value());
+    }
+    auto encoded = storage_files::encode(key, valueText, compress, encrypt ? &sealKey : nullptr);
+    crypto::secure_zero(sealKey);
+    if (!encoded) return fail("cannot encode storage key '" + key + "'", encoded.error());
+    const std::string& text = encoded.value();
     const std::filesystem::path file = storage_files::dir() / storage_files::file_name(key);
     auto r = fs::write_bytes(file.generic_string(), text.data(), text.size());  // temporary file, then rename: atomic
     if (!r) {
@@ -442,7 +467,7 @@ void Impl::storage_write(const std::string& key, bool compress) {
             "cannot write " + file.string() + " for storage key '" + key + "': " + r.error().message);
         return;
     }
-    storageMeta[key] = {compress, static_cast<std::int64_t>(text.size())};
+    storageMeta[key] = {compress, static_cast<std::int64_t>(text.size()), encrypt};
     fs::user_dir_changed();  // the web build copies the save folder to the browser's storage
 }
 
@@ -483,18 +508,19 @@ void Impl::load_storage() {
     for (std::filesystem::directory_iterator it(storage_files::dir(), ec), end; !ec && it != end; it.increment(ec))
         if (it->is_regular_file(ec) && it->path().extension() == ".json") files.push_back(it->path());
     std::sort(files.begin(), files.end());
+    const storage_files::KeyMaterial material = storage_material();
     for (const std::filesystem::path& file : files) {
         bool ok = false;
         const std::string text = read_whole_file(file, ok);
         if (!ok) continue;
         storage_files::Decoded d;
         std::string problem;
-        if (!storage_files::decode(text, d, problem)) {
+        if (!storage_files::decode(text, d, problem, &material)) {
             storageCorrupt = true;
             keep_damaged(file, text, "the storage file " + file.filename().string() + " (" + problem + ")");
             continue;
         }
-        storageMeta[d.key] = {d.compressed, static_cast<std::int64_t>(text.size())};
+        storageMeta[d.key] = {d.compressed, static_cast<std::int64_t>(text.size()), d.encrypted, true};
         storage[d.key] = std::move(d.value);
     }
     // An older storage.json (every key in one file) is split into key files, then set aside: keys that already have a
@@ -534,7 +560,7 @@ Json Impl::storage_report() {
     storage_drain();
     load_storage();
     struct Row {
-        bool inMemory = false, onDisk = false, compressed = false;
+        bool inMemory = false, onDisk = false, compressed = false, encrypted = false;
         std::int64_t bytes = -1;
     };
     std::map<std::string, Row> rows;
@@ -544,6 +570,7 @@ Json Impl::storage_report() {
         auto m = storageMeta.find(it.key());
         if (m != storageMeta.end()) {
             r.compressed = m->second.compressed;
+            r.encrypted = m->second.encrypted;
             r.bytes = m->second.bytes;
         }
     }
@@ -554,12 +581,13 @@ Json Impl::storage_report() {
         for (std::filesystem::directory_iterator it(storage_files::dir(), ec), end; !ec && it != end; it.increment(ec))
             if (it->is_regular_file(ec) && it->path().extension() == ".json") files.push_back(it->path());
         std::sort(files.begin(), files.end());
+        const storage_files::KeyMaterial material = storage_material();
         for (const std::filesystem::path& file : files) {
             bool ok = false;
             const std::string text = read_whole_file(file, ok);
             storage_files::Decoded d;
             std::string problem;
-            if (!ok || !storage_files::decode(text, d, problem)) {
+            if (!ok || !storage_files::decode(text, d, problem, &material)) {
                 damaged.push_back(
                     Json::object({{"file", file.generic_string()}, {"problem", ok ? problem : "cannot be read"}}));
                 continue;
@@ -567,13 +595,17 @@ Json Impl::storage_report() {
             Row& r = rows[d.key];
             r.onDisk = true;
             r.compressed = d.compressed;
+            r.encrypted = d.encrypted;
             r.bytes = static_cast<std::int64_t>(text.size());
         }
     }
     Json keys = Json::array();
     for (const auto& [key, r] : rows) {
-        Json row =
-            Json::object({{"key", key}, {"inMemory", r.inMemory}, {"onDisk", r.onDisk}, {"compressed", r.compressed}});
+        Json row = Json::object({{"key", key},
+                                 {"inMemory", r.inMemory},
+                                 {"onDisk", r.onDisk},
+                                 {"compressed", r.compressed},
+                                 {"encrypted", r.encrypted}});
         if (r.bytes >= 0) row["bytes"] = r.bytes;
         keys.push_back(std::move(row));
     }
@@ -674,6 +706,15 @@ NATIVE(watchdogCuts) {
     for (size_t i = first; i < first + shown; ++i) text += (text.empty() ? "" : "; ") + I->cuts[i].to_string();
     if (const size_t more = I->cuts.size() - first - shown; more > 0) text += std::format(" ... and {} more", more);
     return JS_NewString(ctx, text.c_str());
+}
+
+// deprecated(key): the warning for a deprecated script export or member (the "script" part of the deprecated section of
+// api_since.json); the prelude calls it on the first use of each one, the table gives it once per key per process.
+NATIVE(deprecated) {
+    (void)thisv;
+    CStr key(ctx, argc > 0 ? argv[0] : JS_UNDEFINED);
+    fa::warn_deprecated(fa::kDeprecatedScript, key.view());
+    return JS_UNDEFINED;
 }
 
 NATIVE(logSeq) {
@@ -1078,6 +1119,18 @@ void localize_created(Impl* I, const std::vector<Entity>& created) {
         for (Entity e : created) localize_entity(I->host->world(), e, *L);
 }
 
+// The warnings of a load that succeeded: a deprecation (taken from the once-per-process table, so it must not be lost) goes to the
+// "deprecated" category, any other to "script".
+void log_load_warnings(const LoadReport& report) {
+    for (const auto& m : report.messages) {
+        if (m.severity != LoadMessage::Severity::Warning) continue;
+        if (m.message.rfind("Deprecated: ", 0) == 0)
+            fa::log(LogLevel::Warn, "deprecated", m.to_string());
+        else
+            fa::log(LogLevel::Warn, "script", m.to_string());
+    }
+}
+
 NATIVE(spawn) {
     SETUP;
     Json j = I->to_json(argc > 0 ? argv[0] : JS_UNDEFINED);
@@ -1095,8 +1148,7 @@ NATIVE(spawn) {
     if (!report.ok() || e.is_null()) {
         return throw_err(ctx, "world.spawn failed:\n" + report.summary());
     }
-    for (const auto& m : report.messages)
-        if (m.severity == LoadMessage::Severity::Warning) fa::log(LogLevel::Warn, "script", m.to_string());
+    log_load_warnings(report);
     for (Entity c : report.created) label_info(W, c).scriptSpawned = true;  // scene.save leaves these out
     for (const DeferredRef& d : report.deferred) I->waitingRefs.push_back({d, 0});
     I->resolve_waiting_refs(false);    // this spawn may be the knob an earlier slider is waiting for
@@ -1121,6 +1173,7 @@ NATIVE(spawnPrefab) {
     Entity e = instantiate_prefab(W, path, parent, report, overrides, index);
     if (!report.ok() || e.is_null())
         return throw_err(ctx, "world.spawnPrefab('" + path + "') failed:\n" + report.summary());
+    log_load_warnings(report);  // a deprecated component or field of the prefab says so (once per process)
     for (Entity c : report.created) label_info(W, c).scriptSpawned = true;  // scene.save leaves these out
     I->construct_for(report.created);
     localize_created(I, report.created);
@@ -1133,6 +1186,14 @@ NATIVE(behaviour) {
     Behaviour* b = I->find_behaviour(e);
     if (!b || JS_IsUndefined(b->instance.get())) return JS_NULL;
     return JS_DupValue(ctx, b->instance.get());
+}
+
+NATIVE(
+    interpTeleport) {  // (entity): the pose it has now is a jump, not a move: render interpolation does not blend to it
+    SETUP;
+    ENTITY(e, 0);
+    W.interp_teleport(e);
+    return JS_UNDEFINED;
 }
 
 NATIVE(isGrounded) {
@@ -1379,7 +1440,7 @@ NATIVE(setUiMirrorRtl) {  // (on: boolean)
     if (argc < 1 || !JS_IsBool(argv[0]))
         return throw_err(ctx, std::format("ui.mirrorRtl = {}: expected true or false (true mirrors the screen-space UI "
                                           "in a right-to-left language, "
-                                          "docs/LOCALIZATION.md, \"Right to left\").",
+                                          "docs/LOCALIZATION.md, \"Right-to-left text\").",
                                           arg_str(ctx, argc, argv, 0)));
     W.set_ui_mirror_rtl(JS_ToBool(ctx, argv[0]) != 0);
     return JS_UNDEFINED;
@@ -2821,6 +2882,15 @@ NATIVE(inText) {
     return JS_NewString(ctx, I->host->input().text_utf8().c_str());
 }
 
+NATIVE(inComposition) {  // (kind 0 composing: boolean | 1 composition text: string)
+    SETUP;
+    const Input& in = I->host->input();
+    if (arg_num(ctx, argc, argv, 0) == 0) return JS_NewBool(ctx, in.composing());
+    std::string utf8;
+    for (char32_t c : in.composition_text()) utf8_append(utf8, c);
+    return JS_NewString(ctx, utf8.c_str());
+}
+
 NATIVE(inActions) {
     SETUP;
     return I->from_json(Json(I->host->input().action_names()));
@@ -3105,6 +3175,36 @@ NATIVE(inVibrate) {  // (seconds)
     return JS_UNDEFINED;
 }
 
+NATIVE(inRumble) {  // (pad, low, high, seconds)
+    SETUP;
+    auto r = make_rumble_request("input.rumble", arg_num(ctx, argc, argv, 0, -1), arg_num(ctx, argc, argv, 1, 0),
+                                 arg_num(ctx, argc, argv, 2, 0), arg_num(ctx, argc, argv, 3, 0));
+    if (!r.ok()) return throw_err(ctx, r.error().message + " " + r.error().hint);
+    I->host->input().rumble(*r);
+    return JS_UNDEFINED;
+}
+
+NATIVE(inStopRumble) {  // (pad | undefined = every pad); a pad outside 0..3, -1 included, throws
+    SETUP;
+    if (argc < 1 || JS_IsUndefined(argv[0])) {
+        I->host->input().stop_rumble(-1);
+    } else {
+        int i = 0;
+        JSValue exc = JS_UNDEFINED;
+        if (!pad_index(ctx, argc, argv, 0, i, exc)) return exc;
+        I->host->input().stop_rumble(i);
+    }
+    return JS_UNDEFINED;
+}
+
+NATIVE(inPadCanRumble) {  // (index)
+    SETUP;
+    int i = 0;
+    JSValue exc = JS_UNDEFINED;
+    if (!pad_index(ctx, argc, argv, 0, i, exc)) return exc;
+    return JS_NewBool(ctx, I->host->input().gamepad_can_rumble(i));
+}
+
 NATIVE(screenInsets) {  // [left, top, right, bottom] of the safe area, in design pixels
     SETUP;
     const EdgeInsets& e = W.safe_insets();
@@ -3192,6 +3292,23 @@ NATIVE(testBack) {
     SETUP;
     I->host->input().on_back();
     return JS_UNDEFINED;
+}
+
+NATIVE(testRumbles) {  // every input.rumble / input.stopRumble request since the test started
+    SETUP;
+    Json out = Json::array();
+    for (const RumbleRequest& r : I->host->input().rumble_requests())
+        out.push_back(Json::object({{"pad", r.pad}, {"low", r.low}, {"high", r.high}, {"seconds", r.seconds}}));
+    return I->from_json(out);
+}
+
+NATIVE(testRumbleState) {  // (pad): what the motors do now
+    SETUP;
+    int i = 0;
+    JSValue exc = JS_UNDEFINED;
+    if (!pad_index(ctx, argc, argv, 0, i, exc)) return exc;
+    const RumbleState st = I->host->input().rumble_state(i);
+    return I->from_json(Json::object({{"low", st.low}, {"high", st.high}, {"seconds", st.remaining}}));
 }
 
 NATIVE(testVibrations) {
@@ -3330,17 +3447,44 @@ NATIVE(audioPlay) {
         return std::isfinite(v) ? static_cast<float>(std::clamp(v, -1e30, 1e30)) : 0.0f;
     };
     bool outOfRange = false;
-    const VoiceId voice =
-        atPlace
-            ? I->host->audio().play_at(
-                  W, path, pp,
-                  {finite(arg_num(ctx, argc, argv, 13)), finite(arg_num(ctx, argc, argv, 14)),
-                   finite(arg_num(ctx, argc, argv, 15))},
-                  static_cast<float>(std::clamp(arg_num(ctx, argc, argv, 16, 800), 1e-3, 1e30)),
-                  static_cast<AudioRolloff>(static_cast<int>(std::clamp(arg_num(ctx, argc, argv, 17, 0), 0.0, 2.0))),
-                  static_cast<float>(std::clamp(arg_num(ctx, argc, argv, 18, 0), 0.0, 1e30)),
-                  static_cast<float>(std::clamp(arg_num(ctx, argc, argv, 19, 1), 0.0, 100.0)), &outOfRange)
-            : I->host->audio().play(path, pp);
+    VoiceId voice = 0;
+    if (atPlace) {
+        const auto num = [&](int i, double fallback, double lo, double hi) {
+            const double v = arg_num(ctx, argc, argv, i, fallback);
+            return static_cast<float>(std::isfinite(v) ? std::clamp(v, lo, hi) : fallback);
+        };
+        SpatialSound sound;
+        sound.range = num(16, 800, 1e-3, 1e30);
+        sound.rolloff = static_cast<AudioRolloff>(static_cast<int>(num(17, 0, 0, 3)));
+        sound.refDistance = num(18, 0, 0, 1e30);
+        sound.rolloffFactor = num(19, 1, 0, 100);
+        const std::string curveText = arg_str(ctx, argc, argv, 20);
+        if (!curveText.empty()) {
+            Result<Curve> curve = Curve::parse(Json::parse(curveText, nullptr, false), "audio.play rolloffCurve");
+            if (!curve) return throw_err(ctx, curve.error().message + " " + curve.error().hint);
+            sound.rolloffCurve = std::move(*curve);
+        }
+        sound.direction = {num(21, 0, -1e30, 1e30), num(22, 0, -1e30, 1e30), num(23, 0, -1e30, 1e30)};
+        sound.coneInnerAngle = num(24, 360, 0, 360);
+        sound.coneOuterAngle = num(25, 360, 0, 360);
+        sound.coneOuterGain = num(26, 0, 0, 1);
+        sound.velocity = {num(27, 0, -1e30, 1e30), num(28, 0, -1e30, 1e30), num(29, 0, -1e30, 1e30)};
+        sound.dopplerLevel = num(30, 0, 0, 10);
+        sound.occlusion = arg_bool(ctx, argc, argv, 31, false);
+        {  // in double: a float cannot hold 2147483647, and converting 2147483648.0f to int32 is undefined
+            const double mask = arg_num(ctx, argc, argv, 32, -1);
+            sound.occlusionMask =
+                std::isfinite(mask) ? static_cast<std::int32_t>(std::clamp(mask, -2147483648.0, 2147483647.0)) : -1;
+        }
+        sound.occlusionGain = num(33, 0.4, 0, 1);
+        sound.occlusionLowpass = num(34, 1500, 20, 20000);
+        voice = I->host->audio().play_at(W, path, pp,
+                                         {finite(arg_num(ctx, argc, argv, 13)), finite(arg_num(ctx, argc, argv, 14)),
+                                          finite(arg_num(ctx, argc, argv, 15))},
+                                         sound, &outOfRange);
+    } else {
+        voice = I->host->audio().play(path, pp);
+    }
     // (text, key, speaker, seconds): a caption that lives with the sound (seconds > 0: for that long instead). A clip that could
     // not play (voice 0, the error is logged) still shows its caption for `seconds`, or 3 s; a sound from a place that is out of
     // range (play_at says so: nobody hears it, and it is no failure) shows it only when `seconds` is given.
@@ -4152,6 +4296,7 @@ NATIVE(debugDraw) {  // (kind, ...)
 // ---- game / storage / commands ------------------------------------------------------------------------------------
 NATIVE(quit) {
     SETUP;
+    I->quitByGame = true;  // the app's end on Android (ScriptSystem::app_ending) then raises no "quit"
     I->request_quit();
     return JS_UNDEFINED;
 }
@@ -4251,38 +4396,100 @@ NATIVE(
     return JS_UNDEFINED;
 }
 
-NATIVE(storageGet) {
+NATIVE(storageGet) {  // (key, requireEncrypted?)
     SETUP;
     I->load_storage();
     std::string key = arg_str(ctx, argc, argv, 0);
     if (!I->storage.contains(key)) return JS_UNDEFINED;
+    if (arg_bool(ctx, argc, argv, 1, false)) {
+        // {encrypted: true}: a value that is not sealed is not trusted. One read from a plain file is damaged like a file that
+        // fails authentication (someone replaced the sealed file with a hand-written one, or the save predates encryption);
+        // one the game itself set in plain this session is simply not what the caller asked for.
+        auto m = I->storageMeta.find(key);
+        const bool sealed = m != I->storageMeta.end() && m->second.encrypted;
+        if (!sealed) {
+            if (m != I->storageMeta.end() && m->second.fromDisk) {
+                I->storageCorrupt = true;
+                const std::filesystem::path file = storage_files::dir() / storage_files::file_name(key);
+                bool ok = false;
+                const std::string text = read_whole_file(file, ok);
+                if (ok)
+                    keep_damaged(
+                        file, text, "the storage file " + file.filename().string(),
+                        "is not encrypted, but the game asked for an encrypted value of '" + key +
+                            "' (storage.get(key, fallback, {encrypted: true})): a player replaced the sealed file "
+                            "with a plain one, or the save was written before encryption was turned on");
+                else
+                    log(LogLevel::Warn, "script",
+                        "storage key '" + key +
+                            "' is not encrypted, but the game asked for an encrypted value; it is ignored");
+                I->storage.erase(key);
+                I->storageMeta.erase(key);
+            }
+            return JS_UNDEFINED;
+        }
+    }
     return I->from_json(I->storage[key]);
 }
-NATIVE(storageSet) {  // (key, value, compress?)
+NATIVE(storageIsEncrypted) {  // (key) -> true / false, undefined when the key is not stored
+    SETUP;
+    I->load_storage();
+    I->storage_drain();
+    const std::string key = arg_str(ctx, argc, argv, 0);
+    if (!I->storage.contains(key)) return JS_UNDEFINED;
+    auto m = I->storageMeta.find(key);
+    return JS_NewBool(ctx, m != I->storageMeta.end() && m->second.encrypted);
+}
+NATIVE(storageSet) {  // (key, value, compress?, encrypt?)
     SETUP;
     I->load_storage();
     std::string key = arg_str(ctx, argc, argv, 0);
     if (key.empty()) return throw_err(ctx, "storage.set(key, value): key must be a non-empty string");
     const bool compress = arg_bool(ctx, argc, argv, 2, false);
+    const bool encrypt = arg_bool(ctx, argc, argv, 3, false);
+    if (encrypt) {  // nothing changes when the project cannot encrypt (also in a memory run: the same game must work on disk)
+        auto k = storage_files::derive_key(I->storage_material(), key);
+        if (!k)
+            return throw_err(ctx,
+                             "storage.set(key, value, {encrypt: true}): " + k.error().message + ". " + k.error().hint);
+        crypto::secure_zero(k.value());
+    }
     I->storage_drain();  // an earlier setAsync of this key must not land after this write
     I->storage[key] = I->to_json(argc > 1 ? argv[1] : JS_NULL);
-    I->storageMeta[key] = {compress, -1};
-    if (I->storageMode == StorageMode::Persistent) I->storage_write(key, compress);
+    I->storageMeta[key] = {compress, -1, encrypt};
+    if (I->storageMode == StorageMode::Persistent) {
+        std::string encodeError;
+        I->storage_write(key, compress, encrypt, &encodeError);
+        if (!encodeError.empty())
+            return throw_err(ctx, "storage.set(key, value" + std::string(encrypt ? ", {encrypt: true}" : "") +
+                                      "): the value of '" + key +
+                                      "' was kept in memory but not written: " + encodeError);
+    }
     return JS_UNDEFINED;
 }
-NATIVE(storageSetAsync) {  // (key, value, compress?) -> job id; the answer comes back through storageDeliver
+NATIVE(storageSetAsync) {  // (key, value, compress?, encrypt?) -> job id; the answer comes back through storageDeliver
     SETUP;
     I->load_storage();
     std::string key = arg_str(ctx, argc, argv, 0);
     if (key.empty()) return throw_err(ctx, "storage.setAsync(key, value): key must be a non-empty string");
     const bool compress = arg_bool(ctx, argc, argv, 2, false);
-    I->storage[key] = I->to_json(argc > 1 ? argv[1] : JS_NULL);  // reads see it at once; the file follows
-    I->storageMeta[key] = {compress, -1};
+    const bool encrypt = arg_bool(ctx, argc, argv, 3, false);
     storage_files::Job job;
+    if (encrypt) {  // the key is derived here, on the main thread; the worker only seals
+        auto k = storage_files::derive_key(I->storage_material(), key);
+        if (!k)
+            return throw_err(ctx, "storage.setAsync(key, value, {encrypt: true}): " + k.error().message + ". " +
+                                      k.error().hint);
+        job.sealKey = storage_files::KeyBox(new crypto::Key(k.value()));
+        crypto::secure_zero(k.value());
+    }
+    I->storage[key] = I->to_json(argc > 1 ? argv[1] : JS_NULL);  // reads see it at once; the file follows
+    I->storageMeta[key] = {compress, -1, encrypt};
     job.id = I->nextStorageJob++;
     job.key = key;
     job.valueText = I->storage[key].dump(-1, ' ', false, Json::error_handler_t::replace);
     job.compress = compress;
+    job.encrypt = encrypt;
     job.persist = I->storageMode == StorageMode::Persistent;
     if (job.persist) job.file = storage_files::dir() / storage_files::file_name(key);
     const int id = job.id;
@@ -4296,11 +4503,19 @@ NATIVE(storageSize) {  // (key) -> bytes of the key's file, 0 when the key is no
     std::string key = arg_str(ctx, argc, argv, 0);
     if (!I->storage.contains(key)) return JS_NewInt32(ctx, 0);
     Impl::StorageMeta& m = I->storageMeta[key];
-    if (m.bytes < 0)
-        m.bytes = static_cast<std::int64_t>(
-            storage_files::encode(key, I->storage[key].dump(-1, ' ', false, Json::error_handler_t::replace),
-                                  m.compressed)
-                .size());
+    if (m.bytes < 0) {
+        crypto::Key sealKey{};
+        if (m.encrypted) {
+            auto k = storage_files::derive_key(I->storage_material(), key);
+            if (!k) return JS_NewInt32(ctx, 0);
+            sealKey = k.value();
+        }
+        auto encoded = storage_files::encode(key, I->storage[key].dump(-1, ' ', false, Json::error_handler_t::replace),
+                                             m.compressed, m.encrypted ? &sealKey : nullptr);
+        crypto::secure_zero(sealKey);
+        if (!encoded) return JS_NewInt32(ctx, 0);
+        m.bytes = static_cast<std::int64_t>(encoded.value().size());
+    }
     return JS_NewFloat64(ctx, static_cast<double>(m.bytes));
 }
 NATIVE(storageRemove) {
@@ -4454,6 +4669,273 @@ NATIVE(platformInfo) {  // {backend, services, player: {id, name, signedIn}, pen
                                       {"services", Json::array()},
                                       {"player", Json::object({{"id", ""}, {"name", ""}, {"signedIn", false}})},
                                       {"pending", 0}}));
+}
+
+// ---- WebSocket (fa/platform/websocket.h; the `websocket` object of the prelude) ---------------------------------------
+namespace {
+
+JSValue ws_error_object(Impl* I, std::string message, std::string hint, const char* code = "invalid") {
+    return I->from_json(
+        Json::object({{"error", Json::object({{"code", code}, {"message", message}, {"hint", hint}})}}));
+}
+
+// The bytes of an ArrayBuffer or a typed array, honouring byteOffset and byteLength (the prelude turns a DataView into a
+// Uint8Array first). false: it is neither.
+bool js_bytes(JSContext* ctx, JSValueConst v, std::string& out) {
+    std::size_t off = 0, len = 0, per = 0;
+    JSValue buf = JS_GetTypedArrayBuffer(ctx, v, &off, &len, &per);
+    if (!JS_IsException(buf)) {
+        std::size_t size = 0;
+        const std::uint8_t* data = JS_GetArrayBuffer(ctx, &size, buf);
+        bool ok = false;
+        if (data && off + len <= size) {
+            out.assign(reinterpret_cast<const char*>(data) + off, len);
+            ok = true;
+        } else if (!data) {
+            JS_FreeValue(ctx, JS_GetException(ctx));
+        }
+        JS_FreeValue(ctx, buf);
+        return ok;
+    }
+    JS_FreeValue(ctx, JS_GetException(ctx));
+    std::size_t size = 0;
+    const std::uint8_t* data = JS_GetArrayBuffer(ctx, &size, v);
+    if (!data) {
+        JS_FreeValue(ctx, JS_GetException(ctx));
+        return false;
+    }
+    out.assign(reinterpret_cast<const char*>(data), size);
+    return true;
+}
+
+JSValue js_buffer(JSContext* ctx, const std::string& bytes) {
+    static const std::uint8_t kNone = 0;  // JS_NewArrayBufferCopy of nothing still needs a pointer
+    return JS_NewArrayBufferCopy(ctx, bytes.empty() ? &kNone : reinterpret_cast<const std::uint8_t*>(bytes.data()),
+                                 bytes.size());
+}
+
+}  // namespace
+
+NATIVE(wsInfo) {  // () -> {supported, backend, reason}
+    SETUP;
+    WebSocketClient* c = I->host->websocket_client();
+    return I->from_json(
+        Json::object({{"supported", c && c->available()},
+                      {"backend", c ? c->name() : std::string("none")},
+                      {"reason", c ? c->unavailable_reason() : std::string("this run has no WebSocket client")}}));
+}
+
+NATIVE(
+    wsOpen) {  // (url, {protocols, headers, timeout, maxMessageBytes}) -> {id} | {unavailable: reason} | {mistake: {message, hint}}
+    SETUP;
+    auto mistake = [&](std::string message, std::string hint) {
+        return I->from_json(Json::object({{"mistake", Json::object({{"message", message}, {"hint", hint}})}}));
+    };
+    WebSocketClient* client = I->host->websocket_client();
+    if (!client) return mistake("this run has no WebSocket client", "");
+    const NetworkPolicy none;
+    PlatformServices* services = I->host->platform_services();
+    auto checked = check_ws_url(arg_str(ctx, argc, argv, 0), services ? services->network() : none);
+    if (!checked.ok()) return mistake(checked.error().message, checked.error().hint);
+    if (!client->available()) return I->from_json(Json::object({{"unavailable", client->unavailable_reason()}}));
+    if (I->websockets.size() >= Impl::kMaxWebSockets)
+        return mistake("there are already " + std::to_string(Impl::kMaxWebSockets) + " WebSocket connections open",
+                       "Close the ones you no longer use with ws.close(); a scene change closes them all.");
+    const Json options = argc > 1 ? I->to_json(argv[1]) : Json::object();
+    WebSocketRequest request;
+    request.url = checked.value().url;
+    if (options.is_object()) {
+        if (auto it = options.find("protocols"); it != options.end() && it->is_array())
+            for (const Json& p : *it)
+                if (p.is_string()) request.subprotocols.push_back(p.get<std::string>());
+        if (auto it = options.find("headers"); it != options.end() && it->is_object())
+            for (auto h = it->begin(); h != it->end(); ++h)
+                if (h.value().is_string()) request.headers.emplace_back(h.key(), h.value().get<std::string>());
+        if (auto it = options.find("timeout"); it != options.end() && it->is_number())
+            request.connectTimeoutSec = std::clamp(it->get<double>(), 0.5, 120.0);
+        if (auto it = options.find("maxMessageBytes"); it != options.end() && it->is_number())
+            request.maxMessageBytes = static_cast<std::size_t>(std::clamp(it->get<double>(), 1.0, 64.0 * 1024 * 1024));
+    }
+    // The handshake's rules for the headers and subprotocols, the same whatever the platform's client: a mistake throws here.
+    if (auto url = ws::parse_url(request.url); url.ok()) {
+        const std::uint8_t zeros[16] = {};
+        if (auto head = ws::build_client_request(url.value(), ws::make_client_key(zeros), request.subprotocols,
+                                                 request.headers);
+            !head.ok())
+            return mistake(head.error().message, head.error().hint);
+    }
+    auto connection = client->connect(std::move(request));
+    if (!connection.ok()) return mistake(connection.error().message, connection.error().hint);
+    const int id = I->nextWebSocketId++;
+    I->websockets[id].ws = std::move(connection.value());
+    return I->from_json(Json::object({{"id", id}}));
+}
+
+NATIVE(wsSend) {  // (id, binary, data, byteLength) -> true | {error: {code, message, hint}}
+    SETUP;
+    auto it = I->websockets.find(static_cast<int>(arg_num(ctx, argc, argv, 0, 0)));
+    if (it == I->websockets.end())
+        return ws_error_object(I, "the connection is closed", "Connect again to send.", "state");
+    WebSocket& ws = *it->second.ws;
+    if (ws.state() != WebSocketState::Open)
+        return ws_error_object(I, std::string("the connection is ") + websocket_state_name(ws.state()),
+                               "Send after the \"open\" event, and not after close().", "state");
+    Result<void> sent;
+    if (arg_bool(ctx, argc, argv, 1)) {
+        std::string bytes;
+        if (arg_num(ctx, argc, argv, 3, 0) > 0 && !js_bytes(ctx, argv[2], bytes))
+            return ws_error_object(I, "the data is not an ArrayBuffer or a typed array", "");
+        sent = ws.send_binary(bytes.data(), bytes.size());
+    } else {
+        sent = ws.send_text(arg_str(ctx, argc, argv, 2));
+    }
+    if (!sent.ok()) return ws_error_object(I, sent.error().message, sent.error().hint);
+    return JS_TRUE;
+}
+
+NATIVE(wsClose) {  // (id, code, reason) -> true | {error}
+    SETUP;
+    auto it = I->websockets.find(static_cast<int>(arg_num(ctx, argc, argv, 0, 0)));
+    if (it == I->websockets.end()) return JS_TRUE;
+    const double code = arg_num(ctx, argc, argv, 1, 1000);
+    const std::string reason = arg_str(ctx, argc, argv, 2);
+    if (!(code >= 0 && code <= 65535) || !ws::close_code_app_may_send(static_cast<int>(code)))
+        return ws_error_object(I, "the close code " + Json(code).dump() + " cannot be used",
+                               "Use 1000 (normal) or a code from 3000 to 4999 that your server defines.");
+    if (reason.size() > ws::kMaxCloseReasonBytes)
+        return ws_error_object(I,
+                               "the close reason is " + std::to_string(reason.size()) + " bytes; the most is " +
+                                   std::to_string(ws::kMaxCloseReasonBytes),
+                               "Shorten the reason.");
+    if (auto closed = it->second.ws->close(static_cast<int>(code), reason); !closed.ok())
+        return ws_error_object(I, closed.error().message, closed.error().hint);
+    return JS_TRUE;
+}
+
+NATIVE(wsBuffered) {  // (id) -> bytes accepted by send and not yet handed to the network
+    SETUP;
+    auto it = I->websockets.find(static_cast<int>(arg_num(ctx, argc, argv, 0, 0)));
+    return JS_NewFloat64(ctx, it == I->websockets.end() ? 0.0 : static_cast<double>(it->second.ws->buffered_amount()));
+}
+
+NATIVE(wsRelease) {  // (id): drops the connection at once (no event follows); 0 or no argument: every connection
+    SETUP;
+    const int id = static_cast<int>(arg_num(ctx, argc, argv, 0, 0));
+    if (id <= 0) {
+        I->websockets.clear();
+        if (arg_bool(ctx, argc, argv, 1))  // a new test file: the scripted servers of the memory client go too
+            if (auto* memory = dynamic_cast<MemoryWebSocketClient*>(I->host->websocket_client())) {
+                memory->clear();
+                memory->set_auto_accept(true);
+                memory->refuse_next(0);
+            }
+    } else {
+        I->websockets.erase(id);
+    }
+    return JS_UNDEFINED;
+}
+
+// The scripted server of the memory client (game.websocket in tests). op: "list", "accept", "refuse", "send", "close", "drop",
+// "autoAccept", "refuseNext", "autoCloseReply", "reset".
+NATIVE(wsTest) {  // (op, a, b, c, d) -> a result | {error: {message, hint}}
+    SETUP;
+    auto* memory = dynamic_cast<MemoryWebSocketClient*>(I->host->websocket_client());
+    if (!memory)
+        return ws_error_object(
+            I, "game.websocket works with the memory WebSocket client, which tests and headless runs use",
+            "This run talks to a real network client; use a test run (factoria test).");
+    const std::string op = arg_str(ctx, argc, argv, 0);
+    auto peer_of = [&](int arg, JSValue& failure) -> MemoryWebSocketClient::Peer* {
+        const double index = arg_num(ctx, argc, argv, arg, -1);
+        MemoryWebSocketClient::Peer* peer = index >= 0 && index < static_cast<double>(memory->peer_count())
+                                                ? memory->peer(static_cast<std::size_t>(index))
+                                                : nullptr;
+        if (!peer)
+            failure =
+                ws_error_object(I,
+                                "there is no connection number " + Json(index).dump() + " (the game made " +
+                                    std::to_string(memory->peer_count()) + ")",
+                                "Numbers start at 0, in the order of websocket.connect calls (reconnects count).");
+        return peer;
+    };
+    if (op == "list") {
+        JSValue list = JS_NewArray(ctx);
+        for (std::size_t i = 0; i < memory->peer_count(); ++i) {
+            MemoryWebSocketClient::Peer* p = memory->peer(i);
+            JSValue o = JS_NewObject(ctx);
+            JS_SetPropertyStr(ctx, o, "index", JS_NewFloat64(ctx, static_cast<double>(i)));
+            JS_SetPropertyStr(ctx, o, "url", JS_NewStringLen(ctx, p->url.data(), p->url.size()));
+            Json protocols = Json::array(), headers = Json::object();
+            for (const std::string& s : p->subprotocols) protocols.push_back(s);
+            for (const auto& [k, v] : p->headers) headers[k] = v;
+            JS_SetPropertyStr(ctx, o, "protocols", I->from_json(protocols));
+            JS_SetPropertyStr(ctx, o, "headers", I->from_json(headers));
+            JS_SetPropertyStr(ctx, o, "open", JS_NewBool(ctx, p->open));
+            JS_SetPropertyStr(ctx, o, "closed", JS_NewBool(ctx, p->closed));
+            JS_SetPropertyStr(ctx, o, "closedByGame", JS_NewBool(ctx, p->clientClosed));
+            JS_SetPropertyStr(ctx, o, "closeCode", JS_NewInt32(ctx, p->clientCloseCode));
+            JS_SetPropertyStr(ctx, o, "closeReason",
+                              JS_NewStringLen(ctx, p->clientCloseReason.data(), p->clientCloseReason.size()));
+            JSValue received = JS_NewArray(ctx);
+            std::uint32_t n = 0;
+            for (const auto& r : p->received)
+                JS_SetPropertyUint32(ctx, received, n++,
+                                     r.binary ? js_buffer(ctx, r.data)
+                                              : JS_NewStringLen(ctx, r.data.data(), r.data.size()));
+            JS_SetPropertyStr(ctx, o, "received", received);
+            JS_SetPropertyUint32(ctx, list, static_cast<std::uint32_t>(i), o);
+        }
+        return list;
+    }
+    if (op == "autoAccept") {
+        memory->set_auto_accept(arg_bool(ctx, argc, argv, 1, true));
+        return JS_TRUE;
+    }
+    if (op == "refuseNext") {
+        memory->refuse_next(static_cast<int>(std::clamp(arg_num(ctx, argc, argv, 1, 1), 0.0, 1000.0)),
+                            argc > 2 && !JS_IsUndefined(argv[2]) ? arg_str(ctx, argc, argv, 2)
+                                                                 : "could not connect to the server");
+        return JS_TRUE;
+    }
+    if (op == "reset") {
+        memory->clear();
+        memory->set_auto_accept(true);
+        memory->refuse_next(0);
+        return JS_TRUE;
+    }
+    JSValue failure = JS_UNDEFINED;
+    MemoryWebSocketClient::Peer* peer = peer_of(1, failure);
+    if (!peer) return failure;
+    if (op == "accept") {
+        const std::string protocol = arg_str(ctx, argc, argv, 2);
+        if (!peer->accept(protocol))
+            return ws_error_object(I, "the connection cannot be accepted now",
+                                   "It was already accepted, closed, or the game did not offer the subprotocol \"" +
+                                       protocol + "\".");
+    } else if (op == "refuse") {
+        peer->refuse(argc > 2 && !JS_IsUndefined(argv[2]) ? arg_str(ctx, argc, argv, 2)
+                                                          : "the server refused the connection",
+                     static_cast<int>(std::clamp(arg_num(ctx, argc, argv, 3, 0), 0.0, 999.0)));
+    } else if (op == "send") {
+        if (arg_bool(ctx, argc, argv, 2)) {
+            std::string bytes;
+            if (arg_num(ctx, argc, argv, 4, 0) > 0 && !js_bytes(ctx, argv[3], bytes))
+                return ws_error_object(I, "the data is not an ArrayBuffer or a typed array", "");
+            peer->send_binary(std::move(bytes));
+        } else {
+            peer->send_text(arg_str(ctx, argc, argv, 3));
+        }
+    } else if (op == "close") {
+        peer->close(static_cast<int>(std::clamp(arg_num(ctx, argc, argv, 2, 1000), 0.0, 65535.0)),
+                    arg_str(ctx, argc, argv, 3));
+    } else if (op == "drop") {
+        peer->drop(argc > 2 && !JS_IsUndefined(argv[2]) ? arg_str(ctx, argc, argv, 2) : "the connection was lost");
+    } else if (op == "autoCloseReply") {
+        peer->autoCloseReply = arg_bool(ctx, argc, argv, 2, true);
+    } else {
+        return ws_error_object(I, "unknown websocket test operation \"" + op + "\"", "");
+    }
+    return JS_TRUE;
 }
 
 // ---- i18n (fa/core/i18n.h; the `i18n` object of the prelude) -------------------------------------------------------------
@@ -4645,6 +5127,9 @@ NATIVE(
                 info.id = make_gamepad_id(info.vendor, info.product, info.name.empty() ? "Gamepad" : info.name, "");
             if (info.id.empty()) info.id = in.gamepad_info(i).id;
             in.set_gamepad_info(i, std::move(info));
+            if (j.contains("canRumble") && j["canRumble"].is_boolean())
+                in.set_gamepad_rumble_support(i, j["canRumble"].get<bool>(),
+                                              "this test pad was connected without canRumble: true");
         }
         in.on_gamepad_connected(i, kind == 3);
     }
@@ -4819,6 +5304,7 @@ const Reg kRegs[] = {
     R(nowMs, 0),
     R(sourceCaret, 3),
     R(logSeq, 0),
+    R(deprecated, 1),
     R(logErrors, 1),
     R(forgetLoggedErrors, 0),
     R(watchdogCuts, 1),
@@ -4858,6 +5344,7 @@ const Reg kRegs[] = {
     R(spawn, 3),
     R(spawnPrefab, 4),
     R(behaviour, 1),
+    R(interpTeleport, 1),
     R(isGrounded, 2),
     R(hasComp, 2),
     R(hasCompT, 2),
@@ -4896,6 +5383,7 @@ const Reg kRegs[] = {
     R(inDeadzone, 1),
     R(testPad, 5),
     R(inText, 0),
+    R(inComposition, 1),
     R(inActions, 0),
     R(inBindings, 1),
     R(inRebind, 2),
@@ -4919,6 +5407,9 @@ const Reg kRegs[] = {
     R(windowSet, 3),
     R(testText, 1),
     R(inVibrate, 1),
+    R(inRumble, 4),
+    R(inStopRumble, 1),
+    R(inPadCanRumble, 1),
     R(screenInsets, 0),
     R(testSafeInsets, 4),
     R(testSafeProfile, 1),
@@ -4932,6 +5423,8 @@ const Reg kRegs[] = {
     R(clipboardSet, 1),
     R(testSystemLanguages, 1),
     R(testVibrations, 0),
+    R(testRumbles, 0),
+    R(testRumbleState, 1),
     R(inKeyEvent, 2),
     R(inMouseMove, 2),
     R(inMouseEvent, 2),
@@ -5069,9 +5562,10 @@ const Reg kRegs[] = {
     R(renderScaleGet, 0),
     R(renderStatsNow, 0),
     R(renderScaleSet, 1),
-    R(storageGet, 1),
-    R(storageSet, 3),
-    R(storageSetAsync, 3),
+    R(storageGet, 2),
+    R(storageIsEncrypted, 1),
+    R(storageSet, 4),
+    R(storageSetAsync, 4),
     R(storageSize, 1),
     R(storageRemove, 1),
     R(storageKeys, 0),
@@ -5085,6 +5579,13 @@ const Reg kRegs[] = {
     R(pluginList, 0),
     R(pluginCall, 3),
     R(platformStart, 2),
+    R(wsInfo, 0),
+    R(wsOpen, 2),
+    R(wsSend, 4),
+    R(wsClose, 3),
+    R(wsBuffered, 1),
+    R(wsRelease, 2),
+    R(wsTest, 5),
     R(platformInfo, 0),
     R(i18nInfo, 0),
     R(i18nT, 2),

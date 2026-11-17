@@ -906,3 +906,48 @@ TEST_CASE("game.click: by position and by widget id, scripts see pressed and rel
     CHECK(r.error["message"].get<std::string>().find("play") != std::string::npos);
     e.shutdown();
 }
+
+TEST_CASE("ui.reset_layout_positions: a scene saved before 0.30 has the layout's place baked into positions, and the "
+          "command clears them") {
+    TempProject p("bakedpositions");
+    // What the old engine saved for kMenu: every child's position holds the delta the layout added (centred pivots: x 0, y 23 / 61).
+    p.write("scenes/main.scene.json", R"({
+  "format": "factoria.scene/1",
+  "entities": [
+    { "id": "cam", "components": { "Camera": {} } },
+    { "id": "menu",
+      "components": { "Transform": { "position": [160, 20] },
+                      "Panel": { "size": [240, 140], "pivot": [0.5, 1], "layout": "column", "spacing": 8, "padding": [8, 8, 8, 8] } },
+      "children": [
+        { "id": "play", "components": { "Transform": { "position": [0, 23] }, "Button": { "text": "Play", "size": [200, 30] } } },
+        { "id": "options", "components": { "Transform": { "position": [0, 61] }, "Button": { "text": "Options", "size": [200, 30] } } },
+        { "id": "nudged", "components": { "Transform": { "position": [3, 2] }, "Button": { "text": "Mine", "size": [200, 30] } } }
+      ] }
+  ]
+})");
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(p.config(), nullptr, &err), err);
+    e.step(3);
+    World& w = e.world();
+    const auto position = [&](const char* id) { return std::as_const(w).get<Transform>(w.find_by_id(id))->position; };
+    CHECK(position("play").y == 23.0f);  // the layout never writes it
+    auto r = e.commands().call("ui.reset_layout_positions", Json::object({{"dryRun", true}}));
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+    CHECK(r.result["count"].get<int>() == 2);  // it names them and changes nothing
+    CHECK(r.result["dryRun"] == true);
+    CHECK(position("play").y == 23.0f);
+    r = e.commands().call("ui.reset_layout_positions", Json::object());
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+    CHECK(r.result["count"].get<int>() == 2);
+    std::vector<std::string> ids = r.result["ids"].get<std::vector<std::string>>();
+    std::sort(ids.begin(), ids.end());
+    CHECK(ids == std::vector<std::string>{"options", "play"});
+    CHECK(position("play") == Vec3{0, 0, 0});
+    CHECK(position("options") == Vec3{0, 0, 0});
+    CHECK(position("nudged") == Vec3{3, 2, 0});  // an author's nudge is kept
+    r = e.commands().call("ui.reset_layout_positions", Json::object());
+    REQUIRE(r.ok);
+    CHECK(r.result["count"].get<int>() == 0);
+    e.shutdown();
+}

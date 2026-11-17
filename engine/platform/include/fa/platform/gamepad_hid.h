@@ -1,0 +1,245 @@
+// Windows HID gamepads, the platform-neutral half: everything gamepad_win32.cpp decides about a HID pad that does not need
+// a Windows header, so every OS unit-tests it (engine/platform/tests/gamepad_hid_tests.cpp).
+//
+// What a HID pad is to the engine:
+//   - Its layout (make_hid_layout): the buttons, axes and hat its report descriptor declares (the caps HidP_GetButtonCaps
+//     and HidP_GetValueCaps return), numbered the way DirectInput numbers them, because SDL_GameControllerDB's
+//     platform:Windows lines were written against SDL's DirectInput driver: buttons by ascending usage (usage 1 is b0 on
+//     nearly every pad), axes in DirectInput's order X, Y, Z, Rx, Ry, Rz, then up to two sliders (Slider, Dial, Wheel),
+//     and the first hat switch as h0.
+//   - Its reports (apply_hid_report): what HidP_GetUsages (the buttons down) and HidP_GetUsageValue (each axis and the
+//     hat) read from one input report, fed to a GamepadMapper. Axes are scaled by the descriptor's logical minimum and
+//     maximum to -1..1; the hat becomes SDL's direction bits.
+//   - Its GUID (windows_hid_identity + gamepad_guid): bus 0x03, vendor, product, version 0, the GUID SDL's DirectInput
+//     driver gives every pad and so the one every platform:Windows line carries.
+//   - Its mapping: SDL_GAMECONTROLLERCONFIG, then the project's gamecontrollerdb.txt, then the built-in Windows lines
+//     (builtin_windows_gamepad_database), then a default built from its own layout (default_hid_gamepad_mapping).
+//   - Its slot (GamepadSlotTable): XInput pads and HID pads share the engine's pad indices 0..kMaxGamepads-1.
+//   - Its driver (HidPadDriver, make_hid_pad_driver): the DualShock 4, DualSense and Switch Pro have their full reports
+//     decoded and their motors driven by their own protocol (gamepad_hid_drivers.h); every other pad has none.
+#pragma once
+
+#include <array>
+#include <cstdint>
+#include <functional>
+#include <memory>
+#include <optional>
+#include <span>
+#include <string>
+#include <string_view>
+#include <vector>
+
+#include "fa/platform/gamepad.h"
+#include "fa/platform/gamepad_mapping.h"
+
+namespace fa {
+
+// HID usages (HID Usage Tables 1.4): the pages and the Generic Desktop usages a gamepad layout reads.
+inline constexpr std::uint16_t kHidPageGenericDesktop = 0x01;
+inline constexpr std::uint16_t kHidPageButton = 0x09;
+inline constexpr std::uint16_t kHidUsageJoystick = 0x04;
+inline constexpr std::uint16_t kHidUsageGamepad = 0x05;
+inline constexpr std::uint16_t kHidUsageX = 0x30;
+inline constexpr std::uint16_t kHidUsageY = 0x31;
+inline constexpr std::uint16_t kHidUsageZ = 0x32;
+inline constexpr std::uint16_t kHidUsageRx = 0x33;
+inline constexpr std::uint16_t kHidUsageRy = 0x34;
+inline constexpr std::uint16_t kHidUsageRz = 0x35;
+inline constexpr std::uint16_t kHidUsageSlider = 0x36;
+inline constexpr std::uint16_t kHidUsageDial = 0x37;
+inline constexpr std::uint16_t kHidUsageWheel = 0x38;
+inline constexpr std::uint16_t kHidUsageHatSwitch = 0x39;
+
+// One button capability of a report descriptor (HIDP_BUTTON_CAPS, input reports): a usage range (min == max for one).
+struct HidButtonCap {
+    std::uint16_t usagePage = 0;
+    std::uint16_t usageMin = 0, usageMax = 0;
+};
+// One value capability (HIDP_VALUE_CAPS, input reports).
+struct HidValueCap {
+    std::uint16_t usagePage = 0;
+    std::uint16_t usageMin = 0, usageMax = 0;  // min == max for one usage
+    std::uint16_t bitSize = 0;                 // bits of one value in the report
+    std::uint16_t reportCount = 1;             // >1 with one usage: an array of values, which the layout does not read
+    std::int32_t logicalMin = 0, logicalMax = 0;
+};
+
+// An axis or hat of a layout: its Generic Desktop usage and how its raw value is read.
+struct HidLayoutValue {
+    std::uint16_t usage = 0;
+    std::uint16_t bitSize = 0;
+    std::int32_t logicalMin = 0, logicalMax = 0;
+};
+
+// What a pad's descriptor offers, numbered for mapping lines (see the top of this file).
+struct HidLayout {
+    std::vector<std::uint16_t> buttons;  // button usages (page 9), ascending: raw button N is buttons[N]
+    std::vector<HidLayoutValue> axes;    // raw axis N
+    std::vector<HidLayoutValue> hats;    // raw hat N (at most one: the first hat switch)
+    bool empty() const { return buttons.empty() && axes.empty() && hats.empty(); }
+};
+// At most kGamepadMaxRawButtons buttons are kept (the lowest usages); a usage declared twice counts once.
+HidLayout make_hid_layout(std::span<const HidButtonCap> buttons, std::span<const HidValueCap> values);
+
+// A raw axis value (what HidP_GetUsageValue returned: the report's bits, not sign-extended) -> -1..1 over the logical
+// range. A negative logical minimum sign-extends the value from bitSize bits. A descriptor whose maximum came out below
+// its minimum (an unsigned 0..65535 written in two bytes reads as 0..-1) is read as unsigned bitSize-bit numbers.
+float hid_axis_value(std::uint32_t raw, const HidLayoutValue& v);
+// A raw hat value -> SDL's direction bits (1 up, 2 right, 4 down, 8 left; 0 centred). Eight positions (logical range of 8
+// or more) go clockwise from up; four go up, right, down, left. A value outside them (the "null state") is centred.
+int hid_hat_mask(std::uint32_t raw, const HidLayoutValue& v);
+
+// What the OS read from one input report.
+struct HidValue {
+    std::uint16_t usage = 0;  // Generic Desktop page
+    std::uint32_t raw = 0;
+};
+struct HidReport {
+    bool hasButtons = false;             // the report carries the buttons (false: they are in another report)
+    std::vector<std::uint16_t> pressed;  // the button usages down (page 9)
+    std::vector<HidValue> values;        // the axes and the hat this report carries; one missing keeps its last value
+    void clear() {                       // keeps the capacity: a report arrives up to 1000 times a second
+        hasButtons = false;
+        pressed.clear();
+        values.clear();
+    }
+};
+// Gives one report to `mapper`, through `layout`'s numbering. Values and button usages the layout does not know are
+// ignored.
+void apply_hid_report(const HidLayout& layout, const HidReport& report, GamepadMapper& mapper);
+
+// What identifies a HID pad on Windows (see the top of this file). The name is kept for messages and the pad's family.
+inline constexpr std::uint16_t kHidBusUsb = 0x03;
+GamepadIdentity windows_hid_identity(std::uint16_t vendor, std::uint16_t product, std::string name);
+
+// The mapping a HID pad gets when no line names it: A B X Y on buttons 0..3, the shoulders on 4 and 5, back 8, start 9,
+// the stick clicks 10 and 11, guide 12 (the order most generic USB pads use); the left stick on X/Y; the right stick on
+// Z/Rz when the pad has both (then Rx/Ry, when present, are the triggers), else on Rx/Ry (then Z and Rz, when present,
+// are the triggers); triggers that are not axes on buttons 6 and 7; the D-pad on the hat. Only what the pad has is bound.
+// GUID all zeros.
+GamepadMapping default_hid_gamepad_mapping(const HidLayout& layout);
+
+// The built-in Windows database: SDL_GameControllerDB's platform:Windows lines (external/sdl_gamecontrollerdb/), embedded
+// in the binary and indexed on first use. Its own object file (gamepad_hid_db.cpp): only the Windows backend and the tests
+// reference it, so the other platforms' players do not carry the text.
+const GamepadMappingDb& builtin_windows_gamepad_database();
+std::string_view embedded_windows_gamepad_database_text();
+
+// True for the HID interface of a pad that XInput serves (its device path carries "IG_", any case): XInput reads it, so
+// the HID path skips it and the pad never appears twice.
+bool hid_path_is_xinput(std::string_view devicePath);
+
+// What canRumble says for a HID pad that has no driver of its own (HidPadDriver): a generic HID pad has no output report
+// whose meaning is known, so nothing can be sent to its motors.
+inline constexpr const char* kHidRumbleWhy =
+    "this pad gives no rumble the engine can drive: on Windows the engine drives the motors of Xbox pads (XInput), the "
+    "DualShock 4, the DualSense and the Switch Pro, and reads every other pad as a generic HID pad, without rumble";
+
+// How a HID pad is connected. Its reports differ: a PlayStation pad over Bluetooth wraps them in another report id and
+// ends its output reports with a CRC.
+enum class HidTransport : std::uint8_t { Usb, Bluetooth };
+// From the device path Windows gives the HID interface: Bluetooth when it names the Bluetooth HID service, classic
+// ({00001124-0000-1000-8000-00805f9b34fb}) or Low Energy ({00001812-...}), any case; USB otherwise.
+HidTransport hid_transport_from_path(std::string_view devicePath);
+
+// Something a driver asks the OS glue to do on the pad's own file handle (gamepad_win32.cpp), one at a time and in order.
+struct HidPadRequest {
+    enum class Kind : std::uint8_t {
+        Write,       // send `bytes` as an output report (the report id first)
+        GetFeature,  // read the feature report whose id is bytes[0]; bytes.size() is the size the driver expects
+    };
+    Kind kind = Kind::Write;
+    std::vector<std::uint8_t> bytes;
+};
+
+// A pad whose full reports the generic path cannot read (vendor-defined bytes) and whose motors need the pad's own output
+// reports: the DualShock 4, the DualSense and the Switch Pro (gamepad_hid_drivers.h has their byte layouts). Chosen by
+// vendor and product id when the pad appears. gamepad_win32.cpp gives it every input report before the generic parser,
+// sends what next_request() asks for (the set-up), then the rumble reports, and asks it whether the pad can rumble.
+class HidPadDriver {
+public:
+    virtual ~HidPadDriver() = default;
+    // One input report as the OS hands it over (the report id first; 0 when the device numbers none). True: this driver
+    // owns the report (it read it into `state`, which is what the pad reports from then on, or it was a reply that carries
+    // no input). False: the generic parser reads it (a pad's simple report, before the set-up switched on the full one).
+    virtual bool read_report(std::span<const std::uint8_t> report, GamepadState& state) = 0;
+    // Whether the pad's motors can be driven, and if not why. The drivers answer yes: what can still fail (opening the
+    // device for writing, a write) is the glue's to say.
+    virtual GamepadRumbleSupport rumble_support() const = 0;
+    // The set-up, one step at a time: what to send now (nothing: done, or waiting for a reply). `nowMs` is a monotonic
+    // clock in milliseconds, which only times out a reply that does not come (a step is tried again, then skipped).
+    virtual std::optional<HidPadRequest> next_request(std::uint64_t /*nowMs*/) { return std::nullopt; }
+    // The request next_request() gave last is done: `ok` false when the OS failed it; `reply` is a feature report's bytes.
+    virtual void request_done(bool /*ok*/, std::span<const std::uint8_t> /*reply*/) {}
+    // True once the set-up is over (rumble reports wait for it).
+    virtual bool setup_done() const { return true; }
+    // The output report that sets the motors to `low` (the heavy, low-frequency motor) and `high` (the light one), each
+    // 0..1; both 0 stop them. Advances the driver's packet counter, so call it only for a report that is sent.
+    virtual std::vector<std::uint8_t> rumble_report(float low, float high) = 0;
+    // Above 0: the pad stops its motors by itself unless the report comes again within about this many milliseconds, so
+    // the glue repeats it while the motors are on (the Switch Pro). 0: the motors keep the last strengths until told.
+    virtual unsigned rumble_refresh_ms() const { return 0; }
+    // The output report that undoes the set-up, sent at exit after the motors' stop (the Switch Pro: back to its simple
+    // report). Advances the packet counter like rumble_report(). Nothing: nothing to undo, or nothing can undo it (a
+    // DualShock 4 or DualSense over Bluetooth stays on its full report until it is switched off or reconnected).
+    virtual std::optional<std::vector<std::uint8_t>> exit_report() { return std::nullopt; }
+    // What the driver believes the connection is (it corrects the guess from the path when a report says otherwise).
+    virtual HidTransport transport() const = 0;
+};
+// The driver of a pad, or nullptr (the generic path): DualShock 4 (054c:05c4, 054c:09cc, the wireless adapter 054c:0ba0),
+// DualSense (054c:0ce6) and DualSense Edge (054c:0df2), Switch Pro (057e:2009).
+std::unique_ptr<HidPadDriver> make_hid_pad_driver(std::uint16_t vendor, std::uint16_t product, HidTransport transport);
+
+// Which engine pad index each device holds. XInput user indices and HID devices share the kMaxGamepads indices: a device
+// keeps its index while it stays connected, and a device that appears takes a free one (the one it would like when that
+// is free, else the lowest). With every index taken a new device waits and takes the first one that frees up.
+class GamepadSlotTable {
+public:
+    enum class Source : std::uint8_t { XInput, Hid };
+    struct Key {
+        Source source = Source::Hid;
+        std::uint64_t id = 0;  // XInput: the user index; HID: the device handle
+        bool operator==(const Key&) const = default;
+    };
+    // A device appeared: it waits for an index (assign() gives it one). A device already known changes nothing.
+    void add(Key key);
+    // A device went away: its index is free (for the next assign()), or it leaves the waiting list.
+    void remove(Key key);
+    bool has_waiting() const { return !waiting_.empty(); }
+    // Gives free indices to the waiting devices, the one that appeared first first. `prefer(key, occupied)` names the
+    // index a device would like (Input::choose_gamepad_slot: the one it had last time); one that is out of range or taken
+    // falls back to the lowest free index. No prefer: the lowest free index. Returns how many devices got an index.
+    int assign(const std::function<int(const Key&, std::span<const bool>)>& prefer = {});
+    int slot_of(const Key& key) const;  // -1: waiting or unknown
+    std::optional<Key> owner(int slot) const;
+    // Changes every time `slot` is freed or taken, so the caller can tell a new device in a slot from the one it fed.
+    std::uint32_t generation(int slot) const;
+
+private:
+    std::array<std::optional<Key>, kMaxGamepads> owners_{};
+    std::array<std::uint32_t, kMaxGamepads> generations_{};
+    std::vector<Key> waiting_;
+};
+
+// When to ask the XInput slots that hold no pad. XInputGetState on an empty slot is slow (it asks the driver), so instead
+// of 4 calls every frame the empty slots are probed every kIdleMs, and after a device notification (a pad came or went:
+// WM_INPUT_DEVICE_CHANGE) at once and then every kBurstEveryMs for kBurstMs, because XInput may take a pad a moment after
+// its device appears. Slots that hold a pad are read every poll (that is how XInput reports state). The time is what the
+// caller passes, a monotonic clock in milliseconds (gamepad_win32.cpp gives GetTickCount64, the tests give made-up times),
+// so the rate does not follow the frame rate. A poll later than due probes once, not once per interval it missed.
+class GamepadProbeSchedule {
+public:
+    static constexpr std::uint64_t kIdleMs = 2000;
+    static constexpr std::uint64_t kBurstEveryMs = 250;
+    static constexpr std::uint64_t kBurstMs = 1500;  // 6 probes: at the notification, then 250, 500 ... 1250 ms after
+    void notify();                                   // a device came or went: the next tick() probes and starts a burst
+    // One poll at `nowMs`: true when the empty slots are to be probed now. The first poll probes, and so does one whose
+    // time is earlier than the last probe's (a clock that went back), which the intervals then count from.
+    bool tick(std::uint64_t nowMs);
+
+private:
+    bool started_ = false, notified_ = false;
+    std::uint64_t lastMs_ = 0, burstEndMs_ = 0;
+};
+
+}  // namespace fa

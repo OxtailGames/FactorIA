@@ -22,6 +22,8 @@
 #include "fa/tooling/feedback_share.h"
 #include "fa/tooling/tooling.h"
 #include "fa/core/command.h"
+#include "fa/core/deprecation.h"
+#include "fa/tooling/api_export.h"
 #include "fa/core/fs.h"
 #include "fa/core/strings.h"
 
@@ -661,7 +663,8 @@ TEST_CASE("mcp: tool calls through the real tooling commands") {
 TEST_CASE("mcp: resources list and read") {
     Fixture f;
     {
-        std::ofstream(f.tmp.path / "factoria.json") << R"({"format":"factoria.project/1","name":"T"})";
+        std::ofstream(f.tmp.path / "factoria.json")
+            << R"({"format":"factoria.project/1","name":"T","storage":{"encryptionSecret":"0123456789abcdef0123456789abcdef"}})";
         std::ofstream(f.tmp.path / "ENGINE_FEEDBACK.json")
             << R"({"format":"factoria.feedback/1","project":"T","entries":[]})";
     }
@@ -672,6 +675,7 @@ TEST_CASE("mcp: resources list and read") {
         CHECK_FALSE(r["mimeType"].get<std::string>().empty());
     }
     CHECK(uris.count("factoria://docs/SCRIPTING.md") == 1);
+    CHECK(uris.count("factoria://docs/menu-kit") == 1);
     CHECK(uris.count("factoria://project/factoria.json") == 1);
     CHECK(uris.count("factoria://project/ENGINE_FEEDBACK.json") == 1);
 
@@ -680,9 +684,17 @@ TEST_CASE("mcp: resources list and read") {
     CHECK(doc["result"]["contents"][0]["mimeType"] == "text/markdown");
     CHECK(doc["result"]["contents"][0]["text"].get<std::string>().find("Behaviour") != std::string::npos);
 
+    Json kit = f.rpc("resources/read", {{"uri", "factoria://docs/menu-kit"}});
+    REQUIRE(kit.contains("result"));
+    CHECK(kit["result"]["contents"][0]["text"].get<std::string>().find("`kit.json`") != std::string::npos);
+
     Json proj = f.rpc("resources/read", {{"uri", "factoria://project/factoria.json"}});
     CHECK(proj["result"]["contents"][0]["mimeType"] == "application/json");
     CHECK(Json::parse(proj["result"]["contents"][0]["text"].get<std::string>())["name"] == "T");
+    CHECK(proj["result"]["contents"][0]["text"].get<std::string>().find("0123456789abcdef") ==
+          std::string::npos);  // the saves' secret
+    CHECK(Json::parse(proj["result"]["contents"][0]["text"].get<std::string>())["storage"]["encryptionSecret"] ==
+          "(hidden)");
 
     Json missing = f.rpc("resources/read", {{"uri", "factoria://docs/NOPE.md"}});
     CHECK(missing["error"]["code"] == -32002);
@@ -1458,4 +1470,30 @@ TEST_CASE("mcp: the tools profile path works on a read-only server") {
               .contains("unknown"));
     const Json tools = f.rpc("tools/list");
     for (const Json& t : tools["result"]["tools"]) CHECK(t["name"] != "scene_save");
+}
+
+TEST_CASE("mcp: tool_describe shows the deprecated object that _meta of tools/list carries") {
+    Fixture f;
+    add_cap_tool(f, "test.old_thing", capability_sets::changes_state());
+    add_cap_tool(f, "test.new_thing", capability_sets::changes_state());
+    install_deprecations();  // the file's table first, so the entries below are not replaced by it at the first lookup
+    struct Restore {
+        ~Restore() { install_deprecations(true); }
+    } restore;
+    Deprecations::global().set(Json::parse(
+        R"({"commands": {"test.old_thing": {"since": "0.30.0", "use": "test.new_thing", "note": "Same arguments."}}})"));
+    f.initialize();
+    const Json listed = f.rpc("tools/list");
+    Json fromList;
+    for (const Json& t : listed["result"]["tools"])
+        if (t["name"] == "test_old_thing") fromList = t["_meta"]["deprecated"];
+    REQUIRE(fromList.is_object());
+    CHECK(f.server.set_tool_profile({"core"}).empty());  // tool_describe belongs to the tools profile
+    const Json described = result_json(
+        f.call("tool_describe", {{"commands", Json::array({"test.old_thing", "test.new_thing"})}})["result"]);
+    REQUIRE(described["commands"].size() == 2);
+    CHECK(described["commands"][0]["deprecated"] == fromList);
+    CHECK(described["commands"][0]["deprecated"]["use"] == "test.new_thing");
+    CHECK(described["commands"][0]["deprecated"]["removedIn"] == "0.32.0");
+    CHECK_FALSE(described["commands"][1].contains("deprecated"));  // the replacement is not deprecated
 }

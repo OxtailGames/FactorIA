@@ -2,10 +2,12 @@
 // retention and object GC, the skipped folders, and the commands.
 #include <doctest.h>
 
+#include <algorithm>
 #include <chrono>
 #include <filesystem>
 
 #include "fa/core/command.h"
+#include "fa/core/fs.h"
 #include "fa/tooling/checkpoint.h"
 #include "fa/tooling/tooling.h"
 #include "test_helpers.h"
@@ -305,6 +307,94 @@ TEST_CASE("checkpoint.read: text inline, binary as base64 or into a file, errors
     CHECK(big.error["hint"].get<std::string>().find("out") != std::string::npos);
     CHECK(reg.call("checkpoint.read", Json::object({{"id", id2}, {"path", "big.txt"}, {"out", "copy.txt"}})).ok);
     CHECK(read_all(p.dir.path / "copy.txt").size() == 300 * 1024);
+}
+
+TEST_CASE("checkpoint.read: factoria.json shows the storage secret as (hidden), cannot be copied with out, and restore "
+          "brings it back") {
+    Project p;
+    const std::string secret = "a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90";
+    const std::string file =
+        "{\n  \"name\": \"T\",\n  \"storage\": {\n    \"encryptionSecret\": \"" + secret + "\"\n  }\n}\n";
+    write_all(p.dir.path / "factoria.json", file);
+    CommandRegistry reg;
+    register_tooling_commands(reg, p.dir.str());
+    const std::string id = reg.call("checkpoint.create", Json::object({{"label", "s"}})).result["id"];
+    // the checkpoint really holds the file with the real secret
+    auto files = checkpoint_files(p.dir.str(), id);
+    REQUIRE(files.ok());
+    CHECK(std::find(files.value().begin(), files.value().end(), "factoria.json") != files.value().end());
+    CHECK(checkpoint_read(p.dir.str(), id, "factoria.json").value() == file);
+    // the command hides it
+    auto r = reg.call("checkpoint.read", Json::object({{"id", id}, {"path", "factoria.json"}}));
+    REQUIRE(r.ok);
+    const std::string text = r.result["text"];
+    CHECK(text.find(secret) == std::string::npos);
+    CHECK(text.find("\"encryptionSecret\": \"(hidden)\"") != std::string::npos);
+    CHECK(text.find("\"name\": \"T\"") != std::string::npos);
+    // a copy to another file would show it to fs.read: refused, and the hint names the way to get the real file back
+    auto o = reg.call("checkpoint.read", Json::object({{"id", id}, {"path", "factoria.json"}, {"out", "old/f.json"}}));
+    REQUIRE_FALSE(o.ok);
+    CHECK(o.error["hint"].get<std::string>().find("checkpoint.restore") != std::string::npos);
+    CHECK_FALSE(stdfs::exists(p.dir.path / "old/f.json"));
+    write_all(p.dir.path / "factoria.json", "{}\n");
+    REQUIRE(reg.call("checkpoint.restore", Json::object({{"id", id}, {"paths", Json::array({"factoria.json"})}})).ok);
+    CHECK(read_all(p.dir.path / "factoria.json") == file);
+}
+
+TEST_CASE(
+    "checkpoint.read: a factoria.json over the inline limit says it cannot be copied, and does not suggest `out`") {
+    Project p;
+    const std::string secret = "a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90";
+    write_all(p.dir.path / "factoria.json", "{\"description\": \"" + std::string(300 * 1024, 'a') +
+                                                "\", \"storage\": {\"encryptionSecret\": \"" + secret + "\"}}");
+    write_all(p.dir.path / "sub/factoria.json", std::string(300 * 1024, 'b'));
+    CommandRegistry reg;
+    register_tooling_commands(reg, p.dir.str());
+    const std::string id = reg.call("checkpoint.create").result["id"];
+    for (const char* path : {"factoria.json", "sub/factoria.json"}) {
+        CAPTURE(path);
+        auto r = reg.call("checkpoint.read", Json::object({{"id", id}, {"path", path}}));
+        REQUIRE_FALSE(r.ok);
+        CHECK(r.error["code"] == "too_large");
+        const std::string hint = r.error["hint"].get<std::string>();
+        CHECK(hint.find("cannot be copied") != std::string::npos);
+        CHECK(hint.find("checkpoint.restore") != std::string::npos);
+        CHECK(hint.find("Pass `out`") == std::string::npos);
+        CHECK(r.error.dump().find(secret) == std::string::npos);
+    }
+}
+
+TEST_CASE("checkpoint.restore: a factoria.json that is open elsewhere is reported and nothing is half written") {
+    // Windows refuses to replace a file another program has open (the editor, an antivirus scan); the Windows file rules
+    // make the other platforms do the same for a file open through fs::ReadStream.
+    const bool rulesBefore = fs::windows_rules();
+    fs::set_windows_rules(true);
+    struct Restore {
+        bool on;
+        ~Restore() { fs::set_windows_rules(on); }
+    } restoreRules{rulesBefore};
+    Project p;
+    const std::string original = "{\"name\": \"old\", \"storage\": {\"encryptionSecret\": \"abcdef\"}}\n";
+    write_all(p.dir.path / "factoria.json", original);
+    CommandRegistry reg;
+    register_tooling_commands(reg, p.dir.str());
+    const std::string id = reg.call("checkpoint.create").result["id"];
+    write_all(p.dir.path / "factoria.json", "{\"name\": \"changed\"}\n");
+    {
+        fs::ReadStream editorHasItOpen(p.dir.path / "factoria.json", std::ios::binary);
+        REQUIRE(editorHasItOpen);
+        auto r = reg.call("checkpoint.restore", Json::object({{"id", id}, {"paths", Json::array({"factoria.json"})}}));
+        REQUIRE_FALSE(r.ok);
+        CHECK(r.error["message"].get<std::string>().find("Cannot restore 'factoria.json'") != std::string::npos);
+        CHECK(r.error["hint"].get<std::string>().find("Close whatever holds the file open") != std::string::npos);
+        CHECK(r.error.dump().find("abcdef") == std::string::npos);  // the error never shows the secret
+    }
+    CHECK(read_all(p.dir.path / "factoria.json") == "{\"name\": \"changed\"}\n");  // untouched
+    for (const auto& e : stdfs::directory_iterator(p.dir.path))
+        CHECK(e.path().filename().string().find(".fa-tmp") == std::string::npos);  // no temporary file left behind
+    // closed again: the same restore works
+    REQUIRE(reg.call("checkpoint.restore", Json::object({{"id", id}, {"paths", Json::array({"factoria.json"})}})).ok);
+    CHECK(read_all(p.dir.path / "factoria.json") == original);
 }
 
 TEST_CASE("checkpoint.restore with paths touches only the listed files") {

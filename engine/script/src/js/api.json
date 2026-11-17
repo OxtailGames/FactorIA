@@ -631,6 +631,10 @@
        "doc": "Squash and stretch: a short scale pulse that keeps the volume (x * y constant in 2D) and springs back to exactly the entity's own scale (it is drawn multiplied, entity.scale is never written). amount > 0 squashes (flatter and wider, a landing), < 0 stretches (a jump); axis \"y\" (default) or \"x\". With reduceMotion on the amount is a quarter. Example: player.squash({ amount: 0.35, duration: 0.25 });"
       },
       {
+       "sig": "teleport(): void",
+       "doc": "Marks the pose the entity has NOW as a jump, not a move: with render interpolation (factoria.json render.interpolation, docs/RENDERING.md) the next frames draw it where it is instead of blending from where it was. Set the position first, then call teleport() in the same fixed step (a respawn, a door, a warp). A Transform written outside the fixed step (update, lateUpdate, a command) and a new entity are never smeared, so they need no call. Does nothing for an entity that is not interpolated. Example: me.position = spawn.position; me.teleport();"
+      },
+      {
        "sig": "knockback(direction: Vec3Like, opts?: KnockbackOptions): void",
        "doc": "Pushes the entity away: `speed` world units per second along `direction` (any length, it is normalised). A dynamic RigidBody2D/RigidBody3D gets the impulse on its velocity; an entity without one moves with a velocity that decays (opts.decay) and is integrated on the fixed clock. For opts.lockTime seconds isKnockedBack is true so your movement script can leave the player without control. Frozen by hit-stop like the rest of the simulation. Example: if (!me.isKnockedBack) move(); me.knockback(vec2(-1, 0.3), { speed: 8 });"
       },
@@ -906,7 +910,7 @@
       },
       {
        "sig": "readonly type: GamepadType",
-       "doc": "The family of the pad: \"xbox\", \"playstation\", \"nintendo\", \"steamdeck\" or \"generic\" (also for a pad that is not connected). Found from its vendor id and name where the platform tells (Windows: XInput pads are xbox; Linux and macOS/iOS: from the ids or names; Android always \"generic\"). Use input.buttonName() to get the label, not this."
+       "doc": "The family of the pad: \"xbox\", \"playstation\", \"nintendo\", \"steamdeck\" or \"generic\" (also for a pad that is not connected). Found from its vendor id and name where the platform tells (Windows: XInput pads are xbox, the other pads from their vendor id and name; Linux and macOS/iOS: from the ids or names; Android always \"generic\"). Use input.buttonName() to get the label, not this."
       },
       {
        "sig": "readonly id: string",
@@ -915,6 +919,10 @@
       {
        "sig": "readonly name: string",
        "doc": "What the OS calls the pad (\"Wireless Controller\", \"Xbox controller (XInput)\"); \"\" for a slot that never had a pad; kept after the pad is unplugged."
+      },
+      {
+       "sig": "readonly canRumble: boolean",
+       "doc": "True when this pad has motors the platform can drive now, so input.rumble(pad, ...) shakes it; false for a slot with no pad and for a platform or pad without rumble. Windows (XInput pads, and the DualShock 4, DualSense and Switch Pro over USB or Bluetooth), Linux (pads with kernel force feedback, when /dev/input/eventN is writable), macOS and iOS (pads with GameController haptics), Android (pads whose InputDevice has vibrators) and Chrome-based browsers (Xbox and PlayStation pads) can today; Firefox and Safari never, nor other Windows HID pads; a Windows pad another program holds exclusively (DS4Windows, HidHide) or that stopped taking reports answers false too. Games need not check it: input.rumble on a pad that cannot rumble does nothing. Check it to show a Vibration option only where it works. A test pad answers false unless game.gamepad(i).connect({ canRumble: true }), at every connect. It is already right in the frame a pad connects."
       },
       {
        "sig": "down(button: GamepadButton): boolean",
@@ -1064,7 +1072,15 @@
       },
       {
        "sig": "readonly text: string",
-       "doc": "The characters typed this frame, as UTF-8 text (\"\" when none): from the keyboard or the on-screen keyboard, control characters left out. Append it to a text field's string; handle Backspace and Enter with input.keyPressed(). Desktop and iOS deliver composed text (shift, dead keys, IME). Android delivers what a key types in its layout (letters, digits, punctuation, accents through dead keys): a keyboard app that composes words or emoji (CJK input, emoji) cannot be received by a NativeActivity. docs/MOBILE.md lists the limits."
+       "doc": "The characters typed this frame, as UTF-8 text (\"\" when none): from the keyboard or the on-screen keyboard, control characters left out. Append it to a text field's string; handle Backspace and Enter with input.keyPressed(). Desktop and iOS deliver composed text (shift, dead keys, IME). Android delivers composed text (CJK input, predictive words, emoji) while a TextField has the focus, and otherwise what a key types in its layout (letters, digits, punctuation, accents through dead keys). docs/TEXT.md (\"What composes where\") lists each platform."
+      },
+      {
+       "sig": "readonly composing: boolean",
+       "doc": "True while an input method (IME: Japanese, Chinese, Korean, dead keys) is composing text that is not typed yet: from its first pre-edit string until the player commits it or cancels. The committed text then arrives once in input.text. A focused TextField keeps the pre-edit string in TextField.composition (drawn at its caret, underlined). Needs a platform that sends composition events (from M98.6c / 6d); until then it stays false."
+      },
+      {
+       "sig": "readonly compositionText: string",
+       "doc": "The pre-edit string of the IME composition in progress, as UTF-8 (\"\" when input.composing is false). It is not part of any text yet: do not append it to a string, wait for input.text."
       },
       {
        "sig": "showKeyboard(on?: boolean): void",
@@ -1089,6 +1105,14 @@
       {
        "sig": "onBack(handler: () => boolean | void): () => void",
        "doc": "The system Back button or gesture of Android (nothing else sends it; a test sends it with game.pressBack()). Handlers run newest first at the start of the frame; the first one that does not return false consumes the press, so a handler that closes a menu returns true (or nothing) and one that has nothing to close returns false. When no handler consumes it, or there is none, the game quits, which is what Back did before this event existed. A handler that throws is reported and counts as consumed. Handlers end with the scene, like ui.on. Returns the function that removes the handler. Example: input.onBack(() => { if (!menu.open) return false; menu.close(); return true; });"
+      },
+      {
+       "sig": "rumble(pad: number, low: number, high: number, seconds: number): void",
+       "doc": "Shakes the motors of gamepad pad (0..3, the slot input.gamepad(i) reads): low is the heavy, low-frequency motor (the left one of an Xbox pad) and high the light, high-frequency one, each 0..1 (a value outside is clamped), for seconds above 0 and up to 10 (0.05 to 0.15 is a tap, 0.3 a hit, 1 an explosion). A new call on the same pad replaces the one playing; both strengths 0 is a stop. It ends by itself when the seconds run out, counted in the frames' own duration (not scaled by time.scale); to go on, ask again before. The engine also stops every pad when the game pauses itself (game.paused = true or time.scale 0, the editor's pause), loses the window focus, changes scene or quits, so a pad never keeps shaking: a rumble asked in the same frame that pauses never reaches the pad, one asked while the game stays paused plays, and one asked in a scene's onStart plays. The editor's Game view reads no physical pad, so nothing rumbles there; run the game on its own (factoria run, an export). A pad that is not connected or cannot rumble (input.gamepad(pad).canRumble) ignores it; on the web a browser may refuse it until the player clicked the page or pressed a key (a button of the pad may not count). Phones vibrate with input.vibrate(), a different motor. Throws for a pad outside 0..3, a strength or seconds that is not a number, and seconds outside 0..10; a headless run or test records the request (game.rumbles(), game.rumbleState(pad)). Example: input.rumble(0, 0.7, 0.3, 0.2) when the player is hit."
+      },
+      {
+       "sig": "stopRumble(pad?: number): void",
+       "doc": "Stops the rumble of gamepad pad (0..3) now; without an argument, of every pad. Does nothing for a pad that is not rumbling. A pad outside 0..3 throws."
       },
       {
        "sig": "vibrate(seconds?: number): void",
@@ -1224,8 +1248,8 @@
        "doc": "Play the sound from this place, without an entity: [x, y, z] (or [x, y] in a 2D game), world units. It is heard as an AudioSource with spatial: true is: the volume falls with the distance from the AudioListener (else the primary camera) along `rolloff` (linear to 0 at `range` by default) and it pans to the side of the listener it is on. The sound does not follow anything after it starts (for a moving source use an AudioSource; `loop: true` with a position throws). With no listener it plays at `volume` and `pan`; a sound at or beyond the range plays nothing, play() returns 0 and a `caption` is not shown unless `captionSeconds` is given. `volume` is the sound's own volume, `pan` is replaced. Example: audio.play(\"assets/sfx/bite.wav\", { position: [4, 0, -2], range: 30 })."
       },
       {
-       "sig": "rolloff?: \"linear\" | \"inverse\" | \"exponential\"",
-       "doc": "With `position`: the fall-off curve, as AudioSource.rolloff. With d the distance, r `refDistance` and k `rolloffFactor`: \"linear\" (default) 1 - k*(d-r)/(range-r); \"inverse\" r/(r + k*(d-r)); \"exponential\" (d/r)^-k (d is at least r). The sound is cut at `range` for all of them, so with inverse and exponential give a `range` where they are already quiet. Throws without a position or for another value."
+       "sig": "rolloff?: \"linear\" | \"inverse\" | \"exponential\" | \"curve\"",
+       "doc": "With `position`: the fall-off curve, as AudioSource.rolloff. With d the distance, r `refDistance` and k `rolloffFactor`: \"linear\" (default) 1 - k*(d-r)/(range-r); \"inverse\" r/(r + k*(d-r)); \"exponential\" (d/r)^-k (d is at least r); \"curve\" is the gain of `rolloffCurve` at d / range. The sound is cut at `range` for all of them, so with inverse and exponential give a `range` where they are already quiet. Throws without a position or for another value."
       },
       {
        "sig": "refDistance?: number",
@@ -1234,6 +1258,50 @@
       {
        "sig": "rolloffFactor?: number",
        "doc": "With `position`: how fast the volume falls, 0 to 100 (default 1; see `rolloff`). Throws without a position."
+      },
+      {
+       "sig": "rolloffCurve?: number[][] | { keys: number[][], interp?: \"linear\" | \"smooth\" | \"step\" }",
+       "doc": "With `position` and rolloff: \"curve\" (required with it, and only then): the volume over the distance, [position, gain] keys where position is d / range (0 = at the listener, 1 = at `range`) and gain 0 to 1, e.g. [[0, 1], [0.3, 0.8], [1, 0]]; same form as ParticleEmitter.sizeCurve, at most 16 keys. Throws for a curve that does not parse."
+      },
+      {
+       "sig": "direction?: number[] | { x: number, y: number, z?: number }",
+       "doc": "With `position`: the world direction the sound points in, for the cone (coneInnerAngle ...). Omitted or [0, 0, 0] = the same in every direction. The cone is worked out once, when the sound starts."
+      },
+      {
+       "sig": "coneInnerAngle?: number",
+       "doc": "With `position` and `direction`: full angle in degrees of the cone where the sound is at full volume, 0 to 360 (default 360 = no cone)."
+      },
+      {
+       "sig": "coneOuterAngle?: number",
+       "doc": "With `position` and `direction`: full angle in degrees of the outer cone, 0 to 360 (default 360); outside it the volume is multiplied by coneOuterGain, between the cones it blends linearly in the angle."
+      },
+      {
+       "sig": "coneOuterGain?: number",
+       "doc": "With `position` and `direction`: volume multiplier outside the outer cone, 0 to 1 (default 0)."
+      },
+      {
+       "sig": "velocity?: number[] | { x: number, y: number, z?: number }",
+       "doc": "With `position`: the velocity of the source in world units per second, for doppler (kept for the whole life of the sound; the listener's velocity is measured each frame)."
+      },
+      {
+       "sig": "dopplerLevel?: number",
+       "doc": "With `position`: how much the pitch shifts with the speed of the source and the listener, 0 (default, off) to 10: the exponent of the real pitch ratio (1 = the real shift); the factor is limited to 0.25..4."
+      },
+      {
+       "sig": "occlusion?: boolean",
+       "doc": "With `position`: true = a physics ray from the listener that hits a collider of `occlusionMask` muffles the sound (default false). At most 8 rays per frame in the whole game; the change is smoothed over 0.1 s."
+      },
+      {
+       "sig": "occlusionMask?: number",
+       "doc": "With `position`: the physics layers (bitmask, default -1 = all) that block the sound when `occlusion` is on."
+      },
+      {
+       "sig": "occlusionGain?: number",
+       "doc": "With `position`: volume multiplier of a blocked path, 0 to 1 (default 0.4)."
+      },
+      {
+       "sig": "occlusionLowpass?: number",
+       "doc": "With `position`: low-pass cutoff in Hz of a blocked path, 20 to 20000 (default 1500; 20000 = no filter)."
       },
       {
        "sig": "range?: number",
@@ -2401,7 +2469,7 @@
      "members": [
       {
        "sig": "quit(): void",
-       "doc": ""
+       "doc": "Ends the game: the analytics events that wait are sent first (up to 3 seconds for the request), then the window closes (desktop) or the activity finishes (Android: the system destroys it and the process ends). Does not raise game.on(\"quit\"). In a test it only sets game.quitRequested. Example: if (input.pressed(\"quit\")) game.quit();"
       },
       {
        "sig": "paused: boolean",
@@ -2425,11 +2493,11 @@
       },
       {
        "sig": "on(event: \"gamepadConnected\" | \"gamepadDisconnected\", fn: (pad: { readonly slot: number; readonly id: string; readonly name: string; readonly type: GamepadType }) => void): () => void",
-       "doc": "Listens for a pad being plugged in or out (or paired or lost over Bluetooth). fn gets { slot, id, name, type }: slot is the number input.gamepad(slot) answers for (0 to 3), id is the same for the same physical pad every time (the vendor and product ids, the name and, where the platform has one, a serial number, GUID or device path: use it to give a player their pad back), name is what the OS calls it and type is \"xbox\", \"playstation\", \"nintendo\", \"steamdeck\" or \"generic\". A pad that comes back takes the slot it had when that is free (Windows, macOS, iOS, Android and the web; on Linux the kernel's joystick number is the slot). What each platform can put in the id: Windows XInput has no ids, so an XInput pad is \"an Xbox pad in XInput slot N\" (its id ends with \"#xinputN\"); Linux adds the kernel's serial (uniq) when the pad has one; macOS and iOS (GameController) and the web (Gamepad.id, no serial: browsers hide it) give the name and, on the web, the vendor and product; Android adds the InputDevice descriptor. Two pads of one model without a serial share an id. Losing the window focus does not disconnect a pad that is still plugged in. Pads already plugged in when the first scene starts are not announced: read input.gamepad(i).connected and .id at the start. Listeners end with the scene, like world.on. Example: game.on(\"gamepadConnected\", (pad) => hud.toast(`${pad.name} is player ${pad.slot + 1}`));"
+       "doc": "Listens for a pad being plugged in or out (or paired or lost over Bluetooth). fn gets { slot, id, name, type }: slot is the number input.gamepad(slot) answers for (0 to 3), id is the same for the same physical pad every time (the vendor and product ids, the name and, where the platform has one, a serial number, GUID or device path: use it to give a player their pad back), name is what the OS calls it and type is \"xbox\", \"playstation\", \"nintendo\", \"steamdeck\" or \"generic\". A pad that comes back takes the slot it had when that is free (Windows, macOS, iOS, Android and the web; on Linux the kernel's joystick number is the slot). What each platform can put in the id: Windows XInput has no ids, so an XInput pad is \"an Xbox pad in XInput slot N\" (its id ends with \"#xinputN\"), while the other Windows pads (HID) give the vendor and product, the name and the serial number when the pad has one (a Bluetooth pad's address); Linux adds the kernel's serial (uniq) when the pad has one; macOS and iOS (GameController) and the web (Gamepad.id, no serial: browsers hide it) give the name and, on the web, the vendor and product; Android adds the InputDevice descriptor. Two pads of one model without a serial share an id. Losing the window focus does not disconnect a pad that is still plugged in. Pads already plugged in when the first scene starts are not announced: read input.gamepad(i).connected and .id at the start. Listeners end with the scene, like world.on. Example: game.on(\"gamepadConnected\", (pad) => hud.toast(`${pad.name} is player ${pad.slot + 1}`));"
       },
       {
        "sig": "on(event: \"quit\", fn: (event: { readonly cancelled: boolean; cancel(): void }) => void): () => void",
-       "doc": "Listens for the player closing the window (the close button, Cmd+Q, Alt+F4). Desktop windows only: the web and phones never raise it. The handler gets an event whose cancel() keeps the window open (to ask \"Really quit?\", to save or to send a last analytics event with a short timeout); game.quit() closes it afterwards and does not come back to this handler, so a handler that cancelled can still end the game later. Not raised by game.quit() itself, nor in headless runs (tests simulate it with game.closeWindow()). Returns a function that stops listening; listeners end with the scene. Example: game.on(\"quit\", (e) => { e.cancel(); flush().then(() => game.quit()); });"
+       "doc": "Listens for the player closing the window (the close button, Cmd+Q, Alt+F4). The handler gets an event whose cancel() keeps the window open (to ask \"Really quit?\", to save or to send a last analytics event with a short timeout); game.quit() closes it afterwards and does not come back to this handler, so a handler that cancelled can still end the game later. The web raises it when the page goes away (pagehide) and Android when the system destroys the game's activity (a Back no input.onBack handler consumed, the system closing the app, a relaunch for a theme change); there it cannot be cancelled, and on Android the process ends right after the handlers and the storage.setAsync writes still waiting, within about 1.5 s, so keep it short: the surface is gone by then, so load no scene or asset and draw nothing, and the code after an await of storage.setAsync runs (the writes that code starts too, up to 16 in a row) but not after any other await. iOS never raises it; a force-stop raises nothing anywhere. Not raised by game.quit() itself, nor in headless runs (tests simulate it with game.closeWindow()). Returns a function that stops listening; listeners end with the scene. Example (a desktop window; on the web and Android cancel() and the game.quit() after it do nothing, the page or the activity ends anyway, so save inside the handler): game.on(\"quit\", (e) => { e.cancel(); flush().then(() => game.quit()); });"
       },
       {
        "sig": "readonly project: Readonly<Json>",
@@ -2972,20 +3040,24 @@
      "doc": "Persistent JSON save data, one file per key in <user dir>/storage/ (an older storage.json is split into them at the first start). Tests and `--storage memory` runs use a throw-away in-memory object instead.",
      "members": [
       {
-       "sig": "get<T = any>(key: string, fallback?: T): T",
-       "doc": ""
+       "sig": "get<T = any>(key: string, fallback?: T, options?: { encrypted?: boolean }): T",
+       "doc": "The value stored under `key`, or `fallback`. A value written with `{encrypt: true}` is opened at the first use of storage and returned like any other; one that fails authentication (edited, damaged, or written with another secret) is kept aside as a damaged file, storage.corrupt is true and the value is missing. A plain file is read as it is by default, so a game can turn encryption on later; but then a player can replace a sealed file with a hand-written plain one. `{encrypted: true}` refuses that: a value that was read from a plain file is treated like one that failed authentication (the file is kept aside, storage.corrupt is true, a warning names the key) and `fallback` is returned. Keeping the file aside reads it and moves it (or copies it, when it cannot be moved) on the calling thread, in the frame, once per such key (the key is dropped from memory afterwards). Use it for a key the game has always sealed, or once every player's save is sealed (storage.isEncrypted tells which are). A value the game itself stored in plain in this run is not the subject of the check: it is simply not returned. It is tamper evidence, not secrecy: the secret ships with the game, so a player who takes it out of the game can still write a sealed value (docs/scripting/SCRIPTING_UI_SCENES.md, \"Encrypted saves\"). Throws on an unknown option."
       },
       {
-       "sig": "set(key: string, value: Json, options?: { compress?: boolean }): void",
-       "doc": "Stores `value` under `key` and writes that key's file now (atomically: temporary file, then rename), so a save costs the size of its own key only. `{compress: true}` stores the value zlib-compressed (smaller on disk, for big saves; storage.get returns the same value either way). The write blocks the frame; use setAsync for a big value. Throws on an empty key or an unknown option."
+       "sig": "set(key: string, value: Json, options?: { compress?: boolean, encrypt?: boolean }): void",
+       "doc": "Stores `value` under `key` and writes that key's file now (atomically: temporary file, then rename), so a save costs the size of its own key only. `{compress: true}` stores the value zlib-compressed (smaller on disk, for big saves; storage.get returns the same value either way). `{encrypt: true}` seals the file with ChaCha20-Poly1305 under a key derived from the project's secret (factoria.json storage.encryptionSecret, created once with the command project.create_storage_secret), so a player cannot read it, and cannot change a byte of it without the sealed value failing to open; it combines with compress (compressed first, then sealed). It makes a CHANGED sealed file refuse to load; it does not stop a player from replacing the file with a plain one unless the game reads the key with storage.get(key, fallback, {encrypted: true}). It is tamper evidence, not secrecy: the secret ships with the game (docs/scripting/SCRIPTING_UI_SCENES.md, \"Encrypted saves\"). Each call decides for its key: a set without encrypt writes the key in plain again. Throws, changing nothing, when encrypt is asked and the project has no secret (the error names the command). The write blocks the frame; use setAsync for a big value. When the file cannot be written (the disk is full, or on Windows another program holds the file open so it cannot be replaced) the old file stays, the value stays in memory only and the log has the warning \"cannot write <file> for storage key '<key>': ...\"; set does not throw for it (it throws when the value cannot be encoded or encrypted), setAsync rejects with the reason. Throws on an empty key or an unknown option."
       },
       {
-       "sig": "setAsync(key: string, value: Json, options?: { compress?: boolean }): Promise<number>",
-       "doc": "Like set, but the file is encoded (and compressed when asked) and written off the frame: on a worker thread on desktop and mobile, between frames on the web (no threads there). storage.get returns the new value at once; the Promise resolves with the file's size in bytes when the file is written, and rejects with the reason if it could not be. Writes to one key land in the order they were asked, and a later set, remove, clear or size waits for the pending ones. Serializing `value` into JSON still happens in this call."
+       "sig": "setAsync(key: string, value: Json, options?: { compress?: boolean, encrypt?: boolean }): Promise<number>",
+       "doc": "Like set (compress and encrypt work the same, and encrypt throws at once when the project has no secret), but the file is encoded (compressed and sealed when asked) and written off the frame: on a worker thread on desktop and mobile, between frames on the web (no threads there). storage.get returns the new value at once; the Promise resolves with the file's size in bytes when the file is written, and rejects with the reason if it could not be. Writes to one key land in the order they were asked, and a later set, remove, clear or size waits for the pending ones. Serializing `value` into JSON still happens in this call."
+      },
+      {
+       "sig": "isEncrypted(key: string): boolean | undefined",
+       "doc": "true when the value under `key` is stored sealed ({encrypt: true}), false when it is plain, undefined when the key is not stored. It does not move or change anything, so a game can show \"this save is not protected\" or decide what to do with a plain value before it trusts it (storage.get(key, fallback, {encrypted: true}) refuses it instead)."
       },
       {
        "sig": "size(key: string): number",
-       "doc": "Bytes the key's file takes (the compressed size for a compressed value); 0 when the key is not stored. Waits for pending setAsync writes."
+       "doc": "Bytes the key's file takes (the compressed size for a compressed value, the sealed size for an encrypted one); 0 when the key is not stored. Waits for pending setAsync writes."
       },
       {
        "sig": "remove(key: string): void",
@@ -4148,6 +4220,229 @@
     },
     {
      "kind": "interface",
+     "name": "WebSocketReconnectOptions",
+     "doc": "How websocket.connect tries again after a connection you did not close ends (the server went away, the network dropped, an attempt failed). The wait before attempt n is min(maxDelay, minDelay * factor^(n-1)) seconds, moved by up to +-jitter of itself with a pseudo-random sequence that is the same on every run (seeded by the URL and the connection's number: no rand(), no wall clock), counted on the engine clock.",
+     "members": [
+      {
+       "sig": "maxAttempts?: number",
+       "doc": "Reconnects tried in a row before the connection closes for good: a whole number of 1 or more, or Infinity. Default 10. The count starts again when a connection opens."
+      },
+      {
+       "sig": "minDelay?: number",
+       "doc": "Seconds before the first attempt, above 0. Default 1."
+      },
+      {
+       "sig": "maxDelay?: number",
+       "doc": "The longest wait in seconds, at least minDelay. Default 30."
+      },
+      {
+       "sig": "factor?: number",
+       "doc": "Each attempt waits this many times longer than the one before, 1 or more. Default 2."
+      },
+      {
+       "sig": "jitter?: number",
+       "doc": "A fraction from 0 to 1 of the wait that the delay may move up or down, so that many players do not reconnect at the same instant. Default 0.25."
+      }
+     ]
+    },
+    {
+     "kind": "interface",
+     "name": "WebSocketOptions",
+     "doc": "Options of websocket.connect.",
+     "members": [
+      {
+       "sig": "protocols?: string[]",
+       "doc": "Subprotocols to offer the server, in order of preference (Sec-WebSocket-Protocol); the one it picks is WebSocketConnection.protocol. Each must be a token like \"chat.v1\"."
+      },
+      {
+       "sig": "headers?: Record<string, string>",
+       "doc": "Extra headers of the handshake, string values, no line breaks. Host, Upgrade, Connection and Sec-* are set by the system and throw. The browser's WebSocket cannot send headers: a game for the web puts what the server needs in the URL or in the first message."
+      },
+      {
+       "sig": "timeout?: number",
+       "doc": "Seconds to wait for the connection and the handshake together, above 0 and at most 120. Default 15; a connection that takes longer gets an \"error\" event and a \"close\" event with code 1006."
+      },
+      {
+       "sig": "maxMessageBytes?: number",
+       "doc": "The longest message in either direction, 4194304 (4 MB) by default and at most 67108864. A longer incoming message fails the connection (an \"error\" event, then \"close\" with code 1006; the server is told 1009); send() throws for a longer outgoing one."
+      },
+      {
+       "sig": "reconnect?: boolean | WebSocketReconnectOptions",
+       "doc": "true or an object: connect again after a close you did not ask for. false (default): never. A connection you close() yourself, and one that the platform cannot open at all, never reconnect."
+      }
+     ]
+    },
+    {
+     "kind": "interface",
+     "name": "WebSocketOpenEvent",
+     "doc": "The \"open\" event of a connection: the handshake is done and send() works.",
+     "members": [
+      {
+       "sig": "readonly protocol: string",
+       "doc": "The subprotocol the server chose, \"\" when none."
+      },
+      {
+       "sig": "readonly reconnected: boolean",
+       "doc": "True when this is a reconnect (the connection was open before), so the game can ask the server for what it missed."
+      }
+     ]
+    },
+    {
+     "kind": "interface",
+     "name": "WebSocketMessageEvent",
+     "doc": "The \"message\" event: one whole message. Messages of a connection arrive in order, at the start of an engine frame.",
+     "members": [
+      {
+       "sig": "readonly data: string | ArrayBuffer",
+       "doc": "A text message as a string; a binary message as an ArrayBuffer (wrap it in new Uint8Array(data) to read it)."
+      },
+      {
+       "sig": "readonly binary: boolean",
+       "doc": "True when data is an ArrayBuffer."
+      }
+     ]
+    },
+    {
+     "kind": "interface",
+     "name": "WebSocketErrorEvent",
+     "doc": "The \"error\" event: something went wrong. A \"close\" event always follows with code 1006.",
+     "members": [
+      {
+       "sig": "readonly message: string",
+       "doc": "What went wrong, in a sentence that says what to do."
+      },
+      {
+       "sig": "readonly hint: string",
+       "doc": "What to try, \"\" when the platform gave none."
+      },
+      {
+       "sig": "readonly httpStatus: number",
+       "doc": "The HTTP status the server answered to the handshake when it refused it (403, 404...), 0 when there was none."
+      }
+     ]
+    },
+    {
+     "kind": "interface",
+     "name": "WebSocketCloseEvent",
+     "doc": "The \"close\" event: the end of a connection (or of one attempt, when it reconnects). Nothing more is delivered on it.",
+     "members": [
+      {
+       "sig": "readonly code: number",
+       "doc": "The close code: 1000 normal, 1001 going away, 1006 the connection failed or broke with no closing handshake (could not connect, a message too big, a server that breaks the protocol), 1008 the game did not read its messages, 3000 to 4999 the server's own."
+      },
+      {
+       "sig": "readonly reason: string",
+       "doc": "The reason text the closer sent, \"\" when none."
+      },
+      {
+       "sig": "readonly wasClean: boolean",
+       "doc": "True when the closing handshake completed."
+      },
+      {
+       "sig": "readonly willReconnect: boolean",
+       "doc": "True when websocket.connect was given reconnect and will try again: a \"reconnecting\" event follows. Call connection.close() in this handler to stop it."
+      }
+     ]
+    },
+    {
+     "kind": "interface",
+     "name": "WebSocketReconnectingEvent",
+     "doc": "The \"reconnecting\" event: the next attempt is scheduled.",
+     "members": [
+      {
+       "sig": "readonly attempt: number",
+       "doc": "1 for the first reconnect since the connection was last open, 2 for the second..."
+      },
+      {
+       "sig": "readonly delay: number",
+       "doc": "Seconds until the attempt starts (engine time)."
+      }
+     ]
+    },
+    {
+     "kind": "interface",
+     "name": "WebSocketConnection",
+     "doc": "One WebSocket connection, from websocket.connect. Events are delivered at the start of an engine frame, never in the middle of a script. A scene change or a script unload closes the connection WITHOUT events (readyState becomes \"closed\"): open the connections of a scene in that scene.",
+     "members": [
+      {
+       "sig": "readonly url: string",
+       "doc": "The address given to websocket.connect."
+      },
+      {
+       "sig": "readonly readyState: \"connecting\" | \"open\" | \"closing\" | \"closed\"",
+       "doc": "\"connecting\" until the handshake completes and also while a connection waits to reconnect; \"closing\" after close() until the \"close\" event."
+      },
+      {
+       "sig": "readonly protocol: string",
+       "doc": "The subprotocol the server chose, \"\" when none or not open yet."
+      },
+      {
+       "sig": "readonly attempt: number",
+       "doc": "Reconnects tried since the connection was last open: 0 while it is open."
+      },
+      {
+       "sig": "readonly bufferedAmount: number",
+       "doc": "Bytes that send() accepted and the network has not taken yet."
+      },
+      {
+       "sig": "on(event: \"open\", fn: (e: WebSocketOpenEvent) => void): () => void",
+       "doc": "Calls fn when the connection opens (again after each reconnect). Returns a function that removes the handler. A handler that throws is reported as a script error and the others still run."
+      },
+      {
+       "sig": "on(event: \"message\", fn: (e: WebSocketMessageEvent) => void): () => void",
+       "doc": "Calls fn for every message the server sends. Example: `ws.on(\"message\", (e) => { if (!e.binary) handle(JSON.parse(e.data)); });`."
+      },
+      {
+       "sig": "on(event: \"error\", fn: (e: WebSocketErrorEvent) => void): () => void",
+       "doc": "Calls fn when the connection fails: could not connect, refused (e.httpStatus), a broken stream, a message over maxMessageBytes. Followed by a \"close\" event."
+      },
+      {
+       "sig": "on(event: \"close\", fn: (e: WebSocketCloseEvent) => void): () => void",
+       "doc": "Calls fn when the connection ends, whoever ended it."
+      },
+      {
+       "sig": "on(event: \"reconnecting\", fn: (e: WebSocketReconnectingEvent) => void): () => void",
+       "doc": "Calls fn when a reconnect is scheduled (options.reconnect only)."
+      },
+      {
+       "sig": "off(event: \"open\" | \"message\" | \"error\" | \"close\" | \"reconnecting\", fn: Function): void",
+       "doc": "Removes a handler added with on(). An unknown handler does nothing."
+      },
+      {
+       "sig": "send(data: string | ArrayBuffer | ArrayBufferView): boolean",
+       "doc": "Queues one message: a string goes as a text message, an ArrayBuffer or typed array as a binary one. Returns true when queued, false when the connection is not open (still connecting, waiting to reconnect, closing, closed): nothing is queued or kept for later. Throws for data of another type (send an object as ws.send(JSON.stringify(obj))) and for a message over maxMessageBytes. Example: `if (!ws.send(JSON.stringify({ move: \"left\" }))) ui.toast(\"Reconnecting...\");`."
+      },
+      {
+       "sig": "close(code?: number, reason?: string): void",
+       "doc": "Starts the closing handshake; the \"close\" event follows when the server answers (or after a few seconds). code is 1000 (default) or 3000 to 4999, reason at most 123 bytes of UTF-8; others throw. Never reconnects afterwards, and stops a connection that waits to reconnect. Closing twice does nothing."
+      }
+     ]
+    },
+    {
+     "kind": "interface",
+     "name": "WebSocketAPI",
+     "doc": "WebSocket connections to the hosts the game declares in factoria.json \"network\" (docs/NETWORKING.md, \"WebSocket\"), the same list as http.fetch: ws:// and wss://, wss:// everywhere except plain ws:// to localhost for development. A host that is not declared throws at once with the same hint and \"did you mean\". At most 32 connections at once. Which platforms can connect depends on the build (docs/NETWORKING.md says which): `websocket.supported` tells; where it is false, connect() still returns a connection, which fails with an \"error\" and a \"close\" event at the next frame. In tests and headless runs a scripted in-memory server answers (game.websocket) and nothing touches the network. Replays do not record WebSocket traffic.",
+     "members": [
+      {
+       "sig": "connect(url: string, options?: WebSocketOptions): WebSocketConnection",
+       "doc": "Starts connecting and returns at once: attach handlers with on() before the next frame. A mistake in the call (an undeclared host, a bad scheme, an unknown option, a header the handshake refuses, more than 32 connections) throws with what to change. Example: `const ws = websocket.connect(\"wss://game.example.com/room\", { reconnect: true }); ws.on(\"open\", () => ws.send(\"hello\"));`."
+      },
+      {
+       "sig": "readonly supported: boolean",
+       "doc": "True when this platform has a WebSocket client that can connect."
+      },
+      {
+       "sig": "readonly backend: string",
+       "doc": "The client in use: \"memory\" (tests, headless), \"winhttp\", \"network\" (macOS, iOS), \"curl\", \"socket\", \"browser\" or \"unavailable\"."
+      },
+      {
+       "sig": "readonly unsupportedReason: string",
+       "doc": "Why supported is false, \"\" when it is true."
+      }
+     ]
+    },
+    {
+     "kind": "interface",
      "name": "AnalyticsStatus",
      "doc": "What analytics.status() returns, for debugging.",
      "members": [
@@ -4339,7 +4634,7 @@
       },
       {
        "sig": "gender(key: string): \"f\" | \"m\" | \"n\" | \"\"",
-       "doc": "The grammatical gender of the string `key` in the current language (\"f\" feminine, \"m\" masculine, \"n\" neuter), from a table entry written {\"text\": \"Ligera\", \"gender\": \"f\"}; \"\" when the string has none or no table has the key. Pass it as args.gender to a select entry (an object with forms f, m, n and other) to get the article or adjective that agrees: i18n.t(\"ship.the\", { name: i18n.t(\"ship.light\"), gender: i18n.gender(\"ship.light\") }) is \"la Ligera\" in Spanish. Throws for a key that is not a string. See docs/LOCALIZATION.md, \"Gender\"."
+       "doc": "The grammatical gender of the string `key` in the current language (\"f\" feminine, \"m\" masculine, \"n\" neuter), from a table entry written {\"text\": \"Ligera\", \"gender\": \"f\"}; \"\" when the string has none or no table has the key. Pass it as args.gender to a select entry (an object with forms f, m, n and other) to get the article or adjective that agrees: i18n.t(\"ship.the\", { name: i18n.t(\"ship.light\"), gender: i18n.gender(\"ship.light\") }) is \"la Ligera\" in Spanish. Throws for a key that is not a string. See docs/LOCALIZATION.md, \"Gender and agreement\"."
       },
       {
        "sig": "readonly language: string",
@@ -4554,6 +4849,12 @@
      "name": "http",
      "type": "HttpAPI",
      "doc": "http.fetch(url, options): HTTP requests to the hosts declared in factoria.json \"network\" (docs/NETWORKING.md)."
+    },
+    {
+     "kind": "const",
+     "name": "websocket",
+     "type": "WebSocketAPI",
+     "doc": "websocket.connect(url, options): WebSocket connections to the hosts declared in factoria.json \"network\", with reconnects (docs/NETWORKING.md, \"WebSocket\")."
     },
     {
      "kind": "const",
@@ -5641,8 +5942,8 @@
        "doc": "Sets a stick (-1..1, +Y up) or trigger (0..1) as the device would; it stays until set again. Bound actions see it after the deadzone, so axis(\"LeftX\", -1) is a full push left."
       },
       {
-       "sig": "connect(info?: { id?: string; name?: string; type?: GamepadType; vendor?: number; product?: number }): void",
-       "doc": "Plugs the pad in (input.gamepad(i).connected becomes true) and raises game.on(\"gamepadConnected\") at the next step. info says who the pad is: its id, name, family and USB ids (0 to 65535); a field left out keeps what the slot had, and without an id one is made from the ids and the name. A mistake throws with a suggestion. Example: game.gamepad(1).connect({ id: \"pad-red\", name: \"Red pad\", type: \"playstation\" })."
+       "sig": "connect(info?: { id?: string; name?: string; type?: GamepadType; vendor?: number; product?: number; canRumble?: boolean }): void",
+       "doc": "Plugs the pad in (input.gamepad(i).connected becomes true) and raises game.on(\"gamepadConnected\") at the next step. info says who the pad is: its id, name, family and USB ids (0 to 65535); a field left out keeps what the slot had, and without an id one is made from the ids and the name. canRumble: true makes input.gamepad(i).canRumble true, to test what a game does with a pad that has motors (a test pad has none unless you say so). A mistake throws with a suggestion. Example: game.gamepad(1).connect({ id: \"pad-red\", name: \"Red pad\", type: \"playstation\" })."
       },
       {
        "sig": "disconnect(): void",
@@ -5720,6 +6021,100 @@
       {
        "sig": "restart(): void",
        "doc": "The next run of the game: what remoteConfig holds in memory is forgotten and it fetches again at its next use, starting from the cache earlier runs left in storage (an unscripted fetch fails: an offline player)."
+      }
+     ]
+    },
+    {
+     "kind": "interface",
+     "name": "TestWebSocketConnection",
+     "doc": "One connection the game made, seen from the scripted server side (game.websocket.connections()).",
+     "members": [
+      {
+       "sig": "index: number",
+       "doc": "The number to pass to the other game.websocket calls: connections count in the order websocket.connect started them, reconnects included."
+      },
+      {
+       "sig": "url: string",
+       "doc": "The address the game asked for."
+      },
+      {
+       "sig": "protocols: string[]",
+       "doc": "The subprotocols the game offered."
+      },
+      {
+       "sig": "headers: Record<string, string>",
+       "doc": "The handshake headers the game set."
+      },
+      {
+       "sig": "open: boolean",
+       "doc": "Accepted and not closed."
+      },
+      {
+       "sig": "closed: boolean",
+       "doc": "Over, whoever closed it. A connection the game never closed but that its scene dropped counts as closed by the game with code 1001."
+      },
+      {
+       "sig": "closedByGame: boolean",
+       "doc": "The game closed it (close(), or its scene ended)."
+      },
+      {
+       "sig": "closeCode: number",
+       "doc": "The code of the game's close, 0 when it did not close."
+      },
+      {
+       "sig": "closeReason: string",
+       "doc": "The reason of the game's close."
+      },
+      {
+       "sig": "received: (string | ArrayBuffer)[]",
+       "doc": "What the game sent, oldest first: a string for a text message, an ArrayBuffer for a binary one."
+      }
+     ]
+    },
+    {
+     "kind": "interface",
+     "name": "TestWebSocket",
+     "doc": "The server side of the game's WebSocket connections in tests (docs/NETWORKING.md, \"Testing\"): every websocket.connect meets a scripted in-memory server, nothing touches the network. The events of an action reach the game at the next game.step(). Connection numbers are the `index` of game.websocket.connections(); an unknown number throws.",
+     "members": [
+      {
+       "sig": "connections(): TestWebSocketConnection[]",
+       "doc": "Every connection made since the last reset(), in order, closed ones included, with what the game sent."
+      },
+      {
+       "sig": "accept(i: number, protocol?: string): void",
+       "doc": "Completes the handshake: the game's \"open\" event. Needed only after autoAccept(false). protocol is the subprotocol the server picks: one the game offered, else it throws."
+      },
+      {
+       "sig": "refuse(i: number, message?: string, httpStatus?: number): void",
+       "doc": "The handshake fails: the game gets an \"error\" event (with httpStatus, e.g. 403) and then \"close\" with code 1006."
+      },
+      {
+       "sig": "send(i: number, data: string | ArrayBuffer | ArrayBufferView): void",
+       "doc": "The server sends a message to the game: text for a string, binary for an ArrayBuffer or typed array."
+      },
+      {
+       "sig": "close(i: number, code?: number, reason?: string): void",
+       "doc": "The server closes cleanly (code 1000 by default): the game gets \"close\" with that code, reason and wasClean true."
+      },
+      {
+       "sig": "drop(i: number, message?: string): void",
+       "doc": "The connection breaks with no closing handshake: \"error\" then \"close\" with code 1006."
+      },
+      {
+       "sig": "autoAccept(on?: boolean): void",
+       "doc": "false: new connections wait for accept(i) or refuse(i) (default true: they open at the next step)."
+      },
+      {
+       "sig": "refuseNext(count?: number, message?: string): void",
+       "doc": "The next `count` connection attempts (default 1) fail like an unreachable server: \"error\" then \"close\" 1006. What a reconnect test needs."
+      },
+      {
+       "sig": "autoCloseReply(i: number, on?: boolean): void",
+       "doc": "false: the server does not answer the game's close() until close(i) is called, so the game stays \"closing\". Default true."
+      },
+      {
+       "sig": "reset(): void",
+       "doc": "Closes the game's connections without events, forgets every connection of the server and restores autoAccept and refuseNext. Every test file starts this way; call it at the start of a test that counts connections."
       }
      ]
     },
@@ -5884,6 +6279,14 @@
        "doc": "Sets the text the next storage load reads, in place of the save file (tests never touch the real storage.json), and drops the data already loaded: storage.get() and storage.corrupt then answer as at a start with that file. Pass a valid JSON object to start from a saved game, or broken text (\"{\"hi\") to test the damaged-save path: storage.corrupt is true and the data is empty. null goes back to an empty storage. Reset before every test file."
       },
       {
+       "sig": "rumbles(): { pad: number; low: number; high: number; seconds: number }[]",
+       "doc": "The requests input.rumble() and input.stopRumble() made since the test started, oldest first (cleared before each test, at most 256): pad, the strengths low and high already clamped to 0..1, and seconds (0 for a stop). They are recorded for any pad, connected or not; what a pad does is rumbleState(pad)."
+      },
+      {
+       "sig": "rumbleState(pad?: number): { low: number; high: number; seconds: number }",
+       "doc": "What the motors of pad (default 0) do now: the strengths and the seconds left (game.step runs it down with the frames' own duration, not scaled by time.scale). All 0 for a pad that is not connected and once the rumble ended by itself, was stopped, or was cut by the game pausing, a scene change or the window losing focus."
+      },
+      {
        "sig": "vibrations(): number[]",
        "doc": "The pulses input.vibrate() asked for since the test started, in seconds, oldest first (cleared before each test)."
       },
@@ -6010,6 +6413,10 @@
       {
        "sig": "readonly remoteConfig: TestRemoteConfig",
        "doc": "The remote config of this test run: game.remoteConfig.restart()."
+      },
+      {
+       "sig": "readonly websocket: TestWebSocket",
+       "doc": "The scripted server of the game's WebSocket connections: game.websocket.connections(), accept(i), send(i, data), close(i), drop(i), refuseNext(n), reset()."
       }
      ]
     },

@@ -1,4 +1,4 @@
-# Networking: `http.fetch`
+# Networking: `http.fetch` and `websocket`
 
 A game can ask a web server for something (a daily challenge, a leaderboard of its own, a remote configuration, a
 news line) and send it a small text. One call does it on every platform:
@@ -20,7 +20,7 @@ calls, so their hosts are declared here too.
 
 This page: [declare the hosts](#1-declare-the-hosts) | [the call](#2-the-call) | [what it never does](#3-limits-and-rules)
 | [testing without a network](#4-testing-with-the-fake) | [replays](#5-replays) | [per platform](#6-per-platform)
-| [privacy](#7-privacy-and-the-stores).
+| [privacy](#7-privacy-and-the-stores) | [WebSocket](#8-websocket).
 
 ## 1. Declare the hosts
 
@@ -221,6 +221,167 @@ A game that calls a server is no longer a game that "sends nothing". What to do:
 - The engine adds **no analytics, no identifiers and no headers of its own** besides what the system's HTTP client sends
   (for example `User-Agent`, `Accept-Encoding`).
 
+## 8. WebSocket
+
+`websocket.connect(url, options?)` opens a connection that stays open: the server and the game send messages to each other
+whenever they like (a chat, a lobby, a live scoreboard, turns of an online game). It lives in the same `network` section:
+the host of a `ws://` or `wss://` address must be in `network.hosts`, exactly like `http.fetch` (the same wildcard rules,
+the same "declares no network hosts" and "did you mean" errors), and the Android `INTERNET` permission that a declared host
+adds covers it.
+
+```js
+import { websocket } from "factoria";
+
+const ws = websocket.connect("wss://game.example.com/room/7", { reconnect: true });
+ws.on("open", (e) => { if (e.reconnected) ws.send(JSON.stringify({ type: "resync" })); });
+ws.on("message", (e) => { if (!e.binary) applyUpdate(JSON.parse(e.data)); });
+ws.on("close", (e) => console.log("closed", e.code, e.reason));
+ws.send(JSON.stringify({ type: "join", name: "Ann" }));  // false until the connection is open
+```
+
+### Which platforms can connect now
+
+**Every player has its WebSocket client.** The shared part (the address checks, the script API, reconnects, the
+protocol code, the test server) is the same everywhere; this table says what each platform connects with:
+
+| Platform | Client | Available |
+|---|---|---|
+| Tests, headless runs, `factoria call`, the MCP server | a scripted in-memory server (`game.websocket`) | yes, nothing touches the network |
+| Windows | WinHTTP's WebSocket API, with the system's certificates and proxy (like `http.fetch`) | yes |
+| macOS, iOS | Network.framework opens the connection (TCP, TLS with the system's certificates, the system's proxy settings as Network.framework applies them); the engine's own WebSocket protocol code does the rest | yes (see "On macOS and iOS" below) |
+| Linux | libcurl, loaded when first needed (like `http.fetch`), opens the connection (the proxy of the environment, TCP, TLS with the system's certificates); the engine's own WebSocket protocol code does the rest | yes, with any libcurl from 7.45 (with or without its own WebSocket support). Without `libcurl.so.4` (or the Steam Runtime's `libcurl-gnutls.so.4`) `websocket.supported` is false and `websocket.unsupportedReason` says why |
+| Android | the engine's own WebSocket protocol code over a socket: `wss://` through Java's `SSLSocket` (JNI; the system's certificates, and the certificate must name the host), `ws://` (localhost only) over a plain socket | yes; built by CI, not yet run on a device. It needs the `INTERNET` permission, which the export adds when `network.hosts` is declared; without it the connection fails with an error that says so. Destroying an open `wss://` connection (a scene change) closes the socket without a close frame, so the server sees 1006 |
+| Web | the browser's `WebSocket` | yes (see below) |
+
+**On the web** the player uses the browser's own `WebSocket`, so a few things differ. There is **no CORS** for WebSocket: the
+browser always sends the page's `Origin` header and it is the *server's* policy to accept or refuse it (a refusal is a 403
+the page cannot see, so it looks like any failed connection). A page loaded over `https://` may only open `wss://`
+addresses (mixed content; some browsers exempt `localhost`). `headers` is an error at `connect` (the browser cannot send
+any). The browser gives no reason for a failed connection, so the `"error"` event lists what to check; `httpStatus` is
+always 0. A message longer than `maxMessageBytes` is checked when the whole message has arrived (the browser buffers it
+first), and the server is closed with 1000 and the reason "message too big", because the browser cannot send 1009 (it only
+sends 1000 and 3000 to 4999). A connection that a scene change destroys closes with no status code (the browser cannot send 1001), and `ws.close()`
+without a code sends 1000. The timeout and the 5 s wait for the server's answer to `close()` are the engine's own timers.
+
+**On macOS and iOS** Network.framework opens the connection (the name lookup, TCP and, for `wss://`, TLS with the
+system's certificates) and the engine's own WebSocket protocol code does the rest, as on Linux and Android: the handshake,
+the messages, the answers to the server's pings (it sends no pings of its own), the `maxMessageBytes` check as the bytes
+arrive, and the closing handshake. So `ws.close()` sends a close frame with the code and reason you gave (no code at all
+when you gave none) and the `"close"` event comes with the server's answer, or after 5 seconds without one as `"error"`
+(it says the server did not answer the close) and `"close"` 1006. A redirect answer to the upgrade is not followed: it
+ends the attempt with an `"error"` whose `httpStatus` is the redirect's. Network.framework is not under App Transport
+Security, so the `ws://` addresses the address rules allow (your own computer) work in an exported iOS app too. On iOS
+the system suspends a game that goes to the background, and its connections usually break with it: the game then gets the `"error"` and `"close"` 1006 events (and `reconnect` takes over,
+if you asked for it), at the latest when it comes back.
+
+Where there is no client (a Linux machine without a libcurl from 7.45), `websocket.supported` is `false` and
+`websocket.unsupportedReason` says why. `websocket.connect` still returns a connection after the usual
+address checks: it fails at the next frame with an `"error"` event and a `"close"` event with code 1006, and does not
+reconnect, so a game written today runs everywhere and simply stays offline. Check `websocket.supported` to show an
+"online play not available" message instead.
+
+On Windows, WinHTTP does part of the protocol itself, which shows in a few places:
+
+- It answers the server's pings, and sends keep-alive frames of its own every 30 seconds while a connection is open.
+- A server whose handshake answer has a wrong `Sec-WebSocket-Accept` may fail with a message that does not name the
+  header.
+- A header value that is not plain ASCII is refused by `websocket.connect` (WinHTTP would send it as 8-bit text, not as
+  the UTF-8 the game wrote): percent-encode it (`encodeURIComponent`) or send it in the first message instead.
+- A connection destroyed (a scene change) while it is in the middle of sending a message closes with code 1001 once
+  that message has gone out. A server that stops reading gets no close frame: after 5 seconds the connection is cut.
+
+### Addresses and options
+
+- **`wss://` only**, plain `ws://` just for `localhost`, `127.x.x.x` and `[::1]` (a server on your own computer, which must
+  be listed in `network.hosts` too). No user name or password in the URL, at most 2048 characters, no spaces. The host must
+  be declared. A mistake in the call throws at once, with what to change.
+- **At most 32 connections** at once.
+
+| Option | Meaning |
+|---|---|
+| `protocols` | An array of subprotocol names to offer (`["chat.v1"]`); the server's choice is `ws.protocol` and `e.protocol` of `"open"`. |
+| `headers` | Extra handshake headers, an object of strings, no line breaks. `Host`, `Upgrade`, `Connection` and `Sec-*` are set by the system and refused. **The browser's `WebSocket` cannot send headers**: a game for the web puts what the server needs in the URL or in the first message. |
+| `timeout` | Seconds for connecting and the handshake together, above 0, at most 120, default 15. |
+| `maxMessageBytes` | The longest message in either direction, default 4 MB, at most 64 MB. A longer incoming message fails the connection: `error`, then `close` with code 1006 (the server is told 1009). |
+| `reconnect` | `true` or `{ maxAttempts: 10, minDelay: 1, maxDelay: 30, factor: 2, jitter: 0.25 }` (what is left out takes these). Default: never. |
+
+### Events
+
+The events of a connection arrive **at the start of an engine frame**, in order, never in the middle of a script and never
+from another thread. `ws.on(event, fn)` returns a function that removes the handler; an unknown event name throws with a
+"did you mean". A handler that throws is reported as a script error and does not stop the others.
+
+| Event | Payload | When |
+|---|---|---|
+| `"open"` | `{ protocol, reconnected }` | The handshake is done. Again after every reconnect (`reconnected: true`). |
+| `"message"` | `{ data, binary }` | One whole message: a string for text, an `ArrayBuffer` for binary. |
+| `"error"` | `{ message, hint, httpStatus }` | It could not connect, the server refused the handshake (`httpStatus` 403, 404...), the stream broke. Always followed by `"close"`. |
+| `"close"` | `{ code, reason, wasClean, willReconnect }` | The end. Code 1006 means no closing handshake happened. |
+| `"reconnecting"` | `{ attempt, delay }` | After a `"close"` with `willReconnect: true`: the next attempt in `delay` seconds. |
+
+`ws.send(data)` takes a string (a text message), an `ArrayBuffer`, a typed array or a `DataView` (a binary message; a view sends the bytes it shows, from its `byteOffset` for its `byteLength`) and returns `true`
+when queued, `false` when the connection is not open (nothing is kept for later; this is how a game notices it is between
+two connections). Data of another type and a message over `maxMessageBytes` throw. `ws.close(code = 1000, reason = "")`
+starts the closing handshake (`code` 1000 or 3000 to 4999, `reason` at most 123 bytes); the `"close"` event follows.
+`ws.readyState` is `"connecting"` (also while waiting to reconnect), `"open"`, `"closing"` or `"closed"`. `ws.close()` while
+it is still `"connecting"` gives `"closing"` at once, and `"closed"` when the `"error"` (which says `close()` came before the
+connection opened) and the `"close"` event (code 1006) arrive; whenever you read the `"close"` event, `readyState` is already
+`"closed"`. A message of any size `maxMessageBytes` allows (up to 64 MB) arrives: the engine keeps at least twice that unread
+before it ends a game that does not read its messages (`"close"` 1008).
+
+### Reconnects
+
+With `reconnect`, a connection that ends without you calling `close()` is opened again: the wait before attempt *n* is
+`min(maxDelay, minDelay * factor^(n-1))` seconds, moved by up to `jitter` of itself so that a thousand players do not come
+back in the same second. The jitter is a pseudo-random sequence seeded by the URL and the number of the connection, so a
+test (and a replay) sees the same delays on every run; the wait is counted in engine time, not wall time. After
+`maxAttempts` failures in a row the connection closes for good (`willReconnect: false`); the count starts again whenever a
+connection opens. `ws.close()`, also inside the `"close"` handler, stops the reconnecting. A platform that has no client never
+reconnects.
+
+### The scene owns its connections
+
+**A scene change closes every connection, with no event**: `readyState` becomes `"closed"` and nothing the old
+scene's server sends is delivered, so a handler never runs for a scene that is gone. Open the connections of a scene
+in that scene (or reopen them in `onStart`). The same happens when the scripts are unloaded. A game that wants one
+connection for the whole run keeps the address and calls `websocket.connect` again after each scene load. Replays do not
+record WebSocket traffic: a replayed run of a game that talks to a server talks to it again.
+
+### Testing
+
+Tests and headless runs use a scripted in-memory server: every `websocket.connect` meets it, and `game.websocket` plays the
+server's side. The events of what you do arrive at the next `game.step()`.
+
+```js
+import { test, expect, game } from "factoria:test";
+import { websocket } from "factoria";
+
+test("the lobby shows the players the server lists", () => {
+  game.websocket.reset();
+  const ws = websocket.connect("wss://game.example.com/lobby");
+  let players = [];
+  ws.on("message", (e) => { players = JSON.parse(e.data).players; });
+  game.step();                                                    // the connection opens
+  game.websocket.send(0, JSON.stringify({ players: ["Ann", "Bob"] }));
+  game.step();
+  expect(players).toEqual(["Ann", "Bob"]);
+  expect(game.websocket.connections()[0].received).toEqual([]);   // what the game sent
+});
+```
+
+| Call | What it does |
+|---|---|
+| `connections()` | Every connection made, in order, reconnects included: `{ index, url, protocols, headers, open, closed, closedByGame, closeCode, closeReason, received }`. |
+| `send(i, data)`, `close(i, code, reason)` | The server sends a message, or closes cleanly. |
+| `drop(i)`, `refuse(i, message, httpStatus)` | The connection breaks (`"error"`, then `"close"` 1006), or the handshake is refused. |
+| `autoAccept(false)`, `accept(i, protocol)` | New connections wait until you accept them. |
+| `refuseNext(count)` | The next `count` attempts fail like an unreachable server: how to test a reconnect. |
+| `autoCloseReply(i, false)` | The server does not answer the game's `close()`: the game stays `"closing"`. |
+| `reset()` | Closes the game's connections without events and forgets the server's side. Call it at the start of a test that counts connections. |
+
+The tests of the engine itself also run the protocol code against a real server on `127.0.0.1` (`engine/platform/tests/`);
+that plain `ws://` client over a POSIX socket is a tool for those tests, and what Android opens its `ws://` addresses with.
+
 ## Troubleshooting
 
 | Message | Fix |
@@ -229,6 +390,8 @@ A game that calls a server is no longer a game that "sends nothing". What to do:
 | `host ... is not declared` | Add the host (or `*.domain`) to `network.hosts`; check the "did you mean". |
 | `plain http:// ... only for localhost` | Use `https://`, or declare `localhost`/`127.0.0.1` for a server on your machine. |
 | `http.fetch ... failed` with code `network` in a test | Nobody scripted an answer: `game.platform.respond("http.fetch", ...)` first. |
+| `declares no network hosts` for `websocket.connect` | The same section serves both: declare the host of the `wss://` address. |
 | `unavailable` | The platform cannot send requests (Linux without libcurl) or the backend is `none`. Check `platform.has("http")` and let the game carry on offline. |
-| Works on desktop, fails in the web build | CORS: the server must allow the page's origin. |
+| Works on desktop, fails in the web build | `http.fetch`: CORS, the server must allow the page's origin. `websocket`: no CORS, but the browser sends the page's `Origin` and the server must accept it; an `https://` page needs `wss://`; the browser's `WebSocket` cannot send `headers`: put what the server needs in the URL or the first message. |
+| `websocket.supported` is false | This machine has no WebSocket client: Linux without libcurl 7.45 or newer; `websocket.unsupportedReason` says why ([section 8](#8-websocket)). |
 | Works on desktop, fails on Android | The `INTERNET` permission (declare `network.hosts`), or plain `http://` (Android blocks it). |

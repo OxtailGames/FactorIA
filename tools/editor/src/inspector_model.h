@@ -7,6 +7,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 #include "fa/core/json.h"
@@ -65,6 +66,30 @@ Result<Json> parse_json_box(const std::string& text);
 // A short message of a failed command's `error` object ("message" and, when there is one, " " + "hint").
 std::string command_error_text(const Json& error);
 
+// ---------------------------------------------------------------------------------------------- several entities
+// The Inspector with several entities selected (docs/EDITOR.md, "Selecting things"). `perEntity[i]` is the component names of
+// the i-th selected entity; entity 0 is the primary.
+struct SharedComponents {
+    std::vector<std::string> shared;                   // on every entity, in the primary's order
+    std::vector<std::pair<std::string, int>> partial;  // on some but not all: the name and how many entities have it
+};
+SharedComponents shared_components(const std::vector<std::vector<std::string>>& perEntity);
+// How one field reads across the selected entities: `values[0]` is the primary's. A number array (a vector, a colour) is
+// compared per number, so `parts[i]` says whether number i differs; `mixed` is true when anything differs.
+struct FieldMix {
+    bool mixed = false;
+    std::vector<bool> parts;  // only for number arrays: one per number of the primary's value
+};
+FieldMix field_mix(const std::vector<Json>& values);
+// What to write to one entity when the user edited a field that showed `shown` (the primary's value) and now holds `edited`.
+// A number array is merged per number: only the numbers the user changed (edited[i] != shown[i]) replace the entity's own, so
+// editing x of a position leaves the y and z that differ between the entities alone. Anything else is `edited` as it is.
+// `forced[i]` (may be shorter or empty) also replaces number i when the user committed it as exactly the value that was shown.
+Json multi_edit_value(const Json& entityCurrent, const Json& shown, const Json& edited,
+                      const std::vector<bool>& forced = {});
+// "3 entities".
+std::string multi_selection_title(size_t count);
+
 // ---------------------------------------------------------------------------------------------- asset fields
 // Whether a project-relative file is of an asset type of FieldInfo::assetType ("texture", "mesh", "audio", "font", "script",
 // "scene", "prefab", "material", "vfx", "any").
@@ -102,8 +127,24 @@ std::string material_build_error(const Json& assetReport, const std::string& mat
 bool tree_matches(std::string_view filter, std::string_view name, std::string_view id);
 // "Name  (id)", or just the id when the entity has no name.
 std::string tree_label(std::string_view name, std::string_view id);
-// The entity JSON a Duplicate spawns: `entityJson` (entity_to_json) without the ids of the entity and its children, so
-// the engine gives the copies new ones, and the name followed by " copy".
-Json duplicate_spec(Json entityJson);
+
+// ---------------------------------------------------------------------------------------------- prefab overrides
+// Questions about the `overrides` array of a `prefab.overrides` result (what the Inspector marks). The where-it-stands entry
+// of the instance root (`placement`) is not an override: it is never marked.
+// The entry of a field of `component` on `entity` that differs from the prefab (a pointer "/name" or deeper, e.g.
+// "/position/0", counts for the field "position"), or null.
+const Json* prefab_field_override(const Json& overrides, std::string_view entity, std::string_view component,
+                                  std::string_view field);
+// True when `component` of `entity` is one the prefab does not have.
+bool prefab_component_added(const Json& overrides, std::string_view entity, std::string_view component);
+// The components of `entity` the prefab has and the instance lost, in the order prefab.overrides lists them (they are not
+// drawn: the entity does not have them, so the header names them and Revert puts them back).
+std::vector<std::string> prefab_removed_components(const Json& overrides, std::string_view entity);
+// How many entries concern `component` of `entity` (the added component itself or its fields).
+int prefab_component_override_count(const Json& overrides, std::string_view entity, std::string_view component);
+// How many entries are real overrides: the placement entry is left out.
+int prefab_override_count(const Json& overrides);
+// The arguments of prefab.revert / prefab.apply; `component` and `field` ("name" or "/name") may be empty.
+Json prefab_edit_args(const std::string& entityId, const std::string& component, const std::string& field);
 
 }  // namespace fa::editor

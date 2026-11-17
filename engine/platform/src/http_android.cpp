@@ -34,45 +34,9 @@ std::string lower(std::string s) {
     return s;
 }
 
-// A Java string as UTF-8 ("" for null).
-std::string to_std(JNIEnv* env, jstring s) {
-    if (!s) return {};
-    const char* chars = env->GetStringUTFChars(s, nullptr);
-    if (!chars) return {};
-    std::string out(chars);
-    env->ReleaseStringUTFChars(s, chars);
-    return out;
-}
+std::string to_std(JNIEnv* env, jstring s) { return android_string(env, s); }
 
 jstring to_java(JNIEnv* env, const std::string& s) { return env->NewStringUTF(s.c_str()); }
-
-// The pending exception's class name and message, cleared.
-struct JavaError {
-    std::string cls, message;
-};
-JavaError take_exception(JNIEnv* env) {
-    JavaError e;
-    jthrowable ex = env->ExceptionOccurred();
-    env->ExceptionClear();
-    if (!ex) return e;
-    jclass throwable = env->FindClass("java/lang/Throwable");
-    jclass classClass = env->FindClass("java/lang/Class");
-    if (throwable && classClass) {
-        jmethodID getClass = env->GetMethodID(throwable, "getClass", "()Ljava/lang/Class;");
-        jmethodID getMessage = env->GetMethodID(throwable, "getMessage", "()Ljava/lang/String;");
-        jmethodID getName = env->GetMethodID(classClass, "getName", "()Ljava/lang/String;");
-        if (getClass && getName) {
-            if (jobject c = env->CallObjectMethod(ex, getClass)) {
-                e.cls = to_std(env, static_cast<jstring>(env->CallObjectMethod(c, getName)));
-                env->DeleteLocalRef(c);
-            }
-        }
-        if (getMessage) e.message = to_std(env, static_cast<jstring>(env->CallObjectMethod(ex, getMessage)));
-        env->ExceptionClear();
-    }
-    env->DeleteLocalRef(ex);
-    return e;
-}
 
 std::string host_of(const std::string& url) {
     std::size_t start = url.find("://");
@@ -152,7 +116,7 @@ HttpResponse perform(const HttpRequest& req) {
     HttpResponse result;
     bool failed = false;
     const auto fail_java = [&] {
-        result = java_error(take_exception(env), host, req.timeoutSec);
+        result = java_error(android_take_exception(env), host, req.timeoutSec);
         failed = true;
     };
 

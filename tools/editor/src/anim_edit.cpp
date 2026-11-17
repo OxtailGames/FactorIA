@@ -23,7 +23,7 @@ namespace fa::editor {
 
 namespace {
 
-bool is_clip_entry(const Json& j) { return j.is_object() && j.contains("$clip"); }
+bool is_clip_entry(const UndoEntry& e) { return e.is_special("$clip"); }
 
 void collect_bones(const World& w, Entity e, std::vector<Entity>& out) {
     if (w.has<Bone2D>(e)) out.push_back(e);
@@ -221,14 +221,14 @@ bool Editor::anim_edit(const std::string& key, const std::vector<ModelCall>& cal
     }
     if (!undoArgs.is_null()) {
         const bool coalesce =
-            key == lastEditKey_ && (time_ - lastEditTime_) < 0.8 && !undo_.empty() && is_clip_entry(undo_.back());
+            edit_coalesces(key, lastEditKey_, time_, lastEditTime_) && !undo_.empty() && is_clip_entry(undo_.back());
         if (!coalesce) {
             undo_.push_back(Json::object({{"$clip", undoArgs}}));
-            if (undo_.size() > 100) undo_.erase(undo_.begin());
             redo_.clear();
         }
         lastEditKey_ = key;
         lastEditTime_ = time_;
+        lastEditKind_ = UndoEntry::Kind::Special;  // a clip entry: neither a snapshot nor a command edit merges into it
         anim_.dirtyPose = true;
         anim_.ghostKey.clear();
     }
@@ -255,9 +255,8 @@ void Editor::anim_apply_clip_undo(const Json& entry, bool forward) {
 
 void Editor::anim_cancel_step() {
     if (undo_.empty() || !is_clip_entry(undo_.back())) return;
-    const Json entry = std::move(undo_.back());
-    undo_.pop_back();
-    if (engine_) (void)engine_->commands().call("anim.restore", entry["$clip"]);
+    const UndoEntry entry = undo_.take_back();
+    if (engine_) (void)engine_->commands().call("anim.restore", entry.data["$clip"]);
     lastEditKey_.clear();
     anim_.dirtyPose = true;
     anim_.ghostKey.clear();

@@ -3,10 +3,13 @@
 (Agents making a GAME with FactorIA: read the AGENTS.md generated inside the
 game project instead, or `factoria docs ai-guide`.)
 
-`docs/ARCHITECTURE.md` explains the modules, conventions and the command/reflection systems everything is built on.
-It is long: list its headings (`grep -n '^#' docs/ARCHITECTURE.md`), always read "Design principles", "Repository
-layout", "Reflection", "Commands" and "Testing", and then the sections your task touches (threads, loading, files,
-rendering...).
+`docs/design/ARCHITECTURE.md` explains the modules, conventions and the command/reflection systems everything is built on.
+It is split into pages (`docs/design/ARCHITECTURE_*.md`, each under 60 KB; the entry page lists them): list the headings
+(`grep -n '^#' docs/design/ARCHITECTURE*.md`), always read "Design principles", "Repository layout" and "Testing" (entry
+page), "Reflection" (ARCHITECTURE_CORE.md) and "Commands" (ARCHITECTURE_COMMANDS.md), and then the sections your task
+touches (threads and loading: ARCHITECTURE_THREADS.md; files: ARCHITECTURE_FILES.md; rendering: ARCHITECTURE_RENDERING.md;
+animation, UI, platform services, docs: ARCHITECTURE_RUNTIME.md). Every doc over about 60 KB is split into pages the same
+way (docs/design/BUILDING.md, EXTENDING.md and the rest; a test enforces it).
 
 ## Build & test (Linux; same commands on macOS/Windows with their presets)
 
@@ -18,14 +21,14 @@ ctest --test-dir build/dev --output-on-failure
 
 - The example games' tests (`example_*`, ctest label `example`) run the whole engine for minutes, so they are DISABLED
   in a Debug build and run on a Release one: `ctest -L example` in a Release build dir (`FA_EXAMPLE_TESTS`,
-  docs/BUILDING.md). `scripts/test-all.sh` does both: Debug build of every target + the Debug suite, then a Release
+  docs/design/BUILDING_TESTS.md, "Running tests"). `scripts/test-all.sh` does both: Debug build of every target + the Debug suite, then a Release
   build of `factoria` + `ctest -L example` (`--debug-only` / `--examples-only` for one half). Script time limits (60 s
   per test, 5 s eval, 2 s callbacks) count CPU time, so a loaded machine does not fail them.
 - One module's tests: `cmake --build build/dev --target fa_test_core`.
 - Agents (Linux, macOS): `scripts/agent-build.sh build/agent-<name> [--target fa_test_core] [--tests core | --test]
   [--examples]` configures the first time, builds and tests, and prints only errors, distinct warnings, failing tests
   and ctest's summary (full logs in the build dir). It returns within 100 s: when its last line says `RUNNING`, call it
-  again with `--wait` until it says `DONE` (docs/BUILDING.md, "Linux and macOS, short output"). `DONE INCOMPLETE`
+  again with `--wait` until it says `DONE` (docs/design/BUILDING_SCRIPTS.md, "Linux and macOS, short output"). `DONE INCOMPLETE`
   (a Mac whose displays are asleep) is not a pass: nothing failed, but the tests that open a window did not run, so
   they need the display awake or CI. Its Debug tree is built with `-O1 -g1` (assertions on, the suite in less than
   half the time); a debugger session needs a plain Debug tree.
@@ -36,8 +39,12 @@ ctest --test-dir build/dev --output-on-failure
   [-Target fa_test_core] [-Tests core | -Test] [-Examples]`.
 - GPU code without a display: headless EGL works with Mesa (llvmpipe). Windowed code: `xvfb-run -a -s "-screen 0
   1280x720x24" <cmd>`.
-- Each agent uses its OWN build dir (`build/agent-<name>`) and builds with `-j8` (at most three agents building at
-  once; fewer jobs under 16 hardware threads). ccache (docs/BUILDING.md): with GCC/Clang every checkout and worktree
+- Each agent uses its OWN build dir (`build/agent-<name>`). At most THREE agents build or test at once on the machine,
+  never more, even when the user asks for speed: "as fast as possible" means as fast as the computer stays usable
+  (twelve at once froze the user's Mac and it had to be restarted). `scripts/agent-build.sh` enforces it (a fourth job
+  waits for a slot, `FA_AGENT_MAX_JOBS`) and picks each job's `-j` from the CPU count; the orchestrator still launches
+  at most three building workers and queues the rest, starting one as each ends (reviewers and researchers that only
+  read do not count). ccache (docs/design/BUILDING.md, "Troubleshooting"): with GCC/Clang every checkout and worktree
   shares one cache; with MSVC each checkout keeps its own. Run the final full `ctest` while no other build runs: some
   tests are timing-sensitive.
 - Other platforms locally: `scripts/ci-local.sh linux windows` runs the Linux job and a Windows build (MinGW-w64 +
@@ -59,7 +66,7 @@ ctest --test-dir build/dev --output-on-failure
 - Module dependency order; a module never includes a module below it:
   `core -> scene -> platform -> render, physics, audio, ui, services -> script -> runtime -> authoring -> tooling -> mcp, dap, ai -> editor -> cli`.
   `engine/` ships in every game; `tools/authoring` (`fa_authoring`) holds the commands only the editor, CLI and MCP need
-  (they write project files, import assets, edit animations): never add one to `engine/runtime` (docs/ARCHITECTURE.md,
+  (they write project files, import assets, edit animations): never add one to `engine/runtime` (docs/design/ARCHITECTURE.md,
   "Where a command goes").
 - No exceptions across module boundaries (except `fa::CommandError` inside command handlers). Use `fa::Result<T>`
   with message + hint.
@@ -106,7 +113,7 @@ ctest --test-dir build/dev --output-on-failure
   - `fast` (`haiku`): code searches, docs and typings regeneration, ENGINE_FEEDBACK/ROADMAP bookkeeping, renames.
 - **What a package costs.** A subagent's quota is its turns times its context (every turn sends the whole context
   again), not the token count the Agent tool reports; `python3 scripts/agent-usage.py` prints a session's real numbers
-  (docs/BUILDING.md, "What the agents cost"). The workers are two thirds to three quarters of a milestone, the
+  (docs/design/BUILDING.md, "What the agents cost"). The workers are two thirds to three quarters of a milestone, the
   reviewers an eighth, the orchestrator the rest. A worker that ends within ~150 turns fills its context once at
   most; one that fills it again and again costs several times an average worker and forgets details at each
   summary. So split until every package is S or M: one module or one slice of a feature, with a brief that names the
@@ -141,7 +148,7 @@ progress.
   the older minor versions live in `changelog/0.<n>.md`, so move the previous minor's sections there and link it; a test
   fails otherwise), set README.md's "Version x.y" line to the new minor and README.es.md's "al día en la versión x.y"
   note with it (a test compares both with CMakeLists.txt), replace every
-  `"unreleased"` in tools/common/api_since.json with it and regenerate the docs and typings (docs/ARCHITECTURE.md,
+  `"unreleased"` in tools/common/api_since.json with it and regenerate the docs and typings (docs/design/ARCHITECTURE_CORE.md,
   "Versions"). The user sees it in the window title and at the right end of the editor's menu bar.
 - Before the push: `scripts/ci-preflight.sh --lint-only` (the risk scan and what CI's `lint` job runs: format,
   clang-tidy on the changed sources, the CI cache keys and test split; minutes, no build), the Debug build of every

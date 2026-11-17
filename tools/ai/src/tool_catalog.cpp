@@ -227,13 +227,17 @@ Json describe_commands(const CommandRegistry& registry, const std::vector<std::s
             continue;
         }
         if (!done.insert(info->name).second) continue;
-        commands.push_back(Json::object({{"name", info->name},
-                                         {"tool", tool_name_for_command(info->name)},
-                                         {"category", info->category},
-                                         {"summary", info->summary},
-                                         {"description", info->full_description()},
-                                         {"readOnly", is_read_only_tool(*info)},
-                                         {"inputSchema", info->inputSchema}}));
+        Json def = Json::object({{"name", info->name},
+                                 {"tool", tool_name_for_command(info->name)},
+                                 {"category", info->category},
+                                 {"summary", info->summary},
+                                 {"description", info->full_description()},
+                                 {"readOnly", is_read_only_tool(*info)},
+                                 {"inputSchema", info->inputSchema}});
+        // {since, use, note, removedIn, summary}, the same object as the MCP server's tool_describe.
+        if (Json deprecated = deprecation_json("commands", info->name); !deprecated.is_null())
+            def["deprecated"] = std::move(deprecated);
+        commands.push_back(std::move(def));
     }
     ok = !commands.empty();
     Json out = Json::object({{"commands", commands}});

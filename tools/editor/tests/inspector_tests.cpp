@@ -230,18 +230,6 @@ TEST_CASE("hierarchy: the search box matches every word in the name or the id") 
     CHECK(tree_label("e7", "e7") == "e7");
 }
 
-TEST_CASE("hierarchy: Duplicate spawns the entity and its children under new ids") {
-    const Json src = Json::parse(R"({"id":"squad","name":"Squad","components":{"Transform":{"position":[1,2,0]}},
-      "children":[{"id":"gunner","name":"Gunner"}]})");
-    const Json copy = duplicate_spec(src);
-    CHECK_FALSE(copy.contains("id"));
-    CHECK(copy["name"] == "Squad copy");
-    CHECK_FALSE(copy["children"][0].contains("id"));
-    CHECK(copy["children"][0]["name"] == "Gunner");
-    CHECK(copy["components"]["Transform"]["position"][0] == 1);
-    CHECK(duplicate_spec(Json::parse(R"({"id":"x"})"))["name"] == "Entity copy");
-}
-
 TEST_CASE("inspector: a big typed array (a 512 x 512 Tilemap) is summarised, not copied into the JSON every frame") {
     World w;
     Entity e = w.create("map", "map");
@@ -258,4 +246,98 @@ TEST_CASE("inspector: a big typed array (a 512 x 512 Tilemap) is summarised, not
     for (int i = 0; i < 600; ++i) longArray.push_back(i);
     CHECK(inspector_array_length(longArray) == std::size_t(600));
     CHECK(tm.tiles.version() == version);  // building the JSON only reads
+}
+
+// ------------------------------------------------------------------------------- several entities selected
+TEST_CASE("shared_components: what every entity has, what only some have, in first-seen order") {
+    const SharedComponents sc = shared_components({{"EntityInfo", "Transform", "Sprite"},
+                                                   {"EntityInfo", "Transform", "Sprite", "Collider2D"},
+                                                   {"EntityInfo", "Transform"}});
+    CHECK(sc.shared == std::vector<std::string>{"EntityInfo", "Transform"});
+    REQUIRE(sc.partial.size() == 2);
+    CHECK(sc.partial[0] == std::make_pair(std::string("Sprite"), 2));
+    CHECK(sc.partial[1] == std::make_pair(std::string("Collider2D"), 1));
+    // one entity: all shared; none: nothing
+    CHECK(shared_components({{"A", "B"}}).shared == std::vector<std::string>{"A", "B"});
+    CHECK(shared_components({}).shared.empty());
+    // the primary's order wins for shared components
+    CHECK(shared_components({{"B", "A"}, {"A", "B"}}).shared == std::vector<std::string>{"B", "A"});
+}
+
+TEST_CASE("field_mix: equal values are not mixed, a differing number array says which numbers differ") {
+    CHECK_FALSE(field_mix({Json(3), Json(3), Json(3)}).mixed);
+    CHECK(field_mix({Json(3), Json(3), Json(4)}).mixed);
+    CHECK_FALSE(field_mix({Json("a")}).mixed);
+    CHECK(field_mix({Json("a"), Json("b")}).mixed);
+    CHECK(field_mix({Json(true), Json(false)}).mixed);
+    const FieldMix pos = field_mix({Json::array({1, 2, 3}), Json::array({1, 5, 3}), Json::array({1, 2, 3})});
+    CHECK(pos.mixed);
+    REQUIRE(pos.parts.size() == 3);
+    CHECK_FALSE(pos.parts[0]);
+    CHECK(pos.parts[1]);
+    CHECK_FALSE(pos.parts[2]);
+    const FieldMix same = field_mix({Json::array({1, 2}), Json::array({1, 2})});
+    CHECK_FALSE(same.mixed);
+    CHECK_FALSE(same.parts[0]);
+    // arrays of another length cannot be compared number by number: every number is mixed
+    const FieldMix odd = field_mix({Json::array({1, 2}), Json::array({1})});
+    CHECK(odd.mixed);
+    CHECK(odd.parts[0]);
+    CHECK(odd.parts[1]);
+}
+
+TEST_CASE("multi_edit_value: an edited number replaces only that number of each entity's own vector") {
+    const Json shown = Json::array({1, 2, 3});   // the primary's position
+    const Json edited = Json::array({1, 2, 9});  // the user dragged z
+    CHECK(multi_edit_value(Json::array({7, 8, 3}), shown, edited) == Json::array({7, 8, 9}));
+    CHECK(multi_edit_value(Json::array({1, 2, 3}), shown, edited) == Json::array({1, 2, 9}));
+    // scalars, strings and arrays of another shape are written as they were edited
+    CHECK(multi_edit_value(Json(5), Json(1), Json(2)) == Json(2));
+    CHECK(multi_edit_value(Json("x"), Json("a"), Json("b")) == Json("b"));
+    CHECK(multi_edit_value(Json::array({1}), shown, edited) == edited);
+}
+
+TEST_CASE("multi_selection_title") {
+    CHECK(multi_selection_title(3) == "3 entities");
+    CHECK(multi_selection_title(12) == "12 entities");
+}
+
+TEST_CASE("prefab overrides: the Inspector marks what prefab.overrides lists, and not where the instance stands") {
+    const Json list = Json::parse(R"([
+        {"kind":"field","entity":"a","component":"Sprite","field":"/layer","value":9,"prefabValue":1},
+        {"kind":"field","entity":"a","component":"Transform","field":"/position","value":[7,8,0],"prefabValue":[0,0,0],"placement":true},
+        {"kind":"field","entity":"title","component":"Transform","field":"/position/0","value":3,"prefabValue":0},
+        {"kind":"component","entity":"ok","component":"Shape2D","value":{"layer":4}},
+        {"kind":"removedComponent","entity":"ok","component":"Text","prefabValue":{"text":"OK"}},
+        {"kind":"child","entity":"extra"}])");
+    CHECK(prefab_override_count(list) == 5);
+    CHECK(prefab_removed_components(list, "ok") == std::vector<std::string>{"Text"});
+    CHECK(prefab_removed_components(list, "a").empty());
+    CHECK(prefab_removed_components(Json(), "a").empty());
+    CHECK_FALSE(prefab_component_added(list, "ok", "Text"));
+    CHECK(prefab_component_override_count(list, "ok", "Text") == 1);
+    const Json* layer = prefab_field_override(list, "a", "Sprite", "layer");
+    REQUIRE(layer);
+    CHECK((*layer)["prefabValue"] == 1);
+    CHECK(prefab_field_override(list, "a", "Sprite", "color") == nullptr);
+    CHECK(prefab_field_override(list, "b", "Sprite", "layer") == nullptr);
+    CHECK(prefab_field_override(list, "a", "Transform", "position") == nullptr);  // placement
+    CHECK(prefab_field_override(list, "title", "Transform", "position") !=
+          nullptr);  // a deeper pointer marks its field
+    CHECK(prefab_field_override(list, "title", "Transform", "pos") == nullptr);
+    CHECK(prefab_component_added(list, "ok", "Shape2D"));
+    CHECK_FALSE(prefab_component_added(list, "a", "Sprite"));
+    CHECK(prefab_component_override_count(list, "ok", "Shape2D") == 1);
+    CHECK(prefab_component_override_count(list, "a", "Transform") == 0);
+    CHECK(prefab_field_override(Json(), "a", "Sprite", "layer") == nullptr);
+    CHECK(prefab_override_count(Json()) == 0);
+}
+
+TEST_CASE("prefab overrides: revert and apply are the commands' own arguments") {
+    CHECK(prefab_edit_args("a", "", "") == Json::parse(R"({"id":"a"})"));
+    CHECK(prefab_edit_args("a", "Sprite", "") == Json::parse(R"({"id":"a","component":"Sprite"})"));
+    CHECK(prefab_edit_args("a", "Sprite", "layer") ==
+          Json::parse(R"({"id":"a","component":"Sprite","field":"/layer"})"));
+    CHECK(prefab_edit_args("a", "Sprite", "/layer") ==
+          Json::parse(R"({"id":"a","component":"Sprite","field":"/layer"})"));
 }

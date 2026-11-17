@@ -16,16 +16,26 @@
 // are looked up once; a check allocates nothing on the C++ side. If JNI fails the pads keep working with the
 // "layout unknown" behaviour and keep their slots (see android_gamepads.h). UNTESTED on a device: the decisions are
 // unit-tested (android_gamepads.cpp), this glue is only compiled by CI.
+//
+// Rumble (the two gamepad_backend_rumble* hooks at the end) also goes through JNI, on the same loop thread, once per
+// request and not per frame. A pad's motors are the vibrators of its InputDevice: API 31+ has getVibratorManager() (one
+// vibrator: a combined effect; two: low on the first and high on the second, as one CombinedVibration), API 26-30 has
+// getVibrator(). The question "can this pad rumble" is asked once per Android device id and cached. Rumble needs no more
+// permission than the manifest already has (VIBRATE, for input.vibrate()); the framework's input-device vibrators do not
+// check it, as far as the documentation says. Also unverified on a device.
 #include <android/input.h>
 #include <android/keycodes.h>
 
+#include <algorithm>
 #include <chrono>
 #include <mutex>
 #include <string>
 
 #include "android_jni.h"
+#include "fa/core/log.h"
 #include "fa/platform/android_gamepads.h"
 #include "fa/platform/gamepad.h"
+#include "fa/platform/gamepad_rumble_map.h"
 
 namespace fa {
 
@@ -156,6 +166,8 @@ DeviceState query_device(JNIEnv* env, int deviceId, AndroidAxisCaps* caps, Gamep
     return DeviceState::Present;
 }
 
+void forget_gone_pad_rumble(int slot);  // defined with the rumble state below
+
 // One pass over the pads: release the unplugged ones, give the new ones their layout. The JNI calls run outside the lock.
 void check_devices() {
     int ids[kMaxGamepads];
@@ -185,9 +197,11 @@ void check_devices() {
     std::lock_guard<std::mutex> lock(g_mutex);
     for (int i = 0; i < kMaxGamepads; ++i) {
         if (ids[i] < 0) continue;
-        if (states[i] == DeviceState::Gone)
+        if (states[i] == DeviceState::Gone) {
             g_pads.release_device(ids[i]);
-        else if (wantsLayout[i]) {  // Unknown: JNI failed, ask no more and let the pad use the layout-unknown behaviour
+            forget_gone_pad_rumble(i);
+        } else if (wantsLayout[i]) {
+            // (Unknown: JNI failed, ask no more and let the pad use the layout-unknown behaviour)
             if (states[i] == DeviceState::Present)
                 g_pads.set_info(ids[i], infos[i]);
             else  // no name, no ids: the pad is "a gamepad, Android device N"
@@ -198,6 +212,264 @@ void check_devices() {
                               states[i] == DeviceState::Present ? android_layout_for(caps[i]) : AndroidLayout{});
         }
     }
+}
+
+// ---- rumble: android.os.Vibrator / VibratorManager of the InputDevice ---------------------------------------------------
+struct VibratorJni {
+    jclass vibrationEffect = nullptr, combined = nullptr;  // global references (they have static methods)
+    jmethodID getVibratorManager = nullptr;                // InputDevice.getVibratorManager(): API 31+, null before
+    jmethodID getVibrator = nullptr;                       // InputDevice.getVibrator()
+    jmethodID getVibratorIds = nullptr, managerVibrate = nullptr, managerCancel = nullptr;  // VibratorManager (API 31)
+    jmethodID createParallel = nullptr, startParallel = nullptr, addVibrator = nullptr, combine = nullptr;
+    jmethodID createOneShot = nullptr;  // VibrationEffect.createOneShot(long, int), API 26
+    jmethodID hasVibrator = nullptr, vibrate = nullptr, cancel = nullptr;  // Vibrator
+    bool ready = false, failed = false;
+};
+VibratorJni g_vib;
+
+jclass find_class(JNIEnv* env, const char* name) {  // a local reference, or null when the class does not exist
+    jclass local = env->FindClass(name);
+    return android_clear_exception(env) ? nullptr : local;
+}
+jclass global_class(JNIEnv* env, const char* name) {
+    jclass local = find_class(env, name);
+    if (!local) return nullptr;
+    auto global = static_cast<jclass>(env->NewGlobalRef(local));
+    env->DeleteLocalRef(local);
+    return global;
+}
+
+bool init_vibrator_jni(JNIEnv* env) {
+    if (g_vib.ready) return true;
+    if (g_vib.failed) return false;
+    VibratorJni v;
+    // The minimum API is 26, so VibrationEffect, Vibrator and InputDevice.getVibrator() always exist; the manager is 31+.
+    jclass inputDevice = find_class(env, "android/view/InputDevice");
+    jclass vibrator = find_class(env, "android/os/Vibrator");
+    v.vibrationEffect = global_class(env, "android/os/VibrationEffect");  // the classes that are called statically stay
+    if (!inputDevice || !vibrator || !v.vibrationEffect) {
+        if (inputDevice) env->DeleteLocalRef(inputDevice);
+        if (vibrator) env->DeleteLocalRef(vibrator);
+        if (v.vibrationEffect) env->DeleteGlobalRef(v.vibrationEffect);
+        g_vib.failed = true;
+        FA_INFO("gamepad",
+                "pad rumble: Android's vibrator classes could not be reached through JNI, no pad can rumble");
+        return false;
+    }
+    // A missing method throws NoSuchMethodError: clear it after every lookup, so the next one is not made with an exception pending.
+    v.getVibrator = env->GetMethodID(inputDevice, "getVibrator", "()Landroid/os/Vibrator;");
+    android_clear_exception(env);
+    v.hasVibrator = env->GetMethodID(vibrator, "hasVibrator", "()Z");
+    android_clear_exception(env);
+    v.vibrate = env->GetMethodID(vibrator, "vibrate", "(Landroid/os/VibrationEffect;)V");
+    android_clear_exception(env);
+    v.cancel = env->GetMethodID(vibrator, "cancel", "()V");
+    android_clear_exception(env);
+    v.createOneShot = env->GetStaticMethodID(v.vibrationEffect, "createOneShot", "(JI)Landroid/os/VibrationEffect;");
+    android_clear_exception(env);
+    const bool basic = v.getVibrator && v.hasVibrator && v.vibrate && v.cancel && v.createOneShot;
+    // The manager classes exist on API 31+ only: a missing one is not an error.
+    if (basic) {
+        jclass manager = find_class(env, "android/os/VibratorManager");
+        v.combined = manager ? global_class(env, "android/os/CombinedVibration") : nullptr;
+        jclass parallel = v.combined ? find_class(env, "android/os/CombinedVibration$ParallelCombination") : nullptr;
+        if (manager && v.combined && parallel) {
+            v.getVibratorManager =
+                env->GetMethodID(inputDevice, "getVibratorManager", "()Landroid/os/VibratorManager;");
+            android_clear_exception(env);
+            v.getVibratorIds = env->GetMethodID(manager, "getVibratorIds", "()[I");
+            android_clear_exception(env);
+            v.managerVibrate = env->GetMethodID(manager, "vibrate", "(Landroid/os/CombinedVibration;)V");
+            android_clear_exception(env);
+            v.managerCancel = env->GetMethodID(manager, "cancel", "()V");
+            android_clear_exception(env);
+            v.createParallel = env->GetStaticMethodID(v.combined, "createParallel",
+                                                      "(Landroid/os/VibrationEffect;)Landroid/os/CombinedVibration;");
+            android_clear_exception(env);
+            v.startParallel = env->GetStaticMethodID(v.combined, "startParallel",
+                                                     "()Landroid/os/CombinedVibration$ParallelCombination;");
+            android_clear_exception(env);
+            v.addVibrator = env->GetMethodID(parallel, "addVibrator",
+                                             "(ILandroid/os/VibrationEffect;)"
+                                             "Landroid/os/CombinedVibration$ParallelCombination;");
+            android_clear_exception(env);
+            v.combine = env->GetMethodID(parallel, "combine", "()Landroid/os/CombinedVibration;");
+            android_clear_exception(env);
+            if (!v.getVibratorManager || !v.getVibratorIds || !v.managerVibrate || !v.managerCancel ||
+                !v.createParallel || !v.startParallel || !v.addVibrator || !v.combine)
+                v.getVibratorManager = nullptr;  // use getVibrator() only
+        }
+        if (manager) env->DeleteLocalRef(manager);
+        if (parallel) env->DeleteLocalRef(parallel);
+    }
+    if (inputDevice) env->DeleteLocalRef(inputDevice);
+    if (vibrator) env->DeleteLocalRef(vibrator);
+    if (!v.getVibratorManager && v.combined) {  // no usable manager: its class reference is not needed
+        env->DeleteGlobalRef(v.combined);
+        v.combined = nullptr;
+    }
+    if (!basic) {
+        if (v.vibrationEffect) env->DeleteGlobalRef(v.vibrationEffect);
+        if (v.combined) env->DeleteGlobalRef(v.combined);
+        g_vib.failed = true;
+        FA_INFO("gamepad",
+                "pad rumble: the Vibrator methods of this Android could not be found through JNI, no pad can rumble");
+        return false;
+    }
+    g_vib = v;
+    g_vib.ready = true;
+    return true;
+}
+
+// What a pad's motors are, asked once per Android device id.
+struct PadRumble {
+    int deviceId = -1;  // the device this answer is for
+    bool can = false;
+    std::string why;
+    int vibrators = 0;     // via the manager: how many (1 = combined, 2 or more: low and high)
+    jint ids[2] = {0, 0};  // the first two vibrator ids of the manager
+    bool viaManager = false;
+    bool playing = false;
+};
+// g_rumble is read and written only on the frame thread (poll_gamepads -> check_devices -> forget_gone_pad_rumble, and the
+// rumble backend calls from apply_gamepad_rumble): the input callback never touches it. g_mutex guards g_pads, which that
+// callback shares, so it is held only where g_pads is read.
+PadRumble g_rumble[kMaxGamepads];
+
+// A pad went (its slot is free): its answer is dropped, so a pad that comes back with a reused device id is asked again. One that
+// was shaking keeps it until the stop that apply_gamepad_rumble sends reaches the vibrator (gamepad_backend_rumble drops it then).
+void forget_gone_pad_rumble(int slot) {
+    if (!g_rumble[slot].playing) g_rumble[slot] = PadRumble{};
+}
+
+void probe_rumble(JNIEnv* env, int deviceId, PadRumble& r) {
+    r = PadRumble{};
+    r.deviceId = deviceId;
+    if (!init_vibrator_jni(env)) {
+        r.why = "Android's vibrator classes could not be reached through JNI";
+        return;
+    }
+    jobject device = env->CallStaticObjectMethod(g_jni.cls, g_jni.getDevice, jint(deviceId));
+    if (android_clear_exception(env) || !device) {
+        r.why = "Android no longer lists this pad";
+        return;
+    }
+    if (g_vib.getVibratorManager) {  // API 31+
+        jobject manager = env->CallObjectMethod(device, g_vib.getVibratorManager);
+        if (!android_clear_exception(env) && manager) {
+            auto ids = static_cast<jintArray>(env->CallObjectMethod(manager, g_vib.getVibratorIds));
+            if (!android_clear_exception(env) && ids) {
+                const jsize n = env->GetArrayLength(ids);
+                if (n > 0) {
+                    jint first[2] = {0, 0};
+                    env->GetIntArrayRegion(ids, 0, std::min<jsize>(n, 2), first);
+                    if (!android_clear_exception(env)) {
+                        r.can = r.viaManager = true;
+                        r.vibrators = n;
+                        r.ids[0] = first[0];
+                        r.ids[1] = n > 1 ? first[1] : first[0];
+                    }
+                }
+                env->DeleteLocalRef(ids);
+            }
+            env->DeleteLocalRef(manager);
+        }
+    }
+    if (!r.can) {  // API 26-30, or a manager with no vibrators
+        jobject vibrator = env->CallObjectMethod(device, g_vib.getVibrator);
+        if (!android_clear_exception(env) && vibrator) {
+            if (env->CallBooleanMethod(vibrator, g_vib.hasVibrator) && !android_clear_exception(env)) {
+                r.can = true;
+                r.vibrators = 1;
+            }
+            android_clear_exception(env);
+            env->DeleteLocalRef(vibrator);
+        }
+    }
+    env->DeleteLocalRef(device);
+    if (!r.can)
+        r.why =
+            "Android reports no vibration motor for this pad (InputDevice.getVibratorManager() and getVibrator() find "
+            "none: many pads, above all over Bluetooth, do not expose their rumble motors to Android)";
+}
+
+// Cancels what plays on the pad's vibrators.
+bool cancel_rumble(JNIEnv* env, int deviceId, const PadRumble& r) {
+    jobject device = env->CallStaticObjectMethod(g_jni.cls, g_jni.getDevice, jint(deviceId));
+    if (android_clear_exception(env) || !device) return false;
+    bool ok = false;
+    if (r.viaManager) {
+        if (jobject manager = env->CallObjectMethod(device, g_vib.getVibratorManager);
+            !android_clear_exception(env) && manager) {
+            env->CallVoidMethod(manager, g_vib.managerCancel);
+            ok = !android_clear_exception(env);
+            env->DeleteLocalRef(manager);
+        }
+    } else if (jobject vibrator = env->CallObjectMethod(device, g_vib.getVibrator);
+               !android_clear_exception(env) && vibrator) {
+        env->CallVoidMethod(vibrator, g_vib.cancel);
+        ok = !android_clear_exception(env);
+        env->DeleteLocalRef(vibrator);
+    }
+    env->DeleteLocalRef(device);
+    return ok;
+}
+
+jobject one_shot(JNIEnv* env, long long millis, int amplitude) {
+    jobject effect =
+        env->CallStaticObjectMethod(g_vib.vibrationEffect, g_vib.createOneShot, jlong(millis), jint(amplitude));
+    return android_clear_exception(env) ? nullptr : effect;
+}
+
+bool start_rumble(JNIEnv* env, int deviceId, const PadRumble& r, const AndroidRumble& plan) {
+    jobject device = env->CallStaticObjectMethod(g_jni.cls, g_jni.getDevice, jint(deviceId));
+    if (android_clear_exception(env) || !device) return false;
+    bool ok = false;
+    if (r.viaManager) {
+        jobject manager = env->CallObjectMethod(device, g_vib.getVibratorManager);
+        if (!android_clear_exception(env) && manager) {
+            jobject combined = nullptr;
+            if (r.vibrators <= 1) {  // one vibrator: one effect on it
+                if (jobject effect = one_shot(env, plan.millis, plan.amplitude[0])) {
+                    combined = env->CallStaticObjectMethod(g_vib.combined, g_vib.createParallel, effect);
+                    env->DeleteLocalRef(effect);
+                }
+            } else if (jobject builder = env->CallStaticObjectMethod(g_vib.combined, g_vib.startParallel);
+                       !android_clear_exception(env) &&
+                       builder) {  // low on the first, high on the second; 0 = left out
+                bool any = false;
+                for (int i = 0; i < 2; ++i) {
+                    if (plan.amplitude[i] <= 0) continue;
+                    jobject effect = one_shot(env, plan.millis, plan.amplitude[i]);
+                    if (!effect) continue;
+                    jobject next = env->CallObjectMethod(builder, g_vib.addVibrator, r.ids[i], effect);
+                    env->DeleteLocalRef(effect);
+                    if (android_clear_exception(env)) continue;
+                    if (next) env->DeleteLocalRef(next);  // the builder itself
+                    any = true;
+                }
+                if (any) combined = env->CallObjectMethod(builder, g_vib.combine);
+                env->DeleteLocalRef(builder);
+            }
+            if (android_clear_exception(env)) combined = nullptr;
+            if (combined) {
+                env->CallVoidMethod(manager, g_vib.managerVibrate, combined);  // replaces what played
+                ok = !android_clear_exception(env);
+                env->DeleteLocalRef(combined);
+            }
+            env->DeleteLocalRef(manager);
+        }
+    } else if (jobject vibrator = env->CallObjectMethod(device, g_vib.getVibrator);
+               !android_clear_exception(env) && vibrator) {
+        if (jobject effect = one_shot(env, plan.millis, plan.amplitude[0])) {
+            env->CallVoidMethod(vibrator, g_vib.vibrate, effect);
+            ok = !android_clear_exception(env);
+            env->DeleteLocalRef(effect);
+        }
+        env->DeleteLocalRef(vibrator);
+    }
+    env->DeleteLocalRef(device);
+    return ok;
 }
 
 }  // namespace
@@ -255,6 +527,65 @@ void poll_gamepads(Input& in) {
     if (check) check_devices();
     std::lock_guard<std::mutex> lock(g_mutex);
     g_pads.feed(in);
+}
+
+GamepadRumbleSupport gamepad_backend_rumble_support(int slot) {
+    if (slot < 0 || slot >= kMaxGamepads) return {false, "there is no pad in this slot"};
+    int deviceId;
+    {
+        std::lock_guard<std::mutex> lock(g_mutex);
+        deviceId = g_pads.device_id(slot);
+    }
+    PadRumble& r = g_rumble[slot];
+    if (deviceId < 0) {
+        // A pad that comes back with a reused device id is asked again; one that was shaking keeps its record until the stop
+        // reaches the vibrator (gamepad_backend_rumble drops it then), as forget_gone_pad_rumble does.
+        if (!r.playing) r = PadRumble{};
+        return {false, "there is no pad in this slot"};
+    }
+    if (r.deviceId != deviceId) {  // a new pad (or none asked yet): ask Android once
+        JNIEnv* env = android_thread_env();
+        if (!env || !init_jni(env) || env->PushLocalFrame(32) != JNI_OK) {
+            r = PadRumble{};
+            static bool logged = false;  // asked every frame: say it once
+            if (!logged) FA_INFO("gamepad", "pad rumble: Android's InputDevice could not be reached through JNI");
+            logged = true;
+            return {false, "Android's InputDevice could not be reached through JNI"};
+        }
+        probe_rumble(env, deviceId, r);
+        env->PopLocalFrame(nullptr);
+    }
+    return {r.can, r.can ? std::string() : r.why};
+}
+
+bool gamepad_backend_rumble(int slot, float low, float high, float seconds) {
+    if (slot < 0 || slot >= kMaxGamepads) return false;
+    PadRumble& r = g_rumble[slot];
+    if (!r.can || r.deviceId < 0) return false;
+    JNIEnv* env = android_thread_env();
+    if (!env || env->PushLocalFrame(32) != JNI_OK) return false;
+    bool ok;
+    if (seconds <= 0.0f && low <= 0.0f && high <= 0.0f) {  // stop
+        ok = !r.playing || cancel_rumble(env, r.deviceId, r);
+        r.playing = false;
+        bool gone;
+        {
+            std::lock_guard<std::mutex> lock(g_mutex);
+            gone = g_pads.device_id(slot) < 0;
+        }
+        if (gone) r = PadRumble{};  // the stop of a pad that went has been sent: nothing is left to remember
+    } else {
+        const AndroidRumble plan = android_rumble(low, high, seconds, r.vibrators);
+        if (plan.amplitude[0] == 0 && plan.amplitude[1] == 0) {
+            ok = cancel_rumble(env, r.deviceId, r);
+            r.playing = false;
+        } else {
+            ok = start_rumble(env, r.deviceId, r, plan);
+            r.playing = ok;
+        }
+    }
+    env->PopLocalFrame(nullptr);
+    return ok;
 }
 
 }  // namespace fa

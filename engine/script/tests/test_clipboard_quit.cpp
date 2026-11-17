@@ -116,3 +116,73 @@ test("game.on rejects an unknown event with the list", () => {
     CHECK(rep.ok());
     CHECK(rep.passed == 4);
 }
+
+TEST_CASE("app ending: raises quit once (cancel changes nothing) and the storage it writes is on disk") {
+    TestHost h("app_ending", Json::object());
+    REQUIRE(h.start());
+    h.scripts.set_storage_mode(StorageMode::Persistent);
+    // What Android's end runs (Engine::end_app): the handler cannot keep the app, and its asynchronous write must land.
+    auto r = h.scripts.eval(R"JS(
+globalThis.quits = 0;
+game.on("quit", (e) => { quits++; e.cancel(); storage.setAsync("last", { quits }); });
+1)JS");
+    REQUIRE(r.ok());
+    h.scripts.app_ending();
+    h.scripts.app_ending();  // a second destroy, or a Back during the end: nothing more
+    CHECK(h.scripts.eval("quits").value() == 1);
+    CHECK(std::filesystem::exists(h.root / "save" / "storage" / "last.json"));
+    CHECK_FALSE(h.quitRequested);  // the end asks the host for nothing
+    CHECK(h.scripts.errors().empty());
+}
+
+TEST_CASE(
+    "app ending: the code after an awaited storage.setAsync runs, chained writes too, and the rounds are bounded") {
+    TestHost h("app_ending_await", Json::object());
+    REQUIRE(h.start());
+    h.scripts.set_storage_mode(StorageMode::Persistent);
+    auto r = h.scripts.eval(R"JS(
+globalThis.steps = [];
+game.on("quit", async () => {
+  await storage.setAsync("a", { n: 1 });
+  steps.push("a");
+  await storage.setAsync("b", { n: 2 });
+  steps.push("b");
+});
+1)JS");
+    REQUIRE(r.ok());
+    h.scripts.app_ending();
+    CHECK(h.scripts.eval("steps.join(',')").value() == "a,b");
+    CHECK(std::filesystem::exists(h.root / "save" / "storage" / "a.json"));
+    CHECK(std::filesystem::exists(h.root / "save" / "storage" / "b.json"));
+    CHECK(h.scripts.errors().empty());
+}
+
+TEST_CASE("app ending: a handler that writes for ever does not hold the end") {
+    TestHost h("app_ending_forever", Json::object());
+    REQUIRE(h.start());
+    h.scripts.set_storage_mode(StorageMode::Persistent);
+    auto r = h.scripts.eval(R"JS(
+globalThis.rounds = 0;
+game.on("quit", async () => { for (;;) { await storage.setAsync("loop", { n: rounds }); rounds++; } });
+1)JS");
+    REQUIRE(r.ok());
+    h.scripts.app_ending();  // returns: a fixed number of rounds, whatever the machine's speed
+    const int rounds = h.scripts.eval("rounds").value().get<int>();
+    CHECK(rounds >= 1);
+    CHECK(rounds <= 64);
+    CHECK(std::filesystem::exists(h.root / "save" / "storage" / "loop.json"));
+}
+
+TEST_CASE("app ending: a game that called game.quit() gets no quit event at the end") {
+    TestHost h("app_ending_game_quit", Json::object());
+    REQUIRE(h.start());
+    auto r = h.scripts.eval(R"JS(
+globalThis.quits = 0;
+game.on("quit", () => { quits++; });
+game.quit();
+1)JS");
+    REQUIRE(r.ok());
+    CHECK(h.quitRequested);
+    h.scripts.app_ending();  // Android: game.quit() finished the activity, and its destroy ends the game
+    CHECK(h.scripts.eval("quits").value() == 0);
+}

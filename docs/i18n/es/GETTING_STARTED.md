@@ -1,3 +1,4 @@
+<!-- follows docs/GETTING_STARTED.md sha256:unknown behind -->
 # Primeros pasos con FactorIA
 
 [English](../../GETTING_STARTED.md) | **Español**
@@ -87,7 +88,7 @@ necesita nada más.
 5. La exportación (`factoria export`) funciona desde la descarga para escritorio y móvil. Android necesita el JDK 17 y el
    SDK de Android (sin NDK ni CMake): la carpeta `mobile/` junto a `factoria` trae el runtime de Android del motor, y el
    proyecto Gradle exportado solo lo empaqueta. iOS (en un Mac, con Xcode y CMake) usa igual las librerías de iOS del
-   paquete de macOS. No hace falta el código fuente del motor ([EXPORTING.md](../../EXPORTING.md#mobile-exports-prebuilt-or-source)
+   paquete de macOS. No hace falta el código fuente del motor ([EXPORTING.md](../../exporting/EXPORTING_MOBILE.md#mobile-exports-prebuilt-or-source)
    y [MOBILE.md](../../MOBILE.md), en inglés). Compila desde el código fuente si quieres cambiar el motor.
 
 #### Actualizaciones
@@ -192,7 +193,7 @@ Si el equipo se queda sin memoria, limita los procesos: `cmake --build --preset 
 - **`cl.exe not found`**: usa «Developer PowerShell for VS 2022».
 - **`running scripts is disabled on this system`**: ejecuta el script con `-ExecutionPolicy Bypass`.
 
-Más detalles en `docs/BUILDING.md`.
+Más detalles en `docs/design/BUILDING.md`.
 
 ## 2. Crear tu primer juego
 
@@ -402,11 +403,11 @@ Ejemplo de entrada:
 {
   "category": "input",
   "severity": "minor",
-  "title": "No gamepad rumble",
-  "missing": "The game wants to vibrate the controller when the player is hit, but scripts have no rumble API.",
-  "workaround": "none: feature dropped. A hit is shown with a screen shake only.",
+  "title": "No adaptive triggers",
+  "missing": "The game wants the DualSense triggers to resist when the bow is drawn, but scripts have no trigger-effect API.",
+  "workaround": "none: feature dropped. The draw is shown with a camera zoom only.",
   "workaroundFiles": [],
-  "suggestion": "Add input.gamepad(i).rumble(strong, weak, seconds) that vibrates the pad.",
+  "suggestion": "Add input.gamepad(i).setTriggerResistance(side, start, strength) that stiffens one trigger.",
   "effort": "small"
 }
 ```
@@ -442,9 +443,9 @@ Las claves y los valores fijos (`category`, `severity`) van en inglés, como en 
 
 - `factoria help <comando>` muestra la ayuda y ejemplos de cada comando. `docs/CLI.md` describe todos los comandos y opciones.
 - `docs/AI_GUIDE.md` (en inglés): la guía completa para una IA que construye un juego. Si eres una IA, léela antes de tocar un juego. Está disponible también con `factoria docs read ai-guide`.
-- `docs/ARCHITECTURE.md`: diseño, módulos y convenciones.
+- `docs/design/ARCHITECTURE.md`: diseño, módulos y convenciones.
 - `docs/SCRIPTING.md`: la API de JavaScript: comportamientos, herramientas y tests.
 - `docs/EXTENDING.md`: cómo añadir herramientas de proyecto y comandos del motor.
 - `docs/MCP.md`, `docs/AI_PROVIDERS.md` y `docs/ENGINE_FEEDBACK.md`: conexión con IA y registro de lo que le falta al motor.
-- `docs/BUILDING.md`: requisitos y compilación por plataforma.
+- `docs/design/BUILDING.md`: requisitos y compilación por plataforma.
 - `docs/EXPORTING.md` y `docs/MOBILE.md`: exportar juegos y compilarlos para móvil.
