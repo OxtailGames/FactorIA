@@ -182,6 +182,20 @@ TEST_CASE("self update: file_mtime_ms gives the same milliseconds every time for
     CHECK(file_mtime_ms(dir.sub("missing.txt")) == 0);
 }
 
+TEST_CASE("self update: file_mtime_ms of a file just written is the wall clock in milliseconds since 1970") {
+    // Independent of the implementation's own epoch arithmetic: a wrong epoch offset (the 1601 of a Windows FILETIME)
+    // is off by centuries, so a few seconds of slack (a slow disk, a coarse file time) are enough.
+    TempDir dir;
+    const std::string path = dir.sub("fresh.txt");
+    write_bytes(path, "x");
+    const std::int64_t nowMs =
+        std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch())
+            .count();
+    const std::int64_t mtime = file_mtime_ms(path);
+    CHECK(mtime > nowMs - 10'000);
+    CHECK(mtime < nowMs + 10'000);
+}
+
 TEST_CASE("mcp config: read_claude_code_mcp_state and ensure_claude_code_mcp_timeout") {
     TempDir dir;
     ClaudeCodeMcpState none = read_claude_code_mcp_state(dir.str());
