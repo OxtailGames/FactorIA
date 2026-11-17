@@ -1264,6 +1264,7 @@
     "publish.steam": "0.2.0",
     "render.frame_graph": "0.28.0",
     "render.inspect": "0.4.0",
+    "render.output": "unreleased",
     "render.pick": "0.4.0",
     "render.supports": "unreleased",
     "review.cleanup": "0.18.0",

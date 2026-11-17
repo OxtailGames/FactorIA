@@ -3754,9 +3754,10 @@ void register_builtin_components(TypeRegistry& r) {
                     "where the "
                     "platform allows it (Windows HDR10 or scRGB, macOS EDR); on any other display it is the standard "
                     "range, with no "
-                    "error. It needs colorSpace linear to show anything above white. render.supports {\"feature\": "
-                    "\"hdrOutput\"} "
-                    "says whether this backend can; it is false until M71 draws to HDR displays.")
+                    "error. It needs colorSpace linear to show anything above white. Today only Metal switches (to "
+                    "EDR) and the picture stays within white until the HDR encode of M71; Windows follows with it. "
+                    "render.output says what the window shows and why; render.supports {\"feature\": \"hdrOutput\"} "
+                    "says whether the window's display could.")
         .field("paperWhiteNits", &SceneSettings::paperWhiteNits,
                "Only used with hdrOutput auto on an HDR display: the brightness of white (1.0) in nits (cd/m2), "
                "80..1000. 200 is "

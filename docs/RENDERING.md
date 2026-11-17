@@ -8,6 +8,8 @@ Two ways to get a picture of the world into a texture, as opposed to onto the sc
 - **Off-screen capture** (`render.captureTexture({ entity | rect, space: "world", scale })`): a still picture of a part of the
   world, taken once, at a pixel scale you choose, even when that part is hidden, covered or nowhere near a camera.
 
+Showing the picture on an HDR display is the last section, "HDR output".
+
 For cameras on the screen (split screen, insets, post effects) see docs/AI_GUIDE.md, section 9.29; for a camera inside a menu
 widget see docs/MENUS.md, "A camera inside the UI".
 
@@ -294,3 +296,39 @@ const map = render.captureTexture({ rect: [0, 0, 1600, 900], space: "world", sca
 - It is synchronous: no Promise, no scene change to wait for. The entity must still exist when you call it.
 
 For the whole frame the player sees (at most 2048 on a side), use `render.captureTexture({ width, height })`.
+
+## HDR output
+
+A display that can show more than white (an HDR monitor or TV on Windows, a Mac or iPhone screen with extended dynamic range)
+is used when the scene asks for it: `SceneSettings.hdrOutput` `"auto"` (the default is `"off"`). Each frame the engine asks
+the display the window is on and switches the window's swapchain to an HDR format, or back to the standard range, before the
+frame is shown, so moving the window to another monitor or switching HDR in the OS settings takes effect on the next frame.
+
+| Platform | What it needs | What the swapchain becomes |
+|---|---|---|
+| macOS, iOS 16+ (Metal) | A screen with EDR headroom (`NSScreen.maximumPotentialExtendedDynamicRangeColorComponentValue` above 1: XDR and recent built-in displays, HDR monitors with "High Dynamic Range" on) | `RGBA16Float` with `wantsExtendedDynamicRangeContent`, extended sRGB colour space (encoding `edr`) |
+| Windows 10+ (D3D11) | Settings > System > Display > **Use HDR** on for that monitor | Not yet: the renderer does not write scRGB or HDR10 until the HDR encode of M71. Then `R16G16B16A16_FLOAT` in scRGB, or `R10G10B10A2` in HDR10 (ST.2084, Rec.2020) where scRGB is refused |
+| Linux, Android, the web, headless runs | — | Always the standard range |
+
+What this version shows: on Metal the swapchain switches to EDR, but the present pass still writes the picture as for an SDR
+screen and keeps it within white, so the game looks exactly as before; values above white reach the display once the HDR encode
+of M71 lands. The editor's window never switches (it shows the game in its own view).
+
+`SceneSettings.paperWhiteNits` (80 to 1000, default 200) is how bright white (1.0) is on an HDR display, in nits: the HDR encode
+will place the picture's white there, and everything brighter (emissive surfaces, bloom) goes up to the display's peak. On
+Apple screens the system sets white itself (EDR 1.0 is the screen's current white), so paper white only matters on Windows.
+
+Check what the window shows with `render.output`:
+
+```bash
+factoria call --project games/my-game render.output '{}'
+```
+
+It answers `{hdrActive, encoding, swapchainFormat, requested, paperWhiteNits, maxNits, headroom, status, display}`: `encoding`
+is `sdr`, `edr`, `scRGB` or `hdr10`; `headroom` is how many times brighter than white the output can go now (the screen's
+current EDR headroom on Apple, peak nits / paper white on Windows); `status` is one sentence that says what is shown or why the
+window stays in the standard range (hdrOutput off, Windows' HDR switch off, a screen without EDR, the platform). A `factoria call`
+run is headless, so it always answers `sdr` with "there is no window". In a window, the game's log prints one `HDR output: ...`
+line at the `info` level when the encoding changes, with the display's name and EDR headroom (`factoria run --log-level info`).
+`render.supports {"feature":"hdrOutput"}` says whether the display the window showed its last frame on could show HDR, whatever
+the scene asks.
