@@ -18,7 +18,8 @@
 // completion that arrives after WinHttpCloseHandle, even once the driver has ended, finds the Core alive with finished_ set,
 // and changes nothing. The driver holds a shared_ptr too and is detached. Destroying the connection abandons the queue and
 // wakes it: it sends the close frame 1001 once a send in flight has gone out, waits at most kWebSocketCloseWaitSec for that
-// and for the server's answer, and closes the handle. The game thread never waits for the network.
+// and for the server's answer (discarding the messages the server still sends before it; destroyed while Closing, never past
+// the close() deadline), and closes the handle. The game thread never waits for the network.
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
@@ -768,10 +769,12 @@ private:
 
             if (finished_) {
                 // Over (closed, failed or destroyed): the close frame that is owed, then the handle is closed. Bounded by
-                // kWebSocketCloseWaitSec from here: a send stuck against a server that does not read ends with the handle.
+                // kWebSocketCloseWaitSec from here, and never past the deadline of a close() asked before (destroyed while
+                // Closing): a send stuck against a server that does not read ends with the handle.
                 if (!ending) {
                     ending = true;
                     endDeadline = Clock::now() + kCloseWait;
+                    if (closeAsked_) endDeadline = std::min(endDeadline, closeDeadline_);
                 }
                 const bool goodbyeOwed = !closeFrameSent_ && !peerCloseSeen_ && (stop_ || goodbyeCode_ != 0);
                 const bool busy = sendPending_ || shutdownPending_ || closePending_;
@@ -795,10 +798,29 @@ private:
                     if (!shutdown(lock, socket, code, nullptr, 0)) return;
                     continue;
                 }
-                // Our close frame went out and a receive is in flight: the handle stays open until the server answers
-                // (RFC 6455 7.1.1, the server ends the TCP connection first), within the same deadline. Closed at once,
-                // the connection is reset right behind the frame, and a server on Windows loses what it had not read yet
-                // when a reset arrives: the close frame with it (the server saw the connection drop, never the 1001).
+                // Our close frame went out and the server has not answered: one receive stays in flight until its close
+                // frame arrives or the deadline passes. What the server still sends before that is read and discarded
+                // (received_locked keeps nothing once over), so a server that keeps talking does not get the handle
+                // closed on its first message. Only the driver arms a receive, and only when none is in flight
+                // (READ_COMPLETE clears recvPending_ under the mutex once it is done with receiveBuffer_).
+                if (closeFrameSent_ && !closeFrameReceived_ && !recvPending_ && Clock::now() < endDeadline) {
+                    recvPending_ = true;
+                    lock.unlock();
+                    const DWORD rc = WinHttpWebSocketReceive(socket, receiveBuffer_.data(),
+                                                             static_cast<DWORD>(receiveBuffer_.size()),
+                                                             &receiveBytesOut_, &receiveTypeOut_);
+                    lock.lock();
+                    if (rc != NO_ERROR && rc != kIoPending) {
+                        // The connection is gone: the game has its Close event already, or let go of the connection.
+                        recvPending_ = false;
+                        return;
+                    }
+                    continue;
+                }
+                // The handle stays open until the server answers (RFC 6455 7.1.1, the server ends the TCP connection
+                // first), within the same deadline. Closed at once, the connection is reset right behind the frame, and a
+                // server on Windows loses what it had not read yet when a reset arrives: the close frame with it (the
+                // server saw the connection drop, never the 1001).
                 const bool answerAwaited = closeFrameSent_ && recvPending_ && !closeFrameReceived_;
                 if (!echoOwed_ && !goodbyeOwed && !shutdownPending_ && !closePending_ && !answerAwaited) return;
                 if (Clock::now() >= endDeadline) return;

@@ -99,7 +99,10 @@ private:
         {
             std::lock_guard<std::mutex> lock(ioMutex_);
             nwState_ = state;
-            if (error) nwError_ = error;
+            if (error && !nwError_) nwError_ = error;
+            // The thread sees only the latest state: a waiting-with-an-error that a preparing follows before it wakes
+            // would be missed, so the failure stays.
+            if (state == nw_connection_state_waiting && error) waitingFailed_ = true;
             stateChanged_ = true;
         }
         cv_.notify_all();
@@ -185,7 +188,9 @@ private:
         if (sent_ >= outgoing_.size()) {
             outgoing_.clear();
             sent_ = 0;
-        } else if (sent_ >= kSendChunk) {  // a game that keeps sending never lets the buffer empty: trim it
+        } else if (sent_ >= kSendChunk && sent_ * 2 >= outgoing_.size()) {
+            // a game that keeps sending never lets the buffer empty: trim it, but only once half of it is sent (every chunk
+            // would copy the rest again)
             outgoing_.erase(0, sent_);
             sent_ = 0;
         }
@@ -260,6 +265,7 @@ private:
             if (stopping()) return false;
             nw_connection_state_t state;
             nw_error_t error = nil;
+            bool waitingFailed;
             {
                 std::unique_lock<std::mutex> lock(ioMutex_);
                 cv_.wait_until(lock, std::min(deadline, Clock::now() + kTurn), [this] { return woken_ || stateChanged_; });
@@ -267,13 +273,14 @@ private:
                 stateChanged_ = false;
                 state = nwState_;
                 error = nwError_;
+                waitingFailed = waitingFailed_;
             }
             if (stopping()) return false;
             if (state == nw_connection_state_ready) return true;
             // Waiting: the system could not connect now and would try again when the network changes (a refused port, no
             // route, a name that does not resolve). A game asked to connect now, so that is a failure.
             if (state == nw_connection_state_failed || state == nw_connection_state_cancelled ||
-                (state == nw_connection_state_waiting && error)) {
+                waitingFailed) {
                 std::string message, hint;
                 describe(error, message, hint);
                 fail_connect(message, hint);
@@ -402,6 +409,9 @@ private:
                 sec_protocol_options_add_tls_application_protocol(sec, "http/1.1");
             };
         }
+        // Proxies: nw_parameters_set_prefer_no_proxy stays at its default (false), so Network.framework applies the system's
+        // proxy configuration (HTTP CONNECT, SOCKS, PAC) as it does to any connection to a host name; the engine adds no
+        // proxy of its own (nw_proxy_config_* needs iOS 17, above the 16.3 target).
         return nw_parameters_create_secure_tcp(tls, ^(nw_protocol_options_t options) {
             nw_tcp_options_set_no_delay(options, true);
         });
@@ -446,6 +456,7 @@ private:
     bool stateChanged_ = false;    // the state handler ran since the thread last looked
     nw_connection_state_t nwState_ = nw_connection_state_invalid;
     nw_error_t nwError_ = nil;     // the first error the connection reported
+    bool waitingFailed_ = false;   // it went waiting with an error (cannot connect now): sticky, the state may move on
     std::string inbox_;            // bytes read and not yet fed
     bool receiving_ = false;       // a read is outstanding
     bool readEnded_ = false;       // the server closed its side, or a read failed

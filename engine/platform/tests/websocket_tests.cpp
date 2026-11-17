@@ -640,6 +640,31 @@ TEST_CASE("websocket client: WinHTTP refuses a header value that is not ASCII be
     CHECK(ws.error().message.find("ASCII") != std::string::npos);
     CHECK_FALSE(ws.error().hint.empty());
 }
+
+TEST_CASE("websocket client: destroyed while the server keeps sending, the server still reads the 1001") {
+    // /flood sends 4 MB right after the handshake and reads nothing until it is done (below the event queue's 32 MB, so
+    // nothing overflows into a 1008). The client is destroyed at Open, while most of it is still on its way: after its
+    // close frame WinHTTP's client keeps reading (and discarding) until the server's answer. A handle closed on the first
+    // message that arrives resets the connection with unread data, and the server never reads the 1001. Draining 4 MB on
+    // loopback takes a fraction of a second (0.25 s for 16 MB with the macOS system client); 4 MB, not more, keeps
+    // WinHTTP's small receive chunks on a loaded CI VM well within the 5 s close wait.
+    fa::test::WsTestServer server;
+    REQUIRE(server.ok());
+    auto client = make_client_under_test();
+    {
+        auto ws = connect_to(*client, server.url("/flood?n=262144&count=16"));
+        auto events = collect(*ws, 1);
+        REQUIRE_FALSE(events.empty());
+        REQUIRE(events[0].type == WebSocketEvent::Type::Open);
+    }
+    bool goodbye = false;
+    const auto end = std::chrono::steady_clock::now() + std::chrono::seconds(30);
+    while (!goodbye && std::chrono::steady_clock::now() < end) {
+        for (int code : server.client_close_codes()) goodbye = goodbye || code == 1001;
+        if (!goodbye) std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    CHECK_MESSAGE(goodbye, server.diagnostics());
+}
 #endif
 
 #endif

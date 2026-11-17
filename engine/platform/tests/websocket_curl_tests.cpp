@@ -124,6 +124,73 @@ private:
     int port_ = 0;
 };
 
+// A server that does the handshake and then never reads or answers anything (a stuck peer). It ends by itself when the
+// test object goes.
+class StuckPeer {
+public:
+    StuckPeer() {
+        listener_ = ::socket(AF_INET, SOCK_STREAM, 0);
+        if (listener_ < 0) return;
+        sockaddr_in addr{};
+        addr.sin_family = AF_INET;
+        addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+        addr.sin_port = 0;
+        if (::bind(listener_, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) != 0 || ::listen(listener_, 4) != 0)
+            return;
+        socklen_t length = sizeof(addr);
+        ::getsockname(listener_, reinterpret_cast<sockaddr*>(&addr), &length);
+        port_ = ntohs(addr.sin_port);
+        thread_ = std::thread([this] {
+            const int c = ::accept(listener_, nullptr, nullptr);
+            if (c < 0) return;
+            std::string head;
+            char buffer[1024];
+            while (ws::find_head_end(head) == std::string::npos) {
+                const auto n = ::recv(c, buffer, sizeof(buffer), 0);
+                if (n <= 0) {
+                    ::close(c);
+                    return;
+                }
+                head.append(buffer, static_cast<std::size_t>(n));
+            }
+            auto request = ws::parse_client_request(head.substr(0, ws::find_head_end(head)));
+            if (request.ok()) {
+                const std::string response = ws::build_server_response(request.value(), "");
+                static_cast<void>(::send(c, response.data(), response.size(), 0));
+                handshaken_ = true;
+            }
+            while (!stop_) std::this_thread::sleep_for(std::chrono::milliseconds(10));  // never reads, never answers
+            ::close(c);
+        });
+    }
+    ~StuckPeer() {
+        stop_ = true;
+        if (listener_ >= 0) ::shutdown(listener_, SHUT_RDWR);
+        if (thread_.joinable()) {
+            // accept() may still wait (nobody connected): connect once to let it return
+            if (port_ != 0 && !handshaken_) {
+                const int s = ::socket(AF_INET, SOCK_STREAM, 0);
+                sockaddr_in addr{};
+                addr.sin_family = AF_INET;
+                addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+                addr.sin_port = htons(static_cast<std::uint16_t>(port_));
+                ::connect(s, reinterpret_cast<sockaddr*>(&addr), sizeof(addr));
+                ::close(s);
+            }
+            thread_.join();
+        }
+        if (listener_ >= 0) ::close(listener_);
+    }
+    int port() const { return port_; }
+    std::string url() const { return "ws://127.0.0.1:" + std::to_string(port_) + "/"; }
+
+private:
+    int listener_ = -1;
+    int port_ = 0;
+    std::thread thread_;
+    std::atomic<bool> stop_{false}, handshaken_{false};
+};
+
 // The byte at `offset` of message `index` in the burst of the backpressure case: a reordered or a lost chunk shows.
 char burst_byte(int index, std::size_t offset) {
     return static_cast<char>((static_cast<std::size_t>(index) * 131u + offset * 7u) & 0xffu);
@@ -613,6 +680,31 @@ TEST_CASE("websocket curl: a burst of sends to a server that reads slowly arrive
     CHECK(events[1].type == WebSocketEvent::Type::Close);
     CHECK(events[1].code == 1000);
     CHECK(events[1].wasClean);
+}
+
+TEST_CASE("websocket curl: a close the server never answers ends after the close wait, with Error and Close 1006") {
+    // The contract of fa/platform/websocket.h: after kWebSocketCloseWaitSec without the server's close frame the connection
+    // is dropped: an Error that says the server did not answer the close, then Close 1006 (wasClean false).
+    auto client = curl_client();
+    if (!client) return;
+    StuckPeer server;
+    REQUIRE(server.port() != 0);
+    auto ws = open(*client, server.url());
+    REQUIRE(collect(*ws, 1).size() == 1);
+    REQUIRE(ws->close(3000, "bye").ok());
+    CHECK(ws->state() == WebSocketState::Closing);
+    const auto start = Clock::now();
+    auto events = collect_until_close(*ws, 60000);
+    const auto waited = Clock::now() - start;
+    REQUIRE(events.size() == 2);
+    CHECK(events[0].type == WebSocketEvent::Type::Error);
+    CHECK(events[0].error.find("did not answer the close") != std::string::npos);
+    CHECK(events[1].type == WebSocketEvent::Type::Close);
+    CHECK(events[1].code == 1006);
+    CHECK_FALSE(events[1].wasClean);
+    CHECK(ws->state() == WebSocketState::Closed);
+    // Not before the close wait; the upper bound is the safety net of collect_until_close, far above it.
+    CHECK(waited >= std::chrono::milliseconds(static_cast<int>(kWebSocketCloseWaitSec * 1000) - 100));
 }
 
 #endif
