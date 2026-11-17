@@ -21,7 +21,7 @@ finds the game target's images or views not VALID, as GLES3/WebGL2 with MSAA and
 same size works in RGBA8, the format becomes RGBA8 (the pipelines made for RGBA16F stay in the cache under their own key; no flush) and the game is drawn
 in RGBA8, on every backend. A later resize or render scale that fails never changes the format. Only the game target falls
 back: a CameraView, a bloom level or the colour filter image that cannot be made keeps the format and its own warning, so
-`hdr_scene()` can stay true with one of them invalid. `FA_SCENE_FORMAT=rgba16f_invalid` forces the fall-back in tests; likewise a shadow map the GPU cannot make turns the
+`hdr_scene()` can stay true with one of them invalid. `FA_SCENE_FORMAT=rgba16f_invalid` forces the fall-back in tests and `FA_SCENE_FORMAT=r11g11b10` makes a linear scene use R11G11B10 (no alpha) as if RGBA16F were not renderable; likewise a shadow map the GPU cannot make turns the
 shadows off with one warning until the next resize, and `FA_SHADOW_MAP=invalid` forces that): a float target keeps a colour above white (`MeshRenderer.emissive` times
 `emissiveStrength`), and the bright pass hands bloom that excess, so it glows more. The screen, screenshots and video stay
 8-bit: `Impl::read_rgba8` copies a float target into an RGBA8 image (the `blit_keep` program, which keeps alpha) before
@@ -323,7 +323,24 @@ game makers: [TEXT.md](../TEXT.md).
 
 
 ## PostProcess (M71, in progress)
-M71 adds a linear HDR frame and a stack of post effects. The first package lands the shared interface; no pixel changes yet.
+M71 adds a linear HDR frame and a stack of post effects. The first package lands the shared interface; the linear frame (below, "Linear
+colour") is drawn; the effects are not yet.
+
+- **Linear colour, where the conversions are** (`SceneSettings.colorSpace linear`; every one of them is a no-op in a gamma scene, so
+  its pixels do not change). `Renderer::Impl::sync_color_space` (called first in `render` and in `capture_world`) tells the `Gpu`
+  (`set_linear`) and makes the game target again when the scene format changes. The `Gpu` holds two format chains (`sceneChain_[0]`
+  gamma: RGBA16F, RGBA8; `[1]` linear: RGBA16F, RG11B10F, SRGB8A8, RGBA8), each tried in order by `create_targets` (a creation that is not
+  VALID moves to the next one); `scene_format()` is the active one. Authored colours are converted on the CPU with `color_space.h`
+  (`to_scene`, `Frame::linear`): light, ambient, fog, sky, clear and material colours in `renderer_draw.cpp` and `scene2d.cpp`; vertex
+  colours of the quad stream (sprites, shapes, text, particles, HUD) in the quad vertex shader (`vs_params.cspace.x`). Colour textures
+  are made in the sRGB variant of their format when they are first uploaded in a linear scene (`Gpu::texture_format`,
+  `TextureAsset::enc`); `TextureAsset::tex_fix(linearScene, colour)` gives the shader's correction when the use does not match the
+  format (`fa_tex_fix`: quad `cspace.yz`, mesh `fa_maps.w` packing five 2-bit codes), so one asset serves both uses and a run-time
+  switch makes no texture again. View and render-target images are `TexEncoding::Scene` (never corrected); the font atlas, ramps and
+  video textures stay raw. The final blit encodes linear to sRGB (`blit_fs_params.encode`, replaced by the final pass of the stack) and
+  so does `read_rgba8`; an SRGB8A8 target is encoded by the GPU on write, so a gamma-correct read-back of it is a plain read.
+  R11G11B10 has no alpha (`scene_has_alpha`); `FeatureEnv.r11g11b10` follows the same rule as the chain (blend, or GL where sokol does
+  not report it).
 
 - **Data, in `engine/scene`.** `SceneSettings.colorSpace` (`gamma`, the default, or `linear`), `hdrOutput` (`off` or `auto`) and
   `paperWhiteNits` (200) are stored and saved with the scene; an old scene without them loads as gamma. The `PostProcess` component
@@ -339,7 +356,7 @@ M71 adds a linear HDR frame and a stack of post effects. The first package lands
   tonemap (up to `bloom`).
 - **The CPU resolve, in `engine/render` (`src/postprocess_resolve.h`).** `resolve_post_stack(world, camera)` returns the one
   `PostStack` of a frame: `fx` (a PostProcess whose values are already blended), `mask` (bit i = effect `PostEffect(i)` runs),
-  `sources` (how many components contributed). `build_camera` fills `CameraInfo::postStack`; no pass reads it yet. It is pure CPU and
+  `sources` (how many components contributed). `build_camera` fills `CameraInfo::postStack` (a `shared_ptr<const PostStack>`, null when the world has no PostProcess, which a pass reads as the neutral stack); no pass reads it yet. It is pure CPU and
   deterministic: it starts from the neutral stack (`postprocess_neutral()`, every effect off at its identity values), applies the
   camera's own PostProcess, then the enabled volumes active in the hierarchy in ascending `priority`, equal priorities by entity id
   (so the last id wins), each with strength `weight * influence`. The influence is 1 inside the shape and falls linearly to 0 over

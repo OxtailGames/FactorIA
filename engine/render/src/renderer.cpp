@@ -96,7 +96,7 @@ CameraInfo Renderer::Impl::build_camera(World& world, Entity best, const Vec2* v
     ci.clear = cam.clear || viewSize != nullptr;
     ci.colorFilter = std::clamp(int(cam.colorFilter), 0, 5);
     ci.bloom = sanitize_bloom(cam.bloom, cam.bloomThreshold, cam.bloomIntensity, cam.bloomRadius, cam.bloomScreenSpace);
-    ci.postStack = resolve_post_stack(world, ci);
+    if (world.any<PostProcess>()) ci.postStack = std::make_shared<const PostStack>(resolve_post_stack(world, ci));
     return ci;
 }
 
@@ -413,7 +413,7 @@ std::uint32_t Renderer::game_target_image_id() const {
     return impl_->final_image().id;
 }
 std::uint32_t Renderer::game_target_view_id() const { return impl_ ? impl_->final_view().id : 0; }
-bool Renderer::hdr_scene() const { return impl_ && impl_->gpu.scene_format() == SG_PIXELFORMAT_RGBA16F; }
+bool Renderer::hdr_scene() const { return impl_ && impl_->gpu.scene_is_float(); }
 
 void Renderer::reload_asset(std::string_view path) {
     if (impl_ && impl_->assets) impl_->assets->reload(std::string(path));
@@ -678,6 +678,7 @@ void Renderer::Impl::setup_frame(Frame& fr, World& world, float dt) {
     fr.textScale = textScale;
     fr.uiScale = ui_scale_clamped(world.ui_scale());
     fr.renderScale = renderScale;
+    fr.linear = gpu.linear();
     fr.warnedLights2d = &warnedLights2d;
     fr.warnedShadows2d = &warnedShadows2d;
     fr.warnedSpriteMesh = &warnedSpriteMesh;
@@ -695,6 +696,7 @@ void Renderer::Impl::setup_frame(Frame& fr, World& world, float dt) {
 // camera and no viewport is one job that draws all of it in one pass, as before. Bloom and Camera.colorFilter act once over
 // the finished frame, with the settings of the first camera.
 void Renderer::Impl::render(World& world, float dt) {
+    sync_color_space(world);  // before anything is gathered or drawn: the scene's format and the colours depend on it
     auto t0 = std::chrono::steady_clock::now();
     if (Profiler::on()) {
         // Answers of earlier frames are read now (never waited for): the passes of this frame report them as their GPU time.

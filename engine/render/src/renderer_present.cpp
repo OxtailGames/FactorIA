@@ -28,6 +28,11 @@ void Renderer::present(const GfxSwapchain& swapchain, int fbW, int fbH, ScaleMod
     blit_blit_vs_params_t u{};
     u.flip[0] = im.gpu.is_gl() ? 1.0f : 0.0f;
     apply_uniforms(UB_blit_blit_vs_params, u);
+    // M71-B1, the minimal version: a linear scene holds linear light and the screen wants sRGB values, so the copy encodes. The HUD
+    // is in the scene target until M71-B4 moves it after the post pass; the final pass with the tonemap replaces this uniform.
+    blit_blit_fs_params_t fu{};
+    fu.encode[0] = im.gpu.linear() ? 1.0f : 0.0f;
+    apply_uniforms(UB_blit_blit_fs_params, fu);
     sg_draw(0, 3, 1);
     im.gpu.end_pass();
     sg_commit();
@@ -111,6 +116,7 @@ bool Renderer::capture_world(World& world, const WorldCapture& spec, Image& out,
     ci.visible = Rect{cx - ci.halfW, cy - ci.halfH, ci.halfW * 2.0f, ci.halfH * 2.0f};
     ci.clear = true;
     ci.clearColor = Color{0, 0, 0, 0};
+    im.sync_color_space(world);  // the picture is made in the world's colour space
 
     im.settle_pass_times();  // the capture replaces the frame graph that the last frame's pass times are read from
     const RenderStats savedStats = im.stats;
@@ -164,7 +170,7 @@ bool Renderer::capture_world(World& world, const WorldCapture& spec, Image& out,
     const Impl::ViewTarget& vt = *im.viewTargets[kKey];
     std::vector<std::uint8_t> px;
     std::string readError;
-    const bool ok = im.read_rgba8(vt.asset.image, vt.asset.view, w, h, px, &readError);
+    const bool ok = im.read_rgba8(vt.asset.image, vt.asset.view, w, h, px, &readError, true);
     im.release_view(*im.viewTargets[kKey]);
     im.viewTargets.erase(kKey);
     // The RGBA8 copy of a big picture (a 4K capture is 64 MB) is not worth keeping: only the game target's size is asked for again.

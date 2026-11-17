@@ -181,7 +181,10 @@ struct Renderer::Impl {
     TextureAsset* resolve_target(const std::string& name);
     void flip_copy(ViewTarget& t);
 
-    void create_targets(int w, int h);
+    // `settle`: also try the next format of the chain when this one is refused (the first creation does it anyway).
+    void create_targets(int w, int h, bool settle = false);
+    // Follows SceneSettings.colorSpace of `world`: the scene's format may change with it (Gpu::set_linear).
+    void sync_color_space(const World& world);
     void make_game_targets();  // the images and views of the game target, at physW x physH in gpu.scene_format()
     void destroy_targets();
     // The colour-filter pass: draws the finished game target through colorfilter.glsl into filterTarget (made by
@@ -190,7 +193,8 @@ struct Renderer::Impl {
     void color_filter_pass(int mode);
     // The 8-bit picture of a game or view image (top row first). In a float scene format the image is first drawn into an
     // RGBA8 copy (clamped at white, as the screen shows it), because the per-backend readbacks read RGBA8 only.
-    bool read_rgba8(sg_image image, sg_view view, int w, int h, std::vector<std::uint8_t>& out, std::string* error);
+    bool read_rgba8(sg_image image, sg_view view, int w, int h, std::vector<std::uint8_t>& out, std::string* error,
+                    bool premultiplied = false);
     Target readbackTarget;  // the RGBA8 copy read_rgba8 makes, kept for the next capture of the same size
     void free_read_image();
     // True when the images and views of the game target were made (create_targets) and the GPU accepted them.
