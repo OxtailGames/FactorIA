@@ -32,6 +32,7 @@
 #include <jni.h>
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <climits>
 #include <condition_variable>
@@ -181,6 +182,7 @@ private:
                 session_.close_received() || Clock::now() - closeAsked_ <= kCloseWait)
                 return;
             watchdogFired_ = true;
+            closeTimedOut_ = true;  // the peer did not answer our close frame within kCloseWait
         }
         close_raw(android_thread_env());
     }
@@ -529,6 +531,7 @@ private:
                         // reader reports the connection lost.
                         const auto until = closeAsked_ + kCloseWait;
                         if (Clock::now() >= until) {
+                            closeTimedOut_ = true;  // before the socket closes: the reader reports it
                             closeSocket = true;
                             break;
                         }
@@ -587,6 +590,8 @@ private:
             const jint n = env->CallIntMethod(in_, inRead_, buf, 0, kChunk);
             if (android_clear_exception(env) || n < 0) {
                 ending.lost = true;
+                ending.closeTimedOut =
+                    closeTimedOut_;  // the writer closed the socket: the peer did not answer our close
                 break;
             }
             if (n == 0) continue;
@@ -644,7 +649,8 @@ private:
         finish(ending);
     }
 
-    std::condition_variable cv_;  // with mutex_: the writer waits for output, its close deadline or the end
+    std::condition_variable cv_;              // with mutex_: the writer waits for output, its close deadline or the end
+    std::atomic<bool> closeTimedOut_{false};  // the writer or tick() gave up waiting for the peer's answer to our close
     // Guarded by mutex_.
     bool writing_ = false;        // the writer is in OutputStream.write
     bool readerDone_ = false;     // the reader stopped: the writer flushes what is left and ends
