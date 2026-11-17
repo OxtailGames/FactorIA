@@ -67,3 +67,10 @@ if(TARGET fa_test_render AND FA_XVFB_RUN AND FA_PLATFORM STREQUAL "linux")
                 $<TARGET_FILE:fa_test_render> -tc=windowed*
         WORKING_DIRECTORY ${FA_ROOT})
 endif()
+
+# The CPU side of the post-processing stack and the feature table need no GPU either.
+if(TARGET fa_test_render)
+    add_test(NAME render_postprocess_core
+        COMMAND fa_test_render --fa-files=postprocess_resolve_tests.cpp
+        WORKING_DIRECTORY ${FA_ROOT})
+endif()

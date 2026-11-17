@@ -1446,6 +1446,13 @@ struct Script {
 };
 
 // --------------------------------------------------------------------------
+// SceneSettings.colorSpace: how lighting and blending are computed. Gamma = on the sRGB-encoded values (the look of every project
+// made before M71); Linear = in linear light, converted to sRGB for the display (needs the M71 pipeline).
+enum class ColorSpace : std::int32_t { Gamma, Linear };
+// SceneSettings.hdrOutput: whether a display that can show more than white is used. Off = the standard range; Auto = HDR where the
+// window's display and the platform allow it (Windows HDR10 / scRGB, macOS EDR), the standard range elsewhere.
+enum class HdrOutput : std::int32_t { Off, Auto };
+
 // Scene-wide settings (stored in the scene file under "settings").
 struct SceneSettings {
     Color ambientLight{0.25f, 0.25f, 0.3f, 1.0f};
@@ -1458,6 +1465,9 @@ struct SceneSettings {
     std::string music;                            // asset path, looped background music ("" = none)
     float musicVolume = 0.6f;
     float lightScale = 1.0f;  // size of the Light2D light buffer as a fraction of the picture (0.25 .. 1)
+    ColorSpace colorSpace = ColorSpace::Gamma;  // gamma (every existing project) or linear lighting (M71)
+    HdrOutput hdrOutput = HdrOutput::Off;       // off, or auto: an HDR display where the platform has one
+    float paperWhiteNits = 200.0f;              // brightness of white (1.0) on an HDR display, in nits (80 .. 1000)
 };
 
 // Registers every component above (plus SceneSettings as a reflected type)

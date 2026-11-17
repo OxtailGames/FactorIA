@@ -38,6 +38,7 @@ Version marks: an entry added after 0.1.0 ends with "(Since 0.1.x)", and "(Not r
 ### [Camera](components/camera.md)
 
 - [Camera](components/camera.md#camera): Renders the scene to the screen.
+- [PostProcess](components/camera.md#postprocess): A stack of screen effects (tonemap, exposure, bloom, colour grading, vignette, chromatic aberration, film grain, lens distortion, sharpen, outline, pixelate, posterize, ambient occlusion, depth of field, motion blur, reflections, fog, sun shafts, radial blur, colour filter), every one off by default. _Not released yet._
 
 ### [Core](components/core.md)
 
@@ -399,6 +400,7 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`render.frame_graph`](commands/game.md#renderframe_graph): Where the last frame's time went, pass by pass: the frame graph with the CPU and GPU time of every pass. _Since 0.28.0._
 - [`render.inspect`](commands/game.md#renderinspect): Luminance profile of the current picture along a line, with the hard steps (seams, bands) in it. _Since 0.4.0._
 - [`render.pick`](commands/game.md#renderpick): Which entities draw a design-space pixel of the picture, topmost first. _Since 0.4.0._
+- [`render.supports`](commands/game.md#rendersupports): What this renderer can do on this graphics backend and GPU: float targets, linear colour, HDR output, post effects. _Not released yet._
 - [`vfx.budget`](commands/game.md#vfxbudget): What an effect document costs on a phone: live particles and the screen they cover, with the fixes. _Since 0.17.0._
 - [`vfx.check`](commands/game.md#vfxcheck): Read an effect document (*.vfx.json) and list every problem, with its JSON pointer and the fix. _Since 0.17.0._
 - [`vfx.filmstrip`](commands/game.md#vfxfilmstrip-modifies-state): Film an effect playing in the game: one picture with a grid of frames, to see its timing and look at once. _Since 0.17.0._
@@ -512,6 +514,9 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`bones.create`](commands/scene.md#bonescreate-modifies-state): Create a chain of Bone2D entities along points, under a parent. _Since 0.7.0._
 - [`load.cancel`](commands/scene.md#loadcancel-modifies-state): Stop a background load, or drop the files a finished one read ahead. _Since 0.19.0._
 - [`load.status`](commands/scene.md#loadstatus): Show the background loads: progress, items, bytes, errors. _Since 0.19.0._
+- [`postprocess.get`](commands/scene.md#postprocessget): Read the PostProcess component of an entity: its fields and the effects it switches on. _Not released yet._
+- [`postprocess.presets`](commands/scene.md#postprocesspresets): List the named post-processing looks that postprocess.set can apply. _Not released yet._
+- [`postprocess.set`](commands/scene.md#postprocessset-modifies-state): Set fields of the PostProcess component of an entity (added when missing). _Not released yet._
 - [`prefab.apply`](commands/scene.md#prefabapply-modifies-state): Write an instance's values into its prefab file: one field, one component, or everything; the other instances follow. _Since 0.30.0._
 - [`prefab.overrides`](commands/scene.md#prefaboverrides): List what a prefab instance of the open scene overrides: what differs from its prefab. _Since 0.30.0._
 - [`prefab.revert`](commands/scene.md#prefabrevert-modifies-state): Put the prefab's values back into an instance: one field, one component, or everything. _Since 0.30.0._
