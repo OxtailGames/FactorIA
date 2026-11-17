@@ -176,7 +176,7 @@ private:
         std::size_t bytesIn = 0;         // every byte after the handshake
         std::string raw;                 // the first kRawBytes of them
         std::size_t decodedTo = 0;       // how far `raw` was split into frames
-        std::vector<std::string> notes;  // frames and parser events, at most kMaxNotes
+        std::vector<std::string> notes;  // frames and parser events, the last kMaxNotes
         bool closeFrame = false;
         std::string end;
     };
@@ -184,7 +184,8 @@ private:
     static constexpr std::size_t kMaxLogs = 8;
 
     void note(ConnectionLog& log, std::string text) {
-        if (log.notes.size() < kMaxNotes) log.notes.push_back(std::move(text));
+        if (log.notes.size() >= kMaxNotes) log.notes.erase(log.notes.begin());  // the last ones tell how it ended
+        log.notes.push_back(std::move(text));
     }
 
     // Bytes the client sent after the handshake: kept, and each frame they complete described. mutex_ held.
@@ -456,7 +457,7 @@ private:
             wrong.key = "AAAAAAAAAAAAAAAAAAAAAA==";
             response = ws::build_server_response(wrong, "");
         }
-        if (!write_all(c, response)) return;
+        if (!write_all(c, response)) return finish("writing to the client failed");
         ++handshakes_;
         if (route == "/drop" || route == "/badaccept") return;
 
@@ -483,7 +484,7 @@ private:
             std::string out = ws::encode_frame(ws::Opcode::Text, "Hel", false, nullptr);
             out += ws::encode_frame(ws::Opcode::Ping, "mid", true, nullptr);
             out += ws::encode_frame(ws::Opcode::Continuation, "lo", true, nullptr);
-            if (!write_all(c, out)) return;
+            if (!write_all(c, out)) return finish("writing to the client failed");
         } else if (route == "/big") {
             const std::size_t n = query.count("n") ? static_cast<std::size_t>(std::atoll(query.at("n").c_str())) : 1000;
             static_cast<void>(session.send_text(std::string(n, 'x')));
@@ -493,18 +494,19 @@ private:
             const int count = query.count("count") ? std::atoi(query.at("count").c_str()) : 1;
             for (int i = 0; i < count; ++i) {
                 static_cast<void>(session.send_text(std::string(n, 'x')));
-                if (!flush()) return;
+                if (!flush()) return finish("writing to the client failed");
             }
         } else if (route == "/badutf8") {
-            if (!write_all(c, ws::encode_frame(ws::Opcode::Text, "\xff\xfe", true, nullptr))) return;
+            if (!write_all(c, ws::encode_frame(ws::Opcode::Text, "\xff\xfe", true, nullptr)))
+                return finish("writing to the client failed");
         } else if (route == "/badrsv") {
             std::string frame = ws::encode_frame(ws::Opcode::Text, "x", true, nullptr);
             frame[0] = static_cast<char>(frame[0] | 0x40);
-            if (!write_all(c, frame)) return;
+            if (!write_all(c, frame)) return finish("writing to the client failed");
         } else if (route == "/ping") {
             static_cast<void>(session.send_ping("hi"));
         }
-        if (!flush()) return;
+        if (!flush()) return finish("writing to the client failed");
 
         std::vector<ws::Event> events;
         auto feed = [&](const char* bytes, std::size_t size) {
@@ -515,9 +517,11 @@ private:
             session.feed(bytes, size, events);
             std::lock_guard<std::mutex> lock(mutex_);
             for (const ws::Event& e : events) {
-                if (e.type == ws::Event::Type::Close)
+                if (e.type == ws::Event::Type::Close) {
+                    log.closeFrame =
+                        true;  // the parser read it, also past the first kRawBytes that log_input() decodes
                     note(log, "parser: close, code " + std::to_string(e.code) + " reason \"" + e.reason + "\"");
-                else if (e.type == ws::Event::Type::Failure)
+                } else if (e.type == ws::Event::Type::Failure)
                     note(log, "parser: failure \"" + e.error + "\", answered with close " + std::to_string(e.code));
             }
         };

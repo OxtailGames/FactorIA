@@ -282,8 +282,12 @@ private:
                 failedAt = Clock::now();
             }
             // The server does not answer our close frame, or (after a failure) does not read the one we sent: give up.
-            if ((waitingForPeer && Clock::now() - asked > kCloseWait) ||
-                (failedSeen && Clock::now() - failedAt > kCloseWait)) {
+            if (waitingForPeer && !ending.failed && Clock::now() - asked > kCloseWait) {
+                ending.lost = true;
+                ending.closeTimedOut = true;  // reported as "the server did not answer the close"
+                break;
+            }
+            if (failedSeen && Clock::now() - failedAt > kCloseWait) {
                 ending.lost = true;
                 break;
             }
