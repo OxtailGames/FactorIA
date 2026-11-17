@@ -9,6 +9,7 @@
 #include "fa/scene/text_fit.h"
 #include "fa/scene/tilemap.h"
 #include "fa/scene/ui_rect.h"
+#include "color_space.h"
 #include "frame.h"
 #include "nine_slice.h"
 #include "render_jobs.h"
@@ -264,7 +265,7 @@ void gather_lights(World& world, Frame& f) {
     f.lights2d.clear();
     f.shadowData.clear();
     f.shadowRows = 0;
-    f.ambient2d = world.settings().ambientLight;
+    f.ambient2d = to_scene(world.settings().ambientLight, f.linear);
     struct Candidate {
         Light2DData data;
         bool directional = false;
@@ -281,9 +282,10 @@ void gather_lights(World& world, Frame& f) {
         if (!entity_active(world, e) || l.intensity <= 0.0f) return;
         Candidate c{};
         c.intensity = l.intensity;
-        c.data.color[0] = l.color.r * l.intensity;
-        c.data.color[1] = l.color.g * l.intensity;
-        c.data.color[2] = l.color.b * l.intensity;
+        const Color lc = to_scene(l.color, f.linear);  // picked as sRGB; the light adds up in linear light
+        c.data.color[0] = lc.r * l.intensity;
+        c.data.color[1] = lc.g * l.intensity;
+        c.data.color[2] = lc.b * l.intensity;
         c.data.color[3] = std::max(l.falloff, 0.01f);
         if (l.type == Light2DType::Directional) {
             const float d = radians(l.direction), el = radians(std::clamp(l.elevation, 0.0f, 90.0f));

@@ -203,7 +203,9 @@ layout(binding=1) uniform fa_mesh_fs_params {
     vec4 fa_emissive;           // rgb MeshRenderer.emissive, w = 1 when unlit
     vec4 fa_model_emissive;     // rgb glTF emissiveFactor (multiplies fa_emissive_tex)
     vec4 fa_pbr;                // x metallic, y roughness, z receive shadow (0/1), w shadow depth bias
-    vec4 fa_maps;               // x normal scale, y occlusion strength, z = 1 when a normal map is bound
+    vec4 fa_maps;               // x normal scale, y occlusion strength, z = 1 when a normal map is bound, w = the colour space
+                                // fixes of the textures (SceneSettings.colorSpace, see fa_tex_fix): base + 4 * emissive +
+                                // 16 * normal + 64 * metallic-roughness + 256 * occlusion, each 0, 1 or 2; 0 in a gamma scene with 8-bit images
     vec4 fa_fog;                // rgb color, w density
     vec4 fa_counts;             // x = light count, y = shadow texel size, z = 1 on OpenGL backends
     vec4 fa_env_sky;            // rgb sky color (top of the environment)
@@ -220,24 +222,43 @@ in vec4 fa_vertex_color;
 @include_block fa_types
 @include_block fa_user
 
+// The sRGB transfer functions (the CPU side is engine/render/src/color_space.h) and the fix of one texture sample: 0 = as
+// sampled, 1 = sRGB-encoded values -> linear (a colour texture the GPU did not decode), 2 = linear -> sRGB-encoded (a data
+// texture the GPU decoded as sRGB, or any texture in a gamma scene).
+vec3 fa_srgb_to_linear(vec3 c) {
+    c = max(c, vec3(0.0));
+    return mix(pow((c + 0.055) / 1.055, vec3(2.4)), c / 12.92, step(c, vec3(0.04045)));
+}
+vec3 fa_linear_to_srgb(vec3 c) {
+    c = max(c, vec3(0.0));
+    return mix(1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, c * 12.92, step(c, vec3(0.0031308)));
+}
+vec3 fa_tex_fix(vec3 c, float mode) {
+    return mode > 1.5 ? fa_linear_to_srgb(c) : mode > 0.5 ? fa_srgb_to_linear(c) : c;
+}
+float fa_fix_of(float packed, float scale) { return mod(floor(packed / scale + 0.01), 4.0); }
+
 // What a MeshRenderer without a material draws: texture * color, normal map, metallic/roughness maps, occlusion,
 // emissive. surface() starts from it.
 Surface fa_standard_surface(in SurfaceInput i) {
     Surface s;
-    vec4 albedo4 = texture(sampler2D(fa_tex, fa_smp), i.uv) * fa_base_color * i.vertex_color;
+    vec4 base_t = texture(sampler2D(fa_tex, fa_smp), i.uv);
+    base_t.rgb = fa_tex_fix(base_t.rgb, fa_fix_of(fa_maps.w, 1.0));
+    vec4 albedo4 = base_t * fa_base_color * i.vertex_color;
     s.albedo = albedo4.rgb;
     s.alpha = albedo4.a;
     s.normal = i.world_normal;
     if (fa_maps.z > 0.5) {
-        vec3 m = texture(sampler2D(fa_normal_tex, fa_smp), i.uv).xyz * 2.0 - 1.0;
+        vec3 m = fa_tex_fix(texture(sampler2D(fa_normal_tex, fa_smp), i.uv).xyz, fa_fix_of(fa_maps.w, 16.0)) * 2.0 - 1.0;
         m.xy *= fa_maps.x;
         s.normal = fa_tangent_normal(i, m);
     }
     vec4 mrt = texture(sampler2D(fa_mr_tex, fa_smp), i.uv);
+    mrt.rgb = fa_tex_fix(mrt.rgb, fa_fix_of(fa_maps.w, 64.0));
     s.metallic = clamp(fa_pbr.x * mrt.b, 0.0, 1.0);
     s.roughness = clamp(fa_pbr.y * mrt.g, 0.05, 1.0);
-    s.occlusion = 1.0 + fa_maps.y * (texture(sampler2D(fa_occlusion_tex, fa_smp), i.uv).r - 1.0);
-    s.emission = fa_emissive.rgb + fa_model_emissive.rgb * texture(sampler2D(fa_emissive_tex, fa_smp), i.uv).rgb;
+    s.occlusion = 1.0 + fa_maps.y * (fa_tex_fix(texture(sampler2D(fa_occlusion_tex, fa_smp), i.uv).rrr, fa_fix_of(fa_maps.w, 256.0)).r - 1.0);
+    s.emission = fa_emissive.rgb + fa_model_emissive.rgb * fa_tex_fix(texture(sampler2D(fa_emissive_tex, fa_smp), i.uv).rgb, fa_fix_of(fa_maps.w, 4.0));
     return s;
 }
 @end

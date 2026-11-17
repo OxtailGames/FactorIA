@@ -672,7 +672,9 @@ void Assets::upload_rgba(TextureAsset& t, const Image& img, const std::vector<Im
     sg_image_desc d{};
     d.width = img.width;
     d.height = img.height;
-    d.pixel_format = SG_PIXELFORMAT_RGBA8;
+    // A linear scene reads colours as linear light: made as sRGB the GPU decodes them (a mip chain was averaged on the encoded values).
+    const sg_pixel_format format = gpu_.texture_format(SG_PIXELFORMAT_RGBA8);
+    d.pixel_format = format;
     d.num_mipmaps = chain.empty() ? 1 : int(chain.size());
     d.data.mip_levels[0] = {img.rgba.data(), img.rgba.size()};
     t.bytes = img.rgba.size();
@@ -688,7 +690,8 @@ void Assets::upload_rgba(TextureAsset& t, const Image& img, const std::vector<Im
     t.view = sg_make_view(&vd);
     t.width = img.width;
     t.height = img.height;
-    t.format = SG_PIXELFORMAT_RGBA8;
+    t.format = format;
+    t.enc = format == SG_PIXELFORMAT_RGBA8 ? TexEncoding::Raw : TexEncoding::Srgb;
 }
 
 // Uploads transcoded KTX2 levels; false (nothing kept) when the GPU rejects them.
@@ -696,7 +699,9 @@ bool Assets::upload_transcoded(TextureAsset& t, const TranscodedTexture& tex) {
     sg_image_desc d{};
     d.width = tex.width;
     d.height = tex.height;
-    d.pixel_format = tex.format;
+    const sg_pixel_format format =
+        gpu_.texture_format(tex.format);  // the sRGB variant in a linear scene: the same blocks
+    d.pixel_format = format;
     d.num_mipmaps = int(tex.levels.size());
     t.bytes = 0;
     for (std::size_t i = 0; i < tex.levels.size(); ++i) {
@@ -712,7 +717,8 @@ bool Assets::upload_transcoded(TextureAsset& t, const TranscodedTexture& tex) {
         t.view = sg_make_view(&vd);
         t.width = tex.width;
         t.height = tex.height;
-        t.format = tex.format;
+        t.format = format;
+        t.enc = format == tex.format ? TexEncoding::Raw : TexEncoding::Srgb;
         return true;
     }
     sg_destroy_image(t.image);
@@ -804,7 +810,8 @@ void Assets::use_placeholder(TextureAsset& t) {
     t.view = placeholderTex_->view;
     t.width = placeholderTex_->width;
     t.height = placeholderTex_->height;
-    t.format = SG_PIXELFORMAT_RGBA8;
+    t.format = placeholderTex_->format;
+    t.enc = placeholderTex_->enc;
     t.bytes = 0;
 }
 
