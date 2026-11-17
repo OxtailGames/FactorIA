@@ -106,7 +106,7 @@ TEST_CASE("post_volume_influence: box inside, on the edge, in the blend band and
     CHECK(post_volume_influence(p, m, {-5, 3, 2}, true) == 1.0f);  // a corner
     CHECK(post_volume_influence(p, m, {7, 0, 0}, true) == doctest::Approx(0.5f));
     CHECK(post_volume_influence(p, m, {5, 5, 0}, true) == doctest::Approx(1.0f - 2.0f / 4.0f));
-    CHECK(post_volume_influence(p, m, {9, 0, 0}, true) == 0.0f);   // distance 4 = blendDistance
+    CHECK(post_volume_influence(p, m, {9, 0, 0}, true) == 0.0f);  // distance 4 = blendDistance
     CHECK(post_volume_influence(p, m, {50, 0, 0}, true) == 0.0f);
     p.blendDistance = 0;  // a hard edge
     CHECK(post_volume_influence(p, m, {5, 0, 0}, true) == 1.0f);
@@ -192,7 +192,7 @@ TEST_CASE("resolve_post_stack: a box volume fades in over its blend distance") {
     CHECK(st.fx.vignetteIntensity == 0.8f);  // inside: exactly the volume's own value
     s.set_camera({7, 0, 0});                 // halfway through the band
     st = s.resolve();
-    CHECK(st.has(PostEffect::Vignette));     // an effect fades in from neutral (intensity 0), so it is on at once
+    CHECK(st.has(PostEffect::Vignette));  // an effect fades in from neutral (intensity 0), so it is on at once
     CHECK(st.fx.vignetteIntensity == doctest::Approx(0.4f));
     CHECK(st.sources == 1);
     s.set_camera({9, 0, 0});
@@ -213,9 +213,9 @@ TEST_CASE("resolve_post_stack: weight scales the volume, modes switch at one hal
     p.posterizeLevels = 4;
     p.weight = 0.25f;
     PostStack st = s.resolve();
-    CHECK(st.fx.bloomIntensity == doctest::Approx(0.5f));         // 0 * 0.75 + 2 * 0.25
-    CHECK(st.fx.tonemapMode == TonemapMode::None);                // below one half the neutral mode stays
-    CHECK(st.fx.posterizeLevels == 193);                          // 256 * 0.75 + 4 * 0.25, whole numbers rounded
+    CHECK(st.fx.bloomIntensity == doctest::Approx(0.5f));  // 0 * 0.75 + 2 * 0.25
+    CHECK(st.fx.tonemapMode == TonemapMode::None);         // below one half the neutral mode stays
+    CHECK(st.fx.posterizeLevels == 193);                   // 256 * 0.75 + 4 * 0.25, whole numbers rounded
     p.weight = 0.5f;
     st = s.resolve();
     CHECK(st.fx.tonemapMode == TonemapMode::Agx);
@@ -388,13 +388,12 @@ TEST_CASE("features: the table has the capabilities, the engine features and eve
         CHECK(std::string(f.doc).size() > 20);
     }
     // The effects come last, in the canonical order.
-    for (int i = 0; i < kPostEffectCount; ++i)
-        CHECK(names[6 + std::size_t(i)] == kPostEffectOrder[std::size_t(i)]);
+    for (int i = 0; i < kPostEffectCount; ++i) CHECK(names[6 + std::size_t(i)] == kPostEffectOrder[std::size_t(i)]);
 }
 
 TEST_CASE("features: the capabilities follow what each backend's GPU reports") {
-    for (const FeatureBackend b : {FeatureBackend::Gl, FeatureBackend::Gles3, FeatureBackend::WebGl2, FeatureBackend::D3d11,
-                                   FeatureBackend::Metal}) {
+    for (const FeatureBackend b : {FeatureBackend::Gl, FeatureBackend::Gles3, FeatureBackend::WebGl2,
+                                   FeatureBackend::D3d11, FeatureBackend::Metal}) {
         CAPTURE(feature_backend_label(b));
         CHECK(supported(gpu(b), "floatTargets"));
         CHECK(supported(gpu(b), "r11g11b10"));
@@ -412,7 +411,8 @@ TEST_CASE("features: compute shaders exist on GL, D3D11 and Metal and never on G
     CHECK(supported(gpu(FeatureBackend::Gl, true, true, true, true), "computeShaders"));
     CHECK(supported(gpu(FeatureBackend::D3d11, true, true, true, true), "computeShaders"));
     CHECK(supported(gpu(FeatureBackend::Metal, true, true, true, true), "computeShaders"));
-    CHECK_FALSE(supported(gpu(FeatureBackend::Gl, true, true, true, false), "computeShaders"));  // an old GL: the GPU says no
+    CHECK_FALSE(
+        supported(gpu(FeatureBackend::Gl, true, true, true, false), "computeShaders"));  // an old GL: the GPU says no
     std::string why;
     CHECK_FALSE(supported(gpu(FeatureBackend::Gles3, true, true, true, true), "computeShaders", &why));
     CHECK(why.find("GLES3") != std::string::npos);
@@ -424,8 +424,6 @@ TEST_CASE("features: what the engine does not draw yet is false and says planned
     const FeatureEnv full = gpu(FeatureBackend::D3d11, true, true, true, true);
     std::string why;
     CHECK_FALSE(supported(full, "linearColor", &why));
-    CHECK(why == "planned (M71)");
-    CHECK_FALSE(supported(full, "hdrOutput", &why));
     CHECK(why == "planned (M71)");
     for (const std::string_view e : kPostEffectOrder) {
         CAPTURE(e);
@@ -439,6 +437,53 @@ TEST_CASE("features: what the engine does not draw yet is false and says planned
     // An effect that reads the depth buffer on a GPU that cannot sample it: the missing capability, not the plan.
     CHECK_FALSE(supported(gpu(FeatureBackend::Gles3, true, true, false), "ssao", &why));
     CHECK(why.find("depth") != std::string::npos);
+}
+
+TEST_CASE("features: hdrOutput follows the display the window is on and what the renderer writes there") {
+    std::string why;
+    // A FeatureEnv nobody filled: the display was never asked.
+    CHECK_FALSE(supported(gpu(FeatureBackend::Metal), "hdrOutput", &why));
+    CHECK(why.find("not been asked") != std::string::npos);
+
+    // Metal on a screen with EDR headroom: yes; on one without: the display's reason.
+    FeatureEnv metal = gpu(FeatureBackend::Metal);
+    set_hdr_env(metal, hdr_display_from_edr(16.0f, 1.0f, "XDR"));
+    CHECK(supported(metal, "hdrOutput"));
+    set_hdr_env(metal, hdr_display_from_edr(1.0f, 1.0f, "Studio"));
+    CHECK_FALSE(supported(metal, "hdrOutput", &why));
+    CHECK(why.find("EDR headroom") != std::string::npos);
+    HdrDisplay none;
+    none.why = "there is no window";
+    set_hdr_env(metal, none);
+    CHECK_FALSE(supported(metal, "hdrOutput", &why));
+    CHECK(why == "there is no window");
+
+    // D3D11, even on an HDR10 display: planned, until the renderer writes scRGB or HDR10.
+    FeatureEnv d3d = gpu(FeatureBackend::D3d11);
+    set_hdr_env(d3d, hdr_display_from_dxgi(true, 1000.0f, 0.0f, 600.0f, "TV"));
+    CHECK_FALSE(supported(d3d, "hdrOutput", &why));
+    CHECK(why.rfind("planned (M71)", 0) == 0);
+    CHECK(hdr_encodable(FeatureBackend::D3d11) == 0u);
+    CHECK(hdr_encodable(FeatureBackend::Metal) == hdr_encoding_bit(HdrEncoding::Edr));
+    CHECK(hdr_encodable(FeatureBackend::Gl) == 0u);
+
+    // The request the renderer makes: Metal writes sRGB-encoded EDR and says the picture stays within white.
+    const HdrRequest r = hdr_request(FeatureBackend::Metal, true, 300.0f);
+    CHECK(r.want);
+    CHECK(r.paperWhiteNits == doctest::Approx(300.0f));
+    CHECK_FALSE(r.edrLinear);
+    CHECK_FALSE(r.activeNote.empty());
+    CHECK(hdr_request(FeatureBackend::D3d11, true, 200.0f).pending == kHdrPending);
+}
+
+TEST_CASE("Renderer::output_info: without a window the output is the standard range") {
+    Renderer r;                        // never init()ed
+    r.update_output(SceneSettings{});  // does nothing before init()
+    const HdrOutputInfo info = r.output_info();
+    CHECK_FALSE(info.active);
+    CHECK(info.encoding == HdrEncoding::Sdr);
+    CHECK_FALSE(info.display.known);
+    CHECK(info.swapchainFormat.empty());
 }
 
 TEST_CASE("features: the headless backend has no GPU and says no to everything") {

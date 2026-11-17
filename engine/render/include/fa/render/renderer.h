@@ -36,6 +36,7 @@
 #include "fa/core/json.h"
 #include "fa/core/math.h"
 #include "fa/platform/app.h"
+#include "fa/platform/hdr_output.h"
 #include "fa/scene/rich_text.h"
 #include "fa/scene/text_fit.h"
 #include "fa/scene/world.h"
@@ -445,14 +446,25 @@ public:
     // Whether this renderer can do `feature` on the backend and GPU it runs on: a capability of the GPU ("floatTargets",
     // "r11g11b10", "sampledDepth", "computeShaders"), an engine feature ("linearColor", "hdrOutput") or a post effect (the
     // names of kPostEffectOrder: "bloom", "tonemap", ...). False for a name that is not in feature_names(), before init(), on the
-    // headless (dummy) backend, and for what the engine does not draw yet (every effect and linearColor / hdrOutput while M71 is
-    // in progress): it never claims what the renderer cannot do. `render.supports` answers the same with the reason.
+    // headless (dummy) backend, and for what the engine does not draw yet (every effect and linearColor while M71 is in
+    // progress): it never claims what the renderer cannot do. "hdrOutput" is true when the display the window showed its last
+    // frame on can show HDR in an encoding the renderer writes (EDR on Metal; false on D3D11 until the HDR encode of M71),
+    // whatever the scene's hdrOutput setting. `render.supports` answers the same with the reason.
     bool supports(std::string_view feature) const;
     // Every name supports() knows, in a fixed order.
     static std::vector<std::string> feature_names();
     // The answer of the `render.supports` command: {backend, backendLabel, features: [{name, kind, supported, status, doc,
     // backends}]}. Empty object before init().
     Json supports_report() const;
+
+    // HDR display output (fa/platform/hdr_output.h; docs/RENDERING.md, "HDR output"). Once per frame before present(), on the
+    // window's thread: asks the display the window is on and switches the window's swapchain to an HDR format when
+    // `settings.hdrOutput` is auto, the display can show HDR and the renderer writes that encoding (EDR on Metal), or back to
+    // the standard range. Non-empty `blocked`: never switch, and say this (the editor, whose window shows its own UI).
+    // Nothing before init(). The present pass keeps the picture within white in every encoding until the HDR encode of M71.
+    void update_output(const SceneSettings& settings, const std::string& blocked = {});
+    // What the window shows now (the `render.output` command): the last answer of update_output(), any thread.
+    HdrOutputInfo output_info() const;
 
     struct Impl;
 

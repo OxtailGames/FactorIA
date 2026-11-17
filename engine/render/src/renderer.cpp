@@ -455,13 +455,28 @@ void Renderer::take_gpu_ms(std::vector<double>& out) {
 bool Renderer::supports(std::string_view feature) const {
     if (!initialized()) return false;
     const int index = render::find_feature(feature);
-    return index >= 0 && render::feature_supported(render::feature_env_from_sokol(), index);
+    if (index < 0) return false;
+    render::FeatureEnv env = render::feature_env_from_sokol();
+    render::set_hdr_env(env, app_hdr_output().display);
+    return render::feature_supported(env, index);
 }
 std::vector<std::string> Renderer::feature_names() { return fa::render::feature_names(); }
 Json Renderer::supports_report() const {
     if (!initialized()) return Json::object();
-    return render::feature_report(render::feature_env_from_sokol(), backend_name());
+    render::FeatureEnv env = render::feature_env_from_sokol();
+    render::set_hdr_env(env, app_hdr_output().display);
+    return render::feature_report(env, backend_name());
 }
+
+void Renderer::update_output(const SceneSettings& settings, const std::string& blocked) {
+    if (!initialized()) return;
+    HdrRequest request = render::hdr_request(render::feature_env_from_sokol().backend,
+                                             settings.hdrOutput == HdrOutput::Auto, settings.paperWhiteNits);
+    request.blocked = blocked;
+    app_update_hdr_output(request);
+}
+
+HdrOutputInfo Renderer::output_info() const { return app_hdr_output(); }
 
 Json Renderer::frame_graph_report() const {
     if (!impl_ || !(impl_->anyFrameRendered || impl_->graphFromCapture)) return Json();
