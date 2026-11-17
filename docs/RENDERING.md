@@ -257,6 +257,55 @@ touching the entity's colour: sprites take a flash variant of the quad shader (O
 keep a little specular and image-based reflection). A flashing entity never shares a draw with a non-flashing one. `Text`,
 `Tilemap`, particles and the UI are not flashed. See [GAME_FEEL.md](GAME_FEEL.md).
 
+## Post-processing: bloom, exposure, tonemap, colour filter
+
+A `PostProcess` component (`docs.components`; docs/COMPONENTS.md is repository only, not in the binary) on the entity of a `Camera` is that camera's stack of screen effects; on an entity
+without a camera it is a volume that blends into the stacks of the cameras inside it. Every effect is off by default, and **a frame
+without any stack declares no pass and makes no render target**: the picture goes straight to the screen, as before. Only the stack
+of the camera that draws first is drawn (the frame has one stack); `Camera.bloom*` and `Camera.colorFilter` stand in for a
+`PostProcess` on a camera that has none (deprecated, the same picture).
+
+The passes of a frame, in order (`render.frame_graph` lists them, and `RenderStats::passes` times them):
+
+| Pass | When | What |
+|---|---|---|
+| `bloom-bright`, `bloom-down-*`, `bloom-blur-h`, `bloom-blur-v`, `bloom-composite` | `bloomEnabled` | The glow: threshold with a soft knee, a reduced-resolution blur, added back (times the lens dirt texture). |
+| `exposure-luma`, `exposure-adapt` | `exposureMode` auto | The frame reduced to 32x32 brightness values, then the stored 1x1 exposure moves toward the one that makes the average 18% grey by `1 - exp(-speed * dt)`, kept between `exposureMinEv` and `exposureMaxEv`. No read back; the engine's frame `dt`, so the same frames give the same exposure on every run. Needs a float render target. |
+| `post` | exposure, tonemap, or a linear scene | The final pass, one full-screen pass: exposure, tonemap (`none` clips, `neutral`, `aces`, `agx`, `reinhard`), the colour filter, the encode for the display and a one-step (1/255) dither so smooth gradients do not band on an 8-bit screen. |
+| `hud-over-post` | the final pass ran and screen-space items exist | The HUD, drawn over the final picture in display colours: it is never exposed or tonemapped, and never glows. |
+| `color-filter` | a colour filter with no `post` (or a HUD after it) | The accessibility filter over everything, the last pass. With `post` and no HUD it is part of `post`. |
+
+A game in the default gamma colour space with only bloom or only a colour filter gets exactly the passes it had before the stack
+existed (the old pictures are byte for byte the same). Exposure and tonemap decode the stored colours to light, work in linear
+light and encode back, so `exposureEv` +1 doubles the light, not the stored number.
+
+Cost (a 1280x720 frame, counted by `render.frame_graph`; the extra render targets are RGBA16F where the GPU draws in float, 8 bytes a
+pixel, else RGBA8):
+
+| Setting | Extra full-screen passes | Extra memory |
+|---|---|---|
+| no `PostProcess` | 0 | 0 |
+| `colorFilterEnabled` alone | 1 | one full-size target |
+| manual `exposureEnabled` and/or `tonemapEnabled` | 1 (`post`; the HUD draws as before, into another target) | one full-size target, and with a HUD a second one with a depth buffer |
+| `exposureMode` auto | 2 more (32x32 and 1x1) | a few KB |
+| `bloomEnabled`, `bloomRadius` 20 | 4 (`bloom-bright`, two blurs, `bloom-composite`) | two 320x180 targets, 0.9 MB |
+| `bloomEnabled`, `bloomRadius` 64 | 6 | four smaller targets, 0.6 MB |
+| everything on, with a HUD | 8 (`color-filter` is its own pass because the HUD went between) | the sum of the above |
+
+The time of each pass is in `render.frame_graph` with `profileFrames` (`passTimes[].gpuMs` on D3D11 and OpenGL, `cpuMs` of the
+recording everywhere; Metal has no GPU timer in sokol_gfx, so `gpuMs` is -1 there). A full-screen pass reads one texture and
+writes one: on a GPU its cost is the fill rate of the frame, and bloom's chain runs at a quarter of the pixels or less.
+
+Things to know:
+- **Linear scenes.** `SceneSettings.colorSpace` `linear` always runs the final pass (it encodes the picture for the display), even with
+  no effect on.
+- **The HUD is not exposed.** A game that wants its HUD to follow the exposure draws it into the world instead. The colour filter
+  does cover it (it is the player's setting).
+- **`bloomScreenSpace`.** With `post` in the frame the HUD is drawn after it, so it never glows whatever the field says; without
+  `post` the field works as before.
+- **Lens dirt.** `bloomLensDirt` is a texture (stretched over the screen) that multiplies the glow by `1 + dirt * bloomLensDirtIntensity`.
+- A camera that draws into a texture (`renderTarget`) never has a stack: the effects are for the picture the player sees.
+
 ## Off-screen capture
 
 `render.captureTexture({ entity | rect, space: "world", scale })` draws a part of the world into a texture of its own, with a

@@ -28,10 +28,11 @@ shadows off with one warning until the next resize, and `FA_SHADOW_MAP=invalid` 
 reading it, and the colour filter clamps its input for every mode but `none`. With `Camera.bloomScreenSpace = false`
 the frame is split: world pass, bloom, then a second pass that draws the screen-space
 groups (HUD) on top; with MSAA the glow is added to the multisampled image and the
-HUD pass loads it again, so the HUD is multisampled too. `Camera.colorFilter` is the last post-process
-(`Renderer::Impl::ensure_filter_target` and `color_filter_pass`, `shaders/colorfilter.glsl`): a pass cannot read what it writes, so the filter
+HUD pass loads it again, so the HUD is multisampled too. The colour filter is the last post-process
+(`Renderer::Impl::ensure_filter_target` and `post_pass`, `shaders/post.glsl`; `colorfilter.glsl` stays only for the GL copy of a
+render target's picture): a pass cannot read what it writes, so the filter
 draws the finished target into a second image of the same size, and `present()`, `capture()` (screenshots, video) and
-the editor viewport read that image while a filter is on; `none` skips the pass and the image. The colour-blind
+the editor viewport read that image (`Impl::final_target()`) while a filter or the final pass is on; `none` skips the pass and the image. The colour-blind
 CHECK (`simulate` of `game.screenshot`) is separate: `simulate_color_vision()` in `fa/core/image.h` on the captured
 pixels. `game.screenshot` (whole view, `region` + `zoom` via `Engine::capture_region`, filmstrip), `render.inspect` and `render.pick` are in
 `runtime/src/shot_commands.cpp`; pixel work (crop, contact sheet, line profile) is `fa/core/image_tools.h`, and which files a screenshot
@@ -205,7 +206,8 @@ decides, and the game event `ui.viewPointer` goes out like the other ui.* events
   the light buffer (`light-buffer`), the shadow map (`shadow`, only when a light casts), the world (`game`, `view` for a
   view or target job, `game-hud` for the job of a split frame that draws only the screen-space groups), the bloom stages
   of the last job (`bloom-bright`, `bloom-down-<n>`, `bloom-blur-h`, `bloom-blur-v`, `bloom-composite`), the HUD over the
-  glow (`hud-over-bloom`, with `bloomScreenSpace = false`), the colour filter (`color-filter`) and, where the backend
+  glow (`hud-over-bloom`, with `bloomScreenSpace = false`), the exposure measure (`exposure-luma`, `exposure-adapt`), the final
+  pass (`post`), the HUD over it (`hud-over-post`), the colour filter (`color-filter`) and, where the backend
   stores a target bottom-up (GL), `<job>/flip`, the copy of a target's picture into the image its texture samples; it
   exists only for render targets and only in GL, and it is declared right after the target's `view` pass (so in GL the
   order reads `target:B/view`, `target:B/flip`, `target:A/view`, `target:A/flip`, `camera:0/game`; Metal and D3D11 have
@@ -323,7 +325,8 @@ game makers: [TEXT.md](../TEXT.md).
 
 
 ## PostProcess (M71, in progress)
-M71 adds a linear HDR frame and a stack of post effects. The first package lands the shared interface; no pixel changes yet.
+M71 adds a linear HDR frame and a stack of post effects. The first package landed the shared interface; the stack's runtime and the
+final pass (exposure, bloom, tonemap, colour filter) are described in the last bullet of this section.
 
 - **Data, in `engine/scene`.** `SceneSettings.colorSpace` (`gamma`, the default, or `linear`), `hdrOutput` (`off` or `auto`) and
   `paperWhiteNits` (200) are stored and saved with the scene; an old scene without them loads as gamma. The `PostProcess` component
@@ -339,7 +342,7 @@ M71 adds a linear HDR frame and a stack of post effects. The first package lands
   tonemap (up to `bloom`).
 - **The CPU resolve, in `engine/render` (`src/postprocess_resolve.h`).** `resolve_post_stack(world, camera)` returns the one
   `PostStack` of a frame: `fx` (a PostProcess whose values are already blended), `mask` (bit i = effect `PostEffect(i)` runs),
-  `sources` (how many components contributed). `build_camera` fills `CameraInfo::postStack`; no pass reads it yet. It is pure CPU and
+  `sources` (how many components contributed). `build_camera` fills `CameraInfo::postStack`; the passes of the last job read it (`make_post_plan`, `src/postprocess.h`). It is pure CPU and
   deterministic: it starts from the neutral stack (`postprocess_neutral()`, every effect off at its identity values), applies the
   camera's own PostProcess, then the enabled volumes active in the hierarchy in ascending `priority`, equal priorities by entity id
   (so the last id wins), each with strength `weight * influence`. The influence is 1 inside the shape and falls linearly to 0 over
@@ -353,8 +356,31 @@ M71 adds a linear HDR frame and a stack of post effects. The first package lands
   `computeShaders`; the engine features `linearColor` and `hdrOutput`; and one per effect (the names above). Each row says the
   backends it can ever run on (GL, GLES3, WebGL2, D3D11, Metal; the headless dummy backend has none), what it needs from the GPU
   (read with `sg_query_pixelformat` / `sg_query_features`), and whether the engine draws it yet. A feature the engine does not draw
-  answers false with the status "planned (M71)": each M71 package turns its own on, so `supports` never claims what the renderer
-  cannot do. Compute shaders exist on GL, D3D11 and Metal, never on GLES3 or WebGL2; `hdrOutput` only on D3D11 and Metal.
+  answers false with the status "planned (M71)": each M71 package turns its own on (`effect_drawn` in `render_features.cpp`: exposure,
+  bloom, tonemap and colorFilter so far), so `supports` never claims what the renderer cannot do. Compute shaders exist on GL, D3D11 and Metal, never on GLES3 or WebGL2; `hdrOutput` only on D3D11 and Metal.
   The decision is a pure function of a `FeatureEnv` (backend + what the GPU reported), so a test asks what D3D11 would say.
 - **Commands.** `postprocess.get`, `postprocess.set` (thin wrappers of `scene.set_component` for `PostProcess`) and
   `postprocess.presets` (empty until the effects exist) are in `engine/runtime/src/postprocess_commands.cpp`.
+- **The stack's passes and the final pass (`src/postprocess.{h,cpp}`, `shaders/post.glsl`, `shaders/exposure.glsl`).** `build_graph`
+  declares them for the last job, from the PostStack of the camera that drives post (`specs.front().cam`; a stack per camera job is a
+  `PostPlan` and an `AutoExposure` per job, nothing else is shared). `make_post_plan` turns the stack into sanitised numbers
+  (`PostPlan`); `PostPlan::convert()` (exposure, tonemap or a linear scene) decides whether the final pass runs. Order: bloom
+  (`bloom.h`, now with a soft knee in `q.y` of the bright pass and a lens dirt texture in the composite) -> `exposure-luma` /
+  `exposure-adapt` (`AutoExposure`) -> `post` (exposure, tonemap, the sRGB encode, a one-step interleaved-gradient-noise dither, and
+  the colour filter, in one fragment shader) -> `hud-over-post` -> `color-filter`. Four cases, by `plan.last`: (1) no conversion and
+  no HUD after: the filter alone is `color-filter` (post.glsl with `convert` 0, the old filter's maths); (2) legacy
+  `bloomScreenSpace = false` without conversion: `hud-over-bloom`, then `color-filter`; (3) conversion and no screen-space items: one
+  `post` pass game -> `filterTarget` with the filter fused in; (4) conversion with screen-space items: `post` game -> `hudTarget` (a
+  game-like target made on demand by `ensure_hud_target`: same MSAA and depth, so the HUD pipelines draw into it), `hud-over-post`,
+  then `color-filter` hudTarget -> `filterTarget` when a filter is on. `Impl::final_target()` is the image present, `capture()` and
+  `read_rgba8` use; `Impl::finalEncoded` says the final pass already encoded it, so the present blit must not encode again.
+  Automatic exposure never reads back: `exposure-luma` takes 8x8 fixed log2-luminance taps per texel into a 32x32 transient,
+  `exposure-adapt` moves a stored 1x1 EV (two persistent targets used in turn, imported into the graph) toward
+  `log2(0.18) - mean` by `1 - exp(-speed * dt)` with the engine's frame dt; a first frame, new targets or a frame in which the
+  passes were not declared (`lastSerial_ + 1 != frameSerial`) take the target at once, dt 0 leaves it as it is, and it needs the
+  RGBA16F scene format (else one warning and the exposure stays manual). The legacy fields: `build_camera` builds an implicit
+  `PostProcess` from the sanitised `Camera.bloom*` and `colorFilter` (knee 0, no dirt) and `resolve_post_stack` uses it when the
+  camera has no enabled `PostProcess` of its own, so `CameraInfo::bloom` and `colorFilter` are always derived from the stack
+  (`bloom_from_stack`); the six fields are in `api_since.json` "deprecated.components". `OutputEncode` (`Sdr` only) is the hook the
+  HDR output adds its encodes to (`p.z` of post.glsl). Screen-space items are drawn after the final pass, so exposure and tonemap
+  never touch them; in a linear scene their quad and text pipelines must write display-space values into `hudTarget`.

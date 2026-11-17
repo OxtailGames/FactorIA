@@ -11,6 +11,8 @@
 
 #include "shaders/bloom.glsl.h"
 #include "shaders/colorfilter.glsl.h"
+#include "shaders/exposure.glsl.h"
+#include "shaders/post.glsl.h"
 #include "shaders/blit.glsl.h"
 #include "shaders/light.glsl.h"
 #include "shaders/mesh.glsl.h"
@@ -180,6 +182,14 @@ void Gpu::shutdown() {
     if (colorfilter_shader_.id) sg_destroy_shader(colorfilter_shader_);
     colorfilter_shader_ = {};
     colorfilterState_ = 0;
+    if (post_shader_.id) sg_destroy_shader(post_shader_);
+    post_shader_ = {};
+    postState_ = 0;
+    for (sg_shader& s : exposure_shaders_) {
+        if (s.id) sg_destroy_shader(s);
+        s = {};
+    }
+    exposureState_ = 0;
     if (light_shader_.id) sg_destroy_shader(light_shader_);
     light_shader_ = {};
     lightState_ = 0;
@@ -476,6 +486,75 @@ sg_pipeline Gpu::colorfilter_pipeline(const TargetFormat& format) {
     d.depth.write_enabled = false;
     d.face_winding = SG_FACEWINDING_CCW;
     d.label = "colorfilter";
+    return find_or_make(key, format, d);
+}
+
+bool Gpu::post_ready() {
+    if (postState_ != 0) return postState_ > 0;
+    post_shader_ = make_shader(post_post_shader_desc(sg_query_backend()), "post_post");
+    if (sg_query_shader_state(post_shader_) != SG_RESOURCESTATE_VALID) {
+        sg_destroy_shader(post_shader_);
+        post_shader_ = {};
+        postState_ = -1;
+        FA_ERROR("render",
+                 "The post-processing pass (exposure, tonemap, colour filter) is unavailable: its shader failed to "
+                 "compile for "
+                 "this graphics backend (see the sokol log lines above). The game renders without it. Hint: update the "
+                 "graphics driver (Mesa: try LIBGL_ALWAYS_SOFTWARE=1) or remove the PostProcess component.");
+        return false;
+    }
+    postState_ = 1;
+    return true;
+}
+
+sg_pipeline Gpu::post_pipeline(const TargetFormat& format) {
+    if (!post_ready()) return {};
+    PipelineKey key{0xA00u};
+    sg_pipeline_desc d{};
+    d.shader = post_shader_;
+    d.layout.attrs[ATTR_post_post_pos].format = SG_VERTEXFORMAT_FLOAT2;
+    d.depth.compare = SG_COMPAREFUNC_ALWAYS;
+    d.depth.write_enabled = false;
+    d.face_winding = SG_FACEWINDING_CCW;
+    d.label = "post";
+    return find_or_make(key, format, d);
+}
+
+bool Gpu::exposure_ready() {
+    if (exposureState_ != 0) return exposureState_ > 0;
+    exposure_shaders_[int(ExposureStage::Luma)] =
+        make_shader(exposure_luma_shader_desc(sg_query_backend()), "exposure_luma");
+    exposure_shaders_[int(ExposureStage::Adapt)] =
+        make_shader(exposure_adapt_shader_desc(sg_query_backend()), "exposure_adapt");
+    bool ok = true;
+    for (sg_shader s : exposure_shaders_) ok = ok && sg_query_shader_state(s) == SG_RESOURCESTATE_VALID;
+    if (!ok) {
+        for (sg_shader& s : exposure_shaders_) {
+            if (s.id) sg_destroy_shader(s);
+            s = {};
+        }
+        exposureState_ = -1;
+        FA_ERROR(
+            "render",
+            "The automatic exposure is unavailable: its shaders failed to compile for this graphics backend (see the "
+            "sokol log lines above). The exposure stays at PostProcess.exposureEv. Hint: update the graphics driver "
+            "(Mesa: try LIBGL_ALWAYS_SOFTWARE=1) or set exposureMode to manual.");
+        return false;
+    }
+    exposureState_ = 1;
+    return true;
+}
+
+sg_pipeline Gpu::exposure_pipeline(ExposureStage stage, const TargetFormat& format) {
+    if (!exposure_ready()) return {};
+    PipelineKey key{0xB00u | std::uint32_t(stage)};
+    sg_pipeline_desc d{};
+    d.shader = exposure_shaders_[int(stage)];
+    d.layout.attrs[ATTR_exposure_luma_pos].format = SG_VERTEXFORMAT_FLOAT2;
+    d.depth.compare = SG_COMPAREFUNC_ALWAYS;
+    d.depth.write_enabled = false;
+    d.face_winding = SG_FACEWINDING_CCW;
+    d.label = stage == ExposureStage::Luma ? "exposure-luma" : "exposure-adapt";
     return find_or_make(key, format, d);
 }
 

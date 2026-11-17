@@ -138,6 +138,8 @@ static_assert(sizeof(LightVertex) == 56, "LightVertex is 14 floats");
 // ---------------------------------------------------------------------------
 // Shader programs of the Camera.bloom post-process (bloom.glsl).
 enum class BloomStage : std::uint8_t { Bright, Down, Blur, Composite, Count };
+// The two programs of the automatic exposure (exposure.glsl): the log-luminance of the frame, and the adaptation of the stored EV.
+enum class ExposureStage : std::uint8_t { Luma, Adapt, Count };
 
 // LinearClamp: bilinear, clamp to edge, no mipmaps (post-processing).
 enum class SamplerKind : std::uint8_t { Nearest, Linear, LinearRepeat, NearestRepeat, LinearClamp, Count };
@@ -492,10 +494,15 @@ class FontSet;
 // the fallbacks for NaN values and equal the Camera component defaults.
 struct BloomSettings {
     bool enabled = false;
-    float threshold = 0.7f;   // 0 .. 0.99, brightness (max of r, g, b) where the glow starts
+    float threshold =
+        0.7f;  // 0 .. 0.99 (Camera.bloom), 0 .. 20 (PostProcess): brightness (max of r, g, b) where the glow starts
     float intensity = 1.2f;   // 0 .. 10, multiplier of the glow added to the frame
     float radius = 20.0f;     // 1 .. 128 design pixels
     bool screenSpace = true;  // Camera.bloomScreenSpace: false = screen-space items are drawn after the bloom
+    float knee =
+        0.0f;  // 0 .. 1, PostProcess.bloomKnee: how softly the glow starts above the threshold (0 = the hard start of Camera.bloom)
+    float dirtIntensity = 1.0f;  // 0 .. 10, PostProcess.bloomLensDirtIntensity
+    std::string dirt;            // PostProcess.bloomLensDirt: the texture path ("" = none)
 };
 
 // A camera as the renderer draws it: the geometry the simulation shares (fa/scene/camera_geometry.h) plus what only drawing needs.
@@ -505,12 +512,13 @@ struct CameraInfo : CameraGeometry {
     bool studio =
         false;  // Camera.lighting == studio: the camera's own rig instead of the scene's lights, ambient, sky and fog
     float studioIntensity = 1.0f;  // Camera.studioIntensity after clamping
-    BloomSettings bloom;           // Camera.bloom* after clamping to the supported ranges
-    int colorFilter =
-        0;  // Camera.colorFilter as an int (0 none, 1 greyscale, 2 highContrast, 3 protanopia, 4 deuteranopia, 5 tritanopia)
-    // The PostProcess stack of this camera (its own component plus the volumes it is inside, postprocess_resolve.h). Resolved
-    // every time the camera is built; no pass reads it yet (M71.1 and later do): the bloom and colorFilter above still drive the picture.
-    PostStack postStack;
+    // The PostProcess stack of this camera (its own component plus the volumes it is inside, postprocess_resolve.h). Resolved every time
+    // the camera is built; a camera without a PostProcess of its own gets one made of its Camera.bloom* and Camera.colorFilter fields.
+    // Null when the world has no PostProcess and the camera no legacy bloom or filter field: the usual case costs one pointer, not a copy.
+    std::shared_ptr<const PostStack> postStack;
+    // What the passes draw (postprocess.h, make_post_plan): the bloom and the colour filter of postStack after clamping to the supported ranges.
+    BloomSettings bloom;
+    int colorFilter = 0;  // 0 none, 1 greyscale, 2 highContrast, 3 protanopia, 4 deuteranopia, 5 tritanopia
 };
 
 // Texture/mesh/font caches keyed by project-relative path.
@@ -806,6 +814,14 @@ public:
         return colorfilter_pipeline(TargetFormat{sceneFormat_, SG_PIXELFORMAT_NONE, 1});
     }
 
+    // The final pass of the post-processing stack (post.glsl: exposure, tonemap, output encode, colour filter): one program, created on
+    // first use like the others; false + one logged error when it cannot be created, and the frame is then drawn without it.
+    bool post_ready();
+    sg_pipeline post_pipeline(const TargetFormat& format);
+    // The automatic exposure (exposure.glsl), the same way.
+    bool exposure_ready();
+    sg_pipeline exposure_pipeline(ExposureStage stage, const TargetFormat& format);
+
     // The 2D light buffer (light.glsl). Its shader is created on first use, like the bloom ones; false + one logged error
     // when it cannot be created, and lit visuals then shade with the per-pixel path (the first kDirectLights2D lights).
     bool light_ready();
@@ -864,6 +880,8 @@ public:
     sg_shader meshSkinShader_{}, shadowSkinShader_{};
     sg_shader bloom_shaders_[int(BloomStage::Count)]{};
     sg_shader colorfilter_shader_{};
+    sg_shader post_shader_{};
+    sg_shader exposure_shaders_[int(ExposureStage::Count)]{};
     sg_shader light_shader_{};
 
 private:
@@ -879,6 +897,8 @@ private:
     int bloomState_ = 0;        // 0 = shaders not created yet, 1 = ready, -1 = creation failed
     int colorfilterState_ = 0;  // same meaning as bloomState_
     int lightState_ = 0;        // same meaning as bloomState_
+    int postState_ = 0;         // same meaning as bloomState_
+    int exposureState_ = 0;     // same meaning as bloomState_
     sg_pixel_format lightFormat_ = SG_PIXELFORMAT_NONE;
     sg_pixel_format sceneFormat_ = SG_PIXELFORMAT_RGBA8;  // see scene_format()
     sg_sampler samplers_[int(SamplerKind::Count)]{};

@@ -15,11 +15,25 @@ Older versions, one file per minor version with its patch releases: [0.29](chang
   `circle` or `sphere`, `size`, `blendDistance`, `priority`, `weight`), with 20 effects (`ssao`, `ssr`, `fog`, `sunShafts`,
   `exposure`, `depthOfField`, `motionBlur`, `radialBlur`, `lensDistortion`, `chromaticAberration`, `bloom`, `tonemap`,
   `colorGrading`, `vignette`, `sharpen`, `outline`, `pixelate`, `posterize`, `filmGrain`, `colorFilter`). All are off by default and
-  none is drawn yet: the fields are stored and saved. The renderer resolves the volumes at each camera on the CPU
+  only the four listed below are drawn yet: the other fields are stored and saved. The renderer resolves the volumes at each camera on the CPU
   (docs/design/ARCHITECTURE_RENDERING.md, "PostProcess").
 - **Commands:** `render.supports` says what the renderer can do on this graphics backend and GPU (float targets, R11G11B10, sampled
   depth, compute shaders, linear colour, HDR output and each post effect; false for what is not drawn yet); `postprocess.get`,
   `postprocess.set` and `postprocess.presets` read and write the PostProcess component.
+- **Exposure, bloom, tonemap and colour filter are drawn.** The stack of the camera that draws first is now a set of frame-graph
+  passes: bloom (with a new soft `bloomKnee`, a `bloomLensDirt` texture and a `bloomThreshold` that may exceed 1), exposure (manual
+  `exposureEv`, or `exposureMode` auto: a 32x32 brightness reduction and a 1x1 adaptation on the GPU, deterministic from the frame
+  time, no read back, between `exposureMinEv` and `exposureMaxEv`), tonemap (`none`, `neutral`, `aces`, `agx`, `reinhard`) and the
+  colour filter, with a final pass that fuses exposure, tonemap, filter and the encode for the display and dithers by one 8-bit step.
+  The screen-space HUD is drawn over the final picture in display colours (never exposed or tonemapped; the colour filter still
+  covers it). A frame without any stack still declares no pass and makes no render target. `render.supports` answers true for these
+  four effects. docs/RENDERING.md ("Post-processing") has the order and the cost of each; AI_GUIDE recipe 9.20 is rewritten to
+  PostProcess.
+- **Deprecated:** `Camera.bloom`, `bloomThreshold`, `bloomIntensity`, `bloomRadius`, `bloomScreenSpace` and `Camera.colorFilter`
+  keep drawing exactly the same picture (they stand in for a PostProcess on a camera that has none), but warn once and will be
+  removed two minor versions after the release that ships them. Migration: add a `PostProcess` to the camera's entity and set
+  `bloomEnabled`, `bloomThreshold`, `bloomIntensity`, `bloomRadius`, `bloomScreenSpace`, and `colorFilterEnabled` with
+  `colorFilterMode`. A camera with a `PostProcess` of its own ignores the old fields.
 
 ## 0.30.1
 

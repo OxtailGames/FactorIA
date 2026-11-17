@@ -37,7 +37,10 @@ struct Renderer::Impl::DrawContext {
     const CameraInfo& post;
     JobEnv env;  // the sizes and images the job's passes draw with (a view job's are not the game target's)
     // plan_job: the viewports and clears of this job
-    bool hudAfterBloom = false, msaa = false, z01 = false;
+    // hudAfterBloom: the screen-space items are drawn over the glowing game target (Camera.bloomScreenSpace false, no final pass).
+    // hudAfterPost: the last job's final pass writes hudTarget and the screen-space items are drawn over it, in display space.
+    bool hudAfterBloom = false, hudAfterPost = false, msaa = false, z01 = false;
+    PostPlan postPlan;  // the post-processing stack the last job declares (empty for the other jobs)
     // Does this job begin the main pass? The screen-space job of a frame whose HUD goes over the bloom draws it after instead.
     bool doMainPass = false;
     Px fullPx, camPx;
@@ -328,12 +331,29 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
     ctx.z01 = gpu.depth_zero_to_one();
     ctx.msaa = gpu.sample_count() > 1;
     ctx.doMainPass = fr.wantWorld || !ctx.hudAfterBloom;
+    if (plan.last) {
+        PostPlan& pp = ctx.postPlan;
+        pp = make_post_plan(ctx.post, world.settings().colorSpace == ColorSpace::Linear);
+        if (!gpu.post_ready()) {  // logged once; the frame is drawn without the final pass
+            pp.exposure = pp.tonemap = pp.linear = false;
+            pp.colorFilter = 0;
+        }
+    }
 
     gather_meshes(ctx);
     collect_lights(ctx);
     shadow_bounds(ctx);
     cull_and_batch(ctx);
     build_quad_stream(ctx);
+    // The final pass converts the picture (exposure, tonemap, the encode of a linear scene): the screen-space items go over its result, in
+    // display space, and are drawn after it instead of in the main pass. Only when there is something to draw, and the image for it exists.
+    if (ctx.postPlan.convert() && fr.wantScreen &&
+        (!ctx.gScreen.batches.empty() || !ctx.gDebugScreen.batches.empty()) && ensure_hud_target()) {
+        ctx.hudAfterPost = true;
+        ctx.hudAfterBloom =
+            false;  // the glow goes into the resolved image: the multisampled one is not drawn over again
+        ctx.doMainPass = fr.wantWorld;
+    }
     upload_instances(ctx);
     scene_uniforms(ctx);
     light_plan(ctx);
@@ -1080,7 +1100,7 @@ void Renderer::Impl::main_pass(DrawContext& ctx) {
     const sg_buffer mainInst = ctx.mainInst;
     const mesh_fa_mesh_vs_params_t& vuScene = ctx.vuScene;
     const mesh_fa_lights_t& lightUniforms = ctx.lightUniforms;
-    const bool drawHudInPass = fr.wantScreen && !hudAfterBloom;
+    const bool drawHudInPass = fr.wantScreen && !hudAfterBloom && !ctx.hudAfterPost;
     if (ctx.doMainPass) {
         PassDesc mp = pass_into(gameTarget, plan.view ? "view" : fr.wantWorld ? "game" : "game-hud");
         mp.colorLoad = clearByLoad ? SG_LOADACTION_CLEAR : SG_LOADACTION_LOAD;
@@ -1209,16 +1229,19 @@ void Renderer::Impl::main_pass(DrawContext& ctx) {
     }  // doMainPass
 }
 
-// ---- HUD pass (Camera.bloomScreenSpace = false): screen-space groups over the glowing frame ----
-// Reads: ctx.gScreen, ctx.gDebugScreen, ctx.screenProj, ctx.vbuf, ctx.msaa, the game target (LOAD). Writes: the game target;
-// stats.drawCalls. Declared by build_graph when there is something to draw.
-void Renderer::Impl::hud_pass(DrawContext& ctx) {
+// ---- HUD pass: screen-space groups over the finished frame ----
+// Camera.bloomScreenSpace = false draws them over the glowing game target ("hud-over-bloom"); a final pass that converts the picture
+// (exposure, tonemap, linear colour) draws them over its result in hudTarget, in display space ("hud-over-post"). Either way they are
+// never glowed, tonemapped or exposed.
+// Reads: ctx.gScreen, ctx.gDebugScreen, ctx.screenProj, ctx.vbuf, ctx.msaa, `into` (LOAD). Writes: `into`; stats.drawCalls. Declared by
+// build_graph when there is something to draw.
+void Renderer::Impl::hud_pass(DrawContext& ctx, const Target& into, const char* label) {
     const bool msaa = ctx.msaa;
     const Px& fullPx = ctx.fullPx;
     const Mat4& screenProj = ctx.screenProj;
     const DrawContext::Group& gScreen = ctx.gScreen;
     const DrawContext::Group& gDebugScreen = ctx.gDebugScreen;
-    PassDesc hp = pass_into(gameTarget, "game-hud");
+    PassDesc hp = pass_into(into, label);
     hp.colorLoad = SG_LOADACTION_LOAD;  // keep the world and its glow
     hp.colorStore = msaa ? SG_STOREACTION_DONTCARE : SG_STOREACTION_STORE;
     hp.depthLoad = SG_LOADACTION_CLEAR;
@@ -1231,10 +1254,11 @@ void Renderer::Impl::hud_pass(DrawContext& ctx) {
 }
 
 // Declares the passes of the job in `graph` (the frame's), named "<job>/<pass>", in the order they always ran: the light buffer,
-// the shadow map, the main pass, and in the last job of the frame the post effects: bloom (its stages), the HUD over the
-// bloom, then Camera.colorFilter (costs nothing with "none"). The targets that outlive the frame (the game target or the
-// view's image, the light buffer, the shadow map, the colour-filter image: present() and capture() sample them after the
-// graph ran) are imported; the bloom levels are transients of the pool. The game target, the light buffer and the shadow map
+// the shadow map, the main pass, and in the last job of the frame the post-processing stack (ctx.postPlan, postprocess.h): bloom (its
+// stages), the HUD over the bloom (Camera.bloomScreenSpace false), the automatic exposure, the final pass `post` (exposure, tonemap, the
+// output encode), the HUD over it (`hud-over-post`) and the colour filter. A frame without a stack declares none of them. The targets
+// that outlive the frame (the game target or the view's image, the light buffer, the shadow map, the final images: present() and
+// capture() sample them after the graph ran) are imported; the bloom levels and the exposure measure are transients of the pool. The game target, the light buffer and the shadow map
 // are one resource each for the whole frame (the jobs that use them are declared in the order they run, so each one sees what
 // the one before wrote); a view job's image is its own resource, which the jobs that show it read (`plan.shows`).
 // Every callback puts the job's JobEnv in place while it runs (a view job draws with the view's size and images).
@@ -1244,7 +1268,6 @@ void Renderer::Impl::hud_pass(DrawContext& ctx) {
 void Renderer::Impl::build_graph(DrawContext& ctx) {
     Frame& fr = ctx.fr;
     const JobPlan& plan = ctx.plan;
-    const CameraInfo& post = ctx.post;
     const std::string prefix = plan.name + "/";
     // `fn` keeps its own type instead of becoming a std::function first: the pass's callback wraps it once, not twice.
     auto add = [&](const std::string& name, std::vector<ResourceId> reads, std::vector<ResourceId> writes, auto&& fn) {
@@ -1299,8 +1322,12 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
     }
     if (!plan.last) return;
 
+    // ---- the post-processing stack of the frame (postprocess.h): bloom -> automatic exposure -> the final pass -> the HUD -> the colour filter ----
     filterActive = false;
-    if (post.bloom.enabled) {
+    hudActive = false;
+    finalEncoded = false;
+    const PostPlan& pp = ctx.postPlan;
+    if (pp.bloom.enabled) {
         BloomTarget dst;
         if (ctx.hudAfterBloom && ctx.msaa) {
             // Glow into the multisampled image (resolved again at the end of the composite pass) so the HUD pass below
@@ -1310,19 +1337,73 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
             // The finished frame: the resolved image when MSAA is on (the main pass already resolved into it).
             dst = BloomTarget{ctx.msaa ? gameTarget.resolveColorAtt : gameTarget.colorAtt, sg_view{}, 1};
         }
-        bloom.add_passes(graph, transient_targets(), gpu, post.bloom, physW, physH, game, gameTarget.texView, dst,
+        // The lens dirt: its texture, or a white one the composite ignores (intensity 0) when there is none.
+        const sg_view dirt = pp.bloom.dirt.empty() ? assets->white()->view : assets->texture(pp.bloom.dirt)->view;
+        bloom.add_passes(graph, transient_targets(), gpu, pp.bloom, physW, physH, game, gameTarget.texView, dst, dirt,
                          &stats.drawCalls, plan.name);
     }
-    if (ctx.hudAfterBloom && fr.wantScreen && (!ctx.gScreen.batches.empty() || !ctx.gDebugScreen.batches.empty())) {
+    const bool hudItems = fr.wantScreen && (!ctx.gScreen.batches.empty() || !ctx.gDebugScreen.batches.empty());
+    if (ctx.hudAfterBloom && hudItems) {
         std::vector<ResourceId> reads{game};
         reads.insert(reads.end(), shown.begin(), shown.end());
-        add("hud-over-bloom", std::move(reads), {game}, [this, &ctx](const PassContext&) { hud_pass(ctx); });
+        add("hud-over-bloom", std::move(reads), {game},
+            [this, &ctx](const PassContext&) { hud_pass(ctx, gameTarget, "game-hud"); });
     }
-    if (post.colorFilter != 0 && gpu.colorfilter_ready() && ensure_filter_target()) {
+    // The final pass: exposure, tonemap and the output encode (and the colour filter, when nothing is drawn in between) in one pass.
+    const bool convert = pp.convert();
+    if (convert && (ctx.hudAfterPost || ensure_filter_target())) {
+        ResourceId evRes;
+        if (pp.autoExposure)
+            evRes = autoExposure.add_passes(graph, transient_targets(), gpu, pp, game, gameTarget.texView, fr.dt,
+                                            frameSerial, &stats.drawCalls, plan.name);
+        const bool autoExp = evRes.valid();
+        std::vector<ResourceId> reads{game};
+        if (autoExp) reads.push_back(evRes);
+        const TransientDesc dd = import_desc(physW, physH, gameTarget.format, "game-post");
+        if (ctx.hudAfterPost) {
+            // The picture goes into hudTarget (its multisampled image kept), the screen-space items are drawn over it, and the colour
+            // filter (it works on what the screen shows, the items included) copies it into filterTarget.
+            const ResourceId hudRes = graph.import_target("game-post", hudTarget.colorAtt.id, dd);
+            add("post", std::move(reads), {hudRes}, [this, pp, autoExp](const PassContext&) {
+                post_pass(pp, true, 0, autoExp, gameTarget.texView,
+                          autoExp ? autoExposure.ev_view() : assets->white()->view, hudTarget, "post", true);
+                hudActive = true;
+                finalEncoded = true;
+            });
+            std::vector<ResourceId> hudReads{hudRes};
+            hudReads.insert(hudReads.end(), shown.begin(), shown.end());
+            add("hud-over-post", std::move(hudReads), {hudRes},
+                [this, &ctx](const PassContext&) { hud_pass(ctx, hudTarget, "game-post-hud"); });
+            if (pp.colorFilter != 0 && ensure_filter_target()) {
+                const ResourceId filtered =
+                    graph.import_target("game-filtered", filterTarget.color.id,
+                                        import_desc(physW, physH, filterTarget.format, "game-filtered"));
+                add("color-filter", {hudRes}, {filtered}, [this, pp](const PassContext&) {
+                    post_pass(pp, false, pp.colorFilter, false, hudTarget.texView, assets->white()->view, filterTarget,
+                              "color-filter", false);
+                    filterActive = true;
+                });
+            }
+        } else {
+            const ResourceId filtered =
+                graph.import_target("game-filtered", filterTarget.color.id,
+                                    import_desc(physW, physH, filterTarget.format, "game-filtered"));
+            add("post", std::move(reads), {filtered}, [this, pp, autoExp](const PassContext&) {
+                post_pass(pp, true, pp.colorFilter, autoExp, gameTarget.texView,
+                          autoExp ? autoExposure.ev_view() : assets->white()->view, filterTarget, "post", false);
+                filterActive = true;
+                finalEncoded = true;
+            });
+        }
+    } else if (pp.colorFilter != 0 && ensure_filter_target()) {
+        // Only the colour filter (Camera.colorFilter / PostProcess.colorFilter): a copy of the game target through the filter.
         const ResourceId filtered = graph.import_target(
             "game-filtered", filterTarget.color.id, import_desc(physW, physH, filterTarget.format, "game-filtered"));
-        const int mode = post.colorFilter;
-        add("color-filter", {game}, {filtered}, [this, mode](const PassContext&) { color_filter_pass(mode); });
+        add("color-filter", {game}, {filtered}, [this, pp](const PassContext&) {
+            post_pass(pp, false, pp.colorFilter, false, gameTarget.texView, assets->white()->view, filterTarget,
+                      "color-filter", false);
+            filterActive = true;
+        });
     }
 }
 

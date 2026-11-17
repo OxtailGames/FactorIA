@@ -94,9 +94,28 @@ CameraInfo Renderer::Impl::build_camera(World& world, Entity best, const Vec2* v
     }
     ci.clearColor = cam.clearColor;
     ci.clear = cam.clear || viewSize != nullptr;
-    ci.colorFilter = std::clamp(int(cam.colorFilter), 0, 5);
-    ci.bloom = sanitize_bloom(cam.bloom, cam.bloomThreshold, cam.bloomIntensity, cam.bloomRadius, cam.bloomScreenSpace);
-    ci.postStack = resolve_post_stack(world, ci);
+    // The deprecated Camera.bloom* and Camera.colorFilter fields are the PostProcess of a camera that has none: a hard bloom (knee 0)
+    // and the colour filter, exactly as before.
+    PostProcess legacy = postprocess_neutral();
+    const bool useLegacy = cam.bloom || cam.colorFilter != ColorFilter::None;
+    if (useLegacy) {
+        const BloomSettings b =
+            sanitize_bloom(cam.bloom, cam.bloomThreshold, cam.bloomIntensity, cam.bloomRadius, cam.bloomScreenSpace);
+        legacy.bloomEnabled = b.enabled;
+        legacy.bloomThreshold = b.threshold;
+        legacy.bloomIntensity = b.intensity;
+        legacy.bloomRadius = b.radius;
+        legacy.bloomScreenSpace = b.screenSpace;
+        legacy.bloomKnee = 0.0f;
+        legacy.colorFilterEnabled = cam.colorFilter != ColorFilter::None;
+        legacy.colorFilterMode = cam.colorFilter;
+    }
+    if (useLegacy || world.any<PostProcess>()) {
+        auto stack = std::make_shared<PostStack>(resolve_post_stack(world, ci, useLegacy ? &legacy : nullptr));
+        ci.bloom = bloom_from_stack(*stack);
+        ci.colorFilter = stack->has(PostEffect::ColorFilter) ? std::clamp(int(stack->fx.colorFilterMode), 0, 5) : 0;
+        if (stack->any()) ci.postStack = std::move(stack);
+    }
     return ci;
 }
 

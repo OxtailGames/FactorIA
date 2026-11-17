@@ -176,7 +176,11 @@ void Renderer::Impl::destroy_targets() {
     destroy_target(lightTarget);
     lightW = lightH = 0;
     filterActive = false;
+    hudActive = false;
+    finalEncoded = false;
     destroy_target(filterTarget);
+    destroy_target(hudTarget);
+    autoExposure.release();
     free_read_image();
     destroy_target(gameTarget);
 }
@@ -453,9 +457,9 @@ void Renderer::Impl::destroy_light_resources() {
     shadowRowsWindow = 0;
 }
 
-// Makes (or keeps) the image the colour filter draws into. False (and one logged error) when the GPU cannot make it:
-// the game is then drawn without the filter. It is the frame's output while filterActive: present() and capture()
-// sample it after the frame graph ran, so it is an imported target of the graph and not a transient of the pool.
+// Makes (or keeps) the image the final pass or the colour filter draws into. False (and one logged error) when the GPU cannot make
+// it: the game is then drawn without them. It is the frame's output while filterActive: present() and capture() sample it after the
+// frame graph ran, so it is an imported target of the graph and not a transient of the pool.
 bool Renderer::Impl::ensure_filter_target() {
     if (filterTarget.color.id) return true;
     TargetDesc d;
@@ -465,7 +469,9 @@ bool Renderer::Impl::ensure_filter_target() {
     d.colorFormat = gpu.scene_format();
     filterTarget = make_target(d);
     if (!filterTarget.valid()) {
-        FA_ERROR("render", "Camera.colorFilter: cannot create the {}x{} target; the game is drawn without the filter",
+        FA_ERROR("render",
+                 "Post-processing (PostProcess, Camera.colorFilter): cannot create the {}x{} target; the game is drawn "
+                 "without it",
                  physW, physH);
         destroy_target(filterTarget);
         return false;
@@ -473,27 +479,37 @@ bool Renderer::Impl::ensure_filter_target() {
     return true;
 }
 
-// Draws the finished game target through colorfilter.glsl into filterTarget (ensure_filter_target made it).
-void Renderer::Impl::color_filter_pass(int mode) {
-    PassDesc p = pass_into(filterTarget, "color-filter");
+// Makes (or keeps) the image the final pass writes when the screen-space items are drawn over it: a game target without the bloom's
+// resolve-as-colour view, so the pipelines of the game (same colour and depth formats, same sample count) draw into it too.
+bool Renderer::Impl::ensure_hud_target() {
+    if (hudTarget.color.id) return true;
+    TargetDesc d;
+    d.label = "game-post";
+    d.width = physW;
+    d.height = physH;
+    d.colorFormat = gpu.scene_format();
+    d.samples = gpu.sample_count();
+    d.depthFormat = kSceneDepthFormat;
+    hudTarget = make_target(d);
+    if (!hudTarget.valid()) {
+        FA_ERROR("render",
+                 "Post-processing: cannot create the {}x{} target the interface is drawn into after the final pass; "
+                 "the interface is "
+                 "drawn into the game picture instead",
+                 physW, physH);
+        destroy_target(hudTarget);
+        return false;
+    }
+    return true;
+}
+
+// Draws `src` through post.glsl into `dst` (ensure_filter_target / ensure_hud_target made it).
+void Renderer::Impl::post_pass(const PostPlan& pp, bool convert, int filter, bool autoExposure, sg_view src,
+                               sg_view expo, Target& dst, const char* label, bool keepMsaa) {
+    PassDesc p = pass_into(dst, label);
     p.colorLoad = SG_LOADACTION_DONTCARE;  // every pixel is drawn
-    p.colorStore = SG_STOREACTION_STORE;
-    gpu.begin_pass(p);
-    sg_apply_pipeline(gpu.colorfilter_pipeline(p.format));
-    sg_bindings b{};
-    b.vertex_buffers[0] = gpu.fullscreen_triangle();
-    b.views[VIEW_colorfilter_tex] = gameTarget.texView;
-    b.samplers[SMP_colorfilter_smp] = gpu.sampler(SamplerKind::Nearest);
-    sg_apply_bindings(&b);
-    colorfilter_colorfilter_vs_params_t vu{};
-    vu.flip[0] = gpu.is_gl() ? 1.0f : 0.0f;
-    apply_uniforms(UB_colorfilter_colorfilter_vs_params, vu);
-    colorfilter_colorfilter_params_t fu{};
-    fu.p[0] = float(mode);
-    apply_uniforms(UB_colorfilter_colorfilter_params, fu);
-    sg_draw(0, 3, 1);
-    gpu.end_pass();
-    filterActive = true;
+    p.colorStore = (dst.samples > 1 && !keepMsaa) ? SG_STOREACTION_DONTCARE : SG_STOREACTION_STORE;
+    run_post_pass(gpu, pp, convert, filter, autoExposure, p, src, expo, dst.w, dst.h);
     ++stats.drawCalls;
 }
 

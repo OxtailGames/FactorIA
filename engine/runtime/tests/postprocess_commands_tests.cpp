@@ -190,8 +190,10 @@ TEST_CASE("render.supports answers with a status, or says there is no renderer, 
         r = c.call("render.supports", Json::parse(R"({"feature":"bloom"})"));
         REQUIRE_MESSAGE(r.ok, r.error.dump());
         CHECK(r.result["feature"] == "bloom");
-        CHECK(r.result["supported"] == false);  // M71 in progress: the renderer does not draw it yet
         CHECK(r.result["status"].is_string());
+        r = c.call("render.supports", Json::parse(R"({"feature":"ssao"})"));
+        REQUIRE_MESSAGE(r.ok, r.error.dump());
+        CHECK(r.result["supported"] == false);  // M71 in progress: the renderer does not draw it yet
     }
     e.shutdown();
 }

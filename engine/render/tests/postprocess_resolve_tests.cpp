@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <iterator>
 #include <set>
 #include <string>
 #include <vector>
@@ -106,7 +107,7 @@ TEST_CASE("post_volume_influence: box inside, on the edge, in the blend band and
     CHECK(post_volume_influence(p, m, {-5, 3, 2}, true) == 1.0f);  // a corner
     CHECK(post_volume_influence(p, m, {7, 0, 0}, true) == doctest::Approx(0.5f));
     CHECK(post_volume_influence(p, m, {5, 5, 0}, true) == doctest::Approx(1.0f - 2.0f / 4.0f));
-    CHECK(post_volume_influence(p, m, {9, 0, 0}, true) == 0.0f);   // distance 4 = blendDistance
+    CHECK(post_volume_influence(p, m, {9, 0, 0}, true) == 0.0f);  // distance 4 = blendDistance
     CHECK(post_volume_influence(p, m, {50, 0, 0}, true) == 0.0f);
     p.blendDistance = 0;  // a hard edge
     CHECK(post_volume_influence(p, m, {5, 0, 0}, true) == 1.0f);
@@ -192,7 +193,7 @@ TEST_CASE("resolve_post_stack: a box volume fades in over its blend distance") {
     CHECK(st.fx.vignetteIntensity == 0.8f);  // inside: exactly the volume's own value
     s.set_camera({7, 0, 0});                 // halfway through the band
     st = s.resolve();
-    CHECK(st.has(PostEffect::Vignette));     // an effect fades in from neutral (intensity 0), so it is on at once
+    CHECK(st.has(PostEffect::Vignette));  // an effect fades in from neutral (intensity 0), so it is on at once
     CHECK(st.fx.vignetteIntensity == doctest::Approx(0.4f));
     CHECK(st.sources == 1);
     s.set_camera({9, 0, 0});
@@ -213,9 +214,9 @@ TEST_CASE("resolve_post_stack: weight scales the volume, modes switch at one hal
     p.posterizeLevels = 4;
     p.weight = 0.25f;
     PostStack st = s.resolve();
-    CHECK(st.fx.bloomIntensity == doctest::Approx(0.5f));         // 0 * 0.75 + 2 * 0.25
-    CHECK(st.fx.tonemapMode == TonemapMode::None);                // below one half the neutral mode stays
-    CHECK(st.fx.posterizeLevels == 193);                          // 256 * 0.75 + 4 * 0.25, whole numbers rounded
+    CHECK(st.fx.bloomIntensity == doctest::Approx(0.5f));  // 0 * 0.75 + 2 * 0.25
+    CHECK(st.fx.tonemapMode == TonemapMode::None);         // below one half the neutral mode stays
+    CHECK(st.fx.posterizeLevels == 193);                   // 256 * 0.75 + 4 * 0.25, whole numbers rounded
     p.weight = 0.5f;
     st = s.resolve();
     CHECK(st.fx.tonemapMode == TonemapMode::Agx);
@@ -388,13 +389,12 @@ TEST_CASE("features: the table has the capabilities, the engine features and eve
         CHECK(std::string(f.doc).size() > 20);
     }
     // The effects come last, in the canonical order.
-    for (int i = 0; i < kPostEffectCount; ++i)
-        CHECK(names[6 + std::size_t(i)] == kPostEffectOrder[std::size_t(i)]);
+    for (int i = 0; i < kPostEffectCount; ++i) CHECK(names[6 + std::size_t(i)] == kPostEffectOrder[std::size_t(i)]);
 }
 
 TEST_CASE("features: the capabilities follow what each backend's GPU reports") {
-    for (const FeatureBackend b : {FeatureBackend::Gl, FeatureBackend::Gles3, FeatureBackend::WebGl2, FeatureBackend::D3d11,
-                                   FeatureBackend::Metal}) {
+    for (const FeatureBackend b : {FeatureBackend::Gl, FeatureBackend::Gles3, FeatureBackend::WebGl2,
+                                   FeatureBackend::D3d11, FeatureBackend::Metal}) {
         CAPTURE(feature_backend_label(b));
         CHECK(supported(gpu(b), "floatTargets"));
         CHECK(supported(gpu(b), "r11g11b10"));
@@ -412,7 +412,8 @@ TEST_CASE("features: compute shaders exist on GL, D3D11 and Metal and never on G
     CHECK(supported(gpu(FeatureBackend::Gl, true, true, true, true), "computeShaders"));
     CHECK(supported(gpu(FeatureBackend::D3d11, true, true, true, true), "computeShaders"));
     CHECK(supported(gpu(FeatureBackend::Metal, true, true, true, true), "computeShaders"));
-    CHECK_FALSE(supported(gpu(FeatureBackend::Gl, true, true, true, false), "computeShaders"));  // an old GL: the GPU says no
+    CHECK_FALSE(
+        supported(gpu(FeatureBackend::Gl, true, true, true, false), "computeShaders"));  // an old GL: the GPU says no
     std::string why;
     CHECK_FALSE(supported(gpu(FeatureBackend::Gles3, true, true, true, true), "computeShaders", &why));
     CHECK(why.find("GLES3") != std::string::npos);
@@ -427,8 +428,16 @@ TEST_CASE("features: what the engine does not draw yet is false and says planned
     CHECK(why == "planned (M71)");
     CHECK_FALSE(supported(full, "hdrOutput", &why));
     CHECK(why == "planned (M71)");
+    // The effects the renderer draws (M71-B4) answer true on a GPU that can; the others are planned.
+    const std::string_view drawn[] = {"exposure", "bloom", "tonemap", "colorFilter"};
     for (const std::string_view e : kPostEffectOrder) {
         CAPTURE(e);
+        if (std::find(std::begin(drawn), std::end(drawn), e) != std::end(drawn)) {
+            CHECK(supported(full, std::string(e).c_str(), &why));
+            // A GPU without float targets draws them too: they need nothing of it (the exposure stays manual there).
+            CHECK(supported(gpu(FeatureBackend::Gles3, false, false, false), std::string(e).c_str()));
+            continue;
+        }
         CHECK_FALSE(supported(full, std::string(e).c_str(), &why));
         CHECK(why == "planned (M71)");
     }
