@@ -155,7 +155,8 @@ TEST_CASE("websocket system: echo, binary, greeting, subprotocol and headers aga
 
     {
         auto ws = sys_connect(*client, server.url("/echo"));
-        CHECK(ws->state() == WebSocketState::Connecting);
+        // The state may lead the event (websocket.h): a loopback server can finish the handshake before this line.
+        CHECK((ws->state() == WebSocketState::Connecting || ws->state() == WebSocketState::Open));
         auto events = sys_collect(*ws, 1);
         REQUIRE(events.size() == 1);
         CHECK(events[0].type == WebSocketEvent::Type::Open);
@@ -176,7 +177,8 @@ TEST_CASE("websocket system: echo, binary, greeting, subprotocol and headers aga
         REQUIRE(events.size() == 1);
         CHECK(events[0].data == std::string("a\0b", 3));
         CHECK(ws->close(1000, "bye").ok());
-        CHECK(ws->state() == WebSocketState::Closing);
+        // Closed once the server answered the close (websocket.h), which a loopback server can do before this line.
+        CHECK((ws->state() == WebSocketState::Closing || ws->state() == WebSocketState::Closed));
         CHECK_FALSE(ws->send_text("late").ok());
         events = sys_collect_until_close(*ws);
         REQUIRE_FALSE(events.empty());
@@ -404,7 +406,8 @@ TEST_CASE("websocket system: close while connecting is Closing, then Error and C
     auto ws = sys_connect(*client, server.url("/hang"));
     CHECK(ws->state() == WebSocketState::Connecting);
     CHECK(ws->close(1000, "").ok());
-    CHECK(ws->state() == WebSocketState::Closing);
+    // Closing at once, or Closed if the client already ended the attempt (websocket.h, close()).
+    CHECK((ws->state() == WebSocketState::Closing || ws->state() == WebSocketState::Closed));
     auto events = sys_collect_until_close(*ws);
     check_failed(*ws, events);
     CHECK(events.size() == 2);  // never opened

@@ -326,7 +326,8 @@ TEST_CASE("websocket curl: close codes both ways, a dropped line, a refused or w
         auto ws = open(*client, server.url("/echo"));
         REQUIRE(collect(*ws, 1).size() == 1);
         CHECK(ws->close(4242, "custom").ok());
-        CHECK(ws->state() == WebSocketState::Closing);
+        // Closed once the server answered the close (websocket.h), which a loopback server can do before this line.
+        CHECK((ws->state() == WebSocketState::Closing || ws->state() == WebSocketState::Closed));
         auto events = collect_until_close(*ws);
         REQUIRE_FALSE(events.empty());
         CHECK(events.back().code == 4242);
@@ -478,7 +479,8 @@ TEST_CASE("websocket curl: close() while connecting, the handshake timeout, and 
         CHECK(ws->state() == WebSocketState::Connecting);
         CHECK_FALSE(ws->send_text("early").ok());
         CHECK(ws->close(1000, "").ok());
-        CHECK(ws->state() == WebSocketState::Closing);
+        // Closing at once, or Closed if the client already ended the attempt (websocket.h, close()).
+        CHECK((ws->state() == WebSocketState::Closing || ws->state() == WebSocketState::Closed));
         auto events = collect_until_close(*ws);
         REQUIRE(events.size() == 2);
         CHECK(events[0].type == WebSocketEvent::Type::Error);
