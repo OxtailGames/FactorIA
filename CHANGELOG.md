@@ -6,6 +6,30 @@ Older versions, one file per minor version with its patch releases: [0.29](chang
 
 ## Unreleased
 
+## 0.30.1
+
+FactorIA 0.30.1 polishes WebSocket closing and fixes a once-only editor notice that could repeat. Every WebSocket client
+now says when the server never answered a close, the Windows client finishes the closing handshake while the server is
+still sending, and the notice that `.mcp.json` changed is given once even when the file's time is read twice.
+
+### Fixes
+
+- **WebSocket, a close the server never answers:** after 5 seconds every client ends with an `"error"` that says the
+  server did not answer the close, then `"close"` 1006. Linux (libcurl), the tcp client and Android said "the connection
+  was lost" before, like a network failure. docs/NETWORKING.md.
+- **WebSocket on Windows:** a game that closes (or is destroyed) while the server keeps sending now reads and discards
+  what arrives until the server's close frame or the 5 second wait, so the server reads the close frame instead of a
+  reset. Destroying a connection that is already closing never makes the close wait longer.
+- **WebSocket on macOS and iOS:** a connection failure reported while the connection was waiting for the network is no
+  longer missed when the system moves on before the engine looks; the error kept is the first one. Large sends no
+  longer copy the rest of the buffer after every chunk. The docs say that the system proxy settings are
+  Network.framework's to apply.
+- **MCP:** the notice that `.mcp.json` changed after the AI client started could be given twice: the same file time
+  was read as two different milliseconds. `file_mtime_ms` now gives the same value every time, and the MCP update tests
+  no longer depend on timing.
+- **Docs:** the 0.30.0 notes are wrapped at 120 columns, and two sentences about editor undo that had landed in a
+  WebSocket entry are back in the undo entry.
+
 ## 0.30.0
 
 FactorIA 0.30.0 (M98) adds what games expect from an engine and FactorIA lacked. Saves can be encrypted, with versioned
