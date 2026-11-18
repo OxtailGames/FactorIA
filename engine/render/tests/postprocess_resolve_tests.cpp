@@ -429,7 +429,7 @@ TEST_CASE("features: what the engine does not draw yet is false and says planned
     const std::string_view drawn[] = {
         "ssao",         "exposure",   "bloom",     "tonemap", "colorFilter", "lensDistortion", "chromaticAberration",
         "colorGrading", "vignette",   "sharpen",   "outline", "pixelate",    "posterize",      "filmGrain",
-        "depthOfField", "motionBlur", "radialBlur"};
+        "depthOfField", "motionBlur", "radialBlur", "ssr"};
     for (const std::string_view e : kPostEffectOrder) {
         CAPTURE(e);
         if (std::find(std::begin(drawn), std::end(drawn), e) != std::end(drawn)) {
@@ -445,6 +445,11 @@ TEST_CASE("features: what the engine does not draw yet is false and says planned
                 CHECK(why.find("RGBA16F") != std::string::npos);
                 CHECK_FALSE(supported(gpu(FeatureBackend::Gles3, true, true, false), "ssao", &why));
                 CHECK(why.find("depth") != std::string::npos);
+                CHECK(why.find("planned") == std::string::npos);
+            } else if (
+                e ==
+                "ssr") {  // M71-D3a: reads the scene colour and the prepass: it needs float targets and the sampled depth
+                CHECK_FALSE(supported(gpu(FeatureBackend::Gles3, false, false, false), "ssr", &why));
                 CHECK(why.find("planned") == std::string::npos);
             } else {
                 CHECK(supported(gpu(FeatureBackend::Gles3, false, false, false), std::string(e).c_str()));

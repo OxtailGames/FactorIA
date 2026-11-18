@@ -376,6 +376,8 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
             pp.prevViewProj = prev->second.viewProj;
             pp.prevValid = true;
         }
+        if (fr.cam.postStack)
+            pp.ssr = make_ssr_plan(fr.cam, *fr.cam.postStack);  // screen-space reflections (renderer_ssr.h)
         PrevCamera& now = prevViewProj[camKey];
         now.viewProj = fr.cam.viewProj;
         now.frame = frameSerial;
@@ -413,12 +415,13 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
     cull_and_batch(ctx);
     plan_prepass(ctx);
     plan_outline(ctx);
-    // Depth of field and motion blur work on the scene colour, so the screen-space items are drawn after them (as they are over the bloom).
+    // Screen-space reflections, depth of field and motion blur work on the scene colour, so the screen-space items are drawn after them (as
+    // they are over the bloom).
     if (plan.last && !plan.view) {
-        bool sceneFxDrawn = false;
+        bool sceneColorFx = false;
         for (const DrawContext* c : postCams)
-            sceneFxDrawn = sceneFxDrawn || (c->postPlan.sceneFx.any() && c->doPrepass);
-        if (sceneFxDrawn) {
+            sceneColorFx = sceneColorFx || ((c->postPlan.ssr.any() || c->postPlan.sceneFx.any()) && c->doPrepass);
+        if (sceneColorFx) {
             ctx.hudAfterBloom = true;
             ctx.doMainPass = fr.wantWorld || !ctx.hudAfterBloom;
         }
@@ -1695,6 +1698,17 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
         ssao.add_passes(graph, transient_targets(), gpu, c->postPlan.ssao, ssao_camera(c->fr.cam), c->postPlan.prepass,
                         c->postPlan.rect, physW, physH, game, dst, c->postPlan.sceneLinear, &stats.drawCalls,
                         c->plan.name);
+    }
+    // Screen-space reflections of every camera (renderer_ssr.h), over its rectangle of the scene colour, after the ambient occlusion and
+    // before the fog, the depth of field and the rest of the stack.
+    for (DrawContext* c : postCams) {
+        if (!c->postPlan.ssr.any() || !c->postPlan.prepass.valid()) continue;
+        const BloomTarget ssrDst =
+            ctx.hudAfterBloom && ctx.msaa
+                ? BloomTarget{gameTarget.colorAtt, gameTarget.resolveAtt, gpu.sample_count()}
+                : BloomTarget{ctx.msaa ? gameTarget.resolveColorAtt : gameTarget.colorAtt, sg_view{}, 1};
+        ssr.add_passes(graph, transient_targets(), gpu, c->postPlan.ssr, c->postPlan.rect, physW, physH, game,
+                       gameTarget.texView, ssrDst, c->postPlan.prepass, &stats.drawCalls, c->plan.name);
     }
     // Depth of field and motion blur of every camera (renderer_dof.h), over its rectangle of the scene colour and before the bloom.
     for (DrawContext* c : postCams) {

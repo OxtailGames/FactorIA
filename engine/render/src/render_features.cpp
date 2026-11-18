@@ -24,7 +24,9 @@ constexpr EffectRow kEffectRows[kPostEffectCount] = {
     {"half+depth",
      "Screen-space ambient occlusion (GTAO) from the depth buffer: creases and contacts of 3D models darken (needs the "
      "depth prepass; drawn before the bloom, per camera)."},
-    {"half+depth", "Screen-space reflections: shiny surfaces reflect what is on the screen."},
+    {"half+depth",
+     "Screen-space reflections: opaque 3D surfaces reflect what the camera shows (ray march in the depth prepass; "
+     "the reflectivity is a fresnel term, there is no roughness image)."},
     {"depth", "Distance and height fog drawn from the depth buffer."},
     {"depth", "Light shafts spreading from the sun through the scene."},
     {"", "Exposure, manual or automatic with an adaptation speed."},
@@ -60,7 +62,8 @@ constexpr bool effect_drawn(PostEffect e) {
            e == PostEffect::ColorGrading || e == PostEffect::Vignette || e == PostEffect::Sharpen ||
            e == PostEffect::RadialBlur || e == PostEffect::Outline || e == PostEffect::Pixelate ||
            e == PostEffect::Posterize || e == PostEffect::FilmGrain || e == PostEffect::DepthOfField ||
-           e == PostEffect::MotionBlur;
+           e == PostEffect::MotionBlur ||
+           e == PostEffect::Ssr;
 }
 
 }  // namespace
