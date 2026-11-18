@@ -694,12 +694,28 @@ const LutAsset* Assets::lut(const std::string& pathIn) {
         return fail(std::format("colour grading LUT '{}' is {} MB, over the {} MB a .cube file may have", key,
                                 bytes >> 20, kCubeLutMaxFileBytes >> 20),
                     "Export a 32 or 33 entry LUT (a 64 entry one is about 8 MB).");
+    // A file that is read or parses badly is tried once more on the next ask (the next frame) before it is an error: on Windows the
+    // editor that saves a .cube may still be writing it (a half-written file) when the hot reload finds it.
+    auto retry_once = [&]() {
+        if (!lutRetried_.insert(key).second) return false;  // the second failure is the real one
+        luts_.erase(key);                                   // `l` is gone with it: nothing below may use it
+        return true;
+    };
     auto text = fs::read_text(key);
-    if (!text)
+    if (!text) {
+        if (retry_once()) return nullptr;
+        lutRetried_.erase(key);
         return fail(std::format("colour grading LUT '{}' could not be read: {}", key, text.error().message),
                     text.error().hint);
+    }
     auto parsed = parse_cube_lut(*text, key);
-    if (!parsed) return fail("colour grading LUT " + parsed.error().message, parsed.error().hint);
+    if (!parsed) {
+        const std::string message = parsed.error().message, hint = parsed.error().hint;
+        if (retry_once()) return nullptr;
+        lutRetried_.erase(key);
+        return fail("colour grading LUT " + message, hint);
+    }
+    lutRetried_.erase(key);
     const CubeLutStrip strip = cube_lut_strip(*parsed);
     sg_image_desc d{};
     d.width = strip.width();

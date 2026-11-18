@@ -218,7 +218,7 @@ bool Renderer::capture_world(World& world, const WorldCapture& spec, Image& out,
     im.gpu.begin_frame();
     im.transient_targets().pool.begin_frame();
     // One job in a frame graph of its own; gather_meshes builds the scene of fr.scopeRoot (the subject).
-    im.begin_frame_graph();
+    im.begin_frame_graph(false);
     Impl::JobPlan plan;
     plan.name = "capture";
     im.plan_view_job(world, fr, *im.viewTargets[kKey], kKey, plan);

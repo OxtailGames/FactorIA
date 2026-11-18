@@ -10579,7 +10579,7 @@ declare module "factoria" {
      */
     tonemapEnabled: boolean;
     /**
-     * Only used when tonemapEnabled. none: clamp at white. neutral (default): keeps colours close to the scene and rolls the highlights off gently. aces: the filmic curve with high contrast and saturated highlights. agx: a filmic curve that desaturates very bright colours toward white. reinhard: the simplest, flattest curve.
+     * Only used when tonemapEnabled. none: clamp at white. neutral (default): keeps colours as they are up to 0.76 and rolls the brightest channel off above it, desaturating what it compressed (the curve of Khronos PBR Neutral above its shoulder, without that curve's black offset). aces: the filmic curve with high contrast and saturated highlights. agx: a filmic curve that desaturates very bright colours toward white. reinhard: the simplest, flattest curve.
      * @since unreleased
      */
     tonemapMode: "none" | "neutral" | "aces" | "agx" | "reinhard";
@@ -10761,7 +10761,7 @@ declare module "factoria" {
      */
     vignetteSmoothness: number;
     /**
-     * Only used when vignetteEnabled. 0..1: 1 = a circle, 0 = an ellipse that follows the shape of the screen.
+     * Only used when vignetteEnabled. 0..1: 1 = a circle, 0 = an ellipse that follows the shape of the screen. The darkening is full at the corners of the screen only with 0; a circle on a wide screen is full before the left and right edges and lighter at the top and bottom.
      * @since unreleased
      */
     vignetteRoundness: number;
@@ -10834,7 +10834,7 @@ declare module "factoria" {
     get lensDistortionCenter(): Vec2;
     set lensDistortionCenter(value: Vec2Like);
     /**
-     * Switches the sharpening on: it brings out the detail the picture lost to scaling or antialiasing. Contrast adaptive (flat areas and edges already at black or white are left alone, so it makes no halos) and drawn on the display picture. Cost: five reads of the scene per pixel in the final pass.
+     * Switches the sharpening on: it brings out the detail the picture lost to scaling or antialiasing. Contrast adaptive (flat areas and edges already at black or white are left alone, so it makes no halos) and drawn on the display picture. Cost: the final pass shades the pixel and its four neighbours (about five times the work of the rest of the pass, so it matters on a weak GPU or a large screen).
      * @since unreleased
      */
     sharpenEnabled: boolean;

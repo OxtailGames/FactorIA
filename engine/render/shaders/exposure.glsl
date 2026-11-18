@@ -5,8 +5,11 @@
 //   adapt  32x32 + the previous exposure (1x1) -> the next exposure (1x1): the mean over the 32x32 gives the average luminance, the
 //          exposure that brings it to 18% grey is clamped to [minEv, maxEv] and the stored EV moves toward it by 1 - exp(-speed * dt)
 //
-// The EV lives in the red channel of a 1x1 float target; the final pass (post.glsl) reads it. dt is the engine's frame time, so the
-// adaptation is the same on every run and every machine; a frame with dt 0 does not move it.
+// The EV lives in a 1x1 RGBA16F target, as the sum of its red and green channels: red is the EV rounded to 1/128 (exact in 16 bits up
+// to +-16) and green the remainder. A plain 16-bit EV would stall once a step prev + (target - prev) * k is under half a step of it, so
+// the adaptation would depend on the frame rate; the two parts keep ~20 bits, on every GPU (a 32-bit float target is not filterable or
+// renderable everywhere, WebGL2 and iOS). The final pass (post.glsl) reads it. dt is the engine's frame time, so the adaptation is the
+// same on every run and every machine; a frame with dt 0 does not move it.
 @module exposure
 
 @vs vs
@@ -33,10 +36,11 @@ layout(binding=1) uniform exposure_luma_params {
 in vec2 uv;
 out vec4 frag_color;
 
-// One channel made safe: NaN, Inf (found by their bits, as bloom.glsl does) and anything from 65000 up become 0, a negative becomes 0.
+// One channel made safe: NaN and Inf (found by their bits, as bloom.glsl does) become 0, a negative becomes 0, a finite value is kept up
+// to 65504 (what an RGBA16F target holds), as post.glsl does.
 float sane(float x) {
-    if (((floatBitsToUint(x) >> 23u) & 255u) == 255u || x >= 65000.0) return 0.0;
-    return max(x, 0.0);
+    if (((floatBitsToUint(x) >> 23u) & 255u) == 255u) return 0.0;
+    return clamp(x, 0.0, 65504.0);
 }
 vec3 to_linear(vec3 c) {
     return mix(pow(max((c + 0.055) / 1.055, vec3(0.0)), vec3(2.4)), c / 12.92, vec3(lessThanEqual(c, vec3(0.04045))));
@@ -81,10 +85,12 @@ void main() {
     float mean_log2 = acc / 256.0;
     // The exposure that brings the average luminance to 18% grey.
     float target_ev = clamp(log2(0.18) - mean_log2, p.z, p.w);
-    float prev_ev = textureLod(sampler2D(prev_tex, smp), vec2(0.5, 0.5), 0.0).r;
+    vec2 prev = textureLod(sampler2D(prev_tex, smp), vec2(0.5, 0.5), 0.0).rg;
+    float prev_ev = prev.x + prev.y;
     float k = 1.0 - exp(-p.y * p.x);
     float ev = q.x > 0.5 ? target_ev : prev_ev + (target_ev - prev_ev) * k;
-    frag_color = vec4(ev, 0.0, 0.0, 1.0);
+    float coarse = floor(ev * 128.0 + 0.5) / 128.0;
+    frag_color = vec4(coarse, ev - coarse, 0.0, 1.0);
 }
 @end
 

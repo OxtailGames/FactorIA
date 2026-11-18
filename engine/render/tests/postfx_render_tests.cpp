@@ -352,6 +352,33 @@ TEST_CASE("colour grading: a LUT that is missing or malformed is skipped with on
     }
 }
 
+TEST_CASE("colour grading: a .cube file that is half written when it is found is read again on the next frame, not an "
+          "error") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    const Image ref = reference(g);
+    const std::string path = write_cube(g, "m71_half.cube", 16, mixer);
+    const std::filesystem::path file = g.projectDir / "assets" / "m71_half.cube";
+    std::string full;
+    {
+        std::ifstream in(file, std::ios::binary);
+        full.assign(std::istreambuf_iterator<char>(in), {});
+    }
+    std::ofstream(file, std::ios::binary | std::ios::trunc)
+        << full.substr(0, full.size() / 2);  // the editor is still writing
+    auto draw = [&] {
+        return shoot(g, false, [&](PostProcess& p) {
+            p.colorGradingEnabled = true;
+            p.colorGradingLut = path;
+        });
+    };
+    const Image first = draw();  // the table does not parse: this frame has no LUT, and no error is recorded yet
+    CHECK(first.rgba == ref.rgba);
+    std::ofstream(file, std::ios::binary | std::ios::trunc) << full;  // the write finished
+    const Image second = draw();
+    CHECK(second.rgba != ref.rgba);  // the table is applied
+}
+
 // ---- vignette, lens, aberration, sharpen, grain ----
 
 TEST_CASE("vignette: the corners go to the vignette colour as the CPU computes, in a gamma and a linear scene") {
