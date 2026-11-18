@@ -123,9 +123,14 @@ struct Renderer::Impl {
     std::uint32_t forceEffects = 0;
     struct PrevCamera {
         Mat4 viewProj;
-        std::uint64_t frame = 0;  // the frameSerial it was drawn in
+        std::uint64_t frame = 0;  // the postSerial it was drawn in
+        std::uint64_t worldFrame =
+            0;        // world.frame() when it was drawn: a jump back or far ahead is a cut (a scene load, a seek)
+        Mat4 before;  // what a second job of the same camera in the same frame reprojects from (`hadBefore`)
+        bool hadBefore = false;
     };
     std::unordered_map<std::uint64_t, PrevCamera> prevViewProj;  // by Entity::bits() of the camera
+    bool fogMissingWarned = false;                               // one warning when a planned fog could not be drawn
     bool prepassWarned = false;                                  // one warning when the prepass cannot be made
     bool coverageWarned = false;  // one warning when a sprite outline has no coverage image to read
     // The HDR display output (hdr_encode.h; docs/RENDERING.md, "HDR output"). outputInfo: the last answer of update_output()

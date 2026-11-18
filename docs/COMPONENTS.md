@@ -1321,8 +1321,8 @@ A stack of screen effects (tonemap, exposure, bloom, colour grading, vignette, c
 | `motionBlurEnabled` | bool | `false` | Switches the camera motion blur on: the picture smears along the way the camera moved since the frame before, computed from the depth prepass (opaque 3D meshes; the sky only smears when the camera turns). Objects that move on their own are not blurred. There is no blur on the first frame or after the camera did not draw the frame before (a cut); a camera that jumps to another place in one frame blurs up to a longest streak. It runs before the bloom and the final pass. |
 | `motionBlurIntensity` | float | `0.5` | Only used when motionBlurEnabled. 0..1: the fraction of the frame the shutter stays open (1 = the whole movement). Range 0.0..1.0. |
 | `motionBlurSamples` | int | `8` | Only used when motionBlurEnabled. 4..32 taps along the movement; more is smoother and costs more. A streak is at most 8% of the picture's larger side. Range 4..32. |
-| `ssrEnabled` | bool | `false` | Switches the screen-space reflections on: shiny surfaces reflect what is on the screen. Needs the depth buffer (3D); it only reflects what is visible, so the edges of the screen fade out. |
-| `ssrIntensity` | float | `1.0` | Only used when ssrEnabled. 0..1: how much reflection is mixed in; surfaces reflect by a fresnel term (more at a grazing angle), there is no per-material roughness (docs/RENDERING_EFFECTS.md). Range 0.0..1.0. |
+| `ssrEnabled` | bool | `false` | Switches the screen-space reflections on: surfaces reflect what is on the screen, the more the shinier they are seen (a fresnel term; there is no per-material roughness). Needs the depth buffer (3D); it only reflects what is visible, so the edges of the screen fade out. |
+| `ssrIntensity` | float | `0.5` | Only used when ssrEnabled. 0..1 (default 0.5): how much reflection is mixed in; surfaces reflect by a fresnel term (more at a grazing angle), there is no per-material roughness, and a pixel is never more than 75% reflection (docs/rendering/RENDERING_EFFECTS.md). Range 0.0..1.0. |
 | `ssrMaxDistance` | float | `50.0` | Only used when ssrEnabled. World units a reflected ray travels before it gives up. Range 1.0..1000.0. |
 | `ssrThickness` | float | `0.3` | Only used when ssrEnabled. World units behind a surface that still count as a hit. Range 0.01..10.0. |
 | `ssrSteps` | int | `32` | Only used when ssrEnabled. 8..128 steps along the ray; more is more accurate and costs more. Range 8..128. |
@@ -20826,12 +20826,12 @@ declare module "factoria" {
      */
     motionBlurSamples: number;
     /**
-     * Switches the screen-space reflections on: shiny surfaces reflect what is on the screen. Needs the depth buffer (3D); it only reflects what is visible, so the edges of the screen fade out.
+     * Switches the screen-space reflections on: surfaces reflect what is on the screen, the more the shinier they are seen (a fresnel term; there is no per-material roughness). Needs the depth buffer (3D); it only reflects what is visible, so the edges of the screen fade out.
      * @since unreleased
      */
     ssrEnabled: boolean;
     /**
-     * Only used when ssrEnabled. 0..1: how much reflection is mixed in; surfaces reflect by a fresnel term (more at a grazing angle), there is no per-material roughness (docs/RENDERING_EFFECTS.md).
+     * Only used when ssrEnabled. 0..1 (default 0.5): how much reflection is mixed in; surfaces reflect by a fresnel term (more at a grazing angle), there is no per-material roughness, and a pixel is never more than 75% reflection (docs/rendering/RENDERING_EFFECTS.md).
      * @since unreleased
      */
     ssrIntensity: number;

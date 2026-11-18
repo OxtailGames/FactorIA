@@ -91,7 +91,8 @@ private:
     };
     static constexpr std::size_t kMaxFailed = 16;  // the oldest go
     std::vector<Shape> failed_;
-    std::vector<Shape> probed_;  // shapes whose targets were made once (the GPU can have them): not probed again every frame
+    std::vector<Shape>
+        probed_;  // shapes whose targets were made once (the GPU can have them): not probed again every frame
 };
 
 }  // namespace fa::render

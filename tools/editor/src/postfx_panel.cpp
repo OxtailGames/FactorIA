@@ -1,5 +1,5 @@
 // Post-processing panel (View > Post-processing): the stack a camera draws, in the order its effects run. Every effect shows whether it
-// runs, what this renderer draws of it (render.supports: planned, unsupported with the reason), and its fields with the source of
+// runs, what this renderer draws of it (the render.supports table: unsupported, with the reason), and its fields with the source of
 // each value (the camera's own PostProcess, a volume, the deprecated Camera.bloom* fields). Nothing here edits the world directly: an
 // edit is a postprocess.set call and a preset button a postprocess.apply_preset call, both through Editor::edit_command (the path of
 // the Console and the AI, one undo step each), on the camera's own PostProcess or on the volume chosen as the edit target. The A/B
@@ -45,11 +45,10 @@ void tip_always(const std::string& text) {
     ImGui::EndTooltip();
 }
 
-// What the renderer says about one effect: supported, or why not ("planned (M71)..." or one sentence naming the backend or the GPU).
+// What the renderer says about one effect: supported, or why not (one sentence naming the backend or the GPU).
 struct EffectSupport {
     bool known = false;
     bool supported = true;
-    bool planned = false;
     std::string status;
 };
 
@@ -61,7 +60,6 @@ EffectSupport support_of(const Json& table, const std::string& effect) {
         s.known = true;
         s.supported = f.value("supported", false);
         s.status = f.value("status", std::string());
-        s.planned = !s.supported && s.status.rfind("planned", 0) == 0;
         break;
     }
     return s;
@@ -173,8 +171,9 @@ void Editor::draw_postfx_panel() {
         postFx_.report = Json::object(
             {{"id", cam.is_null() ? std::string() : w.id_of(cam)}, {"resolved", render::post_stack_report(w, cam)}});
         if (postFx_.support.is_null() || time_ - postFx_.supportAt > 3.0) {
-            const CommandResult s = engine_->commands().call("render.supports", Json::object());
-            postFx_.support = s.ok ? s.result : Json::object();
+            // The renderer's own table (what render.supports answers), not a command call: nothing is logged every few seconds.
+            const Renderer* r =engine_->renderer();
+            postFx_.support = r ? r->supports_report() : Json::object();
             postFx_.supportAt = time_;
         }
     }
@@ -308,11 +307,10 @@ void Editor::draw_postfx_panel() {
         const bool running = entry && entry->value("enabled", false);
         const bool ownOn = own_value(*enabledField).is_boolean() && own_value(*enabledField).get<bool>();
         const EffectSupport support = support_of(postFx_.support, effect);
-        const bool planned = support.known && support.planned;
-        const bool blocked = support.known && !support.supported;  // planned, or unsupported on this GPU or backend
+        const bool blocked = support.known && !support.supported;  // unsupported on this GPU or backend
         ImGui::PushID(effect.c_str());
 
-        // The switch writes <effect>Enabled of the edit target. An effect this renderer does not draw (planned, or unsupported on this
+        // The switch writes <effect>Enabled of the edit target. An effect this renderer does not draw (unsupported on this
         // GPU or backend) cannot be switched on, but one that a look switched on can be switched off.
         ImGui::BeginDisabled(blocked && !ownOn);
         bool on = ownOn;
@@ -320,9 +318,8 @@ void Editor::draw_postfx_panel() {
         ImGui::EndDisabled();
         at_track("postfx:on:" + effect, !(blocked && !ownOn));
         if (blocked && !ownOn)
-            tip_always(effect + (planned ? " is planned: " : " is not drawn here: ") + support.status +
-                       (planned ? "\nIt is listed so you can see where it will run."
-                                : "\nIts fields are stored and saved with the scene."));
+            tip_always(effect + " is not drawn here: " + support.status +
+                       "\nIts fields are stored and saved with the scene.");
         else
             tip_always("Switch " + effect + " on or off in the edit target (" +
                        (postFx_.target.empty() ? "the camera's own PostProcess" : "volume " + postFx_.target) + ").");
@@ -351,7 +348,7 @@ void Editor::draw_postfx_panel() {
                        "the camera is not inside, or a layer too weak to switch it.");
         if (support.known && !support.supported) {
             ImGui::SameLine();
-            ImGui::TextColored(planned ? kOrange : kRed, planned ? "planned" : "unsupported");
+            ImGui::TextColored(kRed, "unsupported");
             tip_always(support.status);
         }
 

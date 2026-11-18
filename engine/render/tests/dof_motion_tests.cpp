@@ -542,3 +542,69 @@ TEST_CASE("depth of field: in a split screen each camera blurs its own rectangle
     CHECK(max_diff(two, img, 0, 0, 156, 180) <= 2);  // the left camera is not changed by the right one's settings
     CHECK(max_diff(two, reference, 160, 0, 320, 180) > 20);
 }
+
+TEST_CASE("depth of field and motion blur: a frame with nothing to blur asks for no prepass") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    Own own(g);
+    REQUIRE_MESSAGE(own.ok, own.error);
+    // A depth of field whose near and far blur are 0 draws nothing.
+    {
+        Scene s;
+        s.dof(10.0f, 1.0f, 0.0f, 0.0f);
+        own.draw(s.w);
+        INFO(joined(own.order()));
+        CHECK_FALSE(has_pass(own.order(), "prepass"));
+        CHECK_FALSE(has_pass(own.order(), "dof-"));
+    }
+    // A depth of field that blurs does ask for it.
+    {
+        Scene s;
+        s.dof(10.0f);
+        own.draw(s.w);
+        CHECK(has_pass(own.order(), "prepass"));
+    }
+    // A motion blur on the first frame (there is no frame before to move from) draws nothing, so it asks for nothing; the second frame does.
+    {
+        Own fresh(g);  // a renderer that has not drawn a camera with these ids before
+        REQUIRE_MESSAGE(fresh.ok, fresh.error);
+        Scene s;
+        PostProcess& p = s.post();
+        p.motionBlurEnabled = true;
+        p.motionBlurIntensity = 1.0f;
+        fresh.draw(s.w);
+        CHECK_FALSE(has_pass(fresh.order(), "prepass"));
+        CHECK_FALSE(has_pass(fresh.order(), "motion-blur"));
+        fresh.draw(s.w);
+        CHECK(has_pass(fresh.order(), "prepass"));
+        CHECK(has_pass(fresh.order(), "motion-blur"));
+    }
+}
+
+TEST_CASE(
+    "motion blur: a world that jumped ahead (a seek, a scene load) is a cut, a few ticks between frames are not") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    Own own(g);
+    REQUIRE_MESSAGE(own.ok, own.error);
+    Scene s;
+    PostProcess& p = s.post();
+    p.motionBlurEnabled = true;
+    p.motionBlurIntensity = 1.0f;
+    own.draw(s.w);
+    s.w.get<Transform>(s.cam)->position.x = 1.0f;
+    for (int i = 0; i < 3; ++i) s.w.advance_clock(1.0 / 60.0);  // a slow frame: three ticks since the last drawn one
+    own.draw(s.w);
+    CHECK(has_pass(own.order(), "motion-blur"));
+    s.w.get<Transform>(s.cam)->position.x = 2.0f;
+    for (int i = 0; i < 40; ++i) s.w.advance_clock(1.0 / 60.0);  // forty ticks in one frame: a jump, not a movement
+    own.draw(s.w);
+    CHECK_FALSE(has_pass(own.order(), "motion-blur"));
+    s.w.get<Transform>(s.cam)->position.x = 3.0f;
+    own.draw(s.w);  // and the frame after it blurs again
+    CHECK(has_pass(own.order(), "motion-blur"));
+    s.w.get<Transform>(s.cam)->position.x = 4.0f;
+    s.w.reset_clock();  // the clock went back: another scene
+    own.draw(s.w);
+    CHECK_FALSE(has_pass(own.order(), "motion-blur"));
+}

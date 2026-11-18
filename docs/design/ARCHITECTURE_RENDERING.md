@@ -378,8 +378,12 @@ final pass) are drawn; the others are not yet.
   `computeShaders`; the engine features `linearColor` and `hdrOutput`; and one per effect (the names above). Each row says the
   backends it can ever run on (GL, GLES3, WebGL2, D3D11, Metal; the headless dummy backend has none), what it needs from the GPU
   (read with `sg_query_pixelformat` / `sg_query_features`), and whether the engine draws it yet. A feature the engine does not draw
-  answers false with the status "planned (M71)": each M71 package turns its own on (`effect_drawn` in `render_features.cpp`: exposure,
-  ssao, bloom, tonemap, colorFilter, lensDistortion, chromaticAberration, colorGrading, vignette, sharpen, outline, pixelate, posterize and filmGrain so far), so `supports` never claims what the renderer cannot do. Compute shaders exist on GL, D3D11 and Metal, never on GLES3 or WebGL2; `hdrOutput` only on D3D11 and Metal.
+  answers false with the status "planned (M71)" (`effect_drawn` in `render_features.cpp`: today every effect of `kPostEffectOrder` is
+  drawn, so none answers it, and a new effect stays planned until its pass lands). The `needs` words of a row (`half`, `depth`,
+  `r11g11b10`, `compute`) are what the effect asks of the GPU: the depth of field and the sun shafts need `half+depth` (their
+  half-size images are RGBA16F), so `supports` never claims what the renderer cannot do; `kEffectRows` carries the effect's name and a
+  `static_assert` checks it against `kPostEffectOrder`. The editor's post panel calls `Renderer::supports_report()` directly (the same
+  table `render.supports` answers), not the command. Compute shaders exist on GL, D3D11 and Metal, never on GLES3 or WebGL2; `hdrOutput` only on D3D11 and Metal.
   The decision is a pure function of a `FeatureEnv` (backend + what the GPU reported), so a test asks what D3D11 would say.
 - **Commands.** `postprocess.get`, `postprocess.set` (thin wrappers of `scene.set_component` for `PostProcess`), `postprocess.presets` and
   `postprocess.apply_preset` are in `engine/runtime/src/postprocess_commands.cpp`. The looks are data
