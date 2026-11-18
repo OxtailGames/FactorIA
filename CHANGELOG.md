@@ -14,6 +14,8 @@ Older versions, one file per minor version with its patch releases: [0.30](chang
   needs to be redone. The skeletons `quad_common.glsl`, `sky_common.glsl` and `post_common.glsl` declare each kind's snippet
   contract; nothing draws with them yet.
 
+- **Materials on every renderer (fields):** `Sprite`, `Shape2D`, `Tilemap`, `Text`, `ParticleEmitter` and every UI widget (`UiBox`) get `material` and `materialParams`, and `SceneSettings` gets `skyMaterial` and `skyMaterialParams`, like `MeshRenderer`; `factoria validate` checks that a `material` is an existing `*.material.json` and suggests the closest one, and the Inspector types the params of each by `material.info`.
+
 ## 0.31.0
 
 The scene is lit in linear light and drawn into a float target, and every camera gets a post-processing stack: tonemap and exposure (manual or automatic), bloom, colour grading with LUTs, vignette, lens effects, grain, sharpen, outline, pixelate and posterize, ambient occlusion, screen-space reflections, distance and height fog, sun shafts, depth of field and camera motion blur, plus transient screen effects (shockwave, heat haze, radial blur, flash, fade) and HDR display output on macOS and Windows. A `PostProcess` component and volumes set the stack, `render.supports` says what each GPU draws, and the editor's Post-processing panel shows it live with an A/B switch.
