@@ -27,7 +27,8 @@ void main() {
 layout(binding=0) uniform texture2D tex;
 layout(binding=0) uniform sampler smp;
 layout(binding=1) uniform exposure_luma_params {
-    vec4 p;         // x = 1 when the scene is linear (0: gamma, sRGB-encoded values), yz = size of one texel of the 32x32 target in uv units
+    vec4 p;         // x = 1 when the scene is linear (0: gamma, sRGB-encoded values), yz = size of one texel of the 32x32 target in uv units of the measured rectangle
+    vec4 rc;        // the rectangle of the picture that is measured (a camera's), in this backend's uv: xy = its corner, zw = its size; 0, 0, 1, 1 = all of it
 };
 in vec2 uv;
 out vec4 frag_color;
@@ -46,7 +47,7 @@ void main() {
     for (int j = 0; j < 8; j++) {
         for (int i = 0; i < 8; i++) {
             vec2 o = (vec2(float(i), float(j)) + 0.5) / 8.0 - 0.5;
-            vec3 c = textureLod(sampler2D(tex, smp), uv + o * p.yz, 0.0).rgb;
+            vec3 c = textureLod(sampler2D(tex, smp), uv * rc.zw + rc.xy + o * p.yz, 0.0).rgb;
             c = vec3(sane(c.r), sane(c.g), sane(c.b));
             if (p.x < 0.5) c = to_linear(min(c, vec3(64.0)));
             float lum = dot(c, vec3(0.2126, 0.7152, 0.0722));
