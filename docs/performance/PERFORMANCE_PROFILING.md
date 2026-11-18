@@ -68,11 +68,11 @@ Reading it:
   reads: no profiler, no frame drawn again), or while a profile or the editor's Profiler panel already runs, it only
   reads what is there. On Metal, GLES3 and WebGL2 no frame is drawn for it and
   `gpu.reason` says there is no GPU timer.
-- What the screen effects cost is `postProcess` in the same result: `{passes, cpuMs, gpuMs, gpuStatus, gpuReason, note}`. `passes`
+- What the screen effects cost is `postProcess` in the same result: `{passes, cpuMs, gpuMs, gpuStatus, gpuReason, gpuPassesTimed, gpuPartial, note}`. `passes`
   lists the post-processing passes of the frame (`bloom-*`, `exposure-*`, `post` and the passes of the effects that follow them;
   `prepass` and `sprite-coverage` are not counted, they also serve the picture itself) with `{name, job, cpuMs, gpuMs}`, and `cpuMs` and
   `gpuMs` are their sums. Where a GPU time does not exist (Metal, GLES3, WebGL2, the profiler off, or no answer yet) `gpuMs` is `null`,
-  `gpuStatus` is `"unavailable"` and `gpuReason` says why: it is never 0. The effects folded into the single `post` pass (vignette,
+  `gpuStatus` is `"unavailable"` and `gpuReason` says why: it is never 0. When only some of the passes have a GPU time (the timer caps the passes it times per frame), `gpuMs` is the sum of those, `gpuPassesTimed` counts them and `gpuPartial` is `true`: a lower bound. The effects folded into the single `post` pass (vignette,
   grain, grading, sharpen, outline, chromatic aberration...) are NOT timed one by one and no per-effect estimate is made: `post` is
   their total. To find the costly one, switch effects off with `postprocess.set` and compare the total. The editor's Profiler panel has
   the same table in its "Post-processing" tab (sampled every tenth frame; "unavailable" in a GPU column with no timer).

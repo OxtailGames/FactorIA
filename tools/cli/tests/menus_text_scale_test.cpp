@@ -88,3 +88,45 @@ TEST_CASE(
         *img, fa::fs::path_from_utf8(FA_REPO_ROOT) / "tools" / "cli" / "tests" / "golden" / "menus_text200.png",
         fa::test::golden_edge_limits());  // text: glyph edges flip between GPUs
 }
+
+TEST_CASE("menus fixture at 200 % text in Spanish: the five options tabs stay in a row inside the screen") {
+    const stdfs::path oldRoot = fa::fs::project_root();
+    fa::cli::SessionOptions so;
+    so.gfx = fa::cli::Gfx::Auto;
+    so.width = 1280;
+    so.height = 720;
+    auto session = fa::cli::Session::open(
+        (stdfs::path(FA_REPO_ROOT) / "tools" / "cli" / "tests" / "fixtures" / "menus").string(), so);
+    fa::Engine& engine = session->engine();
+    engine.step(5);
+    auto run = [&](const char* json) { return fa::cli::run_command_json(session->registry(), fa::Json::parse(json)); };
+    CHECK(run(R"({"command":"i18n.set_language","args":{"language":"es"}})")["ok"] == true);
+    CHECK(
+        run(R"({"command":"script.eval","args":{"code":"world.find('main_menu').active = false; world.find('options').active = true; 1"}})")
+            ["ok"] == true);
+    engine.set_text_scale(2.0f);
+    engine.step(5);
+    const fa::Json state = run(R"({"command":"ui.state","args":{}})");
+    REQUIRE(state["ok"] == true);
+    std::vector<fa::Rect> tabs;
+    for (const fa::Json& w : state["result"]["widgets"]) {
+        const std::string id = w["id"].get<std::string>();
+        if (id.rfind("tab_", 0) != 0 || !w["visible"].get<bool>()) continue;
+        const fa::Json& r = w["rect"];
+        CAPTURE(id);
+        CHECK_FALSE(w.value("overflowed", false));
+        CHECK(r[0].get<float>() >= 0.0f);
+        CHECK(r[0].get<float>() + r[2].get<float>() <= 1280.5f);
+        CHECK(r[1].get<float>() >= 0.0f);
+        CHECK(r[1].get<float>() + r[3].get<float>() <= 720.5f);
+        tabs.push_back(fa::Rect{r[0].get<float>(), r[1].get<float>(), r[2].get<float>(), r[3].get<float>()});
+    }
+    REQUIRE(tabs.size() == 5);
+    for (std::size_t i = 0; i < tabs.size(); ++i)
+        for (std::size_t j = i + 1; j < tabs.size(); ++j) {
+            const bool overlap = tabs[i].x < tabs[j].x + tabs[j].w - 0.5f && tabs[j].x < tabs[i].x + tabs[i].w - 0.5f &&
+                                 tabs[i].y < tabs[j].y + tabs[j].h - 0.5f && tabs[j].y < tabs[i].y + tabs[i].h - 0.5f;
+            CHECK_MESSAGE(!overlap, "tabs " << i << " and " << j << " overlap");
+        }
+    fa::fs::set_project_root(oldRoot);
+}

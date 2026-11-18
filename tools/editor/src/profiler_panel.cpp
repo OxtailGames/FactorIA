@@ -130,7 +130,7 @@ void Editor::profile_tick(std::uint64_t frameBefore) {
         profView_.add_gpu_ms(ms);
         if (run_.active) run_.profile.add_gpu_ms(ms);
     }
-    if (showProfiler_ && engine_->frame_index() % 10 == 0) sample_post_passes();
+    if (showProfiler_ && engine_->frame_index() > frameBefore && engine_->frame_index() % 10 == 0) sample_post_passes();
     if (engine_->frame_index() > frameBefore && Profiler::get().frames() > 0) {
         profView_.add_frame(Profiler::get().last());
         if (--profMemoryIn_ <= 0) {
@@ -271,8 +271,8 @@ void Editor::draw_profiler_panel() {
                 if (v.postGpuMs >= 0.0)
                     ImGui::Text("Post-processing total: GPU %.3f ms, CPU %.3f ms", v.postGpuMs, v.postCpuMs);
                 else
-                    ImGui::Text("Post-processing total: GPU unavailable (%s), CPU %.3f ms", v.postGpuReason.c_str(),
-                                v.postCpuMs);
+                    ImGui::TextWrapped("Post-processing total: GPU unavailable (%s), CPU %.3f ms",
+                                       v.postGpuReason.c_str(), v.postCpuMs);
                 if (ImGui::BeginTable("##profpost", 3, flags)) {
                     ImGui::TableSetupScrollFreeze(0, 1);
                     ImGui::TableSetupColumn("pass", ImGuiTableColumnFlags_WidthStretch, 1.0f);

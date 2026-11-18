@@ -5,6 +5,8 @@
     "components": {
       "Panel": {
         "size": [760, 680],
+        "minSize": [760, 680],
+        "fit": true,
         "anchor": [0.5, 0.5],
         "layer": 300,
         "layout": "column",
@@ -39,7 +41,8 @@
             "layout": "row",
             "direction": "auto",
             "padding": [0, 0, 0, 0],
-            "fit": true
+            "fit": true,
+            "fallbackLayout": "column"
           }
         },
         "children": [

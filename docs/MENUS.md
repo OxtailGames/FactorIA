@@ -93,7 +93,9 @@ What the command does, file by file; do it by hand when you want to see each fil
    otherwise). It writes the `PostProcess` fields of the scene's cameras and volumes (exposure, tonemap, grading, the colour filter
    and fog are never touched), saves `settings.graphics` (`{quality, effects, hdr}`) in the same `settings` storage entry, and
    `settings.applyScene()` puts it on every scene that starts. Choosing a quality clears the switches the player touched; a
-   switch wins over the quality. `tests/graphics.test.js` checks it.
+   switch wins over the quality. The menu scripts call `settings.applyOnce()` when their scene starts, so the choice reaches the
+   `PostProcess` components the scene has at that moment: one a script adds or changes later is not touched until the player
+   changes a Graphics setting again (or the game calls `settings.applyScene()` after it). `tests/graphics.test.js` checks it.
 5. **Loading screen.** `scenes/loading.scene.json` and `scripts/loading.js`: it loads the first level in the background
    (`scene.load` with `{ async: true }`) and shows the real progress.
 6. **Pause.** `prefabs/ui/pause.prefab.json`, `scripts/pause_menu.js`, and one entity in every level scene:
