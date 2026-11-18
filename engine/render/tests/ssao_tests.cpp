@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -137,12 +138,14 @@ TEST_CASE("ssao: the floor next to a wall darkens, the open floor and the high w
     const Image img = g.draw(w);
     const std::vector<std::string> order = order_of(g.renderer);
     INFO(joined(order));
-    REQUIRE(count_prefix_of(order, "ssao-apply") == 1);
+    REQUIRE(count_prefix_of(order, "ssao-ao") == 1);
+    CHECK(count_prefix_of(order, "ssao-apply") ==
+          0);  // the apply is a draw inside the main pass, not a pass of its own
+    // The occlusion is made from the prepass BEFORE the main pass, which applies it after the opaque meshes.
     CHECK(index_of(order, "camera:0/prepass") < index_of(order, "camera:0/ssao-ao"));
-    CHECK(index_of(order, "camera:0/game") < index_of(order, "camera:0/ssao-ao"));
     CHECK(index_of(order, "camera:0/ssao-ao") < index_of(order, "camera:0/ssao-blur-h"));
     CHECK(index_of(order, "camera:0/ssao-blur-h") < index_of(order, "camera:0/ssao-blur-v"));
-    CHECK(index_of(order, "camera:0/ssao-blur-v") < index_of(order, "camera:0/ssao-apply"));
+    CHECK(index_of(order, "camera:0/ssao-blur-v") < index_of(order, "camera:0/game"));
     // The crease: the floor 0.1 to 0.5 m from the wall and the wall just above it.
     const int floorNear = grey(img, 160, 117), wallNear = grey(img, 160, 111);
     INFO("floor near the wall " << floorNear << ", wall near the floor " << wallNear);
@@ -162,7 +165,8 @@ TEST_CASE("ssao: the floor next to a wall darkens, the open floor and the high w
         DebugViewScope view(g.renderer, DebugView::Ao);
         const Image ao = g.draw(w);
         INFO(joined(order_of(g.renderer)));
-        CHECK(count_prefix_of(order_of(g.renderer), "ssao-view") == 1);
+        CHECK(count_prefix_of(order_of(g.renderer), "ssao-ao") == 1);  // the view is drawn by the main pass too
+        CHECK(count_prefix_of(order_of(g.renderer), "ssao-view") == 0);
         CHECK(count_prefix_of(order_of(g.renderer), "ssao-apply") == 0);
         CHECK(darkest(ao, 160, 108, 120) < 215);
         CHECK(grey(ao, 160, 152) > 243);
@@ -255,7 +259,7 @@ TEST_CASE("ssao: each camera of a split screen darkens its own rectangle, with i
     const Image img = g.draw(w);
     const std::vector<std::string> order = order_of(g.renderer);
     INFO(joined(order));
-    CHECK(count_prefix_of(order, "camera:0/ssao-apply") == 1);
+    CHECK(count_prefix_of(order, "camera:0/ssao-ao") == 1);
     CHECK(count_prefix_of(order, "camera:1/ssao") == 0);
     int rw = 0, rh = 0;
     REQUIRE(resource_size(g.renderer, "camera:0/ssao-a", rw, rh));
@@ -267,9 +271,84 @@ TEST_CASE("ssao: each camera of a split screen darkens its own rectangle, with i
     // Both cameras: each half has its crease and its own images.
     add_ssao(w, "cam2");
     const Image both = g.draw(w);
-    CHECK(count_prefix_of(order_of(g.renderer), "camera:1/ssao-apply") == 1);
+    CHECK(count_prefix_of(order_of(g.renderer), "camera:1/ssao-ao") == 1);
     CHECK(grey(both, 240, 117) < grey(plain, 240, 117) - 20);
     CHECK(max_diff(both, img, 0, 0, 160, 180) == 0);  // the left half did not change
+}
+
+namespace {
+// A renderer of its own with a sample count (the shared one has the one of FA_TEST_SAMPLES).
+struct Own {
+    Gfx& g;
+    Renderer r;
+    bool ok = false;
+    std::string error;
+    explicit Own(Gfx& gx, int samples) : g(gx) {
+        RendererDesc d;
+        d.designWidth = 320;
+        d.designHeight = 180;
+        d.sampleCount = samples;
+        d.headless = true;
+        d.adoptContext = true;
+        ok = r.init(d, g.gpu.environment(), &error);
+    }
+    ~Own() { r.shutdown(); }
+    Own(const Own&) = delete;
+    Own& operator=(const Own&) = delete;
+    Image draw(World& w) {
+        r.begin_frame();
+        r.render_world(w, 1.0f / 60.0f);
+        r.end_frame();
+        g.gpu.end_frame();
+        Image img;
+        std::string err;
+        const bool captured = r.capture(img, &err);
+        INFO("capture error: " << err);
+        REQUIRE(captured);
+        return img;
+    }
+};
+}  // namespace
+
+TEST_CASE(
+    "ssao: what is drawn after the opaque meshes (a blended mesh, a sprite) is not darkened by the crease behind it") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    for (const int samples : {1, 4}) {
+        CAPTURE(samples);
+        Own own(g, samples);
+        REQUIRE_MESSAGE(own.ok, own.error);
+        // A grey (0.8) blended cube (alpha 0.99) 4 m from the camera covers rows 70 .. 148 of the middle columns, the crease (row 115) in
+        // it; with the occlusion drawn over it, as before, its grey would drop by the crease's darkening (see the first case: 20+ levels).
+        auto scene = [&](bool ssao, bool sprite) {
+            auto w = std::make_unique<World>();
+            floor_and_wall(*w);
+            if (!sprite) {
+                Entity e = add_mesh(*w, "cube", {0, -0.5f, 5}, {2, 2, 2});
+                w->get<MeshRenderer>(e)->color = Color{0.8f, 0.8f, 0.8f, 0.99f};
+            } else {
+                Entity e = make(*w, "spr", {0, -0.5f, 5});
+                auto& sp = w->add<Sprite>(e);
+                sp.size = {3, 3};
+                sp.color = Color{0.8f, 0.8f, 0.8f, 1.0f};
+            }
+            if (ssao) add_ssao(*w);
+            return w;
+        };
+        for (const bool sprite : {false, true}) {
+            CAPTURE(sprite);
+            auto without = scene(false, sprite);
+            auto with = scene(true, sprite);
+            const Image a = own.draw(*without);
+            const Image b = own.draw(*with);
+            INFO(joined(order_of(own.r)));
+            // The crease is under the glass: its pixel is the glass's own grey, with or without the effect (to a level of rounding).
+            CHECK(max_diff(a, b, 130, 100, 190, 135) <= 2);
+            CHECK(grey(b, 160, 117) >= 200);
+            // Outside the glass the crease is still darkened.
+            CHECK(grey(b, 285, 117) < grey(a, 285, 117) - 20);
+        }
+    }
 }
 
 TEST_CASE("ssao: the settings are clamped, and a scene without an opaque mesh draws no occlusion") {

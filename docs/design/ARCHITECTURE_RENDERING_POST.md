@@ -75,14 +75,16 @@ each.
   screen-space items (the HUD is drawn after the final pass).
 - **Ambient occlusion (M71-D1; `src/renderer_ssao.{h,cpp}`, `shaders/ssao.glsl`).** `PostPlan::ssao` (`ssao_from_stack`: quality 0..3,
   intensity 0..4, radius 0..20, off at intensity 0 or radius < 0.001) is what `make_post_plan` takes from the stack (not from `forceEffects`),
-  and it asks for the prepass. `Ssao::add_passes` declares, per camera and after its game passes and before the bloom, `<job>/ssao-ao` (GTAO,
-  half resolution at low and medium, full at high and ultra: 2, 3, 3, 5 directions, 3, 5, 6, 8 steps), `ssao-blur-h`, `ssao-blur-v` (bilateral,
-  the weights of the distance to the plane of the centre) and `ssao-apply`, over the camera's rectangle (viewport and scissor when it is a part
-  of the picture). The two RGBA16F images are transients of the graph (`<job>/ssao-a|b`). The apply pass works in place: a multiply blend
-  (`DST_COLOR`, `ZERO`) on the game image, so the bloom and the final pass see the darkened picture (with `hudAfterBloom` and MSAA it
-  writes into the multisampled image, like the bloom's composite). The noise is a fixed 4x4 pattern: no random numbers.
-  `DebugView::Ao` replaces the apply by `ssao-view` (the grey). The effect is skipped, with one
-  warning, where the GPU has no RGBA16F target that blends and filters.
+  and it asks for the prepass. `Ssao::add_passes` declares, per camera, right after its `<job>/prepass` and BEFORE its main pass, `<job>/ssao-ao` (GTAO,
+  half resolution at low and medium, full at high and ultra: 2, 3, 3, 5 directions, 3, 5, 6, 8 steps), `ssao-blur-h` and `ssao-blur-v`
+  (bilateral, the weights of the distance to the plane of the centre); the two RGBA16F images are transients of the graph
+  (`<job>/ssao-a|b`). The apply is not a pass but a draw INSIDE the main pass (`Ssao::draw_apply`, called by `main_pass` between the opaque
+  meshes and the blended ones, which is why the main pass lists the occlusion image and the prepass in its reads): a full-screen triangle over
+  the camera's rectangle (viewport and scissor when it is a part of the picture), a multiply blend (`DST_COLOR`, `ZERO`) on the game image with
+  the pipeline of the pass's own `TargetFormat` (so the same code runs with MSAA, reading the never multisampled prepass). The blended meshes,
+  sprites, particles and text drawn after it, and the HUD, are not darkened; the bloom and the final pass see the darkened picture. The
+  noise is a fixed 4x4 pattern: no random numbers. `DebugView::Ao` makes the same draw write the grey (`SsaoStage::View`) instead. The
+  effect is skipped, with one warning, where the GPU has no RGBA16F target that blends and filters.
 - **Depth and normal prepass** (`Renderer::Impl::plan_prepass`, `prepass_pass`, `prepass_view_pass` in `renderer_draw.cpp`). A pass
   of every camera job's graph that needs one, declared before "main" as `<job>/prepass`, with a transient of its own (`PostPlan::prepass`, a `PrepassRef` the effects that read
   it list in their reads; the pass is `GraphPass::sideEffect` because nothing reads it until an effect or the debug view does). One
@@ -115,6 +117,13 @@ each.
   pipelines; `make_fog_plan` is pure CPU (clamped numbers, the sun's screen place from `sun_screen_position`). `plan_job` plans it right after
   `collect_lights` and before `plan_prepass`: the sun is slot 0 of `select_lights` when that is a directional light that shines, and shafts with
   no sun in view drop their prepass bits (`PostPlan::readMask`); after the prepass the plan is emptied when the prepass or a shader is
-  missing, so only a fog that will draw (`fogFx.fog`) turns `SceneSettings.fogDensity` off (`scene_uniforms`): never both. `fog-blend` reads
-  only the prepass and blends `fogColor * f` with alpha `f` (no scratch copy); `shafts-rays` makes the half resolution rays and
-  `shafts-add` adds them. All run after the SSAO and SSR passes and before the depth of field, on the same destination as the bloom.
+  missing, so only a fog that will draw (`fogFx.fog`) turns `SceneSettings.fogDensity` off (`scene_uniforms`): never both. The fog is a draw
+  inside the main pass, like the ambient occlusion's apply (`FogFx::draw_fog`, after the apply and before the blended meshes): it reads only
+  the prepass and blends `fogColor * f` with alpha `f` (no scratch copy), so it fogs the opaque meshes by their own depth and leaves the sky.
+  What is drawn after it fogs itself with the same numbers and formula: the blended meshes through `fa_fog` / `fa_fog_b` / `fa_fog_c` of
+  `mesh_common.glsl` (`DrawContext::fuBlend`, the scene's uniforms plus the stack's fog; the opaque batches keep `fuScene`, with no fog) and
+  the quads of the world (sprites, particles, 3D text) through `fog_col` / `fog_b` / `fog_c` / `fog_eye` of `quad.glsl` (`draw_group`'s
+  `fog` argument; a batch under fog uses the full quad program, an alpha batch fades to the fog colour, an additive one to 0 and a
+  multiplying one to 1). `shafts-rays` makes the half resolution rays and `shafts-add` adds them; they run after the SSR passes and
+  before the depth of field, on the same destination as the bloom. A camera with only fog forces no `hudAfterBloom`: only shafts, SSR,
+  depth of field and motion blur do, because they work on the picture after the main pass.
