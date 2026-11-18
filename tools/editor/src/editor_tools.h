@@ -76,6 +76,16 @@ struct ProfilerView {
     bool haveGpu = false;
     ProfMemory memory;
     bool haveMemory = false;
+    // The post-processing passes of the last sampled frame (fa::post_pass_times): CPU time to record each, GPU time where the
+    // backend measures it (-1: none, `postGpuReason` says why, shown as "unavailable"). The effects folded into the `post` pass
+    // are not timed one by one: that pass is their total.
+    struct PostRow {
+        std::string name;
+        double cpuMs = 0, gpuMs = -1;
+    };
+    std::vector<PostRow> post;
+    double postCpuMs = 0, postGpuMs = -1;
+    std::string postGpuReason = "no frame sampled yet";
     // The frames the scripts took more than runtime.scriptFrameBudgetMs (ProfFrame::overBudget "scripts"): how many since
     // reset, the worst one and the limit it was measured against.
     std::uint64_t framesOverScriptBudget = 0;

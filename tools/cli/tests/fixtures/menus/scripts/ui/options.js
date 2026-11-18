@@ -1,14 +1,14 @@
 // @ts-check
 // The options panel (prefabs/ui/options.prefab.json), opened by the main menu and by the pause menu. Tabs: Video (window mode,
 // monitor, size, vsync, frame cap, the interface size and the colour filter, two accessibility options that work without a window),
-// Audio (one slider per bus), Controls (rebinding every action of the game; with `players` above 1, for the player you pick) and Language
+// Graphics (the quality of the screen effects, the main effects one by one, HDR output where the display can show it), Audio (one slider per bus), Controls (rebinding every action of the game; with `players` above 1, for the player you pick) and Language
 // (cycles through the game's languages). Every change is applied at once and saved (scripts/settings.js), so the next run starts with it. The texts are string-table keys
 // (locales/*.json): the widgets with a `key` are translated by the engine, the ones this script writes use i18n.t().
 import { Behaviour, ui, input, window, audio, world, i18n, platform, analytics, screen } from "factoria";
 import * as settings from "../settings.js";
 import { MenuStack } from "./menu_stack.js";
 
-const TABS = ["video", "audio", "controls", "language"];
+const TABS = ["video", "audio", "controls", "language", "graphics"]; // Graphics last: the tabs a game's tests walk to keep their place
 /** Frame caps the "Frame cap" button cycles through (0 = off). */
 const FRAME_CAPS = [0, 30, 60, 120, 144];
 /** Interface sizes (ui.scale) the "Interface size" button cycles through; only the ones this panel still fits the screen at are offered. */
@@ -61,6 +61,7 @@ export default class Options extends Behaviour {
     for (const tab of TABS) ui.on("click", `tab_${tab}`, () => this.showTab(tab));
     this.showTab("video");
     this.setupVideo();
+    this.setupGraphics();
     this.setupAudio();
     this.setupTextSpeed();
     this.setupControls();
@@ -70,6 +71,7 @@ export default class Options extends Behaviour {
     // The texts this script writes are not translated by the engine: write them again in the new language.
     i18n.on("change", () => {
       this.refreshVideo();
+      this.refreshGraphics();
       this.refreshTextSpeed();
       this.refreshControls();
       this.refreshLanguage();
@@ -177,6 +179,71 @@ export default class Options extends Behaviour {
     uiScale.text = i18n.t("options.uiScale", { percent: Math.round(ui.scale * 100) });
     uiScale.interactable = this.uiScales().length > 1; // nothing to choose when no other size fits
     world.find("color_filter").get("Button").text = i18n.t("options.colorFilter", { filter: i18n.t(`options.filter.${this.s.colorFilter}`) });
+  }
+
+  // -------------------------------------------------------------------------------------------------------- graphics
+  /**
+   * The screen effects (PostProcess): the quality button and one switch per main effect write settings.graphics and call
+   * settings.applyPostProcess(), which sets the PostProcess fields of the scene; the next scene gets them from settings.applyScene().
+   * Choosing a quality clears the switches the player touched, so the quality always shows what it does.
+   */
+  setupGraphics() {
+    const s = this.s;
+    ui.on("click", "gfx_quality", () => {
+      const all = settings.GRAPHICS_QUALITIES;
+      s.graphics.quality = all[(all.indexOf(s.graphics.quality) + 1) % all.length];
+      s.graphics.effects = {};
+      this.changeGraphics();
+    });
+    for (const effect of settings.GRAPHICS_EFFECTS) {
+      ui.on("change", this.gfxRow(effect.id), (e) => {
+        if (this.syncing || e.value === this.effectShown(effect.id)) return; // refreshGraphics() moving the switch, not the player
+        s.graphics.effects[effect.id] = e.value;
+        this.changeGraphics();
+      });
+    }
+    // HDR output only where the window's display can show it (render.supports hdrOutput); the row is greyed out otherwise.
+    ui.on("change", "gfx_hdr", (e) => {
+      if (this.syncing || !settings.renderSupports("hdrOutput")) return;
+      s.graphics.hdr = e.value;
+      this.changeGraphics();
+    });
+    this.refreshGraphics();
+  }
+
+  gfxRow(effectId) {
+    return `gfx_${effectId}`;
+  }
+
+  /** What a switch shows: the effect as the scene draws it, or, in a scene without PostProcess, what the player chose (it applies to the scenes that have one). */
+  effectShown(effectId) {
+    return settings.postProcessEntities().length ? settings.effectOn(effectId) : (this.s.graphics.effects[effectId] ?? false);
+  }
+
+  /** A graphics choice changed: apply it to the scene, save it, show what is now on. */
+  changeGraphics() {
+    settings.applyPostProcess(this.s);
+    settings.save(this.s);
+    this.refreshGraphics();
+  }
+
+  refreshGraphics() {
+    const s = this.s;
+    this.syncing = true;
+    try {
+      world.find("gfx_quality").get("Button").text = i18n.t("options.gfx.quality", { quality: i18n.t(`options.gfx.q.${s.graphics.quality}`) });
+      for (const effect of settings.GRAPHICS_EFFECTS) world.find(this.gfxRow(effect.id)).get("Toggle").value = this.effectShown(effect.id);
+      const hdr = world.find("gfx_hdr").get("Toggle");
+      const hdrAvailable = settings.renderSupports("hdrOutput");
+      hdr.interactable = hdrAvailable;
+      hdr.value = hdrAvailable && (s.graphics.hdr ?? world.settings?.hdrOutput === "auto");
+      const note = world.find("graphics_note");
+      const none = settings.postProcessEntities().length === 0;
+      note.active = none || !hdrAvailable;
+      note.get("Text").text = i18n.t(none ? "options.gfx.note" : "options.gfx.hdrNote");
+    } finally {
+      this.syncing = false;
+    }
   }
 
   // ------------------------------------------------------------------------------------------------------------ audio
