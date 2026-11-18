@@ -49,6 +49,14 @@ Older versions, one file per minor version with its patch releases: [0.29](chang
   encodings. The new `render.output` command says what the window shows (encoding, swapchain format, peak nits, paper white,
   headroom) and why not HDR; `render.supports` answers `hdrOutput` from the display the window is on (docs/RENDERING.md,
   "HDR output").
+- **Depth and normal prepass:** the opaque meshes of the camera can be drawn once more into a float image of their own (view depth,
+  view-space normal, coverage; never multisampled) for the effects that will need the depth (ambient occlusion, reflections, fog, sun
+  shafts, depth of field, motion blur, outline). A frame without such an effect makes no image, declares no pass and draws the same
+  number of times as before. No effect that reads it is drawn yet, so for now you see it with `FA_RENDER_DEBUG_VIEW=depth` or `normals`
+  (C++: `Renderer::set_debug_view`). Custom materials get `prepass` and `prepass_skin` programs (six programs a material instead of
+  two to four): their `vertex()` and `alphaMode` `"clip"` apply there too, so the compiled shaders of custom materials must be made again
+  (`factoria validate`). `render.supports` answers `sampledDepth` from the formats this GPU renders to and samples (docs/RENDERING.md,
+  "Depth and normals").
 
 ## 0.30.1
 

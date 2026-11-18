@@ -94,6 +94,17 @@ struct Renderer::Impl {
     Target hudTarget;
     bool hudActive = false;
     bool finalEncoded = false;
+    // The depth and normal prepass (renderer_draw.cpp, plan_job and prepass_pass). `debugView` shows it (Renderer::set_debug_view),
+    // `forceEffects` pretends the stack has those effects (tests). prevViewProj: the view-projection each camera drew its last frame
+    // with, for the effects that reproject (PostPlan::prevViewProj); an entry the camera did not refresh in the frame before is dropped.
+    DebugView debugView = DebugView::None;
+    std::uint32_t forceEffects = 0;
+    struct PrevCamera {
+        Mat4 viewProj;
+        std::uint64_t frame = 0;  // the frameSerial it was drawn in
+    };
+    std::unordered_map<std::uint64_t, PrevCamera> prevViewProj;  // by Entity::bits() of the camera
+    bool prepassWarned = false;                                  // one warning when the prepass cannot be made
     bool shadowTargetFailed = false;  // the shadow map could not be made: no shadows until a resize
     Target shadowTarget;  // the shadow map: R32F colour + depth (shadowTarget.texView is what the mesh programs sample)
     static constexpr int kShadowSize = 2048;
@@ -327,6 +338,11 @@ struct Renderer::Impl {
     void light_plan(DrawContext& ctx);
     void light_pass(DrawContext& ctx);
     void shadow_pass(DrawContext& ctx);
+    // The depth and normal prepass (M71): plan_prepass decides whether the job has one, prepass_pass draws it into `t` (a transient of
+    // the graph), prepass_view_pass paints it over the game image (Renderer::set_debug_view).
+    bool plan_prepass(DrawContext& ctx);
+    void prepass_pass(DrawContext& ctx, const Target& t);
+    void prepass_view_pass(DrawContext& ctx, const Target& t);
     void draw_group(DrawContext& ctx, const std::vector<QuadBatch>& batches, const Mat4& vp, bool depthTest,
                     const Px& base, int flatMode = 0);
     void main_pass(DrawContext& ctx);

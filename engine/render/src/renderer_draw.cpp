@@ -2,6 +2,10 @@
 #include "color_space.h"
 #include "renderer_impl.h"
 
+#include <iterator>
+
+#include "shaders/prepass_view.glsl.h"
+
 namespace fa {
 
 using render::to_scene;
@@ -56,6 +60,9 @@ struct Renderer::Impl::DrawContext {
     bool haveShadowCaster = false;
     Mat4 lightVP;
     bool doShadows = false;
+    // plan_prepass: this job declares the prepass (its image is a transient of the graph, PostPlan::prepass) and, with a debug view on,
+    // the pass that paints it over the game image.
+    bool doPrepass = false, debugPrepass = false;
     std::vector<MeshBatch> opaqueBatches, blendedBatches;
     std::vector<Mat4> mainMats, shadowMats;
     // build_quad_stream
@@ -339,7 +346,20 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
     ctx.doMainPass = fr.wantWorld || !ctx.hudAfterBloom;
     if (plan.last) {
         PostPlan& pp = ctx.postPlan;
-        pp = make_post_plan(ctx.post, world.settings().colorSpace == ColorSpace::Linear);
+        pp = make_post_plan(ctx.post, world.settings().colorSpace == ColorSpace::Linear, forceEffects);
+        // The camera's view-projection of the frame before, for the effects that reproject (motion blur); one entry per camera, and the
+        // cameras that were not drawn last frame are forgotten.
+        const std::uint64_t camKey = ctx.post.entity.bits();
+        const auto prev = prevViewProj.find(camKey);
+        if (prev != prevViewProj.end() && prev->second.frame + 1 == frameSerial) {
+            pp.prevViewProj = prev->second.viewProj;
+            pp.prevValid = true;
+        }
+        PrevCamera& now = prevViewProj[camKey];
+        now.viewProj = ctx.post.viewProj;
+        now.frame = frameSerial;
+        for (auto it = prevViewProj.begin(); it != prevViewProj.end();)
+            it = it->second.frame + 1 < frameSerial ? prevViewProj.erase(it) : std::next(it);
         // The program is made only for a frame that runs it (a conversion or a colour filter): a game without a stack never compiles it.
         if ((pp.convert() || pp.colorFilter != 0) &&
             !gpu.post_ready()) {  // logged once; the frame is drawn without the final pass
@@ -352,6 +372,7 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
     collect_lights(ctx);
     shadow_bounds(ctx);
     cull_and_batch(ctx);
+    plan_prepass(ctx);
     build_quad_stream(ctx);
     // The final pass converts the picture (exposure, tonemap, the encode of a linear scene): the screen-space items go over its result, in
     // display space, and are drawn after it instead of in the main pass. Only when there is something to draw, and the image for it exists.
@@ -1002,6 +1023,130 @@ void Renderer::Impl::shadow_pass(DrawContext& ctx) {
     gpu.end_pass();
 }
 
+// ---- depth and normal prepass ----
+// For the effects that read the scene's depth and normals (ambient occlusion, reflections, fog, sun shafts, depth of field, motion blur,
+// outline): the opaque meshes of the last job's camera drawn again into one float image (Gpu::prepass_color_format; r = linear view
+// depth, gb = octahedral view-space normal, a = 1 on a mesh) with a depth buffer of its own, never multisampled (a multisampled depth
+// cannot be sampled). Blended meshes, the sky, sprites, particles, shapes, text, debug lines and the HUD are not in it, and a CameraView or
+// render target never has one. Meshes of a material with alphaMode "clip" cut the same holes as in the main pass (the prepass program runs
+// its surface()), and a material's vertex() moves them the same way.
+
+// Does this job draw the prepass? Only the job that runs the post effects, for a stack with an effect that reads the depth or the normals
+// (or a debug view, or a test that forces an effect), when it draws opaque meshes and the GPU can make the image: a frame without any of
+// that costs nothing (no pass, no image, no shader). Reads: ctx.plan, ctx.postPlan, ctx.opaqueBatches, debugView.
+// Writes: ctx.doPrepass, ctx.debugPrepass.
+bool Renderer::Impl::plan_prepass(DrawContext& ctx) {
+    const PostPlan& pp = ctx.postPlan;
+    ctx.doPrepass = ctx.debugPrepass = false;
+    if (!ctx.plan.last || ctx.plan.view || !ctx.fr.wantWorld) return false;
+    if (!(pp.needsDepth || pp.needsNormals || debugView != DebugView::None)) return false;
+    bool anyMesh = false;
+    for (const MeshBatch& b : ctx.opaqueBatches) anyMesh = anyMesh || b.mainCount > 0;
+    if (!anyMesh || !gpu.prepass_ready()) return false;  // prepass_ready logs once why it is not
+    // Made now (and given back to the pool) so that a GPU that refuses the image is one warning here, not a failed pass.
+    TransientDesc d;
+    d.width = physW;
+    d.height = physH;
+    d.format = gpu.prepass_target_format();
+    d.label = "prepass";
+    const std::uint64_t h = transient_targets().pool.acquire(d);
+    if (h == 0) {
+        if (!prepassWarned) {
+            prepassWarned = true;
+            FA_ERROR("render",
+                     "The depth and normal prepass image ({}x{}) could not be made: the effects that read the depth "
+                     "are skipped. "
+                     "Hint: lower the window size or the render scale.",
+                     physW, physH);
+        }
+        return false;
+    }
+    transient_targets().pool.release(h);
+    ctx.doPrepass = true;
+    ctx.debugPrepass = debugView != DebugView::None && gpu.prepass_view_ready();
+    return true;
+}
+
+// Draws the opaque meshes of the job into `t`. Reads: ctx.opaque / opaqueBatches, ctx.mainInst, ctx.vuScene, ctx.fuScene, ctx.fr.cam, the
+// custom prepass programs of the materials. Writes: `t`; stats.drawCalls.
+void Renderer::Impl::prepass_pass(DrawContext& ctx, const Target& t) {
+    const std::vector<MeshBatch>& batches = ctx.opaqueBatches;
+    const std::vector<MeshItem>& items = ctx.opaque;
+    PassDesc pd = pass_into(t, "prepass");
+    pd.colorLoad = SG_LOADACTION_CLEAR;  // nothing drawn: far depth, no normal, coverage 0
+    pd.clearColor = {PrepassRef::kFarDepth, 0.0f, 0.0f, 0.0f};
+    pd.colorStore = SG_STOREACTION_STORE;
+    pd.depthLoad = SG_LOADACTION_CLEAR;
+    pd.clearDepth = 1.0f;
+    gpu.begin_pass(pd);
+    mesh_fa_mesh_vs_params_t vu = ctx.vuScene;
+    copy_mat(vu.fa_light_vp,
+             ctx.fr.cam.view);  // the prepass programs read the view matrix where the shadow programs read the light's
+    for (const MeshBatch& batch : batches) {
+        if (batch.mainCount == 0) continue;
+        const MeshItem& mi = items[batch.rep];
+        vu.fa_uv_scale[0] = mi.mr->uvScale.x;
+        vu.fa_uv_scale[1] = mi.mr->uvScale.y;
+        MaterialAsset* mat = mi.material && mi.material->ok ? mi.material : nullptr;
+        MaterialInputs inputs{};
+        if (mat && (mat->programs[kProgPrepass].shader.id || mat->programs[kProgPrepassSkin].shader.id))
+            material_inputs(mi, mat, inputs);
+        for (const SubMesh& part : mi.mesh->parts) {
+            const bool skinned = mi.anim && part.skinVb.id;
+            const PartDraw pd0 = part_draw(ctx, mi, part);
+            const MaterialProgram* custom = mat ? &mat->programs[skinned ? kProgPrepassSkin : kProgPrepass] : nullptr;
+            if (custom && !custom->shader.id) custom = nullptr;  // a twin made before the prepass: the engine's program
+            const MaterialProgram* prog = custom ? custom : &gpu.prepass_program(skinned);
+            PartDraw bind = pd0;
+            if (!custom) bind.mat = nullptr;  // the engine's program has no material textures
+            sg_apply_pipeline(gpu.prepass_pipeline(pd.format, part.doubleSided || (pd0.mat && pd0.mat->doubleSided),
+                                                   skinned, custom ? custom->shader : sg_shader{}));
+            sg_bindings b{};
+            b.vertex_buffers[0] = part.vb;
+            b.vertex_buffers[1] = ctx.mainInst;
+            b.vertex_buffer_offsets[1] = int(batch.mainFirst * kMeshInstanceBytes);
+            if (skinned) b.vertex_buffers[2] = part.skinVb;
+            b.index_buffer = part.ib;
+            b.index_buffer_offset = part.ibOffset;
+            bind_textures(ctx, b, bind, prog, inputs, true);
+            sg_apply_bindings(&b);
+            apply_uniforms(UB_mesh_fa_mesh_vs_params, vu);
+            if (skinned && prog->has_ub(UB_mesh_fa_skin))
+                apply_uniforms(UB_mesh_fa_skin, pack_palette(palette_of(*mi.anim, part.skin)));
+            if (prog->has_ub(UB_mesh_fa_mesh_fs_params))
+                apply_uniforms(UB_mesh_fa_mesh_fs_params, fill_fs(ctx, mi, part, pd0));
+            if (prog->has_ub(UB_mesh_fa_lights)) apply_uniforms(UB_mesh_fa_lights, ctx.lightUniforms);
+            apply_material_params(*prog, inputs);
+            sg_draw(0, part.indexCount, int(batch.mainCount));
+            ++stats.drawCalls;
+        }
+    }
+    gpu.end_pass();
+}
+
+// Paints the prepass (depth or normals, Renderer::set_debug_view) over the game image the main pass drew.
+void Renderer::Impl::prepass_view_pass(DrawContext& ctx, const Target& t) {
+    PassDesc dp = pass_into(gameTarget, "prepass-view");
+    dp.colorLoad = SG_LOADACTION_LOAD;
+    dp.colorStore = (ctx.msaa && !ctx.hudAfterBloom) ? SG_STOREACTION_DONTCARE : SG_STOREACTION_STORE;
+    gpu.begin_pass(dp);
+    sg_apply_pipeline(gpu.prepass_view_pipeline(dp.format));
+    sg_bindings b{};
+    b.vertex_buffers[0] = gpu.fullscreen_triangle();
+    b.views[VIEW_prepass_view_tex] = t.texView;
+    b.samplers[SMP_prepass_view_smp] = gpu.sampler(SamplerKind::Nearest);
+    sg_apply_bindings(&b);
+    prepass_view_prepass_view_vs_params_t vu{};
+    vu.flip[0] = gpu.is_gl() ? 1.0f : 0.0f;
+    apply_uniforms(UB_prepass_view_prepass_view_vs_params, vu);
+    prepass_view_prepass_view_fs_params_t fu{};
+    fu.mode[0] = debugView == DebugView::Normals ? 2.0f : 1.0f;
+    apply_uniforms(UB_prepass_view_prepass_view_fs_params, fu);
+    sg_draw(0, 3, 1);
+    ++stats.drawCalls;
+    gpu.end_pass();
+}
+
 // Draws the batches of a quad group. Reads: ctx.vbuf, ctx.shadowRowsTex, fr (lights2d, shadowRows, ambient2d), renderScale,
 // physW / physH, gpu.light_range(), lightTarget.texView (`flatMode` 1 reads the light buffer). Writes: stats.drawCalls.
 void Renderer::Impl::draw_group(DrawContext& ctx, const std::vector<QuadBatch>& batches, const Mat4& vp, bool depthTest,
@@ -1136,8 +1281,10 @@ void Renderer::Impl::main_pass(DrawContext& ctx) {
         mp.colorLoad = clearByLoad ? SG_LOADACTION_CLEAR : SG_LOADACTION_LOAD;
         const Color clearScene = to_scene(fr.cam.clearColor, fr.linear);
         mp.clearColor = {clearScene.r, clearScene.g, clearScene.b, clearScene.a};
-        mp.colorStore =
-            (msaa && (plan.last || plan.view) && !hudAfterBloom) ? SG_STOREACTION_DONTCARE : SG_STOREACTION_STORE;
+        // The debug view of the prepass draws over the multisampled image next, so it must be kept.
+        mp.colorStore = (msaa && (plan.last || plan.view) && !hudAfterBloom && !ctx.debugPrepass)
+                            ? SG_STOREACTION_DONTCARE
+                            : SG_STOREACTION_STORE;
         mp.depthLoad = SG_LOADACTION_CLEAR;
         mp.clearDepth = 1.0f;
         mp.stencilLoad = SG_LOADACTION_CLEAR;
@@ -1306,9 +1453,11 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
     const JobPlan& plan = ctx.plan;
     const std::string prefix = plan.name + "/";
     // `fn` keeps its own type instead of becoming a std::function first: the pass's callback wraps it once, not twice.
-    auto add = [&](const std::string& name, std::vector<ResourceId> reads, std::vector<ResourceId> writes, auto&& fn) {
+    auto add = [&](const std::string& name, std::vector<ResourceId> reads, std::vector<ResourceId> writes, auto&& fn,
+                   bool sideEffect = false) {
         GraphPass p;
         p.name = prefix + name;
+        p.sideEffect = sideEffect;
         p.reads = std::move(reads);
         p.writes = std::move(writes);
         p.execute = [this, &ctx, body = std::forward<decltype(fn)>(fn)](const PassContext& c) {
@@ -1345,6 +1494,24 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
                            import_desc(shadowTarget.w, shadowTarget.h, shadowTarget.format, "shadow-map"));
         add("shadow", {}, {shadowRes}, [this, &ctx](const PassContext&) { shadow_pass(ctx); });
     }
+    ResourceId prepassRes;
+    if (ctx.doPrepass) {  // the image is a transient: the effects that read it list it in their reads
+        TransientDesc pdsc;
+        pdsc.width = physW;
+        pdsc.height = physH;
+        pdsc.format = gpu.prepass_target_format();
+        pdsc.label = "prepass";
+        prepassRes = graph.create_transient(pdsc);
+        ctx.postPlan.prepass = PrepassRef{prepassRes, &transient_targets()};
+        // Never culled: nothing reads the image until an effect or the debug view does, and the passes that need it are declared after.
+        add(
+            "prepass", {}, {prepassRes},
+            [this, &ctx, prepassRes](const PassContext& c) {
+                const Target* t = transient_targets().get(c.handle(prepassRes));
+                if (t) prepass_pass(ctx, *t);
+            },
+            true);
+    }
     if (ctx.doMainPass) {
         std::vector<ResourceId> reads;
         if (ctx.litMode == 1) reads.push_back(lightRes);
@@ -1355,6 +1522,11 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
             : fr.wantWorld ? "game"
                            : "game-hud",
             std::move(reads), {game}, [this, &ctx](const PassContext&) { main_pass(ctx); });
+        if (ctx.debugPrepass)
+            add("prepass-view", {prepassRes, game}, {game}, [this, &ctx, prepassRes](const PassContext& c) {
+                const Target* t = transient_targets().get(c.handle(prepassRes));
+                if (t) prepass_view_pass(ctx, *t);
+            });
     }
     if (!plan.last) return;
 

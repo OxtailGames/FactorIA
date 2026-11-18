@@ -25,7 +25,7 @@ point at its own lines, and have it work on every target an export makes, withou
 | D4 | What the material is | A **material asset** `*.material.json`: the shader file, lighting model, alpha mode, typed parameters with defaults and doc strings, textures. `MeshRenderer.material` names it; `MeshRenderer.materialParams` overrides values per entity. | Parameters declared inside the GLSL with a custom annotation syntax: a second language to learn and parse; JSON already has schemas, JSON pointers in errors and the editor's widgets. |
 | D5 | What ships | Per material and per backend dialect of the target, one twin file `<material>.json.<slang>.shader` (the `x.png` -> `x.png.ktx2` convention). The snippet `.glsl` itself does not ship. | Shipping the snippet and compiling at load: needs D2's rejected runtime compiler. |
 | D6 | Hot reload | The existing `Engine::poll_hot_reload` sees the `.material.json` or snippet change, the injected compiler rebuilds it (host dialect only), the renderer swaps the program. A failed compile keeps the last good program and logs the teaching error once. | A file watcher in the editor only: `factoria run` and MCP sessions would not reload. |
-| D7 | Instancing, skinning, shadows | Per material the generator makes up to four programs: `mesh`, `mesh_skin`, and when the material moves vertices or cuts holes `shadow` and `shadow_skin`. Materials join the batch key; per-entity overrides split batches only when they differ. | One program per material without shadow variants: displaced or cut-out surfaces would cast the wrong shadow. |
+| D7 | Instancing, skinning, shadows | Per material the generator makes up to six programs: `mesh`, `mesh_skin`, `prepass` and `prepass_skin` (the depth and normal prepass of the effects that read the depth, run with the same `vertex()` and, for `"clip"`, `surface()`), and when the material moves vertices or cuts holes `shadow` and `shadow_skin`. Materials join the batch key; per-entity overrides split batches only when they differ. | One program per material without shadow variants: displaced or cut-out surfaces would cast the wrong shadow. |
 
 The user's choices on the open points are at the end ([Decisions taken](#decisions-taken)).
 
@@ -180,6 +180,8 @@ layout(binding=6) uniform texture2D waves;   layout(binding=2) uniform sampler w
 @program mesh_skin vs_skin fs
 @program shadow shadow_vs shadow_fs          // only with vertex() or alphaMode "clip"
 @program shadow_skin shadow_vs_skin shadow_fs
+@program prepass prepass_vs prepass_fs       // the depth and normal prepass, always
+@program prepass_skin prepass_vs_skin prepass_fs
 ```
 
 and runs `sokol-shdc --format bare_yaml --errfmt gcc --slang <dialects> --defines FA_HAS_VERTEX:...`. `bare_yaml`
@@ -198,7 +200,7 @@ The twin `materials/water.material.json.hlsl5.shader`:
   "params": ["deepColor", "flow", "waveHeight"],
   "programs": {
     "mesh":      { "vs": "<source>", "fs": "<source>", "reflection": { ... } },
-    "mesh_skin": { ... }, "shadow": { ... }, "shadow_skin": { ... }
+    "mesh_skin": { ... }, "shadow": { ... }, "shadow_skin": { ... }, "prepass": { ... }, "prepass_skin": { ... }
   }
 }
 ```
@@ -346,6 +348,15 @@ item already never joins a batch (its `Animator` is in the key).
   for those draws.
 - `"blend"` materials cast like blended meshes do today (solid).
 
+### The depth and normal prepass
+
+Every material has the programs `prepass` and `prepass_skin` (docs/RENDERING.md, "Depth and normals"): the same vertex stage as `mesh`
+(instancing, skinning, `vertex()`), and a fragment stage that runs `surface()` and writes the view depth and the view-space normal
+(`s.normal`, so a normal map is in it). With `"clip"` it also discards below `alphaCutoff`, as the shadow programs do, so a cut-out
+leaf is as cut in the depth as in the picture. Blended materials are not drawn in the prepass at all. The programs are optional in a
+twin (a twin without them draws its meshes with the engine's prepass program: no `vertex()`, no holes); a twin that lists one that
+does not build is an error, like a broken shadow program.
+
 ## Commands and editor
 
 - `shader.compile` `{material, platforms?}` -> `{ok, dialects: [...], errors: [{file, line, column, message, hint}]}`.
@@ -398,7 +409,7 @@ Acceptance:
 
 Acceptance (doctests with real sokol-shdc where available, else skipped with a message; CI has it since P5, not before):
 - A fixture material compiles to `hlsl5`, `glsl430`, `glsl300es`, `metal_macos`, `metal_ios`, `metal_sim`; the twins
-  parse and list the four programs only when `vertex()` or `"clip"` is used.
+  parse and list the shadow programs (besides `mesh`, `mesh_skin`, `prepass` and `prepass_skin`) only when `vertex()` or `"clip"` is used.
 - An error on line 7 of the snippet is reported as `shaders/bad.surface.glsl:7:<col>` with the line quoted, from both
   the vertex and the fragment stage (only once).
 - `s.colour = ...` -> hint `did you mean albedo?`; `texture(waves, uv)` -> the separate-sampler hint; a snippet that
@@ -454,7 +465,7 @@ Built (2026-10-19):
   the render tests run on; the macOS job failed without the Metal ones) because sokol-shdc does not run everywhere; the tests stamp the running engine version into them, and a tooling doctest (real sokol-shdc only)
   fails when they no longer match the template (`FA_UPDATE_FIXTURES=1` rewrites them).
 - `RenderStats` gained `materials` and `materialFallbacks`; `asset_report` lists every material with `ok`, `generation`
-  and its last error. The sokol shader pool grew from 32 to 256 (four programs per material).
+  and its last error. The sokol shader pool grew from 32 to 256 (four programs per material), then to 384 for the six programs of the depth prepass.
 - The editor runs with hot reload off: saving a snippet in an external editor reloads it in `factoria run` and MCP
   sessions, not yet in the editor (P5 added it: `EngineConfig::hotReloadAssets`).
 
