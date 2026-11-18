@@ -257,7 +257,8 @@ void Renderer::Impl::destroy_targets() {
     finalEncoded = false;
     destroy_target(filterTarget);
     destroy_target(hudTarget);
-    autoExposure.release();
+    for (std::unique_ptr<AutoExposure>& e : autoExposures)
+        if (e) e->release();
     destroy_target(editorTarget);
     free_read_image();
     destroy_target(gameTarget);
@@ -585,12 +586,13 @@ bool Renderer::Impl::ensure_hud_target() {
 
 // Draws `src` through post.glsl into `dst` (ensure_filter_target / ensure_hud_target made it).
 void Renderer::Impl::post_pass(const PostPlan& pp, bool finalPass, int filter, bool autoExposure, sg_view src,
-                               sg_view expo, sg_view aux, Target& dst, const char* label, bool keepMsaa) {
+                               sg_view expo, sg_view aux, Target& dst, const char* label, bool keepMsaa,
+                               const PostRect& rect, bool load) {
     PassDesc p = pass_into(dst, label);
-    p.colorLoad = SG_LOADACTION_DONTCARE;  // every pixel is drawn
+    p.colorLoad = load ? SG_LOADACTION_LOAD : SG_LOADACTION_DONTCARE;  // else every pixel is drawn
     p.colorStore = (dst.samples > 1 && !keepMsaa) ? SG_STOREACTION_DONTCARE : SG_STOREACTION_STORE;
     run_post_pass(gpu, pp, finalPass, filter, autoExposure, p, src, expo, assets->white()->view, aux, dst.w, dst.h,
-                  frameOutput);
+                  frameOutput, rect);
     ++stats.drawCalls;
     // A colour filter clamps to paper white (also when it follows the HDR picture); the conversion alone goes above it.
     if (filter != 0)

@@ -45,9 +45,10 @@ struct Renderer::Impl::DrawContext {
     JobEnv env;  // the sizes and images the job's passes draw with (a view job's are not the game target's)
     // plan_job: the viewports and clears of this job
     // hudAfterBloom: the screen-space items are drawn over the glowing game target (Camera.bloomScreenSpace false, no final pass).
-    // hudAfterPost: the last job's final pass writes hudTarget and the screen-space items are drawn over it, in display space.
+    // hudAfterPost: the final passes of the frame write hudTarget and the screen-space items are drawn over it, in display space.
     bool hudAfterBloom = false, hudAfterPost = false, msaa = false, z01 = false;
-    PostPlan postPlan;  // the post-processing stack the last job declares (empty for the other jobs)
+    PostPlan
+        postPlan;  // the post-processing stack of this job's camera (empty for the screen-only job and the view jobs)
     // Does this job begin the main pass? The screen-space job of a frame whose HUD goes over the bloom draws it after instead.
     bool doMainPass = false;
     Px fullPx, camPx;
@@ -196,7 +197,7 @@ void Renderer::Impl::set_job_env(const JobEnv& e) {
 
 // Declares a CameraView's (or a render target's) camera in the frame graph, drawing into the view's image: the pass(es) of
 // plan_job with the image in the place of the game target. The image is an imported resource that later jobs read
-// (jobImages). No post effects (the frame has one set, the first camera's), no 2D light buffer. While the job is planned and
+// (jobImages). No post effects (the frame's are those of the cameras on the screen), no 2D light buffer. While the job is planned and
 // while its passes run, the renderer's sizes and game images are the view's (the job's JobEnv).
 void Renderer::Impl::plan_view_job(World& world, Frame& fr, ViewTarget& target, std::uint64_t key, JobPlan plan) {
     static const CameraInfo noPost;  // bloom off, no colour filter
@@ -254,6 +255,7 @@ void Renderer::Impl::begin_frame_graph() {
     }
     graph.clear();
     jobContexts.clear();
+    postCams.clear();
     frameJobs.clear();
     jobImages.clear();
     ++frameSerial;
@@ -282,6 +284,7 @@ void Renderer::Impl::run_frame_graph() {
         report(e.error(), true);
     graph.release_callbacks();
     jobContexts.clear();
+    postCams.clear();
 }
 
 void Renderer::Impl::pass_times(std::vector<RenderStats::PassTime>& passes,
@@ -346,20 +349,25 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
     ctx.z01 = gpu.depth_zero_to_one();
     ctx.msaa = gpu.sample_count() > 1;
     ctx.doMainPass = fr.wantWorld || !ctx.hudAfterBloom;
-    if (plan.last) {
+    // Every camera that draws the world has its own plan (its stack, its rectangle of the picture); a rectangle with no pixel draws
+    // nothing and has none. Bloom and the colour filter are the frame's, from the camera that draws first (ctx.post).
+    if (!plan.view && fr.wantWorld && ctx.camPx.w > 0 && ctx.camPx.h > 0) {
         PostPlan& pp = ctx.postPlan;
-        pp = make_post_plan(ctx.post, world.settings().colorSpace == ColorSpace::Linear, forceEffects, world.frame(),
-                            renderScale);
+        pp = make_post_plan(fr.cam, world.settings().colorSpace == ColorSpace::Linear, forceEffects, world.frame(),
+                            renderScale, &ctx.post);
+        if (!(ctx.camPx.x == 0 && ctx.camPx.y == 0 && ctx.camPx.w == physW && ctx.camPx.h == physH))
+            pp.rect = PostRect{ctx.camPx.x, ctx.camPx.y, ctx.camPx.w, ctx.camPx.h};
+        postCams.push_back(&ctx);
         // The camera's view-projection of the frame before, for the effects that reproject (motion blur); one entry per camera, and the
         // cameras that were not drawn last frame are forgotten.
-        const std::uint64_t camKey = ctx.post.entity.bits();
+        const std::uint64_t camKey = fr.cam.entity.bits();
         const auto prev = prevViewProj.find(camKey);
         if (prev != prevViewProj.end() && prev->second.frame + 1 == frameSerial) {
             pp.prevViewProj = prev->second.viewProj;
             pp.prevValid = true;
         }
         PrevCamera& now = prevViewProj[camKey];
-        now.viewProj = ctx.post.viewProj;
+        now.viewProj = fr.cam.viewProj;
         now.frame = frameSerial;
         for (auto it = prevViewProj.begin(); it != prevViewProj.end();)
             it = it->second.frame + 1 < frameSerial ? prevViewProj.erase(it) : std::next(it);
@@ -394,7 +402,9 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
     build_quad_stream(ctx);
     // The final pass converts the picture (exposure, tonemap, the encode of a linear scene): the screen-space items go over its result, in
     // display space, and are drawn after it instead of in the main pass. Only when there is something to draw, and the image for it exists.
-    if (ctx.postPlan.final_pass() && fr.wantScreen &&
+    bool frameFinal = false;  // some camera of the frame runs a final pass
+    for (const DrawContext* c : postCams) frameFinal = frameFinal || c->postPlan.final_pass();
+    if (plan.last && !plan.view && frameFinal && fr.wantScreen &&
         (!ctx.gScreen.batches.empty() || !ctx.gDebugScreen.batches.empty()) && ensure_hud_target()) {
         ctx.hudAfterPost = true;
         ctx.hudAfterBloom =
@@ -1043,42 +1053,29 @@ void Renderer::Impl::shadow_pass(DrawContext& ctx) {
 
 // ---- depth and normal prepass ----
 // For the effects that read the scene's depth and normals (ambient occlusion, reflections, fog, sun shafts, depth of field, motion blur,
-// outline): the opaque meshes of the last job's camera drawn again into one float image (Gpu::prepass_color_format; r = linear view
+// outline): the opaque meshes of a camera drawn again into one float image (Gpu::prepass_color_format; r = linear view
 // depth, gb = octahedral view-space normal, a = 1 on a mesh) with a depth buffer of its own, never multisampled (a multisampled depth
 // cannot be sampled). Blended meshes, the sky, sprites, particles, shapes, text, debug lines and the HUD are not in it, and a CameraView or
 // render target never has one. Meshes of a material with alphaMode "clip" cut the same holes as in the main pass (the prepass program runs
 // its surface()), and a material's vertex() moves them the same way.
 
-// Does this job draw the prepass? Only the job that runs the post effects, for a stack with an effect that reads the depth or the normals
-// (or a debug view, or a test that forces an effect), when it draws opaque meshes and the GPU can make the image: a frame without any of
-// that costs nothing (no pass, no image, no shader). Reads: ctx.plan, ctx.postPlan, ctx.opaqueBatches, debugView.
-// Writes: ctx.doPrepass, ctx.debugPrepass.
+// Does this job draw the prepass? Every camera job that draws the world and has a stack with an effect that reads the depth or the
+// normals (or a debug view, or a test that forces an effect) gets its own, when it draws opaque meshes and the GPU can make the image:
+// a frame without any of that costs nothing (no pass, no image, no shader). The image has the size of the camera's rectangle of the
+// picture (ctx.camPx), so a camera of a split screen reads depth at its own pixels. Reads: ctx.plan, ctx.postPlan, ctx.camPx,
+// ctx.opaqueBatches, debugView. Writes: ctx.doPrepass, ctx.debugPrepass.
 bool Renderer::Impl::plan_prepass(DrawContext& ctx) {
     const PostPlan& pp = ctx.postPlan;
     ctx.doPrepass = ctx.debugPrepass = false;
-    if (!ctx.plan.last || ctx.plan.view) return false;
-    // The stack belongs to the first camera and the prepass covers the whole image: only a frame of one job that draws the world with a
-    // camera over the whole screen has one. Several cameras, a viewport smaller than the screen and the screen-only job of a split frame
-    // have none (the effects that read the depth are skipped there: say so once).
-    if (!ctx.plan.first || !ctx.fr.wantWorld || !ctx.fr.cam.fullViewport()) {
-        if ((pp.needsDepth || pp.needsNormals) && !prepassSplitWarned) {
-            prepassSplitWarned = true;
-            FA_WARN("render", "The stack has an effect that reads the depth or the normals, but the frame is split "
-                              "between several cameras or a camera "
-                              "has a viewport smaller than the screen: the effect is skipped. Hint: give the camera "
-                              "that carries the PostProcess the "
-                              "whole screen (viewport [0, 0, 1, 1]) and make it the only primary camera.");
-        }
-        return false;
-    }
+    if (ctx.plan.view || !ctx.fr.wantWorld || ctx.camPx.w < 1 || ctx.camPx.h < 1) return false;
     if (!(pp.needsDepth || pp.needsNormals || debugView != DebugView::None)) return false;
     bool anyMesh = false;
     for (const MeshBatch& b : ctx.opaqueBatches) anyMesh = anyMesh || b.mainCount > 0;
     if (!anyMesh || !gpu.prepass_ready()) return false;  // prepass_ready logs once why it is not
     // Made now (and given back to the pool) so that a GPU that refuses the image is one warning here, not a failed pass.
     TransientDesc d;
-    d.width = physW;
-    d.height = physH;
+    d.width = ctx.camPx.w;
+    d.height = ctx.camPx.h;
     d.format = gpu.prepass_target_format();
     d.label = "prepass";
     const std::uint64_t h = transient_targets().pool.acquire(d);
@@ -1089,7 +1086,7 @@ bool Renderer::Impl::plan_prepass(DrawContext& ctx) {
                      "The depth and normal prepass image ({}x{}) could not be made: the effects that read the depth "
                      "are skipped. "
                      "Hint: lower the window size or the render scale.",
-                     physW, physH);
+                     ctx.camPx.w, ctx.camPx.h);
         }
         return false;
     }
@@ -1100,13 +1097,13 @@ bool Renderer::Impl::plan_prepass(DrawContext& ctx) {
 }
 
 // The image the outline reads. Depth mode needs the prepass (plan_prepass made it or said why not, once); sprite mode needs a coverage
-// image, made for the same frames as the prepass (one job, one camera over the whole screen) and when the pool can make an RGBA8 image.
-// An outline without its image is dropped from the plan (PostPlan::skip_outline), so the frame is drawn as if the effect were off.
-// Reads: ctx.plan, ctx.fr, ctx.doPrepass. Writes: ctx.postPlan, ctx.doCoverage, coverageWarned.
+// image of the camera's rectangle, made when the pool can make an RGBA8 image. Each camera of a split screen has its own.
+// An outline without its image is dropped from the plan (PostPlan::skip_outline), so the camera is drawn as if the effect were off.
+// Reads: ctx.plan, ctx.fr, ctx.camPx, ctx.doPrepass. Writes: ctx.postPlan, ctx.doCoverage, coverageWarned.
 void Renderer::Impl::plan_outline(DrawContext& ctx) {
     PostPlan& pp = ctx.postPlan;
     ctx.doCoverage = false;
-    if (!ctx.plan.last) return;
+    if (ctx.plan.view || !ctx.fr.wantWorld || ctx.camPx.w < 1 || ctx.camPx.h < 1) return;
     if (pp.fx.outline_depth()) {
         if (!ctx.doPrepass) pp.skip_outline();
         return;
@@ -1115,21 +1112,14 @@ void Renderer::Impl::plan_outline(DrawContext& ctx) {
     auto skip = [&](const char* why) {
         if (!coverageWarned) {
             coverageWarned = true;
-            FA_WARN("render",
-                    "The sprite outline is skipped: {}. Hint: give the camera that carries the PostProcess the whole "
-                    "screen "
-                    "(viewport [0, 0, 1, 1]) and make it the only primary camera.",
+            FA_WARN("render", "The sprite outline is skipped: {}. Hint: lower the window size or the render scale.",
                     why);
         }
         pp.skip_outline();
     };
-    if (ctx.plan.view || !ctx.plan.first || !ctx.fr.wantWorld || !ctx.fr.cam.fullViewport()) {
-        skip("the frame is split between several cameras, or the camera has a viewport smaller than the screen");
-        return;
-    }
     TransientDesc d;
-    d.width = physW;
-    d.height = physH;
+    d.width = ctx.camPx.w;
+    d.height = ctx.camPx.h;
     d.format = TargetFormat{SG_PIXELFORMAT_RGBA8, SG_PIXELFORMAT_NONE, 1};
     d.label = "sprite-coverage";
     const std::uint64_t h = transient_targets().pool.acquire(d);
@@ -1150,7 +1140,8 @@ void Renderer::Impl::coverage_pass(DrawContext& ctx, const Target& t) {
     pd.clearColor = {0.0f, 0.0f, 0.0f, 0.0f};
     pd.colorStore = SG_STOREACTION_STORE;
     gpu.begin_pass(pd);
-    draw_group(ctx, ctx.gWorld.batches, ctx.fr.cam.viewProj, false, ctx.camPx, 0, &pd.format);
+    // The image has the size of the camera's rectangle and the camera's matrix maps the world onto that rectangle: the whole image.
+    draw_group(ctx, ctx.gWorld.batches, ctx.fr.cam.viewProj, false, Px{0, 0, t.w, t.h}, 0, &pd.format);
     gpu.end_pass();
 }
 
@@ -1218,6 +1209,7 @@ void Renderer::Impl::prepass_view_pass(DrawContext& ctx, const Target& t) {
     dp.colorStore = (ctx.msaa && !ctx.hudAfterBloom) ? SG_STOREACTION_DONTCARE : SG_STOREACTION_STORE;
     gpu.begin_pass(dp);
     sg_apply_pipeline(gpu.prepass_view_pipeline(dp.format));
+    if (!ctx.postPlan.rect.whole(physW, physH)) apply_view(ctx.camPx);  // the camera's rectangle of the game image
     sg_bindings b{};
     b.vertex_buffers[0] = gpu.fullscreen_triangle();
     b.views[VIEW_prepass_view_tex] = t.texView;
@@ -1530,8 +1522,8 @@ void Renderer::Impl::hud_pass(DrawContext& ctx, const Target& into, const char* 
 }
 
 // Declares the passes of the job in `graph` (the frame's), named "<job>/<pass>", in the order they always ran: the light buffer,
-// the shadow map, the main pass, and in the last job of the frame the post-processing stack (ctx.postPlan, postprocess.h): bloom (its
-// stages), the HUD over the bloom (Camera.bloomScreenSpace false), the automatic exposure, the final pass `post` (exposure, tonemap, the
+// the shadow map, the main pass, and in the last job of the frame the post-processing stack of the frame (the postCams' plans, postprocess.h): bloom (its
+// stages), the HUD over the bloom (Camera.bloomScreenSpace false), the automatic exposure of each camera, the final pass `post` of each camera over its rectangle (exposure, tonemap, the
 // output encode), the HUD over it (`hud-over-post`) and the colour filter. A frame without a stack declares none of them. The targets
 // that outlive the frame (the game target or the view's image, the light buffer, the shadow map, the final images: present() and
 // capture() sample them after the graph ran) are imported; the bloom levels and the exposure measure are transients of the pool. The game target, the light buffer and the shadow map
@@ -1544,12 +1536,11 @@ void Renderer::Impl::hud_pass(DrawContext& ctx, const Target& into, const char* 
 void Renderer::Impl::build_graph(DrawContext& ctx) {
     Frame& fr = ctx.fr;
     const JobPlan& plan = ctx.plan;
-    const std::string prefix = plan.name + "/";
     // `fn` keeps its own type instead of becoming a std::function first: the pass's callback wraps it once, not twice.
-    auto add = [&](const std::string& name, std::vector<ResourceId> reads, std::vector<ResourceId> writes, auto&& fn,
-                   bool sideEffect = false) {
+    auto add_job = [&](const std::string& jobName, const std::string& name, std::vector<ResourceId> reads,
+                       std::vector<ResourceId> writes, auto&& fn, bool sideEffect = false) {
         GraphPass p;
-        p.name = prefix + name;
+        p.name = jobName + "/" + name;
         p.sideEffect = sideEffect;
         p.reads = std::move(reads);
         p.writes = std::move(writes);
@@ -1558,6 +1549,10 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
             body(c);
         };
         graph.add_pass(std::move(p));
+    };
+    auto add = [&](const std::string& name, std::vector<ResourceId> reads, std::vector<ResourceId> writes, auto&& fn,
+                   bool sideEffect = false) {
+        add_job(plan.name, name, std::move(reads), std::move(writes), std::forward<decltype(fn)>(fn), sideEffect);
     };
     // One imported resource per frame for a target the jobs share; its handle and size follow the latest job.
     auto shared = [&](ResourceId& slot, const char* name, std::uint64_t handle, const TransientDesc& imageDesc) {
@@ -1590,12 +1585,12 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
     ResourceId prepassRes;
     if (ctx.doPrepass) {  // the image is a transient: the effects that read it list it in their reads
         TransientDesc pdsc;
-        pdsc.width = physW;
-        pdsc.height = physH;
+        pdsc.width = ctx.camPx.w;  // the camera's rectangle of the picture
+        pdsc.height = ctx.camPx.h;
         pdsc.format = gpu.prepass_target_format();
-        pdsc.label = "prepass";
+        pdsc.label = plan.name + "/prepass";  // resource names are unique in a graph, and every camera has its own
         prepassRes = graph.create_transient(pdsc);
-        ctx.postPlan.prepass = PrepassRef{prepassRes, &transient_targets()};
+        ctx.postPlan.prepass = PrepassRef{prepassRes, &transient_targets(), ctx.postPlan.rect};
         // Never culled: nothing reads the image until an effect or the debug view does, and the passes that need it are declared after.
         add(
             "prepass", {}, {prepassRes},
@@ -1624,12 +1619,12 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
     ResourceId coverageRes;
     if (ctx.doCoverage) {  // a sprite outline: the 2D world's alpha in an RGBA8 transient, read by the final pass
         TransientDesc cdsc;
-        cdsc.width = physW;
-        cdsc.height = physH;
+        cdsc.width = ctx.camPx.w;
+        cdsc.height = ctx.camPx.h;
         cdsc.format = TargetFormat{SG_PIXELFORMAT_RGBA8, SG_PIXELFORMAT_NONE, 1};
-        cdsc.label = "sprite-coverage";
+        cdsc.label = plan.name + "/sprite-coverage";
         coverageRes = graph.create_transient(cdsc);
-        ctx.postPlan.coverage = PrepassRef{coverageRes, &transient_targets()};
+        ctx.postPlan.coverage = PrepassRef{coverageRes, &transient_targets(), ctx.postPlan.rect};
         add("sprite-coverage", {}, {coverageRes}, [this, &ctx, coverageRes](const PassContext& c) {
             const Target* t = transient_targets().get(c.handle(coverageRes));
             if (t) coverage_pass(ctx, *t);
@@ -1637,13 +1632,16 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
     }
     if (!plan.last) return;
 
-    // ---- the post-processing stack of the frame (postprocess.h): bloom -> automatic exposure -> the final pass -> the HUD -> the colour filter ----
+    // ---- the post-processing stack of the frame (postprocess.h): bloom -> the final pass of every camera -> the HUD -> the colour filter ----
     filterActive = false;
     hudActive = false;
     finalEncoded = false;
-    if (ctx.postPlan.fx.outline && !ctx.postPlan.outline_source().valid())
-        ctx.postPlan.skip_outline();  // no image to read
-    const PostPlan& pp = ctx.postPlan;
+    if (postCams.empty()) return;  // no camera drew a pixel
+    for (DrawContext* c : postCams)
+        if (c->postPlan.fx.outline && !c->postPlan.outline_source().valid())
+            c->postPlan.skip_outline();  // no image to read
+    // The frame's bloom and colour filter are the first camera's (the one that draws first); everything else is the camera's own.
+    const PostPlan& pp = postCams.front()->postPlan;
     // The final pass reads the outline's image, and hands its view to post.glsl (a pass that is not the final one has none).
     auto outline_view = [](const PostPlan& plan_, const PassContext& c, PostPlan& use) {
         use = plan_;
@@ -1674,56 +1672,115 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
         add("hud-over-bloom", std::move(reads), {game},
             [this, &ctx](const PassContext&) { hud_pass(ctx, gameTarget, "game-hud"); });
     }
-    // The final pass: exposure, tonemap and the output encode (and the colour filter, when nothing is drawn in between) in one pass.
-    const bool convert = pp.final_pass();
-    if (convert && (ctx.hudAfterPost || ensure_filter_target())) {
-        ResourceId evRes;
-        if (pp.autoExposure)
-            evRes = autoExposure.add_passes(graph, transient_targets(), gpu, pp, game, gameTarget.texView, fr.dt,
-                                            frameSerial, &stats.drawCalls, plan.name);
-        const bool autoExp = evRes.valid();
-        std::vector<ResourceId> reads{game};
-        if (autoExp) reads.push_back(evRes);
-        if (pp.fx.outline) reads.push_back(pp.outline_source().res);
-        const TransientDesc dd = import_desc(physW, physH, gameTarget.format, "game-post");
-        if (ctx.hudAfterPost) {
-            // The picture goes into hudTarget (its multisampled image kept), the screen-space items are drawn over it, and the colour
+    // The final pass of every camera that has one: exposure, tonemap and the output encode (and the colour filter, when nothing is drawn
+    // in between) in one pass over the camera's rectangle.
+    bool anyFinal = false;
+    for (const DrawContext* c : postCams) anyFinal = anyFinal || c->postPlan.final_pass();
+    if (anyFinal && (ctx.hudAfterPost || ensure_filter_target())) {
+        const bool hud = ctx.hudAfterPost;
+        const ResourceId dest =
+            hud ? graph.import_target("game-post", hudTarget.colorAtt.id,
+                                      import_desc(physW, physH, gameTarget.format, "game-post"))
+                : graph.import_target("game-filtered", filterTarget.color.id,
+                                      import_desc(physW, physH, filterTarget.format, "game-filtered"));
+        // The colour filter works on what the screen shows, the interface included: with the interface over the picture it is a pass of
+        // its own after it, else it is part of each final pass.
+        const int filter = hud ? 0 : pp.colorFilter;
+        // The rectangles of the cameras with a final pass. When they tile the picture every pixel is written by one of them; else a first
+        // pass with the plan of an empty stack (the encode of a linear scene, a copy of a gamma one, the colour filter) fills the picture and
+        // the cameras draw over it. A camera without a stack that draws over one with a stack gets that plain pass over its own rectangle
+        // too (the stack of the camera below must not reach its pixels).
+        struct Rc {
+            int x0, y0, x1, y1;
+        };
+        auto rect_of = [&](const PostPlan& p) {
+            return p.rect.whole(physW, physH) ? Rc{0, 0, physW, physH}
+                                              : Rc{p.rect.x, p.rect.y, p.rect.x + p.rect.w, p.rect.y + p.rect.h};
+        };
+        auto overlap = [](const Rc& a, const Rc& b) {
+            return a.x0 < b.x1 && b.x0 < a.x1 && a.y0 < b.y1 && b.y0 < a.y1;
+        };
+        std::vector<Rc> stacked;
+        std::int64_t area = 0;
+        bool disjoint = true;
+        for (const DrawContext* c : postCams) {
+            if (!c->postPlan.final_pass()) continue;
+            const Rc r = rect_of(c->postPlan);
+            for (const Rc& o : stacked) disjoint = disjoint && !overlap(r, o);
+            stacked.push_back(r);
+            area += std::int64_t(r.x1 - r.x0) * std::int64_t(r.y1 - r.y0);
+        }
+        const bool needBase = !(disjoint && area == std::int64_t(physW) * std::int64_t(physH));
+        PostPlan basePlan;
+        basePlan.sceneLinear = pp.sceneLinear;
+        basePlan.linear = pp.sceneLinear;
+        basePlan.colorFilter = pp.colorFilter;
+        bool first =
+            true;  // the first pass draws every pixel it covers; the others keep what the passes before them drew
+        auto declare = [&](const std::string& job, const char* name, const PostPlan& use, AutoExposure* exposure,
+                           ResourceId evRes, const PostRect& rect) {
+            const bool autoExp = evRes.valid();
+            std::vector<ResourceId> reads{game};
+            if (autoExp) reads.push_back(evRes);
+            if (use.fx.outline) reads.push_back(use.outline_source().res);
+            if (!first) reads.push_back(dest);
+            const bool load = !first;
+            first = false;
+            add_job(job, name, std::move(reads), {dest},
+                    [this, use, autoExp, exposure, outline_view, filter, rect, load, hud](const PassContext& c) {
+                        PostPlan drawn;
+                        const sg_view aux = outline_view(use, c, drawn);
+                        post_pass(drawn, true, filter, autoExp, gameTarget.texView,
+                                  autoExp ? exposure->ev_view() : assets->white()->view, aux,
+                                  hud ? hudTarget : filterTarget, "post", hud, rect, load);
+                        if (hud)
+                            hudActive = true;
+                        else
+                            filterActive = true;
+                        finalEncoded = true;
+                    });
+        };
+        if (needBase) declare(plan.name, "post-base", basePlan, nullptr, ResourceId{}, PostRect{});
+        for (std::size_t i = 0; i < postCams.size(); ++i) {
+            DrawContext* c = postCams[i];
+            const PostPlan& cp = c->postPlan;
+            if (cp.final_pass()) {
+                ResourceId evRes;
+                AutoExposure* exposure = nullptr;
+                if (cp.autoExposure) {
+                    if (autoExposures.size() <= i) autoExposures.resize(i + 1);
+                    if (!autoExposures[i]) autoExposures[i] = std::make_unique<AutoExposure>();
+                    exposure = autoExposures[i].get();
+                    evRes = exposure->add_passes(graph, transient_targets(), gpu, cp, game, gameTarget.texView, fr.dt,
+                                                 frameSerial, &stats.drawCalls, c->plan.name, physW, physH);
+                }
+                declare(c->plan.name, "post", cp, exposure, evRes, cp.rect);
+                continue;
+            }
+            // No stack: the plain pass, only where a stack drawn before it reaches its pixels.
+            bool covered = false;
+            const Rc mine = rect_of(cp);
+            for (std::size_t j = 0; j < i && !covered; ++j)
+                covered = postCams[j]->postPlan.final_pass() && overlap(mine, rect_of(postCams[j]->postPlan));
+            if (covered) declare(c->plan.name, "post", basePlan, nullptr, ResourceId{}, cp.rect);
+        }
+        if (hud) {
+            // The picture went into hudTarget (its multisampled image kept), the screen-space items are drawn over it, and the colour
             // filter (it works on what the screen shows, the items included) copies it into filterTarget.
-            const ResourceId hudRes = graph.import_target("game-post", hudTarget.colorAtt.id, dd);
-            add("post", std::move(reads), {hudRes}, [this, pp, autoExp, outline_view](const PassContext& c) {
-                PostPlan use;
-                const sg_view aux = outline_view(pp, c, use);
-                post_pass(use, true, 0, autoExp, gameTarget.texView,
-                          autoExp ? autoExposure.ev_view() : assets->white()->view, aux, hudTarget, "post", true);
-                hudActive = true;
-                finalEncoded = true;
-            });
-            std::vector<ResourceId> hudReads{hudRes};
+            std::vector<ResourceId> hudReads{dest};
             hudReads.insert(hudReads.end(), shown.begin(), shown.end());
-            add("hud-over-post", std::move(hudReads), {hudRes},
+            add("hud-over-post", std::move(hudReads), {dest},
                 [this, &ctx](const PassContext&) { hud_pass(ctx, hudTarget, "game-post-hud"); });
             if (pp.colorFilter != 0 && ensure_filter_target()) {
                 const ResourceId filtered =
                     graph.import_target("game-filtered", filterTarget.color.id,
                                         import_desc(physW, physH, filterTarget.format, "game-filtered"));
-                add("color-filter", {hudRes}, {filtered}, [this, pp](const PassContext&) {
+                add("color-filter", {dest}, {filtered}, [this, pp](const PassContext&) {
                     post_pass(pp, false, pp.colorFilter, false, hudTarget.texView, assets->white()->view, sg_view{},
                               filterTarget, "color-filter", false);
                     filterActive = true;
                 });
             }
-        } else {
-            const ResourceId filtered =
-                graph.import_target("game-filtered", filterTarget.color.id,
-                                    import_desc(physW, physH, filterTarget.format, "game-filtered"));
-            add("post", std::move(reads), {filtered}, [this, pp, autoExp, outline_view](const PassContext& c) {
-                PostPlan use;
-                const sg_view aux = outline_view(pp, c, use);
-                post_pass(use, true, pp.colorFilter, autoExp, gameTarget.texView,
-                          autoExp ? autoExposure.ev_view() : assets->white()->view, aux, filterTarget, "post", false);
-                filterActive = true;
-                finalEncoded = true;
-            });
         }
     } else if (pp.colorFilter != 0 && ensure_filter_target()) {
         // Only the colour filter (Camera.colorFilter / PostProcess.colorFilter): a copy of the game target through the filter.

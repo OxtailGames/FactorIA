@@ -326,9 +326,17 @@ close enough).
 
 A `PostProcess` component (`docs.components`; docs/COMPONENTS.md is repository only, not in the binary) on the entity of a `Camera` is that camera's stack of screen effects; on an entity
 without a camera it is a volume that blends into the stacks of the cameras inside it. Every effect is off by default, and **a frame
-without any stack declares no pass and makes no render target**: the picture goes straight to the screen, as before. Only the stack
-of the camera that draws first is drawn (the frame has one stack); `Camera.bloom*` and `Camera.colorFilter` stand in for a
-`PostProcess` on a camera that has none (deprecated, the same picture).
+without any stack declares no pass and makes no render target**: the picture goes straight to the screen, as before. **Every camera
+has its own stack**, also in a split screen or with a viewport smaller than the screen: its `post` pass, its prepass, its coverage
+image and its automatic exposure work over that camera's rectangle of the picture only, in the camera's own pixels (the pixelate
+grid, the lens centre, the vignette, the grain and the dither start at the corner of the rectangle, so the two halves of a split
+screen look alike). Two things stay one per frame, taken from the camera that draws first: the **bloom** (it runs over the whole
+picture, before the final passes) and the **colour filter** (it is the last step over everything the screen shows).
+`Camera.bloom*` and `Camera.colorFilter` stand in for a `PostProcess` on a camera that has none (deprecated, the same picture).
+The passes of camera `n` are named `camera:<n>/post`, `camera:<n>/prepass` and so on. Where the cameras' rectangles do not cover the
+picture, or overlap, a `post-base` pass first draws the picture the way a frame without effects would (the encode of a linear scene, a
+copy of a gamma one), and a camera without a stack over one with a stack gets that plain pass over its own rectangle, so the stack
+of one camera never reaches another's pixels.
 
 The passes of a frame, in order (`render.frame_graph` lists them, and `RenderStats::passes` times them):
 
@@ -361,7 +369,7 @@ two that bend the picture and the pixelation, which move the place it is read fr
 | `vignette` | `vignetteIntensity`, `Smoothness`, `Roundness`, `Center`, `Color` | Mixes the display value toward `vignetteColor` toward the edge of the screen. The same on SDR and HDR (it works on the encoded value). |
 | `sharpen` | `sharpenIntensity` | Contrast-adaptive: it reads the four neighbours (each shaded the same way as the pixel) and sharpens less where the local contrast is already high, so edges ring less. |
 | `outline` | `outlineMode` (`depth`, `sprite`), `outlineColor` (alpha = opacity), `outlineWidth`, `outlineDepthThreshold`, `outlineNormalThreshold`, `outlineAlphaThreshold` | Lines at the edges of things, drawn over the sharpened picture (see "The outline" below). |
-| `pixelate` | `pixelateSize` | Every pixel of a block of `pixelateSize` design pixels shows the colour at the block's centre (the block grid starts at the top-left of the picture, so a block cut by the right or bottom edge reads its centre clamped to the picture). It moves the place everything of the final pass reads (the lens, the grade, the vignette, the sharpen and the outline see the block centre, so the outline is blocky too); only the film grain and the dither stay per pixel. |
+| `pixelate` | `pixelateSize` | Every pixel of a block of `pixelateSize` design pixels shows the colour at the block's centre (the block grid starts at the top-left of the camera's rectangle of the picture, so a block cut by the right or bottom edge reads its centre clamped to the picture). It moves the place everything of the final pass reads (the lens, the grade, the vignette, the sharpen and the outline see the block centre, so the outline is blocky too); only the film grain and the dither stay per pixel. |
 | `posterize` | `posterizeLevels` | Each colour channel of the display value is cut to `posterizeLevels` evenly spaced values (`round(c * (n - 1)) / (n - 1)`), after the grading, the vignette, the sharpen and the outline. An HDR excess above white is kept as it is. The 1/255 dither is switched off while it is on, since it would move a value off its level. |
 | `filmGrain` | `filmGrainIntensity`, `Size`, `Animated`, `LuminanceResponse` | An integer hash noise added to the display value, weighted toward the mid tones by `LuminanceResponse` (1) or even (0). It is seeded by the engine's frame counter (`world.frame()`), so a recorded or replayed run gives the same grain; `filmGrainAnimated` false uses a fixed seed. It is added before the dither and the colour filter. |
 
@@ -383,11 +391,11 @@ opacity (alpha 0, width 0 or an unmet need below draw nothing: the frame is the 
   the background. Cost: one RGBA8 image of the frame size and one more draw of the 2D batches (vertex work and a plain fill), only while
   a sprite outline is on. 3D models and the clear colour are not outlined; translucent sprites (alpha below the threshold) get no line.
 - **Where it is skipped.** The prepass needs a GPU that can sample a float image: where it cannot, `render.supports {"feature":
-  "outline"}` is false with the reason (for both modes: the row is one per effect, and the coverage image is read the same way); both modes need one camera over the whole screen that draws the world: with several cameras or a camera
-  with a partial viewport the outline is dropped (the frame is drawn as without it) and the log says so once; a depth outline in a
-  frame without opaque meshes is dropped too. The final pass maps each pixel to the prepass or coverage pixel by the same top-left
-  screen coordinates (and flips them on OpenGL, where the images are stored bottom-up), so a later camera rectangle only has to change
-  that mapping.
+  "outline"}` is false with the reason (for both modes: the row is one per effect, and the coverage image is read the same way); a
+  depth outline in a frame without opaque meshes is dropped too (the log says so once). In a split screen or with a viewport smaller
+  than the screen each camera that has the outline makes its own prepass or coverage image, the size of its rectangle, and its final
+  pass maps each pixel to that image by the camera-local top-left coordinates (flipped on OpenGL, where the images are stored
+  bottom-up).
 
 A gamma scene's stored colours are display values already: the effects use them as they are, and a scene with exposure or tonemap
 decodes, tonemaps and encodes first. A linear scene always runs the conversion. On an HDR output the final pass goes above paper
@@ -467,8 +475,9 @@ pixel holds the distance along the camera's view axis in world units (`60000` wh
 (an octahedral encoding in two channels) and 1 where a mesh is (0 elsewhere). It is the same distance for a perspective and an
 orthographic 3D camera.
 
-- **When it is made.** Only in a frame whose post stack (the `PostProcess` of the camera that draws first) has an effect that reads the
-  depth or the normals and that the renderer draws, for a camera that draws opaque meshes. A frame without such an effect declares no
+- **When it is made.** For each camera whose post stack has an effect that reads the
+  depth or the normals and that the renderer draws, when that camera draws opaque meshes (a camera of a split screen has its own, the
+  size of its rectangle). A frame without such an effect declares no
   prepass pass, makes no image and builds no shader: the draw calls are the same as before. Of the effects that read the depth only the
   outline (depth mode) is drawn so far; the rest are drawn as their M71 packages land, and the debug view below makes the image too.
 - **What is in it.** Opaque meshes, skinned ones at their pose, with their material's `vertex()` displacement, the normals of their material's `surface()` and, for `alphaMode`
@@ -476,9 +485,7 @@ orthographic 3D camera.
   and the HUD. A custom material gets its own prepass programs when
   it is compiled, like its shadow programs.
 - **Where it is not made.** A camera that draws into a texture (`renderTarget`), a `CameraView`, a GPU that cannot render and
-  sample a float image (`render.supports` says `sampledDepth` is not available, and the effects that need it are skipped), and a frame
-  split between several primary cameras or with a camera whose viewport is smaller than the screen: the stack belongs to the first
-  camera and the prepass would not match what each camera draws, so the effects that read the depth are skipped (one warning).
+  sample a float image (`render.supports` says `sampledDepth` is not available, and the effects that need it are skipped).
 - **Cost.** One more draw of every opaque batch, vertex work only plus the fragment work of a depth and normal write, and 16 bytes a
   pixel of memory at `RGBA32F` (8 at `RGBA16F`), returned to the pool when the frame ends.
 - **Seeing it.** The command `render.debug_view {"view":"depth"}` (or `"normals"`, `"none"` to go back; without `view` it
