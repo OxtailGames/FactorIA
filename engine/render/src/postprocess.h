@@ -23,6 +23,7 @@
 #include "render_internal.h"
 #include "hdr_encode.h"
 #include "post_fx.h"
+#include "renderer_dof.h"
 #include "transient_targets.h"
 
 namespace fa::render {
@@ -103,6 +104,8 @@ struct PostPlan {
     // camera (`prevValid`), so a cut or a new camera never blurs.
     Mat4 prevViewProj;
     bool prevValid = false;
+    // Depth of field and motion blur of this camera (renderer_dof.h): drawn on the scene colour before bloom; empty when neither is on.
+    SceneFxPlan sceneFx;
 
     // The outline cannot be drawn this frame (its image is not made: no opaque mesh, an unsupported GPU, no memory for the image): the effect is dropped, and with it the conversion that only it asked for.
     void skip_outline() {
