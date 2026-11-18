@@ -434,9 +434,12 @@ bool is_post_pass(std::string_view passName) {
     const std::size_t slash = passName.rfind('/');
     const std::string_view n = slash == std::string_view::npos ? passName : passName.substr(slash + 1);
     if (n == "post") return true;
-    for (std::string_view prefix :
-         {"bloom-", "exposure-", "ssao", "dof", "ssr", "motion", "fog", "shafts", "radial", "taa"})
-        if (n.substr(0, prefix.size()) == prefix) return true;
+    // A pass is an effect's when its name is the effect's or `<effect>-<what>`; "fogbank" or "taaa" are not.
+    for (std::string_view effect :
+         {"bloom", "exposure", "ssao", "dof", "ssr", "motion", "fog", "shafts", "radial", "taa", "color-filter"})
+        if (n == effect ||
+            (n.size() > effect.size() && n.substr(0, effect.size()) == effect && n[effect.size()] == '-'))
+            return true;
     return false;
 }
 
@@ -613,8 +616,13 @@ Json Renderer::frame_graph_report() const {
                                        {"job", p.job},
                                        {"cpuMs", r3(p.cpuMs)},
                                        {"gpuMs", p.gpuMs >= 0.0 ? Json(r3(p.gpuMs)) : Json(nullptr)}}));
+        std::size_t timed = 0;
+        for (const RenderStats::PassTime& p : post.passes) timed += p.gpuMs >= 0.0 ? 1 : 0;
         Json pp = Json::object();
         pp["passes"] = std::move(pl);
+        pp["gpuPassesTimed"] = timed;
+        // A total over only some of the passes is a lower bound, never the whole cost: say so.
+        pp["gpuPartial"] = timed > 0 && timed < post.passes.size();
         pp["cpuMs"] = r3(post.cpuMs);
         pp["gpuMs"] = post.gpuMs >= 0.0 ? Json(r3(post.gpuMs)) : Json(nullptr);
         pp["gpuStatus"] = post.gpuMs >= 0.0 ? "measured" : "unavailable";

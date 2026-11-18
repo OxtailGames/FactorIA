@@ -212,6 +212,17 @@ TEST_CASE("post pass times: the post passes are named, summed, and a missing GPU
     }
 }
 
+TEST_CASE("is_post_pass: an effect's own name or <effect>-<what>, nothing that merely starts like it") {
+    CHECK(is_post_pass("main/post"));
+    CHECK(is_post_pass("main/bloom-bright"));
+    CHECK(is_post_pass("main/ssao"));
+    CHECK(is_post_pass("main/color-filter"));
+    CHECK(!is_post_pass("main/fogbank"));
+    CHECK(!is_post_pass("main/taaa"));
+    CHECK(!is_post_pass("main/prepass"));
+    CHECK(!is_post_pass("main/sprite-coverage"));
+}
+
 TEST_CASE("frame graph report: null before the first frame") {
     Gfx& g = gfx();
     REQUIRE(g.ok);

@@ -22,7 +22,7 @@ const gameRows = [];
 /**
  * Adds a row of the GAME to a section of the options (a Button that the panel keeps in step with the language), without editing the
  * panel's files. Call it before the panel is spawned: when the module that owns the game's setting loads, or in the host's onStart before
- * it spawns prefabs/ui/options.prefab.json. `section` is "video", "audio", "controls" or "language". `text()` returns the label (use
+ * it spawns prefabs/ui/options.prefab.json. `section` is "video", "audio", "controls", "language" or "graphics". `text()` returns the label (use
  * i18n.t; it is called again when the language changes and after every click), `click()` changes the setting (save it with
  * settings.save, the panel does not know it). The section grows by one row; the panel is sized for its Video tab, so a section with more
  * rows than that needs a taller prefab. A second call with the same id replaces the row.
@@ -216,8 +216,8 @@ export default class Options extends Behaviour {
   }
 
   /** What a switch shows: the effect as the scene draws it, or, in a scene without PostProcess, what the player chose (it applies to the scenes that have one). */
-  effectShown(effectId) {
-    return settings.postProcessEntities().length ? settings.effectOn(effectId) : (this.s.graphics.effects[effectId] ?? false);
+  effectShown(effectId, hasPost = settings.postProcessEntities().length > 0) {
+    return hasPost ? settings.effectOn(effectId) : (this.s.graphics.effects[effectId] ?? false);
   }
 
   /** A graphics choice changed: apply it to the scene, save it, show what is now on. */
@@ -231,14 +231,15 @@ export default class Options extends Behaviour {
     const s = this.s;
     this.syncing = true;
     try {
+      const hasPost = settings.postProcessEntities().length > 0; // one scan of the scene per refresh
       world.find("gfx_quality").get("Button").text = i18n.t("options.gfx.quality", { quality: i18n.t(`options.gfx.q.${s.graphics.quality}`) });
-      for (const effect of settings.GRAPHICS_EFFECTS) world.find(this.gfxRow(effect.id)).get("Toggle").value = this.effectShown(effect.id);
+      for (const effect of settings.GRAPHICS_EFFECTS) world.find(this.gfxRow(effect.id)).get("Toggle").value = this.effectShown(effect.id, hasPost);
       const hdr = world.find("gfx_hdr").get("Toggle");
       const hdrAvailable = settings.renderSupports("hdrOutput");
       hdr.interactable = hdrAvailable;
       hdr.value = hdrAvailable && (s.graphics.hdr ?? world.settings?.hdrOutput === "auto");
       const note = world.find("graphics_note");
-      const none = settings.postProcessEntities().length === 0;
+      const none = !hasPost;
       note.active = none || !hdrAvailable;
       note.get("Text").text = i18n.t(none ? "options.gfx.note" : "options.gfx.hdrNote");
     } finally {
