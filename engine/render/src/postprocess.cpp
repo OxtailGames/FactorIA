@@ -63,8 +63,14 @@ PostPlan make_post_plan(const CameraInfo& cam, bool linear, std::uint32_t forceE
         // The reflections read the prepass only with an intensity above 0 (renderer_ssr.h).
         if ((drawn & (1u << int(PostEffect::Ssr))) != 0 && !ssr_active(*cam.postStack))
             drawn &= ~(1u << int(PostEffect::Ssr));
+        // Fog and sun shafts read the depth only when they have something to draw (a fog with no density, shafts with no intensity do not).
+        if ((drawn & (1u << int(PostEffect::Fog))) != 0 && !fog_has_effect(*cam.postStack))
+            drawn &= ~(1u << int(PostEffect::Fog));
+        if ((drawn & (1u << int(PostEffect::SunShafts))) != 0 && !shafts_has_effect(*cam.postStack))
+            drawn &= ~(1u << int(PostEffect::SunShafts));
         read |= drawn;
     }
+    p.readMask = read;
     p.needsDepth = post_mask_needs_depth(read);
     p.needsNormals = post_mask_needs_normals(read);
     if (!cam.postStack) {

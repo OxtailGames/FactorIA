@@ -74,18 +74,18 @@ void register_postprocess_component(TypeRegistry& r) {
          "outline, "
          "pixelate, posterize, filmGrain, colorFilter (the last pass). M71 is in progress: the component, the volumes, "
          "the postprocess.* commands and render.supports exist, and each effect is drawn as its M71 package lands: "
-         "render.supports {\"feature\": \"<effect>\"} says which ones this build draws on this GPU (ssao, exposure, "
-         "bloom, "
+         "render.supports {\"feature\": \"<effect>\"} says which ones this build draws on this GPU (ssao, ssr, fog, "
+         "sunShafts, exposure, bloom, "
          "tonemap, colorFilter, lensDistortion, chromaticAberration, colorGrading, vignette, sharpen, outline, "
-         "pixelate, posterize, filmGrain, radialBlur, depthOfField, motionBlur and ssr today), until then the fields "
-         "only store "
-         "the values. The lens distortion, "
+         "pixelate, posterize, filmGrain, radialBlur, depthOfField and motionBlur today). The lens distortion, "
          "the chromatic aberration, the colour grading, the vignette, the sharpen, the outline, the pixelation, the "
          "posterization and the film grain are drawn in the final pass, after the bloom: "
          "the lens and the aberration bend how the scene is read (in scene colour, before the exposure), the rest work "
          "on the display picture (what the screen shows, paper white = 1, the same on an SDR and an HDR output) and "
-         "none of them clips above white. The depth of field and the motion blur read the depth prepass and are "
-         "drawn on the scene colour, before the bloom and the final pass. Every camera draws its own stack over its "
+         "none of them clips above white. The ambient occlusion, the reflections, the fog, the sun shafts, the depth "
+         "of field and the motion blur "
+         "read the depth prepass and are drawn on the scene colour, before the bloom and the final pass. Every camera "
+         "draws its own stack over its "
          "own part of the picture (a "
          "split screen: each half has its own); the bloom and the colour filter are one per frame, the ones of the "
          "camera that draws first. Camera.bloom* and Camera.colorFilter are deprecated and keep working unchanged: "
@@ -500,9 +500,12 @@ void register_postprocess_component(TypeRegistry& r) {
         .range(8, 128)
 
         // fog
-        .field("fogEnabled", &PostProcess::fogEnabled,
-               "Switches the stack's fog on: distance and height fog drawn from the depth buffer (3D). It replaces "
-               "SceneSettings.fogColor and fogDensity where it is on.")
+        .field(
+            "fogEnabled", &PostProcess::fogEnabled,
+            "Switches the stack's fog on: distance and height fog drawn from the depth buffer of the opaque 3D meshes. "
+            "The sky is not fogged, and blended meshes do not receive it (a blended mesh, particle or sprite "
+            "drawn in the main pass takes the fog of the opaque surface behind it, none over the sky). It "
+            "replaces SceneSettings.fogColor and fogDensity for a camera that draws it.")
         .field("fogColor", &PostProcess::fogColor, "Only used when fogEnabled. Colour distant things fade to.")
         .field("fogDensity", &PostProcess::fogDensity,
                "Only used when fogEnabled. Fog thickness with distance (the same scale as SceneSettings.fogDensity); 0 "
@@ -522,10 +525,12 @@ void register_postprocess_component(TypeRegistry& r) {
         .range(0, 10)
 
         // sunShafts
-        .field(
-            "sunShaftsEnabled", &PostProcess::sunShaftsEnabled,
-            "Switches the sun shafts on: rays of light spreading from the sun through gaps in the scene (3D, needs the "
-            "depth buffer).")
+        .field("sunShaftsEnabled", &PostProcess::sunShaftsEnabled,
+               "Switches the sun shafts on: rays of light spreading from the bright sky toward the sun through gaps in "
+               "the "
+               "scene (3D, perspective cameras, needs the depth buffer). The sun is the directional Light that casts "
+               "shadows, otherwise the brightest directional one; with no such light, a light of intensity 0 or the "
+               "sun behind the camera there are no shafts.")
         .field("sunShaftsIntensity", &PostProcess::sunShaftsIntensity,
                "Only used when sunShaftsEnabled. 0..2: strength.")
         .range(0, 2)
