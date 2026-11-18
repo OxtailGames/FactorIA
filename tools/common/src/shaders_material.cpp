@@ -13,6 +13,7 @@ namespace fa {
 namespace stdfs = std::filesystem;
 using shaders_detail::is_identifier;
 using shaders_detail::is_reserved_word;
+using shaders_detail::template_globals;
 using tooling_detail::escape_token;
 
 int MaterialParam::components() const {
@@ -90,7 +91,7 @@ struct Checker {
     }
 
     // The rule for names of params and textures; true when `name` is fine.
-    bool check_name(const std::string& pointer, const std::string& name, const char* what) {
+    bool check_name(const std::string& pointer, const std::string& name, const char* what, const std::string& kind) {
         if (!is_identifier(name)) {
             error(pointer,
                   std::string(what) + " name \"" + name +
@@ -113,11 +114,37 @@ struct Checker {
                   "Rename it, e.g. \"waveHeight\".");
             return false;
         }
+        if (name == "noise") {
+            error(pointer,
+                  std::string(what) +
+                      " name \"noise\" breaks sokol-shdc (it reports \"no binding found for texture ''\"), "
+                      "so no material can use it",
+                  "Name it for what it holds, e.g. \"noiseMap\" or \"mask\".");
+            return false;
+        }
         if (is_reserved_word(name)) {
             error(pointer,
                   std::string(what) + " name \"" + name +
                       "\" is a GLSL keyword or a name of the snippet contract, so it cannot be a variable",
                   "Rename it, e.g. \"" + name + "Value\".");
+            return false;
+        }
+        // The unprefixed names of the kind's own program (sprite: its vertex inputs, varyings, textures, uniform blocks and
+        // helpers) share one flat namespace with the snippet and the params: taking one redefines it.
+        const auto& globals = template_globals(kind);
+        const std::string sampler = std::string(what) == "texture" ? name + "_smp" : std::string();
+        const bool takesName = globals.count(name) > 0, takesSampler = !sampler.empty() && globals.count(sampler) > 0;
+        if (takesName || takesSampler) {
+            const std::string suffix = std::string(what) == "texture" ? "Map" : "Value";
+            error(pointer,
+                  std::string(what) + " name \"" + name + "\" is " +
+                      (takesName ? "a name" : "the base of the name \"" + sampler + "\"") +
+                      " of the engine's 2D program (quad_common.glsl: its vertex inputs, varyings, textures, "
+                      "uniform blocks and helper functions are not prefixed), and a " +
+                      what + " becomes a global variable next to them, so " + kind + " materials cannot take it",
+                  "Rename it, e.g. \"" + name + suffix +
+                      "\". The names of the 2D program are listed in "
+                      "engine/render/shaders/quad_common.glsl and color_space.glsl / light_shadow.glsl.");
             return false;
         }
         return true;
@@ -368,7 +395,7 @@ MaterialParse parse_material(const Json& doc, const std::string& projectDir, con
             for (auto it = p->begin(); it != p->end(); ++it) {
                 MaterialParam param;
                 const std::string ptr = "/params/" + escape_token(it.key());
-                const bool nameOk = c.check_name(ptr, it.key(), "param");
+                const bool nameOk = c.check_name(ptr, it.key(), "param", m.kind);
                 c.check_param(it.key(), it.value(), param);
                 if (nameOk) {
                     if (!taken.insert(it.key()).second)
@@ -393,7 +420,7 @@ MaterialParse parse_material(const Json& doc, const std::string& projectDir, con
             for (auto it = t->begin(); it != t->end(); ++it) {
                 MaterialTexture tex;
                 const std::string ptr = "/textures/" + escape_token(it.key());
-                const bool nameOk = c.check_name(ptr, it.key(), "texture");
+                const bool nameOk = c.check_name(ptr, it.key(), "texture", m.kind);
                 c.check_texture(it.key(), it.value(), tex);
                 if (nameOk) {
                     if (!taken.insert(it.key()).second)

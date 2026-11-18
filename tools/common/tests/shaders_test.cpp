@@ -15,6 +15,7 @@
 #include "fa/tooling/shaders.h"
 #include "fa/tooling/validate.h"
 #include "fa_test_paths.h"  // FA_REPO_ROOT
+#include "shaders_internal.h"
 #include "test_helpers.h"
 
 using namespace fa;
@@ -919,6 +920,93 @@ TEST_CASE("compile: an error in a helper both stages compile is reported once, a
     CHECK(r->twins.empty());
     // an error is not cached: fixing it compiles again
     CHECK(shdc.calls == 1);
+}
+
+TEST_CASE(
+    "sprite material: the names of the engine's 2D program are refused for params and textures, mesh keeps them") {
+    const auto& names = shaders_detail::template_globals("sprite");
+    // derived from quad_common.glsl, color_space.glsl and light_shadow.glsl: the inputs, varyings, block members, textures,
+    // samplers, helpers and the defines
+    for (const char* n : {"position",     "texcoord0",
+                          "color0",       "uv",
+                          "color",        "params",
+                          "world_xy",     "xform",
+                          "world_z",      "view_proj",
+                          "cspace",       "fa_time",
+                          "lit",          "ambient",
+                          "light_pos",    "light_color",
+                          "fog_col",      "tex",
+                          "normal_tex",   "light_tex",
+                          "shadow_tex",   "smp",
+                          "light_smp",    "shadow_smp",
+                          "frag_color",   "tex_color",
+                          "scene_rgb",    "shape_color",
+                          "lit_color",    "light_shadow",
+                          "shadow_texel", "fa_srgb_to_linear",
+                          "vs_params",    "quad_fs_params",
+                          "QuadInput",    "main"}) {
+        CAPTURE(std::string(n));
+        CHECK(names.count(n) > 0);
+    }
+    // locals of function bodies, struct fields and the user's own names are not globals
+    for (const char* n : {"p", "base", "mode", "radius", "amount", "mask", "world_pos", "float", "vec4"}) {
+        CAPTURE(std::string(n));
+        CHECK(names.count(n) == 0);
+    }
+    CHECK(shaders_detail::template_globals("mesh").empty());
+    CHECK(shaders_detail::template_globals("nonsense").empty());
+
+    const auto sprite = [](const char* params, const char* textures) {
+        return parse((std::string(R"({"format":"factoria.material/1","kind":"sprite","shader":"s.glsl","params":{)") +
+                      params + R"(},"textures":{)" + textures + "}}")
+                         .c_str());
+    };
+    auto bad = sprite(R"("color":{"type":"float","default":1,"doc":"d"},
+                       "lit":{"type":"float","default":1,"doc":"d"},
+                       "okName":{"type":"float","default":1,"doc":"d"})",
+                      R"("tex":{"sampler":"linearRepeat","doc":"d"},
+                         "light":{"sampler":"linearRepeat","doc":"d"},
+                         "noise":{"sampler":"linearRepeat","doc":"d"},
+                         "fine":{"sampler":"linearRepeat","doc":"d"})");
+    CHECK(has_error(bad, "/params/color", "engine's 2D program"));
+    CHECK(has_error(bad, "/params/color", "colorValue"));
+    CHECK(has_error(bad, "/params/lit", "engine's 2D program"));
+    CHECK(has_error(bad, "/textures/tex", "engine's 2D program"));
+    CHECK(has_error(bad, "/textures/tex", "texMap"));
+    CHECK(has_error(bad, "/textures/light", "light_smp"));  // its sampler would be the engine's light_smp
+    CHECK(has_error(bad, "/textures/noise", "sokol-shdc"));
+    CHECK_FALSE(has_error(bad, "/params/okName"));
+    CHECK_FALSE(has_error(bad, "/textures/fine"));
+    CHECK(bad.errors.size() == 5);
+
+    // a mesh material keeps `color`, `uv` and `tex`: the mesh program prefixes or scopes its own names
+    const MaterialParse mesh = parse(R"({"format":"factoria.material/1","shader":"s.glsl","params":{
+        "color":{"type":"color","default":[1,1,1,1],"doc":"d"},"uv":{"type":"float","default":1,"doc":"d"}},
+        "textures":{"tex":{"sampler":"linearRepeat","doc":"d"}}})");
+    CHECK(mesh.ok());
+    // `noise` breaks sokol-shdc for every kind
+    const MaterialParse noise = parse(
+        R"({"format":"factoria.material/1","shader":"s.glsl","textures":{"noise":{"sampler":"linearRepeat","doc":"d"}}})");
+    CHECK(has_error(noise, "/textures/noise", "noiseMap"));
+}
+
+TEST_CASE("sprite material: a snippet that redefines a name of the engine's 2D program gets the hint") {
+    Project p;
+    p.add_sprite();
+    FakeShdc shdc;
+    ShaderCompileOptions options;
+    options.setup = shdc.context(p.str());
+    options.dialects = {"hlsl5"};
+    const std::string snippet = "float tex_color = 1.0;\n" + std::string(kSpriteSnippet);
+    p.write("shaders/dissolve2d.fragment.glsl", snippet);
+    const GeneratedShader g =
+        generate_material_shader(read_material(p.str(), "materials/dissolve2d.material.json").material, snippet);
+    shdc.stderrText = "top.glsl:" + std::to_string(top_line_of(g, 1)) + ":0: error: 'tex_color' : redefinition\n";
+    auto r = compile_material(p.str(), "materials/dissolve2d.material.json", options);
+    REQUIRE(r.ok());
+    REQUIRE(r->errors.size() == 1);
+    CHECK(r->errors[0].hint.find("name taken by the engine's 2D program") != std::string::npos);
+    CHECK(r->errors[0].hint.find("is already a global") == std::string::npos);
 }
 
 TEST_CASE("compile: hints for the frequent mistakes") {

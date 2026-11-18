@@ -351,6 +351,12 @@ std::string hint_for(const std::string& message, const std::string& token, const
             if (t.name == token || t.name + "_smp" == token)
                 return "`" + token + "` is already declared by the texture \"" + t.name +
                        "\" of this material. Rename the local variable.";
+        if (template_globals(ctx.material.kind).count(token) > 0)
+            return "`" + token +
+                   "` is a name taken by the engine's 2D program (quad_common.glsl and the files it includes: "
+                   "its vertex inputs, varyings, textures, uniform blocks and helper functions are not prefixed). "
+                   "Rename "
+                   "your variable or function.";
     }
     if (message.find("syntax error") != std::string::npos)
         return "A syntax error is often reported on the line after the real mistake: look for a missing ';', ')' or "

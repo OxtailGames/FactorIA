@@ -60,7 +60,9 @@ bool is_reserved_word(std::string_view s) {
         "sizeof", "cast", "namespace", "using",
         // names of the snippet contract
         "main", "surface", "vertex", "Surface", "SurfaceInput", "VertexData", "QuadInput", "QuadSurface", "QuadVertex",
-        "fragment", "SkyInput", "SkySurface", "PostInput", "PostSurface"};
+        "fragment", "SkyInput", "SkySurface", "PostInput", "PostSurface",
+        // a name sokol-shdc cannot take for a texture ("no binding found for texture ''")
+        "noise"};
     return words.count(s) > 0;
 }
 
@@ -164,6 +166,163 @@ const std::vector<std::pair<std::string, std::vector<std::string>>>& contract_st
         return result;
     }();
     static const Structs none;
+    auto it = byKind.find(kind);
+    return it == byKind.end() ? none : it->second;
+}
+
+namespace {
+
+using NameSet = std::set<std::string, std::less<>>;
+
+// The last identifier of `text` (after dropping a trailing `[...]`), "" when there is none.
+std::string last_identifier(std::string text) {
+    while (!text.empty() && (std::isspace(static_cast<unsigned char>(text.back())) || text.back() == ']')) {
+        if (text.back() == ']') {
+            const std::size_t open = text.rfind('[');
+            if (open == std::string::npos) break;
+            text.resize(open);
+        } else {
+            text.pop_back();
+        }
+    }
+    std::size_t b = text.size();
+    while (b > 0 && ident_char(text[b - 1])) --b;
+    return text.substr(b);
+}
+
+// The identifier that precedes the first '(' of `text` (a function's name), "" when there is none.
+std::string name_before_paren(const std::string& text) {
+    const std::size_t paren = text.find('(');
+    return paren == std::string::npos ? std::string() : last_identifier(text.substr(0, paren));
+}
+
+// `stmt` without its `layout(...)` qualifier.
+void strip_layout(std::string& stmt) {
+    const std::size_t layout = stmt.find("layout");
+    if (layout == std::string::npos) return;
+    const std::size_t open = stmt.find('(', layout);
+    int depth = 0;
+    for (std::size_t i = open; open != std::string::npos && i < stmt.size(); ++i) {
+        depth += stmt[i] == '(' ? 1 : stmt[i] == ')' ? -1 : 0;
+        if (depth == 0) {
+            stmt.erase(layout, i + 1 - layout);
+            return;
+        }
+    }
+}
+
+// The names a declaration statement (without its ';') declares: `layout(...) uniform texture2D tex`, `vec4 a, b[16]`,
+// `const float k = 1.0`, `float f(float x)` (a prototype).
+void declared_names(std::string stmt, NameSet& out) {
+    strip_layout(stmt);
+    const std::size_t paren = stmt.find('('), eq = stmt.find('=');
+    if (paren != std::string::npos && (eq == std::string::npos || paren < eq)) {  // a function prototype
+        const std::string name = name_before_paren(stmt);
+        if (!name.empty()) out.insert(name);
+        return;
+    }
+    int depth = 0;
+    std::size_t from = 0;
+    for (std::size_t i = 0; i <= stmt.size(); ++i) {
+        if (i < stmt.size()) {
+            depth += (stmt[i] == '(' || stmt[i] == '[') ? 1 : (stmt[i] == ')' || stmt[i] == ']') ? -1 : 0;
+            if (stmt[i] != ',' || depth != 0) continue;
+        }
+        std::string piece = stmt.substr(from, i - from);
+        from = i + 1;
+        if (const std::size_t e = piece.find('='); e != std::string::npos) piece.resize(e);
+        const std::string name = last_identifier(piece);
+        if (!name.empty() && name != "uniform" && name != "struct") out.insert(name);
+    }
+}
+
+// Every name the top level of a GLSL text declares (variables, in/out, textures, samplers, functions, structs, uniform
+// blocks and their members, #define names). Locals of function bodies are not globals.
+void scan_globals(const std::string& text, NameSet& out) {
+    std::string stmt;
+    bool lineStart = true;
+    for (std::size_t i = 0; i < text.size(); ++i) {
+        const char c = text[i];
+        if (c == '\n') {
+            lineStart = true;
+            stmt += ' ';
+            continue;
+        }
+        if (lineStart && std::isspace(static_cast<unsigned char>(c))) {
+            stmt += c;
+            continue;
+        }
+        if (lineStart && (c == '#' || c == '@')) {  // a preprocessor line or a sokol-shdc tag: not part of a statement
+            std::size_t end = text.find('\n', i);
+            if (end == std::string::npos) end = text.size();
+            const std::string line = text.substr(i, end - i);
+            if (line.rfind("#define", 0) == 0) {
+                std::size_t b = 7;
+                while (b < line.size() && std::isspace(static_cast<unsigned char>(line[b]))) ++b;
+                std::size_t e = b;
+                while (e < line.size() && ident_char(line[e])) ++e;
+                if (e > b) out.insert(line.substr(b, e - b));
+            }
+            i = end - 1;
+            continue;
+        }
+        lineStart = false;
+        if (c == ';') {
+            declared_names(stmt, out);
+            stmt.clear();
+        } else if (c == '{') {
+            std::size_t close = i;
+            for (int depth = 0; close < text.size(); ++close) {
+                depth += text[close] == '{' ? 1 : text[close] == '}' ? -1 : 0;
+                if (depth == 0) break;
+            }
+            if (close >= text.size()) return;
+            const std::string body = text.substr(i + 1, close - i - 1);
+            strip_layout(stmt);
+            const bool isFunction = stmt.find('(') != std::string::npos;
+            if (isFunction) {
+                const std::string name = name_before_paren(stmt);
+                if (!name.empty()) out.insert(name);
+            } else {
+                const std::string name = last_identifier(stmt);
+                if (!name.empty()) out.insert(name);              // a struct or a uniform block
+                if (stmt.find("uniform") != std::string::npos) {  // the members of a block are globals too
+                    std::size_t from = 0;
+                    while (from < body.size()) {
+                        const std::size_t semi = body.find(';', from);
+                        if (semi == std::string::npos) break;
+                        declared_names(body.substr(from, semi - from), out);
+                        from = semi + 1;
+                    }
+                }
+                std::size_t semi = text.find(';', close);  // an instance name between '}' and ';'
+                if (semi == std::string::npos) semi = text.size();
+                declared_names(text.substr(close + 1, semi - close - 1), out);
+                close = std::min(semi, text.size() - 1);
+            }
+            stmt.clear();
+            i = close;
+        } else {
+            stmt += c;
+        }
+    }
+}
+
+}  // namespace
+
+const std::set<std::string, std::less<>>& template_globals(const std::string& kind) {
+    // The names the template of a kind declares at the top level of its program, unprefixed (the prefixed ones are covered
+    // by the fa_ rule): a param or texture with one of them would redefine it. Derived from the bundled template so the
+    // list cannot drift. Only the sprite template has any: its snippet is spliced into a program whose inputs, varyings and
+    // helpers are not prefixed (the mesh template keeps its own names out of the snippet's way by other means).
+    static const std::map<std::string, NameSet> byKind = [] {
+        std::map<std::string, NameSet> result;
+        NameSet sprite;
+        for (const auto& [name, content] : template_files("sprite")) scan_globals(blank_comments(content), sprite);
+        result["sprite"] = std::move(sprite);
+        return result;
+    }();
+    static const NameSet none;
     auto it = byKind.find(kind);
     return it == byKind.end() ? none : it->second;
 }

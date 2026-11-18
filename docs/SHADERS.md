@@ -236,7 +236,8 @@ void surface(in SurfaceInput i, inout Surface s) {
 
 `"clip"` discards fragments whose `s.alpha` is below `alphaCutoff` (0.5), in the shadow too, so the holes cast no
 shadow. Animate `amount` from a script from 0 (whole) to 1 (gone). With a noise texture instead of the hash, declare it in
-`textures` and use `texture(sampler2D(noise, noise_smp), i.uv).r` as `n`.
+`textures` (name it `mask`, not `noise`: sokol-shdc cannot compile a texture called `noise`, and the material is refused) and
+use `texture(sampler2D(mask, mask_smp), i.uv).r` as `n`.
 
 File `materials/dissolve.material.json`:
 
@@ -432,9 +433,15 @@ so an empty `fragment()` draws exactly the engine's own pixels, and a snippet ch
 What `fragment()` leaves in `s.color` goes through the engine's last steps: the `flash` of [GAME_FEEL.md](GAME_FEEL.md),
 the conversion of a `multiply` blend and the fog. `fa_sample_main(uv)` samples the item's main texture in the colour space
 of the scene (for a snippet that wants to look the picture up somewhere else); `fa_scene_rgb(c)` takes an sRGB colour of
-yours (a `color` param) to the scene's colour space. `fa_time` and the names of the engine's own program (`tex_color`,
-`shape_color`, the uniform blocks and so on) are the engine's: a param or texture of a material cannot take them, nor
-`fragment`, `QuadInput`, `QuadSurface` or `QuadVertex`.
+yours (a param of type `color`) to the scene's colour space. `fa_time` and the names of the engine's own 2D program are the
+engine's: a sprite material is refused (error at `/params/<name>` or `/textures/<name>`, with a rename suggestion) when a
+param or texture takes one of them. That is every unprefixed name of `quad_common.glsl`, `color_space.glsl` and
+`light_shadow.glsl`: the vertex inputs and varyings (`position`, `color`, `uv`, `params`, `xform`...), the textures and
+samplers (`tex`, `smp`, `normal_tex`, `light_tex`...), the uniform blocks and their members (`lit`, `ambient`,
+`light_pos`...) and the helper functions (`tex_color`, `shape_color`, `scene_rgb`, `light_shadow`...), plus `fragment`,
+`QuadInput`, `QuadSurface` and `QuadVertex`. (A mesh material may have a `color` param; the sprite program already has
+one.) A snippet's own variables and functions must avoid them too: the compiler's hint then says the name is taken by
+the engine's 2D program.
 
 **The lean program.** The renderer draws a batch of plain textured quads (no lights, no multiply, nothing but mode 0)
 with a lean program, `quad_plain`; every other batch uses `quad`. Both compile from your snippet, so `fragment()` must
@@ -503,7 +510,7 @@ void fragment(in QuadInput i, inout QuadSurface s) {
 ```
 
 A texture works as for a mesh material, sampled with `texture(sampler2D(mask, mask_smp), i.uv)`; name it anything but
-a name of the engine's program.
+a name of the engine's program (`tex`, `smp`, `normal_tex`... are refused).
 
 ## Not available yet
 
