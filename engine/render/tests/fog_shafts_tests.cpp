@@ -273,7 +273,6 @@ TEST_CASE("fog: a far object is closer to the fog colour than a near one, as the
         Scene plain;
         plain.w.settings().skyColor = plain.w.settings().horizonColor = Color{0.8f, 0.2f, 0.2f, 1.0f};
         const Image reference = own.draw(plain.w);
-        CHECK_FALSE(has_pass(own.order(), "fog-"));
         CHECK_FALSE(has_pass(own.order(), "prepass"));  // nothing reads the depth: no prepass
         CHECK(reference.pixel(108, 90).r > 0.99f);
         CHECK(reference.pixel(207, 90).r > 0.99f);
@@ -300,13 +299,11 @@ TEST_CASE("fog: a far object is closer to the fog colour than a near one, as the
         off.w.settings().skyColor = off.w.settings().horizonColor = Color{0.8f, 0.2f, 0.2f, 1.0f};
         off.post();
         CHECK(max_diff(own.draw(off.w), reference) == 0);
-        CHECK_FALSE(has_pass(own.order(), "fog-"));
         // Switched on with nothing to draw (no density): the same, and no prepass for it.
         Scene zero;
         zero.w.settings().skyColor = zero.w.settings().horizonColor = Color{0.8f, 0.2f, 0.2f, 1.0f};
         zero.fog(0.0f);
         CHECK(max_diff(own.draw(zero.w), reference) == 0);
-        CHECK_FALSE(has_pass(own.order(), "fog-"));
         CHECK_FALSE(has_pass(own.order(), "prepass"));
     }
 }
@@ -368,7 +365,7 @@ TEST_CASE("fog: the height fog is thicker below fogHeightBase and thins above it
     // A height density of 0 draws no fog at all (no pass).
     p.fogHeightDensity = 0.0f;
     own.draw(s.w);
-    CHECK_FALSE(has_pass(own.order(), "fog-"));
+    CHECK_FALSE(has_pass(own.order(), "prepass"));
 }
 
 TEST_CASE("fog: the stack's fog replaces SceneSettings.fogDensity, so the two never add up") {
@@ -382,7 +379,7 @@ TEST_CASE("fog: the stack's fog replaces SceneSettings.fogDensity, so the two ne
     forward.w.settings().fogColor = fogColor;
     forward.w.settings().fogDensity = 0.02f;
     const Image fwd = own.draw(forward.w);
-    CHECK_FALSE(has_pass(own.order(), "fog-"));
+    CHECK_FALSE(has_pass(own.order(), "prepass"));
     // The stack's fog alone: the same law, so the same picture (within the rounding of two different paths).
     Scene stackOnly;
     stackOnly.fog(0.02f, fogColor);
@@ -460,6 +457,33 @@ TEST_CASE("fog: in a split screen each camera fogs its own rectangle only") {
     CHECK(max_diff(two, img, 0, 0, 160, 180) == 0);
     CHECK(max_diff(two, reference, 160, 0, 320, 180) > 20);
     CHECK(max_diff(two, img, 160, 0, 320, 180) > 20);  // black fog on the right
+}
+
+TEST_CASE("fog: an orthographic camera fogs by the distance along its view, the same law as a perspective one") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    Own own(g);
+    REQUIRE_MESSAGE(own.ok, own.error);
+    World w;
+    const Entity cam = add_camera(w, {0, 0, 10});
+    Camera& c = *w.get<Camera>(cam);
+    c.projection = Projection::Orthographic;
+    c.orthoSize = 4.5f;              // 9 units high, 16 wide: 20 pixels to the unit
+    add_cube(w, {-2, 0, 0}, 2.0f);   // its front face is 9 units from the camera, at pixel (120, 90)
+    add_cube(w, {6, 0, -30}, 2.0f);  // 39 units away, near the right edge, at pixel (280, 90)
+    PostProcess& p = post_of(w, cam);
+    p.fogEnabled = true;
+    p.fogColor = Color{0.5f, 0.5f, 0.5f, 1.0f};
+    p.fogDensity = 0.03f;
+    const Image img = own.draw(w);
+    INFO(joined(own.order()));
+    CHECK(has_pass(own.order(), "/prepass"));
+    const float nearR = img.pixel(120, 90).r, farR = img.pixel(280, 90).r;
+    const float fNear = 1.0f - std::exp(-(0.03f * 9.0f) * (0.03f * 9.0f));
+    const float fFar = 1.0f - std::exp(-(0.03f * 39.0f) * (0.03f * 39.0f));
+    CHECK(nearR == doctest::Approx(1.0f - 0.5f * fNear).epsilon(0.02));
+    CHECK(farR == doctest::Approx(1.0f - 0.5f * fFar).epsilon(0.02));
+    CHECK(img.pixel(280, 90).g == doctest::Approx(farR).epsilon(0.01));
 }
 
 // The fog of what is drawn after the opaque meshes (blended meshes, sprites): each fogs itself by its own distance, not by the opaque mesh

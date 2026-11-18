@@ -119,6 +119,7 @@ private:
     std::vector<PipelineEntry> pipelines_;
     bool warnedTargets_ = false;
     std::vector<std::uint64_t> failed_;  // sizes whose half-resolution image could not be made
+    std::vector<std::uint64_t> probed_;  // sizes whose image was made once: the pool is not probed again every frame
 };
 
 }  // namespace fa::render

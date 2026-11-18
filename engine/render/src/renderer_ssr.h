@@ -83,7 +83,8 @@ private:
     int state_ = 0;  // 0 = shaders not made yet, 1 = ready, -1 = failed (logged)
     bool warnedTargets_ = false;
     std::vector<std::uint64_t> failed_;  // shapes whose scratch image could not be made (not tried again every frame)
-    std::vector<std::uint64_t> probed_;  // shapes whose scratch image was made once (the GPU can have it): not probed every frame
+    std::vector<std::uint64_t>
+        probed_;  // shapes whose scratch image was made once (the GPU can have it): not probed every frame
 };
 
 }  // namespace fa::render

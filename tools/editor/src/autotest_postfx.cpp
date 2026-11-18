@@ -31,7 +31,7 @@ const Json* shown_effect(const Json& report, const std::string& name) {
     return nullptr;
 }
 
-// The panel disables the switch of an effect when render.supports lists it and says it is not supported (planned, or no GPU feature
+// The panel disables the switch of an effect when render.supports lists it and says it is not supported (no GPU feature
 // for it here), whatever the reason: the same condition as the panel's.
 bool switch_blocked(const Json& support, const std::string& effect) {
     if (!support.is_object() || !support.contains("features")) return false;

@@ -1,6 +1,7 @@
 #include "render_features.h"
 
 #include <cstring>
+#include <string_view>
 
 #include "fa/core/log.h"
 #include "fa/scene/postprocess.h"
@@ -15,47 +16,58 @@ constexpr unsigned kEveryGpu = bit(FeatureBackend::Gl) | bit(FeatureBackend::Gle
                                bit(FeatureBackend::D3d11) | bit(FeatureBackend::Metal);
 
 struct EffectRow {
+    std::string_view name;  // the effect's name in kPostEffectOrder: a row out of order fails the static_assert below
     const char* needs;
     const char* doc;
 };
 
 // One row per effect, in the order of kPostEffectOrder (checked below).
 constexpr EffectRow kEffectRows[kPostEffectCount] = {
-    {"half+depth",
+    {"ssao", "half+depth",
      "Screen-space ambient occlusion (GTAO) from the depth buffer: creases and contacts of 3D models darken (needs the "
      "depth prepass; drawn before the bloom, per camera)."},
-    {"half+depth",
+    {"ssr", "half+depth",
      "Screen-space reflections: opaque 3D surfaces reflect what the camera shows (ray march in the depth prepass; "
      "the reflectivity is a fresnel term, there is no roughness image)."},
-    {"depth", "Distance and height fog drawn from the depth of the opaque 3D meshes (the sky is not fogged)."},
-    {"depth", "Sun shafts: the bright sky scattered toward the sun (perspective cameras, half resolution)."},
-    {"", "Exposure, manual or automatic with an adaptation speed."},
-    {"depth", "Depth of field with near and far blur, bokeh and autofocus."},
-    {"depth", "Camera motion blur, from the depth buffer."},
-    {"", "Radial blur from a point of the picture (final pass; camera.radialBlur starts a pulse of it, drawn the same "
-         "way)."},
-    {"",
+    {"fog", "depth", "Distance and height fog drawn from the depth of the opaque 3D meshes (the sky is not fogged)."},
+    {"sunShafts", "half+depth",
+     "Sun shafts: the bright sky scattered toward the sun (perspective cameras, half resolution)."},
+    {"exposure", "", "Exposure, manual or automatic with an adaptation speed."},
+    {"depthOfField", "half+depth", "Depth of field with near and far blur, bokeh and autofocus."},
+    {"motionBlur", "depth", "Camera motion blur, from the depth buffer."},
+    {"radialBlur", "",
+     "Radial blur from a point of the picture (final pass; camera.radialBlur starts a pulse of it, drawn the same "
+     "way)."},
+    {"lensDistortion", "",
      "Barrel and pincushion lens distortion (drawn in the final pass, after the bloom; outside the picture is black)."},
-    {"", "Chromatic aberration: colour fringes toward the edges (drawn in the final pass)."},
-    {"", "Bloom with a soft knee and a lens dirt texture."},
-    {"", "Tonemap: none, neutral, ACES, AgX or Reinhard."},
-    {"", "Colour grading on the display picture: white balance, lift/gamma/gain, contrast, saturation, hue shift and a "
-         ".cube LUT (the tone curves are not drawn yet)."},
-    {"", "Vignette: the edges of the picture darken toward a colour."},
-    {"", "Sharpening: contrast-adaptive, on the finished picture."},
-    {"depth", "Outline (final pass): depth and normal edges of the opaque meshes (3D, one full-screen camera; needs "
-              "the depth prepass) or "
-              "the border outside 2D sprites (sprite mode: draws the 2D world once more into a coverage image; one "
-              "full-screen camera)."},
-    {"", "Pixelation (final pass): the picture drawn in big square pixels, block size in design pixels."},
-    {"", "Posterization (final pass): the display colours reduced to a few levels per channel."},
-    {"", "Film grain: noise over the picture, from the frame number (the same on every run)."},
-    {"", "The accessibility colour filter, the last pass of the frame."},
+    {"chromaticAberration", "", "Chromatic aberration: colour fringes toward the edges (drawn in the final pass)."},
+    {"bloom", "", "Bloom with a soft knee and a lens dirt texture."},
+    {"tonemap", "", "Tonemap: none, neutral, ACES, AgX or Reinhard."},
+    {"colorGrading", "",
+     "Colour grading on the display picture: white balance, lift/gamma/gain, contrast, saturation, hue shift and a "
+     ".cube LUT."},
+    {"vignette", "", "Vignette: the edges of the picture darken toward a colour."},
+    {"sharpen", "", "Sharpening: contrast-adaptive, on the finished picture."},
+    {"outline", "depth",
+     "Outline (final pass): depth and normal edges of the opaque meshes (3D, one full-screen camera; needs "
+     "the depth prepass) or "
+     "the border outside 2D sprites (sprite mode: draws the 2D world once more into a coverage image; one "
+     "full-screen camera)."},
+    {"pixelate", "", "Pixelation (final pass): the picture drawn in big square pixels, block size in design pixels."},
+    {"posterize", "", "Posterization (final pass): the display colours reduced to a few levels per channel."},
+    {"filmGrain", "", "Film grain: noise over the picture, from the frame number (the same on every run)."},
+    {"colorFilter", "", "The accessibility colour filter, the last pass of the frame."},
 };
-static_assert(sizeof(kEffectRows) / sizeof(kEffectRows[0]) == std::size_t(kPostEffectCount),
-              "one row of kEffectRows per effect of kPostEffectOrder");
+constexpr bool effect_rows_in_order() {
+    for (int i = 0; i < kPostEffectCount; ++i)
+        if (kEffectRows[i].name != kPostEffectOrder[std::size_t(i)]) return false;
+    return true;
+}
+static_assert(effect_rows_in_order(),
+              "kEffectRows: one row per effect, in the order (and with the name) of kPostEffectOrder");
 
-// The effects the renderer draws today (postprocess.cpp, bloom.cpp, post.glsl); each M71 package adds its own here.
+// The effects the renderer draws (postprocess.cpp, bloom.cpp, post.glsl, renderer_ssao/ssr/fog/dof): every effect of kPostEffectOrder
+// today. An effect added to the order without a drawing pass is left out here and is listed as planned until it is drawn.
 constexpr bool effect_drawn(PostEffect e) {
     return e == PostEffect::Ssao || e == PostEffect::Exposure || e == PostEffect::Bloom || e == PostEffect::Tonemap ||
            e == PostEffect::ColorFilter || e == PostEffect::LensDistortion || e == PostEffect::ChromaticAberration ||

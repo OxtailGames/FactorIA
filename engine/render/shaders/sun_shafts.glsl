@@ -50,6 +50,7 @@ float sane(float x) {
 }
 // How much light the sky sends from the camera-local point `p`: 0 on anything the prepass drew, else the brightness above the threshold.
 float sky_light(vec2 p) {
+    if (p.x < 0.0 || p.x > 1.0 || p.y < 0.0 || p.y > 1.0) return 0.0;  // off the picture: no sky to read (a clamped read would streak along the border)
     vec2 size = a.yz;
     vec2 lo = 0.5 / size;
     vec2 q = clamp(p, lo, 1.0 - lo);

@@ -23,7 +23,8 @@ of the pixel) removes the pattern of the search, and the apply pass of a half re
   the effect off, a frame with no opaque mesh, or a GPU without RGBA16F targets that blend and filter (the log says so once) make no
   pass and no image: the picture is the one without the effect. Each camera has its own passes (`camera:<n>/ssao-*`) and its own draw over its own rectangle.
 - **Seeing it.** `render.debug_view {"view":"ao"}` paints the occlusion alone as a grey over the camera's rectangle (white where it is open or
-  there is no mesh), with the camera's own settings or, when it has none, the defaults (the grey is drawn in place of the darkening).
+  there is no mesh), with the camera's own settings or, when it has none, the defaults (the grey is drawn in place of the darkening). It is drawn inside the main pass, before the blended meshes, sprites and particles, so a
+  blended surface in front of it covers the grey, as it covers the darkening.
 
 ## What the ambient occlusion costs
 

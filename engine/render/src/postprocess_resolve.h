@@ -18,7 +18,7 @@ namespace fa::render {
 
 // The stack a camera draws a frame with. `fx` is a plain PostProcess whose values are already blended: `fx.<effect>Enabled` says
 // which effects run (they run in kPostEffectOrder), the other fields of an effect are its parameters, the meta fields (shape, size,
-// blendDistance, priority, weight) are meaningless in it. A passes reads `fx` and `mask`, nothing else.
+// blendDistance, priority, weight) are meaningless in it. A pass reads `fx` and `mask`, nothing else.
 struct PostStack {
     PostProcess fx = postprocess_neutral();
     std::uint32_t mask = 0;  // bit i is set when the effect PostEffect(i) runs (the same as fx.<effect>Enabled)

@@ -260,7 +260,8 @@ int Ssr::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, cons
         pd.format = dstFormat;
         pd.colorLoad = rect.whole && dst.samples <= 1 ? SG_LOADACTION_DONTCARE : SG_LOADACTION_LOAD;
         pd.colorStore = SG_STOREACTION_STORE;
-        if (draw_fullscreen(*self, *g, Prog::Copy, pd, st->texView, sg_view{}, nullptr, 0, rect.whole ? nullptr : &rect))
+        if (draw_fullscreen(*self, *g, Prog::Copy, pd, st->texView, sg_view{}, nullptr, 0,
+                            rect.whole ? nullptr : &rect))
             ++*drawCalls;
     });
     return declared;
