@@ -58,6 +58,31 @@ void set_skin_layout(sg_pipeline_desc& d, int jointsAttr, int weightsAttr) {
     d.layout.attrs[weightsAttr].buffer_index = 2;
     d.layout.attrs[weightsAttr].offset = 4;
 }
+// Vertex buffers 3, 4 and 5 of a custom material's program (MeshExtras): the per-instance params, then uv1 and color1, at the
+// attributes from `firstAttr` in that order (mesh_common.glsl fa_extra_attrs).
+void set_extra_layout(sg_pipeline_desc& d, int firstAttr, const MeshExtras& e) {
+    int at = firstAttr;
+    if (e.instanceVec4 > 0) {
+        d.layout.buffers[kInstanceDataBuffer].stride = e.instanceVec4 * 16;
+        d.layout.buffers[kInstanceDataBuffer].step_func = SG_VERTEXSTEP_PER_INSTANCE;
+        for (int i = 0; i < e.instanceVec4; ++i, ++at) {
+            d.layout.attrs[at].format = SG_VERTEXFORMAT_FLOAT4;
+            d.layout.attrs[at].buffer_index = kInstanceDataBuffer;
+            d.layout.attrs[at].offset = i * 16;
+        }
+    }
+    if (e.uv1) {
+        d.layout.buffers[kUv1Buffer].stride = 8;
+        d.layout.attrs[at].format = SG_VERTEXFORMAT_FLOAT2;
+        d.layout.attrs[at].buffer_index = kUv1Buffer;
+        ++at;
+    }
+    if (e.color1) {
+        d.layout.buffers[kColor1Buffer].stride = 4;
+        d.layout.attrs[at].format = SG_VERTEXFORMAT_UBYTE4N;
+        d.layout.attrs[at].buffer_index = kColor1Buffer;
+    }
+}
 }  // namespace
 
 void Gpu::refresh_scene_format() {
@@ -398,7 +423,7 @@ sg_pipeline Gpu::quad_pipeline(const TargetFormat& format, bool depthTest, bool 
 }
 
 sg_pipeline Gpu::mesh_pipeline(const TargetFormat& format, bool blended, bool doubleSided, bool skinned,
-                               sg_shader shader) {
+                               sg_shader shader, MeshExtras extras) {
     PipelineKey key{0x200u | (blended ? 1u : 0u) | (doubleSided ? 2u : 0u) | (skinned ? 4u : 0u), shader.id};
     sg_pipeline_desc d{};
     d.shader = shader.id ? shader : (skinned ? meshSkinShader_ : mesh_shader_);
@@ -410,6 +435,7 @@ sg_pipeline Gpu::mesh_pipeline(const TargetFormat& format, bool blended, bool do
         SG_VERTEXFORMAT_UBYTE4N;  // vertex color, white without (MeshVertex::color)
     set_instance_layout(d, ATTR_mesh_mesh_fa_inst_m0);
     if (skinned) set_skin_layout(d, ATTR_mesh_mesh_skin_fa_joints, ATTR_mesh_mesh_skin_fa_weights);
+    if (shader.id) set_extra_layout(d, skinned ? kExtraAttrBaseSkinned : kExtraAttrBase, extras);
     d.index_type = SG_INDEXTYPE_UINT32;
     d.depth.compare = SG_COMPAREFUNC_LESS_EQUAL;
     d.depth.write_enabled = !blended;
@@ -438,7 +464,8 @@ sg_pipeline Gpu::sky_pipeline(const TargetFormat& format) {
     return find_or_make(key, format, d);
 }
 
-sg_pipeline Gpu::shadow_pipeline(const TargetFormat& format, bool skinned, sg_shader shader, bool fullVertex) {
+sg_pipeline Gpu::shadow_pipeline(const TargetFormat& format, bool skinned, sg_shader shader, bool fullVertex,
+                                 MeshExtras extras) {
     PipelineKey key{0x400u | (skinned ? 1u : 0u) | (fullVertex ? 2u : 0u), shader.id};
     sg_pipeline_desc d{};
     d.shader = shader.id ? shader : (skinned ? shadowSkinShader_ : shadow_shader_);
@@ -453,6 +480,7 @@ sg_pipeline Gpu::shadow_pipeline(const TargetFormat& format, bool skinned, sg_sh
     }
     set_instance_layout(d, ATTR_mesh_shadow_fa_inst_m0);
     if (skinned) set_skin_layout(d, ATTR_mesh_shadow_skin_fa_joints, ATTR_mesh_shadow_skin_fa_weights);
+    if (shader.id && fullVertex) set_extra_layout(d, skinned ? kExtraAttrBaseSkinned : kExtraAttrBase, extras);
     d.index_type = SG_INDEXTYPE_UINT32;
     d.depth.compare = SG_COMPAREFUNC_LESS_EQUAL;
     d.depth.write_enabled = true;
@@ -653,7 +681,8 @@ bool Gpu::prepass_ready() {
     return true;
 }
 
-sg_pipeline Gpu::prepass_pipeline(const TargetFormat& format, bool doubleSided, bool skinned, sg_shader shader) {
+sg_pipeline Gpu::prepass_pipeline(const TargetFormat& format, bool doubleSided, bool skinned, sg_shader shader,
+                                  MeshExtras extras) {
     if (!shader.id && !prepass_ready()) return {};
     PipelineKey key{0xC00u | (doubleSided ? 2u : 0u) | (skinned ? 4u : 0u), shader.id};
     sg_pipeline_desc d{};
@@ -665,6 +694,7 @@ sg_pipeline Gpu::prepass_pipeline(const TargetFormat& format, bool doubleSided, 
     d.layout.attrs[ATTR_mesh_prepass_fa_color].format = SG_VERTEXFORMAT_UBYTE4N;
     set_instance_layout(d, ATTR_mesh_prepass_fa_inst_m0);
     if (skinned) set_skin_layout(d, ATTR_mesh_prepass_skin_fa_joints, ATTR_mesh_prepass_skin_fa_weights);
+    if (shader.id) set_extra_layout(d, skinned ? kExtraAttrBaseSkinned : kExtraAttrBase, extras);
     d.index_type = SG_INDEXTYPE_UINT32;
     d.depth.compare = SG_COMPAREFUNC_LESS_EQUAL;
     d.depth.write_enabled = true;

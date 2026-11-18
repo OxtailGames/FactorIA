@@ -44,6 +44,8 @@ public:
     struct Entry {
         Json params, colors;  // the values the hashes are of (null = no overrides)
         std::size_t paramsHash = 0, colorsHash = 0;
+        std::size_t leftOutKey =
+            0;                   // the instancedKey of the material the params hash was made for (names it left out)
         std::uint64_t seen = 0;  // the frame that last asked for it
     };
     // Starts a frame: the entries it does not ask for are dropped at end_frame().
@@ -61,7 +63,11 @@ public:
     // the same overrides written differently can hash differently, or alike, depending on the history of their edits: the
     // batches then split (or merge) by edit history. The pixels are the same either way, as the shader reads the numbers,
     // not the text. Entries of different entities may be refreshed from different threads at once.
-    void refresh(Entry& entry, const Json* params, const Json* colors);
+    // `leftOut` = the names of the material's instanced params (MaterialAsset::instancedNames, `leftOutKey` its instancedKey): they
+    // travel in the instance buffer, so their values are not part of the params hash and entities that differ only there share
+    // a draw. Overrides with nothing else hash as none (0).
+    void refresh(Entry& entry, const Json* params, const Json* colors,
+                 const std::vector<std::string>* leftOut = nullptr, std::size_t leftOutKey = 0);
     // Drops the entries nobody asked for this frame (entities that died, were hidden or lost their overrides), so a slot
     // that is reused starts from nothing.
     void end_frame();

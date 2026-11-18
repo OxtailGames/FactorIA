@@ -505,8 +505,17 @@ Result<std::map<std::string, Json>> build_twins(const stdfs::path& work, const s
         return make_error("the reflection file of sokol-shdc has no \"shaders\" list",
                           "Install the pinned sokol-shdc (`factoria setup shaders`).");
     Json paramNames = Json::array(), textureNames = Json::array();
-    for (const MaterialParam& p : material.params) paramNames.push_back(p.name);
+    // The uniform block holds the params that are not instanced; the instanced ones travel in the instance buffer, laid out as
+    // "instanced" says (a twin without these keys has none: older twins stay valid).
+    for (const MaterialParam& p : material.params)
+        if (!p.instanced) paramNames.push_back(p.name);
     for (const MaterialTexture& t : material.textures) textureNames.push_back(t.name);
+    const InstanceLayout instLayout = instance_layout(material.params);
+    Json instancedSlots = Json::array(), vertexAttributes = Json::array();
+    for (const InstanceSlot& s : instLayout.slots)
+        instancedSlots.push_back(
+            Json::object({{"name", s.name}, {"vec4", s.vec4}, {"offset", s.offset}, {"components", s.components}}));
+    for (const std::string& a : material.vertexAttributes) vertexAttributes.push_back(a);
 
     std::map<std::string, Json> twins;
     bool vertexTextureReported = false;
@@ -522,6 +531,11 @@ Result<std::map<std::string, Json>> build_twins(const stdfs::path& work, const s
         // A twin without "kind" is a mesh twin: mesh twins stay as they were before M72, so no committed or exported one is
         // made stale by the kinds.
         if (material.kind != "mesh") twin["kind"] = material.kind;
+        if (instLayout.vec4Count > 0) {
+            twin["instanced"] = instancedSlots;
+            twin["instanceVec4"] = instLayout.vec4Count;
+        }
+        if (!vertexAttributes.empty()) twin["vertexAttributes"] = vertexAttributes;
         Json programs = Json::object();
         for (const Json& prog : shader.value("programs", Json::array())) {
             const std::string name = prog.value("name", std::string());

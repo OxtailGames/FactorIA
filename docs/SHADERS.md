@@ -32,6 +32,7 @@ The loop for an AI (or a person):
 | `doubleSided` | `true` draws back faces too. Default `false`. |
 | `params` | Typed parameters the snippet reads (below). |
 | `textures` | Textures the snippet samples (below). |
+| `vertexAttributes` | Extra mesh channels `vertex()` reads: `["uv1"]` (glTF `TEXCOORD_1`), `["color1"]` (glTF `COLOR_1`) or both (see "Per-instance params and vertex channels" below). Default none. |
 | `graph` | Optional [node graph](#node-graphs) the snippet is generated from. |
 | `graphHash` | Written by `material.graph.generate`: the hash of the snippet it generated. Do not write it by hand. |
 
@@ -44,8 +45,10 @@ and a `doc` saying what it does and its unit (AIs read these through `material.i
 | `vec2`, `vec3`, `vec4` | `[0.1, 0.2]` (2, 3 or 4 numbers) | `vec2`, `vec3`, `vec4` |
 | `color` | `[1, 0.5, 0, 1]` (always 4 numbers) | `vec4` |
 
-`min` and `max` are optional; they document the range (`material.info` lists them) and are checked against the default. At most **16
-params** (each takes a `vec4` of a 256-byte block), counting the implicit `alphaCutoff`.
+`min` and `max` are optional; they document the range (`material.info` lists them) and are checked against the default.
+`"instanced": true` (optional, default `false`) gives every entity its own value inside one draw call (below). At most **16
+params** (each takes a `vec4` of a 256-byte block), counting the implicit `alphaCutoff`; the instanced params do not count
+for it (they have their own limit, 3 vec4).
 
 **Textures.** Each key `waves` gives you the GLSL names `waves` (the texture) and `waves_smp` (its sampler). Fields:
 `default` (project-relative image used when an entity gives none), `sampler` (`linear` default, `linearRepeat`,
@@ -145,6 +148,47 @@ The normal is not recomputed: `v.world_normal` stays the mesh's own. Displace al
 facing, or recompute it from neighbouring samples when the relief is steep. The four-texture limit counts a texture once
 even when both stages read it. Example 9 below displaces a plane with a height map.
 
+## Per-instance params and vertex channels
+
+**A value per entity in one draw.** Mark a param `"instanced": true` and entities that differ only in that param still
+share one instanced draw call: a thousand grass blades each with their own tint, a crowd with a color each.
+
+```json
+"params": {
+  "tint":  { "type": "color", "default": [1, 1, 1, 1], "instanced": true, "doc": "Emission color of this entity." },
+  "raise": { "type": "float", "default": 0, "instanced": true, "doc": "Lift of this entity's vertices in meters." }
+}
+```
+
+The snippet reads `tint` and `raise` by their names in both `vertex()` and `surface()` (also in the shadow and depth
+prepass programs, so a vertex lifted by `raise` casts its shadow lifted). An entity sets its value like any param, in
+`materialParams` (`{ "tint": [1, 0, 0, 1] }`); without a key it gets the default. Limits:
+
+- At most **3 vec4 (12 floats)** of instanced params per material. A float, a vec2 or a vec3 shares a vec4 with others
+  (first fit, alphabetical: a vec3 and a float fit in one vec4); a vec4 or color takes a whole one. More is an error on
+  `/params` that lists them; make the least varied ones non-instanced.
+- A param that is **not** instanced still splits batches: entities whose non-instanced values differ are drawn in separate
+  calls, as before. Instanced params are not in the uniform block, so they do not count for the 16-param limit.
+- Textures are not params and are bound per draw: entities with different textures in `materialParams` still split.
+
+**Mesh channels.** `vertex()` can read the mesh's second UV set and second vertex-color set. List them in the material:
+
+```json
+"vertexAttributes": ["uv1", "color1"]
+```
+
+and `vertex()` sees two read-only globals, `vec2 vertex_uv1` and `vec4 vertex_color1`; copy what you need into the
+`VertexData` (`v.uv = vertex_uv1; v.color = vertex_color1;`) so `surface()` receives it as `i.uv` / `i.vertex_color`.
+`surface()` cannot read them directly. The channels exist only in **glTF meshes** that have `TEXCOORD_1` / `COLOR_1`
+(a `COLOR_1` of 3 or 4 components); procedural meshes and the built-in primitives (`cube`, `plane`...) have neither. A mesh part without a declared
+channel is drawn **magenta** (the error material) and the log says, once per material and mesh, which material, mesh,
+part and glTF attribute are missing: add the channel to the model or remove it from `vertexAttributes`. A material that
+declares none gets the attributes it always had.
+
+The renderer's test fixtures `materials/inst.material.json` (per-entity `tint` and `raise`, a per-draw `boost`) and
+`materials/chan.material.json` (`vertex()` copying both channels), in `engine/render/tests/data/materials`, are small
+complete examples.
+
 ## Custom lighting
 
 `"lighting": "custom"` hands the shading of every light to your snippet. The engine still chooses the lights, applies
@@ -216,8 +260,9 @@ type, logs a warning that lists the right names and the default stays. Edit it l
 snippet starts from. `unlit: true` forces the unlit lighting. The material's `alphaMode` wins over `color.a < 1`.
 
 **Cost.** Entities with the same mesh and the same material and no overrides are drawn with one instanced draw call. Every
-**distinct** `materialParams` value is a batch of its own, so 100 gems that each get a different `strength` are 100 draw
-calls; vary the Transform instead, or give a few groups the same value. `play.report` (`factoria run --json`) shows
+**distinct** value of a param that is not `"instanced"` is a batch of its own, so 100 gems that each get a different
+`strength` are 100 draw calls; vary the Transform instead, give a few groups the same value, or mark the param
+`"instanced": true` ("Per-instance params and vertex channels" above), which keeps them one draw call. `play.report` (`factoria run --json`) shows
 `materials` (custom materials drawn) and `materialFallbacks` (materials that failed and are drawn magenta; the error log,
 `game.logs`, says why). A test checks the same with `game.screenshot(path)` (tests draw nothing until asked) and then
 `game.state().renderStats`; `material.info` says in `compile.toolFound` whether this computer can compile materials.
@@ -658,13 +703,12 @@ void surface(in SurfaceInput i, inout Surface s) {
 
 ## Not available yet
 
-- **Full vertex and fragment shaders** (your own `main`, your own vertex layout, several passes): the snippet always
-  runs inside the engine's mesh shader.
+- **Full vertex and fragment shaders** (your own `main`, several passes): the snippet always runs inside the engine's
+  mesh shader. Of the vertex layout only `uv1` and `color1` can be added (`vertexAttributes`), and only glTF meshes have them.
 - **Your own light loop** (which lights are chosen, how many, their order, the shadow map): `"custom"` lighting only
   shades each light the engine hands over. Image-based lighting (the sky reflection) is off in a custom material and
   cannot be called from `light()`.
-- Materials for `Sprite`, `Shape2D`, particles, the sky and post-processing; compute shaders; one instanced draw with a
-  different value per instance.
+- Materials for `Sprite`, `Shape2D`, particles, the sky and post-processing; compute shaders.
 
 If a game needs one of these, write it in the game's `ENGINE_FEEDBACK.json` (see [ENGINE_FEEDBACK.md](ENGINE_FEEDBACK.md)):
 that is how it gets built.

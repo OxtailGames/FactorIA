@@ -60,7 +60,7 @@ bool is_reserved_word(std::string_view s) {
         "sizeof", "cast", "namespace", "using",
         // names of the snippet contract
         "main", "surface", "vertex", "Surface", "SurfaceInput", "VertexData", "LightSample", "QuadInput", "QuadSurface",
-        "SkyInput", "SkySurface", "PostInput", "PostSurface"};
+        "SkyInput", "SkySurface", "PostInput", "PostSurface", "vertex_uv1", "vertex_color1"};
     return words.count(s) > 0;
 }
 
@@ -316,19 +316,46 @@ GeneratedShader generate_material_shader(const MaterialDef& material, std::strin
         g.hasAmbient = g.hasAmbient || f.isAmbient;
     }
 
+    // The params of the uniform block (one value per draw) and the instanced ones (a value per instance, read from the instance
+    // buffer into plain globals before vertex() and surface() run, so the snippet reads them by the same name).
+    std::vector<MaterialParam> blockParams;
+    for (const MaterialParam& p : material.params)
+        if (!p.instanced) blockParams.push_back(p);
+    const InstanceLayout instLayout = instance_layout(material.params);
+
     TopFile t{g};
     t.generated("@module fa_mat\n@block fa_user\n");
     // The material block lives in one stage: a sokol uniform block slot belongs to one stage, so the vertex stage gets its own
     // block (binding 4) and the fragment stage (binding 5). Unused blocks and textures are not part of a program.
     t.generated("#ifdef GL_VERTEX_SHADER\n");
-    if (!material.params.empty())
-        t.generated("layout(binding=4) uniform fa_material_vs {\n" + block_members(material.params) + "};\n");
+    if (!blockParams.empty())
+        t.generated("layout(binding=4) uniform fa_material_vs {\n" + block_members(blockParams) + "};\n");
     // Helpers that sample a texture or discard still compile in the vertex stage.
     t.generated("#define texture(s, uv) textureLod(s, uv, 0.0)\n#define discard\n");
     t.generated("#else\n");
-    if (!material.params.empty())
-        t.generated("layout(binding=5) uniform fa_material {\n" + block_members(material.params) + "};\n");
+    if (!blockParams.empty())
+        t.generated("layout(binding=5) uniform fa_material {\n" + block_members(blockParams) + "};\n");
     t.generated("#endif\n");
+    if (instLayout.vec4Count > 0) {
+        static const char* kLetters = "xyzw";
+        std::string globals, unpack;
+        for (const InstanceSlot& s : instLayout.slots) {
+            const std::string type = s.components == 1 ? "float" : "vec" + std::to_string(s.components);
+            globals += type + " " + s.name + ";\n";
+            const std::string src = "fa_d" + std::to_string(s.vec4);
+            unpack += "    " + s.name + " = " + src +
+                      (s.components == 4 ? "" : "." + std::string(kLetters + s.offset, std::size_t(s.components))) +
+                      ";\n";
+        }
+        t.generated("// Instanced params: set from the instance buffer before vertex() and surface() run.\n" + globals +
+                    "void fa_instance_unpack(vec4 fa_d0, vec4 fa_d1, vec4 fa_d2) {\n" + unpack + "}\n");
+    }
+    if (std::find(material.vertexAttributes.begin(), material.vertexAttributes.end(), "uv1") !=
+        material.vertexAttributes.end())
+        t.generated("#ifdef GL_VERTEX_SHADER\nvec2 vertex_uv1;\n#endif\n");
+    if (std::find(material.vertexAttributes.begin(), material.vertexAttributes.end(), "color1") !=
+        material.vertexAttributes.end())
+        t.generated("#ifdef GL_VERTEX_SHADER\nvec4 vertex_color1;\n#endif\n");
     // A texture is declared once per stage: a sokol view or sampler slot belongs to one stage, and sokol-shdc refuses one name
     // in both. The fragment stage reads it at view 6.. and sampler 2.., the vertex stage (where the #define renames it for the
     // snippet, so the author writes `height` in both) at view 10.. and sampler 6... A declaration the stage does not use is not
@@ -377,6 +404,11 @@ GeneratedShader generate_material_shader(const MaterialDef& material, std::strin
     if (custom) g.defines.push_back("FA_CUSTOM_LIGHT");
     if (custom && g.hasAmbient) g.defines.push_back("FA_HAS_AMBIENT");
     if (clip) g.defines.push_back("FA_ALPHA_CLIP");
+    // The instance data and the declared mesh channels (the template declares the matching vertex attributes after the
+    // instance matrix, see mesh_common.glsl): flags, since a #define inside fa_user would come after the declarations.
+    if (instLayout.vec4Count > 0) g.defines.push_back("FA_INST_" + std::to_string(std::min(instLayout.vec4Count, 3)));
+    for (const std::string& a : material.vertexAttributes)
+        g.defines.push_back(a == "uv1" ? "FA_CH_UV1" : "FA_CH_COLOR1");
     return g;
 }
 
