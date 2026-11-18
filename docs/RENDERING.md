@@ -344,6 +344,8 @@ The passes of a frame, in order (`render.frame_graph` lists them, and `RenderSta
 |---|---|---|
 | `bloom-bright`, `bloom-down-*`, `bloom-blur-h`, `bloom-blur-v`, `bloom-composite` | `bloomEnabled` | The glow: threshold with a soft knee, a reduced-resolution blur, added back (times the lens dirt texture). |
 | `exposure-luma`, `exposure-adapt` | `exposureMode` auto | The frame reduced to 32x32 brightness values, then the stored 1x1 exposure moves toward the one that makes the average 18% grey by `1 - exp(-speed * dt)`, kept between `exposureMinEv` and `exposureMaxEv`. No read back; the engine's frame `dt`, so the same frames give the same exposure on every run. Needs a float render target; the stored exposure is a 32-bit float where the GPU can filter one (else 16-bit, which stops a little short of the target at a slow speed and a high frame rate). |
+| `dof-down`, `dof-gather`, `dof-composite`, `dof-copy` | `depthOfFieldEnabled` | The depth of field (see "Depth of field and motion blur"). |
+| `motion-blur`, `motion-copy` | `motionBlurEnabled` | The camera motion blur (same section). |
 | `prepass` | `outlineEnabled` in depth mode (and the effects of "Depth and normals") | The opaque meshes' depth and normals, read by the outline (see "Depth and normals"). |
 | `sprite-coverage` | `outlineEnabled` in sprite mode | The 2D world drawn once more into an RGBA8 image whose alpha is how much each pixel is covered, read by the sprite outline (see "The outline"). |
 | `post` | exposure, tonemap, colour grading, vignette, chromatic aberration, lens distortion, sharpen, outline, pixelate, posterize, film grain, or a colour filter in a linear scene | The final pass, one full-screen pass: pixelate (the picture is read at the block centres), lens distortion and chromatic aberration (while the picture is read), exposure, tonemap (`none` clips, `neutral`, `aces`, `agx`, `reinhard`), the encode for the display, colour grading, vignette, sharpen, outline, posterize, film grain, a one-step (1/255) dither so smooth gradients do not band on an 8-bit screen (not under posterize), and the colour filter. |
@@ -400,6 +402,33 @@ opacity (alpha 0, width 0 or an unmet need below draw nothing: the frame is the 
 A gamma scene's stored colours are display values already: the effects use them as they are, and a scene with exposure or tonemap
 decodes, tonemaps and encodes first. A linear scene always runs the conversion. On an HDR output the final pass goes above paper
 white only when exposure or tonemap is on (see "HDR output"); a stack with only these effects is drawn in the standard range.
+
+### Depth of field and motion blur
+
+Two effects that read the depth prepass ("Depth and normals") and work on the **scene colour**, before the bloom and the final pass (so
+they blur light, and the HUD, drawn over them, is never blurred). They need opaque 3D meshes in view: a camera without any (a 2D game)
+draws a frame without them. Every camera has its own passes and its own focus (a split screen blurs each rectangle on its own). With
+both off there is no pass and no prepass for them: the picture is the one without them, byte for byte.
+
+- **`depthOfField`.** Each pixel gets a signed circle of confusion from its linear view depth: 0 inside the band of `depthOfFieldFocusRange`
+  world units centred on the focus distance, growing smoothly to `depthOfFieldNearBlur` (in front) or `depthOfFieldFarBlur` (behind), in
+  design pixels times the render scale. Where no mesh was drawn (the sky, sprites, shapes) the depth counts as infinite: the far blur
+  applies. `dof-down` halves the picture and keeps the circle, `dof-gather` blurs it with a disc of taps (a fixed per-pixel rotation, so
+  every run draws the same frame; about 4 taps per pixel of radius, at most 64), `dof-composite` mixes the sharp picture with the blur.
+  A sharp object never takes colour from a blurred one behind it; a blurred near object spreads past its silhouette.
+  `depthOfFieldBokeh` weights bright points so they show as discs. **Autofocus:** with `depthOfFieldTarget` the focus is that entity's
+  view depth, moved toward it each frame by `1 - exp(-depthOfFieldFocusSpeed * dt)` of the way (engine clock: the same frames give the
+  same focus on every machine). The focus is state of the renderer, one per camera; the first frame, a camera that did not draw the frame
+  before, no target, a destroyed target or one behind the camera use `depthOfFieldFocusDistance` at once.
+- **`motionBlur`.** A pixel's velocity is the screen distance between its point now and in the frame before (from the depth and the
+  previous view-projection); the picture is sampled along it (`motionBlurSamples` taps, a fixed jitter) over `motionBlurIntensity` of
+  it, at most 8% of the picture's larger side. **Only the camera's movement blurs**; an object that moves on its own does not. No blur
+  on the first frame or after the camera did not draw (a camera switch, a deactivated camera). A camera moved to another place between
+  two frames is **not** told from a very fast one: it blurs with the longest streak for that frame.
+- **Both on.** `dof-down`, `dof-gather`, `dof-composite` (into a scratch image of the camera's size), `motion-blur` (reads the scratch,
+  writes the picture). Each alone ends with a copy (`dof-copy`, `motion-copy`): a pass cannot read the image it writes.
+- **Cost.** The prepass, a scratch image of the camera's size and, for the depth of field, two half-size `RGBA16F` images. If the GPU
+  cannot make them the effects are skipped for that size, and the log says so once.
 
 ### Colour grading with a LUT
 
@@ -462,7 +491,7 @@ Things to know:
   volume's shape, size and priority stay), with it only the effects the look names change. The looks are data, not code
   (`engine/runtime/data/postprocess_presets.json`): `neutral` (everything off, the way back), `cinematic`, `retro`, `noir`, `dreamy`,
   `vivid` and `horror`, built only from fields that exist. A look that names an effect this renderer does not draw yet (`ssao`,
-  `depthOfField`... say `planned` in `render.supports`) still applies, and the answer says so: `notDrawn` lists them and `note` explains
+  `ssr`... say `planned` in `render.supports`) still applies, and the answer says so: `notDrawn` lists them and `note` explains
   that their fields are stored and show once the renderer draws them. `drawnChecked` is false when there is no renderer to ask
   (`graphics=false`).
 - **View > Post-processing** (docs/EDITOR.md) is the same stack on screen: a camera chooser, each effect in the order it runs with its
@@ -484,8 +513,8 @@ orthographic 3D camera.
 - **When it is made.** For each camera whose post stack has an effect that reads the
   depth or the normals and that the renderer draws, when that camera draws opaque meshes (a camera of a split screen has its own, the
   size of its rectangle). A frame without such an effect declares no
-  prepass pass, makes no image and builds no shader: the draw calls are the same as before. Of the effects that read the depth only the
-  outline (depth mode) is drawn so far; the rest are drawn as their M71 packages land, and the debug view below makes the image too.
+  prepass pass, makes no image and builds no shader: the draw calls are the same as before. Of the effects that read the depth the
+  outline (depth mode), the depth of field and the motion blur are drawn so far; the rest are drawn as their M71 packages land, and the debug view below makes the image too.
 - **What is in it.** Opaque meshes, skinned ones at their pose, with their material's `vertex()` displacement, the normals of their material's `surface()` and, for `alphaMode`
   `"clip"`, the same holes as the main pass. Not in it: blended meshes, the sky, sprites, particles, shapes, text, debug lines
   and the HUD. A custom material gets its own prepass programs when
