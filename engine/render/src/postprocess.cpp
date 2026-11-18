@@ -83,6 +83,31 @@ PostPlan make_post_plan(const CameraInfo& cam, bool linear, std::uint32_t forceE
     return p;
 }
 
+PostRectUv post_rect_uv(const PostRect& rect, int picW, int picH) {
+    PostRectUv uv;
+    if (picW <= 0 || picH <= 0 || rect.whole(picW, picH)) return uv;
+    uv.x = float(rect.x) / float(picW);
+    uv.y = float(rect.y) / float(picH);
+    uv.w = float(rect.w) / float(picW);
+    uv.h = float(rect.h) / float(picH);
+    return uv;
+}
+
+PostRectUv post_rect_uv_native(const PostRect& rect, int picW, int picH, bool gl) {
+    PostRectUv uv = post_rect_uv(rect, picW, picH);
+    if (gl) uv.y = 1.0f - (uv.y + uv.h);  // the render targets of OpenGL have their origin at the bottom
+    return uv;
+}
+
+Vec2 post_source_uv(Vec2 s, const PostRect& rect, int picW, int picH, bool gl, int w, int h) {
+    auto flip = [gl](Vec2 v) { return Vec2{v.x, gl ? 1.0f - v.y : v.y}; };  // post.glsl flip_v
+    if (picW <= 0 || picH <= 0 || rect.whole(picW, picH)) return flip(s);
+    const PostRectUv uv = post_rect_uv(rect, picW, picH);
+    const float hx = 0.5f / float(std::max(w, 1)), hy = 0.5f / float(std::max(h, 1));
+    const float cx = std::clamp(s.x, hx, 1.0f - hx), cy = std::clamp(s.y, hy, 1.0f - hy);
+    return flip(Vec2{cx * uv.w + uv.x, cy * uv.h + uv.y});
+}
+
 namespace {
 
 // Bit 2048 of the effect mask (post.glsl): the pass covers one camera's rectangle of the picture.
@@ -141,14 +166,11 @@ post_post_fx_params_t fx_uniforms(const PostFx& fx, const LutInfo& lut, bool gl,
     // prepass and the coverage image are drawn at that size, and the pass is in camera-local coordinates).
     u.ax[0] = 1.0f;
     u.ax[1] = 1.0f;
-    if (partial) {
-        u.rc[0] = float(rect.x) / float(picW);
-        u.rc[1] = float(rect.y) / float(picH);
-        u.rc[2] = float(rect.w) / float(picW);
-        u.rc[3] = float(rect.h) / float(picH);
-    } else {
-        u.rc[2] = u.rc[3] = 1.0f;
-    }
+    const PostRectUv uv = post_rect_uv(partial ? rect : PostRect{}, picW, picH);
+    u.rc[0] = uv.x;  // top-left uv: the shader's flip_v is applied after it (src_uv)
+    u.rc[1] = uv.y;
+    u.rc[2] = uv.w;
+    u.rc[3] = uv.h;
     return u;
 }
 
@@ -321,14 +343,8 @@ ResourceId AutoExposure::add_passes(FrameGraph& graph, TransientTargets& targets
         u.p[0] = plan.linear ? 1.0f : 0.0f;
         // The measured part of the picture: a camera's rectangle (its own picture; the others' pixels never count), in this
         // backend's uv. Without a rectangle (or without the picture's size) all of it.
-        float rx = 0.0f, ry = 0.0f, rw = 1.0f, rh = 1.0f;
-        if (picW > 0 && picH > 0 && !plan.rect.whole(picW, picH)) {
-            rx = float(plan.rect.x) / float(picW);
-            rw = float(plan.rect.w) / float(picW);
-            rh = float(plan.rect.h) / float(picH);
-            ry = float(plan.rect.y) / float(picH);
-            if (gpu.is_gl()) ry = 1.0f - (ry + rh);  // the render targets of OpenGL have their origin at the bottom
-        }
+        const PostRectUv ruv = post_rect_uv_native(plan.rect, picW, picH, gpu.is_gl());
+        const float rx = ruv.x, ry = ruv.y, rw = ruv.w, rh = ruv.h;
         u.p[1] = rw / float(kLumaSize);
         u.p[2] = rh / float(kLumaSize);
         u.rc[0] = rx;

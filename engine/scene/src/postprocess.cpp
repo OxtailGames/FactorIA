@@ -357,8 +357,8 @@ void register_postprocess_component(TypeRegistry& r) {
         .field("outlineEnabled", &PostProcess::outlineEnabled,
                "Switches the outline on: lines drawn at the edges of things, over the finished picture. Depth mode "
                "needs the depth and normal prepass (3D); sprite mode draws the 2D world once more as coverage. Both "
-               "need one camera over the whole screen: with several cameras or a partial viewport the outline is "
-               "skipped with one warning.")
+               "draw their own outline per camera, over its own viewport: it works in split screen too, and a line "
+               "never crosses into the camera next to it.")
         .enum_field(
             "outlineMode", &PostProcess::outlineMode, {"depth", "sprite"},
             "Only used when outlineEnabled. depth: edges found where depth or surface direction jump (3D models, the "

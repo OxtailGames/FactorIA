@@ -42,16 +42,28 @@ struct PostRect {
     bool operator==(const PostRect& o) const { return x == o.x && y == o.y && w == o.w && h == o.h; }
 };
 
+// A camera's rectangle as fractions of the picture: x, y = the corner, w, h = the size.
+struct PostRectUv {
+    float x = 0.0f, y = 0.0f, w = 1.0f, h = 1.0f;
+};
+// The rectangle in top-left uv (the shader's camera-local screen space maps into it). Without a rectangle, or without the picture's size: all of it.
+PostRectUv post_rect_uv(const PostRect& rect, int picW, int picH);
+// The same rectangle in the uv of the image of a backend whose render targets have their origin at the bottom (`gl`): what a pass that reads
+// the picture without the shader's flip_v (the exposure measure) needs. Metal and D3D11: the same as post_rect_uv.
+PostRectUv post_rect_uv_native(const PostRect& rect, int picW, int picH, bool gl);
+// What post.glsl src_uv computes: the uv of the picture's image that the pixel at camera-local top-left uv `s` reads, for a pass over `rect`
+// (`w` x `h` = the rectangle's size in pixels, the half-texel clamp keeps the read inside the camera's own pixels).
+Vec2 post_source_uv(Vec2 s, const PostRect& rect, int picW, int picH, bool gl, int w, int h);
+
 // The prepass of a camera (renderer_draw.cpp, "prepass"): the depth and normals of the opaque meshes in one float image, for the effects that read
 // them. A pass that does declares `res` in its reads (a transient: the graph orders it after the prepass and keeps it alive) and takes the
 // image with target(). Colour r = linear view depth in world units (far-plane value 60000 where nothing was drawn), gb = the view-space
 // normal, octahedral-encoded (see mesh_common.glsl, prepass_fs), a = 1 where a mesh was drawn, 0 elsewhere. Never multisampled. The image
-// has the size of the camera's rectangle (`rect`, whole = the picture's size), so the final pass of that camera reads it by its
+// has the size of the camera's rectangle (PostPlan::rect, whole = the picture's size), so the final pass of that camera reads it by its
 // camera-local pixel (PostPlan::rect).
 struct PrepassRef {
     ResourceId res;
     const TransientTargets* targets = nullptr;
-    PostRect rect;
     bool valid() const { return res.valid() && targets != nullptr; }
     // The image inside a pass that has `res` in its reads; null when the pass did not declare it or the target is gone.
     const Target* target(const PassContext& c) const { return valid() ? targets->get(c.handle(res)) : nullptr; }

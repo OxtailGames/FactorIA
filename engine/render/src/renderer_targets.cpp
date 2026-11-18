@@ -257,8 +257,9 @@ void Renderer::Impl::destroy_targets() {
     finalEncoded = false;
     destroy_target(filterTarget);
     destroy_target(hudTarget);
-    for (std::unique_ptr<AutoExposure>& e : autoExposures)
-        if (e) e->release();
+    for (auto& [key, slot] : autoExposures)
+        if (slot.exposure) slot.exposure->release();
+    autoExposures.clear();
     destroy_target(editorTarget);
     free_read_image();
     destroy_target(gameTarget);
