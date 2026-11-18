@@ -24,6 +24,7 @@
 #include "hdr_encode.h"
 #include "post_fx.h"
 #include "renderer_dof.h"
+#include "renderer_fog.h"
 #include "transient_targets.h"
 
 namespace fa::render {
@@ -106,6 +107,8 @@ struct PostPlan {
     bool prevValid = false;
     // Depth of field and motion blur of this camera (renderer_dof.h): drawn on the scene colour before bloom; empty when neither is on.
     SceneFxPlan sceneFx;
+    // Distance and height fog and sun shafts of this camera (renderer_fog.h): drawn on the scene colour before depth of field; empty when neither is on.
+    FogFxPlan fogFx;
 
     // The outline cannot be drawn this frame (its image is not made: no opaque mesh, an unsupported GPU, no memory for the image): the effect is dropped, and with it the conversion that only it asked for.
     void skip_outline() {
