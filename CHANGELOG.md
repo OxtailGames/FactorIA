@@ -46,7 +46,17 @@ Older versions, one file per minor version with its patch releases: [0.30](chang
   keeps the hand-written code. The library has 46 node types: constants, params, textures, uv, time, vertex colour and
   position and normal inputs, math, value, gradient, voronoi and fractal noise, dissolve, flow maps, fresnel, triplanar and
   parallax occlusion, and an output node (surface fields and a vertex offset). `material.graph.nodes` lists them and
-  `material.graph.validate` checks a graph with the JSON pointer of every problem. The editor canvas follows in a later release.
+  `material.graph.validate` checks a graph with the JSON pointer of every problem. The editor's canvas is the Graph panel (below).
+
+- **Graph panel (M72.5):** View > Graph edits the node graph of a material on a canvas: drag nodes, link ports with the mouse
+  (a link that would make a cycle or a type that does not fit is refused with the checker's sentence), a searchable palette
+  of the library, copy, cut, paste and duplicate (the text pastes into another material), a lit sphere, cube or quad preview
+  of the material the graph generates (compiled on a worker thread), the problems
+  list, and Save, which runs `material.graph.generate` and asks before it overwrites a hand-edited snippet. Open a material
+  by double-clicking it in the Project panel, with **Edit graph** in the Inspector, or start one with **New graph material**.
+  Every kept edit is one step of the editor's Undo. The graph format takes an optional `version` and `editor` objects (the
+  panel's own data, never part of the snippet); `material.graph.validate` and `generate` take an inline `graph`, names starting
+  with `gn_` are refused for params and textures, and a link no longer reports a type mismatch again further down the chain.
 
 ## 0.31.0
 
