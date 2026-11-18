@@ -1,0 +1,343 @@
+shaders:
+  -
+    slang: glsl430
+    programs:
+      -
+        name: compute
+        compute_func:
+          path: out/m_fa_mat_compute_glsl430_compute.glsl
+          is_binary: false
+          entry_point: main
+        uniform_blocks:
+          -
+            slot: 0
+            stage: compute
+            size: 32
+            struct_name: fa_material
+            inst_name: _42
+            glsl_uniforms:
+              -
+                type: vec4
+                array_count: 2
+                offset: 0
+                glsl_name: fa_material
+        views:
+          -
+            storage_buffer:
+              slot: 0
+              stage: compute
+              size: 16
+              align: 16
+              struct_name: fa_particles_buf
+              inst_name: particles
+              inner_struct_name: particles_item
+              readonly: false
+              glsl_binding_n: 0
+          -
+            storage_buffer:
+              slot: 1
+              stage: compute
+              size: 16
+              align: 16
+              struct_name: fa_src_buf
+              inst_name: src
+              inner_struct_name: src_item
+              readonly: true
+              glsl_binding_n: 1
+          -
+            texture:
+              slot: 2
+              stage: compute
+              name: tex
+              multisampled: false
+              type: 2d
+              sample_type: float
+        samplers:
+          -
+            slot: 0
+            stage: compute
+            name: tex_smp
+            sampler_type: filtering
+        texture_sampler_pairs:
+          -
+            slot: 0
+            stage: compute
+            name: tex_tex_smp
+            view_name: tex
+            sampler_name: tex_smp
+            view_slot: 2
+            sampler_slot: 0
+            glsl_name: tex_tex_smp
+  -
+    slang: hlsl5
+    programs:
+      -
+        name: compute
+        compute_func:
+          path: out/m_fa_mat_compute_hlsl5_compute.hlsl
+          is_binary: false
+          entry_point: main
+          d3d11_target: cs_5_0
+        uniform_blocks:
+          -
+            slot: 0
+            stage: compute
+            size: 32
+            struct_name: fa_material
+            inst_name: _42
+            hlsl_register_b_n: 0
+        views:
+          -
+            storage_buffer:
+              slot: 0
+              stage: compute
+              size: 16
+              align: 16
+              struct_name: fa_particles_buf
+              inst_name: particles
+              inner_struct_name: particles_item
+              readonly: false
+              hlsl_register_u_n: 0
+          -
+            storage_buffer:
+              slot: 1
+              stage: compute
+              size: 16
+              align: 16
+              struct_name: fa_src_buf
+              inst_name: src
+              inner_struct_name: src_item
+              readonly: true
+              hlsl_register_t_n: 0
+          -
+            texture:
+              slot: 2
+              stage: compute
+              name: tex
+              multisampled: false
+              type: 2d
+              sample_type: float
+              hlsl_register_t_n: 1
+        samplers:
+          -
+            slot: 0
+            stage: compute
+            name: tex_smp
+            sampler_type: filtering
+            hlsl_register_s_n: 0
+        texture_sampler_pairs:
+          -
+            slot: 0
+            stage: compute
+            name: tex_tex_smp
+            view_name: tex
+            sampler_name: tex_smp
+            view_slot: 2
+            sampler_slot: 0
+  -
+    slang: metal_macos
+    programs:
+      -
+        name: compute
+        compute_func:
+          path: out/m_fa_mat_compute_metal_macos_compute.metal
+          is_binary: false
+          entry_point: main0
+        mtl_threads_per_threadgroup:
+          x: 64
+          y: 1
+          z: 1
+        uniform_blocks:
+          -
+            slot: 0
+            stage: compute
+            size: 32
+            struct_name: fa_material
+            inst_name: _42
+            msl_buffer_n: 0
+        views:
+          -
+            storage_buffer:
+              slot: 0
+              stage: compute
+              size: 16
+              align: 16
+              struct_name: fa_particles_buf
+              inst_name: particles
+              inner_struct_name: particles_item
+              readonly: false
+              msl_buffer_n: 8
+          -
+            storage_buffer:
+              slot: 1
+              stage: compute
+              size: 16
+              align: 16
+              struct_name: fa_src_buf
+              inst_name: src
+              inner_struct_name: src_item
+              readonly: true
+              msl_buffer_n: 9
+          -
+            texture:
+              slot: 2
+              stage: compute
+              name: tex
+              multisampled: false
+              type: 2d
+              sample_type: float
+              msl_texture_n: 0
+        samplers:
+          -
+            slot: 0
+            stage: compute
+            name: tex_smp
+            sampler_type: filtering
+            msl_sampler_n: 0
+        texture_sampler_pairs:
+          -
+            slot: 0
+            stage: compute
+            name: tex_tex_smp
+            view_name: tex
+            sampler_name: tex_smp
+            view_slot: 2
+            sampler_slot: 0
+  -
+    slang: metal_ios
+    programs:
+      -
+        name: compute
+        compute_func:
+          path: out/m_fa_mat_compute_metal_ios_compute.metal
+          is_binary: false
+          entry_point: main0
+        mtl_threads_per_threadgroup:
+          x: 64
+          y: 1
+          z: 1
+        uniform_blocks:
+          -
+            slot: 0
+            stage: compute
+            size: 32
+            struct_name: fa_material
+            inst_name: _42
+            msl_buffer_n: 0
+        views:
+          -
+            storage_buffer:
+              slot: 0
+              stage: compute
+              size: 16
+              align: 16
+              struct_name: fa_particles_buf
+              inst_name: particles
+              inner_struct_name: particles_item
+              readonly: false
+              msl_buffer_n: 8
+          -
+            storage_buffer:
+              slot: 1
+              stage: compute
+              size: 16
+              align: 16
+              struct_name: fa_src_buf
+              inst_name: src
+              inner_struct_name: src_item
+              readonly: true
+              msl_buffer_n: 9
+          -
+            texture:
+              slot: 2
+              stage: compute
+              name: tex
+              multisampled: false
+              type: 2d
+              sample_type: float
+              msl_texture_n: 0
+        samplers:
+          -
+            slot: 0
+            stage: compute
+            name: tex_smp
+            sampler_type: filtering
+            msl_sampler_n: 0
+        texture_sampler_pairs:
+          -
+            slot: 0
+            stage: compute
+            name: tex_tex_smp
+            view_name: tex
+            sampler_name: tex_smp
+            view_slot: 2
+            sampler_slot: 0
+  -
+    slang: metal_sim
+    programs:
+      -
+        name: compute
+        compute_func:
+          path: out/m_fa_mat_compute_metal_sim_compute.metal
+          is_binary: false
+          entry_point: main0
+        mtl_threads_per_threadgroup:
+          x: 64
+          y: 1
+          z: 1
+        uniform_blocks:
+          -
+            slot: 0
+            stage: compute
+            size: 32
+            struct_name: fa_material
+            inst_name: _42
+            msl_buffer_n: 0
+        views:
+          -
+            storage_buffer:
+              slot: 0
+              stage: compute
+              size: 16
+              align: 16
+              struct_name: fa_particles_buf
+              inst_name: particles
+              inner_struct_name: particles_item
+              readonly: false
+              msl_buffer_n: 8
+          -
+            storage_buffer:
+              slot: 1
+              stage: compute
+              size: 16
+              align: 16
+              struct_name: fa_src_buf
+              inst_name: src
+              inner_struct_name: src_item
+              readonly: true
+              msl_buffer_n: 9
+          -
+            texture:
+              slot: 2
+              stage: compute
+              name: tex
+              multisampled: false
+              type: 2d
+              sample_type: float
+              msl_texture_n: 0
+        samplers:
+          -
+            slot: 0
+            stage: compute
+            name: tex_smp
+            sampler_type: filtering
+            msl_sampler_n: 0
+        texture_sampler_pairs:
+          -
+            slot: 0
+            stage: compute
+            name: tex_tex_smp
+            view_name: tex
+            sampler_name: tex_smp
+            view_slot: 2
+            sampler_slot: 0

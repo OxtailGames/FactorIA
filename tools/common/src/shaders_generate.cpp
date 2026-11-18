@@ -60,7 +60,7 @@ bool is_reserved_word(std::string_view s) {
         "sizeof", "cast", "namespace", "using",
         // names of the snippet contract
         "main", "surface", "vertex", "Surface", "SurfaceInput", "VertexData", "QuadInput", "QuadSurface", "SkyInput",
-        "SkySurface", "PostInput", "PostSurface"};
+        "SkySurface", "PostInput", "PostSurface", "compute", "ComputeInput"};
     return words.count(s) > 0;
 }
 
@@ -103,7 +103,7 @@ const std::vector<std::string>& template_file_names(const std::string& kind) {
                                                                           {"sprite", {"quad_common.glsl"}},
                                                                           {"sky", {"sky_common.glsl"}},
                                                                           {"post", {"post_common.glsl"}},
-                                                                          {"compute", {}}};
+                                                                          {"compute", {"compute_common.glsl"}}};
     static const std::vector<std::string> none;
     auto it = names.find(kind);
     return it == names.end() ? none : it->second;
@@ -128,7 +128,7 @@ const std::vector<std::pair<std::string, std::vector<std::string>>>& contract_st
         {"sprite", {"QuadInput", "QuadSurface"}},
         {"sky", {"SkyInput", "SkySurface"}},
         {"post", {"PostInput", "PostSurface"}},
-        {"compute", {}}};
+        {"compute", {"ComputeInput"}}};
     static const std::map<std::string, Structs> byKind = [] {
         std::map<std::string, Structs> result;
         for (const auto& [kindName, wantedList] : wantedByKind) {
@@ -291,6 +291,7 @@ std::string block_members(const std::vector<MaterialParam>& params) {
 }  // namespace
 
 GeneratedShader generate_material_shader(const MaterialDef& material, std::string_view snippetText) {
+    if (material.kind == "compute") return generate_compute_shader(material, snippetText);
     GeneratedShader g;
     const bool clip = material.alphaMode == "clip";
     const std::string src = normalize_snippet(snippetText);

@@ -6,6 +6,16 @@ Older versions, one file per minor version with its patch releases: [0.30](chang
 
 ## Unreleased
 
+- **Compute materials (M72.4):** `"kind": "compute"` makes a `*.material.json` a GPU program over storage buffers: its snippet
+  defines `void compute(in ComputeInput i)`, and the file declares `workgroupSize` (a multiple of 32, at most 256) and
+  `buffers` (arrays of `float`, `vecN`, `int` and `uint` fields, std430), plus `params` and `textures` as for meshes.
+  `shader.compile`, `factoria validate` and `factoria export` compile it to the HLSL 5, GLSL 4.30 and Metal twins and
+  `material.info` lists the platforms it runs on (`runsOn`, `notOn`); an Android or Web export warns that it has no shader
+  there. The new commands `compute.create_buffer`, `compute.write_buffer`, `compute.dispatch`, `compute.read_buffer`,
+  `compute.destroy_buffer` and `compute.list_buffers` (and `Renderer::compute()` in C++) create buffers, run a material over
+  them and read the result back. On GLES3, WebGL2, macOS OpenGL 4.1 and without graphics they fail with the code
+  `unavailable`, naming the backend (`render.supports computeShaders`). Storage images are not available yet.
+
 - **Material kinds (M72 base):** `*.material.json` takes an optional `"kind"`: `"mesh"` (default, what materials were so far),
   `"sprite"`, `"sky"`, `"post"` or `"compute"`. Only mesh materials compile and draw; `shader.compile`, `factoria validate`
   and the renderer refuse the others with an error that names the package that brings them, and `shader.compile` and

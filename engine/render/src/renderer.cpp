@@ -1,4 +1,5 @@
 #include "renderer_impl.h"
+#include "fa/render/compute.h"
 #include "scene2d.h"
 #include "render_features.h"
 
@@ -195,7 +196,7 @@ sg_desc make_sg_desc(const GfxEnvironment& env) {
     return sd;
 }
 
-Renderer::Renderer() = default;
+Renderer::Renderer() : compute_(std::make_unique<Compute>()) {}
 Renderer::~Renderer() { shutdown(); }
 
 bool Renderer::initialized() const { return impl_ && impl_->initialized; }
@@ -374,6 +375,7 @@ bool Renderer::init(const RendererDesc& desc, const GfxEnvironment& env, std::st
         return false;
     }
     im.assets = std::make_unique<Assets>(im.gpu);
+    compute_->attach(&im.gpu, im.assets.get());
     im.assets->set_shader_compiler(shaderCompiler_);
     Impl* impl = &im;
     im.assets->set_target_resolver([impl](const std::string& name) { return impl->resolve_target(name); });
@@ -391,6 +393,7 @@ void Renderer::shutdown() {
     if (!impl_) return;
     Impl& im = *impl_;
     if (im.initialized) {
+        compute_->detach();  // its storage buffers and views, while the context is open
         im.fonts.reset();
         im.ssr.release();
         im.sceneFx.release();

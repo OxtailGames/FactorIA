@@ -59,7 +59,9 @@ const std::vector<const char*>& material_program_names(MaterialKind kind) {
     // The order of MaterialProgramId. The other kinds list theirs when their package makes them buildable.
     static const std::vector<const char*> mesh = {"mesh",        "mesh_skin", "shadow",
                                                   "shadow_skin", "prepass",   "prepass_skin"};
+    static const std::vector<const char*> compute = {"compute"};
     static const std::vector<const char*> none;
+    if (kind == MaterialKind::Compute) return compute;
     return kind == MaterialKind::Mesh ? mesh : none;
 }
 
@@ -102,12 +104,16 @@ bool pick(const std::string& name, std::initializer_list<std::pair<const char*, 
 }
 
 sg_shader_stage stage_of(const Json& j) {
-    return text_of(j, "stage") == "vertex" ? SG_SHADERSTAGE_VERTEX : SG_SHADERSTAGE_FRAGMENT;
+    const std::string stage = text_of(j, "stage");
+    return stage == "vertex"    ? SG_SHADERSTAGE_VERTEX
+           : stage == "compute" ? SG_SHADERSTAGE_COMPUTE
+                                : SG_SHADERSTAGE_FRAGMENT;
 }
 
 }  // namespace
 
-Result<sg_shader_desc> material_shader_desc(const std::string& label, const Json& program, MaterialProgram& out) {
+Result<sg_shader_desc> material_shader_desc(const std::string& label, const Json& program, MaterialProgram& out,
+                                            const int* workgroup) {
     const std::string where = "the program '" + label + "'";
     auto bad = [&](const std::string& what) {
         return make_error(where + " of the shader twin is malformed: " + what,
@@ -116,23 +122,31 @@ Result<sg_shader_desc> material_shader_desc(const std::string& label, const Json
     };
     const std::string* vs = str_of(program, "vs");
     const std::string* fsText = str_of(program, "fs");
+    const std::string* cs = str_of(program, "cs");  // a compute program has this one instead of "vs" and "fs"
     auto refl = program.find("reflection");
-    if (!vs || !fsText || refl == program.end() || !refl->is_object())
-        return bad("it needs \"vs\", \"fs\" and \"reflection\"");
+    if (refl == program.end() || !refl->is_object() || (cs ? (vs || fsText) : (!vs || !fsText)))
+        return bad("it needs \"reflection\" and either \"vs\" and \"fs\" or \"cs\"");
+    if (cs && (!workgroup || workgroup[0] < 1 || workgroup[1] < 1 || workgroup[2] < 1))
+        return bad("a compute program needs the material's workgroup size");
 
     // The strings the desc points to live in `program` (the Json) for the whole call.
     sg_shader_desc desc{};
     desc.label = label.c_str();
-    desc.vertex_func.source = vs->c_str();
-    desc.fragment_func.source = fsText->c_str();
-    for (auto [fn, key] :
-         {std::pair{&desc.vertex_func, "vertex_func"}, std::pair{&desc.fragment_func, "fragment_func"}}) {
+    const Json noFunc = Json::object();
+    auto function_of = [&](sg_shader_function& fn, const char* key, const std::string& source) {
+        fn.source = source.c_str();
         auto f = refl->find(key);
-        const Json none = Json::object();
-        const Json& fj = f != refl->end() && f->is_object() ? *f : none;
-        fn->entry = cstr_or_null(fj, "entry_point");
-        if (!fn->entry) fn->entry = "main";
-        fn->d3d11_target = cstr_or_null(fj, "d3d11_target");
+        const Json& fj = f != refl->end() && f->is_object() ? *f : noFunc;
+        fn.entry = cstr_or_null(fj, "entry_point");
+        if (!fn.entry) fn.entry = "main";
+        fn.d3d11_target = cstr_or_null(fj, "d3d11_target");
+    };
+    if (cs) {
+        function_of(desc.compute_func, "compute_func", *cs);
+        desc.mtl_threads_per_threadgroup = {workgroup[0], workgroup[1], workgroup[2]};
+    } else {
+        function_of(desc.vertex_func, "vertex_func", *vs);
+        function_of(desc.fragment_func, "fragment_func", *fsText);
     }
 
     for (const Json& a : list_of(*refl, "attrs")) {
@@ -181,9 +195,24 @@ Result<sg_shader_desc> material_shader_desc(const std::string& label, const Json
         out.ubSize[slot] = ub.size;
     }
     for (const Json& v : list_of(*refl, "views")) {
+        if (auto sb = v.find("storage_buffer"); cs && sb != v.end() && sb->is_object()) {
+            const int slot = int_or(*sb, "slot", -1);
+            if (slot < 0 || slot >= SG_MAX_VIEW_BINDSLOTS)
+                return bad("a storage buffer slot outside 0.." + std::to_string(SG_MAX_VIEW_BINDSLOTS - 1));
+            sg_shader_storage_buffer_view& bv = desc.views[slot].storage_buffer;
+            bv.stage = SG_SHADERSTAGE_COMPUTE;
+            bv.readonly = sb->find("readonly") != sb->end() && sb->at("readonly") == true;
+            bv.hlsl_register_t_n = std::uint8_t(int_or(*sb, "hlsl_register_t_n"));
+            bv.hlsl_register_u_n = std::uint8_t(int_or(*sb, "hlsl_register_u_n"));
+            bv.msl_buffer_n = std::uint8_t(int_or(*sb, "msl_buffer_n"));
+            bv.glsl_binding_n = std::uint8_t(int_or(*sb, "glsl_binding_n"));
+            out.viewMask |= 1u << slot;
+            continue;
+        }
         auto t = v.find("texture");
         if (t == v.end() || !t->is_object())
-            return bad("a view that is not a texture (storage buffers and images are not supported)");
+            return bad("a view that is not a texture (storage images are not supported" +
+                       std::string(cs ? ")" : ", and storage buffers only in a compute program)"));
         const int slot = int_or(*t, "slot", -1);
         if (slot < 0 || slot >= SG_MAX_VIEW_BINDSLOTS)
             return bad("a texture slot outside 0.." + std::to_string(SG_MAX_VIEW_BINDSLOTS - 1));
@@ -235,9 +264,9 @@ Result<sg_shader_desc> material_shader_desc(const std::string& label, const Json
     return desc;
 }
 
-Result<MaterialProgram> make_material_program(const std::string& label, const Json& program) {
+Result<MaterialProgram> make_material_program(const std::string& label, const Json& program, const int* workgroup) {
     MaterialProgram out;
-    auto made = material_shader_desc(label, program, out);
+    auto made = material_shader_desc(label, program, out, workgroup);
     if (!made.ok()) return made.error();
     const std::string where = "the program '" + label + "'";
     out.shader = make_shader(&*made, label.c_str());
@@ -318,6 +347,77 @@ SamplerKind sampler_kind(const std::string& name) {
 const char* kReexportHint = "Export the game again with this factoria version (or run it with `factoria run`, which "
                             "compiles the shaders itself).";
 
+// The compute part of a twin: "workgroupSize" [x, y, z] and "buffers" (tools/common/src/shaders_compute.cpp compute_twin_fields).
+// Every number is range-checked before it is narrowed: the file may come from an export made by another version.
+Result<void> read_compute_twin(const std::string& path, const Json& twin, std::size_t textureCount, int workgroup[3],
+                               std::vector<MaterialBufferDef>& buffers) {
+    auto bad = [&](const std::string& what) {
+        return make_error("the shader of material '" + path + "' is malformed: " + what, kReexportHint);
+    };
+    auto whole = [](const Json& j, std::int64_t lo, std::int64_t hi, std::int64_t& out) {
+        if (!j.is_number_integer()) return false;
+        const std::int64_t v = j.get<std::int64_t>();
+        if (v < lo || v > hi) return false;
+        out = v;
+        return true;
+    };
+    std::int64_t n = 0;
+    auto wg = twin.find("workgroupSize");
+    if (wg == twin.end() || !wg->is_array() || wg->size() != 3) return bad("it has no \"workgroupSize\" [x, y, z]");
+    std::int64_t product = 1;
+    for (std::size_t i = 0; i < 3; ++i) {
+        if (!whole((*wg)[i], 1, 256, n)) return bad("\"workgroupSize\" holds a number outside 1..256");
+        workgroup[i] = int(n);
+        product *= n;
+    }
+    if (product > 256) return bad("\"workgroupSize\" asks for more than 256 threads in a group");
+
+    auto list = twin.find("buffers");
+    if (list == twin.end() || !list->is_array()) return bad("it has no \"buffers\" list");
+    if (list->size() > std::size_t(SG_MAX_VIEW_BINDSLOTS) ||
+        list->size() + textureCount > std::size_t(SG_MAX_VIEW_BINDSLOTS))
+        return bad("too many buffers and textures for one program");
+    for (const Json& b : *list) {
+        MaterialBufferDef def;
+        def.name = text_of(b, "name");
+        def.readOnly = text_of(b, "access") == "read";
+        if (def.name.empty() || !b.contains("binding") || !whole(b["binding"], 0, SG_MAX_VIEW_BINDSLOTS - 1, n))
+            return bad("a buffer without a name or a binding");
+        def.binding = int(n);
+        if (!b.contains("stride") || !whole(b["stride"], 4, 1 << 16, n))
+            return bad("the buffer '" + def.name + "' has no stride");
+        def.stride = std::uint32_t(n);
+        auto fields = b.find("fields");
+        if (fields == b.end() || !fields->is_array() || fields->empty())
+            return bad("the buffer '" + def.name + "' has no fields");
+        for (const Json& f : *fields) {
+            MaterialBufferFieldDef fd;
+            fd.name = text_of(f, "name");
+            fd.type = text_of(f, "type");
+            if (!f.contains("offset") || !whole(f["offset"], 0, 1 << 16, n)) return bad("a field without an offset");
+            fd.offset = std::uint32_t(n);
+            if (fd.type == "float" || fd.type == "int" || fd.type == "uint")
+                fd.components = 1;
+            else if (fd.type == "vec2")
+                fd.components = 2;
+            else if (fd.type == "vec3")
+                fd.components = 3;
+            else if (fd.type == "vec4")
+                fd.components = 4;
+            else
+                return bad("the field '" + def.name + "." + fd.name + "' has the type '" + fd.type + "'");
+            fd.isInt = fd.type == "int";
+            fd.isUint = fd.type == "uint";
+            if (fd.name.empty() || std::uint64_t(fd.offset) + std::uint64_t(fd.components) * 4 > def.stride)
+                return bad("the field '" + def.name + "." + fd.name + "' does not fit in " +
+                           std::to_string(def.stride) + " bytes");
+            def.fields.push_back(std::move(fd));
+        }
+        buffers.push_back(std::move(def));
+    }
+    return {};
+}
+
 }  // namespace
 
 Result<void> Assets::build_material_checked(MaterialAsset& m) {
@@ -342,8 +442,9 @@ Result<void> Assets::build_material_checked(MaterialAsset& m) {
     if (material_program_names(kind).empty())
         return make_error("material '" + m.path + "' has kind \"" + material_kind_name(kind) +
                               "\", which this factoria version cannot draw yet",
-                          "Only \"mesh\" materials (the default) are drawn so far; the other kinds arrive with M72 "
-                          "(docs/design/CUSTOM_SHADERS.md, \"Kinds (M72)\").");
+                          "Only \"mesh\" materials (the default) are drawn so far, and \"compute\" ones run with the "
+                          "compute.* commands; the other kinds arrive with M72 (docs/design/CUSTOM_SHADERS.md, "
+                          "\"Kinds (M72)\").");
     const std::string lighting = str_of(*doc, "lighting") ? text_of(*doc, "lighting") : "pbr";
     const std::string alphaMode = str_of(*doc, "alphaMode") ? text_of(*doc, "alphaMode") : "opaque";
     const bool doubleSided = doc->find("doubleSided") != doc->end() && doc->at("doubleSided") == true;
@@ -443,6 +544,14 @@ Result<void> Assets::build_material_checked(MaterialAsset& m) {
         textures.push_back(std::move(d));
     }
 
+    // A compute material: the threads of a group and the storage buffers (the tooling made the std430 layout).
+    std::vector<MaterialBufferDef> buffers;
+    int workgroup[3] = {64, 1, 1};
+    if (kind == MaterialKind::Compute) {
+        auto compute = read_compute_twin(m.path, twin, textures.size(), workgroup, buffers);
+        if (!compute.ok()) return compute.error();
+    }
+
     // The shaders. Nothing of `m` changes unless all of them are made.
     const std::vector<const char*>& names = material_program_names(kind);
     MaterialProgram programs[kMaxMaterialPrograms];
@@ -452,7 +561,8 @@ Result<void> Assets::build_material_checked(MaterialAsset& m) {
                                ? &programsJson->at(names[i])
                                : nullptr;
         Result<MaterialProgram> made =
-            prog ? make_material_program(m.path + " " + names[i], *prog)
+            prog ? make_material_program(m.path + " " + names[i], *prog,
+                                         kind == MaterialKind::Compute ? workgroup : nullptr)
                  : make_error("the shader of material '" + m.path + "' has no program '" + names[i] + "'",
                               kReexportHint);
         if (made.ok()) {
@@ -478,6 +588,8 @@ Result<void> Assets::build_material_checked(MaterialAsset& m) {
     m.doubleSided = doubleSided;
     m.params = std::move(params);
     m.textures = std::move(textures);
+    m.buffers = std::move(buffers);
+    std::copy(std::begin(workgroup), std::end(workgroup), std::begin(m.workgroup));
     return {};
 }
 
@@ -509,6 +621,29 @@ MaterialAsset* Assets::material(const std::string& path) {
         build_material(*slot);
     }
     return slot.get();
+}
+
+MaterialAsset* Assets::mesh_material(const std::string& path) {
+    MaterialAsset* real = material(path);
+    std::string key = fs::normalize(path);
+    if (key.empty()) key = path;
+    if (!real->ok || real->kind == MaterialKind::Mesh) {
+        wrongKind_.erase(key);  // the file became a mesh material (or broke): the real asset speaks for itself
+        return real;
+    }
+    auto& stand = wrongKind_[key];
+    if (!stand) {
+        stand = std::make_unique<MaterialAsset>();
+        stand->path = key;
+        stand->error = "material '" + key + "' has kind \"" + material_kind_name(real->kind) +
+                       "\", but a MeshRenderer needs a \"mesh\" material";
+        note_failure("material", key, stand->error + "\nThe meshes using it are drawn magenta.",
+                     real->kind == MaterialKind::Compute
+                         ? "A compute material runs on the GPU and draws nothing: run it with the compute.* commands "
+                           "and give the MeshRenderer a mesh material (docs/SHADERS.md, \"Compute materials\")."
+                         : "Give the MeshRenderer a material whose \"kind\" is \"mesh\" (the default).");
+    }
+    return stand.get();
 }
 
 }  // namespace fa::render

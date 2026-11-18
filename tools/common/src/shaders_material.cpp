@@ -337,9 +337,12 @@ struct Checker {
         std::error_code ec;
         if (!stdfs::is_regular_file(stdfs::path(projectDir) / m.shader, ec)) {
             error("/shader", "snippet '" + m.shader + "' does not exist",
-                  sibling_hint(projectDir, m.shader,
-                               "Create the file (a snippet defining void surface(in SurfaceInput i, inout Surface s)) "
-                               "or fix the path."));
+                  sibling_hint(
+                      projectDir, m.shader,
+                      m.kind == "compute"
+                          ? "Create the file (a snippet defining void compute(in ComputeInput i)) or fix the path."
+                          : "Create the file (a snippet defining void surface(in SurfaceInput i, inout Surface "
+                            "s)) or fix the path."));
         }
     }
 };
@@ -356,9 +359,9 @@ MaterialParse parse_material(const Json& doc, const std::string& projectDir, con
                 "\"shaders/x.surface.glsl\", ...}.");
         return std::move(c.out);
     }
-    static const std::vector<std::string> topKeys = {"$schema", "format",      "doc",    "kind",     "shader",
-                                                     "lighting", "alphaMode", "doubleSided", "params", "textures",
-                                                     "graph",    "graphHash"};
+    static const std::vector<std::string> topKeys = {"$schema",  "format",    "doc",           "kind",   "shader",
+                                                     "lighting", "alphaMode", "doubleSided",   "params", "textures",
+                                                     "graph",    "graphHash", "workgroupSize", "buffers"};
     for (auto it = doc.begin(); it != doc.end(); ++it)
         if (std::find(topKeys.begin(), topKeys.end(), it.key()) == topKeys.end())
             c.error("/" + escape_token(it.key()), "unknown key \"" + it.key() + "\"", did_you_mean(it.key(), topKeys));
@@ -432,6 +435,12 @@ MaterialParse parse_material(const Json& doc, const std::string& projectDir, con
             }
         }
     }
+
+    // Kind "compute": workgroupSize and buffers (shaders_compute.cpp); on another kind they are errors.
+    shaders_detail::parse_compute_fields(doc, m, c.out.errors, taken,
+                                         [&c](const std::string& pointer, const std::string& name, const char* what) {
+                                             return c.check_name(pointer, name, what);
+                                         });
 
     // alphaMode "clip": the cutoff is a param of the material, implicit unless declared (see the header).
     if (m.alphaMode == "clip") {

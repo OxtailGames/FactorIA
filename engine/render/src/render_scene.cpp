@@ -110,7 +110,7 @@ void RenderScene::build(World& world, Assets& assets, Entity scopeRoot, bool wan
         const MeshRenderer& mr = *sm.mr;
         sm.mesh = assets.mesh(mr.mesh);
         sm.tex = mr.texture.empty() ? nullptr : assets.texture(mr.texture);
-        sm.material = mr.material.empty() ? nullptr : assets.material(mr.material);
+        sm.material = mr.material.empty() ? nullptr : assets.mesh_material(mr.material);
         sm.normalTex = mr.normalMap.empty() ? nullptr : assets.texture(mr.normalMap);
         sm.hasLods = !mr.lods.empty();
         sm.liveTextures = Assets::is_target_id(mr.texture) || Assets::is_target_id(mr.normalMap);
