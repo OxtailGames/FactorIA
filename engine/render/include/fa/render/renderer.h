@@ -178,6 +178,21 @@ struct RenderStats {
     Json to_json() const;
 };
 
+// Whether a pass of the frame graph belongs to the post-processing: its name (`<job>/<pass>` or the part after the last '/') is
+// `post`, or starts with `bloom-`, `exposure-`, `ssao`, `dof`, `ssr`, `motion`, `fog`, `shafts`, `radial` or `taa`. The `prepass`
+// and `sprite-coverage` passes are not counted: they also serve the 3D picture, and they feed the effects that need them.
+bool is_post_pass(std::string_view passName);
+
+// What the post-processing passes of one frame cost: the passes of `st` that is_post_pass() accepts, and their sum. `gpuMs` is the
+// sum of the passes that have a GPU time, -1 when none has one (no timer on this backend, the profiler off, or no answer yet:
+// never a 0 that would look like a measurement). Effects folded into the single `post` pass are not timed one by one.
+struct PostPassTimes {
+    std::vector<RenderStats::PassTime> passes;
+    double cpuMs = 0.0;
+    double gpuMs = -1.0;
+};
+PostPassTimes post_pass_times(const RenderStats& st);
+
 // Immediate-mode debug drawing (cleared after each render). World space unless
 // stated; drawn on top of the scene. Scripts reach it via `debug.line(...)`.
 class DebugDraw {

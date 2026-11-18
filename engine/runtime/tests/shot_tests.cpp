@@ -325,6 +325,18 @@ TEST_CASE("render.frame_graph: the graph of the last frame with the time of ever
         CHECK(j["gpu"]["measuring"] == true);
     }
     for (const Json& pt : times) CHECK((pt["gpuMs"].get<double>() == -1.0 || pt["gpuMs"].get<double>() >= 0.0));
+    // The post-processing passes on their own: a number, or null with "unavailable" and the reason, never 0.
+    REQUIRE(j["postProcess"].is_object());
+    const Json& post = j["postProcess"];
+    CHECK(post["passes"].is_array());
+    CHECK(post["cpuMs"].get<double>() >= 0.0);
+    if (post["gpuMs"].is_null()) {
+        CHECK(post["gpuStatus"] == "unavailable");
+        CHECK(post["gpuReason"].is_string());
+    } else {
+        CHECK(post["gpuStatus"] == "measured");
+        CHECK(post["gpuMs"].get<double>() >= 0.0);
+    }
     // profileFrames 0 reads what is there: nothing drawn, and the profiler is not touched.
     auto none = c.call("render.frame_graph", Json{{"profileFrames", 0}});
     REQUIRE_MESSAGE(none.ok, none.error.dump());

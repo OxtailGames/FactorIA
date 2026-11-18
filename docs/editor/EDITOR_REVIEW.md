@@ -17,7 +17,9 @@ path and calls per frame), the GPU time, and memory (process, JavaScript heap, t
 over a few frames. The GPU shows `n/a` with the reason where the graphics backend has no timer queries (PERFORMANCE.md,
 "Finding what is slow"). The **Threads** tab has one row per thread of the job pool (main, worker 1.., and `other` when a
 thread outside the pool ran jobs): the milliseconds it spent in jobs per frame, how many jobs, its share of the frame and
-its slowest jobs by name (hover them for the whole list). How many workers there are is `runtime.jobThreads` in
+its slowest jobs by name (hover them for the whole list). The **Post-processing** tab lists the passes of the screen effects of the last
+frame (bloom, exposure, `post`...) with their GPU and CPU milliseconds and their total; a GPU column reads `unavailable` where the
+backend has no timer, and the effects folded into the `post` pass are not timed one by one. How many workers there are is `runtime.jobThreads` in
 factoria.json (PERFORMANCE.md, "Job threads"). The profiler only runs while the panel is open or a play session records, so a closed panel costs
 nothing. Edit mode shows nothing: nothing runs.
 

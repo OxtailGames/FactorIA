@@ -86,6 +86,16 @@ What the command does, file by file; do it by hand when you want to see each fil
    not have gets no row. A game with local multiplayer (several people on one machine, each on their own pad or key
    block with `input.player(i)`) sets `"players": 2` (up to 4) in the same `props`: the Controls tab gets a "Player N" button
    on top, and each player rebinds their own keys and pad buttons, saved by player.
+   The Graphics tab (the last one) lets the player pick the quality of the screen effects (`high` leaves the game's own look,
+   `medium` turns off the costly ones: SSAO, SSR, depth of field, motion blur, sun shafts, radial blur; `low` also bloom, film grain,
+   lens distortion and sharpen; `off` all the optional ones) and switch bloom, film grain, vignette, chromatic aberration and
+   outlines one by one, plus HDR output where `render.supports {"feature":"hdrOutput"}` says the display can show it (greyed out
+   otherwise). It writes the `PostProcess` fields of the scene's cameras and volumes (exposure, tonemap, grading, the colour filter
+   and fog are never touched), saves `settings.graphics` (`{quality, effects, hdr}`) in the same `settings` storage entry, and
+   `settings.applyScene()` puts it on every scene that starts. Choosing a quality clears the switches the player touched; a
+   switch wins over the quality. The menu scripts call `settings.applyOnce()` when their scene starts, so the choice reaches the
+   `PostProcess` components the scene has at that moment: one a script adds or changes later is not touched until the player
+   changes a Graphics setting again (or the game calls `settings.applyScene()` after it). `tests/graphics.test.js` checks it.
 5. **Loading screen.** `scenes/loading.scene.json` and `scripts/loading.js`: it loads the first level in the background
    (`scene.load` with `{ async: true }`) and shows the real progress.
 6. **Pause.** `prefabs/ui/pause.prefab.json`, `scripts/pause_menu.js`, and one entity in every level scene:
