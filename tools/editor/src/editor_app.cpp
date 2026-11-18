@@ -1104,6 +1104,7 @@ void Editor::on_frame(double dt) {
         profile_tick(frameBefore);
     }
 
+    graph_pre_frame();  // the Graph panel's preview compiles and draws here, outside the UI build (a capture commits the GPU frame)
     const int fbW = sapp_width(), fbH = sapp_height();
     ui::new_frame(fbW, fbH, dt, dpi_);
     ++uiFrame_;
@@ -1469,6 +1470,7 @@ void Editor::step_history(bool forward) {
         {"$vector", &Editor::vector_apply_undo},      // vector_panel.cpp
         {"$sound", &Editor::sound_apply_undo},        // sound_panel.cpp
         {"$particle", &Editor::particle_apply_undo},  // particle_panel.cpp
+        {"$graph", &Editor::graph_apply_undo},        // graph_panel.cpp
         {"$music", &Editor::music_apply_undo},        // music_panel.cpp
         {"$modeler", &Editor::modeler_apply_undo},    // modeler_panel.cpp
     };
@@ -1546,7 +1548,7 @@ int Editor::panels_mask() const {
     const bool flags[] = {showViewport_,  showHierarchy_, showInspector_, showConsole_,  showProject_,
                           showAi_,        showFeedback_,  showAudio_,     showProfiler_, showAnimation_,
                           showBoneTools_, showImage_,     showVector_,    showSound_,    showMusic_,
-                          showModeler_,   showParticle_,  showLevelGen_,  showPostFx_};
+                          showModeler_,   showParticle_,  showLevelGen_,  showPostFx_,   showGraph_};
     int mask = 0;
     for (std::size_t i = 0; i < std::size(flags); ++i)
         if (flags[i]) mask |= 1 << i;
@@ -1557,7 +1559,7 @@ void Editor::set_panels_mask(int mask) {
     bool* flags[] = {&showViewport_,  &showHierarchy_, &showInspector_, &showConsole_,  &showProject_,
                      &showAi_,        &showFeedback_,  &showAudio_,     &showProfiler_, &showAnimation_,
                      &showBoneTools_, &showImage_,     &showVector_,    &showSound_,    &showMusic_,
-                     &showModeler_,   &showParticle_,  &showLevelGen_,  &showPostFx_};
+                     &showModeler_,   &showParticle_,  &showLevelGen_,  &showPostFx_,   &showGraph_};
     for (std::size_t i = 0; i < std::size(flags); ++i) *flags[i] = (mask >> i) & 1;
 }
 
@@ -1756,6 +1758,7 @@ void Editor::build_ui() {
         else if (sound_.player && sound_.player->playing())
             sound_.player->stop();
         if (showParticle_) draw_particle_panel();
+        if (showGraph_) draw_graph_panel();
         if (showMusic_)
             draw_music_panel();
         else if (music_.preview && music_.preview->playing())

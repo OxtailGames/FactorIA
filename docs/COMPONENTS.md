@@ -5436,12 +5436,13 @@ Generate the GLSL snippet of a material from its node graph and record its hash 
 
 Capabilities: read, writeProject
 
-Checks the "graph" of the material (as material.graph.validate), generates the snippet (readable GLSL, one line per node with a comment naming the node id; the same graph gives the same bytes) into the file named by "shader" and writes "graphHash" (SHA-256 of the snippet) into the material file. A snippet that does not match the recorded hash was edited by hand (or was written without a graph): the command refuses and changes nothing, because the edit would be lost. Then either pass force true to overwrite it, or delete "graph" from the material to keep the hand-written code. With dryRun true nothing is written. Writing the material file formats it again (2-space JSON). Returns {material, shader, state, written, hash, usedNodes, warnings}; state is the one material.graph.validate reports before the write. Run shader.compile afterwards. Example: {"material":"materials/dissolve.material.json"}
+Checks the "graph" of the material (as material.graph.validate), generates the snippet (readable GLSL, one line per node with a comment naming the node id; the same graph gives the same bytes) into the file named by "shader" and writes "graphHash" (SHA-256 of the snippet) into the material file. With `graph` the command checks, stores and generates that graph instead of the one in the file (the node editor saves through it, so the snippet and the hash have one writer). A snippet that does not match the recorded hash was edited by hand (or was written without a graph): the command refuses and changes nothing, because the edit would be lost. Then either pass force true to overwrite it, or delete "graph" from the material to keep the hand-written code. With dryRun true nothing is written. Writing the material file formats it again (2-space JSON). Returns {material, shader, state, written, hash, usedNodes, warnings}; state is the one material.graph.validate reports before the write. Run shader.compile afterwards. Example: {"material":"materials/dissolve.material.json"}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `material` | string | yes | Project-relative path of the material, e.g. materials/dissolve.material.json. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `force` | boolean | no | Overwrite a snippet that was edited by hand (or never generated). Default false. |
+| `graph` | object | no | A graph to store in the material and generate the snippet from, instead of the one the file holds (the node editor saves this way). |
 | `dryRun` | boolean | no | Check and report what would be written, and write nothing. Default false. |
 
 ### `material.graph.nodes`
@@ -5468,11 +5469,12 @@ Check the node graph of a material and say whether its snippet is in sync with i
 
 Capabilities: read
 
-Checks the "graph" of a *.material.json: node ids and types, constants, the params and textures nodes name, links (unknown node or port, a second link into an input, type mismatches), cycles, the output node, nodes that need the fragment stage on the path of vertexOffset and the material kind. Every error has a JSON pointer into the material file, what is wrong and how to fix it. Returns {material, ok, errors: [{pointer, message, hint}], warnings, snippet: {path, state}}. state: "in_sync", "graph_changed" (the snippet is what the previous graph made: generate updates it), "hand_edited" (the snippet no longer matches graphHash: generate refuses without force), "unmanaged" (a snippet that no generator wrote), "hash_missing", "missing" or "unchecked" (the graph has errors). Example: {"material":"materials/dissolve.material.json"}
+Checks the "graph" of a *.material.json: node ids and types, constants, the params and textures nodes name, links (unknown node or port, a second link into an input, type mismatches), cycles, the output node, nodes that need the fragment stage on the path of vertexOffset and the material kind. Every error has a JSON pointer into the material file, what is wrong and how to fix it. Returns {material, ok, errors: [{pointer, message, hint}], warnings, snippet: {path, state}}. state: "in_sync", "graph_changed" (the snippet is what the previous graph made: generate updates it), "hand_edited" (the snippet no longer matches graphHash: generate refuses without force), "unmanaged" (a snippet that no generator wrote), "hash_missing", "missing" or "unchecked" (the graph has errors). With `graph` (an object like the one in the file) that graph is checked instead of the file's: the editor's canvas validates the graph it holds in memory this way, against the params, textures and kind of the saved material. Example: {"material":"materials/dissolve.material.json"}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `material` | string | yes | Project-relative path of the material, e.g. materials/dissolve.material.json. Path the command reads. |
+| `graph` | object | no | A graph to check instead of the one in the file (same format as "graph" of the material). Pointers still start at /graph. |
 
 ### `material.info`
 

@@ -174,7 +174,7 @@ A material can be built from nodes instead of GLSL. Add a `"graph"` to the `.mat
 writes the snippet named by `shader` from it, so a graph and the code stay one document: the generated GLSL is plain, readable
 text (one line per node, with a comment naming the node id) that compiles through the same path as a hand-written snippet
 (`shader.compile`, `factoria validate`, hot reload, export). A graph needs no editor: an AI or a person writes the JSON, and
-the editor's canvas (a later release) edits the same JSON.
+the editor's Graph panel (View > Graph, [EDITOR.md](EDITOR.md)) edits the same JSON and runs the same commands, so both can take turns on one file.
 
 ```json
 "graph": {
@@ -206,6 +206,10 @@ the editor's canvas (a later release) edits the same JSON.
 - **Links.** `"from": "nodeId.output"`, `"to": "nodeId.input"`; an input takes one link. Types are `float`, `vec2`, `vec3`,
   `vec4`: a float widens to any size by itself, anything else needs `math.split` and `math.combine`. Math nodes take a float or
   a vector (the size their linked inputs agree on).
+- **`editor` and `version`.** The graph takes an optional `"version"` (the format; 1 today, anything else is refused) and the
+  graph and each node an optional `"editor"` object, where the Graph panel keeps what only it needs (the view's zoom and
+  pan, comments), which only has to be an object. The generator never reads `editor`, so it does not change the snippet or the
+  hash, and the commands keep it as written.
 - **Library** (`material.graph.nodes` has every input, output and doc): constants (`const.float`, `const.vec2`, `const.vec3`,
   `const.vec4`, `const.color`), `param`, `uv`, `time`, `vertex.color`, `position.world`, `position.view`, `normal.world`,
   `view.dir`, `texture`, `texture.normal`, `triplanar`, `parallax` (occlusion mapping), math (`add`, `sub`, `mul`, `div`, `min`,
@@ -221,7 +225,9 @@ the editor's canvas (a later release) edits the same JSON.
   pointer, what is wrong and the fix: unknown node type with a "did you mean", a link to a node or port that does not exist,
   a type mismatch, a cycle, a missing output, a node used in the vertex path that needs the fragment stage), and
   `material.graph.generate {material, force?, dryRun?}`, which writes the snippet and `graphHash`. Run `shader.compile`
-  afterwards.
+  afterwards. Both also take `graph` (a graph object) in place of the one the file holds, to check a graph that is not saved yet, or to
+  store it in the material and generate from it in one call (the Graph panel's problems list and Save work this way). A param or texture name that starts with `gn_`
+  is refused: the generator keeps that prefix for its GLSL helper functions.
 
 **The hand-edit rule.** `graphHash` is the SHA-256 of the snippet the generator wrote (line endings ignored). When you
 generate again, the command first compares the snippet on disk with it: if they differ, someone edited the generated code
