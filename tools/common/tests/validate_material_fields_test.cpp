@@ -42,11 +42,13 @@ TEST_CASE("validate: a material field names an existing *.material.json, with th
     const ValidationReport r = validate_project(dir.string());
     CHECK(find_error(r, "/entities/0/components/Sprite/material") == nullptr);
     const std::size_t base = (*scene)["entities"].size() - 4;
-    const ValidationIssue* typo = find_error(r, "/entities/" + std::to_string(base + 1) + "/components/Sprite/material");
+    const ValidationIssue* typo =
+        find_error(r, "/entities/" + std::to_string(base + 1) + "/components/Sprite/material");
     REQUIRE(typo != nullptr);
     CHECK(typo->message.find("does not exist") != std::string::npos);
     CHECK(typo->hint.find("Did you mean 'materials/wave.material.json'?") != std::string::npos);
-    const ValidationIssue* wrong = find_error(r, "/entities/" + std::to_string(base + 2) + "/components/Shape2D/material");
+    const ValidationIssue* wrong =
+        find_error(r, "/entities/" + std::to_string(base + 2) + "/components/Shape2D/material");
     REQUIRE(wrong != nullptr);
     CHECK(wrong->message.find(".material.json") != std::string::npos);
     CHECK(find_error(r, "/entities/" + std::to_string(base + 3) + "/components/Panel/material") != nullptr);

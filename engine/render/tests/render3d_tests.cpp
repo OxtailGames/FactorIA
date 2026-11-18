@@ -1153,13 +1153,14 @@ TEST_CASE("materials: a twin of another kind than its material is refused with t
     }
     {  // a material of a kind that cannot be drawn yet
         ErrorLog log;
-        const Image img = draw(
-            "kindsprite",
-            R"({"format": "factoria.material/1", "kind": "sprite", "shader": "shaders/empty.surface.glsl"})", *twin);
+        const Image img =
+            draw("kindsky",
+                 R"({"format": "factoria.material/1", "kind": "sky", "shader": "shaders/empty.surface.glsl"})", *twin);
         CHECK(img.pixel(160, 90).g < 0.1f);
         REQUIRE(log.messages().size() == 1);
-        CHECK(log.messages()[0].find("kind \"sprite\"") != std::string::npos);
+        CHECK(log.messages()[0].find("kind \"sky\"") != std::string::npos);
         CHECK(log.messages()[0].find("cannot draw yet") != std::string::npos);
+        CHECK(log.messages()[0].find("sky materials arrive with M72.1") != std::string::npos);
     }
     {  // a kind that does not exist
         ErrorLog log;
