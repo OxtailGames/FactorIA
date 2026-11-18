@@ -459,9 +459,17 @@ starts from differ.
 
 **What is built.** The template, the compiler and the tooling: `shader.compile`, `material.info` (programs `quad` and
 `quad_plain`), `factoria validate` and `factoria export` (`<name>.material.json.<dialect>.shader`) work for a sprite
-material. The components' `material` fields are listed by `docs.components`; until the renderer draws with
-the compiled programs (a later package of the same milestone) a 2D item keeps drawing with the engine's own shader, so
-check a sprite material with `shader.compile` and `factoria validate`.
+material. The renderer draws it for a **`Sprite`** (its `material` and `materialParams` fields): the item is drawn with the
+material's compiled programs. `Shape2D`, `Tilemap`, `Text`, particles and UI images still draw with the engine's own shader
+(their `material` fields are listed by `docs.components`; the draw for them is the next package of the same milestone), so
+check a material on those with `shader.compile` and `factoria validate`.
+
+**What the renderer does with a sprite material.** Sprites with the same material and equal param values share a draw call;
+a different value, another material or a sprite without one starts a new batch (the draw order is the same as without
+materials). `fa_time` is the engine clock and `fa_target` the size of the render target, in both programs. A material that
+did not build, or that is not of kind `"sprite"`, draws the sprite in magenta (its alpha stays) with the engine's own shader
+and logs the compile error once; the error log (`game.logs`) says why, `materialFallbacks` in the render stats names it, and the previous version of a
+material stays in use when a hot reload of its shader fails.
 
 **The snippet** is plain GLSL 450 like the mesh one, with these entry points:
 

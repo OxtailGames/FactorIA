@@ -2,6 +2,7 @@
 #include "color_space.h"
 #include "renderer_impl.h"
 
+#include <algorithm>
 #include <iterator>
 
 #include "shaders/prepass_view.glsl.h"
@@ -179,6 +180,14 @@ void apply_material_params(const MaterialProgram& prog, const MaterialInputs& in
     for (int slot : {kMaterialUbVertex, kMaterialUbFragment}) {
         if (!prog.has_ub(slot)) continue;
         sg_range r{in.params, std::min<std::size_t>(prog.ubSize[slot], sizeof(in.params))};
+        sg_apply_uniforms(slot, &r);
+    }
+}
+// The same for the block a 2D item's MaterialUse holds.
+void apply_use_params(const MaterialProgram& prog, const MaterialUse& use) {
+    for (int slot : {kMaterialUbVertex, kMaterialUbFragment}) {
+        if (!prog.has_ub(slot)) continue;
+        sg_range r{use.params, std::min<std::size_t>(prog.ubSize[slot], sizeof(use.params))};
         sg_apply_uniforms(slot, &r);
     }
 }
@@ -1362,7 +1371,7 @@ void Renderer::Impl::prepass_view_pass(DrawContext& ctx, const Target& t) {
 }
 
 // Draws the batches of a quad group. Reads: ctx.vbuf, ctx.shadowRowsTex, fr (lights2d, shadowRows, ambient2d), renderScale,
-// physW / physH, gpu.light_range(), lightTarget.texView (`flatMode` 1 reads the light buffer). Writes: stats.drawCalls.
+// physW / physH, gpu.light_range(), lightTarget.texView (`flatMode` 1 reads the light buffer). Writes: stats (drawCalls, materials, materialFallbacks).
 void Renderer::Impl::draw_group(DrawContext& ctx, const std::vector<QuadBatch>& batches, const Mat4& vp, bool depthTest,
                                 const Px& base, int flatMode, const TargetFormat* format, const FogFxPlan* fog) {
     Frame& fr = ctx.fr;
@@ -1438,11 +1447,33 @@ void Renderer::Impl::draw_group(DrawContext& ctx, const std::vector<QuadBatch>& 
     const bool fogOn = fog && fog->fog;
     const sg_view lightTexBound = flatMode == 1 ? lightTarget.texView : assets->white()->view;
     const sg_view shadowTexBound = shadowRowsTex.id ? shadowRowsTex : assets->white()->view;
+    // The material draws: fa_time and fa_target are filled for them only (the engine's own programs never read them).
+    const float targetInv[2] = {1.0f / float(std::max(1, physW)), 1.0f / float(std::max(1, physH))};
+    std::vector<const MaterialAsset*> materialsDrawn;
     for (const QuadBatch& qb : batches) {
         apply_clip(qb.clip);
         const bool plain = qb.plain && !fogOn;  // the lean program has no fog
-        sg_apply_pipeline(format ? gpu.quad_pipeline(*format, depthTest, false, qb.blend, plain, qb.opaque)
-                                 : gpu.quad_pipeline(depthTest, false, qb.blend, plain, qb.opaque));
+        // A sprite material that built draws with its own programs (quad, quad_plain: the ones of its twin); one that did
+        // not (the error material) draws with the built-in programs, its quads already tinted magenta by flatten().
+        const MaterialUse* use = qb.use && !qb.use->error ? qb.use : nullptr;
+        const MaterialProgram* prog = nullptr;
+        if (use) {
+            prog = &use->material->programs[plain && use->material->programs[1].shader.id ? 1 : 0];
+            if (!prog->shader.id) prog = nullptr;  // not made: the built-in program
+        }
+        if (qb.use && !prog) {
+            const std::string& path = qb.use->material->path;
+            if (std::find(stats.materialFallbacks.begin(), stats.materialFallbacks.end(), path) ==
+                stats.materialFallbacks.end())
+                stats.materialFallbacks.push_back(path);
+        } else if (prog &&
+                   std::find(materialsDrawn.begin(), materialsDrawn.end(), use->material) == materialsDrawn.end()) {
+            materialsDrawn.push_back(use->material);
+        }
+        const sg_shader programShader = prog ? prog->shader : sg_shader{};
+        sg_apply_pipeline(format
+                              ? gpu.quad_pipeline(*format, depthTest, false, qb.blend, plain, qb.opaque, programShader)
+                              : gpu.quad_pipeline(depthTest, false, qb.blend, plain, qb.opaque, programShader));
         if (fogOn) {
             const float to = qb.blend == BlendMode::Multiply ? 1.0f : qb.blend == BlendMode::Additive ? 0.0f : -1.0f;
             for (int c = 0; c < 3; ++c) {
@@ -1452,10 +1483,25 @@ void Renderer::Impl::draw_group(DrawContext& ctx, const std::vector<QuadBatch>& 
         }
         u.cspace[1] = float(qb.tex->tex_fix(fr.linear, true, fr.displayOverLinear));
         u.cspace[2] = qb.lit && qb.normal ? float(qb.normal->tex_fix(fr.linear, false)) : 0.0f;
+        u.fa_time[0] = prog ? fr.time : 0.0f;
         apply_uniforms(UB_quad_vs_params, u);
         if (qb.lit) {
             litUniforms.lit[1] = qb.normal ? 1.0f : 0.0f;
             if (qb.normal) normal_uv_transform(*qb.tex, *qb.normal, litUniforms.normal_uv);
+        }
+        if (prog) {
+            // The lean program of a material declares the block too (its snippet may read fa_time and fa_target).
+            if (prog->has_ub(UB_quad_quad_fs_params)) {
+                quad_quad_fs_params_t fu = qb.lit ? litUniforms : fogOn ? fogged : unlit;
+                fu.fa_time[0] = fr.time;
+                fu.fa_target[0] = targetInv[0];
+                fu.fa_target[1] = targetInv[1];
+                fu.fa_target[2] = gpu.is_gl() ? 1.0f : 0.0f;
+                sg_range r{&fu, std::min<std::size_t>(prog->ubSize[UB_quad_quad_fs_params], sizeof(fu))};
+                sg_apply_uniforms(UB_quad_quad_fs_params, &r);
+            }
+            apply_use_params(*prog, *use);
+        } else if (qb.lit) {
             apply_uniforms(UB_quad_quad_fs_params, litUniforms);
         } else if (!plain) {  // quad_plain declares no fragment uniforms
             apply_uniforms(UB_quad_quad_fs_params, fogOn ? fogged : unlit);
@@ -1474,6 +1520,17 @@ void Renderer::Impl::draw_group(DrawContext& ctx, const std::vector<QuadBatch>& 
             b.samplers[SMP_quad_smp] = gpu.sampler(qb.smp);
             b.samplers[SMP_quad_light_smp] = gpu.sampler(SamplerKind::LinearClamp);
             b.samplers[SMP_quad_shadow_smp] = gpu.sampler(SamplerKind::Nearest);
+            if (prog) {  // the material's textures follow the engine's views and samplers; only what the program declares
+                const MaterialAsset& mat = *use->material;
+                for (std::size_t i = 0; i < mat.textures.size() && i < std::size_t(kMaxMaterialTextures); ++i) {
+                    b.views[kMaterialSpriteFirstView + int(i)] = use->textures[i]->gpu_view();
+                    b.samplers[kMaterialSpriteFirstSampler + int(i)] = gpu.sampler(mat.textures[i].sampler);
+                }
+                for (int i = 0; i < SG_MAX_VIEW_BINDSLOTS; ++i)
+                    if (!((prog->viewMask >> i) & 1u)) b.views[i] = {};
+                for (int i = 0; i < SG_MAX_SAMPLER_BINDSLOTS; ++i)
+                    if (!((prog->samplerMask >> i) & 1u)) b.samplers[i] = {};
+            }
             sg_apply_bindings(&b);
             sg_draw(0, int(n * 6), 1);
             ++stats.drawCalls;
@@ -1481,6 +1538,7 @@ void Renderer::Impl::draw_group(DrawContext& ctx, const std::vector<QuadBatch>& 
         }
     }
     apply_clip(Rect{});
+    stats.materials += int(materialsDrawn.size());
 }
 
 // ---- main pass ----
