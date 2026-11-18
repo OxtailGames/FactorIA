@@ -382,6 +382,30 @@ TEST_CASE(
     CHECK(at(img, 0, 0).r == doctest::Approx(0.7354f).epsilon(0.04));
 }
 
+TEST_CASE("color space: a world capture has a transparent background, except in R11G11B10 (no alpha: opaque)") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    for (const char* format : {static_cast<const char*>(nullptr), "r11g11b10"}) {
+        Own r(g, format);
+        REQUIRE_MESSAGE(r.ok, r.error);
+        World w;
+        camera(w);
+        linear(w);
+        rect(w, {-60, 0, 0}, Color{0.5f, 0.5f, 0.5f, 1});
+        r.draw(g, w);  // makes the scene's targets in the format of the linear chain
+        Renderer::WorldCapture spec;
+        spec.rect = Rect{-100, -50, 200, 100};
+        Image img;
+        std::string err;
+        REQUIRE_MESSAGE(r.r.capture_world(w, spec, img, &err), err);
+        REQUIRE(img.width == 200);
+        const bool alpha = r.gpu().scene_has_alpha();
+        CAPTURE(format);
+        CHECK(img.pixel(190, 10).a == doctest::Approx(alpha ? 0.0f : 1.0f).scale(1.0).epsilon(0.01));  // empty corner
+        CHECK(img.pixel(40, 50).a == doctest::Approx(1.0f).epsilon(0.01));  // on the rectangle
+    }
+}
+
 TEST_CASE("color space: the picture the final pass writes is held in RGBA8 when the scene is 8-bit or R11G11B10, and "
           "is the same "
           "picture") {
@@ -416,10 +440,8 @@ TEST_CASE("color space: the picture the final pass writes is held in RGBA8 when 
         const Image img = r.draw(g, w);
         const sg_pixel_format scene = r.gpu().scene_format();
         const sg_pixel_format display = r.gpu().display_format();
-        if (scene == SG_PIXELFORMAT_RG11B10F || scene == SG_PIXELFORMAT_SRGB8A8 || scene == SG_PIXELFORMAT_RGBA8)
-            CHECK(display == SG_PIXELFORMAT_RGBA8);
-        else
-            CHECK(display == scene);
+        // The display picture stays in RGBA16F when the scene is; the 8-bit scenes and the packed one hold it in plain RGBA8.
+        CHECK(display == (scene == SG_PIXELFORMAT_RGBA16F ? SG_PIXELFORMAT_RGBA16F : SG_PIXELFORMAT_RGBA8));
         CHECK(worst_error(img, reference) < 0.04);
         CHECK(at(img, -30, 0).r == doctest::Approx(0.5f).epsilon(0.02));  // an authored colour is shown as picked
     }
@@ -612,6 +634,24 @@ TEST_CASE(
         const int linByte = viewed(r);  // an RGBA8 copy: it can be read back, the float game image cannot
         CHECK(std::abs(linByte - shot_byte(linShot)) <= 1);
         CHECK(linByte >= 126);
+    }
+    SUBCASE("the copy follows a resized game target, and a view of it exists on every frame") {
+        Own r(g, "rgba8");
+        REQUIRE_MESSAGE(r.ok, r.error);
+        r.r.set_editor_view(true);
+        linear(w);
+        r.draw(g, w);
+        const int tw = r.r.target_width(), th = r.r.target_height();
+        r.r.set_target_size(tw + 64, th + 36);
+        const Image bigger = r.draw(g, w);
+        CHECK(bigger.width == tw + 64);
+        CHECK(r.r.game_target_view_id() != 0);  // never the viewport's "no render target" text while graphics run
+        CHECK(std::abs(viewed(r) - int(std::lround(bigger.pixel(bigger.width / 2, bigger.height / 2).r * 255.0f))) <=
+              1);
+        r.r.set_target_size(tw, th);
+        r.draw(g, w);
+        CHECK(r.r.game_target_view_id() != 0);
+        CHECK(viewed(r) >= 126);  // the encoded copy again, at the old size
     }
     if (!wasEnabled) sg_disable_stats();
 }

@@ -172,13 +172,15 @@ bool Renderer::Impl::editor_copy_wanted() const {
     return (gpu.linear() && !finalEncoded) || (finalEncoded && frameAboveWhite);
 }
 
+// While the copy does not exist yet (the first frame, after a resize or a failed make_target) the viewport shows the image itself,
+// unencoded (too dark in a linear scene): better than the "no render target" text.
 sg_image Renderer::Impl::display_image() const {
-    if (!editor_copy_wanted()) return final_image();
+    if (!editor_copy_wanted() || !editorTarget.color.id) return final_image();
     return editorTarget.texture_image();
 }
 
 sg_view Renderer::Impl::display_view() const {
-    if (!editor_copy_wanted()) return final_view();
+    if (!editor_copy_wanted() || !editorTarget.color.id) return final_view();
     return editorTarget.texView;
 }
 
@@ -278,6 +280,15 @@ TextureAsset* Renderer::Impl::view_image(std::uint64_t key, int w, int h, bool r
     t.used = true;
     if (t.main.color.id && t.w == w && t.h == h) return &t.asset;
     release_view(t);
+    // R11G11B10 (a linear scene on a GPU that cannot render to RGBA16F) has no alpha: these images share the scene's format, so a
+    // transparent background comes out opaque. Said once, not silently.
+    if (!gpu.scene_has_alpha() && !viewAlphaWarned) {
+        viewAlphaWarned = true;
+        FA_WARN("render",
+                "A CameraView, a render target or a world capture is drawn in R11G11B10 here (the linear scene's "
+                "format on a GPU "
+                "that cannot render to RGBA16F), which has no alpha: its picture has an opaque background (alpha 1)");
+    }
     t.flipCopy = renderTarget && gpu.is_gl();
     TargetDesc d;
     d.label = "view";
