@@ -32,7 +32,7 @@ std::string material_template_hash(MaterialKind kind) {
         case MaterialKind::Sprite: return FA_TEMPLATE_HASH_SPRITE;
         case MaterialKind::Sky: return FA_TEMPLATE_HASH_SKY;
         case MaterialKind::Post: return FA_TEMPLATE_HASH_POST;
-        case MaterialKind::Compute: return FA_TEMPLATE_HASH_COMPUTE;
+        case MaterialKind::Compute: return {};  // no template until M72.4: the build defines no hash for it
     }
     return {};
 }
@@ -59,8 +59,14 @@ const std::vector<const char*>& material_program_names(MaterialKind kind) {
     // The order of MaterialProgramId. The other kinds list theirs when their package makes them buildable.
     static const std::vector<const char*> mesh = {"mesh",        "mesh_skin", "shadow",
                                                   "shadow_skin", "prepass",   "prepass_skin"};
+    // Sprite: quad (every mode of quad_common.glsl) and quad_plain (a batch of plain textured quads); a material has both.
+    static const std::vector<const char*> sprite = {"quad", "quad_plain"};
     static const std::vector<const char*> none;
-    return kind == MaterialKind::Mesh ? mesh : none;
+    switch (kind) {
+        case MaterialKind::Mesh: return mesh;
+        case MaterialKind::Sprite: return sprite;
+        default: return none;
+    }
 }
 
 namespace {
@@ -339,11 +345,6 @@ Result<void> Assets::build_material_checked(MaterialAsset& m) {
                                              : "Use one of: " + join(material_kind_names(), ", ") + ".");
         kind = *parsed;
     }
-    if (material_program_names(kind).empty())
-        return make_error("material '" + m.path + "' has kind \"" + material_kind_name(kind) +
-                              "\", which this factoria version cannot draw yet",
-                          "Only \"mesh\" materials (the default) are drawn so far; the other kinds arrive with M72 "
-                          "(docs/design/CUSTOM_SHADERS.md, \"Kinds (M72)\").");
     const std::string lighting = str_of(*doc, "lighting") ? text_of(*doc, "lighting") : "pbr";
     const std::string alphaMode = str_of(*doc, "alphaMode") ? text_of(*doc, "alphaMode") : "opaque";
     const bool doubleSided = doc->find("doubleSided") != doc->end() && doc->at("doubleSided") == true;
@@ -352,6 +353,15 @@ Result<void> Assets::build_material_checked(MaterialAsset& m) {
         m.lighting = lighting;
         m.alphaMode = alphaMode;
         m.doubleSided = doubleSided;
+    }
+    if (material_program_names(kind).empty()) {
+        // The package of each kind is the one the tooling names (shaders_generate.cpp kind_refusal).
+        const char* package = kind == MaterialKind::Post ? "M72.2" : kind == MaterialKind::Compute ? "M72.4" : "M72.1";
+        return make_error("material '" + m.path + "' has kind \"" + material_kind_name(kind) +
+                              "\", which this factoria version cannot draw yet: " + material_kind_name(kind) +
+                              " materials arrive with " + package,
+                          "Only \"mesh\" and \"sprite\" materials are drawn so far (docs/design/CUSTOM_SHADERS.md, "
+                          "\"Kinds (M72)\").");
     }
 
     // The twin: from the compiler of the editor / `factoria`, else from the file an export wrote.
