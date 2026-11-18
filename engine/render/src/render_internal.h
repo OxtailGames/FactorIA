@@ -817,6 +817,9 @@ public:
     // The final pass of the post-processing stack (post.glsl: exposure, tonemap, output encode, colour filter): one program, created on
     // first use like the others; false + one logged error when it cannot be created, and the frame is then drawn without it.
     bool post_ready();
+    int post_ready_calls() const {
+        return postReadyCalls_;
+    }  // how often a frame asked for it: 0 for a world without a stack (tests)
     sg_pipeline post_pipeline(const TargetFormat& format);
     // The automatic exposure (exposure.glsl), the same way.
     bool exposure_ready();
@@ -894,6 +897,7 @@ private:
     static inline TargetFormat passFormat_{};
     int sampleCount_ = 1;
     bool zeroToOne_ = false, isGl_ = true, shadowsSupported_ = false;
+    int postReadyCalls_ = 0;
     int bloomState_ = 0;        // 0 = shaders not created yet, 1 = ready, -1 = creation failed
     int colorfilterState_ = 0;  // same meaning as bloomState_
     int lightState_ = 0;        // same meaning as bloomState_

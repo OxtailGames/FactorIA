@@ -490,6 +490,7 @@ sg_pipeline Gpu::colorfilter_pipeline(const TargetFormat& format) {
 }
 
 bool Gpu::post_ready() {
+    ++postReadyCalls_;
     if (postState_ != 0) return postState_ > 0;
     post_shader_ = make_shader(post_post_shader_desc(sg_query_backend()), "post_post");
     if (sg_query_shader_state(post_shader_) != SG_RESOURCESTATE_VALID) {

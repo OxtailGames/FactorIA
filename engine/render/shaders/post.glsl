@@ -39,6 +39,13 @@ layout(binding=1) uniform post_params {
 in vec2 uv;
 out vec4 frag_color;
 
+// One channel made safe before the exposure and the tonemap: NaN, Inf (found by their bits, as bloom.glsl and exposure.glsl do) and
+// anything from 65000 up become 0, so a bad pixel is black on every GPU and never NaN (Reinhard turns an Inf into NaN, and clamp(NaN)
+// differs between backends).
+float sane(float x) {
+    if (((floatBitsToUint(x) >> 23u) & 255u) == 255u || x >= 65000.0) return 0.0;
+    return x;
+}
 vec3 to_linear(vec3 c) {
     return mix(pow(max((c + 0.055) / 1.055, vec3(0.0)), vec3(2.4)), c / 12.92, vec3(lessThanEqual(c, vec3(0.04045))));
 }
@@ -151,6 +158,7 @@ void main() {
     int filter_mode = int(p.w + 0.5);
     vec3 c = texel.rgb;
     if (p.y > 0.5) {
+        c = vec3(sane(c.r), sane(c.g), sane(c.b));
         // 1. scene-linear light
         if (p.x < 0.5) c = to_linear_ext(c);
         // 2. exposure

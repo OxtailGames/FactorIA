@@ -373,10 +373,13 @@ final pass (exposure, bloom, tonemap, colour filter) are described in the last b
   `post` pass game -> `filterTarget` with the filter fused in; (4) conversion with screen-space items: `post` game -> `hudTarget` (a
   game-like target made on demand by `ensure_hud_target`: same MSAA and depth, so the HUD pipelines draw into it), `hud-over-post`,
   then `color-filter` hudTarget -> `filterTarget` when a filter is on. `Impl::final_target()` is the image present, `capture()` and
-  `read_rgba8` use; `Impl::finalEncoded` says the final pass already encoded it, so the present blit must not encode again.
+  `read_rgba8` use; the `post` program is compiled only for a frame that converts or filters (`Gpu::post_ready()`, counted by
+  `post_ready_calls()` in the tests), so a game without a stack never builds it; the pass sanitises NaN and Inf at the texel read.
+  `Impl::finalEncoded` says the final pass already encoded it, so the present blit must not encode again.
   Automatic exposure never reads back: `exposure-luma` takes 8x8 fixed log2-luminance taps per texel into a 32x32 transient,
   `exposure-adapt` moves a stored 1x1 EV (two persistent targets used in turn, imported into the graph) toward
-  `log2(0.18) - mean` by `1 - exp(-speed * dt)` with the engine's frame dt; a first frame, new targets or a frame in which the
+  `log2(0.18) - mean` by `1 - exp(-speed * dt)` (the EV targets are R32F where it renders and filters, else the scene format: in 16 bits
+  the step vanishes under half a unit of the last place and the result would depend on the frame rate) with the engine's frame dt; a first frame, new targets or a frame in which the
   passes were not declared (`lastSerial_ + 1 != frameSerial`) take the target at once, dt 0 leaves it as it is, and it needs the
   RGBA16F scene format (else one warning and the exposure stays manual). The legacy fields: `build_camera` builds an implicit
   `PostProcess` from the sanitised `Camera.bloom*` and `colorFilter` (knee 0, no dirt) and `resolve_post_stack` uses it when the

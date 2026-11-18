@@ -162,6 +162,37 @@ TEST_CASE("post stack: a world without a stack declares no pass and no target") 
     CHECK(withComponent.rgba == plain.rgba);
 }
 
+TEST_CASE("post stack: a game without a conversion or a filter never asks for the post shader") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    render::Gpu* gpu = render::renderer_gpu(g.renderer);
+    REQUIRE(gpu != nullptr);
+    const int before = gpu->post_ready_calls();
+    FlatScene plain(0.4f, true);
+    g.render(plain.world);
+    FlatScene empty(0.4f, true);
+    empty.post();  // a PostProcess with every effect off
+    g.render(empty.world);
+    FlatScene glow(0.1f);
+    glow.post().bloomEnabled = true;  // the bloom has its own shaders
+    g.render(glow.world);
+    FlatScene legacy(0.1f);
+    legacy.world.get<Camera>(legacy.cam)->bloom = true;  // the deprecated field: the same
+    g.render(legacy.world);
+    CHECK(gpu->post_ready_calls() == before);
+    // A conversion or a filter does ask for it (the counter is how a game that needs none is known never to compile it).
+    FlatScene mapped(0.4f);
+    enable_tonemap(mapped.post(), TonemapMode::Aces);
+    g.render(mapped.world);
+    CHECK(gpu->post_ready_calls() > before);
+    const int afterMap = gpu->post_ready_calls();
+    FlatScene filtered(0.4f);
+    filtered.post().colorFilterEnabled = true;
+    filtered.post().colorFilterMode = ColorFilter::Greyscale;
+    g.render(filtered.world);
+    CHECK(gpu->post_ready_calls() > afterMap);
+}
+
 TEST_CASE("post stack: bloom alone is the bloom chain and nothing after it") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
@@ -190,7 +221,8 @@ TEST_CASE("post stack: the full stack is bloom, exposure, the final pass, the HU
     p.colorFilterMode = ColorFilter::Greyscale;
     g.render(s.world, 1.0f / 60.0f);
     const std::vector<std::string> order = order_of(g);
-    const int bright = index_of(order, "camera:0/bloom-bright"), composite = index_of(order, "camera:0/bloom-composite");
+    const int bright = index_of(order, "camera:0/bloom-bright"),
+              composite = index_of(order, "camera:0/bloom-composite");
     const int luma = index_of(order, "camera:0/exposure-luma"), adapt = index_of(order, "camera:0/exposure-adapt");
     const int post = index_of(order, "camera:0/post"), hud = index_of(order, "camera:0/hud-over-post");
     const int filter = index_of(order, "camera:0/color-filter");
@@ -395,6 +427,42 @@ TEST_CASE("auto exposure: it follows the picture by 1 - exp(-speed * dt) per fra
     }
 }
 
+TEST_CASE("auto exposure: a slow speed at a high frame rate still reaches the target, as the arithmetic says") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    if (sg_query_pixelformat(SG_PIXELFORMAT_RGBA16F).render == false) return;  // the measure needs float targets
+    // The adapted exposure lives in a 1x1 target: in 16 bits the step prev + (target - prev) * k disappears once it is under half a step of
+    // the value (0.14 EV short at this speed and rate), so only a 32-bit target keeps converging. Without one the test has nothing to say.
+    const sg_pixelformat_info r32 = sg_query_pixelformat(SG_PIXELFORMAT_R32F);
+    if (!(r32.render && r32.filter)) return;
+    const float dt = 1.0f / 144.0f, speed = 0.5f, lo = -6.0f, hi = 8.0f;
+    FlatScene s(0.1f);
+    PostProcess& p = s.post();
+    p.exposureEnabled = true;
+    p.exposureMode = ExposureMode::Auto;
+    p.exposureMinEv = lo;
+    p.exposureMaxEv = hi;
+    p.exposureAdaptationSpeed = speed;
+    g.render(s.world, 0.0f);  // a frame with the exposure off: the next one starts from the measured value
+    auto target_ev = [&](float enc) { return std::clamp(std::log2(0.18f) - std::log2(to_linear(enc)), lo, hi); };
+    s.world.get<PostProcess>(s.cam)->exposureEnabled = false;
+    g.render(s.world, dt);
+    s.world.get<PostProcess>(s.cam)->exposureEnabled = true;
+    g.render(s.world, dt);  // the first frame takes the measured value at once
+    s.clear(0.8f);
+    const float e0 = target_ev(0.1f), t = target_ev(0.8f);
+    const float k = 1.0f - std::exp(-speed * dt);
+    double ev = e0;
+    for (int n = 1; n <= 1800; ++n) {
+        ev += (double(t) - ev) * double(k);
+        const Image img = g.render(s.world, dt);
+        if (n % 300 != 0) continue;
+        INFO("frame " << n << " ev " << ev);
+        CHECK(near_value(img.pixel(160, 90).r, to_srgb(to_linear(0.8f) * std::exp2(float(ev))), 3 * kStep));
+    }
+    CHECK(ev < double(t) + 0.1);  // the arithmetic itself got within a tenth of a stop
+}
+
 TEST_CASE("auto exposure: min and max EV bound it, and a gap in the effect measures again at once") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
@@ -450,8 +518,9 @@ TEST_CASE("volumes: a camera moving into a box volume blends the effect in, gold
         const Image img = g.render(w);
         const bool post = index_of(order_of(g), "camera:0/post") >= 0;
         CHECK(post == (influence[i] > 0.0f));  // outside the volume nothing is declared
-        const float expected = influence[i] > 0.0f ? to_srgb(to_linear(128.0f / 255.0f) * std::exp2(2.0f * influence[i]))
-                                                   : 128.0f / 255.0f;
+        const float expected = influence[i] > 0.0f
+                                   ? to_srgb(to_linear(128.0f / 255.0f) * std::exp2(2.0f * influence[i]))
+                                   : 128.0f / 255.0f;
         INFO("camera x " << xs[i]);
         CHECK(near_value(img.pixel(160, 90).r, expected, 3 * kStep));
         if (strip.empty()) {
@@ -562,11 +631,13 @@ TEST_CASE("bloom knee: a soft knee glows from a source at the threshold, the har
     CHECK(s > h + 2 * kStep);
 }
 
-TEST_CASE("bloom lens dirt: a bright dirt texture strengthens the glow, a black one and an intensity of 0 change nothing") {
+TEST_CASE(
+    "bloom lens dirt: a bright dirt texture strengthens the glow, a black one and an intensity of 0 change nothing") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     const std::string white = write_dirt("m71_dirt_white.png", 255), black = write_dirt("m71_dirt_black.png", 0);
-    GlowScene none(1.0f, 0.0f), lit(1.0f, 0.0f, white, 2.0f), dark(1.0f, 0.0f, black, 2.0f), off(1.0f, 0.0f, white, 0.0f);
+    GlowScene none(1.0f, 0.0f), lit(1.0f, 0.0f, white, 2.0f), dark(1.0f, 0.0f, black, 2.0f),
+        off(1.0f, 0.0f, white, 0.0f);
     const float base = GlowScene::glow(g.render(none.world));
     CHECK(base > 4 * kStep);
     CHECK(GlowScene::glow(g.render(lit.world)) > base + 4 * kStep);
