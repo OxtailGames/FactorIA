@@ -868,7 +868,10 @@ void gather_tilemaps_and_text(World& world, Frame& f) {
     std::vector<TextLight> textLights;
     bool textLightsGathered = false;
     // What a flat surface at `pos` facing `normal` receives: SceneSettings.ambientLight + the Lambert term of every Light with the
-    // mesh shader's fall-off (mesh_common.glsl), once per Text.
+    // mesh shader's fall-off (mesh_common.glsl), once per Text. The colours (ambientLight, Light.color) are the authored sRGB values,
+    // not converted to the scene's space: the factor multiplies the text's own authored tint, and the shader converts the product
+    // (one light, or the ambient alone, then gives the same linear result as the mesh path). With several lights the sum is taken
+    // on the authored values, which comes out a little brighter than the mesh path's sum of linear light.
     auto text_light_factor = [&](Vec3 pos, Vec3 normal) {
         if (!textLightsGathered) {
             textLightsGathered = true;

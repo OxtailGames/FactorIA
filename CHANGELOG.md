@@ -18,6 +18,12 @@ Older versions, one file per minor version with its patch releases: [0.29](chang
   own logs once that the deprecated fields are ignored. The doc strings of `tonemapMode`, `vignetteRoundness` and `sharpenEnabled`
   say what they do.
 
+- **Output polish:** the mips of a colour texture made as sRGB in a linear scene are averaged in linear light (`mip_chain(image, true)`;
+  small sprites no longer come out dark when minified; an exported `.ktx2` twin keeps the mips of the export). A CameraView, render
+  target or world capture drawn in R11G11B10 (no alpha) logs one warning that its background is opaque. The editor viewport shows the
+  unencoded image, not "No render target", while the encoded copy of a linear scene does not exist yet. A second renderer starts from
+  what the window shows (HDR status), the status says that an R11G11B10 scene holds the final picture in 8 bits, and Windows asks for
+  the swapchain's colour space again after a resize at most eight frames in a row.
 - **Screen-space reflections:** `PostProcess.ssrEnabled` is drawn: opaque 3D surfaces reflect what the camera shows. Each pixel marches
   its reflected ray across the screen in the depth prepass (`ssrSteps` steps with a deterministic jitter, a thickness test of
   `ssrThickness`, six bisections to refine the hit, a longest ray of `ssrMaxDistance`) and takes the scene colour there, before the

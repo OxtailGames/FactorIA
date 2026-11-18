@@ -298,9 +298,10 @@ struct PreparedMesh {
 // glTF bytes -> a prepared mesh (any thread; reads the model's buffers through fa::fs). False + `error` when unusable.
 bool decode_gltf(const std::string& path, const std::uint8_t* data, std::size_t size, PreparedMesh& out,
                  std::string& error);
-// A texture file's bytes -> a prepared texture (any thread). `ktx2Format`: ktx2_target_format() of the main thread.
+// A texture file's bytes -> a prepared texture (any thread). `ktx2Format`: ktx2_target_format() of the main thread. `srgbMips`: the
+// texture will be made as an sRGB image (a linear scene, Gpu::texture_format of the main thread): its mips average in linear light.
 Result<PreparedTexture> decode_texture_file(const std::string& key, const std::string& file, const std::uint8_t* data,
-                                            std::size_t size, sg_pixel_format ktx2Format);
+                                            std::size_t size, sg_pixel_format ktx2Format, bool srgbMips = false);
 
 // Fonts ---------------------------------------------------------------------
 struct GlyphInfo {

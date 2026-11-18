@@ -103,8 +103,35 @@ Result<Image> load_image(std::string_view path) {
     return img;
 }
 
-std::vector<Image> mip_chain(Image base) {
+namespace {
+
+// sRGB byte -> linear light (0..1) and back, for the mip chain of a colour texture that the GPU decodes as sRGB.
+struct SrgbTables {
+    static constexpr int kLinearSteps = 16384;
+    float toLinear[256];
+    std::uint8_t toByte[kLinearSteps + 1];
+    SrgbTables() {
+        for (int i = 0; i < 256; ++i) {
+            const double c = double(i) / 255.0;
+            toLinear[i] = float(c <= 0.04045 ? c / 12.92 : std::pow((c + 0.055) / 1.055, 2.4));
+        }
+        for (int i = 0; i <= kLinearSteps; ++i) {
+            const double l = double(i) / double(kLinearSteps);
+            const double c = l <= 0.0031308 ? l * 12.92 : 1.055 * std::pow(l, 1.0 / 2.4) - 0.055;
+            toByte[i] = std::uint8_t(std::clamp(int(std::lround(c * 255.0)), 0, 255));
+        }
+    }
+};
+const SrgbTables& srgb_tables() {
+    static const SrgbTables t;
+    return t;
+}
+
+}  // namespace
+
+std::vector<Image> mip_chain(Image base, bool srgb) {
     constexpr int kMaxMipLevels = 16;
+    const SrgbTables* tables = srgb ? &srgb_tables() : nullptr;
     std::vector<Image> chain;
     const bool whole =
         base.width > 0 && base.height > 0 && base.rgba.size() >= std::size_t(base.width) * std::size_t(base.height) * 4;
@@ -121,10 +148,22 @@ std::vector<Image> mip_chain(Image base) {
                 const int x0 = std::min(x * 2, w - 1), x1 = std::min(x * 2 + 1, w - 1);
                 const int y0 = std::min(y * 2, h - 1), y1 = std::min(y * 2 + 1, h - 1);
                 for (int c = 0; c < 4; ++c) {
-                    const int sum =
-                        prev.rgba[(std::size_t(y0) * w + x0) * 4 + c] + prev.rgba[(std::size_t(y0) * w + x1) * 4 + c] +
-                        prev.rgba[(std::size_t(y1) * w + x0) * 4 + c] + prev.rgba[(std::size_t(y1) * w + x1) * 4 + c];
-                    next.rgba[(std::size_t(y) * next.width + x) * 4 + c] = std::uint8_t((sum + 2) / 4);
+                    const std::size_t i00 = (std::size_t(y0) * w + x0) * 4 + c,
+                                      i01 = (std::size_t(y0) * w + x1) * 4 + c,
+                                      i10 = (std::size_t(y1) * w + x0) * 4 + c,
+                                      i11 = (std::size_t(y1) * w + x1) * 4 + c;
+                    std::uint8_t& out = next.rgba[(std::size_t(y) * next.width + x) * 4 + c];
+                    if (tables &&
+                        c < 3) {  // the colour of an sRGB texture averages in linear light (alpha is not encoded)
+                        const float mean = (tables->toLinear[prev.rgba[i00]] + tables->toLinear[prev.rgba[i01]] +
+                                            tables->toLinear[prev.rgba[i10]] + tables->toLinear[prev.rgba[i11]]) *
+                                           0.25f;
+                        out = tables->toByte[std::clamp(int(mean * float(SrgbTables::kLinearSteps) + 0.5f), 0,
+                                                        SrgbTables::kLinearSteps)];
+                    } else {
+                        const int sum = prev.rgba[i00] + prev.rgba[i01] + prev.rgba[i10] + prev.rgba[i11];
+                        out = std::uint8_t((sum + 2) / 4);
+                    }
                 }
             }
         }

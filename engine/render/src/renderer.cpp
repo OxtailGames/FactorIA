@@ -559,6 +559,9 @@ void Renderer::update_output(const SceneSettings& settings, const std::string& b
     if (!im.outputRequestMade) {
         request = render::hdr_request(im.backend, want, settings.paperWhiteNits);
         im.outputRequestMade = true;
+        // The window's switch belongs to the process, not to this renderer: a second renderer starts from what the window
+        // shows, since the platform answers "unchanged" (and fills nothing) while the request is the one of its last update.
+        im.outputInfo = app_hdr_output();
     }
     request.want = want;
     request.paperWhiteNits = settings.paperWhiteNits;
@@ -568,7 +571,10 @@ void Renderer::update_output(const SceneSettings& settings, const std::string& b
     const char* note = "";
     if (want) {
         if (!im.float_display())
-            note = "this GPU draws the picture in 8 bits, so it stays within paper white";
+            note = im.gpu.scene_format() == SG_PIXELFORMAT_RG11B10F
+                       ? "the scene is in R11G11B10, which holds the final picture in 8 bits, so it stays within paper "
+                         "white"
+                       : "this GPU draws the picture in 8 bits, so it stays within paper white";
         else if (!im.frameAboveWhite)
             note = "the picture stays within paper white: only the tonemap of a PostProcess (exposure or tonemap, "
                    "no colour filter) goes above it";
@@ -1340,6 +1346,8 @@ Renderer::BackgroundWork Renderer::background_work(std::string_view pathIn, Back
     switch (kind) {
         case BackgroundKind::Texture: {
             const sg_pixel_format format = impl_ ? render::ktx2_target_format() : SG_PIXELFORMAT_RGBA8;
+            // The colour space the texture will be made for (asked here, on the calling thread, not in the worker).
+            const bool srgbMips = impl_ && impl_->gpu.texture_format(SG_PIXELFORMAT_RGBA8) != SG_PIXELFORMAT_RGBA8;
             w.read = [path]() -> Result<IoFile> {
                 // As Assets::load_texture: an export packed it into an atlas (read the atlas), or made a KTX2 twin.
                 const assets::PackedTexture packed = assets::packed_texture(path);
@@ -1348,10 +1356,10 @@ Renderer::BackgroundWork Renderer::background_work(std::string_view pathIn, Back
                     fs::extension(key) == kTextureTwinExtension ? key : key + kTextureTwinExtension;
                 return background_read(fs::exists(twin) ? twin : key);
             };
-            w.decode = [path, format](IoFile& f) {
+            w.decode = [path, format, srgbMips](IoFile& f) {
                 const assets::PackedTexture packed = assets::packed_texture(path);
                 const std::string key = packed.atlas.empty() ? path : packed.atlas;
-                auto p = render::decode_texture_file(key, f.path, f.view.data(), f.view.size(), format);
+                auto p = render::decode_texture_file(key, f.path, f.view.data(), f.view.size(), format, srgbMips);
                 if (!p) return background_failure(p.error().message, p.error().hint);
                 IoResult r;
                 r.ok = true;

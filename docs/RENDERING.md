@@ -292,8 +292,8 @@ picking colours by eye and keep the same PNG files.
   and a data use always sees the file's own values. The cost is that such a texture is filtered in the other space (a small
   difference, only visible on hard edges). Nothing is loaded twice.
 - **The scene target holds linear light**: `RGBA16F` where the GPU renders to it (twice the memory of RGBA8), else `R11G11B10`
-  (half the memory of RGBA16F, no alpha: a game target without alpha is only a problem if you read the picture's alpha, for example
-  `render.captureTexture` of the frame), else `SRGB8A8` (8 bits that hold linear light: the GPU encodes what is written and
+  (half the memory of RGBA16F, no alpha: the picture's own alpha is not used by the screen, but a CameraView, a render target or a world capture
+  (`render.captureTexture` of an area) drawn in it has an opaque background, with one warning in the log), else `SRGB8A8` (8 bits that hold linear light: the GPU encodes what is written and
   decodes what is read, so the darks keep their precision and blending is in linear light), else plain `RGBA8` (banding in the
   darks; only a GPU with no sRGB render target, rare). `render.supports {"feature": "linearColor"}` is true on every GPU;
   `render.supports {"feature": "r11g11b10"}` says whether the packed float is there. The tests pick the formats with
@@ -312,8 +312,8 @@ linear light to sRGB, values above 1 clip, and the HUD and screen-space UI are d
 (their colours still come out as picked, the blending of half-transparent edges differs slightly). Bloom works on the linear values.
 With exposure, a tonemap or a colour filter the final pass of the stack does the encode instead (see "Post-processing" below): the
 picture is tonemapped, encoded and dithered once, and the HUD is drawn afterwards in display colours, as in a gamma scene. The editor's
-viewport shows what the game shows: after the final pass the picture itself, otherwise the renderer keeps an 8-bit encoded copy of the finished frame for it (`Renderer::set_editor_view`, made only while the scene is linear and freed when it goes back to gamma; a game never makes it). Mips of an sRGB texture are averaged on the
-sRGB values when they are made. A custom material ([SHADERS.md](SHADERS.md)) gets what the GPU gives for its own textures (linear light
+viewport shows what the game shows: after the final pass the picture itself, otherwise the renderer keeps an 8-bit encoded copy of the finished frame for it (`Renderer::set_editor_view`, made only while the scene is linear and freed when it goes back to gamma; a game never makes it). The mips of a texture made as sRGB are averaged in linear light (an exported `.ktx2` twin keeps the
+mips of the export, averaged on the sRGB values). A custom material ([SHADERS.md](SHADERS.md)) gets what the GPU gives for its own textures (linear light
 when the texture was first loaded in a linear scene, the file's numbers otherwise) and its colour parameters as authored, and what
 its `surface()` returns is taken as linear light in a linear scene: convert a colour parameter yourself (`pow(c, vec3(2.2))` is
 close enough).
