@@ -8,6 +8,14 @@ Older versions, one file per minor version with its patch releases: [0.29](chang
 
 ### M71 (in progress): linear HDR and a post-processing stack
 
+- **Ambient occlusion (`ssao`):** `PostProcess.ssaoEnabled` now darkens creases and contact points of 3D meshes (GTAO from the depth and
+  normal prepass, at half resolution for `low` and `medium`, full for `high` and `ultra`, a blur that follows the surfaces, no random
+  numbers: the same picture every run). `ssaoRadius` is in world units, `ssaoIntensity` the power of the occlusion, and each camera of a
+  split screen has its own passes over its own rectangle. It works in place on the game picture (the interface drawn before the post
+  passes is darkened where it covers meshes); off, at intensity 0, or without opaque meshes it adds no pass and no prepass.
+  `render.supports {"feature": "ssao"}` is true where the GPU has RGBA16F targets that blend, and `render.debug_view {"view": "ao"}`
+  shows the occlusion alone.
+
 - **Post-processing costs and a graphics page:** `render.frame_graph` returns `postProcess`: the post-processing passes with their
   summed CPU and GPU time (`gpuMs` is `null` with `gpuStatus` `"unavailable"` and a reason where the backend has no GPU timer; the effects
   folded into the `post` pass are not timed one by one), and the editor's Profiler panel has a "Post-processing" tab with the same table.
