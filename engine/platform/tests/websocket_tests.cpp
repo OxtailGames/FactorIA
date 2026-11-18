@@ -642,18 +642,18 @@ TEST_CASE("websocket client: WinHTTP refuses a header value that is not ASCII be
 }
 
 TEST_CASE("websocket client: destroyed while the server keeps sending, the server still reads the 1001") {
-    // /flood sends 1 MB right after the handshake and reads nothing until it is done (below the event queue's 32 MB, so
+    // /flood sends 2 MB right after the handshake and reads nothing until it is done (below the event queue's 32 MB, so
     // nothing overflows into a 1008). The client is destroyed at Open, while most of it is still on its way: after its
     // close frame WinHTTP's client keeps reading (and discarding) until the server's answer. A handle closed on the first
-    // message that arrives resets the connection with unread data, and the server never reads the 1001. Draining 1 MB (16
-    // messages of one WinHTTP receive chunk, 64 KB, each) on loopback takes a fraction of a second (0.25 s for 16 MB with
+    // message that arrives resets the connection with unread data, and the server never reads the 1001. Draining 2 MB (16
+    // messages of two WinHTTP receive chunks, 128 KB, each) on loopback takes a fraction of a second (0.25 s for 16 MB with
     // the macOS system client): little enough for a loaded CI VM to stay well within the 5 s close wait, and still more
     // than the first read brings, so data is unread when the client closes.
     fa::test::WsTestServer server;
     REQUIRE(server.ok());
     auto client = make_client_under_test();
     {
-        auto ws = connect_to(*client, server.url("/flood?n=65536&count=16"));
+        auto ws = connect_to(*client, server.url("/flood?n=131072&count=16"));
         auto events = collect(*ws, 1);
         REQUIRE_FALSE(events.empty());
         REQUIRE(events[0].type == WebSocketEvent::Type::Open);
