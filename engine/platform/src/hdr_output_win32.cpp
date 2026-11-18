@@ -65,7 +65,9 @@ struct State {
     HdrDisplay display;
     // The framebuffer size the colour space was last set for (0: none set, or the standard range).
     int spaceW = 0, spaceH = 0;
-    int spaceFails = 0;  // frames in a row that SetColorSpace1 failed for the current size (dxgi_keep_color_space)
+    int spaceFails =
+        0;  // frames in a row that SetColorSpace1 failed for the size failW x failH (dxgi_keep_color_space)
+    int failW = 0, failH = 0;
 };
 State& state() {
     static State s;
@@ -192,6 +194,13 @@ void dxgi_keep_color_space(HdrEncoding applied) {
     // show its scRGB or PQ values as sRGB. Set it again; when it fails the size stays unmatched and the next frame tries again, at
     // most kSpaceTries frames in a row (a driver that refuses for good is not asked every frame: the next resize asks again).
     constexpr int kSpaceTries = 8;
+    // A resize drag changes the size every frame: the count restarts for each new size, so failures that come and go
+    // do not use up the tries.
+    if (w != s.failW || h != s.failH) {
+        s.failW = w;
+        s.failH = h;
+        s.spaceFails = 0;
+    }
     if (set_color_space(chain3, want) || ++s.spaceFails >= kSpaceTries) {
         s.spaceW = w;
         s.spaceH = h;

@@ -204,6 +204,7 @@ public:
 
 private:
     bool ensure_targets(Gpu& gpu);
+    void warn_luma_missing();  // the measuring target could not be made after the first check: a warning, once
     Target ev_[2];
     int cur_ = 0;  // the index of the target that holds the EV
     bool fresh_ = true;
@@ -212,6 +213,7 @@ private:
     std::uint64_t retryAt_ = 0;
     bool lumaChecked_ = false;  // the 32x32 measuring target was made once (add_passes)
     bool warned_ = false;
+    bool warnedLuma_ = false;  // the measuring target was missing when the pass ran (add_passes): said once
     std::uint64_t lastSerial_ = 0;
     bool declaredBefore_ = false;
 };

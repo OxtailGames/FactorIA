@@ -501,6 +501,40 @@ TEST_CASE("color space: colour textures are made sRGB in a linear scene, with th
     CHECK(at(b2, 0, 0).r == doctest::Approx(150.0f / 255.0f).epsilon(0.03));
 }
 
+TEST_CASE("color space: a texture prepared in the background before the scene turned linear gets its mips made again") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    // Black and white texels: the first mip is 128 when averaged in gamma, about 188 when averaged in linear light.
+    Image checker = solid(2, 2, 0);
+    for (int i : {0, 3})
+        for (int c = 0; c < 3; ++c) checker.rgba[std::size_t(i) * 4 + std::size_t(c)] = 255;
+    save(checker, "assets/lin_bg_mips.png");
+    const sg_pixelformat_info srgbInfo = sg_query_pixelformat(SG_PIXELFORMAT_SRGB8A8);
+    const bool gpuDecodes = srgbInfo.sample && srgbInfo.filter;
+    Own r(g);
+    REQUIRE_MESSAGE(r.ok, r.error);
+    const std::string path = "assets/lin_bg_mips.png";
+    // The request is made while the renderer is still a gamma one (no linear scene was drawn yet): gamma mips.
+    auto work = r.r.background_work(path, Renderer::BackgroundKind::Texture);
+    auto file = work.read();
+    REQUIRE_MESSAGE(bool(file), file.error().message);
+    IoResult result = work.decode(*file);
+    REQUIRE(result.ok);
+    auto prepared = std::static_pointer_cast<render::PreparedTexture>(result.value);
+    REQUIRE(prepared);
+    CHECK_FALSE(prepared->srgbMips);
+    CHECK(prepared->chain.size() > 1);
+    CHECK(std::abs(int(prepared->chain[1].rgba[0]) - 128) <= 1);
+    // The first linear scene renders, then the texture arrives: it is adopted with its chain made again.
+    r.gpu().set_linear(true);
+    CHECK(r.r.adopt_background(path, Renderer::BackgroundKind::Texture, result) > 0);
+    CHECK(prepared->srgbMips == gpuDecodes);
+    CHECK(int(prepared->chain[1].rgba[0]) ==
+          (gpuDecodes ? int(mip_chain(checker, true)[1].rgba[0]) : int(prepared->chain[1].rgba[0])));
+    if (gpuDecodes) CHECK(int(prepared->chain[1].rgba[0]) > 170);
+    r.gpu().set_linear(false);
+}
+
 TEST_CASE("color space: switching it at run time keeps the textures and does not leak GPU images; gamma comes back "
           "byte for byte") {
     Gfx& g = gfx();
@@ -642,8 +676,14 @@ TEST_CASE(
         linear(w);
         r.draw(g, w);
         const int tw = r.r.target_width(), th = r.r.target_height();
+        const std::uint32_t copyBefore = r.r.game_target_image_id();  // the encoded copy at the old size
         r.r.set_target_size(tw + 64, th + 36);
+        // The copy is made at the end of a frame: until then the viewport falls back to the game image itself.
+        CHECK(r.r.game_target_image_id() != 0);
+        CHECK(r.r.game_target_image_id() != copyBefore);
+        CHECK(r.r.game_target_view_id() != 0);
         const Image bigger = r.draw(g, w);
+        CHECK(r.r.game_target_image_id() != 0);
         CHECK(bigger.width == tw + 64);
         CHECK(r.r.game_target_view_id() != 0);  // never the viewport's "no render target" text while graphics run
         CHECK(std::abs(viewed(r) - int(std::lround(bigger.pixel(bigger.width / 2, bigger.height / 2).r * 255.0f))) <=

@@ -273,6 +273,7 @@ struct PreparedTexture {
     bool ktx2 = false;
     Image image;                   // !ktx2: the picture
     std::vector<Image> chain;      // !ktx2: its mip chain (chain[0] unused, as mip_chain gives it)
+    bool srgbMips = false;         // !ktx2: the chain was averaged in linear light (see decode_texture_file's srgbMips)
     TranscodedTexture transcoded;  // ktx2
 };
 struct PreparedTextureRef {  // one texture slot of a glTF material
