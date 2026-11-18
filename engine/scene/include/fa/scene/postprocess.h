@@ -220,7 +220,7 @@ struct PostProcess {
 
     // --- ssr: screen-space reflections (3D) --------------------------------------------------------------------------------------
     bool ssrEnabled = false;
-    float ssrIntensity = 1.0f;     // 0..1: how much of the reflection is mixed in
+    float ssrIntensity = 0.5f;     // 0..1: how much of the reflection is mixed in (the shader caps a pixel at 75 %)
     float ssrMaxDistance = 50.0f;  // world units a reflected ray travels
     float ssrThickness = 0.3f;     // world units behind a surface that still count as a hit
     std::int32_t ssrSteps = 32;    // 8 .. 128 steps along the ray

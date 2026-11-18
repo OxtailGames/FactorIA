@@ -117,6 +117,8 @@ private:
     bool warnedTargets_ = false;
     // Sizes whose intermediate targets could not be made (not tried again every frame).
     std::vector<std::uint64_t> failed_;
+    // Sizes whose intermediate targets were made once: the pool is not probed again every frame.
+    std::vector<std::uint64_t> probed_;
 };
 
 }  // namespace fa::render

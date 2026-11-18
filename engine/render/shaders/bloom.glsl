@@ -41,15 +41,15 @@ layout(binding=1) uniform bloom_bright_params {
 in vec2 uv;
 out vec4 frag_color;
 
-// One channel of the float game target made safe: NaN, Inf and anything from 65000 up (RGBA16F tops out at 65504, where an
-// overflow ends) become 0, a negative becomes 0. NaN/Inf are found by their bits (an all-ones exponent), not by a comparison
+// One channel of the float game target made safe: NaN and Inf become 0, a negative becomes 0, a finite value is kept up to 65504
+// (what RGBA16F holds; the same rule as post.glsl). NaN/Inf are found by their bits (an all-ones exponent), not by a comparison
 // or isnan(): drivers compile with fast-math (Metal by default) and may fold those away, because they assume no NaN or Inf
 // exists. Without this one NaN pixel (a pow() of a negative in a custom material, a 0/0) would spread through the blur over
 // the whole glow. A multisample resolve can average an Inf at a lamp's edge into a large finite value, which is light as far
 // as this pass can tell.
 float sane(float x) {
-    if (((floatBitsToUint(x) >> 23u) & 255u) == 255u || x >= 65000.0) return 0.0;
-    return max(x, 0.0);
+    if (((floatBitsToUint(x) >> 23u) & 255u) == 255u) return 0.0;
+    return clamp(x, 0.0, 65504.0);
 }
 
 // Keeps the hue; scales the color from 0 (at the threshold) to 1 (at full brightness). "Brightness" is the largest
