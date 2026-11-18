@@ -166,22 +166,29 @@ void Renderer::Impl::sync_color_space(const World& world) {
     if (gpu.set_linear(linear)) create_targets(targetW, targetH, true);
 }
 
+bool Renderer::Impl::editor_copy_wanted() const {
+    if (!editorView || !game_targets_valid()) return false;
+    // finalEncoded: the final pass already made display values (sRGB, within 1 unless it drew for an HDR output).
+    return (gpu.linear() && !finalEncoded) || (finalEncoded && frameAboveWhite);
+}
+
 sg_image Renderer::Impl::display_image() const {
-    if (!gpu.linear() || !editorView || finalEncoded)
-        return final_image();  // finalEncoded: the final pass already made display values
+    if (!editor_copy_wanted()) return final_image();
     return editorTarget.texture_image();
 }
 
 sg_view Renderer::Impl::display_view() const {
-    if (!gpu.linear() || !editorView || finalEncoded) return final_view();
+    if (!editor_copy_wanted()) return final_view();
     return editorTarget.texView;
 }
 
 // A linear scene holds linear light: shown as it is, the editor's viewport would be too dark. After the frame is drawn (and the colour
-// filter, if any) the finished image is encoded into an RGBA8 copy that ImGui shows. Same orientation as the game image (the viewport
-// flips it on GL), not counted in RenderStats::drawCalls. Made only when the editor asked and the scene is linear.
+// filter, if any) the finished image is encoded into an RGBA8 copy that ImGui shows. A final pass picture above paper white (an HDR
+// output) is copied as it is into the 8-bit image, which clamps it to [0, 1] as present() does for an SDR output. Same orientation as
+// the game image (the viewport flips it on GL), not counted in RenderStats::drawCalls. Made only when the editor asked and one of the
+// two applies.
 void Renderer::Impl::update_editor_copy() {
-    if (!editorView || !gpu.linear() || finalEncoded || !game_targets_valid()) {
+    if (!editor_copy_wanted()) {
         destroy_target(editorTarget);
         return;
     }
@@ -211,7 +218,8 @@ void Renderer::Impl::update_editor_copy() {
     blit_blit_vs_params_t u{};  // flip stays 0: the copy is stored like the game image
     apply_uniforms(UB_blit_blit_vs_params, u);
     blit_blit_fs_params_t fu{};
-    fu.encode[0] = 1.0f;
+    fu.encode[0] =
+        finalEncoded ? 0.0f : 1.0f;  // linear light is encoded; the final pass's picture already holds sRGB values
     apply_uniforms(UB_blit_blit_fs_params, fu);
     sg_draw(0, 3, 1);
     gpu.end_pass();
@@ -633,9 +641,8 @@ bool Renderer::Impl::read_rgba8(sg_image image, sg_view view, int w, int h, std:
     u.flip[0] = gpu.is_gl() ? 1.0f : 0.0f;
     apply_uniforms(UB_blit_blit_vs_params, u);
     blit_blit_fs_params_t fu{};
-    fu.encode[0] = gpu.linear() && !displayValues
-                       ? 1.0f
-                       : 0.0f;  // linear light -> the sRGB values the screen shows (see present())
+    fu.encode[0] =
+        gpu.linear() && !displayValues ? 1.0f : 0.0f;  // linear light -> sRGB; display values stay (present_params)
     fu.encode[1] = premultiplied ? 1.0f : 0.0f;
     apply_uniforms(UB_blit_blit_fs_params, fu);
     sg_draw(0, 3, 1);

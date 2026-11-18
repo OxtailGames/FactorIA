@@ -90,8 +90,8 @@ struct Renderer::Impl {
     // The post-processing stack (postprocess.h). hudTarget is the game-like image the final pass writes when screen-space items are drawn
     // over it in display space (made on first use: a frame without exposure, tonemap or linear colour never makes it); the HUD draws into
     // it with the game target's formats and sample count, so the pipelines of the game fit. hudActive: the last frame's picture is in it
-    // (when filterActive is false). finalEncoded: the last frame's final pass already encoded the picture for the display (a linear scene),
-    // so present() and the captures copy it as it is.
+    // (when filterActive is false). finalEncoded: the last frame's final pass already made display values (sRGB-encoded, extended above 1
+    // for an HDR output), so the captures copy them as they are and present() only decodes them for an HDR swapchain.
     AutoExposure autoExposure;
     Target hudTarget;
     bool hudActive = false;
@@ -114,6 +114,8 @@ struct Renderer::Impl {
     // frameAboveWhite: the last frame's final pass wrote values above paper white (the HDR tonemap, no colour filter after
     // it), so present() lets them through up to frameOutput.headroom. forcedOutput: renderer_force_output (tests).
     HdrOutputInfo outputInfo;
+    HdrRequest outputRequest;  // what update_output() asked the last time, changed in place (it runs every frame)
+    bool outputRequestMade = false;
     bool outputForced = false;
     HdrOutputInfo forcedOutput;
     render::OutputTarget frameOutput;
@@ -122,11 +124,9 @@ struct Renderer::Impl {
     render::FeatureBackend backend =
         render::FeatureBackend::Headless;  // sg_query_backend(), asked once (update_output)
     const HdrOutputInfo& output() const { return outputForced ? forcedOutput : outputInfo; }
-    // The images the final pass writes hold values above 1 (RGBA16F, R11G11B10): an HDR output can go above paper white.
-    bool float_display() const {
-        const sg_pixel_format f = gpu.display_format();
-        return f == SG_PIXELFORMAT_RGBA16F || f == SG_PIXELFORMAT_RG11B10F;
-    }
+    // The images the final pass writes hold values above 1 (RGBA16F; R11G11B10 scenes keep their display picture in RGBA8, see
+    // Gpu::display_format): an HDR output can go above paper white.
+    bool float_display() const { return gpu.display_format() == SG_PIXELFORMAT_RGBA16F; }
     // The fragment uniforms of present(): the encode for the output the window has now (output()), the light let through up to
     // the frame's headroom when its final pass went above white.
     blit_blit_fs_params_t present_params() const;
@@ -263,12 +263,18 @@ struct Renderer::Impl {
     sg_view final_view() const { return final_target().texView; }
     // The picture the editor viewport shows (Renderer::game_target_view_id): the finished game image in a gamma scene; in a linear one,
     // when the editor asked for it (Renderer::set_editor_view), the 8-bit encoded copy update_editor_copy() makes after each frame
-    // (an empty handle until the first one exists). M71-B4 points this at its final (tonemapped) target.
+    // (an empty handle until the first one exists). The final pass's picture is shown as it is, except when it went above paper white
+    // (an HDR output; the editor's window never switches, but a viewport that can show extended values would show them brighter
+    // than the SDR present() does): then the 8-bit copy clamps it to [0, 1].
     sg_image display_image() const;
     sg_view display_view() const;
-    bool editorView = false;  // set_editor_view(true): make the encoded copy of a linear scene
+    bool editorView =
+        false;  // set_editor_view(true): make the 8-bit copy of a linear scene (or of a picture above white)
     Target
-        editorTarget;  // the copy: RGBA8, only while the scene is linear and the editor asked; freed when either stops
+        editorTarget;  // the copy: RGBA8, only while the editor asked and it is needed (see editor_copy_wanted); freed when not
+    // The viewport shows the copy: a linear scene not yet encoded by the final pass (the copy encodes it), or a final pass picture
+    // that went above paper white (the copy clamps it).
+    bool editor_copy_wanted() const;
     void update_editor_copy();
     bool create_shadow_targets();
     bool ensure_light_target(float scale);
