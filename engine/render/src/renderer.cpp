@@ -100,6 +100,16 @@ CameraInfo Renderer::Impl::build_camera(World& world, Entity best, const Vec2* v
     // and the colour filter, exactly as before.
     PostProcess legacy;
     const bool useLegacy = legacy_post_of_camera(cam, legacy);
+    // A PostProcess of the camera's own wins over the deprecated fields: said once, or "bloom: true" would do nothing without a word.
+    if (useLegacy && best) {
+        const PostProcess* own = world.get<PostProcess>(best);
+        if (own && own->enabled && world.active_in_hierarchy(best) && warnedLegacyIgnored.insert(best.bits()).second)
+            FA_WARN("render",
+                    "Camera '{}' has Camera.bloom or Camera.colorFilter set and a PostProcess of its own: the "
+                    "deprecated fields are ignored. "
+                    "Hint: set bloomEnabled / colorFilterEnabled on the PostProcess (or remove the PostProcess).",
+                    world.id_of(best));
+    }
     // The editor's A/B switch (set_post_bypass): the picture as the scene draws it, with no stack, to compare it with the stack on.
     if (!postBypass && (useLegacy || world.any<PostProcess>())) {
         auto stack = std::make_shared<PostStack>(resolve_post_stack(world, ci, useLegacy ? &legacy : nullptr));

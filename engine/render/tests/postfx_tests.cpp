@@ -300,6 +300,57 @@ TEST_CASE("film grain: the same frame and pixel give the same noise, another fra
     CHECK(cells > 15);
 }
 
+TEST_CASE("film grain: the second camera of a frame gets another seed, the first keeps it, and a cell edge is stable") {
+    CHECK(grain_seed_for_camera(1234u, 0) == 1234u);
+    std::set<std::uint32_t> seeds;
+    for (int i = 0; i < 8; ++i) {
+        const std::uint32_t s = grain_seed_for_camera(1234u, i);
+        CHECK(s < (1u << 24));  // the shader reads it as an exact float
+        seeds.insert(s);
+    }
+    CHECK(seeds.size() == 8);
+    PostStack st = stack_with(PostEffect::FilmGrain);
+    st.fx.filmGrainIntensity = 0.5f;
+    st.fx.filmGrainAnimated = false;
+    const PostFx a = make_post_fx(st, 0);
+    PostFx b = a;
+    b.grainSeed = grain_seed_for_camera(a.grainSeed, 1);
+    int differ = 0;
+    for (int x = 0; x < 32; ++x) differ += grain_noise(x, 5, a) != grain_noise(x, 5, b) ? 1 : 0;
+    CHECK(differ > 28);
+    // Size 1.5: the centre of pixel 1 is on the border of two cells (1.5 / 1.5), the offset puts it in the second one.
+    st.fx.filmGrainSize = 1.5f;
+    const PostFx h = make_post_fx(st, 0);
+    CHECK(grain_noise(1, 0, h) == grain_noise(2, 0, h));
+    CHECK(grain_noise(0, 0, h) != grain_noise(1, 0, h));
+    // Size 3: the pixels 0..2 are one cell, 3..5 the next, whatever the rounding of the pixel centre.
+    st.fx.filmGrainSize = 3.0f;
+    const PostFx c = make_post_fx(st, 0);
+    CHECK(grain_noise(0, 0, c) == grain_noise(2, 0, c));
+    CHECK(grain_noise(3, 0, c) == grain_noise(5, 0, c));
+}
+
+TEST_CASE("lens: the picture fades over one pixel at its edge, full inside and nothing outside") {
+    CHECK(lens_coverage({0.5f, 0.5f}, 320, 180) == doctest::Approx(1.0f));
+    CHECK(lens_coverage({-0.1f, 0.5f}, 320, 180) == doctest::Approx(0.0f));
+    CHECK(lens_coverage({0.5f, 1.2f}, 320, 180) == doctest::Approx(0.0f));
+    CHECK(lens_coverage({0.0f, 0.5f}, 320, 180) == doctest::Approx(0.5f));           // on the edge: half
+    CHECK(lens_coverage({1.0f / 320.0f, 0.5f}, 320, 180) == doctest::Approx(1.0f));  // a pixel inside: full
+    const float quarter = lens_coverage({0.25f / 320.0f, 0.5f}, 320, 180);
+    CHECK(quarter > 0.5f);
+    CHECK(quarter < 1.0f);
+}
+
+TEST_CASE("cube: the TITLE keyword is read in any case") {
+    std::string text = identity_cube(16, "lower case");
+    const std::size_t at = text.find("TITLE");
+    REQUIRE(at != std::string::npos);
+    text.replace(at, 5, "title");
+    const Result<CubeLut> r = parse_cube_lut(text, "t.cube");
+    REQUIRE(r.ok());
+    CHECK(r.value().title == "lower case");
+}
+
 TEST_CASE("film grain: the luminance response weakens it in black and white and the intensity bounds it") {
     PostStack s = stack_with(PostEffect::FilmGrain);
     s.fx.filmGrainIntensity = 1.0f;
