@@ -62,8 +62,7 @@ constexpr bool effect_drawn(PostEffect e) {
            e == PostEffect::ColorGrading || e == PostEffect::Vignette || e == PostEffect::Sharpen ||
            e == PostEffect::RadialBlur || e == PostEffect::Outline || e == PostEffect::Pixelate ||
            e == PostEffect::Posterize || e == PostEffect::FilmGrain || e == PostEffect::DepthOfField ||
-           e == PostEffect::MotionBlur ||
-           e == PostEffect::Ssr;
+           e == PostEffect::MotionBlur || e == PostEffect::Ssr;
 }
 
 }  // namespace
