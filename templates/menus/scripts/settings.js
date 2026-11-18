@@ -1,7 +1,7 @@
 // @ts-check
 // The player's settings (volumes, video, interface size, colour filter, controls, language), kept in storage under "settings" and applied once per run.
 // scripts/ui/options.js edits them; main_menu.js and pause_menu.js call applyOnce() when their scene starts.
-import { storage, audio, window, input, session, i18n, world, ui, game, feel } from "factoria";
+import { storage, audio, window, input, session, i18n, world, ui, game, feel, scene, fa } from "factoria";
 
 /** Audio buses the options menu shows, in order. */
 export const BUSES = ["master", "music", "sfx", "ui"];
@@ -20,6 +20,29 @@ export const TEXT_SPEEDS = [
 
 /** Values of Camera.colorFilter the options menu cycles through (accessibility: the last post-process of the frame). */
 export const COLOR_FILTERS = ["none", "greyscale", "highContrast", "protanopia", "deuteranopia", "tritanopia"];
+
+/** The qualities of the "Effects quality" row of the graphics tab, best first. "high" leaves the game's own screen effects as they are. */
+export const GRAPHICS_QUALITIES = ["high", "medium", "low", "off"];
+
+/** The main screen effects the graphics tab switches one by one: `id` is the key in settings.graphics.effects, `field` the PostProcess field. */
+export const GRAPHICS_EFFECTS = [
+  { id: "bloom", field: "bloomEnabled" },
+  { id: "grain", field: "filmGrainEnabled" },
+  { id: "vignette", field: "vignetteEnabled" },
+  { id: "chromatic", field: "chromaticAberrationEnabled" },
+  { id: "outline", field: "outlineEnabled" },
+];
+
+// The PostProcess switches each quality below "high" turns off (the costly ones first); the effects that shape the picture itself
+// (exposure, tonemap, grading, the colour filter, fog) are never touched.
+const EXPENSIVE = ["ssaoEnabled", "ssrEnabled", "depthOfFieldEnabled", "motionBlurEnabled", "sunShaftsEnabled", "radialBlurEnabled"];
+const QUALITY_OFF = {
+  high: [],
+  medium: EXPENSIVE,
+  low: [...EXPENSIVE, "bloomEnabled", "filmGrainEnabled", "lensDistortionEnabled", "sharpenEnabled"],
+  off: [...EXPENSIVE, ...GRAPHICS_EFFECTS.map((e) => e.field), "lensDistortionEnabled", "sharpenEnabled", "pixelateEnabled", "posterizeEnabled"],
+};
+const POST_FIELDS = [...new Set(Object.values(QUALITY_OFF).flat())];
 
 /**
  * What a player who never chose gets. The accessibility ones start from the system's settings (game.accessibility): they
@@ -44,6 +67,9 @@ function defaults() {
     reducedEffects: null, // less screen shake, flashes and particles: null follows the system's reduce motion until the player chooses, true / false is their choice (reducedEffects(s) says which one is in force)
     subtitles: true, // show captions (the "captions" entity, a Captions component); off = that entity is inactive
     textSpeed: system.reduceMotion ? 0 : 45, // dialogue text reveal in characters per second (TEXT_SPEEDS), 0 = a whole line at once
+    // Screen effects (PostProcess): quality is one of GRAPHICS_QUALITIES; effects holds only the switches the player touched
+    // (GRAPHICS_EFFECTS id -> true / false, which win over the quality); hdr is null (the scene's SceneSettings.hdrOutput) or the player's choice.
+    graphics: { quality: "high", effects: {}, hdr: null },
   };
 }
 
@@ -52,7 +78,14 @@ export function load() {
   const saved = storage.get("settings", {});
   if (saved.windowMode === undefined && typeof saved.fullscreen === "boolean") saved.windowMode = saved.fullscreen ? "fullscreen" : "windowed"; // saved by an older kit
   const base = defaults();
-  return { ...base, ...saved, volume: { ...base.volume, ...saved.volume }, bindings: { ...saved.bindings }, playerBindings: { ...saved.playerBindings } };
+  return {
+    ...base,
+    ...saved,
+    volume: { ...base.volume, ...saved.volume },
+    bindings: { ...saved.bindings },
+    playerBindings: { ...saved.playerBindings },
+    graphics: { ...base.graphics, ...saved.graphics, effects: { ...saved.graphics?.effects } },
+  };
 }
 
 /** The value for Text.visibleCharacters of a dialogue line `seconds` after it appeared, at the player's text speed: -1 (everything) when the speed is 0. */
@@ -87,10 +120,71 @@ export function applySubtitles(s = load()) {
   if (captions) captions.active = s.subtitles;
 }
 
-/** What belongs to the scene's own entities (camera, captions): every scene has new ones, so each scene sets them again. */
+/** Whether this renderer can do `feature` (render.supports: "hdrOutput", "bloom", ...); false when there is no renderer to ask (tests without graphics). */
+export function renderSupports(feature) {
+  try {
+    return fa.call("render.supports", { feature }).supported === true;
+  } catch {
+    return false;
+  }
+}
+
+/** What the scene's PostProcess components had before this module changed them: scene generation, then per entity id { authored, forced }. */
+let post = { generation: -1, entities: new Map() };
+
+/** The entities of the scene that have a PostProcess (the camera's own stack and the volumes). */
+export function postProcessEntities() {
+  return world.entities().filter((e) => e.has("PostProcess"));
+}
+
+/** The PostProcess switch `field` as the player's settings `s` want it, given what the game authored (`authored`). */
+function wantedSwitch(field, s, authored) {
+  const effect = GRAPHICS_EFFECTS.find((e) => e.field === field);
+  const chosen = effect ? s.graphics.effects[effect.id] : undefined;
+  if (typeof chosen === "boolean") return chosen;
+  return QUALITY_OFF[s.graphics.quality]?.includes(field) ? false : authored;
+}
+
+/**
+ * Puts the graphics settings into effect on this scene's PostProcess components (component fields, the ones postprocess.set writes):
+ * the quality turns the costly effects off, an effect the player switched wins over the quality, and the SceneSettings.hdrOutput the player chose
+ * replaces the scene's. What the game authored is remembered per scene (scene.generation), so a better quality puts it back, and a field this
+ * does not change is never written (a script of the game may change it itself).
+ */
+export function applyPostProcess(s = load()) {
+  if (post.generation !== scene.generation) post = { generation: scene.generation, entities: new Map() };
+  for (const e of postProcessEntities()) {
+    const pp = e.get("PostProcess");
+    let seen = post.entities.get(e.id);
+    if (!seen) {
+      seen = { authored: Object.fromEntries(POST_FIELDS.map((f) => [f, pp[f]])), forced: new Set() };
+      post.entities.set(e.id, seen);
+    }
+    for (const f of POST_FIELDS) {
+      const want = wantedSwitch(f, s, seen.authored[f]);
+      if (want !== seen.authored[f]) {
+        pp[f] = want;
+        seen.forced.add(f);
+      } else if (seen.forced.has(f)) {
+        pp[f] = seen.authored[f];
+        seen.forced.delete(f);
+      }
+    }
+  }
+  if (s.graphics.hdr !== null && world.settings) world.settings.hdrOutput = s.graphics.hdr ? "auto" : "off";
+}
+
+/** Whether the effect `id` of GRAPHICS_EFFECTS is on now in the scene (in any of its PostProcess components; false when the scene has none). */
+export function effectOn(id) {
+  const field = GRAPHICS_EFFECTS.find((e) => e.id === id)?.field;
+  return postProcessEntities().some((e) => e.get("PostProcess")[field] === true);
+}
+
+/** What belongs to the scene's own entities (camera, captions, screen effects): every scene has new ones, so each scene sets them again. */
 export function applyScene(s = load()) {
   applyColorFilter(s);
   applySubtitles(s);
+  applyPostProcess(s);
 }
 
 /** Whether the effects are turned down now: the player's choice, else the system's "reduce motion". Your own particles and screen effects check this, not `s.reducedEffects` (null until the player chooses). */
@@ -108,7 +202,7 @@ export function applyFeel(s = load()) {
   feel.reducedEffects = s.reducedEffects ?? null;
 }
 
-/** Puts `s` into effect: bus volumes, colour filter, game feel, subtitles, text size, interface size, language, rebound controls and, when the game has a real window, the video settings. */
+/** Puts `s` into effect: bus volumes, colour filter, screen effects, game feel, subtitles, text size, interface size, language, rebound controls and, when the game has a real window, the video settings. */
 export function apply(s = load()) {
   for (const bus of BUSES) audio.setVolume(bus, s.volume[bus]);
   applyScene(s);
