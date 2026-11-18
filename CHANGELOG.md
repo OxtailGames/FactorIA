@@ -8,6 +8,14 @@ Older versions, one file per minor version with its patch releases: [0.29](chang
 
 ### M71 (in progress): linear HDR and a post-processing stack
 
+- **Ambient occlusion (`ssao`):** `PostProcess.ssaoEnabled` now darkens creases and contact points of 3D meshes (GTAO from the depth and
+  normal prepass, at half resolution for `low` and `medium`, full for `high` and `ultra`, a blur that follows the surfaces, no random
+  numbers: the same picture every run). `ssaoRadius` is in world units, `ssaoIntensity` the power of the occlusion, and each camera of a
+  split screen has its own passes over its own rectangle. It works in place on the game picture (the interface drawn before the post
+  passes is darkened where it covers meshes); off, at intensity 0, or without opaque meshes it adds no pass and no prepass.
+  `render.supports {"feature": "ssao"}` is true where the GPU has RGBA16F targets that blend, and `render.debug_view {"view": "ao"}`
+  shows the occlusion alone.
+
 - **Depth of field and camera motion blur:** `depthOfFieldEnabled` and `motionBlurEnabled` of `PostProcess` are drawn now (`render.supports`
   says so, `postprocess.apply_preset` no longer lists them in `notDrawn`). Both read the depth prepass and work on the scene colour,
   before the bloom and the final pass; each camera has its own passes (split screen). The depth of field blurs by a circle of confusion

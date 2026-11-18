@@ -425,11 +425,11 @@ TEST_CASE("features: what the engine does not draw yet is false and says planned
     const FeatureEnv full = gpu(FeatureBackend::D3d11, true, true, true, true);
     std::string why;
     CHECK(supported(full, "linearColor", &why));  // M71-B1: drawn on every GPU
-    // The effects the renderer draws (M71-B4, C1, C2, D2, D3b) answer true on a GPU that can; the others are planned.
+    // The effects the renderer draws (M71-B4, C1, C2, D1, D2, D3b) answer true on a GPU that can; the others are planned.
     const std::string_view drawn[] = {
-        "exposure",     "bloom",        "tonemap",   "colorFilter", "lensDistortion", "chromaticAberration",
-        "colorGrading", "vignette",     "sharpen",   "outline",     "pixelate",       "posterize",
-        "filmGrain",    "depthOfField", "motionBlur",  "fog",         "sunShafts"};
+        "ssao",         "exposure",  "bloom",   "tonemap", "colorFilter", "lensDistortion", "chromaticAberration",
+        "colorGrading", "vignette",  "sharpen", "outline", "pixelate",    "posterize",      "filmGrain",
+        "depthOfField", "motionBlur", "fog",    "sunShafts"};
     for (const std::string_view e : kPostEffectOrder) {
         CAPTURE(e);
         if (std::find(std::begin(drawn), std::end(drawn), e) != std::end(drawn)) {
@@ -438,6 +438,12 @@ TEST_CASE("features: what the engine does not draw yet is false and says planned
             // and the motion blur read the depth prepass, so it needs a GPU that can sample the scene's depth: the answer names that, not the plan.
             if (e == "outline" || e == "depthOfField" || e == "motionBlur" || e == "fog" || e == "sunShafts") {
                 CHECK_FALSE(supported(gpu(FeatureBackend::Gles3, false, false, false), std::string(e).c_str(), &why));
+                CHECK(why.find("depth") != std::string::npos);
+                CHECK(why.find("planned") == std::string::npos);
+            } else if (e == "ssao") {  // M71-D1: float targets for its images, the prepass for the depth
+                CHECK_FALSE(supported(gpu(FeatureBackend::Gles3, false, false, true), "ssao", &why));
+                CHECK(why.find("RGBA16F") != std::string::npos);
+                CHECK_FALSE(supported(gpu(FeatureBackend::Gles3, true, true, false), "ssao", &why));
                 CHECK(why.find("depth") != std::string::npos);
                 CHECK(why.find("planned") == std::string::npos);
             } else {

@@ -361,6 +361,12 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
                             renderScale, &frameCam);
         if (!(ctx.camPx.x == 0 && ctx.camPx.y == 0 && ctx.camPx.w == physW && ctx.camPx.h == physH))
             pp.rect = PostRect{ctx.camPx.x, ctx.camPx.y, ctx.camPx.w, ctx.camPx.h};
+        if (debugView ==
+            DebugView::
+                Ao) {  // the occlusion alone: the camera's own settings or the defaults, and the prepass it reads
+            pp.ssao = ssao_debug_settings(pp.ssao);
+            pp.needsDepth = pp.needsNormals = true;
+        }
         postCams.push_back(&ctx);
         // The camera's view-projection of the frame before, for the effects that reproject (motion blur); one entry per camera, and the
         // cameras that were not drawn last frame are forgotten.
@@ -1125,7 +1131,7 @@ bool Renderer::Impl::plan_prepass(DrawContext& ctx) {
     }
     transient_targets().pool.release(h);
     ctx.doPrepass = true;
-    ctx.debugPrepass = debugView != DebugView::None && gpu.prepass_view_ready();
+    ctx.debugPrepass = (debugView == DebugView::Depth || debugView == DebugView::Normals) && gpu.prepass_view_ready();
     return true;
 }
 
@@ -1692,6 +1698,19 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
             use.skip_outline();  // the pass did not get the image: drawn without
         return t && use.fx.outline ? t->texView : sg_view{};
     };
+    // The ambient occlusion of every camera, before the bloom: it darkens the camera's rectangle of the game image in place, so the glow and
+    // the final pass see the darkened picture. With the HUD over the glow and MSAA the multisampled image is what the HUD pass and the
+    // bloom composite load again, so the occlusion goes into it (resolved at the end of the pass), like the glow.
+    for (const DrawContext* c : postCams) {
+        if (!c->postPlan.ssao.enabled || !c->postPlan.prepass.valid()) continue;
+        const SsaoTarget dst =
+            ctx.hudAfterBloom && ctx.msaa
+                ? SsaoTarget{gameTarget.colorAtt, gameTarget.resolveAtt, gpu.sample_count()}
+                : SsaoTarget{ctx.msaa ? gameTarget.resolveColorAtt : gameTarget.colorAtt, sg_view{}, 1};
+        ssao.add_passes(graph, transient_targets(), gpu, c->postPlan.ssao, ssao_camera(c->fr.cam), c->postPlan.prepass,
+                        c->postPlan.rect, physW, physH, game, dst, c->postPlan.sceneLinear, &stats.drawCalls,
+                        c->plan.name);
+    }
     // Fog and sun shafts of every camera (renderer_fog.h), over its rectangle of the scene colour, before the depth of field.
     for (DrawContext* c : postCams) {
         if (!c->postPlan.fogFx.any() || !c->postPlan.prepass.valid()) continue;

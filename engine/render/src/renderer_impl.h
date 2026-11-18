@@ -36,6 +36,7 @@
 #include "frame.h"
 #include "mesh_batch.h"
 #include "render_scene.h"
+#include "renderer_ssao.h"
 #include "font_set.h"
 #include "frame_graph.h"
 #include "render_internal.h"
@@ -83,6 +84,7 @@ struct Renderer::Impl {
     // bloom, the colour filter and present() sample; gameTarget.resolveColorAtt (MSAA) is the resolved image as a colour
     // attachment, which bloom composites into.
     Target gameTarget;
+    Ssao ssao;  // PostProcess.ssao*: the ambient occlusion passes of each camera (renderer_ssao.h)
     SceneFx
         sceneFx;  // depth of field and motion blur (renderer_dof.h): its shaders, pipelines and the autofocus of each camera
     FogFx fogFx;  // distance and height fog and sun shafts (renderer_fog.h): its shaders and pipelines

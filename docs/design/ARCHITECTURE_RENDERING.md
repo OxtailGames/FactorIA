@@ -379,7 +379,7 @@ final pass) are drawn; the others are not yet.
   backends it can ever run on (GL, GLES3, WebGL2, D3D11, Metal; the headless dummy backend has none), what it needs from the GPU
   (read with `sg_query_pixelformat` / `sg_query_features`), and whether the engine draws it yet. A feature the engine does not draw
   answers false with the status "planned (M71)": each M71 package turns its own on (`effect_drawn` in `render_features.cpp`: exposure,
-  bloom, tonemap, colorFilter, lensDistortion, chromaticAberration, colorGrading, vignette, sharpen, outline, pixelate, posterize and filmGrain so far), so `supports` never claims what the renderer cannot do. Compute shaders exist on GL, D3D11 and Metal, never on GLES3 or WebGL2; `hdrOutput` only on D3D11 and Metal.
+  ssao, bloom, tonemap, colorFilter, lensDistortion, chromaticAberration, colorGrading, vignette, sharpen, outline, pixelate, posterize and filmGrain so far), so `supports` never claims what the renderer cannot do. Compute shaders exist on GL, D3D11 and Metal, never on GLES3 or WebGL2; `hdrOutput` only on D3D11 and Metal.
   The decision is a pure function of a `FeatureEnv` (backend + what the GPU reported), so a test asks what D3D11 would say.
 - **Commands.** `postprocess.get`, `postprocess.set` (thin wrappers of `scene.set_component` for `PostProcess`), `postprocess.presets` and
   `postprocess.apply_preset` are in `engine/runtime/src/postprocess_commands.cpp`. The looks are data
@@ -483,6 +483,16 @@ final pass) are drawn; the others are not yet.
   camera job that draws the world, and only when the pool could make the image (else `coverageWarned`: one warning, that camera's outline
   is dropped). 3D meshes are not in it (a mesh is not "a sprite"), nor the clear colour, nor the
   screen-space items (the HUD is drawn after the final pass).
+- **Ambient occlusion (M71-D1; `src/renderer_ssao.{h,cpp}`, `shaders/ssao.glsl`).** `PostPlan::ssao` (`ssao_from_stack`: quality 0..3,
+  intensity 0..4, radius 0..20, off at intensity 0 or radius < 0.001) is what `make_post_plan` takes from the stack (not from `forceEffects`),
+  and it asks for the prepass. `Ssao::add_passes` declares, per camera and after its game passes and before the bloom, `<job>/ssao-ao` (GTAO,
+  half resolution at low and medium, full at high and ultra: 2, 3, 3, 5 directions, 3, 5, 6, 8 steps), `ssao-blur-h`, `ssao-blur-v` (bilateral,
+  the weights of the distance to the plane of the centre) and `ssao-apply`, over the camera's rectangle (viewport and scissor when it is a part
+  of the picture). The two RGBA16F images are transients of the graph (`<job>/ssao-a|b`). The apply pass works in place: a multiply blend
+  (`DST_COLOR`, `ZERO`) on the game image, so the bloom and the final pass see the darkened picture (with `hudAfterBloom` and MSAA it
+  writes into the multisampled image, like the bloom's composite). The noise is a fixed 4x4 pattern: no random numbers.
+  `DebugView::Ao` replaces the apply by `ssao-view` (the grey). The effect is skipped, with one
+  warning, where the GPU has no RGBA16F target that blends and filters.
 - **Depth and normal prepass** (`Renderer::Impl::plan_prepass`, `prepass_pass`, `prepass_view_pass` in `renderer_draw.cpp`). A pass
   of every camera job's graph that needs one, declared before "main" as `<job>/prepass`, with a transient of its own (`PostPlan::prepass`, a `PrepassRef` the effects that read
   it list in their reads; the pass is `GraphPass::sideEffect` because nothing reads it until an effect or the debug view does). One

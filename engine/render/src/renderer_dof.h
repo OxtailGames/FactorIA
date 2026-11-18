@@ -39,16 +39,16 @@ struct PrepassRef;
 // neither effect is on.
 struct SceneFxPlan {
     bool dof = false;
-    float focus = 10.0f;      // focus distance of this frame in world units (the autofocus already applied)
-    float halfRange = 2.5f;   // half of the sharp band around `focus`
-    float nearRamp = 10.0f;   // world units over which the blur in front of the band grows to its largest
-    float farRamp = 10.0f;    // the same behind it
-    float nearPx = 0.0f;      // largest blur in front, in physical pixels (design pixels * the render scale)
-    float farPx = 0.0f;       // largest blur behind
+    float focus = 10.0f;     // focus distance of this frame in world units (the autofocus already applied)
+    float halfRange = 2.5f;  // half of the sharp band around `focus`
+    float nearRamp = 10.0f;  // world units over which the blur in front of the band grows to its largest
+    float farRamp = 10.0f;   // the same behind it
+    float nearPx = 0.0f;     // largest blur in front, in physical pixels (design pixels * the render scale)
+    float farPx = 0.0f;      // largest blur behind
     bool bokeh = true;
     bool motion = false;
-    float shutter = 0.5f;     // the part of the screen movement that is blurred
-    int motionTaps = 8;       // most taps along the movement
+    float shutter = 0.5f;  // the part of the screen movement that is blurred
+    int motionTaps = 8;    // most taps along the movement
     // The matrices of the movement: a view-space position of this frame -> the clip position it had in the frame before
     // (previous view-projection * inverse view), and the projection's terms the shader needs (see motion_blur.glsl).
     Mat4 prevFromView;
@@ -76,16 +76,16 @@ public:
     // takes the matrices of the movement from `prevViewProj` when `prevValid` (the frame before drew this camera; else no motion blur: the first
     // frame and a cut never blur). `designScale`: physical pixels per design pixel. `dt`: the engine's frame time. Forgets the focus of cameras
     // that did not ask for two frames.
-    SceneFxPlan plan(World& world, const CameraInfo& cam, const PostStack& stack, std::uint64_t camKey, std::uint64_t serial,
-                     float dt, float designScale, const Mat4& prevViewProj, bool prevValid);
+    SceneFxPlan plan(World& world, const CameraInfo& cam, const PostStack& stack, std::uint64_t camKey,
+                     std::uint64_t serial, float dt, float designScale, const Mat4& prevViewProj, bool prevValid);
 
     // Declares the passes of one camera in `graph`: after the passes that draw `game` (the imported resource of the picture, texture view
     // `srcTex`), before bloom. `rect`: the camera's rectangle of the picture (picW x picH); `prepass`: its prepass (invalid: nothing is drawn,
     // the effects need the depth); `dst`: where the result goes, as the bloom's (BloomTarget). Each pass adds one to *drawCalls when it runs.
     // Returns the number of passes declared (0: nothing is drawn: no effect, no prepass, shaders or targets the GPU cannot make; logged once).
-    int add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, const SceneFxPlan& plan, const PostRect& rect, int picW,
-                   int picH, ResourceId game, sg_view srcTex, const BloomTarget& dst, const PrepassRef& prepass, int* drawCalls,
-                   const std::string& job);
+    int add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, const SceneFxPlan& plan,
+                   const PostRect& rect, int picW, int picH, ResourceId game, sg_view srcTex, const BloomTarget& dst,
+                   const PrepassRef& prepass, int* drawCalls, const std::string& job);
 
     // The focus distance the camera `camKey` has now (a NaN when it has none): what the tests and the debug output read.
     float focus_of(std::uint64_t camKey) const;

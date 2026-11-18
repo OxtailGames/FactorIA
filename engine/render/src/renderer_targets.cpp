@@ -249,6 +249,7 @@ void Renderer::Impl::destroy_targets() {
     for (auto& [key, t] : viewTargets) release_view(*t);
     viewTargets.clear();
     bloom.release();
+    ssao.release();
     sceneFx.forget_targets();
     fogFx.forget_targets();
     if (transients) transients->pool.clear_free();  // the bloom levels are made again, at the new size
