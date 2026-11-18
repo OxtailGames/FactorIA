@@ -652,6 +652,7 @@ bool emit_shape(World& world, Frame& f, Entity e, Shape2D& s, QuadList& list, Ve
     else
         list.begin_item(s.layer, secondary_key(f, m, false), assets.white(), SamplerKind::Nearest, s.blend, clip);
     if (s.lit && !screen) list.set_lit(nullptr);
+    list.set_material(assets.sprite_material(s.material, s.materialParams));  // may load it: on this thread
     QuadEmitter em{list, m, screen, pack_color(color1), kModeTextured, 0};
     // Bounding box [bx0,bx1] x [by0,by1] in local units (y up; screen space flips it): pivot (0,0) = bottom-left.
     float bx0 = -s.pivot.x * s.size.x, bx1 = bx0 + s.size.x;
@@ -754,6 +755,8 @@ void gather_tilemaps_and_text(World& world, Frame& f) {
         QuadList& list = f.world;
         list.begin_item(tm.layer, secondary_key(f, m, false), tex, SamplerKind::Nearest);
         if (tm.lit) list.set_lit(tm.normalMap.empty() ? nullptr : assets.texture(tm.normalMap));
+        // One material for the whole component; the bands below only hold quads that join this item (add_quads_of).
+        list.set_material(assets.sprite_material(tm.material, tm.materialParams));
         float texW = float(std::max(1, tex->width)), texH = float(std::max(1, tex->height));
         bool cull = !f.cam.perspective;
         Rect view = f.cam.visible;
@@ -973,7 +976,8 @@ void gather_tilemaps_and_text(World& world, Frame& f) {
             m.at(3, 1) = std::round((m.at(3, 1) - oy) * k) / k + oy;
         }
         f.stats->textGlyphs += emit_text(pick(t.space), m, screen, lay, t.color * textTint, *f.fonts, assets, t.layer,
-                                         secondary_key(f, m, false), clip, t.visibleCharacters, textTint);
+                                         secondary_key(f, m, false), clip, t.visibleCharacters, textTint,
+                                         assets.sprite_material(t.material, t.materialParams));
     });
 }
 

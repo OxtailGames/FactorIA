@@ -1287,7 +1287,8 @@ void Renderer::Impl::coverage_pass(DrawContext& ctx, const Target& t) {
     pd.colorStore = SG_STOREACTION_STORE;
     gpu.begin_pass(pd);
     // The image has the size of the camera's rectangle and the camera's matrix maps the world onto that rectangle: the whole image.
-    draw_group(ctx, ctx.gWorld.batches, ctx.fr.cam.viewProj, false, Px{0, 0, t.w, t.h}, 0, &pd.format);
+    draw_group(ctx, ctx.gWorld.batches, ctx.fr.cam.viewProj, false, Px{0, 0, t.w, t.h}, 0, &pd.format, nullptr, t.w,
+               t.h);
     gpu.end_pass();
 }
 
@@ -1376,7 +1377,8 @@ void Renderer::Impl::prepass_view_pass(DrawContext& ctx, const Target& t) {
 // Draws the batches of a quad group. Reads: ctx.vbuf, ctx.shadowRowsTex, fr (lights2d, shadowRows, ambient2d), renderScale,
 // physW / physH, gpu.light_range(), lightTarget.texView (`flatMode` 1 reads the light buffer). Writes: stats (drawCalls, materials, materialFallbacks).
 void Renderer::Impl::draw_group(DrawContext& ctx, const std::vector<QuadBatch>& batches, const Mat4& vp, bool depthTest,
-                                const Px& base, int flatMode, const TargetFormat* format, const FogFxPlan* fog) {
+                                const Px& base, int flatMode, const TargetFormat* format, const FogFxPlan* fog,
+                                int targetW, int targetH) {
     Frame& fr = ctx.fr;
     const sg_buffer vbuf = ctx.vbuf;
     const sg_view shadowRowsTex = ctx.shadowRowsTex;
@@ -1451,27 +1453,24 @@ void Renderer::Impl::draw_group(DrawContext& ctx, const std::vector<QuadBatch>& 
     const sg_view lightTexBound = flatMode == 1 ? lightTarget.texView : assets->white()->view;
     const sg_view shadowTexBound = shadowRowsTex.id ? shadowRowsTex : assets->white()->view;
     // The material draws: fa_time and fa_target are filled for them only (the engine's own programs never read them).
-    const float targetInv[2] = {1.0f / float(std::max(1, physW)), 1.0f / float(std::max(1, physH))};
-    std::vector<const MaterialAsset*> materialsDrawn;
+    // (the size of the image the pass draws into: the game target's, or `targetW` x `targetH` for a smaller one)
+    const float targetInv[2] = {1.0f / float(std::max(1, targetW > 0 ? targetW : physW)),
+                                1.0f / float(std::max(1, targetH > 0 ? targetH : physH))};
     for (const QuadBatch& qb : batches) {
         apply_clip(qb.clip);
         const bool plain = qb.plain && !fogOn;  // the lean program has no fog
         // A sprite material that built draws with its own programs (quad, quad_plain: the ones of its twin); one that did
         // not (the error material) draws with the built-in programs, its quads already tinted magenta by flatten().
         const MaterialUse* use = qb.use && !qb.use->error ? qb.use : nullptr;
-        const MaterialProgram* prog = nullptr;
-        if (use) {
-            prog = &use->material->programs[plain && use->material->programs[1].shader.id ? 1 : 0];
-            if (!prog->shader.id) prog = nullptr;  // not made: the built-in program
-        }
+        // A material that built has both programs (the build fails otherwise): quad_plain for a plain batch.
+        const MaterialProgram* prog = use ? &use->material->programs[plain ? 1 : 0] : nullptr;
         if (qb.use && !prog) {
             const std::string& path = qb.use->material->path;
             if (std::find(stats.materialFallbacks.begin(), stats.materialFallbacks.end(), path) ==
                 stats.materialFallbacks.end())
                 stats.materialFallbacks.push_back(path);
-        } else if (prog &&
-                   std::find(materialsDrawn.begin(), materialsDrawn.end(), use->material) == materialsDrawn.end()) {
-            materialsDrawn.push_back(use->material);
+        } else if (prog) {
+            count_material(use->material);
         }
         const sg_shader programShader = prog ? prog->shader : sg_shader{};
         sg_apply_pipeline(format
@@ -1541,7 +1540,6 @@ void Renderer::Impl::draw_group(DrawContext& ctx, const std::vector<QuadBatch>& 
         }
     }
     apply_clip(Rect{});
-    stats.materials += int(materialsDrawn.size());
 }
 
 // ---- main pass ----
@@ -1626,7 +1624,6 @@ void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
         }
 
         // meshes: one instanced draw per part of every batch
-        std::vector<const MaterialAsset*> materialsDrawn;
         auto draw_meshes = [&](const std::vector<MeshBatch>& batches, const std::vector<MeshItem>& items,
                                bool isBlend) {
             mesh_fa_mesh_vs_params_t vu = vuScene;
@@ -1639,8 +1636,7 @@ void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
                 MaterialInputs inputs{};
                 if (mi.material && mi.material->ok) {
                     material_inputs(mi, mi.material, inputs);
-                    if (std::find(materialsDrawn.begin(), materialsDrawn.end(), mi.material) == materialsDrawn.end())
-                        materialsDrawn.push_back(mi.material);
+                    count_material(mi.material);
                 } else if (mi.material && std::find(stats.materialFallbacks.begin(), stats.materialFallbacks.end(),
                                                     mi.material->path) == stats.materialFallbacks.end()) {
                     stats.materialFallbacks.push_back(mi.material->path);
@@ -1707,7 +1703,6 @@ void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
         }
 
         draw_meshes(blendedBatches, blended, true);
-        stats.materials += int(materialsDrawn.size());
 
         // quad groups
         draw_group(ctx, gWorld.batches, fr.cam.viewProj, fr.cam.perspective, camPx, litMode, nullptr,

@@ -660,6 +660,7 @@ void Assets::clear() {
         for (MaterialProgram& p : m->programs)
             if (p.shader.id) gpu_.destroy_shader(p.shader);
     materials_.clear();
+    drop_material_cache();
     failures_.clear();
     meshSources_.clear();
 }
@@ -1467,6 +1468,7 @@ void Assets::reload(const std::string& pathIn) {
     // Meshes referencing a reloaded texture keep pointing at the same TextureAsset (updated in place).
     // A material rebuilds in place when its file, its snippet or its compiled twin changed.
     const std::string dialect = backend_dialect(sg_query_backend());
+    drop_material_cache();
     for (auto& [key, mat] : materials_)
         if (path == key || path == mat->snippet || path == key + "." + dialect + ".shader") build_material(*mat);
 }
