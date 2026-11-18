@@ -27,7 +27,7 @@ The loop for an AI (or a person):
 | `shader` | Project-relative path of the snippet, e.g. `"shaders/pulse.surface.glsl"`. Required. |
 | `doc` | What the material looks like and is for. Shown by `material.info`. |
 | `kind` | What the material is for: `"mesh"` (default; the surface of a `MeshRenderer`, what this page describes), or the reserved `"sprite"`, `"sky"`, `"post"` and `"compute"`. Only `"mesh"` compiles today: `shader.compile` refuses the others with an error on `/kind` that names the engine milestone package that will bring them (sprite and sky: M72.1, post: M72.2, compute: M72.4). |
-| `lighting` | `"pbr"` (default): the engine's lighting, fog and sky reflection. `"unlit"`: the surface albedo is drawn as it is, plus emission and fog. |
+| `lighting` | `"pbr"` (default): the engine's lighting, fog and sky reflection. `"unlit"`: the surface albedo is drawn as it is, plus emission and fog. `"custom"`: your snippet defines `light()` (and optionally `ambient()`), which the engine's light loop calls once per light instead of its own shading (see "Custom lighting" below); shadows, attenuation, emission and fog stay the engine's. |
 | `alphaMode` | `"opaque"` (default): alpha is ignored. `"clip"`: fragments with `alpha` below `alphaCutoff` are discarded, also in the shadow pass. `"blend"`: drawn with the blended meshes, far to near. |
 | `doubleSided` | `true` draws back faces too. Default `false`. |
 | `params` | Typed parameters the snippet reads (below). |
@@ -50,11 +50,12 @@ params** (each takes a `vec4` of a 256-byte block), counting the implicit `alpha
 **Textures.** Each key `waves` gives you the GLSL names `waves` (the texture) and `waves_smp` (its sampler). Fields:
 `default` (project-relative image used when an entity gives none), `sampler` (`linear` default, `linearRepeat`,
 `nearest`, `nearestRepeat`; use a `Repeat` one when you scroll or tile) and a required `doc` (channels, color space). At
-most **4 textures**; pack masks into the channels of one image. Textures are read in `surface()`, not in `vertex()`.
+most **4 textures**; pack masks into the channels of one image. A texture can be read in `surface()`, in `light()`
+and in `vertex()` (see "Textures in `vertex()`" below).
 
 **Names.** Params and textures share one namespace. A name is a GLSL identifier, must not start with `fa_` (the engine's
-prefix), must not be a GLSL keyword or one of `main`, `surface`, `vertex`, `Surface`, `SurfaceInput`, `VertexData`, and a
-texture `x` also takes `x_smp`.
+prefix), must not be a GLSL keyword or one of `main`, `surface`, `vertex`, `Surface`, `SurfaceInput`, `VertexData`,
+`LightSample` (and, in a `"custom"` material, `light` and `ambient`), and a texture `x` also takes `x_smp`.
 
 **`alphaCutoff`.** `"alphaMode": "clip"` adds the float param `alphaCutoff` (default 0.5, range 0..1) by itself: the
 engine runs `surface()` and discards the fragment when `s.alpha < alphaCutoff`. Declare `alphaCutoff` yourself (as a
@@ -116,8 +117,8 @@ and sampler form: `texture(sampler2D(waves, waves_smp), uv)`; `texture(waves, uv
 **Rules to know before you write:**
 
 - Do not declare a name that starts with `fa_`, define `main`, or write `@` tags: the compile error names the rule.
-- `vertex()` runs in the vertex stage: it cannot sample textures (an error) and has no `fa_camera_pos`. A helper that
-  does either can only be called from `surface()`.
+- `vertex()` runs in the vertex stage: it has no `fa_camera_pos` (a helper that reads it can only be called from
+  `surface()` and `light()`) and `texture()` there always reads mip 0 (below).
 - `discard` works in `surface()`, but only `"alphaMode": "clip"` also cuts the shadow: use it for holes.
 - Gradients (`texture()` derivatives) inside loops or branches are fine in GLSL and refused by HLSL (Windows); use
   `textureLod(sampler2D(t, t_smp), uv, 0.0)` there. `factoria validate` compiles every platform's dialect, so it finds this.
@@ -126,6 +127,68 @@ and sampler form: `texture(sampler2D(waves, waves_smp), uv)`; `texture(waves, uv
 - `vertex()` and `surface()` also run in the depth and normal prepass of the effects that read the depth (docs/RENDERING.md, "Depth and
   normals"): a displaced vertex is displaced there, `s.normal` is the normal it stores and, for `"clip"`, the holes are the same.
   Nothing to write for it; the material gets its `prepass` programs when it is compiled.
+
+## Textures in `vertex()`
+
+A texture the material declares can be sampled in `vertex()` as well as in `surface()`: a height map that displaces the
+vertices, a flow map that bends grass. Write it the same way, `texture(sampler2D(height, height_smp), v.uv)`; the
+engine declares the texture once for each stage and the snippet uses one name for both. Two things differ from the
+fragment stage:
+
+- The vertex stage has no derivatives, so `texture()` there reads **mip level 0** (the engine rewrites it to
+  `textureLod(..., 0.0)`). Textures with mips (`linear`, `linearRepeat` samplers) still show their sharpest level; use
+  `nearest` or `nearestRepeat` when you want exact texels.
+- The same `vertex()` runs in the main pass, the shadow pass and the depth and normal prepass, with the same textures, so
+  a displaced mesh casts the shadow of its displaced shape and the depth effects see it where it is.
+
+The normal is not recomputed: `v.world_normal` stays the mesh's own. Displace along it and lighting keeps the old
+facing, or recompute it from neighbouring samples when the relief is steep. The four-texture limit counts a texture once
+even when both stages read it. Example 9 below displaces a plane with a height map.
+
+## Custom lighting
+
+`"lighting": "custom"` hands the shading of every light to your snippet. The engine still chooses the lights, applies
+their attenuation and the shadow (the shadow map of the first directional light), adds `s.emission` and the fog; it
+calls your function once for each light that reaches the fragment and adds the results:
+
+```glsl
+vec3 light(in SurfaceInput i, in Surface s, in LightSample l);        // required: the light that reaches the surface
+vec3 ambient(in SurfaceInput i, in Surface s, vec3 ambientColor);     // optional: the ambient term, added once
+```
+
+`surface()` runs first, as always, and fills `s` (`s.normal` is the normalized world-space normal it left). Then, per light,
+`light()` gets that `s` and a `LightSample`:
+
+```glsl
+struct LightSample {
+    vec3 direction;     // surface -> light, normalized (for a directional light, the direction its light comes from)
+    vec3 color;         // the light's color times intensity times attenuation times shadow: what reaches the surface
+    float attenuation;  // 1 for a directional light; for a point or spot light the range falloff (times the spot cone)
+    float shadow;       // 1 lit, 0 in shadow (a shadow map of the first directional light only; 1 for every other light)
+    float distance;     // surface -> light distance in world units; 0 for a directional light
+    int type;           // 0 directional, 1 point, 2 spot
+};
+```
+
+`l.color` already holds attenuation and shadow, so `s.albedo * l.color * ndl` is a complete Lambert light that is
+correctly dark in shadow; `l.attenuation` and `l.shadow` are there for a look that treats them apart (a shadow drawn
+as a flat band whatever the light's color). Without `ambient()` the ambient term is the scene's `ambientLight` times
+`s.albedo * s.occlusion`; with it, whatever you return (`ambientColor` is `SceneSettings.ambientLight`).
+
+What changes against `"pbr"`: the Cook-Torrance term and the sky reflection are gone (`s.metallic` and `s.roughness`
+are still filled, for you to use or ignore), and so is the engine's specular. What stays: `s.emission`, fog,
+`"clip"`, `"blend"`, instancing, skinning, shadows and the depth and normal prepass. A `light()` that returns `vec3(0.0)`
+leaves only the ambient term.
+
+- The material needs `light()`; without it `shader.compile` stops before the compiler runs, with an error that names the
+  material file, shows the signature and says how to go back to `"pbr"`. `light` and `ambient` are entry points only in a
+  `"custom"` material (in any other they are ordinary names), and `LightSample` is reserved in all of them.
+- `light()` runs once for each light, in the fragment stage, inside a loop. A texture read there needs
+  `textureLod(sampler2D(t, t_smp), uv, 0.0)`: a gradient (`texture()`) inside a loop is refused by HLSL (Windows).
+  `factoria validate` compiles every platform, so it finds it.
+- `gl_FragCoord` is available in `light()` (example 8 uses it). Where its y axis starts (top or bottom of the
+  picture) is the graphics API's choice, so a pattern built from it may be mirrored from one platform to another: use
+  patterns that look the same mirrored (hatching strokes at 45 degrees in both directions) when that matters.
 
 ## Putting a material on an entity
 
@@ -240,8 +303,9 @@ Every error says where, what is wrong and how to fix it.
 - **The snippet:** `shaders/pulse.surface.glsl:7:12` with the line quoted, mapped from the compiler's message to your
   file, once per mistake. Frequent mistakes have a hint: `s.colour` says `did you mean albedo?` and lists the fields; a
   param written with a typo says `did you mean strength?` and lists the material's names; `texture(waves, uv)` shows the
-  `sampler2D(waves, waves_smp)` form; a missing `surface()` shows the signature; a field written without its struct
-  says `write s.albedo`.
+  `sampler2D(waves, waves_smp)` form; a missing `surface()` shows the signature, and so does a missing `light()` in a
+  `"custom"` material (the error names the material file); a field written without its struct says `write s.albedo`
+  (`l.colour` in `light()` says `did you mean color?` and lists the fields of `LightSample`).
 - **At run time** a material that does not compile is drawn with the **error material**: unlit magenta, so a screenshot
   shows at once which mesh is wrong, and the log says why. After a hot reload with a broken edit the previous version
   stays in use and the error is logged once.
@@ -385,7 +449,7 @@ void surface(in SurfaceInput i, inout Surface s) {
 
 `vertex()` moves the vertices in world space; the tip sways, the root stays. For a `quad` mesh (1 x 1 in XY, centered) the
 root is at `object_pos.y = -0.5`, hence the `+ 0.5`. Scale the entity to a blade (`[0.3, 1, 1]`). The shadow follows the
-sway. `vertex()` reads params and `fa_time` but not textures.
+sway. This `vertex()` reads params and `fa_time`; example 9 reads a texture.
 
 File `materials/grass.material.json`:
 
@@ -450,14 +514,157 @@ void surface(in SurfaceInput i, inout Surface s) {
 }
 ```
 
+### 6. Two-band toon (`"custom"` lighting)
+
+`light()` is called once for each light; the engine has already put the light's color, attenuation and shadow into
+`l.color`. Here a surface facing the light more than `threshold` gets the full light and the rest gets `shade` of it, so
+the sphere shows exactly two tones, and a shadow falls as a flat dark band.
+
+File `materials/toon.material.json`:
+
+```json
+{
+  "format": "factoria.material/1",
+  "doc": "Cel shading with two bands: lit and shaded, with a hard edge between them.",
+  "shader": "shaders/toon.surface.glsl",
+  "lighting": "custom",
+  "params": {
+    "threshold": { "type": "float", "default": 0.5, "min": 0.0, "max": 1.0, "doc": "Dot product of normal and light direction above which the surface is lit." },
+    "shade": { "type": "float", "default": 0.35, "min": 0.0, "max": 1.0, "doc": "Brightness of the shaded band, as a fraction of the lit one." }
+  }
+}
+```
+
+File `shaders/toon.surface.glsl`:
+
+```glsl
+void surface(in SurfaceInput i, inout Surface s) {}
+
+vec3 light(in SurfaceInput i, in Surface s, in LightSample l) {
+    float band = dot(s.normal, l.direction) > threshold ? 1.0 : shade;
+    return s.albedo * l.color * band;
+}
+```
+
+### 7. Cel bands from a ramp texture (`ambient()`)
+
+The band is a texel of a ramp image: paint the ramp (one row, left = facing away, right = facing the light, `nearest`
+sampler for hard steps) and the lighting follows it. `ambient()` keeps the shaded side from going black. Read the ramp
+with `textureLod`, because `light()` runs in a loop.
+
+File `materials/ramp.material.json`:
+
+```json
+{
+  "format": "factoria.material/1",
+  "doc": "Cel shading whose bands come from a ramp image.",
+  "shader": "shaders/ramp.surface.glsl",
+  "lighting": "custom",
+  "params": {
+    "ambientAmount": { "type": "float", "default": 0.6, "min": 0.0, "max": 2.0, "doc": "How much of the scene's ambient light the surface keeps." }
+  },
+  "textures": {
+    "ramp": { "default": "textures/ramp.png", "sampler": "nearest", "doc": "Light ramp: the red channel is the brightness, left = facing away from the light, right = facing it." }
+  }
+}
+```
+
+File `shaders/ramp.surface.glsl`:
+
+```glsl
+void surface(in SurfaceInput i, inout Surface s) {}
+
+vec3 light(in SurfaceInput i, in Surface s, in LightSample l) {
+    float ndl = dot(s.normal, l.direction) * 0.5 + 0.5;     // -1..1 -> 0..1
+    float band = textureLod(sampler2D(ramp, ramp_smp), vec2(ndl, 0.5), 0.0).r;
+    return s.albedo * l.color * band;
+}
+
+vec3 ambient(in SurfaceInput i, in Surface s, vec3 ambientColor) {
+    return ambientColor * s.albedo * (s.occlusion * ambientAmount);
+}
+```
+
+### 8. Screen-space hatching
+
+Strokes drawn on the picture, not on the mesh: the less a surface faces the light, the more strokes cross it (none
+when it is lit, one set in the half shade, two crossing sets in the full shade). The strokes are 45 degrees in both directions, so a platform that puts the origin of `gl_FragCoord` at
+the other corner draws the same picture mirrored.
+
+File `materials/hatch.material.json`:
+
+```json
+{
+  "format": "factoria.material/1",
+  "doc": "Ink hatching: one set of strokes in the half shade, a crossing set in the full shade.",
+  "shader": "shaders/hatch.surface.glsl",
+  "lighting": "custom",
+  "params": {
+    "spacing": { "type": "float", "default": 8.0, "min": 2.0, "max": 40.0, "doc": "Distance between strokes, in pixels of the picture." }
+  }
+}
+```
+
+File `shaders/hatch.surface.glsl`:
+
+```glsl
+void surface(in SurfaceInput i, inout Surface s) {}
+
+vec3 light(in SurfaceInput i, in Surface s, in LightSample l) {
+    float ndl = clamp(dot(s.normal, l.direction), 0.0, 1.0);
+    vec2 p = gl_FragCoord.xy / spacing;
+    float paper = 1.0;
+    if (ndl < 0.6) paper = min(paper, step(0.3, fract(p.x + p.y)));    // first set of strokes
+    if (ndl < 0.3) paper = min(paper, step(0.3, fract(p.x - p.y)));    // crossing set
+    return s.albedo * l.color * paper;
+}
+```
+
+### 9. Height map displacement (a texture in `vertex()`)
+
+A grayscale image lifts a mesh into relief. `vertex()` and `surface()` read the same texture; the shadow follows the
+displaced shape. The mesh needs enough vertices to show the relief: a grid made with `mesh.create()` or an imported
+model works, the built-in `plane` has only four vertices and just lifts its corners.
+
+File `materials/relief.material.json`:
+
+```json
+{
+  "format": "factoria.material/1",
+  "doc": "Displaces the vertices upward by a height map and darkens the low ground.",
+  "shader": "shaders/relief.surface.glsl",
+  "params": {
+    "height": { "type": "float", "default": 1.0, "min": 0.0, "max": 10.0, "doc": "Meters a white texel lifts a vertex." }
+  },
+  "textures": {
+    "heightMap": { "default": "textures/height.png", "sampler": "linearRepeat", "doc": "Height map: the red channel, 0 = ground level, 1 = full height." }
+  }
+}
+```
+
+File `shaders/relief.surface.glsl`:
+
+```glsl
+void vertex(inout VertexData v) {
+    float h = texture(sampler2D(heightMap, heightMap_smp), v.uv).r;      // always mip 0 in vertex()
+    v.world_pos.y += h * height;
+}
+
+void surface(in SurfaceInput i, inout Surface s) {
+    float h = texture(sampler2D(heightMap, heightMap_smp), i.uv).r;
+    s.albedo *= mix(0.5, 1.0, h);
+}
+```
+
 ## Not available yet
 
 - **Full vertex and fragment shaders** (your own `main`, your own vertex layout, several passes): the snippet always
   runs inside the engine's mesh shader.
-- **Custom lighting** (toon ramps, your own light loop): lighting is the engine's `pbr` or `unlit`. A look that needs it
-  (a two-band toon) can be faked with `s.emission` and `lighting: "unlit"` until the engine gains it.
-- Materials for `Sprite`, `Shape2D`, particles, the sky and post-processing; compute shaders; textures sampled in
-  `vertex()`; one instanced draw with a different value per instance.
+- **Your own light loop** (which lights are chosen, how many, their order, the shadow map): `"custom"` lighting only
+  shades each light the engine hands over. Image-based lighting (the sky reflection) is off in a custom material and
+  cannot be called from `light()`.
+- Materials for `Sprite`, `Shape2D`, particles, the sky and post-processing; compute shaders; one instanced draw with a
+  different value per instance.
 
 If a game needs one of these, write it in the game's `ENGINE_FEEDBACK.json` (see [ENGINE_FEEDBACK.md](ENGINE_FEEDBACK.md)):
 that is how it gets built.

@@ -1,0 +1,11 @@
+{
+  "format": "factoria.material/1",
+  "doc": "Test fixture: a texture sampled in vertex() (a height map lifts every vertex, also in the shadow pass) and in surface() (the same texture darkens black texels).",
+  "shader": "shaders/bump.surface.glsl",
+  "params": {
+    "lift": { "type": "float", "default": 1.2, "doc": "Meters a vertex rises where the height map is white." }
+  },
+  "textures": {
+    "height": { "default": "textures/white.png", "sampler": "nearest", "doc": "Height map: the red channel, 0 = no lift, 1 = full lift." }
+  }
+}

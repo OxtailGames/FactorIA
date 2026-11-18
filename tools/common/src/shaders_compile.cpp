@@ -150,11 +150,21 @@ std::size_t find_word(const std::string& s, const std::string& word, bool afterD
 }
 
 std::string struct_var(const std::string& typeName) {
-    return typeName == "SurfaceInput" ? "i" : typeName == "Surface" ? "s" : "v";
+    return typeName == "SurfaceInput" ? "i" : typeName == "Surface" ? "s" : typeName == "LightSample" ? "l" : "v";
 }
 
-const std::vector<std::string>* struct_fields(const std::string& name) {
-    for (const auto& [n, fields] : contract_structs())
+// The structs of the contract this material uses: LightSample only with lighting "custom" (a pbr material has no light()).
+std::vector<std::pair<std::string, std::vector<std::string>>> contract_of(const MaterialDef& material) {
+    auto out = contract_structs();
+    if (material.lighting != "custom")
+        out.erase(std::remove_if(out.begin(), out.end(), [](const auto& e) { return e.first == "LightSample"; }),
+                  out.end());
+    return out;
+}
+
+const std::vector<std::string>*
+struct_fields(const std::string& name, const std::vector<std::pair<std::string, std::vector<std::string>>>& structs) {
+    for (const auto& [n, fields] : structs)
         if (n == name) return &fields;
     return nullptr;
 }
@@ -169,19 +179,21 @@ std::string field_hint(const std::string& token, const std::string& source, cons
         while (b > 0 && ident_char(source[b - 1])) --b;
         const std::string var = source.substr(b, e - b);
         if (!var.empty()) {
-            static const std::regex decl(R"(\b(SurfaceInput|Surface|VertexData)\s+(\w+))");
+            static const std::regex decl(R"(\b(SurfaceInput|Surface|VertexData|LightSample)\s+(\w+))");
             for (auto it = std::sregex_iterator(ctx.stripped.begin(), ctx.stripped.end(), decl);
                  it != std::sregex_iterator(); ++it)
                 if ((*it)[2] == var) typeName = (*it)[1];
         }
     }
     std::vector<std::string> fields;
-    std::string where = "Surface, SurfaceInput and VertexData";
-    if (const auto* f = struct_fields(typeName)) {
+    const auto structs = contract_of(ctx.material);
+    std::string where = ctx.material.lighting == "custom" ? "Surface, SurfaceInput, VertexData and LightSample"
+                                                          : "Surface, SurfaceInput and VertexData";
+    if (const auto* f = struct_fields(typeName, structs)) {
         fields = *f;
         where = typeName;
     } else {
-        for (const auto& [n, f2] : contract_structs())
+        for (const auto& [n, f2] : structs)
             for (const std::string& name : f2)
                 if (std::find(fields.begin(), fields.end(), name) == fields.end()) fields.push_back(name);
     }
@@ -263,13 +275,23 @@ constexpr const char* kPrefixRule =
     "fa_camera_pos, fa_tangent_normal) but not declare any. Rename it without the prefix.";
 constexpr const char* kSignatures = "void surface(in SurfaceInput i, inout Surface s) { ... }  (required)  and  void "
                                     "vertex(inout VertexData v) { ... }  (optional)";
+constexpr const char* kLightSignatures =
+    "void surface(in SurfaceInput i, inout Surface s) { ... }  (required),  void vertex(inout VertexData v) { ... }  "
+    "(optional),  vec3 light(in SurfaceInput i, in Surface s, in LightSample l) { ... }  (required with \"lighting\": "
+    "\"custom\")  and  vec3 ambient(in SurfaceInput i, in Surface s, vec3 ambientColor) { ... }  (optional)";
+std::string signatures(const MaterialDef& material) {
+    return material.lighting == "custom" ? kLightSignatures : kSignatures;
+}
 
 std::string undeclared_hint(const std::string& token, const MapContext& ctx) {
     // A field written without its struct.
-    for (const auto& [n, fields] : contract_structs())
+    for (const auto& [n, fields] : contract_of(ctx.material))
         if (std::find(fields.begin(), fields.end(), token) != fields.end())
             return "`" + token + "` is a field of " + n + ": write " + struct_var(n) + "." + token + " inside " +
-                   (n == "VertexData" ? "vertex" : "surface") + "().";
+                   (n == "VertexData"    ? "vertex"
+                    : n == "LightSample" ? "light"
+                                         : "surface") +
+                   "().";
     if (token.rfind("fa_", 0) == 0) {
         const std::string best = closest_match(token, engine_names());
         return best.empty() ? std::string("No engine value is called ") + token +
@@ -332,10 +354,11 @@ void outside_snippet(ShaderIssue& issue, const std::string& where, const std::st
     issue.line = 0;
     issue.source.clear();
     issue.file = ctx.material.shader.empty() ? ctx.material.path : ctx.material.shader;
-    if (token == "surface" || token == "vertex")
+    if (token == "surface" || token == "vertex" ||
+        (ctx.material.lighting == "custom" && (token == "light" || token == "ambient")))
         issue.hint = std::string("The engine calls ") + token +
-                     "() from its template, so the snippet must define it with exactly this signature: " + kSignatures +
-                     ".";
+                     "() from its template, so the snippet must define it with exactly this signature: " +
+                     signatures(ctx.material) + ".";
     else if (token == "main")
         issue.hint =
             "The engine owns main(): the snippet defines surface() (and vertex()) and must not define main. Remove it.";
@@ -343,7 +366,7 @@ void outside_snippet(ShaderIssue& issue, const std::string& where, const std::st
         issue.hint =
             std::string(
                 "The engine template could not be built from the snippet, so the snippet broke the contract: define ") +
-            kSignatures +
+            signatures(ctx.material) +
             ", and do not declare names starting with fa_ or main(). Run `factoria call docs.read "
             "'{\"path\":\"docs/SHADERS.md\"}'` for the contract once it is documented.";
 }
@@ -418,6 +441,22 @@ std::vector<ShaderIssue> precheck_snippet(const MaterialDef& material, const Gen
                 "Define it as `void surface(in SurfaceInput i, inout Surface s) { s.albedo = vec3(1.0, 0.0, 0.0); }`. "
                 "s arrives filled with the standard MeshRenderer result, so change only what you need. Signatures: ") +
             kSignatures + ".";
+        out.push_back(std::move(i));
+    }
+    if (material.lighting == "custom" && !g.hasLight) {
+        ShaderIssue i;
+        i.file = material.shader;
+        i.message = "the material " + (material.path.empty() ? std::string("file") : material.path) +
+                    " has \"lighting\": \"custom\" but the snippet defines no light() function";
+        i.hint = "Define `vec3 light(in SurfaceInput i, in Surface s, in LightSample l) { return s.albedo * l.color * "
+                 "max(dot(s.normal, l.direction), 0.0); }`: the engine calls it once per light and adds the results; "
+                 "l.color "
+                 "already has the light's attenuation and shadow in it. (Optional: `vec3 ambient(in SurfaceInput i, in "
+                 "Surface s, "
+                 "vec3 ambientColor)` for the ambient term.) Or set \"lighting\" to \"pbr\" (the engine's lighting) or "
+                 "\"unlit\" in " +
+                 (material.path.empty() ? std::string("the material file") : material.path) +
+                 " (pointer /lighting). Signatures: " + kLightSignatures + ".";
         out.push_back(std::move(i));
     }
     // A declaration with an fa_ name: `<type> fa_x ;|=|[|(|,|)` or #define fa_x.
