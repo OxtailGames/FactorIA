@@ -2,6 +2,8 @@
 #include "scene2d.h"
 #include "render_features.h"
 
+#include <cstdlib>
+#include <cstring>
 #include <map>
 
 namespace fa {
@@ -180,7 +182,7 @@ sg_desc make_sg_desc(const GfxEnvironment& env) {
     sd.image_pool_size = 1024;
     sd.view_pool_size = 4096;
     sd.sampler_pool_size = 64;
-    sd.shader_pool_size = 256;  // 11 built-in shaders, up to 4 per custom material
+    sd.shader_pool_size = 384;  // about 15 built-in shaders, up to 6 per custom material
     sd.pipeline_pool_size = 256;
     sd.uniform_buffer_size = 16 * 1024 * 1024;
     return sd;
@@ -323,6 +325,10 @@ bool Renderer::init(const RendererDesc& desc, const GfxEnvironment& env, std::st
     impl_ = std::make_unique<Impl>();
     Impl& im = *impl_;
     im.desc = desc;
+    if (const char* dv = std::getenv("FA_RENDER_DEBUG_VIEW"))
+        im.debugView = std::strcmp(dv, "depth") == 0     ? DebugView::Depth
+                       : std::strcmp(dv, "normals") == 0 ? DebugView::Normals
+                                                         : DebugView::None;
     im.adopted = desc.adoptContext && sg_isvalid();
     if (!im.adopted) {
         sg_desc sd = make_sg_desc(env);
@@ -644,6 +650,16 @@ render::ShadowRowsStats render::renderer_shadow_rows_stats(Renderer& r) {
     if (r.impl_) out = {int(r.impl_->shadowRowsRing.size()), int(r.impl_->shadowRowUploads)};
     return out;
 }
+
+void render::renderer_force_post_effects(Renderer& r, std::uint32_t effects) {
+    if (r.impl_) r.impl_->forceEffects = effects;
+}
+
+void Renderer::set_debug_view(DebugView view) {
+    if (impl_) impl_->debugView = view;
+}
+
+DebugView Renderer::debug_view() const { return impl_ ? impl_->debugView : DebugView::None; }
 
 void Renderer::update(World& world) {
     if (!initialized()) return;

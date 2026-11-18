@@ -13,3 +13,5 @@ void surface(in SurfaceInput i, inout Surface s) {}
 @program mesh_skin vs_skin fs
 @program shadow shadow_vs shadow_fs
 @program shadow_skin shadow_vs_skin shadow_fs
+@program prepass prepass_vs prepass_fs
+@program prepass_skin prepass_vs_skin prepass_fs

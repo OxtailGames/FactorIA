@@ -368,6 +368,34 @@ Things to know:
 - **Lens dirt.** `bloomLensDirt` is a texture (stretched over the screen) that multiplies the glow by `1 + dirt * bloomLensDirtIntensity`.
 - A camera that draws into a texture (`renderTarget`) never has a stack: the effects are for the picture the player sees.
 
+## Depth and normals
+
+The effects that need to know how far away something is or which way it faces (ambient occlusion, reflections, fog, sun shafts,
+depth of field, motion blur, outline) read a **prepass**: the opaque meshes of the camera drawn once more, before the main pass, into
+one floating-point image of their own (`RGBA32F`, else `RGBA16F`), never multisampled (a multisampled game picture keeps its samples; the prepass has one per pixel). Each
+pixel holds the distance along the camera's view axis in world units (`60000` where nothing was drawn), the view-space normal
+(an octahedral encoding in two channels) and 1 where a mesh is (0 elsewhere). It is the same distance for a perspective and an
+orthographic 3D camera.
+
+- **When it is made.** Only in a frame whose post stack (the `PostProcess` of the camera that draws first) has an effect that reads the
+  depth or the normals and that the renderer draws, for a camera that draws opaque meshes. A frame without such an effect declares no
+  prepass pass, makes no image and builds no shader: the draw calls are the same as before. No effect that reads the depth is drawn
+  yet, so today only the debug view below makes it.
+- **What is in it.** Opaque meshes, skinned ones at their pose, with their material's `vertex()` displacement, the normals of their material's `surface()` and, for `alphaMode`
+  `"clip"`, the same holes as the main pass. Not in it: blended meshes, the sky, sprites, particles, shapes, text, debug lines
+  and the HUD. A custom material gets its own prepass programs when
+  it is compiled, like its shadow programs.
+- **Where it is not made.** A camera that draws into a texture (`renderTarget`), a `CameraView`, a GPU that cannot render and
+  sample a float image (`render.supports` says `sampledDepth` is not available, and the effects that need it are skipped), and a frame
+  split between several cameras or a camera with a viewport smaller than the screen: there the camera whose picture carries the
+  effects draws only the screen-space items, so it has no 3D to read.
+- **Cost.** One more draw of every opaque batch, vertex work only plus the fragment work of a depth and normal write, and 16 bytes a
+  pixel of memory at `RGBA32F` (8 at `RGBA16F`), returned to the pool when the frame ends.
+- **Seeing it.** `FA_RENDER_DEBUG_VIEW=depth` or `normals` in the environment (C++: `Renderer::set_debug_view`) paints the prepass over
+  the 3D picture of the frame: depth as a grey, `10 / (10 + distance)` (white next to the camera), normals as the view-space direction
+  mapped to colours (`x`, `y`, `z` as red, green, blue: a surface that faces the camera is blue), black where no opaque mesh was
+  drawn. It is for looking at the data, not an effect: a game does not set it.
+
 ## Off-screen capture
 
 `render.captureTexture({ entity | rect, space: "world", scale })` draws a part of the world into a texture of its own, with a

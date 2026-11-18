@@ -302,6 +302,10 @@ GeneratedShader generate_material_shader(const MaterialDef& material, std::strin
         g.programs.push_back("shadow_skin");
         t.generated("@program shadow shadow_vs shadow_fs\n@program shadow_skin shadow_vs_skin shadow_fs\n");
     }
+    // The depth and normal prepass (M71) draws every opaque material: vertex() and surface() run in it as in the main pass.
+    g.programs.push_back("prepass");
+    g.programs.push_back("prepass_skin");
+    t.generated("@program prepass prepass_vs prepass_fs\n@program prepass_skin prepass_vs_skin prepass_fs\n");
     if (g.hasVertex) g.defines.push_back("FA_HAS_VERTEX");
     if (clip) g.defines.push_back("FA_ALPHA_CLIP");
     return g;

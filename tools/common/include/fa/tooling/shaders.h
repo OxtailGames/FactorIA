@@ -114,10 +114,11 @@ struct GeneratedShader {
     std::string top;  // the sokol-shdc input
     std::vector<int>
         snippetLine;  // per line of `top` (index = line - 1): the 1-based line of the snippet it holds, 0 = generated
-    bool hasVertex = false;             // the snippet defines vertex()
-    bool hasSurface = false;            // the snippet defines surface()
-    std::vector<std::string> programs;  // "mesh", "mesh_skin" and, with vertex() or "clip", "shadow", "shadow_skin"
-    std::vector<std::string> defines;   // for --defines: FA_HAS_VERTEX, FA_ALPHA_CLIP
+    bool hasVertex = false;   // the snippet defines vertex()
+    bool hasSurface = false;  // the snippet defines surface()
+    std::vector<std::string>
+        programs;  // "mesh", "mesh_skin", with vertex() or "clip" "shadow", "shadow_skin", and "prepass", "prepass_skin"
+    std::vector<std::string> defines;  // for --defines: FA_HAS_VERTEX, FA_ALPHA_CLIP
 };
 
 // Builds the top file of the design: the material block(s) in alphabetical order, the textures, the snippet (surface() only

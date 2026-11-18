@@ -120,6 +120,9 @@ and sampler form: `texture(sampler2D(waves, waves_smp), uv)`; `texture(waves, uv
   `textureLod(sampler2D(t, t_smp), uv, 0.0)` there. `factoria validate` compiles every platform's dialect, so it finds this.
 - `vertex()` moves the vertices before lighting and also in the shadow pass, so waves cast the shadow of the waves.
   When the snippet has `vertex()` or the material is `"clip"`, the material also gets its own shadow programs.
+- `vertex()` and `surface()` also run in the depth and normal prepass of the effects that read the depth (docs/RENDERING.md, "Depth and
+  normals"): a displaced vertex is displaced there, `s.normal` is the normal it stores and, for `"clip"`, the holes are the same.
+  Nothing to write for it; the material gets its `prepass` programs when it is compiled.
 
 ## Putting a material on an entity
 
