@@ -290,7 +290,11 @@ picking colours by eye and keep the same PNG files.
   decodes what is read, so the darks keep their precision and blending is in linear light), else plain `RGBA8` (banding in the
   darks; only a GPU with no sRGB render target, rare). `render.supports {"feature": "linearColor"}` is true on every GPU;
   `render.supports {"feature": "r11g11b10"}` says whether the packed float is there. The tests pick the formats with
-  `FA_SCENE_FORMAT` (`rgba8`, `r11g11b10`).
+  `FA_SCENE_FORMAT` (`rgba8`, `r11g11b10`). `R11G11B10` has a 6-bit mantissa (5 for blue): between two powers of two it has 64 steps (32
+  in blue), so a smooth gradient of values ABOVE 1.0 (a bright emissive surface, a glow, a sun disc) shows bands of 1.5 to 3% of the
+  value (3 to 6% in blue) that `RGBA16F` does not have, and the darks keep their precision. The picture the final pass writes (sRGB
+  values) is therefore never kept in it: on such a GPU the final images are plain `RGBA8`, which cannot go above white, so an HDR
+  output stays within paper white there (`render.output`'s `status` says so).
 - **A switch at run time is allowed** (a script writes `colorSpace`): the game target is made again in the other format, the
   textures, shaders and pipelines are kept, and no GPU image is left behind. A texture already made is not made again.
 
@@ -467,7 +471,11 @@ without the final pass (no exposure or tonemap: nothing decides how to map the l
 SDR screen), a frame with a colour filter (it works on what an SDR screen shows), and a GPU that draws the picture in 8 bits
 (`render.supports {"feature":"floatTargets"}` false). `render.output`'s `status` says so while the HDR swapchain is on and the
 picture stays within paper white. Screenshots, `render.captureTexture` and the editor's view are 8-bit: they show the picture
-clipped at paper white.
+clipped at paper white. That is not the SDR look: in a window on an HDR display the frame is drawn with the HDR tonemap (its
+highlights rolling off toward the headroom) and the 8-bit copy then cuts everything above 1, so the brightest areas of a screenshot
+are flatter than on the screen, and than the same frame on an SDR screen. A run without a window (`factoria call`, tests) draws in the standard range with the SDR tonemap, so its screenshots are the reference for how
+the game looks on an SDR display. The editor's viewport clamps the same way, with an 8-bit copy of the picture when it went above
+white.
 
 The present pass encodes the picture for the swapchain:
 

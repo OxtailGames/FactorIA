@@ -63,6 +63,8 @@ struct State {
     IDXGIFactory1* factory = nullptr;
     HMONITOR monitor = nullptr;
     HdrDisplay display;
+    // The framebuffer size the colour space was last set for (0: none set, or the standard range).
+    int spaceW = 0, spaceH = 0;
 };
 State& state() {
     static State s;
@@ -106,6 +108,16 @@ HdrDisplay ask_output(IDXGIFactory1* factory, HMONITOR monitor) {
     return d;
 }
 
+// The DXGI colour space of the swapchain kind `want` (0 sRGB, 1 scRGB, 2 HDR10), set when the swapchain can present in it.
+bool set_color_space(IDXGISwapChain3* chain3, int want) {
+    const DXGI_COLOR_SPACE_TYPE space = want == 1   ? DXGI_COLOR_SPACE_RGB_FULL_G10_NONE_P709
+                                        : want == 2 ? DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020
+                                                    : DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709;
+    UINT support = 0;
+    return SUCCEEDED(chain3->CheckColorSpaceSupport(space, &support)) &&
+           (support & DXGI_SWAP_CHAIN_COLOR_SPACE_SUPPORT_FLAG_PRESENT) && SUCCEEDED(chain3->SetColorSpace1(space));
+}
+
 }  // namespace
 
 HdrDisplay dxgi_display() {
@@ -144,24 +156,43 @@ HdrEncoding dxgi_apply(HdrEncoding encoding) {
         return k == 1 ? HdrEncoding::ScRgb : k == 2 ? HdrEncoding::Hdr10 : HdrEncoding::Sdr;
     };
     if (!chain3) return current();  // before Windows 10 there is no colour space to set: the standard range only
-    const DXGI_COLOR_SPACE_TYPE space = want == 1   ? DXGI_COLOR_SPACE_RGB_FULL_G10_NONE_P709
-                                        : want == 2 ? DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020
-                                                    : DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709;
     // The colour space must be one the swapchain can present in its new format, so the buffers change first.
     if (fa_sapp_set_swapchain_kind(want, false) != want) {
         release(chain3);
         return current();
     }
-    UINT support = 0;
-    const bool ok = SUCCEEDED(chain3->CheckColorSpaceSupport(space, &support)) &&
-                    (support & DXGI_SWAP_CHAIN_COLOR_SPACE_SUPPORT_FLAG_PRESENT) &&
-                    SUCCEEDED(chain3->SetColorSpace1(space));
+    State& s = state();
+    const bool ok = set_color_space(chain3, want);
     if (!ok && want != 0) {  // back to 8-bit sRGB: never an HDR format with the wrong colour space
         fa_sapp_set_swapchain_kind(0, false);
         chain3->SetColorSpace1(DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709);
     }
+    s.spaceW = ok && want != 0 ? sapp_width() : 0;
+    s.spaceH = ok && want != 0 ? sapp_height() : 0;
     release(chain3);
     return current();
+}
+
+void dxgi_keep_color_space(HdrEncoding applied) {
+    State& s = state();
+    const int want = applied == HdrEncoding::ScRgb ? 1 : applied == HdrEncoding::Hdr10 ? 2 : 0;
+    if (want == 0) {
+        s.spaceW = s.spaceH = 0;
+        return;
+    }
+    const int w = sapp_width(), h = sapp_height();
+    if (w == s.spaceW && h == s.spaceH) return;  // the buffers are the ones the colour space was set on
+    auto* chain = static_cast<IDXGISwapChain*>(const_cast<void*>(sapp_d3d11_get_swap_chain()));
+    IDXGISwapChain3* chain3 = nullptr;
+    if (chain) chain->QueryInterface(kIidSwapChain3, reinterpret_cast<void**>(&chain3));
+    if (!chain3) return;
+    // sokol_app resized the buffers (ResizeBuffers): DXGI gives the new ones its default colour space again, so an HDR window would
+    // show its scRGB or PQ values as sRGB. Set it again; when it fails the size stays unmatched and the next frame tries again.
+    if (set_color_space(chain3, want)) {
+        s.spaceW = w;
+        s.spaceH = h;
+    }
+    release(chain3);
 }
 
 }  // namespace fa::hdr_impl

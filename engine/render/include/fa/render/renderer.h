@@ -401,8 +401,8 @@ public:
     // Native handle of the picture the editor viewport shows (sg_image id) and a texture view of it for sampling (sg_view id): the
     // finished game image (after the colour filter) in a gamma scene. In a linear scene that image holds linear light, which would be
     // too dark on screen: once set_editor_view(true) was called these are an 8-bit copy encoded to sRGB, made after each frame and
-    // freed when the scene goes back to gamma (0 until the first frame of a linear scene made it). Without set_editor_view they
-    // are the game image as it is.
+    // freed when the scene goes back to gamma (0 until the first frame of a linear scene made it). The same copy clamps a picture
+    // above paper white (an HDR output's final pass) to the standard range. Without set_editor_view they are the game image as it is.
     std::uint32_t game_target_image_id() const;
     std::uint32_t game_target_view_id() const;
     // Asks for the encoded copy above (the editor calls it once). Costs one full-screen copy per frame of a linear scene, so a game

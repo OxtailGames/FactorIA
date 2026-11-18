@@ -246,12 +246,18 @@ int Renderer::warm_step(const GfxSwapchain& swapchain, World& world) {
         // frame that needs one before its group ran makes it itself, the same pipeline.
         im.warmGroups.push_back([gpu, presentFormat] { gpu->blit_pipeline(presentFormat); });
         // A game that asks for HDR on a backend that has it: the copy into the RGBA16F swapchain (scRGB, EDR) is made before the
-        // window switches to it, not on the frame it does.
+        // window switches to it, not on the frame it does. D3D11 also falls back to the 10-bit swapchain (HDR10) where the driver
+        // refuses scRGB: that copy is made too (without multisampling: a 10-bit swapchain has no multisampled image, so such a
+        // window never takes it).
         const render::FeatureBackend backend = render::feature_env_from_sokol().backend;
         if (world.settings().hdrOutput == HdrOutput::Auto &&
             (backend == render::FeatureBackend::Metal || backend == render::FeatureBackend::D3d11)) {
             const TargetFormat hdrFormat{SG_PIXELFORMAT_RGBA16F, presentFormat.depth, presentFormat.samples};
             im.warmGroups.push_back([gpu, hdrFormat] { gpu->blit_pipeline(hdrFormat); });
+            if (backend == render::FeatureBackend::D3d11 && presentFormat.samples <= 1) {
+                const TargetFormat hdr10Format{SG_PIXELFORMAT_RGB10A2, presentFormat.depth, presentFormat.samples};
+                im.warmGroups.push_back([gpu, hdr10Format] { gpu->blit_pipeline(hdr10Format); });
+            }
         }
         im.warmGroups.push_back([gpu] {
             gpu->quad_pipeline(false, false, BlendMode::Alpha);
@@ -510,17 +516,29 @@ void Renderer::update_output(const SceneSettings& settings, const std::string& b
         im.backend = render::feature_env_from_sokol().backend;
         im.backendKnown = true;
     }
-    HdrRequest request =
-        render::hdr_request(im.backend, settings.hdrOutput == HdrOutput::Auto, settings.paperWhiteNits);
-    request.blocked = blocked;
-    // What the status adds while an HDR encoding is on and the picture still stays within paper white (the last frame's).
-    if (!im.float_display())
-        request.activeNote = "this GPU draws the picture in 8 bits, so it stays within paper white";
-    else if (!im.frameAboveWhite)
-        request.activeNote =
-            "the picture stays within paper white: only the tonemap of a PostProcess (exposure or tonemap, "
-            "no colour filter) goes above it";
-    im.outputInfo = app_update_hdr_output(request);
+    // Called every frame: the request is kept and changed only where a value differs (a string is compared, never assigned, when it
+    // is the same), so a game that does not want HDR (the common case) builds no string here and the platform answers "unchanged".
+    const bool want = settings.hdrOutput == HdrOutput::Auto;
+    HdrRequest& request = im.outputRequest;
+    if (!im.outputRequestMade) {
+        request = render::hdr_request(im.backend, want, settings.paperWhiteNits);
+        im.outputRequestMade = true;
+    }
+    request.want = want;
+    request.paperWhiteNits = settings.paperWhiteNits;
+    if (request.blocked != blocked) request.blocked = blocked;
+    // What the status adds while an HDR encoding is on and the picture still stays within paper white (the last frame's); nothing
+    // is on when HDR is not wanted.
+    const char* note = "";
+    if (want) {
+        if (!im.float_display())
+            note = "this GPU draws the picture in 8 bits, so it stays within paper white";
+        else if (!im.frameAboveWhite)
+            note = "the picture stays within paper white: only the tonemap of a PostProcess (exposure or tonemap, "
+                   "no colour filter) goes above it";
+    }
+    if (request.activeNote != note) request.activeNote = note;
+    app_update_hdr_output(request, im.outputInfo);
 }
 
 HdrOutputInfo Renderer::output_info() const { return app_hdr_output(); }
