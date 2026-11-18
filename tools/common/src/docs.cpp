@@ -304,6 +304,8 @@ const std::vector<DocManifestEntry>& manifest() {
         {"rendering-effects",
          "Screen-space effects: ambient occlusion, reflections and the outline, their fields, cost and limits.",
          aud({kGameAi})},
+        {"rendering-passes", "Rendering, part: the passes of a frame, when each runs and what it draws.",
+         aud({kGameAi})},
         {"rendering-screen-effects",
          "Rendering, part: shockwave, heat haze, radial blur pulse, flash and fade of the camera.", aud({kGameAi})},
         {"rigging", "Skeletons for 3D models (*.rig.json): bones, weights and poses.", aud({kGameAi})},

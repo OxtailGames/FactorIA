@@ -1,0 +1,22 @@
+Part of [RENDERING.md](../RENDERING.md): the passes of a frame, in order, with what each one draws and when. The stack they belong to is
+described there, in "Post-processing: bloom, exposure, tonemap, colour grading, lens effects, colour filter".
+
+# Rendering: the passes of a frame
+
+The post-processing passes of a frame, in order (`render.frame_graph` lists them, and `RenderStats::passes` times them). Each camera
+has its own, named `camera:<n>/<pass>`:
+
+| Pass | When | What |
+|---|---|---|
+| `bloom-bright`, `bloom-down-*`, `bloom-blur-h`, `bloom-blur-v`, `bloom-composite` | `bloomEnabled` | The glow: threshold with a soft knee, a reduced-resolution blur, added back (times the lens dirt texture). |
+| `exposure-luma`, `exposure-adapt` | `exposureMode` auto | The frame reduced to 32x32 brightness values, then the stored 1x1 exposure moves toward the one that makes the average 18% grey by `1 - exp(-speed * dt)`, kept between `exposureMinEv` and `exposureMaxEv`. No read back; the engine's frame `dt`, so the same frames give the same exposure on every run. Needs a float render target. The 1x1 exposure is kept as two 16-bit numbers (a coarse step and the remainder), so a slow speed at a high frame rate reaches the target on every GPU. Frames of `capture_world` do not count as frames of the game, so a capture does not make it jump. |
+| `prepass` | `outlineEnabled` in depth mode, `ssaoEnabled` (and the effects of "Depth and normals" in RENDERING.md) | The opaque meshes' depth and normals, read by the outline and the ambient occlusion (see "Depth and normals" in [RENDERING.md](../RENDERING.md)). |
+| `ssao-ao`, `ssao-blur-h`, `ssao-blur-v` | `ssaoEnabled`, 3D meshes in the view | The ambient occlusion image, made before the camera's main pass, which applies it right after the opaque meshes (see [Screen-space effects](RENDERING_EFFECTS.md)). |
+| `ssr-trace`, `ssr-copy` | `ssrEnabled` with an intensity above 0, 3D meshes in the view | The screen-space reflections: one trace over the camera's rectangle into a scratch image, one copy back (see [Screen-space effects](RENDERING_EFFECTS.md)). |
+| `shafts-rays`, `shafts-add` | `sunShaftsEnabled` | The sun shafts (see [Screen-space effects](RENDERING_EFFECTS.md)). The distance and height fog is not a pass: the main pass draws it after the opaque meshes. |
+| `dof-down`, `dof-gather`, `dof-composite`, `dof-copy` | `depthOfFieldEnabled` with a blur above 0 (otherwise no pass and no prepass) | The depth of field (see "Depth of field and motion blur" in [RENDERING.md](../RENDERING.md)). |
+| `motion-blur`, `motion-copy` | `motionBlurEnabled`, from the second frame of a camera (a cut or the first frame draws nothing, so asks for no prepass) | The camera motion blur (same section of RENDERING.md). |
+| `sprite-coverage` | `outlineEnabled` in sprite mode | The 2D world drawn once more into an RGBA8 image whose alpha is how much each pixel is covered, read by the sprite outline (see [The outline](RENDERING_EFFECTS.md#the-outline)). |
+| `post` | exposure, tonemap, colour grading, vignette, chromatic aberration, lens distortion, sharpen, outline, pixelate, posterize, film grain, or a colour filter in a linear scene | The final pass, one full-screen pass: pixelate (the picture is read at the block centres), lens distortion and chromatic aberration (while the picture is read), exposure, tonemap (`none` clips, `neutral`, `aces`, `agx`, `reinhard`), the encode for the display, colour grading, vignette, sharpen, outline, posterize, film grain, a one-step (1/255) dither so smooth gradients do not band on an 8-bit screen, on an HDR output too (not under posterize), and the colour filter. |
+| `hud-over-post` | the final pass ran and screen-space items exist | The HUD, drawn over the final picture in display colours: it is never exposed or tonemapped, and never glows. |
+| `color-filter` | a colour filter with no `post` (or a HUD after it) | The accessibility filter over everything, the last pass. With `post` and no HUD it is part of `post`. |

@@ -23,7 +23,8 @@ of the pixel) removes the pattern of the search, and the apply pass of a half re
   the effect off, a frame with no opaque mesh, or a GPU without RGBA16F targets that blend and filter (the log says so once) make no
   pass and no image: the picture is the one without the effect. Each camera has its own passes (`camera:<n>/ssao-*`) and its own draw over its own rectangle.
 - **Seeing it.** `render.debug_view {"view":"ao"}` paints the occlusion alone as a grey over the camera's rectangle (white where it is open or
-  there is no mesh), with the camera's own settings or, when it has none, the defaults (the grey is drawn in place of the darkening).
+  there is no mesh), with the camera's own settings or, when it has none, the defaults (the grey is drawn in place of the darkening). It is drawn inside the main pass, before the blended meshes, sprites and particles, so a
+  blended surface in front of it covers the grey, as it covers the darkening.
 
 ## What the ambient occlusion costs
 
@@ -51,9 +52,9 @@ reflected colour is the one the camera saw (a bright lamp reflects bright, and b
 | Field | Default | Meaning |
 |---|---|---|
 | `ssrEnabled` | `false` | switches the effect on |
-| `ssrIntensity` | `1` | 0..1: how much of the reflection is mixed in (0 draws nothing: no pass, no prepass) |
+| `ssrIntensity` | `0.5` | 0..1: how much of the reflection is mixed in (0 draws nothing: no pass, no prepass); a pixel is never more than 75 % reflection, even at 1 |
 | `ssrMaxDistance` | `50` | world units a reflected ray travels (1..1000) |
-| `ssrThickness` | `0.3` | world units behind a surface that still count as a hit (0.01..10) |
+| `ssrThickness` | `0.3` | world units behind a surface that still count as a hit (0.01..10); at least 0.2 % of the distance of the surface, because the prepass stores depth in half precision |
 | `ssrSteps` | `32` | steps of the ray march, 8..128 (clamped; a NaN takes the default) |
 
 ### What is reflected
@@ -72,14 +73,16 @@ reflected colour is the one the camera saw (a bright lamp reflects bright, and b
   sky).
 - **Fades.** The mixed-in amount is `ssrIntensity * fresnel` times four fades that remove the artefacts of the method: a ray that
   goes back toward the camera (it would need what is behind the viewer), a hit on the back of a surface (its normal faces away from
-  the ray), a hit near the border of the screen and a hit near the end of `ssrMaxDistance`.
+  the ray), a hit near the border of the screen and a hit near the end of `ssrMaxDistance`. The reflection takes `NaN` and `Inf` of the picture as
+  black and keeps a finite colour up to 65504, the same rule as the final pass.
 
 ### How reflective a surface is
 
 The renderer has no roughness or metalness image for the post stack to read, so the reflectivity is not a material property: every
 opaque surface gets the **fresnel term** of the angle between its normal and the view, `F = 0.2 + 0.8 * (1 - N.V)^5`, multiplied by
 `ssrIntensity`. A surface seen head-on reflects 20 % of `ssrIntensity`, one seen at a grazing angle (a floor far away, the side of a
-street) almost all of it, as water, glass and a polished floor do. The result is a mix, `mix(scene, reflection, F * intensity)`: it
+street) almost all of it, as water, glass and a polished floor do. The mix is capped at 75 % (`ssrIntensity` 1 reaches it), and the
+default is 0.5: with no roughness image a matte wall can only be kept from looking like a mirror by never reflecting it completely. The result is a mix, `mix(scene, reflection, F * intensity)`: it
 only takes colour from the picture itself, so a place with nothing bright to reflect does not get brighter. Choosing the reflectivity per surface (a roughness-driven blur, a mask) needs a material
 image in the prepass and is not drawn yet; until then lower `ssrIntensity`, or put the effect in a volume (a box around the room with
 the wet floor) so only that part of the world reflects.

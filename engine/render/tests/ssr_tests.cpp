@@ -177,7 +177,8 @@ TEST_CASE(
     const CameraInfo cam = camera_info();
     render::SsrPlan p = render::make_ssr_plan(cam, stack_of(fx));
     REQUIRE(p.any());
-    CHECK(p.intensity == doctest::Approx(1.0f));
+    CHECK(p.intensity == doctest::Approx(0.5f));  // the default: a matte wall must not look like a mirror
+    CHECK(PostProcess{}.ssrIntensity == doctest::Approx(0.5f));
     CHECK(p.steps == 32);
     CHECK(p.maxDistance == doctest::Approx(50.0f));
     CHECK(p.thickness == doctest::Approx(0.3f));
@@ -197,6 +198,8 @@ TEST_CASE(
     CHECK(p.thickness == doctest::Approx(0.01f));
     CHECK(p.maxDistance == doctest::Approx(50.0f));
 
+    fx.ssrIntensity = std::nanf("");
+    CHECK(render::make_ssr_plan(cam, stack_of(fx)).intensity == doctest::Approx(0.5f));
     fx.ssrIntensity = 0.0f;
     CHECK_FALSE(render::make_ssr_plan(cam, stack_of(fx)).any());
     CHECK_FALSE(render::ssr_active(stack_of(fx)));

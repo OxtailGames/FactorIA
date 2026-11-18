@@ -43,12 +43,14 @@ out vec4 frag_color;
 vec2 fl(vec2 s) { return vec2(s.x, mix(s.y, 1.0 - s.y, a.x)); }
 vec2 game_uv(vec2 s) { return fl(s * rc.zw + rc.xy); }
 float ign(vec2 p) { return fract(52.9829189 * fract(dot(p, vec2(0.06711056, 0.00583715)))); }
+// One channel made safe, as bloom.glsl: NaN and Inf (by their bits) become 0, a finite value is kept between 0 and 65504.
 float sane(float x) {
-    if (((floatBitsToUint(x) >> 23u) & 255u) == 255u || x >= 65000.0) return 0.0;
-    return max(x, 0.0);
+    if (((floatBitsToUint(x) >> 23u) & 255u) == 255u) return 0.0;
+    return clamp(x, 0.0, 65504.0);
 }
 // How much light the sky sends from the camera-local point `p`: 0 on anything the prepass drew, else the brightness above the threshold.
 float sky_light(vec2 p) {
+    if (p.x < 0.0 || p.x > 1.0 || p.y < 0.0 || p.y > 1.0) return 0.0;  // off the picture: no sky to read (a clamped read would streak along the border)
     vec2 size = a.yz;
     vec2 lo = 0.5 / size;
     vec2 q = clamp(p, lo, 1.0 - lo);

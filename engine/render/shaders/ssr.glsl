@@ -13,8 +13,9 @@
 // the ray went behind the prepass surface and was in front of it, or less than ssrThickness behind it, one step before. Six bisections
 // then find where it crossed between the two steps. The hit counts when the ray there is less than the thickness behind the surface.
 //
-// How much of the reflection is mixed in = ssrIntensity * fresnel * four fades: a reflected ray that goes back toward the camera, a hit
-// on the back of a surface (its normal faces away from the ray), a hit near the border of the screen, a hit near the end of the ray.
+// How much of the reflection is mixed in = ssrIntensity * fresnel * four fades (a reflected ray that goes back toward the camera, a hit
+// on the back of a surface (its normal faces away from the ray), a hit near the border of the screen, a hit near the end of the ray), at
+// most 0.75.
 // The fresnel term is the only "material": there is no roughness or metalness image, so F = 0.2 + 0.8 (1 - N.V)^5, whatever the surface.
 //
 // Coordinates: `uv` is the texture coordinate of an image of the pass's own size (the same orientation on every backend, as bloom.glsl).
@@ -57,12 +58,19 @@ out vec4 frag_color;
 vec2 fl(vec2 s) { return vec2(s.x, mix(s.y, 1.0 - s.y, a.x)); }
 vec2 game_uv(vec2 s) { return fl(s * rc.zw + rc.xy); }
 float ign(vec2 p) { return fract(52.9829189 * fract(dot(p, vec2(0.06711056, 0.00583715)))); }
-// One channel made safe: NaN, Inf (found by their bits, as bloom.glsl does) and anything from 65000 up become 0.
+// One channel made safe: NaN, Inf (found by their bits, as bloom.glsl does) become 0, a negative becomes 0 and a finite value is kept up to 65504 (as post.glsl).
 float sane(float x) {
-    if (((floatBitsToUint(x) >> 23u) & 255u) == 255u || x >= 65000.0) return 0.0;
-    return max(x, 0.0);
+    if (((floatBitsToUint(x) >> 23u) & 255u) == 255u) return 0.0;
+    return clamp(x, 0.0, 65504.0);
 }
 vec4 pre_at(vec2 s) { return textureLod(sampler2D(tex_p, smp_pt), fl(s), 0.0); }
+
+// The thickness at a surface of view depth `d`: the thickness field, at least what the prepass can tell apart at that distance (a
+// float16 prepass, the fallback of a GPU without a float32 one, steps by about 0.001 * d: 0.06 at 100 units, 0.25 at 500).
+// The most of a pixel that can be the reflection (ssrIntensity 1 reaches it). There is no roughness image, so a matte surface must never
+// become a mirror: that would show as patches wherever the ray finds a hit and its neighbour finds none.
+const float SSR_MAX_MIX = 0.75;
+float thickness_at(float d) { return max(b.z, 0.002 * d); }
 
 // The view-space position of the point at camera-local top-left uv `s` whose view depth (-z) is `d`.
 vec3 view_pos(vec2 s, float d) {
@@ -138,7 +146,7 @@ void main() {
         float q = (float(i) + jit) / float(n) * qmax;
         float rd = ray_depth(q, dA, dB, persp);
         vec4 sp = pre_at((pA + dp * q) / size);
-        if (sp.a > 0.5 && rd >= sp.r && dPrev <= sp.r + b.z) {
+        if (sp.a > 0.5 && rd >= sp.r && dPrev <= sp.r + thickness_at(sp.r)) {
             qHit = q;
             qLo = qPrev;
             break;
@@ -159,13 +167,14 @@ void main() {
     vec2 sh = (pA + dp * hi) / size;
     vec4 hp = pre_at(sh);
     float rdh = ray_depth(hi, dA, dB, persp);
-    if (hp.a < 0.5 || rdh - hp.r > b.z) return;  // the ray is behind the surface by more than its thickness: it went behind an edge
+    if (hp.a < 0.5 || rdh - hp.r > thickness_at(hp.r)) return;  // the ray is behind the surface by more than its thickness: it went behind an edge
 
     float backFace = smoothstep(0.0, 0.25, -dot(decode_normal(hp.gb), R));
     float reach = 1.0 - smoothstep(0.7, 1.0, length(view_pos(sh, rdh) - A) / b.y);
     vec2 edge = min(sh, 1.0 - sh);
     float onScreen = smoothstep(0.0, 0.1, min(edge.x, edge.y));
-    float k = clamp(k0 * backFace * reach * onScreen, 0.0, 1.0);
+    // No roughness image yet, so no pixel is a pure mirror: the mix is capped, which also keeps a hit next to a miss from showing as a hard patch.
+    float k = clamp(k0 * backFace * reach * onScreen, 0.0, SSR_MAX_MIX);
     vec3 hc = textureLod(sampler2D(tex_c, smp_lin), game_uv(sh), 0.0).rgb;
     hc = vec3(sane(hc.r), sane(hc.g), sane(hc.b));
     frag_color = vec4(mix(here.rgb, hc, k), here.a);

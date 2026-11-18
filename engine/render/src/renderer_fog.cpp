@@ -254,6 +254,7 @@ sg_pipeline FogFx::pipeline(Prog prog, const TargetFormat& format) {
 
 void FogFx::forget_targets() {
     failed_.clear();
+    probed_.clear();
     warnedTargets_ = false;
 }
 
@@ -267,6 +268,7 @@ void FogFx::release() {
     }
     for (int& s : state_) s = 0;
     failed_.clear();
+    probed_.clear();
     warnedTargets_ = false;
 }
 
@@ -326,12 +328,16 @@ int FogFx::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, co
     TransientDesc ha;
     ha.width = hw;
     ha.height = hh;
-    ha.format = TargetFormat{SG_PIXELFORMAT_RGBA16F, SG_PIXELFORMAT_NONE, 1};
+    // One channel of rays: R16F where the GPU renders to and samples it (half the memory), else RGBA16F.
+    const sg_pixelformat_info r16 = sg_query_pixelformat(SG_PIXELFORMAT_R16F);
+    ha.format =
+        TargetFormat{r16.render && r16.sample ? SG_PIXELFORMAT_R16F : SG_PIXELFORMAT_RGBA16F, SG_PIXELFORMAT_NONE, 1};
     ha.label = job + "/shafts-half";
     if (doShafts) {
         if (std::find(failed_.begin(), failed_.end(), shapeKey) != failed_.end()) {
             doShafts = false;
-        } else {
+        } else if (std::find(probed_.begin(), probed_.end(), shapeKey) ==
+                   probed_.end()) {  // once per shape, not every frame
             const std::uint64_t h = targets.pool.acquire(ha);
             if (h == 0) {
                 if (failed_.size() >= kMaxFailed) failed_.erase(failed_.begin());
@@ -347,6 +353,8 @@ int FogFx::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, co
                 }
             } else {
                 targets.pool.release(h);
+                if (probed_.size() >= kMaxFailed) probed_.erase(probed_.begin());
+                probed_.push_back(shapeKey);
             }
         }
     }

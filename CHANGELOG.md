@@ -8,6 +8,16 @@ Older versions, one file per minor version with its patch releases: [0.29](chang
 
 ### M71 (in progress): linear HDR and a post-processing stack
 
+- **Scene effects polish:** screen-space reflections now default to `ssrIntensity` 0.5 and never mix in more than 75 % of the
+  reflection, and the hit thickness grows with distance so the fp16 prepass bias no longer lets rays through. Bloom, depth of
+  field, SSR and sun shafts treat NaN and Inf as 0 and clamp to 65504 like the post pass. Sun shafts no longer light the picture
+  when the sun is off screen. Ambient occlusion and the shafts use single-channel `R16F` images where the GPU can, and the
+  SSAO, SSR, depth of field and fog passes probe the target pool once per shape instead of every frame. Depth of field and motion
+  blur no longer draw the prepass when nothing would be blurred, motion blur tells a camera cut by the world frame, and a
+  planned fog pass that was not drawn is logged once. `render.supports` names its rows by effect and reports depth of field and
+  sun shafts as needing half floats and depth. The passes table moved from RENDERING.md to its own page (`docs.read
+  rendering-passes`), and the editor's post-processing panel calls `supports_report` directly and no longer has a "planned" state.
+
 - **Final pass polish:** the automatic exposure keeps its adapted value in an RGBA16F pixel as two numbers (a coarse step and the
   remainder), so it no longer stops short of its target at a slow speed and a high frame rate, and it needs no 32-bit target (iOS,
   WebGL2); a failed target is tried again after 300 frames instead of for ever, and a `capture_world` between two frames no

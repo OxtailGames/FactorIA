@@ -125,7 +125,7 @@ struct PostProcess {
     std::string bloomLensDirt;     // texture dirtying the glow like a dirty lens ("" = none)
     float bloomLensDirtIntensity = 1.0f;
 
-    // --- colorGrading: lift/gamma/gain, white balance, saturation, contrast, curves and a LUT ---------------------------------
+    // --- colorGrading: lift/gamma/gain, white balance, saturation, contrast and a LUT ---------------------------------
     bool colorGradingEnabled = false;
     Color colorGradingLift{0, 0, 0, 1};    // added to the shadows per channel (rgb used, alpha ignored); 0 = unchanged
     Color colorGradingGamma{1, 1, 1, 1};   // the midtones per channel; 1 = unchanged, above 1 lighter
@@ -220,7 +220,7 @@ struct PostProcess {
 
     // --- ssr: screen-space reflections (3D) --------------------------------------------------------------------------------------
     bool ssrEnabled = false;
-    float ssrIntensity = 1.0f;     // 0..1: how much of the reflection is mixed in
+    float ssrIntensity = 0.5f;     // 0..1: how much of the reflection is mixed in (the shader caps a pixel at 75 %)
     float ssrMaxDistance = 50.0f;  // world units a reflected ray travels
     float ssrThickness = 0.3f;     // world units behind a surface that still count as a hit
     std::int32_t ssrSteps = 32;    // 8 .. 128 steps along the ray
