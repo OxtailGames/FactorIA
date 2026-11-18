@@ -348,7 +348,10 @@ TEST_CASE("render.supports answers with a status, or says there is no renderer, 
                   .is_boolean());  // drawn since M71-D3a: true where the GPU has float targets and the prepass
         r = c.call("render.supports", Json::parse(R"({"feature":"fog"})"));
         REQUIRE_MESSAGE(r.ok, r.error.dump());
-        CHECK(r.result["supported"] == false);  // M71 in progress: the renderer does not draw it yet
+        CHECK(r.result["supported"].is_boolean());  // drawn since M71-D3b: true where the GPU has the prepass
+        r = c.call("render.supports", Json::parse(R"({"feature":"sunShafts"})"));
+        REQUIRE_MESSAGE(r.ok, r.error.dump());
+        CHECK(r.result["supported"].is_boolean());
     }
     e.shutdown();
 }

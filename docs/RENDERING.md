@@ -353,6 +353,7 @@ The passes of a frame, in order (`render.frame_graph` lists them, and `RenderSta
 | `exposure-luma`, `exposure-adapt` | `exposureMode` auto | The frame reduced to 32x32 brightness values, then the stored 1x1 exposure moves toward the one that makes the average 18% grey by `1 - exp(-speed * dt)`, kept between `exposureMinEv` and `exposureMaxEv`. No read back; the engine's frame `dt`, so the same frames give the same exposure on every run. Needs a float render target; the stored exposure is a 32-bit float where the GPU can filter one (else 16-bit, which stops a little short of the target at a slow speed and a high frame rate). |
 | `prepass` | `outlineEnabled` in depth mode, `ssaoEnabled` (and the effects of "Depth and normals") | The opaque meshes' depth and normals, read by the outline and the ambient occlusion (see "Depth and normals"). |
 | `ssao-ao`, `ssao-blur-h`, `ssao-blur-v`, `ssao-apply` | `ssaoEnabled`, 3D meshes in the view | The ambient occlusion, before the bloom (see [Screen-space effects](rendering/RENDERING_EFFECTS.md)). |
+| `fog-blend`, `shafts-rays`, `shafts-add` | `fogEnabled`, `sunShaftsEnabled` | Distance and height fog and the sun shafts (see [Screen-space effects](rendering/RENDERING_EFFECTS.md)). |
 | `dof-down`, `dof-gather`, `dof-composite`, `dof-copy` | `depthOfFieldEnabled` | The depth of field (see "Depth of field and motion blur"). |
 | `motion-blur`, `motion-copy` | `motionBlurEnabled` | The camera motion blur (same section). |
 | `sprite-coverage` | `outlineEnabled` in sprite mode | The 2D world drawn once more into an RGBA8 image whose alpha is how much each pixel is covered, read by the sprite outline (see [The outline](rendering/RENDERING_EFFECTS.md#the-outline)). |
@@ -481,8 +482,8 @@ Things to know:
   {"id", "preset"}` applies one: without `"keep": true` the look replaces every effect of the target with exactly its own (the
   volume's shape, size and priority stay), with it only the effects the look names change. The looks are data, not code
   (`engine/runtime/data/postprocess_presets.json`): `neutral` (everything off, the way back), `cinematic`, `retro`, `noir`, `dreamy`,
-  `vivid` and `horror`, built only from fields that exist. A look that names an effect this renderer does not draw yet (`fog`,
-  `sunShafts`... say `planned` in `render.supports`) still applies, and the answer says so: `notDrawn` lists them and `note` explains
+  `vivid` and `horror`, built only from fields that exist. A look that names an effect this renderer does not draw (`render.supports` says
+  `planned`, or `unsupported` on a GPU that cannot) still applies, and the answer says so: `notDrawn` lists them and `note` explains
   that their fields are stored and show once the renderer draws them. `drawnChecked` is false when there is no renderer to ask
   (`graphics=false`).
 - **View > Post-processing** (docs/EDITOR.md) is the same stack on screen: a camera chooser, each effect in the order it runs with its

@@ -25,6 +25,14 @@ Older versions, one file per minor version with its patch releases: [0.29](chang
   `render.supports {"feature": "ssao"}` is true where the GPU has RGBA16F targets that blend, and `render.debug_view {"view": "ao"}`
   shows the occlusion alone.
 
+- **Fog and sun shafts:** `fogEnabled` and `sunShaftsEnabled` of `PostProcess` are drawn now (`render.supports` is true for `fog` and
+  `sunShafts`). The fog is exponential from `fogStart` plus an exact height fog (`fogHeightDensity`, `fogHeightBase`,
+  `fogHeightFalloff`) along the view ray from the depth; the sky is not fogged, and a camera whose stack fog is drawn does not also draw
+  `SceneSettings.fogDensity` (never twice). The shafts scatter the bright sky (above `sunShaftsThreshold`) toward the sun's place on the screen (the shadow-casting or
+  brightest directional light) with 48 jittered taps at half resolution, tinted and added, fading out as the sun leaves the screen or
+  goes behind the camera (perspective cameras). Each camera of a split screen has its own `fog-blend` / `shafts-*` passes over its
+  rectangle; off adds no pass and no prepass. See docs/rendering/RENDERING_EFFECTS.md.
+
 - **Depth of field and camera motion blur:** `depthOfFieldEnabled` and `motionBlurEnabled` of `PostProcess` are drawn now (`render.supports`
   says so, `postprocess.apply_preset` no longer lists them in `notDrawn`). Both read the depth prepass and work on the scene colour,
   before the bloom and the final pass; each camera has its own passes (split screen). The depth of field blurs by a circle of confusion

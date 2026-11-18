@@ -1,5 +1,5 @@
 Part of [RENDERING.md](../RENDERING.md): the screen-space effects of the post-processing stack that read the depth and normal prepass
-(ambient occlusion, reflections and the outline now; fog joins this page when the renderer draws it).
+(ambient occlusion, reflections, fog, sun shafts and the outline now).
 
 # Rendering: screen-space effects
 
@@ -104,6 +104,59 @@ the wet floor) so only that part of the world reflects.
 ```json
 { "type": "PostProcess", "ssrEnabled": true, "ssrIntensity": 0.8, "ssrMaxDistance": 30, "ssrSteps": 48 }
 ```
+
+## Fog
+
+`fogEnabled` fades what is far (and what is low) into `fogColor`, drawn from the depth of the prepass. Along the view ray from `fogStart`
+to the surface (`L` world units long) the optical thickness is
+
+    tau = (fogDensity * L)^2  +  L * (average height density along the ray)        f = 1 - exp(-tau)
+
+and the pixel becomes `mix(scene, fogColor, f)`. The first term is the law of `SceneSettings.fogDensity` (exponential squared), so a scene
+that moves its fog into the stack keeps its look; `fogDensity` is limited to 0..10. The height term is a layer of density
+`fogHeightDensity` (0..10) that is constant at and below `fogHeightBase` (a world y) and thins above it as `exp(-fogHeightFalloff * (y - base))`
+(`fogHeightFalloff` 0..10; 0 = a flat layer up to infinity); it is integrated exactly along the straight view ray, so a cube below the base
+is thicker in fog than one above it at the same distance, and a camera inside the layer looking down sees more of it than one looking up.
+A fog with no distance and no height density draws nothing.
+
+- **The sky is not fogged.** Pixels where the prepass saw no opaque mesh (the sky, 2D, the background, the clear colour) are left as they are,
+  as the forward fog of the mesh shader does not fog them either; so a scene's horizon does not have to match `fogColor`, and the sun
+  shafts below still see the sky.
+- **Not drawn twice.** A camera whose stack fog is drawn replaces `SceneSettings.fogColor` / `fogDensity` for the frame (the mesh shader's
+  fog is switched off for it); a camera whose stack fog draws nothing (no density, or the effect off) keeps the scene's fog. A scene
+  with no `fog` in its stack is byte for byte the frame it was.
+- **What it covers.** The fog is blended over the picture where the prepass saw an opaque 3D mesh, using that mesh's depth. Whatever was drawn
+  over such a pixel in the main pass (a blended mesh, a particle, a sprite, text or the interface drawn before the post passes) is fogged
+  with the distance of the opaque surface behind it, not its own. Over the sky nothing is fogged, so a blended mesh against the sky gets no
+  fog at all; and while the stack's fog is drawn the scene's forward fog is off, so blended meshes do not get a fog of their own either.
+  A HUD drawn after the post passes is not touched. Set `fogColor` to the sky's colour to hide the seam.
+- **Colour space.** `fogColor` is a display colour in both modes; a linear scene blends in linear light with the colour converted, so a
+  thick fog shows exactly `fogColor` on the screen.
+- **Per camera.** Each camera of a split screen has its own `camera:<n>/fog-blend` pass over its own rectangle, with its own position and
+  projection; an orthographic camera measures the distance along its view direction. The pass is one full-screen draw that reads only the
+  prepass (it makes no copy of the picture); off, or with nothing to draw, it adds no pass and no prepass of its own.
+
+## Sun shafts
+
+`sunShaftsEnabled` draws light streaming from the sun through the gaps of the scene. The sun is the directional `Light` of slot 0 of the
+lighting (the one that casts shadows, otherwise the brightest directional light), in the direction the lighting uses, seen from each
+camera; with no directional light, a sun of intensity 0, or when the camera lights by the studio rig, there are no shafts. Per camera:
+
+1. `shafts-rays` makes a half resolution, one channel image. For each pixel it takes 48 taps along the screen line toward the sun
+   (`sunShaftsLength`, 0..1, is the longest line, in screen heights; the taps are shifted by a fixed noise of the pixel, so the picture is the
+   same on every run). A tap adds light only where the prepass saw no mesh (the sky) and the brightness of the scene colour there, as the
+   screen shows it, is above `sunShaftsThreshold`; the light is `(brightness - threshold) / (1 - threshold)` times a glow that is strongest
+   near the sun. Whatever stands between a pixel and the sun's sky blocks the taps behind it, so the rays stream away from the silhouettes.
+2. `shafts-add` multiplies the rays by `sunShaftsColor * sunShaftsIntensity` (0..2) and adds the result onto the camera's rectangle.
+
+- **Fades.** The sun's place on the screen is the projection of its direction. The shafts fade out smoothly as the sun leaves the screen (gone a
+  little outside its edge) and as it passes the side of the camera; with the sun behind the camera there is no pass and the picture is the
+  one without the effect. The same holds for an intensity or length of 0, or a threshold above the sky's brightness (the rays are 0).
+- **Perspective cameras only.** A sun at infinity has no place on an orthographic camera, so none is drawn there.
+- **Fixed cost.** 48 taps per half resolution pixel, whatever the settings; two passes and a half resolution one channel image per camera
+  (RGBA16F), made only while the effect draws.
+- **With the fog.** The fog leaves the sky alone, so the sky keeps the brightness the shafts need; both run before the exposure, depth of
+  field and bloom, in this order: `ssao`, `ssr`, `fog`, `sunShafts`.
 
 ## The outline
 

@@ -384,6 +384,7 @@ void Renderer::shutdown() {
         im.fonts.reset();
         im.ssr.release();
         im.sceneFx.release();
+        im.fogFx.release();
         im.ramps.destroy();
         im.assets.reset();
         im.destroy_targets();

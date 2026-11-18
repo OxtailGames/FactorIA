@@ -111,3 +111,10 @@ each.
   bloom does. A pass cannot read what it writes, so the chain goes through one scratch transient and ends with a copy (or the last
   effect writes the picture itself). The focus per camera is state of `SceneFx` keyed by the camera entity, moved by the engine clock
   (`smooth_focus`), never by wall time. It owns its shaders and pipelines (made on first use, `release()` on shutdown).
+- **Fog and sun shafts** (`src/renderer_fog.*`, `shaders/fog.glsl`, `sun_shafts.glsl`). `FogFx` (a member of `Impl`) owns the shaders and
+  pipelines; `make_fog_plan` is pure CPU (clamped numbers, the sun's screen place from `sun_screen_position`). `plan_job` plans it right after
+  `collect_lights` and before `plan_prepass`: the sun is slot 0 of `select_lights` when that is a directional light that shines, and shafts with
+  no sun in view drop their prepass bits (`PostPlan::readMask`); after the prepass the plan is emptied when the prepass or a shader is
+  missing, so only a fog that will draw (`fogFx.fog`) turns `SceneSettings.fogDensity` off (`scene_uniforms`): never both. `fog-blend` reads
+  only the prepass and blends `fogColor * f` with alpha `f` (no scratch copy); `shafts-rays` makes the half resolution rays and
+  `shafts-add` adds them. All run after the SSAO and SSR passes and before the depth of field, on the same destination as the bloom.

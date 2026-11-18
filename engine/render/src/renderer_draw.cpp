@@ -413,14 +413,48 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
     collect_lights(ctx);
     shadow_bounds(ctx);
     cull_and_batch(ctx);
+    // Fog and sun shafts (renderer_fog.h), planned before the prepass: the sun is known once the lights are, and shafts alone with no sun in
+    // view must not ask for a prepass. The sun is the light of slot 0 when it is a directional one (the shadow caster, otherwise the
+    // brightest directional light) and it shines (select_lights); the studio rig is not a sun.
+    if (draws && fr.cam.postStack) {
+        Vec3 sun;
+        bool haveSun = false;
+        if (!fr.cam.studio && !ctx.lights.empty()) {
+            const LightData& l = ctx.lights[0];
+            if (l.color.w == 0.0f && l.pos.w == 0.0f && l.color.x + l.color.y + l.color.z > 0.0f) {
+                sun = Vec3{l.pos.x, l.pos.y, l.pos.z};  // pos = the direction toward the light
+                haveSun = true;
+            }
+        }
+        PostPlan& pp = ctx.postPlan;
+        pp.fogFx = make_fog_plan(fr.cam, *fr.cam.postStack, fr.linear, haveSun ? &sun : nullptr);
+        const std::uint32_t shaftsBit = 1u << int(PostEffect::SunShafts);
+        if ((pp.readMask & shaftsBit) != 0 && !pp.fogFx.shafts && debugView != DebugView::Ao) {
+            pp.readMask &= ~shaftsBit;  // no sun in view: the shafts draw nothing, so they need no depth
+            pp.needsDepth = post_mask_needs_depth(pp.readMask);
+            pp.needsNormals = post_mask_needs_normals(pp.readMask);
+        }
+    }
     plan_prepass(ctx);
     plan_outline(ctx);
-    // Screen-space reflections, depth of field and motion blur work on the scene colour, so the screen-space items are drawn after them (as
-    // they are over the bloom).
+    // The passes need the prepass and their shaders: a camera that cannot draw them keeps the scene's own fog (ss.fogDensity, below).
+    if (ctx.postPlan.fogFx.any()) {
+        FogFxPlan& ff = ctx.postPlan.fogFx;
+        if (!ctx.doPrepass) {
+            ff = FogFxPlan{};
+        } else {
+            if (ff.fog && !fogFx.ready(FogFx::Prog::Fog)) ff.fog = false;
+            if (ff.shafts && !(fogFx.ready(FogFx::Prog::Rays) && fogFx.ready(FogFx::Prog::Add))) ff.shafts = false;
+        }
+    }
+    // Reflections, fog, sun shafts, depth of field and motion blur work on the scene colour, so the screen-space items are drawn after them
+    // (as they are over the bloom).
     if (plan.last && !plan.view) {
         bool sceneColorFx = false;
         for (const DrawContext* c : postCams)
-            sceneColorFx = sceneColorFx || ((c->postPlan.ssr.any() || c->postPlan.sceneFx.any()) && c->doPrepass);
+            sceneColorFx =
+                sceneColorFx ||
+                ((c->postPlan.ssr.any() || c->postPlan.fogFx.any() || c->postPlan.sceneFx.any()) && c->doPrepass);
         if (sceneColorFx) {
             ctx.hudAfterBloom = true;
             ctx.doMainPass = fr.wantWorld || !ctx.hudAfterBloom;
@@ -777,6 +811,9 @@ void Renderer::Impl::scene_uniforms(DrawContext& ctx) {
         ss.horizonColor = Color{0.4f * k, 0.4f * k, 0.42f * k, 1.0f};
         ss.fogDensity = 0.0f;
     }
+    // The camera's own fog (PostProcess.fog*, drawn from the depth after the main pass) replaces the scene's: the two never add up. It is
+    // only planned (fogFx.fog) when its prepass and shader exist, so a frame that cannot draw it keeps the scene's fog.
+    if (ctx.postPlan.fogFx.fog) ss.fogDensity = 0.0f;
     // Colours the author picked are sRGB values; a linear scene computes with linear light (sky, fog and ambient, below, and the
     // main pass's sky and clear colour read these).
     ss.ambientLight = to_scene(ss.ambientLight, fr.linear);
@@ -1709,6 +1746,16 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
                 : BloomTarget{ctx.msaa ? gameTarget.resolveColorAtt : gameTarget.colorAtt, sg_view{}, 1};
         ssr.add_passes(graph, transient_targets(), gpu, c->postPlan.ssr, c->postPlan.rect, physW, physH, game,
                        gameTarget.texView, ssrDst, c->postPlan.prepass, &stats.drawCalls, c->plan.name);
+    }
+    // Fog and sun shafts of every camera (renderer_fog.h), over its rectangle of the scene colour, before the depth of field.
+    for (DrawContext* c : postCams) {
+        if (!c->postPlan.fogFx.any() || !c->postPlan.prepass.valid()) continue;
+        const BloomTarget fogDst =
+            ctx.hudAfterBloom && ctx.msaa
+                ? BloomTarget{gameTarget.colorAtt, gameTarget.resolveAtt, gpu.sample_count()}
+                : BloomTarget{ctx.msaa ? gameTarget.resolveColorAtt : gameTarget.colorAtt, sg_view{}, 1};
+        fogFx.add_passes(graph, transient_targets(), gpu, c->postPlan.fogFx, c->postPlan.rect, physW, physH, game,
+                         gameTarget.texView, fogDst, c->postPlan.prepass, &stats.drawCalls, c->plan.name);
     }
     // Depth of field and motion blur of every camera (renderer_dof.h), over its rectangle of the scene colour and before the bloom.
     for (DrawContext* c : postCams) {

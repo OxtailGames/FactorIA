@@ -25,6 +25,7 @@
 #include "post_fx.h"
 #include "renderer_ssr.h"
 #include "renderer_dof.h"
+#include "renderer_fog.h"
 #include "transient_targets.h"
 
 namespace fa::render {
@@ -105,6 +106,8 @@ struct PostPlan {
     // What the effects the renderer draws read from the prepass (post_effect_needs_depth / _normals of postprocess_resolve.h). The frame
     // draws the prepass when one is true (renderer_draw.cpp, plan_job); `prepass` is then valid for the passes after it.
     bool needsDepth = false, needsNormals = false;
+    std::uint32_t readMask =
+        0;  // the effects (PostEffect bits) whose prepass bits those are: the frame drops the sun shafts' when no sun shows
     PrepassRef prepass;
     // The ambient occlusion (renderer_ssao.h): declared before the bloom, over this camera's rectangle, when `enabled` and the prepass was
     // made. Its prepass bits are in needsDepth / needsNormals.
@@ -125,6 +128,8 @@ struct PostPlan {
     SsrPlan ssr;
     // Depth of field and motion blur of this camera (renderer_dof.h): drawn on the scene colour before bloom; empty when neither is on.
     SceneFxPlan sceneFx;
+    // Distance and height fog and sun shafts of this camera (renderer_fog.h): drawn on the scene colour before depth of field; empty when neither is on.
+    FogFxPlan fogFx;
 
     // The outline cannot be drawn this frame (its image is not made: no opaque mesh, an unsupported GPU, no memory for the image): the effect is dropped, and with it the conversion that only it asked for.
     void skip_outline() {
