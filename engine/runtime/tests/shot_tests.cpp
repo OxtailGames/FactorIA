@@ -368,6 +368,28 @@ TEST_CASE("render.frame_graph: an engine without a renderer says so") {
     CHECK(r.error.dump().find("renderer") != std::string::npos);
 }
 
+TEST_CASE("render.debug_view: the schema's enum turns a wrong view into an error with a did-you-mean hint") {
+    TempProject p("debug-view-enum");
+    Engine e;
+    std::string err;
+    EngineConfig cfg = headless_cfg(p);
+    cfg.graphics = false;  // the schema check comes before the "no renderer" answer
+    REQUIRE_MESSAGE(e.init(cfg, nullptr, &err), err);
+    const CommandInfo* info = e.commands().info("render.debug_view");
+    REQUIRE(info != nullptr);
+    CHECK(info->inputSchema.dump().find("\"enum\":[\"none\",\"depth\",\"normals\"]") != std::string::npos);
+    auto r = e.commands().call("render.debug_view", Json::parse(R"({"view":"normal"})"));
+    REQUIRE_FALSE(r.ok);
+    CHECK(r.error["code"] == "invalid_arguments");  // the schema's own error, not a check of the handler
+    const std::string text = r.error.dump();
+    INFO(text);
+    CHECK(text.find("/view") != std::string::npos);
+    CHECK(text.find("Did you mean 'normals'?") != std::string::npos);
+    r = e.commands().call("render.debug_view", Json::parse(R"({"view":"depth"})"));
+    REQUIRE_FALSE(r.ok);  // a valid view passes the schema and reaches the missing renderer
+    CHECK(r.error["code"] == "unavailable");
+}
+
 TEST_CASE("render.pick: lists what draws a pixel, topmost first") {
     const char* scene = R"({
       "format": "factoria.scene/1",

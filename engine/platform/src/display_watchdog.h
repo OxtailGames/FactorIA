@@ -44,13 +44,25 @@ bool fake_asleep(const EnvLookup& lookup);
 // FA_TEST_FAKE_DISPLAYS_ASLEEP is set. Elsewhere: DisplayState::None.
 DisplayState query_system_displays();
 
+// Kills (SIGKILL) every descendant process of this one, so that none outlives it. macOS only (display_watchdog_apple.mm:
+// libproc lists the children, recursively); elsewhere it does nothing. It is what the default onSkip calls just before
+// _Exit(77), see Options::onSkip.
+void end_child_processes();
+
 struct Options {
-    double idleSeconds = 10.0;                       // no frame for this long
-    double pollSeconds = 1.0;                        // how often the thread looks
-    bool ignoreSleep = false;                        // FA_TEST_IGNORE_DISPLAY_SLEEP
-    bool fakeNoFrames = false;                       // FA_TEST_FAKE_DISPLAYS_ASLEEP: frame() is ignored, as on a sleeping Mac
-    std::function<DisplayState()> query;             // null: query_system_displays
-    std::function<void(const std::string&)> onSkip;  // null: print the line to stderr and end the process with 77
+    double idleSeconds = 10.0;            // no frame for this long
+    double pollSeconds = 1.0;             // how often the thread looks
+    bool ignoreSleep = false;             // FA_TEST_IGNORE_DISPLAY_SLEEP
+    bool fakeNoFrames = false;            // FA_TEST_FAKE_DISPLAYS_ASLEEP: frame() is ignored, as on a sleeping Mac
+    std::function<DisplayState()> query;  // null: query_system_displays
+    // null: print the line to stderr, end_child_processes(), and std::_Exit(77) from the watchdog's thread. _Exit runs no
+    // destructors and no atexit handlers: the autotest's output directory can be half written (the test is skipped, so
+    // nobody reads it; a rerun starts from a fresh directory), open files are not flushed (only stdout and stderr are),
+    // and a child process would be orphaned. An orphan that still holds ctest's stdout pipe keeps ctest waiting after the
+    // test ended, so the default kills the whole tree of descendants first (only the descendants: the process group
+    // also holds ctest and the shell that started the test). A child that detached itself (setsid and double fork) is
+    // not found by the parent chain and can still outlive the skip.
+    std::function<void(const std::string&)> onSkip;
 };
 
 // A thread that looks every pollSeconds; frame() is called by the app on every frame. The destructor stops and joins
