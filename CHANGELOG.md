@@ -20,12 +20,19 @@ Older versions, one file per minor version with its patch releases: [0.30](chang
   leaves. `QuadInput` carries `uv`, the tint, the world position, `screen_uv`, the time, the mode and a reserved
   `custom`. `shader.compile`, `material.info` (programs `quad` and `quad_plain`), `factoria validate` and
   `factoria export` (`<name>.material.json.<dialect>.shader`) work for it; `alphaMode: "clip"` is an error on a sprite.
-  The engine's own pixels do not change (an empty `fragment()` is the built-in program). The renderer draws with the
-  compiled programs in a later package; docs/SHADERS.md has the contract, the slots and an example with a dissolve and a
+  The engine's own pixels do not change (an empty `fragment()` is the built-in program). The renderer draws a `Sprite` with the
+  compiled programs (next bullet); docs/SHADERS.md has the contract, the slots and an example with a dissolve and a
   hit flash. The sprite template hash covers `quad_common.glsl`, `color_space.glsl` and `light_shadow.glsl`.
   A sprite material cannot name a param or texture after a name of the 2D program (`color`, `uv`, `tex`, `smp`, `lit`,
   `params`...: the error names the JSON pointer and a rename), `noise` is refused for every kind (sokol-shdc cannot compile
   a texture called that) and a sprite `vertex()` cannot sample a material texture.
+- **Sprites draw with their material (M72.1):** a `Sprite` with `material` (and `materialParams`) is drawn by the
+  compiled `quad` / `quad_plain` programs of a `"kind": "sprite"` material, with the engine's blend and depth state. Sprites
+  with the same material and equal values share a draw call; a different value, another material or no material splits the
+  batch, and the draw order is unchanged. `fa_time` and `fa_target` are filled. A material that did not build (or is of
+  another kind) draws the sprite magenta with the built-in shader and shows in `materialFallbacks`; a hot reload rebuilds it
+  and a failed one keeps the last good version. A material with an empty `fragment()` draws the same pixels as none.
+  `Shape2D`, `Tilemap`, `Text`, particles and UI keep the engine's shader until the next package.
 
 - **Custom lighting and textures in `vertex()` (M72.3):** a mesh material with `"lighting": "custom"` defines
   `vec3 light(in SurfaceInput i, in Surface s, in LightSample l)`, which the engine's light loop calls once per light

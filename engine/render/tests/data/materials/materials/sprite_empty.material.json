@@ -1,0 +1,6 @@
+{
+  "format": "factoria.material/1",
+  "kind": "sprite",
+  "doc": "Test fixture: an empty fragment(), which draws the engine's own pixels.",
+  "shader": "shaders/sprite_empty.fragment.glsl"
+}

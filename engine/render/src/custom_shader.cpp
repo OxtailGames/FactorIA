@@ -1,6 +1,7 @@
 // Custom materials (MeshRenderer.material): the factoria.shader/1 twin -> sg_shader_desc (docs/design/CUSTOM_SHADERS.md),
 // and the packing of a material's params.
 #include "fa/core/engine_version.h"
+#include <algorithm>
 #include <cmath>
 #include <cstring>
 
@@ -270,7 +271,7 @@ void pack_material_params(MaterialAsset& m, const Json& overrides, float out[kMa
             for (const Json& c : *it) good = good && c.is_number();
         if (!good) {
             if (m.warned.insert(p.name).second)
-                FA_WARN("render", "materialParams.{} of a MeshRenderer using '{}' must be {} (the default is kept)",
+                FA_WARN("render", "materialParams.{} of a component using '{}' must be {} (the default is kept)",
                         p.name, m.path,
                         p.components == 1 ? std::string("a number")
                                           : "an array of " + std::to_string(p.components) + " numbers, like " +
@@ -291,7 +292,7 @@ void pack_material_params(MaterialAsset& m, const Json& overrides, float out[kMa
         for (auto it = overrides.begin(); it != overrides.end(); ++it)
             if (std::find(names.begin(), names.end(), it.key()) == names.end() && m.warned.insert(it.key()).second)
                 FA_WARN("render",
-                        "materialParams.{} of a MeshRenderer using '{}' is not a param or texture of that material. {}",
+                        "materialParams.{} of a component using '{}' is not a param or texture of that material. {}",
                         it.key(), m.path, did_you_mean(it.key(), names));
     }
 }
@@ -303,7 +304,7 @@ TextureAsset* material_texture(MaterialAsset& m, int i, const Json& overrides, A
     if (it->is_string()) return assets.texture(it->get<std::string>());
     if (m.warned.insert(t.name).second)
         FA_WARN("render",
-                "materialParams.{} of a MeshRenderer using '{}' must be a texture path like \"assets/wood.png\" (the "
+                "materialParams.{} of a component using '{}' must be a texture path like \"assets/wood.png\" (the "
                 "default texture is kept)",
                 t.name, m.path);
     return t.defaultTex;
@@ -505,7 +506,7 @@ void Assets::build_material(MaterialAsset& m) {
     m.error = r.error().message;
     note_failure("material", m.path,
                  r.error().message + (m.ok ? "\nThe previous version of the material stays in use."
-                                           : "\nThe meshes using it are drawn magenta."),
+                                           : "\nThe meshes and sprites using it are drawn magenta."),
                  r.error().hint);
 }
 
@@ -519,6 +520,72 @@ MaterialAsset* Assets::material(const std::string& path) {
         build_material(*slot);
     }
     return slot.get();
+}
+
+}  // namespace fa::render
+
+namespace fa::render {
+
+namespace {
+constexpr std::uint64_t kUseKeepFrames = 2;  // a use survives this many frames without an item asking for it
+}  // namespace
+
+MaterialRef Assets::sprite_material(const std::string& path, const Json& overrides) {
+    if (path.empty()) return {};
+    MaterialAsset* m = material(path);
+    const std::uint64_t tick = useTick_;
+    const bool wrongKind = m->ok && m->kind != MaterialKind::Sprite;
+    if (wrongKind && m->warned.insert("<kind>").second)
+        FA_WARN(
+            "render",
+            "the material '{}' has kind \"{}\", but a 2D item (Sprite, Shape2D, Tilemap, Text, ParticleEmitter, UiBox) "
+            "needs a \"sprite\" material: the item is drawn magenta",
+            m->path, material_kind_name(m->kind));
+    const bool error = !m->ok || wrongKind;
+
+    MaterialUse key;
+    key.material = m;
+    key.error = error;
+    std::uint64_t hash = 1469598103934665603ull;
+    auto mix = [&](const void* data, std::size_t n) {
+        const unsigned char* p = static_cast<const unsigned char*>(data);
+        for (std::size_t i = 0; i < n; ++i) hash = (hash ^ p[i]) * 1099511628211ull;
+    };
+    const std::uint64_t head[2] = {std::uint64_t(m->generation), error ? 1u : 0u};
+    mix(head, sizeof(head));
+    const std::size_t nParams = std::min<std::size_t>(m->params.size(), kMaxMaterialParams);
+    const std::size_t nTextures = std::min<std::size_t>(m->textures.size(), kMaxMaterialTextures);
+    if (!error) {
+        pack_material_params(*m, overrides, key.params);
+        for (std::size_t i = 0; i < nTextures; ++i) key.textures[i] = material_texture(*m, int(i), overrides, *this);
+        mix(key.params, nParams * sizeof(key.params[0]));
+        mix(key.textures, nTextures * sizeof(key.textures[0]));
+    }
+    auto [first, last] = m->uses.equal_range(hash);
+    for (auto it = first; it != last; ++it) {
+        MaterialUse& u = *it->second;
+        if (u.error == error && std::memcmp(u.params, key.params, nParams * sizeof(key.params[0])) == 0 &&
+            std::memcmp(u.textures, key.textures, nTextures * sizeof(key.textures[0])) == 0) {
+            u.tick = tick;
+            return {&u};
+        }
+    }
+    key.tick = tick;
+    auto made = std::make_unique<MaterialUse>(key);
+    MaterialUse* out = made.get();
+    m->uses.emplace(hash, std::move(made));
+    return {out};
+}
+
+void Assets::begin_material_frame() {
+    ++useTick_;
+    for (auto& [k, m] : materials_)
+        for (auto it = m->uses.begin(); it != m->uses.end();) {
+            if (useTick_ - it->second->tick > kUseKeepFrames)
+                it = m->uses.erase(it);
+            else
+                ++it;
+        }
 }
 
 }  // namespace fa::render

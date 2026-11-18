@@ -382,6 +382,8 @@ struct SpritePrep {
     Color color;                     // Sprite.color with the inherited Tint
     Rect clip;
     Vec2 pivot{0.5f, 0.5f};
+    MaterialRef
+        material;  // Sprite.material with its materialParams (Assets::sprite_material); empty = the built-in look
     bool screen = false, mirrored = false, lit = false;
     std::uint32_t slotIndex = 0;  // the Scene2D slot of the entity (Entity::index)
     bool share = false;           // the first drawing of a shareable Sprite: Scene2D keeps where its items end up
@@ -428,6 +430,7 @@ void emit_sprite(const World& world, const Frame& f, const SpritePrep& prep, boo
     list.begin_item(s.layer, secondary_key(f, m, !screen), tex, s.pixelArt ? SamplerKind::Nearest : SamplerKind::Linear,
                     s.blend, prep.clip);
     if (lit) list.set_lit(prep.normal);
+    list.set_material(prep.material);
     if (const auto flash = inherited_flash(world, f, e)) list.set_flash(pack_color(*flash));
     const bool nine = !s.texture.empty() && (s.slice.x > 0 || s.slice.y > 0 || s.slice.z > 0 || s.slice.w > 0);
     const Vec2 spritePivot = prep.pivot;
@@ -1040,6 +1043,7 @@ void Scene2D::gather_sprites(World& world, Frame& f) {
         p.tex = assets.texture(s.texture);
         p.screen = screen;
         if (p.screen && !screen_clip(world, e, f, p.clip)) return;
+        p.material = assets.sprite_material(s.material, s.materialParams);  // may load it: here, not in the jobs
         p.mirrored = p.screen && ui_mirrored(world, e);
         p.lit = s.lit && !p.screen;
         if (p.lit && !s.normalMap.empty()) p.normal = assets.texture(s.normalMap);
