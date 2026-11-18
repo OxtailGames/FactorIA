@@ -1,6 +1,6 @@
 # Neon Swarm
 
-**What it shows:** A twin-stick arena shooter: the neon glow comes from camera bloom and additive shapes, with an adaptive score and an animation drawn with code.
+**What it shows:** A twin-stick arena shooter: the neon glow comes from PostProcess bloom and additive shapes, with an adaptive score and an animation drawn with code.
 
 **Read first:** `docs/EFFECTS.md`, `docs/PARTICLES.md` (`docs.read`, or `factoria docs read <name>`).
 
@@ -10,14 +10,14 @@ Scenes: title -> game -> gameover. High score persists with `storage`.
 
 ## The neon look
 
-The glow is a camera setting, not artwork (no glow textures, no halo sprites):
+The glow is a post-process setting, not artwork (no glow textures, no halo sprites):
 
-- Every scene's primary `Camera` has `"bloom": true` (`bloomThreshold` 0.5, `bloomIntensity` 1.5, `bloomRadius` 26) over a
+- Every scene's camera entity has a `PostProcess` with `"bloomEnabled": true` (`bloomThreshold` 0.5, `bloomIntensity` 1.5, `bloomRadius` 26) over a
   very dark `clearColor`, so everything brighter than the threshold bleeds light into its surroundings.
 - The player, the enemies, the bullets, the arena border and the title decorations are `Shape2D`s with bright colours
   and `"blend": "additive"`, so overlapping lights add up. Enemies and decorations are outlines (`filled: false`), the
   player and the bullets are solid. Explosions are `ParticleEmitter`s with `"blend": "additive"`.
-- The game scene's `Camera` has `"bloomScreenSpace": false`, so the screen-space HUD (white score, cyan best, yellow wave,
+- The game scene's `PostProcess` has `"bloomScreenSpace": false`, so the screen-space HUD (white score, cyan best, yellow wave,
   the health pips) is drawn after the bloom and stays crisp while the arena glows. The title and game-over scenes keep the
   default (`true`), so their screen-space titles glow too.
 - The chaser is a spinning `diamond` (a rhombus), the shooter and the player are triangles with `"pivot": [0.5, 0.3333]`
