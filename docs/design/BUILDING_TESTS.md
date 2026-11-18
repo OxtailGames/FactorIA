@@ -14,9 +14,8 @@ Part of [Building FactorIA](BUILDING.md) (the entry page lists every page).
   under test therefore skips itself: in a test run (`FA_EDITOR_AUTOTEST` set, or `FA_TEST_DISPLAY_WATCHDOG=1`, which the
   ctest entries that run a player set), a watchdog thread of the macOS app loop (`engine/platform/src/display_watchdog.h`,
   started by `to_sapp_desc`) looks every second; when no frame has been drawn for 10 s and `CGDisplayIsAsleep` is true
-  for every online display, it prints one line, kills every descendant process (an orphan holding ctest's stdout pipe would keep ctest waiting) and
-  ends the process with exit code 77 (`_Exit`: no destructors run). Those tests have
-  `SKIP_RETURN_CODE 77`, so ctest says `***Skipped` and lists them under "The following tests did not run"; the two
+  for every online display, it prints one line, kills every descendant process (an orphan holding ctest's stdout pipe would keep ctest
+  waiting) and ends the process with exit code 77 (`_Exit`: no destructors run). Those tests have `SKIP_RETURN_CODE 77`, so ctest says `***Skipped` and lists them under "The following tests did not run"; the two
   python tests pass the player's 77 on as their own exit code. Awake displays: nothing happens, a slow frame on a loaded
   machine is not a skip. Normal games and the editor in normal use never start the watchdog; Linux (Xvfb) and Windows
   have none. Environment: `FA_TEST_IGNORE_DISPLAY_SLEEP=1` runs whatever the display says (`FA_AGENT_WINDOW_TESTS=run`

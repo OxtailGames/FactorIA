@@ -37,6 +37,8 @@ servers = []  # every server this test started, for the cleanup and the watchdog
 def kill_servers():
     """Kills every server and whatever it started (its own process group on POSIX), so that no orphan outlives the test."""
     for s in list(servers):
+        if s.p.poll() is not None:
+            continue  # already gone: its pid (and process group) may belong to another program by now
         try:
             if IS_WINDOWS:
                 s.p.kill()
