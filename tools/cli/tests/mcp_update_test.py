@@ -28,6 +28,7 @@ import time
 
 FACTORIA = os.path.abspath(sys.argv[1])
 IS_WINDOWS = os.name == "nt"
+TMP_DIR = None  # the test's temporary directory, so that the watchdog can remove it before os._exit
 WATCHDOG_SECONDS = 240  # a safety net far above a run (under 30 s on a loaded VM), below the TIMEOUT 300 of the ctest entry
 CHILD_SECONDS = 90  # `factoria new`, codesign
 failures = []
@@ -57,6 +58,8 @@ def watchdog():
     print("\nFAIL  the test did not end within %d s (wall clock): a wait on a server or a child program never returned"
           % WATCHDOG_SECONDS, flush=True)
     kill_servers()
+    if TMP_DIR:
+        shutil.rmtree(TMP_DIR, ignore_errors=True)  # os._exit skips the finally of main()
     os._exit(1)
 
 
@@ -183,7 +186,9 @@ def another_build(src, dst):
 
 
 def main():
+    global TMP_DIR
     tmp = tempfile.mkdtemp(prefix="fa_mcp_update_")
+    TMP_DIR = tmp
     home = os.path.join(tmp, "home")
     os.makedirs(home)
     try:

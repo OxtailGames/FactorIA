@@ -1306,7 +1306,7 @@ A stack of screen effects (tonemap, exposure, bloom, colour grading, vignette, c
 | `pixelateSize` | float | `4.0` | Only used when pixelateEnabled. Size of a block in design pixels, 1 to 64 (1 = unchanged), so the blocks look the same at any render scale. Range 1.0..64.0. |
 | `posterizeEnabled` | bool | `false` | Switches the posterization on: each colour channel of the display picture is cut to a few levels, after the grading. Cost: folded into the final pass. |
 | `posterizeLevels` | int | `8` | Only used when posterizeEnabled. Levels per colour channel, 2 to 256 (256 = unchanged). Range 2..256. |
-| `ssaoEnabled` | bool | `false` | Switches the ambient occlusion on: creases and contact points of 3D models get darker. Needs the depth buffer (3D) and a GPU with RGBA16F targets that blend; it costs the most of the effects at high quality. |
+| `ssaoEnabled` | bool | `false` | Switches the ambient occlusion on: creases and contact points of 3D models get darker. Needs the depth buffer (3D) and a GPU with RGBA16F targets that blend; it costs the most of the effects at high quality. It darkens the opaque meshes only: blended meshes, sprites, particles, text and the interface drawn over them keep their colour. |
 | `ssaoQuality` | enum: low \| medium \| high \| ultra | `"medium"` | Only used when ssaoEnabled. The number of directions and steps (GTAO): low is for phones and the web; each level costs about twice the one before. low and medium work at half the resolution of the camera's rectangle, high and ultra at full resolution. |
 | `ssaoIntensity` | float | `1.0` | Only used when ssaoEnabled. 0..4: how dark the occlusion is. Range 0.0..4.0. |
 | `ssaoRadius` | float | `0.5` | Only used when ssaoEnabled. World units: how far from a point an occluder still darkens it. Range 0.01..20.0. |
@@ -1326,7 +1326,7 @@ A stack of screen effects (tonemap, exposure, bloom, colour grading, vignette, c
 | `ssrMaxDistance` | float | `50.0` | Only used when ssrEnabled. World units a reflected ray travels before it gives up. Range 1.0..1000.0. |
 | `ssrThickness` | float | `0.3` | Only used when ssrEnabled. World units behind a surface that still count as a hit. Range 0.01..10.0. |
 | `ssrSteps` | int | `32` | Only used when ssrEnabled. 8..128 steps along the ray; more is more accurate and costs more. Range 8..128. |
-| `fogEnabled` | bool | `false` | Switches the stack's fog on: distance and height fog drawn from the depth buffer of the opaque 3D meshes. The sky is not fogged, and blended meshes do not receive it (a blended mesh, particle or sprite drawn in the main pass takes the fog of the opaque surface behind it, none over the sky). It replaces SceneSettings.fogColor and fogDensity for a camera that draws it. |
+| `fogEnabled` | bool | `false` | Switches the stack's fog on: distance and height fog drawn from the depth buffer of the opaque 3D meshes. The sky is not fogged; blended meshes, sprites, particles and 3D text are fogged by their own distance with the same numbers (the interface is not). It replaces SceneSettings.fogColor and fogDensity for a camera that draws it. |
 | `fogColor` | color | `[0.5,0.6,0.7,1.0]` | Only used when fogEnabled. Colour distant things fade to. |
 | `fogDensity` | float | `0.02` | Only used when fogEnabled. Fog thickness with distance (the same scale as SceneSettings.fogDensity); 0 = none. Range 0.0..10.0. |
 | `fogStart` | float | `0.0` | Only used when fogEnabled. World units from the camera before the fog begins. Range 0.0..100000.0. |
@@ -20750,7 +20750,7 @@ declare module "factoria" {
      */
     posterizeLevels: number;
     /**
-     * Switches the ambient occlusion on: creases and contact points of 3D models get darker. Needs the depth buffer (3D) and a GPU with RGBA16F targets that blend; it costs the most of the effects at high quality.
+     * Switches the ambient occlusion on: creases and contact points of 3D models get darker. Needs the depth buffer (3D) and a GPU with RGBA16F targets that blend; it costs the most of the effects at high quality. It darkens the opaque meshes only: blended meshes, sprites, particles, text and the interface drawn over them keep their colour.
      * @since unreleased
      */
     ssaoEnabled: boolean;
@@ -20851,7 +20851,7 @@ declare module "factoria" {
      */
     ssrSteps: number;
     /**
-     * Switches the stack's fog on: distance and height fog drawn from the depth buffer of the opaque 3D meshes. The sky is not fogged, and blended meshes do not receive it (a blended mesh, particle or sprite drawn in the main pass takes the fog of the opaque surface behind it, none over the sky). It replaces SceneSettings.fogColor and fogDensity for a camera that draws it.
+     * Switches the stack's fog on: distance and height fog drawn from the depth buffer of the opaque 3D meshes. The sky is not fogged; blended meshes, sprites, particles and 3D text are fogged by their own distance with the same numbers (the interface is not). It replaces SceneSettings.fogColor and fogDensity for a camera that draws it.
      * @since unreleased
      */
     fogEnabled: boolean;

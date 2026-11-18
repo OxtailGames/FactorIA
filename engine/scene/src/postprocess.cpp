@@ -414,7 +414,9 @@ void register_postprocess_component(TypeRegistry& r) {
         .field("ssaoEnabled", &PostProcess::ssaoEnabled,
                "Switches the ambient occlusion on: creases and contact points of 3D models get darker. Needs the depth "
                "buffer "
-               "(3D) and a GPU with RGBA16F targets that blend; it costs the most of the effects at high quality.")
+               "(3D) and a GPU with RGBA16F targets that blend; it costs the most of the effects at high quality. "
+               "It darkens the opaque meshes only: blended meshes, sprites, particles, text and the interface drawn "
+               "over them keep their colour.")
         .enum_field(
             "ssaoQuality", &PostProcess::ssaoQuality, {"low", "medium", "high", "ultra"},
             "Only used when ssaoEnabled. The number of directions and steps (GTAO): low is for phones and the "
@@ -507,8 +509,8 @@ void register_postprocess_component(TypeRegistry& r) {
         .field(
             "fogEnabled", &PostProcess::fogEnabled,
             "Switches the stack's fog on: distance and height fog drawn from the depth buffer of the opaque 3D meshes. "
-            "The sky is not fogged, and blended meshes do not receive it (a blended mesh, particle or sprite "
-            "drawn in the main pass takes the fog of the opaque surface behind it, none over the sky). It "
+            "The sky is not fogged; blended meshes, sprites, particles and 3D text are fogged by their own distance "
+            "with the same numbers (the interface is not). It "
             "replaces SceneSettings.fogColor and fogDensity for a camera that draws it.")
         .field("fogColor", &PostProcess::fogColor, "Only used when fogEnabled. Colour distant things fade to.")
         .field("fogDensity", &PostProcess::fogDensity,
