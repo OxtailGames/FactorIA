@@ -238,9 +238,13 @@ void generate_normals(std::vector<MeshVertex>& v, const std::vector<std::uint32_
     }
 }
 
+// `uv1` and `color1` get TEXCOORD_1 (two floats per vertex) and COLOR_1 (packed like MeshVertex::color) when the primitive has them,
+// the channels a material's "vertexAttributes" read; they stay empty otherwise.
 bool read_primitive(const cgltf_primitive& prim, const Mat4& world, const Mat4& normalMat,
-                    std::vector<MeshVertex>& verts, std::vector<std::uint32_t>& idx) {
+                    std::vector<MeshVertex>& verts, std::vector<std::uint32_t>& idx, std::vector<float>& uv1,
+                    std::vector<std::uint32_t>& color1) {
     const cgltf_accessor *pos = nullptr, *nrm = nullptr, *uv = nullptr, *tng = nullptr, *col = nullptr;
+    const cgltf_accessor *uvB = nullptr, *colB = nullptr;
     for (cgltf_size a = 0; a < prim.attributes_count; ++a) {
         const cgltf_attribute& at = prim.attributes[a];
         if (at.type == cgltf_attribute_type_position && at.index == 0)
@@ -254,8 +258,25 @@ bool read_primitive(const cgltf_primitive& prim, const Mat4& world, const Mat4& 
         else if (at.type == cgltf_attribute_type_color && at.index == 0 &&
                  (at.data->type == cgltf_type_vec3 || at.data->type == cgltf_type_vec4))
             col = at.data;  // COLOR_0: multiplies the base color (rgb or rgba, floats or normalized integers)
+        else if (at.type == cgltf_attribute_type_texcoord && at.index == 1)
+            uvB = at.data;
+        else if (at.type == cgltf_attribute_type_color && at.index == 1 &&
+                 (at.data->type == cgltf_type_vec3 || at.data->type == cgltf_type_vec4))
+            colB = at.data;
     }
     if (!pos) return false;
+    if (uvB) {
+        uv1.assign(pos->count * 2, 0.0f);
+        for (cgltf_size i = 0; i < pos->count && i < uvB->count; ++i) cgltf_accessor_read_float(uvB, i, &uv1[i * 2], 2);
+    }
+    if (colB) {
+        color1.assign(pos->count, 0xFFFFFFFFu);
+        for (cgltf_size i = 0; i < pos->count && i < colB->count; ++i) {
+            float c[4] = {1, 1, 1, 1};
+            cgltf_accessor_read_float(colB, i, c, colB->type == cgltf_type_vec3 ? 3 : 4);
+            color1[i] = pack_vertex_color(c[0], c[1], c[2], c[3]);
+        }
+    }
     verts.resize(pos->count);
     for (cgltf_size i = 0; i < pos->count; ++i) {
         float p[3] = {0, 0, 0};
@@ -475,7 +496,7 @@ bool decode_gltf(const std::string& path, const std::uint8_t* bytes, std::size_t
                 continue;
             }
             PreparedPart part;
-            if (!read_primitive(prim, world, normalMat, part.verts, part.idx)) continue;
+            if (!read_primitive(prim, world, normalMat, part.verts, part.idx, part.uv1, part.color1)) continue;
             compute_bounds(part.verts, part.material.bmin, part.material.bmax);
             prepare_material(prim.material, dir, part);
             prepare_skin(path, skeleton, int(ni), int(pi), part, out.warnings);
@@ -541,6 +562,20 @@ public:
                 sm.skinVb = sg_make_buffer(&bd);
                 sm.skin = part.skinIndex;
                 bytes += part.skin.size() * sizeof(SkinVertex);
+            }
+            if (!part.uv1.empty()) {
+                sg_buffer_desc bd{};
+                bd.data = {part.uv1.data(), part.uv1.size() * sizeof(float)};
+                bd.label = "uv1";
+                sm.uv1Vb = sg_make_buffer(&bd);
+                bytes += part.uv1.size() * sizeof(float);
+            }
+            if (!part.color1.empty()) {
+                sg_buffer_desc bd{};
+                bd.data = {part.color1.data(), part.color1.size() * sizeof(std::uint32_t)};
+                bd.label = "color1";
+                sm.color1Vb = sg_make_buffer(&bd);
+                bytes += part.color1.size() * sizeof(std::uint32_t);
             }
             out.parts.push_back(sm);
         }
@@ -637,6 +672,8 @@ void Assets::destroy_mesh(MeshAsset& m) {
         sg_destroy_buffer(p.vb);
         sg_destroy_buffer(p.ib);
         if (p.skinVb.id) sg_destroy_buffer(p.skinVb);
+        if (p.uv1Vb.id) sg_destroy_buffer(p.uv1Vb);
+        if (p.color1Vb.id) sg_destroy_buffer(p.color1Vb);
     }
     m.parts.clear();
 }

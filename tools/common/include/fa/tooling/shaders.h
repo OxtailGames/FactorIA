@@ -13,6 +13,12 @@
 // material by itself and define FA_ALPHA_CLIP for the template; a material may declare `alphaCutoff` as a float to change its
 // default, range or doc. The snippet reads it like any param and the engine discards below it after surface().
 //
+// Per-instance params and vertex channels: a param with `"instanced": true` is left out of the uniform block and travels in
+// the instance buffer (instance_layout: at most kMaterialMaxInstanceVec4 vec4, floats and small vectors packed first-fit
+// in alphabetical order), so entities with different values still share one draw; the snippet reads it by its name in
+// vertex() and surface(). `"vertexAttributes": ["uv1", "color1"]` declares the extra mesh channels the snippet reads as the
+// globals vertex_uv1 and vertex_color1. The twin lists both ("instanced", "instanceVec4", "vertexAttributes").
+//
 // sokol-shdc is looked up with find_sokol_shdc (fa/tooling/setup.h) and started through SetupContext::run, so tests inject
 // both.
 #pragma once
@@ -40,6 +46,10 @@ inline constexpr int kMaterialMaxTextures =
 inline constexpr int kMaterialFsFirstView = 6, kMaterialFsFirstSampler = 2;
 inline constexpr int kMaterialVsFirstView = kMaterialFsFirstView + kMaterialMaxTextures,
                      kMaterialVsFirstSampler = kMaterialFsFirstSampler + kMaterialMaxTextures;
+// Per-instance params ("instanced": true) travel in a second per-instance vertex buffer next to the model matrices: at most
+// this many vec4 (12 floats) per instance, so the main program of a skinned mesh (11 attributes + 3 + 2 declared channels)
+// stays within the 16 vertex attributes sokol and every backend allow.
+inline constexpr int kMaterialMaxInstanceVec4 = 3;
 inline constexpr const char* kMaterialFormat = "factoria.material/1";
 inline constexpr const char* kShaderTwinFormat = "factoria.shader/1";
 inline constexpr const char* kMaterialAlphaCutoff = "alphaCutoff";
@@ -54,9 +64,31 @@ struct MaterialParam {
     Json defaultValue;  // a number, or an array of 2..4 numbers
     std::optional<double> min, max;
     std::string doc;
-    bool implicit = false;   // added by the generator (alphaCutoff of a "clip" material), not written in the file
+    bool implicit = false;  // added by the generator (alphaCutoff of a "clip" material), not written in the file
+    bool instanced =
+        false;  // per instance: every entity's value travels in the instance buffer, so entities with different
+                // values stay in one draw; not part of the uniform block
     int components() const;  // 1, 2, 3 or 4
 };
+
+// Where an instanced param sits in the per-instance data: the vec4 index and the first float inside it.
+struct InstanceSlot {
+    std::string name;
+    int vec4 = 0;
+    int offset = 0;
+    int components = 1;
+};
+struct InstanceLayout {
+    std::vector<InstanceSlot> slots;  // alphabetical, like the params
+    int vec4Count = 0;                // 0 = the material has no instanced params
+};
+// First fit, alphabetical: a param takes the first vec4 where its components still fit (a vec3 or vec4 never straddles two).
+// More than kMaterialMaxInstanceVec4 vec4 is not an error here (parse_material reports it); vec4Count says what it needs.
+InstanceLayout instance_layout(const std::vector<MaterialParam>& params);
+
+// The mesh channels beyond position, normal, uv0, tangent and color0 a material may declare in "vertexAttributes":
+// "uv1" (glTF TEXCOORD_1, vec2, read in vertex() as vertex_uv1) and "color1" (glTF COLOR_1, vec4 0..1, vertex_color1).
+const std::vector<std::string>& material_vertex_attribute_names();
 
 struct MaterialTexture {
     std::string name;
@@ -76,6 +108,8 @@ struct MaterialDef {
     bool doubleSided = false;
     std::vector<MaterialParam> params;  // alphabetical (the packing order of the uniform block); includes implicit ones
     std::vector<MaterialTexture> textures;  // alphabetical (view bindings 6.., sampler bindings 2..)
+    std::vector<std::string>
+        vertexAttributes;  // extra mesh channels vertex() reads (material_vertex_attribute_names()), sorted
     // The node graph the snippet is generated from (fa/tooling/material_graph.h); null = the snippet is hand-written. graphHash
     // is the hash of the snippet material.graph.generate wrote ("" = never generated).
     Json graph;
@@ -134,7 +168,9 @@ struct GeneratedShader {
     bool hasAmbient = false;  // lighting "custom": the snippet defines ambient()
     std::vector<std::string>
         programs;  // "mesh", "mesh_skin", with vertex() or "clip" "shadow", "shadow_skin", and "prepass", "prepass_skin"
-    std::vector<std::string> defines;  // for --defines: FA_HAS_VERTEX, FA_ALPHA_CLIP, FA_CUSTOM_LIGHT, FA_HAS_AMBIENT
+    std::vector<std::string>
+        defines;  // for --defines: FA_HAS_VERTEX, FA_ALPHA_CLIP, FA_CUSTOM_LIGHT, FA_HAS_AMBIENT, FA_INST_1..3 (the vec4
+                  // of per-instance data), FA_CH_UV1, FA_CH_COLOR1 (declared vertexAttributes)
 };
 
 // Builds the top file of the design: the material block(s) in alphabetical order, the textures, the snippet (surface() only

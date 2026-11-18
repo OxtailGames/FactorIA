@@ -23,6 +23,27 @@ int MaterialParam::components() const {
     return 4;
 }
 
+InstanceLayout instance_layout(const std::vector<MaterialParam>& params) {
+    InstanceLayout out;
+    std::vector<int> used;  // floats taken in each vec4
+    for (const MaterialParam& p : params) {
+        if (!p.instanced) continue;
+        const int n = p.components();
+        size_t v = 0;
+        while (v < used.size() && used[v] + n > 4) ++v;
+        if (v == used.size()) used.push_back(0);
+        out.slots.push_back({p.name, int(v), used[v], n});
+        used[v] += n;
+    }
+    out.vec4Count = int(used.size());
+    return out;
+}
+
+const std::vector<std::string>& material_vertex_attribute_names() {
+    static const std::vector<std::string> names = {"color1", "uv1"};
+    return names;
+}
+
 std::string MaterialIssue::to_string() const {
     std::string out = pointer.empty() ? message : pointer + ": " + message;
     if (!hint.empty()) out += " (hint: " + hint + ")";
@@ -133,10 +154,18 @@ struct Checker {
             return;
         }
         for (auto it = p.begin(); it != p.end(); ++it) {
-            static const std::vector<std::string> known = {"type", "default", "min", "max", "doc"};
+            static const std::vector<std::string> known = {"type", "default", "min", "max", "doc", "instanced"};
             if (std::find(known.begin(), known.end(), it.key()) == known.end())
                 error(base + "/" + escape_token(it.key()), "unknown key \"" + it.key() + "\"",
                       did_you_mean(it.key(), known));
+        }
+        if (auto in = p.find("instanced"); in != p.end()) {
+            if (!in->is_boolean())
+                error(base + "/instanced", "expected true or false, got " + describe_json_value(*in),
+                      "Write \"instanced\": true to give every entity its own value inside one instanced draw, or "
+                      "leave the key out.");
+            else
+                param.instanced = in->get<bool>();
         }
         // doc
         if (auto d = p.find("doc"); d == p.end())
@@ -356,9 +385,9 @@ MaterialParse parse_material(const Json& doc, const std::string& projectDir, con
                 "\"shaders/x.surface.glsl\", ...}.");
         return std::move(c.out);
     }
-    static const std::vector<std::string> topKeys = {"$schema", "format",      "doc",    "kind",     "shader",
-                                                     "lighting", "alphaMode", "doubleSided", "params", "textures",
-                                                     "graph",    "graphHash"};
+    static const std::vector<std::string> topKeys = {
+        "$schema",     "format", "doc",      "kind",  "shader",    "lighting",        "alphaMode",
+        "doubleSided", "params", "textures", "graph", "graphHash", "vertexAttributes"};
     for (auto it = doc.begin(); it != doc.end(); ++it)
         if (std::find(topKeys.begin(), topKeys.end(), it.key()) == topKeys.end())
             c.error("/" + escape_token(it.key()), "unknown key \"" + it.key() + "\"", did_you_mean(it.key(), topKeys));
@@ -454,11 +483,13 @@ MaterialParse parse_material(const Json& doc, const std::string& projectDir, con
                     "Declare it as \"type\": \"float\", or remove it to get the default (0.5, range 0..1).");
         }
     }
-    if (int(m.params.size()) > kMaterialMaxParams) {
+    const int blockParams =
+        int(std::count_if(m.params.begin(), m.params.end(), [](const MaterialParam& p) { return !p.instanced; }));
+    if (blockParams > kMaterialMaxParams) {
         bool implicit =
             std::any_of(m.params.begin(), m.params.end(), [](const MaterialParam& p) { return p.implicit; });
         c.error("/params",
-                std::to_string(m.params.size()) + " params" +
+                std::to_string(blockParams) + " params" +
                     (implicit ? " (including the implicit alphaCutoff of alphaMode \"clip\")" : "") + ", at most " +
                     std::to_string(kMaterialMaxParams) + " (each is padded to a vec4 of the 256-byte uniform block)",
                 "Merge related floats into vec2, vec3 or vec4 params, or drop the ones the snippet does not need.");
@@ -467,6 +498,47 @@ MaterialParse parse_material(const Json& doc, const std::string& projectDir, con
               [](const MaterialParam& a, const MaterialParam& b) { return a.name < b.name; });
     std::sort(m.textures.begin(), m.textures.end(),
               [](const MaterialTexture& a, const MaterialTexture& b) { return a.name < b.name; });
+    if (const InstanceLayout layout = instance_layout(m.params); layout.vec4Count > kMaterialMaxInstanceVec4) {
+        std::string names;
+        for (const MaterialParam& p : m.params)
+            if (p.instanced) names += (names.empty() ? "" : ", ") + p.name + " (" + p.type + ")";
+        c.error(
+            "/params",
+            "the instanced params need " + std::to_string(layout.vec4Count) + " vec4 per instance, at most " +
+                std::to_string(kMaterialMaxInstanceVec4) + " (12 floats): " + names,
+            "Make some of them not instanced (entities with different values then split the batch), or use fewer "
+            "components: floats and small vectors share a vec4 (a vec3 and a float fit in one), a vec4 takes a whole "
+            "one.");
+    }
+    if (auto v = doc.find("vertexAttributes"); v != doc.end()) {
+        const auto& names = material_vertex_attribute_names();
+        if (!v->is_array()) {
+            c.error("/vertexAttributes", "expected an array of names, got " + describe_json_value(*v),
+                    "Write \"vertexAttributes\": [\"uv1\"]; the names are " + join(names, ", ") + ".");
+        } else {
+            for (size_t i = 0; i < v->size(); ++i) {
+                const std::string ptr = "/vertexAttributes/" + std::to_string(i);
+                const Json& e = (*v)[i];
+                if (!e.is_string()) {
+                    c.error(ptr, "expected a name, got " + describe_json_value(e),
+                            "Use one of: " + join(names, ", ") + ".");
+                    continue;
+                }
+                const std::string name = e.get<std::string>();
+                if (std::find(names.begin(), names.end(), name) == names.end())
+                    c.error(ptr, "unknown vertex attribute \"" + name + "\"",
+                            did_you_mean(name, names) +
+                                " The mesh channels beyond position, normal, uv, tangent and color a material can read "
+                                "are uv1 (glTF TEXCOORD_1) and color1 (glTF COLOR_1).");
+                else if (std::find(m.vertexAttributes.begin(), m.vertexAttributes.end(), name) !=
+                         m.vertexAttributes.end())
+                    c.error(ptr, "\"" + name + "\" is listed twice", "Remove the duplicate.");
+                else
+                    m.vertexAttributes.push_back(name);
+            }
+        }
+        std::sort(m.vertexAttributes.begin(), m.vertexAttributes.end());
+    }
     c.read_graph(doc, m);
     return std::move(c.out);
 }

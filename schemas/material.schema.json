@@ -27,9 +27,16 @@
           "default": { "type": ["number", "array"], "items": { "type": "number" }, "minItems": 2, "maxItems": 4, "description": "A number for float, an array of 2, 3 or 4 numbers for vec2, vec3, vec4 and color." },
           "min": { "type": "number", "description": "Smallest sensible value (the editor slider's start); also checked against the default." },
           "max": { "type": "number", "description": "Largest sensible value (the editor slider's end); also checked against the default." },
-          "doc": { "type": "string", "minLength": 1, "description": "What the parameter does and its unit. Required: AIs read it through material.info." }
+          "doc": { "type": "string", "minLength": 1, "description": "What the parameter does and its unit. Required: AIs read it through material.info." },
+          "instanced": { "type": "boolean", "default": false, "description": "true: every entity's value (MeshRenderer.materialParams) travels in the instance buffer next to the model matrix, so entities with different values stay in ONE instanced draw; the snippet reads it by the same name in surface() and vertex(), in the shadow and depth prepass too. Not part of the uniform block (the 16 params do not count it). At most 3 vec4 (12 floats) per instance for all instanced params together; floats and small vectors share a vec4. false: one value per draw, entities with different values draw separately." }
         }
       }
+    },
+    "vertexAttributes": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "enum": ["uv1", "color1"] },
+      "description": "Extra channels of the mesh vertex() reads: \"uv1\" (glTF TEXCOORD_1) as `vec2 vertex_uv1`, \"color1\" (glTF COLOR_1) as `vec4 vertex_color1`. Only vertex() sees them (fold them into v.uv, v.color or the position); a mesh without the channel is refused with an error naming the material and the mesh. Procedural meshes have neither."
     },
     "textures": {
       "type": "object",

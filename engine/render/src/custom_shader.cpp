@@ -252,41 +252,57 @@ Result<MaterialProgram> make_material_program(const std::string& label, const Js
     return out;
 }
 
+namespace {
+// The value of param `p` for an entity: the default overlaid by `overrides[p.name]`; a value of the wrong shape is warned about
+// once per material and keeps the default.
+void param_value(MaterialAsset& m, const MaterialParamDef& p, const Json& overrides, float out[4]) {
+    std::memcpy(out, p.def, sizeof(p.def));
+    auto it = overrides.is_object() ? overrides.find(p.name) : overrides.end();
+    if (it == overrides.end()) return;
+    bool good = p.components == 1 ? it->is_number() : (it->is_array() && int(it->size()) == p.components);
+    if (good && it->is_array())
+        for (const Json& c : *it) good = good && c.is_number();
+    if (!good) {
+        if (m.warned.insert(p.name).second)
+            FA_WARN("render", "materialParams.{} of a MeshRenderer using '{}' must be {} (the default is kept)", p.name,
+                    m.path,
+                    p.components == 1 ? std::string("a number")
+                                      : "an array of " + std::to_string(p.components) + " numbers, like " +
+                                            (p.components == 2   ? "[0.5, 1]"
+                                             : p.components == 3 ? "[1, 0.5, 0]"
+                                                                 : "[1, 0.5, 0, 1]"));
+        return;
+    }
+    if (p.components == 1)
+        out[0] = it->get<float>();
+    else
+        for (int c = 0; c < p.components; ++c) out[c] = (*it)[std::size_t(c)].get<float>();
+}
+}  // namespace
+
 void pack_material_params(MaterialAsset& m, const Json& overrides, float out[kMaxMaterialParams][4]) {
     const int n = std::min<int>(int(m.params.size()), kMaxMaterialParams);
-    for (int i = 0; i < n; ++i) {
-        const MaterialParamDef& p = m.params[std::size_t(i)];
-        std::memcpy(out[i], p.def, sizeof(p.def));
-        auto it = overrides.is_object() ? overrides.find(p.name) : overrides.end();
-        if (it == overrides.end()) continue;
-        bool good = p.components == 1 ? it->is_number() : (it->is_array() && int(it->size()) == p.components);
-        if (good && it->is_array())
-            for (const Json& c : *it) good = good && c.is_number();
-        if (!good) {
-            if (m.warned.insert(p.name).second)
-                FA_WARN("render", "materialParams.{} of a MeshRenderer using '{}' must be {} (the default is kept)",
-                        p.name, m.path,
-                        p.components == 1 ? std::string("a number")
-                                          : "an array of " + std::to_string(p.components) + " numbers, like " +
-                                                (p.components == 2   ? "[0.5, 1]"
-                                                 : p.components == 3 ? "[1, 0.5, 0]"
-                                                                     : "[1, 0.5, 0, 1]"));
-            continue;
-        }
-        if (p.components == 1)
-            out[i][0] = it->get<float>();
-        else
-            for (int c = 0; c < p.components; ++c) out[i][c] = (*it)[std::size_t(c)].get<float>();
-    }
+    for (int i = 0; i < n; ++i) param_value(m, m.params[std::size_t(i)], overrides, out[i]);
     if (overrides.is_object() && !overrides.empty()) {
         std::vector<std::string> names;
         for (const auto& p : m.params) names.push_back(p.name);
+        for (const auto& p : m.instanced) names.push_back(p.name);
         for (const auto& t : m.textures) names.push_back(t.name);
         for (auto it = overrides.begin(); it != overrides.end(); ++it)
             if (std::find(names.begin(), names.end(), it.key()) == names.end() && m.warned.insert(it.key()).second)
                 FA_WARN("render",
                         "materialParams.{} of a MeshRenderer using '{}' is not a param or texture of that material. {}",
                         it.key(), m.path, did_you_mean(it.key(), names));
+    }
+}
+
+void pack_instance_params(MaterialAsset& m, const Json& overrides, float* out) {
+    const int floats = m.instanceVec4 * 4;
+    for (int i = 0; i < floats; ++i) out[i] = 0.0f;
+    for (const MaterialParamDef& p : m.instanced) {
+        float v[4];
+        param_value(m, p, overrides, v);
+        for (int c = 0; c < p.components; ++c) out[p.vec4 * 4 + p.offset + c] = v[c];
     }
 }
 
@@ -398,11 +414,12 @@ Result<void> Assets::build_material_checked(MaterialAsset& m) {
     };
     const Json* paramDefs = section("params");
     const Json* textureDefs = section("textures");
-    std::vector<MaterialParamDef> params;
+    std::vector<MaterialParamDef> params, instanced;
     std::vector<MaterialTextureDef> textures;
-    for (const Json& n : twin.value("params", Json::array())) {
+    // The definition of param `name` as the material file declares it (the twin only names it).
+    auto param_def = [&](const std::string& name) -> Result<MaterialParamDef> {
         MaterialParamDef d;
-        d.name = n.is_string() ? n.get<std::string>() : std::string();
+        d.name = name;
         auto it = paramDefs ? paramDefs->find(d.name) : Json::const_iterator();
         if (paramDefs && it != paramDefs->end() && it->is_object()) {
             const std::string type = text_of(*it, "type");
@@ -420,7 +437,43 @@ Result<void> Assets::build_material_checked(MaterialAsset& m) {
                                   "', which /params of the material does not declare",
                               "The material changed after its shader was made. " + std::string(kReexportHint));
         }
-        params.push_back(std::move(d));
+        return d;
+    };
+    for (const Json& n : twin.value("params", Json::array())) {
+        auto d = param_def(n.is_string() ? n.get<std::string>() : std::string());
+        if (!d.ok()) return d.error();
+        params.push_back(std::move(*d));
+    }
+    // The per-instance params: where each sits in the instance buffer (fa/tooling/shaders.h instance_layout).
+    const int instanceVec4 = int_or(twin, "instanceVec4", 0);
+    for (const Json& n : twin.value("instanced", Json::array())) {
+        auto d = param_def(text_of(n, "name"));
+        if (!d.ok()) return d.error();
+        d->vec4 = int_or(n, "vec4", -1);
+        d->offset = int_or(n, "offset", -1);
+        if (int_or(n, "components", 0) != d->components || d->vec4 < 0 || d->vec4 >= instanceVec4 || d->offset < 0 ||
+            d->offset + d->components > 4)
+            return make_error("the shader of material '" + m.path + "' places the instanced param '" + d->name +
+                                  "' where the material does not (vec4 " + std::to_string(d->vec4) + ", float " +
+                                  std::to_string(d->offset) + " of " + std::to_string(instanceVec4) + " vec4)",
+                              "The material changed after its shader was made. " + std::string(kReexportHint));
+        instanced.push_back(std::move(*d));
+    }
+    if (instanceVec4 < 0 || instanceVec4 > kMaxInstanceVec4 || (instanceVec4 > 0) != !instanced.empty())
+        return make_error("the shader of material '" + m.path + "' has " + std::to_string(instanceVec4) +
+                              " vec4 of per-instance data, at most " + std::to_string(kMaxInstanceVec4),
+                          kReexportHint);
+    bool uv1 = false, color1 = false;
+    for (const Json& n : twin.value("vertexAttributes", Json::array())) {
+        const std::string name = n.is_string() ? n.get<std::string>() : std::string();
+        if (name == "uv1")
+            uv1 = true;
+        else if (name == "color1")
+            color1 = true;
+        else
+            return make_error("the shader of material '" + m.path + "' declares the vertex attribute '" + name +
+                                  "', which this engine version does not know",
+                              kReexportHint);
     }
     if (params.size() > std::size_t(kMaxMaterialParams))
         return make_error("the shader of material '" + m.path + "' has " + std::to_string(params.size()) +
@@ -477,6 +530,16 @@ Result<void> Assets::build_material_checked(MaterialAsset& m) {
     m.alphaMode = alphaMode;
     m.doubleSided = doubleSided;
     m.params = std::move(params);
+    m.instanced = std::move(instanced);
+    m.instanceVec4 = instanceVec4;
+    m.uv1 = uv1;
+    m.color1 = color1;
+    m.instancedNames.clear();
+    for (const MaterialParamDef& p : m.instanced) m.instancedNames.push_back(p.name);
+    std::sort(m.instancedNames.begin(), m.instancedNames.end());
+    m.instancedKey = 0;
+    for (const std::string& n : m.instancedNames)
+        m.instancedKey = m.instancedKey * 1000003u + std::hash<std::string>{}(n);
     m.textures = std::move(textures);
     return {};
 }
@@ -484,7 +547,10 @@ Result<void> Assets::build_material_checked(MaterialAsset& m) {
 void Assets::build_material(MaterialAsset& m) {
     auto r = build_material_checked(m);
     failures_.erase(std::remove_if(failures_.begin(), failures_.end(),
-                                   [&](const Failure& f) { return f.kind == "material" && f.path == m.path; }),
+                                   [&](const Failure& f) {
+                                       return (f.kind == "material" && f.path == m.path) ||
+                                              (f.kind == "material-mesh" && f.path.rfind(m.path + " on ", 0) == 0);
+                                   }),
                     failures_.end());
     if (r.ok()) {
         m.ok = true;

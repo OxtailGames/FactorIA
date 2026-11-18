@@ -140,12 +140,23 @@ void skinned_bounds(const std::vector<Mat4>& palette, Vec3 bmin, Vec3 bmax, Vec3
 struct MeshBatch {
     std::size_t rep = 0;  // index in `items` of the first item (stands for the material of the whole batch)
     std::uint32_t mainFirst = 0, mainCount = 0, shadowFirst = 0, shadowCount = 0;
+    // The per-instance params of a material with "instanced" params (pack_instance_params): instanceVec4 vec4 for each instance, at
+    // mainData[mainExtra ..) (floats) for the visible items and shadowData[shadowExtra ..) for the casters, in the order of the
+    // matrices. instanceVec4 is 0 for a batch without them.
+    std::uint32_t instanceVec4 = 0, mainExtra = 0, shadowExtra = 0;
 };
 
 // Groups `items` (sorted in place by material when `sortByMaterial`, otherwise kept in order and only neighbours merge:
 // blended meshes stay far-to-near).
 void build_batches(std::vector<MeshItem>& items, bool sortByMaterial, std::vector<MeshBatch>& batches,
                    std::vector<Mat4>& mainMats, std::vector<Mat4>& shadowMats);
+
+// Packs the per-instance params of every batch whose material has instanced ones (MaterialAsset::instanceVec4, built): appends to
+// `mainData` and `shadowData` the floats of each visible / casting item, in the order build_batches put the matrices, and sets
+// the batch's instanceVec4, mainExtra and shadowExtra. Entities with different values share the batch: the values are not part
+// of the batch key (MaterialHashCache::refresh). Batches of other materials are left alone.
+void pack_instance_extras(const std::vector<MeshItem>& items, std::vector<MeshBatch>& batches,
+                          std::vector<float>& mainData, std::vector<float>& shadowData);
 
 struct LightData {
     Vec4 pos, color, dir;

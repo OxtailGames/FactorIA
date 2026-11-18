@@ -48,6 +48,7 @@ Json param_json(const MaterialParam& p) {
     if (p.max) j["max"] = *p.max;
     j["doc"] = p.doc;
     if (p.implicit) j["implicit"] = true;
+    if (p.instanced) j["instanced"] = true;
     return j;
 }
 
@@ -137,10 +138,14 @@ void register_shader_commands(CommandRegistry& registry, const std::string& proj
             "compile now, the "
             "others report programs [] and compile.state \"unsupported\" with the package that brings them in "
             "compile.hint. "
-            "params: [{name, type, default, min?, max?, doc, implicit?}], textures: [{name, default, "
-            "sampler, doc}], programs, compile: {state, dialect, toolFound}}. "
+            "params: [{name, type, default, min?, max?, doc, implicit?, instanced?}], textures: [{name, default, "
+            "sampler, doc}], vertexAttributes?, programs, compile: {state, dialect, toolFound}}. "
             "params are listed in the order of the uniform block (alphabetical); `implicit` marks "
-            "alphaCutoff, which alphaMode \"clip\" adds by itself. "
+            "alphaCutoff, which alphaMode \"clip\" adds by itself; `instanced` marks a param whose value every entity "
+            "gives itself inside ONE instanced draw (it travels in the instance buffer instead of the uniform block); "
+            "`vertexAttributes` lists the extra mesh channels (uv1, color1) vertex() reads as vertex_uv1 and "
+            "vertex_color1. The fields `programs`, `lighting` and `compile`: docs/SHADERS.md, \"The material "
+            "file\"." FA_COMMAND_DETAILS
             "`lighting` is \"pbr\", \"unlit\" or \"custom\" (the snippet defines light(), the engine's light loop "
             "calls it once "
             "per light). "
@@ -192,6 +197,7 @@ void register_shader_commands(CommandRegistry& registry, const std::string& proj
                                      {"params", params},
                                      {"textures", textures},
                                      {"programs", Json(g.programs)}});
+            if (!m.vertexAttributes.empty()) out["vertexAttributes"] = Json(m.vertexAttributes);
             out["compile"] = Json::object({{"state", !supported ? "unsupported"
                                                      : compiled ? "compiled"
                                                                 : "not_compiled"},
