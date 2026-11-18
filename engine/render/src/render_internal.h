@@ -567,6 +567,8 @@ struct LutAsset {
     sg_view view{};
     int size = 0, cols = 0, rows = 0;  // colours per side, and how many slices sit across and down the image
     std::size_t bytes = 0;
+    bool retryPending =
+        false;  // the first read or parse failed: the next ask reads the file once more before it is an error
 };
 
 // Texture/mesh/font caches keyed by project-relative path.
@@ -674,8 +676,6 @@ private:
     Gpu& gpu_;
     std::unordered_map<std::string, std::unique_ptr<TextureAsset>> textures_;
     std::unordered_map<std::string, std::unique_ptr<LutAsset>> luts_;
-    std::unordered_set<std::string>
-        lutRetried_;  // LUT files whose first read or parse failed: tried once more before an error
     void destroy_lut(LutAsset& l);
     std::unordered_map<std::string, std::unique_ptr<MeshAsset>> meshes_;
     std::vector<std::unique_ptr<TextureAsset>> anonymous_;  // glTF embedded images

@@ -318,6 +318,11 @@ TEST_CASE("film grain: the second camera of a frame gets another seed, the first
     int differ = 0;
     for (int x = 0; x < 32; ++x) differ += grain_noise(x, 5, a) != grain_noise(x, 5, b) ? 1 : 0;
     CHECK(differ > 28);
+    // Size 1.5: the centre of pixel 1 is on the border of two cells (1.5 / 1.5), the offset puts it in the second one.
+    st.fx.filmGrainSize = 1.5f;
+    const PostFx h = make_post_fx(st, 0);
+    CHECK(grain_noise(1, 0, h) == grain_noise(2, 0, h));
+    CHECK(grain_noise(0, 0, h) != grain_noise(1, 0, h));
     // Size 3: the pixels 0..2 are one cell, 3..5 the next, whatever the rounding of the pixel centre.
     st.fx.filmGrainSize = 3.0f;
     const PostFx c = make_post_fx(st, 0);

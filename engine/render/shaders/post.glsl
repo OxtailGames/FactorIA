@@ -197,7 +197,7 @@ vec3 to_srgb_ext(vec3 c) {
 }
 
 // Interleaved gradient noise (Jimenez): a fixed pattern from the pixel position (top-left origin on every backend), so a run is
-// reproducible. Every float of this shader is highp in the GLSL ES 3.00 source sokol-shdc makes (a test checks it): the pixel position
+// reproducible. Every float of this shader is highp in the GLSL ES 3.00 source sokol-shdc makes (the generated source has no mediump float): the pixel position
 // and the grain's whole numbers keep their digits on a mobile GPU whose default float is mediump.
 float dither_noise(vec2 pixel) {
     return fract(52.9829189 * fract(dot(pixel, vec2(0.06711056, 0.00583715))));
