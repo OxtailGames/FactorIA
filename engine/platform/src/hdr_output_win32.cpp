@@ -65,6 +65,7 @@ struct State {
     HdrDisplay display;
     // The framebuffer size the colour space was last set for (0: none set, or the standard range).
     int spaceW = 0, spaceH = 0;
+    int spaceFails = 0;  // frames in a row that SetColorSpace1 failed for the current size (dxgi_keep_color_space)
 };
 State& state() {
     static State s;
@@ -169,6 +170,7 @@ HdrEncoding dxgi_apply(HdrEncoding encoding) {
     }
     s.spaceW = ok && want != 0 ? sapp_width() : 0;
     s.spaceH = ok && want != 0 ? sapp_height() : 0;
+    s.spaceFails = 0;
     release(chain3);
     return current();
 }
@@ -187,10 +189,13 @@ void dxgi_keep_color_space(HdrEncoding applied) {
     if (chain) chain->QueryInterface(kIidSwapChain3, reinterpret_cast<void**>(&chain3));
     if (!chain3) return;
     // sokol_app resized the buffers (ResizeBuffers): DXGI gives the new ones its default colour space again, so an HDR window would
-    // show its scRGB or PQ values as sRGB. Set it again; when it fails the size stays unmatched and the next frame tries again.
-    if (set_color_space(chain3, want)) {
+    // show its scRGB or PQ values as sRGB. Set it again; when it fails the size stays unmatched and the next frame tries again, at
+    // most kSpaceTries frames in a row (a driver that refuses for good is not asked every frame: the next resize asks again).
+    constexpr int kSpaceTries = 8;
+    if (set_color_space(chain3, want) || ++s.spaceFails >= kSpaceTries) {
         s.spaceW = w;
         s.spaceH = h;
+        s.spaceFails = 0;
     }
     release(chain3);
 }

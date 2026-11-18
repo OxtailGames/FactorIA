@@ -472,9 +472,11 @@ void Engine::Impl::draw(double dt, bool settled) {
     renderer->end_frame();
     // HDR output (docs/RENDERING.md, "HDR output"): the window's swapchain follows SceneSettings.hdrOutput and the display the
     // window is on, before the swapchain of this frame is taken. The editor's window shows its own UI: it never switches.
-    if (windowed && !gpu)
-        renderer->update_output(
-            world.settings(), cfg.editorMode ? "the editor shows the game in its own view, in the standard range" : "");
+    if (windowed && !gpu) {
+        static const std::string kEditorBlocked = "the editor shows the game in its own view, in the standard range";
+        static const std::string kNotBlocked;  // no string is built or copied per frame
+        renderer->update_output(world.settings(), cfg.editorMode ? kEditorBlocked : kNotBlocked);
+    }
     if (gpu)
         gpu->end_frame();
     else if (windowed && !cfg.editorMode)
