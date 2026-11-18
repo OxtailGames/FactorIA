@@ -1073,6 +1073,8 @@ private:
 
 // GPU->CPU readback of an RGBA8 image (top row first). Backend specific.
 bool readback_rgba8(sg_image image, int width, int height, std::vector<std::uint8_t>& out, std::string* error);
+// The same for an RGBA16F image, as floats (4 per pixel, top row first): what the HDR tests read (Renderer::Impl::read_floats).
+bool readback_rgba16f(sg_image image, int width, int height, std::vector<float>& out, std::string* error);
 
 // Debug draw storage.
 struct DebugLine {
