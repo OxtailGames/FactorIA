@@ -567,6 +567,8 @@ struct LutAsset {
     sg_view view{};
     int size = 0, cols = 0, rows = 0;  // colours per side, and how many slices sit across and down the image
     std::size_t bytes = 0;
+    bool retryPending =
+        false;  // the first read or parse failed: the next ask reads the file once more before it is an error
 };
 
 // Texture/mesh/font caches keyed by project-relative path.

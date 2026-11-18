@@ -243,7 +243,7 @@ void Renderer::Impl::plan_view_job(World& world, Frame& fr, ViewTarget& target, 
 }
 
 // Starts the frame graph of a frame: nothing declared, no job yet.
-void Renderer::Impl::begin_frame_graph() {
+void Renderer::Impl::begin_frame_graph(bool countPost) {
     if (!passHooksSet) {
         passHooksSet = true;
         // Every pass is a GPU timestamp pair while the GPU timer measures the frame (the profiler is on) and a zone of the
@@ -264,6 +264,8 @@ void Renderer::Impl::begin_frame_graph() {
     frameJobs.clear();
     jobImages.clear();
     ++frameSerial;
+    framePost = countPost;
+    if (countPost) ++postSerial;
     trim_shadow_rows();
     sharedGame = sharedLight = sharedShadow = ResourceId{};
 }
@@ -372,25 +374,32 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
             pp.ssao = ssao_debug_settings(pp.ssao);
             pp.needsDepth = pp.needsNormals = true;
         }
+        if (pp.fx.grain)
+            pp.fx.grainSeed =
+                grain_seed_for_camera(pp.fx.grainSeed, int(postCams.size()));  // not the same grain per half
         postCams.push_back(&ctx);
         // The camera's view-projection of the frame before, for the effects that reproject (motion blur); one entry per camera, and the
         // cameras that were not drawn last frame are forgotten.
         const std::uint64_t camKey = fr.cam.entity.bits();
+        // Counted in the frames of the game (postSerial): a capture_world between two of them neither reads nor writes the matrices,
+        // so the next frame still reprojects from the one before the capture.
         const auto prev = prevViewProj.find(camKey);
-        if (prev != prevViewProj.end() && prev->second.frame + 1 == frameSerial) {
+        if (prev != prevViewProj.end() && prev->second.frame + 1 == postSerial && framePost) {
             pp.prevViewProj = prev->second.viewProj;
             pp.prevValid = true;
         }
         if (fr.cam.postStack)
             pp.ssr = make_ssr_plan(fr.cam, *fr.cam.postStack);  // screen-space reflections (renderer_ssr.h)
-        PrevCamera& now = prevViewProj[camKey];
-        now.viewProj = fr.cam.viewProj;
-        now.frame = frameSerial;
-        for (auto it = prevViewProj.begin(); it != prevViewProj.end();)
-            it = it->second.frame + 1 < frameSerial ? prevViewProj.erase(it) : std::next(it);
+        if (framePost) {
+            PrevCamera& now = prevViewProj[camKey];
+            now.viewProj = fr.cam.viewProj;
+            now.frame = postSerial;
+            for (auto it = prevViewProj.begin(); it != prevViewProj.end();)
+                it = it->second.frame + 1 < postSerial ? prevViewProj.erase(it) : std::next(it);
+        }
         // Depth of field and motion blur (renderer_dof.h): the focus of this camera for the frame, the matrices of its movement.
         if (fr.cam.postStack)
-            pp.sceneFx = sceneFx.plan(world, fr.cam, *fr.cam.postStack, camKey, frameSerial, fr.dt, renderScale,
+            pp.sceneFx = sceneFx.plan(world, fr.cam, *fr.cam.postStack, camKey, postSerial, fr.dt, renderScale,
                                       pp.prevViewProj, pp.prevValid);
         // The program is made only for a frame that runs it (a conversion or a colour filter): a game without a stack never compiles it.
         if ((pp.final_pass() || pp.colorFilter != 0) &&
@@ -1783,7 +1792,7 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
     hudActive = false;
     finalEncoded = false;
     for (auto it = autoExposures.begin(); it != autoExposures.end();) {
-        if (it->second.frame + 1 < frameSerial) {  // its camera has not asked for two frames
+        if (it->second.frame + 1 < postSerial) {  // its camera has not asked for two frames
             if (it->second.exposure) it->second.exposure->release();
             it = autoExposures.erase(it);
         } else {
@@ -1939,10 +1948,10 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
                 if (cp.autoExposure) {
                     ExposureSlot& slot = autoExposures[c->fr.cam.entity.bits()];
                     if (!slot.exposure) slot.exposure = std::make_unique<AutoExposure>();
-                    slot.frame = frameSerial;
+                    slot.frame = postSerial;
                     exposure = slot.exposure.get();
                     evRes = exposure->add_passes(graph, transient_targets(), gpu, cp, game, gameTarget.texView, fr.dt,
-                                                 frameSerial, &stats.drawCalls, c->plan.name, physW, physH);
+                                                 postSerial, &stats.drawCalls, c->plan.name, physW, physH);
                 }
                 declare(c->plan.name, "post", cp, exposure, evRes, cp.rect);
                 continue;

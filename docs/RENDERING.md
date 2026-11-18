@@ -350,14 +350,14 @@ The passes of a frame, in order (`render.frame_graph` lists them, and `RenderSta
 | Pass | When | What |
 |---|---|---|
 | `bloom-bright`, `bloom-down-*`, `bloom-blur-h`, `bloom-blur-v`, `bloom-composite` | `bloomEnabled` | The glow: threshold with a soft knee, a reduced-resolution blur, added back (times the lens dirt texture). |
-| `exposure-luma`, `exposure-adapt` | `exposureMode` auto | The frame reduced to 32x32 brightness values, then the stored 1x1 exposure moves toward the one that makes the average 18% grey by `1 - exp(-speed * dt)`, kept between `exposureMinEv` and `exposureMaxEv`. No read back; the engine's frame `dt`, so the same frames give the same exposure on every run. Needs a float render target; the stored exposure is a 32-bit float where the GPU can filter one (else 16-bit, which stops a little short of the target at a slow speed and a high frame rate). |
+| `exposure-luma`, `exposure-adapt` | `exposureMode` auto | The frame reduced to 32x32 brightness values, then the stored 1x1 exposure moves toward the one that makes the average 18% grey by `1 - exp(-speed * dt)`, kept between `exposureMinEv` and `exposureMaxEv`. No read back; the engine's frame `dt`, so the same frames give the same exposure on every run. Needs a float render target. The 1x1 exposure is kept as two 16-bit numbers (a coarse step and the remainder), so a slow speed at a high frame rate reaches the target on every GPU. Frames of `capture_world` do not count as frames of the game, so a capture does not make it jump. |
 | `prepass` | `outlineEnabled` in depth mode, `ssaoEnabled` (and the effects of "Depth and normals") | The opaque meshes' depth and normals, read by the outline and the ambient occlusion (see "Depth and normals"). |
 | `ssao-ao`, `ssao-blur-h`, `ssao-blur-v` | `ssaoEnabled`, 3D meshes in the view | The ambient occlusion image, made before the camera's main pass, which applies it right after the opaque meshes (see [Screen-space effects](rendering/RENDERING_EFFECTS.md)). |
 | `shafts-rays`, `shafts-add` | `sunShaftsEnabled` | The sun shafts (see [Screen-space effects](rendering/RENDERING_EFFECTS.md)). The distance and height fog is not a pass: the main pass draws it after the opaque meshes. |
 | `dof-down`, `dof-gather`, `dof-composite`, `dof-copy` | `depthOfFieldEnabled` | The depth of field (see "Depth of field and motion blur"). |
 | `motion-blur`, `motion-copy` | `motionBlurEnabled` | The camera motion blur (same section). |
 | `sprite-coverage` | `outlineEnabled` in sprite mode | The 2D world drawn once more into an RGBA8 image whose alpha is how much each pixel is covered, read by the sprite outline (see [The outline](rendering/RENDERING_EFFECTS.md#the-outline)). |
-| `post` | exposure, tonemap, colour grading, vignette, chromatic aberration, lens distortion, sharpen, outline, pixelate, posterize, film grain, or a colour filter in a linear scene | The final pass, one full-screen pass: pixelate (the picture is read at the block centres), lens distortion and chromatic aberration (while the picture is read), exposure, tonemap (`none` clips, `neutral`, `aces`, `agx`, `reinhard`), the encode for the display, colour grading, vignette, sharpen, outline, posterize, film grain, a one-step (1/255) dither so smooth gradients do not band on an 8-bit screen (not under posterize), and the colour filter. |
+| `post` | exposure, tonemap, colour grading, vignette, chromatic aberration, lens distortion, sharpen, outline, pixelate, posterize, film grain, or a colour filter in a linear scene | The final pass, one full-screen pass: pixelate (the picture is read at the block centres), lens distortion and chromatic aberration (while the picture is read), exposure, tonemap (`none` clips, `neutral`, `aces`, `agx`, `reinhard`), the encode for the display, colour grading, vignette, sharpen, outline, posterize, film grain, a one-step (1/255) dither so smooth gradients do not band on an 8-bit screen, on an HDR output too (not under posterize), and the colour filter. |
 | `hud-over-post` | the final pass ran and screen-space items exist | The HUD, drawn over the final picture in display colours: it is never exposed or tonemapped, and never glows. |
 | `color-filter` | a colour filter with no `post` (or a HUD after it) | The accessibility filter over everything, the last pass. With `post` and no HUD it is part of `post`. |
 
@@ -444,10 +444,10 @@ pixel, else RGBA8):
 | `exposureMode` auto | 2 more (32x32 and 1x1) | a few KB |
 | `bloomEnabled`, `bloomRadius` 20 | 4 (`bloom-bright`, two blurs, `bloom-composite`) | two 320x180 targets, 0.9 MB |
 | `bloomEnabled`, `bloomRadius` 64 | 6 | four smaller targets, 0.6 MB |
-| colour grading, vignette, chromatic aberration, lens distortion, sharpen, pixelate, posterize or film grain, alone or together | 1 (`post`; sharpen reads four more texels, the LUT one table lookup, pixelate none) | one full-size target |
+| colour grading, vignette, chromatic aberration, lens distortion, sharpen, pixelate, posterize or film grain, alone or together | 1 (`post`; sharpen shades the pixel's four neighbours too, about five times that part's work; the LUT one table lookup) | one full-size target |
 | `outlineEnabled`, depth mode | 1 (`post`, reads 4 texels of the prepass) + `prepass` | one full-size target and the prepass image (16 bytes a pixel) |
 | `outlineEnabled`, sprite mode | 1 (`post`, up to 17 texels of the coverage) + `sprite-coverage` (the 2D batches again) | one full-size target and one RGBA8 image (4 bytes a pixel) |
-| everything on, with a HUD | 8 (`color-filter` is its own pass because the HUD went between) | the sum of the above |
+| everything on except outline, with a HUD | 8: auto exposure 2 + bloom 4 + `post` 1 + `color-filter` 1 (its own pass because the HUD went between) | the sum of the above |
 
 The time of each pass is in `render.frame_graph` with `profileFrames` (`passTimes[].gpuMs` on D3D11 and OpenGL, `cpuMs` of the
 recording everywhere; Metal has no GPU timer in sokol_gfx, so `gpuMs` is -1 there). A full-screen pass reads one texture and
@@ -593,7 +593,7 @@ Only the final pass of the post-processing stack decides what is brighter than p
 exposure or tonemap is on (the colour grading, vignette, lens, sharpen and grain effects run in that pass too, in display space, but
 alone they do not make the picture go above white). On an HDR output its tonemap does not stop at 1:
 
-- Below the curve's shoulder (display value 0.76 for `neutral`, 0.5 for the others) the picture is the SDR curve, so mid tones,
+- Below the curve's shoulder (display value 0.76 for `neutral`, which follows Khronos PBR Neutral above its shoulder without the black offset; 0.5 for the others) the picture is the SDR curve, so mid tones,
   shadows and skin look the same as on an SDR screen.
 - Above it, the brightest channel rolls off toward the output's headroom H (how many times paper white the display can go,
   `render.output`'s `headroom`) instead of toward 1, with `start + (H - start) x / (1 + x)`, x = slope (c - input) / (H - start),

@@ -8,6 +8,16 @@ Older versions, one file per minor version with its patch releases: [0.29](chang
 
 ### M71 (in progress): linear HDR and a post-processing stack
 
+- **Final pass polish:** the automatic exposure keeps its adapted value in an RGBA16F pixel as two numbers (a coarse step and the
+  remainder), so it no longer stops short of its target at a slow speed and a high frame rate, and it needs no 32-bit target (iOS,
+  WebGL2); a failed target is tried again after 300 frames instead of for ever, and a `capture_world` between two frames no
+  longer makes the exposure jump. A finite value up to 65504 in the picture is white, not black (NaN and Inf are black). The film
+  grain of the second camera of a split screen differs from the first, and its cells no longer depend on how the GPU rounds. The
+  lens edge fades over one pixel. The dither is top-left-origin on every backend. A `.cube` file read half-written is read again
+  on the next frame, and `title` is read in any case. A camera that has `Camera.bloom` or `colorFilter` and a PostProcess of its
+  own logs once that the deprecated fields are ignored. The doc strings of `tonemapMode`, `vignetteRoundness` and `sharpenEnabled`
+  say what they do.
+
 - **Screen-space reflections:** `PostProcess.ssrEnabled` is drawn: opaque 3D surfaces reflect what the camera shows. Each pixel marches
   its reflected ray across the screen in the depth prepass (`ssrSteps` steps with a deterministic jitter, a thickness test of
   `ssrThickness`, six bisections to refine the hit, a longest ray of `ssrMaxDistance`) and takes the scene colour there, before the

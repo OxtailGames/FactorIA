@@ -417,9 +417,13 @@ final pass) are drawn; the others are not yet.
   `Impl::finalEncoded` says the final pass already encoded it, so the present blit must not encode again.
   Automatic exposure never reads back: `exposure-luma` takes 8x8 fixed log2-luminance taps per texel into a 32x32 transient,
   `exposure-adapt` moves a stored 1x1 EV (two persistent targets used in turn, imported into the graph) toward
-  `log2(0.18) - mean` by `1 - exp(-speed * dt)` (the EV targets are R32F where it renders and filters, else the scene format: in 16 bits
-  the step vanishes under half a unit of the last place and the result would depend on the frame rate) with the engine's frame dt; a first frame, new targets or a frame in which the
-  passes were not declared (`lastSerial_ + 1 != frameSerial`) take the target at once, dt 0 leaves it as it is, and it needs the
+  `log2(0.18) - mean` by `1 - exp(-speed * dt)` (the EV targets are RGBA16F 1x1 on every GPU, the EV stored as two channels, `r = round(ev * 128) / 128` (exact in 16 bits up to
+  +-16) and `g = ev - r`, read as `r + g`: one 16-bit number would lose the step under half a unit of its last place and the result
+  would depend on the frame rate, and a 32-bit target cannot be filtered or rendered on WebGL2 and iOS) with the engine's frame dt;
+  a first frame, new targets or a frame in which the passes were not declared (`lastSerial_ + 1 != serial`, where `serial` is
+  `Impl::postSerial`, the count of the game's frames: `capture_world` calls `begin_frame_graph(false)` and does not advance it, so
+  a capture neither resets the exposure nor, with `framePost` false, reads or writes the motion-blur matrices) take the target at once;
+  a target that cannot be made leaves the exposure manual for 300 frames (`kRetryFrames`) and then tries again, dt 0 leaves it as it is, and it needs the
   RGBA16F scene format (else one warning and the exposure stays manual). The legacy fields: `build_camera` builds an implicit
   `PostProcess` from the sanitised `Camera.bloom*` and `colorFilter` (knee 0, no dirt) and `resolve_post_stack` uses it when the
   camera has no enabled `PostProcess` of its own, so `CameraInfo::bloom` and `colorFilter` are always derived from the stack

@@ -460,10 +460,8 @@ TEST_CASE("auto exposure: a slow speed at a high frame rate still reaches the ta
     Gfx& g = gfx();
     REQUIRE(g.ok);
     if (sg_query_pixelformat(SG_PIXELFORMAT_RGBA16F).render == false) return;  // the measure needs float targets
-    // The adapted exposure lives in a 1x1 target: in 16 bits the step prev + (target - prev) * k disappears once it is under half a step of
-    // the value (0.14 EV short at this speed and rate), so only a 32-bit target keeps converging. Without one the test has nothing to say.
-    const sg_pixelformat_info r32 = sg_query_pixelformat(SG_PIXELFORMAT_R32F);
-    if (!(r32.render && r32.filter)) return;
+    // The adapted exposure lives in a 1x1 RGBA16F target as two channels (a coarse step and the rest): written as one 16-bit number the
+    // step prev + (target - prev) * k would disappear once it is under half a step of the value (0.14 EV short at this speed and rate).
     const float dt = 1.0f / 144.0f, speed = 0.5f, lo = -6.0f, hi = 8.0f;
     FlatScene s(0.1f);
     PostProcess& p = s.post();
@@ -482,10 +480,18 @@ TEST_CASE("auto exposure: a slow speed at a high frame rate still reaches the ta
     const float e0 = target_ev(0.1f), t = target_ev(0.8f);
     const float k = 1.0f - std::exp(-speed * dt);
     double ev = e0;
-    for (int n = 1; n <= 1800; ++n) {
+    for (int n = 1; n <= 1200; ++n) {
         ev += (double(t) - ev) * double(k);
+        if (n % 400 !=
+            0) {  // the frames between are drawn and not read back: the test is 1200 frames, not 1200 captures
+            Gfx::simulate(s.world, dt);
+            g.renderer.begin_frame();
+            g.renderer.render_world(s.world, dt);
+            g.renderer.end_frame();
+            g.gpu.end_frame();
+            continue;
+        }
         const Image img = g.render(s.world, dt);
-        if (n % 300 != 0) continue;
         INFO("frame " << n << " ev " << ev);
         CHECK(near_value(img.pixel(160, 90).r, to_srgb(to_linear(0.8f) * std::exp2(float(ev))), 3 * kStep));
     }
@@ -519,6 +525,51 @@ TEST_CASE("auto exposure: min and max EV bound it, and a gap in the effect measu
     p.exposureEnabled = true;
     const Image bright = g.render(s.world, dt);
     CHECK(near_value(bright.pixel(160, 90).r, to_srgb(0.18f), 5 * kStep));
+}
+
+TEST_CASE("auto exposure: a capture_world between two frames does not make the exposure jump to the measured value") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    if (sg_query_pixelformat(SG_PIXELFORMAT_RGBA16F).render == false) return;
+    const float dt = 1.0f / 60.0f;
+    FlatScene s(0.1f);
+    PostProcess& p = s.post();
+    p.exposureEnabled = true;
+    p.exposureMode = ExposureMode::Auto;
+    p.exposureMinEv = -6.0f;
+    p.exposureMaxEv = 8.0f;
+    p.exposureAdaptationSpeed = 0.5f;  // slow: a frame moves the exposure by under 1%
+    p.exposureEnabled = false;
+    g.render(s.world, dt);
+    p.exposureEnabled = true;
+    g.render(s.world, dt);  // measured at once: 18% grey
+    s.clear(0.8f);
+    const Image before =
+        g.render(s.world, dt);  // the exposure is still the one of the dark picture: the bright one is white
+    CHECK(before.pixel(160, 90).r > 0.9f);
+    Renderer::WorldCapture spec;
+    spec.rect = Rect{-50, -30, 100, 60};
+    Image shot;
+    std::string err;
+    REQUIRE_MESSAGE(g.renderer.capture_world(s.world, spec, shot, &err), err);
+    const Image after = g.render(s.world, dt);
+    CHECK(after.pixel(160, 90).r > 0.9f);  // not measured again (that would be 18% grey, 0.46)
+}
+
+TEST_CASE("final pass: a finite value over 65000 stays white and NaN or Inf in the picture is black, never a hole of "
+          "the wrong colour") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    if (sg_query_pixelformat(SG_PIXELFORMAT_RGBA16F).render == false) return;
+    const float inf = std::numeric_limits<float>::infinity(), nan = std::numeric_limits<float>::quiet_NaN();
+    auto pixel_of = [&](float v) {
+        FlatScene s(v);
+        s.post().exposureEnabled = true;  // the final pass with a manual EV of 0
+        return g.render(s.world).pixel(160, 90);
+    };
+    CHECK(pixel_of(65400.0f).r > 0.98f);  // the largest numbers of a 16-bit scene are the brightest, not black
+    CHECK(pixel_of(nan).r < 0.02f);
+    CHECK(pixel_of(inf).r < 0.02f);
 }
 
 // ---- volumes ----
