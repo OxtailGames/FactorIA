@@ -363,12 +363,17 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 
 ### [feel](commands/feel.md)
 
-- [`feel.cancel`](commands/feel.md#feelcancel-modifies-state): Ends the game feel effects of an entity at once (flash, squash, shake, knockback), or of everything. _Since 0.17.0._
+- [`feel.cancel`](commands/feel.md#feelcancel-modifies-state): Ends the game feel effects of an entity at once (flash, squash, shake, knockback, and the screen effects of a camera), or of everything. _Since 0.17.0._
+- [`feel.fade`](commands/feel.md#feelfade-modifies-state): Fades the screen to a colour (default black) and holds it, or from that colour back to the picture. _Not released yet._
 - [`feel.flash`](commands/feel.md#feelflash-modifies-state): Draws an entity in one colour for a moment (a hit flash): sprites, shapes and 3D meshes, fading or square. _Since 0.17.0._
+- [`feel.heatHaze`](commands/feel.md#feelheathaze-modifies-state): Heat haze: a rippling distortion over a region of the screen for a while. _Not released yet._
 - [`feel.hitStop`](commands/feel.md#feelhitstop-modifies-state): Hit-stop: freezes or slows gameplay for a moment of real time; UI, audio and the stop's own timer keep going. _Since 0.17.0._
 - [`feel.knockback`](commands/feel.md#feelknockback-modifies-state): Pushes an entity away and holds `isKnockedBack` for a moment: an impulse on its physics body, else a decaying velocity. _Since 0.17.0._
+- [`feel.radialBlur`](commands/feel.md#feelradialblur-modifies-state): A radial blur pulse: the picture streaks away from a point and settles, for a speed or impact burst. _Not released yet._
+- [`feel.screenFlash`](commands/feel.md#feelscreenflash-modifies-state): Flashes the whole screen in one colour for a moment (a damage or pickup flash), drawn over the finished picture. _Not released yet._
 - [`feel.settings`](commands/feel.md#feelsettings-modifies-state): The accessibility choices of the game feel effects: reduceMotion and reducedEffects. _Since 0.17.0._
 - [`feel.shake`](commands/feel.md#feelshake-modifies-state): Camera shake: adds trauma to a camera (2D and 3D); it stacks up to `cap` and dies out over `duration`. _Since 0.17.0._
+- [`feel.shockwave`](commands/feel.md#feelshockwave-modifies-state): Screen shockwave: a ring that expands from a point and bends the picture, drawn by the camera's post-processing pass. _Not released yet._
 - [`feel.sound`](commands/feel.md#feelsound-modifies-state): Plays a sound once through the audio system (the same one a clip event's "sound" action uses). _Since 0.17.0._
 - [`feel.spawn`](commands/feel.md#feelspawn-modifies-state): Makes an effect appear: instantiates a prefab at an entity (or at a point) the next frame. _Since 0.17.0._
 - [`feel.squash`](commands/feel.md#feelsquash-modifies-state): Squash and stretch: a short scale pulse that keeps the volume and springs back to exactly the entity's scale. _Since 0.17.0._

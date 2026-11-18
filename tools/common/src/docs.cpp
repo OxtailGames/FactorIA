@@ -302,9 +302,10 @@ const std::vector<DocManifestEntry>& manifest() {
         {"publishing", "One checklist per store: Steam, itch.io, Epic, Google Play, App Store.", aud({kUser, kGameAi})},
         {"rendering", "Cameras that draw into textures and photographs of the world.", aud({kGameAi})},
         {"rendering-effects",
-         "Rendering pages: ambient occlusion and reflections, their fields, cost and limits (screen-space effects of "
-         "the stack).",
+         "Screen-space effects: ambient occlusion, reflections and the outline, their fields, cost and limits.",
          aud({kGameAi})},
+        {"rendering-screen-effects",
+         "Rendering, part: shockwave, heat haze, radial blur pulse, flash and fade of the camera.", aud({kGameAi})},
         {"rigging", "Skeletons for 3D models (*.rig.json): bones, weights and poses.", aud({kGameAi})},
         {"scripting", "The JavaScript API: behaviours, entities, events, input, timers, modules.", aud({kGameAi})},
         {"scripting-world-input", "Scripting pages: the entity API, world, input, window, device presets and gamepads.",

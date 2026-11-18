@@ -32,7 +32,8 @@ constexpr EffectRow kEffectRows[kPostEffectCount] = {
     {"", "Exposure, manual or automatic with an adaptation speed."},
     {"depth", "Depth of field with near and far blur, bokeh and autofocus."},
     {"depth", "Camera motion blur, from the depth buffer."},
-    {"", "Radial blur from a point of the picture."},
+    {"", "Radial blur from a point of the picture (final pass; camera.radialBlur starts a pulse of it, drawn the same "
+         "way)."},
     {"",
      "Barrel and pincushion lens distortion (drawn in the final pass, after the bloom; outside the picture is black)."},
     {"", "Chromatic aberration: colour fringes toward the edges (drawn in the final pass)."},
@@ -59,9 +60,9 @@ constexpr bool effect_drawn(PostEffect e) {
     return e == PostEffect::Ssao || e == PostEffect::Exposure || e == PostEffect::Bloom || e == PostEffect::Tonemap ||
            e == PostEffect::ColorFilter || e == PostEffect::LensDistortion || e == PostEffect::ChromaticAberration ||
            e == PostEffect::ColorGrading || e == PostEffect::Vignette || e == PostEffect::Sharpen ||
-           e == PostEffect::Outline || e == PostEffect::Pixelate || e == PostEffect::Posterize ||
-           e == PostEffect::FilmGrain || e == PostEffect::DepthOfField || e == PostEffect::MotionBlur ||
-           e == PostEffect::Ssr || e == PostEffect::Fog || e == PostEffect::SunShafts;
+           e == PostEffect::RadialBlur || e == PostEffect::Outline || e == PostEffect::Pixelate ||
+           e == PostEffect::Posterize || e == PostEffect::FilmGrain || e == PostEffect::DepthOfField ||
+           e == PostEffect::MotionBlur || e == PostEffect::Ssr || e == PostEffect::Fog || e == PostEffect::SunShafts;
 }
 
 }  // namespace
