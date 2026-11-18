@@ -53,6 +53,10 @@ std::vector<pid_t> children_of(pid_t pid) {
 }  // namespace
 
 void end_child_processes() {
+    // Two accepted limits. PID reuse: a pid listed here could exit and be reused by an unrelated process before the
+    // kill; the window is the few microseconds between the listing and the signal (and the SIGSTOP above holds the
+    // listed ones in place), on a process that is about to _Exit anyway. A grandchild whose parent died before the
+    // listing was reparented to launchd (pid 1), so no walk from getpid() finds it: it can outlive the skip.
     // Breadth first, children of children too; a bound keeps a fork bomb from keeping the thread here.
     std::vector<pid_t> queue = children_of(getpid());
     for (size_t i = 0; i < queue.size() && i < 4096; ++i) {

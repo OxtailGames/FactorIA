@@ -507,7 +507,8 @@ public:
 
     // The editor's A/B switch of the Post-processing panel: true draws every following frame as if no camera had a post-processing
     // stack (no PostProcess, no deprecated Camera.bloom* or colorFilter), without touching any data; false (the default) draws
-    // them. Not saved and not part of a scene: a game never sets it. Takes effect on the next frame.
+    // them. Not saved and not part of a scene: a game never sets it. Takes effect on the next frame. While it is on it applies to every
+    // capture too (game.screenshot, render.inspect, what an AI asks to see), not only to the window.
     void set_post_bypass(bool bypass);
     bool post_bypass() const;
 

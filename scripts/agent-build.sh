@@ -429,7 +429,13 @@ run_ctest() {  # run_ctest <dir> <label> <log> <ctest arguments...>
     # Only the tests of label `window` carry SKIP_RETURN_CODE 77 (the display watchdog): another Skipped test (its own
     # skip property) is listed apart, with no cause claimed.
     local name windows
-    windows=" $(ctest --test-dir "$dir" -N -L '^window$' 2>/dev/null | sed -n 's/^ *Test *#[0-9]*: *//p' | tr '\n' ' ') "
+    local windows_list windows_note=""
+    if windows_list="$(ctest --test-dir "$dir" -N -L '^window$' 2>/dev/null)"; then
+        windows=" $(printf '%s\n' "$windows_list" | sed -n 's/^ *Test *#[0-9]*: *//p' | tr '\n' ' ') "
+    else
+        windows=" "
+        windows_note=" (this script could not list the tests of label window: 'ctest -N -L window' failed, so a window test may be among them)"
+    fi
     while IFS= read -r name; do
         [ -n "$name" ] || continue
         case "$windows" in
@@ -444,7 +450,7 @@ EOF_SKIPPED
         # No cause is claimed: ctest says Skipped for a test that returned its SKIP_RETURN_CODE or printed its
         # SKIP_REGULAR_EXPRESSION, and this script cannot tell which one it was. The test's output says why.
         say "$label: SKIPPED (not passed): $(printf '%s\n' "$foreign" | wc -w | tr -d ' ') test(s) that ctest reports as" \
-            "Skipped ($foreign). See their output in $log for the reason; run them where it can be met, or say in your" \
+            "Skipped ($foreign)$windows_note. See their output in $log for the reason; run them where it can be met, or say in your" \
             "report that they did not run."
     fi
     [ -n "$skipped$steps$own" ] && say "$(window_note "$label" $asleep "$skipped" "$steps" "$entries" "$own")"

@@ -76,10 +76,14 @@ export function save(s) {
   storage.set("settings", out);
 }
 
-/** PostProcess colour filter on the scene's camera (the entity with the id "camera"): every scene has its own camera, so each scene sets it again. */
+/**
+ * PostProcess colour filter on the scene's camera (the entity with the id "camera"): every scene has its own camera,
+ * so each scene sets it again.
+ */
 export function applyColorFilter(s = load()) {
   const camera = world.find("camera");
-  if (camera && (s.colorFilter !== "none" || camera.has("PostProcess"))) camera.set("PostProcess", { colorFilterEnabled: s.colorFilter !== "none", colorFilterMode: s.colorFilter });
+  if (!camera || (s.colorFilter === "none" && !camera.has("PostProcess"))) return;
+  camera.set("PostProcess", { colorFilterEnabled: s.colorFilter !== "none", colorFilterMode: s.colorFilter });
 }
 
 /** Captions follow the "Subtitles" option by switching the scene's "captions" entity on or off. The game keeps calling audio.play({ caption }) and ui.caption(): they are tracked while hidden. */
