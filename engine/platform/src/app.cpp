@@ -2,6 +2,8 @@
 #include <algorithm>
 #include <cstdlib>
 #include <cstring>
+#include <memory>
+#include <utility>
 #if defined(__APPLE__)
 #include <TargetConditionals.h>
 #endif
@@ -22,6 +24,7 @@
 #if defined(__EMSCRIPTEN__)
 #include "ime_web.h"
 #endif
+#include "display_watchdog.h"
 #include "mobile_impl.h"
 #if defined(__ANDROID__)
 #include <android/native_activity.h>
@@ -58,6 +61,7 @@ struct AppState {
     EdgeInsets insets;  // app_safe_insets(): asked of the platform at start, on resize and every few frames
     int framesToInsets = 0;
     bool quitFromApp = false;  // app_request_quit() was called and its QuitRequested event has not arrived yet
+    std::unique_ptr<display_watchdog::Watchdog> watchdog;  // macOS test runs: skips when every display sleeps
     bool inQuitEvent = false;  // a QuitRequested event is being handled: app_cancel_quit() may act
     bool finishing = false;    // Android: app_request_quit() asked the system to finish the activity
 };
@@ -221,6 +225,7 @@ void on_init() {
 }
 
 void on_frame() {
+    if (g.watchdog) g.watchdog->frame();
     double dt = sapp_frame_duration();
     if (!(dt > 0.0)) dt = 1.0 / 60.0;
     dt = std::min(dt, 0.25);
@@ -241,6 +246,7 @@ int exit_code() { return g.desc.exit_code ? g.desc.exit_code() : 0; }
 #endif
 
 void on_cleanup() {
+    g.watchdog.reset();
 #if defined(__APPLE__)
     ime_apple_attach(nullptr);
 #endif
@@ -390,6 +396,25 @@ int fill_sapp_icon(sapp_icon_desc& out, const std::vector<AppIconImage>& images)
 
 sapp_desc to_sapp_desc(const AppDesc& desc) {
     g.desc = desc;
+#if defined(__APPLE__) && !TARGET_OS_IPHONE
+    // A test run (the editor autotest, a ctest player) on a Mac whose displays all sleep never gets a frame: skip it with
+    // exit code 77 instead of waiting for ever. sokol_app calls init_cb only with the first frame, so it starts here.
+    const display_watchdog::EnvLookup env = [](const char* name) { return std::getenv(name); };
+    if (!g.watchdog && display_watchdog::wanted(env)) {
+        display_watchdog::Options options;
+        options.ignoreSleep = display_watchdog::ignore_sleep(env);
+        options.fakeNoFrames = display_watchdog::fake_asleep(env);  // the fake also holds back the frames that do come
+        // FA_TEST_DISPLAY_IDLE_SECONDS (0.2 to 600): a shorter wait for the test of the watchdog itself.
+        if (const char* idle = std::getenv("FA_TEST_DISPLAY_IDLE_SECONDS")) {
+            const double seconds = std::atof(idle);
+            if (seconds >= 0.2 && seconds <= 600.0) {
+                options.idleSeconds = seconds;
+                options.pollSeconds = std::min(1.0, seconds / 4.0);
+            }
+        }
+        g.watchdog = std::make_unique<display_watchdog::Watchdog>(std::move(options));
+    }
+#endif
     g.focused = true;
     g.vsync = desc.vsync;
     sapp_desc s{};
