@@ -8,6 +8,15 @@
 #include <string>
 #include <thread>
 
+#if defined(__APPLE__)
+#include <signal.h>
+#include <spawn.h>
+#include <sys/wait.h>
+#include <unistd.h>
+
+extern char** environ;
+#endif
+
 #include "../src/display_watchdog.h"
 
 using namespace fa::display_watchdog;
@@ -140,3 +149,22 @@ TEST_CASE("display watchdog: the system query answers without a display session"
     const DisplayState s = query_system_displays();
     CHECK((s == DisplayState::None || s == DisplayState::Awake || s == DisplayState::AllAsleep));
 }
+
+#if defined(__APPLE__)
+TEST_CASE("display watchdog: end_child_processes kills a child and the child's own child") {
+    // sh starts a sleeping grandchild and then sleeps itself: both must be gone, so neither can hold a pipe of ctest.
+    char sh[] = "/bin/sh";
+    char dashC[] = "-c";
+    char script[] = "sleep 60 & sleep 60";
+    char* argv[] = {sh, dashC, script, nullptr};
+    pid_t child = 0;
+    REQUIRE(posix_spawn(&child, "/bin/sh", nullptr, nullptr, argv, environ) == 0);
+    // Give sh a moment to start its own child (the search follows the chain of parents).
+    std::this_thread::sleep_for(std::chrono::milliseconds(300));
+    end_child_processes();
+    int status = 0;
+    REQUIRE(waitpid(child, &status, 0) == child);
+    CHECK(WIFSIGNALED(status));
+    CHECK(WTERMSIG(status) == SIGKILL);
+}
+#endif

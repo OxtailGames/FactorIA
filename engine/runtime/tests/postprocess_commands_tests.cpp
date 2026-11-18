@@ -389,8 +389,8 @@ TEST_CASE("render.debug_view teaches an unknown view, and says there is no rende
     CHECK_FALSE(e.commands().info("render.debug_view")->readOnly);
     auto r = c.call("render.debug_view", Json::parse(R"({"view":"normal"})"));
     REQUIRE_FALSE(r.ok);
-    CHECK(r.error["code"] == "invalid_argument");
-    CHECK(r.error["message"].get<std::string>().find("normals") != std::string::npos);  // did you mean
+    CHECK(r.error["code"] == "invalid_arguments");  // the schema's enum, with its did-you-mean hint
+    CHECK(r.error.dump().find("Did you mean 'normals'?") != std::string::npos);
     CHECK_FALSE(c.call("render.debug_view", Json::parse(R"({"view":3})")).ok);
     CHECK_FALSE(c.call("render.debug_view", Json::parse(R"({"vew":"depth"})")).ok);
     r = c.call("render.debug_view", Json::object());
