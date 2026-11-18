@@ -85,8 +85,12 @@ each.
   sprites, particles and text drawn after it, and the HUD, are not darkened; the bloom and the final pass see the darkened picture. The
   noise is a fixed 4x4 pattern: no random numbers. The three programs count uv and texel rows from the top of the camera's rectangle on
   every backend and flip only the texture fetches on OpenGL (`ssao_tex`): the texels of a half resolution image and the pattern fall on
-  the same pixels everywhere, so OpenGL draws the picture Metal and D3D11 draw (counted from the bottom, its crease came out a row or
-  two off). `DebugView::Ao` makes the same draw write the grey (`SsaoStage::View`) instead. The
+  the same pixels everywhere, so OpenGL draws the picture Metal and D3D11 draw (counted from the bottom, a texel was computed at the
+  lower row of its pair instead of the upper one and the pattern moved by a phase; with an odd height the pairs of rows themselves
+  differed: the crease came out a row or two off). `cam.w` therefore means "OpenGL" and "every fetch is flipped" at once. A texel of the
+  half resolution image is computed at the prepass pixel `2t` (the upper left of its block), and the apply's bilateral upsample puts it
+  there too (a pixel `p` lies at `p / 2` in texel units; `(p + 0.5) / 2 - 0.5` would have put it half a pixel off, towards the lower
+  right, on every backend). `DebugView::Ao` makes the same draw write the grey (`SsaoStage::View`) instead. The
   effect is skipped, with one warning, where the GPU has no RGBA16F target that blends and filters.
 - **Depth and normal prepass** (`Renderer::Impl::plan_prepass`, `prepass_pass`, `prepass_view_pass` in `renderer_draw.cpp`). A pass
   of every camera job's graph that needs one, declared before "main" as `<job>/prepass`, with a transient of its own (`PostPlan::prepass`, a `PrepassRef` the effects that read
