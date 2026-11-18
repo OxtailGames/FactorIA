@@ -152,6 +152,27 @@ void check_asset_value(Ctx& c, const std::string& file, const std::string& point
                     builtin_font_list() + "; or use a .ttf path inside the project, e.g. assets/fonts/MyFont.ttf.");
         return;
     }
+    // A material field (MeshRenderer.material, Sprite.material, SceneSettings.skyMaterial...) names a *.material.json:
+    // anything else, or a file that is not there, is answered with the project's materials.
+    if (f.assetType == "material" && (!path.ends_with(".material.json") || !stdfs::exists(stdfs::path(c.dir) / path))) {
+        const std::vector<std::string> materials = find_material_files(c.dir);
+        const std::string m = closest_match(path, materials);
+        std::string hint = m.empty() ? std::string() : "Did you mean '" + m + "'? ";
+        if (materials.empty())
+            hint += "The project has no materials yet: create one (docs/SHADERS.md) or leave this empty.";
+        else
+            hint += "The project's materials are " +
+                    join(std::vector<std::string>(materials.begin(),
+                                                  materials.begin() + std::min<std::size_t>(materials.size(), 6)),
+                         ", ") +
+                    (materials.size() > 6 ? ", ..." : "") + ".";
+        c.error(file, pointer,
+                !path.ends_with(".material.json")
+                    ? "'" + path + "' is not a material: a material path ends in .material.json."
+                    : "Material '" + path + "' does not exist.",
+                hint);
+        return;
+    }
     if (!stdfs::exists(stdfs::path(c.dir) / path)) {
         // Suggest a similar file in the same folder.
         std::string hint = "Create the file or fix the path (project-relative, forward slashes).";
