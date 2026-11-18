@@ -195,6 +195,11 @@ menu::MainMenu Editor::build_main_menu(bool native) {
                         "Edit a particle effect document (*.vfx.json): emitters, lights, sounds and commands on one "
                         "timeline with a time scrubber, a live preview played by the engine's own simulation, gradient "
                         "and curve editors and an inspector; every edit is a vfx.edit command"));
+    view.push_back(
+        with(toggle("Graph", showGraph_), "menu:graph",
+             "Edit a material as a node graph (a *.material.json with a \"graph\"): nodes and typed links on a "
+             "canvas, a searchable node palette, constants, the checker's problems on the node they name and a "
+             "live preview; Save is material.graph.generate"));
     view.push_back(with(toggle("Music", showMusic_), "menu:music",
                         "Edit a song (*.song.json): a piano roll, a drum grid, the arrangement of sections and layers "
                         "and a mixer, played by the player a game's entity.music uses (an intensity slider fades the "
