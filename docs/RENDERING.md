@@ -496,8 +496,8 @@ Things to know:
   {"id", "preset"}` applies one: without `"keep": true` the look replaces every effect of the target with exactly its own (the
   volume's shape, size and priority stay), with it only the effects the look names change. The looks are data, not code
   (`engine/runtime/data/postprocess_presets.json`): `neutral` (everything off, the way back), `cinematic`, `retro`, `noir`, `dreamy`,
-  `vivid` and `horror`, built only from fields that exist. A look that names an effect this renderer does not draw yet (`ssr`,
-  `fog`... say `planned` in `render.supports`) still applies, and the answer says so: `notDrawn` lists them and `note` explains
+  `vivid` and `horror`, built only from fields that exist. A look that names an effect this renderer does not draw yet (`fog`,
+  `sunShafts`... say `planned` in `render.supports`) still applies, and the answer says so: `notDrawn` lists them and `note` explains
   that their fields are stored and show once the renderer draws them. `drawnChecked` is false when there is no renderer to ask
   (`graphics=false`).
 - **View > Post-processing** (docs/EDITOR.md) is the same stack on screen: a camera chooser, each effect in the order it runs with its
@@ -520,7 +520,7 @@ orthographic 3D camera.
   depth or the normals and that the renderer draws, when that camera draws opaque meshes (a camera of a split screen has its own, the
   size of its rectangle). A frame without such an effect declares no
   prepass pass, makes no image and builds no shader: the draw calls are the same as before. Of the effects that read the depth the
-  outline (depth mode), the ambient occlusion, the depth of field and the motion blur are drawn so far; the rest are drawn as their M71 packages land, and the debug view below makes the image too.
+  outline (depth mode), the ambient occlusion, the reflections, the depth of field and the motion blur are drawn so far; the rest are drawn as their M71 packages land, and the debug view below makes the image too.
 - **What is in it.** Opaque meshes, skinned ones at their pose, with their material's `vertex()` displacement, the normals of their material's `surface()` and, for `alphaMode`
   `"clip"`, the same holes as the main pass. Not in it: blended meshes, the sky, sprites, particles, shapes, text, debug lines
   and the HUD. A custom material gets its own prepass programs when

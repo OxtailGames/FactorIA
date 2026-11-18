@@ -60,6 +60,9 @@ PostPlan make_post_plan(const CameraInfo& cam, bool linear, std::uint32_t forceE
             p.ssao = ssao_from_stack(*cam.postStack);
             if (!p.ssao.enabled) drawn &= ~ssaoBit;
         }
+        // The reflections read the prepass only with an intensity above 0 (renderer_ssr.h).
+        if ((drawn & (1u << int(PostEffect::Ssr))) != 0 && !ssr_active(*cam.postStack))
+            drawn &= ~(1u << int(PostEffect::Ssr));
         read |= drawn;
     }
     p.needsDepth = post_mask_needs_depth(read);

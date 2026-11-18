@@ -77,8 +77,8 @@ void register_postprocess_component(TypeRegistry& r) {
          "render.supports {\"feature\": \"<effect>\"} says which ones this build draws on this GPU (ssao, exposure, "
          "bloom, "
          "tonemap, colorFilter, lensDistortion, chromaticAberration, colorGrading, vignette, sharpen, outline, "
-         "pixelate, posterize, filmGrain, depthOfField and motionBlur today), until then the fields only store the "
-         "values. The lens distortion, "
+         "pixelate, posterize, filmGrain, depthOfField, motionBlur and ssr today), until then the fields only store "
+         "the values. The lens distortion, "
          "the chromatic aberration, the colour grading, the vignette, the sharpen, the outline, the pixelation, the "
          "posterization and the film grain are drawn in the final pass, after the bloom: "
          "the lens and the aberration bend how the scene is read (in scene colour, before the exposure), the rest work "
@@ -484,7 +484,9 @@ void register_postprocess_component(TypeRegistry& r) {
             "Switches the screen-space reflections on: shiny surfaces reflect what is on the screen. Needs the depth "
             "buffer (3D); it only reflects what is visible, so the edges of the screen fade out.")
         .field("ssrIntensity", &PostProcess::ssrIntensity,
-               "Only used when ssrEnabled. 0..1: how much reflection is mixed in.")
+               "Only used when ssrEnabled. 0..1: how much reflection is mixed in; surfaces reflect by a fresnel term "
+               "(more at a "
+               "grazing angle), there is no per-material roughness (docs/RENDERING_EFFECTS.md).")
         .range(0, 1)
         .field("ssrMaxDistance", &PostProcess::ssrMaxDistance,
                "Only used when ssrEnabled. World units a reflected ray travels before it gives up.")
