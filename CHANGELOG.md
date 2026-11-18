@@ -8,6 +8,23 @@ Older versions, one file per minor version with its patch releases: [0.29](chang
 
 ### M71 (in progress): linear HDR and a post-processing stack
 
+- **Ambient occlusion (`ssao`):** `PostProcess.ssaoEnabled` now darkens creases and contact points of 3D meshes (GTAO from the depth and
+  normal prepass, at half resolution for `low` and `medium`, full for `high` and `ultra`, a blur that follows the surfaces, no random
+  numbers: the same picture every run). `ssaoRadius` is in world units, `ssaoIntensity` the power of the occlusion, and each camera of a
+  split screen has its own passes over its own rectangle. It works in place on the game picture (the interface drawn before the post
+  passes is darkened where it covers meshes); off, at intensity 0, or without opaque meshes it adds no pass and no prepass.
+  `render.supports {"feature": "ssao"}` is true where the GPU has RGBA16F targets that blend, and `render.debug_view {"view": "ao"}`
+  shows the occlusion alone.
+
+- **Depth of field and camera motion blur:** `depthOfFieldEnabled` and `motionBlurEnabled` of `PostProcess` are drawn now (`render.supports`
+  says so, `postprocess.apply_preset` no longer lists them in `notDrawn`). Both read the depth prepass and work on the scene colour,
+  before the bloom and the final pass; each camera has its own passes (split screen). The depth of field blurs by a circle of confusion
+  from the view depth, with a near and a far blur in design pixels, a half-size disc gather and an optional bokeh weighting; the
+  autofocus follows `depthOfFieldTarget` by `depthOfFieldFocusSpeed` on the engine clock (the same frames give the same focus on every
+  machine) and falls back to `depthOfFieldFocusDistance` with no target. The motion blur smears along the camera's own movement with a
+  fixed jitter, up to 8% of the picture's larger side, and never on the first frame or after a camera cut. With both off nothing is
+  declared and the picture is unchanged (docs/RENDERING.md, "Depth of field and motion blur").
+
 - **Screen effects: radial blur and transient effects.** The `radialBlur` effect of `PostProcess` is drawn now (`render.supports
   {"feature": "radialBlur"}` is true). Five short effects of the camera, drawn by its post pass over the finished picture:
   `camera.shockwave` (a ring that expands and bends the picture), `camera.heatHaze` (a ripple over a region), `camera.radialBlur` (a
@@ -17,6 +34,7 @@ Older versions, one file per minor version with its patch releases: [0.29](chang
   (deterministic, `time.scale 0` holds them), belong to one camera or to all of them (a split screen shows one on its half), need no
   `PostProcess`, honour reduce motion and reduced effects, are bounded (16 alive, a camera draws 4 shockwaves and 2 hazes) and cost
   nothing when none is alive. See docs/rendering/RENDERING_SCREEN_EFFECTS.md.
+
 - **Post-processing costs and a graphics page:** `render.frame_graph` returns `postProcess`: the post-processing passes with their
   summed CPU and GPU time (`gpuMs` is `null` with `gpuStatus` `"unavailable"` and a reason where the backend has no GPU timer; the effects
   folded into the `post` pass are not timed one by one), and the editor's Profiler panel has a "Post-processing" tab with the same table.

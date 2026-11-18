@@ -141,6 +141,9 @@ static_assert(sizeof(LightVertex) == 56, "LightVertex is 14 floats");
 enum class BloomStage : std::uint8_t { Bright, Down, Blur, Composite, Count };
 // The two programs of the automatic exposure (exposure.glsl): the log-luminance of the frame, and the adaptation of the stored EV.
 enum class ExposureStage : std::uint8_t { Luma, Adapt, Count };
+// The programs of the ambient occlusion (ssao.glsl): the horizon search, the bilateral blur, and the darkening of the picture (Apply
+// multiplies it into the scene; View, the same program, writes the occlusion as a grey instead: Renderer::set_debug_view ao).
+enum class SsaoStage : std::uint8_t { Ao, Blur, Apply, View, Count };
 
 // LinearClamp: bilinear, clamp to edge, no mipmaps (post-processing).
 enum class SamplerKind : std::uint8_t { Nearest, Linear, LinearRepeat, NearestRepeat, LinearClamp, Count };
@@ -924,6 +927,9 @@ public:
     // The automatic exposure (exposure.glsl), the same way.
     bool exposure_ready();
     sg_pipeline exposure_pipeline(ExposureStage stage, const TargetFormat& format);
+    // The ambient occlusion (ssao.glsl, renderer_ssao.cpp), the same way: false + one logged error when its shaders cannot be made.
+    bool ssao_ready();
+    sg_pipeline ssao_pipeline(SsaoStage stage, const TargetFormat& format);
 
     // The 2D light buffer (light.glsl). Its shader is created on first use, like the bloom ones; false + one logged error
     // when it cannot be created, and lit visuals then shade with the per-pixel path (the first kDirectLights2D lights).
@@ -985,6 +991,7 @@ public:
     sg_shader colorfilter_shader_{};
     sg_shader post_shader_{};
     sg_shader exposure_shaders_[int(ExposureStage::Count)]{};
+    sg_shader ssao_shaders_[3]{};  // ao, blur, apply (SsaoStage::View uses the last)
     sg_shader prepassShader_{}, prepassSkinShader_{}, prepassViewShader_{};
     sg_shader light_shader_{};
 
@@ -1004,6 +1011,7 @@ private:
     int lightState_ = 0;        // same meaning as bloomState_
     int postState_ = 0;         // same meaning as bloomState_
     int exposureState_ = 0;     // same meaning as bloomState_
+    int ssaoState_ = 0;         // same meaning as bloomState_
     MaterialProgram prepassProgram_[2];
     int prepassState_ = 0;      // same meaning as bloomState_ (the built-in prepass programs)
     int prepassViewState_ = 0;  // same meaning as bloomState_ (the debug view)

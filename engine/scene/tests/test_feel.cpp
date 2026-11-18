@@ -459,6 +459,22 @@ TEST_CASE("screen fx: cancel by camera or all, a scene clear drops them, a dead 
     CHECK_FALSE(screen_fx_start(f.w, gone, screen_fx_defaults(ScreenFxKind::Flash)).ok());
 }
 
+TEST_CASE("screen fx: the effects of a camera that is destroyed end, a held fade included") {
+    Fixture f;
+    Entity doomed = f.w.create("doomed", "doomed");
+    f.w.add<Camera>(doomed);
+    REQUIRE(screen_fx_start(f.w, doomed, screen_fx_defaults(ScreenFxKind::Fade)).ok());  // held for ever
+    REQUIRE(screen_fx_start(f.w, f.cam, screen_fx_defaults(ScreenFxKind::Fade)).ok());   // another camera's
+    REQUIRE(screen_fx_start(f.w, kNullEntity, screen_fx_defaults(ScreenFxKind::Flash)).ok());
+    for (int i = 0; i < 60; ++i) f.frame();
+    CHECK(f.w.feel().screenFx.live.size() == 2);  // the two held fades; the flash is over
+    f.w.destroy(doomed);
+    f.w.flush();
+    f.frame();
+    REQUIRE(f.w.feel().screenFx.live.size() == 1);
+    CHECK(f.w.feel().screenFx.live[0].camera == f.cam);
+}
+
 TEST_CASE("screen fx: reduce motion quarters shockwave and blur, reduced effects cap and fade the flash") {
     Fixture f;
     f.w.feel().reduceMotionSetting = true;

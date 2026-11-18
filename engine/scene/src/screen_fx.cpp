@@ -90,25 +90,31 @@ Result<void> screen_fx_check(const ScreenFxOptions& o) {
     }
     switch (k) {
         case ScreenFxKind::Shockwave:
-            if (auto r = range("strength", o.strength, 0.0f, 0.5f, "A fraction of the picture's height; 0.04 is a clear ring.");
+            if (auto r = range("strength", o.strength, 0.0f, 0.5f,
+                               "A fraction of the picture's height; 0.04 is a clear ring.");
                 !r.ok())
                 return r;
-            if (auto r = range("radius", o.radius, 0.01f, 4.0f, "A fraction of the picture's height."); !r.ok()) return r;
+            if (auto r = range("radius", o.radius, 0.01f, 4.0f, "A fraction of the picture's height."); !r.ok())
+                return r;
             return range("width", o.width, 0.005f, 2.0f, "A fraction of the picture's height.");
         case ScreenFxKind::HeatHaze:
-            if (auto r = range("strength", o.strength, 0.0f, 0.1f, "A fraction of the picture's height; 0.004 is a gentle shimmer.");
+            if (auto r = range("strength", o.strength, 0.0f, 0.1f,
+                               "A fraction of the picture's height; 0.004 is a gentle shimmer.");
                 !r.ok())
                 return r;
-            if (auto r = range("frequency", o.frequency, 0.5f, 200.0f, "Ripples per picture height."); !r.ok()) return r;
+            if (auto r = range("frequency", o.frequency, 0.5f, 200.0f, "Ripples per picture height."); !r.ok())
+                return r;
             if (auto r = range("speed", o.speed, 0.0f, 20.0f, "Cycles per second."); !r.ok()) return r;
             for (float v : o.region)
                 if (!finite(v)) return bad(k, "region must be [x, y, w, h], four finite numbers");
             if (o.region[2] <= 0.0f || o.region[3] <= 0.0f)
-                return bad(k, "region must have a width and a height above 0", "[x, y, w, h] as fractions of the camera's rectangle; [0, 0, 1, 1] is all of it.");
+                return bad(k, "region must have a width and a height above 0",
+                           "[x, y, w, h] as fractions of the camera's rectangle; [0, 0, 1, 1] is all of it.");
             return {};
         case ScreenFxKind::RadialBlur:
             if (auto r = range("intensity", o.intensity, 0.0f, 1.0f); !r.ok()) return r;
-            if (o.samples < 4 || o.samples > 32) return bad(k, std::format("samples must be from 4 to 32, got {}", o.samples));
+            if (o.samples < 4 || o.samples > 32)
+                return bad(k, std::format("samples must be from 4 to 32, got {}", o.samples));
             return {};
         case ScreenFxKind::Flash: return range("strength", o.strength, 0.0f, 1.0f);
         case ScreenFxKind::Fade: return {};
@@ -212,7 +218,11 @@ void screen_fx_update(World& w, float dt) {
         fx.elapsed += step;
         if (fx.o.kind == ScreenFxKind::Fade && fx.toAlpha > 0.0f) fx.elapsed = std::min(fx.elapsed, fx.o.duration);
     }
-    st.live.erase(std::remove_if(st.live.begin(), st.live.end(), screen_fx_done), st.live.end());
+    // An effect of a camera that no longer exists is never drawn: a held fade would stay in the list for ever.
+    st.live.erase(
+        std::remove_if(st.live.begin(), st.live.end(),
+                       [&](const ScreenFx& e) { return screen_fx_done(e) || (e.camera && !w.alive(e.camera)); }),
+        st.live.end());
 }
 
 void screen_fx_cancel(World& w, Entity camera) {

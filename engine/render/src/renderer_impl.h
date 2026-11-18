@@ -27,6 +27,7 @@
 #include "fa/scene/text_fit.h"
 #include "fa/scene/ui_rect.h"
 #include "bloom.h"
+#include "renderer_dof.h"
 #include "hdr_encode.h"
 #include "postprocess.h"
 #include "render_features.h"
@@ -34,6 +35,7 @@
 #include "frame.h"
 #include "mesh_batch.h"
 #include "render_scene.h"
+#include "renderer_ssao.h"
 #include "font_set.h"
 #include "frame_graph.h"
 #include "render_internal.h"
@@ -81,6 +83,9 @@ struct Renderer::Impl {
     // bloom, the colour filter and present() sample; gameTarget.resolveColorAtt (MSAA) is the resolved image as a colour
     // attachment, which bloom composites into.
     Target gameTarget;
+    Ssao ssao;  // PostProcess.ssao*: the ambient occlusion passes of each camera (renderer_ssao.h)
+    SceneFx
+        sceneFx;  // depth of field and motion blur (renderer_dof.h): its shaders, pipelines and the autofocus of each camera
     Bloom bloom;  // Camera.bloom post-process (its levels are transients of the frame graph, see bloom.h)
     // Camera.colorFilter: the filtered copy of the finished frame. A pass cannot read what it writes, so the filter
     // draws into this second image (made on first use) and present(), capture() and the editor viewport show it
