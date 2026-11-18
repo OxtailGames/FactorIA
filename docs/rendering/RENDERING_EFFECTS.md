@@ -1,5 +1,5 @@
 Part of [RENDERING.md](../RENDERING.md): the screen-space effects of the post-processing stack that read the depth and normal prepass
-(ambient occlusion, fog and sun shafts now; reflections join this page when the renderer draws them).
+(ambient occlusion, reflections, fog and sun shafts now).
 
 # Rendering: screen-space effects
 
@@ -41,6 +41,70 @@ The cost does not double from one level to the next: "horizon steps per output p
 sides), divided by 4 where the search is at half size; the blur and the apply pass cost one full-screen read at every level. The prepass is
 shared with the outline, the depth of field and the motion blur of the same camera.
 
+## Screen-space reflections (`ssr`)
+
+`PostProcess.ssrEnabled` makes opaque 3D surfaces mirror what the camera shows: the floor under a lamp shows the lamp, a wet street
+shows the cars. It is a post effect of the camera's own stack (or of a volume): it works on the 3D picture of that camera, in linear
+scene light, after the ambient occlusion and before the fog, the exposure, depth of field, bloom and the final pass, so the
+reflected colour is the one the camera saw (a bright lamp reflects bright, and blooms in its reflection).
+
+| Field | Default | Meaning |
+|---|---|---|
+| `ssrEnabled` | `false` | switches the effect on |
+| `ssrIntensity` | `1` | 0..1: how much of the reflection is mixed in (0 draws nothing: no pass, no prepass) |
+| `ssrMaxDistance` | `50` | world units a reflected ray travels (1..1000) |
+| `ssrThickness` | `0.3` | world units behind a surface that still count as a hit (0.01..10) |
+| `ssrSteps` | `32` | steps of the ray march, 8..128 (clamped; a NaN takes the default) |
+
+### What is reflected
+
+- **The ray.** Every pixel of an opaque mesh sends the mirror image of its view ray into the scene (the normal comes from the
+  prepass, so a normal-mapped material reflects with its own normal), for at most `ssrMaxDistance`. The ray is followed across the
+  screen in the prepass depth in `ssrSteps` equal steps of screen distance (a small deterministic jitter moves the first step, the
+  same pattern every frame and every run, so the picture does not shimmer between runs) and the depth of the ray is interpolated
+  correctly for a perspective camera. A step is a hit when the ray went behind the surface the prepass shows and was in front of it
+  (or less than `ssrThickness` behind it) one step before; six bisections then find where it crossed. A ray that leaves the screen,
+  passes the near plane or goes behind an object by more than `ssrThickness` finds nothing.
+- **What a miss draws.** Nothing: the pixel keeps its own colour. Only what is on the screen can be reflected: an object behind the
+  camera, outside the frame or hidden behind another object is not in the mirror, and a reflection fades out near the border of the
+  screen (over the outer tenth) instead of ending in a line. Blended meshes, sprites, particles and the HUD are not in the prepass:
+  they are not reflected (and they do not receive reflections: a pixel the prepass has no opaque mesh for is left alone, and so is the
+  sky).
+- **Fades.** The mixed-in amount is `ssrIntensity * fresnel` times four fades that remove the artefacts of the method: a ray that
+  goes back toward the camera (it would need what is behind the viewer), a hit on the back of a surface (its normal faces away from
+  the ray), a hit near the border of the screen and a hit near the end of `ssrMaxDistance`.
+
+### How reflective a surface is
+
+The renderer has no roughness or metalness image for the post stack to read, so the reflectivity is not a material property: every
+opaque surface gets the **fresnel term** of the angle between its normal and the view, `F = 0.2 + 0.8 * (1 - N.V)^5`, multiplied by
+`ssrIntensity`. A surface seen head-on reflects 20 % of `ssrIntensity`, one seen at a grazing angle (a floor far away, the side of a
+street) almost all of it, as water, glass and a polished floor do. The result is a mix, `mix(scene, reflection, F * intensity)`: it
+only takes colour from the picture itself, so a place with nothing bright to reflect does not get brighter. Choosing the reflectivity per surface (a roughness-driven blur, a mask) needs a material
+image in the prepass and is not drawn yet; until then lower `ssrIntensity`, or put the effect in a volume (a box around the room with
+the wet floor) so only that part of the world reflects.
+
+### Cost and limits
+
+- A frame without the effect (off, or `ssrIntensity` 0) declares no pass, makes no image and builds no shader, and draws the same
+  bytes as before. The effect needs the prepass (`render.supports` answers `ssr` false and names the missing capability when the GPU cannot sample the depth or has no float targets) and
+  float scene targets; where it is unsupported the stack still stores the fields and the game renders without it.
+- Per camera, two passes: `<camera>/ssr-trace` (one full-screen pass of the camera's rectangle, `ssrSteps` depth reads per pixel at
+  most, fewer where the ray leaves the screen early) and
+  `<camera>/ssr-copy` (one copy back into the picture), and one image of the camera's size (the scene format, from the pool of the
+  frame). `render.frame_graph` and the profiler panel list them with the other post-processing passes (the prefix `ssr`).
+- A split screen traces each camera's rectangle on its own: a ray never leaves the rectangle of its camera, and each camera decides
+  with its own stack.
+- With multisampling the reflected colour is read from the resolved picture (one sample per pixel), and the result is written back to every sample.
+- `ssrSteps` trades quality for time: with fewer steps a thin object can fall between two steps and its reflection breaks up; 32 is
+  enough for floors and walls at the design resolution, 64..128 for thin railings.
+- An orthographic 3D camera is traced too (the depth of the ray is then linear on the screen); a camera that draws into a texture has no
+  stack, so no reflections.
+
+```json
+{ "type": "PostProcess", "ssrEnabled": true, "ssrIntensity": 0.8, "ssrMaxDistance": 30, "ssrSteps": 48 }
+```
+
 ## Fog
 
 `fogEnabled` fades what is far (and what is low) into `fogColor`, drawn from the depth of the prepass. Along the view ray from `fogStart`
@@ -61,10 +125,11 @@ A fog with no distance and no height density draws nothing.
 - **Not drawn twice.** A camera whose stack fog is drawn replaces `SceneSettings.fogColor` / `fogDensity` for the frame (the mesh shader's
   fog is switched off for it); a camera whose stack fog draws nothing (no density, or the effect off) keeps the scene's fog. A scene
   with no `fog` in its stack is byte for byte the frame it was.
-- **What it covers.** Opaque 3D meshes, as the prepass has only them; blended meshes, sprites, particles, text and the interface drawn
-  before the post passes are not fogged by their own depth (a blended mesh keeps the forward fog of the scene; the stack's fog replaces it
-  when it is on, so blended meshes then show no fog), and a HUD drawn after the post passes is not touched. Turn the effect's colour to the
-  sky's colour to hide the seam.
+- **What it covers.** The fog is blended over the picture where the prepass saw an opaque 3D mesh, using that mesh's depth. Whatever was drawn
+  over such a pixel in the main pass (a blended mesh, a particle, a sprite, text or the interface drawn before the post passes) is fogged
+  with the distance of the opaque surface behind it, not its own. Over the sky nothing is fogged, so a blended mesh against the sky gets no
+  fog at all; and while the stack's fog is drawn the scene's forward fog is off, so blended meshes do not get a fog of their own either.
+  A HUD drawn after the post passes is not touched. Set `fogColor` to the sky's colour to hide the seam.
 - **Colour space.** `fogColor` is a display colour in both modes; a linear scene blends in linear light with the colour converted, so a
   thick fog shows exactly `fogColor` on the screen.
 - **Per camera.** Each camera of a split screen has its own `camera:<n>/fog-blend` pass over its own rectangle, with its own position and
@@ -73,9 +138,9 @@ A fog with no distance and no height density draws nothing.
 
 ## Sun shafts
 
-`sunShaftsEnabled` draws light streaming from the sun through the gaps of the scene. The sun is the first directional `Light` of the scene
-(the same direction the lighting uses), seen from each camera; with no directional light, or when the camera lights by the studio rig, there
-are no shafts. Per camera:
+`sunShaftsEnabled` draws light streaming from the sun through the gaps of the scene. The sun is the directional `Light` of slot 0 of the
+lighting (the one that casts shadows, otherwise the brightest directional light), in the direction the lighting uses, seen from each
+camera; with no directional light, a sun of intensity 0, or when the camera lights by the studio rig, there are no shafts. Per camera:
 
 1. `shafts-rays` makes a half resolution, one channel image. For each pixel it takes 48 taps along the screen line toward the sun
    (`sunShaftsLength`, 0..1, is the longest line, in screen heights; the taps are shifted by a fixed noise of the pixel, so the picture is the
