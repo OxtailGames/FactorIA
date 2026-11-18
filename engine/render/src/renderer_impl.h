@@ -109,7 +109,8 @@ struct Renderer::Impl {
     bool warnedNoLight = false;
     std::string
         warnedViewport;  // the last "bad Camera.viewport" problem logged (a viewport a script sets live is clamped)
-    bool warnedCameras = false;        // the "more cameras than the limit" warning, once per scene
+    bool postBypass = false;     // Renderer::set_post_bypass: draw without any post-processing stack (the editor's A/B)
+    bool warnedCameras = false;  // the "more cameras than the limit" warning, once per scene
     bool warnedLights2d = false;       // the "more Light2D in view than the budget" warning, once per scene
     bool warnedShadows2d = false;      // the "more shadow casters than the budget" warning, once per scene
     bool warnedSpriteMesh = false;     // the "too many mesh cells" warning, once per scene

@@ -368,6 +368,29 @@ Things to know:
 - **Lens dirt.** `bloomLensDirt` is a texture (stretched over the screen) that multiplies the glow by `1 + dirt * bloomLensDirtIntensity`.
 - A camera that draws into a texture (`renderTarget`) never has a stack: the effects are for the picture the player sees.
 
+### Reading and changing the stack: commands, looks and the editor panel
+
+- `postprocess.get {"id": "camera", "resolved": true}` answers with the stack the camera draws, computed on the CPU (it works without a
+  window): `layers` (the camera's own PostProcess or the deprecated `Camera.bloom*` fields, then each volume the camera is inside, with
+  its priority, weight and influence) and `effects`, every effect in the order it runs with `enabled` and, for each parameter of an
+  effect that runs, `{value, from, strength}`. `from` is `own`, `legacy`, `volume:<entity id>` or `default`, so "why is the picture
+  this dark" has an answer: the field that sets it and the entity that owns it. Without `resolved` it reads the component's own fields.
+- `postprocess.set {"id", "fields"}` writes fields of a PostProcess (added when the entity has none: on a Camera entity it is the
+  camera's own stack, on an entity without a Camera a volume) and `postprocess.presets` lists the looks. `postprocess.apply_preset
+  {"id", "preset"}` applies one: without `"keep": true` the look replaces every effect of the target with exactly its own (the
+  volume's shape, size and priority stay), with it only the effects the look names change. The looks are data, not code
+  (`engine/runtime/data/postprocess_presets.json`): `neutral` (everything off, the way back), `cinematic`, `retro`, `noir`, `dreamy`,
+  `vivid` and `horror`, built only from fields that exist. A look that names an effect this renderer does not draw yet (`ssao`,
+  `depthOfField`... say `planned` in `render.supports`) still applies, and the answer says so: `notDrawn` lists them and `note` explains
+  that their fields are stored and show once the renderer draws them. `drawnChecked` is false when there is no renderer to ask
+  (`graphics=false`).
+- **View > Post-processing** (docs/EDITOR.md) is the same stack on screen: a camera chooser, each effect in the order it runs with its
+  switch, a "running" or "off" mark, whether this renderer draws it (`planned`, or `unsupported` with the reason on hover), its fields
+  with the source of each value, one button per look and a **Stack off (A/B)** check that draws the game without any post-processing
+  to compare (`Renderer::set_post_bypass`: it changes no data and ends when the panel closes). Every edit goes through
+  `postprocess.set` or `postprocess.apply_preset`, one undo step each, to the camera's own PostProcess or to the volume picked under
+  "Edit"; an effect that is planned cannot be switched on from the panel (a look that switched it on can be switched off).
+
 ## Off-screen capture
 
 `render.captureTexture({ entity | rect, space: "world", scale })` draws a part of the world into a texture of its own, with a

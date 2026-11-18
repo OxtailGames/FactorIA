@@ -27,7 +27,16 @@ Older versions, one file per minor version with its patch releases: [0.29](chang
   (docs/design/ARCHITECTURE_RENDERING.md, "PostProcess").
 - **Commands:** `render.supports` says what the renderer can do on this graphics backend and GPU (float targets, R11G11B10, sampled
   depth, compute shaders, linear colour, HDR output and each post effect; false for what is not drawn yet); `postprocess.get`,
-  `postprocess.set` and `postprocess.presets` read and write the PostProcess component.
+  `postprocess.set`, `postprocess.presets` and `postprocess.apply_preset` read and write the PostProcess component.
+  `postprocess.get {"resolved": true}` answers with the stack a camera really draws and where each value comes from (its own
+  PostProcess, a volume, or the deprecated Camera fields). The seven looks (`neutral`, `cinematic`, `retro`, `noir`, `dreamy`, `vivid`,
+  `horror`) are data in `engine/runtime/data/postprocess_presets.json`; a look that names an effect the renderer does not draw yet
+  still applies and says which parts will show later (`notDrawn`).
+- **Post-processing panel:** View > Post-processing shows the stack of a camera in the order its effects run: each effect's switch,
+  whether this renderer draws it (`planned` or `unsupported`, with the reason), its fields with the source of each value, a button
+  per look and a **Stack off (A/B)** check that draws the game without post-processing to compare (`Renderer::set_post_bypass`; it
+  changes no data). Edits go to the camera's own PostProcess or to a volume you pick through `postprocess.set` and
+  `postprocess.apply_preset`, one undo step each (docs/EDITOR.md, docs/RENDERING.md, AI_GUIDE recipe 9.20).
 - **Exposure, bloom, tonemap and colour filter are drawn.** The stack of the camera that draws first is now a set of frame-graph
   passes: bloom (with a new soft `bloomKnee`, a `bloomLensDirt` texture and a `bloomThreshold` that may exceed 1), exposure (manual
   `exposureEv`, or `exposureMode` auto: a 32x32 brightness reduction and a 1x1 adaptation on the GPU, deterministic from the frame

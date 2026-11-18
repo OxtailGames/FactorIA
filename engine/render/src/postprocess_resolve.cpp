@@ -9,6 +9,7 @@
 
 #include "fa/core/log.h"
 #include "fa/core/reflect.h"
+#include "bloom.h"
 #include "fa/scene/components.h"
 
 namespace fa::render {
@@ -130,17 +131,30 @@ void blend_field(const FieldInfo& f, PostProcess& dst, const PostProcess& src, f
     }
 }
 
-// Applies one component with strength s (0 < s <= 1) to the stack.
-void apply_component(PostProcess& stack, const PostProcess& c, float s) {
+// The kinds blend_field interpolates (the others switch at s >= 0.5).
+bool is_blended_kind(FieldKind k) {
+    return k == FieldKind::Float || k == FieldKind::Int || k == FieldKind::Vec2 || k == FieldKind::Vec3 ||
+           k == FieldKind::Vec4 || k == FieldKind::Color || k == FieldKind::Rect;
+}
+
+// Applies one component with strength s (0 < s <= 1) to the stack. `trace` (optional) learns that layer `layer` wrote what it wrote.
+void apply_component(PostProcess& stack, const PostProcess& c, float s, PostTrace* trace = nullptr, int layer = 0) {
     const auto& fields = effect_fields();
     for (int e = 0; e < kPostEffectCount; ++e) {
         if (!enabled_flag(c, e)) continue;
         const EffectFields& ef = fields[std::size_t(e)];
+        if (trace) trace->effectLayers[std::size_t(e)].push_back(layer);
         if (!enabled_flag(stack, e)) {
-            for (const FieldInfo* f : ef.params) copy_field(*f, stack, postprocess_neutral());
+            for (const FieldInfo* f : ef.params) {
+                copy_field(*f, stack, postprocess_neutral());
+                if (trace) trace->fieldLayer[f->name] = -1;
+            }
             enabled_flag(stack, e) = true;
         }
-        for (const FieldInfo* f : ef.params) blend_field(*f, stack, c, s);
+        for (const FieldInfo* f : ef.params) {
+            blend_field(*f, stack, c, s);
+            if (trace && (is_blended_kind(f->kind) || s >= 0.5f)) trace->fieldLayer[f->name] = layer;
+        }
     }
 }
 
@@ -202,7 +216,24 @@ float post_volume_influence(const PostProcess& v, const Mat4& m, Vec3 point, boo
     return std::clamp(1.0f - dist / blend, 0.0f, 1.0f);
 }
 
-PostStack resolve_post_stack(World& world, const CameraGeometry& cam, const PostProcess* implicitOwn) {
+bool legacy_post_of_camera(const Camera& cam, PostProcess& out) {
+    if (!cam.bloom && cam.colorFilter == ColorFilter::None) return false;
+    out = postprocess_neutral();
+    const BloomSettings b =
+        sanitize_bloom(cam.bloom, cam.bloomThreshold, cam.bloomIntensity, cam.bloomRadius, cam.bloomScreenSpace);
+    out.bloomEnabled = b.enabled;
+    out.bloomThreshold = b.threshold;
+    out.bloomIntensity = b.intensity;
+    out.bloomRadius = b.radius;
+    out.bloomScreenSpace = b.screenSpace;
+    out.bloomKnee = 0.0f;
+    out.colorFilterEnabled = cam.colorFilter != ColorFilter::None;
+    out.colorFilterMode = cam.colorFilter;
+    return true;
+}
+
+PostStack resolve_post_stack(World& world, const CameraGeometry& cam, const PostProcess* implicitOwn,
+                             PostTrace* trace) {
     PostStack out;
     if (!world.any<PostProcess>() && !implicitOwn) return out;
 
@@ -210,6 +241,7 @@ PostStack resolve_post_stack(World& world, const CameraGeometry& cam, const Post
         Entity entity;
         const PostProcess* component;
         float strength;
+        float influence;
     };
     std::vector<Volume> volumes;
     const PostProcess* own = nullptr;
@@ -223,16 +255,22 @@ PostStack resolve_post_stack(World& world, const CameraGeometry& cam, const Post
         if (!(w > 0.0f)) return;
         const float influence = post_volume_influence(p, world.world_matrix(e), cam.position, cam.perspective);
         const float s = w * influence;
-        if (s > 0.0f) volumes.push_back({e, &p, s});
+        if (s > 0.0f) volumes.push_back({e, &p, s, influence});
     });
 
+    const bool legacy = !own;
     if (!own)
         own =
             implicitOwn;  // the Camera.bloom* / Camera.colorFilter fields of a camera that has no PostProcess of its own
     if (own) {
         const float s = strength_of(*own);
         if (s > 0.0f) {
-            apply_component(out.fx, *own, s);
+            int layer = 0;
+            if (trace) {
+                layer = int(trace->layers.size());
+                trace->layers.push_back({legacy ? PostLayer::Kind::Legacy : PostLayer::Kind::Own, cam.entity, s, 1.0f});
+            }
+            apply_component(out.fx, *own, s, trace, layer);
             ++out.sources;
         }
     }
@@ -246,7 +284,12 @@ PostStack resolve_post_stack(World& world, const CameraGeometry& cam, const Post
         return a.entity.bits() < b.entity.bits();
     });
     for (const Volume& v : volumes) {
-        apply_component(out.fx, *v.component, v.strength);
+        int layer = 0;
+        if (trace) {
+            layer = int(trace->layers.size());
+            trace->layers.push_back({PostLayer::Kind::Volume, v.entity, strength_of(*v.component), v.influence});
+        }
+        apply_component(out.fx, *v.component, v.strength, trace, layer);
         ++out.sources;
     }
     for (int e = 0; e < kPostEffectCount; ++e)
