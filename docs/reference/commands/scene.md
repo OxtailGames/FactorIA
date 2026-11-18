@@ -49,7 +49,7 @@ With `id`: that load (from scene.preload, assets.preload, scene.load {async:true
 
 ## `postprocess.apply_preset` (modifies state)
 
-Not released yet (on main after 0.30.1).
+Since 0.31.0.
 
 Apply a named look (cinematic, retro, noir...) to the PostProcess of an entity.
 
@@ -67,7 +67,7 @@ Sets the fields of the preset on the PostProcess of `id` (added when missing). B
 
 ## `postprocess.get`
 
-Not released yet (on main after 0.30.1).
+Since 0.31.0.
 
 Read the PostProcess component of an entity, or (resolved) the stack a camera really draws and where each value comes from.
 
@@ -85,7 +85,7 @@ The resolved stack is the one the renderer draws, computed on the CPU (it works 
 
 ## `postprocess.presets`
 
-Not released yet (on main after 0.30.1).
+Since 0.31.0.
 
 List the named post-processing looks that postprocess.apply_preset can apply.
 
@@ -97,7 +97,7 @@ A preset may switch on an effect the renderer does not draw yet: apply_preset st
 
 ## `postprocess.set` (modifies state)
 
-Not released yet (on main after 0.30.1).
+Since 0.31.0.
 
 Set fields of the PostProcess component of an entity (added when missing).
 

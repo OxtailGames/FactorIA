@@ -111,10 +111,10 @@ file: then put this status and the milestones section back).
 
 # Next engine milestones
 
-**What comes next (2026-11-15):** M90 (0.20.0), M91 (0.21.0), M100 (0.22.0), M101 (0.23.0), M97.1 and M97.2 (0.24.0),
-M92 (0.25.0), M93 (0.26.0), M94 (0.27.0), M95 (0.28.0) and M96 (0.29.0) are done. Next M98 (M97.3-M97.5 alongside), and
-only then M71-M89 in their own order: M71 builds on M95's frame graph and M75 on M94.4. M99 waits for the user's hardware
-and accounts.
+**What comes next (2026-11-18):** M90 (0.20.0), M91 (0.21.0), M100 (0.22.0), M101 (0.23.0), M97.1 and M97.2 (0.24.0),
+M92 (0.25.0), M93 (0.26.0), M94 (0.27.0), M95 (0.28.0), M96 (0.29.0), M98 (0.30.0, with M97.3-M97.5) and M71 (0.31.0) are
+done. Next M72-M89 in their own order (M72 and M73 build on M71, M75 on M94.4). M99 waits for the user's hardware and
+accounts.
 The reasons are in "M90-M99" and "M100-M101", at the end of this file. Every milestone opens with a triage of the open
 entries of `examples/*`. Update this paragraph when a milestone lands.
 
@@ -746,22 +746,22 @@ Order: M70 and M71 first; M72 and M73 need M71; M74 needs M72; M75 needs M70; M7
 M78 needs M76 and M77; M79 needs M73 and M77; M80 needs M71 and M72. Since 2026-11-09 M71 needs M95 (its frame graph
 and render targets) and M75 needs M94.4 (broadphase and heightfield collider).
 
-## M71. Linear HDR and a post-processing stack (L; 5 packages) — the user, 2026-11-06
+## M71. Linear HDR and a post-processing stack (L; 5 packages) — the user, 2026-11-06 — DONE in 0.31.0
 
-- M71.1 (L) Linear HDR pipeline: `SceneSettings.colorSpace` "gamma" (today) or "linear", float render targets
+- M71.1 (L) — DONE in 0.31.0 Linear HDR pipeline: `SceneSettings.colorSpace` "gamma" (today) or "linear", float render targets
   (RGBA16F, R11G11B10 where supported, RGBA8 + dithering fallback), sRGB textures marked as such, tonemapping (neutral,
   ACES, AgX, Reinhard, none), exposure (manual and automatic with adaptation speed), and HDR display output where the
   platform allows (Windows HDR10/scRGB, macOS EDR) with paper-white nits. 2D lights and sprites use the same pipeline.
-- M71.2 (L) The stack: a `PostProcess` component (on a Camera, or a volume: global, box or circle in 2D/3D with blend
+- M71.2 (L) — DONE in 0.31.0 The stack: a `PostProcess` component (on a Camera, or a volume: global, box or circle in 2D/3D with blend
   distance and priority) with ordered effects: colour grading (lift/gamma/gain, white balance, curves, `.cube` LUTs),
   vignette, chromatic aberration, film grain, lens distortion, sharpen, bloom moved into it (lens dirt, threshold
   knee), outline (depth/normal edges, 2D sprite outlines), pixelate and posterize. Effects share passes where they can.
-- M71.3 (L) Depth-based effects (3D): SSAO (GTAO quality levels), depth of field (bokeh, near/far, autofocus on a
+- M71.3 (L) — DONE in 0.31.0 Depth-based effects (3D): SSAO (GTAO quality levels), depth of field (bokeh, near/far, autofocus on a
   target), camera motion blur (from depth; per-object with M76), screen-space reflections, height and distance fog
   moved into the stack, sun shafts.
-- M71.4 (M) 2D screen effects: shockwave and heat-haze distortion (screen-space, spawned by `feel`/vfx), radial blur,
+- M71.4 (M) — DONE in 0.31.0 2D screen effects: shockwave and heat-haze distortion (screen-space, spawned by `feel`/vfx), radial blur,
   screen flash and fade moved into the stack, split-screen cameras each with their own stack.
-- M71.5 (M) Tools: a Post-processing panel with live preview and A/B, `postprocess.*` commands, presets (cinematic,
+- M71.5 (M) — DONE in 0.31.0 Tools: a Post-processing panel with live preview and A/B, `postprocess.*` commands, presets (cinematic,
   stylised, clean, retro hooks for M80), goldens per backend, the cost of each effect in the profiler and in docs.
 
 ## M72. Custom shaders for everything (L; 5 packages) — the user, 2026-11-06
@@ -1146,7 +1146,7 @@ drops its workaround in the same package.
 Order (M100, M101, M97.1, M97.2, M92 and M93 are done): M100 then M101, before M92 (M100 is what the game AI meets on
 its first run; M101 was the backlog). M100.1 (the measure) runs first so there is a "before". Then M97.1 and M97.2 (the
 cost of the first step; done in 0.24.0), then M92 (done in 0.25.0), M93 (done in 0.26.0, its ASan+UBSan job first),
-M94, M95, M96 and M98. M71-M89 follow, in their own order; M87 (the editor AI) after M97.2. A triage of every open
+M94, M95, M96, M98 and M71 (done in 0.31.0). M72-M89 follow, in their own order; M87 (the editor AI) after M97.2. A triage of every open
 entry of `examples/*` opens each milestone.
 
 **Left open by M101** (done 2026-11-11, 0.23.0; its history is in [done/M101.md](done/M101.md)):
@@ -1297,7 +1297,7 @@ entry of `examples/*` opens each milestone.
     ("if you got it with `project.create {example}`"); a test of `fs_docs_test.cpp` fails an embedded doc whose paragraph
     cites `examples/<name>` without `project.create`.
 
-## M98. What games expect and the engine lacks (L; 9 packages) — outside review, 2026-11-09
+## M98. What games expect and the engine lacks (L; 9 packages) — outside review, 2026-11-09 — DONE in 0.30.0
 
 - M98.1 (M) Save slots (M19): slots with their menu in the kit, a version field with a migration hook, optional
   encryption, cloud through `platform` where a backend has it, and a picture per slot (M31.24).

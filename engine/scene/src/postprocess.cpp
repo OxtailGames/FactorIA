@@ -72,12 +72,9 @@ void register_postprocess_component(TypeRegistry& r) {
          "The effects run in a fixed order: ssao, ssr, fog, sunShafts, exposure, depthOfField, motionBlur, radialBlur, "
          "lensDistortion, chromaticAberration, bloom (all on HDR colour), tonemap, colorGrading, vignette, sharpen, "
          "outline, "
-         "pixelate, posterize, filmGrain, colorFilter (the last pass). M71 is in progress: the component, the volumes, "
-         "the postprocess.* commands and render.supports exist, and each effect is drawn as its M71 package lands: "
-         "render.supports {\"feature\": \"<effect>\"} says which ones this build draws on this GPU (ssao, ssr, fog, "
-         "sunShafts, exposure, bloom, "
-         "tonemap, colorFilter, lensDistortion, chromaticAberration, colorGrading, vignette, sharpen, outline, "
-         "pixelate, posterize, filmGrain, radialBlur, depthOfField and motionBlur today). The lens distortion, "
+         "pixelate, posterize, filmGrain, colorFilter (the last pass). Every effect is drawn; "
+         "render.supports {\"feature\": \"<effect>\"} says whether this backend and GPU can run it (an effect "
+         "needs float targets, a depth image or both) and why not. The lens distortion, "
          "the chromatic aberration, the colour grading, the vignette, the sharpen, the outline, the pixelation, the "
          "posterization and the film grain are drawn in the final pass, after the bloom: "
          "the lens and the aberration bend how the scene is read (in scene colour, before the exposure), the rest work "
@@ -94,10 +91,11 @@ void register_postprocess_component(TypeRegistry& r) {
          "pass, no "
          "target. Screen-space items (the HUD) are drawn over the finished picture, so exposure, tonemap and the "
          "output "
-         "encode never touch them; the colour filter does. The ambient occlusion (ssao) darkens the 3D meshes where "
+         "encode never touch them; the colour filter does. The ambient occlusion (ssao) darkens the opaque 3D meshes "
+         "where "
          "they "
-         "meet, in place before the bloom, so the interface drawn before the post passes is darkened where it covers "
-         "meshes.",
+         "meet, inside the main pass before the blended geometry, so blended meshes, sprites, particles, text and the "
+         "HUD are never darkened.",
          "Camera")
         .field("enabled", &PostProcess::enabled,
                "false: this component contributes nothing (all its effects are ignored), without losing its values.")

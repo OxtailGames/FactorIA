@@ -3747,8 +3747,9 @@ void register_builtin_components(TypeRegistry& r) {
             "the darks. RGBA16F costs twice the memory of RGBA8. Switch it on deliberately: colours picked by eye "
             "in gamma space look different and a project needs a second look (docs/RENDERING.md, Color space). "
             "Switching at run time is allowed. render.supports {\"feature\": \"linearColor\"} says whether this "
-            "build and GPU can. The tonemap and the display-space HUD come with the post-processing stack: for "
-            "now the HUD blends in linear light too and values above 1 clip at the display.")
+            "build and GPU can. Values above 1 survive until the display: without exposure, tonemap or "
+            "colour filter in a PostProcess they clip there and the HUD blends in linear light too; with one, the "
+            "final pass tonemaps and encodes the picture once and the HUD is drawn after it in display colours.")
         .enum_field(
             "hdrOutput", &SceneSettings::hdrOutput, {"off", "auto"},
             "off (default): the picture is shown in the standard range. auto: use a high dynamic range display "
