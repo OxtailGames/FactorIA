@@ -110,7 +110,8 @@ TEST_CASE("material fields: a prefab instance overrides material and merges its 
     LoadReport report;
     Entity e = instantiate_prefab(
         w, "prefabs/fx.prefab.json", kNullEntity, report,
-        Json::parse(R"({"components":{"Sprite":{"material":"materials/b.material.json","materialParams":{"glow":1}}}})"));
+        Json::parse(
+            R"({"components":{"Sprite":{"material":"materials/b.material.json","materialParams":{"glow":1}}}})"));
     REQUIRE(!e.is_null());
     CHECK(w.get<Sprite>(e)->material == "materials/b.material.json");
     CHECK(w.get<Sprite>(e)->materialParams["glow"] == 1);

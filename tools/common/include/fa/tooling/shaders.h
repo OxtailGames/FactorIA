@@ -40,6 +40,9 @@ inline constexpr int kMaterialMaxTextures =
 inline constexpr int kMaterialFsFirstView = 6, kMaterialFsFirstSampler = 2;
 inline constexpr int kMaterialVsFirstView = kMaterialFsFirstView + kMaterialMaxTextures,
                      kMaterialVsFirstSampler = kMaterialFsFirstSampler + kMaterialMaxTextures;
+// A sprite material's textures (kind "sprite") are fragment-stage only, at view kMaterialSpriteFirstView + i and sampler
+// kMaterialSpriteFirstSampler + i: the 2D program's own four views and three samplers come first (render_internal.h has the same numbers).
+inline constexpr int kMaterialSpriteFirstView = 4, kMaterialSpriteFirstSampler = 3;
 inline constexpr const char* kMaterialFormat = "factoria.material/1";
 inline constexpr const char* kShaderTwinFormat = "factoria.shader/1";
 inline constexpr const char* kMaterialAlphaCutoff = "alphaCutoff";
@@ -70,8 +73,8 @@ struct MaterialDef {
     std::string doc;
     std::string shader;  // project-relative path of the snippet
     std::string kind =
-        "mesh";  // "mesh" | "sprite" | "sky" | "post" | "compute" (fa::material_kind_names()); only mesh compiles
-    std::string lighting = "pbr";      // "pbr" | "unlit" | "custom" (the snippet defines light())
+        "mesh";  // "mesh" | "sprite" | "sky" | "post" | "compute" (fa::material_kind_names()); mesh and sprite compile
+    std::string lighting = "pbr";      // "pbr" | "unlit" | "custom" (a mesh material whose snippet defines light())
     std::string alphaMode = "opaque";  // "opaque" | "clip" | "blend"
     bool doubleSided = false;
     std::vector<MaterialParam> params;  // alphabetical (the packing order of the uniform block); includes implicit ones
@@ -123,22 +126,22 @@ std::string host_shader_dialect(const SetupContext& context = {});
 // ---------------------------------------------------------------------------------------------------------------
 
 struct GeneratedShader {
-    std::string kind =
-        "mesh";       // the material's kind (its template files and template hash); only "mesh" is generated so far
-    std::string top;  // the sokol-shdc input
+    std::string kind = "mesh";  // the material's kind (its template files and template hash): "mesh" or "sprite"
+    std::string top;            // the sokol-shdc input
     std::vector<int>
         snippetLine;  // per line of `top` (index = line - 1): the 1-based line of the snippet it holds, 0 = generated
     bool hasVertex = false;   // the snippet defines vertex()
-    bool hasSurface = false;  // the snippet defines surface()
+    bool hasSurface = false;  // the snippet defines surface() (a sprite material: fragment())
     bool hasLight = false;    // lighting "custom": the snippet defines light()
     bool hasAmbient = false;  // lighting "custom": the snippet defines ambient()
     std::vector<std::string>
-        programs;  // "mesh", "mesh_skin", with vertex() or "clip" "shadow", "shadow_skin", and "prepass", "prepass_skin"
-    std::vector<std::string> defines;  // for --defines: FA_HAS_VERTEX, FA_ALPHA_CLIP, FA_CUSTOM_LIGHT, FA_HAS_AMBIENT
+        programs;  // sprite: "quad", "quad_plain". Mesh: "mesh", "mesh_skin", with vertex() or "clip" "shadow", "shadow_skin", and "prepass", "prepass_skin"
+    std::vector<std::string>
+        defines;  // for --defines: FA_MATERIAL (sprite), FA_HAS_VERTEX, FA_ALPHA_CLIP, FA_CUSTOM_LIGHT, FA_HAS_AMBIENT (mesh)
 };
 
 // Builds the top file of the design: the material block(s) in alphabetical order, the textures, the snippet (surface() only
-// in the fragment stage, vertex() only in the vertex stage, everything else in both), `@include mesh_common.glsl` and the
+// in the fragment stage, vertex() only in the vertex stage, everything else in both), `@include mesh_common.glsl` (a sprite material: quad_common.glsl) and the
 // programs. Comments are ignored when looking for vertex() and surface().
 GeneratedShader generate_material_shader(const MaterialDef& material, std::string_view snippet);
 

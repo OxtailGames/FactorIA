@@ -13,6 +13,20 @@ Older versions, one file per minor version with its patch releases: [0.30](chang
   a change to one template no longer makes the twins of the other kinds stale; the mesh hash did not change, so no export
   needs to be redone. The skeletons `quad_common.glsl`, `sky_common.glsl` and `post_common.glsl` declare each kind's snippet
   contract; nothing draws with them yet.
+- **Sprite materials, the template and the tooling (M72.1):** `"kind": "sprite"` compiles. The 2D quad shader is now a
+  template (`quad_common.glsl`) with a hook: a snippet defines `void fragment(in QuadInput i, inout QuadSurface s)` (and
+  optionally `void vertex(inout QuadVertex v)`), `s.color` arrives holding what the engine draws for the item (texture,
+  circle, glyph, lit picture, SDF shape) and the flash, the multiply conversion and the fog apply to what the snippet
+  leaves. `QuadInput` carries `uv`, the tint, the world position, `screen_uv`, the time, the mode and a reserved
+  `custom`. `shader.compile`, `material.info` (programs `quad` and `quad_plain`), `factoria validate` and
+  `factoria export` (`<name>.material.json.<dialect>.shader`) work for it; `alphaMode: "clip"` is an error on a sprite.
+  The engine's own pixels do not change (an empty `fragment()` is the built-in program). The renderer draws with the
+  compiled programs in a later package; docs/SHADERS.md has the contract, the slots and an example with a dissolve and a
+  hit flash. The sprite template hash covers `quad_common.glsl`, `color_space.glsl` and `light_shadow.glsl`.
+  A sprite material cannot name a param or texture after a name of the 2D program (`color`, `uv`, `tex`, `smp`, `lit`,
+  `params`...: the error names the JSON pointer and a rename), `noise` is refused for every kind (sokol-shdc cannot compile
+  a texture called that) and a sprite `vertex()` cannot sample a material texture.
+
 - **Custom lighting and textures in `vertex()` (M72.3):** a mesh material with `"lighting": "custom"` defines
   `vec3 light(in SurfaceInput i, in Surface s, in LightSample l)`, which the engine's light loop calls once per light
   (the engine still picks the lights and applies attenuation, shadows, emission and fog), and optionally `ambient()`:
