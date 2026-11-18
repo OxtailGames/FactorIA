@@ -1,5 +1,5 @@
-// The display-space effects of the final pass (M71-C1): colour grading, vignette, chromatic aberration, lens distortion, sharpen and film
-// grain. The numbers a pass needs (`PostFx`, made from the PostStack by make_post_fx: every value sanitised and clamped to the range the
+// The display-space effects of the final pass (M71-C1, C2): colour grading, vignette, chromatic aberration, lens distortion, sharpen,
+// outline, pixelate, posterize and film grain. The numbers a pass needs (`PostFx`, made from the PostStack by make_post_fx: every value sanitised and clamped to the range the
 // effect supports) and the CPU form of the maths post.glsl runs, which the tests compare the GPU's picture with.
 //
 // Where each one runs, in the final pass (post.glsl), after the bloom pass has added the glow to the scene:
@@ -9,7 +9,12 @@
 //   scene colour    sane, decode of a gamma scene, exposure, tonemap, the sRGB encode          [as before; only with a conversion]
 //   display colour  colour grading (white balance, gain, lift, gamma, contrast, saturation, hue, then the LUT), vignette
 //   neighbours      sharpen reads the four neighbours of the pixel, each taken through the steps above
-//   last            film grain, the dither, the colour filter
+//   outline         over the sharpened picture: depth mode reads the prepass image (postprocess.h, PrepassRef), sprite mode the coverage
+//                   image of the 2D world; both read it by integer texel, never filtered
+//   pixelate        no step of its own: it moves the position every step above reads to the centre of its block, so what a block shows
+//                   is the full-resolution picture (lens, grade, sharpen, outline) sampled at one point
+//   posterize       the encoded colour cut to a number of levels per channel
+//   last            film grain (on the block-free pixel), the dither (not with posterize), the colour filter
 //
 // The effects after the tonemap work on the ENCODED picture (what the screen shows: sRGB values, 1.0 = paper white), in a linear scene
 // too, so a grade or a LUT made for a screen picture means the same here. None of them clips: on an HDR output a value above 1 keeps its
@@ -36,6 +41,10 @@ enum PostFxBit : int {
     kFxVignette = 16,
     kFxSharpen = 32,
     kFxGrain = 64,
+    kFxOutline = 128,        // outline in depth mode: edges of the prepass image
+    kFxOutlineSprite = 256,  // outline in sprite mode: the alpha edge of the coverage image
+    kFxPixelate = 512,
+    kFxPosterize = 1024,
 };
 
 struct PostFx {
@@ -64,13 +73,33 @@ struct PostFx {
     bool grain = false;
     float grainIntensity = 0.0f, grainSize = 1.0f, grainResponse = 0.0f;
     std::uint32_t grainSeed = 0;  // the frame number (24 bits) when animated, else 0
+    // Outline: `outline` is on when the line has a width and an opacity; `outlineSprite` is the mode (false: depth). The renderer clears
+    // `outline` when the image the mode reads does not exist this frame (no prepass, no coverage pass).
+    bool outline = false, outlineSprite = false;
+    float outlineWidth = 0.0f;  // physical pixels: PostProcess.outlineWidth (design pixels) x the render scale
+    Vec3 outlineColor{0, 0, 0};
+    float outlineOpacity = 1.0f;
+    float outlineDepthThreshold = 0.1f, outlineNormalThreshold = 0.4f, outlineAlphaThreshold = 0.5f;
+    // Pixelate: the block in whole physical pixels (PostProcess.pixelateSize in design pixels x the render scale, rounded; at 1 the
+    // effect is off). The block grid starts at the top left corner of the picture.
+    bool pixelate = false;
+    int pixelateBlock = 1;
+    // Posterize: the number of distinct values of a channel (2 .. 255; at 256 the effect is off).
+    bool posterize = false;
+    int posterizeLevels = 256;
 
     bool warps() const { return lens || aberration; }
-    bool any() const { return lens || aberration || grade || lut || vignette || sharpen || grain; }
+    bool outline_depth() const { return outline && !outlineSprite; }
+    bool outline_sprite() const { return outline && outlineSprite; }
+    bool any() const {
+        return lens || aberration || grade || lut || vignette || sharpen || grain || outline || pixelate || posterize;
+    }
     // The mask post.glsl reads.
     int mask() const {
         return (lens ? kFxLens : 0) | (aberration ? kFxAberration : 0) | (grade ? kFxGrade : 0) | (lut ? kFxLut : 0) |
-               (vignette ? kFxVignette : 0) | (sharpen ? kFxSharpen : 0) | (grain ? kFxGrain : 0);
+               (vignette ? kFxVignette : 0) | (sharpen ? kFxSharpen : 0) | (grain ? kFxGrain : 0) |
+               (outline ? (outlineSprite ? kFxOutlineSprite : kFxOutline) : 0) | (pixelate ? kFxPixelate : 0) |
+               (posterize ? kFxPosterize : 0);
     }
 };
 
@@ -84,7 +113,8 @@ inline constexpr float kGrainStrength = 0.25f;  // intensity 1: the grain swings
 // The effects of `stack` (PostEffect::LensDistortion .. FilmGrain that this file draws), sanitised: NaN and out-of-range numbers are
 // clamped to what the component documents. `frame`: the world's frame counter, the seed of an animated grain (never a clock). The LUT
 // is only flagged when the stack names a table and the contribution is above 0; the renderer decides whether it could be loaded.
-PostFx make_post_fx(const PostStack& stack, std::uint64_t frame);
+// `designScale`: physical pixels per design pixel (the renderer's render scale), the unit of the outline width and the pixelate block.
+PostFx make_post_fx(const PostStack& stack, std::uint64_t frame, float designScale = 1.0f);
 
 // ---- the CPU form of the shader (post.glsl) -------------------------------------------------------------------------------------
 
@@ -103,5 +133,10 @@ Vec3 sharpen_color(const PostFx& fx, Vec3 c, Vec3 up, Vec3 down, Vec3 left, Vec3
 float grain_noise(int x, int y, const PostFx& fx);
 // The pixel after the grain: `c` plus the noise, scaled by the intensity and by how mid-toned the pixel is (grainResponse).
 Vec3 grain_color(const PostFx& fx, Vec3 c, int x, int y);
+// The pixel a block of the pixelation shows: the picture is read at (x, y) of `w` x `h` through this pixel (the centre of the block that
+// holds (x, y), the last pixel when the block is cut by the edge). Integer maths, so the GPU and the CPU agree on every pixel.
+void pixelate_pixel(const PostFx& fx, int x, int y, int w, int h, int& outX, int& outY);
+// The colour cut to posterizeLevels values per channel on 0..1, rounded to the nearest; what is above 1 (an HDR output) is kept.
+Vec3 posterize_color(const PostFx& fx, Vec3 c);
 
 }  // namespace fa::render

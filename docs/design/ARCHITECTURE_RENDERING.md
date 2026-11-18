@@ -378,7 +378,7 @@ final pass) are drawn; the others are not yet.
   backends it can ever run on (GL, GLES3, WebGL2, D3D11, Metal; the headless dummy backend has none), what it needs from the GPU
   (read with `sg_query_pixelformat` / `sg_query_features`), and whether the engine draws it yet. A feature the engine does not draw
   answers false with the status "planned (M71)": each M71 package turns its own on (`effect_drawn` in `render_features.cpp`: exposure,
-  bloom, tonemap, colorFilter, lensDistortion, chromaticAberration, colorGrading, vignette, sharpen and filmGrain so far), so `supports` never claims what the renderer cannot do. Compute shaders exist on GL, D3D11 and Metal, never on GLES3 or WebGL2; `hdrOutput` only on D3D11 and Metal.
+  bloom, tonemap, colorFilter, lensDistortion, chromaticAberration, colorGrading, vignette, sharpen, outline, pixelate, posterize and filmGrain so far), so `supports` never claims what the renderer cannot do. Compute shaders exist on GL, D3D11 and Metal, never on GLES3 or WebGL2; `hdrOutput` only on D3D11 and Metal.
   The decision is a pure function of a `FeatureEnv` (backend + what the GPU reported), so a test asks what D3D11 would say.
 - **Commands.** `postprocess.get`, `postprocess.set` (thin wrappers of `scene.set_component` for `PostProcess`), `postprocess.presets` and
   `postprocess.apply_preset` are in `engine/runtime/src/postprocess_commands.cpp`. The looks are data
@@ -420,7 +420,7 @@ final pass) are drawn; the others are not yet.
   the shaders; `renderer_force_output` and `renderer_read_floats` let the tests check them without an HDR display. Screen-space items are drawn after the final pass, so exposure and tonemap
   never touch them; in a linear scene their quad and text pipelines must write display-space values into `hudTarget`.
 - **The grading and lens effects (`src/post_fx.{h,cpp}`, `include/fa/render/cube_lut.h`, `src/cube_lut.cpp`, `shaders/post.glsl`).** Six
-  effects live in the same `post` fragment shader, switched by a bit mask (`PostFx::mask()`, uniform `ex.x`: 1 lens, 2 aberration, 4 grade,
+  effects (the outline, pixelate and posterize join them in the next item) live in the same `post` fragment shader, switched by a bit mask (`PostFx::mask()`, uniform `ex.x`: 1 lens, 2 aberration, 4 grade,
   8 LUT, 16 vignette, 32 sharpen, 64 grain), so a stack without them takes the old code path and the B4/B5 goldens do not change.
   `make_post_fx(stack, frame)` sanitises the fields (clamp, NaN to the default; an effect whose values are neutral is off) into a `PostFx`
   that `make_post_plan` keeps in `PostPlan::fx`; `PostPlan::final_pass()` (`convert() || fx.any()`) is what decides the `post` pass,
@@ -439,6 +439,38 @@ final pass) are drawn; the others are not yet.
   mirror the shader and are what `postfx_render_tests.cpp` compares the read-back pixels with. The importer
   (`tools/common/src/assets_import.cpp`) has a `.cube` route (`assets/luts/`) that runs `parse_cube_lut`, and the hot reload lists `.cube`
   among the render assets. The `colorGradingCurve*` fields are stored but not drawn yet.
+- **The outline, pixelate and posterize (M71-C2; `post_fx.{h,cpp}`, `post.glsl`, `plan_outline` / `coverage_pass` in `renderer_draw.cpp`).**
+  Four more bits of `PostFx::mask()` (128 depth outline, 256 sprite outline, 512 pixelate, 1024 posterize; `ex.x` is a float, so every
+  mask below 2^24 is exact). `make_post_fx(stack, frame, designScale)` takes the render scale (`designScale` 0.05..16) so the width of the
+  line and the block of the pixelation are design pixels (`outlineWidth`, `pixelateBlock` in physical pixels); neutral values (width 0,
+  alpha 0, block 1, 256 levels) switch the bit off, so the effect is free and the frame is byte for byte the one without it. The shader:
+  `pixelate_at` snaps `s` (the screen position, top-left origin) to an integer block centre (integer arithmetic: GLES3 and WebGL2 fragment
+  shaders are `mediump`, the generated header makes every variable `highp`, but a float division would still wobble) before `shade`, so the grade,
+  the vignette, the sharpen and the outline all read the block centre; the grain keeps `s_pixel`. The outline and posterize run after the
+  sharpen, in that order, then the grain; posterize turns the one-step dither off (`q.w`), as a dither would move a value off its level.
+  Posterize keeps what is above white (`floor(sat(c) * n + 0.5) / n + (c - sat(c))`).
+  *Depth outline.* The image is `PostPlan::prepass` (B3: RGBA32F or RGBA16F, nearest, `texelFetch` through a nonfiltering sampler, hence
+  `@image_sample_type aux_tex unfilterable_float`), bound to `aux_tex`; a Roberts cross of four texels (`lo = floor(w/2)` before and `hi =
+  ceil(w/2)` after the pixel) with the silhouette (coverage differs), the relative depth jump (against `ol.y` divided by how face-on the
+  two normals are, clamped to 0.2..1, so a grazing floor is not an edge) and the normal chord (`ol.z`). `aux_at` maps the screen position
+  to the aux texel by `ax` (scale xy, offset zw: the identity today, the place for a camera rectangle) and flips the row on a bottom-up
+  backend (`ex.y`), because the prepass is drawn by the same camera as the game image and has the same orientation. `postprocess.cpp`
+  drops the outline bit from the prepass read mask unless the resolved stack's outline is depth mode and on, so a sprite outline never
+  makes a prepass; `plan_outline` calls `PostPlan::skip_outline()` (it clears `fx.outline` and recomputes `linear`, so the plan may
+  drop the final pass altogether) when `plan_prepass` made none (the one warning of `prepassSplitWarned` already says why).
+  *Sprite outline: the decision.* The three possible sources of the sprites' alpha were the game image's alpha, a coverage render and
+  an edge detection on colour. The game image's alpha is useless (the clear colour has alpha 1 and a float scene has no usable alpha on
+  R11G11B10), and colour edges find the borders of 3D and of the background as well as the sprites'. So when a sprite outline is on,
+  `plan_outline` has the job declare one more transient pass, `sprite-coverage` (`PostPlan::coverage`): an RGBA8 image of the frame size,
+  one sample, no depth, cleared to 0, drawn by `draw_group` with the world's quad batches (`ctx.gWorld.batches`, camera `viewProj`, no depth
+  test, `flatMode` 0 so no lights) and `TargetFormat` of its own (`draw_group` takes the format, since quad pipelines are made for the
+  scene format by default). Alpha blending accumulates the union of the coverage in `.a`; additive and multiply blends leave `.a`
+  alone; the `.rgb` is not used. The final pass reads it as `aux_tex` and draws the line outside the border: a pixel with `a >= ol.w` is
+  untouched, any other pixel with such a texel in a ring of 8 taps at `round(width)` (and one at half of it for a thin sprite) takes the
+  colour. Cost: one RGBA8 target and one more draw of the 2D world, only while the effect is on; it is declared only for one job that is
+  the first and the last, draws the world and has a camera over the whole screen (else `coverageWarned`: one warning, the outline is
+  dropped), and only when the pool could make the image. 3D meshes are not in it (a mesh is not "a sprite"), nor the clear colour, nor the
+  screen-space items (the HUD is drawn after the final pass).
 - **Depth and normal prepass** (`Renderer::Impl::plan_prepass`, `prepass_pass`, `prepass_view_pass` in `renderer_draw.cpp`). A pass
   of the last job's graph declared before "main", with a transient of its own (`PostPlan::prepass`, a `PrepassRef` the effects that read
   it list in their reads; the pass is `GraphPass::sideEffect` because nothing reads it until an effect or the debug view does). One

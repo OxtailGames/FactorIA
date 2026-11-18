@@ -425,16 +425,24 @@ TEST_CASE("features: what the engine does not draw yet is false and says planned
     const FeatureEnv full = gpu(FeatureBackend::D3d11, true, true, true, true);
     std::string why;
     CHECK(supported(full, "linearColor", &why));  // M71-B1: drawn on every GPU
-    // The effects the renderer draws (M71-B4, C1) answer true on a GPU that can; the others are planned.
+    // The effects the renderer draws (M71-B4, C1, C2) answer true on a GPU that can; the others are planned.
     const std::string_view drawn[] = {
         "exposure",     "bloom",    "tonemap", "colorFilter", "lensDistortion", "chromaticAberration",
-        "colorGrading", "vignette", "sharpen", "filmGrain"};
+        "colorGrading", "vignette", "sharpen", "outline",     "pixelate",       "posterize",
+        "filmGrain"};
     for (const std::string_view e : kPostEffectOrder) {
         CAPTURE(e);
         if (std::find(std::begin(drawn), std::end(drawn), e) != std::end(drawn)) {
             CHECK(supported(full, std::string(e).c_str(), &why));
-            // A GPU without float targets draws them too: they need nothing of it (the exposure stays manual there).
-            CHECK(supported(gpu(FeatureBackend::Gles3, false, false, false), std::string(e).c_str()));
+            // A GPU without float targets draws them too: they need nothing of it (the exposure stays manual there). The outline
+            // reads the depth prepass, so it needs a GPU that can sample the scene's depth: the answer names that, not the plan.
+            if (e == "outline") {
+                CHECK_FALSE(supported(gpu(FeatureBackend::Gles3, false, false, false), "outline", &why));
+                CHECK(why.find("depth") != std::string::npos);
+                CHECK(why.find("planned") == std::string::npos);
+            } else {
+                CHECK(supported(gpu(FeatureBackend::Gles3, false, false, false), std::string(e).c_str()));
+            }
             continue;
         }
         CHECK_FALSE(supported(full, std::string(e).c_str(), &why));

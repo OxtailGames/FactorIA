@@ -75,9 +75,10 @@ void register_postprocess_component(TypeRegistry& r) {
          "pixelate, posterize, filmGrain, colorFilter (the last pass). M71 is in progress: the component, the volumes, "
          "the postprocess.* commands and render.supports exist, and each effect is drawn as its M71 package lands: "
          "render.supports {\"feature\": \"<effect>\"} says which ones this build draws on this GPU (exposure, bloom, "
-         "tonemap, colorFilter, lensDistortion, chromaticAberration, colorGrading, vignette, sharpen and filmGrain "
-         "today), until then the fields only store the values. The lens distortion, the chromatic aberration, the "
-         "colour grading, the vignette, the sharpen and the film grain are drawn in the final pass, after the bloom: "
+         "tonemap, colorFilter, lensDistortion, chromaticAberration, colorGrading, vignette, sharpen, outline, "
+         "pixelate, posterize and filmGrain today), until then the fields only store the values. The lens distortion, "
+         "the chromatic aberration, the colour grading, the vignette, the sharpen, the outline, the pixelation, the "
+         "posterization and the film grain are drawn in the final pass, after the bloom: "
          "the lens and the aberration bend how the scene is read (in scene colour, before the exposure), the rest work "
          "on the display picture (what the screen shows, paper white = 1, the same on an SDR and an HDR output) and "
          "none of them clips above white. Only the stack of the camera that draws "
@@ -354,15 +355,21 @@ void register_postprocess_component(TypeRegistry& r) {
 
         // outline
         .field("outlineEnabled", &PostProcess::outlineEnabled,
-               "Switches the outline on: lines drawn at the edges of things. Depth mode needs the depth buffer (3D).")
+               "Switches the outline on: lines drawn at the edges of things, over the finished picture. Depth mode "
+               "needs the depth and normal prepass (3D); sprite mode draws the 2D world once more as coverage. Both "
+               "need one camera over the whole screen: with several cameras or a partial viewport the outline is "
+               "skipped with one warning.")
         .enum_field(
             "outlineMode", &PostProcess::outlineMode, {"depth", "sprite"},
-            "Only used when outlineEnabled. depth: edges found where depth or surface direction jump (3D models). "
-            "sprite: the border of 2D sprites, found from their alpha.")
+            "Only used when outlineEnabled. depth: edges found where depth or surface direction jump (3D models, the "
+            "line straddles the edge). sprite: a line outside the border of the 2D world (sprites, tiles, shapes, "
+            "text, particles), found from how much each pixel is covered; 3D models and the clear colour do not "
+            "count.")
         .field("outlineColor", &PostProcess::outlineColor,
-               "Only used when outlineEnabled. Colour of the lines (alpha = opacity).")
+               "Only used when outlineEnabled. Colour of the lines (alpha = opacity; alpha 0 draws nothing).")
         .field("outlineWidth", &PostProcess::outlineWidth,
-               "Only used when outlineEnabled. Line width in design pixels, 0.5 to 8 (0 = none).")
+               "Only used when outlineEnabled. Line width in design pixels, 0.5 to 8 (0 = none), so the line has the "
+               "same look at any render scale.")
         .range(0, 8)
         .field("outlineDepthThreshold", &PostProcess::outlineDepthThreshold,
                "Only used in depth mode. The relative jump of depth that makes an edge; smaller finds more edges.")
@@ -377,13 +384,16 @@ void register_postprocess_component(TypeRegistry& r) {
 
         // pixelate, posterize
         .field("pixelateEnabled", &PostProcess::pixelateEnabled,
-               "Switches the pixelation on: the picture is drawn in blocks. Cost: one cheap pass.")
-        .field("pixelateSize", &PostProcess::pixelateSize,
-               "Only used when pixelateEnabled. Size of a block in design pixels, 1 to 64 (1 = unchanged).")
+               "Switches the pixelation on: the picture is drawn in blocks of one colour (read at the block's centre). "
+               "Cost: folded into the final pass.")
+        .field(
+            "pixelateSize", &PostProcess::pixelateSize,
+            "Only used when pixelateEnabled. Size of a block in design pixels, 1 to 64 (1 = unchanged), so the blocks "
+            "look the same at any render scale.")
         .range(1, 64)
         .field("posterizeEnabled", &PostProcess::posterizeEnabled,
-               "Switches the posterization on: each colour channel is cut to a few levels. Cost: folded into a shared "
-               "pass.")
+               "Switches the posterization on: each colour channel of the display picture is cut to a few levels, "
+               "after the grading. Cost: folded into the final pass.")
         .field("posterizeLevels", &PostProcess::posterizeLevels,
                "Only used when posterizeEnabled. Levels per colour channel, 2 to 256 (256 = unchanged).")
         .range(2, 256)

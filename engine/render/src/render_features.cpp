@@ -38,9 +38,12 @@ constexpr EffectRow kEffectRows[kPostEffectCount] = {
          ".cube LUT (the tone curves are not drawn yet)."},
     {"", "Vignette: the edges of the picture darken toward a colour."},
     {"", "Sharpening: contrast-adaptive, on the finished picture."},
-    {"depth", "Outline: depth and normal edges (3D) or the border of 2D sprites."},
-    {"", "Pixelation: the picture drawn in big square pixels."},
-    {"", "Posterization: colours reduced to a few levels per channel."},
+    {"depth", "Outline (final pass): depth and normal edges of the opaque meshes (3D, one full-screen camera; needs "
+              "the depth prepass) or "
+              "the border outside 2D sprites (sprite mode: draws the 2D world once more into a coverage image; one "
+              "full-screen camera)."},
+    {"", "Pixelation (final pass): the picture drawn in big square pixels, block size in design pixels."},
+    {"", "Posterization (final pass): the display colours reduced to a few levels per channel."},
     {"", "Film grain: noise over the picture, from the frame number (the same on every run)."},
     {"", "The accessibility colour filter, the last pass of the frame."},
 };
@@ -52,6 +55,7 @@ constexpr bool effect_drawn(PostEffect e) {
     return e == PostEffect::Exposure || e == PostEffect::Bloom || e == PostEffect::Tonemap ||
            e == PostEffect::ColorFilter || e == PostEffect::LensDistortion || e == PostEffect::ChromaticAberration ||
            e == PostEffect::ColorGrading || e == PostEffect::Vignette || e == PostEffect::Sharpen ||
+           e == PostEffect::Outline || e == PostEffect::Pixelate || e == PostEffect::Posterize ||
            e == PostEffect::FilmGrain;
 }
 
