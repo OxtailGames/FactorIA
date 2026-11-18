@@ -24,15 +24,15 @@ constexpr float kMaxFocus = 100000.0f;
 constexpr std::size_t kMaxFailed = 16;
 
 // The slots every program of the two modules uses: the shaders declare them in the same order (a static_assert keeps the two in step).
-static_assert(UB_dof_dof_vs_params == 0 && UB_dof_dof_params == 1 && UB_motion_blur_motion_vs_params == 0 &&
-                  UB_motion_blur_motion_params == 1,
-              "the dof and motion blur programs share the uniform slots");
-static_assert(VIEW_dof_tex_c == 0 && VIEW_dof_tex_p == 1 && VIEW_dof_tex_g == 2 && VIEW_motion_blur_tex_c == 0 &&
-                  VIEW_motion_blur_tex_p == 1,
-              "the dof and motion blur programs share the view slots");
-static_assert(SMP_dof_smp_lin == 0 && SMP_dof_smp_pt == 1 && SMP_motion_blur_smp_lin == 0 &&
-                  SMP_motion_blur_smp_pt == 1,
-              "the dof and motion blur programs share the sampler slots");
+static_assert(UB_dof_dof_vs_params == 0 && UB_dof_dof_params == 1, "the dof program uniform slots");
+static_assert(UB_motion_blur_motion_vs_params == 0, "the motion blur program uniform slots (vertex)");
+static_assert(UB_motion_blur_motion_params == 1, "the motion blur program uniform slots (fragment)");
+static_assert(VIEW_dof_tex_c == 0 && VIEW_dof_tex_p == 1 && VIEW_dof_tex_g == 2, "the dof program view slots");
+static_assert(VIEW_motion_blur_tex_c == 0, "the motion blur program first view slot");
+static_assert(VIEW_motion_blur_tex_p == 1, "the motion blur program second view slot");
+static_assert(SMP_dof_smp_lin == 0 && SMP_dof_smp_pt == 1, "the dof program sampler slots");
+static_assert(SMP_motion_blur_smp_lin == 0, "the motion blur program linear sampler slot");
+static_assert(SMP_motion_blur_smp_pt == 1, "the motion blur program point sampler slot");
 
 template <class T>
 void apply_uniforms(int slot, const T& u) {

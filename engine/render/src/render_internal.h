@@ -21,6 +21,7 @@
 #include "fa/render/renderer.h"
 #include "fa/scene/camera_geometry.h"
 #include "fa/scene/rich_text.h"
+#include "fa/scene/screen_fx.h"
 #include "fa/scene/world.h"
 #include "gpu_types.h"
 #include "postprocess_resolve.h"
@@ -553,6 +554,9 @@ struct CameraInfo : CameraGeometry {
     // What the passes draw (postprocess.h, make_post_plan): the bloom and the colour filter of postStack after clamping to the supported ranges.
     BloomSettings bloom;
     int colorFilter = 0;  // 0 none, 1 greyscale, 2 highContrast, 3 protanopia, 4 deuteranopia, 5 tritanopia
+    // The transient screen effects of this camera (fa/scene/screen_fx.h, copied from World::feel() when the camera is built): the live
+    // ones that belong to it or to every camera, oldest first. Empty (no allocation) when none is alive: the usual case.
+    std::vector<ScreenFx> screenFx;
 };
 
 // A .cube colour lookup table on the GPU (PostProcess.colorGradingLut): the slices of the table tiled in one RGBA8 image (cube_lut.h,

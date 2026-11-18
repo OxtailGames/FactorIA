@@ -25,6 +25,12 @@
 // pass sets the viewport), reads the same rectangle of the source (rc, mask bit 2048) and runs every step above in camera-local
 // coordinates: the lens, the vignette, the pixelate grid, the grain and the dither all start at the camera's own corner.
 //
+// Transient screen effects (M71-C3b, fa/scene/screen_fx.h): a shockwave (a ring that expands and pushes the picture outward), a heat haze
+// (a ripple over a region) and a radial blur (the picture averaged along rays toward a centre: the persistent PostProcess.radialBlur and
+// the pulse of camera.radialBlur are the same blur) change the position the pixel samples in step 0, after the lens, so they bend the
+// picture the lens already bent. A flash and a fade are one colour laid over the finished picture at the end of 5 (after the grain,
+// before the dither and the colour filter). Bits 4096, 8192, 16384 and 32768 of the mask.
+//
 // A frame that needs no conversion (a gamma scene with only a colour filter) skips 1 to 4: the pass is then exactly the old colour filter.
 // A frame without any effect of 0 and 5 (ex.x = 0) runs exactly the code it did before them: they are all behind uniform branches.
 // The CPU form of the effects' maths is post_fx.cpp (the tests compare the two).
@@ -61,7 +67,7 @@ layout(binding=1) uniform post_params {
     vec4 h;         // the HDR tonemap (p.z = 1): x = headroom (how many times paper white), y = the scene value where the HDR curve leaves the SDR one, z = the SDR curve's slope there, w = its display value there
 };
 layout(binding=2) uniform post_fx_params {
-    vec4 ex;        // x = the effect mask (1 lens, 2 chromatic aberration, 4 grade, 8 LUT, 16 vignette, 32 sharpen, 64 grain, 128 outline (depth), 256 outline (sprite), 512 pixelate, 1024 posterize, 2048 the pass covers one camera's rectangle (rc); 0 = none), y = 1 when render targets are bottom-up (OpenGL), z = width / height, w = the grain's seed (a whole number below 2^24)
+    vec4 ex;        // x = the effect mask (1 lens, 2 chromatic aberration, 4 grade, 8 LUT, 16 vignette, 32 sharpen, 64 grain, 128 outline (depth), 256 outline (sprite), 512 pixelate, 1024 posterize, 2048 the pass covers one camera's rectangle (rc), 4096 shockwave, 8192 heat haze, 16384 radial blur, 32768 flash / fade overlay; 0 = none), y = 1 when render targets are bottom-up (OpenGL), z = width / height, w = the grain's seed (a whole number below 2^24)
     vec4 ln;        // lens: x = k (the radius grows by 1 + k r^2), y = zoom, zw = the centre (screen uv, top-left origin)
     vec4 ab;        // x = the aberration (red and blue move by (uv - 0.5) * x), y = the sharpen weight of each neighbour (negative), z = the LUT contribution, w = contrast
     vec4 wb;        // rgb = white balance gains, w = saturation
@@ -76,6 +82,10 @@ layout(binding=2) uniform post_fx_params {
     vec4 oc;        // rgba = the outline's colour (alpha = its opacity)
     vec4 ap;        // x = the pixelate block in pixels, y = the posterize levels, zw = the size of aux_tex in texels
     vec4 ax;        // the camera-local screen uv to aux_tex uv map: xy = scale, zw = offset (the prepass and the coverage image have the size of the camera's rectangle: 1, 1, 0, 0)
+    vec4 sw[8];     // shockwaves (mask 4096), two vec4 each: [2i] = xy the centre (camera-local uv, top-left origin), z the ring's radius, w half its width (picture heights); [2i+1].x = how far it pushes the picture (picture heights, 0 = unused)
+    vec4 hz[4];     // heat hazes (mask 8192), two vec4 each: [2i] = the region [x, y, w, h] (camera-local uv); [2i+1] = x strength (picture heights, 0 = unused), y ripples per picture height, z the phase (cycles)
+    vec4 rb;        // the radial blur (mask 16384): xy = the centre (camera-local uv), z = the streak length (a tap reads the position pulled toward the centre by up to this fraction), w = taps (4 to 32)
+    vec4 ov;        // the flash / fade overlay (mask 32768): rgb = the colour (display space), a = its opacity
     vec4 rc;        // the camera's rectangle in the picture (bit 2048 of the mask): xy = its top-left corner, zw = its size, as fractions of the picture, top-left origin; the pass draws into that rectangle of its target (viewport), so uv and everything below are camera-local
 };
 in vec2 uv;
@@ -248,22 +258,74 @@ vec4 scene_tap(vec2 s, int fm) {
     return textureLod(sampler2D(tex, lin_smp), src_uv(s, fm), 0.0);
 }
 
-// The scene at screen position s, as the lens and the aberration read it (fm = the effect mask). A pixel with neither reads its own
-// texel; with the mask 0 that is `uv` itself, so a frame without effects reads exactly what it did before them.
-vec4 read_scene(vec2 s, int fm) {
-    if (fm == 0) return textureLod(sampler2D(tex, smp), uv, 0.0);
-    if ((fm & 3) == 0) return textureLod(sampler2D(tex, smp), src_uv(s, fm), 0.0);
-    vec2 t = s;
-    if ((fm & 1) != 0) {
-        t = lens_source(s);
-        if (t.x < 0.0 || t.y < 0.0 || t.x > 1.0 || t.y > 1.0) return vec4(0.0, 0.0, 0.0, 1.0);  // beyond the picture: black
+// ---- the transient screen effects: where the pixel at s reads the scene --------------------------------------------------------------
+// The ring of a shockwave pushes what it passes outward: the pixel near the ring reads from nearer the centre. Distances are in picture
+// heights (x is scaled by the aspect); the push is sw[2i+1].x * (1 - x^2)^2 with x the distance from the ring over its half width.
+vec2 shock_offset(vec2 s) {
+    vec2 o = vec2(0.0);
+    for (int i = 0; i < 4; ++i) {
+        float push = sw[2 * i + 1].x;
+        if (push <= 0.0) continue;
+        vec4 g = sw[2 * i];
+        vec2 d = s - g.xy;
+        d.x *= ex.z;
+        float dist = length(d);
+        float x = (dist - g.z) / g.w;
+        if (abs(x) >= 1.0 || dist < 1e-5) continue;
+        float b = 1.0 - x * x;
+        vec2 dir = d / dist;
+        dir.x /= ex.z;
+        o -= dir * (push * b * b);
     }
+    return o;
+}
+// The heat haze moves the picture sideways by a ripple that travels up the screen, strongest inside its region and gone at the edge.
+vec2 haze_offset(vec2 s) {
+    vec2 o = vec2(0.0);
+    for (int i = 0; i < 2; ++i) {
+        vec4 h = hz[2 * i + 1];
+        if (h.x <= 0.0) continue;
+        vec4 g = hz[2 * i];
+        vec2 e = min(s - g.xy, g.xy + g.zw - s);
+        float m = smoothstep(0.0, 0.05, min(e.x, e.y));
+        o.x += h.x * m * sin(6.28318530718 * (s.y * h.y + h.z)) / ex.z;
+    }
+    return o;
+}
+// One read of the scene at t: with the aberration, red and blue come from a little further out and in than green.
+vec4 read_tap(vec2 t, int fm) {
     if ((fm & 2) != 0) {
         vec2 d = (t - 0.5) * ab.x;
         vec4 g = scene_tap(t, fm);
         return vec4(scene_tap(t + d, fm).r, g.g, scene_tap(t - d, fm).b, g.a);
     }
     return scene_tap(t, fm);
+}
+
+// The scene at screen position s, as the lens and the aberration read it (fm = the effect mask). A pixel with neither reads its own
+// texel; with the mask 0 that is `uv` itself, so a frame without effects reads exactly what it did before them.
+vec4 read_scene(vec2 s, int fm) {
+    if (fm == 0) return textureLod(sampler2D(tex, smp), uv, 0.0);
+    if ((fm & (3 | 4096 | 8192 | 16384)) == 0) return textureLod(sampler2D(tex, smp), src_uv(s, fm), 0.0);
+    vec2 t = s;
+    if ((fm & 1) != 0) {
+        t = lens_source(s);
+        if (t.x < 0.0 || t.y < 0.0 || t.x > 1.0 || t.y > 1.0) return vec4(0.0, 0.0, 0.0, 1.0);  // beyond the picture: black
+    }
+    if ((fm & 4096) != 0) t += shock_offset(t);
+    if ((fm & 8192) != 0) t += haze_offset(t);
+    if ((fm & 16384) != 0) {
+        // The radial blur: n taps on the ray from the pixel toward the centre (the first at the pixel itself).
+        int n = int(rb.w + 0.5);
+        vec4 acc = vec4(0.0);
+        for (int i = 0; i < 32; ++i) {
+            if (i >= n) break;
+            float f = float(i) / float(max(n - 1, 1));
+            acc += read_tap(rb.xy + (t - rb.xy) * (1.0 - rb.z * f), fm);
+        }
+        return acc / float(max(n, 1));
+    }
+    return read_tap(t, fm);
 }
 
 // Steps 1 to 4: scene colour to the encoded display picture (no dither).
@@ -464,6 +526,8 @@ void main() {
     if ((fm & 256) != 0) c = apply_outline_sprite(c, s);
     if ((fm & 1024) != 0) c = apply_posterize(c);
     if ((fm & 64) != 0) c = apply_grain(c, s_pixel);
+    // the flash and the fade of the camera (screen_fx.h): one colour over the finished picture
+    if ((fm & 32768) != 0) c = mix(c, ov.rgb, ov.a);
     // the dither of one 8-bit step (q.w: after a conversion or an effect)
     if (q.w > 0.0) c += (dither_noise(uv * r.xy) - 0.5) * q.w;
     // 6. the colour filter works on what the screen shows, so it clamps (an HDR picture too: a filtered frame stays within paper

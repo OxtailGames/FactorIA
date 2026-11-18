@@ -67,7 +67,15 @@ PostPlan make_post_plan(const CameraInfo& cam, bool linear, std::uint32_t forceE
     }
     p.needsDepth = post_mask_needs_depth(read);
     p.needsNormals = post_mask_needs_normals(read);
-    if (!cam.postStack) return p;  // no stack: only what the bloom and the colour filter above say (both off then)
+    if (!cam.postStack) {
+        // No stack: only what the bloom and the colour filter above say (both off then), and the transient screen effects of the camera
+        // (a flash or a fade of a game that has no PostProcess).
+        if (!cam.screenFx.empty()) {
+            add_screen_fx(p.fx, cam.screenFx, cam.queryViewProj);
+            p.linear = linear && (p.colorFilter != 0 || p.fx.any());
+        }
+        return p;
+    }
     const PostStack& s = *cam.postStack;
     const PostProcess& f = s.fx;
     if (s.has(PostEffect::Exposure)) {
@@ -86,6 +94,7 @@ PostPlan make_post_plan(const CameraInfo& cam, bool linear, std::uint32_t forceE
         p.tonemapMode = std::clamp(int(f.tonemapMode), 0, 4);
     }
     p.fx = make_post_fx(s, frame, designScale);
+    if (!cam.screenFx.empty()) add_screen_fx(p.fx, cam.screenFx, cam.queryViewProj);
     p.lut = p.fx.lut ? f.colorGradingLut : std::string();
     // A linear scene is converted (and encoded) by the final pass only when something needs it; otherwise the present copy encodes it.
     p.linear = linear && (p.exposure || p.tonemap || p.colorFilter != 0 || p.fx.any());
@@ -176,6 +185,30 @@ post_post_fx_params_t fx_uniforms(const PostFx& fx, const LutInfo& lut, bool gl,
     u.ax[0] = 1.0f;
     u.ax[1] = 1.0f;
     const PostRectUv uv = post_rect_uv(partial ? rect : PostRect{}, picW, picH);
+    // The transient screen effects (post.glsl sw, hz, rb, ov); the arrays hold two vec4 per ring / haze, unused ones stay 0.
+    for (int i = 0; i < fx.ringCount; ++i) {
+        const ShockRing& r = fx.rings[std::size_t(i)];
+        float* g = u.sw[2 * i];
+        g[0] = r.center.x;
+        g[1] = r.center.y;
+        g[2] = r.radius;
+        g[3] = r.halfWidth;
+        u.sw[2 * i + 1][0] = r.push;
+    }
+    for (int i = 0; i < fx.hazeCount; ++i) {
+        const HazeBand& h = fx.hazes[std::size_t(i)];
+        for (int k = 0; k < 4; ++k) u.hz[2 * i][k] = h.region[std::size_t(k)];
+        u.hz[2 * i + 1][0] = h.strength;
+        u.hz[2 * i + 1][1] = h.frequency;
+        u.hz[2 * i + 1][2] = h.phase;
+    }
+    if (fx.radialBlur) {
+        u.rb[0] = fx.radialCenter.x;
+        u.rb[1] = fx.radialCenter.y;
+        u.rb[2] = fx.radialLength;
+        u.rb[3] = float(fx.radialSamples);
+    }
+    if (fx.overlay) set(u.ov, fx.overlayColor, fx.overlayAlpha);
     u.rc[0] = uv.x;  // top-left uv: the shader's flip_v is applied after it (src_uv)
     u.rc[1] = uv.y;
     u.rc[2] = uv.w;
