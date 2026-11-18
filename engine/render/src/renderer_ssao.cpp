@@ -136,15 +136,17 @@ int Ssao::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, con
     TransientDesc d;
     d.width = aw;
     d.height = ah;
-    d.format = TargetFormat{SG_PIXELFORMAT_RGBA16F, SG_PIXELFORMAT_NONE, 1};
-    d.label = "ssao-a";
-    TransientDesc d2 = d;
-    d2.label = "ssao-b";
+    // One channel is all the occlusion needs: R16F where the GPU renders it (half the memory of RGBA16F), else RGBA16F.
+    const sg_pixelformat_info r16 = sg_query_pixelformat(SG_PIXELFORMAT_R16F);
+    d.format = TargetFormat{r16.render && r16.sample ? SG_PIXELFORMAT_R16F : SG_PIXELFORMAT_RGBA16F, SG_PIXELFORMAT_NONE, 1};
     // Make sure the GPU can have both at once (the worst case), so that a failure is one warning here and not a pass that cannot
-    // run halfway through the frame. The pool keeps what it made.
-    {
+    // run halfway through the frame. The pool keeps what it made, so the probe runs once per shape, not every frame.
+    if (std::find(probed_.begin(), probed_.end(), Shape{w, h}) == probed_.end()) {
+        d.label = "ssao-a";
+        TransientDesc probe2 = d;
+        probe2.label = "ssao-b";
         const std::uint64_t ha = targets.pool.acquire(d);
-        const std::uint64_t hb = ha ? targets.pool.acquire(d2) : 0;
+        const std::uint64_t hb = ha ? targets.pool.acquire(probe2) : 0;
         if (ha) targets.pool.release(ha);
         if (hb) targets.pool.release(hb);
         if (!ha || !hb) {
@@ -160,7 +162,10 @@ int Ssao::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, con
             }
             return 0;
         }
+        if (probed_.size() >= kMaxFailed) probed_.erase(probed_.begin());
+        probed_.push_back(Shape{w, h});
     }
+    TransientDesc d2 = d;
     d.label = job + "/ssao-a";
     d2.label = job + "/ssao-b";
     const ResourceId a = graph.create_transient(d), b = graph.create_transient(d2);

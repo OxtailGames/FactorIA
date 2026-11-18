@@ -36,9 +36,10 @@ Rect rect_of(const PostRect& r, int picW, int picH) {
 
 // One full-screen triangle with `prog` into the pass `pd`. `tc`, `tp`: the colour and prepass images (the copy binds only the first).
 // `fu`: the program's uniform block (null: none). `part`: the rectangle of the destination the pass covers (null: all of it).
-void draw_fullscreen(Ssr& fx, Gpu& gpu, Ssr::Prog prog, const PassDesc& pd, sg_view tc, sg_view tp, const void* fu,
+// False (nothing drawn) when the target of the pass is gone.
+bool draw_fullscreen(Ssr& fx, Gpu& gpu, Ssr::Prog prog, const PassDesc& pd, sg_view tc, sg_view tp, const void* fu,
                      std::size_t fuSize, const Rect* part) {
-    if (!pd.color.id) return;  // the target of the pass is gone
+    if (!pd.color.id) return false;
     Gpu::begin_pass(pd);
     if (part) {
         sg_apply_viewport(part->x, part->y, part->w, part->h, true);
@@ -63,19 +64,20 @@ void draw_fullscreen(Ssr& fx, Gpu& gpu, Ssr::Prog prog, const PassDesc& pd, sg_v
     }
     sg_draw(0, 3, 1);
     Gpu::end_pass();
+    return true;
 }
 
 }  // namespace
 
 bool ssr_active(const PostStack& stack) {
-    return stack.has(PostEffect::Ssr) && finite_or(stack.fx.ssrIntensity, 1.0f) >= 0.002f;
+    return stack.has(PostEffect::Ssr) && finite_or(stack.fx.ssrIntensity, 0.5f) >= 0.002f;
 }
 
 SsrPlan make_ssr_plan(const CameraInfo& cam, const PostStack& stack) {
     SsrPlan p;
     if (!ssr_active(stack)) return p;
     const PostProcess& f = stack.fx;
-    p.intensity = std::clamp(finite_or(f.ssrIntensity, 1.0f), 0.0f, 1.0f);
+    p.intensity = std::clamp(finite_or(f.ssrIntensity, 0.5f), 0.0f, 1.0f);
     p.maxDistance = std::clamp(finite_or(f.ssrMaxDistance, 50.0f), 1.0f, 1000.0f);
     p.thickness = std::clamp(finite_or(f.ssrThickness, 0.3f), 0.01f, 10.0f);
     p.steps = std::clamp(int(std::clamp(finite_or(float(f.ssrSteps), 32.0f), -1000.0f, 1000.0f)), 8, 128);
@@ -138,6 +140,7 @@ sg_pipeline Ssr::pipeline(Prog prog, const TargetFormat& format) {
 
 void Ssr::forget_targets() {
     failed_.clear();
+    probed_.clear();
     warnedTargets_ = false;
 }
 
@@ -151,6 +154,7 @@ void Ssr::release() {
     }
     state_ = 0;
     failed_.clear();
+    probed_.clear();
     warnedTargets_ = false;
 }
 
@@ -179,7 +183,7 @@ int Ssr::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, cons
     sd.format = TargetFormat{fmt, SG_PIXELFORMAT_NONE, 1};
     sd.label = job + "/ssr-scratch";
     if (std::find(failed_.begin(), failed_.end(), shapeKey) != failed_.end()) return 0;
-    {
+    if (std::find(probed_.begin(), probed_.end(), shapeKey) == probed_.end()) {  // once per shape, not every frame
         const std::uint64_t h = targets.pool.acquire(sd);
         if (h == 0) {
             if (failed_.size() >= kMaxFailed) failed_.erase(failed_.begin());
@@ -195,6 +199,8 @@ int Ssr::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, cons
             return 0;
         }
         targets.pool.release(h);
+        if (probed_.size() >= kMaxFailed) probed_.erase(probed_.begin());
+        probed_.push_back(shapeKey);
     }
 
     const ResourceId scratch = graph.create_transient(sd);
@@ -239,7 +245,7 @@ int Ssr::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, cons
         if (!pt || !st || !srcTex.id) return;
         PassDesc pd = pass_into(*st, "ssr-trace");
         pd.colorLoad = SG_LOADACTION_DONTCARE;  // every texel is drawn
-        draw_fullscreen(*self, *g, Prog::Trace, pd, srcTex, pt->texView, &u, sizeof(u), nullptr);
+        if (!draw_fullscreen(*self, *g, Prog::Trace, pd, srcTex, pt->texView, &u, sizeof(u), nullptr)) return;
         *scratchReady = true;
         ++*drawCalls;
     });
@@ -254,8 +260,8 @@ int Ssr::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, cons
         pd.format = dstFormat;
         pd.colorLoad = rect.whole && dst.samples <= 1 ? SG_LOADACTION_DONTCARE : SG_LOADACTION_LOAD;
         pd.colorStore = SG_STOREACTION_STORE;
-        draw_fullscreen(*self, *g, Prog::Copy, pd, st->texView, sg_view{}, nullptr, 0, rect.whole ? nullptr : &rect);
-        ++*drawCalls;
+        if (draw_fullscreen(*self, *g, Prog::Copy, pd, st->texView, sg_view{}, nullptr, 0, rect.whole ? nullptr : &rect))
+            ++*drawCalls;
     });
     return declared;
 }

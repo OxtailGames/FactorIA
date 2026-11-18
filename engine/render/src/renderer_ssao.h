@@ -78,7 +78,10 @@ public:
     static void draw_apply(Gpu& gpu, const SsaoApply& apply, sg_view ao, sg_view pre, const TargetFormat& format);
 
     // Forgets the shapes whose targets could not be made (the game target was resized or recreated).
-    void release() { failed_.clear(); }
+    void release() {
+        failed_.clear();
+        probed_.clear();
+    }
 
 private:
     bool warned_ = false;
@@ -88,6 +91,7 @@ private:
     };
     static constexpr std::size_t kMaxFailed = 16;  // the oldest go
     std::vector<Shape> failed_;
+    std::vector<Shape> probed_;  // shapes whose targets were made once (the GPU can have them): not probed again every frame
 };
 
 }  // namespace fa::render

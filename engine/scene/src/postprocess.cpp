@@ -484,12 +484,13 @@ void register_postprocess_component(TypeRegistry& r) {
         // ssr
         .field(
             "ssrEnabled", &PostProcess::ssrEnabled,
-            "Switches the screen-space reflections on: shiny surfaces reflect what is on the screen. Needs the depth "
-            "buffer (3D); it only reflects what is visible, so the edges of the screen fade out.")
+            "Switches the screen-space reflections on: surfaces reflect what is on the screen, the more the shinier "
+            "they are seen (a fresnel term; there is no per-material roughness). Needs the depth buffer (3D); it only "
+            "reflects what is visible, so the edges of the screen fade out.")
         .field("ssrIntensity", &PostProcess::ssrIntensity,
-               "Only used when ssrEnabled. 0..1: how much reflection is mixed in; surfaces reflect by a fresnel term "
-               "(more at a "
-               "grazing angle), there is no per-material roughness (docs/RENDERING_EFFECTS.md).")
+               "Only used when ssrEnabled. 0..1 (default 0.5): how much reflection is mixed in; surfaces reflect by a "
+               "fresnel term (more at a grazing angle), there is no per-material roughness, and a pixel is never "
+               "more than 75% reflection (docs/rendering/RENDERING_EFFECTS.md).")
         .range(0, 1)
         .field("ssrMaxDistance", &PostProcess::ssrMaxDistance,
                "Only used when ssrEnabled. World units a reflected ray travels before it gives up.")

@@ -44,10 +44,10 @@ layout(binding=1) uniform dof_params {
 vec2 fl(vec2 s) { return vec2(s.x, mix(s.y, 1.0 - s.y, a.x)); }
 vec2 game_uv(vec2 s) { return fl(s * rc.zw + rc.xy); }
 float luma(vec3 col) { return dot(col, vec3(0.2126, 0.7152, 0.0722)); }
-// One channel made safe: NaN, Inf (found by their bits, as bloom.glsl does) and anything from 65000 up become 0.
+// One channel made safe: NaN, Inf (found by their bits, as bloom.glsl does) become 0, a negative becomes 0 and a finite value is kept up to 65504 (as post.glsl).
 float sane(float x) {
-    if (((floatBitsToUint(x) >> 23u) & 255u) == 255u || x >= 65000.0) return 0.0;
-    return max(x, 0.0);
+    if (((floatBitsToUint(x) >> 23u) & 255u) == 255u) return 0.0;
+    return clamp(x, 0.0, 65504.0);
 }
 // Interleaved gradient noise of a pixel: a fixed pattern, so the same picture is drawn on every run.
 float ign(vec2 p) { return fract(52.9829189 * fract(dot(p, vec2(0.06711056, 0.00583715)))); }
