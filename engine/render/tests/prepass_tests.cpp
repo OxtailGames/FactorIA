@@ -29,7 +29,8 @@ void add_camera(World& w, Vec3 pos, float fov = 60.0f) {
     c.projection = Projection::Perspective;
     c.fov = fov;
     c.clearColor = Color{0, 0, 0, 1};
-    w.settings().skyColor = w.settings().horizonColor = Color{0, 0, 0, 1};  // black behind the meshes: the main pass shows only them
+    w.settings().skyColor = w.settings().horizonColor =
+        Color{0, 0, 0, 1};  // black behind the meshes: the main pass shows only them
 }
 Entity add_mesh(World& w, const char* mesh, Vec3 pos, Vec3 scale = {1, 1, 1}) {
     Entity e = make(w, mesh, pos);
@@ -259,7 +260,8 @@ TEST_CASE("prepass: a view-space normal follows the camera, not the world") {
     CHECK(near_rgb(g.draw(w).pixel(160, 90), grey, grey, grey, 4));
 }
 
-TEST_CASE("prepass: off by default - no node in the graph and the same draw calls; a depth effect or a view adds the prepass only") {
+TEST_CASE("prepass: off by default - no node in the graph and the same draw calls; a depth effect or a view adds the "
+          "prepass only") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     World w;
@@ -320,7 +322,10 @@ TEST_CASE("prepass: a scene without an opaque mesh has no prepass, and blended m
         const Image img = g.draw(w);
         CHECK(count_suffix(order_of(g.renderer), "/prepass") == 0);
         CHECK(img.pixel(160, 90).r > 0.2f);  // still drawn by the main pass
-        add_mesh(w, "cube", {4, 0, 0});      // one opaque cube, 62 pixels right of the centre: the prepass is back, and the glass is not in it
+        add_mesh(
+            w, "cube",
+            {4, 0,
+             0});  // one opaque cube, 62 pixels right of the centre: the prepass is back, and the glass is not in it
         const Image both = g.draw(w);
         CHECK(count_suffix(order_of(g.renderer), "/prepass") == 1);
         CHECK(is_black(both.pixel(160, 90)));
@@ -335,8 +340,8 @@ TEST_CASE("prepass: an orthographic 3D camera writes the distance along the view
     add_camera(w, {0, 0, 10});
     w.get<Camera>(w.find("cam"))->projection = Projection::Orthographic;
     w.get<Camera>(w.find("cam"))->orthoSize = 4.0f;
-    add_mesh(w, "cube", {0, 0, 0}, {2, 2, 2});   // front face at z = 1: 9 m
-    add_mesh(w, "cube", {2.5f, 0, -5.0f});       // front face at z = -4.5: 14.5 m
+    add_mesh(w, "cube", {0, 0, 0}, {2, 2, 2});  // front face at z = 1: 9 m
+    add_mesh(w, "cube", {2.5f, 0, -5.0f});      // front face at z = -4.5: 14.5 m
     DebugViewScope view(g.renderer, DebugView::Depth);
     const Image img = g.draw(w);
     const int near9 = depth_grey(9.0f), far = depth_grey(14.5f);
@@ -473,4 +478,46 @@ TEST_CASE("prepass: the effects that need the depth or the normals are the ones 
     CHECK_FALSE(post_effect_needs_normals(PostEffect::DepthOfField));
     CHECK(render::post_mask_needs_depth(1u << int(PostEffect::Fog)));
     CHECK_FALSE(render::post_mask_needs_depth(1u << int(PostEffect::Vignette)));
+}
+
+TEST_CASE("prepass: a frame split between cameras, or a camera with a partial viewport, has none even without a HUD") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    ForceScope force(g.renderer, PostEffect::Ssao);
+    DebugViewScope view(g.renderer, DebugView::Depth);
+    {  // two cameras side by side, nothing on the screen: the screen-space job of the split frame is dropped
+        World w;
+        add_camera(w, {0, 0, 10});
+        w.get<Camera>(w.find("cam"))->viewport = Rect{0, 0, 0.5f, 1};
+        add_mesh(w, "cube", {0, 0, 0}, {2, 2, 2});
+        Entity second = make(w, "cam2", {0, 0, 10});
+        auto& c = w.add<Camera>(second);
+        c.projection = Projection::Perspective;
+        c.viewport = Rect{0.5f, 0, 0.5f, 1};
+        c.depth = 1;
+        const Image img = g.draw(w);
+        const std::vector<std::string> order = order_of(g.renderer);
+        INFO(joined(order));
+        CHECK(count_suffix(order, "/prepass") == 0);
+        CHECK(count_suffix(order, "/prepass-view") == 0);
+        CHECK(img.width == 320);
+    }
+    {  // one camera over the left half
+        World w;
+        add_camera(w, {0, 0, 10});
+        w.get<Camera>(w.find("cam"))->viewport = Rect{0, 0, 0.5f, 1};
+        add_mesh(w, "cube", {0, 0, 0}, {2, 2, 2});
+        g.draw(w);
+        const std::vector<std::string> order = order_of(g.renderer);
+        INFO(joined(order));
+        CHECK(count_suffix(order, "/prepass") == 0);
+        CHECK(count_suffix(order, "/prepass-view") == 0);
+    }
+    {  // and the same camera over the whole screen has one
+        World w;
+        add_camera(w, {0, 0, 10});
+        add_mesh(w, "cube", {0, 0, 0}, {2, 2, 2});
+        g.draw(w);
+        CHECK(count_suffix(order_of(g.renderer), "/prepass") == 1);
+    }
 }

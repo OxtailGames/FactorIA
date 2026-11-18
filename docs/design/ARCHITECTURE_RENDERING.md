@@ -421,8 +421,10 @@ colour") and the effects listed in the last bullet (exposure, bloom, tonemap, co
   mesh without the material. `plan_prepass` is the only decision: the job is the last one (`plan.last`), not a view, draws the world,
   the resolved stack needs the depth or the normals (`post_mask_needs_depth` / `post_mask_needs_normals` of `postprocess_resolve.h`, masked
   by `post_drawn_mask()` so an effect the renderer does not draw yet costs nothing) or a debug view is on, it has an opaque mesh, and a
-  pooled image of the size could be made (else one error and no prepass). A frame split between cameras or a viewport has no job with
-  both `last` and `wantWorld`, so it has none. `Impl::prevViewProj` keeps each camera's view-projection of the frame before (by entity,
+  pooled image of the size could be made (else one error and no prepass). `plan_prepass` also requires `plan.first` and a camera over the
+  whole screen (`CameraInfo::fullViewport()`): the `PostPlan` comes from the first camera, and when the screen-space job of a split frame is
+  dropped (no HUD, no text) the last job is the last camera, so a frame split between cameras or with a partial viewport has no prepass
+  (one `FA_WARN` when the stack needs depth there). `Impl::prevViewProj` keeps each camera's view-projection of the frame before (by entity,
   with the frame serial, forgotten after a frame without it) for `PostPlan::prevViewProj`, which motion blur will read. Tests force an
   effect with `render::renderer_force_post_effects`; `Renderer::set_debug_view` (and `FA_RENDER_DEBUG_VIEW`) adds the "prepass-view"
   pass, which draws `prepass_view.glsl` over the game image (the main pass then keeps its multisampled colour). The tests read the image
