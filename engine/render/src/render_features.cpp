@@ -77,8 +77,8 @@ std::vector<FeatureDef> build_table() {
     t.push_back(
         {"hdrOutput", FeatureKind::Engine, bit(FeatureBackend::D3d11) | bit(FeatureBackend::Metal), "", nullptr,
          "Showing the picture on a high dynamic range display (SceneSettings.hdrOutput auto): EDR on macOS and iOS, "
-         "scRGB or HDR10 on Windows once the HDR encode of M71 lands; the display and the OS must allow it. "
-         "render.output says what the window shows."});
+         "scRGB or HDR10 on Windows; the display and the OS must allow it. Values above paper white come from the "
+         "tonemap of a PostProcess. render.output says what the window shows."});
     for (int i = 0; i < kPostEffectCount; ++i)
         t.push_back({kPostEffectOrder[std::size_t(i)].data(), FeatureKind::Effect, kEveryGpu, kEffectRows[i].needs,
                      effect_drawn(PostEffect(i)) ? nullptr : "M71", kEffectRows[i].doc});
@@ -170,10 +170,10 @@ bool feature_supported(const FeatureEnv& env, int index, std::string* why) {
     return true;
 }
 
-const char* const kHdrPending = "planned (M71): the renderer does not write scRGB or HDR10 yet";
-
 unsigned hdr_encodable(FeatureBackend b) {
-    return b == FeatureBackend::Metal ? hdr_encoding_bit(HdrEncoding::Edr) : 0u;
+    if (b == FeatureBackend::Metal) return hdr_encoding_bit(HdrEncoding::Edr);
+    if (b == FeatureBackend::D3d11) return hdr_encoding_bit(HdrEncoding::ScRgb) | hdr_encoding_bit(HdrEncoding::Hdr10);
+    return 0u;
 }
 
 HdrRequest hdr_request(FeatureBackend b, bool want, float paperWhiteNits) {
@@ -181,20 +181,12 @@ HdrRequest hdr_request(FeatureBackend b, bool want, float paperWhiteNits) {
     r.want = want;
     r.paperWhiteNits = paperWhiteNits;
     r.encodable = hdr_encodable(b);
-    r.edrLinear = false;  // the present pass writes sRGB-encoded values: extended sRGB, not extended linear sRGB
-    if (b == FeatureBackend::D3d11) r.pending = kHdrPending;
-    if (b == FeatureBackend::Metal)
-        r.activeNote = "the picture stays within white until the HDR encode of M71 sends brighter values";
+    r.edrLinear = true;  // the present pass writes linear light for EDR (blit.glsl): extended linear sRGB
     return r;
 }
 
 void set_hdr_env(FeatureEnv& env, const HdrDisplay& display) {
     const HdrRequest request = hdr_request(env.backend, true, 200.0f);
-    if (request.encodable == 0 && !request.pending.empty()) {  // whatever the display says: the renderer is not ready
-        env.hdrOutput = false;
-        env.hdrWhy = request.pending;
-        return;
-    }
     const HdrDecision d = decide_hdr_output(request, display);
     env.hdrOutput = d.encoding != HdrEncoding::Sdr;
     env.hdrWhy = d.why;

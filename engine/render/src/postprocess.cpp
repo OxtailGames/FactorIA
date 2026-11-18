@@ -66,7 +66,7 @@ PostPlan make_post_plan(const CameraInfo& cam, bool linear) {
 }
 
 void run_post_pass(Gpu& gpu, const PostPlan& plan, bool convert, int filter, bool autoExposure, const PassDesc& pass,
-                   sg_view src, sg_view expo, int w, int h) {
+                   sg_view src, sg_view expo, int w, int h, const OutputTarget& output) {
     gpu.begin_pass(pass);
     sg_apply_pipeline(gpu.post_pipeline(pass.format));
     sg_bindings b{};
@@ -82,7 +82,9 @@ void run_post_pass(Gpu& gpu, const PostPlan& plan, bool convert, int filter, boo
     post_post_params_t u{};
     u.p[0] = plan.linear ? 1.0f : 0.0f;
     u.p[1] = convert ? 1.0f : 0.0f;
-    u.p[2] = float(int(plan.output));
+    // The HDR tonemap only for a picture that stays as it is: a colour filter works on what an SDR screen shows (and clamps).
+    const bool hdr = convert && filter == 0 && output.extended();
+    u.p[2] = hdr ? 1.0f : 0.0f;
     u.p[3] = float(filter);
     u.q[0] = convert && plan.tonemap ? float(plan.tonemapMode) : 0.0f;
     u.q[1] = convert && plan.exposure ? std::exp2(plan.exposureEv) : 1.0f;
@@ -90,6 +92,14 @@ void run_post_pass(Gpu& gpu, const PostPlan& plan, bool convert, int filter, boo
     u.q[3] = convert ? 1.0f / 255.0f : 0.0f;  // the dither: one 8-bit step of the display
     u.r[0] = float(w);
     u.r[1] = float(h);
+    if (hdr) {
+        const int mode = plan.tonemap ? plan.tonemapMode : 0;
+        const HdrShoulder sh = hdr_shoulder(mode);
+        u.h[0] = output.headroom;
+        u.h[1] = sh.input;
+        u.h[2] = sh.slope;
+        u.h[3] = sh.start;
+    }
     apply_uniforms(UB_post_post_params, u);
     sg_draw(0, 3, 1);
     gpu.end_pass();
