@@ -172,7 +172,7 @@ void Editor::draw_postfx_panel() {
             {{"id", cam.is_null() ? std::string() : w.id_of(cam)}, {"resolved", render::post_stack_report(w, cam)}});
         if (postFx_.support.is_null() || time_ - postFx_.supportAt > 3.0) {
             // The renderer's own table (what render.supports answers), not a command call: nothing is logged every few seconds.
-            const Renderer* r =engine_->renderer();
+            const Renderer* r = engine_->renderer();
             postFx_.support = r ? r->supports_report() : Json::object();
             postFx_.supportAt = time_;
         }
