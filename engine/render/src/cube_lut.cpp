@@ -119,8 +119,8 @@ Result<CubeLut> parse_cube_lut(std::string_view text, std::string_view name) {
         std::string key(tok[0]);
         std::transform(key.begin(), key.end(), key.begin(), [](unsigned char c) { return char(std::toupper(c)); });
         if (key == "TITLE") {
-            const std::size_t at = raw.find("TITLE");
-            std::string_view rest = at == std::string_view::npos ? std::string_view() : raw.substr(at + 5);
+            // The keyword is matched in any case (`title "x"` too): the text after it is what follows this token on the line.
+            std::string_view rest = raw.substr(std::size_t(tok[0].data() - raw.data()) + tok[0].size());
             rest = trim(rest);
             if (rest.size() >= 2 && rest.front() == '"' && rest.back() == '"') rest = rest.substr(1, rest.size() - 2);
             lut.title = std::string(rest);

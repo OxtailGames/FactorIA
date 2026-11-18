@@ -289,25 +289,25 @@ void run_post_pass(Gpu& gpu, const PostPlan& plan, bool finalPass, int filter, b
 // ---- automatic exposure ------------------------------------------------------------------------------------------------------
 
 bool AutoExposure::ensure_targets(Gpu& gpu) {
-    if (failed_) return false;
     if (ev_[0].valid() && ev_[1].valid()) return true;
     for (Target& t : ev_) destroy_target(t);
     TargetDesc d;
     d.label = "exposure-ev";
     d.width = d.height = 1;
-    // 32-bit float where it renders and filters: a 16-bit EV stalls once prev + (target - prev) * k is under half a step of it (up to
-    // ~0.06 EV short at a slow speed, and the more frames a second the shorter), so the adaptation would depend on the frame rate.
-    const sg_pixelformat_info r32 = sg_query_pixelformat(SG_PIXELFORMAT_R32F);
-    d.colorFormat = r32.render && r32.filter ? SG_PIXELFORMAT_R32F : gpu.scene_format();
+    // RGBA16F on every GPU, the EV as the sum of two channels (exposure.glsl): a plain 16-bit EV stalls once prev + (target - prev) * k
+    // is under half a step of it (0.14 EV short at speed 0.5 and 144 frames a second, for an EV between 1 and 2), so the adaptation
+    // would depend on the frame rate; a 32-bit target is not filterable or renderable everywhere (WebGL2, iOS).
+    d.colorFormat = SG_PIXELFORMAT_RGBA16F;
     for (Target& t : ev_) t = make_target(d);
     if (!ev_[0].valid() || !ev_[1].valid()) {
         for (Target& t : ev_) destroy_target(t);
-        failed_ = true;
         if (!warned_) {
             warned_ = true;
-            FA_ERROR("render", "PostProcess.exposureMode auto: cannot create the 1x1 exposure target; the exposure "
-                               "stays at exposureEv. "
-                               "Hint: set exposureMode to manual.");
+            FA_ERROR("render",
+                     "PostProcess.exposureMode auto: cannot create the 1x1 exposure target; the exposure "
+                     "stays at exposureEv (it tries again in {} frames). "
+                     "Hint: set exposureMode to manual.",
+                     kRetryFrames);
         }
         return false;
     }
@@ -318,7 +318,8 @@ bool AutoExposure::ensure_targets(Gpu& gpu) {
 void AutoExposure::release() {
     for (Target& t : ev_) destroy_target(t);
     fresh_ = true;
-    failed_ = false;
+    retryAt_ = 0;
+    lumaChecked_ = false;
     declaredBefore_ = false;
     cur_ = 0;
 }
@@ -343,26 +344,35 @@ ResourceId AutoExposure::add_passes(FrameGraph& graph, TransientTargets& targets
         }
         return {};
     }
-    if (!gpu.exposure_ready() || !ensure_targets(gpu)) return {};
-    // The 32x32 level of the measure: made here once, so that a GPU that cannot is one warning and the exposure stays manual.
+    // A failed attempt (a GPU out of memory) leaves the exposure manual for kRetryFrames frames and then tries again, so a spike of
+    // memory use is not for ever. The count is of frames that ask for this exposure, never of time.
+    if (serial < retryAt_) return {};
+    if (!gpu.exposure_ready() || !ensure_targets(gpu)) {
+        retryAt_ = serial + kRetryFrames;
+        return {};
+    }
+    // The 32x32 level of the measure: tried once (until release()), so that a GPU that cannot is one warning and the exposure stays
+    // manual; the pool keeps the target for the frames after it, the graph asks for it again.
     TransientDesc ld;
     ld.width = ld.height = kLumaSize;
     ld.format = TargetFormat{fmt, SG_PIXELFORMAT_NONE, 1};
     ld.label = job.empty() ? std::string("exposure-luma") : job + "/exposure-luma";  // unique in the graph
-    {
+    if (!lumaChecked_) {
         const std::uint64_t h = targets.pool.acquire(ld);
         if (h == 0) {
-            failed_ = true;
+            retryAt_ = serial + kRetryFrames;
             if (!warned_) {
                 warned_ = true;
                 FA_ERROR(
                     "render",
                     "PostProcess.exposureMode auto: cannot create the 32x32 measuring target; the exposure stays at "
-                    "exposureEv. Hint: set exposureMode to manual.");
+                    "exposureEv (it tries again in {} frames). Hint: set exposureMode to manual.",
+                    kRetryFrames);
             }
             return {};
         }
         targets.pool.release(h);
+        lumaChecked_ = true;
     }
 
     // First frame, new targets or a gap (the exposure was off for a frame): take the measured value at once.
