@@ -10,8 +10,10 @@
       "name": "Main Camera",
       "components": {
         "Camera": {
-          "clearColor": [0.03, 0.02, 0.07, 1.0],
-          "bloom": true,
+          "clearColor": [0.03, 0.02, 0.07, 1.0]
+        },
+        "PostProcess": {
+          "bloomEnabled": true,
           "bloomThreshold": 0.5,
           "bloomIntensity": 1.5,
           "bloomRadius": 26.0

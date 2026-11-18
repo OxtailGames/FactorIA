@@ -52,8 +52,10 @@
           "projection": "perspective",
           "fov": 50,
           "nearPlane": 0.3,
-          "farPlane": 120,
-          "bloom": true,
+          "farPlane": 120
+        },
+        "PostProcess": {
+          "bloomEnabled": true,
           "bloomThreshold": 0.85,
           "bloomIntensity": 0.6
         },

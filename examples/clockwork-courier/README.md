@@ -116,7 +116,7 @@ following the system (`game.accessibility`, the platform).
 |---|---|
 | Quality (`quality`: low, medium, high) | Sun shadows, view distance (fog), ambient particle counts and one lantern light in three on low. A phone starts at medium. |
 | Frame cap (`frameCap`: 30, 60, 0) | Where the platform lets the game set it (greyed out on a phone, which starts at 30). |
-| Color filter (`colorFilter`) | `Camera.colorFilter`: greyscale, high contrast and three kinds of colour blindness. |
+| Color filter (`colorFilter`) | `PostProcess.colorFilterMode`: greyscale, high contrast and three kinds of colour blindness. |
 | Assist mode (`assist`) | Spring drains at 60 percent, dogs run at 75 percent, give up after half the time, bark 1.6 times longer, coyote time and jump buffer 0.25 s. The numbers are `accessibility.ASSIST`. |
 | Reduced motion (`reducedMotion`) | Follows `game.accessibility.reducedMotion` until the player chooses; props stop bobbing and spinning, the camera follows softer, particles and the low-spring pulse stop. |
 | Vibration (`haptics`) | `input.vibrate` pulses (`scripts/haptics.js`): a landing, a catch, a delivery, the spring running low. |
