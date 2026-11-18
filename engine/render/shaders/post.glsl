@@ -15,6 +15,10 @@
 //   5. the display-space effects, on the encoded picture (what the screen shows), none of them clipping above 1: colour grading (white
 //      balance, gain, lift, gamma, contrast, saturation, hue, then the LUT), the vignette, the sharpen (it shades the four neighbours of
 //      the pixel through 0 to 5 too), the film grain; then the dither of one 8-bit step
+//      then (M71-C2) the outline (depth mode: the edges of the prepass image; sprite mode: the border outside the alpha of the 2D
+//      coverage image, both read by texel from aux_tex), the pixelate (the position every step above reads is moved to the centre of
+//      its block, so the whole of 0 to 5 is evaluated once per block) and the posterize (levels per channel); the grain and the dither
+//      keep the real pixel
 //   6. the colour filter (Camera.colorFilter), on the encoded picture, the same filters as colorfilter.glsl
 //
 // A frame that needs no conversion (a gamma scene with only a colour filter) skips 1 to 4: the pass is then exactly the old colour filter.
@@ -40,8 +44,12 @@ void main() {
 layout(binding=0) uniform texture2D tex;
 layout(binding=1) uniform texture2D expo_tex;    // the adapted exposure (1x1, EV in x); a 1x1 white image when the exposure is not automatic
 layout(binding=2) uniform texture2D lut_tex;     // the colour grading LUT as a strip of slices (RGBA8, cube_lut.h); a 1x1 white image when there is none
+layout(binding=3) uniform texture2D aux_tex;     // the outline's image: the prepass (depth mode) or the sprite coverage (sprite mode); a 1x1 white image when there is none
 layout(binding=0) uniform sampler smp;           // nearest: the source has the size of the destination
 layout(binding=1) uniform sampler lin_smp;       // bilinear, clamp to edge: the lens and the LUT
+layout(binding=2) uniform sampler aux_smp;       // nearest, and read by texelFetch: the prepass is a float image that cannot be filtered
+@image_sample_type aux_tex unfilterable_float
+@sampler_type aux_smp nonfiltering
 layout(binding=1) uniform post_params {
     vec4 p;         // x = 1 when the scene is linear (0: gamma), y = 1 when the frame is converted (steps 1 to 4), z = 1 for an HDR output (above paper white), w = colour filter (0 none, 1 greyscale, 2 highContrast, 3 protanopia, 4 deuteranopia, 5 tritanopia)
     vec4 q;         // x = tonemap (0 none, 1 neutral, 2 aces, 3 agx, 4 reinhard), y = exposure multiplier 2^EV (manual) or 2^compensation (auto), z = 1 for the automatic exposure, w = dither amplitude (one 8-bit step, 0 = off)
@@ -49,7 +57,7 @@ layout(binding=1) uniform post_params {
     vec4 h;         // the HDR tonemap (p.z = 1): x = headroom (how many times paper white), y = the scene value where the HDR curve leaves the SDR one, z = the SDR curve's slope there, w = its display value there
 };
 layout(binding=2) uniform post_fx_params {
-    vec4 ex;        // x = the effect mask (1 lens, 2 chromatic aberration, 4 grade, 8 LUT, 16 vignette, 32 sharpen, 64 grain; 0 = none), y = 1 when render targets are bottom-up (OpenGL), z = width / height, w = the grain's seed (a whole number below 2^24)
+    vec4 ex;        // x = the effect mask (1 lens, 2 chromatic aberration, 4 grade, 8 LUT, 16 vignette, 32 sharpen, 64 grain, 128 outline (depth), 256 outline (sprite), 512 pixelate, 1024 posterize; 0 = none), y = 1 when render targets are bottom-up (OpenGL), z = width / height, w = the grain's seed (a whole number below 2^24)
     vec4 ln;        // lens: x = k (the radius grows by 1 + k r^2), y = zoom, zw = the centre (screen uv, top-left origin)
     vec4 ab;        // x = the aberration (red and blue move by (uv - 0.5) * x), y = the sharpen weight of each neighbour (negative), z = the LUT contribution, w = contrast
     vec4 wb;        // rgb = white balance gains, w = saturation
@@ -60,6 +68,10 @@ layout(binding=2) uniform post_fx_params {
     vec4 vc;        // xy = the vignette's centre (screen uv), z = the grain's size in pixels, w = the grain's luminance response
     vec4 vk;        // rgb = the vignette's colour
     vec4 lt;        // the LUT strip: x = size (colours per side), y = tiles across, z = tiles down
+    vec4 ol;        // outline: x = width in pixels, y = the depth threshold, z = the normal threshold, w = the alpha threshold
+    vec4 oc;        // rgba = the outline's colour (alpha = its opacity)
+    vec4 ap;        // x = the pixelate block in pixels, y = the posterize levels, zw = the size of aux_tex in texels
+    vec4 ax;        // the screen uv to aux_tex uv map: xy = scale, zw = offset (the prepass has the size of the picture today: 1, 1, 0, 0)
 };
 in vec2 uv;
 out vec4 frag_color;
@@ -333,12 +345,98 @@ vec3 apply_grain(vec3 c, vec2 s) {
     return max(c + vec3(noise * vg.w * weight), vec3(0.0));
 }
 
+// ---- outline, pixelate, posterize ------------------------------------------------------------------------------------------------
+// aux_tex at screen position s, `off` texels away (the offset is in screen orientation: the texel row is flipped after it on a bottom-up
+// backend, like the game image). Read by whole texels, clamped to the image, so the border never reads beyond it.
+vec4 aux_at(vec2 s, ivec2 off) {
+    ivec2 sz = ivec2(ap.zw + 0.5);
+    vec2 a = s * ax.xy + ax.zw;
+    ivec2 t = clamp(ivec2(floor(a * ap.zw)) + off, ivec2(0), sz - 1);
+    if (ex.y > 0.5) t.y = sz.y - 1 - t.y;
+    return texelFetch(sampler2D(aux_tex, aux_smp), t, 0);
+}
+
+// The view-space normal of the prepass (octahedral, see prepass_view.glsl).
+vec3 oct_decode(vec2 e) {
+    vec3 n = vec3(e.x, e.y, 1.0 - abs(e.x) - abs(e.y));
+    if (n.z < 0.0) n.xy = (1.0 - abs(n.yx)) * vec2(e.x >= 0.0 ? 1.0 : -1.0, e.y >= 0.0 ? 1.0 : -1.0);
+    return normalize(n);
+}
+
+// 1 when an edge runs between the two prepass texels: one is a mesh and the other is not (the silhouette), or both are and their depth
+// jumps by more than ol.y of the nearer (the limit grows where the surface is seen at a grazing angle, where a flat floor changes depth
+// from texel to texel), or their normals differ by more than ol.z.
+float depth_edge(vec4 a, vec4 b) {
+    bool ca = a.a > 0.5;
+    bool cb = b.a > 0.5;
+    if (!ca && !cb) return 0.0;
+    if (ca != cb) return 1.0;
+    vec3 na = oct_decode(a.gb);
+    vec3 nb = oct_decode(b.gb);
+    float facing = clamp(0.5 * (abs(na.z) + abs(nb.z)), 0.2, 1.0);
+    if (abs(a.r - b.r) / max(min(a.r, b.r), 1e-3) > ol.y / facing) return 1.0;
+    return length(na - nb) > ol.z ? 1.0 : 0.0;
+}
+
+// Depth outline: a Roberts cross over a window of ol.x pixels (lo texels before the pixel, hi after: the edge between two texels marks
+// lo + hi pixels, the width of the line).
+vec3 apply_outline_depth(vec3 c, vec2 s) {
+    float w = ol.x;
+    int lo = int(floor(w * 0.5));
+    int hi = max(int(ceil(w * 0.5)), 1);
+    vec4 ta = aux_at(s, ivec2(-lo, -lo));
+    vec4 tb = aux_at(s, ivec2(hi, hi));
+    vec4 tc = aux_at(s, ivec2(hi, -lo));
+    vec4 td = aux_at(s, ivec2(-lo, hi));
+    float e = max(depth_edge(ta, tb), depth_edge(tc, td));
+    return mix(c, oc.rgb, oc.a * e * min(w, 1.0));
+}
+
+bool sprite_at(vec2 s, ivec2 off) {
+    return aux_at(s, off).a >= ol.w;
+}
+// One ring of eight taps (four along the axes, four diagonal) at the distance k.
+bool sprite_ring(vec2 s, int k) {
+    int d = max(int(float(k) * 0.70710678 + 0.5), 1);
+    return sprite_at(s, ivec2(k, 0)) || sprite_at(s, ivec2(-k, 0)) || sprite_at(s, ivec2(0, k)) || sprite_at(s, ivec2(0, -k)) ||
+           sprite_at(s, ivec2(d, d)) || sprite_at(s, ivec2(-d, d)) || sprite_at(s, ivec2(d, -d)) || sprite_at(s, ivec2(-d, -d));
+}
+
+// Sprite outline: the line is drawn OUTSIDE the sprites. A pixel inside one (alpha at the threshold or above) is left as it is; any
+// other pixel with a sprite within the width (the ring at the width, and one at half of it for thin sprites) takes the outline colour.
+vec3 apply_outline_sprite(vec3 c, vec2 s) {
+    if (sprite_at(s, ivec2(0, 0))) return c;
+    int k = max(int(ol.x + 0.5), 1);
+    bool hit = sprite_ring(s, k);
+    int k2 = (k + 1) / 2;
+    if (!hit && k2 < k) hit = sprite_ring(s, k2);
+    return hit ? mix(c, oc.rgb, oc.a * min(ol.x, 1.0)) : c;
+}
+
+// The pixel whose colour the block of the pixel at s shows: its centre (the last pixel when the edge cuts the block).
+vec2 pixelate_at(vec2 s) {
+    ivec2 sz = ivec2(r.xy + 0.5);
+    ivec2 b = ivec2(int(ap.x + 0.5));
+    ivec2 pix = ivec2(floor(s * r.xy));
+    ivec2 cp = min((pix / b) * b + b / 2, sz - 1);
+    return (vec2(cp) + 0.5) / r.xy;
+}
+
+// The encoded colour cut to ap.y levels per channel; what is above white (an HDR output) is kept.
+vec3 apply_posterize(vec3 c) {
+    float n = ap.y - 1.0;
+    vec3 b = clamp(c, 0.0, 1.0);
+    return floor(b * n + 0.5) / n + (c - b);
+}
+
 void main() {
     int fm = int(ex.x + 0.5);
     int filter_mode = int(p.w + 0.5);
     float mul = q.y;
     if (p.y > 0.5 && q.z > 0.5) mul *= exp2(textureLod(sampler2D(expo_tex, smp), vec2(0.5, 0.5), 0.0).r);
     vec2 s = fm == 0 ? uv : flip_v(uv);
+    vec2 s_pixel = s;  // the grain and the dither belong to the real pixel
+    if ((fm & 512) != 0) s = pixelate_at(s);
     vec4 px = shade(s, fm, mul);
     vec3 c = px.rgb;
     // 5. (the sharpen needs the neighbours shaded the same way; the grain goes over it)
@@ -348,7 +446,10 @@ void main() {
         c = apply_sharpen(c, shade(s - dy, fm, mul).rgb, shade(s + dx, fm, mul).rgb, shade(s + dy, fm, mul).rgb,
                           shade(s - dx, fm, mul).rgb);
     }
-    if ((fm & 64) != 0) c = apply_grain(c, s);
+    if ((fm & 128) != 0) c = apply_outline_depth(c, s);
+    if ((fm & 256) != 0) c = apply_outline_sprite(c, s);
+    if ((fm & 1024) != 0) c = apply_posterize(c);
+    if ((fm & 64) != 0) c = apply_grain(c, s_pixel);
     // the dither of one 8-bit step (q.w: after a conversion or an effect)
     if (q.w > 0.0) c += (dither_noise(uv * r.xy) - 0.5) * q.w;
     // 6. the colour filter works on what the screen shows, so it clamps (an HDR picture too: a filtered frame stays within paper

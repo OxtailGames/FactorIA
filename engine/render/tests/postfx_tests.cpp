@@ -403,3 +403,121 @@ TEST_CASE("cube: numbers are read the same in every locale (a decimal point, nev
     const CubeLutStrip strip = cube_lut_strip(r.value());
     CHECK(int(strip.rgba[2]) == 0);
 }
+
+// ---- outline, pixelate, posterize (M71-C2) ----
+
+TEST_CASE("post fx: the outline, pixelate and posterize are on only with a value that changes the picture") {
+    // Neutral values: no width, a block of 1 pixel, 256 levels.
+    PostStack o = stack_with(PostEffect::Outline);
+    o.fx.outlineWidth = 0.0f;
+    CHECK_FALSE(make_post_fx(o, 0).any());
+    o.fx.outlineWidth = 2.0f;
+    o.fx.outlineColor = Color{1, 0, 0, 0.0f};  // fully transparent: nothing to draw
+    CHECK_FALSE(make_post_fx(o, 0).any());
+    o.fx.outlineColor = Color{1, 0, 0, 1};
+    PostFx f = make_post_fx(o, 0);
+    CHECK(f.outline);
+    CHECK(f.outline_depth());
+    CHECK_FALSE(f.outline_sprite());
+    CHECK(f.mask() == kFxOutline);
+    o.fx.outlineMode = OutlineMode::Sprite;
+    f = make_post_fx(o, 0);
+    CHECK(f.outline_sprite());
+    CHECK(f.mask() == kFxOutlineSprite);
+
+    PostStack p = stack_with(PostEffect::Pixelate);
+    p.fx.pixelateSize = 1.0f;
+    CHECK_FALSE(make_post_fx(p, 0).any());
+    p.fx.pixelateSize = 6.0f;
+    CHECK(make_post_fx(p, 0).pixelate);
+    CHECK(make_post_fx(p, 0).mask() == kFxPixelate);
+
+    PostStack q = stack_with(PostEffect::Posterize);
+    q.fx.posterizeLevels = 256;
+    CHECK_FALSE(make_post_fx(q, 0).any());
+    q.fx.posterizeLevels = 6;
+    CHECK(make_post_fx(q, 0).posterize);
+    CHECK(make_post_fx(q, 0).mask() == kFxPosterize);
+
+    // An effect that is not in the stack's mask reads none of its numbers.
+    PostStack off;
+    off.fx.outlineWidth = 4.0f;
+    off.fx.pixelateSize = 8.0f;
+    off.fx.posterizeLevels = 4;
+    CHECK_FALSE(make_post_fx(off, 0).any());
+}
+
+TEST_CASE("post fx: widths and blocks are in design pixels and follow the render scale; bad numbers are clamped") {
+    const float nan = std::numeric_limits<float>::quiet_NaN();
+    PostStack o = stack_with(PostEffect::Outline);
+    o.fx.outlineWidth = 3.0f;
+    CHECK(make_post_fx(o, 0, 1.0f).outlineWidth == doctest::Approx(3.0f));
+    CHECK(make_post_fx(o, 0, 2.0f).outlineWidth == doctest::Approx(6.0f));
+    o.fx.outlineWidth = 100.0f;
+    CHECK(make_post_fx(o, 0).outlineWidth == doctest::Approx(8.0f));
+    o.fx.outlineWidth = 0.1f;  // a hair line is drawn half a pixel wide at least
+    CHECK(make_post_fx(o, 0).outlineWidth == doctest::Approx(0.5f));
+    o.fx.outlineWidth = nan;  // falls back to the default width
+    CHECK(make_post_fx(o, 0).outlineWidth == doctest::Approx(1.0f));
+    o.fx.outlineDepthThreshold = -3.0f;
+    o.fx.outlineNormalThreshold = 40.0f;
+    o.fx.outlineAlphaThreshold = nan;
+    const PostFx f = make_post_fx(o, 0);
+    CHECK(f.outlineDepthThreshold > 0.0f);
+    CHECK(f.outlineNormalThreshold == doctest::Approx(1.0f));
+    CHECK(f.outlineAlphaThreshold == doctest::Approx(0.5f));
+
+    PostStack p = stack_with(PostEffect::Pixelate);
+    p.fx.pixelateSize = 4.0f;
+    CHECK(make_post_fx(p, 0, 1.0f).pixelateBlock == 4);
+    CHECK(make_post_fx(p, 0, 2.0f).pixelateBlock == 8);
+    CHECK(make_post_fx(p, 0, 0.5f).pixelateBlock == 2);
+    p.fx.pixelateSize = 3.0f;  // 1.5 physical pixels: a whole number of them
+    CHECK(make_post_fx(p, 0, 0.5f).pixelateBlock == 2);
+    p.fx.pixelateSize = 1000.0f;
+    CHECK(make_post_fx(p, 0).pixelateBlock == 64);
+    p.fx.pixelateSize = nan;
+    CHECK_FALSE(make_post_fx(p, 0).pixelate);
+
+    PostStack q = stack_with(PostEffect::Posterize);
+    q.fx.posterizeLevels = 1;
+    CHECK(make_post_fx(q, 0).posterizeLevels == 2);
+    q.fx.posterizeLevels = 4000;
+    CHECK_FALSE(make_post_fx(q, 0).posterize);
+}
+
+TEST_CASE("pixelate: a pixel reads the centre of its block, the last pixel where the edge cuts a block") {
+    PostStack p = stack_with(PostEffect::Pixelate);
+    p.fx.pixelateSize = 4.0f;
+    const PostFx f = make_post_fx(p, 0);
+    int x = 0, y = 0;
+    pixelate_pixel(f, 0, 0, 320, 180, x, y);
+    CHECK((x == 2 && y == 2));
+    pixelate_pixel(f, 3, 7, 320, 180, x, y);
+    CHECK((x == 2 && y == 6));
+    pixelate_pixel(f, 4, 4, 320, 180, x, y);
+    CHECK((x == 6 && y == 6));
+    pixelate_pixel(f, 6, 0, 7, 7, x, y);  // 7 wide: the last block holds 3 pixels and its centre (6) is the last one
+    CHECK(x == 6);
+    pixelate_pixel(f, 5, 0, 6, 6, x,
+                   y);  // 6 wide: the block starting at 4 has its centre at 6, beyond the last pixel 5
+    CHECK(x == 5);
+    // A block of 3 centres on its middle pixel; the picture is shown at the same place whatever is in it.
+    p.fx.pixelateSize = 3.0f;
+    const PostFx g = make_post_fx(p, 0);
+    pixelate_pixel(g, 5, 5, 100, 100, x, y);
+    CHECK((x == 4 && y == 4));
+}
+
+TEST_CASE("posterize: values go to the nearest of the levels, black and white stay, what is above white is kept") {
+    PostStack q = stack_with(PostEffect::Posterize);
+    q.fx.posterizeLevels = 5;  // 0, 0.25, 0.5, 0.75, 1
+    const PostFx f = make_post_fx(q, 0);
+    CHECK(near_v(posterize_color(f, {0, 0, 0}), {0, 0, 0}, 1e-6f));
+    CHECK(near_v(posterize_color(f, {1, 1, 1}), {1, 1, 1}, 1e-6f));
+    CHECK(near_v(posterize_color(f, {0.1f, 0.4f, 0.9f}), {0.0f, 0.5f, 1.0f}, 1e-6f));
+    CHECK(near_v(posterize_color(f, {0.37f, 0.38f, 0.63f}), {0.25f, 0.5f, 0.75f}, 1e-6f));
+    CHECK(near_v(posterize_color(f, {1.6f, 0.0f, 0.0f}), {1.6f, 0.0f, 0.0f}, 1e-5f));  // the HDR excess stays
+    q.fx.posterizeLevels = 2;
+    CHECK(near_v(posterize_color(make_post_fx(q, 0), {0.49f, 0.51f, 0.2f}), {0, 1, 0}, 1e-6f));
+}
