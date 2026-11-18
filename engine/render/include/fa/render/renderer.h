@@ -24,6 +24,7 @@
 //   sg_commit() is done by end_frame()/present() as appropriate.
 #pragma once
 
+#include <cstdint>
 #include <functional>
 #include <memory>
 #include <optional>
@@ -67,7 +68,20 @@ struct ShadowRowsStats {
     int slots = 0, uploads = 0;
 };
 ShadowRowsStats renderer_shadow_rows_stats(Renderer& r);
+// Draws the depth and normal prepass as if the camera's stack switched on the effects of `effects` (a mask like PostStack::mask, bit i =
+// PostEffect(i); 0 = as the stack says), for the tests of the prepass: no effect that reads it is drawn yet.
+void renderer_force_post_effects(Renderer& r, std::uint32_t effects);
+// The HDR output: the next frames are drawn and presented as if update_output() had answered `info` (null: back to what it
+// answers), for the render tests of the encodes without an HDR display.
+void renderer_force_output(Renderer& r, const HdrOutputInfo* info);
+// The last frame's finished picture as floats (RGBA, top row first): as the final target holds it (`present` false), or
+// through present()'s encode for the output (scRGB, PQ, EDR or sRGB values). False with `error` where the GPU cannot draw or
+// read back an RGBA16F image.
+bool renderer_read_floats(Renderer& r, bool present, std::vector<float>& out, std::string* error);
 }  // namespace render
+
+// What the renderer shows instead of the game picture, to check the depth and normal prepass (Renderer::set_debug_view).
+enum class DebugView : std::uint8_t { None, Depth, Normals };
 
 enum class ScaleMode : std::int32_t {
     Fit,          // keep aspect, letterbox (default)
@@ -455,8 +469,8 @@ public:
     // names of kPostEffectOrder: "bloom", "tonemap", ...). False for a name that is not in feature_names(), before init(), on the
     // headless (dummy) backend, and for what the engine does not draw yet (every effect while M71 is in progress;
     // linearColor is drawn on every GPU): it never claims what the renderer cannot do. "hdrOutput" is true when the display
-    // the window showed its last frame on can show HDR in an encoding the renderer writes (EDR on Metal; false on D3D11
-    // until the HDR encode of M71), whatever the scene's hdrOutput setting. `render.supports` answers the same with the reason.
+    // the window showed its last frame on can show HDR in an encoding the renderer writes (EDR on Metal, scRGB or HDR10 on
+    // D3D11), whatever the scene's hdrOutput setting. `render.supports` answers the same with the reason.
     bool supports(std::string_view feature) const;
     // Every name supports() knows, in a fixed order.
     static std::vector<std::string> feature_names();
@@ -466,9 +480,11 @@ public:
 
     // HDR display output (fa/platform/hdr_output.h; docs/RENDERING.md, "HDR output"). Once per frame before present(), on the
     // window's thread: asks the display the window is on and switches the window's swapchain to an HDR format when
-    // `settings.hdrOutput` is auto, the display can show HDR and the renderer writes that encoding (EDR on Metal), or back to
-    // the standard range. Non-empty `blocked`: never switch, and say this (the editor, whose window shows its own UI).
-    // Nothing before init(). The present pass keeps the picture within white in every encoding until the HDR encode of M71.
+    // `settings.hdrOutput` is auto, the display can show HDR and the renderer writes that encoding (EDR on Metal, scRGB or
+    // HDR10 on D3D11), or back to the standard range. Non-empty `blocked`: never switch, and say this (the editor, whose window
+    // shows its own UI). Nothing before init(). The next frames are drawn for the answer: the tonemap of a PostProcess goes
+    // above paper white up to the output's headroom, and present() encodes the picture for the swapchain (docs/RENDERING.md).
+    // The HUD and a frame without the final pass stay at paper white.
     void update_output(const SceneSettings& settings, const std::string& blocked = {});
     // What the window shows now (the `render.output` command): the last answer of update_output(), any thread.
     HdrOutputInfo output_info() const;
@@ -479,13 +495,25 @@ public:
     void set_post_bypass(bool bypass);
     bool post_bypass() const;
 
+    // The depth or the normals the prepass drew (docs/RENDERING.md, "Depth and normals"), as a picture over the 3D meshes of the frame: depth in
+    // greys (near is light, 10 / (10 + distance) of the camera), normals as the view-space direction mapped to colours (x, y, z -> r, g, b)
+    // and black where no opaque mesh is. Needs a perspective or orthographic 3D camera that draws opaque meshes; any other frame, a GPU
+    // without float render targets and a frame that is split between cameras draw the game normally. A debugging aid: it does not change
+    // what a screenshot of the scene shows unless it is on. The environment variable FA_RENDER_DEBUG_VIEW=depth|normals sets it when
+    // the renderer starts. Main thread.
+    void set_debug_view(DebugView view);
+    DebugView debug_view() const;
+
     struct Impl;
 
 private:
     friend render::Gpu* render::renderer_gpu(Renderer& r);
+    friend void render::renderer_force_post_effects(Renderer& r, std::uint32_t effects);
     friend const render::FrameGraph* render::renderer_frame_graph(Renderer& r);
     friend render::TransientPoolStats render::renderer_transient_stats(Renderer& r);
     friend render::ShadowRowsStats render::renderer_shadow_rows_stats(Renderer& r);
+    friend void render::renderer_force_output(Renderer& r, const HdrOutputInfo* info);
+    friend bool render::renderer_read_floats(Renderer& r, bool present, std::vector<float>& out, std::string* error);
     std::unique_ptr<Impl> impl_;
     std::vector<std::string> fallbackFonts_;
     RichTextStyle richStyle_;

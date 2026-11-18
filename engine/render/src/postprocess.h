@@ -18,13 +18,23 @@
 #include "bloom.h"
 #include "frame_graph.h"
 #include "render_internal.h"
+#include "hdr_encode.h"
 #include "transient_targets.h"
 
 namespace fa::render {
 
-// How the final picture is encoded for the display. Only the sRGB transfer function of an 8-bit display exists today; the values the HDR
-// displays will need (scRGB, PQ) are added here and in post.glsl (uniform `p.z`) without touching the passes around it.
-enum class OutputEncode : std::uint8_t { Sdr };
+// The prepass of the frame (renderer_draw.cpp, "prepass"): the depth and normals of the opaque meshes in one float image, for the effects that read
+// them. A pass that does declares `res` in its reads (a transient: the graph orders it after the prepass and keeps it alive) and takes the
+// image with target(). Colour r = linear view depth in world units (far-plane value 60000 where nothing was drawn), gb = the view-space
+// normal, octahedral-encoded (see mesh_common.glsl, prepass_fs), a = 1 where a mesh was drawn, 0 elsewhere. Never multisampled.
+struct PrepassRef {
+    ResourceId res;
+    const TransientTargets* targets = nullptr;
+    bool valid() const { return res.valid() && targets != nullptr; }
+    // The image inside a pass that has `res` in its reads; null when the pass did not declare it or the target is gone.
+    const Target* target(const PassContext& c) const { return valid() ? targets->get(c.handle(res)) : nullptr; }
+    static constexpr float kFarDepth = 60000.0f;
+};
 
 struct PostPlan {
     BloomSettings bloom;  // bloom.enabled = false: no bloom
@@ -38,7 +48,14 @@ struct PostPlan {
     int colorFilter = 0;  // Camera.colorFilter / PostProcess.colorFilterMode as an int, 0 none .. 5 tritanopia
     bool linear =
         false;  // a linear scene that has exposure, a tonemap or a colour filter: the target holds linear light, the final pass encodes it
-    OutputEncode output = OutputEncode::Sdr;
+    // What the effects the renderer draws read from the prepass (post_effect_needs_depth / _normals of postprocess_resolve.h). The frame
+    // draws the prepass when one is true (renderer_draw.cpp, plan_job); `prepass` is then valid for the passes after it.
+    bool needsDepth = false, needsNormals = false;
+    PrepassRef prepass;
+    // The camera's view-projection of the frame before this one (motion blur reprojects with it); valid only when that frame drew the same
+    // camera (`prevValid`), so a cut or a new camera never blurs.
+    Mat4 prevViewProj;
+    bool prevValid = false;
 
     // True when the final pass converts the picture (exposure, tonemap, or the encode of a linear scene): the pass is then `post`. A
     // frame that only has a colour filter is the plain filter pass; one that only has bloom has none.
@@ -47,7 +64,9 @@ struct PostPlan {
 };
 
 // The plan of a camera (CameraInfo::postStack, null without one, and the bloom / colorFilter derived from it). `linear`: SceneSettings.colorSpace.
-PostPlan make_post_plan(const CameraInfo& cam, bool linear);
+// `forceEffects` (tests and the debug view): effects whose prepass inputs are needed as if the stack switched them on, a mask like
+// PostStack::mask. needsDepth / needsNormals come from the effects the renderer draws (post_drawn_mask) among the stack's, and these.
+PostPlan make_post_plan(const CameraInfo& cam, bool linear, std::uint32_t forceEffects = 0);
 
 // Camera.bloom* / PostProcess bloom fields -> supported ranges (sanitize_bloom for the stack): the knee and the dirt intensity too.
 BloomSettings bloom_from_stack(const PostStack& stack);
@@ -55,9 +74,10 @@ BloomSettings bloom_from_stack(const PostStack& stack);
 // What the final pass draws (post.glsl): `convert` runs exposure, tonemap and the encode (the plan's), `filter` the colour filter
 // (0 none; the picture is clamped for it); `expo` is the adapted-exposure image (the 1x1 of AutoExposure) or any 1x1 image when the
 // exposure is not automatic. `pass` is the PassDesc of the destination (the caller sets its load and store actions); the pass draws
-// one full-screen triangle and ends. `w` x `h`: the size of the destination in pixels (the dither pattern).
+// one full-screen triangle and ends. `w` x `h`: the size of the destination in pixels (the dither pattern). `output`: what the frame is
+// drawn for (hdr_encode.h); an HDR output with headroom runs the tonemap above paper white (tonemap_hdr), the rest the SDR one.
 void run_post_pass(Gpu& gpu, const PostPlan& plan, bool convert, int filter, bool autoExposure, const PassDesc& pass,
-                   sg_view src, sg_view expo, int w, int h);
+                   sg_view src, sg_view expo, int w, int h, const OutputTarget& output = {});
 
 // PostProcess.exposureMode auto. The adapted EV lives in a 1x1 RGBA16F target (two of them, taking turns: a pass cannot read what it
 // writes); `exposure-luma` reduces the finished game image to 32x32 log-luminances and `exposure-adapt` moves the stored EV toward the

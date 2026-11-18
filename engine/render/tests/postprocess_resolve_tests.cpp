@@ -466,22 +466,38 @@ TEST_CASE("features: hdrOutput follows the display the window is on and what the
     CHECK_FALSE(supported(metal, "hdrOutput", &why));
     CHECK(why == "there is no window");
 
-    // D3D11, even on an HDR10 display: planned, until the renderer writes scRGB or HDR10.
+    // D3D11 on a display Windows composes in HDR: yes (scRGB, HDR10 as the fallback); with HDR off in Settings: the reason.
     FeatureEnv d3d = gpu(FeatureBackend::D3d11);
     set_hdr_env(d3d, hdr_display_from_dxgi(true, 1000.0f, 0.0f, 600.0f, "TV"));
+    CHECK(supported(d3d, "hdrOutput"));
+    set_hdr_env(d3d, hdr_display_from_dxgi(false, 1000.0f, 0.0f, 600.0f, "TV"));
     CHECK_FALSE(supported(d3d, "hdrOutput", &why));
-    CHECK(why.rfind("planned (M71)", 0) == 0);
-    CHECK(hdr_encodable(FeatureBackend::D3d11) == 0u);
+    CHECK(why.find("Use HDR") != std::string::npos);
+    CHECK(hdr_encodable(FeatureBackend::D3d11) ==
+          (hdr_encoding_bit(HdrEncoding::ScRgb) | hdr_encoding_bit(HdrEncoding::Hdr10)));
     CHECK(hdr_encodable(FeatureBackend::Metal) == hdr_encoding_bit(HdrEncoding::Edr));
     CHECK(hdr_encodable(FeatureBackend::Gl) == 0u);
+    CHECK(hdr_encodable(FeatureBackend::Gles3) == 0u);
+    CHECK(hdr_encodable(FeatureBackend::WebGl2) == 0u);
+    // GL, GLES3 and WebGL2 on an HDR display still say why not (the renderer writes no HDR encoding there).
+    FeatureEnv gl = gpu(FeatureBackend::Gl);
+    set_hdr_env(gl, hdr_display_from_dxgi(true, 1000.0f, 0.0f, 600.0f, "TV"));
+    CHECK_FALSE(supported(gl, "hdrOutput", &why));
+    CHECK_FALSE(why.empty());
 
-    // The request the renderer makes: Metal writes sRGB-encoded EDR and says the picture stays within white.
+    // The request the renderer makes: Metal asks for an extended LINEAR sRGB swapchain (the present pass writes linear light),
+    // and nothing is pending on D3D11 any more.
     const HdrRequest r = hdr_request(FeatureBackend::Metal, true, 300.0f);
     CHECK(r.want);
     CHECK(r.paperWhiteNits == doctest::Approx(300.0f));
-    CHECK_FALSE(r.edrLinear);
-    CHECK_FALSE(r.activeNote.empty());
-    CHECK(hdr_request(FeatureBackend::D3d11, true, 200.0f).pending == kHdrPending);
+    CHECK(r.edrLinear);
+    CHECK(r.pending.empty());
+    const HdrRequest d = hdr_request(FeatureBackend::D3d11, true, 200.0f);
+    CHECK(d.pending.empty());
+    CHECK(decide_hdr_output(d, hdr_display_from_dxgi(true, 1000.0f, 0.0f, 600.0f, "TV")).encoding ==
+          HdrEncoding::ScRgb);
+    CHECK(decide_hdr_output(d, hdr_display_from_dxgi(true, 1000.0f, 0.0f, 600.0f, "TV")).fallback ==
+          HdrEncoding::Hdr10);
 }
 
 TEST_CASE("Renderer::output_info: without a window the output is the standard range") {

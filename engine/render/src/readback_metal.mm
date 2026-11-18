@@ -7,6 +7,8 @@
 
 #include <cstring>
 
+#include "hdr_encode.h"
+
 namespace fa::render {
 
 bool readback_rgba8(sg_image image, int width, int height, std::vector<std::uint8_t>& out, std::string* error) {
@@ -32,6 +34,38 @@ bool readback_rgba8(sg_image image, int width, int height, std::vector<std::uint
     [cmd waitUntilCompleted];
     out.resize(bytesPerRow * NSUInteger(height));
     std::memcpy(out.data(), [buf contents], out.size());  // Metal rows are top-down
+    return true;
+    }
+}
+
+bool readback_rgba16f(sg_image image, int width, int height, std::vector<float>& out, std::string* error) {
+    @autoreleasepool {
+    id<MTLTexture> tex = (__bridge id<MTLTexture>)sg_mtl_query_image_info(image).tex[sg_mtl_query_image_info(image).active_slot];
+    id<MTLCommandQueue> queue = (__bridge id<MTLCommandQueue>)sg_mtl_command_queue();
+    id<MTLDevice> device = (__bridge id<MTLDevice>)sg_mtl_device();
+    if (!tex || !queue || !device) {
+        if (error) *error = "readback: no Metal texture for the image";
+        return false;
+    }
+    if (tex.pixelFormat != MTLPixelFormatRGBA16Float) {
+        if (error) *error = "readback: the image is not RGBA16F";
+        return false;
+    }
+    NSUInteger bytesPerRow = NSUInteger(width) * 8;
+    id<MTLBuffer> buf = [device newBufferWithLength:bytesPerRow * NSUInteger(height) options:MTLResourceStorageModeShared];
+    id<MTLCommandBuffer> cmd = [queue commandBuffer];
+    id<MTLBlitCommandEncoder> blit = [cmd blitCommandEncoder];
+    [blit copyFromTexture:tex sourceSlice:0 sourceLevel:0 sourceOrigin:MTLOriginMake(0, 0, 0)
+               sourceSize:MTLSizeMake(width, height, 1) toBuffer:buf destinationOffset:0
+        destinationBytesPerRow:bytesPerRow destinationBytesPerImage:bytesPerRow * NSUInteger(height)];
+    [blit endEncoding];
+    [cmd commit];
+    [cmd waitUntilCompleted];
+    const std::size_t n = std::size_t(width) * std::size_t(height) * 4;
+    std::vector<std::uint16_t> halves(n);
+    std::memcpy(halves.data(), [buf contents], n * 2);
+    out.resize(n);
+    for (std::size_t i = 0; i < n; ++i) out[i] = half_to_float(halves[i]);
     return true;
     }
 }

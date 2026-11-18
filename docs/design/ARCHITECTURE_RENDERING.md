@@ -49,7 +49,7 @@ cap keeps everything, and the pipelines the warm-up makes or asks for (`Renderer
 the limits count frames, never time. `pipelines`, `pipelineHits`,
 `pipelinesMade` and `pipelinesEvicted` are in the start-up report (`loading.startup.gpu`). Shaders are GLSL annotated for
 `sokol-shdc`; generated headers are committed (`tools/shaders/compile_shaders.sh`). Every mesh program (`mesh`,
-`mesh_skin`, `shadow`, `shadow_skin`) comes from one template, `shaders/mesh_common.glsl`: a top file defines the
+`mesh_skin`, `prepass`, `prepass_skin`, `shadow`, `shadow_skin`) comes from one template, `shaders/mesh_common.glsl`: a top file defines the
 `@block fa_user` (a `surface()` snippet, plus `vertex()` with `FA_HAS_VERTEX`), `@include`s the template and declares
 the programs. `mesh.glsl` is that top file with an empty `surface()`; a custom material is the same with its own
 snippet, so the engine and the materials share one source of truth (an empty `surface()` renders pixel-identical to a
@@ -170,8 +170,8 @@ decides, and the game event `ui.viewPointer` goes out like the other ui.* events
   views 6-9 and samplers 2-5.
 - *Generator* (`tools/common/src/shaders_generate.cpp`). `generate_material_shader` writes the sokol-shdc top file: the
   params as one alphabetical block (each padded to a `vec4`), the textures, the snippet verbatim with a line table, then
-  `@include mesh_common.glsl` and the programs (`mesh`, `mesh_skin`, plus `shadow`, `shadow_skin` with `vertex()` or
-  `"clip"`). `shaders_compile.cpp` runs sokol-shdc through the injectable `SetupContext::run`, maps its errors back to
+  `@include mesh_common.glsl` and the programs (`mesh`, `mesh_skin`, `prepass`, `prepass_skin`, plus `shadow`, `shadow_skin`
+  with `vertex()` or `"clip"`). `shaders_compile.cpp` runs sokol-shdc through the injectable `SetupContext::run`, maps its errors back to
   the snippet's lines and adds hints, and reads the YAML reflection (`shaders_yaml.cpp`).
 - *Twins and cache.* Each dialect becomes a `factoria.shader/1` JSON document, the *twin*
   `<material>.json.<slang>.shader` (cross-compiled source per program plus binding reflection, stamped with the engine
@@ -410,6 +410,33 @@ colour") and the effects listed in the last bullet (exposure, bloom, tonemap, co
   RGBA16F scene format (else one warning and the exposure stays manual). The legacy fields: `build_camera` builds an implicit
   `PostProcess` from the sanitised `Camera.bloom*` and `colorFilter` (knee 0, no dirt) and `resolve_post_stack` uses it when the
   camera has no enabled `PostProcess` of its own, so `CameraInfo::bloom` and `colorFilter` are always derived from the stack
-  (`bloom_from_stack`); the six fields are in `api_since.json` "deprecated.components". `OutputEncode` (`Sdr` only) is the hook the
-  HDR output adds its encodes to (`p.z` of post.glsl). Screen-space items are drawn after the final pass, so exposure and tonemap
+  (`bloom_from_stack`); the six fields are in `api_since.json` "deprecated.components". The HDR output (`hdr_encode.h`): the frame
+  takes `OutputTarget` (`select_output` of the last `update_output` answer: encode, headroom, paper white) when it starts;
+  an extended one (an HDR encode, headroom above 1, a float display format) makes the final pass run `tonemap_hdr` (`p.z`
+  and `h` of post.glsl, without a colour filter) and write sRGB-encoded values past 1, and `present_params` decodes them in
+  blit.glsl and encodes them for the swapchain the window has at present time (sRGB, scRGB, PQ in Rec.2020, EDR linear),
+  clamped to the frame's headroom only when its final pass went above white (`frameAboveWhite`). The CPU functions mirror
+  the shaders; `renderer_force_output` and `renderer_read_floats` let the tests check them without an HDR display. Screen-space items are drawn after the final pass, so exposure and tonemap
   never touch them; in a linear scene their quad and text pipelines must write display-space values into `hudTarget`.
+- **Depth and normal prepass** (`Renderer::Impl::plan_prepass`, `prepass_pass`, `prepass_view_pass` in `renderer_draw.cpp`). A pass
+  of the last job's graph declared before "main", with a transient of its own (`PostPlan::prepass`, a `PrepassRef` the effects that read
+  it list in their reads; the pass is `GraphPass::sideEffect` because nothing reads it until an effect or the debug view does). One
+  float image (`Gpu::prepass_color_format`: `RGBA32F`, else `RGBA16F`, else none and `prepass_ready()` is false, which is also what
+  `render.supports` `sampledDepth` answers) with its own depth buffer, never multisampled: r = linear view depth in world units
+  (cleared to `PrepassRef::kFarDepth` = 60000), gb = octahedral view-space normal, a = coverage. A multisampled depth cannot be sampled
+  and depth is not a quantity to average across samples, so the effects read one sample per pixel. The programs `prepass` and
+  `prepass_skin` of `mesh_common.glsl` reuse the mesh vertex stage (instancing, skinning, `vertex()`), run `surface()` (so the normal is the
+  one the main pass lights with) and discard below `alphaCutoff` with `FA_ALPHA_CLIP`, like the shadow programs; they read the camera's view matrix through the slot the shadow programs use for the
+  light's (`fa_light_vp`). The pass draws `opaqueBatches` with the same instance rows as the main pass, so its draw calls are one per
+  batch part; a material twin without `prepass` programs (made before this version) falls back to the engine's program and draws its
+  mesh without the material. `plan_prepass` is the only decision: the job is the last one (`plan.last`), not a view, draws the world,
+  the resolved stack needs the depth or the normals (`post_mask_needs_depth` / `post_mask_needs_normals` of `postprocess_resolve.h`, masked
+  by `post_drawn_mask()` so an effect the renderer does not draw yet costs nothing) or a debug view is on, it has an opaque mesh, and a
+  pooled image of the size could be made (else one error and no prepass). `plan_prepass` also requires `plan.first` and a camera over the
+  whole screen (`CameraInfo::fullViewport()`): the `PostPlan` comes from the first camera, and when the screen-space job of a split frame is
+  dropped (no HUD, no text) the last job is the last camera, so a frame split between cameras or with a partial viewport has no prepass
+  (one `FA_WARN` when the stack needs depth there). `Impl::prevViewProj` keeps each camera's view-projection of the frame before (by entity,
+  with the frame serial, forgotten after a frame without it) for `PostPlan::prevViewProj`, which motion blur will read. Tests force an
+  effect with `render::renderer_force_post_effects`; `Renderer::set_debug_view` (and `FA_RENDER_DEBUG_VIEW`) adds the "prepass-view"
+  pass, which draws `prepass_view.glsl` over the game image (the main pass then keeps its multisampled colour). The tests read the image
+  through that view because only RGBA8 can be read back.

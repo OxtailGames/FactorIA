@@ -388,7 +388,8 @@ Result<void> Assets::build_material_checked(MaterialAsset& m) {
     }
 
     // The shaders. Nothing of `m` changes unless all of them are made.
-    static const char* const names[kProgCount] = {"mesh", "mesh_skin", "shadow", "shadow_skin"};
+    static const char* const names[kProgCount] = {"mesh",        "mesh_skin", "shadow",
+                                                  "shadow_skin", "prepass",   "prepass_skin"};
     MaterialProgram programs[kProgCount];
     auto programsJson = twin.find("programs");
     for (int i = 0; i < kProgCount; ++i) {
@@ -401,7 +402,7 @@ Result<void> Assets::build_material_checked(MaterialAsset& m) {
                               kReexportHint);
         if (made.ok()) {
             programs[i] = *made;
-        } else if (prog || i < kProgShadow) {  // the shadow programs are optional, a broken one is not
+        } else if (prog || i < kProgShadow) {  // the shadow and prepass programs are optional, a broken one is not
             for (MaterialProgram& p : programs)
                 if (p.shader.id) gpu_.destroy_shader(p.shader);
             return made.error();
