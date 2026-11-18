@@ -17,6 +17,12 @@ vec3 fa_linear_to_srgb(vec3 c) {
 // The colour space fix of a texture sample: 0 = as sampled, 1 = sRGB-encoded values -> linear (a colour texture the GPU did not
 // decode), 2 = linear -> sRGB-encoded (a data texture, or any texture in a gamma scene, that the GPU decoded as sRGB).
 vec3 fa_tex_fix(vec3 c, float mode) {
-    return mode > 1.5 ? fa_linear_to_srgb(c) : mode > 0.5 ? fa_srgb_to_linear(c) : c;
+    // Explicit branches on a uniform: a gamma scene (mode 0) skips both pow() blocks instead of computing and discarding them.
+    if (mode > 1.5) {
+        c = fa_linear_to_srgb(c);
+    } else if (mode > 0.5) {
+        c = fa_srgb_to_linear(c);
+    }
+    return c;
 }
 @end

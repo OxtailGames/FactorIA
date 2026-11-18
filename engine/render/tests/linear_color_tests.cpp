@@ -96,12 +96,15 @@ double worst_error(const Image& a, const Image& b) {
     for (int y = 0; y < a.height; ++y)
         for (int x = 0; x < a.width; ++x) {
             const Color p = a.pixel(x, y), q = b.pixel(x, y);
-            worst = std::max({worst, double(std::fabs(p.r - q.r)), double(std::fabs(p.g - q.g)), double(std::fabs(p.b - q.b))});
+            worst = std::max(
+                {worst, double(std::fabs(p.r - q.r)), double(std::fabs(p.g - q.g)), double(std::fabs(p.b - q.b))});
         }
     return worst;
 }
 
-bool same_bytes(const Image& a, const Image& b) { return a.width == b.width && a.height == b.height && a.rgba == b.rgba; }
+bool same_bytes(const Image& a, const Image& b) {
+    return a.width == b.width && a.height == b.height && a.rgba == b.rgba;
+}
 
 void add_camera3d(World& w, Vec3 pos, Vec3 lookAt) {
     Entity cam = make(w, "cam", pos);
@@ -154,16 +157,18 @@ TEST_CASE("color space: the sRGB transfer functions of the CPU round-trip and ma
     CHECK(srgb_to_linear(0.5f) == doctest::Approx(0.214041f).epsilon(1e-4));
     CHECK(linear_to_srgb(0.5f) == doctest::Approx(0.735357f).epsilon(1e-4));
     CHECK(srgb_to_linear(0.02f) == doctest::Approx(0.02f / 12.92f));  // the linear toe
-    for (int i = 0; i <= 255; ++i) CHECK(linear_to_srgb(srgb_to_linear(float(i) / 255.0f)) == doctest::Approx(float(i) / 255.0f).epsilon(1e-3));
-    CHECK(srgb_to_linear(-1.0f) == 0.0f);                // below black is black
-    CHECK(srgb_to_linear(std::nanf("")) == 0.0f);        // a NaN from a script never reaches the GPU
-    CHECK(srgb_to_linear(4.0f) > 4.0f);                  // light above white keeps its meaning
+    for (int i = 0; i <= 255; ++i)
+        CHECK(linear_to_srgb(srgb_to_linear(float(i) / 255.0f)) == doctest::Approx(float(i) / 255.0f).epsilon(1e-3));
+    CHECK(srgb_to_linear(-1.0f) == 0.0f);          // below black is black
+    CHECK(srgb_to_linear(std::nanf("")) == 0.0f);  // a NaN from a script never reaches the GPU
+    CHECK(srgb_to_linear(4.0f) > 4.0f);            // light above white keeps its meaning
     const Color c = srgb_to_linear(Color{0.5f, 0.5f, 0.5f, 0.25f});
-    CHECK(c.a == 0.25f);                                 // coverage is not light
+    CHECK(c.a == 0.25f);  // coverage is not light
     CHECK(to_scene(Color{0.5f, 0.5f, 0.5f, 1}, false).r == 0.5f);
 }
 
-TEST_CASE("color space: a tint, a colour texture and a half-transparent shape come out as picked, and blend in linear light") {
+TEST_CASE("color space: a tint, a colour texture and a half-transparent shape come out as picked, and blend in linear "
+          "light") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     save(solid(16, 16, 128), "assets/lin_grey128.png");
@@ -197,7 +202,8 @@ TEST_CASE("color space: a tint, a colour texture and a half-transparent shape co
     CHECK(at(b, -40, 0).a == doctest::Approx(1.0f));
 }
 
-TEST_CASE("color space: a lit 2D scene in linear light (golden) differs from the gamma one, an unlit shape keeps its colour") {
+TEST_CASE("color space: a lit 2D scene in linear light (golden) differs from the gamma one, an unlit shape keeps its "
+          "colour") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     auto build = [&](bool lin) {
@@ -333,7 +339,8 @@ TEST_CASE("color space: a gradient on the 8-bit scene target keeps the ramp, and
     }
 }
 
-TEST_CASE("color space: R11G11B10 is the float scene target when RGBA16F is not available, and draws the same picture") {
+TEST_CASE(
+    "color space: R11G11B10 is the float scene target when RGBA16F is not available, and draws the same picture") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     const sg_pixelformat_info packed = sg_query_pixelformat(SG_PIXELFORMAT_RG11B10F);
@@ -375,7 +382,8 @@ TEST_CASE("color space: R11G11B10 is the float scene target when RGBA16F is not 
     CHECK(at(img, 0, 0).r == doctest::Approx(0.7354f).epsilon(0.04));
 }
 
-TEST_CASE("color space: colour textures are made sRGB in a linear scene, with the shader as the fall-back, data textures stay as they were") {
+TEST_CASE("color space: colour textures are made sRGB in a linear scene, with the shader as the fall-back, data "
+          "textures stay as they were") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     save(solid(8, 8, 100), "assets/lin_tex_a.png");
@@ -428,7 +436,8 @@ TEST_CASE("color space: colour textures are made sRGB in a linear scene, with th
     CHECK(at(b2, 0, 0).r == doctest::Approx(150.0f / 255.0f).epsilon(0.03));
 }
 
-TEST_CASE("color space: switching it at run time keeps the textures and does not leak GPU images; gamma comes back byte for byte") {
+TEST_CASE("color space: switching it at run time keeps the textures and does not leak GPU images; gamma comes back "
+          "byte for byte") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     save(solid(16, 16, 90), "assets/lin_switch.png");
@@ -460,11 +469,11 @@ TEST_CASE("color space: switching it at run time keeps the textures and does not
     const std::size_t textures = r.r.asset_report()["textures"].size();
     Image lin, back;
     for (int i = 0; i < 4; ++i) std::tie(lin, back) = cycle();
-    CHECK(live_images() == images);                      // no image made and kept, none made twice
-    CHECK(r.r.texture_bytes() == texBytes);              // the textures are not made again
+    CHECK(live_images() == images);          // no image made and kept, none made twice
+    CHECK(r.r.texture_bytes() == texBytes);  // the textures are not made again
     CHECK(r.r.asset_report()["textures"].size() == textures);
-    CHECK(same_bytes(first, back));                      // gamma after linear is exactly gamma before it
-    CHECK(worst_error(first, lin) > 0.03);               // and linear is another picture
+    CHECK(same_bytes(first, back));         // gamma after linear is exactly gamma before it
+    CHECK(worst_error(first, lin) > 0.03);  // and linear is another picture
     if (!wasEnabled) sg_disable_stats();
 }
 
@@ -485,4 +494,81 @@ TEST_CASE("color space: a gamma scene is drawn exactly as before (no conversion 
     CHECK(at(img, 0, 0).r == doctest::Approx(0.25f).epsilon(0.03));
     CHECK(at(img, 0, 0).g == doctest::Approx(0.125f).epsilon(0.03));
     CHECK(at(img, 0, 0).b == doctest::Approx(0.375f).epsilon(0.03));
+}
+
+TEST_CASE(
+    "color space: the image the editor viewport reads is encoded in a linear scene and unchanged in a gamma one") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    World w;
+    camera(w);
+    rect(w, {0, 0, 0}, Color{0.5f, 0.5f, 0.5f, 1},
+         {400, 300});  // fills the picture: the middle pixel is the whole picture
+    // The middle pixel (red byte) of the image behind game_target_image_id(), the one ImGui shows. Only an 8-bit image can be read back.
+    auto viewed = [](Own& o) {
+        const std::uint32_t id = o.r.game_target_image_id();
+        REQUIRE(id != 0);
+        CHECK(o.r.game_target_view_id() != 0);
+        sg_image image{};
+        image.id = id;
+        std::vector<std::uint8_t> px;
+        std::string err;
+        const int tw = o.r.target_width(), th = o.r.target_height();
+        REQUIRE_MESSAGE(render::readback_rgba8(image, tw, th, px, &err), err);
+        return int(px[(std::size_t(th / 2) * std::size_t(tw) + std::size_t(tw / 2)) * 4]);
+    };
+    auto shot_byte = [](const Image& img) { return int(std::lround(img.pixel(160, 90).r * 255.0f)); };
+    auto live_images = [] {
+        const sg_total_resource_stats t = sg_query_stats().total.images;
+        return std::int64_t(t.inited) - std::int64_t(t.uninited);
+    };
+    const bool wasEnabled = sg_stats_enabled();
+    sg_enable_stats();
+
+    SUBCASE("an 8-bit scene: gamma reads the game image itself, linear reads the encoded copy, gamma again frees it") {
+        Own r(g, "rgba8");
+        REQUIRE_MESSAGE(r.ok, r.error);
+        r.r.set_editor_view(true);
+        const Image gammaShot = r.draw(g, w);
+        const int gammaByte = viewed(r);
+        CHECK(gammaByte == shot_byte(gammaShot));
+        linear(w);
+        r.draw(g, w);  // the first round makes whatever the other colour space needs
+        linear(w, false);
+        r.draw(g, w);
+        const std::int64_t images = live_images();
+        const std::uint32_t gammaId = r.r.game_target_image_id();  // gamma: the game image itself, no copy was made
+
+        linear(w);
+        const Image linShot = r.draw(g, w);
+        CHECK(r.r.game_target_image_id() != gammaId);
+        const int linByte = viewed(r);
+        CHECK(std::abs(linByte - shot_byte(linShot)) <= 1);
+        CHECK(linByte >= 126);  // the colour as picked
+
+        linear(w, false);
+        r.draw(g, w);
+        CHECK(viewed(r) == gammaByte);
+        CHECK(live_images() == images);  // the copy is gone, nothing else was made
+        // set_editor_view(false) frees the copy in a linear scene too (a game never makes it).
+        linear(w);
+        r.draw(g, w);
+        const std::int64_t withCopy = live_images();
+        r.r.set_editor_view(false);
+        CHECK(live_images() == withCopy - 1);  // the copy's one image
+        r.draw(g, w);
+        CHECK(live_images() == withCopy - 1);  // and it is not made again
+    }
+    SUBCASE(
+        "the float scene: the game image holds linear light (too dark to show), the viewport reads the encoded copy") {
+        Own r(g);
+        REQUIRE_MESSAGE(r.ok, r.error);
+        r.r.set_editor_view(true);
+        linear(w);
+        const Image linShot = r.draw(g, w);
+        const int linByte = viewed(r);  // an RGBA8 copy: it can be read back, the float game image cannot
+        CHECK(std::abs(linByte - shot_byte(linShot)) <= 1);
+        CHECK(linByte >= 126);
+    }
+    if (!wasEnabled) sg_disable_stats();
 }

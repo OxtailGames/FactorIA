@@ -202,6 +202,15 @@ struct Renderer::Impl {
     int readW = 0, readH = 0;
     sg_image final_image() const { return filterActive ? filterTarget.color : gameTarget.texture_image(); }
     sg_view final_view() const { return filterActive ? filterTarget.texView : gameTarget.texView; }
+    // The picture the editor viewport shows (Renderer::game_target_view_id): the finished game image in a gamma scene; in a linear one,
+    // when the editor asked for it (Renderer::set_editor_view), the 8-bit encoded copy update_editor_copy() makes after each frame
+    // (an empty handle until the first one exists). M71-B4 points this at its final (tonemapped) target.
+    sg_image display_image() const;
+    sg_view display_view() const;
+    bool editorView = false;  // set_editor_view(true): make the encoded copy of a linear scene
+    Target
+        editorTarget;  // the copy: RGBA8, only while the scene is linear and the editor asked; freed when either stops
+    void update_editor_copy();
     bool create_shadow_targets();
     bool ensure_light_target(float scale);
     sg_view upload_shadow_rows(const Frame& fr);

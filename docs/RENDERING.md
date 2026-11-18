@@ -297,7 +297,7 @@ picking colours by eye and keep the same PNG files.
 The final conversion to the display (tonemap, exposure, display-space HUD) arrives with the post-processing stack; for now a linear
 scene is encoded by a plain sRGB encode when it is shown, values above 1 clip, the HUD and screen-space UI blend in linear light
 too (their colours still come out as picked, the blending of half-transparent edges differs slightly), and bloom and the colour
-filter work on the linear values. The editor's viewport shows the same encoded picture. Mips of an sRGB texture are averaged on the
+filter work on the linear values. The editor's viewport shows the same encoded picture: the renderer keeps an 8-bit encoded copy of the finished frame for it (`Renderer::set_editor_view`, made only while the scene is linear and freed when it goes back to gamma; a game never makes it). Mips of an sRGB texture are averaged on the
 sRGB values when they are made. A custom material ([SHADERS.md](SHADERS.md)) gets what the GPU gives for its own textures (linear light
 when the texture was first loaded in a linear scene, the file's numbers otherwise) and its colour parameters as authored, and what
 its `surface()` returns is taken as linear light in a linear scene: convert a colour parameter yourself (`pow(c, vec3(2.2))` is

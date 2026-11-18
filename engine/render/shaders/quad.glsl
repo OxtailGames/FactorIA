@@ -57,7 +57,8 @@ out vec3 xform;
 void main() {
     gl_Position = view_proj * vec4(position, 1.0);
     uv = texcoord0;
-    color = cspace.x > 0.5 ? vec4(fa_srgb_to_linear(color0.rgb), color0.a) : color0;
+    color = color0;
+    if (cspace.x > 0.5) color.rgb = fa_srgb_to_linear(color0.rgb);
     xform = cspace.xyz;
     params = params0;
     world_xy = position.xy;
@@ -110,7 +111,10 @@ vec4 tex_color(vec2 p) {
     return vec4(fa_tex_fix(t.rgb, xform.y), t.a);
 }
 // A colour that is not in the vertex (color2: the end of a gradient, the colour of a flash): sRGB values -> linear in a linear scene.
-vec3 scene_rgb(vec3 c) { return xform.x > 0.5 ? fa_srgb_to_linear(c) : c; }
+vec3 scene_rgb(vec3 c) {
+    if (xform.x > 0.5) c = fa_srgb_to_linear(c);
+    return c;
+}
 
 vec3 lit_color(vec4 base, float mode) {
     vec3 n = vec3(0.0, 0.0, 1.0);
@@ -195,7 +199,11 @@ vec4 shape_color() {
         // Interleaved gradient noise, +-0.5/255: breaks the 8-bit steps of a slow gradient or a wide soft edge into fine grain.
         float n = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715)))) - 0.5;
         // The grain is added in the display's encoding: that is where its 8-bit steps are.
-        c.rgb = xform.x > 0.5 ? fa_srgb_to_linear(fa_linear_to_srgb(c.rgb) + n / 255.0) : c.rgb + n / 255.0;
+        if (xform.x > 0.5) {
+            c.rgb = fa_srgb_to_linear(fa_linear_to_srgb(c.rgb) + n / 255.0);
+        } else {
+            c.rgb += n / 255.0;
+        }
         c.a = clamp(c.a + n / 255.0 * step(0.001, c.a), 0.0, 1.0);
     }
     return c;

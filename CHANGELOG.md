@@ -15,7 +15,8 @@ Older versions, one file per minor version with its patch releases: [0.29](chang
   else `RGBA8`) and the picture is encoded to sRGB when it is shown. A gamma scene is drawn exactly as before. Switching at run time
   keeps the textures and leaks no GPU image. `render.supports` says `linearColor` and `r11g11b10` are available; `FA_SCENE_FORMAT`
   accepts `r11g11b10` for tests. The tonemap, exposure and the display-space HUD come with the post-processing stack, so for now values
-  above 1 clip and bloom works on linear values (docs/RENDERING.md, "Color space"). `SceneSettings.hdrOutput` (`off` or `auto`) and
+  above 1 clip and bloom works on linear values (docs/RENDERING.md, "Color space"). The editor's viewport shows the encoded picture
+  (`Renderer::set_editor_view`). `SceneSettings.hdrOutput` (`off` or `auto`) and
   `paperWhiteNits` (200) are stored and saved; they change nothing yet. The mesh shader template changed: the compiled shader of a custom
   material made by an earlier build is refused with a message that asks to export the game again (`factoria run` compiles them itself).
 - **PostProcess component:** one reflected component for a camera's own post-processing stack or for a volume (shape `global`, `box`,

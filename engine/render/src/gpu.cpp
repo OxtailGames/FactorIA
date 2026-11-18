@@ -58,6 +58,7 @@ void set_skin_layout(sg_pipeline_desc& d, int jointsAttr, int weightsAttr) {
 
 void Gpu::refresh_scene_format() {
     const SceneChain& c = sceneChain_[linear_ ? 1 : 0];
+    if (c.count <= 0) return;  // no chain (nothing was queried yet): keep the format
     sceneFormat_ = c.formats[std::min(c.at, c.count - 1)];
 }
 
