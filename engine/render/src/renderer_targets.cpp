@@ -233,6 +233,7 @@ bool Renderer::Impl::game_targets_valid() const { return gameTarget.valid(); }
 
 void Renderer::Impl::free_read_image() {
     destroy_target(readbackTarget);
+    destroy_target(floatTarget);
     readW = readH = 0;
 }
 
@@ -580,8 +581,13 @@ void Renderer::Impl::post_pass(const PostPlan& pp, bool convert, int filter, boo
     PassDesc p = pass_into(dst, label);
     p.colorLoad = SG_LOADACTION_DONTCARE;  // every pixel is drawn
     p.colorStore = (dst.samples > 1 && !keepMsaa) ? SG_STOREACTION_DONTCARE : SG_STOREACTION_STORE;
-    run_post_pass(gpu, pp, convert, filter, autoExposure, p, src, expo, dst.w, dst.h);
+    run_post_pass(gpu, pp, convert, filter, autoExposure, p, src, expo, dst.w, dst.h, frameOutput);
     ++stats.drawCalls;
+    // A colour filter clamps to paper white (also when it follows the HDR picture); the conversion alone goes above it.
+    if (filter != 0)
+        frameAboveWhite = false;
+    else if (convert && frameOutput.extended())
+        frameAboveWhite = true;
 }
 
 // The 8-bit picture the screen shows. A gamma RGBA8 scene is read as it is. An SRGB8A8 scene holds the encoded bytes already (the GPU

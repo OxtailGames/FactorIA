@@ -166,7 +166,15 @@ struct OutputState {
     bool askedLinear = false;
     HdrEncoding logged = HdrEncoding::Sdr;  // what the log line last said
     bool loggedWant = false;
+    // The display, asked every frame while the game wants HDR (the EDR headroom follows the screen's brightness) and every
+    // kIdleRefresh frames while it does not (supports("hdrOutput") still says what the display could do), so a game in the
+    // standard range does not query the OS each frame. A count of frames, not a time: the same on every machine.
+    HdrDisplay display;
+    bool haveDisplay = false;
+    bool displayWindow = false;  // whether a window existed when `display` was asked
+    unsigned sinceAsked = 0;
 };
+constexpr unsigned kIdleRefresh = 120;
 OutputState& output_state() {
     static OutputState s;
     return s;
@@ -237,7 +245,15 @@ HdrDisplay app_hdr_display() {
 
 HdrOutputInfo app_update_hdr_output(const HdrRequest& request) {
     OutputState& s = output_state();
-    const HdrDisplay display = app_hdr_display();
+    const bool live = request.want && request.blocked.empty();
+    const bool window = sapp_isvalid();
+    if (live || !s.haveDisplay || s.displayWindow != window || ++s.sinceAsked >= kIdleRefresh) {
+        s.display = app_hdr_display();
+        s.haveDisplay = true;
+        s.displayWindow = window;
+        s.sinceAsked = 0;
+    }
+    const HdrDisplay display = s.display;
     const HdrDecision decision = decide_hdr_output(request, display);
     const bool linear = decision.encoding == HdrEncoding::Edr && request.edrLinear;
     if (sapp_isvalid() && (decision.encoding != s.asked || linear != s.askedLinear)) {
@@ -271,12 +287,12 @@ HdrOutputInfo app_hdr_output() {
         std::lock_guard<std::mutex> lock(s.mutex);
         if (s.updated) return s.info;
     }
+    // The swapchain's format is not read here: sokol-app's state belongs to the window thread, and this may be any thread.
     HdrOutputInfo info;
     if (!sapp_isvalid()) {
         info.display = no_window();
         info.status = info.display.why;
     } else {
-        info.swapchainFormat = swapchain_format();
         info.status = "no frame has been presented yet";
     }
     return info;
