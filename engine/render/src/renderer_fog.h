@@ -1,13 +1,16 @@
 // Distance and height fog and sun shafts (PostProcess.fog*, PostProcess.sunShafts*; M71-D3b): two effects that work on the scene colour
 // BEFORE the exposure, depth of field and bloom (they belong to the lighting of the scene) and read the prepass of their camera.
 //
-//   fog-blend       prepass -> the camera's rectangle of the picture: fogColor * f blended over it (src + dst * (1 - f)); reads no colour
+//   fog             prepass -> the camera's rectangle of the picture: fogColor * f blended over it (src + dst * (1 - f)); reads no colour.
+//                   A full-screen draw INSIDE the main pass (draw_fog), after the opaque meshes and the sky and before the blended meshes
+//                   and the quads of the world: those fog themselves (the forward fog of mesh_common.glsl and quad.glsl takes the same
+//                   numbers), so a particle or a glass pane is fogged by its own distance, not by the opaque mesh behind it.
 //   shafts-rays     picture + prepass -> 1/2 res (one channel): the radial scattering toward the sun's screen position (shaders/sun_shafts.glsl)
 //   shafts-add      the rays x tint -> added onto the camera's rectangle of the picture
 //
 // Neither effect needs a scratch copy of the picture: the fog is an alpha blend and the shafts are additive. Every camera has its own plan and
-// its own passes, so a split screen fogs each rectangle on its own. A camera whose fog is drawn does not also draw the forward fog of
-// SceneSettings.fogColor / fogDensity (renderer_draw.cpp, scene_uniforms): the two never add up.
+// its own draws, so a split screen fogs each rectangle on its own. A camera whose fog is drawn does not also draw the forward fog of
+// SceneSettings.fogColor / fogDensity on its opaque meshes (renderer_draw.cpp, scene_uniforms): the two never add up.
 //
 // FogFx owns its shaders and pipelines (created on first use, destroyed by release()), so a game that never turns an effect on compiles
 // nothing. The plan is pure CPU (no GPU, tested without one).
@@ -47,6 +50,7 @@ struct FogFxPlan {
     float proj[8]{};          // P00, P11, P02, P12, P03, P13, P32, P33 (see motion_blur.glsl)
     Vec3 eye{0, 0, 0};        // the camera's world position
     float axisY[3]{0, 1, 0};  // right.y, up.y, forward.y
+    Vec3 forward{0, 0, -1};   // the camera's forward axis (the forward fog of an orthographic camera measures along it)
     // ---- sun shafts ----
     bool shafts = false;
     float sunUv[2]{0.5f, 0.5f};  // the sun's place in the camera's rectangle (top-left uv; may lie outside 0..1)
@@ -81,13 +85,18 @@ public:
     FogFx(const FogFx&) = delete;
     FogFx& operator=(const FogFx&) = delete;
 
-    // Declares the passes of one camera in `graph`: fog, then the shafts. `game` is the imported resource of the picture (texture view
-    // `srcTex`), `rect` the camera's rectangle of it (picW x picH), `dst` where the passes draw (as the bloom's BloomTarget), `prepass` the
-    // camera's prepass (invalid: nothing is drawn). Each pass adds one to *drawCalls when it runs. Returns the number of passes declared
-    // (0: nothing is drawn: no effect, no prepass, shaders or targets the GPU cannot make; logged once).
+    // Declares the passes of the sun shafts of one camera in `graph` (the fog is draw_fog, in the main pass). `game` is the imported resource
+    // of the picture (texture view `srcTex`), `rect` the camera's rectangle of it (picW x picH), `dst` where the passes draw (as the bloom's
+    // BloomTarget), `prepass` the camera's prepass (invalid: nothing is drawn). Each pass adds one to *drawCalls when it runs. Returns the
+    // number of passes declared (0: nothing is drawn: no shafts, no prepass, shaders or targets the GPU cannot make; logged once).
     int add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, const FogFxPlan& plan, const PostRect& rect,
                    int picW, int picH, ResourceId game, sg_view srcTex, const BloomTarget& dst,
                    const PrepassRef& prepass, int* drawCalls, const std::string& job);
+
+    // Draws the fog of `plan` over the pass being drawn, whose target has `format` (the game image, multisampled or not): one full-screen
+    // triangle that reads the prepass `prepassTex`. The caller has set the viewport and the scissor to the camera's rectangle. False (nothing
+    // drawn) when the program cannot be made.
+    bool draw_fog(Gpu& gpu, const FogFxPlan& plan, sg_view prepassTex, const TargetFormat& format);
 
     // Destroys the shaders and the pipelines; call while the graphics context is open.
     void release();

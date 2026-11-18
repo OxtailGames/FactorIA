@@ -107,7 +107,8 @@ SsaoCamera ssao_camera(const CameraGeometry& cam) {
 #endif
 int Ssao::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, const SsaoSettings& s,
                      const SsaoCamera& cam, const PrepassRef& prepass, const PostRect& rect, int picW, int picH,
-                     ResourceId game, const SsaoTarget& dst, bool linear, int* drawCalls, const std::string& job) {
+                     bool linear, int* drawCalls, const std::string& job, SsaoApply* apply) {
+    if (apply) *apply = SsaoApply{};
     if (!s.enabled || !prepass.valid() || picW < 1 || picH < 1) return 0;
     const bool partial = !rect.whole(picW, picH);
     const int w = partial ? rect.w : picW,
@@ -217,56 +218,44 @@ int Ssao::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, con
             ++*drawCalls;
         });
     }
-    // 3. the darkening of the game image (or, for the debug view, the occlusion as a grey) over the camera's rectangle
-    {
-        ssao_ssao_apply_params_t u{};
-        // intensity * kPower; a gamma scene holds encoded values, so its colour gets the 2.2th root of that (not the debug view, which
-        // shows the occlusion itself)
-        u.a[0] = s.intensity * kPower * (linear || s.view ? 1.0f : 1.0f / kGamma);
-        u.a[1] = float(scale);
-        u.a[2] = kPlaneTolerance;
-        std::copy(sizes, sizes + 4, u.sz);
-        std::copy(cam4, cam4 + 4, u.cam);
-        const bool view = s.view;
-        const char* name = view ? "ssao-view" : "ssao-apply";
-        const SsaoTarget out = dst;
-        const PostRect r = rect;
-        add(name, {a, pre, game}, {game}, [=](const PassContext& c) {
-            const Target* src = tt->get(c.handle(a));
-            const Target* pt = pp.target(c);
-            if (!src || !pt) return;
-            PassDesc p;
-            p.label = name;
-            p.color = out.att;
-            p.resolve = out.resolve;
-            p.format = TargetFormat{g->scene_format(), SG_PIXELFORMAT_NONE, out.samples};
-            p.colorLoad = SG_LOADACTION_LOAD;  // the picture the main passes drew
-            p.colorStore = SG_STOREACTION_STORE;
-            g->begin_pass(p);
-            sg_apply_pipeline(g->ssao_pipeline(view ? SsaoStage::View : SsaoStage::Apply, p.format));
-            if (partial) {  // the triangle covers the camera's rectangle only: uv runs 0..1 across it
-                sg_apply_viewport(r.x, r.y, r.w, r.h, true);
-                sg_apply_scissor_rect(r.x, r.y, r.w, r.h, true);
-            }
-            sg_bindings bind{};
-            bind.vertex_buffers[0] = g->fullscreen_triangle();
-            bind.views[VIEW_ssao_pre_tex] = pt->texView;
-            bind.views[VIEW_ssao_ao_tex] = src->texView;
-            bind.samplers[SMP_ssao_smp] = g->sampler(SamplerKind::Nearest);
-            sg_apply_bindings(&bind);
-            ssao_ssao_vs_params_t vu{};
-            vu.flip[0] = g->is_gl() ? 1.0f : 0.0f;
-            apply_uniforms(UB_ssao_ssao_vs_params, vu);
-            apply_uniforms(UB_ssao_ssao_apply_params, u);
-            sg_draw(0, 3, 1);
-            g->end_pass();
-            ++*drawCalls;
-        });
+    // 3. what the main pass draws: the darkening of the game image (or, for the debug view, the occlusion as a grey) over the camera's
+    // rectangle. intensity * kPower; a gamma scene holds encoded values, so its colour gets the 2.2th root of that (not the debug view,
+    // which shows the occlusion itself).
+    if (apply) {
+        apply->valid = true;
+        apply->ao = a;
+        apply->prepass = pre;
+        apply->power = s.intensity * kPower * (linear || s.view ? 1.0f : 1.0f / kGamma);
+        apply->scale = float(scale);
+        std::copy(sizes, sizes + 4, apply->sz);
+        std::copy(cam4, cam4 + 4, apply->cam);
+        apply->view = s.view;
     }
     return declared;
 }
 #if defined(_MSC_VER)
 #pragma warning(pop)
 #endif
+
+void Ssao::draw_apply(Gpu& gpu, const SsaoApply& apply, sg_view ao, sg_view pre, const TargetFormat& format) {
+    sg_apply_pipeline(gpu.ssao_pipeline(apply.view ? SsaoStage::View : SsaoStage::Apply, format));
+    sg_bindings bind{};
+    bind.vertex_buffers[0] = gpu.fullscreen_triangle();
+    bind.views[VIEW_ssao_pre_tex] = pre;
+    bind.views[VIEW_ssao_ao_tex] = ao;
+    bind.samplers[SMP_ssao_smp] = gpu.sampler(SamplerKind::Nearest);
+    sg_apply_bindings(&bind);
+    ssao_ssao_vs_params_t vu{};
+    vu.flip[0] = gpu.is_gl() ? 1.0f : 0.0f;
+    apply_uniforms(UB_ssao_ssao_vs_params, vu);
+    ssao_ssao_apply_params_t u{};
+    u.a[0] = apply.power;
+    u.a[1] = apply.scale;
+    u.a[2] = kPlaneTolerance;
+    std::copy(apply.sz, apply.sz + 4, u.sz);
+    std::copy(apply.cam, apply.cam + 4, u.cam);
+    apply_uniforms(UB_ssao_ssao_apply_params, u);
+    sg_draw(0, 3, 1);
+}
 
 }  // namespace fa::render

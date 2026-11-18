@@ -284,7 +284,7 @@ TEST_CASE("fog: a far object is closer to the fog colour than a near one, as the
         const Image img = own.draw(s.w);
         const std::vector<std::string> order = own.order();
         INFO(joined(order));
-        CHECK(has_pass(order, "fog-blend"));
+        CHECK(has_pass(order, "/prepass"));
         const float nearR = img.pixel(108, 90).r, farR = img.pixel(207, 90).r;
         CHECK(std::fabs(farR - 0.5f) < std::fabs(nearR - 0.5f) - 0.2f);  // the far one is much closer to the fog colour
         const float fNear = expected_fog(surface_at(108, 90, 9.0f), 0.02f, 0, 0, 0, 0);
@@ -353,7 +353,7 @@ TEST_CASE("fog: the height fog is thicker below fogHeightBase and thins above it
     p.fogHeightFalloff = 0.5f;
     const Image img = own.draw(s.w);
     INFO(joined(own.order()));
-    CHECK(has_pass(own.order(), "fog-blend"));
+    CHECK(has_pass(own.order(), "/prepass"));
     // The cubes' front faces are 9.25 m away (z = 0.75), at pixels (126, 31) above and (126, 149) below.
     const float up = img.pixel(126, 31).r, down = img.pixel(126, 149).r;
     CHECK(up > down + 0.15f);
@@ -387,7 +387,7 @@ TEST_CASE("fog: the stack's fog replaces SceneSettings.fogDensity, so the two ne
     Scene stackOnly;
     stackOnly.fog(0.02f, fogColor);
     const Image st = own.draw(stackOnly.w);
-    CHECK(has_pass(own.order(), "fog-blend"));
+    CHECK(has_pass(own.order(), "/prepass"));
     CHECK(max_diff(st, fwd, 80, 60, 240, 120) <= 3);
     CHECK(fwd.pixel(207, 90).r < 0.75f);  // the fog is there
     // Both on: the stack's fog stands in for the scene's; if both were drawn the far cube would be fogged a second time.
@@ -414,7 +414,7 @@ TEST_CASE("fog: in a linear scene the fog colour is the colour the display shows
     s.w.settings().colorSpace = ColorSpace::Linear;
     s.fog(5.0f, Color{0.5f, 0.6f, 0.7f, 1.0f}, 20.0f);
     const Image img = own.draw(s.w);
-    CHECK(has_pass(own.order(), "fog-blend"));
+    CHECK(has_pass(own.order(), "/prepass"));
     const Color c = img.pixel(207, 90);
     CHECK(c.r == doctest::Approx(0.5f).epsilon(0.02));
     CHECK(c.g == doctest::Approx(0.6f).epsilon(0.02));
@@ -445,7 +445,7 @@ TEST_CASE("fog: in a split screen each camera fogs its own rectangle only") {
     const Image img = own.draw(s.w);
     const std::vector<std::string> order = own.order();
     INFO(joined(order));
-    CHECK(has_pass(order, "fog-blend"));
+    CHECK(has_pass(order, "/prepass"));
     // The right half is the picture without the effect, to the last bit; the left half has the cubes fogged.
     CHECK(max_diff(img, reference, 160, 0, 320, 180) == 0);
     CHECK(max_diff(img, reference, 0, 0, 160, 180) > 20);
@@ -460,6 +460,58 @@ TEST_CASE("fog: in a split screen each camera fogs its own rectangle only") {
     CHECK(max_diff(two, img, 0, 0, 160, 180) == 0);
     CHECK(max_diff(two, reference, 160, 0, 320, 180) > 20);
     CHECK(max_diff(two, img, 160, 0, 320, 180) > 20);  // black fog on the right
+}
+
+// The fog of what is drawn after the opaque meshes (blended meshes, sprites): each fogs itself by its own distance, not by the opaque mesh
+// or the sky behind it. A cube at `centre` (its front face 1 m nearer than the centre) is a blended mesh by its alpha of 0.99.
+static Entity add_glass(World& w, Vec3 pos, float size) { return add_cube(w, pos, size, Color{1, 1, 1, 0.99f}); }
+
+TEST_CASE("fog: a blended mesh over the sky is fogged, and in front of a far fogged cube it shows its own fog, not the "
+          "far one's") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    for (const int samples : {1, 4}) {
+        CAPTURE(samples);
+        Own own(g, samples);
+        REQUIRE_MESSAGE(own.ok, own.error);
+        // Over the sky: a 2 m glass cube whose front face is 18 m away, at pixel (229, 38), where nothing opaque is behind it.
+        Scene s;
+        s.fog(0.05f);
+        add_glass(s.w, {8, 6, -9}, 2.0f);
+        const Image img = own.draw(s.w);
+        INFO(joined(own.order()));
+        CHECK(has_pass(own.order(), "/prepass"));
+        const float f = expected_fog(surface_at(229, 38, 18.0f), 0.05f, 0, 0, 0, 0);
+        CHECK(f > 0.3f);
+        CHECK(img.pixel(229, 38).r == doctest::Approx(0.99f * (1.0f - 0.5f * f)).epsilon(0.03));
+        // The sky around it keeps no fog (the sky is not fogged).
+        CHECK(img.pixel(300, 10).r < 0.02f);
+        // In front of the far cube (pixel (207, 90), 49 m): a glass cube 12 m from the camera, covering that pixel.
+        Scene t;
+        t.fog(0.05f);
+        add_glass(t.w, {3.66f, 0, -3}, 2.0f);
+        const Image front = own.draw(t.w);
+        const float fOwn = expected_fog(surface_at(207, 90, 12.0f), 0.05f, 0, 0, 0, 0);
+        const float fFar = expected_fog(surface_at(207, 90, 49.0f), 0.05f, 0, 0, 0, 0);
+        CHECK(fFar > 0.95f);  // behind it the cube is all fog colour
+        CHECK(fOwn < 0.5f);
+        CHECK(front.pixel(207, 90).r == doctest::Approx(0.99f * (1.0f - 0.5f * fOwn) + 0.01f * 0.5f).epsilon(0.04));
+        // A sprite 12 m away over the same cube is fogged by its own distance too.
+        Scene u;
+        u.fog(0.05f);
+        const Entity spr = make(u.w, "spr", {3.66f, 0, -2});
+        auto& sp = u.w.add<Sprite>(spr);
+        sp.size = {2, 2};
+        sp.color = Color{1, 1, 1, 1};
+        const Image sprite = own.draw(u.w);
+        const float fSprite = expected_fog(surface_at(207, 90, 12.0f), 0.05f, 0, 0, 0, 0);
+        CHECK(sprite.pixel(207, 90).r == doctest::Approx(1.0f - 0.5f * fSprite).epsilon(0.04));
+        // Without the stack's fog nothing of this changes the picture: a glass cube and a sprite draw as before.
+        Scene off;
+        add_glass(off.w, {8, 6, -9}, 2.0f);
+        const Image none = own.draw(off.w);
+        CHECK(none.pixel(229, 38).r > 0.97f);
+    }
 }
 
 namespace {
