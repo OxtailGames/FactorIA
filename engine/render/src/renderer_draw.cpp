@@ -36,6 +36,11 @@ struct Renderer::Impl::MaterialInputs {
 // Holds references to the job's world and frame and a copy of its plan. It lives (Impl::jobContexts) from plan_job until the
 // frame graph has run, because the callbacks of the job's passes use it; the world, the frame and the camera `plan.post`
 // points to belong to the caller of plan_job, which keeps them until run_frame_graph().
+// The sokol-shdc uniform blocks it holds are alignas(16): MSVC warns (C4324, an error under /WX) that the struct is padded.
+#if defined(_MSC_VER)
+#pragma warning(push)
+#pragma warning(disable : 4324)
+#endif
 struct Renderer::Impl::DrawContext {
     DrawContext(World& w, Frame& f, const JobPlan& p) : world(w), fr(f), plan(p), post(*p.post) {}
     World& world;
@@ -93,6 +98,9 @@ struct Renderer::Impl::DrawContext {
     int litMode = 0;
     sg_view shadowRowsTex{};
 };
+#if defined(_MSC_VER)
+#pragma warning(pop)
+#endif
 
 namespace {
 
