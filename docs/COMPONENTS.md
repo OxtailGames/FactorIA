@@ -7060,6 +7060,22 @@ Uploads the folders project.export wrote (build/export/<game-slug>-windows, -mac
 
 ## game
 
+### `render.debug_view` (modifies state)
+
+Not released yet (on main after 0.30.1).
+
+Show the depth or the normals of the depth and normal prepass instead of the game picture, or report which view is on.
+
+Capabilities: read, state
+
+A way to look at the data the depth-based post effects (ssao, depth of field, fog...) read: `depth` paints the prepass depth as a grey (10 / (10 + distance), white next to the camera), `normals` the view-space normal as colours (a surface that faces the camera is blue), black where no opaque mesh was drawn; `none` shows the game again. It is a look at the data for a person or an AI checking a scene, not an effect: it is not saved and a game does not set it. Without `view` it only reports the current one. Result: {view, previous}. The view shows from the next frame (game.step, then game.screenshot). Example: render.debug_view {"view":"depth"}
+
+The environment variable FA_RENDER_DEBUG_VIEW sets the first view at start. The picture changes only on a frame that draws the prepass (a post effect that reads the depth is on, see docs/RENDERING.md, "Depth and normals"). Errors: `invalid_argument` for a `view` that is not none, depth or normals (with a did-you-mean); `unavailable` without graphics (graphics=false). The same is Renderer::set_debug_view in C++.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `view` | string | no | none (the game picture), depth or normals. Omitted: report the current view. |
+
 ### `render.frame_graph`
 
 Since 0.28.0.

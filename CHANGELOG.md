@@ -8,6 +8,9 @@ Older versions, one file per minor version with its patch releases: [0.29](chang
 
 ### M71 (in progress): linear HDR and a post-processing stack
 
+- **Prepass follow-ups:** the new command `render.debug_view` (`none`, `depth`, `normals`; no argument reports the current view) shows the
+  depth or normals of the prepass in a screenshot; the written depth is clamped to 60000 (`a` is the coverage); a custom material whose
+  shader has no prepass programs logs a warning at load.
 - **Linear colour:** `SceneSettings.colorSpace` (`gamma`, the default, or `linear`) now works. In a linear scene lighting and
   blending happen in linear light: the colours you pick (tints, lights, ambient, fog, sky, clear colour, particles) are converted for
   you, colour textures (sprites, albedo, emissive) are read as sRGB (`SRGB8A8`, and the sRGB variants of BC7, ASTC and ETC2) and data

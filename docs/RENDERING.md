@@ -414,10 +414,17 @@ orthographic 3D camera.
   camera and the prepass would not match what each camera draws, so the effects that read the depth are skipped (one warning).
 - **Cost.** One more draw of every opaque batch, vertex work only plus the fragment work of a depth and normal write, and 16 bytes a
   pixel of memory at `RGBA32F` (8 at `RGBA16F`), returned to the pool when the frame ends.
-- **Seeing it.** `FA_RENDER_DEBUG_VIEW=depth` or `normals` in the environment (C++: `Renderer::set_debug_view`) paints the prepass over
-  the 3D picture of the frame: depth as a grey, `10 / (10 + distance)` (white next to the camera), normals as the view-space direction
+- **Seeing it.** The command `render.debug_view {"view":"depth"}` (or `"normals"`, `"none"` to go back; without `view` it
+  reports the current one) paints the prepass over the 3D picture of the frame, so `game.step` then `game.screenshot` shows what the
+  depth-based effects read: depth as a grey, `10 / (10 + distance)` (white next to the camera), normals as the view-space direction
   mapped to colours (`x`, `y`, `z` as red, green, blue: a surface that faces the camera is blue), black where no opaque mesh was
-  drawn. It is for looking at the data, not an effect: a game does not set it.
+  drawn. `FA_RENDER_DEBUG_VIEW=depth` or `normals` in the environment sets the first view at start (C++: `Renderer::set_debug_view`).
+  It is a way to check a scene, not an effect: it is not saved and a game does not set it. `game.screenshot` has no
+  argument for it: set the view, step a frame, take the shot.
+- **What the image holds.** `r` is the depth, clamped to 60000 (the far value) so a half-float fallback never stores infinity;
+  `a` is 1 where an opaque mesh was drawn and 0 elsewhere, and is the truth about coverage, not `r` (a surface at 60000 or more has
+  `r` = 60000 too). A custom material whose shader was made before the prepass has no prepass programs: it is left out of the
+  image, and the renderer logs one warning at load that says so (make the shader again).
 
 ## Off-screen capture
 
