@@ -402,6 +402,12 @@ Result<void> Assets::build_material_checked(MaterialAsset& m) {
                               kReexportHint);
         if (made.ok()) {
             programs[i] = *made;
+        } else if (!prog && i >= kProgPrepass) {
+            FA_WARN(
+                "render",
+                "the shader of material '{}' has no program '{}' (made before the depth and normal prepass): the post "
+                "effects that read the depth do not see this material until the shader is made again ({})",
+                m.path, names[i], kReexportHint);
         } else if (prog || i < kProgShadow) {  // the shadow and prepass programs are optional, a broken one is not
             for (MaterialProgram& p : programs)
                 if (p.shader.id) gpu_.destroy_shader(p.shader);

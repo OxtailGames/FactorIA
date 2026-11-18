@@ -12,6 +12,7 @@
 #include "fa/core/profiler.h"
 #include "fa/core/strings.h"
 #include "fa/platform/hdr_output.h"
+#include "fa/render/renderer.h"
 #include "fa/scene/bounds.h"
 #include "fa/scene/camera_mask.h"
 #include "fa/scene/ui_rect.h"
@@ -757,10 +758,63 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
                                  {"display", std::move(display)}});
         });
 
+    I.commands.add(
+        {"render.debug_view",
+         "Show the depth or the normals of the depth and normal prepass instead of the game picture, or report which "
+         "view is on.",
+         "A way to look at the data the depth-based post effects (ssao, depth of field, fog...) read: `depth` paints "
+         "the "
+         "prepass depth as a grey (10 / (10 + distance), white next to the camera), `normals` the view-space normal as "
+         "colours (a surface that faces the camera is blue), black where no opaque mesh was drawn; `none` shows the "
+         "game "
+         "again. It is a look at the data for a person or an AI checking a scene, not an effect: it is not saved and a "
+         "game does not set it. Without `view` it only reports the current one. Result: {view, previous}. The view "
+         "shows from the next frame (game.step, then game.screenshot). Example: render.debug_view "
+         "{\"view\":\"depth\"}" FA_COMMAND_DETAILS "The environment variable FA_RENDER_DEBUG_VIEW sets the first view "
+                                                   "at start. The picture changes only on a frame "
+         "that draws the prepass (a post effect that reads the depth is on, see docs/RENDERING.md, \"Depth and "
+         "normals\"). Errors: `invalid_argument` for a `view` that is not none, depth or normals (with a "
+         "did-you-mean); "
+         "`unavailable` without graphics (graphics=false). The same is Renderer::set_debug_view in C++.",
+         parse_schema(R"({"type":"object","properties":{
+               "view":{"type":"string","description":"none (the game picture), depth or normals. Omitted: report the current view."}}})"),
+         false, "game"},
+        [&I](const Json& a) {
+            check_args_known(a, {"view"}, "render.debug_view");
+            static const std::vector<std::string> names = {"none", "depth", "normals"};
+            auto name_of = [](DebugView v) {
+                return v == DebugView::Depth ? "depth" : v == DebugView::Normals ? "normals" : "none";
+            };
+            std::string wanted;
+            const bool set = a.is_object() && a.contains("view");
+            if (set) {
+                if (!a["view"].is_string())
+                    throw CommandError(
+                        "invalid_argument", "view: " + describe_json_value(a["view"]) + " is not a string.",
+                        "Pass \"none\", \"depth\" or \"normals\"; leave `view` out to read the current one.");
+                wanted = a["view"].get<std::string>();
+                if (std::find(names.begin(), names.end(), wanted) == names.end())
+                    throw CommandError(
+                        "invalid_argument", "view: unknown view '" + wanted + "'. " + did_you_mean(wanted, names),
+                        "Use \"none\", \"depth\" or \"normals\"; leave `view` out to read the current one.");
+            }
+            if (!I.renderer || !I.renderer->initialized())
+                throw CommandError("unavailable",
+                                   "No renderer: the engine runs with graphics=false, so there is nothing to show.",
+                                   "Run with graphics (headless needs Mesa/EGL on Linux), not graphics=false.");
+            const DebugView previous = I.renderer->debug_view();
+            if (set)
+                I.renderer->set_debug_view(wanted == "depth"     ? DebugView::Depth
+                                           : wanted == "normals" ? DebugView::Normals
+                                                                 : DebugView::None);
+            return Json::object({{"view", name_of(I.renderer->debug_view())}, {"previous", name_of(previous)}});
+        });
+
     // Capabilities (capability.h): what each command does outside the engine's memory.
     declare_command_capabilities(I.commands, {
                                                  {"render.output", capability_sets::reads()},
                                                  {"render.supports", capability_sets::reads()},
+                                                 {"render.debug_view", capability_sets::changes_state()},
                                                  {"game.screenshot", capability_sets::changes_state()},
                                                  {"render.inspect", capability_sets::reads()},
                                                  {"render.pick", capability_sets::reads()},

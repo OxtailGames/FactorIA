@@ -182,7 +182,7 @@ void install_file_from_repo(const char* repoRelative, const char* projectPath) {
     REQUIRE(fs::write_text(projectPath, text).ok());
 }
 
-void install_materials() {
+void install_materials(bool dropPrepass = false) {
     namespace sfs = std::filesystem;
     const sfs::path src = sfs::path(FA_RENDER_DATA_DIR) / "materials";
     for (const auto& e : sfs::recursive_directory_iterator(src)) {
@@ -192,15 +192,19 @@ void install_materials() {
         if (e.path().extension() == ".shader") {
             Json twin = Json::parse(bytes);
             twin["engine"] = FA_ENGINE_VERSION;
+            if (dropPrepass && twin.contains("programs")) {  // a twin made before the prepass existed
+                twin["programs"].erase("prepass");
+                twin["programs"].erase("prepass_skin");
+            }
             bytes = twin.dump();
         }
         REQUIRE(fs::write_bytes(sfs::relative(e.path(), src).generic_string(), bytes.data(), bytes.size()).ok());
     }
 }
 struct MaterialScope {
-    MaterialScope() {
+    explicit MaterialScope(bool dropPrepass = false) {
         gfx().renderer.clear_asset_cache();
-        install_materials();
+        install_materials(dropPrepass);
     }
     ~MaterialScope() {
         gfx().renderer.set_shader_compiler({});
@@ -520,4 +524,28 @@ TEST_CASE("prepass: a frame split between cameras, or a camera with a partial vi
         g.draw(w);
         CHECK(count_suffix(order_of(g.renderer), "/prepass") == 1);
     }
+}
+
+TEST_CASE("prepass: the written depth is clamped to the far value, and the alpha stays the coverage") {
+    std::ifstream in(std::string(FA_REPO_ROOT) + "/engine/render/shaders/mesh_common.glsl", std::ios::binary);
+    const std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    REQUIRE(!text.empty());
+    CHECK(text.find("vec4(min(fa_pre_depth, 60000.0), e, 1.0)") != std::string::npos);
+}
+
+TEST_CASE("prepass: a custom material twin made before the prepass warns once that the depth effects do not see it") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    clear_recent_logs();
+    MaterialScope scope(true);
+    World w;
+    add_camera(w, {0, 0, 8});
+    Entity e = add_mesh(w, "cube", {0, 0, 0}, {2, 2, 2});
+    w.get<MeshRenderer>(e)->material = "materials/glow.material.json";
+    (void)g.draw(w);
+    int warnings = 0;
+    for (const LogEntry& l : recent_logs(4096, LogLevel::Warn))
+        if (l.message.find("has no program 'prepass'") != std::string::npos) ++warnings;
+    CHECK(warnings >= 1);
+    CHECK(warnings <= 2);  // the prepass and the prepass_skin program, once for this load
 }

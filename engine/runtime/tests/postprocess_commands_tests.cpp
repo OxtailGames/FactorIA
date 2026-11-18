@@ -61,8 +61,8 @@ TEST_CASE("postprocess and render.supports commands are documented and closed") 
     Engine e;
     std::string err;
     REQUIRE_MESSAGE(e.init(cfg(p), nullptr, &err), err);
-    for (const char* name :
-         {"postprocess.get", "postprocess.set", "postprocess.presets", "postprocess.apply_preset", "render.supports"}) {
+    for (const char* name : {"postprocess.get", "postprocess.set", "postprocess.presets", "postprocess.apply_preset",
+                             "render.supports", "render.debug_view"}) {
         INFO(name);
         const CommandInfo* info = e.commands().info(name);
         REQUIRE(info != nullptr);
@@ -377,5 +377,33 @@ TEST_CASE("render.output: a headless run shows the standard range, says why and 
 
     r = c.call("render.output", Json::parse(R"({"display":0})"));
     CHECK_FALSE(r.ok);
+    e.shutdown();
+}
+
+TEST_CASE("render.debug_view teaches an unknown view, and says there is no renderer without graphics") {
+    TempProject p;
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(cfg(p), nullptr, &err), err);
+    auto& c = e.commands();
+    CHECK_FALSE(e.commands().info("render.debug_view")->readOnly);
+    auto r = c.call("render.debug_view", Json::parse(R"({"view":"normal"})"));
+    REQUIRE_FALSE(r.ok);
+    CHECK(r.error["code"] == "invalid_argument");
+    CHECK(r.error["message"].get<std::string>().find("normals") != std::string::npos);  // did you mean
+    CHECK_FALSE(c.call("render.debug_view", Json::parse(R"({"view":3})")).ok);
+    CHECK_FALSE(c.call("render.debug_view", Json::parse(R"({"vew":"depth"})")).ok);
+    r = c.call("render.debug_view", Json::object());
+    if (!r.ok) {
+        CHECK(r.error["code"] == "unavailable");
+    } else {
+        CHECK(r.result["view"] == "none");
+        r = c.call("render.debug_view", Json::parse(R"({"view":"depth"})"));
+        REQUIRE(r.ok);
+        CHECK(r.result["view"] == "depth");
+        CHECK(r.result["previous"] == "none");
+        CHECK(c.call("render.debug_view", Json::object()).result["view"] == "depth");
+        CHECK(c.call("render.debug_view", Json::parse(R"({"view":"none"})")).result["view"] == "none");
+    }
     e.shutdown();
 }

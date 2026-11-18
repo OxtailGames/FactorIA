@@ -603,10 +603,11 @@ void main() {
 
 // One texel per pixel of the prepass target (an RGBA float image, cleared to r = far, a = 0 where nothing is drawn):
 //   r  the linear view depth in world units (the distance along the camera's axis, so the same for a perspective and an
-//      orthographic camera and in every graphics API); far (60000) where nothing was drawn
+//      orthographic camera and in every graphics API); far (60000) where nothing was drawn, and never more than that where
+//      something was (clamped, so an RGBA16F fallback never stores Inf)
 //   gb the surface normal in view space (x right, y up, z toward the camera), octahedral encoded in -1..1 (decode below); 0 0 where
 //      nothing was drawn
-//   a  1 where an opaque mesh was drawn, 0 where not
+//   a  1 where an opaque mesh was drawn, 0 where not: the truth about coverage (a drawn surface at 60000 or more has r = 60000 too)
 // The normal is the one the main pass lights with (a normal map and surface() included); a cutout (alphaMode "clip") leaves holes.
 @fs prepass_fs
 @include_block fa_fs_surface
@@ -636,6 +637,6 @@ void main() {
     // e = (1 - |e.yx|) * sign(e) first; normalize).
     vec2 e = nv.xy / (abs(nv.x) + abs(nv.y) + abs(nv.z));
     if (nv.z < 0.0) { e = (1.0 - abs(e.yx)) * vec2(e.x >= 0.0 ? 1.0 : -1.0, e.y >= 0.0 ? 1.0 : -1.0); }
-    fa_frag_color = vec4(fa_pre_depth, e, 1.0);
+    fa_frag_color = vec4(min(fa_pre_depth, 60000.0), e, 1.0);
 }
 @end

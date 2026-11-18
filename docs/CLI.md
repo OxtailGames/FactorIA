@@ -262,6 +262,7 @@ factoria call game.screenshot '{"frames":24,"everyFrames":4,"columns":4,"path":"
 factoria call render.inspect '{"from":[100,90],"to":[220,90],"threshold":20}'   # where the brightness jumps along a line
 factoria call render.pick '{"position":[160,90]}'   # what draws that pixel, topmost first
 factoria call render.frame_graph '{"profileFrames":8}'   # the last frame's passes with the CPU and (D3D11/OpenGL) GPU time of each; the profiler is on for the call
+factoria call render.debug_view '{"view":"depth"}'   # the next screenshot shows the depth prepass ("normals", "none"; no argument reports the view)
 factoria call game.state --scene scenes/level2.scene.json --press move_right --frames-before 30
 factoria call --batch '[{"command":"game.step","args":{"frames":30}},{"command":"script.eval","args":{"code":"time.elapsed"}}]'
 ```

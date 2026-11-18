@@ -1263,6 +1263,7 @@
     "publish.itch": "0.2.0",
     "publish.microsoft": "0.3.0",
     "publish.steam": "0.2.0",
+    "render.debug_view": "unreleased",
     "render.frame_graph": "0.28.0",
     "render.inspect": "0.4.0",
     "render.output": "unreleased",
