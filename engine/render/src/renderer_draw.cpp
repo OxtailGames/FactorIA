@@ -238,7 +238,7 @@ void Renderer::Impl::plan_view_job(World& world, Frame& fr, ViewTarget& target, 
 }
 
 // Starts the frame graph of a frame: nothing declared, no job yet.
-void Renderer::Impl::begin_frame_graph() {
+void Renderer::Impl::begin_frame_graph(bool countPost) {
     if (!passHooksSet) {
         passHooksSet = true;
         // Every pass is a GPU timestamp pair while the GPU timer measures the frame (the profiler is on) and a zone of the
@@ -259,6 +259,7 @@ void Renderer::Impl::begin_frame_graph() {
     frameJobs.clear();
     jobImages.clear();
     ++frameSerial;
+    if (countPost) ++postSerial;
     trim_shadow_rows();
     sharedGame = sharedLight = sharedShadow = ResourceId{};
 }
@@ -367,6 +368,9 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
             pp.ssao = ssao_debug_settings(pp.ssao);
             pp.needsDepth = pp.needsNormals = true;
         }
+        if (pp.fx.grain)
+            pp.fx.grainSeed =
+                grain_seed_for_camera(pp.fx.grainSeed, int(postCams.size()));  // not the same grain per half
         postCams.push_back(&ctx);
         // The camera's view-projection of the frame before, for the effects that reproject (motion blur); one entry per camera, and the
         // cameras that were not drawn last frame are forgotten.
@@ -1702,7 +1706,7 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
     hudActive = false;
     finalEncoded = false;
     for (auto it = autoExposures.begin(); it != autoExposures.end();) {
-        if (it->second.frame + 1 < frameSerial) {  // its camera has not asked for two frames
+        if (it->second.frame + 1 < postSerial) {  // its camera has not asked for two frames
             if (it->second.exposure) it->second.exposure->release();
             it = autoExposures.erase(it);
         } else {
@@ -1870,10 +1874,10 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
                 if (cp.autoExposure) {
                     ExposureSlot& slot = autoExposures[c->fr.cam.entity.bits()];
                     if (!slot.exposure) slot.exposure = std::make_unique<AutoExposure>();
-                    slot.frame = frameSerial;
+                    slot.frame = postSerial;
                     exposure = slot.exposure.get();
                     evRes = exposure->add_passes(graph, transient_targets(), gpu, cp, game, gameTarget.texView, fr.dt,
-                                                 frameSerial, &stats.drawCalls, c->plan.name, physW, physH);
+                                                 postSerial, &stats.drawCalls, c->plan.name, physW, physH);
                 }
                 declare(c->plan.name, "post", cp, exposure, evRes, cp.rect);
                 continue;

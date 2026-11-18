@@ -207,7 +207,10 @@ private:
     Target ev_[2];
     int cur_ = 0;  // the index of the target that holds the EV
     bool fresh_ = true;
-    bool failed_ = false;
+    // A failed attempt to make a target: no new one before this frame (`serial` of add_passes), then it tries again.
+    static constexpr std::uint64_t kRetryFrames = 300;
+    std::uint64_t retryAt_ = 0;
+    bool lumaChecked_ = false;  // the 32x32 measuring target was made once (add_passes)
     bool warned_ = false;
     std::uint64_t lastSerial_ = 0;
     bool declaredBefore_ = false;

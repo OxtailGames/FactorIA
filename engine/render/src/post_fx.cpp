@@ -182,8 +182,9 @@ Vec3 sharpen_color(const PostFx& fx, Vec3 c, Vec3 up, Vec3 down, Vec3 left, Vec3
 }
 
 float grain_noise(int x, int y, const PostFx& fx) {
-    const auto cx = std::uint32_t(int(std::floor((float(x) + 0.5f) / fx.grainSize)));
-    const auto cy = std::uint32_t(int(std::floor((float(y) + 0.5f) / fx.grainSize)));
+    // 0.51, not 0.5: a pixel centre on the border of a cell (a size of 3, 5, 6...) would round either way on the GPU and the CPU.
+    const auto cx = std::uint32_t(int(std::floor((float(x) + 0.51f) / fx.grainSize)));
+    const auto cy = std::uint32_t(int(std::floor((float(y) + 0.51f) / fx.grainSize)));
     const std::uint32_t h1 = pcg(cx + pcg(cy + pcg(fx.grainSeed)));
     const std::uint32_t h2 = pcg(h1 ^ 0x68E31DA4u);
     const float u1 = float(h1 >> 8u) * (1.0f / 16777216.0f), u2 = float(h2 >> 8u) * (1.0f / 16777216.0f);
@@ -340,6 +341,18 @@ int radial_blur_taps(const PostFx& fx, Vec2 uv, Vec2* out) {
 Vec3 overlay_color(const PostFx& fx, Vec3 c) {
     if (!fx.overlay) return c;
     return c + (fx.overlayColor - c) * fx.overlayAlpha;
+}
+
+float lens_coverage(Vec2 source, int w, int h) {
+    const float ix = std::min(source.x, 1.0f - source.x) * float(w);
+    const float iy = std::min(source.y, 1.0f - source.y) * float(h);
+    const float t = std::clamp((std::min(ix, iy) + 0.5f), 0.0f, 1.0f);  // smoothstep(-0.5, 0.5, d)
+    return t * t * (3.0f - 2.0f * t);
+}
+
+std::uint32_t grain_seed_for_camera(std::uint32_t seed, int cameraIndex) {
+    if (cameraIndex <= 0) return seed;
+    return (seed + std::uint32_t(cameraIndex) * 0x9E3779B1u) & 0xFFFFFFu;
 }
 
 }  // namespace fa::render

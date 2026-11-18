@@ -52,7 +52,7 @@ void main() {
 
 @fs fs
 layout(binding=0) uniform texture2D tex;
-layout(binding=1) uniform texture2D expo_tex;    // the adapted exposure (1x1, EV in x); a 1x1 white image when the exposure is not automatic
+layout(binding=1) uniform texture2D expo_tex;    // the adapted exposure (1x1, EV = x + y, see exposure.glsl); a 1x1 white image when the exposure is not automatic
 layout(binding=2) uniform texture2D lut_tex;     // the colour grading LUT as a strip of slices (RGBA8, cube_lut.h); a 1x1 white image when there is none
 layout(binding=3) uniform texture2D aux_tex;     // the outline's image: the prepass (depth mode) or the sprite coverage (sprite mode); a 1x1 white image when there is none
 layout(binding=0) uniform sampler smp;           // nearest: the source has the size of the destination
@@ -91,12 +91,13 @@ layout(binding=2) uniform post_fx_params {
 in vec2 uv;
 out vec4 frag_color;
 
-// One channel made safe before the exposure and the tonemap: NaN, Inf (found by their bits, as bloom.glsl and exposure.glsl do) and
-// anything from 65000 up become 0, so a bad pixel is black on every GPU and never NaN (Reinhard turns an Inf into NaN, and clamp(NaN)
-// differs between backends).
+// One channel made safe before the exposure and the tonemap: NaN and Inf (found by their bits, as bloom.glsl and exposure.glsl do)
+// become 0, so a bad pixel is black on every GPU and never NaN (Reinhard turns an Inf into NaN, and clamp(NaN) differs between
+// backends). A finite value is kept up to 65504, the largest an RGBA16F target holds (an RGBA32F one can go further): a pixel that
+// bright is white, never a black hole.
 float sane(float x) {
-    if (((floatBitsToUint(x) >> 23u) & 255u) == 255u || x >= 65000.0) return 0.0;
-    return x;
+    if (((floatBitsToUint(x) >> 23u) & 255u) == 255u) return 0.0;
+    return min(x, 65504.0);
 }
 vec3 to_linear(vec3 c) {
     return mix(pow(max((c + 0.055) / 1.055, vec3(0.0)), vec3(2.4)), c / 12.92, vec3(lessThanEqual(c, vec3(0.04045))));
@@ -124,7 +125,8 @@ vec3 tonemap_aces(vec3 c) {
 }
 
 // Keeps everything below 0.76 as it is and rolls the peak channel off toward 1 above it, with a little desaturation of the part that was
-// compressed, so a bright saturated colour goes toward white instead of clipping to a hue.
+// compressed, so a bright saturated colour goes toward white instead of clipping to a hue. The curve of Khronos PBR Neutral above its
+// shoulder (0.8 - 0.04), without its black offset: a dark pixel is not changed.
 vec3 tonemap_neutral(vec3 c) {
     c = max(c, vec3(0.0));
     float peak = max(c.r, max(c.g, c.b));
@@ -194,7 +196,9 @@ vec3 to_srgb_ext(vec3 c) {
     return mix(1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, c * 12.92, vec3(lessThanEqual(c, vec3(0.0031308))));
 }
 
-// Interleaved gradient noise (Jimenez): a fixed pattern from the pixel position, so a run is reproducible.
+// Interleaved gradient noise (Jimenez): a fixed pattern from the pixel position (top-left origin on every backend), so a run is
+// reproducible. Every float of this shader is highp in the GLSL ES 3.00 source sokol-shdc makes (a test checks it): the pixel position
+// and the grain's whole numbers keep their digits on a mobile GPU whose default float is mediump.
 float dither_noise(vec2 pixel) {
     return fract(52.9829189 * fract(dot(pixel, vec2(0.06711056, 0.00583715))));
 }
@@ -308,9 +312,12 @@ vec4 read_scene(vec2 s, int fm) {
     if (fm == 0) return textureLod(sampler2D(tex, smp), uv, 0.0);
     if ((fm & (3 | 4096 | 8192 | 16384)) == 0) return textureLod(sampler2D(tex, smp), src_uv(s, fm), 0.0);
     vec2 t = s;
+    float cover = 1.0;  // how much of the pixel is inside the picture: the lens edge fades over one pixel
     if ((fm & 1) != 0) {
         t = lens_source(s);
-        if (t.x < 0.0 || t.y < 0.0 || t.x > 1.0 || t.y > 1.0) return vec4(0.0, 0.0, 0.0, 1.0);  // beyond the picture: black
+        vec2 inside = min(t, 1.0 - t) * r.xy;  // pixels from the nearest edge, negative beyond it
+        cover = smoothstep(-0.5, 0.5, min(inside.x, inside.y));
+        if (cover <= 0.0) return vec4(0.0, 0.0, 0.0, 1.0);  // beyond the picture: black
     }
     if ((fm & 4096) != 0) t += shock_offset(t);
     if ((fm & 8192) != 0) t += haze_offset(t);
@@ -323,9 +330,9 @@ vec4 read_scene(vec2 s, int fm) {
             float f = float(i) / float(max(n - 1, 1));
             acc += read_tap(rb.xy + (t - rb.xy) * (1.0 - rb.z * f), fm);
         }
-        return acc / float(max(n, 1));
+        return mix(vec4(0.0, 0.0, 0.0, 1.0), acc / float(max(n, 1)), cover);
     }
-    return read_tap(t, fm);
+    return mix(vec4(0.0, 0.0, 0.0, 1.0), read_tap(t, fm), cover);
 }
 
 // Steps 1 to 4: scene colour to the encoded display picture (no dither).
@@ -412,7 +419,7 @@ uint pcg(uint v) {
 // Film grain: monochrome triangular noise per cell of vc.z pixels, from the pixel, the frame's seed and nothing else, scaled by how mid-toned
 // the pixel is (vc.w) and by its intensity (vg.w).
 vec3 apply_grain(vec3 c, vec2 s) {
-    vec2 cell = floor((floor(s * r.xy) + 0.5) / vc.z);
+    vec2 cell = floor((floor(s * r.xy) + 0.51) / vc.z);  // 0.51: a pixel whose centre is on a cell border (size 1.5) falls in the same cell on every GPU
     uint h1 = pcg(uint(int(cell.x)) + pcg(uint(int(cell.y)) + pcg(uint(ex.w + 0.5))));
     uint h2 = pcg(h1 ^ 0x68E31DA4u);
     float noise = float(h1 >> 8u) * (1.0 / 16777216.0) + float(h2 >> 8u) * (1.0 / 16777216.0) - 1.0;
@@ -509,7 +516,10 @@ void main() {
     int fm = int(ex.x + 0.5);
     int filter_mode = int(p.w + 0.5);
     float mul = q.y;
-    if (p.y > 0.5 && q.z > 0.5) mul *= exp2(textureLod(sampler2D(expo_tex, smp), vec2(0.5, 0.5), 0.0).r);
+    if (p.y > 0.5 && q.z > 0.5) {
+        vec2 e = textureLod(sampler2D(expo_tex, smp), vec2(0.5, 0.5), 0.0).rg;
+        mul *= exp2(e.x + e.y);  // the EV is stored as a coarse part and its remainder (exposure.glsl): 16-bit targets keep it exactly
+    }
     vec2 s = fm == 0 ? uv : flip_v(uv);
     vec2 s_pixel = s;  // the grain and the dither belong to the real pixel
     if ((fm & 512) != 0) s = pixelate_at(s);
@@ -528,8 +538,9 @@ void main() {
     if ((fm & 64) != 0) c = apply_grain(c, s_pixel);
     // the flash and the fade of the camera (screen_fx.h): one colour over the finished picture
     if ((fm & 32768) != 0) c = mix(c, ov.rgb, ov.a);
-    // the dither of one 8-bit step (q.w: after a conversion or an effect)
-    if (q.w > 0.0) c += (dither_noise(uv * r.xy) - 0.5) * q.w;
+    // the dither of one 8-bit step (q.w: after a conversion or an effect), from the pixel as the top-left origin counts it on every backend;
+    // an HDR output gets it too (its 10-bit swapchain bands in a dark gradient like an 8-bit one, a float16 one just gets a finer noise)
+    if (q.w > 0.0) c += (dither_noise(flip_v(uv) * r.xy) - 0.5) * q.w;
     // 6. the colour filter works on what the screen shows, so it clamps (an HDR picture too: a filtered frame stays within paper
     //    white); without a filter the picture is kept as it is
     if (filter_mode != 0) c = color_filter(clamp(c, 0.0, 1.0), filter_mode);

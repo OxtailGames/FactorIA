@@ -674,6 +674,8 @@ private:
     Gpu& gpu_;
     std::unordered_map<std::string, std::unique_ptr<TextureAsset>> textures_;
     std::unordered_map<std::string, std::unique_ptr<LutAsset>> luts_;
+    std::unordered_set<std::string>
+        lutRetried_;  // LUT files whose first read or parse failed: tried once more before an error
     void destroy_lut(LutAsset& l);
     std::unordered_map<std::string, std::unique_ptr<MeshAsset>> meshes_;
     std::vector<std::unique_ptr<TextureAsset>> anonymous_;  // glTF embedded images
