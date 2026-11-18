@@ -104,6 +104,10 @@ HdrDisplay app_hdr_display();
 // and returns what is shown. Window thread only. The display is asked each call while the request wants HDR (and is not
 // blocked), else every 120th call.
 HdrOutputInfo app_update_hdr_output(const HdrRequest& request);
+// The same, for a caller that calls it every frame: fills `info` and returns true when it did, false (`info` untouched, nothing
+// built, copied or locked) when the request is the one of the last update, it does not want HDR (or is blocked) and the display
+// is not due to be asked: the answer of the last update still stands.
+bool app_update_hdr_output(const HdrRequest& request, HdrOutputInfo& info);
 // The last answer of app_update_hdr_output (any thread). Before the first one: SDR, status "no frame presented yet".
 HdrOutputInfo app_hdr_output();
 

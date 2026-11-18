@@ -29,14 +29,15 @@ HdrOutputInfo active(HdrEncoding e, float headroom, float paperWhite = 200.0f) {
 
 TEST_CASE("hdr encode: PQ (SMPTE ST 2084) gives the published signal values and inverts") {
     // Reference values of the inverse EOTF (ITU-R BT.2100, BT.2408: 203 nits, the HDR reference white, is 58%).
-    CHECK(pq_from_nits(0.0f) == doctest::Approx(7.3e-7).epsilon(0.05));
-    CHECK(pq_from_nits(100.0f) == doctest::Approx(0.5081).epsilon(0.001));
-    CHECK(pq_from_nits(203.0f) == doctest::Approx(0.5807).epsilon(0.001));
-    CHECK(pq_from_nits(1000.0f) == doctest::Approx(0.7518).epsilon(0.001));
+    // doctest's Approx has an absolute floor (epsilon x (scale + |value|), scale 1 by default): scale(0) makes epsilon relative.
+    CHECK(pq_from_nits(0.0f) == doctest::Approx(7.3096e-7).epsilon(1e-3).scale(0));
+    CHECK(pq_from_nits(100.0f) == doctest::Approx(0.50808).epsilon(1e-4).scale(0));
+    CHECK(pq_from_nits(203.0f) == doctest::Approx(0.58069).epsilon(1e-4).scale(0));
+    CHECK(pq_from_nits(1000.0f) == doctest::Approx(0.75183).epsilon(1e-4).scale(0));
     CHECK(pq_from_nits(10000.0f) == doctest::Approx(1.0f).epsilon(1e-5));
     // Out of range and NaN: clamped, never NaN.
     CHECK(pq_from_nits(20000.0f) == doctest::Approx(1.0f).epsilon(1e-5));
-    CHECK(pq_from_nits(-5.0f) == doctest::Approx(pq_from_nits(0.0f)));
+    CHECK(pq_from_nits(-5.0f) == pq_from_nits(0.0f));
     CHECK(std::isfinite(pq_from_nits(std::numeric_limits<float>::quiet_NaN())));
     for (float n : {0.5f, 10.0f, 80.0f, 200.0f, 600.0f, 4000.0f}) {
         CAPTURE(n);
@@ -63,7 +64,7 @@ TEST_CASE("hdr encode: scRGB is linear light with 1.0 = 80 nits, so paper white 
     CHECK(encode_output(OutputEncode::EdrLinear, {3.0f, 0.25f, 0.0f}, 200.0f)[0] == doctest::Approx(3.0f));
     CHECK(encode_output(OutputEncode::Sdr, {0.5f, 2.0f, -1.0f}, 200.0f)[0] == doctest::Approx(0.7354).epsilon(1e-3));
     CHECK(encode_output(OutputEncode::Sdr, {0.5f, 2.0f, -1.0f}, 200.0f)[1] == doctest::Approx(1.0f));
-    CHECK(encode_output(OutputEncode::Sdr, {0.5f, 2.0f, -1.0f}, 200.0f)[2] == doctest::Approx(0.0f));
+    CHECK(encode_output(OutputEncode::Sdr, {0.5f, 2.0f, -1.0f}, 200.0f)[2] == 0.0f);
 }
 
 TEST_CASE("hdr encode: Rec.709 to Rec.2020 keeps white and moves the primaries inside the wider gamut") {
@@ -190,7 +191,7 @@ TEST_CASE(
     // `none` clips at the headroom instead of at 1.
     CHECK(tonemap_hdr({3.0f, 9.0f, -1.0f}, 0, 4.0f)[0] == doctest::Approx(3.0f));
     CHECK(tonemap_hdr({3.0f, 9.0f, -1.0f}, 0, 4.0f)[1] == doctest::Approx(4.0f));
-    CHECK(tonemap_hdr({3.0f, 9.0f, -1.0f}, 0, 4.0f)[2] == doctest::Approx(0.0f));
+    CHECK(tonemap_hdr({3.0f, 9.0f, -1.0f}, 0, 4.0f)[2] == 0.0f);
     CHECK(tonemap_hdr({3.0f, 9.0f, -1.0f}, 0, 1.0f)[0] == doctest::Approx(1.0f));
 }
 
@@ -198,7 +199,7 @@ TEST_CASE("hdr encode: halves read back from an RGBA16F image") {
     CHECK(half_to_float(0x3C00) == 1.0f);
     CHECK(half_to_float(0xC000) == -2.0f);
     CHECK(half_to_float(0x7BFF) == 65504.0f);
-    CHECK(half_to_float(0x0001) == doctest::Approx(5.9604645e-8));
+    CHECK(half_to_float(0x0001) == doctest::Approx(5.9604645e-8).epsilon(1e-6).scale(0));
     CHECK(half_to_float(0x3800) == 0.5f);
     CHECK(std::isinf(half_to_float(0x7C00)));
     CHECK(std::isnan(half_to_float(0x7E00)));

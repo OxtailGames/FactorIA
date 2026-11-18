@@ -844,10 +844,14 @@ public:
     // FA_SCENE_FORMAT: rgba8 = the 8-bit end of the chain (gamma: RGBA8, linear: SRGB8A8), r11g11b10 = prefer the packed float one
     // (a linear scene; the gamma chain is as without it), read once at init to test a path on a GPU that would pick another.
     sg_pixel_format scene_format() const { return sceneFormat_; }
-    // The format of the images that hold the DISPLAY picture (what the final pass writes: sRGB values, so the GPU must not encode them
-    // again): the scene format, except SRGB8A8 (a linear scene in 8 bits), whose writes encode, becomes plain RGBA8.
+    // The format of the images that hold the DISPLAY picture (what the final pass writes: sRGB-ENCODED values, so the GPU must not
+    // encode them again): RGBA16F where the scene is, else plain RGBA8. SRGB8A8 (a linear scene in 8 bits) would encode them twice;
+    // R11G11B10 has a 6-bit mantissa, so encoded values near 1 step by 1/64 of the range and a gradient bands where an 8-bit image
+    // does not (the linear scene needs the packed format for its dark values, the encoded picture does not). An 8-bit display image
+    // cannot hold values above 1: such a window stays within paper white (Renderer::Impl::float_display).
     sg_pixel_format display_format() const {
-        return sceneFormat_ == SG_PIXELFORMAT_SRGB8A8 ? SG_PIXELFORMAT_RGBA8 : sceneFormat_;
+        return sceneFormat_ == SG_PIXELFORMAT_SRGB8A8 || sceneFormat_ == SG_PIXELFORMAT_RG11B10F ? SG_PIXELFORMAT_RGBA8
+                                                                                                 : sceneFormat_;
     }
     // The scene is held in linear light (SceneSettings.colorSpace "linear"). set_linear returns true when scene_format() changed:
     // the caller (Renderer::Impl::sync_color_space) then makes the game target again. The pipelines made so far stay in the
