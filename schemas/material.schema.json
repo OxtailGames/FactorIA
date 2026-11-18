@@ -51,6 +51,8 @@
       "additionalProperties": false,
       "required": ["nodes"],
       "properties": {
+        "version": { "const": 1, "default": 1, "description": "The graph format version (1). Leave it out for version 1; a newer graph needs a newer FactorIA." },
+        "editor": { "type": "object", "description": "Free-form data of the node editor (canvas zoom and pan, comments, groups). The generated snippet ignores it; any keys are allowed." },
         "nodes": {
           "type": "array",
           "minItems": 1,
@@ -65,7 +67,8 @@
               "pos": { "type": "array", "items": { "type": "number" }, "minItems": 2, "maxItems": 2, "description": "[x, y] where the editor draws the node. The generated snippet does not depend on it." },
               "inputs": { "type": "object", "description": "Constants for inputs that have no link: a number, or an array of 2 to 4 numbers. An input with neither reads its default." },
               "param": { "type": "string", "description": "For type \"param\": the name of one of the material's params." },
-              "texture": { "type": "string", "description": "For the texture nodes: the name of one of the material's textures." }
+              "texture": { "type": "string", "description": "For the texture nodes: the name of one of the material's textures." },
+              "editor": { "type": "object", "description": "Free-form data of the node editor for this node (collapsed, comment...). The generated snippet ignores it; any keys are allowed." }
             }
           }
         },

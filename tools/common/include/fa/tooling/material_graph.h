@@ -9,6 +9,7 @@
 
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 #include "fa/core/command.h"
@@ -18,6 +19,8 @@
 namespace fa {
 
 inline constexpr const char* kGraphOutputNode = "output";
+// The `"version"` of the graph format this build reads and writes (a graph without one is version 1).
+inline constexpr int kGraphVersion = 1;
 
 // One input or output of a node type. `type` is "float", "vec2", "vec3", "vec4" or "gen" (a float or a vector of the size the
 // linked and constant inputs of the node agree on; the other `gen` ports of the node take that size, a float is widened).
@@ -78,6 +81,25 @@ struct GeneratedGraph {
 // The snippet of a graph: deterministic (the same graph gives the same bytes; positions in the editor and the order of the arrays
 // do not change it), readable (one line per node with a comment naming its id) and checked first (check_material_graph).
 GeneratedGraph generate_graph_snippet(const Json& graph, const MaterialDef& material, const std::string& kind = "mesh");
+
+// The whole check of a material document held in memory (what the editor's canvas runs after every edit): the errors of the
+// material (the graph's among them, as `parse_material` reports them), the warnings of the graph, and the generated snippet when
+// there are no errors. `doc` is the material as JSON, `"graph"` included (replace the graph in it to try another one);
+// `projectDir` and `path` are as for parse_material (an empty `projectDir` skips the checks that look at files).
+struct MaterialGraphReport {
+    MaterialDef material;
+    std::string kind = "mesh";
+    bool hasGraph = false;
+    std::vector<MaterialIssue> errors;
+    std::vector<MaterialIssue> warnings;
+    std::string snippet;                 // empty when `errors` is not
+    std::string hash;                    // graph_snippet_hash(snippet)
+    std::vector<std::string> usedNodes;  // ids of the nodes the snippet draws, sorted
+    bool hasVertex = false;
+    bool ok() const { return errors.empty() && hasGraph; }
+};
+MaterialGraphReport check_material_document(const Json& doc, const std::string& projectDir = {},
+                                            const std::string& path = {});
 
 // SHA-256 (hex) of a snippet's text with the CRs removed, so a file saved with CRLF on Windows hashes like the text generated.
 std::string graph_snippet_hash(std::string_view snippet);
