@@ -193,6 +193,7 @@ describe("neon look", () => {
       const pp = game.find("camera").get("PostProcess");
       expect(pp.bloomEnabled).toBe(true);
       expect(pp.bloomThreshold).toBeLessThan(1);
+      expect(pp.bloomKnee).toBe(0); // the hard threshold the old Camera.bloom had
       expect(Math.max(cam.clearColor.r, cam.clearColor.g, cam.clearColor.b)).toBeLessThan(0.15);
     }
   });

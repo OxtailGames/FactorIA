@@ -14,6 +14,7 @@
         },
         "PostProcess": {
           "bloomEnabled": true,
+          "bloomKnee": 0.0,
           "bloomThreshold": 0.5,
           "bloomIntensity": 1.5,
           "bloomRadius": 26.0

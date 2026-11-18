@@ -12,7 +12,7 @@ Scenes: title -> game -> gameover. High score persists with `storage`.
 
 The glow is a post-process setting, not artwork (no glow textures, no halo sprites):
 
-- Every scene's camera entity has a `PostProcess` with `"bloomEnabled": true` (`bloomThreshold` 0.5, `bloomIntensity` 1.5, `bloomRadius` 26) over a
+- Every scene's camera entity has a `PostProcess` with `"bloomEnabled": true` (`bloomThreshold` 0.5, `bloomIntensity` 1.5, `bloomRadius` 26, `bloomKnee` 0 for the hard threshold the old camera bloom had) over a
   very dark `clearColor`, so everything brighter than the threshold bleeds light into its surroundings.
 - The player, the enemies, the bullets, the arena border and the title decorations are `Shape2D`s with bright colours
   and `"blend": "additive"`, so overlapping lights add up. Enemies and decorations are outlines (`filled: false`), the
