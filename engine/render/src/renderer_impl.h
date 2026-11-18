@@ -226,6 +226,7 @@ struct Renderer::Impl {
     };
     std::unordered_map<std::uint64_t, std::unique_ptr<ViewTarget>> viewTargets;
     bool viewWarned = false;
+    bool viewAlphaWarned = false;  // one warning that R11G11B10 images have no alpha (view_image)
     TextureAsset* view_image(std::uint64_t key, int w, int h, bool renderTarget = false);
     void release_view(ViewTarget& t);
     void release_unused_views();

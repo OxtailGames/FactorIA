@@ -274,6 +274,26 @@ TEST_CASE("mip_chain: halves down to 1x1, averaging 2x2 pixels and repeating the
     CHECK(strip.back().height == 1);
 }
 
+TEST_CASE("mip_chain: an sRGB texture averages its colour in linear light, its alpha as it is") {
+    // Black and white in a checker: the bytes' mean is 128 (50% grey encoded), the light's mean is 0.5, which sRGB encodes as 188.
+    Image checker = solid(2, 2, 0, 0, 0, 0);
+    put(checker, 0, 0, 255, 255, 255, 255);
+    put(checker, 1, 1, 255, 255, 255, 255);
+    const std::vector<Image> plain = mip_chain(checker);
+    const std::vector<Image> srgb = mip_chain(checker, true);
+    REQUIRE(plain.size() == 2);
+    REQUIRE(srgb.size() == 2);
+    CHECK(px(plain[1], 0, 0) == std::array<int, 4>{128, 128, 128, 128});
+    const std::array<int, 4> lit = px(srgb[1], 0, 0);
+    CHECK(std::abs(lit[0] - 188) <= 1);
+    CHECK(lit[1] == lit[0]);
+    CHECK(lit[2] == lit[0]);
+    CHECK(lit[3] == 128);  // alpha is a coverage, never encoded
+    // A flat colour keeps its exact value through every level.
+    const std::vector<Image> flat = mip_chain(solid(4, 4, 200, 30, 0, 255), true);
+    for (const Image& level : flat) CHECK(px(level, 0, 0) == std::array<int, 4>{200, 30, 0, 255});
+}
+
 namespace {
 // The first bytes of a KTX2 file: identifier, vkFormat, typeSize, pixelWidth, pixelHeight.
 std::string ktx2_header(std::uint32_t w, std::uint32_t h) {

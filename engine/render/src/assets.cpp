@@ -730,7 +730,9 @@ const LutAsset* Assets::lut(const std::string& pathIn) {
 }
 
 void Assets::upload_texture(TextureAsset& t, const Image& img, bool mips) {
-    upload_rgba(t, img, mips ? mip_chain(img) : std::vector<Image>());
+    // In a linear scene the image is made as sRGB (upload_rgba): the mips average in linear light, as the GPU filters it.
+    const bool srgb = gpu_.texture_format(SG_PIXELFORMAT_RGBA8) != SG_PIXELFORMAT_RGBA8;
+    upload_rgba(t, img, mips ? mip_chain(img, srgb) : std::vector<Image>());
 }
 
 // RGBA8 pixels with their mip chain (empty: no mips; chain[0] is not read, mip_chain puts the base there).
@@ -738,7 +740,8 @@ void Assets::upload_rgba(TextureAsset& t, const Image& img, const std::vector<Im
     sg_image_desc d{};
     d.width = img.width;
     d.height = img.height;
-    // A linear scene reads colours as linear light: made as sRGB the GPU decodes them (a mip chain was averaged on the encoded values).
+    // A linear scene reads colours as linear light: made as sRGB the GPU decodes them (the mip chain was averaged in linear light
+    // for it, see upload_texture; one made for the other colour space stays as it was).
     const sg_pixel_format format = gpu_.texture_format(SG_PIXELFORMAT_RGBA8);
     d.pixel_format = format;
     d.num_mipmaps = chain.empty() ? 1 : int(chain.size());
@@ -809,7 +812,7 @@ bool Assets::upload_ktx2(TextureAsset& t, const std::vector<std::uint8_t>& file,
 }
 
 Result<PreparedTexture> decode_texture_file(const std::string& key, const std::string& file, const std::uint8_t* data,
-                                            std::size_t size, sg_pixel_format ktx2Format) {
+                                            std::size_t size, sg_pixel_format ktx2Format, bool srgbMips) {
     AssetLoadScope trace("texture", key);  // the decode time (the read was the IO thread's); free without a load trace
     trace.set_bytes(size);
     PreparedTexture p;
@@ -824,7 +827,7 @@ Result<PreparedTexture> decode_texture_file(const std::string& key, const std::s
     }
     auto img = decode_image(data, size);
     if (!img) return img.error();
-    p.chain = mip_chain(*img);
+    p.chain = mip_chain(*img, srgbMips);
     p.image = std::move(*img);
     return p;
 }

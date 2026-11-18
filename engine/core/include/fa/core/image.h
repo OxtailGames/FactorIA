@@ -34,8 +34,10 @@ Result<Image> decode_image(const std::uint8_t* data, std::size_t size);
 
 // The mip chain of a texture: level 0 is `base`, each next level averages 2x2 pixels (edge pixels repeated) and halves
 // the size (never below 1), down to 1x1 or 16 levels. The renderer uploads these and the export compresses them, so a
-// compressed texture has the same mips as an uncompressed one.
-std::vector<Image> mip_chain(Image base);
+// compressed texture has the same mips as an uncompressed one. `srgb`: the colour channels are sRGB-encoded and are averaged in linear
+// light (a texture the GPU decodes as sRGB in a linear scene: small sprites keep their brightness in the mips); alpha always
+// averages as it is. false (default): the plain average of the bytes.
+std::vector<Image> mip_chain(Image base, bool srgb = false);
 
 // GPU-compressed twin of a texture: an export replaces assets/hero.png by assets/hero.png.ktx2 (KTX2, Basis Universal),
 // and the engine loads the twin when it exists, so nothing that names the texture changes.

@@ -343,11 +343,19 @@ final pass) are drawn; the others are not yet.
   switch makes no texture again. View and render-target images are `TexEncoding::Scene` (never corrected); the font atlas, ramps and
   video textures stay raw. The final blit encodes linear to sRGB (`blit_fs_params.encode`, replaced by the final pass of the stack) and
   so does `read_rgba8`; an SRGB8A8 target is encoded by the GPU on write, so a gamma-correct read-back of it is a plain read.
-  R11G11B10 has no alpha (`scene_has_alpha`); `FeatureEnv.r11g11b10` follows the same rule as the chain (blend, or GL where sokol does
-  not report it). The editor viewport shows `Impl::display_view()`: the finished game image in gamma; in linear, after
+  R11G11B10 has no alpha (`scene_has_alpha`): view and render-target images and world captures share the scene's format, so on that
+  format their background is opaque (`view_image` logs one warning; a format with alpha would need every pass that reads `scene_format()`
+  to follow it); `FeatureEnv.r11g11b10` follows the same rule as the chain (blend, or GL where sokol does
+  not report it; on GLES3/WebGL2 sokol ties filtering to `OES_texture_float_linear`, so a false there can mean that). The editor viewport shows `Impl::display_view()`: the finished game image in gamma; in linear, after
   `Renderer::set_editor_view(true)` (the editor, once; a game never), an RGBA8 copy that `update_editor_copy()` draws after each frame
-  with blit_keep and `encode` on (not counted as a draw call, freed when the scene returns to gamma or the editor stops asking). M71-B4
-  points `display_image()` / `display_view()` at its final target. The shader helper `fa_tex_fix` is written with `if` branches on a
+  with blit_keep and `encode` on (not counted as a draw call, freed when the scene returns to gamma or the editor stops asking; until the
+  copy exists, in the first frame or after a failed make_target, the viewport shows the unencoded image). M71-B4
+  points `display_image()` / `display_view()` at its final target. Known approximations of the linear path: the ramps of Shape2D
+  `gradientStops` are baked in 8 bits and blend on the sRGB values (the two-colour gradient blends in linear light); the 2D light buffer is
+  RGBA8 with range 2 on a GPU that cannot render to a float format (`light_format()`), which bands in dark light; text lighting
+  (`text_light_factor`) sums authored sRGB values, a little brighter than the mesh path's sum of linear light; mips of a colour
+  texture are averaged in linear light when it is made as sRGB (`mip_chain(img, true)`), but a `.ktx2` twin keeps the mips the export
+  made, on the encoded values. The shader helper `fa_tex_fix` is written with `if` branches on a
   uniform, so a gamma scene skips the pow() blocks on compilers that would run both sides of a `?:`.
 
 - **Data, in `engine/scene`.** `SceneSettings.colorSpace` (`gamma`, the default, or `linear`), `hdrOutput` (`off` or `auto`) and
