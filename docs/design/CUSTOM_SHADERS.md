@@ -410,6 +410,34 @@ pointer `/kind` (`parse_material`, `schemas/material.schema.json`).
 - **Commands.** `shader.compile` and `material.info` return `kind`; `material.info` of a kind that does not compile yet
   reports `programs: []` and `compile.state: "unsupported"` with the package in `compile.hint`.
 
+## Node graphs
+
+A `*.material.json` may hold an optional `"graph"` (docs/SHADERS.md, "Node graphs"): nodes with typed inputs and outputs and the
+links between them. The snippet is then GENERATED from the graph, so everything downstream (the top file, sokol-shdc, the
+cache, hot reload, export, the runtime) is unchanged: a graph material is a material whose snippet a tool wrote.
+
+- **One document.** The graph lives in the material file; the generated snippet is written to the file `shader` names and the
+  material file records `"graphHash"`, the SHA-256 of the generated text (CRs removed, like the cache key). `material.graph.generate`
+  compares the snippet on disk with `graphHash` before writing: a mismatch means a hand edit and the command refuses unless
+  `force`. The author's way out is deleting `graph`, which turns the generated code into a hand-written snippet. Both writes
+  (snippet, then material) are undone if the second fails, so the two files never disagree about a hash.
+- **Params and textures** a node uses are the material's own, so nothing about packing, `materialParams` or the inspector
+  changes; a node names one (`"param": "dissolve"`), the checker reports a name the material lacks with the names it has.
+- **Library in code, not data.** `tools/common/src/material_graph_lib.cpp` holds one table row per node type: ports (type,
+  default, doc), the material kinds it works in, whether it needs the fragment stage and the GLSL expression of each output;
+  the noise and parallax functions are helpers (`gn_` prefix, `fa_` is reserved for the engine) pasted only when used. Ports are
+  `float`, `vec2`, `vec3`, `vec4` or `gen` (a float or the vector size the linked inputs agree on); a float widens, nothing
+  else converts silently.
+- **Generation** (`material_graph.cpp`) walks the graph from the output node's inputs, dependencies first, so the text depends
+  on the graph and not on `pos` or the order of the arrays. Variables are `n_<id>_<output>`; one line per node ends with
+  `// <id> (<type>)`; the output node's fields become assignments to `s.` in `surface()` and the vertex offset an addition to
+  `v.world_pos` in `vertex()`. Nodes the output does not reach are left out with a warning.
+- **Kinds.** The checker reads the material's `kind` when the file has one (the rest of the pipeline adds it separately) and
+  refuses a kind it cannot generate; every node type lists its kinds. Only `mesh` is generated today; a new kind adds its
+  node rows and its output node, not a new generator.
+- **Cost of the canvas.** The editor's graph canvas (a later package) edits the same JSON and calls the same generator, so a
+  graph made by an AI opens in the editor and the reverse.
+
 ## Out of scope (recorded so nobody assumes it)
 
 - Custom shaders for `Sprite`/`Shape2D` (quad.glsl), the sky, particles, and custom post-processing: M72.1 and M72.2
@@ -418,7 +446,7 @@ pointer `/kind` (`parse_material`, `schemas/material.schema.json`).
 - Compute shaders, tessellation, geometry shaders (not in sokol_gfx's common subset for these backends anyway).
 - Vertex-stage textures (heightmaps sampled in `vertex()`): a texture in both stages needs a second binding; later.
 - Per-instance material data inside one instanced draw.
-- A node-graph shader editor.
+- The node-graph editor canvas (the graph document, its generator and the node library exist: "Node graphs").
 
 ## Work packages
 
