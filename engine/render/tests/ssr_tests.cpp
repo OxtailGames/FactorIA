@@ -170,7 +170,8 @@ TEST_CASE("ssr: the effect is a drawn effect (render.supports, post_drawn_mask) 
     CHECK_FALSE(is_post_pass("ssrx"));
 }
 
-TEST_CASE("ssr: the plan clamps every number, takes the camera's projection and is empty without intensity or an effect") {
+TEST_CASE(
+    "ssr: the plan clamps every number, takes the camera's projection and is empty without intensity or an effect") {
     PostProcess fx;
     fx.ssrEnabled = true;
     const CameraInfo cam = camera_info();
@@ -239,7 +240,8 @@ TEST_CASE("ssr: the prepass is planned only for an effect that draws something")
     CHECK_FALSE(plan.needsDepth);
 }
 
-TEST_CASE("ssr: a cube on a floor appears mirrored in it, at the pixels the geometry says, and the off states draw the same frame") {
+TEST_CASE("ssr: a cube on a floor appears mirrored in it, at the pixels the geometry says, and the off states draw the "
+          "same frame") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     for (const int samples : {1, 4}) {
@@ -250,7 +252,7 @@ TEST_CASE("ssr: a cube on a floor appears mirrored in it, at the pixels the geom
         const Image reference = own.draw(plain.w);
         CHECK(count_passes(own.order(), "ssr-") == 0);
         CHECK(count_passes(own.order(), "prepass") == 0);
-        CHECK(reference.pixel(160, 130).r > 0.95f);  // the cube
+        CHECK(reference.pixel(160, 130).r > 0.95f);             // the cube
         CHECK(max_red(reference, 100, 140, 220, 180) < 0.02f);  // the floor: black
 
         // Off in the three ways: no stack, a stack without the effect, the effect without intensity. The same bytes, and no pass.

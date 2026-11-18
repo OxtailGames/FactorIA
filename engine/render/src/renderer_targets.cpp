@@ -250,6 +250,8 @@ void Renderer::Impl::destroy_targets() {
     viewTargets.clear();
     bloom.release();
     ssr.forget_targets();
+    ssao.release();
+    sceneFx.forget_targets();
     if (transients) transients->pool.clear_free();  // the bloom levels are made again, at the new size
     destroy_target(lightTarget);
     lightW = lightH = 0;

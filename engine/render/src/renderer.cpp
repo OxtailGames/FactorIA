@@ -331,6 +331,7 @@ bool Renderer::init(const RendererDesc& desc, const GfxEnvironment& env, std::st
     if (const char* dv = std::getenv("FA_RENDER_DEBUG_VIEW"))
         im.debugView = std::strcmp(dv, "depth") == 0     ? DebugView::Depth
                        : std::strcmp(dv, "normals") == 0 ? DebugView::Normals
+                       : std::strcmp(dv, "ao") == 0      ? DebugView::Ao
                                                          : DebugView::None;
     im.adopted = desc.adoptContext && sg_isvalid();
     if (!im.adopted) {
@@ -374,6 +375,7 @@ void Renderer::shutdown() {
     if (im.initialized) {
         im.fonts.reset();
         im.ssr.release();
+        im.sceneFx.release();
         im.ramps.destroy();
         im.assets.reset();
         im.destroy_targets();

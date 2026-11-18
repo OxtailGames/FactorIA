@@ -80,8 +80,9 @@ void renderer_force_output(Renderer& r, const HdrOutputInfo* info);
 bool renderer_read_floats(Renderer& r, bool present, std::vector<float>& out, std::string* error);
 }  // namespace render
 
-// What the renderer shows instead of the game picture, to check the depth and normal prepass (Renderer::set_debug_view).
-enum class DebugView : std::uint8_t { None, Depth, Normals };
+// What the renderer shows instead of the game picture, to check the depth and normal prepass and the ambient occlusion
+// (Renderer::set_debug_view). Ao paints the occlusion as a grey over the picture, drawn with the camera's own settings or the defaults.
+enum class DebugView : std::uint8_t { None, Depth, Normals, Ao };
 
 enum class ScaleMode : std::int32_t {
     Fit,          // keep aspect, letterbox (default)
@@ -514,7 +515,8 @@ public:
     // greys (near is light, 10 / (10 + distance) of the camera), normals as the view-space direction mapped to colours (x, y, z -> r, g, b)
     // and black where no opaque mesh is. Needs a perspective or orthographic 3D camera that draws opaque meshes; any other frame, a GPU
     // without float render targets and a frame that is split between cameras draw the game normally. A debugging aid: it does not change
-    // what a screenshot of the scene shows unless it is on. The environment variable FA_RENDER_DEBUG_VIEW=depth|normals sets it when
+    // what a screenshot of the scene shows unless it is on. Ao shows the ambient occlusion alone, per camera, even in a split screen. The
+    // environment variable FA_RENDER_DEBUG_VIEW=depth|normals|ao sets it when
     // the renderer starts. Main thread.
     void set_debug_view(DebugView view);
     DebugView debug_view() const;

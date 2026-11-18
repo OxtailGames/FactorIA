@@ -10349,7 +10349,7 @@ declare module "factoria" {
     enabled: boolean;
   }
   /**
-   * A stack of screen effects (tonemap, exposure, bloom, colour grading, vignette, chromatic aberration, film grain, lens distortion, sharpen, outline, pixelate, posterize, ambient occlusion, depth of field, motion blur, reflections, fog, sun shafts, radial blur, colour filter), every one off by default. On the entity of a Camera it is that camera's own stack. On any other entity it is a VOLUME: shape "global" applies to every camera, "box", "circle" (2D, x and y) and "sphere" to the cameras whose position is inside it or within blendDistance of it, blended into the camera's stack by priority (a higher one wins) and by weight. Numbers and colours are interpolated by the volume's influence; switches, modes, textures and curves switch over when the influence reaches 0.5. A volume only adds to or changes the effects it switches on: to remove an effect inside a volume switch it on with its neutral values (bloomIntensity 0, vignetteIntensity 0, ...). Each effect has a `<effect>Enabled` switch and parameters named `<effect><Parameter>`. The effects run in a fixed order: ssao, ssr, fog, sunShafts, exposure, depthOfField, motionBlur, radialBlur, lensDistortion, chromaticAberration, bloom (all on HDR colour), tonemap, colorGrading, vignette, sharpen, outline, pixelate, posterize, filmGrain, colorFilter (the last pass). M71 is in progress: the component, the volumes, the postprocess.* commands and render.supports exist, and each effect is drawn as its M71 package lands: render.supports {"feature": "<effect>"} says which ones this build draws on this GPU (exposure, bloom, tonemap, colorFilter, lensDistortion, chromaticAberration, colorGrading, vignette, sharpen, outline, pixelate, posterize and filmGrain today), until then the fields only store the values. The lens distortion, the chromatic aberration, the colour grading, the vignette, the sharpen, the outline, the pixelation, the posterization and the film grain are drawn in the final pass, after the bloom: the lens and the aberration bend how the scene is read (in scene colour, before the exposure), the rest work on the display picture (what the screen shows, paper white = 1, the same on an SDR and an HDR output) and none of them clips above white. Every camera draws its own stack over its own part of the picture (a split screen: each half has its own); the bloom and the colour filter are one per frame, the ones of the camera that draws first. Camera.bloom* and Camera.colorFilter are deprecated and keep working unchanged: they stand in for a PostProcess with bloom and the colour filter. A frame without any stack costs nothing: no pass, no target. Screen-space items (the HUD) are drawn over the finished picture, so exposure, tonemap and the output encode never touch them; the colour filter does.
+   * A stack of screen effects (tonemap, exposure, bloom, colour grading, vignette, chromatic aberration, film grain, lens distortion, sharpen, outline, pixelate, posterize, ambient occlusion, depth of field, motion blur, reflections, fog, sun shafts, radial blur, colour filter), every one off by default. On the entity of a Camera it is that camera's own stack. On any other entity it is a VOLUME: shape "global" applies to every camera, "box", "circle" (2D, x and y) and "sphere" to the cameras whose position is inside it or within blendDistance of it, blended into the camera's stack by priority (a higher one wins) and by weight. Numbers and colours are interpolated by the volume's influence; switches, modes, textures and curves switch over when the influence reaches 0.5. A volume only adds to or changes the effects it switches on: to remove an effect inside a volume switch it on with its neutral values (bloomIntensity 0, vignetteIntensity 0, ...). Each effect has a `<effect>Enabled` switch and parameters named `<effect><Parameter>`. The effects run in a fixed order: ssao, ssr, fog, sunShafts, exposure, depthOfField, motionBlur, radialBlur, lensDistortion, chromaticAberration, bloom (all on HDR colour), tonemap, colorGrading, vignette, sharpen, outline, pixelate, posterize, filmGrain, colorFilter (the last pass). M71 is in progress: the component, the volumes, the postprocess.* commands and render.supports exist, and each effect is drawn as its M71 package lands: render.supports {"feature": "<effect>"} says which ones this build draws on this GPU (ssao, exposure, bloom, tonemap, colorFilter, lensDistortion, chromaticAberration, colorGrading, vignette, sharpen, outline, pixelate, posterize, filmGrain, depthOfField and motionBlur today), until then the fields only store the values. The lens distortion, the chromatic aberration, the colour grading, the vignette, the sharpen, the outline, the pixelation, the posterization and the film grain are drawn in the final pass, after the bloom: the lens and the aberration bend how the scene is read (in scene colour, before the exposure), the rest work on the display picture (what the screen shows, paper white = 1, the same on an SDR and an HDR output) and none of them clips above white. The depth of field and the motion blur read the depth prepass and are drawn on the scene colour, before the bloom and the final pass. Every camera draws its own stack over its own part of the picture (a split screen: each half has its own); the bloom and the colour filter are one per frame, the ones of the camera that draws first. Camera.bloom* and Camera.colorFilter are deprecated and keep working unchanged: they stand in for a PostProcess with bloom and the colour filter. A frame without any stack costs nothing: no pass, no target. Screen-space items (the HUD) are drawn over the finished picture, so exposure, tonemap and the output encode never touch them; the colour filter does. The ambient occlusion (ssao) darkens the 3D meshes where they meet, in place before the bloom, so the interface drawn before the post passes is darkened where it covers meshes.
    * 
    * Category: Camera
    * @since unreleased
@@ -10713,12 +10713,12 @@ declare module "factoria" {
      */
     posterizeLevels: number;
     /**
-     * Switches the ambient occlusion on: creases and contact points of 3D models get darker. Needs the depth buffer (3D); it costs the most of the effects at high quality.
+     * Switches the ambient occlusion on: creases and contact points of 3D models get darker. Needs the depth buffer (3D) and a GPU with RGBA16F targets that blend; it costs the most of the effects at high quality.
      * @since unreleased
      */
     ssaoEnabled: boolean;
     /**
-     * Only used when ssaoEnabled. The number of directions and steps (GTAO): low is for phones and the web; each level costs about twice the one before.
+     * Only used when ssaoEnabled. The number of directions and steps (GTAO): low is for phones and the web; each level costs about twice the one before. low and medium work at half the resolution of the camera's rectangle, high and ultra at full resolution.
      * @since unreleased
      */
     ssaoQuality: "low" | "medium" | "high" | "ultra";
@@ -10733,7 +10733,7 @@ declare module "factoria" {
      */
     ssaoRadius: number;
     /**
-     * Switches the depth of field on: things away from the focus distance are blurred. Needs the depth buffer (3D).
+     * Switches the depth of field on: opaque 3D meshes away from the focus distance are blurred, those in front of it and those behind it each by their own largest blur. It reads the depth prepass, so it needs opaque meshes in view (a frame without any is drawn without it); where no mesh was drawn (the sky, sprites, shapes) the depth is taken as infinite and the far blur applies. It runs before the bloom and the final pass, and the HUD is not blurred.
      * @since unreleased
      */
     depthOfFieldEnabled: boolean;
@@ -10743,28 +10743,28 @@ declare module "factoria" {
      */
     depthOfFieldFocusDistance: number;
     /**
-     * Only used when depthOfFieldEnabled. Autofocus: the focus follows the distance to this entity. Empty = use depthOfFieldFocusDistance.
+     * Only used when depthOfFieldEnabled. Autofocus: the focus follows the view depth of this entity (its distance along the camera's axis), moving by depthOfFieldFocusSpeed. Empty, a destroyed entity or one behind the camera = use depthOfFieldFocusDistance.
      * @since unreleased
      */
     get depthOfFieldTarget(): Entity | null;
     set depthOfFieldTarget(value: EntityLike);
     /**
-     * Only used with an autofocus target. How fast the focus moves to it, per second; higher is quicker.
+     * Only used with an autofocus target. How fast the focus moves to it, per second: each frame covers 1 - exp(-speed * dt) of the way (engine clock, the same on every machine); higher is quicker, 0 stays where it is.
      * @since unreleased
      */
     depthOfFieldFocusSpeed: number;
     /**
-     * Only used when depthOfFieldEnabled. World units around the focus distance that stay fully sharp.
+     * Only used when depthOfFieldEnabled. World units of the band that stays fully sharp, centred on the focus distance (half of it on each side); the blur then grows smoothly to its largest in front of the band over the distance to the camera, and behind it over the focus distance.
      * @since unreleased
      */
     depthOfFieldFocusRange: number;
     /**
-     * Only used when depthOfFieldEnabled. The largest blur, in design pixels, in front of the focus (0..32).
+     * Only used when depthOfFieldEnabled. The largest blur, in design pixels (times the render scale), in front of the focus (0..32). It spreads past the silhouette of the near object.
      * @since unreleased
      */
     depthOfFieldNearBlur: number;
     /**
-     * Only used when depthOfFieldEnabled. The largest blur, in design pixels, behind the focus (0..32).
+     * Only used when depthOfFieldEnabled. The largest blur, in design pixels (times the render scale), behind the focus (0..32). A sharper object never takes colour from a blurred one behind it.
      * @since unreleased
      */
     depthOfFieldFarBlur: number;
@@ -10774,7 +10774,7 @@ declare module "factoria" {
      */
     depthOfFieldBokeh: boolean;
     /**
-     * Switches the camera motion blur on: the picture smears along the camera's movement, computed from the depth buffer (3D).
+     * Switches the camera motion blur on: the picture smears along the way the camera moved since the frame before, computed from the depth prepass (opaque 3D meshes; the sky only smears when the camera turns). Objects that move on their own are not blurred. There is no blur on the first frame or after the camera did not draw the frame before (a cut); a camera that jumps to another place in one frame blurs up to a longest streak. It runs before the bloom and the final pass.
      * @since unreleased
      */
     motionBlurEnabled: boolean;
@@ -10784,7 +10784,7 @@ declare module "factoria" {
      */
     motionBlurIntensity: number;
     /**
-     * Only used when motionBlurEnabled. 4..32 taps along the movement; more is smoother and costs more.
+     * Only used when motionBlurEnabled. 4..32 taps along the movement; more is smoother and costs more. A streak is at most 8% of the picture's larger side.
      * @since unreleased
      */
     motionBlurSamples: number;
