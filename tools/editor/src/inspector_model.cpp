@@ -240,13 +240,23 @@ bool material_param_overridden(const MaterialParamSpec& p, const Json& overrides
     return overrides.is_object() && overrides.contains(p.name) && !overrides[p.name].is_null();
 }
 
-Json material_param_edit_args(const std::string& entityId, const MaterialParamSpec& p, const Json& value) {
-    return field_edit_args(entityId, "MeshRenderer", "materialParams", Json::object({{p.name, value}}), true);
+Json material_param_edit_args(const std::string& entityId, const MaterialParamSpec& p, const Json& value,
+                              const std::string& component, const std::string& paramsField) {
+    return field_edit_args(entityId, component, paramsField, Json::object({{p.name, value}}), true);
 }
 
-Json material_param_reset_args(const std::string& entityId, const MaterialParamSpec& p) {
-    return material_param_edit_args(entityId, p, Json(nullptr));
+Json material_param_reset_args(const std::string& entityId, const MaterialParamSpec& p, const std::string& component,
+                               const std::string& paramsField) {
+    return material_param_edit_args(entityId, p, Json(nullptr), component, paramsField);
 }
+
+std::string material_field_of_params(std::string_view paramsField) {
+    if (paramsField == "materialParams") return "material";
+    if (paramsField == "skyMaterialParams") return "skyMaterial";
+    return {};
+}
+
+bool is_material_field(std::string_view field) { return field == "material" || field == "skyMaterial"; }
 
 std::string material_build_error(const Json& assetReport, const std::string& materialPath) {
     if (materialPath.empty() || !assetReport.is_object() || !assetReport.contains("materials") ||

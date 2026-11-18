@@ -479,7 +479,7 @@ void Editor::draw_inspector_component_multi(const std::vector<Entity>& ents, con
                 }
                 tooltip(field_tip(f, disabled));
                 ImGui::TableSetColumnIndex(1);
-                if (type.name == "MeshRenderer" && f.name == "materialParams") {
+                if (!material_field_of_params(f.name).empty()) {
                     ImGui::TextDisabled("Material params: select one entity to edit them.");
                 } else {
                     Json out;
@@ -631,8 +631,8 @@ void Editor::draw_inspector_component(Entity e, const TypeInfo& type) {
                     inspScrollTo_.clear();
                 }
                 ImGui::TableSetColumnIndex(1);
-                if (type.name == "MeshRenderer" && f.name == "materialParams") {
-                    draw_material_params(e, cur);
+                if (!material_field_of_params(f.name).empty()) {
+                    draw_material_params(e, cur, type.name, f.name);
                 } else {
                     Json out;
                     if (draw_field_widget(key, f, value, disabled, out)) {
@@ -660,7 +660,7 @@ void Editor::draw_inspector_component(Entity e, const TypeInfo& type) {
                 }
                 if (auto it = inspErrors_.find(key); it != inspErrors_.end()) error_text(it->second);
                 if (type.name == "SpriteAnimator" && f.name == "clip") draw_animator_clips(e, id, value);
-                if (type.name == "MeshRenderer" && f.name == "material" && value.is_string()) {
+                if (is_material_field(f.name) && value.is_string()) {
                     if (assetReportAt_ + 0.5 < time_ || assetReport_.is_null()) {
                         assetReportAt_ = time_;
                         assetReport_ =
@@ -1032,25 +1032,29 @@ void Editor::draw_animator_clips(Entity e, const std::string& id, const Json& cu
     }
 }
 
-void Editor::draw_material_params(Entity e, const Json& cur) {
+void Editor::draw_material_params(Entity e, const Json& cur, const std::string& component,
+                                  const std::string& paramsField) {
     const std::string id = world().id_of(e);
-    const std::string path =
-        cur.contains("material") && cur["material"].is_string() ? cur["material"].get<std::string>() : std::string();
-    const Json overrides = cur.contains("materialParams") ? cur["materialParams"] : Json::object();
+    const std::string materialField = material_field_of_params(paramsField);
+    const std::string path = cur.contains(materialField) && cur[materialField].is_string()
+                                 ? cur[materialField].get<std::string>()
+                                 : std::string();
+    const Json overrides = cur.contains(paramsField) ? cur[paramsField] : Json::object();
+    const std::string rawKey = component + "." + paramsField;
     FieldInfo rawField;  // the plain JSON box, when there is no material to type the params by
-    rawField.name = "materialParams";
+    rawField.name = paramsField;
     rawField.kind = FieldKind::Json;
     rawField.doc = "Per-entity overrides of the material's params, keyed by the name the material file declares.";
     auto raw = [&] {
         Json out;
-        if (draw_field_widget("MeshRenderer.materialParams", rawField, overrides, false, out)) {
+        if (draw_field_widget(rawKey, rawField, overrides, false, out)) {
             std::string err;
-            CommandResult r = edit_command("insp:" + id + ":MeshRenderer.materialParams", "scene.set_component",
-                                           field_edit_args(id, "MeshRenderer", "materialParams", out), &err);
+            CommandResult r = edit_command("insp:" + id + ":" + rawKey, "scene.set_component",
+                                           field_edit_args(id, component, paramsField, out), &err);
             if (!r.ok)
-                inspErrors_["MeshRenderer.materialParams"] = err;
+                inspErrors_[rawKey] = err;
             else
-                inspErrors_.erase("MeshRenderer.materialParams");
+                inspErrors_.erase(rawKey);
         }
     };
     if (path.empty()) {
@@ -1145,7 +1149,8 @@ void Editor::draw_material_params(Entity e, const Json& cur) {
         if (ImGui::IsItemActive() && lastEditKey_ == editKey) lastEditTime_ = time_;
         if (changed) {
             std::string err;
-            CommandResult r = edit_command(editKey, "scene.set_component", material_param_edit_args(id, p, out), &err);
+            CommandResult r = edit_command(editKey, "scene.set_component",
+                                           material_param_edit_args(id, p, out, component, paramsField), &err);
             if (r.ok)
                 inspErrors_.erase("matparam:" + p.name);
             else
@@ -1155,8 +1160,9 @@ void Editor::draw_material_params(Entity e, const Json& cur) {
         ImGui::BeginDisabled(!overridden);
         if (ImGui::SmallButton("Reset")) {
             std::string err;
-            CommandResult r = edit_command("insp:" + id + ":matreset:" + std::to_string(uiFrame_),
-                                           "scene.set_component", material_param_reset_args(id, p), &err);
+            CommandResult r =
+                edit_command("insp:" + id + ":matreset:" + std::to_string(uiFrame_), "scene.set_component",
+                             material_param_reset_args(id, p, component, paramsField), &err);
             if (!r.ok)
                 inspErrors_["matparam:" + p.name] = err;
             else

@@ -1,7 +1,7 @@
 // Custom materials, the tooling half (docs/design/CUSTOM_SHADERS.md): reads and checks `*.material.json`
 // (schemas/material.schema.json), generates the sokol-shdc top file around the author's GLSL snippet and the engine's mesh
 // template (engine/render/shaders/*_common.glsl, embedded), runs sokol-shdc, maps its errors back to the snippet, and keeps
-// the result as one JSON "twin" per dialect (`factoria.shader/1`). Commands: "shader.compile", "material.info";
+// the result as one JSON "twin" per dialect (`factoria.shader/1`). Commands: "shader.compile", "material.info", and the node-graph ones in fa/tooling/material_graph.h;
 // `factoria validate` compiles every material for every dialect; `factoria export` ships the twins of the target's dialects
 // (<material>.json.<slang>.shader) in place of the snippets (tools/common/src/export_shaders.cpp).
 //
@@ -33,7 +33,16 @@ namespace fa {
 
 inline constexpr int kMaterialMaxParams = 16;  // each padded to a vec4 (256 bytes)
 inline constexpr int kMaterialMaxTextures =
-    4;  // fragment stage; the engine binds 6 of the 16 units GLES3 and WebGL2 guarantee
+    4;  // each is bound in both stages (see below), so 6 + 4 fragment and 4 vertex units: under the 16 per stage GLES3 and WebGL2 guarantee
+// Where the textures of a material are bound (render_internal.h has the same numbers): the fragment stage reads texture i at view
+// kMaterialFsFirstView + i and sampler kMaterialFsFirstSampler + i, the vertex stage (vertex() may sample too) at kMaterialVsFirstView + i
+// and kMaterialVsFirstSampler + i, under the name fa_vs_<name>. The engine's own six views and two samplers come first.
+inline constexpr int kMaterialFsFirstView = 6, kMaterialFsFirstSampler = 2;
+inline constexpr int kMaterialVsFirstView = kMaterialFsFirstView + kMaterialMaxTextures,
+                     kMaterialVsFirstSampler = kMaterialFsFirstSampler + kMaterialMaxTextures;
+// A sprite material's textures (kind "sprite") are fragment-stage only, at view kMaterialSpriteFirstView + i and sampler
+// kMaterialSpriteFirstSampler + i: the 2D program's own four views and three samplers come first (render_internal.h has the same numbers).
+inline constexpr int kMaterialSpriteFirstView = 4, kMaterialSpriteFirstSampler = 3;
 inline constexpr const char* kMaterialFormat = "factoria.material/1";
 inline constexpr const char* kShaderTwinFormat = "factoria.shader/1";
 inline constexpr const char* kMaterialAlphaCutoff = "alphaCutoff";
@@ -65,11 +74,15 @@ struct MaterialDef {
     std::string shader;  // project-relative path of the snippet
     std::string kind =
         "mesh";  // "mesh" | "sprite" | "sky" | "post" | "compute" (fa::material_kind_names()); mesh and sprite compile
-    std::string lighting = "pbr";      // "pbr" | "unlit"
+    std::string lighting = "pbr";      // "pbr" | "unlit" | "custom" (a mesh material whose snippet defines light())
     std::string alphaMode = "opaque";  // "opaque" | "clip" | "blend"
     bool doubleSided = false;
     std::vector<MaterialParam> params;  // alphabetical (the packing order of the uniform block); includes implicit ones
     std::vector<MaterialTexture> textures;  // alphabetical (view bindings 6.., sampler bindings 2..)
+    // The node graph the snippet is generated from (fa/tooling/material_graph.h); null = the snippet is hand-written. graphHash
+    // is the hash of the snippet material.graph.generate wrote ("" = never generated).
+    Json graph;
+    std::string graphHash;
 };
 
 struct MaterialIssue {
@@ -119,9 +132,12 @@ struct GeneratedShader {
         snippetLine;  // per line of `top` (index = line - 1): the 1-based line of the snippet it holds, 0 = generated
     bool hasVertex = false;   // the snippet defines vertex()
     bool hasSurface = false;  // the snippet defines surface() (a sprite material: fragment())
+    bool hasLight = false;    // lighting "custom": the snippet defines light()
+    bool hasAmbient = false;  // lighting "custom": the snippet defines ambient()
     std::vector<std::string>
         programs;  // sprite: "quad", "quad_plain". Mesh: "mesh", "mesh_skin", with vertex() or "clip" "shadow", "shadow_skin", and "prepass", "prepass_skin"
-    std::vector<std::string> defines;  // for --defines: FA_MATERIAL (sprite), FA_HAS_VERTEX, FA_ALPHA_CLIP (mesh)
+    std::vector<std::string>
+        defines;  // for --defines: FA_MATERIAL (sprite), FA_HAS_VERTEX, FA_ALPHA_CLIP, FA_CUSTOM_LIGHT, FA_HAS_AMBIENT (mesh)
 };
 
 // Builds the top file of the design: the material block(s) in alphabetical order, the textures, the snippet (surface() only

@@ -29,7 +29,14 @@
 // Every engine identifier starts with fa_ (FA_ for constants), so "names starting with fa_ are the engine's" is the one
 // rule a snippet follows. Uniform block bindings: vertex 0 fa_mesh_vs_params, 3 fa_skin (4 is left for the material's
 // vertex-stage block); fragment 1 fa_mesh_fs_params, 2 fa_lights (5 for the material). Views 0-5 and samplers 0-1 are
-// the engine's.
+// the engine's. A material texture is bound twice, so both stages can sample it (a sokol view slot belongs to one stage and
+// sokol-shdc refuses one name in both): the fragment stage reads it at view 6.. and sampler 2.., the vertex stage at view 10..
+// and sampler 6.. under the name fa_vs_<name> (the generator's #define makes the snippet write the plain name in both).
+//
+// Lighting "custom" defines FA_CUSTOM_LIGHT: the light loop below keeps choosing the lights, their attenuation and the shadow
+// and calls the snippet's `vec3 light(in SurfaceInput i, in Surface s, in LightSample l)` once per light instead of
+// Cook-Torrance; the ambient term is the snippet's `vec3 ambient(in SurfaceInput i, in Surface s, vec3 ambientColor)` when
+// FA_HAS_AMBIENT is defined, else ambientColor * albedo * occlusion; the sky reflection is off. Emission and fog stay.
 
 // The snippet contract (docs/SHADERS.md).
 @block fa_types
@@ -50,6 +57,14 @@ struct Surface {                // what the lighting reads
     float roughness;
     float occlusion;
     vec3 emission;
+};
+struct LightSample {            // light(): one light as the engine's light loop selected it (lighting "custom")
+    vec3 direction;             // surface -> light, normalized (a directional light: the direction its light comes from)
+    vec3 color;                 // the light's color times intensity times attenuation times shadow: what reaches the surface
+    float attenuation;          // 1 for a directional light; for a point or spot light the range falloff (times the spot cone)
+    float shadow;               // 1 = lit, 0 = in shadow (the shadow map of the first directional light; 1 for every other light)
+    float distance;             // surface -> light distance in world units; 0 for a directional light
+    int type;                   // 0 directional, 1 point, 2 spot
 };
 struct VertexData {             // vertex(): world space, after instancing and skinning
     vec3 world_pos;
@@ -356,6 +371,14 @@ void main() {
         vec3 gn = i.world_normal;
         vec3 n = normalize(s.normal);
         vec3 v = i.view_dir;
+#ifdef FA_CUSTOM_LIGHT
+        s.normal = n;
+#ifdef FA_HAS_AMBIENT
+        vec3 lit = ambient(i, s, fa_ambient.rgb);
+#else
+        vec3 lit = fa_ambient.rgb * s.albedo * s.occlusion;
+#endif
+#else
         float metallic = clamp(s.metallic, 0.0, 1.0);
         float roughness = clamp(s.roughness, 0.05, 1.0);
         float alpha = roughness * roughness;
@@ -364,17 +387,19 @@ void main() {
         vec3 diffuse_color = s.albedo * (1.0 - metallic);
         vec3 f0 = mix(vec3(0.04), s.albedo, metallic);
         vec3 lit = fa_ambient.rgb * diffuse_color * s.occlusion;
+#endif
         int count = int(fa_counts.x);
         for (int li = 0; li < 32; li++) {
             if (li >= count) { break; }
             float type = fa_light_color[li].w;
             vec3 l;
             float atten = 1.0;
+            float dist = 0.0;
             if (type < 0.5) {
                 l = normalize(fa_light_pos[li].xyz);
             } else {
                 vec3 to_light = fa_light_pos[li].xyz - i.world_pos;
-                float dist = length(to_light);
+                dist = length(to_light);
                 l = to_light / max(dist, 1e-4);
                 float range = max(fa_light_pos[li].w, 1e-3);
                 float x = clamp(1.0 - (dist / range) * (dist / range), 0.0, 1.0);
@@ -385,8 +410,21 @@ void main() {
                     atten *= smoothstep(cos_outer, mix(cos_outer, 1.0, 0.25), cos_angle);
                 }
             }
+            float shadow = 1.0;
+            if (type < 0.5 && li == 0) { shadow = fa_shadow_factor(gn, l); }
+#ifdef FA_CUSTOM_LIGHT
+            // lighting "custom": the snippet's light() takes the place of the Cook-Torrance term below.
+            LightSample ls;
+            ls.direction = l;
+            ls.color = fa_light_color[li].rgb * (atten * shadow);
+            ls.attenuation = atten;
+            ls.shadow = shadow;
+            ls.distance = dist;
+            ls.type = type < 0.5 ? 0 : (type > 1.5 ? 2 : 1);
+            lit += light(i, s, ls);
+#else
             float ndl = max(dot(n, l), 0.0);
-            if (type < 0.5 && li == 0) { atten *= fa_shadow_factor(gn, l); }
+            atten *= shadow;
             vec3 h = normalize(l + v);
             float ndh = max(dot(n, h), 0.0);
             float vdh = max(dot(v, h), 0.0);
@@ -399,11 +437,14 @@ void main() {
             // so the specular term carries the matching factor pi.
             vec3 spec = fres * (d_ggx * vis * FA_PI) * step(0.0001, ndl);
             lit += (diffuse_color + spec) * fa_light_color[li].rgb * (ndl * atten);
+#endif
         }
+#ifndef FA_CUSTOM_LIGHT
         // Image-based lighting: the sky reflected, weighted by the environment BRDF.
         vec3 r = reflect(-v, n);
         vec2 ab = fa_env_brdf(roughness, ndv);
         lit += fa_environment(r, roughness) * (f0 * ab.x + ab.y) * s.occlusion;
+#endif
         result = lit;
     }
     result += s.emission;

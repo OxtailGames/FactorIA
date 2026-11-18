@@ -4,6 +4,7 @@
 #include <set>
 
 #include "fa/core/strings.h"
+#include "fa/tooling/material_graph.h"
 #include "fa/tooling/shaders.h"
 #include "shaders_internal.h"
 #include "util.h"
@@ -31,7 +32,7 @@ std::string MaterialIssue::to_string() const {
 
 namespace {
 
-const std::vector<std::string> kLightings = {"pbr", "unlit"};
+const std::vector<std::string> kLightings = {"pbr", "unlit", "custom"};
 const std::vector<std::string> kAlphaModes = {"opaque", "clip", "blend"};
 const std::vector<std::string> kParamTypes = {"float", "vec2", "vec3", "vec4", "color"};
 const std::vector<std::string> kSamplers = {"linear", "linearRepeat", "nearest", "nearestRepeat"};
@@ -122,7 +123,7 @@ struct Checker {
                   "Name it for what it holds, e.g. \"noiseMap\" or \"mask\".");
             return false;
         }
-        if (is_reserved_word(name)) {
+        if (is_reserved_word(name) || (out.material.lighting == "custom" && (name == "light" || name == "ambient"))) {
             error(pointer,
                   std::string(what) + " name \"" + name +
                       "\" is a GLSL keyword or a name of the snippet contract, so it cannot be a variable",
@@ -315,6 +316,28 @@ struct Checker {
         }
     }
 
+    // "graph" (the node graph the snippet is generated from, fa/tooling/material_graph.h) and "graphHash" (SHA-256 of the
+    // snippet that was generated). The graph is checked after the params and textures it names are known.
+    void read_graph(const Json& doc, MaterialDef& m) {
+        if (auto h = doc.find("graphHash"); h != doc.end()) {
+            if (!h->is_string() || h->get<std::string>().size() != 64)
+                error("/graphHash",
+                      "expected the 64 hex digits material.graph.generate wrote, got " + describe_json_value(*h),
+                      "Do not write graphHash by hand: run material.graph.generate (or delete the key).");
+            else
+                m.graphHash = h->get<std::string>();
+            if (!doc.contains("graph"))
+                error("/graphHash", "\"graphHash\" without a \"graph\"",
+                      "graphHash belongs to a generated snippet: delete it, or add the graph back.");
+        }
+        auto g = doc.find("graph");
+        if (g == doc.end()) return;
+        m.graph = *g;
+        std::string kind = "mesh";
+        if (auto k = doc.find("kind"); k != doc.end() && k->is_string()) kind = k->get<std::string>();
+        for (MaterialIssue& e : check_material_graph(*g, m, kind).errors) out.errors.push_back(std::move(e));
+    }
+
     void check_shader_path(const Json& doc, MaterialDef& m) {
         auto it = doc.find("shader");
         if (it == doc.end()) {
@@ -336,7 +359,8 @@ struct Checker {
                   "Write it from the project root, e.g. \"shaders/water.surface.glsl\".");
             return;
         }
-        if (projectDir.empty()) return;
+        // A material with a node graph has its snippet generated (material.graph.generate): it may not exist yet.
+        if (projectDir.empty() || doc.contains("graph")) return;
         std::error_code ec;
         if (!stdfs::is_regular_file(stdfs::path(projectDir) / m.shader, ec)) {
             error("/shader", "snippet '" + m.shader + "' does not exist",
@@ -359,8 +383,9 @@ MaterialParse parse_material(const Json& doc, const std::string& projectDir, con
                 "\"shaders/x.surface.glsl\", ...}.");
         return std::move(c.out);
     }
-    static const std::vector<std::string> topKeys = {"$schema",  "format",    "doc",         "kind",   "shader",
-                                                     "lighting", "alphaMode", "doubleSided", "params", "textures"};
+    static const std::vector<std::string> topKeys = {"$schema", "format",   "doc",       "kind",
+                                                     "shader",  "lighting", "alphaMode", "doubleSided",
+                                                     "params",  "textures", "graph",     "graphHash"};
     for (auto it = doc.begin(); it != doc.end(); ++it)
         if (std::find(topKeys.begin(), topKeys.end(), it.key()) == topKeys.end())
             c.error("/" + escape_token(it.key()), "unknown key \"" + it.key() + "\"", did_you_mean(it.key(), topKeys));
@@ -436,6 +461,12 @@ MaterialParse parse_material(const Json& doc, const std::string& projectDir, con
     }
 
     // alphaMode "clip": the cutoff is a param of the material, implicit unless declared (see the header).
+    if (m.lighting == "custom" && m.kind == "sprite")
+        c.error("/lighting",
+                "lighting \"custom\" (the light() hook) is for mesh materials; the 2D pipeline lights sprites itself",
+                "Remove \"lighting\" (a sprite ignores \"pbr\" and \"unlit\") and change what the lights give in "
+                "fragment(), "
+                "or use a mesh material (kind \"mesh\") for a custom light loop.");
     if (m.alphaMode == "clip" && m.kind == "sprite") {
         c.error("/alphaMode", "alphaMode \"clip\" is the mesh template's alpha test; a sprite material has none",
                 "Use \"blend\" (the default look of a sprite) and write `if (s.color.a < 0.5) discard;` in fragment() "
@@ -474,6 +505,7 @@ MaterialParse parse_material(const Json& doc, const std::string& projectDir, con
               [](const MaterialParam& a, const MaterialParam& b) { return a.name < b.name; });
     std::sort(m.textures.begin(), m.textures.end(),
               [](const MaterialTexture& a, const MaterialTexture& b) { return a.name < b.name; });
+    c.read_graph(doc, m);
     return std::move(c.out);
 }
 
