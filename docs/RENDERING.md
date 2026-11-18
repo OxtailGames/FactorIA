@@ -259,6 +259,63 @@ touching the entity's colour: sprites take a flash variant of the quad shader (O
 keep a little specular and image-based reflection). A flashing entity never shares a draw with a non-flashing one. `Text`,
 `Tilemap`, particles and the UI are not flashed. See [GAME_FEEL.md](GAME_FEEL.md).
 
+## Color space: gamma and linear
+
+`SceneSettings.colorSpace` decides how the renderer adds and blends light. Nothing else in the project changes: you keep
+picking colours by eye and keep the same PNG files.
+
+- **`gamma`** (the default): lighting and blending work on the sRGB values themselves, in 8 bits (a float frame where the GPU
+  has one). It is what every project made before M71 uses, and it is drawn exactly as it always was: same pixels, same goldens.
+- **`linear`**: lighting and blending work in linear light, the way light adds up in the world. Two lamps add their light,
+  a light fades with the square of the distance as it should, and a half-transparent white over black is half the light, which a
+  display shows as 0.735, not 0.5. The picture is encoded to sRGB on its way to the screen.
+
+### What changes in a linear scene
+
+- **Colours you pick are converted for you** (they stay sRGB values in the scene file): sprite, shape, tilemap, text and mesh
+  tints, `MeshRenderer.color` and `emissive`, a model's `materialColors`, light and ambient colours, fog, sky and horizon, the
+  camera's clear colour, particle colours, gradient and flash colours. The colours a glTF model carries are already linear and are
+  not converted. Alpha is coverage, not light: it is never converted.
+- **Colour textures are read as sRGB:** sprites, tilemaps, particles, text, albedo and emissive maps. The GPU decodes the texels
+  before it filters them (format `SRGB8A8`, and the sRGB variants of BC7, ASTC and ETC2 for exported `.ktx2` twins). Where a
+  backend has no sRGB variant the shader decodes (same result, the filtering happens on the encoded values).
+- **Data textures stay as plain numbers:** normal maps, metallic-roughness, occlusion, masks, the light buffer and the shadow maps.
+- **One texture used both ways** (an image you use as a sprite and as a mask): the first user that loads it decides the format of
+  the GPU image; every later use is corrected in the shader (a decode, or an encode) so that a colour use always sees linear light
+  and a data use always sees the file's own values. The cost is that such a texture is filtered in the other space (a small
+  difference, only visible on hard edges). Nothing is loaded twice.
+- **The scene target holds linear light**: `RGBA16F` where the GPU renders to it (twice the memory of RGBA8), else `R11G11B10`
+  (half the memory of RGBA16F, no alpha: a game target without alpha is only a problem if you read the picture's alpha, for example
+  `render.captureTexture` of the frame), else `SRGB8A8` (8 bits that hold linear light: the GPU encodes what is written and
+  decodes what is read, so the darks keep their precision and blending is in linear light), else plain `RGBA8` (banding in the
+  darks; only a GPU with no sRGB render target, rare). `render.supports {"feature": "linearColor"}` is true on every GPU;
+  `render.supports {"feature": "r11g11b10"}` says whether the packed float is there. The tests pick the formats with
+  `FA_SCENE_FORMAT` (`rgba8`, `r11g11b10`).
+- **A switch at run time is allowed** (a script writes `colorSpace`): the game target is made again in the other format, the
+  textures, shaders and pipelines are kept, and no GPU image is left behind. A texture already made is not made again.
+
+### Limits of this step
+
+The final conversion to the display (tonemap, exposure, display-space HUD) arrives with the post-processing stack; for now a linear
+scene is encoded by a plain sRGB encode when it is shown, values above 1 clip, the HUD and screen-space UI blend in linear light
+too (their colours still come out as picked, the blending of half-transparent edges differs slightly), and bloom and the colour
+filter work on the linear values. The editor's viewport shows the same encoded picture: the renderer keeps an 8-bit encoded copy of the finished frame for it (`Renderer::set_editor_view`, made only while the scene is linear and freed when it goes back to gamma; a game never makes it). Mips of an sRGB texture are averaged on the
+sRGB values when they are made. A custom material ([SHADERS.md](SHADERS.md)) gets what the GPU gives for its own textures (linear light
+when the texture was first loaded in a linear scene, the file's numbers otherwise) and its colour parameters as authored, and what
+its `surface()` returns is taken as linear light in a linear scene: convert a colour parameter yourself (`pow(c, vec3(2.2))` is
+close enough).
+
+### Migrating a project
+
+1. Switch `colorSpace` to `linear` in one scene and look at it: lit scenes get darker where the lights are weak and brighter
+   where two overlap; the ambient light that looked right in gamma is now too dark (raise it, or `ambientLight` roughly to the
+   colour you would see: gamma 0.5 grey is a linear 0.21).
+2. Sprites and UI keep their colours; soft shadows, glows and particles that were blended with additive or alpha blending look
+   different (usually cleaner). Lower the intensity of strong additive glows.
+3. A texture that is not a colour (a height map, a noise or mask) works unchanged as a sprite mask or a normal map; if it is
+   shown as a sprite in a linear scene it is shown as a colour, i.e. darker than its numbers say.
+4. Check custom materials ([SHADERS.md](SHADERS.md)) as above.
+
 ## Off-screen capture
 
 `render.captureTexture({ entity | rect, space: "world", scale })` draws a part of the world into a texture of its own, with a

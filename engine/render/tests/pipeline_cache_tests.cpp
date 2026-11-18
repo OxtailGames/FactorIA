@@ -102,9 +102,10 @@ TEST_CASE("pipeline cache: an RGBA8 and an RGBA16F target draw in one process wi
     CHECK(gpu.quad_pipeline(f8, false, false).id == q8.id);
     CHECK(gpu.quad_pipeline(f16, false, false).id == q16.id);
     CHECK(gpu.pipeline_count() == one + 1);
-    gpu.set_scene_format(SG_PIXELFORMAT_RGBA16F);
+    gpu.set_scene_pick(0);  // the chain of a gamma scene starts with RGBA16F here
     CHECK(gpu.quad_pipeline(false, false).id == q16.id);
-    gpu.set_scene_format(SG_PIXELFORMAT_RGBA8);  // the fall-back: a new key, not a flush
+    REQUIRE(gpu.next_scene_format());  // the fall-back to RGBA8: a new key, not a flush
+    CHECK(gpu.scene_format() == SG_PIXELFORMAT_RGBA8);
     CHECK(gpu.quad_pipeline(false, false).id == q8.id);
     CHECK(gpu.pipeline_count() == one + 1);
     CHECK(sg_query_pipeline_state(q16) == SG_RESOURCESTATE_VALID);

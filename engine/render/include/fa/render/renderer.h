@@ -384,9 +384,16 @@ public:
     // when asked for (about 40 strings), so a caller that reads the counters of every frame passes false.
     RenderStats stats(bool passTimes = true) const;
 
-    // Native handle of the game target color image (sg_image id) for the editor viewport.
+    // Native handle of the picture the editor viewport shows (sg_image id) and a texture view of it for sampling (sg_view id): the
+    // finished game image (after the colour filter) in a gamma scene. In a linear scene that image holds linear light, which would be
+    // too dark on screen: once set_editor_view(true) was called these are an 8-bit copy encoded to sRGB, made after each frame and
+    // freed when the scene goes back to gamma (0 until the first frame of a linear scene made it). Without set_editor_view they
+    // are the game image as it is.
     std::uint32_t game_target_image_id() const;
-    std::uint32_t game_target_view_id() const;  // texture view (sg_view id) for sampling
+    std::uint32_t game_target_view_id() const;
+    // Asks for the encoded copy above (the editor calls it once). Costs one full-screen copy per frame of a linear scene, so a game
+    // never asks. false frees the copy.
+    void set_editor_view(bool on);
     // True when the game target holds colours above white (a 16-bit float format): MeshRenderer.emissiveStrength above 1 then
     // reaches Camera.bloom with its full strength. False on a GPU that cannot render to RGBA16F with blending, filtering and the
     // requested multisampling (or with FA_SCENE_FORMAT=rgba8), or that lists it but cannot make the game target's images in it
@@ -446,10 +453,10 @@ public:
     // Whether this renderer can do `feature` on the backend and GPU it runs on: a capability of the GPU ("floatTargets",
     // "r11g11b10", "sampledDepth", "computeShaders"), an engine feature ("linearColor", "hdrOutput") or a post effect (the
     // names of kPostEffectOrder: "bloom", "tonemap", ...). False for a name that is not in feature_names(), before init(), on the
-    // headless (dummy) backend, and for what the engine does not draw yet (every effect and linearColor while M71 is in
-    // progress): it never claims what the renderer cannot do. "hdrOutput" is true when the display the window showed its last
-    // frame on can show HDR in an encoding the renderer writes (EDR on Metal; false on D3D11 until the HDR encode of M71),
-    // whatever the scene's hdrOutput setting. `render.supports` answers the same with the reason.
+    // headless (dummy) backend, and for what the engine does not draw yet (every effect while M71 is in progress;
+    // linearColor is drawn on every GPU): it never claims what the renderer cannot do. "hdrOutput" is true when the display
+    // the window showed its last frame on can show HDR in an encoding the renderer writes (EDR on Metal; false on D3D11
+    // until the HDR encode of M71), whatever the scene's hdrOutput setting. `render.supports` answers the same with the reason.
     bool supports(std::string_view feature) const;
     // Every name supports() knows, in a fixed order.
     static std::vector<std::string> feature_names();

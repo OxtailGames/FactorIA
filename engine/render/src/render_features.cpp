@@ -64,9 +64,10 @@ std::vector<FeatureDef> build_table() {
                  "Compute shaders and storage buffers (D3D11, Metal, OpenGL 4.3; never GLES3 or WebGL2)."});
     // The engine features built on them.
     t.push_back(
-        {"linearColor", FeatureKind::Engine, kEveryGpu, "", "M71",
-         "Lighting and blending in linear light (SceneSettings.colorSpace linear). Float targets where the GPU has "
-         "them, RGBA8 with dithering elsewhere, so every GPU can."});
+        {"linearColor", FeatureKind::Engine, kEveryGpu, "", nullptr,
+         "Lighting and blending in linear light (SceneSettings.colorSpace linear). The frame is RGBA16F where the GPU "
+         "has it, else R11G11B10 (no alpha), else 8 bits that hold linear light (SRGB8A8), else plain RGBA8 with "
+         "banding in the darks, so every GPU can."});
     t.push_back(
         {"hdrOutput", FeatureKind::Engine, bit(FeatureBackend::D3d11) | bit(FeatureBackend::Metal), "", nullptr,
          "Showing the picture on a high dynamic range display (SceneSettings.hdrOutput auto): EDR on macOS and iOS, "
@@ -215,7 +216,8 @@ FeatureEnv feature_env_from_sokol() {
     const sg_pixelformat_info half = sg_query_pixelformat(SG_PIXELFORMAT_RGBA16F);
     env.halfTargets = half.render && half.blend && half.filter;
     const sg_pixelformat_info packed = sg_query_pixelformat(SG_PIXELFORMAT_RG11B10F);
-    env.r11g11b10 = packed.render && packed.filter;
+    // The rule of Gpu::init: sokol-gfx reports no blend flag for RG11B10F on GL, where the format blends when it renders at all.
+    env.r11g11b10 = packed.render && packed.filter && (packed.blend || env.backend == FeatureBackend::Gl);
     const sg_pixelformat_info depth = sg_query_pixelformat(SG_PIXELFORMAT_DEPTH);
     env.sampledDepth = depth.render && depth.sample;
     env.compute = sg_query_features().compute;
