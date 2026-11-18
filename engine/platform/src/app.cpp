@@ -24,7 +24,9 @@
 #if defined(__EMSCRIPTEN__)
 #include "ime_web.h"
 #endif
+#if defined(__APPLE__) && !TARGET_OS_IPHONE
 #include "display_watchdog.h"
+#endif
 #include "mobile_impl.h"
 #if defined(__ANDROID__)
 #include <android/native_activity.h>
@@ -61,7 +63,9 @@ struct AppState {
     EdgeInsets insets;  // app_safe_insets(): asked of the platform at start, on resize and every few frames
     int framesToInsets = 0;
     bool quitFromApp = false;  // app_request_quit() was called and its QuitRequested event has not arrived yet
+#if defined(__APPLE__) && !TARGET_OS_IPHONE
     std::unique_ptr<display_watchdog::Watchdog> watchdog;  // macOS test runs: skips when every display sleeps
+#endif
     bool inQuitEvent = false;  // a QuitRequested event is being handled: app_cancel_quit() may act
     bool finishing = false;    // Android: app_request_quit() asked the system to finish the activity
 };
@@ -225,7 +229,9 @@ void on_init() {
 }
 
 void on_frame() {
+#if defined(__APPLE__) && !TARGET_OS_IPHONE
     if (g.watchdog) g.watchdog->frame();
+#endif
     double dt = sapp_frame_duration();
     if (!(dt > 0.0)) dt = 1.0 / 60.0;
     dt = std::min(dt, 0.25);
@@ -246,7 +252,9 @@ int exit_code() { return g.desc.exit_code ? g.desc.exit_code() : 0; }
 #endif
 
 void on_cleanup() {
+#if defined(__APPLE__) && !TARGET_OS_IPHONE
     g.watchdog.reset();
+#endif
 #if defined(__APPLE__)
     ime_apple_attach(nullptr);
 #endif

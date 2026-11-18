@@ -11,6 +11,12 @@ Older versions, one file per minor version with its patch releases: [0.29](chang
 - **Prepass follow-ups:** the new command `render.debug_view` (`none`, `depth`, `normals`; no argument reports the current view) shows the
   depth or normals of the prepass in a screenshot; the written depth is clamped to 60000 (`a` is the coverage); a custom material whose
   shader has no prepass programs logs a warning at load.
+- **Test tooling polish:** `render.debug_view` declares its three views as an `enum` in its argument schema, so a wrong view is
+  an `invalid_arguments` error with a "Did you mean" hint (it was `invalid_argument` from a hand-written check). On a Mac whose
+  displays sleep, a test run that ends itself with exit code 77 now also kills its child processes first (an orphan holding
+  ctest's pipe kept ctest waiting), and `scripts/agent-build.sh` blames display sleep only for the window tests (a test that
+  ctest skips for another reason is listed apart, with no cause). `cli_mcp_update` has a wall-clock watchdog and timeouts on
+  every child program, and kills the servers it started on every way out.
 - **Linear colour:** `SceneSettings.colorSpace` (`gamma`, the default, or `linear`) now works. In a linear scene lighting and
   blending happen in linear light: the colours you pick (tints, lights, ambient, fog, sky, clear colour, particles) are converted for
   you, colour textures (sprites, albedo, emissive) are read as sRGB (`SRGB8A8`, and the sRGB variants of BC7, ASTC and ETC2) and data

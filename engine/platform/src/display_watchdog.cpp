@@ -22,6 +22,7 @@ void skip_and_exit(const std::string& line) {
     std::fprintf(stderr, "%s\n", line.c_str());
     std::fflush(stderr);
     std::fflush(stdout);
+    end_child_processes();      // an orphan that keeps the stdout pipe open would keep ctest waiting
     std::_Exit(kSkipExitCode);  // from the watchdog's thread: no destructors, nothing else may run
 }
 }  // namespace
@@ -59,10 +60,14 @@ void Watchdog::frame() {
 
 void Watchdog::run() {
     const auto poll = std::chrono::duration<double>(options_.pollSeconds);
-    std::unique_lock<std::mutex> lock(mutex_);
-    while (!stop_) {
-        wake_.wait_for(lock, poll, [this] { return stop_; });
-        if (stop_) return;
+    while (true) {
+        {
+            // The lock covers only the wait and stop_: query() (a system call) and onSkip run without it, so the
+            // destructor never waits for them.
+            std::unique_lock<std::mutex> lock(mutex_);
+            wake_.wait_for(lock, poll, [this] { return stop_; });
+            if (stop_) return;
+        }
         const double idle = double(now_ns() - lastFrameNs_.load(std::memory_order_relaxed)) / 1e9;
         if (idle < options_.idleSeconds) continue;
         const DisplayState state = options_.query();  // only when frames are late: a system call
@@ -77,6 +82,7 @@ void Watchdog::run() {
 #if !defined(__APPLE__)
 // No system query here: Linux runs under Xvfb, Windows has its desktop session (display_watchdog_apple.mm is macOS's).
 DisplayState query_system_displays() { return DisplayState::None; }
+void end_child_processes() {}
 #endif
 
 }  // namespace fa::display_watchdog

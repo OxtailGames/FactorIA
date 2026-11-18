@@ -162,8 +162,10 @@ The start-of-run check is not the only one: a display can fall asleep in the mid
 has no script at all. So the windowed programs skip themselves (docs/design/BUILDING_TESTS.md, "Windowed tests on a Mac
 whose displays sleep"): when no frame has come for about ten seconds and every display is asleep, the program prints one
 line (`skipped: every display of this Mac is asleep ...`) and exits with 77, the `SKIP_RETURN_CODE` of those tests, so
-`ctest` reports them as `Skipped`, not as passed. The script lists what ctest skipped that way in the same `SKIPPED`
-note and ends as `DONE INCOMPLETE`.
+`ctest` reports them as `Skipped`, not as passed. The script lists what ctest skipped that way, among the tests of
+label `window` (the only ones with that `SKIP_RETURN_CODE`), in the same `SKIPPED` note and ends as `DONE INCOMPLETE`.
+Another test that ctest reports as `Skipped` is listed in a note of its own that claims no cause (the test's output says
+why).
 A Mac with no display connected lists none, asleep or awake, so the check does not apply to it: the tests that open a
 window run there as before.
 
