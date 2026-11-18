@@ -8,6 +8,8 @@ Two ways to get a picture of the world into a texture, as opposed to onto the sc
 - **Off-screen capture** (`render.captureTexture({ entity | rect, space: "world", scale })`): a still picture of a part of the
   world, taken once, at a pixel scale you choose, even when that part is hidden, covered or nowhere near a camera.
 
+Showing the picture on an HDR display is the last section, "HDR output".
+
 For cameras on the screen (split screen, insets, post effects) see docs/AI_GUIDE.md, section 9.29; for a camera inside a menu
 widget see docs/MENUS.md, "A camera inside the UI".
 
@@ -257,6 +259,65 @@ touching the entity's colour: sprites take a flash variant of the quad shader (O
 keep a little specular and image-based reflection). A flashing entity never shares a draw with a non-flashing one. `Text`,
 `Tilemap`, particles and the UI are not flashed. See [GAME_FEEL.md](GAME_FEEL.md).
 
+## Color space: gamma and linear
+
+`SceneSettings.colorSpace` decides how the renderer adds and blends light. Nothing else in the project changes: you keep
+picking colours by eye and keep the same PNG files.
+
+- **`gamma`** (the default): lighting and blending work on the sRGB values themselves, in 8 bits (a float frame where the GPU
+  has one). It is what every project made before M71 uses, and it is drawn exactly as it always was: same pixels, same goldens.
+- **`linear`**: lighting and blending work in linear light, the way light adds up in the world. Two lamps add their light,
+  a light fades with the square of the distance as it should, and a half-transparent white over black is half the light, which a
+  display shows as 0.735, not 0.5. The picture is encoded to sRGB on its way to the screen.
+
+### What changes in a linear scene
+
+- **Colours you pick are converted for you** (they stay sRGB values in the scene file): sprite, shape, tilemap, text and mesh
+  tints, `MeshRenderer.color` and `emissive`, a model's `materialColors`, light and ambient colours, fog, sky and horizon, the
+  camera's clear colour, particle colours, gradient and flash colours. The colours a glTF model carries are already linear and are
+  not converted. Alpha is coverage, not light: it is never converted.
+- **Colour textures are read as sRGB:** sprites, tilemaps, particles, text, albedo and emissive maps. The GPU decodes the texels
+  before it filters them (format `SRGB8A8`, and the sRGB variants of BC7, ASTC and ETC2 for exported `.ktx2` twins). Where a
+  backend has no sRGB variant the shader decodes (same result, the filtering happens on the encoded values).
+- **Data textures stay as plain numbers:** normal maps, metallic-roughness, occlusion, masks, the light buffer and the shadow maps.
+- **One texture used both ways** (an image you use as a sprite and as a mask): the first user that loads it decides the format of
+  the GPU image; every later use is corrected in the shader (a decode, or an encode) so that a colour use always sees linear light
+  and a data use always sees the file's own values. The cost is that such a texture is filtered in the other space (a small
+  difference, only visible on hard edges). Nothing is loaded twice.
+- **The scene target holds linear light**: `RGBA16F` where the GPU renders to it (twice the memory of RGBA8), else `R11G11B10`
+  (half the memory of RGBA16F, no alpha: a game target without alpha is only a problem if you read the picture's alpha, for example
+  `render.captureTexture` of the frame), else `SRGB8A8` (8 bits that hold linear light: the GPU encodes what is written and
+  decodes what is read, so the darks keep their precision and blending is in linear light), else plain `RGBA8` (banding in the
+  darks; only a GPU with no sRGB render target, rare). `render.supports {"feature": "linearColor"}` is true on every GPU;
+  `render.supports {"feature": "r11g11b10"}` says whether the packed float is there. The tests pick the formats with
+  `FA_SCENE_FORMAT` (`rgba8`, `r11g11b10`).
+- **A switch at run time is allowed** (a script writes `colorSpace`): the game target is made again in the other format, the
+  textures, shaders and pipelines are kept, and no GPU image is left behind. A texture already made is not made again.
+
+### What a linear scene shows on the screen
+
+With nothing in the post-processing stack that converts the picture (no exposure, tonemap or colour filter), the present copy encodes
+linear light to sRGB, values above 1 clip, and the HUD and screen-space UI are drawn into the scene, so they blend in linear light too
+(their colours still come out as picked, the blending of half-transparent edges differs slightly). Bloom works on the linear values.
+With exposure, a tonemap or a colour filter the final pass of the stack does the encode instead (see "Post-processing" below): the
+picture is tonemapped, encoded and dithered once, and the HUD is drawn afterwards in display colours, as in a gamma scene. The editor's
+viewport shows what the game shows: after the final pass the picture itself, otherwise the renderer keeps an 8-bit encoded copy of the finished frame for it (`Renderer::set_editor_view`, made only while the scene is linear and freed when it goes back to gamma; a game never makes it). Mips of an sRGB texture are averaged on the
+sRGB values when they are made. A custom material ([SHADERS.md](SHADERS.md)) gets what the GPU gives for its own textures (linear light
+when the texture was first loaded in a linear scene, the file's numbers otherwise) and its colour parameters as authored, and what
+its `surface()` returns is taken as linear light in a linear scene: convert a colour parameter yourself (`pow(c, vec3(2.2))` is
+close enough).
+
+### Migrating a project
+
+1. Switch `colorSpace` to `linear` in one scene and look at it: lit scenes get darker where the lights are weak and brighter
+   where two overlap; the ambient light that looked right in gamma is now too dark (raise it, or `ambientLight` roughly to the
+   colour you would see: gamma 0.5 grey is a linear 0.21).
+2. Sprites and UI keep their colours; soft shadows, glows and particles that were blended with additive or alpha blending look
+   different (usually cleaner). Lower the intensity of strong additive glows.
+3. A texture that is not a colour (a height map, a noise or mask) works unchanged as a sprite mask or a normal map; if it is
+   shown as a sprite in a linear scene it is shown as a colour, i.e. darker than its numbers say.
+4. Check custom materials ([SHADERS.md](SHADERS.md)) as above.
+
 ## Post-processing: bloom, exposure, tonemap, colour filter
 
 A `PostProcess` component (`docs.components`; docs/COMPONENTS.md is repository only, not in the binary) on the entity of a `Camera` is that camera's stack of screen effects; on an entity
@@ -271,7 +332,7 @@ The passes of a frame, in order (`render.frame_graph` lists them, and `RenderSta
 |---|---|---|
 | `bloom-bright`, `bloom-down-*`, `bloom-blur-h`, `bloom-blur-v`, `bloom-composite` | `bloomEnabled` | The glow: threshold with a soft knee, a reduced-resolution blur, added back (times the lens dirt texture). |
 | `exposure-luma`, `exposure-adapt` | `exposureMode` auto | The frame reduced to 32x32 brightness values, then the stored 1x1 exposure moves toward the one that makes the average 18% grey by `1 - exp(-speed * dt)`, kept between `exposureMinEv` and `exposureMaxEv`. No read back; the engine's frame `dt`, so the same frames give the same exposure on every run. Needs a float render target; the stored exposure is a 32-bit float where the GPU can filter one (else 16-bit, which stops a little short of the target at a slow speed and a high frame rate). |
-| `post` | exposure, tonemap, or a linear scene | The final pass, one full-screen pass: exposure, tonemap (`none` clips, `neutral`, `aces`, `agx`, `reinhard`), the colour filter, the encode for the display and a one-step (1/255) dither so smooth gradients do not band on an 8-bit screen. |
+| `post` | exposure, tonemap, or a colour filter in a linear scene | The final pass, one full-screen pass: exposure, tonemap (`none` clips, `neutral`, `aces`, `agx`, `reinhard`), the colour filter, the encode for the display and a one-step (1/255) dither so smooth gradients do not band on an 8-bit screen. |
 | `hud-over-post` | the final pass ran and screen-space items exist | The HUD, drawn over the final picture in display colours: it is never exposed or tonemapped, and never glows. |
 | `color-filter` | a colour filter with no `post` (or a HUD after it) | The accessibility filter over everything, the last pass. With `post` and no HUD it is part of `post`. |
 
@@ -297,8 +358,9 @@ recording everywhere; Metal has no GPU timer in sokol_gfx, so `gpuMs` is -1 ther
 writes one: on a GPU its cost is the fill rate of the frame, and bloom's chain runs at a quarter of the pixels or less.
 
 Things to know:
-- **Linear scenes.** `SceneSettings.colorSpace` `linear` always runs the final pass (it encodes the picture for the display), even with
-  no effect on.
+- **Linear scenes.** `SceneSettings.colorSpace` `linear` with nothing that converts the picture (no exposure, tonemap or colour filter)
+  adds no pass: the copy to the screen encodes it, as in "Color space". With any of them the `post` pass reads the linear light, converts
+  it and encodes it once (the screen copy then only copies), and the HUD is drawn after it in display colours.
 - **The HUD is not exposed.** A game that wants its HUD to follow the exposure draws it into the world instead. The colour filter
   does cover it (it is the player's setting).
 - **`bloomScreenSpace`.** With `post` in the frame the HUD is drawn after it, so it never glows whatever the field says; without
@@ -343,3 +405,39 @@ const map = render.captureTexture({ rect: [0, 0, 1600, 900], space: "world", sca
 - It is synchronous: no Promise, no scene change to wait for. The entity must still exist when you call it.
 
 For the whole frame the player sees (at most 2048 on a side), use `render.captureTexture({ width, height })`.
+
+## HDR output
+
+A display that can show more than white (an HDR monitor or TV on Windows, a Mac or iPhone screen with extended dynamic range)
+is used when the scene asks for it: `SceneSettings.hdrOutput` `"auto"` (the default is `"off"`). Each frame the engine asks
+the display the window is on and switches the window's swapchain to an HDR format, or back to the standard range, before the
+frame is shown, so moving the window to another monitor or switching HDR in the OS settings takes effect on the next frame.
+
+| Platform | What it needs | What the swapchain becomes |
+|---|---|---|
+| macOS, iOS 16+ (Metal) | A screen with EDR headroom (`NSScreen.maximumPotentialExtendedDynamicRangeColorComponentValue` above 1: XDR and recent built-in displays, HDR monitors with "High Dynamic Range" on) | `RGBA16Float` with `wantsExtendedDynamicRangeContent`, extended sRGB colour space (encoding `edr`) |
+| Windows 10+ (D3D11) | Settings > System > Display > **Use HDR** on for that monitor | Not yet: the renderer does not write scRGB or HDR10 until the HDR encode of M71. Then `R16G16B16A16_FLOAT` in scRGB, or `R10G10B10A2` in HDR10 (ST.2084, Rec.2020) where scRGB is refused |
+| Linux, Android, the web, headless runs | — | Always the standard range |
+
+What this version shows: on Metal the swapchain switches to EDR, but the present pass still writes the picture as for an SDR
+screen and keeps it within white, so the game looks exactly as before; values above white reach the display once the HDR encode
+of M71 lands. The editor's window never switches (it shows the game in its own view).
+
+`SceneSettings.paperWhiteNits` (80 to 1000, default 200) is how bright white (1.0) is on an HDR display, in nits: the HDR encode
+will place the picture's white there, and everything brighter (emissive surfaces, bloom) goes up to the display's peak. On
+Apple screens the system sets white itself (EDR 1.0 is the screen's current white), so paper white only matters on Windows.
+
+Check what the window shows with `render.output`:
+
+```bash
+factoria call --project games/my-game render.output '{}'
+```
+
+It answers `{hdrActive, encoding, swapchainFormat, requested, paperWhiteNits, maxNits, headroom, status, display}`: `encoding`
+is `sdr`, `edr`, `scRGB` or `hdr10`; `headroom` is how many times brighter than white the output can go now (the screen's
+current EDR headroom on Apple, peak nits / paper white on Windows); `status` is one sentence that says what is shown or why the
+window stays in the standard range (hdrOutput off, Windows' HDR switch off, a screen without EDR, the platform). A `factoria call`
+run is headless, so it always answers `sdr` with "there is no window". In a window, the game's log prints one `HDR output: ...`
+line at the `info` level when the encoding changes, with the display's name and EDR headroom (`factoria run --log-level info`).
+`render.supports {"feature":"hdrOutput"}` says whether the display the window showed its last frame on could show HDR, whatever
+the scene asks.

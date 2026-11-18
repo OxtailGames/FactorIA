@@ -3733,30 +3733,30 @@ void register_builtin_components(TypeRegistry& r) {
                "use 0.5 on mobile or the web when many lights are on screen. Only matters when a scene has lit visuals "
                "and Light2D lights.")
         .range(0.25f, 1)
-        .enum_field("colorSpace", &SceneSettings::colorSpace, {"gamma", "linear"},
-                    "How lighting, blending and the post effects are computed. gamma (default, what every project made "
-                    "before M71 "
-                    "uses, so old projects keep their exact look): on the sRGB-encoded values, with 8-bit targets. "
-                    "linear: in linear "
-                    "light with float render targets (RGBA16F, or RGBA8 with dithering where the GPU cannot), textures "
-                    "marked as sRGB "
-                    "decoded when read and the result encoded for the display: lights add up and fade as they do in "
-                    "the world, and "
-                    "values above 1 survive to the bloom and the tonemap (PostProcess). Costs a bigger render target "
-                    "(twice the "
-                    "memory of RGBA8) and looks different: colours picked by eye in gamma space need a second look, so "
-                    "switch it on "
-                    "deliberately. render.supports {\"feature\": \"linearColor\"} says whether this build and GPU can. "
-                    "M71 is in "
-                    "progress: until its linear pipeline lands the value is stored and the picture stays in gamma.")
+        .enum_field(
+            "colorSpace", &SceneSettings::colorSpace, {"gamma", "linear"},
+            "How lighting and blending are computed. gamma (default, what every project made before M71 uses, so "
+            "old projects keep their exact look): on the sRGB-encoded values, with 8-bit targets. linear: in "
+            "linear light. The colours you pick (tints, sprite and material colours, light colours, ambient, fog, "
+            "sky, clear colour, particle colours) are still sRGB values and are converted for you; colour textures "
+            "(sprites, albedo, emissive, particles) are read as sRGB and data textures (normal, "
+            "metallic-roughness, masks) as plain numbers; lights add up and fade as they do in the world, and the "
+            "result is encoded for the display. The frame is kept in RGBA16F (values above 1 survive), else "
+            "R11G11B10 (no alpha), else 8 bits that hold linear light (SRGB8A8), else plain RGBA8 with banding in "
+            "the darks. RGBA16F costs twice the memory of RGBA8. Switch it on deliberately: colours picked by eye "
+            "in gamma space look different and a project needs a second look (docs/RENDERING.md, Color space). "
+            "Switching at run time is allowed. render.supports {\"feature\": \"linearColor\"} says whether this "
+            "build and GPU can. The tonemap and the display-space HUD come with the post-processing stack: for "
+            "now the HUD blends in linear light too and values above 1 clip at the display.")
         .enum_field("hdrOutput", &SceneSettings::hdrOutput, {"off", "auto"},
                     "off (default): the picture is shown in the standard range. auto: use a high dynamic range display "
                     "where the "
                     "platform allows it (Windows HDR10 or scRGB, macOS EDR); on any other display it is the standard "
                     "range, with no "
-                    "error. It needs colorSpace linear to show anything above white. render.supports {\"feature\": "
-                    "\"hdrOutput\"} "
-                    "says whether this backend can; it is false until M71 draws to HDR displays.")
+                    "error. It needs colorSpace linear to show anything above white. Today only Metal switches (to "
+                    "EDR) and the picture stays within white until the HDR encode of M71; Windows follows with it. "
+                    "render.output says what the window shows and why; render.supports {\"feature\": \"hdrOutput\"} "
+                    "says whether the window's display could.")
         .field("paperWhiteNits", &SceneSettings::paperWhiteNits,
                "Only used with hdrOutput auto on an HDR display: the brightness of white (1.0) in nits (cd/m2), "
                "80..1000. 200 is "

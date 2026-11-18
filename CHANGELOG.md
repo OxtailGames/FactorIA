@@ -8,9 +8,17 @@ Older versions, one file per minor version with its patch releases: [0.29](chang
 
 ### M71 (in progress): linear HDR and a post-processing stack
 
-- **Scene settings:** `SceneSettings.colorSpace` (`gamma`, the default, or `linear`), `hdrOutput` (`off` or `auto`) and
-  `paperWhiteNits` (200) are stored and saved with the scene. They change nothing yet: the picture stays in gamma until the linear
-  pipeline lands, and an old project keeps its exact look.
+- **Linear colour:** `SceneSettings.colorSpace` (`gamma`, the default, or `linear`) now works. In a linear scene lighting and
+  blending happen in linear light: the colours you pick (tints, lights, ambient, fog, sky, clear colour, particles) are converted for
+  you, colour textures (sprites, albedo, emissive) are read as sRGB (`SRGB8A8`, and the sRGB variants of BC7, ASTC and ETC2) and data
+  textures (normal maps, masks) as plain numbers, the game target holds linear light (`RGBA16F`, else `R11G11B10`, else `SRGB8A8`,
+  else `RGBA8`) and the picture is encoded to sRGB when it is shown. A gamma scene is drawn exactly as before. Switching at run time
+  keeps the textures and leaks no GPU image. `render.supports` says `linearColor` and `r11g11b10` are available; `FA_SCENE_FORMAT`
+  accepts `r11g11b10` for tests. Exposure, tonemap and the display-space HUD come with the post-processing stack (below); a linear scene
+  without them is encoded by the copy to the screen, so values above 1 clip and bloom works on linear values (docs/RENDERING.md,
+  "Color space"). The editor's viewport shows what the game shows (`Renderer::set_editor_view`). `SceneSettings.hdrOutput` (`off` or `auto`) and
+  `paperWhiteNits` (200) are stored and saved; they change nothing yet. The mesh shader template changed: the compiled shader of a custom
+  material made by an earlier build is refused with a message that asks to export the game again (`factoria run` compiles them itself).
 - **PostProcess component:** one reflected component for a camera's own post-processing stack or for a volume (shape `global`, `box`,
   `circle` or `sphere`, `size`, `blendDistance`, `priority`, `weight`), with 20 effects (`ssao`, `ssr`, `fog`, `sunShafts`,
   `exposure`, `depthOfField`, `motionBlur`, `radialBlur`, `lensDistortion`, `chromaticAberration`, `bloom`, `tonemap`,
@@ -34,6 +42,13 @@ Older versions, one file per minor version with its patch releases: [0.29](chang
   removed two minor versions after the release that ships them. Migration: add a `PostProcess` to the camera's entity and set
   `bloomEnabled`, `bloomThreshold`, `bloomIntensity`, `bloomRadius`, `bloomScreenSpace`, and `colorFilterEnabled` with
   `colorFilterMode`. A camera with a `PostProcess` of its own ignores the old fields.
+- **HDR display output, platform side:** with `SceneSettings.hdrOutput` `auto`, a Mac or iPhone (iOS 16+) window on a screen with
+  extended dynamic range switches its swapchain to 16-bit float EDR (extended sRGB), and back when the window moves to a screen
+  without it; the picture stays within white until the HDR encode of M71, so it looks as before. Windows reads the monitor's HDR
+  state and luminances (DXGI 1.6) and has the scRGB and HDR10 swapchain switch, kept off until the renderer writes those
+  encodings. The new `render.output` command says what the window shows (encoding, swapchain format, peak nits, paper white,
+  headroom) and why not HDR; `render.supports` answers `hdrOutput` from the display the window is on (docs/RENDERING.md,
+  "HDR output").
 
 ## 0.30.1
 

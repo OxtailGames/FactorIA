@@ -1,7 +1,10 @@
 // Renderer::Impl, part 3: draw_view_job and draw_job, the passes of one frame's jobs.
+#include "color_space.h"
 #include "renderer_impl.h"
 
 namespace fa {
+
+using render::to_scene;
 
 // ---------------------------------------------------------------------------
 // The state of one draw_job, shared by its phases: what the lambdas of the former single function captured. Every phase
@@ -130,7 +133,9 @@ void apply_view(const Px& r) {
 }
 
 // The glTF base color factor of a part, or the MeshRenderer.materialColors entry for its material name.
-Color part_base_color(const MeshRenderer& mr, const SubMesh& part) {
+// `authored` is set when the colour comes from materialColors (picked by eye, sRGB) rather than from the model (glTF: linear).
+Color part_base_color(const MeshRenderer& mr, const SubMesh& part, bool* authored = nullptr) {
+    if (authored) *authored = false;
     if (!part.materialName.empty() && mr.materialColors.is_object()) {
         auto it = mr.materialColors.find(part.materialName);
         if (it != mr.materialColors.end() && it->is_array() && it->size() >= 3 && it->size() <= 4) {
@@ -139,6 +144,7 @@ Color part_base_color(const MeshRenderer& mr, const SubMesh& part) {
                 if (!(*it)[i].is_number()) return part.baseColor;  // validate reports it; the part keeps its own colour
                 v[i] = (*it)[i].get<float>();
             }
+            if (authored) *authored = true;
             return Color{v[0], v[1], v[2], v[3]};
         }
     }
@@ -461,7 +467,8 @@ void Renderer::Impl::collect_lights(DrawContext& ctx) {
             if (!entity_active(world, e)) return;
             Mat4 m = world.world_matrix(e);
             LightData ld;
-            Vec3 col{l.color.r * l.intensity, l.color.g * l.intensity, l.color.b * l.intensity};
+            const Color lc = to_scene(l.color, fr.linear);  // picked as sRGB; the light adds up in linear light
+            Vec3 col{lc.r * l.intensity, lc.g * l.intensity, lc.b * l.intensity};
             const float brightness = std::max({col.x, col.y, col.z});
             if (l.type == LightType::Directional) {
                 Vec3 d = normalize(m.transform_dir(kForward));
@@ -494,7 +501,8 @@ void Renderer::Impl::collect_lights(DrawContext& ctx) {
             const Vec3 toward = normalize(fr.cam.right * toRight + fr.cam.up * toUp - fr.cam.forward * toCamera);
             LightData ld;
             ld.pos = Vec4{toward, 0.0f};
-            ld.color = Vec4{color * (intensity * fr.cam.studioIntensity), 0.0f};
+            const Color lc = to_scene(Color{color.x, color.y, color.z, 1.0f}, fr.linear);
+            ld.color = Vec4{Vec3{lc.r, lc.g, lc.b} * (intensity * fr.cam.studioIntensity), 0.0f};
             ld.dir = Vec4{-toward, 1.0f};
             ld.rank = 1;
             ld.score = intensity;
@@ -693,6 +701,12 @@ void Renderer::Impl::scene_uniforms(DrawContext& ctx) {
         ss.horizonColor = Color{0.4f * k, 0.4f * k, 0.42f * k, 1.0f};
         ss.fogDensity = 0.0f;
     }
+    // Colours the author picked are sRGB values; a linear scene computes with linear light (sky, fog and ambient, below, and the
+    // main pass's sky and clear colour read these).
+    ss.ambientLight = to_scene(ss.ambientLight, fr.linear);
+    ss.fogColor = to_scene(ss.fogColor, fr.linear);
+    ss.skyColor = to_scene(ss.skyColor, fr.linear);
+    ss.horizonColor = to_scene(ss.horizonColor, fr.linear);
     ctx.white = assets->white();
     for (std::size_t i = 0; i < lights.size(); ++i) {
         for (int c = 0; c < 4; ++c) {
@@ -752,14 +766,19 @@ mesh_fa_mesh_fs_params_t Renderer::Impl::fill_fs(DrawContext& ctx, const MeshIte
     // MeshRenderer.emissiveStrength scales both the component's colour and the model's own emission; a NaN or negative
     // value (a script wrote it) counts as 0, no glow.
     const float strength = mr.emissiveStrength > 0.0f ? std::min(mr.emissiveStrength, 1000.0f) : 0.0f;
+    const bool linear = ctx.fr.linear;
     if (!d.error) {
-        fu.fa_emissive[0] = mr.emissive.r * strength;
-        fu.fa_emissive[1] = mr.emissive.g * strength;
-        fu.fa_emissive[2] = mr.emissive.b * strength;
+        const Color emissive = to_scene(mr.emissive, linear);
+        fu.fa_emissive[0] = emissive.r * strength;
+        fu.fa_emissive[1] = emissive.g * strength;
+        fu.fa_emissive[2] = emissive.b * strength;
     }
     fu.fa_emissive[3] = unlit ? 1.0f : 0.0f;
     fu.fa_pbr[2] = (doShadows && mr.receiveShadows) ? 1.0f : 0.0f;
-    const Color base = d.error ? Color{1, 0, 1, 1} : mr.color * part_base_color(mr, part);
+    bool authoredPart = false;
+    const Color partColor = d.error ? Color{} : part_base_color(mr, part, &authoredPart);
+    const Color base = d.error ? Color{1, 0, 1, 1}
+                               : to_scene(mr.color, linear) * (authoredPart ? to_scene(partColor, linear) : partColor);
     fu.fa_base_color[0] = base.r;
     fu.fa_base_color[1] = base.g;
     fu.fa_base_color[2] = base.b;
@@ -775,12 +794,18 @@ mesh_fa_mesh_fs_params_t Renderer::Impl::fill_fs(DrawContext& ctx, const MeshIte
     fu.fa_maps[0] = mi.normalTex ? mr.normalScale : part.normalScale;
     fu.fa_maps[1] = part.occlusionStrength;
     fu.fa_maps[2] = d.normal ? 1.0f : 0.0f;
+    // How the shader reads each texture (mesh_common.glsl fa_tex_fix): the colour ones as linear light in a linear scene, the data
+    // ones (normal, metallic-roughness, occlusion) as the file's values, whichever format the images were made in.
+    fu.fa_maps[3] = float(d.tex->tex_fix(linear, true) + 4 * d.emissive->tex_fix(linear, true) +
+                          16 * (d.normal ? d.normal->tex_fix(linear, false) : 0) + 64 * d.mr->tex_fix(linear, false) +
+                          256 * d.occlusion->tex_fix(linear, false));
     if (mi.flash.a > 0.0f && !d.error) {
         // A flash (feel.h) needs no shader change: the surface colour fades to nothing and the emission, which both the lit
         // and the unlit path add at the end (fog comes after), carries the flash colour. Lit meshes keep a little
         // specular and image-based reflection of their own.
         const float k = 1.0f - std::min(mi.flash.a, 1.0f), a = 1.0f - k;
-        const float flash[3] = {mi.flash.r, mi.flash.g, mi.flash.b};
+        const Color flashColor = to_scene(mi.flash, linear);
+        const float flash[3] = {flashColor.r, flashColor.g, flashColor.b};
         for (int i = 0; i < 3; ++i) {
             fu.fa_base_color[i] *= k;
             fu.fa_emissive[i] = fu.fa_emissive[i] * k + flash[i] * a;
@@ -987,6 +1012,7 @@ void Renderer::Impl::draw_group(DrawContext& ctx, const std::vector<QuadBatch>& 
     if (batches.empty()) return;
     quad_vs_params_t u{};
     copy_mat(u.view_proj, vp);
+    u.cspace[0] = fr.linear ? 1.0f : 0.0f;  // vertex colours are sRGB values: decoded in the vertex shader
     Rect
         scissor;  // the clip applied now (w <= 0: `base`, the whole target or the camera's viewport); a ScrollList's content is cut at its rectangle
     auto apply_clip = [&](const Rect& c) {
@@ -1035,6 +1061,8 @@ void Renderer::Impl::draw_group(DrawContext& ctx, const std::vector<QuadBatch>& 
     for (const QuadBatch& qb : batches) {
         apply_clip(qb.clip);
         sg_apply_pipeline(gpu.quad_pipeline(depthTest, false, qb.blend, qb.plain, qb.opaque));
+        u.cspace[1] = float(qb.tex->tex_fix(fr.linear, true));
+        u.cspace[2] = qb.lit && qb.normal ? float(qb.normal->tex_fix(fr.linear, false)) : 0.0f;
         apply_uniforms(UB_quad_vs_params, u);
         if (qb.lit) {
             litUniforms.lit[1] = qb.normal ? 1.0f : 0.0f;
@@ -1106,7 +1134,8 @@ void Renderer::Impl::main_pass(DrawContext& ctx) {
     if (ctx.doMainPass) {
         PassDesc mp = pass_into(gameTarget, plan.view ? "view" : fr.wantWorld ? "game" : "game-hud");
         mp.colorLoad = clearByLoad ? SG_LOADACTION_CLEAR : SG_LOADACTION_LOAD;
-        mp.clearColor = {fr.cam.clearColor.r, fr.cam.clearColor.g, fr.cam.clearColor.b, fr.cam.clearColor.a};
+        const Color clearScene = to_scene(fr.cam.clearColor, fr.linear);
+        mp.clearColor = {clearScene.r, clearScene.g, clearScene.b, clearScene.a};
         mp.colorStore =
             (msaa && (plan.last || plan.view) && !hudAfterBloom) ? SG_STOREACTION_DONTCARE : SG_STOREACTION_STORE;
         mp.depthLoad = SG_LOADACTION_CLEAR;
@@ -1205,6 +1234,7 @@ void Renderer::Impl::main_pass(DrawContext& ctx) {
             sg_apply_pipeline(gpu.quad_pipeline(false, true));
             quad_vs_params_t u{};
             copy_mat(u.view_proj, fr.cam.viewProj);
+            u.cspace[0] = fr.linear ? 1.0f : 0.0f;
             apply_uniforms(UB_quad_vs_params, u);
             quad_quad_fs_params_t unlit{};
             apply_uniforms(UB_quad_quad_fs_params, unlit);
@@ -1243,6 +1273,9 @@ void Renderer::Impl::hud_pass(DrawContext& ctx, const Target& into, const char* 
     const Mat4& screenProj = ctx.screenProj;
     const DrawContext::Group& gScreen = ctx.gScreen;
     const DrawContext::Group& gDebugScreen = ctx.gDebugScreen;
+    // The items go over the final picture, which holds display (sRGB) values: they are drawn as in a gamma scene, whatever the colour space.
+    const bool saveLinear = ctx.fr.linear;
+    if (ctx.hudAfterPost) ctx.fr.linear = false;
     PassDesc hp = pass_into(into, label);
     hp.colorLoad = SG_LOADACTION_LOAD;  // keep the world and its glow
     hp.colorStore = msaa ? SG_STOREACTION_DONTCARE : SG_STOREACTION_STORE;
@@ -1253,6 +1286,7 @@ void Renderer::Impl::hud_pass(DrawContext& ctx, const Target& into, const char* 
     draw_group(ctx, gScreen.batches, screenProj, false, fullPx, 0);
     draw_group(ctx, gDebugScreen.batches, screenProj, false, fullPx, 0);
     gpu.end_pass();
+    ctx.fr.linear = saveLinear;
 }
 
 // Declares the passes of the job in `graph` (the frame's), named "<job>/<pass>", in the order they always ran: the light buffer,

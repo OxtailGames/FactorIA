@@ -427,12 +427,14 @@ RenderStats Renderer::stats(bool passTimes) const {
     if (passTimes && impl_->passTimesPending) impl_->pass_times(s.passes, s.jobs);
     return s;
 }
-std::uint32_t Renderer::game_target_image_id() const {
-    if (!impl_) return 0;
-    return impl_->final_image().id;
+std::uint32_t Renderer::game_target_image_id() const { return impl_ ? impl_->display_image().id : 0; }
+std::uint32_t Renderer::game_target_view_id() const { return impl_ ? impl_->display_view().id : 0; }
+void Renderer::set_editor_view(bool on) {
+    if (!impl_) return;
+    impl_->editorView = on;
+    if (!on) destroy_target(impl_->editorTarget);
 }
-std::uint32_t Renderer::game_target_view_id() const { return impl_ ? impl_->final_view().id : 0; }
-bool Renderer::hdr_scene() const { return impl_ && impl_->gpu.scene_format() == SG_PIXELFORMAT_RGBA16F; }
+bool Renderer::hdr_scene() const { return impl_ && impl_->gpu.scene_is_float(); }
 
 void Renderer::reload_asset(std::string_view path) {
     if (impl_ && impl_->assets) impl_->assets->reload(std::string(path));
@@ -474,13 +476,28 @@ void Renderer::take_gpu_ms(std::vector<double>& out) {
 bool Renderer::supports(std::string_view feature) const {
     if (!initialized()) return false;
     const int index = render::find_feature(feature);
-    return index >= 0 && render::feature_supported(render::feature_env_from_sokol(), index);
+    if (index < 0) return false;
+    render::FeatureEnv env = render::feature_env_from_sokol();
+    render::set_hdr_env(env, app_hdr_output().display);
+    return render::feature_supported(env, index);
 }
 std::vector<std::string> Renderer::feature_names() { return fa::render::feature_names(); }
 Json Renderer::supports_report() const {
     if (!initialized()) return Json::object();
-    return render::feature_report(render::feature_env_from_sokol(), backend_name());
+    render::FeatureEnv env = render::feature_env_from_sokol();
+    render::set_hdr_env(env, app_hdr_output().display);
+    return render::feature_report(env, backend_name());
 }
+
+void Renderer::update_output(const SceneSettings& settings, const std::string& blocked) {
+    if (!initialized()) return;
+    HdrRequest request = render::hdr_request(render::feature_env_from_sokol().backend,
+                                             settings.hdrOutput == HdrOutput::Auto, settings.paperWhiteNits);
+    request.blocked = blocked;
+    app_update_hdr_output(request);
+}
+
+HdrOutputInfo Renderer::output_info() const { return app_hdr_output(); }
 
 Json Renderer::frame_graph_report() const {
     if (!impl_ || !(impl_->anyFrameRendered || impl_->graphFromCapture)) return Json();
@@ -697,6 +714,7 @@ void Renderer::Impl::setup_frame(Frame& fr, World& world, float dt) {
     fr.textScale = textScale;
     fr.uiScale = ui_scale_clamped(world.ui_scale());
     fr.renderScale = renderScale;
+    fr.linear = gpu.linear();
     fr.warnedLights2d = &warnedLights2d;
     fr.warnedShadows2d = &warnedShadows2d;
     fr.warnedSpriteMesh = &warnedSpriteMesh;
@@ -714,6 +732,7 @@ void Renderer::Impl::setup_frame(Frame& fr, World& world, float dt) {
 // camera and no viewport is one job that draws all of it in one pass, as before. Bloom and Camera.colorFilter act once over
 // the finished frame, with the settings of the first camera.
 void Renderer::Impl::render(World& world, float dt) {
+    sync_color_space(world);  // before anything is gathered or drawn: the scene's format and the colours depend on it
     auto t0 = std::chrono::steady_clock::now();
     if (Profiler::on()) {
         // Answers of earlier frames are read now (never waited for): the passes of this frame report them as their GPU time.
@@ -1075,6 +1094,7 @@ void Renderer::Impl::render(World& world, float dt) {
         plan_job(world, frames[i], plan);
     }
     run_frame_graph();
+    update_editor_copy();
     graphFromCapture = false;
     passTimesPending = true;  // stats() and the frame graph report build them from the graph when asked for
     stats.sortKeyFallbacks = int(std::min<std::uint64_t>(renderScene.sort_key_fallbacks(), 0x7fffffffu));

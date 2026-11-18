@@ -424,10 +424,7 @@ TEST_CASE("features: compute shaders exist on GL, D3D11 and Metal and never on G
 TEST_CASE("features: what the engine does not draw yet is false and says planned") {
     const FeatureEnv full = gpu(FeatureBackend::D3d11, true, true, true, true);
     std::string why;
-    CHECK_FALSE(supported(full, "linearColor", &why));
-    CHECK(why == "planned (M71)");
-    CHECK_FALSE(supported(full, "hdrOutput", &why));
-    CHECK(why == "planned (M71)");
+    CHECK(supported(full, "linearColor", &why));  // M71-B1: drawn on every GPU
     // The effects the renderer draws (M71-B4) answer true on a GPU that can; the others are planned.
     const std::string_view drawn[] = {"exposure", "bloom", "tonemap", "colorFilter"};
     for (const std::string_view e : kPostEffectOrder) {
@@ -448,6 +445,53 @@ TEST_CASE("features: what the engine does not draw yet is false and says planned
     // An effect that reads the depth buffer on a GPU that cannot sample it: the missing capability, not the plan.
     CHECK_FALSE(supported(gpu(FeatureBackend::Gles3, true, true, false), "ssao", &why));
     CHECK(why.find("depth") != std::string::npos);
+}
+
+TEST_CASE("features: hdrOutput follows the display the window is on and what the renderer writes there") {
+    std::string why;
+    // A FeatureEnv nobody filled: the display was never asked.
+    CHECK_FALSE(supported(gpu(FeatureBackend::Metal), "hdrOutput", &why));
+    CHECK(why.find("not been asked") != std::string::npos);
+
+    // Metal on a screen with EDR headroom: yes; on one without: the display's reason.
+    FeatureEnv metal = gpu(FeatureBackend::Metal);
+    set_hdr_env(metal, hdr_display_from_edr(16.0f, 1.0f, "XDR"));
+    CHECK(supported(metal, "hdrOutput"));
+    set_hdr_env(metal, hdr_display_from_edr(1.0f, 1.0f, "Studio"));
+    CHECK_FALSE(supported(metal, "hdrOutput", &why));
+    CHECK(why.find("EDR headroom") != std::string::npos);
+    HdrDisplay none;
+    none.why = "there is no window";
+    set_hdr_env(metal, none);
+    CHECK_FALSE(supported(metal, "hdrOutput", &why));
+    CHECK(why == "there is no window");
+
+    // D3D11, even on an HDR10 display: planned, until the renderer writes scRGB or HDR10.
+    FeatureEnv d3d = gpu(FeatureBackend::D3d11);
+    set_hdr_env(d3d, hdr_display_from_dxgi(true, 1000.0f, 0.0f, 600.0f, "TV"));
+    CHECK_FALSE(supported(d3d, "hdrOutput", &why));
+    CHECK(why.rfind("planned (M71)", 0) == 0);
+    CHECK(hdr_encodable(FeatureBackend::D3d11) == 0u);
+    CHECK(hdr_encodable(FeatureBackend::Metal) == hdr_encoding_bit(HdrEncoding::Edr));
+    CHECK(hdr_encodable(FeatureBackend::Gl) == 0u);
+
+    // The request the renderer makes: Metal writes sRGB-encoded EDR and says the picture stays within white.
+    const HdrRequest r = hdr_request(FeatureBackend::Metal, true, 300.0f);
+    CHECK(r.want);
+    CHECK(r.paperWhiteNits == doctest::Approx(300.0f));
+    CHECK_FALSE(r.edrLinear);
+    CHECK_FALSE(r.activeNote.empty());
+    CHECK(hdr_request(FeatureBackend::D3d11, true, 200.0f).pending == kHdrPending);
+}
+
+TEST_CASE("Renderer::output_info: without a window the output is the standard range") {
+    Renderer r;                        // never init()ed
+    r.update_output(SceneSettings{});  // does nothing before init()
+    const HdrOutputInfo info = r.output_info();
+    CHECK_FALSE(info.active);
+    CHECK(info.encoding == HdrEncoding::Sdr);
+    CHECK_FALSE(info.display.known);
+    CHECK(info.swapchainFormat.empty());
 }
 
 TEST_CASE("features: the headless backend has no GPU and says no to everything") {

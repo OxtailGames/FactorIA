@@ -156,6 +156,78 @@ bool fa_sapp_set_vsync(bool on) {
 #endif
 }
 
+// ---- HDR output (sokol_window.h, hdr_output.cpp) ------------------------------------------------------------------------
+static int fa_mtl_kind;      // 0 = sokol_app's 8-bit format, 1 = RGBA16Float with EDR
+static bool fa_mtl_linear;   // kind 1: extended linear sRGB (true) or extended sRGB (false)
+
+int fa_sapp_swapchain_kind(void) { return fa_mtl_kind; }
+
+int fa_sapp_set_swapchain_kind(int kind, bool linear) {
+#if defined(SOKOL_METAL)
+    if (kind != 1) kind = 0;  // no 10-bit swapchain on Metal here: EDR is the float one
+    if (kind == fa_mtl_kind && (kind == 0 || linear == fa_mtl_linear)) return kind;
+    CAMetalLayer* layer = _sapp.mtl.layer;
+    if (!_sapp.valid || layer == nil) return fa_mtl_kind;
+    if (kind == 1) {
+        if (@available(macOS 10.11, iOS 16.0, *)) {
+        } else {
+            return fa_mtl_kind;  // iOS before 16: the layer has no EDR
+        }
+    }
+    // sokol_app reads desc.hdr for the layer's format, its MSAA texture and sapp_color_format() (what sglue_swapchain() tells
+    // sokol_gfx), so the next drawable, its pass and the pipelines drawn in it agree. Drawables already taken keep the old
+    // format; the engine takes the next one after this call.
+    _sapp.desc.hdr = kind == 1;
+    layer.pixelFormat = _sapp_mtl_color_format();
+    // sokol_app's own HDR colour space is extended linear Display P3. Extended sRGB keeps sRGB's primaries, so a picture made
+    // for sRGB keeps its colours; `linear` says whether the values are linear light or sRGB-encoded like an SDR picture.
+    CGColorSpaceRef space = CGColorSpaceCreateWithName(
+        kind == 1 ? (linear ? kCGColorSpaceExtendedLinearSRGB : kCGColorSpaceExtendedSRGB) : kCGColorSpaceSRGB);
+    layer.colorspace = space;
+    CGColorSpaceRelease(space);
+    if (@available(macOS 10.11, iOS 16.0, *)) layer.wantsExtendedDynamicRangeContent = kind == 1;
+    if (_sapp.desc.sample_count > 1) _sapp_mtl_swapchain_resize(_sapp.framebuffer_width, _sapp.framebuffer_height);
+    fa_mtl_kind = kind;
+    fa_mtl_linear = linear;
+    return kind;
+#else
+    (void)kind;
+    (void)linear;
+    return 0;
+#endif
+}
+
+bool fa_sapp_edr(fa_sapp_edr_screen* out) {
+    memset(out, 0, sizeof(*out));
+    out->max_headroom = 1.0f;
+    out->headroom = 1.0f;
+    if (!_sapp.valid) return false;
+#if !TARGET_OS_IPHONE
+    NSScreen* screen = _sapp.macos.window.screen ? _sapp.macos.window.screen : NSScreen.mainScreen;
+    if (screen == nil) return false;
+    if (@available(macOS 10.15, *)) {
+        snprintf(out->name, sizeof(out->name), "%s", screen.localizedName.UTF8String);
+        out->max_headroom = (float)screen.maximumPotentialExtendedDynamicRangeColorComponentValue;
+    } else {
+        snprintf(out->name, sizeof(out->name), "Display");
+        out->max_headroom = (float)screen.maximumExtendedDynamicRangeColorComponentValue;
+    }
+    out->headroom = (float)screen.maximumExtendedDynamicRangeColorComponentValue;
+    return true;
+#else
+    if (@available(iOS 16.0, *)) {
+        UIScreen* screen = _sapp.ios.window.windowScene.screen;
+        if (screen == nil) return false;
+        snprintf(out->name, sizeof(out->name), "Display");
+        out->max_headroom = (float)screen.potentialEDRHeadroom;
+        out->headroom = (float)screen.currentEDRHeadroom;
+        return true;
+    }
+    out->old_os = true;
+    return false;
+#endif
+}
+
 bool fa_sapp_safe_insets(float* left, float* top, float* right, float* bottom) {
 #if TARGET_OS_IPHONE
     // UIView.safeAreaInsets (iOS 11): points, relative to the view, which covers the screen. They are zero until the view

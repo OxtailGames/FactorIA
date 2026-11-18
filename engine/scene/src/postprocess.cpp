@@ -183,7 +183,8 @@ void register_postprocess_component(TypeRegistry& r) {
             "bloomScreenSpace", &PostProcess::bloomScreenSpace,
             "Only used when bloomEnabled. true: the HUD glows too. false: screen-space items are drawn after the bloom "
             "and "
-            "stay crisp. When the final pass runs (exposure, tonemap or a linear scene) the HUD is drawn after it and "
+            "stay crisp. When the final pass runs (exposure, tonemap, or a colour filter in a linear scene) the HUD is "
+            "drawn after it and "
             "never glows, whatever this says.")
         .asset_field(
             "bloomLensDirt", &PostProcess::bloomLensDirt, "texture",

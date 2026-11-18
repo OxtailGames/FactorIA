@@ -191,7 +191,10 @@ struct Renderer::Impl {
     TextureAsset* resolve_target(const std::string& name);
     void flip_copy(ViewTarget& t);
 
-    void create_targets(int w, int h);
+    // `settle`: also try the next format of the chain when this one is refused (the first creation does it anyway).
+    void create_targets(int w, int h, bool settle = false);
+    // Follows SceneSettings.colorSpace of `world`: the scene's format may change with it (Gpu::set_linear).
+    void sync_color_space(const World& world);
     void make_game_targets();  // the images and views of the game target, at physW x physH in gpu.scene_format()
     void destroy_targets();
     // The final images of the post-processing stack: filterTarget (what the final pass or the colour filter writes; made by
@@ -206,7 +209,8 @@ struct Renderer::Impl {
                    Target& dst, const char* label, bool keepMsaa);
     // The 8-bit picture of a game or view image (top row first). In a float scene format the image is first drawn into an
     // RGBA8 copy (clamped at white, as the screen shows it), because the per-backend readbacks read RGBA8 only.
-    bool read_rgba8(sg_image image, sg_view view, int w, int h, std::vector<std::uint8_t>& out, std::string* error);
+    bool read_rgba8(sg_image image, sg_view view, int w, int h, std::vector<std::uint8_t>& out, std::string* error,
+                    bool premultiplied = false, bool displayValues = false);
     Target readbackTarget;  // the RGBA8 copy read_rgba8 makes, kept for the next capture of the same size
     void free_read_image();
     // True when the images and views of the game target were made (create_targets) and the GPU accepted them.
@@ -216,6 +220,15 @@ struct Renderer::Impl {
     const Target& final_target() const { return filterActive ? filterTarget : hudActive ? hudTarget : gameTarget; }
     sg_image final_image() const { return final_target().texture_image(); }
     sg_view final_view() const { return final_target().texView; }
+    // The picture the editor viewport shows (Renderer::game_target_view_id): the finished game image in a gamma scene; in a linear one,
+    // when the editor asked for it (Renderer::set_editor_view), the 8-bit encoded copy update_editor_copy() makes after each frame
+    // (an empty handle until the first one exists). M71-B4 points this at its final (tonemapped) target.
+    sg_image display_image() const;
+    sg_view display_view() const;
+    bool editorView = false;  // set_editor_view(true): make the encoded copy of a linear scene
+    Target
+        editorTarget;  // the copy: RGBA8, only while the scene is linear and the editor asked; freed when either stops
+    void update_editor_copy();
     bool create_shadow_targets();
     bool ensure_light_target(float scale);
     sg_view upload_shadow_rows(const Frame& fr);
