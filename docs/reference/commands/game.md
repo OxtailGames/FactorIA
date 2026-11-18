@@ -230,6 +230,18 @@ Draws the picture as it is now and reads the pixels along the segment `from` -> 
 | `channel` | string ["luminance","red","green","blue"] | no | What to measure: Rec. 709 luminance or one colour channel of the sRGB bytes. Default "luminance". |
 | `scale` | number | no | Render scale to sample at; higher finds finer gaps. Default 1. |
 
+## `render.output`
+
+Not released yet (on main after 0.30.1).
+
+What the game window shows: the standard range or HDR, in which encoding, and what the display can do.
+
+Capabilities: read
+
+The window's swapchain switches to HDR when SceneSettings.hdrOutput is "auto", the display the window is on can show HDR and the renderer writes that encoding (docs/RENDERING.md, "HDR output"); this command says what happened and why. Returns {hdrActive, encoding, swapchainFormat, requested, paperWhiteNits, maxNits, headroom, status, display}. Example: render.output {}
+
+`encoding` is "sdr" (8-bit sRGB), "edr" (macOS and iOS: 16-bit float in extended sRGB, 1.0 = the display's white), "scRGB" (Windows: 16-bit float, linear, 1.0 = 80 nits) or "hdr10" (Windows: 10-bit ST.2084 in Rec.2020). Today only Metal switches (to edr); D3D11 stays sdr until the HDR encode of M71 writes scRGB or HDR10, and the picture stays within white in every encoding until then. `swapchainFormat` is "BGRA8", "RGBA16F" or "RGB10A2" ("" without a window). `requested`: the current scene's hdrOutput is auto. `headroom`: how many times brighter than paper white the output can go now (the screen's current EDR headroom; maxNits / paperWhiteNits in scRGB and HDR10; 1 in sdr), rounded to 2 decimals. `status`: one sentence, what is shown or why the window stays in the standard range (hdrOutput off, Windows' HDR switch off, a screen without EDR, the editor, a platform without HDR output). `display`: {known, hdr, name, offers: [encodings], maxNits, minNits, maxFullFrameNits, maxHeadroom, headroom, why}; nits are 0 where the platform does not report them (macOS, iOS), headrooms are 1 outside Apple. The answer is the one of the last frame the window presented (the display is asked once per frame: moving the window to another monitor or switching HDR in the OS settings shows on the next one). Headless runs, graphics=false, Linux, Android and the web answer sdr with display.known false or the platform's reason. The same answer is Renderer::output_info() in C++.
+
 ## `render.pick`
 
 Since 0.4.0.
@@ -257,7 +269,7 @@ Capabilities: read
 
 Answers from the renderer's table per backend (GL, GLES3, WebGL2, D3D11, Metal, headless) and from what the GPU reports, so a game or a tool can ask before it relies on a feature. Without `feature`: {backend, backendLabel, features: [{name, kind, supported, status, doc, backends}]}; with `feature`: {feature, backend, supported, status}. A feature the renderer does not draw yet is false with the status "planned (M71)": this command never claims what is not drawn. Example: render.supports {"feature":"floatTargets"}
 
-`kind` is capability (a fact of the GPU: floatTargets, r11g11b10, sampledDepth, computeShaders), engine (linearColor, hdrOutput) or effect (one per PostProcess effect: ssao, ssr, fog, sunShafts, exposure, depthOfField, motionBlur, radialBlur, lensDistortion, chromaticAberration, bloom, tonemap, colorGrading, vignette, sharpen, outline, pixelate, posterize, filmGrain, colorFilter); `backends` says on which backends the feature can ever run. `status` is "supported", "planned (M71)" for an engine feature or effect the renderer does not draw yet, or one sentence that names the backend or the missing GPU capability. The headless dummy backend (no GPU) answers false to everything; a headless run with Mesa/EGL is a GL or GLES3 backend like any other. Errors: `invalid_argument` for a `feature` that is not in the list (with a did-you-mean); `unavailable` without graphics (graphics=false). The same answer is Renderer::supports(name) in C++.
+`kind` is capability (a fact of the GPU: floatTargets, r11g11b10, sampledDepth, computeShaders), engine (linearColor, hdrOutput) or effect (one per PostProcess effect: ssao, ssr, fog, sunShafts, exposure, depthOfField, motionBlur, radialBlur, lensDistortion, chromaticAberration, bloom, tonemap, colorGrading, vignette, sharpen, outline, pixelate, posterize, filmGrain, colorFilter); `backends` says on which backends the feature can ever run. `status` is "supported", "planned (M71)" for an engine feature or effect the renderer does not draw yet, or one sentence that names the backend or the missing GPU capability. hdrOutput is true when the display the window showed its last frame on can show HDR in an encoding the renderer writes (EDR on Metal), whatever the scene asks; its status otherwise says why (the display, the OS setting, or "planned (M71): ..." on D3D11); render.output says what the window shows. The headless dummy backend (no GPU) answers false to everything; a headless run with Mesa/EGL is a GL or GLES3 backend like any other. Errors: `invalid_argument` for a `feature` that is not in the list (with a did-you-mean); `unavailable` without graphics (graphics=false). The same answer is Renderer::supports(name) in C++.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|

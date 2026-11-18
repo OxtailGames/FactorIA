@@ -153,6 +153,15 @@ calls; vary the Transform instead, or give a few groups the same value. `play.re
 `game.logs`, says why). A test checks the same with `game.screenshot(path)` (tests draw nothing until asked) and then
 `game.state().renderStats`; `material.info` says in `compile.toolFound` whether this computer can compile materials.
 
+## Color space
+
+With `SceneSettings.colorSpace` `"linear"` ([RENDERING.md](RENDERING.md), "Color space") the shader works in linear light:
+the colour `surface()` starts from (`albedo`: the tint and the texture) arrives already converted, and what `surface()`
+returns (`albedo`, `emission`) is taken as linear light, so a number you type in the snippet is not an sRGB value. A colour
+**param** is passed as you wrote it in the material file or in `materialParams` (sRGB, like every colour you pick): convert it
+in the snippet when the scene may be linear (`pow(c, vec3(2.2))` is close enough). A texture you sample yourself gives what the GPU
+holds: linear light when it was first loaded in a linear scene, the file's own numbers otherwise. In a gamma scene nothing changes.
+
 ## Errors you will see
 
 Every error says where, what is wrong and how to fix it.

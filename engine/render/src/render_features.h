@@ -14,6 +14,7 @@
 #include <vector>
 
 #include "fa/core/json.h"
+#include "fa/platform/hdr_output.h"
 
 namespace fa::render {
 
@@ -27,21 +28,40 @@ const char* feature_backend_label(FeatureBackend b);
 // What the GPU reported (sg_query_pixelformat / sg_query_features), plus the backend.
 struct FeatureEnv {
     FeatureBackend backend = FeatureBackend::Headless;
-    bool halfTargets = false;     // RGBA16F renders, blends and filters
-    bool r11g11b10 = false;       // RG11B10F renders and filters
-    bool sampledDepth = false;    // a depth buffer can be sampled as a texture by a later pass
-    bool compute = false;         // storage buffers and compute shaders
+    bool halfTargets = false;   // RGBA16F renders, blends and filters
+    bool r11g11b10 = false;     // RG11B10F renders and filters
+    bool sampledDepth = false;  // a depth buffer can be sampled as a texture by a later pass
+    bool compute = false;       // storage buffers and compute shaders
+    // hdrOutput: whether the window can show HDR now (the display the window is on offers an encoding the renderer writes), and
+    // why not. Renderer::supports fills both with set_hdr_env() from the display of the last frame; a FeatureEnv made by hand
+    // without them answers "the display has not been asked yet".
+    bool hdrOutput = false;
+    std::string hdrWhy;
 };
+
+// The HDR encodings the present pass writes correctly on `b` (hdr_encoding_bit): EDR on Metal (the picture as for an SDR screen,
+// sRGB-encoded in extended sRGB, so it looks the same and stays within white); none on D3D11 until the scRGB / HDR10 encode of
+// M71 (an sRGB-encoded picture read as linear scRGB or as PQ would look wrong). Every other backend: none.
+unsigned hdr_encodable(FeatureBackend b);
+// "planned (M71): ...": why a backend whose displays can show HDR does not use them yet (D3D11).
+extern const char* const kHdrPending;
+// What the renderer asks app_update_hdr_output() for on backend `b`.
+HdrRequest hdr_request(FeatureBackend b, bool want, float paperWhiteNits);
+// Fills env.hdrOutput / env.hdrWhy from `display`, the scene's hdrOutput setting aside (supports answers whether the window could
+// show HDR, not whether the scene asks for it).
+void set_hdr_env(FeatureEnv& env, const HdrDisplay& display);
 
 enum class FeatureKind { Capability, Engine, Effect };
 
 struct FeatureDef {
     const char* name;
     FeatureKind kind;
-    unsigned backends;         // bit (1 << FeatureBackend) of every backend the feature can ever run on
-    const char* needs;         // "": nothing; "half", "r11g11b10", "depth", "compute", "half+depth": what the GPU must also report
-    const char* planned;       // nullptr: the engine draws/does it; else the milestone it is planned in ("M71"), and it answers false
-    const char* doc;           // one sentence: what it is and what it costs
+    unsigned backends;  // bit (1 << FeatureBackend) of every backend the feature can ever run on
+    const char*
+        needs;  // "": nothing; "half", "r11g11b10", "depth", "compute", "half+depth": what the GPU must also report
+    const char*
+        planned;  // nullptr: the engine draws/does it; else the milestone it is planned in ("M71"), and it answers false
+    const char* doc;  // one sentence: what it is and what it costs
 };
 
 // Every feature, in a fixed order: capabilities, engine features, then the effects in the canonical order of kPostEffectOrder.

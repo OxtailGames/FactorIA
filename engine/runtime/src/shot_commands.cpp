@@ -11,6 +11,7 @@
 #include "fa/core/image_tools.h"
 #include "fa/core/profiler.h"
 #include "fa/core/strings.h"
+#include "fa/platform/hdr_output.h"
 #include "fa/scene/bounds.h"
 #include "fa/scene/camera_mask.h"
 #include "fa/scene/ui_rect.h"
@@ -650,8 +651,11 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
          "depthOfField, motionBlur, radialBlur, lensDistortion, chromaticAberration, bloom, tonemap, colorGrading, "
          "vignette, sharpen, outline, pixelate, posterize, filmGrain, colorFilter); `backends` says on which backends "
          "the feature can ever run. `status` is \"supported\", \"planned (M71)\" for an engine feature or effect the "
-         "renderer does not draw yet, or one sentence that names the backend or the missing GPU capability. The "
-         "headless dummy backend (no GPU) answers false to everything; a headless run with Mesa/EGL is a GL or GLES3 "
+         "renderer does not draw yet, or one sentence that names the backend or the missing GPU capability. hdrOutput "
+         "is true when the display the window showed its last frame on can show HDR in an encoding the renderer writes "
+         "(EDR on Metal), whatever the scene asks; its status otherwise says why (the display, the OS setting, or "
+         "\"planned (M71): ...\" on D3D11); render.output says what the window shows. The headless dummy backend (no "
+         "GPU) answers false to everything; a headless run with Mesa/EGL is a GL or GLES3 "
          "backend like any other. Errors: `invalid_argument` for a `feature` that is not in the list (with a "
          "did-you-mean); `unavailable` without graphics (graphics=false). The same answer is Renderer::supports(name) "
          "in C++.",
@@ -689,8 +693,71 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
             throw CommandError("unavailable", "The renderer reported no feature '" + feature + "'.");
         });
 
+    I.commands.add(
+        {"render.output",
+         "What the game window shows: the standard range or HDR, in which encoding, and what the display can do.",
+         "The window's swapchain switches to HDR when SceneSettings.hdrOutput is \"auto\", the display the window is "
+         "on "
+         "can show HDR and the renderer writes that encoding (docs/RENDERING.md, \"HDR output\"); this command says "
+         "what "
+         "happened and why. Returns {hdrActive, encoding, swapchainFormat, requested, paperWhiteNits, maxNits, "
+         "headroom, "
+         "status, display}. Example: render.output {}" FA_COMMAND_DETAILS
+         "`encoding` is \"sdr\" (8-bit sRGB), \"edr\" (macOS and iOS: 16-bit float in extended sRGB, 1.0 = the "
+         "display's white), \"scRGB\" (Windows: 16-bit float, linear, 1.0 = 80 nits) or \"hdr10\" (Windows: 10-bit "
+         "ST.2084 in Rec.2020). Today only Metal switches (to edr); D3D11 stays sdr until the HDR encode of M71 writes "
+         "scRGB or HDR10, and the picture stays within white in every encoding until then. `swapchainFormat` is "
+         "\"BGRA8\", \"RGBA16F\" or \"RGB10A2\" (\"\" without a window). `requested`: the current scene's hdrOutput is "
+         "auto. `headroom`: how many times brighter than paper white the output can go now (the screen's current EDR "
+         "headroom; maxNits / paperWhiteNits in scRGB and HDR10; 1 in sdr), rounded to 2 decimals. `status`: one "
+         "sentence, what is shown or why the window stays in the standard range (hdrOutput off, Windows' HDR switch "
+         "off, a screen without EDR, the editor, a platform without HDR output). `display`: {known, hdr, name, offers: "
+         "[encodings], maxNits, minNits, maxFullFrameNits, maxHeadroom, headroom, why}; nits are 0 where the platform "
+         "does not report them (macOS, iOS), headrooms are 1 outside Apple. The answer is the one of the last frame "
+         "the "
+         "window presented (the display is asked once per frame: moving the window to another monitor or switching HDR "
+         "in the OS settings shows on the next one). Headless runs, graphics=false, Linux, Android and the web answer "
+         "sdr with display.known false or the platform's reason. The same answer is Renderer::output_info() in C++.",
+         parse_schema(R"({"type":"object","properties":{}})"), true, "game"},
+        [&I](const Json& a) {
+            check_args_known(a, {}, "render.output");
+            const HdrOutputInfo info = I.renderer ? I.renderer->output_info() : app_hdr_output();
+            const SceneSettings& settings = I.world.settings();
+            const float paperWhite =
+                std::isfinite(settings.paperWhiteNits)
+                    ? std::round(std::clamp(settings.paperWhiteNits, 80.0f, 1000.0f) * 100.0f) / 100.0f
+                    : 200.0f;
+            auto offers = [](unsigned bits) {
+                Json list = Json::array();
+                for (int i = 0; i < kHdrEncodingCount; ++i)
+                    if (bits & hdr_encoding_bit(HdrEncoding(i))) list.push_back(hdr_encoding_name(HdrEncoding(i)));
+                return list;
+            };
+            const HdrDisplay& d = info.display;
+            Json display = Json::object({{"known", d.known},
+                                         {"hdr", d.hdr},
+                                         {"name", d.name},
+                                         {"offers", offers(d.offers)},
+                                         {"maxNits", d.maxNits},
+                                         {"minNits", d.minNits},
+                                         {"maxFullFrameNits", d.maxFullFrameNits},
+                                         {"maxHeadroom", d.maxHeadroom},
+                                         {"headroom", d.headroom},
+                                         {"why", d.why}});
+            return Json::object({{"hdrActive", info.active},
+                                 {"encoding", hdr_encoding_name(info.encoding)},
+                                 {"swapchainFormat", info.swapchainFormat},
+                                 {"requested", settings.hdrOutput == HdrOutput::Auto},
+                                 {"paperWhiteNits", paperWhite},
+                                 {"maxNits", info.maxNits},
+                                 {"headroom", info.headroom},
+                                 {"status", info.status},
+                                 {"display", std::move(display)}});
+        });
+
     // Capabilities (capability.h): what each command does outside the engine's memory.
     declare_command_capabilities(I.commands, {
+                                                 {"render.output", capability_sets::reads()},
                                                  {"render.supports", capability_sets::reads()},
                                                  {"game.screenshot", capability_sets::changes_state()},
                                                  {"render.inspect", capability_sets::reads()},

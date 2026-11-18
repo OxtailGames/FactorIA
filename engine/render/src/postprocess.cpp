@@ -42,7 +42,6 @@ PostPlan make_post_plan(const CameraInfo& cam, bool linear) {
     PostPlan p;
     p.bloom = cam.bloom;
     p.colorFilter = std::clamp(cam.colorFilter, 0, 5);
-    p.linear = linear;
     if (!cam.postStack) return p;  // no stack: only what the bloom and the colour filter above say (both off then)
     const PostStack& s = *cam.postStack;
     const PostProcess& f = s.fx;
@@ -61,6 +60,8 @@ PostPlan make_post_plan(const CameraInfo& cam, bool linear) {
         p.tonemap = true;
         p.tonemapMode = std::clamp(int(f.tonemapMode), 0, 4);
     }
+    // A linear scene is converted (and encoded) by the final pass only when something needs it; otherwise the present copy encodes it.
+    p.linear = linear && (p.exposure || p.tonemap || p.colorFilter != 0);
     return p;
 }
 

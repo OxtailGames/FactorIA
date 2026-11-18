@@ -144,8 +144,17 @@ enum class ExposureStage : std::uint8_t { Luma, Adapt, Count };
 // LinearClamp: bilinear, clamp to edge, no mipmaps (post-processing).
 enum class SamplerKind : std::uint8_t { Nearest, Linear, LinearRepeat, NearestRepeat, LinearClamp, Count };
 
+// What the texels of a texture mean (SceneSettings.colorSpace "linear", M71).
+//   Raw    : 8-bit values as the file or the game wrote them (authored sRGB-encoded colours, or data), sampled as they are.
+//   Srgb   : the GPU decodes the texels (an SRGB8A8, BC7/ASTC/ETC2 sRGB image) when it samples: a linear scene reads colours as
+//            linear light for free, and filters them in linear light. Made so only while the scene is linear.
+//   Scene  : holds what the scene target holds (a CameraView or render-target image): linear in a linear scene, gamma in a gamma
+//            scene, and never converted.
+enum class TexEncoding : std::uint8_t { Raw, Srgb, Scene };
+
 struct TextureAsset {
     std::string path;
+    TexEncoding enc = TexEncoding::Raw;
     sg_image image{};
     sg_view view{};
     int width = 0, height = 0;  // pixels of the original file: what regions, sprite sizes and scripts work with
@@ -160,6 +169,17 @@ struct TextureAsset {
     std::vector<std::string> untraced;
 
     sg_view gpu_view() const { return atlas ? atlas->view : view; }
+    // The fix the shader applies to a sample of this texture (fa_tex_fix: 0 none, 1 sRGB -> linear, 2 linear -> sRGB) so that a
+    // colour use sees linear light in a linear scene and the file's own values otherwise, and a data use (normal map, masks)
+    // always sees the file's values: one texture asset serves both uses, whichever format it was made in (the first user that
+    // loads it decides the format; a use the format does not suit is corrected here, at the cost of filtering such a texture in
+    // linear light, a small difference). `colour`: the sample is a colour (sprite, albedo, emissive), not data.
+    int tex_fix(bool linearScene, bool colour) const {
+        const TexEncoding e = (atlas ? atlas->enc : enc);
+        if (e == TexEncoding::Scene) return 0;
+        const bool decoded = e == TexEncoding::Srgb;
+        return linearScene && colour ? (decoded ? 0 : 1) : (decoded ? 2 : 0);
+    }
     // UV of pixel (x, y) of the original file (top-left origin): inside the atlas when the texture is packed.
     Vec2 uv(float x, float y) const {
         const TextureAsset& s = atlas ? *atlas : *this;
@@ -201,7 +221,9 @@ Result<TranscodedTexture> transcode_ktx2(const std::uint8_t* data, std::size_t s
 // is not a multiple of 4, gives RGBA8.
 sg_pixel_format ktx2_target_format();
 Result<TranscodedTexture> transcode_ktx2_as(const std::uint8_t* data, std::size_t size, sg_pixel_format format);
-const char* pixel_format_name(sg_pixel_format format);  // "RGBA8", "BC7", "ASTC_4x4", "ETC2_RGBA8"
+const char* pixel_format_name(
+    sg_pixel_format
+        format);  // "RGBA8", "BC7", "ASTC_4x4", "ETC2_RGBA8", the sRGB twins ("SRGB8A8", "BC7_SRGB", ...), "RGBA16F", "R11G11B10"
 
 struct SubMesh {
     sg_buffer vb{};
@@ -785,16 +807,41 @@ public:
     sg_pipeline blit_keep_pipeline(const TargetFormat& format);
     sg_pipeline blit_keep_pipeline() { return blit_keep_pipeline(blit_keep_target_format()); }
     static TargetFormat blit_keep_target_format() { return {SG_PIXELFORMAT_RGBA8, SG_PIXELFORMAT_NONE, 1}; }
-    // The format of the game target, the CameraView and render-target images and the bloom and colour-filter passes: RGBA16F where
-    // the GPU can render to it with blending, filtering and the requested multisampling, so a colour above white (MeshRenderer.
-    // emissiveStrength) survives to bloom; RGBA8 otherwise (everything clamps at white). FA_SCENE_FORMAT=rgba8 forces RGBA8.
+    // The format of the game target, the CameraView and render-target images and the bloom and colour-filter passes. Gamma scene:
+    // RGBA16F where the GPU can render to it with blending, filtering and the requested multisampling, so a colour above white
+    // (MeshRenderer.emissiveStrength) survives to bloom; RGBA8 otherwise (everything clamps at white). Linear scene
+    // (SceneSettings.colorSpace): RGBA16F, else R11G11B10 (float, no alpha), else SRGB8A8, else RGBA8 (see Gpu::init).
+    // FA_SCENE_FORMAT: rgba8 = the 8-bit end of the chain (gamma: RGBA8, linear: SRGB8A8), r11g11b10 = prefer the packed float one
+    // (a linear scene; the gamma chain is as without it), read once at init to test a path on a GPU that would pick another.
     sg_pixel_format scene_format() const { return sceneFormat_; }
-    // Renderer::Impl::create_targets, when the GPU accepted RGBA16F as a format but could not make the game target's
-    // images in it (GLES3/WebGL2 with multisampling and no EXT_color_buffer_float, a framebuffer the driver finds
-    // incomplete): it sets the format RGBA8. The pipelines made so far stay in the cache under their own (RGBA16F) key;
-    // the ones for RGBA8 are made on first use, and nothing is flushed. Only the game target falls back; the images of
-    // a CameraView, the bloom levels and the colour filter keep the format and their own warnings.
-    void set_scene_format(sg_pixel_format format) { sceneFormat_ = format; }
+    // The format of the images that hold the DISPLAY picture (what the final pass writes: sRGB values, so the GPU must not encode them
+    // again): the scene format, except SRGB8A8 (a linear scene in 8 bits), whose writes encode, becomes plain RGBA8.
+    sg_pixel_format display_format() const {
+        return sceneFormat_ == SG_PIXELFORMAT_SRGB8A8 ? SG_PIXELFORMAT_RGBA8 : sceneFormat_;
+    }
+    // The scene is held in linear light (SceneSettings.colorSpace "linear"). set_linear returns true when scene_format() changed:
+    // the caller (Renderer::Impl::sync_color_space) then makes the game target again. The pipelines made so far stay in the
+    // cache under their own format key; the ones for the new format are made on first use, and nothing is flushed.
+    bool linear() const { return linear_; }
+    bool set_linear(bool on);
+    // Renderer::Impl::create_targets, when the GPU accepted a format but could not make the game target's images in it (GLES3/
+    // WebGL2 with multisampling and no EXT_color_buffer_float, a framebuffer the driver finds incomplete): next_scene_format()
+    // moves to the next format of the chain (false at its end) and scene_pick() / set_scene_pick() save and restore the position.
+    // Only the game target falls back; the images of a CameraView, the bloom levels and the colour filter use the same format
+    // and keep their own warnings. A chain position is per colour space: the one the game is not in is not touched.
+    bool next_scene_format();
+    int scene_pick() const { return sceneChain_[linear_ ? 1 : 0].at; }
+    void set_scene_pick(int pick);
+    // False for R11G11B10: a CameraView or a world capture drawn into it has no alpha (an opaque background).
+    bool scene_has_alpha() const;
+    // The scene holds values above 1 (RGBA16F, R11G11B10).
+    bool scene_is_float() const;
+    // The format a COLOUR texture of this format is made in now: in a linear scene the sRGB variant (SRGB8A8, BC7/ASTC/ETC2 sRGB)
+    // where the GPU samples and filters it, so the GPU decodes the texels to linear light before filtering; the format itself in
+    // a gamma scene or where there is no sRGB variant (the shader then decodes: TextureAsset::enc, tex_fix).
+    sg_pixel_format texture_format(sg_pixel_format unorm) const;
+    // The GPU decodes SRGB8A8 when it samples it (every backend but some old GLES).
+    bool srgb_textures() const { return srgbTextures_; }
 
     // Bloom post-processing. The shaders are created on first use; returns false (and logs once) when they
     // cannot be created, in which case Camera.bloom is skipped instead of failing the whole renderer.
@@ -905,6 +952,15 @@ private:
     int exposureState_ = 0;     // same meaning as bloomState_
     sg_pixel_format lightFormat_ = SG_PIXELFORMAT_NONE;
     sg_pixel_format sceneFormat_ = SG_PIXELFORMAT_RGBA8;  // see scene_format()
+    struct SceneChain {
+        sg_pixel_format formats[4]{SG_PIXELFORMAT_RGBA8, SG_PIXELFORMAT_RGBA8, SG_PIXELFORMAT_RGBA8,
+                                   SG_PIXELFORMAT_RGBA8};
+        int count = 0;
+        int at = 0;
+    };
+    SceneChain sceneChain_[2];  // [0] gamma, [1] linear
+    bool linear_ = false, srgbTextures_ = false;
+    void refresh_scene_format();
     sg_sampler samplers_[int(SamplerKind::Count)]{};
     sg_buffer quadIndices_{}, fsTriangle_{};
     struct PipelineEntry {

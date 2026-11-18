@@ -251,18 +251,47 @@ TEST_CASE("post stack: the full stack is bloom, exposure, the final pass, the HU
     CHECK(order_of(g) == std::vector<std::string>{"camera:0/game", "camera:0/post"});
 }
 
-TEST_CASE("post stack: a linear scene always has the final pass, a gamma one only when something is on") {
+TEST_CASE("post stack: a linear scene has the final pass only with exposure, a tonemap or a filter; the encode happens "
+          "once") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
-    FlatScene s(0.4f, true);
+    FlatScene s(0.4f, true, Color{0.2f, 0.5f, 0.8f, 1});
     s.world.settings().colorSpace = ColorSpace::Gamma;
-    g.render(s.world);
+    const Image gamma = g.render(s.world);
     CHECK(order_of(g) == std::vector<std::string>{"camera:0/game"});
+
+    // Linear without a stack: no pass of its own, the copy to the screen encodes (B1).
     s.world.settings().colorSpace = ColorSpace::Linear;
     const Image linear = g.render(s.world);
-    CHECK(order_of(g) == std::vector<std::string>{"camera:0/game", "camera:0/post", "camera:0/hud-over-post"});
+    CHECK(order_of(g) == std::vector<std::string>{"camera:0/game"});
     CHECK(linear.pixel(160, 150).a == doctest::Approx(1.0f));
+    CHECK(near_value(linear.pixel(160, 150).r, gamma.pixel(160, 150).r, 3 * kStep));
+    CHECK(near_value(linear.pixel(40, 20).g, gamma.pixel(40, 20).g, 3 * kStep));
+
+    // Linear with the final pass (a clip, no curve): the pass encodes and the HUD is drawn over it in display values, so the
+    // picture is the gamma one again, never encoded twice (a second encode would lift 0.4 to 0.66) and never left linear (0.13).
+    enable_tonemap(s.post(), TonemapMode::None);
+    const Image post = g.render(s.world);
+    CHECK(order_of(g) == std::vector<std::string>{"camera:0/game", "camera:0/post", "camera:0/hud-over-post"});
+    for (const auto& xy : {std::pair<int, int>{160, 150}, std::pair<int, int>{40, 20}}) {
+        const Color a = post.pixel(xy.first, xy.second), b = gamma.pixel(xy.first, xy.second);
+        INFO("pixel " << xy.first << "," << xy.second);
+        CHECK(near_value(a.r, b.r, 4 * kStep));
+        CHECK(near_value(a.g, b.g, 4 * kStep));
+        CHECK(near_value(a.b, b.b, 4 * kStep));
+    }
+    CHECK(near_value(post.pixel(160, 150).r, 0.4f, 4 * kStep));
+
+    // The same pass with a tonemap: encoded once, so a 0.4 grey the curve leaves between 0.4 and 1 stays in that range.
+    s.post().tonemapMode = TonemapMode::Aces;
+    const Image mapped = g.render(s.world);
+    const float aces = mapped.pixel(160, 150).r;
+    CHECK(aces > 0.3f);
+    CHECK(aces < 0.75f);
+    CHECK(near_value(mapped.pixel(40, 20).b, 0.8f, 4 * kStep));  // the HUD box keeps its colour
+
     s.world.settings().colorSpace = ColorSpace::Gamma;
+    s.world.remove<PostProcess>(s.cam);
     g.render(s.world);
     CHECK(order_of(g) == std::vector<std::string>{"camera:0/game"});  // back to nothing: no residue
 }

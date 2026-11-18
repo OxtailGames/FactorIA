@@ -37,7 +37,7 @@ struct PostPlan {
     int tonemapMode = 0;  // TonemapMode as an int: 0 none (a clip), 1 neutral, 2 aces, 3 agx, 4 reinhard
     int colorFilter = 0;  // Camera.colorFilter / PostProcess.colorFilterMode as an int, 0 none .. 5 tritanopia
     bool linear =
-        false;  // SceneSettings.colorSpace linear: the game target holds linear light, the final pass encodes it
+        false;  // a linear scene that has exposure, a tonemap or a colour filter: the target holds linear light, the final pass encodes it
     OutputEncode output = OutputEncode::Sdr;
 
     // True when the final pass converts the picture (exposure, tonemap, or the encode of a linear scene): the pass is then `post`. A

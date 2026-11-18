@@ -21,7 +21,7 @@ finds the game target's images or views not VALID, as GLES3/WebGL2 with MSAA and
 same size works in RGBA8, the format becomes RGBA8 (the pipelines made for RGBA16F stay in the cache under their own key; no flush) and the game is drawn
 in RGBA8, on every backend. A later resize or render scale that fails never changes the format. Only the game target falls
 back: a CameraView, a bloom level or the colour filter image that cannot be made keeps the format and its own warning, so
-`hdr_scene()` can stay true with one of them invalid. `FA_SCENE_FORMAT=rgba16f_invalid` forces the fall-back in tests; likewise a shadow map the GPU cannot make turns the
+`hdr_scene()` can stay true with one of them invalid. `FA_SCENE_FORMAT=rgba16f_invalid` forces the fall-back in tests and `FA_SCENE_FORMAT=r11g11b10` makes a linear scene use R11G11B10 (no alpha) as if RGBA16F were not renderable; likewise a shadow map the GPU cannot make turns the
 shadows off with one warning until the next resize, and `FA_SHADOW_MAP=invalid` forces that): a float target keeps a colour above white (`MeshRenderer.emissive` times
 `emissiveStrength`), and the bright pass hands bloom that excess, so it glows more. The screen, screenshots and video stay
 8-bit: `Impl::read_rgba8` copies a float target into an RGBA8 image (the `blit_keep` program, which keeps alpha) before
@@ -325,8 +325,28 @@ game makers: [TEXT.md](../TEXT.md).
 
 
 ## PostProcess (M71, in progress)
-M71 adds a linear HDR frame and a stack of post effects. The first package landed the shared interface; the stack's runtime and the
-final pass (exposure, bloom, tonemap, colour filter) are described in the last bullet of this section.
+M71 adds a linear HDR frame and a stack of post effects. The first package lands the shared interface; the linear frame (below, "Linear
+colour") and the effects listed in the last bullet (exposure, bloom, tonemap, colour filter) are drawn; the others are not yet.
+
+- **Linear colour, where the conversions are** (`SceneSettings.colorSpace linear`; every one of them is a no-op in a gamma scene, so
+  its pixels do not change). `Renderer::Impl::sync_color_space` (called first in `render` and in `capture_world`) tells the `Gpu`
+  (`set_linear`) and makes the game target again when the scene format changes. The `Gpu` holds two format chains (`sceneChain_[0]`
+  gamma: RGBA16F, RGBA8; `[1]` linear: RGBA16F, RG11B10F, SRGB8A8, RGBA8), each tried in order by `create_targets` (a creation that is not
+  VALID moves to the next one); `scene_format()` is the active one. Authored colours are converted on the CPU with `color_space.h`
+  (`to_scene`, `Frame::linear`): light, ambient, fog, sky, clear and material colours in `renderer_draw.cpp` and `scene2d.cpp`; vertex
+  colours of the quad stream (sprites, shapes, text, particles, HUD) in the quad vertex shader (`vs_params.cspace.x`). Colour textures
+  are made in the sRGB variant of their format when they are first uploaded in a linear scene (`Gpu::texture_format`,
+  `TextureAsset::enc`); `TextureAsset::tex_fix(linearScene, colour)` gives the shader's correction when the use does not match the
+  format (`fa_tex_fix`: quad `cspace.yz`, mesh `fa_maps.w` packing five 2-bit codes), so one asset serves both uses and a run-time
+  switch makes no texture again. View and render-target images are `TexEncoding::Scene` (never corrected); the font atlas, ramps and
+  video textures stay raw. The final blit encodes linear to sRGB (`blit_fs_params.encode`, replaced by the final pass of the stack) and
+  so does `read_rgba8`; an SRGB8A8 target is encoded by the GPU on write, so a gamma-correct read-back of it is a plain read.
+  R11G11B10 has no alpha (`scene_has_alpha`); `FeatureEnv.r11g11b10` follows the same rule as the chain (blend, or GL where sokol does
+  not report it). The editor viewport shows `Impl::display_view()`: the finished game image in gamma; in linear, after
+  `Renderer::set_editor_view(true)` (the editor, once; a game never), an RGBA8 copy that `update_editor_copy()` draws after each frame
+  with blit_keep and `encode` on (not counted as a draw call, freed when the scene returns to gamma or the editor stops asking). M71-B4
+  points `display_image()` / `display_view()` at its final target. The shader helper `fa_tex_fix` is written with `if` branches on a
+  uniform, so a gamma scene skips the pow() blocks on compilers that would run both sides of a `?:`.
 
 - **Data, in `engine/scene`.** `SceneSettings.colorSpace` (`gamma`, the default, or `linear`), `hdrOutput` (`off` or `auto`) and
   `paperWhiteNits` (200) are stored and saved with the scene; an old scene without them loads as gamma. The `PostProcess` component
@@ -364,7 +384,7 @@ final pass (exposure, bloom, tonemap, colour filter) are described in the last b
 - **The stack's passes and the final pass (`src/postprocess.{h,cpp}`, `shaders/post.glsl`, `shaders/exposure.glsl`).** `build_graph`
   declares them for the last job, from the PostStack of the camera that drives post (`specs.front().cam`; a stack per camera job is a
   `PostPlan` and an `AutoExposure` per job, nothing else is shared). `make_post_plan` turns the stack into sanitised numbers
-  (`PostPlan`); `PostPlan::convert()` (exposure, tonemap or a linear scene) decides whether the final pass runs. Order: bloom
+  (`PostPlan`); `PostPlan::convert()` (exposure, tonemap, or `linear`, which `make_post_plan` sets only for a linear scene that also has exposure, a tonemap or a colour filter: a linear scene with none keeps B1's encode in the present copy) decides whether the final pass runs. Encode matrix: `Impl::finalEncoded` is set by the `post` pass; the present copy and `read_rgba8` encode (`blit_fs_params.encode`) only when the scene is linear and it is false, and `display_image()` shows the final target itself and `update_editor_copy()` makes no copy when it is true. `filterTarget` and `hudTarget` are `Gpu::display_format()` (the scene format, but RGBA8 for SRGB8A8, whose writes would encode the display values again), and `hud_pass` draws as a gamma scene (`fr.linear` off) when the items go over the final picture Order: bloom
   (`bloom.h`, now with a soft knee in `q.y` of the bright pass and a lens dirt texture in the composite) -> `exposure-luma` /
   `exposure-adapt` (`AutoExposure`) -> `post` (exposure, tonemap, the sRGB encode, a one-step interleaved-gradient-noise dither, and
   the colour filter, in one fragment shader) -> `hud-over-post` -> `color-filter`. Four cases, by `plan.last`: (1) no conversion and

@@ -58,6 +58,54 @@ void set_skin_layout(sg_pipeline_desc& d, int jointsAttr, int weightsAttr) {
 }
 }  // namespace
 
+void Gpu::refresh_scene_format() {
+    const SceneChain& c = sceneChain_[linear_ ? 1 : 0];
+    if (c.count <= 0) return;  // no chain (nothing was queried yet): keep the format
+    sceneFormat_ = c.formats[std::min(c.at, c.count - 1)];
+}
+
+bool Gpu::set_linear(bool on) {
+    if (on == linear_) return false;
+    const sg_pixel_format before = sceneFormat_;
+    linear_ = on;
+    refresh_scene_format();
+    return sceneFormat_ != before;
+}
+
+bool Gpu::next_scene_format() {
+    SceneChain& c = sceneChain_[linear_ ? 1 : 0];
+    if (c.at + 1 >= c.count) return false;
+    ++c.at;
+    refresh_scene_format();
+    return true;
+}
+
+void Gpu::set_scene_pick(int pick) {
+    SceneChain& c = sceneChain_[linear_ ? 1 : 0];
+    c.at = std::clamp(pick, 0, std::max(0, c.count - 1));
+    refresh_scene_format();
+}
+
+bool Gpu::scene_has_alpha() const { return sceneFormat_ != SG_PIXELFORMAT_RG11B10F; }
+bool Gpu::scene_is_float() const {
+    return sceneFormat_ == SG_PIXELFORMAT_RGBA16F || sceneFormat_ == SG_PIXELFORMAT_RG11B10F;
+}
+
+sg_pixel_format Gpu::texture_format(sg_pixel_format unorm) const {
+    if (!linear_) return unorm;
+    sg_pixel_format srgb = SG_PIXELFORMAT_NONE;
+    switch (unorm) {
+        case SG_PIXELFORMAT_RGBA8: srgb = SG_PIXELFORMAT_SRGB8A8; break;
+        case SG_PIXELFORMAT_BC7_RGBA: srgb = SG_PIXELFORMAT_BC7_SRGBA; break;
+        case SG_PIXELFORMAT_ASTC_4x4_RGBA: srgb = SG_PIXELFORMAT_ASTC_4x4_SRGBA; break;
+        case SG_PIXELFORMAT_ETC2_RGBA8: srgb = SG_PIXELFORMAT_ETC2_SRGB8A8; break;
+        default: break;
+    }
+    if (srgb == SG_PIXELFORMAT_NONE) return unorm;
+    const sg_pixelformat_info info = sg_query_pixelformat(srgb);
+    return info.sample && info.filter ? srgb : unorm;
+}
+
 bool Gpu::init(int sampleCount, std::string* error) {
     sampleCount_ = std::max(1, sampleCount);
     sg_backend backend = sg_query_backend();
@@ -83,14 +131,32 @@ bool Gpu::init(int sampleCount, std::string* error) {
     }
 
     {
-        // The format of the game target and of every pass that draws into it or reads it (bloom, colour filter): RGBA16F where
-        // the GPU renders to it with blending and filtering (and multisampling when asked), so a colour above white (an emissive
-        // above 1, a bright additive sum) reaches bloom, else RGBA8, which keeps the frame but clamps at white.
+        // The format of the game target and of every pass that draws into it or reads it (bloom, colour filter), in the order
+        // they are tried. Gamma scene (every project before M71): RGBA16F where the GPU renders to it with blending and filtering
+        // (and multisampling when asked), so a colour above white (an emissive above 1, a bright additive sum) reaches bloom,
+        // else RGBA8, which keeps the frame but clamps at white. Linear scene (SceneSettings.colorSpace "linear"): the same,
+        // then R11G11B10 (a float target without alpha, half the memory of RGBA16F: GPUs that cannot render to RGBA16F, phones),
+        // then SRGB8A8 (8 bits that hold linear light: the GPU encodes what is written and decodes what is read, so the darks keep
+        // their precision and blending is done in linear light), then plain RGBA8 (the GPU has no sRGB target: banding in the darks).
         const sg_pixelformat_info half = sg_query_pixelformat(SG_PIXELFORMAT_RGBA16F);
         const bool halfOk = half.render && half.blend && half.filter && (sampleCount_ <= 1 || half.msaa);
-        sceneFormat_ = halfOk ? SG_PIXELFORMAT_RGBA16F : SG_PIXELFORMAT_RGBA8;
-        if (const char* want = std::getenv("FA_SCENE_FORMAT"))
-            if (std::string(want) == "rgba8") sceneFormat_ = SG_PIXELFORMAT_RGBA8;
+        // sokol-gfx reports no blend flag for RG11B10F on GL (the format blends there when it renders at all); D3D11 and Metal do.
+        const sg_pixelformat_info packed = sg_query_pixelformat(SG_PIXELFORMAT_RG11B10F);
+        const bool packedOk =
+            packed.render && packed.filter && (packed.blend || isGl_) && (sampleCount_ <= 1 || packed.msaa);
+        const sg_pixelformat_info srgb = sg_query_pixelformat(SG_PIXELFORMAT_SRGB8A8);
+        const bool srgbTarget = srgb.render && srgb.blend && srgb.filter && (sampleCount_ <= 1 || srgb.msaa);
+        srgbTextures_ = srgb.sample && srgb.filter;
+        const std::string want = std::getenv("FA_SCENE_FORMAT") ? std::getenv("FA_SCENE_FORMAT") : "";
+        for (SceneChain& c : sceneChain_) c = SceneChain{};
+        auto add = [](SceneChain& c, sg_pixel_format f) { c.formats[c.count++] = f; };
+        if (halfOk && want != "rgba8" && want != "r11g11b10") add(sceneChain_[0], SG_PIXELFORMAT_RGBA16F);
+        add(sceneChain_[0], SG_PIXELFORMAT_RGBA8);
+        if (halfOk && want != "rgba8" && want != "r11g11b10") add(sceneChain_[1], SG_PIXELFORMAT_RGBA16F);
+        if (packedOk && want != "rgba8") add(sceneChain_[1], SG_PIXELFORMAT_RG11B10F);
+        if (srgbTarget) add(sceneChain_[1], SG_PIXELFORMAT_SRGB8A8);
+        add(sceneChain_[1], SG_PIXELFORMAT_RGBA8);
+        refresh_scene_format();
     }
 
     quad_shader_ = make_shader(quad_quad_shader_desc(backend), "quad_quad");
