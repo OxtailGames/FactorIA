@@ -1850,6 +1850,163 @@ declare module "factoria" {
   }
 
   /**
+   * Which camera a transient screen effect (camera.shockwave, heatHaze, radialBlur, flash, fadeOut, fadeIn) is drawn on.
+   * @since unreleased
+   */
+  export interface ScreenFxTarget {
+    /**
+     * The camera that draws the effect, for example one half of a split screen. Default: every camera.
+     * @since unreleased
+     */
+    camera?: Entity | string;
+  }
+
+  /**
+   * Options of camera.shockwave(opts) and of the "shockwave" feel action. Strength, radius and width are fractions of the picture's height, so the ring looks the same at every resolution.
+   * @since unreleased
+   */
+  export interface ShockwaveOptions {
+    /**
+     * The centre of the ring as fractions of the camera's rectangle: (0.5, 0.5) is the middle (default), (0, 0) the top-left corner. Values outside 0..1 are a centre off the screen (up to +-10).
+     * @since unreleased
+     */
+    screen?: Vec2Like;
+    /**
+     * The centre as a world point; each camera projects it itself, and a point behind a perspective camera draws nothing. Wins over `screen`.
+     * @since unreleased
+     */
+    world?: Vec3Like;
+    /**
+     * Seconds until the ring is gone (default 0.6, 0.05 to 60).
+     * @since unreleased
+     */
+    duration?: number;
+    /**
+     * How far the ring pushes the picture, 0..0.5 (default 0.04); a quarter with reduceMotion on.
+     * @since unreleased
+     */
+    strength?: number;
+    /**
+     * The radius the ring reaches (default 0.6, 0.01 to 4). It leaves the centre fast and slows down.
+     * @since unreleased
+     */
+    radius?: number;
+    /**
+     * The width of the ring (default 0.1, 0.005 to 2).
+     * @since unreleased
+     */
+    width?: number;
+  }
+
+  /**
+   * Options of camera.heatHaze(opts) and of the "heatHaze" feel action.
+   * @since unreleased
+   */
+  export interface HeatHazeOptions {
+    /**
+     * The part of the camera's rectangle that ripples, [x, y, w, h] in fractions with (0, 0) top-left (default [0, 0, 1, 1], all of it). The edge is soft.
+     * @since unreleased
+     */
+    region?: RectLike;
+    /**
+     * Seconds (default 2, 0.05 to 600). The haze fades in and out over 0.15 s at its ends.
+     * @since unreleased
+     */
+    duration?: number;
+    /**
+     * How far the picture is pushed, as a fraction of its height, 0..0.1 (default 0.004, a gentle shimmer); a quarter with reduceMotion on.
+     * @since unreleased
+     */
+    strength?: number;
+    /**
+     * Ripples per picture height (default 10, 0.5 to 200).
+     * @since unreleased
+     */
+    frequency?: number;
+    /**
+     * Cycles per second the ripples travel upwards (default 1, 0 to 20).
+     * @since unreleased
+     */
+    speed?: number;
+  }
+
+  /**
+   * Options of camera.radialBlur(opts) and of the "radialBlur" feel action: a burst of the effect PostProcess.radialBlurEnabled draws all the time.
+   * @since unreleased
+   */
+  export interface RadialBlurOptions {
+    /**
+     * The centre the streaks leave, fractions of the camera's rectangle (default [0.5, 0.5]).
+     * @since unreleased
+     */
+    screen?: Vec2Like;
+    /**
+     * The centre as a world point; wins over `screen`.
+     * @since unreleased
+     */
+    world?: Vec3Like;
+    /**
+     * Seconds until the blur is gone (default 0.35, 0.01 to 60); the intensity dies out quadratically.
+     * @since unreleased
+     */
+    duration?: number;
+    /**
+     * 0..1, the blur at the start, same scale as PostProcess.radialBlurIntensity (default 0.4); a quarter with reduceMotion on.
+     * @since unreleased
+     */
+    intensity?: number;
+    /**
+     * Taps along each streak, 4 to 32 (default 12).
+     * @since unreleased
+     */
+    samples?: number;
+  }
+
+  /**
+   * Options of camera.flash(opts) and of the "screenFlash" feel action (entity.flash is FlashOptions).
+   * @since unreleased
+   */
+  export interface ScreenFlashOptions {
+    /**
+     * The colour laid over the picture (default white); alpha is ignored.
+     * @since unreleased
+     */
+    color?: Color | string | [number, number, number, number?];
+    /**
+     * Seconds (default 0.15, 0.01 to 60).
+     * @since unreleased
+     */
+    duration?: number;
+    /**
+     * 0..1, how much of the colour covers the picture at the start (default 1). With reducedEffects on it is capped at 0.35.
+     * @since unreleased
+     */
+    strength?: number;
+    /**
+     * true (default): from `strength` down to 0; false: `strength` for the whole duration, then off. Always true with reducedEffects on.
+     * @since unreleased
+     */
+    fade?: boolean;
+  }
+
+  /**
+   * Options of camera.fadeOut(opts) and camera.fadeIn(opts), and of the "fade" feel action (which takes `direction`: "out" or "in").
+   * @since unreleased
+   */
+  export interface ScreenFadeOptions {
+    /**
+     * The colour faded to or from (default black); alpha is ignored.
+     * @since unreleased
+     */
+    color?: Color | string | [number, number, number, number?];
+    /**
+     * Seconds, 0 to 600 (default 0.5); 0 is instant.
+     * @since unreleased
+     */
+    duration?: number;
+  }
+
+  /**
    * Options of entity.flash(opts) and of the "flash" feel action.
    * @since 0.17.0
    */
@@ -1997,10 +2154,10 @@ declare module "factoria" {
   }
 
   /**
-   * A game feel effect as data: what the `feel` of Animator, SpriteAnimator and clip-file events, the feel.* commands and feel.do run. Same names as the options of the matching function; "push" is "knockback", "spawn" and "sound" have no function of their own (docs/GAME_FEEL.md, "Effects as data").
+   * A game feel effect as data: what the `feel` of Animator, SpriteAnimator and clip-file events, the feel.* commands and feel.do run. Same names as the options of the matching function; "push" is "knockback", "spawn" and "sound" have no function of their own, and the five screen effects ("shockwave", "heatHaze", "radialBlur", "screenFlash", "fade") are camera.shockwave ... camera.fadeIn (docs/GAME_FEEL.md, "Effects as data").
    * @since 0.17.0
    */
-  export type FeelAction = { action: "shake"; amount?: number } & ShakeOptions | { action: "hitStop"; duration?: number } & HitStopOptions | { action: "flash" } & FlashOptions | { action: "knockback" | "push"; direction?: Vec3Like } & KnockbackOptions | { action: "squash" } & SquashOptions | { action: "spawn" } & FeelSpawnOptions | { action: "sound" } & FeelSoundOptions;
+  export type FeelAction = { action: "shake"; amount?: number } & ShakeOptions | { action: "hitStop"; duration?: number } & HitStopOptions | { action: "flash" } & FlashOptions | { action: "knockback" | "push"; direction?: Vec3Like } & KnockbackOptions | { action: "squash" } & SquashOptions | { action: "spawn" } & FeelSpawnOptions | { action: "sound" } & FeelSoundOptions | { action: "shockwave" } & ShockwaveOptions | { action: "heatHaze" } & HeatHazeOptions | { action: "radialBlur" } & RadialBlurOptions | { action: "screenFlash" } & ScreenFlashOptions | { action: "fade"; direction?: "out" | "in" } & ScreenFadeOptions;
 
   /**
    * Game feel settings and the data form of the effects (docs/GAME_FEEL.md). The effects themselves are camera.shake, time.hitStop, entity.flash, entity.knockback and entity.squash.
@@ -2018,12 +2175,12 @@ declare module "factoria" {
      */
     reducedEffects: boolean;
     /**
-     * Runs one effect given as data on `target` (the entity of flash, knockback, squash, spawn and sound; the camera of shake, default camera.main; spawn without a target puts the effect at `offset`). Unknown keys and wrong types throw with a "did you mean".
+     * Runs one effect given as data on `target` (the entity of flash, knockback, squash, spawn and sound; the camera of shake, default camera.main, and of the screen effects, default every camera; spawn without a target puts the effect at `offset`). Unknown keys and wrong types throw with a "did you mean".
      * @since 0.17.0
      */
     do(action: FeelAction, target?: Entity | string): void;
     /**
-     * Ends the flash, squash, shake and knockback of `target` at once; without an argument every effect of the scene, hit-stops included.
+     * Ends the flash, squash, shake and knockback of `target` at once (and, for a camera, the screen effects drawn on it, a held fade included); without an argument every effect of the scene, hit-stops and screen effects included.
      * @since 0.17.0
      */
     cancel(target?: Entity | string): void;
@@ -2130,6 +2287,36 @@ declare module "factoria" {
      * @since 0.17.0
      */
     shake(amount?: number, opts?: ShakeOptions): void;
+    /**
+     * Screen shockwave: a ring that leaves a point and bends the picture as it grows, drawn by the camera's post-processing pass over the finished frame (no PostProcess component needed). It runs on the game clock (time.scale 0 holds it), is deterministic, and shows on every camera unless opts.camera names one (a split screen). At most 16 screen effects are alive at once and a camera draws the newest 4 shockwaves; starting one more never fails, the oldest ends. With reduceMotion on the strength is a quarter. Example: camera.shockwave({ screen: [0.5, 0.4], strength: 0.05 });
+     * @since unreleased
+     */
+    shockwave(opts?: ShockwaveOptions & ScreenFxTarget): void;
+    /**
+     * Heat haze: a ripple that shimmers a region of the picture for opts.duration seconds, fading in and out at its ends. Same rules as shockwave (game clock, per camera, bounded: a camera draws the newest 2). Example: camera.heatHaze({ region: [0, 0.6, 1, 0.4], duration: 3 });
+     * @since unreleased
+     */
+    heatHaze(opts?: HeatHazeOptions & ScreenFxTarget): void;
+    /**
+     * A radial blur pulse from a point that dies out over opts.duration, for a speed burst or a heavy hit. When the camera's PostProcess has radialBlurEnabled the stronger of the two blurs is drawn. Same rules as shockwave. Example: camera.radialBlur({ intensity: 0.5, duration: 0.4 });
+     * @since unreleased
+     */
+    radialBlur(opts?: RadialBlurOptions & ScreenFxTarget): void;
+    /**
+     * Flashes the whole screen in a colour over the finished picture (before the colour filter): a damage or pickup flash. Not entity.flash, which flashes one entity. With reducedEffects on the strength is capped at 0.35 and it always fades. Example: camera.flash({ color: "#ff0000", strength: 0.4, duration: 0.2 });
+     * @since unreleased
+     */
+    flash(opts?: ScreenFlashOptions & ScreenFxTarget): void;
+    /**
+     * Fades the picture to a colour (default black) over opts.duration and HOLDS it until camera.fadeIn or feel.cancel(camera); a scene load clears it. A new fade on the camera continues from the opacity the old one had reached. Example: camera.fadeOut({ duration: 0.8 });
+     * @since unreleased
+     */
+    fadeOut(opts?: ScreenFadeOptions & ScreenFxTarget): void;
+    /**
+     * Fades from a colour (default black) back to the picture. With no fade running it starts from the full colour, which is the way to open a scene. Example: camera.fadeIn({ duration: 0.6 });
+     * @since unreleased
+     */
+    fadeIn(opts?: ScreenFadeOptions & ScreenFxTarget): void;
   }
 
   /**
@@ -10349,7 +10536,7 @@ declare module "factoria" {
     enabled: boolean;
   }
   /**
-   * A stack of screen effects (tonemap, exposure, bloom, colour grading, vignette, chromatic aberration, film grain, lens distortion, sharpen, outline, pixelate, posterize, ambient occlusion, depth of field, motion blur, reflections, fog, sun shafts, radial blur, colour filter), every one off by default. On the entity of a Camera it is that camera's own stack. On any other entity it is a VOLUME: shape "global" applies to every camera, "box", "circle" (2D, x and y) and "sphere" to the cameras whose position is inside it or within blendDistance of it, blended into the camera's stack by priority (a higher one wins) and by weight. Numbers and colours are interpolated by the volume's influence; switches, modes, textures and curves switch over when the influence reaches 0.5. A volume only adds to or changes the effects it switches on: to remove an effect inside a volume switch it on with its neutral values (bloomIntensity 0, vignetteIntensity 0, ...). Each effect has a `<effect>Enabled` switch and parameters named `<effect><Parameter>`. The effects run in a fixed order: ssao, ssr, fog, sunShafts, exposure, depthOfField, motionBlur, radialBlur, lensDistortion, chromaticAberration, bloom (all on HDR colour), tonemap, colorGrading, vignette, sharpen, outline, pixelate, posterize, filmGrain, colorFilter (the last pass). M71 is in progress: the component, the volumes, the postprocess.* commands and render.supports exist, and each effect is drawn as its M71 package lands: render.supports {"feature": "<effect>"} says which ones this build draws on this GPU (exposure, bloom, tonemap, colorFilter, lensDistortion, chromaticAberration, colorGrading, vignette, sharpen, outline, pixelate, posterize and filmGrain today), until then the fields only store the values. The lens distortion, the chromatic aberration, the colour grading, the vignette, the sharpen, the outline, the pixelation, the posterization and the film grain are drawn in the final pass, after the bloom: the lens and the aberration bend how the scene is read (in scene colour, before the exposure), the rest work on the display picture (what the screen shows, paper white = 1, the same on an SDR and an HDR output) and none of them clips above white. Every camera draws its own stack over its own part of the picture (a split screen: each half has its own); the bloom and the colour filter are one per frame, the ones of the camera that draws first. Camera.bloom* and Camera.colorFilter are deprecated and keep working unchanged: they stand in for a PostProcess with bloom and the colour filter. A frame without any stack costs nothing: no pass, no target. Screen-space items (the HUD) are drawn over the finished picture, so exposure, tonemap and the output encode never touch them; the colour filter does.
+   * A stack of screen effects (tonemap, exposure, bloom, colour grading, vignette, chromatic aberration, film grain, lens distortion, sharpen, outline, pixelate, posterize, ambient occlusion, depth of field, motion blur, reflections, fog, sun shafts, radial blur, colour filter), every one off by default. On the entity of a Camera it is that camera's own stack. On any other entity it is a VOLUME: shape "global" applies to every camera, "box", "circle" (2D, x and y) and "sphere" to the cameras whose position is inside it or within blendDistance of it, blended into the camera's stack by priority (a higher one wins) and by weight. Numbers and colours are interpolated by the volume's influence; switches, modes, textures and curves switch over when the influence reaches 0.5. A volume only adds to or changes the effects it switches on: to remove an effect inside a volume switch it on with its neutral values (bloomIntensity 0, vignetteIntensity 0, ...). Each effect has a `<effect>Enabled` switch and parameters named `<effect><Parameter>`. The effects run in a fixed order: ssao, ssr, fog, sunShafts, exposure, depthOfField, motionBlur, radialBlur, lensDistortion, chromaticAberration, bloom (all on HDR colour), tonemap, colorGrading, vignette, sharpen, outline, pixelate, posterize, filmGrain, colorFilter (the last pass). M71 is in progress: the component, the volumes, the postprocess.* commands and render.supports exist, and each effect is drawn as its M71 package lands: render.supports {"feature": "<effect>"} says which ones this build draws on this GPU (exposure, bloom, tonemap, colorFilter, lensDistortion, chromaticAberration, colorGrading, vignette, sharpen, outline, pixelate, posterize, filmGrain and radialBlur today), until then the fields only store the values. The lens distortion, the chromatic aberration, the colour grading, the vignette, the sharpen, the outline, the pixelation, the posterization and the film grain are drawn in the final pass, after the bloom: the lens and the aberration bend how the scene is read (in scene colour, before the exposure), the rest work on the display picture (what the screen shows, paper white = 1, the same on an SDR and an HDR output) and none of them clips above white. Every camera draws its own stack over its own part of the picture (a split screen: each half has its own); the bloom and the colour filter are one per frame, the ones of the camera that draws first. Camera.bloom* and Camera.colorFilter are deprecated and keep working unchanged: they stand in for a PostProcess with bloom and the colour filter. A frame without any stack costs nothing: no pass, no target. Screen-space items (the HUD) are drawn over the finished picture, so exposure, tonemap and the output encode never touch them; the colour filter does.
    * 
    * Category: Camera
    * @since unreleased

@@ -13,6 +13,10 @@ Showing the picture on an HDR display is the last section, "HDR output".
 For cameras on the screen (split screen, insets, post effects) see docs/AI_GUIDE.md, section 9.29; for a camera inside a menu
 widget see docs/MENUS.md, "A camera inside the UI".
 
+## Pages
+
+- [Transient screen effects](rendering/RENDERING_SCREEN_EFFECTS.md): Shockwave, heat haze, radial blur pulse, flash and fade of the camera, drawn by its post pass.
+
 ## Render targets
 
 ### Set one up
@@ -352,17 +356,18 @@ The passes of a frame, in order (`render.frame_graph` lists them, and `RenderSta
 
 A game in the default gamma colour space with only bloom or only a colour filter gets exactly the passes it had before the stack
 existed (the old pictures are byte for byte the same). Exposure and tonemap decode the stored colours to light, work in linear
-light and encode back, so `exposureEv` +1 doubles the light, not the stored number. A stack without the nine effects below runs the
+light and encode back, so `exposureEv` +1 doubles the light, not the stored number. A stack without the ten effects below runs the
 same code as before: they are switched on by a bit mask, so an effect that is off costs no sample and no arithmetic.
 
 ### The effects of the final pass
 
-Nine effects run in the `post` pass, in the order of this table (`render.supports {"feature": "<effect>"}` is true where this build
+Ten effects run in the `post` pass, in the order of this table (`render.supports {"feature": "<effect>"}` is true where this build
 draws them). They work in display space (the encoded values the screen shows), the same on an SDR and on an HDR output, except the
 two that bend the picture and the pixelation, which move the place it is read from.
 
 | Effect | Fields (`PostProcess`) | What it does |
 |---|---|---|
+| `radialBlur` | `radialBlurIntensity`, `radialBlurCenter`, `radialBlurSamples` | The picture streaks away from the centre: `radialBlurSamples` taps along the line from the pixel toward `radialBlurCenter`, as far as `radialBlurIntensity` says, averaged. It reads the scene, so it acts before the grade and the other display effects. `camera.radialBlur` starts a pulse of the same blur (see "Transient screen effects"). |
 | `lensDistortion` | `lensDistortionIntensity` (-1 pincushion .. 1 barrel), `lensDistortionScale` (zoom), `lensDistortionCenter` | Moves the point each pixel reads. It acts while the picture is sampled, so the bloom glow bends with it. Where the lens reads outside the picture the pixel is **black** (raise the scale to hide it). |
 | `chromaticAberration` | `chromaticAberrationIntensity` | Red and blue are read at slightly different distances from the centre, growing toward the edge; green stays. Read at the same moment as the lens; the sample is clamped to the picture's edge. |
 | `colorGrading` | `colorGradingTemperature`, `Tint`, `Lift`, `Gamma`, `Gain`, `Contrast`, `Saturation`, `HueShift`, `colorGradingLut`, `colorGradingLutContribution` | After the tonemap and the encode, in display space: white balance, gain, lift, gamma, contrast around mid grey, saturation, hue rotation, then the LUT. Nothing is clipped at white, so an HDR value above 1 stays above 1. The curves (`colorGradingCurve*`) are not drawn yet. |
@@ -471,6 +476,12 @@ Things to know:
   to compare (`Renderer::set_post_bypass`: it changes no data and ends when the panel closes). Every edit goes through
   `postprocess.set` or `postprocess.apply_preset`, one undo step each, to the camera's own PostProcess or to the volume picked under
   "Edit"; an effect this renderer does not draw (planned, or unsupported on this GPU) cannot be switched on from the panel (a look that switched it on can be switched off).
+
+## Transient screen effects
+
+Shockwave, heat haze, radial blur pulse, flash and fade: five short effects of the camera that the `post` pass draws over the
+finished picture, started by `camera.shockwave(opts)` and its four siblings or by the `feel.*` commands, on the game clock. They
+have a page of their own: [Transient screen effects](rendering/RENDERING_SCREEN_EFFECTS.md).
 
 ## Depth and normals
 

@@ -451,6 +451,20 @@ final pass) are drawn; the others are not yet.
   mirror the shader and are what `postfx_render_tests.cpp` compares the read-back pixels with. The importer
   (`tools/common/src/assets_import.cpp`) has a `.cube` route (`assets/luts/`) that runs `parse_cube_lut`, and the hot reload lists `.cube`
   among the render assets. The `colorGradingCurve*` fields are stored but not drawn yet.
+- **Radial blur and the transient screen effects (M71-C3b; `scene/screen_fx.h`, `post_fx.{h,cpp}`, `post.glsl`).** Bits 4096 (shockwave),
+  8192 (heat haze), 16384 (radial blur) and 32768 (flash / fade overlay) of `PostFx::mask()`. The radial blur is the `radialBlur*`
+  fields of the stack and `render.supports` says it is drawn (`effect_drawn`); the other four have no field: they are the live
+  `ScreenFx` of `World::feel().screenFx` (`scene`, `feel_update` advances them on the feel clock, `World::clear` drops them, `feel.cpp`
+  runs the actions). `build_camera` copies the ones of a camera (`CameraInfo::screenFx`: its own, or the ones with no camera when it is not a render target),
+  `make_post_plan` calls `add_screen_fx(fx, effects, queryViewProj)`, which turns them into uniforms in the camera's own coordinates
+  (world centres projected by `queryViewProj`, dropped behind a perspective camera): the newest 4 rings (`sw[8]`, two vec4 each), 2 hazes
+  (`hz[4]`), one radial blur (the PostProcess one and the pulses: the larger intensity wins, `rb`) and one overlay colour (`ov`: flash
+  and fade, composited oldest first). A camera with none of them and no stack makes no plan, so a frame without effects is unchanged. The shader reads the scene through
+  `read_scene`, which first adds `shock_offset` and `haze_offset` to the screen position (the displacement is part of where the whole
+  pass reads, like the lens), the radial blur averages `samples` taps along the line to the centre, and the overlay is `mix(c,
+  ov.rgb, ov.a)` after the grain and before the dither and the colour filter. A PostProcess is not needed: `plan.fx.any()` makes the
+  final pass. The CPU mirrors (`shockwave_offset`, `haze_offset`, `radial_blur_taps`, `overlay_color` in `post_fx.cpp`) are what `screen_fx_render_tests.cpp`
+  compares the read-back pixels with.
 - **The outline, pixelate and posterize (M71-C2; `post_fx.{h,cpp}`, `post.glsl`, `plan_outline` / `coverage_pass` in `renderer_draw.cpp`).**
   Four more bits of `PostFx::mask()` (128 depth outline, 256 sprite outline, 512 pixelate, 1024 posterize; `ex.x` is a float, so every
   mask below 2^24 is exact). `make_post_fx(stack, frame, designScale)` takes the render scale (`designScale` 0.05..16) so the width of the
