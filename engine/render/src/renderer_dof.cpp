@@ -30,7 +30,8 @@ static_assert(UB_dof_dof_vs_params == 0 && UB_dof_dof_params == 1 && UB_motion_b
 static_assert(VIEW_dof_tex_c == 0 && VIEW_dof_tex_p == 1 && VIEW_dof_tex_g == 2 && VIEW_motion_blur_tex_c == 0 &&
                   VIEW_motion_blur_tex_p == 1,
               "the dof and motion blur programs share the view slots");
-static_assert(SMP_dof_smp_lin == 0 && SMP_dof_smp_pt == 1 && SMP_motion_blur_smp_lin == 0 && SMP_motion_blur_smp_pt == 1,
+static_assert(SMP_dof_smp_lin == 0 && SMP_dof_smp_pt == 1 && SMP_motion_blur_smp_lin == 0 &&
+                  SMP_motion_blur_smp_pt == 1,
               "the dof and motion blur programs share the sampler slots");
 
 template <class T>
@@ -103,8 +104,8 @@ int dof_gather_taps(float radiusHalfPx) {
     return std::clamp(int(std::ceil(4.0f * r + 8.0f)), 8, 64);
 }
 
-SceneFxPlan SceneFx::plan(World& world, const CameraInfo& cam, const PostStack& stack, std::uint64_t camKey, std::uint64_t serial,
-                          float dt, float designScale, const Mat4& prevViewProj, bool prevValid) {
+SceneFxPlan SceneFx::plan(World& world, const CameraInfo& cam, const PostStack& stack, std::uint64_t camKey,
+                          std::uint64_t serial, float dt, float designScale, const Mat4& prevViewProj, bool prevValid) {
     // A camera that did not ask for two frames is forgotten: it focuses from its target again when it comes back.
     for (auto it = focus_.begin(); it != focus_.end();)
         it = it->second.frame + 1 < serial ? focus_.erase(it) : std::next(it);
@@ -128,9 +129,11 @@ SceneFxPlan SceneFx::plan(World& world, const CameraInfo& cam, const PostStack& 
         }
         Focus& st = focus_[camKey];
         if (follow && st.frame != 0 && st.frame + 1 == serial)
-            st.distance = smooth_focus(st.distance, wanted, std::clamp(finite_or(f.depthOfFieldFocusSpeed, 5.0f), 0.0f, 100.0f), dt);
+            st.distance = smooth_focus(st.distance, wanted,
+                                       std::clamp(finite_or(f.depthOfFieldFocusSpeed, 5.0f), 0.0f, 100.0f), dt);
         else
-            st.distance = wanted;  // no target (or a first frame, or a gap): the focus is where it is asked to be at once
+            st.distance =
+                wanted;  // no target (or a first frame, or a gap): the focus is where it is asked to be at once
         st.frame = serial;
         p.focus = st.distance;
         p.halfRange = std::clamp(finite_or(f.depthOfFieldFocusRange, 5.0f), 0.0f, 100000.0f) * 0.5f;
@@ -147,7 +150,8 @@ SceneFxPlan SceneFx::plan(World& world, const CameraInfo& cam, const PostStack& 
         const Mat4 invView = cam.invViewProj * cam.proj;
         p.prevFromView = prevViewProj * invView;
         const Mat4& P = cam.proj;
-        const float terms[8] = {P.at(0, 0), P.at(1, 1), P.at(2, 0), P.at(2, 1), P.at(3, 0), P.at(3, 1), P.at(2, 3), P.at(3, 3)};
+        const float terms[8] = {P.at(0, 0), P.at(1, 1), P.at(2, 0), P.at(2, 1),
+                                P.at(3, 0), P.at(3, 1), P.at(2, 3), P.at(3, 3)};
         bool finite = std::isfinite(P.at(0, 0)) && std::fabs(P.at(0, 0)) > 1e-12f && std::fabs(P.at(1, 1)) > 1e-12f;
         for (float t : terms) finite = finite && std::isfinite(t);
         for (int i = 0; i < 16; ++i) finite = finite && std::isfinite(p.prevFromView.m[i]);
@@ -179,7 +183,8 @@ bool SceneFx::ready() {
         }
         state_ = -1;
         FA_ERROR("render",
-                 "Depth of field and motion blur are unavailable: their shaders failed to compile for this graphics backend (see the "
+                 "Depth of field and motion blur are unavailable: their shaders failed to compile for this graphics "
+                 "backend (see the "
                  "sokol log lines above). The game renders without them. Hint: update the graphics driver (Mesa: try "
                  "LIBGL_ALWAYS_SOFTWARE=1) or turn depthOfFieldEnabled and motionBlurEnabled off.");
         return false;
@@ -207,7 +212,8 @@ sg_pipeline SceneFx::pipeline(Prog prog, const TargetFormat& format) {
               : prog == Prog::Copy      ? "dof-copy"
                                         : "motion-blur";
     const sg_pipeline p = sg_make_pipeline(&d);
-    if (sg_query_pipeline_state(p) != SG_RESOURCESTATE_VALID) FA_ERROR("render", "failed to create pipeline '{}'", d.label);
+    if (sg_query_pipeline_state(p) != SG_RESOURCESTATE_VALID)
+        FA_ERROR("render", "failed to create pipeline '{}'", d.label);
     pipelines_.push_back({prog, format, p});
     return p;
 }
@@ -237,9 +243,9 @@ void SceneFx::release() {
 #pragma warning(push)
 #pragma warning(disable : 4324)
 #endif
-int SceneFx::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, const SceneFxPlan& plan, const PostRect& rectIn,
-                        int picW, int picH, ResourceId game, sg_view srcTex, const BloomTarget& dst, const PrepassRef& prepass,
-                        int* drawCalls, const std::string& job) {
+int SceneFx::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, const SceneFxPlan& plan,
+                        const PostRect& rectIn, int picW, int picH, ResourceId game, sg_view srcTex,
+                        const BloomTarget& dst, const PrepassRef& prepass, int* drawCalls, const std::string& job) {
     if (!plan.any() || !prepass.valid()) return 0;
     const Rect rect = rect_of(rectIn, picW, picH);
     if (rect.w < 1 || rect.h < 1) return 0;
@@ -285,7 +291,8 @@ int SceneFx::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, 
             if (!warnedTargets_) {
                 warnedTargets_ = true;
                 FA_ERROR("render",
-                         "Depth of field and motion blur: cannot create the intermediate targets for a {}x{} camera; they are skipped. "
+                         "Depth of field and motion blur: cannot create the intermediate targets for a {}x{} camera; "
+                         "they are skipped. "
                          "Hint: turn them off, or lower the render scale.",
                          rw, rh);
             }
@@ -365,20 +372,20 @@ int SceneFx::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, 
         add("dof-down", {game, pre}, {halfA}, [=](const PassContext& c) {
             const Target* pt = prepassRef.target(c);
             if (!pt || !srcTex.id) return;
-            draw_fullscreen(*self, *g, Prog::Down, into_scratch(c, halfA, "dof-down"), srcTex, pt->texView, sg_view{}, &u, sizeof(u),
-                            nullptr);
+            draw_fullscreen(*self, *g, Prog::Down, into_scratch(c, halfA, "dof-down"), srcTex, pt->texView, sg_view{},
+                            &u, sizeof(u), nullptr);
             ++*drawCalls;
         });
         add("dof-gather", {halfA}, {halfB}, [=](const PassContext& c) {
-            draw_fullscreen(*self, *g, Prog::Gather, into_scratch(c, halfB, "dof-gather"), sg_view{}, sg_view{}, tex(c, halfA), &u,
-                            sizeof(u), nullptr);
+            draw_fullscreen(*self, *g, Prog::Gather, into_scratch(c, halfB, "dof-gather"), sg_view{}, sg_view{},
+                            tex(c, halfA), &u, sizeof(u), nullptr);
             ++*drawCalls;
         });
         add("dof-composite", {game, pre, halfB}, {scratch}, [=](const PassContext& c) {
             const Target* pt = prepassRef.target(c);
             if (!pt || !srcTex.id) return;
-            draw_fullscreen(*self, *g, Prog::Composite, into_scratch(c, scratch, "dof-composite"), srcTex, pt->texView, tex(c, halfB),
-                            &u, sizeof(u), nullptr);
+            draw_fullscreen(*self, *g, Prog::Composite, into_scratch(c, scratch, "dof-composite"), srcTex, pt->texView,
+                            tex(c, halfB), &u, sizeof(u), nullptr);
             *scratchReady = true;
             ++*drawCalls;
         });
@@ -408,16 +415,16 @@ int SceneFx::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, 
             add("motion-blur", {scratch, pre, game}, {game}, [=](const PassContext& c) {
                 const Target* pt = prepassRef.target(c);
                 if (!pt || !*scratchReady) return;
-                draw_fullscreen(*self, *g, Prog::Motion, into_picture("motion-blur"), tex(c, scratch), pt->texView, sg_view{}, &u,
-                                sizeof(u), rect.whole ? nullptr : &rect);
+                draw_fullscreen(*self, *g, Prog::Motion, into_picture("motion-blur"), tex(c, scratch), pt->texView,
+                                sg_view{}, &u, sizeof(u), rect.whole ? nullptr : &rect);
                 ++*drawCalls;
             });
         } else {
             add("motion-blur", {game, pre}, {scratch}, [=](const PassContext& c) {
                 const Target* pt = prepassRef.target(c);
                 if (!pt || !srcTex.id) return;
-                draw_fullscreen(*self, *g, Prog::Motion, into_scratch(c, scratch, "motion-blur"), srcTex, pt->texView, sg_view{}, &u,
-                                sizeof(u), nullptr);
+                draw_fullscreen(*self, *g, Prog::Motion, into_scratch(c, scratch, "motion-blur"), srcTex, pt->texView,
+                                sg_view{}, &u, sizeof(u), nullptr);
                 *scratchReady = true;
                 ++*drawCalls;
             });
@@ -427,8 +434,8 @@ int SceneFx::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, 
         // The result is in the scratch: copy it into the camera's rectangle of the picture.
         add(plan.dof ? "dof-copy" : "motion-copy", {scratch, game}, {game}, [=](const PassContext& c) {
             if (!*scratchReady) return;
-            draw_fullscreen(*self, *g, Prog::Copy, into_picture(plan.dof ? "dof-copy" : "motion-copy"), tex(c, scratch), sg_view{},
-                            sg_view{}, nullptr, 0, rect.whole ? nullptr : &rect);
+            draw_fullscreen(*self, *g, Prog::Copy, into_picture(plan.dof ? "dof-copy" : "motion-copy"), tex(c, scratch),
+                            sg_view{}, sg_view{}, nullptr, 0, rect.whole ? nullptr : &rect);
             ++*drawCalls;
         });
     }
