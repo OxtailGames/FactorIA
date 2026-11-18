@@ -121,6 +121,9 @@ def main():
         try:
             p = subprocess.run([exe], env=user_env, capture_output=True, text=True, timeout=120)
             code = p.returncode
+            if code == 77:  # the player's display watchdog: every display of this Mac sleeps, no frame can come
+                print("skipped: " + (p.stdout + p.stderr).strip()[-300:], flush=True)
+                sys.exit(1 if failures else 77)  # 77 is ctest's SKIP_RETURN_CODE; a failure already seen stays one
         except subprocess.TimeoutExpired:
             code = "timeout"
         logs = []

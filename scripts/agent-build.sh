@@ -29,7 +29,10 @@
 # window, so a test that opens one waits until its time limit (five minutes each). Those tests (ctest label `window`)
 # are left out then and listed as SKIPPED, never as passed; FA_TEST_NO_WINDOW=1 is set for the others (a test case that
 # runs a windowed program skips that step and is listed too), and the job ends as `DONE INCOMPLETE`. Wake the display
-# and run the listed tests, or leave them to CI. FA_AGENT_WINDOW_TESTS=run runs them whatever the display says.
+# and run the listed tests, or leave them to CI. FA_AGENT_WINDOW_TESTS=run runs them whatever the display says (and sets
+# FA_TEST_IGNORE_DISPLAY_SLEEP=1). A display that falls asleep DURING the run, or a plain ctest, is caught by the
+# programs themselves: after ~10 s without a frame and with every display asleep they exit 77, ctest's SKIP_RETURN_CODE
+# of those tests, and the script lists what ctest reports as Skipped in the same note.
 #
 # At most three jobs build or test at once on one machine (FA_AGENT_MAX_JOBS), counting every checkout and worktree of
 # this user: one more waits for a free slot and reports `RUNNING (waiting for a build slot ...)` meanwhile.
@@ -305,10 +308,22 @@ build() {  # build <dir> <label> [target...]
 }
 
 # What a test run could not do without a window: window_note <label> <asleep 0|1> <tests left out> <steps skipped>
-# <the tests those steps are in>.
+# <the tests those steps are in> <the tests that ended themselves with 77>.
 window_note() {
-    local label="$1" asleep="$2" tests="$3" steps="$4" entries="$5" note again
+    local label="$1" asleep="$2" tests="$3" steps="$4" entries="$5" own="${6:-}" note again
     note="$label: SKIPPED (not passed):"
+    if [ -n "$own" ]; then
+        # The program's own watchdog (engine/platform/src/display_watchdog.h) found no frame and every display asleep:
+        # the test ended with 77, ctest's SKIP_RETURN_CODE. The display went to sleep after the start-of-run check, or
+        # this is a plain ctest.
+        note="$note $(printf '%s\n' "$own" | wc -w | tr -d ' ') test(s) that ended themselves with 77 ($own): every"
+        note="$note display of this Mac was asleep, so no window got a frame. Wake the display and run them again"
+        # shellcheck disable=SC2086  # one name per word
+        again="$(printf '%s\n' $own | sort -u | tr '\n' '|' | sed 's/|*$//')"
+        note="$note (--tests '^($again)\$'), or say in your report that only CI runs them."
+        [ -n "$tests$steps" ] || { printf '%s\n' "$note"; return; }
+        note="$note Also:"
+    fi
     if [ -n "$tests" ]; then
         note="$note $(printf '%s\n' "$tests" | wc -w | tr -d ' ') test(s) that open a window ($tests);"
     fi
@@ -333,8 +348,10 @@ window_note() {
 # left out (displays_asleep) or a test case skipped the step that runs a windowed program (FA_TEST_NO_WINDOW).
 run_ctest() {  # run_ctest <dir> <label> <log> <ctest arguments...>
     local dir="$1" label="$2" log="$3"; shift 3
-    local t0=$SECONDS rc=0 disabled asleep=0 skipped="" steps="" entries=""
+    local t0=$SECONDS rc=0 disabled asleep=0 skipped="" steps="" entries="" own=""
     set_phase "$label" "$log"
+    # FA_AGENT_WINDOW_TESTS=run: the windowed programs do not skip themselves either (display_watchdog.h)
+    [ "${FA_AGENT_WINDOW_TESTS:-auto}" = run ] && export FA_TEST_IGNORE_DISPLAY_SLEEP=1
     if displays_asleep; then
         # No window gets a frame. The tests that open one (label `window`) are left out; a test case of another test
         # that runs a windowed program skips that step and says so (FA_TEST_NO_WINDOW), which is counted below.
@@ -408,12 +425,15 @@ run_ctest() {  # run_ctest <dir> <label> <log> <ctest arguments...>
             /: MESSAGE: FA_TEST_NO_WINDOW is set/ && name != "" { print name }' \
             "$dir/Testing/Temporary/LastTest.log" 2>/dev/null | sort -u | tr '\n' ' ' | sed 's/ *$//')"
     fi
-    [ -n "$skipped$steps" ] && say "$(window_note "$label" $asleep "$skipped" "$steps" "$entries")"
+    # Tests that ended themselves with 77 (SKIP_RETURN_CODE, the display watchdog): ctest lists them as (Skipped).
+    own="$(grep -E '^[[:space:]]+[0-9]+ - .+\(Skipped\)' "$log" | sed -E 's/^[[:space:]]*[0-9]+ - //; s/ \(Skipped\)$//' |
+        sort -u | tr '\n' ' ' | sed 's/ *$//')"
+    [ -n "$skipped$steps$own" ] && say "$(window_note "$label" $asleep "$skipped" "$steps" "$entries" "$own")"
     if [ $rc -ne 0 ]; then
         say "$label: FAILED ($((SECONDS - t0)) s). Full log: $log"
         return 1
     fi
-    if [ -n "$skipped$steps" ]; then
+    if [ -n "$skipped$steps$own" ]; then
         say "$label: everything else passed ($((SECONDS - t0)) s)"
         return 77
     fi
