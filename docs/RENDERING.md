@@ -344,7 +344,8 @@ The passes of a frame, in order (`render.frame_graph` lists them, and `RenderSta
 |---|---|---|
 | `bloom-bright`, `bloom-down-*`, `bloom-blur-h`, `bloom-blur-v`, `bloom-composite` | `bloomEnabled` | The glow: threshold with a soft knee, a reduced-resolution blur, added back (times the lens dirt texture). |
 | `exposure-luma`, `exposure-adapt` | `exposureMode` auto | The frame reduced to 32x32 brightness values, then the stored 1x1 exposure moves toward the one that makes the average 18% grey by `1 - exp(-speed * dt)`, kept between `exposureMinEv` and `exposureMaxEv`. No read back; the engine's frame `dt`, so the same frames give the same exposure on every run. Needs a float render target; the stored exposure is a 32-bit float where the GPU can filter one (else 16-bit, which stops a little short of the target at a slow speed and a high frame rate). |
-| `prepass` | `outlineEnabled` in depth mode (and the effects of "Depth and normals") | The opaque meshes' depth and normals, read by the outline (see "Depth and normals"). |
+| `prepass` | `outlineEnabled` in depth mode, `ssaoEnabled` (and the effects of "Depth and normals") | The opaque meshes' depth and normals, read by the outline and the ambient occlusion (see "Depth and normals"). |
+| `ssao-ao`, `ssao-blur-h`, `ssao-blur-v`, `ssao-apply` | `ssaoEnabled`, 3D meshes in the view | The ambient occlusion, before the bloom (see "Ambient occlusion"). |
 | `sprite-coverage` | `outlineEnabled` in sprite mode | The 2D world drawn once more into an RGBA8 image whose alpha is how much each pixel is covered, read by the sprite outline (see "The outline"). |
 | `post` | exposure, tonemap, colour grading, vignette, chromatic aberration, lens distortion, sharpen, outline, pixelate, posterize, film grain, or a colour filter in a linear scene | The final pass, one full-screen pass: pixelate (the picture is read at the block centres), lens distortion and chromatic aberration (while the picture is read), exposure, tonemap (`none` clips, `neutral`, `aces`, `agx`, `reinhard`), the encode for the display, colour grading, vignette, sharpen, outline, posterize, film grain, a one-step (1/255) dither so smooth gradients do not band on an 8-bit screen (not under posterize), and the colour filter. |
 | `hud-over-post` | the final pass ran and screen-space items exist | The HUD, drawn over the final picture in display colours: it is never exposed or tonemapped, and never glows. |
@@ -372,6 +373,27 @@ two that bend the picture and the pixelation, which move the place it is read fr
 | `pixelate` | `pixelateSize` | Every pixel of a block of `pixelateSize` design pixels shows the colour at the block's centre (the block grid starts at the top-left of the camera's rectangle of the picture, so a block cut by the right or bottom edge reads its centre clamped to the picture). It moves the place everything of the final pass reads (the lens, the grade, the vignette, the sharpen and the outline see the block centre, so the outline is blocky too); only the film grain and the dither stay per pixel. |
 | `posterize` | `posterizeLevels` | Each colour channel of the display value is cut to `posterizeLevels` evenly spaced values (`round(c * (n - 1)) / (n - 1)`), after the grading, the vignette, the sharpen and the outline. An HDR excess above white is kept as it is. The 1/255 dither is switched off while it is on, since it would move a value off its level. |
 | `filmGrain` | `filmGrainIntensity`, `Size`, `Animated`, `LuminanceResponse` | An integer hash noise added to the display value, weighted toward the mid tones by `LuminanceResponse` (1) or even (0). It is seeded by the engine's frame counter (`world.frame()`), so a recorded or replayed run gives the same grain; `filmGrainAnimated` false uses a fixed seed. It is added before the dither and the colour filter. |
+
+### Ambient occlusion
+
+`ssaoEnabled` darkens creases and contact points of 3D meshes (GTAO: for a few directions on the screen the search looks up the
+depth of the prepass and finds the highest horizon, then adds up how much of the hemisphere above the surface is open). `ssaoRadius` is in
+world units (how far an occluder still counts), `ssaoIntensity` (0..4) is the power of the occlusion that multiplies the colour, and
+`ssaoQuality` sets the cost: `low` (2 directions, 3 steps) and `medium` (3, 5) search at half the resolution of the camera's rectangle,
+`high` (3, 6) and `ultra` (5, 8) at full resolution. A blur that follows the surfaces (it does not mix a tap that is off the plane
+of the pixel) removes the pattern of the search, and the apply pass of a half resolution search upsamples with the same weights.
+
+- **Nothing is random.** The directions and steps are shifted by a fixed 4x4 pattern of the pixel, so the same scene gives the same picture on every run
+  (golden screenshots do not flicker); an open flat floor keeps a few percent of error at a grazing angle, a crease is much darker.
+- **In place.** The apply pass multiplies the occlusion into the game image (a blend, `DST_COLOR`), it does not make a new image. What
+  was drawn into the game image before it is darkened too where it covers meshes (the prepass has only meshes): blended meshes, sprites, particles,
+  text and **the interface drawn before the post passes** (a HUD in a frame without a `post` pass, or with `bloomScreenSpace`); a HUD drawn after (with a `post` pass) is not touched. A gamma scene gets
+  the occlusion raised to `intensity * 1.5 / 2.2` and a linear scene to `intensity * 1.5`, which is the same linear result.
+- **Where there is no occlusion.** Pixels with no opaque mesh (sky, sprites, background) are not changed; an intensity or radius of 0,
+  the effect off, a frame with no opaque mesh, or a GPU without RGBA16F targets that blend and filter (the log says so once) make no
+  pass and no image: the picture is the one without the effect. Each camera has its own passes (`camera:<n>/ssao-*`) over its own rectangle.
+- **Seeing it.** `render.debug_view {"view":"ao"}` paints the occlusion alone as a grey over the camera's rectangle (white where it is open or
+  there is no mesh), with the camera's own settings or, when it has none, the defaults (`ssao-view` replaces `ssao-apply`).
 
 ### The outline
 
@@ -425,6 +447,8 @@ pixel, else RGBA8):
 | `bloomEnabled`, `bloomRadius` 64 | 6 | four smaller targets, 0.6 MB |
 | colour grading, vignette, chromatic aberration, lens distortion, sharpen, pixelate, posterize or film grain, alone or together | 1 (`post`; sharpen reads four more texels, the LUT one table lookup, pixelate none) | one full-size target |
 | `outlineEnabled`, depth mode | 1 (`post`, reads 4 texels of the prepass) + `prepass` | one full-size target and the prepass image (16 bytes a pixel) |
+| `ssaoEnabled`, low or medium | 4 (`ssao-*`: the search and the first blur at half size, the apply at full size) + `prepass` | the prepass image and two RGBA16F images at half the camera's size (8 bytes a pixel each: 1 MB at 1280x720) |
+| `ssaoEnabled`, high or ultra | 4 + `prepass` | the prepass image and two RGBA16F images at full size (4 MB each at 1280x720) |
 | `outlineEnabled`, sprite mode | 1 (`post`, up to 17 texels of the coverage) + `sprite-coverage` (the 2D batches again) | one full-size target and one RGBA8 image (4 bytes a pixel) |
 | everything on, with a HUD | 8 (`color-filter` is its own pass because the HUD went between) | the sum of the above |
 
@@ -461,7 +485,7 @@ Things to know:
   {"id", "preset"}` applies one: without `"keep": true` the look replaces every effect of the target with exactly its own (the
   volume's shape, size and priority stay), with it only the effects the look names change. The looks are data, not code
   (`engine/runtime/data/postprocess_presets.json`): `neutral` (everything off, the way back), `cinematic`, `retro`, `noir`, `dreamy`,
-  `vivid` and `horror`, built only from fields that exist. A look that names an effect this renderer does not draw yet (`ssao`,
+  `vivid` and `horror`, built only from fields that exist. A look that names an effect this renderer does not draw yet (`ssr`,
   `depthOfField`... say `planned` in `render.supports`) still applies, and the answer says so: `notDrawn` lists them and `note` explains
   that their fields are stored and show once the renderer draws them. `drawnChecked` is false when there is no renderer to ask
   (`graphics=false`).
@@ -485,7 +509,7 @@ orthographic 3D camera.
   depth or the normals and that the renderer draws, when that camera draws opaque meshes (a camera of a split screen has its own, the
   size of its rectangle). A frame without such an effect declares no
   prepass pass, makes no image and builds no shader: the draw calls are the same as before. Of the effects that read the depth only the
-  outline (depth mode) is drawn so far; the rest are drawn as their M71 packages land, and the debug view below makes the image too.
+  outline (depth mode) and the ambient occlusion are drawn so far; the rest are drawn as their M71 packages land, and the debug view below makes the image too.
 - **What is in it.** Opaque meshes, skinned ones at their pose, with their material's `vertex()` displacement, the normals of their material's `surface()` and, for `alphaMode`
   `"clip"`, the same holes as the main pass. Not in it: blended meshes, the sky, sprites, particles, shapes, text, debug lines
   and the HUD. A custom material gets its own prepass programs when
@@ -498,7 +522,7 @@ orthographic 3D camera.
   reports the current one) paints the prepass over the 3D picture of the frame, so `game.step` then `game.screenshot` shows what the
   depth-based effects read: depth as a grey, `10 / (10 + distance)` (white next to the camera), normals as the view-space direction
   mapped to colours (`x`, `y`, `z` as red, green, blue: a surface that faces the camera is blue), black where no opaque mesh was
-  drawn. `FA_RENDER_DEBUG_VIEW=depth` or `normals` in the environment sets the first view at start (C++: `Renderer::set_debug_view`).
+  drawn. `"ao"` paints the ambient occlusion instead (see "Ambient occlusion"). `FA_RENDER_DEBUG_VIEW=depth`, `normals` or `ao` in the environment sets the first view at start (C++: `Renderer::set_debug_view`).
   It is a way to check a scene, not an effect: it is not saved and a game does not set it. `game.screenshot` has no
   argument for it: set the view, step a frame, take the shot.
 - **What the image holds.** `r` is the depth, clamped to 60000 (the far value) so a half-float fallback never stores infinity;

@@ -70,6 +70,19 @@ struct PrepassRef {
     static constexpr float kFarDepth = 60000.0f;
 };
 
+// The ambient occlusion of a camera (PostProcess.ssao*, drawn by renderer_ssao.h) after clamping to the supported ranges.
+struct SsaoSettings {
+    bool enabled = false;    // false: no pass (also for an intensity or a radius of 0)
+    int quality = 1;         // SsaoQuality as an int: 0 low, 1 medium, 2 high, 3 ultra
+    float intensity = 1.0f;  // 0..4
+    float radius = 0.5f;     // world units
+    bool view = false;       // the debug view ao: the occlusion is painted over the picture instead of darkening it
+};
+// What the stack asks for: enabled when the stack switches the effect on with an intensity and a radius above 0.
+SsaoSettings ssao_from_stack(const PostStack& stack);
+// The settings of the debug view ao: the stack's own when it has the effect on, else the defaults of the component; `view` set.
+SsaoSettings ssao_debug_settings(const SsaoSettings& own);
+
 struct PostPlan {
     BloomSettings bloom;  // bloom.enabled = false: no bloom
     bool exposure = false;
@@ -91,6 +104,9 @@ struct PostPlan {
     // draws the prepass when one is true (renderer_draw.cpp, plan_job); `prepass` is then valid for the passes after it.
     bool needsDepth = false, needsNormals = false;
     PrepassRef prepass;
+    // The ambient occlusion (renderer_ssao.h): declared before the bloom, over this camera's rectangle, when `enabled` and the prepass was
+    // made. Its prepass bits are in needsDepth / needsNormals.
+    SsaoSettings ssao;
     // The sprite outline's image (renderer_draw.cpp, "sprite-coverage"): an RGBA8 image of the picture's size, a = how much of the pixel the
     // 2D world drew (alpha blending accumulates it), cleared to 0. Made only when fx.outline_sprite(); valid for the passes after it.
     PrepassRef coverage;
