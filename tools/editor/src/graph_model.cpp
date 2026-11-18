@@ -35,7 +35,8 @@ int pointer_index(const std::string& pointer, const std::string& prefix) {
     std::size_t i = prefix.size();
     if (i >= pointer.size() || pointer[i] < '0' || pointer[i] > '9') return -1;
     long v = 0;
-    while (i < pointer.size() && pointer[i] >= '0' && pointer[i] <= '9' && v < 100000000) v = v * 10 + (pointer[i++] - '0');
+    while (i < pointer.size() && pointer[i] >= '0' && pointer[i] <= '9' && v < 100000000)
+        v = v * 10 + (pointer[i++] - '0');
     if (i < pointer.size() && pointer[i] != '/') return -1;
     return int(v);
 }
@@ -155,29 +156,43 @@ bool GraphModel::load_from_disk(bool startGraph) {
     try {
         parsed = Json::parse(*text);
     } catch (const std::exception& e) {
-        error_ = rel_ + " is not valid JSON: " + e.what() + " Fix the file (or `factoria validate`), then open it again.";
+        error_ =
+            rel_ + " is not valid JSON: " + e.what() + " Fix the file (or `factoria validate`), then open it again.";
         return false;
     }
     if (!parsed.is_object()) {
         error_ = rel_ + " is not a material (a JSON object).";
         return false;
     }
-    doc_ = parsed;
-    stamp_ = stamp();
-    conflict_ = false;
-    auto g = doc_.find("graph");
-    if (g != doc_.end() && g->is_object()) {
-        graph_ = *g;
-        savedGraph_ = *g;
+    // Everything is checked on locals first: a file that cannot be shown leaves the document that is open untouched.
+    Json newGraph;
+    Json newSaved;
+    auto g = parsed.find("graph");
+    if (g != parsed.end() && g->is_object()) {
+        newGraph = *g;
+        newSaved = *g;
+        auto n = newGraph.find("nodes");
+        if (n == newGraph.end() || !n->is_array()) {
+            error_ = rel_ + " has a \"graph\" with no \"nodes\" list (/graph/nodes): a graph is {\"nodes\": [...], "
+                            "\"links\": [...]}. "
+                            "Run `material.graph.validate` on it, add the list, or delete \"graph\" to keep the shader "
+                            "as hand-written code.";
+            return false;
+        }
     } else if (startGraph) {
-        graph_ = starter_graph();
-        savedGraph_ = Json();
-        doc_["graph"] = graph_;
+        newGraph = starter_graph();
+        parsed["graph"] = newGraph;
     } else {
-        error_ = rel_ + " has no \"graph\": its shader is hand-written. Open it with \"Start a graph\" to make nodes, or edit "
-                        "the snippet by hand.";
+        error_ = rel_ +
+                 " has no \"graph\": its shader is hand-written. Open it with \"Start a graph\" to make nodes, or edit "
+                 "the snippet by hand.";
         return false;
     }
+    doc_ = std::move(parsed);
+    graph_ = std::move(newGraph);
+    savedGraph_ = std::move(newSaved);
+    stamp_ = stamp();
+    conflict_ = false;
     view_ = View{};
     if (graph_.contains("editor") && graph_["editor"].is_object() && graph_["editor"].contains("view") &&
         graph_["editor"]["view"].is_object()) {
@@ -204,15 +219,16 @@ bool GraphModel::open(const std::string& rel, bool startGraph) {
         error_ = "'" + rel + "' does not exist in the project.";
         return false;
     }
+    if (is_open() && rel == rel_)
+        return true;  // already the open document: its edits stay (reload() reads the file again)
     const std::string before = rel_;
     rel_ = rel;
     error_.clear();
-    status_.clear();
     if (!load_from_disk(startGraph)) {
-        rel_ = before.empty() ? std::string() : before;
-        if (!before.empty()) load_from_disk(true);  // keep showing the document that was open
+        rel_ = before;  // load_from_disk changed nothing else: the document that was open (and its edits) stays
         return false;
     }
+    status_.clear();
     selected_.clear();
     gesture_ = false;
     snippetState_ = "unchecked";
@@ -284,7 +300,8 @@ const MaterialGraphReport& GraphModel::report() const {
 
 int GraphModel::node_count() const { return graph_.is_object() && nodes().is_array() ? int(nodes().size()) : 0; }
 int GraphModel::link_count() const {
-    return graph_.is_object() && graph_.contains("links") && graph_["links"].is_array() ? int(graph_["links"].size()) : 0;
+    return graph_.is_object() && graph_.contains("links") && graph_["links"].is_array() ? int(graph_["links"].size())
+                                                                                        : 0;
 }
 
 int GraphModel::node_index(const std::string& id) const {
@@ -439,19 +456,21 @@ GraphEditOutcome GraphModel::commit(Json next, const std::string& label, bool st
     return out;
 }
 
-std::string GraphModel::unique_id(const Json& nodes, const std::string& base) {
+std::string GraphModel::unique_id(const Json& list, const std::string& base) {
     const std::string stem = strip_digits(base.empty() ? std::string("node") : base);
-    if (!find_node(nodes, stem)) return stem;
+    if (!find_node(list, stem)) return stem;
     for (int n = 2; n < 100000; ++n) {
         const std::string id = stem + std::to_string(n);
-        if (!find_node(nodes, id)) return id;
+        if (!find_node(list, id)) return id;
     }
     return stem + "_x";
 }
 
 GraphEditOutcome GraphModel::add_node(const std::string& type, Vec2 pos, const std::string& ref) {
     const GraphNodeType* t = find_graph_node_type(type);
-    if (!t) return fail("There is no node type \"" + type + "\": pick one from the palette (material.graph.nodes lists them).");
+    if (!t)
+        return fail("There is no node type \"" + type +
+                    "\": pick one from the palette (material.graph.nodes lists them).");
     if (type == kGraphOutputNode) {
         for (const Json& n : nodes())
             if (n.is_object() && n.value("type", std::string()) == kGraphOutputNode)
@@ -506,7 +525,8 @@ GraphEditOutcome GraphModel::remove_nodes(const std::set<std::string>& ids) {
             keptNodes.push_back(n);
         }
     }
-    if (removed == 0) return fail(outputKept ? "The output node stays: every graph has exactly one." : "Nothing to remove.");
+    if (removed == 0)
+        return fail(outputKept ? "The output node stays: every graph has exactly one." : "Nothing to remove.");
     next["nodes"] = keptNodes;
     Json keptLinks = Json::array();
     if (next.contains("links") && next["links"].is_array())
@@ -669,17 +689,17 @@ GraphEditOutcome GraphModel::paste(const std::string& clipText, Vec2 at) {
     for (const Json& n : clip["nodes"]) {
         if (!n.is_object() || n.value("type", std::string()) == kGraphOutputNode) continue;
         const std::string old = n.value("id", std::string());
-        Json copy = n;
+        Json piece = n;
         // keep the name the node had when it is free, so a paste of one node is "noise" -> "noise2", not "noise_fbm"
         const std::string kept = unique_id(next["nodes"], old.empty() ? base_id(n.value("type", std::string())) : old);
-        copy["id"] = kept;
+        piece["id"] = kept;
         const Vec2 p = pos_of(n);
-        copy["pos"] = pos_json(double(at.x) + (p.x - minX), double(at.y) + (p.y - minY));
-        copy.erase("editor");
+        piece["pos"] = pos_json(double(at.x) + (p.x - minX), double(at.y) + (p.y - minY));
+        piece.erase("editor");
         renamed[old] = kept;
         madeIds.insert(kept);
         if (first.empty()) first = kept;
-        next["nodes"].push_back(copy);
+        next["nodes"].push_back(piece);
     }
     if (madeIds.empty()) return fail("The clipboard holds only the output node, and a graph has exactly one.");
     if (!next.contains("links") || !next["links"].is_array()) next["links"] = Json::array();
@@ -761,8 +781,9 @@ Json GraphModel::graph_for_save() const {
     g["version"] = kGraphVersion;
     if (view_.known) {
         if (!g.contains("editor") || !g["editor"].is_object()) g["editor"] = Json::object();
-        g["editor"]["view"] = Json::object(
-            {{"zoom", std::round(view_.zoom * 100.0) / 100.0}, {"panX", std::round(view_.panX)}, {"panY", std::round(view_.panY)}});
+        g["editor"]["view"] = Json::object({{"zoom", std::round(view_.zoom * 100.0) / 100.0},
+                                            {"panX", std::round(view_.panX)},
+                                            {"panY", std::round(view_.panY)}});
     }
     return g;
 }
@@ -779,7 +800,8 @@ GraphSaveOutcome GraphModel::save(bool force) {
     }
     if (!report().errors.empty()) {
         const MaterialIssue& e = report().errors.front();
-        out.error = "The graph has errors (" + e.pointer + ": " + e.message + "). Fix them first: nothing is written while the graph does not check.";
+        out.error = "The graph has errors (" + e.pointer + ": " + e.message +
+                    "). Fix them first: nothing is written while the graph does not check.";
         return out;
     }
     Json args = Json::object({{"material", rel_}, {"graph", graph_for_save()}});
@@ -864,7 +886,8 @@ bool GraphModel::apply_step(int id, bool forward) {
     if (gesture_) cancel_gesture();
     const Json& expects = forward ? s->before : s->after;
     if (!same_graph(graph_, expects)) {
-        status_ = "The graph is not what that edit expects (it changed outside the editor or by a reload): the step is dropped.";
+        status_ = "The graph is not what that edit expects (it changed outside the editor or by a reload): the step is "
+                  "dropped.";
         return false;
     }
     graph_ = forward ? s->after : s->before;

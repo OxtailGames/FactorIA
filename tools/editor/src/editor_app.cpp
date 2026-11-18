@@ -639,11 +639,13 @@ bool Editor::boot(const std::string& dirIn) {
         anim3d_release_textures();
         anim3d_.model.reset();
         modeler_release_textures();
-        modeler_.model.reset();  // (its evaluation worker is joined here)
-        reset_review_state();    // the Review window's reader and its sheet of seeds stop; its pictures are freed
-        sound_.player.reset();   // before the engine: it owns a voice of the mixer
-        music_.preview.reset();  // ...and so does the Music panel's preview
-        music_.model.reset();    // (its render worker is joined here)
+        modeler_.model.reset();    // (its evaluation worker is joined here)
+        graph_release_textures();  // the Graph panel: its picture belongs to this context
+        graph_ = GraphUi{};        // (its preview's compile worker is let go, never waited for)
+        reset_review_state();      // the Review window's reader and its sheet of seeds stop; its pictures are freed
+        sound_.player.reset();     // before the engine: it owns a voice of the mixer
+        music_.preview.reset();    // ...and so does the Music panel's preview
+        music_.model.reset();      // (its render worker is joined here)
         engine_->shutdown();
         engine_.reset();
     } else if (gfxUp_) {

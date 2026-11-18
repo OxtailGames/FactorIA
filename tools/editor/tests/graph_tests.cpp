@@ -136,7 +136,8 @@ TEST_CASE("graph model: every edit is one undo step and undo and redo restore th
     CHECK(m.graph() == edited);
 }
 
-TEST_CASE("graph model: a link of the wrong type, a cycle and a constant of the wrong size are refused with the checker's message") {
+TEST_CASE("graph model: a link of the wrong type, a cycle and a constant of the wrong size are refused with the "
+          "checker's message") {
     GraphProject p;
     p.open();
     GraphModel& m = *p.model;
@@ -365,4 +366,55 @@ TEST_CASE("graph model: the palette lists the nodes of the material's kind and f
     CHECK(graph_ports_may_link("gen", "vec2"));
     CHECK_FALSE(graph_ports_may_link("vec3", "vec2"));
     CHECK(graph_port_class("vec3") != graph_port_class("vec2"));
+}
+
+TEST_CASE("graph model: opening the open material again keeps its unsaved edits, a failed open changes nothing") {
+    GraphProject p;
+    p.open();
+    REQUIRE(p.model->add_node("math.add", Vec2{10, 10}).ok);
+    REQUIRE(p.model->dirty());
+    const int nodes = p.model->node_count();
+    const std::uint64_t rev = p.model->revision();
+
+    CHECK(p.model->open(kMat));  // the same document: nothing is read again
+    CHECK(p.model->dirty());
+    CHECK(p.model->node_count() == nodes);
+    CHECK(p.model->revision() == rev);
+
+    // a material with no graph: refused, and the document that was open is exactly as it was (edits included)
+    p.write("materials/plain.material.json",
+            R"({"format":"factoria.material/1","shader":"shaders/plain.surface.glsl"})");
+    CHECK_FALSE(p.model->open("materials/plain.material.json"));
+    CHECK(p.model->error().find("has no \"graph\"") != std::string::npos);
+    CHECK(p.model->path() == kMat);
+    CHECK(p.model->dirty());
+    CHECK(p.model->node_count() == nodes);
+    CHECK_FALSE(p.model->open("materials/missing.material.json"));
+    CHECK(p.model->node_count() == nodes);
+
+    // with the flag, the same file opens as a new graph
+    CHECK(p.model->open("materials/plain.material.json", true));
+    CHECK(p.model->path() == "materials/plain.material.json");
+    CHECK(p.model->node_count() == 1);
+}
+
+TEST_CASE(
+    "graph model: a graph with no nodes list is refused with its pointer and never crashes a document that is open") {
+    GraphProject p;
+    p.write("materials/empty.material.json",
+            R"({"format":"factoria.material/1","shader":"shaders/e.surface.glsl","graph":{"links":[]}})");
+    CHECK_FALSE(p.model->open("materials/empty.material.json"));
+    CHECK(p.model->error().find("/graph/nodes") != std::string::npos);
+    CHECK(p.model->error().find("material.graph.validate") != std::string::npos);
+    CHECK_FALSE(p.model->is_open());
+    CHECK(p.model->node_count() == 0);
+
+    // the open document's file is replaced by one with no nodes: the next poll refuses it and keeps what is shown
+    p.open();
+    REQUIRE(p.model->node_count() == 4);
+    p.write(kMat, R"({"format":"factoria.material/1","shader":"shaders/dissolve.surface.glsl","graph":{"links":[]}})");
+    p.model->poll_external();
+    CHECK(p.model->node_count() == 4);
+    CHECK(p.model->node_index("noise") == 0);
+    CHECK(p.model->node_type("out") != nullptr);
 }

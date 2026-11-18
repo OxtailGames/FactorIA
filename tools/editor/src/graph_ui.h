@@ -15,7 +15,7 @@ namespace fa::editor {
 struct GraphUi {
     std::unique_ptr<GraphModel> model;
     std::unique_ptr<GraphPreview> preview;
-    std::string openError;  // why the file the user asked for could not be opened
+    std::string openError;   // why the file the user asked for could not be opened
     std::string projectDir;  // the project the model and the preview belong to
 
     // ---- the view of the canvas
@@ -24,26 +24,26 @@ struct GraphUi {
     bool viewApplied = false;          // the view the file remembers was applied (once per document)
     bool wantFit = false;              // fit the whole graph into the canvas next frame
     float canvasX = 0, canvasY = 0, canvasW = 0, canvasH = 0;  // screen rectangle of the canvas (last frame)
-    std::string filter;                                         // the palette's search box
-    Vec2 menuAt{0, 0};                                          // graph position where the palette popup was asked for
+    std::string filter;                                        // the palette's search box
+    Vec2 menuAt{0, 0};                                         // graph position where the palette popup was asked for
     bool openPalette = false;
     bool focusFilter = false;
 
     // ---- what the mouse is doing
     enum class Drag { None, Nodes, Pan, Box, Link } drag = Drag::None;
-    Vec2 dragStart{0, 0};          // mouse position when the drag began (screen)
-    Vec2 dragApplied{0, 0};        // graph units already applied to the nodes of a Nodes drag
-    GraphPortId linkFrom;          // a Link drag: the port it started on
-    GraphPortId linkPicked;        // ...and the output it carries when it picked up an existing link from an input
-    std::string linkMessage;       // why the last link was refused
+    Vec2 dragStart{0, 0};     // mouse position when the drag began (screen)
+    Vec2 dragApplied{0, 0};   // graph units already applied to the nodes of a Nodes drag
+    GraphPortId linkFrom;     // a Link drag: the port it started on
+    GraphPortId linkPicked;   // ...and the output it carries when it picked up an existing link from an input
+    std::string linkMessage;  // why the last link was refused
     int selectedLink = -1;
     bool rightPanCandidate = false;
 
     // ---- the pending questions
-    bool askForce = false;      // the snippet was edited by hand: ask before overwriting
-    bool askDiscard = false;    // opening another material with unsaved changes
-    std::string pendingOpen;    // ...the one the user asked for
-    bool pendingStart = false;  // ...and whether it starts a graph
+    bool askForce = false;       // the snippet was edited by hand: ask before overwriting
+    bool askDiscard = false;     // opening another material with unsaved changes
+    std::string pendingOpen;     // ...the one the user asked for
+    bool pendingStart = false;   // ...and whether it starts a graph
     bool pendingCreate = false;  // ...which is a new material to make, not an existing one
 
     // ---- the preview's picture
