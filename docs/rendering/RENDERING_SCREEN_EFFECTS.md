@@ -1,6 +1,6 @@
-# Rendering, page 2 of 2: transient screen effects
+# Rendering: transient screen effects
 
-Part of [Rendering](../RENDERING.md) (the entry page lists every page). The post-processing stack these effects are drawn with is
+Part of [RENDERING.md](../RENDERING.md): the camera effects the post pass draws for a moment. The post-processing stack they are drawn with is
 described there, in "Post-processing: bloom, exposure, tonemap, colour grading, lens effects, colour filter".
 
 ## Transient screen effects: shockwave, heat haze, radial blur, flash, fade
@@ -46,6 +46,10 @@ Commands `feel.shockwave`, `feel.heatHaze`, `feel.radialBlur`, `feel.screenFlash
   one camera are mixed oldest first.
 - **Accessibility.** With `feel.reduceMotion` on a shockwave, heat haze and radial blur are a quarter of their strength; with
   `feel.reducedEffects` a flash is capped at 0.35 and always fades. A fade is not changed.
+- **A camera that is destroyed** ends its effects (a held fade included) on the next frame.
+- **Known limit: the outline.** The shockwave and the heat haze move the place the final pass reads the scene, but the outline
+  (`PostProcess.outlineEnabled`) is found in the unmoved picture's depth or coverage image: its lines do not follow the
+  displacement and can show for a moment next to the bent edge.
 - **Bounds and cost.** At most 16 effects are alive in the world: a new call never fails, it ends the oldest effect (a held fade
   is the last to go). Past a camera's 4 shockwaves and 2 hazes the older ones are not drawn. With nothing alive a frame costs
   nothing (no uniforms, no extra work in the pass); with one, the `post` pass reads the scene a few more times (the radial blur

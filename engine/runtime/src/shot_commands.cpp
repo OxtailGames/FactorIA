@@ -775,29 +775,34 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
 
     I.commands.add(
         {"render.debug_view",
-         "Show the depth or the normals of the depth and normal prepass instead of the game picture, or report which "
-         "view is on.",
+         "Show the depth or the normals of the depth and normal prepass, or the ambient occlusion, instead of the game "
+         "picture, or report which view is on.",
          "A way to look at the data the depth-based post effects (ssao, depth of field, fog...) read: `depth` paints "
          "the "
          "prepass depth as a grey (10 / (10 + distance), white next to the camera), `normals` the view-space normal as "
-         "colours (a surface that faces the camera is blue), black where no opaque mesh was drawn; `none` shows the "
-         "game "
+         "colours (a surface that faces the camera is blue), black where no opaque mesh was drawn; `ao` paints the "
+         "ambient occlusion alone as a grey (white = open or no mesh, dark = occluded) over the camera's rectangle, "
+         "with the camera's own "
+         "PostProcess ssao settings or, when it has none, the defaults; `none` shows the game "
          "again. It is a look at the data for a person or an AI checking a scene, not an effect: it is not saved and a "
          "game does not set it. Without `view` it only reports the current one. Result: {view, previous}. The view "
          "shows from the next frame (game.step, then game.screenshot). Example: render.debug_view "
          "{\"view\":\"depth\"}" FA_COMMAND_DETAILS "The environment variable FA_RENDER_DEBUG_VIEW sets the first view "
          "at start. The picture changes only on a frame "
          "that draws the prepass (a post effect that reads the depth is on, see docs/RENDERING.md, \"Depth and "
-         "normals\"). Errors: `invalid_arguments` for a `view` that is not none, depth or normals (with a "
+         "normals\"). Errors: `invalid_arguments` for a `view` that is not none, depth, normals or ao (with a "
          "did-you-mean); "
          "`unavailable` without graphics (graphics=false). The same is Renderer::set_debug_view in C++.",
          parse_schema(R"({"type":"object","properties":{
-               "view":{"type":"string","enum":["none","depth","normals"],"description":"none (the game picture), depth or normals. Omitted: report the current view."}}})"),
+               "view":{"type":"string","enum":["none","depth","normals","ao"],"description":"none (the game picture), depth, normals or ao (the ambient occlusion). Omitted: report the current view."}}})"),
          false, "game"},
         [&I](const Json& a) {
             check_args_known(a, {"view"}, "render.debug_view");
             auto name_of = [](DebugView v) {
-                return v == DebugView::Depth ? "depth" : v == DebugView::Normals ? "normals" : "none";
+                return v == DebugView::Depth     ? "depth"
+                       : v == DebugView::Normals ? "normals"
+                       : v == DebugView::Ao      ? "ao"
+                                                 : "none";
             };
             // The schema (enum) already turned a value that is not a string, or not one of the three, into an
             // invalid_arguments error with a did-you-mean hint before this runs.
@@ -811,6 +816,7 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
             if (set)
                 I.renderer->set_debug_view(wanted == "depth"     ? DebugView::Depth
                                            : wanted == "normals" ? DebugView::Normals
+                                           : wanted == "ao"      ? DebugView::Ao
                                                                  : DebugView::None);
             return Json::object({{"view", name_of(I.renderer->debug_view())}, {"previous", name_of(previous)}});
         });

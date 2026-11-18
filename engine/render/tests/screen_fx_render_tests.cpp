@@ -149,7 +149,8 @@ TEST_CASE("screen fx: nothing alive draws no pass and the frame is byte-identica
     }
 }
 
-TEST_CASE("screen fx: a flash is the colour at its start and fades out, a fade goes to black and stays, a fade in comes back") {
+TEST_CASE("screen fx: a flash is the colour at its start and fades out, a fade goes to black and stays, a fade in "
+          "comes back") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     for (const bool linear : {false, true}) {
@@ -347,7 +348,8 @@ TEST_CASE("radial blur: the persistent effect and the pulse average the taps tow
     CHECK(d.mean < 0.006);
 }
 
-TEST_CASE("screen fx: in a split screen an effect of one camera draws in its half only, every camera draws it in both") {
+TEST_CASE(
+    "screen fx: in a split screen an effect of one camera draws in its half only, every camera draws it in both") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     auto build = [](World& w, Entity& left, Entity& right) {
@@ -382,7 +384,9 @@ TEST_CASE("screen fx: in a split screen an effect of one camera draws in its hal
     start(w, flash, left);
     Image img = g.draw(w);
     CHECK(compare(img, [](int, int) { return Vec3{1, 1, 1}; }, 0, 160).max < 2.0f * kStep);
-    CHECK(compare(img, [&](int x, int y) { return texel(ref, x, y); }, 160, 320).max < kStep);  // the right half is the one it was
+    CHECK(compare(
+              img, [&](int x, int y) { return texel(ref, x, y); }, 160, 320)
+              .max < kStep);  // the right half is the one it was
     // The same effect aimed at the right camera: the left half is untouched.
     screen_fx_cancel(w, kNullEntity);
     start(w, flash, right);

@@ -52,21 +52,24 @@ bool screen_fx_kind_from_action(std::string_view name, ScreenFxKind& out);
 // belong to the kind is ignored by it.
 struct ScreenFxOptions {
     ScreenFxKind kind = ScreenFxKind::Shockwave;
-    float duration = 0.6f;       // seconds on the feel clock; a fade out that ends holds its colour until a fade in or a cancel
-    Vec2 screen{0.5f, 0.5f};     // shockwave, radialBlur: the centre, fractions of the camera's rectangle, (0, 0) top-left
-    bool atWorld = false;        // true: the centre is `world`, projected by each camera (not drawn behind a perspective camera)
+    float duration =
+        0.6f;  // seconds on the feel clock; a fade out that ends holds its colour until a fade in or a cancel
+    Vec2 screen{0.5f, 0.5f};  // shockwave, radialBlur: the centre, fractions of the camera's rectangle, (0, 0) top-left
+    bool atWorld =
+        false;  // true: the centre is `world`, projected by each camera (not drawn behind a perspective camera)
     Vec3 world{0, 0, 0};
-    Color color{1, 1, 1, 1};     // flash, fade: the colour (alpha ignored)
-    float strength = 0.04f;      // shockwave, heatHaze: how far the picture is pushed, as a fraction of its height; flash: its opacity at the start, 0..1
-    float intensity = 0.4f;      // radialBlur: 0..1, the same scale as PostProcess.radialBlurIntensity
-    float radius = 0.6f;         // shockwave: the radius the ring reaches, as a fraction of the picture's height
-    float width = 0.1f;          // shockwave: the width of the ring, same unit
+    Color color{1, 1, 1, 1};  // flash, fade: the colour (alpha ignored)
+    float strength =
+        0.04f;  // shockwave, heatHaze: how far the picture is pushed, as a fraction of its height; flash: its opacity at the start, 0..1
+    float intensity = 0.4f;  // radialBlur: 0..1, the same scale as PostProcess.radialBlurIntensity
+    float radius = 0.6f;     // shockwave: the radius the ring reaches, as a fraction of the picture's height
+    float width = 0.1f;      // shockwave: the width of the ring, same unit
     std::array<float, 4> region{0.0f, 0.0f, 1.0f, 1.0f};  // heatHaze: [x, y, w, h], fractions of the camera's rectangle
-    float frequency = 10.0f;     // heatHaze: ripples per picture height
-    float speed = 1.0f;          // heatHaze: cycles per second the ripples travel
-    std::int32_t samples = 12;   // radialBlur: 4..32 taps
-    bool fade = true;            // flash: true fades from `strength` to 0; false holds `strength` for the duration
-    bool fadeIn = false;         // fade: false = to the colour (stays there), true = from the colour to the picture
+    float frequency = 10.0f;                              // heatHaze: ripples per picture height
+    float speed = 1.0f;                                   // heatHaze: cycles per second the ripples travel
+    std::int32_t samples = 12;                            // radialBlur: 4..32 taps
+    bool fade = true;     // flash: true fades from `strength` to 0; false holds `strength` for the duration
+    bool fadeIn = false;  // fade: false = to the colour (stays there), true = from the colour to the picture
 };
 
 // The options a kind starts with (its defaults).
@@ -78,8 +81,9 @@ Result<void> screen_fx_check(const ScreenFxOptions& o);
 struct ScreenFx {
     ScreenFxOptions o;
     Entity camera = kNullEntity;  // the camera it belongs to; null = every camera
-    float elapsed = 0.0f;      // seconds on the feel clock since it started
-    float fromAlpha = 0.0f;    // fade: the opacity it started from (a fade that interrupts another continues from where it was)
+    float elapsed = 0.0f;         // seconds on the feel clock since it started
+    float fromAlpha =
+        0.0f;  // fade: the opacity it started from (a fade that interrupts another continues from where it was)
     float toAlpha = 1.0f;      // fade: the opacity it reaches (1: held; 0: the effect ends)
     std::uint32_t serial = 0;  // the order effects were started in
 };
