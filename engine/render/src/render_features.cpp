@@ -27,8 +27,8 @@ constexpr EffectRow kEffectRows[kPostEffectCount] = {
     {"half+depth",
      "Screen-space reflections: opaque 3D surfaces reflect what the camera shows (ray march in the depth prepass; "
      "the reflectivity is a fresnel term, there is no roughness image)."},
-    {"depth", "Distance and height fog drawn from the depth buffer."},
-    {"depth", "Light shafts spreading from the sun through the scene."},
+    {"depth", "Distance and height fog drawn from the depth of the opaque 3D meshes (the sky is not fogged)."},
+    {"depth", "Sun shafts: the bright sky scattered toward the sun (perspective cameras, half resolution)."},
     {"", "Exposure, manual or automatic with an adaptation speed."},
     {"depth", "Depth of field with near and far blur, bokeh and autofocus."},
     {"depth", "Camera motion blur, from the depth buffer."},
