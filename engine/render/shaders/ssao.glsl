@@ -16,6 +16,11 @@
 // coordinates is in view space at depth 1 (a perspective camera: 1 / proj[0][0] and 1 / proj[1][1]; an orthographic one: the half
 // extents), z = 1 for an orthographic camera (the depth does not scale x and y), w = 1 when render targets have their origin at the bottom
 // (OpenGL).
+//
+// Every program works in the picture's top-down coordinates on every backend: uv.y and the texel rows run down from the top of the
+// camera's rectangle, and only a texture fetch turns that into the image's own uv (ssao_tex: flipped on OpenGL, whose images are
+// stored bottom-up). So a texel of the half resolution occlusion image covers the same two rows of the picture, and the 4x4 pattern
+// falls on the same pixels, on OpenGL as on Metal, D3D11 and WebGPU: the picture is the same, not shifted by a row.
 @module ssao
 
 @image_sample_type pre_tex unfilterable_float
@@ -50,9 +55,15 @@ vec3 ssao_oct_decode(vec2 e) {
     return normalize(n);
 }
 
-// The view-space position of the surface at the uv of an image of this backend (uv.y runs down, or up on OpenGL) with linear depth d.
+// The uv of an image of this backend at the top-down uv `t` of the picture (the same on every backend but OpenGL, where it is flipped),
+// and back: the flip is its own inverse.
+vec2 ssao_tex(vec2 t, vec4 cam) {
+    return vec2(t.x, mix(t.y, 1.0 - t.y, cam.w));
+}
+
+// The view-space position of the surface at the top-down uv of the picture with linear depth d.
 vec3 ssao_view_pos(vec2 uv, float d, vec4 cam) {
-    vec2 ndc = vec2(uv.x * 2.0 - 1.0, mix(1.0 - 2.0 * uv.y, 2.0 * uv.y - 1.0, cam.w));
+    vec2 ndc = vec2(uv.x * 2.0 - 1.0, 1.0 - 2.0 * uv.y);
     float s = cam.z > 0.5 ? 1.0 : d;
     return vec3(ndc.x * cam.x * s, ndc.y * cam.y * s, -d);
 }
@@ -89,10 +100,10 @@ float ssao_horizon(vec2 suv, vec3 P, vec3 V, float lowCos, vec4 cam, vec2 fall, 
     vec2 f = fp - i0;
     vec2 lo = vec2(0.0);
     vec2 hi = psz - 1.0;
-    vec4 t00 = textureLod(sampler2D(pre_tex, smp), (clamp(i0, lo, hi) + 0.5) / psz, 0.0);
-    vec4 t10 = textureLod(sampler2D(pre_tex, smp), (clamp(i0 + vec2(1.0, 0.0), lo, hi) + 0.5) / psz, 0.0);
-    vec4 t01 = textureLod(sampler2D(pre_tex, smp), (clamp(i0 + vec2(0.0, 1.0), lo, hi) + 0.5) / psz, 0.0);
-    vec4 t11 = textureLod(sampler2D(pre_tex, smp), (clamp(i0 + vec2(1.0, 1.0), lo, hi) + 0.5) / psz, 0.0);
+    vec4 t00 = textureLod(sampler2D(pre_tex, smp), ssao_tex((clamp(i0, lo, hi) + 0.5) / psz, cam), 0.0);
+    vec4 t10 = textureLod(sampler2D(pre_tex, smp), ssao_tex((clamp(i0 + vec2(1.0, 0.0), lo, hi) + 0.5) / psz, cam), 0.0);
+    vec4 t01 = textureLod(sampler2D(pre_tex, smp), ssao_tex((clamp(i0 + vec2(0.0, 1.0), lo, hi) + 0.5) / psz, cam), 0.0);
+    vec4 t11 = textureLod(sampler2D(pre_tex, smp), ssao_tex((clamp(i0 + vec2(1.0, 1.0), lo, hi) + 0.5) / psz, cam), 0.0);
     vec4 tn = f.x < 0.5 ? (f.y < 0.5 ? t00 : t01) : (f.y < 0.5 ? t10 : t11);
     if (tn.a < 0.5) {
         return lowCos;
@@ -129,9 +140,9 @@ out vec4 frag_color;
 @include_block ssao_common
 
 void main() {
-    vec2 texel = floor(uv * sz.xy);
+    vec2 texel = floor(ssao_tex(uv, cam) * sz.xy);  // counted from the top on every backend
     vec2 puv = (texel * q.x + 0.5) / sz.zw;         // the prepass pixel this texel stands for
-    vec4 c = textureLod(sampler2D(pre_tex, smp), puv, 0.0);
+    vec4 c = textureLod(sampler2D(pre_tex, smp), ssao_tex(puv, cam), 0.0);
     if (c.a < 0.5) {
         frag_color = vec4(1.0, 0.0, 0.0, 1.0);
         return;
@@ -155,7 +166,6 @@ void main() {
     float min_s = min(1.5 / pixels, 0.5);
     float range = 0.6 * radius;
     vec2 fall = vec2(radius, range);
-    float y_up = mix(-1.0, 1.0, cam.w);            // uv.y grows downward unless the target's origin is at the bottom
 
     vec3 e1 = normalize(vec3(1.0, 0.0, 0.0) - V.x * V);
     vec3 e2 = cross(V, e1);
@@ -186,7 +196,7 @@ void main() {
         float hc1 = low1;
         // Where that direction goes on the screen (the derivative of the projection of P + t * ortho at t = 0), per unit of view space.
         vec2 g = cam.z > 0.5 ? ortho.xy / cam.xy : (ortho.xy / d + P.xy * ortho.z / (d * d)) / cam.xy;
-        vec2 omega = 0.5 * radius * vec2(g.x, y_up * g.y);
+        vec2 omega = 0.5 * radius * vec2(g.x, -g.y);   // uv.y grows downward
         omega *= min(1.0, 0.3 / max(length(omega), 0.000001));
         for (int j = 0; j < 12; j++) {
             if (j >= steps) {
@@ -227,9 +237,9 @@ out vec4 frag_color;
 @include_block ssao_common
 
 void main() {
-    vec2 texel = floor(uv * sz.xy);
+    vec2 texel = floor(ssao_tex(uv, cam) * sz.xy);
     vec2 cuv = (texel * q.x + 0.5) / sz.zw;
-    vec4 pc = textureLod(sampler2D(pre_tex, smp), cuv, 0.0);
+    vec4 pc = textureLod(sampler2D(pre_tex, smp), ssao_tex(cuv, cam), 0.0);
     if (pc.a < 0.5) {
         frag_color = vec4(1.0, 0.0, 0.0, 1.0);
         return;
@@ -244,9 +254,9 @@ void main() {
         if (t.x < 0.0 || t.y < 0.0 || t.x >= sz.x || t.y >= sz.y) {
             continue;
         }
-        float ao = textureLod(sampler2D(ao_tex, smp), (t + 0.5) / sz.xy, 0.0).r;
+        float ao = textureLod(sampler2D(ao_tex, smp), ssao_tex((t + 0.5) / sz.xy, cam), 0.0).r;
         vec2 nuv = (t * q.x + 0.5) / sz.zw;
-        vec4 pn = textureLod(sampler2D(pre_tex, smp), nuv, 0.0);
+        vec4 pn = textureLod(sampler2D(pre_tex, smp), ssao_tex(nuv, cam), 0.0);
         // The ends of the five taps weigh half: together they are one tap of the 4-texel period of the noise.
         float w = k == 0 ? 1.0 : (pn.a < 0.5 ? 0.0 : ssao_plane_weight(Pc, nc, ssao_view_pos(nuv, pn.r, cam), sigma));
         w *= (k == 2 || k == -2 ? 0.5 : 1.0);
@@ -271,16 +281,16 @@ out vec4 frag_color;
 @include_block ssao_common
 
 void main() {
-    vec2 pixel = floor(uv * sz.zw);
+    vec2 pixel = floor(ssao_tex(uv, cam) * sz.zw);
     vec2 cuv = (pixel + 0.5) / sz.zw;
-    vec4 c = textureLod(sampler2D(pre_tex, smp), cuv, 0.0);
+    vec4 c = textureLod(sampler2D(pre_tex, smp), ssao_tex(cuv, cam), 0.0);
     if (c.a < 0.5) {
         frag_color = vec4(1.0, 1.0, 1.0, 1.0);
         return;
     }
     float vis;
     if (a.y < 1.5) {
-        vis = textureLod(sampler2D(ao_tex, smp), (pixel + 0.5) / sz.xy, 0.0).r;
+        vis = textureLod(sampler2D(ao_tex, smp), ssao_tex((pixel + 0.5) / sz.xy, cam), 0.0).r;
     } else {
         // A bilateral upsample: the four texels around the pixel, bilinear weights times the weight of their depth.
         vec3 Pc = ssao_view_pos(cuv, c.r, cam);
@@ -295,9 +305,9 @@ void main() {
             for (int i = 0; i < 2; i++) {
                 vec2 t = clamp(i0 + vec2(float(i), float(j)), vec2(0.0), sz.xy - 1.0);
                 float wb = (i == 0 ? 1.0 - f.x : f.x) * (j == 0 ? 1.0 - f.y : f.y);
-                float ao = textureLod(sampler2D(ao_tex, smp), (t + 0.5) / sz.xy, 0.0).r;
+                float ao = textureLod(sampler2D(ao_tex, smp), ssao_tex((t + 0.5) / sz.xy, cam), 0.0).r;
                 vec2 nuv = (t * a.y + 0.5) / sz.zw;
-                vec4 pn = textureLod(sampler2D(pre_tex, smp), nuv, 0.0);
+                vec4 pn = textureLod(sampler2D(pre_tex, smp), ssao_tex(nuv, cam), 0.0);
                 float w = wb * (pn.a < 0.5 ? 0.0 : ssao_plane_weight(Pc, nc, ssao_view_pos(nuv, pn.r, cam), sigma)) + 0.0001;
                 sum += w * ao;
                 wsum += w;
