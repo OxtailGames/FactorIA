@@ -92,7 +92,12 @@ struct Renderer::Impl {
     // it with the game target's formats and sample count, so the pipelines of the game fit. hudActive: the last frame's picture is in it
     // (when filterActive is false). finalEncoded: the last frame's final pass already made display values (sRGB-encoded, extended above 1
     // for an HDR output), so the captures copy them as they are and present() only decodes them for an HDR swapchain.
-    AutoExposure autoExposure;
+    // One AutoExposure per camera job of the frame (its adapted EV is its camera's), made when a camera first asks for one.
+    std::vector<std::unique_ptr<AutoExposure>> autoExposures;
+    // The camera jobs of the frame that carry a post-processing plan (plan_job, in drawing order): the last job declares their final
+    // passes together (build_graph). The contexts live in jobContexts.
+    struct DrawContext;
+    std::vector<DrawContext*> postCams;
     Target hudTarget;
     bool hudActive = false;
     bool finalEncoded = false;
@@ -106,9 +111,8 @@ struct Renderer::Impl {
         std::uint64_t frame = 0;  // the frameSerial it was drawn in
     };
     std::unordered_map<std::uint64_t, PrevCamera> prevViewProj;  // by Entity::bits() of the camera
-    bool prepassSplitWarned = false;  // one warning when a split frame has no prepass for a depth effect
-    bool prepassWarned = false;       // one warning when the prepass cannot be made
-    bool coverageWarned = false;      // one warning when a sprite outline has no coverage image to read
+    bool prepassWarned = false;                                  // one warning when the prepass cannot be made
+    bool coverageWarned = false;  // one warning when a sprite outline has no coverage image to read
     // The HDR display output (hdr_encode.h; docs/RENDERING.md, "HDR output"). outputInfo: the last answer of update_output()
     // (window thread; a renderer that never asks, a headless one, stays in the standard range). frameOutput: what the frame
     // is drawn for, taken from it when the frame starts (so the final pass and present() of a frame agree on the headroom).
@@ -246,10 +250,12 @@ struct Renderer::Impl {
     bool ensure_hud_target();
     // One full-screen pass of post.glsl: `src` (a texture view of the finished picture) through the plan's final pass (`finalPass`: conversion and effects) and the
     // colour filter `filter` into `dst`; `expo` is the adapted exposure or a dummy image. `keepMsaa`: an MSAA destination keeps its
-    // multisampled image (a pass that draws over it follows).
+    // multisampled image (a pass that draws over it follows). `rect`: the camera's rectangle of `dst` (whole by default; see
+    // run_post_pass); `load`: keep what `dst` holds outside the rectangle (the pass before it drew there) instead of drawing every pixel.
     // `aux`: the image the outline reads (PostPlan::outline_source of the frame), or a null view when there is none.
     void post_pass(const PostPlan& pp, bool finalPass, int filter, bool autoExposure, sg_view src, sg_view expo,
-                   sg_view aux, Target& dst, const char* label, bool keepMsaa);
+                   sg_view aux, Target& dst, const char* label, bool keepMsaa, const PostRect& rect = {},
+                   bool load = false);
     // The 8-bit picture of a game or view image (top row first). In a float scene format the image is first drawn into an
     // RGBA8 copy (clamped at white, as the screen shows it), because the per-backend readbacks read RGBA8 only.
     bool read_rgba8(sg_image image, sg_view view, int w, int h, std::vector<std::uint8_t>& out, std::string* error,
@@ -360,7 +366,6 @@ struct Renderer::Impl {
     struct Px;
     struct PartDraw;
     struct MaterialInputs;
-    struct DrawContext;
     void gather_meshes(DrawContext& ctx);
     void collect_lights(DrawContext& ctx);
     void shadow_bounds(DrawContext& ctx);

@@ -41,10 +41,11 @@ BloomSettings bloom_from_stack(const PostStack& stack) {
 }
 
 PostPlan make_post_plan(const CameraInfo& cam, bool linear, std::uint32_t forceEffects, std::uint64_t frame,
-                        float designScale) {
+                        float designScale, const CameraInfo* frameCam) {
     PostPlan p;
-    p.bloom = cam.bloom;
-    p.colorFilter = std::clamp(cam.colorFilter, 0, 5);
+    const CameraInfo& fc = frameCam ? *frameCam : cam;
+    p.bloom = fc.bloom;
+    p.colorFilter = std::clamp(fc.colorFilter, 0, 5);
     p.sceneLinear = linear;
     std::uint32_t read = forceEffects;
     if (cam.postStack) {
@@ -84,10 +85,15 @@ PostPlan make_post_plan(const CameraInfo& cam, bool linear, std::uint32_t forceE
 
 namespace {
 
-// The effects' uniforms (post.glsl, post_fx_params): the plan's PostFx laid out as the shader reads it.
-post_post_fx_params_t fx_uniforms(const PostFx& fx, const LutInfo& lut, bool gl, int w, int h) {
+// Bit 2048 of the effect mask (post.glsl): the pass covers one camera's rectangle of the picture.
+constexpr int kFxRect = 2048;
+
+// The effects' uniforms (post.glsl, post_fx_params): the plan's PostFx laid out as the shader reads it. `w` x `h`: the size of the pass's
+// own area (the camera's rectangle, or the whole picture); `picW` x `picH` the picture's, `rect` the camera's rectangle in it (`partial`).
+post_post_fx_params_t fx_uniforms(const PostFx& fx, const LutInfo& lut, bool gl, int w, int h, bool partial,
+                                  const PostRect& rect, int picW, int picH) {
     post_post_fx_params_t u{};
-    const int mask = fx.mask();
+    const int mask = fx.mask() | (partial ? kFxRect : 0);
     u.ex[0] = float(mask);
     u.ex[1] = gl ? 1.0f : 0.0f;
     u.ex[2] = float(w) / float(std::max(h, 1));
@@ -129,19 +135,33 @@ post_post_fx_params_t fx_uniforms(const PostFx& fx, const LutInfo& lut, bool gl,
     set(u.oc, fx.outlineColor, fx.outlineOpacity);
     u.ap[0] = float(fx.pixelateBlock);
     u.ap[1] = float(fx.posterizeLevels);
-    u.ap[2] = float(w);  // the outline's image has the size of the picture
+    u.ap[2] = float(w);  // the outline's image has the size of the camera's rectangle
     u.ap[3] = float(h);
-    // The screen uv to the outline image's uv: the identity while the image has the size of the picture (a camera with a viewport
-    // rectangle would put its own scale and offset here).
+    // The camera-local screen uv to the outline image's uv: the identity, the image has the size of the camera's rectangle (the
+    // prepass and the coverage image are drawn at that size, and the pass is in camera-local coordinates).
     u.ax[0] = 1.0f;
     u.ax[1] = 1.0f;
+    if (partial) {
+        u.rc[0] = float(rect.x) / float(picW);
+        u.rc[1] = float(rect.y) / float(picH);
+        u.rc[2] = float(rect.w) / float(picW);
+        u.rc[3] = float(rect.h) / float(picH);
+    } else {
+        u.rc[2] = u.rc[3] = 1.0f;
+    }
     return u;
 }
 
 }  // namespace
 
 void run_post_pass(Gpu& gpu, const PostPlan& plan, bool finalPass, int filter, bool autoExposure, const PassDesc& pass,
-                   sg_view src, sg_view expo, sg_view white, sg_view aux, int w, int h, const OutputTarget& output) {
+                   sg_view src, sg_view expo, sg_view white, sg_view aux, int picW, int picH,
+                   const OutputTarget& output, const PostRect& rect) {
+    const bool partial = !rect.whole(picW, picH);
+    const int w =
+        partial ? rect.w
+                : picW;  // the pass's own area: the camera's rectangle (its pixels are the ones the effects count)
+    const int h = partial ? rect.h : picH;
     // finalPass: the pass that converts and draws the effects; the colour-filter-only pass has neither.
     const bool convert = finalPass && plan.convert();
     PostFx fx = finalPass ? plan.fx : PostFx{};
@@ -150,6 +170,10 @@ void run_post_pass(Gpu& gpu, const PostPlan& plan, bool finalPass, int filter, b
     fx.outline = fx.outline && aux.id != 0;  // the image the outline reads was not made: no outline
     gpu.begin_pass(pass);
     sg_apply_pipeline(gpu.post_pipeline(pass.format));
+    if (partial) {  // the triangle covers the rectangle only: uv runs 0..1 across it
+        sg_apply_viewport(rect.x, rect.y, rect.w, rect.h, true);
+        sg_apply_scissor_rect(rect.x, rect.y, rect.w, rect.h, true);
+    }
     sg_bindings b{};
     b.vertex_buffers[0] = gpu.fullscreen_triangle();
     b.views[VIEW_post_tex] = src;
@@ -187,7 +211,7 @@ void run_post_pass(Gpu& gpu, const PostPlan& plan, bool finalPass, int filter, b
         u.h[3] = sh.start;
     }
     apply_uniforms(UB_post_post_params, u);
-    apply_uniforms(UB_post_post_fx_params, fx_uniforms(fx, plan.lutInfo, gpu.is_gl(), w, h));
+    apply_uniforms(UB_post_post_fx_params, fx_uniforms(fx, plan.lutInfo, gpu.is_gl(), w, h, partial, rect, picW, picH));
     sg_draw(0, 3, 1);
     gpu.end_pass();
 }
@@ -235,7 +259,7 @@ void AutoExposure::release() {
 #endif
 ResourceId AutoExposure::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, const PostPlan& plan,
                                     ResourceId game, sg_view srcTex, float dt, std::uint64_t serial, int* drawCalls,
-                                    const std::string& job) {
+                                    const std::string& job, int picW, int picH) {
     if (!plan.exposure || !plan.autoExposure) return {};
     const sg_pixel_format fmt = gpu.scene_format();
     if (fmt != SG_PIXELFORMAT_RGBA16F) {
@@ -254,7 +278,7 @@ ResourceId AutoExposure::add_passes(FrameGraph& graph, TransientTargets& targets
     TransientDesc ld;
     ld.width = ld.height = kLumaSize;
     ld.format = TargetFormat{fmt, SG_PIXELFORMAT_NONE, 1};
-    ld.label = "exposure-luma";
+    ld.label = job.empty() ? std::string("exposure-luma") : job + "/exposure-luma";  // unique in the graph
     {
         const std::uint64_t h = targets.pool.acquire(ld);
         if (h == 0) {
@@ -295,8 +319,22 @@ ResourceId AutoExposure::add_passes(FrameGraph& graph, TransientTargets& targets
         p.writes = {luma};
         exposure_exposure_luma_params_t u{};
         u.p[0] = plan.linear ? 1.0f : 0.0f;
-        u.p[1] = 1.0f / float(kLumaSize);
-        u.p[2] = 1.0f / float(kLumaSize);
+        // The measured part of the picture: a camera's rectangle (its own picture; the others' pixels never count), in this
+        // backend's uv. Without a rectangle (or without the picture's size) all of it.
+        float rx = 0.0f, ry = 0.0f, rw = 1.0f, rh = 1.0f;
+        if (picW > 0 && picH > 0 && !plan.rect.whole(picW, picH)) {
+            rx = float(plan.rect.x) / float(picW);
+            rw = float(plan.rect.w) / float(picW);
+            rh = float(plan.rect.h) / float(picH);
+            ry = float(plan.rect.y) / float(picH);
+            if (gpu.is_gl()) ry = 1.0f - (ry + rh);  // the render targets of OpenGL have their origin at the bottom
+        }
+        u.p[1] = rw / float(kLumaSize);
+        u.p[2] = rh / float(kLumaSize);
+        u.rc[0] = rx;
+        u.rc[1] = ry;
+        u.rc[2] = rw;
+        u.rc[3] = rh;
         p.execute = [=](const PassContext& c) {
             const Target* t = tt->get(c.handle(luma));
             if (!t) return;

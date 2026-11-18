@@ -70,11 +70,20 @@ Older versions, one file per minor version with its patch releases: [0.29](chang
   opacity): in `depth` mode (3D) at the silhouettes, the depth jumps (`outlineDepthThreshold`) and the surface creases
   (`outlineNormalThreshold`) found in the depth and normal prepass, which the effect turns on; in `sprite` mode (2D) around the
   border of the sprites, tiles, shapes, text and particles (`outlineAlphaThreshold`), found in a coverage image of the 2D world that is
-  drawn once more while the effect is on (the new `sprite-coverage` pass, RGBA8). Both outlines need one camera over the whole
-  screen: with several cameras or a partial viewport they are skipped with one warning. An effect at its neutral value (width 0,
+  drawn once more while the effect is on (the new `sprite-coverage` pass, RGBA8). An effect at its neutral value (width 0,
   alpha 0, block 1, 256 levels) draws no pass and the frame is byte for byte the one without it. `render.supports` answers true
   for the three, so the `retro` look is now drawn whole, and `postprocess.apply_preset` lists fewer effects under `notDrawn`
   (docs/RENDERING.md, "The outline").
+- **Every camera has its own post-processing stack, in a split screen too.** Until now only the camera that draws first had a
+  stack. Now each camera's `PostProcess` (or the volumes it is inside) is drawn by its own final `post` pass over that camera's
+  rectangle of the picture, and the effects work in the camera's own pixels (the pixelate grid, the lens, the vignette, the grain and
+  the dither start at the corner of the rectangle), so two players side by side can have a `retro` look on one half and none on the
+  other. The depth prepass and the sprite coverage image of an outline are made per camera, the size of its rectangle, and the
+  automatic exposure measures and adapts per camera; the outline no longer skips a split screen or a partial viewport (and no
+  longer warns). Where the rectangles do not tile the picture a `post-base` pass draws the plain picture first. The bloom and the
+  colour filter stay one per frame, from the camera that draws first. A frame without stacks, or with all effects off, is the same
+  frame, byte for byte, with no extra pass. The prepass, coverage and exposure-luma images are now named `camera:<n>/prepass`,
+  `camera:<n>/sprite-coverage` and `camera:<n>/exposure-luma` in `render.frame_graph` (docs/RENDERING.md, "Post-processing").
 - **Deprecated:** `Camera.bloom`, `bloomThreshold`, `bloomIntensity`, `bloomRadius`, `bloomScreenSpace` and `Camera.colorFilter`
   keep drawing exactly the same picture (they stand in for a PostProcess on a camera that has none), but warn once and will be
   removed two minor versions after the release that ships them. Migration: add a `PostProcess` to the camera's entity and set

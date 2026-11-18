@@ -21,6 +21,10 @@
 //      keep the real pixel
 //   6. the colour filter (Camera.colorFilter), on the encoded picture, the same filters as colorfilter.glsl
 //
+// One pass per camera (M71-C3a): a camera that does not cover the whole picture draws this pass into the rectangle of its viewport (the
+// pass sets the viewport), reads the same rectangle of the source (rc, mask bit 2048) and runs every step above in camera-local
+// coordinates: the lens, the vignette, the pixelate grid, the grain and the dither all start at the camera's own corner.
+//
 // A frame that needs no conversion (a gamma scene with only a colour filter) skips 1 to 4: the pass is then exactly the old colour filter.
 // A frame without any effect of 0 and 5 (ex.x = 0) runs exactly the code it did before them: they are all behind uniform branches.
 // The CPU form of the effects' maths is post_fx.cpp (the tests compare the two).
@@ -57,7 +61,7 @@ layout(binding=1) uniform post_params {
     vec4 h;         // the HDR tonemap (p.z = 1): x = headroom (how many times paper white), y = the scene value where the HDR curve leaves the SDR one, z = the SDR curve's slope there, w = its display value there
 };
 layout(binding=2) uniform post_fx_params {
-    vec4 ex;        // x = the effect mask (1 lens, 2 chromatic aberration, 4 grade, 8 LUT, 16 vignette, 32 sharpen, 64 grain, 128 outline (depth), 256 outline (sprite), 512 pixelate, 1024 posterize; 0 = none), y = 1 when render targets are bottom-up (OpenGL), z = width / height, w = the grain's seed (a whole number below 2^24)
+    vec4 ex;        // x = the effect mask (1 lens, 2 chromatic aberration, 4 grade, 8 LUT, 16 vignette, 32 sharpen, 64 grain, 128 outline (depth), 256 outline (sprite), 512 pixelate, 1024 posterize, 2048 the pass covers one camera's rectangle (rc); 0 = none), y = 1 when render targets are bottom-up (OpenGL), z = width / height, w = the grain's seed (a whole number below 2^24)
     vec4 ln;        // lens: x = k (the radius grows by 1 + k r^2), y = zoom, zw = the centre (screen uv, top-left origin)
     vec4 ab;        // x = the aberration (red and blue move by (uv - 0.5) * x), y = the sharpen weight of each neighbour (negative), z = the LUT contribution, w = contrast
     vec4 wb;        // rgb = white balance gains, w = saturation
@@ -71,7 +75,8 @@ layout(binding=2) uniform post_fx_params {
     vec4 ol;        // outline: x = width in pixels, y = the depth threshold, z = the normal threshold, w = the alpha threshold
     vec4 oc;        // rgba = the outline's colour (alpha = its opacity)
     vec4 ap;        // x = the pixelate block in pixels, y = the posterize levels, zw = the size of aux_tex in texels
-    vec4 ax;        // the screen uv to aux_tex uv map: xy = scale, zw = offset (the prepass has the size of the picture today: 1, 1, 0, 0)
+    vec4 ax;        // the camera-local screen uv to aux_tex uv map: xy = scale, zw = offset (the prepass and the coverage image have the size of the camera's rectangle: 1, 1, 0, 0)
+    vec4 rc;        // the camera's rectangle in the picture (bit 2048 of the mask): xy = its top-left corner, zw = its size, as fractions of the picture, top-left origin; the pass draws into that rectangle of its target (viewport), so uv and everything below are camera-local
 };
 in vec2 uv;
 out vec4 frag_color;
@@ -230,15 +235,24 @@ vec2 lens_source(vec2 s) {
     return ln.zw + d;
 }
 
-vec4 scene_tap(vec2 s) {
-    return textureLod(sampler2D(tex, lin_smp), flip_v(s), 0.0);
+// Where the picture is read for the camera-local screen position s (top-left origin): a pass over one camera's rectangle (mask bit 2048)
+// reads inside that rectangle of the picture and never the pixels of the camera next to it (s is kept within the rectangle's pixel
+// centres); a pass over the whole picture reads s itself.
+vec2 src_uv(vec2 s, int fm) {
+    if ((fm & 2048) == 0) return flip_v(s);
+    vec2 h = 0.5 / r.xy;
+    return flip_v(clamp(s, h, 1.0 - h) * rc.zw + rc.xy);
+}
+
+vec4 scene_tap(vec2 s, int fm) {
+    return textureLod(sampler2D(tex, lin_smp), src_uv(s, fm), 0.0);
 }
 
 // The scene at screen position s, as the lens and the aberration read it (fm = the effect mask). A pixel with neither reads its own
 // texel; with the mask 0 that is `uv` itself, so a frame without effects reads exactly what it did before them.
 vec4 read_scene(vec2 s, int fm) {
     if (fm == 0) return textureLod(sampler2D(tex, smp), uv, 0.0);
-    if ((fm & 3) == 0) return textureLod(sampler2D(tex, smp), flip_v(s), 0.0);
+    if ((fm & 3) == 0) return textureLod(sampler2D(tex, smp), src_uv(s, fm), 0.0);
     vec2 t = s;
     if ((fm & 1) != 0) {
         t = lens_source(s);
@@ -246,10 +260,10 @@ vec4 read_scene(vec2 s, int fm) {
     }
     if ((fm & 2) != 0) {
         vec2 d = (t - 0.5) * ab.x;
-        vec4 g = scene_tap(t);
-        return vec4(scene_tap(t + d).r, g.g, scene_tap(t - d).b, g.a);
+        vec4 g = scene_tap(t, fm);
+        return vec4(scene_tap(t + d, fm).r, g.g, scene_tap(t - d, fm).b, g.a);
     }
-    return scene_tap(t);
+    return scene_tap(t, fm);
 }
 
 // Steps 1 to 4: scene colour to the encoded display picture (no dither).
