@@ -108,8 +108,9 @@ constexpr const char* kMask = "materials/sprite_mask.material.json";
 
 }  // namespace
 
-TEST_CASE("sprite materials: a material with an empty fragment() draws the pixels of the sprite without one, in the lean "
-          "program and in the full one") {
+TEST_CASE(
+    "sprite materials: a material with an empty fragment() draws the pixels of the sprite without one, in the lean "
+    "program and in the full one") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     MaterialScope scope;
@@ -277,13 +278,15 @@ TEST_CASE("sprite materials: a material that does not build draws magenta, logs 
     Gfx& g = gfx();
     REQUIRE(g.ok);
     MaterialScope scope;
-    REQUIRE(fs::write_text("materials/broken.material.json",
-                           R"({"format": "factoria.material/1", "kind": "sprite", "shader": "shaders/broken.fragment.glsl"})")
+    REQUIRE(fs::write_text(
+                "materials/broken.material.json",
+                R"({"format": "factoria.material/1", "kind": "sprite", "shader": "shaders/broken.fragment.glsl"})")
                 .ok());
     g.renderer.set_shader_compiler([](const std::string&, const std::string&) -> Result<Json> {
-        return make_error("shaders/broken.fragment.glsl:3:5: error: 'colour' : no such field in structure 'QuadSurface'\n  "
-                          "hint: did you mean color?",
-                          "did you mean color?");
+        return make_error(
+            "shaders/broken.fragment.glsl:3:5: error: 'colour' : no such field in structure 'QuadSurface'\n  "
+            "hint: did you mean color?",
+            "did you mean color?");
     });
     ProblemLog log;
     World w;
@@ -332,7 +335,8 @@ TEST_CASE("sprite materials: hot reload swaps the shader, keeps the last good on
         auto snippet = fs::read_text("shaders/hot.txt");
         if (!snippet.ok()) return snippet.error();
         if (*snippet == "broken")
-            return make_error("shaders/hot.txt:1:1: error: 'broken' : undeclared identifier", "Write sprite_tint or sprite_empty.");
+            return make_error("shaders/hot.txt:1:1: error: 'broken' : undeclared identifier",
+                              "Write sprite_tint or sprite_empty.");
         return load_json_file("materials/" + *snippet + ".material.json." + dialect + ".shader");
     });
     auto frame = [&]() {

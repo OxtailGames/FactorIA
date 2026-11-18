@@ -84,7 +84,7 @@ TEST_CASE(
 
 TEST_CASE("shader template: every kind's contract structs are read from its own template") {
     const std::vector<std::pair<std::string, std::vector<std::string>>> expected = {
-        {"mesh", {"SurfaceInput", "Surface", "VertexData"}},
+        {"mesh", {"SurfaceInput", "Surface", "VertexData", "LightSample"}},
         {"sprite", {"QuadInput", "QuadSurface", "QuadVertex"}},
         {"sky", {"SkyInput", "SkySurface"}},
         {"post", {"PostInput", "PostSurface"}},

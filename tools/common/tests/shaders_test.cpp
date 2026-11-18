@@ -15,6 +15,7 @@
 #include "fa/tooling/shaders.h"
 #include "fa/tooling/validate.h"
 #include "fa_test_paths.h"  // FA_REPO_ROOT
+#include "shaders_internal.h"
 #include "test_helpers.h"
 
 using namespace fa;
@@ -178,12 +179,6 @@ int top_line_of(const GeneratedShader& g, int snippetLine) {
     for (std::size_t i = 0; i < g.snippetLine.size(); ++i)
         if (g.snippetLine[i] == snippetLine) return int(i) + 1;
     return 0;
-}
-
-const ShaderIssue* find_issue(const std::vector<ShaderIssue>& v, const std::string& needle) {
-    for (const ShaderIssue& i : v)
-        if (i.message.find(needle) != std::string::npos || i.hint.find(needle) != std::string::npos) return &i;
-    return nullptr;
 }
 
 MaterialParse parse(const char* json, const std::string& dir = {}) {
@@ -417,6 +412,81 @@ TEST_CASE("generator: vertex() and alphaMode clip add the shadow programs; comme
     CHECK(top_line_of(crlf, 2) > 0);
 }
 
+namespace {
+const char* kToonMaterial = R"({
+  "format": "factoria.material/1",
+  "doc": "A cel-shaded material.",
+  "shader": "shaders/toon.surface.glsl",
+  "lighting": "custom",
+  "textures": { "ramp": { "sampler": "nearest", "doc": "Light ramp: one texel per band." } }
+})";
+const char* kToonSnippet = R"(void surface(in SurfaceInput i, inout Surface s) {}
+
+vec3 light(in SurfaceInput i, in Surface s, in LightSample l) {
+    float ndl = dot(s.normal, l.direction) * 0.5 + 0.5;
+    return s.albedo * l.color * textureLod(sampler2D(ramp, ramp_smp), vec2(ndl, 0.5), 0.0).r;
+}
+
+vec3 ambient(in SurfaceInput i, in Surface s, vec3 ambientColor) {
+    return ambientColor * s.albedo;
+}
+)";
+}  // namespace
+
+TEST_CASE(
+    "generator: lighting custom reads light() and ambient(), keeps them out of the vertex stage and declares every "
+    "texture once per stage") {
+    Project p;
+    p.write("materials/toon.material.json", kToonMaterial);
+    p.write("shaders/toon.surface.glsl", kToonSnippet);
+    const MaterialParse m = read_material(p.str(), "materials/toon.material.json");
+    REQUIRE(m.ok());
+    CHECK(m.material.lighting == "custom");
+    const GeneratedShader g = generate_material_shader(m.material, kToonSnippet);
+    CHECK(g.hasSurface);
+    CHECK(g.hasLight);
+    CHECK(g.hasAmbient);
+    CHECK_FALSE(g.hasVertex);
+    CHECK(g.defines == std::vector<std::string>{"FA_CUSTOM_LIGHT", "FA_HAS_AMBIENT"});
+    CHECK(g.programs == std::vector<std::string>{"mesh", "mesh_skin", "prepass", "prepass_skin"});
+    CHECK(g.top.find("#ifdef GL_FRAGMENT_SHADER\nvec3 light(in SurfaceInput i") != std::string::npos);
+    CHECK(g.top.find("#ifdef GL_FRAGMENT_SHADER\nvec3 ambient(in SurfaceInput i") != std::string::npos);
+    // the fragment stage reads the ramp at view 6 / sampler 2, the vertex stage at view 10 / sampler 6 under its own name
+    CHECK(g.top.find(
+              "#ifdef GL_VERTEX_SHADER\n#define ramp fa_vs_ramp\n#define ramp_smp fa_vs_ramp_smp\n"
+              "layout(binding=10) uniform texture2D ramp;\nlayout(binding=6) uniform sampler ramp_smp;\n#else\n"
+              "layout(binding=6) uniform texture2D ramp;\nlayout(binding=2) uniform sampler ramp_smp;\n#endif\n") !=
+          std::string::npos);
+    CHECK(g.top.find("#undef ramp\n#undef ramp_smp\n#endif\n@end") != std::string::npos);
+
+    // without ambient() only FA_CUSTOM_LIGHT is defined; a commented light() does not count
+    const GeneratedShader noAmbient = generate_material_shader(
+        m.material, "// vec3 light(in SurfaceInput i, in Surface s, in LightSample l) { return vec3(0.0); }\n"
+                    "void surface(in SurfaceInput i, inout Surface s) {}\n");
+    CHECK_FALSE(noAmbient.hasLight);
+    CHECK(noAmbient.defines == std::vector<std::string>{"FA_CUSTOM_LIGHT"});
+
+    // in a pbr material `light` and `ambient` are ordinary helpers, compiled in both stages
+    MaterialDef pbr = m.material;
+    pbr.lighting = "pbr";
+    const GeneratedShader helper =
+        generate_material_shader(pbr, "vec3 light(vec3 a) { return a; }\nvoid surface(in SurfaceInput i, inout Surface "
+                                      "s) { s.albedo = light(s.albedo); }\n");
+    CHECK_FALSE(helper.hasLight);
+    CHECK(helper.defines.empty());
+    CHECK(helper.top.find("#ifdef GL_FRAGMENT_SHADER\nvec3 light(") == std::string::npos);
+
+    // a texture read in vertex() uses the same names and the shadow programs declare the vertex binding too
+    MaterialDef wave = m.material;
+    wave.lighting = "pbr";
+    const GeneratedShader vertexTex = generate_material_shader(
+        wave, "void vertex(inout VertexData v) { v.world_pos.y += texture(sampler2D(ramp, ramp_smp), v.uv).r; }\n"
+              "void surface(in SurfaceInput i, inout Surface s) {}\n");
+    CHECK(vertexTex.hasVertex);
+    CHECK(vertexTex.defines == std::vector<std::string>{"FA_HAS_VERTEX"});
+    CHECK(vertexTex.top.find("#define texture(s, uv) textureLod(s, uv, 0.0)") != std::string::npos);
+}
+
 TEST_CASE("template: the generator includes every _common.glsl and the contract structs are read from them") {
     CHECK_FALSE(shader_template_hash().empty());
     CHECK(shader_template_hash().size() == 64);
@@ -647,6 +717,25 @@ TEST_CASE("sprite material: errors name fragment() and the sprite contract; alph
     // alphaMode clip is the mesh template's alpha test
     auto clip = parse(R"({"format":"factoria.material/1","kind":"sprite","shader":"s.glsl","alphaMode":"clip"})");
     CHECK(has_error(clip, "/alphaMode", "discard"));
+
+    // lighting "custom" is the light() hook of a mesh material: a sprite has no lights
+    auto light = parse(R"({"format":"factoria.material/1","kind":"sprite","shader":"s.glsl","lighting":"custom"})");
+    CHECK(has_error(light, "/lighting"));
+
+    // a sprite's vertex() cannot sample a material texture (no vertex-stage views in the 2D pipeline): refused
+    // before sokol-shdc runs, with the texture named
+    const std::string sampling =
+        std::string(kSpriteSnippet) +
+        "void vertex(inout QuadVertex v) { v.world_pos.y += texture(sampler2D(mask, mask_smp), vec2(0.5)).r; }\n";
+    p.write("shaders/dissolve2d.fragment.glsl", sampling);
+    shdc.calls = 0;
+    r = compile_material(p.str(), "materials/dissolve2d.material.json", options);
+    REQUIRE(r.ok());
+    CHECK_FALSE(r->ok);
+    REQUIRE_FALSE(r->errors.empty());
+    CHECK(r->errors[0].message.find("vertex() of a sprite material cannot sample the texture \"mask\"") !=
+          std::string::npos);
+    CHECK(shdc.calls == 0);
 }
 
 TEST_CASE("sprite material: compile writes a twin with the sprite template hash and the programs quad and quad_plain") {
@@ -921,6 +1010,93 @@ TEST_CASE("compile: an error in a helper both stages compile is reported once, a
     CHECK(shdc.calls == 1);
 }
 
+TEST_CASE(
+    "sprite material: the names of the engine's 2D program are refused for params and textures, mesh keeps them") {
+    const auto& names = shaders_detail::template_globals("sprite");
+    // derived from quad_common.glsl, color_space.glsl and light_shadow.glsl: the inputs, varyings, block members, textures,
+    // samplers, helpers and the defines
+    for (const char* n : {"position",     "texcoord0",
+                          "color0",       "uv",
+                          "color",        "params",
+                          "world_xy",     "xform",
+                          "world_z",      "view_proj",
+                          "cspace",       "fa_time",
+                          "lit",          "ambient",
+                          "light_pos",    "light_color",
+                          "fog_col",      "tex",
+                          "normal_tex",   "light_tex",
+                          "shadow_tex",   "smp",
+                          "light_smp",    "shadow_smp",
+                          "frag_color",   "tex_color",
+                          "scene_rgb",    "shape_color",
+                          "lit_color",    "light_shadow",
+                          "shadow_texel", "fa_srgb_to_linear",
+                          "vs_params",    "quad_fs_params",
+                          "QuadInput",    "main"}) {
+        CAPTURE(std::string(n));
+        CHECK(names.count(n) > 0);
+    }
+    // locals of function bodies, struct fields and the user's own names are not globals
+    for (const char* n : {"p", "base", "mode", "radius", "amount", "mask", "world_pos", "float", "vec4"}) {
+        CAPTURE(std::string(n));
+        CHECK(names.count(n) == 0);
+    }
+    CHECK(shaders_detail::template_globals("mesh").empty());
+    CHECK(shaders_detail::template_globals("nonsense").empty());
+
+    const auto sprite = [](const char* params, const char* textures) {
+        return parse((std::string(R"({"format":"factoria.material/1","kind":"sprite","shader":"s.glsl","params":{)") +
+                      params + R"(},"textures":{)" + textures + "}}")
+                         .c_str());
+    };
+    auto bad = sprite(R"("color":{"type":"float","default":1,"doc":"d"},
+                       "lit":{"type":"float","default":1,"doc":"d"},
+                       "okName":{"type":"float","default":1,"doc":"d"})",
+                      R"("tex":{"sampler":"linearRepeat","doc":"d"},
+                         "light":{"sampler":"linearRepeat","doc":"d"},
+                         "noise":{"sampler":"linearRepeat","doc":"d"},
+                         "fine":{"sampler":"linearRepeat","doc":"d"})");
+    CHECK(has_error(bad, "/params/color", "engine's 2D program"));
+    CHECK(has_error(bad, "/params/color", "colorValue"));
+    CHECK(has_error(bad, "/params/lit", "engine's 2D program"));
+    CHECK(has_error(bad, "/textures/tex", "engine's 2D program"));
+    CHECK(has_error(bad, "/textures/tex", "texMap"));
+    CHECK(has_error(bad, "/textures/light", "light_smp"));  // its sampler would be the engine's light_smp
+    CHECK(has_error(bad, "/textures/noise", "sokol-shdc"));
+    CHECK_FALSE(has_error(bad, "/params/okName"));
+    CHECK_FALSE(has_error(bad, "/textures/fine"));
+    CHECK(bad.errors.size() == 5);
+
+    // a mesh material keeps `color`, `uv` and `tex`: the mesh program prefixes or scopes its own names
+    const MaterialParse mesh = parse(R"({"format":"factoria.material/1","shader":"s.glsl","params":{
+        "color":{"type":"color","default":[1,1,1,1],"doc":"d"},"uv":{"type":"float","default":1,"doc":"d"}},
+        "textures":{"tex":{"sampler":"linearRepeat","doc":"d"}}})");
+    CHECK(mesh.ok());
+    // `noise` breaks sokol-shdc for every kind
+    const MaterialParse noise = parse(
+        R"({"format":"factoria.material/1","shader":"s.glsl","textures":{"noise":{"sampler":"linearRepeat","doc":"d"}}})");
+    CHECK(has_error(noise, "/textures/noise", "noiseMap"));
+}
+
+TEST_CASE("sprite material: a snippet that redefines a name of the engine's 2D program gets the hint") {
+    Project p;
+    p.add_sprite();
+    FakeShdc shdc;
+    ShaderCompileOptions options;
+    options.setup = shdc.context(p.str());
+    options.dialects = {"hlsl5"};
+    const std::string snippet = "float tex_color = 1.0;\n" + std::string(kSpriteSnippet);
+    p.write("shaders/dissolve2d.fragment.glsl", snippet);
+    const GeneratedShader g =
+        generate_material_shader(read_material(p.str(), "materials/dissolve2d.material.json").material, snippet);
+    shdc.stderrText = "top.glsl:" + std::to_string(top_line_of(g, 1)) + ":0: error: 'tex_color' : redefinition\n";
+    auto r = compile_material(p.str(), "materials/dissolve2d.material.json", options);
+    REQUIRE(r.ok());
+    REQUIRE(r->errors.size() == 1);
+    CHECK(r->errors[0].hint.find("name taken by the engine's 2D program") != std::string::npos);
+    CHECK(r->errors[0].hint.find("is already a global") == std::string::npos);
+}
+
 TEST_CASE("compile: hints for the frequent mistakes") {
     Project p;
     FakeShdc shdc;
@@ -1025,6 +1201,69 @@ TEST_CASE("compile: errors outside the snippet say so and name the rule; a missi
     CHECK(r->errors[0].hint.find("Names starting with fa_ belong to the engine") != std::string::npos);
     CHECK(r->errors[1].line == 2);
     CHECK(shdc.calls == calls);
+}
+
+TEST_CASE("compile: lighting custom needs light(): the error names the material file and the fix, before any process "
+          "starts; light and ambient are reserved names only there") {
+    Project p;
+    FakeShdc shdc;
+    p.write("materials/toon.material.json", kToonMaterial);
+    p.write("shaders/toon.surface.glsl", "void surface(in SurfaceInput i, inout Surface s) {}\n");
+    ShaderCompileOptions options;
+    options.setup = shdc.context(p.str());
+    options.dialects = {"hlsl5"};
+    auto r = compile_material(p.str(), "materials/toon.material.json", options);
+    REQUIRE(r.ok());
+    REQUIRE(r->errors.size() == 1);
+    CHECK(r->errors[0].message.find("materials/toon.material.json") != std::string::npos);
+    CHECK(r->errors[0].message.find("no light() function") != std::string::npos);
+    CHECK(r->errors[0].hint.find("vec3 light(in SurfaceInput i, in Surface s, in LightSample l)") != std::string::npos);
+    CHECK(r->errors[0].hint.find("/lighting") != std::string::npos);
+    CHECK(r->errors[0].hint.find("l.color") != std::string::npos);
+    CHECK(shdc.calls == 0);
+
+    // a light() with the wrong signature: the template cannot find it, and the error says which signature it wants
+    p.write("shaders/toon.surface.glsl", "void surface(in SurfaceInput i, inout Surface s) {}\n"
+                                         "vec3 light(in Surface s) { return s.albedo; }\n");
+    shdc.stderrText = "mesh_common.glsl:424:0: error: 'light' : no matching overloaded function found\n";
+    r = compile_material(p.str(), "materials/toon.material.json", options);
+    REQUIRE(r.ok());
+    REQUIRE(r->errors.size() == 1);
+    CHECK(r->errors[0].hint.find("vec3 light(in SurfaceInput i, in Surface s, in LightSample l)") != std::string::npos);
+    CHECK(r->errors[0].hint.find("LightSample") != std::string::npos);
+
+    // the LightSample fields get a did-you-mean
+    p.write("shaders/toon.surface.glsl", "void surface(in SurfaceInput i, inout Surface s) {}\n"
+                                         "vec3 light(in SurfaceInput i, in Surface s, in LightSample l) {\n"
+                                         "    return l.colour;\n}\n");
+    const GeneratedShader g = generate_material_shader(read_material(p.str(), "materials/toon.material.json").material,
+                                                       testing::read_all(p.dir.path / "shaders/toon.surface.glsl"));
+    shdc.stderrText =
+        "top.glsl:" + std::to_string(top_line_of(g, 3)) + ":0: error: 'colour' : no such field in structure 'l'\n";
+    r = compile_material(p.str(), "materials/toon.material.json", options);
+    REQUIRE(r.ok());
+    REQUIRE(r->errors.size() == 1);
+    CHECK(r->errors[0].hint.find("did you mean color?") != std::string::npos);
+    CHECK(r->errors[0].hint.find("LightSample has the fields") != std::string::npos);
+
+    // `light` and `ambient` are reserved for the entry points of a custom material only
+    auto bad = parse(R"({"format":"factoria.material/1","shader":"s.glsl","lighting":"custom","params":{
+        "light":{"type":"float","default":1,"doc":"d"}, "ambient":{"type":"float","default":1,"doc":"d"}}})");
+    CHECK(has_error(bad, "/params/light", "name of the snippet contract"));
+    CHECK(has_error(bad, "/params/ambient", "name of the snippet contract"));
+    CHECK(parse(R"({"format":"factoria.material/1","shader":"s.glsl","params":{
+        "light":{"type":"float","default":1,"doc":"d"}}})")
+              .ok());
+    // LightSample is a type name of the contract in every material
+    CHECK(has_error(parse(R"({"format":"factoria.material/1","shader":"s.glsl","params":{
+        "LightSample":{"type":"float","default":1,"doc":"d"}}})"),
+                    "/params/LightSample"));
+    CHECK(parse(R"({"format":"factoria.material/1","shader":"s.glsl","lighting":"custom"})").ok());
+    CHECK(has_error(parse(R"({"format":"factoria.material/1","shader":"s.glsl","lighting":"cutom"})"), "/lighting",
+                    "Did you mean 'custom'?"));
+    auto schema = bundled_read("schemas/material.schema.json");
+    REQUIRE(schema.has_value());
+    CHECK(validate_json(Json::parse(*schema), Json::parse(kToonMaterial)).empty());
 }
 
 TEST_CASE("compile: a material file with errors is reported with its JSON pointer and nothing is started") {
@@ -1434,24 +1673,69 @@ TEST_CASE("real sokol-shdc: errors are mapped to the snippet once, with hints") 
     CHECK(mainRedef->errors[0].message.find("not the snippet's") != std::string::npos);
 }
 
-TEST_CASE("real sokol-shdc: an hlsl-only error is found by compiling every dialect") {
+TEST_CASE("real sokol-shdc: a texture read in vertex() compiles to every dialect, both stages and the shadow program "
+          "bind it, and a custom light() is compiled and mapped to the snippet") {
     SetupContext context;
     if (!real_tool(context)) return;
-    // A texture read in vertex() has no vertex-stage binding: refused with the reason.
     Project p;
-    p.write("shaders/wave.surface.glsl", "void vertex(inout VertexData v) {\n    v.world_pos.y += texture(sampler2D(h, "
-                                         "h_smp), v.uv).r;\n}\nvoid surface(in SurfaceInput i, inout Surface s) {}\n");
+    p.write("shaders/wave.surface.glsl",
+            "void vertex(inout VertexData v) {\n    v.world_pos.y += texture(sampler2D(h, h_smp), v.uv).r;\n}\n"
+            "void surface(in SurfaceInput i, inout Surface s) {\n    s.albedo *= texture(sampler2D(h, h_smp), "
+            "i.uv).r;\n}\n");
     p.write(
         "materials/wave.material.json",
         R"({"format":"factoria.material/1","shader":"shaders/wave.surface.glsl","textures":{"h":{"doc":"Height map (r)."}}})");
     ShaderCompileOptions options;
     options.setup = context;
-    options.dialects = {"glsl430"};
     options.useCache = false;
     auto r = compile_material(p.str(), "materials/wave.material.json", options);
     REQUIRE(r.ok());
-    REQUIRE_FALSE(r->ok);
-    CHECK(find_issue(r->errors, "vertex") != nullptr);
+    const std::string why = r->errors.empty() ? std::string() : r->errors[0].to_string();
+    INFO(why);
+    REQUIRE(r->ok);
+    REQUIRE(r->twins.size() == 6);
+    for (const auto& [slang, twin] : r->twins) {
+        CAPTURE(slang);
+        for (const char* program : {"mesh", "shadow"}) {
+            CAPTURE(program);
+            const Json& refl = twin["programs"][program]["reflection"];
+            bool vertexView = false, fragmentView = false;
+            for (const Json& entry : refl["views"]) {
+                const Json& v = entry["texture"];
+                if (v["stage"] == "vertex") {
+                    vertexView = true;
+                    CHECK(v["slot"] == kMaterialVsFirstView);
+                }
+                if (v["stage"] == "fragment" && v["name"] == "h") {
+                    fragmentView = true;
+                    CHECK(v["slot"] == kMaterialFsFirstView);
+                }
+            }
+            CHECK(vertexView);
+            CHECK(fragmentView == (std::string(program) == "mesh"));  // the shadow program has no fragment texture
+        }
+    }
+
+    // lighting custom: light() and ambient() compile in every dialect, in the fragment stage only
+    p.write("materials/toon.material.json", kToonMaterial);
+    p.write("shaders/toon.surface.glsl", kToonSnippet);
+    auto toon = compile_material(p.str(), "materials/toon.material.json", options);
+    REQUIRE(toon.ok());
+    const std::string toonWhy = toon->errors.empty() ? std::string() : toon->errors[0].to_string();
+    INFO(toonWhy);
+    REQUIRE(toon->ok);
+    CHECK(toon->twins.size() == 6);
+
+    // a mistake inside light() is reported at its line of the snippet, with the fields of LightSample
+    p.write("shaders/toon.surface.glsl", "void surface(in SurfaceInput i, inout Surface s) {}\n"
+                                         "vec3 light(in SurfaceInput i, in Surface s, in LightSample l) {\n"
+                                         "    return s.albedo * l.colour;\n}\n");
+    auto bad = compile_material(p.str(), "materials/toon.material.json", options);
+    REQUIRE(bad.ok());
+    REQUIRE_FALSE(bad->ok);
+    REQUIRE(bad->errors.size() >= 1);
+    CHECK(bad->errors[0].line == 3);
+    CHECK(bad->errors[0].hint.find("did you mean color?") != std::string::npos);
 }
 
 TEST_CASE("engine compiler: returns the twin, and an error with every issue's file:line:col and the first hint") {

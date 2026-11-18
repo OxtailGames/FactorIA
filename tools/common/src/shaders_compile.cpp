@@ -151,6 +151,7 @@ std::size_t find_word(const std::string& s, const std::string& word, bool afterD
 
 // The variable the signature of the kind names its struct by: SurfaceInput/QuadInput i, Surface/QuadSurface s, the vertex one v.
 std::string struct_var(const std::string& typeName) {
+    if (typeName == "LightSample") return "l";
     if (typeName.ends_with("Input")) return "i";
     if (typeName.ends_with("Surface")) return "s";
     return "v";
@@ -158,8 +159,18 @@ std::string struct_var(const std::string& typeName) {
 
 bool is_sprite(const MaterialDef& material) { return material.kind == "sprite"; }
 
-const std::vector<std::string>* struct_fields(const std::string& name, const std::string& kind) {
-    for (const auto& [n, fields] : contract_structs(kind))
+// The structs of the contract this material uses: LightSample only with lighting "custom" (a pbr material has no light()).
+std::vector<std::pair<std::string, std::vector<std::string>>> contract_of(const MaterialDef& material) {
+    auto out = contract_structs(material.kind);
+    if (material.lighting != "custom")
+        out.erase(std::remove_if(out.begin(), out.end(), [](const auto& e) { return e.first == "LightSample"; }),
+                  out.end());
+    return out;
+}
+
+const std::vector<std::string>*
+struct_fields(const std::string& name, const std::vector<std::pair<std::string, std::vector<std::string>>>& structs) {
+    for (const auto& [n, fields] : structs)
         if (n == name) return &fields;
     return nullptr;
 }
@@ -174,7 +185,7 @@ std::string field_hint(const std::string& token, const std::string& source, cons
         while (b > 0 && ident_char(source[b - 1])) --b;
         const std::string var = source.substr(b, e - b);
         if (!var.empty()) {
-            // `Surface s`, `QuadInput i`...: the struct types of the kind's contract.
+            // `Surface s`, `QuadInput i`, `LightSample l`...: the struct types of the kind's contract.
             std::string types;
             for (const auto& [n, f] : contract_structs(ctx.material.kind)) types += (types.empty() ? "" : "|") + n;
             const std::regex decl("\\b(" + types + ")\\s+(\\w+)");
@@ -184,13 +195,15 @@ std::string field_hint(const std::string& token, const std::string& source, cons
         }
     }
     std::vector<std::string> fields;
-    std::string where =
-        is_sprite(ctx.material) ? "QuadSurface, QuadInput and QuadVertex" : "Surface, SurfaceInput and VertexData";
-    if (const auto* f = struct_fields(typeName, ctx.material.kind)) {
+    const auto structs = contract_of(ctx.material);
+    std::string where = is_sprite(ctx.material)             ? "QuadSurface, QuadInput and QuadVertex"
+                        : ctx.material.lighting == "custom" ? "Surface, SurfaceInput, VertexData and LightSample"
+                                                            : "Surface, SurfaceInput and VertexData";
+    if (const auto* f = struct_fields(typeName, structs)) {
         fields = *f;
         where = typeName;
     } else {
-        for (const auto& [n, f2] : contract_structs(ctx.material.kind))
+        for (const auto& [n, f2] : structs)
             for (const std::string& name : f2)
                 if (std::find(fields.begin(), fields.end(), name) == fields.end()) fields.push_back(name);
     }
@@ -285,11 +298,18 @@ std::string prefix_rule(const MaterialDef& material) {
                  "(fa_time, fa_camera_pos, fa_tangent_normal) but not declare any. Rename it without the prefix.";
 }
 
+constexpr const char* kLightSignatures =
+    "void surface(in SurfaceInput i, inout Surface s) { ... }  (required),  void vertex(inout VertexData v) { ... }  "
+    "(optional),  vec3 light(in SurfaceInput i, in Surface s, in LightSample l) { ... }  (required with \"lighting\": "
+    "\"custom\")  and  vec3 ambient(in SurfaceInput i, in Surface s, vec3 ambientColor) { ... }  (optional)";
+
 std::string signatures(const MaterialDef& material) {
-    return is_sprite(material) ? "void fragment(in QuadInput i, inout QuadSurface s) { ... }  (required)  and  void "
-                                 "vertex(inout QuadVertex v) { ... }  (optional)"
-                               : "void surface(in SurfaceInput i, inout Surface s) { ... }  (required)  and  void "
-                                 "vertex(inout VertexData v) { ... }  (optional)";
+    if (is_sprite(material))
+        return "void fragment(in QuadInput i, inout QuadSurface s) { ... }  (required)  and  void "
+               "vertex(inout QuadVertex v) { ... }  (optional)";
+    if (material.lighting == "custom") return kLightSignatures;
+    return "void surface(in SurfaceInput i, inout Surface s) { ... }  (required)  and  void "
+           "vertex(inout VertexData v) { ... }  (optional)";
 }
 
 // The entry point of the fragment stage the kind's contract names.
@@ -297,10 +317,13 @@ const char* fragment_entry(const MaterialDef& material) { return is_sprite(mater
 
 std::string undeclared_hint(const std::string& token, const MapContext& ctx) {
     // A field written without its struct.
-    for (const auto& [n, fields] : contract_structs(ctx.material.kind))
+    for (const auto& [n, fields] : contract_of(ctx.material))
         if (std::find(fields.begin(), fields.end(), token) != fields.end())
             return "`" + token + "` is a field of " + n + ": write " + struct_var(n) + "." + token + " inside " +
-                   (n == "VertexData" || n == "QuadVertex" ? "vertex" : fragment_entry(ctx.material)) + "().";
+                   (n == "VertexData" || n == "QuadVertex" ? "vertex"
+                    : n == "LightSample"                   ? "light"
+                                                           : fragment_entry(ctx.material)) +
+                   "().";
     if (token.rfind("fa_", 0) == 0) {
         const std::string best = closest_match(token, engine_names(ctx.material));
         return best.empty()
@@ -351,6 +374,12 @@ std::string hint_for(const std::string& message, const std::string& token, const
             if (t.name == token || t.name + "_smp" == token)
                 return "`" + token + "` is already declared by the texture \"" + t.name +
                        "\" of this material. Rename the local variable.";
+        if (template_globals(ctx.material.kind).count(token) > 0)
+            return "`" + token +
+                   "` is a name taken by the engine's 2D program (quad_common.glsl and the files it includes: "
+                   "its vertex inputs, varyings, textures, uniform blocks and helper functions are not prefixed). "
+                   "Rename "
+                   "your variable or function.";
     }
     if (message.find("syntax error") != std::string::npos)
         return "A syntax error is often reported on the line after the real mistake: look for a missing ';', ')' or "
@@ -367,7 +396,8 @@ void outside_snippet(ShaderIssue& issue, const std::string& where, const std::st
     issue.line = 0;
     issue.source.clear();
     issue.file = ctx.material.shader.empty() ? ctx.material.path : ctx.material.shader;
-    if (token == "surface" || token == "fragment" || token == "vertex")
+    if (token == "surface" || token == "fragment" || token == "vertex" ||
+        (ctx.material.lighting == "custom" && (token == "light" || token == "ambient")))
         issue.hint = std::string("The engine calls ") + token +
                      "() from its template, so the snippet must define it with exactly this signature: " +
                      signatures(ctx.material) + ".";
@@ -459,6 +489,56 @@ std::vector<ShaderIssue> precheck_snippet(const MaterialDef& material, const Gen
                 "Define it as `void surface(in SurfaceInput i, inout Surface s) { s.albedo = vec3(1.0, 0.0, 0.0); }`. "
                 "s arrives filled with the standard MeshRenderer result, so change only what you need. Signatures: " +
                 signatures(material) + ".";
+        out.push_back(std::move(i));
+    }
+    // A sprite's vertex() cannot sample a material texture: the 2D pipeline binds the textures to the fragment stage only
+    // (a mesh material has a second set of slots for the vertex stage).
+    if (is_sprite(material) && g.hasVertex && !material.textures.empty()) {
+        static const std::regex entry(R"(\bvoid\s+vertex\s*\()");
+        std::smatch m;
+        if (std::regex_search(stripped, m, entry)) {
+            const std::size_t open = stripped.find('{', std::size_t(m.position(0)));
+            std::size_t close = open;
+            for (int depth = 0; open != std::string::npos && close < stripped.size(); ++close) {
+                depth += stripped[close] == '{' ? 1 : stripped[close] == '}' ? -1 : 0;
+                if (depth == 0) break;
+            }
+            for (const MaterialTexture& t : material.textures) {
+                std::size_t use = std::string::npos;  // the first use of the name inside the body of vertex()
+                for (std::size_t p = open == std::string::npos ? open : stripped.find(t.name, open);
+                     p != std::string::npos && p < close; p = stripped.find(t.name, p + 1))
+                    if (word_at(stripped, p, t.name)) {
+                        use = p;
+                        break;
+                    }
+                if (use == std::string::npos) continue;
+                ShaderIssue i;
+                i.file = material.shader;
+                i.line = line_of(stripped, use);
+                i.source = line_text(snippet, i.line);
+                i.column = column_of(stripped, use) + 1;
+                i.message = "vertex() of a sprite material cannot sample the texture \"" + t.name + "\"";
+                i.hint = "The 2D pipeline binds a material's textures to the fragment stage only. Sample \"" + t.name +
+                         "\" in fragment(), or move the effect there; a mesh material (kind \"mesh\") may sample "
+                         "textures in vertex().";
+                out.push_back(std::move(i));
+            }
+        }
+    }
+    if (!is_sprite(material) && material.lighting == "custom" && !g.hasLight) {
+        ShaderIssue i;
+        i.file = material.shader;
+        i.message = "the material " + (material.path.empty() ? std::string("file") : material.path) +
+                    " has \"lighting\": \"custom\" but the snippet defines no light() function";
+        i.hint = "Define `vec3 light(in SurfaceInput i, in Surface s, in LightSample l) { return s.albedo * l.color * "
+                 "max(dot(s.normal, l.direction), 0.0); }`: the engine calls it once per light and adds the results; "
+                 "l.color "
+                 "already has the light's attenuation and shadow in it. (Optional: `vec3 ambient(in SurfaceInput i, in "
+                 "Surface s, "
+                 "vec3 ambientColor)` for the ambient term.) Or set \"lighting\" to \"pbr\" (the engine's lighting) or "
+                 "\"unlit\" in " +
+                 (material.path.empty() ? std::string("the material file") : material.path) +
+                 " (pointer /lighting). Signatures: " + kLightSignatures + ".";
         out.push_back(std::move(i));
     }
     // A declaration with an fa_ name: `<type> fa_x ;|=|[|(|,|)` or #define fa_x.

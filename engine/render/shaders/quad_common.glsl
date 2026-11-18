@@ -12,7 +12,8 @@
 // The engine names of this file (the vertex attributes, the varyings, the uniform block members, the textures and samplers,
 // tex_color, shape_color...) are not prefixed: they are the ones the renderer's C++ code binds by (the generated header's
 // ATTR_/UB_/VIEW_/SMP_ constants and quad_vs_params_t / quad_quad_fs_params_t members), so a param or texture of a material must
-// not take any of them (tools/common/src/shaders_generate.cpp, is_reserved_word). What a snippet may use is the contract below
+// not take any of them (parse_material refuses them: tools/common/src/shaders_generate.cpp, template_globals reads this file and
+// its @includes, so a new global here is covered without a list to update). What a snippet may use is the contract below
 // and the fa_ names: fa_time, fa_sample_main(), fa_scene_rgb().
 //
 // Bindings. Uniform blocks: vertex 0 vs_params (+ 4 for the material's vertex-stage block), fragment 1 quad_fs_params (+ 5 for
@@ -169,7 +170,7 @@ vec3 scene_rgb(vec3 c) {
 
 // What the snippet may call from fragment().
 vec4 fa_sample_main(vec2 p) { return tex_color(p); }   // the main texture of the sprite, in the colour space of the scene
-vec3 fa_scene_rgb(vec3 c) { return scene_rgb(c); }     // an sRGB colour of the author (a "color" param) in the scene's space
+vec3 fa_scene_rgb(vec3 c) { return scene_rgb(c); }     // an sRGB colour of the author (a param of type color) in the scene's space
 
 // The screen position of the fragment as the snippet sees it: 0..1 over the render target, y running down on every backend.
 vec2 fa_screen_uv() {

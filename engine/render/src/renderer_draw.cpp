@@ -1032,6 +1032,9 @@ void Renderer::Impl::bind_textures(DrawContext& ctx, sg_bindings& b, const PartD
         for (std::size_t i = 0; i < d.mat->textures.size(); ++i) {
             b.views[kMaterialFirstView + int(i)] = in.textures[i]->gpu_view();
             b.samplers[kMaterialFirstSampler + int(i)] = gpu.sampler(d.mat->textures[i].sampler);
+            // The same texture for vertex(): the vertex stage's copy of the slot (dropped below when the program has none).
+            b.views[kMaterialVsFirstView + int(i)] = b.views[kMaterialFirstView + int(i)];
+            b.samplers[kMaterialVsFirstSampler + int(i)] = b.samplers[kMaterialFirstSampler + int(i)];
         }
     for (int i = 0; i < SG_MAX_VIEW_BINDSLOTS; ++i)
         if (!((prog->viewMask >> i) & 1u)) b.views[i] = {};
