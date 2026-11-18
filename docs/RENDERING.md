@@ -336,20 +336,22 @@ The passes of a frame, in order (`render.frame_graph` lists them, and `RenderSta
 |---|---|---|
 | `bloom-bright`, `bloom-down-*`, `bloom-blur-h`, `bloom-blur-v`, `bloom-composite` | `bloomEnabled` | The glow: threshold with a soft knee, a reduced-resolution blur, added back (times the lens dirt texture). |
 | `exposure-luma`, `exposure-adapt` | `exposureMode` auto | The frame reduced to 32x32 brightness values, then the stored 1x1 exposure moves toward the one that makes the average 18% grey by `1 - exp(-speed * dt)`, kept between `exposureMinEv` and `exposureMaxEv`. No read back; the engine's frame `dt`, so the same frames give the same exposure on every run. Needs a float render target; the stored exposure is a 32-bit float where the GPU can filter one (else 16-bit, which stops a little short of the target at a slow speed and a high frame rate). |
-| `post` | exposure, tonemap, colour grading, vignette, chromatic aberration, lens distortion, sharpen, film grain, or a colour filter in a linear scene | The final pass, one full-screen pass: lens distortion and chromatic aberration (while the picture is read), exposure, tonemap (`none` clips, `neutral`, `aces`, `agx`, `reinhard`), the encode for the display, colour grading, vignette, sharpen, film grain, a one-step (1/255) dither so smooth gradients do not band on an 8-bit screen, and the colour filter. |
+| `prepass` | `outlineEnabled` in depth mode (and the effects of "Depth and normals") | The opaque meshes' depth and normals, read by the outline (see "Depth and normals"). |
+| `sprite-coverage` | `outlineEnabled` in sprite mode | The 2D world drawn once more into an RGBA8 image whose alpha is how much each pixel is covered, read by the sprite outline (see "The outline"). |
+| `post` | exposure, tonemap, colour grading, vignette, chromatic aberration, lens distortion, sharpen, outline, pixelate, posterize, film grain, or a colour filter in a linear scene | The final pass, one full-screen pass: pixelate (the picture is read at the block centres), lens distortion and chromatic aberration (while the picture is read), exposure, tonemap (`none` clips, `neutral`, `aces`, `agx`, `reinhard`), the encode for the display, colour grading, vignette, sharpen, outline, posterize, film grain, a one-step (1/255) dither so smooth gradients do not band on an 8-bit screen (not under posterize), and the colour filter. |
 | `hud-over-post` | the final pass ran and screen-space items exist | The HUD, drawn over the final picture in display colours: it is never exposed or tonemapped, and never glows. |
 | `color-filter` | a colour filter with no `post` (or a HUD after it) | The accessibility filter over everything, the last pass. With `post` and no HUD it is part of `post`. |
 
 A game in the default gamma colour space with only bloom or only a colour filter gets exactly the passes it had before the stack
 existed (the old pictures are byte for byte the same). Exposure and tonemap decode the stored colours to light, work in linear
-light and encode back, so `exposureEv` +1 doubles the light, not the stored number. A stack without the six effects below runs the
+light and encode back, so `exposureEv` +1 doubles the light, not the stored number. A stack without the nine effects below runs the
 same code as before: they are switched on by a bit mask, so an effect that is off costs no sample and no arithmetic.
 
 ### The effects of the final pass
 
-Six effects run in the `post` pass, in the order of this table (`render.supports {"feature": "<effect>"}` is true where this build
+Nine effects run in the `post` pass, in the order of this table (`render.supports {"feature": "<effect>"}` is true where this build
 draws them). They work in display space (the encoded values the screen shows), the same on an SDR and on an HDR output, except the
-two that bend the picture, which move the place it is read from.
+two that bend the picture and the pixelation, which move the place it is read from.
 
 | Effect | Fields (`PostProcess`) | What it does |
 |---|---|---|
@@ -358,7 +360,34 @@ two that bend the picture, which move the place it is read from.
 | `colorGrading` | `colorGradingTemperature`, `Tint`, `Lift`, `Gamma`, `Gain`, `Contrast`, `Saturation`, `HueShift`, `colorGradingLut`, `colorGradingLutContribution` | After the tonemap and the encode, in display space: white balance, gain, lift, gamma, contrast around mid grey, saturation, hue rotation, then the LUT. Nothing is clipped at white, so an HDR value above 1 stays above 1. The curves (`colorGradingCurve*`) are not drawn yet. |
 | `vignette` | `vignetteIntensity`, `Smoothness`, `Roundness`, `Center`, `Color` | Mixes the display value toward `vignetteColor` toward the edge of the screen. The same on SDR and HDR (it works on the encoded value). |
 | `sharpen` | `sharpenIntensity` | Contrast-adaptive: it reads the four neighbours (each shaded the same way as the pixel) and sharpens less where the local contrast is already high, so edges ring less. |
+| `outline` | `outlineMode` (`depth`, `sprite`), `outlineColor` (alpha = opacity), `outlineWidth`, `outlineDepthThreshold`, `outlineNormalThreshold`, `outlineAlphaThreshold` | Lines at the edges of things, drawn over the sharpened picture (see "The outline" below). |
+| `pixelate` | `pixelateSize` | Every pixel of a block of `pixelateSize` design pixels shows the colour at the block's centre (the block grid starts at the top-left of the picture, so a block cut by the right or bottom edge reads its centre clamped to the picture). It moves the place everything of the final pass reads (the lens, the grade, the vignette, the sharpen and the outline see the block centre, so the outline is blocky too); only the film grain and the dither stay per pixel. |
+| `posterize` | `posterizeLevels` | Each colour channel of the display value is cut to `posterizeLevels` evenly spaced values (`round(c * (n - 1)) / (n - 1)`), after the grading, the vignette, the sharpen and the outline. An HDR excess above white is kept as it is. The 1/255 dither is switched off while it is on, since it would move a value off its level. |
 | `filmGrain` | `filmGrainIntensity`, `Size`, `Animated`, `LuminanceResponse` | An integer hash noise added to the display value, weighted toward the mid tones by `LuminanceResponse` (1) or even (0). It is seeded by the engine's frame counter (`world.frame()`), so a recorded or replayed run gives the same grain; `filmGrainAnimated` false uses a fixed seed. It is added before the dither and the colour filter. |
+
+### The outline
+
+`outlineWidth` is in design pixels (it follows the render scale, minimum 0.5), `outlineColor` is the line's colour and its alpha is the
+opacity (alpha 0, width 0 or an unmet need below draw nothing: the frame is the one without the stack, byte for byte).
+
+- **Depth mode (3D).** An edge is a pixel whose neighbours (a Roberts cross: two diagonal pairs of prepass texels, at most
+  `ceil(width / 2)` texels from the pixel, so the line straddles the edge) differ by a silhouette (a mesh next to no mesh), by a relative depth jump larger than
+  `outlineDepthThreshold` (divided by how face-on the surface is, so a floor seen at a grazing angle is not full of lines) or by a change
+  of the view-space normal larger than `outlineNormalThreshold` (the length of the difference of the two unit normals, 0 to 2, so 0.4 is
+  about 23 degrees). It reads the depth and normal prepass ("Depth and normals"): a stack with the outline on turns it on. Sprites,
+  shapes, text, particles, the sky, blended meshes and the HUD are not in it, so they get no depth outline.
+- **Sprite mode (2D).** A line of `outlineWidth` pixels **outside** the border of the 2D world, where the coverage rises above
+  `outlineAlphaThreshold`. The source is a transient `sprite-coverage` pass: the quads of the world (sprites, tiles, shapes, text,
+  particles) drawn once more into an RGBA8 image with alpha blending, so the image's alpha is the union of what they cover; additive and
+  multiply quads add nothing. Why not the game picture's alpha: it is cleared to 1 (the picture is opaque), so it cannot tell a sprite from
+  the background. Cost: one RGBA8 image of the frame size and one more draw of the 2D batches (vertex work and a plain fill), only while
+  a sprite outline is on. 3D models and the clear colour are not outlined; translucent sprites (alpha below the threshold) get no line.
+- **Where it is skipped.** The prepass needs a GPU that can sample a float image: where it cannot, `render.supports {"feature":
+  "outline"}` is false with the reason (for both modes: the row is one per effect, and the coverage image is read the same way); both modes need one camera over the whole screen that draws the world: with several cameras or a camera
+  with a partial viewport the outline is dropped (the frame is drawn as without it) and the log says so once; a depth outline in a
+  frame without opaque meshes is dropped too. The final pass maps each pixel to the prepass or coverage pixel by the same top-left
+  screen coordinates (and flips them on OpenGL, where the images are stored bottom-up), so a later camera rectangle only has to change
+  that mapping.
 
 A gamma scene's stored colours are display values already: the effects use them as they are, and a scene with exposure or tonemap
 decodes, tonemaps and encodes first. A linear scene always runs the conversion. On an HDR output the final pass goes above paper
@@ -386,7 +415,9 @@ pixel, else RGBA8):
 | `exposureMode` auto | 2 more (32x32 and 1x1) | a few KB |
 | `bloomEnabled`, `bloomRadius` 20 | 4 (`bloom-bright`, two blurs, `bloom-composite`) | two 320x180 targets, 0.9 MB |
 | `bloomEnabled`, `bloomRadius` 64 | 6 | four smaller targets, 0.6 MB |
-| colour grading, vignette, chromatic aberration, lens distortion, sharpen or film grain, alone or together | 1 (`post`; sharpen reads four more texels, the LUT one table lookup) | one full-size target |
+| colour grading, vignette, chromatic aberration, lens distortion, sharpen, pixelate, posterize or film grain, alone or together | 1 (`post`; sharpen reads four more texels, the LUT one table lookup, pixelate none) | one full-size target |
+| `outlineEnabled`, depth mode | 1 (`post`, reads 4 texels of the prepass) + `prepass` | one full-size target and the prepass image (16 bytes a pixel) |
+| `outlineEnabled`, sprite mode | 1 (`post`, up to 17 texels of the coverage) + `sprite-coverage` (the 2D batches again) | one full-size target and one RGBA8 image (4 bytes a pixel) |
 | everything on, with a HUD | 8 (`color-filter` is its own pass because the HUD went between) | the sum of the above |
 
 The time of each pass is in `render.frame_graph` with `profileFrames` (`passTimes[].gpuMs` on D3D11 and OpenGL, `cpuMs` of the
@@ -438,8 +469,8 @@ orthographic 3D camera.
 
 - **When it is made.** Only in a frame whose post stack (the `PostProcess` of the camera that draws first) has an effect that reads the
   depth or the normals and that the renderer draws, for a camera that draws opaque meshes. A frame without such an effect declares no
-  prepass pass, makes no image and builds no shader: the draw calls are the same as before. No effect that reads the depth is drawn
-  yet, so today only the debug view below makes it.
+  prepass pass, makes no image and builds no shader: the draw calls are the same as before. Of the effects that read the depth only the
+  outline (depth mode) is drawn so far; the rest are drawn as their M71 packages land, and the debug view below makes the image too.
 - **What is in it.** Opaque meshes, skinned ones at their pose, with their material's `vertex()` displacement, the normals of their material's `surface()` and, for `alphaMode`
   `"clip"`, the same holes as the main pass. Not in it: blended meshes, the sky, sprites, particles, shapes, text, debug lines
   and the HUD. A custom material gets its own prepass programs when

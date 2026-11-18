@@ -63,6 +63,8 @@ struct Renderer::Impl::DrawContext {
     // plan_prepass: this job declares the prepass (its image is a transient of the graph, PostPlan::prepass) and, with a debug view on,
     // the pass that paints it over the game image.
     bool doPrepass = false, debugPrepass = false;
+    // plan_outline: this job declares the sprite-coverage pass (PostPlan::coverage) for a sprite outline.
+    bool doCoverage = false;
     std::vector<MeshBatch> opaqueBatches, blendedBatches;
     std::vector<Mat4> mainMats, shadowMats;
     // build_quad_stream
@@ -346,7 +348,8 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
     ctx.doMainPass = fr.wantWorld || !ctx.hudAfterBloom;
     if (plan.last) {
         PostPlan& pp = ctx.postPlan;
-        pp = make_post_plan(ctx.post, world.settings().colorSpace == ColorSpace::Linear, forceEffects, world.frame());
+        pp = make_post_plan(ctx.post, world.settings().colorSpace == ColorSpace::Linear, forceEffects, world.frame(),
+                            renderScale);
         // The camera's view-projection of the frame before, for the effects that reproject (motion blur); one entry per camera, and the
         // cameras that were not drawn last frame are forgotten.
         const std::uint64_t camKey = ctx.post.entity.bits();
@@ -387,6 +390,7 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
     shadow_bounds(ctx);
     cull_and_batch(ctx);
     plan_prepass(ctx);
+    plan_outline(ctx);
     build_quad_stream(ctx);
     // The final pass converts the picture (exposure, tonemap, the encode of a linear scene): the screen-space items go over its result, in
     // display space, and are drawn after it instead of in the main pass. Only when there is something to draw, and the image for it exists.
@@ -1095,6 +1099,61 @@ bool Renderer::Impl::plan_prepass(DrawContext& ctx) {
     return true;
 }
 
+// The image the outline reads. Depth mode needs the prepass (plan_prepass made it or said why not, once); sprite mode needs a coverage
+// image, made for the same frames as the prepass (one job, one camera over the whole screen) and when the pool can make an RGBA8 image.
+// An outline without its image is dropped from the plan (PostPlan::skip_outline), so the frame is drawn as if the effect were off.
+// Reads: ctx.plan, ctx.fr, ctx.doPrepass. Writes: ctx.postPlan, ctx.doCoverage, coverageWarned.
+void Renderer::Impl::plan_outline(DrawContext& ctx) {
+    PostPlan& pp = ctx.postPlan;
+    ctx.doCoverage = false;
+    if (!ctx.plan.last) return;
+    if (pp.fx.outline_depth()) {
+        if (!ctx.doPrepass) pp.skip_outline();
+        return;
+    }
+    if (!pp.fx.outline_sprite()) return;
+    auto skip = [&](const char* why) {
+        if (!coverageWarned) {
+            coverageWarned = true;
+            FA_WARN("render",
+                    "The sprite outline is skipped: {}. Hint: give the camera that carries the PostProcess the whole "
+                    "screen "
+                    "(viewport [0, 0, 1, 1]) and make it the only primary camera.",
+                    why);
+        }
+        pp.skip_outline();
+    };
+    if (ctx.plan.view || !ctx.plan.first || !ctx.fr.wantWorld || !ctx.fr.cam.fullViewport()) {
+        skip("the frame is split between several cameras, or the camera has a viewport smaller than the screen");
+        return;
+    }
+    TransientDesc d;
+    d.width = physW;
+    d.height = physH;
+    d.format = TargetFormat{SG_PIXELFORMAT_RGBA8, SG_PIXELFORMAT_NONE, 1};
+    d.label = "sprite-coverage";
+    const std::uint64_t h = transient_targets().pool.acquire(d);
+    if (h == 0) {
+        skip("the coverage image could not be made (out of GPU memory? lower the window size or the render scale)");
+        return;
+    }
+    transient_targets().pool.release(h);
+    ctx.doCoverage = true;
+}
+
+// Draws the 2D world of the job into `t` as coverage: only the alpha channel matters (alpha blending accumulates how much of a pixel
+// the sprites, tiles, shapes, text and particles cover; additive and multiply quads leave it alone). Cleared to 0 first. Reads:
+// ctx.gWorld, ctx.fr.cam, ctx.camPx, the quad stream of the job. Writes: `t`; stats.drawCalls.
+void Renderer::Impl::coverage_pass(DrawContext& ctx, const Target& t) {
+    PassDesc pd = pass_into(t, "sprite-coverage");
+    pd.colorLoad = SG_LOADACTION_CLEAR;
+    pd.clearColor = {0.0f, 0.0f, 0.0f, 0.0f};
+    pd.colorStore = SG_STOREACTION_STORE;
+    gpu.begin_pass(pd);
+    draw_group(ctx, ctx.gWorld.batches, ctx.fr.cam.viewProj, false, ctx.camPx, 0, &pd.format);
+    gpu.end_pass();
+}
+
 // Draws the opaque meshes of the job into `t`. Reads: ctx.opaque / opaqueBatches, ctx.mainInst, ctx.vuScene, ctx.fuScene, ctx.fr.cam, the
 // custom prepass programs of the materials. Writes: `t`; stats.drawCalls.
 void Renderer::Impl::prepass_pass(DrawContext& ctx, const Target& t) {
@@ -1178,7 +1237,7 @@ void Renderer::Impl::prepass_view_pass(DrawContext& ctx, const Target& t) {
 // Draws the batches of a quad group. Reads: ctx.vbuf, ctx.shadowRowsTex, fr (lights2d, shadowRows, ambient2d), renderScale,
 // physW / physH, gpu.light_range(), lightTarget.texView (`flatMode` 1 reads the light buffer). Writes: stats.drawCalls.
 void Renderer::Impl::draw_group(DrawContext& ctx, const std::vector<QuadBatch>& batches, const Mat4& vp, bool depthTest,
-                                const Px& base, int flatMode) {
+                                const Px& base, int flatMode, const TargetFormat* format) {
     Frame& fr = ctx.fr;
     const sg_buffer vbuf = ctx.vbuf;
     const sg_view shadowRowsTex = ctx.shadowRowsTex;
@@ -1233,7 +1292,8 @@ void Renderer::Impl::draw_group(DrawContext& ctx, const std::vector<QuadBatch>& 
     const sg_view shadowTexBound = shadowRowsTex.id ? shadowRowsTex : assets->white()->view;
     for (const QuadBatch& qb : batches) {
         apply_clip(qb.clip);
-        sg_apply_pipeline(gpu.quad_pipeline(depthTest, false, qb.blend, qb.plain, qb.opaque));
+        sg_apply_pipeline(format ? gpu.quad_pipeline(*format, depthTest, false, qb.blend, qb.plain, qb.opaque)
+                                 : gpu.quad_pipeline(depthTest, false, qb.blend, qb.plain, qb.opaque));
         u.cspace[1] = float(qb.tex->tex_fix(fr.linear, true, fr.displayOverLinear));
         u.cspace[2] = qb.lit && qb.normal ? float(qb.normal->tex_fix(fr.linear, false)) : 0.0f;
         apply_uniforms(UB_quad_vs_params, u);
@@ -1561,13 +1621,37 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
                 if (t) prepass_view_pass(ctx, *t);
             });
     }
+    ResourceId coverageRes;
+    if (ctx.doCoverage) {  // a sprite outline: the 2D world's alpha in an RGBA8 transient, read by the final pass
+        TransientDesc cdsc;
+        cdsc.width = physW;
+        cdsc.height = physH;
+        cdsc.format = TargetFormat{SG_PIXELFORMAT_RGBA8, SG_PIXELFORMAT_NONE, 1};
+        cdsc.label = "sprite-coverage";
+        coverageRes = graph.create_transient(cdsc);
+        ctx.postPlan.coverage = PrepassRef{coverageRes, &transient_targets()};
+        add("sprite-coverage", {}, {coverageRes}, [this, &ctx, coverageRes](const PassContext& c) {
+            const Target* t = transient_targets().get(c.handle(coverageRes));
+            if (t) coverage_pass(ctx, *t);
+        });
+    }
     if (!plan.last) return;
 
     // ---- the post-processing stack of the frame (postprocess.h): bloom -> automatic exposure -> the final pass -> the HUD -> the colour filter ----
     filterActive = false;
     hudActive = false;
     finalEncoded = false;
+    if (ctx.postPlan.fx.outline && !ctx.postPlan.outline_source().valid())
+        ctx.postPlan.skip_outline();  // no image to read
     const PostPlan& pp = ctx.postPlan;
+    // The final pass reads the outline's image, and hands its view to post.glsl (a pass that is not the final one has none).
+    auto outline_view = [](const PostPlan& plan_, const PassContext& c, PostPlan& use) {
+        use = plan_;
+        const Target* t = use.fx.outline ? use.outline_source().target(c) : nullptr;
+        if (use.fx.outline && !(t && t->texView.id))
+            use.skip_outline();  // the pass did not get the image: drawn without
+        return t && use.fx.outline ? t->texView : sg_view{};
+    };
     if (pp.bloom.enabled) {
         BloomTarget dst;
         if (ctx.hudAfterBloom && ctx.msaa) {
@@ -1600,14 +1684,17 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
         const bool autoExp = evRes.valid();
         std::vector<ResourceId> reads{game};
         if (autoExp) reads.push_back(evRes);
+        if (pp.fx.outline) reads.push_back(pp.outline_source().res);
         const TransientDesc dd = import_desc(physW, physH, gameTarget.format, "game-post");
         if (ctx.hudAfterPost) {
             // The picture goes into hudTarget (its multisampled image kept), the screen-space items are drawn over it, and the colour
             // filter (it works on what the screen shows, the items included) copies it into filterTarget.
             const ResourceId hudRes = graph.import_target("game-post", hudTarget.colorAtt.id, dd);
-            add("post", std::move(reads), {hudRes}, [this, pp, autoExp](const PassContext&) {
-                post_pass(pp, true, 0, autoExp, gameTarget.texView,
-                          autoExp ? autoExposure.ev_view() : assets->white()->view, hudTarget, "post", true);
+            add("post", std::move(reads), {hudRes}, [this, pp, autoExp, outline_view](const PassContext& c) {
+                PostPlan use;
+                const sg_view aux = outline_view(pp, c, use);
+                post_pass(use, true, 0, autoExp, gameTarget.texView,
+                          autoExp ? autoExposure.ev_view() : assets->white()->view, aux, hudTarget, "post", true);
                 hudActive = true;
                 finalEncoded = true;
             });
@@ -1620,8 +1707,8 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
                     graph.import_target("game-filtered", filterTarget.color.id,
                                         import_desc(physW, physH, filterTarget.format, "game-filtered"));
                 add("color-filter", {hudRes}, {filtered}, [this, pp](const PassContext&) {
-                    post_pass(pp, false, pp.colorFilter, false, hudTarget.texView, assets->white()->view, filterTarget,
-                              "color-filter", false);
+                    post_pass(pp, false, pp.colorFilter, false, hudTarget.texView, assets->white()->view, sg_view{},
+                              filterTarget, "color-filter", false);
                     filterActive = true;
                 });
             }
@@ -1629,9 +1716,11 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
             const ResourceId filtered =
                 graph.import_target("game-filtered", filterTarget.color.id,
                                     import_desc(physW, physH, filterTarget.format, "game-filtered"));
-            add("post", std::move(reads), {filtered}, [this, pp, autoExp](const PassContext&) {
-                post_pass(pp, true, pp.colorFilter, autoExp, gameTarget.texView,
-                          autoExp ? autoExposure.ev_view() : assets->white()->view, filterTarget, "post", false);
+            add("post", std::move(reads), {filtered}, [this, pp, autoExp, outline_view](const PassContext& c) {
+                PostPlan use;
+                const sg_view aux = outline_view(pp, c, use);
+                post_pass(use, true, pp.colorFilter, autoExp, gameTarget.texView,
+                          autoExp ? autoExposure.ev_view() : assets->white()->view, aux, filterTarget, "post", false);
                 filterActive = true;
                 finalEncoded = true;
             });
@@ -1641,8 +1730,8 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
         const ResourceId filtered = graph.import_target(
             "game-filtered", filterTarget.color.id, import_desc(physW, physH, filterTarget.format, "game-filtered"));
         add("color-filter", {game}, {filtered}, [this, pp](const PassContext&) {
-            post_pass(pp, false, pp.colorFilter, false, gameTarget.texView, assets->white()->view, filterTarget,
-                      "color-filter", false);
+            post_pass(pp, false, pp.colorFilter, false, gameTarget.texView, assets->white()->view, sg_view{},
+                      filterTarget, "color-filter", false);
             filterActive = true;
         });
     }

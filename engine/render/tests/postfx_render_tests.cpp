@@ -75,6 +75,9 @@ PostFx fx_of(const PostProcess& p, std::uint64_t frame = 0) {
     on(p.vignetteEnabled, PostEffect::Vignette);
     on(p.sharpenEnabled, PostEffect::Sharpen);
     on(p.filmGrainEnabled, PostEffect::FilmGrain);
+    on(p.outlineEnabled, PostEffect::Outline);
+    on(p.pixelateEnabled, PostEffect::Pixelate);
+    on(p.posterizeEnabled, PostEffect::Posterize);
     return render::make_post_fx(s, frame);
 }
 
@@ -169,9 +172,24 @@ TEST_CASE("post fx: effects switched on with their neutral values draw no pass a
         p.sharpenIntensity = 0.0f;
         p.filmGrainEnabled = true;
         p.filmGrainIntensity = 0.0f;
+        p.pixelateEnabled = true;  // a block of one design pixel
+        p.pixelateSize = 1.0f;
+        p.posterizeEnabled = true;  // 256 levels: every 8-bit value is one
+        p.posterizeLevels = 256;
+        p.outlineEnabled = true;  // no line
+        p.outlineWidth = 0.0f;
     });
     CHECK(order_of(g) == std::vector<std::string>{"camera:0/game"});
     CHECK(off.rgba == ref.rgba);
+    // A sprite outline without opacity makes no coverage image either; neither does a depth one a prepass.
+    const Image noAlpha = shoot(g, false, [](PostProcess& p) {
+        p.outlineEnabled = true;
+        p.outlineMode = OutlineMode::Sprite;
+        p.outlineColor = Color{1, 0, 1, 0.0f};
+        p.outlineWidth = 3.0f;
+    });
+    CHECK(order_of(g) == std::vector<std::string>{"camera:0/game"});
+    CHECK(noAlpha.rgba == ref.rgba);
     // A LUT named but contributing 0 is off too (the file is not even read).
     const Image lut0 = shoot(g, false, [](PostProcess& p) {
         p.colorGradingEnabled = true;
@@ -672,10 +690,9 @@ TEST_CASE(
 
 // ---- a 3D scene ----
 
-TEST_CASE("post fx: a 3D scene through grade, vignette and sharpen, golden") {
-    Gfx& g = gfx();
-    REQUIRE(g.ok);
-    World w;
+namespace {
+// A plane with a cube, a sphere and a cone under a sun, seen from above and in front: returns the camera.
+Entity build_scene_3d(World& w) {
     Entity cam = make(w, "cam", {0, 3, 7});
     auto& c = w.add<Camera>(cam);
     c.projection = Projection::Perspective;
@@ -699,6 +716,15 @@ TEST_CASE("post fx: a 3D scene through grade, vignette and sharpen, golden") {
     auto& l = w.add<Light>(sun);
     l.type = LightType::Directional;
     l.intensity = 1.0f;
+    return cam;
+}
+}  // namespace
+
+TEST_CASE("post fx: a 3D scene through grade, vignette and sharpen, golden") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    World w;
+    const Entity cam = build_scene_3d(w);
     const Image plain = g.render(w);
     PostProcess& p = w.add<PostProcess>(cam);
     p.colorGradingEnabled = true;
@@ -711,4 +737,195 @@ TEST_CASE("post fx: a 3D scene through grade, vignette and sharpen, golden") {
     const Image img = g.render(w);
     CHECK(img.rgba != plain.rgba);
     expect_golden(img, "post_fx_3d");
+}
+
+// ---- posterize and pixelate (M71-C2) ----
+
+TEST_CASE("posterize: every channel lands on one of the levels, as the CPU computes, in a gamma and a linear scene") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    for (const bool linear : {false, true}) {
+        const Image ref = reference(g, linear);
+        for (const int levels : {2, 4, 6, 16}) {
+            INFO((linear ? "linear" : "gamma") << " scene, levels " << levels);
+            const Image got = shoot(g, linear, [&](PostProcess& p) {
+                p.posterizeEnabled = true;
+                p.posterizeLevels = levels;
+            });
+            CHECK(order_of(g) == std::vector<std::string>{"camera:0/game", "camera:0/post"});
+            PostProcess p;
+            p.posterizeEnabled = true;
+            p.posterizeLevels = levels;
+            const PostFx fx = fx_of(p);
+            const float n = float(levels - 1);
+            int offLevel = 0, different = 0;
+            for (int y = 0; y < got.height; ++y)
+                for (int x = 0; x < got.width; ++x) {
+                    const Vec3 c = texel(got, x, y);
+                    const Vec3 want = render::posterize_color(fx, texel(ref, x, y));
+                    for (int i = 0; i < 3; ++i) {
+                        const float k = c[i] * n;
+                        if (std::fabs(k - std::round(k)) > 0.0025f * n + 0.001f) ++offLevel;
+                        if (std::fabs(c[i] - want[i]) > 0.5f / n) ++different;
+                    }
+                }
+            CHECK(offLevel == 0);
+            const int total = got.width * got.height * 3;
+            CHECK(different < total / 50);
+            CHECK(got.rgba != ref.rgba);
+            if (!linear && levels == 4) expect_golden(got, "post_fx_posterize");
+        }
+    }
+}
+
+TEST_CASE("pixelate: every pixel of a block shows the colour of the block's centre, blocks cut by the edge included") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    const Image ref = reference(g);
+    for (const int block : {4, 7, 16}) {
+        INFO("block " << block);
+        const Image got = shoot(g, false, [&](PostProcess& p) {
+            p.pixelateEnabled = true;
+            p.pixelateSize = float(block);
+        });
+        CHECK(order_of(g) == std::vector<std::string>{"camera:0/game", "camera:0/post"});
+        PostProcess p;
+        p.pixelateEnabled = true;
+        p.pixelateSize = float(block);
+        const PostFx fx = fx_of(p);
+        const Diff d = compare(got, [&](int x, int y) {
+            int sx = x, sy = y;
+            render::pixelate_pixel(fx, x, y, ref.width, ref.height, sx, sy);
+            return texel(ref, sx, sy);
+        });
+        CHECK(d.max < 0.012f);
+        CHECK(got.rgba != ref.rgba);
+        // The block's own pixels are one colour.
+        const int bx = (160 / block) * block, by = (90 / block) * block;
+        const Vec3 first = texel(got, bx, by);
+        for (int y = by; y < std::min(by + block, got.height); ++y)
+            for (int x = bx; x < std::min(bx + block, got.width); ++x) {
+                const Vec3 c = texel(got, x, y);
+                CHECK(std::fabs(c.x - first.x) < 0.012f);
+                CHECK(std::fabs(c.y - first.y) < 0.012f);
+                CHECK(std::fabs(c.z - first.z) < 0.012f);
+            }
+        if (block == 7) expect_golden(got, "post_fx_pixelate");
+    }
+}
+
+TEST_CASE("pixelate and posterize: both together, the blocks stay on the levels") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    const Image got = shoot(g, false, [](PostProcess& p) {
+        p.pixelateEnabled = true;
+        p.pixelateSize = 8.0f;
+        p.posterizeEnabled = true;
+        p.posterizeLevels = 5;
+    });
+    for (int y = 0; y < got.height; y += 3)
+        for (int x = 0; x < got.width; x += 3) {
+            const Vec3 c = texel(got, x, y);
+            for (int i = 0; i < 3; ++i) {
+                const float k = c[i] * 4.0f;
+                CHECK(std::fabs(k - std::round(k)) < 0.02f);
+            }
+        }
+    // A 3x3 block at the middle of the picture is one colour.
+    const Vec3 a = texel(got, 160, 90), b = texel(got, 163, 93);
+    CHECK(std::fabs(a.x - b.x) < 0.01f);
+}
+
+// ---- the outline (M71-C2) ----
+
+namespace {
+bool is_magenta(const Vec3& c) { return c.x > 0.9f && c.y < 0.1f && c.z > 0.9f; }
+bool same_as(const Vec3& a, const Vec3& b, float tol = 0.012f) {
+    return std::fabs(a.x - b.x) < tol && std::fabs(a.y - b.y) < tol && std::fabs(a.z - b.z) < tol;
+}
+}  // namespace
+
+TEST_CASE("outline (sprite): a line of the given width outside the border of the sprites, nothing inside or far away") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    const Image ref = reference(g);
+    const Image got = shoot(g, false, [](PostProcess& p) {
+        p.outlineEnabled = true;
+        p.outlineMode = OutlineMode::Sprite;
+        p.outlineColor = Color{1, 0, 1, 1};
+        p.outlineWidth = 3.0f;
+        p.outlineAlphaThreshold = 0.5f;
+    });
+    const std::vector<std::string> order = order_of(g);
+    CHECK(order.size() == 3);
+    CHECK(std::count(order.begin(), order.end(), std::string("camera:0/sprite-coverage")) == 1);
+    CHECK(std::count(order.begin(), order.end(), std::string("camera:0/post")) == 1);
+    CHECK(std::count(order.begin(), order.end(), std::string("camera:0/prepass")) == 0);
+    // The red patch covers pixels 45..94 of row 50, the green one 105..154: the gap between them is 95..104.
+    for (const int x : {95, 96, 97, 102, 103, 104}) {
+        INFO("pixel " << x);
+        CHECK(is_magenta(texel(got, x, 50)));
+    }
+    for (const int x : {99, 100}) {
+        INFO("pixel " << x);
+        CHECK(same_as(texel(got, x, 50), texel(ref, x, 50)));
+    }
+    // Inside the patches and away from every sprite the picture is the one without the stack.
+    for (const Vec2 p :
+         {Vec2{60, 50}, Vec2{80, 40}, Vec2{120, 50}, Vec2{140, 60}, Vec2{300, 10}, Vec2{250, 170}, Vec2{10, 90}}) {
+        INFO("pixel " << p.x << ", " << p.y);
+        CHECK(same_as(texel(got, int(p.x), int(p.y)), texel(ref, int(p.x), int(p.y))));
+    }
+    // The line is as wide as asked: the left side of the red patch (the dark stripe starts one pixel inside it).
+    int run = 0;
+    for (int x = 44; x >= 30; --x) {
+        if (!is_magenta(texel(got, x, 50))) break;
+        ++run;
+    }
+    CHECK(run >= 2);
+    CHECK(run <= 4);
+    expect_golden(got, "post_fx_outline_sprite");
+}
+
+TEST_CASE("outline (sprite): the alpha threshold decides how solid a sprite must be to get a line") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    auto draw = [&](float threshold) {
+        World w;
+        Entity cam = make(w, "cam");
+        w.add<Camera>(cam).clearColor = Color{0.1f, 0.1f, 0.1f, 1};
+        Entity e = make(w, "ghost", {0, 0, 0});
+        auto& s = w.add<Shape2D>(e);
+        s.shape = ShapeType::Rectangle;
+        s.size = {40, 40};
+        s.color = Color{0.8f, 0.8f, 0.2f, 0.3f};
+        PostProcess& p = w.add<PostProcess>(cam);
+        p.outlineEnabled = true;
+        p.outlineMode = OutlineMode::Sprite;
+        p.outlineColor = Color{1, 0, 1, 1};
+        p.outlineWidth = 2.0f;
+        p.outlineAlphaThreshold = threshold;
+        return g.draw(w);
+    };
+    // The square covers pixels 140..179 of row 90; the pixel just left of it is outside.
+    CHECK_FALSE(is_magenta(texel(draw(0.5f), 139, 90)));
+    CHECK(is_magenta(texel(draw(0.2f), 139, 90)));
+}
+
+TEST_CASE("outline (depth): a 3D scene with a black line, golden") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    World w;
+    const Entity cam = build_scene_3d(w);
+    const Image plain = g.render(w);
+    PostProcess& p = w.add<PostProcess>(cam);
+    p.outlineEnabled = true;
+    p.outlineMode = OutlineMode::Depth;
+    p.outlineColor = Color{0.05f, 0.05f, 0.1f, 1};
+    p.outlineWidth = 2.0f;
+    const Image img = g.render(w);
+    const std::vector<std::string> order = order_of(g);
+    CHECK(std::count(order.begin(), order.end(), std::string("camera:0/prepass")) == 1);
+    CHECK(img.rgba != plain.rgba);
+    expect_golden(img, "post_fx_outline_depth");
 }

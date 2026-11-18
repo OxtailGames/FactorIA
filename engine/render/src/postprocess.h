@@ -4,7 +4,7 @@
 //   PostPlan          the stack as the passes read it: sanitised numbers, nothing of the components (make_post_plan)
 //   AutoExposure      PostProcess.exposureMode auto: two passes measure the frame and adapt a stored EV on the GPU (no readback)
 //   run_post_pass     the final pass (post.glsl): the lens, exposure, tonemap, the output encode, the display-space effects of
-//                     post_fx.h (grade, vignette, sharpen, grain), a dither, the colour filter, fused
+//                     post_fx.h (grade, vignette, sharpen, outline, pixelate, posterize, grain), a dither, the colour filter, fused
 //
 // A frame without a PostProcess and without Camera.bloom / Camera.colorFilter has an empty plan: no pass is declared and no target is
 // made. The renderer declares the passes in build_graph (renderer_draw.cpp) in this order: bloom (bloom.h) -> automatic exposure ->
@@ -65,10 +65,24 @@ struct PostPlan {
     // draws the prepass when one is true (renderer_draw.cpp, plan_job); `prepass` is then valid for the passes after it.
     bool needsDepth = false, needsNormals = false;
     PrepassRef prepass;
+    // The sprite outline's image (renderer_draw.cpp, "sprite-coverage"): an RGBA8 image of the picture's size, a = how much of the pixel the
+    // 2D world drew (alpha blending accumulates it), cleared to 0. Made only when fx.outline_sprite(); valid for the passes after it.
+    PrepassRef coverage;
+    // The scene is linear (what make_post_plan was given): kept to settle `linear` again when skip_outline() takes an effect away.
+    bool sceneLinear = false;
     // The camera's view-projection of the frame before this one (motion blur reprojects with it); valid only when that frame drew the same
     // camera (`prevValid`), so a cut or a new camera never blurs.
     Mat4 prevViewProj;
     bool prevValid = false;
+
+    // The outline cannot be drawn this frame (its image is not made: split screen, a partial viewport, no opaque mesh, an unsupported
+    // GPU): the effect is dropped, and with it the conversion that only it asked for.
+    void skip_outline() {
+        fx.outline = false;
+        linear = sceneLinear && (exposure || tonemap || colorFilter != 0 || fx.any());
+    }
+    // The image the outline reads this frame (the prepass in depth mode, the coverage in sprite mode); invalid when there is no outline.
+    const PrepassRef& outline_source() const { return fx.outline_sprite() ? coverage : prepass; }
 
     // True when the final pass converts the picture (exposure, tonemap, or the encode of a linear scene): `post` runs steps 1 to 4.
     bool convert() const { return exposure || tonemap || linear; }
@@ -81,8 +95,12 @@ struct PostPlan {
 // The plan of a camera (CameraInfo::postStack, null without one, and the bloom / colorFilter derived from it). `linear`: SceneSettings.colorSpace.
 // `forceEffects` (tests and the debug view): effects whose prepass inputs are needed as if the stack switched them on, a mask like
 // PostStack::mask. needsDepth / needsNormals come from the effects the renderer draws (post_drawn_mask) among the stack's, and these.
-// `frame`: World::frame(), the seed of an animated film grain (the renderer passes it; tests leave 0).
-PostPlan make_post_plan(const CameraInfo& cam, bool linear, std::uint32_t forceEffects = 0, std::uint64_t frame = 0);
+// `frame`: World::frame(), the seed of an animated film grain (the renderer passes it; tests leave 0). `designScale`: physical pixels per
+// design pixel (the render scale), the unit of the outline width and the pixelate block (post_fx.h).
+// The outline reads the prepass only in depth mode (and when its width and opacity are above 0): a sprite outline, and one that draws
+// nothing, never turn the prepass on.
+PostPlan make_post_plan(const CameraInfo& cam, bool linear, std::uint32_t forceEffects = 0, std::uint64_t frame = 0,
+                        float designScale = 1.0f);
 
 // Camera.bloom* / PostProcess bloom fields -> supported ranges (sanitize_bloom for the stack): the knee and the dirt intensity too.
 BloomSettings bloom_from_stack(const PostStack& stack);
@@ -90,11 +108,13 @@ BloomSettings bloom_from_stack(const PostStack& stack);
 // What the final pass draws (post.glsl): `convert` is true for the final pass itself (not the colour-filter-only pass): it runs the
 // plan's exposure, tonemap and encode (when plan.convert()) and plan.fx, `filter` the colour filter
 // (0 none; the picture is clamped for it); `expo` is the adapted-exposure image (the 1x1 of AutoExposure) or any 1x1 image when the
-// exposure is not automatic; `white`: any 1x1 white image (bound as the LUT when the plan has none). `pass` is the PassDesc of the destination (the caller sets its load and store actions); the pass draws
+// exposure is not automatic; `white`: any 1x1 white image (bound as the LUT when the plan has none, and as the outline's image when it
+// is off); `aux`: the image the outline reads (plan.outline_source() of this frame, null view = none: the outline is not drawn). `pass` is the PassDesc of the destination (the caller sets its load and store actions); the pass draws
 // one full-screen triangle and ends. `w` x `h`: the size of the destination in pixels (the dither pattern). `output`: what the frame is
 // drawn for (hdr_encode.h); an HDR output with headroom runs the tonemap above paper white (tonemap_hdr), the rest the SDR one.
 void run_post_pass(Gpu& gpu, const PostPlan& plan, bool convert, int filter, bool autoExposure, const PassDesc& pass,
-                   sg_view src, sg_view expo, sg_view white, int w, int h, const OutputTarget& output = {});
+                   sg_view src, sg_view expo, sg_view white, sg_view aux, int w, int h,
+                   const OutputTarget& output = {});
 
 // PostProcess.exposureMode auto. The adapted EV lives in a 1x1 RGBA16F target (two of them, taking turns: a pass cannot read what it
 // writes); `exposure-luma` reduces the finished game image to 32x32 log-luminances and `exposure-adapt` moves the stored EV toward the

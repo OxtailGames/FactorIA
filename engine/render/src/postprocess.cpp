@@ -40,12 +40,21 @@ BloomSettings bloom_from_stack(const PostStack& stack) {
     return b;
 }
 
-PostPlan make_post_plan(const CameraInfo& cam, bool linear, std::uint32_t forceEffects, std::uint64_t frame) {
+PostPlan make_post_plan(const CameraInfo& cam, bool linear, std::uint32_t forceEffects, std::uint64_t frame,
+                        float designScale) {
     PostPlan p;
     p.bloom = cam.bloom;
     p.colorFilter = std::clamp(cam.colorFilter, 0, 5);
+    p.sceneLinear = linear;
     std::uint32_t read = forceEffects;
-    if (cam.postStack) read |= cam.postStack->mask & post_drawn_mask();  // an effect that is not drawn reads nothing
+    if (cam.postStack) {
+        std::uint32_t drawn = cam.postStack->mask & post_drawn_mask();  // an effect that is not drawn reads nothing
+        // The outline reads the prepass in depth mode only, and only when it has a width and an opacity (post_fx.h).
+        const std::uint32_t outlineBit = 1u << int(PostEffect::Outline);
+        if ((drawn & outlineBit) != 0 && !make_post_fx(*cam.postStack, frame, designScale).outline_depth())
+            drawn &= ~outlineBit;
+        read |= drawn;
+    }
     p.needsDepth = post_mask_needs_depth(read);
     p.needsNormals = post_mask_needs_normals(read);
     if (!cam.postStack) return p;  // no stack: only what the bloom and the colour filter above say (both off then)
@@ -66,7 +75,7 @@ PostPlan make_post_plan(const CameraInfo& cam, bool linear, std::uint32_t forceE
         p.tonemap = true;
         p.tonemapMode = std::clamp(int(f.tonemapMode), 0, 4);
     }
-    p.fx = make_post_fx(s, frame);
+    p.fx = make_post_fx(s, frame, designScale);
     p.lut = p.fx.lut ? f.colorGradingLut : std::string();
     // A linear scene is converted (and encoded) by the final pass only when something needs it; otherwise the present copy encodes it.
     p.linear = linear && (p.exposure || p.tonemap || p.colorFilter != 0 || p.fx.any());
@@ -113,18 +122,32 @@ post_post_fx_params_t fx_uniforms(const PostFx& fx, const LutInfo& lut, bool gl,
     u.lt[0] = float(lut.size);
     u.lt[1] = float(lut.cols);
     u.lt[2] = float(lut.rows);
+    u.ol[0] = fx.outlineWidth;
+    u.ol[1] = fx.outlineDepthThreshold;
+    u.ol[2] = fx.outlineNormalThreshold;
+    u.ol[3] = fx.outlineAlphaThreshold;
+    set(u.oc, fx.outlineColor, fx.outlineOpacity);
+    u.ap[0] = float(fx.pixelateBlock);
+    u.ap[1] = float(fx.posterizeLevels);
+    u.ap[2] = float(w);  // the outline's image has the size of the picture
+    u.ap[3] = float(h);
+    // The screen uv to the outline image's uv: the identity while the image has the size of the picture (a camera with a viewport
+    // rectangle would put its own scale and offset here).
+    u.ax[0] = 1.0f;
+    u.ax[1] = 1.0f;
     return u;
 }
 
 }  // namespace
 
 void run_post_pass(Gpu& gpu, const PostPlan& plan, bool finalPass, int filter, bool autoExposure, const PassDesc& pass,
-                   sg_view src, sg_view expo, sg_view white, int w, int h, const OutputTarget& output) {
+                   sg_view src, sg_view expo, sg_view white, sg_view aux, int w, int h, const OutputTarget& output) {
     // finalPass: the pass that converts and draws the effects; the colour-filter-only pass has neither.
     const bool convert = finalPass && plan.convert();
     PostFx fx = finalPass ? plan.fx : PostFx{};
     fx.lut = fx.lut && plan.lutInfo.view.id != 0;  // the table the renderer found (none: the effect is skipped)
     const bool lut = fx.lut;
+    fx.outline = fx.outline && aux.id != 0;  // the image the outline reads was not made: no outline
     gpu.begin_pass(pass);
     sg_apply_pipeline(gpu.post_pipeline(pass.format));
     sg_bindings b{};
@@ -132,6 +155,8 @@ void run_post_pass(Gpu& gpu, const PostPlan& plan, bool finalPass, int filter, b
     b.views[VIEW_post_tex] = src;
     b.views[VIEW_post_expo_tex] = expo;
     b.views[VIEW_post_lut_tex] = lut ? plan.lutInfo.view : white;
+    b.views[VIEW_post_aux_tex] = fx.outline ? aux : white;
+    b.samplers[SMP_post_aux_smp] = gpu.sampler(SamplerKind::Nearest);
     b.samplers[SMP_post_smp] =
         gpu.sampler(SamplerKind::Nearest);  // the source has the size of the destination: texel for texel
     b.samplers[SMP_post_lin_smp] = gpu.sampler(SamplerKind::LinearClamp);  // the lens and the LUT
@@ -149,7 +174,8 @@ void run_post_pass(Gpu& gpu, const PostPlan& plan, bool finalPass, int filter, b
     u.q[0] = convert && plan.tonemap ? float(plan.tonemapMode) : 0.0f;
     u.q[1] = convert && plan.exposure ? std::exp2(plan.exposureEv) : 1.0f;
     u.q[2] = convert && plan.exposure && autoExposure ? 1.0f : 0.0f;
-    u.q[3] = convert || fx.any() ? 1.0f / 255.0f : 0.0f;  // the dither: one 8-bit step of the display
+    // The dither: one 8-bit step of the display. Not under a posterize: it would move a colour across a level.
+    u.q[3] = (convert || fx.any()) && !fx.posterize ? 1.0f / 255.0f : 0.0f;
     u.r[0] = float(w);
     u.r[1] = float(h);
     if (hdr) {

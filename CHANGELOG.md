@@ -64,6 +64,17 @@ Older versions, one file per minor version with its patch releases: [0.29](chang
   the engine's frame counter (the same on every run; new `filmGrainLuminanceResponse`, new `lensDistortionCenter`). `assets.import`
   takes a `.cube` into `assets/luts/` and checks it. `render.supports` answers true for the six effects; the
   `colorGradingCurve*` fields are still only stored (docs/RENDERING.md, "The effects of the final pass").
+- **Outline, pixelate and posterize are drawn.** Three more looks of the final `post` pass. `pixelateSize` makes blocks of that many
+  design pixels, each showing the colour at its centre; `posterizeLevels` cuts each display channel to that many levels (after the
+  grading, with the dither off). `outlineEnabled` draws lines of `outlineWidth` design pixels in `outlineColor` (its alpha is the
+  opacity): in `depth` mode (3D) at the silhouettes, the depth jumps (`outlineDepthThreshold`) and the surface creases
+  (`outlineNormalThreshold`) found in the depth and normal prepass, which the effect turns on; in `sprite` mode (2D) around the
+  border of the sprites, tiles, shapes, text and particles (`outlineAlphaThreshold`), found in a coverage image of the 2D world that is
+  drawn once more while the effect is on (the new `sprite-coverage` pass, RGBA8). Both outlines need one camera over the whole
+  screen: with several cameras or a partial viewport they are skipped with one warning. An effect at its neutral value (width 0,
+  alpha 0, block 1, 256 levels) draws no pass and the frame is byte for byte the one without it. `render.supports` answers true
+  for the three, so the `retro` look is now drawn whole, and `postprocess.apply_preset` lists fewer effects under `notDrawn`
+  (docs/RENDERING.md, "The outline").
 - **Deprecated:** `Camera.bloom`, `bloomThreshold`, `bloomIntensity`, `bloomRadius`, `bloomScreenSpace` and `Camera.colorFilter`
   keep drawing exactly the same picture (they stand in for a PostProcess on a camera that has none), but warn once and will be
   removed two minor versions after the release that ships them. Migration: add a `PostProcess` to the camera's entity and set
@@ -85,7 +96,7 @@ Older versions, one file per minor version with its patch releases: [0.29](chang
 - **Depth and normal prepass:** the opaque meshes of the camera can be drawn once more into a float image of their own (view depth,
   view-space normal, coverage; never multisampled) for the effects that will need the depth (ambient occlusion, reflections, fog, sun
   shafts, depth of field, motion blur, outline). A frame without such an effect makes no image, declares no pass and draws the same
-  number of times as before. No effect that reads it is drawn yet, so for now you see it with `FA_RENDER_DEBUG_VIEW=depth` or `normals`
+  number of times as before. Only the depth outline reads it so far; you also see it with `FA_RENDER_DEBUG_VIEW=depth` or `normals`
   (C++: `Renderer::set_debug_view`). Custom materials get `prepass` and `prepass_skin` programs (six programs a material instead of
   two to four): their `vertex()` and `alphaMode` `"clip"` apply there too, so the compiled shaders of custom materials must be made again
   (`factoria validate`). `render.supports` answers `sampledDepth` from the formats this GPU renders to and samples (docs/RENDERING.md,
