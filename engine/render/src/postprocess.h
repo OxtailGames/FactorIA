@@ -9,8 +9,10 @@
 // A frame without a PostProcess and without Camera.bloom / Camera.colorFilter has an empty plan: no pass is declared and no target is
 // made. The renderer declares the passes in build_graph (renderer_draw.cpp) in this order: bloom (bloom.h) -> automatic exposure ->
 // the final pass -> (the HUD, drawn over the final picture in display space) -> the colour filter when the HUD went in between.
-// The stack of one camera is all that is read today (the camera that draws first); a stack per camera job slots in by giving each
-// job its own PostPlan and AutoExposure.
+// Every camera job has its own PostPlan, prepass, coverage image and AutoExposure (M71-C3a): its final pass draws into the camera's
+// rectangle of the picture (PostRect), the effects run in camera-local coordinates and the prepass and the coverage image have the size
+// of that rectangle. Bloom and the colour filter stay one per frame, from the camera that draws first (Camera.bloom* and
+// Camera.colorFilter are its fields, and the aliases of the stack).
 #pragma once
 
 #include <cstdint>
@@ -31,10 +33,34 @@ struct LutInfo {
     int size = 0, cols = 0, rows = 0;
 };
 
-// The prepass of the frame (renderer_draw.cpp, "prepass"): the depth and normals of the opaque meshes in one float image, for the effects that read
+// A camera's rectangle of the picture in physical pixels, top-left origin. w <= 0 (the default) means the whole picture: the pass then
+// runs exactly as it did before cameras had a rectangle.
+struct PostRect {
+    int x = 0, y = 0, w = 0, h = 0;
+    // True when this is the whole picture of `picW` x `picH`.
+    bool whole(int picW, int picH) const { return w <= 0 || h <= 0 || (x == 0 && y == 0 && w == picW && h == picH); }
+    bool operator==(const PostRect& o) const { return x == o.x && y == o.y && w == o.w && h == o.h; }
+};
+
+// A camera's rectangle as fractions of the picture: x, y = the corner, w, h = the size.
+struct PostRectUv {
+    float x = 0.0f, y = 0.0f, w = 1.0f, h = 1.0f;
+};
+// The rectangle in top-left uv (the shader's camera-local screen space maps into it). Without a rectangle, or without the picture's size: all of it.
+PostRectUv post_rect_uv(const PostRect& rect, int picW, int picH);
+// The same rectangle in the uv of the image of a backend whose render targets have their origin at the bottom (`gl`): what a pass that reads
+// the picture without the shader's flip_v (the exposure measure) needs. Metal and D3D11: the same as post_rect_uv.
+PostRectUv post_rect_uv_native(const PostRect& rect, int picW, int picH, bool gl);
+// What post.glsl src_uv computes: the uv of the picture's image that the pixel at camera-local top-left uv `s` reads, for a pass over `rect`
+// (`w` x `h` = the rectangle's size in pixels, the half-texel clamp keeps the read inside the camera's own pixels).
+Vec2 post_source_uv(Vec2 s, const PostRect& rect, int picW, int picH, bool gl, int w, int h);
+
+// The prepass of a camera (renderer_draw.cpp, "prepass"): the depth and normals of the opaque meshes in one float image, for the effects that read
 // them. A pass that does declares `res` in its reads (a transient: the graph orders it after the prepass and keeps it alive) and takes the
 // image with target(). Colour r = linear view depth in world units (far-plane value 60000 where nothing was drawn), gb = the view-space
-// normal, octahedral-encoded (see mesh_common.glsl, prepass_fs), a = 1 where a mesh was drawn, 0 elsewhere. Never multisampled.
+// normal, octahedral-encoded (see mesh_common.glsl, prepass_fs), a = 1 where a mesh was drawn, 0 elsewhere. Never multisampled. The image
+// has the size of the camera's rectangle (PostPlan::rect, whole = the picture's size), so the final pass of that camera reads it by its
+// camera-local pixel (PostPlan::rect).
 struct PrepassRef {
     ResourceId res;
     const TransientTargets* targets = nullptr;
@@ -68,6 +94,9 @@ struct PostPlan {
     // The sprite outline's image (renderer_draw.cpp, "sprite-coverage"): an RGBA8 image of the picture's size, a = how much of the pixel the
     // 2D world drew (alpha blending accumulates it), cleared to 0. Made only when fx.outline_sprite(); valid for the passes after it.
     PrepassRef coverage;
+    // The camera's rectangle of the picture (whole: the camera covers all of it). The final pass draws into it, the prepass and the
+    // coverage image have its size.
+    PostRect rect;
     // The scene is linear (what make_post_plan was given): kept to settle `linear` again when skip_outline() takes an effect away.
     bool sceneLinear = false;
     // The camera's view-projection of the frame before this one (motion blur reprojects with it); valid only when that frame drew the same
@@ -75,8 +104,7 @@ struct PostPlan {
     Mat4 prevViewProj;
     bool prevValid = false;
 
-    // The outline cannot be drawn this frame (its image is not made: split screen, a partial viewport, no opaque mesh, an unsupported
-    // GPU): the effect is dropped, and with it the conversion that only it asked for.
+    // The outline cannot be drawn this frame (its image is not made: no opaque mesh, an unsupported GPU, no memory for the image): the effect is dropped, and with it the conversion that only it asked for.
     void skip_outline() {
         fx.outline = false;
         linear = sceneLinear && (exposure || tonemap || colorFilter != 0 || fx.any());
@@ -99,8 +127,10 @@ struct PostPlan {
 // design pixel (the render scale), the unit of the outline width and the pixelate block (post_fx.h).
 // The outline reads the prepass only in depth mode (and when its width and opacity are above 0): a sprite outline, and one that draws
 // nothing, never turn the prepass on.
+// `frameCam`: the camera whose bloom and colour filter the frame gets (the one that draws first; null: `cam` itself). They act once over
+// the frame, so the plan of every other camera carries the same two values.
 PostPlan make_post_plan(const CameraInfo& cam, bool linear, std::uint32_t forceEffects = 0, std::uint64_t frame = 0,
-                        float designScale = 1.0f);
+                        float designScale = 1.0f, const CameraInfo* frameCam = nullptr);
 
 // Camera.bloom* / PostProcess bloom fields -> supported ranges (sanitize_bloom for the stack): the knee and the dirt intensity too.
 BloomSettings bloom_from_stack(const PostStack& stack);
@@ -110,11 +140,15 @@ BloomSettings bloom_from_stack(const PostStack& stack);
 // (0 none; the picture is clamped for it); `expo` is the adapted-exposure image (the 1x1 of AutoExposure) or any 1x1 image when the
 // exposure is not automatic; `white`: any 1x1 white image (bound as the LUT when the plan has none, and as the outline's image when it
 // is off); `aux`: the image the outline reads (plan.outline_source() of this frame, null view = none: the outline is not drawn). `pass` is the PassDesc of the destination (the caller sets its load and store actions); the pass draws
-// one full-screen triangle and ends. `w` x `h`: the size of the destination in pixels (the dither pattern). `output`: what the frame is
+// one full-screen triangle and ends. `w` x `h`: the size of the destination in pixels. `output`: what the frame is
 // drawn for (hdr_encode.h); an HDR output with headroom runs the tonemap above paper white (tonemap_hdr), the rest the SDR one.
+// `rect`: the camera's rectangle of the destination (and of `src`, which has the destination's size): the pass draws only there (a
+// viewport and a scissor) and every effect works in camera-local pixels (the lens, the vignette, the pixelate grid, the grain and the
+// dither start at the rectangle's corner); `aux` has the rectangle's size. Whole (the default): the pass is the one of a camera that
+// covers the picture.
 void run_post_pass(Gpu& gpu, const PostPlan& plan, bool convert, int filter, bool autoExposure, const PassDesc& pass,
-                   sg_view src, sg_view expo, sg_view white, sg_view aux, int w, int h,
-                   const OutputTarget& output = {});
+                   sg_view src, sg_view expo, sg_view white, sg_view aux, int w, int h, const OutputTarget& output = {},
+                   const PostRect& rect = {});
 
 // PostProcess.exposureMode auto. The adapted EV lives in a 1x1 RGBA16F target (two of them, taking turns: a pass cannot read what it
 // writes); `exposure-luma` reduces the finished game image to 32x32 log-luminances and `exposure-adapt` moves the stored EV toward the
@@ -131,8 +165,10 @@ public:
     // holds the adapted EV (the final pass must read it), or an invalid one when the exposure cannot be automatic here. `serial` is
     // the frame's number: when the frame before did not declare these passes (the exposure was off, or the targets are new) the
     // measured exposure is taken at once, not approached. `dt` is the engine's frame time.
+    // `plan.rect` is the part of the picture that is measured (a camera's), `picW` x `picH` the size of the picture.
     ResourceId add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, const PostPlan& plan, ResourceId game,
-                          sg_view srcTex, float dt, std::uint64_t serial, int* drawCalls, const std::string& job);
+                          sg_view srcTex, float dt, std::uint64_t serial, int* drawCalls, const std::string& job,
+                          int picW = 0, int picH = 0);
 
     // The 1x1 image with the EV the last executed `exposure-adapt` wrote (what the final pass samples).
     sg_view ev_view() const { return ev_[cur_].texView; }

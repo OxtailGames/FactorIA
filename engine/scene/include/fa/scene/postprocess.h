@@ -74,9 +74,10 @@ inline constexpr int kPostEffectCount = int(PostEffect::Count);
 // The name of each effect, in canonical order: the prefix of its PostProcess fields and the name `render.supports` and the
 // postprocess.* commands use.
 inline constexpr std::array<std::string_view, kPostEffectCount> kPostEffectOrder = {
-    "ssao",           "ssr",     "fog",         "sunShafts", "exposure",     "depthOfField",        "motionBlur",
-    "radialBlur",     "lensDistortion", "chromaticAberration", "bloom", "tonemap", "colorGrading", "vignette",
-    "sharpen",        "outline", "pixelate",    "posterize", "filmGrain",    "colorFilter"};
+    "ssao",         "ssr",        "fog",          "sunShafts",      "exposure",
+    "depthOfField", "motionBlur", "radialBlur",   "lensDistortion", "chromaticAberration",
+    "bloom",        "tonemap",    "colorGrading", "vignette",       "sharpen",
+    "outline",      "pixelate",   "posterize",    "filmGrain",      "colorFilter"};
 
 constexpr std::string_view post_effect_name(PostEffect e) { return kPostEffectOrder[std::size_t(e)]; }
 // True for the effects that run on scene-linear HDR colour (up to and including the bloom), false after the tonemap.
@@ -95,9 +96,11 @@ struct PostProcess {
     PostShape shape = PostShape::Global;
     // Box: full width, height, depth in world units (before the entity's scale); circle and sphere: x is the radius.
     Vec3 size{10, 10, 10};
-    float blendDistance = 0.0f;  // world units outside the shape over which the influence fades from 1 to 0; 0 = a hard edge
-    std::int32_t priority = 0;   // volumes with a higher priority are applied later and win over lower ones; ties by entity id
-    float weight = 1.0f;         // 0..1: overall strength of this component, multiplied with its distance influence
+    float blendDistance =
+        0.0f;  // world units outside the shape over which the influence fades from 1 to 0; 0 = a hard edge
+    std::int32_t priority =
+        0;                // volumes with a higher priority are applied later and win over lower ones; ties by entity id
+    float weight = 1.0f;  // 0..1: overall strength of this component, multiplied with its distance influence
 
     // --- tonemap: HDR colour to the display range ---------------------------------------------------------------------------
     bool tonemapEnabled = false;
@@ -106,26 +109,27 @@ struct PostProcess {
     // --- exposure: the brightness the picture is scaled to ------------------------------------------------------------------
     bool exposureEnabled = false;
     ExposureMode exposureMode = ExposureMode::Manual;
-    float exposureEv = 0.0f;               // manual: the exposure in stops; auto: a compensation added to the measured exposure
-    float exposureMinEv = -4.0f;           // auto: the darkest exposure the adaptation may choose, in stops
-    float exposureMaxEv = 4.0f;            // auto: the brightest
-    float exposureAdaptationSpeed = 2.0f;  // auto: how fast the exposure follows the scene, per second (higher = faster)
+    float exposureEv = 0.0f;      // manual: the exposure in stops; auto: a compensation added to the measured exposure
+    float exposureMinEv = -4.0f;  // auto: the darkest exposure the adaptation may choose, in stops
+    float exposureMaxEv = 4.0f;   // auto: the brightest
+    float exposureAdaptationSpeed =
+        2.0f;  // auto: how fast the exposure follows the scene, per second (higher = faster)
 
     // --- bloom: glow around bright pixels (the fields mirror Camera.bloom*) -------------------------------------------------
     bool bloomEnabled = false;
     float bloomIntensity = 1.2f;
-    float bloomThreshold = 0.7f;      // brightness where the glow starts
-    float bloomKnee = 0.5f;           // 0..1: how softly the glow starts above the threshold (0 = hard)
-    float bloomRadius = 20.0f;        // glow size in design pixels
-    bool bloomScreenSpace = true;     // false: the HUD is drawn after the bloom and never glows
-    std::string bloomLensDirt;        // texture dirtying the glow like a dirty lens ("" = none)
+    float bloomThreshold = 0.7f;   // brightness where the glow starts
+    float bloomKnee = 0.5f;        // 0..1: how softly the glow starts above the threshold (0 = hard)
+    float bloomRadius = 20.0f;     // glow size in design pixels
+    bool bloomScreenSpace = true;  // false: the HUD is drawn after the bloom and never glows
+    std::string bloomLensDirt;     // texture dirtying the glow like a dirty lens ("" = none)
     float bloomLensDirtIntensity = 1.0f;
 
     // --- colorGrading: lift/gamma/gain, white balance, saturation, contrast, curves and a LUT ---------------------------------
     bool colorGradingEnabled = false;
-    Color colorGradingLift{0, 0, 0, 1};   // added to the shadows per channel (rgb used, alpha ignored); 0 = unchanged
-    Color colorGradingGamma{1, 1, 1, 1};  // the midtones per channel; 1 = unchanged, above 1 lighter
-    Color colorGradingGain{1, 1, 1, 1};   // multiplies the highlights per channel; 1 = unchanged
+    Color colorGradingLift{0, 0, 0, 1};    // added to the shadows per channel (rgb used, alpha ignored); 0 = unchanged
+    Color colorGradingGamma{1, 1, 1, 1};   // the midtones per channel; 1 = unchanged, above 1 lighter
+    Color colorGradingGain{1, 1, 1, 1};    // multiplies the highlights per channel; 1 = unchanged
     float colorGradingTemperature = 0.0f;  // white balance, -100 (cooler, blue) .. 100 (warmer, orange)
     float colorGradingTint = 0.0f;         // white balance, -100 (green) .. 100 (magenta)
     float colorGradingSaturation = 1.0f;   // 0 = grey, 1 = unchanged, above 1 more vivid
@@ -137,7 +141,7 @@ struct PostProcess {
     ArrayF32 colorGradingCurveRed;
     ArrayF32 colorGradingCurveGreen;
     ArrayF32 colorGradingCurveBlue;
-    std::string colorGradingLut;           // a .cube 3D lookup table ("" = none)
+    std::string colorGradingLut;               // a .cube 3D lookup table ("" = none)
     float colorGradingLutContribution = 1.0f;  // 0..1: how much of the LUT is mixed in
 
     // --- colorFilter: the accessibility filter (the same filters as Camera.colorFilter) --------------------------------------
@@ -149,7 +153,8 @@ struct PostProcess {
     float vignetteIntensity = 0.4f;   // 0..1: how dark the corners get
     float vignetteSmoothness = 0.5f;  // 0..1: how soft the transition is
     float vignetteRoundness = 1.0f;   // 0..1: 1 = round, 0 = follows the shape of the screen
-    Vec2 vignetteCenter{0.5f, 0.5f};  // [x, y] of the clear centre as fractions of the picture, (0, 0) the top-left corner
+    Vec2 vignetteCenter{0.5f,
+                        0.5f};  // [x, y] of the clear centre as fractions of the picture, (0, 0) the top-left corner
     Color vignetteColor{0, 0, 0, 1};  // colour of the darkened edge (rgb)
 
     // --- chromaticAberration: colour fringes toward the edges ----------------------------------------------------------------
@@ -161,13 +166,15 @@ struct PostProcess {
     float filmGrainIntensity = 0.2f;  // 0..1
     float filmGrainSize = 1.0f;       // grain size in design pixels (0.5 .. 4)
     bool filmGrainAnimated = true;    // a new pattern each frame (from the frame number, so a run is reproducible)
-    float filmGrainLuminanceResponse = 0.8f;  // 0..1: 0 = the same grain everywhere, 1 = none in pure black and pure white
+    float filmGrainLuminanceResponse =
+        0.8f;  // 0..1: 0 = the same grain everywhere, 1 = none in pure black and pure white
 
     // --- lensDistortion: a barrel or pincushion lens ----------------------------------------------------------------------
     bool lensDistortionEnabled = false;
     float lensDistortionIntensity = 0.3f;  // -1 (pincushion) .. 1 (barrel)
-    float lensDistortionScale = 1.0f;      // 0.5 .. 2: zooms the picture to hide or show the edges the distortion leaves
-    Vec2 lensDistortionCenter{0.5f, 0.5f};  // [x, y] of the lens axis as fractions of the picture, (0, 0) the top-left corner
+    float lensDistortionScale = 1.0f;  // 0.5 .. 2: zooms the picture to hide or show the edges the distortion leaves
+    Vec2 lensDistortionCenter{0.5f,
+                              0.5f};  // [x, y] of the lens axis as fractions of the picture, (0, 0) the top-left corner
 
     // --- sharpen --------------------------------------------------------------------------------------------------------
     bool sharpenEnabled = false;
@@ -177,10 +184,11 @@ struct PostProcess {
     bool outlineEnabled = false;
     OutlineMode outlineMode = OutlineMode::Depth;
     Color outlineColor{0, 0, 0, 1};
-    float outlineWidth = 1.0f;             // line width in design pixels (0.5 .. 8)
-    float outlineDepthThreshold = 0.1f;    // depth mode: the relative depth jump that makes an edge (smaller = more edges)
-    float outlineNormalThreshold = 0.4f;   // depth mode: the change of surface direction that makes an edge
-    float outlineAlphaThreshold = 0.5f;    // sprite mode: the alpha level that counts as the sprite's border
+    float outlineWidth = 1.0f;  // line width in design pixels (0.5 .. 8)
+    float outlineDepthThreshold =
+        0.1f;  // depth mode: the relative depth jump that makes an edge (smaller = more edges)
+    float outlineNormalThreshold = 0.4f;  // depth mode: the change of surface direction that makes an edge
+    float outlineAlphaThreshold = 0.5f;   // sprite mode: the alpha level that counts as the sprite's border
 
     // --- pixelate and posterize -----------------------------------------------------------------------------------------------
     bool pixelateEnabled = false;
@@ -197,32 +205,33 @@ struct PostProcess {
     // --- depthOfField: blur away from the focus (3D) -----------------------------------------------------------------------------
     bool depthOfFieldEnabled = false;
     float depthOfFieldFocusDistance = 10.0f;  // world units from the camera that are sharp
-    Entity depthOfFieldTarget = kNullEntity;  // autofocus: the focus distance follows this entity (none = depthOfFieldFocusDistance)
-    float depthOfFieldFocusSpeed = 5.0f;      // autofocus: how fast the focus follows the target, per second
-    float depthOfFieldFocusRange = 5.0f;      // world units around the focus distance that stay fully sharp
-    float depthOfFieldNearBlur = 6.0f;        // largest blur in design pixels in front of the focus
-    float depthOfFieldFarBlur = 8.0f;         // largest blur in design pixels behind the focus
-    bool depthOfFieldBokeh = true;            // true: a disc blur where bright points become discs; false: a smooth blur
+    Entity depthOfFieldTarget =
+        kNullEntity;  // autofocus: the focus distance follows this entity (none = depthOfFieldFocusDistance)
+    float depthOfFieldFocusSpeed = 5.0f;  // autofocus: how fast the focus follows the target, per second
+    float depthOfFieldFocusRange = 5.0f;  // world units around the focus distance that stay fully sharp
+    float depthOfFieldNearBlur = 6.0f;    // largest blur in design pixels in front of the focus
+    float depthOfFieldFarBlur = 8.0f;     // largest blur in design pixels behind the focus
+    bool depthOfFieldBokeh = true;        // true: a disc blur where bright points become discs; false: a smooth blur
 
     // --- motionBlur: smear from the camera's movement (from depth) ---------------------------------------------------------------
     bool motionBlurEnabled = false;
-    float motionBlurIntensity = 0.5f;  // 0..1: the part of the frame the shutter is open
+    float motionBlurIntensity = 0.5f;    // 0..1: the part of the frame the shutter is open
     std::int32_t motionBlurSamples = 8;  // 4 .. 32 taps along the movement
 
     // --- ssr: screen-space reflections (3D) --------------------------------------------------------------------------------------
     bool ssrEnabled = false;
-    float ssrIntensity = 1.0f;       // 0..1: how much of the reflection is mixed in
-    float ssrMaxDistance = 50.0f;    // world units a reflected ray travels
-    float ssrThickness = 0.3f;       // world units behind a surface that still count as a hit
-    std::int32_t ssrSteps = 32;      // 8 .. 128 steps along the ray
+    float ssrIntensity = 1.0f;     // 0..1: how much of the reflection is mixed in
+    float ssrMaxDistance = 50.0f;  // world units a reflected ray travels
+    float ssrThickness = 0.3f;     // world units behind a surface that still count as a hit
+    std::int32_t ssrSteps = 32;    // 8 .. 128 steps along the ray
 
     // --- fog: distance and height fog (mirrors SceneSettings.fogColor and fogDensity) ----------------------------------------------
     bool fogEnabled = false;
     Color fogColor{0.5f, 0.6f, 0.7f, 1.0f};
-    float fogDensity = 0.02f;        // fog thickness with distance; 0 = none
-    float fogStart = 0.0f;           // world units from the camera before the fog begins
-    float fogHeightDensity = 0.0f;   // extra thickness near the ground; 0 = no height fog
-    float fogHeightBase = 0.0f;      // world y where the height fog is thickest
+    float fogDensity = 0.02f;       // fog thickness with distance; 0 = none
+    float fogStart = 0.0f;          // world units from the camera before the fog begins
+    float fogHeightDensity = 0.0f;  // extra thickness near the ground; 0 = no height fog
+    float fogHeightBase = 0.0f;     // world y where the height fog is thickest
     float fogHeightFalloff = 0.1f;  // how fast the height fog thins going up (per world unit)
 
     // --- sunShafts: light rays from the sun through the scene ------------------------------------------------------------------------
@@ -234,8 +243,8 @@ struct PostProcess {
 
     // --- radialBlur: a blur spreading from a point (speed lines, impact) ----------------------------------------------------------------
     bool radialBlurEnabled = false;
-    float radialBlurIntensity = 0.3f;     // 0..1
-    Vec2 radialBlurCenter{0.5f, 0.5f};    // [x, y] of the centre as fractions of the picture, (0, 0) the top-left corner
+    float radialBlurIntensity = 0.3f;   // 0..1
+    Vec2 radialBlurCenter{0.5f, 0.5f};  // [x, y] of the centre as fractions of the picture, (0, 0) the top-left corner
     std::int32_t radialBlurSamples = 12;  // 4 .. 32 taps
 };
 

@@ -81,9 +81,9 @@ void register_postprocess_component(TypeRegistry& r) {
          "posterization and the film grain are drawn in the final pass, after the bloom: "
          "the lens and the aberration bend how the scene is read (in scene colour, before the exposure), the rest work "
          "on the display picture (what the screen shows, paper white = 1, the same on an SDR and an HDR output) and "
-         "none of them clips above white. Only the stack of the camera that draws "
-         "first is "
-         "drawn (the frame has one). Camera.bloom* and Camera.colorFilter are deprecated and keep working unchanged: "
+         "none of them clips above white. Every camera draws its own stack over its own part of the picture (a "
+         "split screen: each half has its own); the bloom and the colour filter are one per frame, the ones of the "
+         "camera that draws first. Camera.bloom* and Camera.colorFilter are deprecated and keep working unchanged: "
          "they "
          "stand in for a PostProcess with bloom and the colour filter. A frame without any stack costs nothing: no "
          "pass, no "
@@ -357,8 +357,8 @@ void register_postprocess_component(TypeRegistry& r) {
         .field("outlineEnabled", &PostProcess::outlineEnabled,
                "Switches the outline on: lines drawn at the edges of things, over the finished picture. Depth mode "
                "needs the depth and normal prepass (3D); sprite mode draws the 2D world once more as coverage. Both "
-               "need one camera over the whole screen: with several cameras or a partial viewport the outline is "
-               "skipped with one warning.")
+               "draw their own outline per camera, over its own viewport: it works in split screen too, and a line "
+               "never crosses into the camera next to it.")
         .enum_field(
             "outlineMode", &PostProcess::outlineMode, {"depth", "sprite"},
             "Only used when outlineEnabled. depth: edges found where depth or surface direction jump (3D models, the "

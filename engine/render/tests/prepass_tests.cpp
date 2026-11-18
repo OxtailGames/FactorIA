@@ -15,6 +15,7 @@
 #include "fa/scene/animation.h"
 
 #include "frame_graph.h"
+#include "postprocess.h"
 #include "postprocess_resolve.h"
 #include "render_internal.h"
 
@@ -484,12 +485,13 @@ TEST_CASE("prepass: the effects that need the depth or the normals are the ones 
     CHECK_FALSE(render::post_mask_needs_depth(1u << int(PostEffect::Vignette)));
 }
 
-TEST_CASE("prepass: a frame split between cameras, or a camera with a partial viewport, has none even without a HUD") {
+TEST_CASE("prepass: a frame split between cameras, or a camera with a partial viewport, has one prepass per camera "
+          "that needs it") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     ForceScope force(g.renderer, PostEffect::Ssao);
     DebugViewScope view(g.renderer, DebugView::Depth);
-    {  // two cameras side by side, nothing on the screen: the screen-space job of the split frame is dropped
+    {  // two cameras side by side, nothing on the screen: each has its prepass, the size of its half
         World w;
         add_camera(w, {0, 0, 10});
         w.get<Camera>(w.find("cam"))->viewport = Rect{0, 0, 0.5f, 1};
@@ -502,9 +504,10 @@ TEST_CASE("prepass: a frame split between cameras, or a camera with a partial vi
         const Image img = g.draw(w);
         const std::vector<std::string> order = order_of(g.renderer);
         INFO(joined(order));
-        CHECK(count_suffix(order, "/prepass") == 0);
-        CHECK(count_suffix(order, "/prepass-view") == 0);
+        CHECK(count_suffix(order, "/prepass") == 2);
         CHECK(img.width == 320);
+        CHECK(lit_pixel(img.pixel(80, 90)));
+        CHECK(lit_pixel(img.pixel(240, 90)));
     }
     {  // one camera over the left half
         World w;
@@ -514,8 +517,7 @@ TEST_CASE("prepass: a frame split between cameras, or a camera with a partial vi
         g.draw(w);
         const std::vector<std::string> order = order_of(g.renderer);
         INFO(joined(order));
-        CHECK(count_suffix(order, "/prepass") == 0);
-        CHECK(count_suffix(order, "/prepass-view") == 0);
+        CHECK(count_suffix(order, "/prepass") == 1);
     }
     {  // and the same camera over the whole screen has one
         World w;
@@ -568,8 +570,8 @@ PostProcess& add_outline(World& w, float width = 2.0f) {
     p.outlineWidth = width;
     return p;
 }
-// Two cameras side by side, the first with the outline stack when `withOutline`.
-void split_cameras(World& w, bool withOutline, OutlineMode mode) {
+// Two cameras side by side ("cam" on the left, "cam2" on the right), a cube in front of each.
+void split_cameras(World& w) {
     add_camera(w, {0, 0, 10});
     w.get<Camera>(w.find("cam"))->viewport = Rect{0, 0, 0.5f, 1};
     add_mesh(w, "cube", {0, 0, 0}, {2, 2, 2});
@@ -578,7 +580,20 @@ void split_cameras(World& w, bool withOutline, OutlineMode mode) {
     c.projection = Projection::Perspective;
     c.viewport = Rect{0.5f, 0, 0.5f, 1};
     c.depth = 1;
-    if (withOutline) add_outline(w, 3.0f).outlineMode = mode;
+}
+PostProcess& add_outline_to(World& w, const char* camera, float width) {
+    PostProcess& p = w.add<PostProcess>(w.find(camera));
+    p.outlineEnabled = true;
+    p.outlineMode = OutlineMode::Depth;
+    p.outlineColor = Color{1, 0, 0, 1};
+    p.outlineWidth = width;
+    return p;
+}
+int red_in(const Image& img, int x0, int y0, int x1, int y1) {
+    int n = 0;
+    for (int y = y0; y < y1; ++y)
+        for (int x = x0; x < x1; ++x) n += is_outline_red(img.pixel(x, y)) ? 1 : 0;
+    return n;
 }
 
 }  // namespace
@@ -707,55 +722,349 @@ TEST_CASE(
     CHECK(count_suffix(order, "/prepass") == 1);
 }
 
-TEST_CASE("outline: a frame split between cameras is drawn without it and says so once, depth and sprite mode alike") {
+TEST_CASE("outline (depth): both halves of a split screen get their own lines, each camera its own prepass") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
-    for (const OutlineMode mode : {OutlineMode::Depth, OutlineMode::Sprite}) {
-        INFO(std::string(mode == OutlineMode::Depth ? "depth" : "sprite"));
-        OwnRenderer own(g, 1);  // its own one-time warnings
-        REQUIRE(own.ok);
-        World with, without;
-        split_cameras(with, true, mode);
-        split_cameras(without, false, mode);
-        clear_recent_logs();
-        const Image a = own.draw(with);
-        const std::vector<std::string> order = order_of(own.r);
-        INFO(joined(order));
-        CHECK(count_suffix(order, "/prepass") == 0);
-        CHECK(count_suffix(order, "/sprite-coverage") == 0);
-        CHECK(count_suffix(order, "/post") == 0);
-        CHECK(a.rgba == own.draw(without).rgba);
-        own.draw(with);  // a second frame does not warn again
-        int warnings = 0;
-        for (const LogEntry& l : recent_logs(4096, LogLevel::Warn))
-            if (l.message.find("skipped") != std::string::npos &&
-                (l.message.find("sprite outline") != std::string::npos ||
-                 l.message.find("reads the depth") != std::string::npos))
-                ++warnings;
-        CHECK(warnings == 1);
+    World w;
+    split_cameras(w);
+    add_outline_to(w, "cam", 3.0f);
+    add_outline_to(w, "cam2", 3.0f);
+    const Image img = g.draw(w);
+    const std::vector<std::string> order = order_of(g.renderer);
+    INFO(joined(order));
+    CHECK(count_suffix(order, "/prepass") == 2);
+    CHECK(count_suffix(order, "/post") == 2);
+    CHECK(count_suffix(order, "/post-base") == 0);  // the two halves tile the picture: no pass fills it first
+    CHECK(index_of(order, "camera:0/prepass") < index_of(order, "camera:0/post"));
+    CHECK(index_of(order, "camera:1/prepass") < index_of(order, "camera:1/post"));
+    CHECK(red_in(img, 0, 0, 160, 180) > 30);
+    CHECK(red_in(img, 160, 0, 320, 180) > 30);
+    // The same camera in the same scene: the right half is the left one, moved, line for line.
+    int mismatches = 0;
+    for (int y = 0; y < 180; ++y)
+        for (int x = 0; x < 160; ++x)
+            mismatches += is_outline_red(img.pixel(x, y)) != is_outline_red(img.pixel(x + 160, y)) ? 1 : 0;
+    CHECK(mismatches <= 4);
+    // Only one camera has the outline: the other half has none, and there is one prepass.
+    World one;
+    split_cameras(one);
+    add_outline_to(one, "cam2", 3.0f);
+    const Image half = g.draw(one);
+    CHECK(count_suffix(order_of(g.renderer), "/prepass") == 1);
+    CHECK(red_in(half, 0, 0, 160, 180) == 0);
+    CHECK(red_in(half, 160, 0, 320, 180) > 30);
+}
+
+TEST_CASE("outline (depth): a camera with a partial viewport draws its lines inside its rectangle only") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    World w;
+    add_camera(w, {0, 0, 10});
+    w.get<Camera>(w.find("cam"))->viewport = Rect{0.25f, 0.25f, 0.5f, 0.5f};  // x 80..240, y 45..135
+    add_mesh(w, "cube", {0, 0, 0}, {2, 2, 2});
+    add_outline_to(w, "cam", 2.0f);
+    const Image img = g.draw(w);
+    const std::vector<std::string> order = order_of(g.renderer);
+    INFO(joined(order));
+    CHECK(count_suffix(order, "/prepass") == 1);
+    CHECK(count_suffix(order, "/post") == 1);
+    CHECK(red_in(img, 80, 45, 240, 135) > 20);
+    int outside = 0;
+    for (int y = 0; y < 180; ++y)
+        for (int x = 0; x < 320; ++x)
+            if ((x < 80 || x >= 240 || y < 45 || y >= 135) && !is_black(img.pixel(x, y))) ++outside;
+    CHECK(outside == 0);
+}
+
+TEST_CASE("outline (sprite): each half of a split screen has its own final pass") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    World w;
+    split_cameras(w);
+    add_outline_to(w, "cam", 3.0f).outlineMode = OutlineMode::Sprite;
+    add_outline_to(w, "cam2", 3.0f).outlineMode = OutlineMode::Sprite;
+    g.draw(w);
+    const std::vector<std::string> order = order_of(g.renderer);
+    INFO(joined(order));
+    CHECK(count_suffix(order, "/prepass") == 0);
+    CHECK(count_suffix(order, "/post") == 2);
+}
+
+TEST_CASE("postprocess (split screen): each camera runs its own stack over its own half") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    auto build = [](World& w, bool stacks) {
+        split_cameras(w);
+        w.get<MeshRenderer>(w.find("cube"))->color = Color{0.3f, 0.6f, 0.9f, 1};
+        if (stacks) {
+            PostProcess& a = w.add<PostProcess>(w.find("cam"));
+            a.posterizeEnabled = true;
+            a.posterizeLevels = 2;
+            PostProcess& b = w.add<PostProcess>(w.find("cam2"));
+            b.pixelateEnabled = true;
+            b.pixelateSize = 8.0f;
+        }
+    };
+    World ref, w;
+    build(ref, false);
+    build(w, true);
+    const Image plain = g.draw(ref);
+    CHECK(count_suffix(order_of(g.renderer), "/post") == 0);
+    const Image img = g.draw(w);
+    const std::vector<std::string> order = order_of(g.renderer);
+    INFO(joined(order));
+    CHECK(count_suffix(order, "/post") == 2);
+    CHECK(count_suffix(order, "/post-base") == 0);
+    // Left half: posterize with two levels, every channel is 0 or 255; the cube (0.3, 0.6, 0.9) becomes (0, 255, 255).
+    int offLevel = 0;
+    for (int y = 0; y < 180; ++y)
+        for (int x = 0; x < 160; ++x) {
+            const Color c = img.pixel(x, y);
+            for (const float v : {c.r, c.g, c.b}) offLevel += (c8(v) > 3 && c8(v) < 252) ? 1 : 0;
+        }
+    CHECK(offLevel == 0);
+    CHECK(near_rgb(img.pixel(80, 90), 0, 255, 255, 3));
+    CHECK(near_rgb(plain.pixel(80, 90), 77, 153, 230, 4));
+    // Right half: 8-pixel blocks counted from the camera's own corner (x = 160); the posterize does not reach it.
+    int notBlocks = 0, changed = 0;
+    for (int by = 0; by + 8 <= 176; by += 8)
+        for (int bx = 160; bx + 8 <= 320; bx += 8) {
+            const Color first = img.pixel(bx, by);
+            for (int y = by; y < by + 8; ++y)
+                for (int x = bx; x < bx + 8; ++x) {
+                    const Color c = img.pixel(x, y);
+                    if (!near_rgb(c, c8(first.r), c8(first.g), c8(first.b), 1)) ++notBlocks;
+                }
+        }
+    for (int y = 0; y < 180; ++y)
+        for (int x = 160; x < 320; ++x) {
+            const Color a = img.pixel(x, y), b = plain.pixel(x, y);
+            if (!near_rgb(a, c8(b.r), c8(b.g), c8(b.b), 2)) ++changed;
+        }
+    CHECK(notBlocks == 0);
+    CHECK(changed > 20);  // the cube's silhouette does not fall on the block grid
+    CHECK(near_rgb(img.pixel(240, 90), 77, 153, 230, 4));
+}
+
+TEST_CASE("postprocess (split screen): a stack on a camera over part of the picture leaves the rest as it was; off is "
+          "the old frame") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    {  // a stack on a camera over a quarter of the picture: a pass over the picture first, then the camera's own
+        World w;
+        add_camera(w, {0, 0, 10});
+        w.get<Camera>(w.find("cam"))->viewport = Rect{0.25f, 0.25f, 0.5f, 0.5f};
+        add_mesh(w, "cube", {0, 0, 0}, {2, 2, 2});
+        w.get<MeshRenderer>(w.find("cube"))->color = Color{0.3f, 0.6f, 0.9f, 1};
+        PostProcess& p = w.add<PostProcess>(w.find("cam"));
+        p.posterizeEnabled = true;
+        p.posterizeLevels = 2;
+        const Image img = g.draw(w);
+        INFO(joined(order_of(g.renderer)));
+        CHECK(near_rgb(img.pixel(160, 90), 0, 255, 255, 3));
+        CHECK(is_black(img.pixel(40, 20)));
+        CHECK(is_black(img.pixel(300, 160)));
+    }
+    {  // all effects off: the frame of a split with no stack, byte for byte, no prepass, no post pass
+        World a, b;
+        split_cameras(a);
+        split_cameras(b);
+        PostProcess& p = b.add<PostProcess>(b.find("cam"));
+        p.outlineEnabled = false;
+        const Image ia = g.draw(a);
+        const std::vector<std::string> oa = order_of(g.renderer);
+        const Image ib = g.draw(b);
+        const std::vector<std::string> ob = order_of(g.renderer);
+        CHECK(ia.rgba == ib.rgba);
+        CHECK(oa == ob);
+        CHECK(count_suffix(ob, "/prepass") == 0);
+        CHECK(count_suffix(ob, "/post") == 0);
+        CHECK(count_suffix(ob, "/sprite-coverage") == 0);
     }
 }
 
-TEST_CASE("outline: a camera with a partial viewport is drawn without it, and a frame without opaque meshes too") {
+TEST_CASE("prepass (split screen): the graph has one prepass per camera that needs it, the size of its half") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
-    {
-        World w;
+    World w;
+    split_cameras(w);
+    add_outline_to(w, "cam2", 3.0f);  // only the right camera
+    g.draw(w);
+    Json report = g.renderer.frame_graph_report();
+    REQUIRE(report.is_object());
+    Json graph = report["graph"];
+    int prepasses = 0;
+    for (std::size_t i = 0; i < graph["resources"].size(); ++i) {
+        Json r = graph["resources"][i];
+        if (r["name"] == "camera:1/prepass") {
+            ++prepasses;
+            CHECK(r["width"] == 160);
+            CHECK(r["height"] == 180);
+        }
+    }
+    CHECK(prepasses == 1);
+    int prepassPasses = 0;
+    for (std::size_t i = 0; i < graph["passes"].size(); ++i) {
+        Json p = graph["passes"][i];
+        if (p["name"] == "camera:1/prepass") ++prepassPasses;
+        CHECK_FALSE(p["name"] == "camera:0/prepass");
+    }
+    CHECK(prepassPasses == 1);
+    // Both cameras with the outline: two.
+    add_outline_to(w, "cam", 3.0f);
+    g.draw(w);
+    graph = g.renderer.frame_graph_report()["graph"];
+    prepasses = 0;
+    for (std::size_t i = 0; i < graph["resources"].size(); ++i)
+        if (graph["resources"][i]["name"] == "camera:0/prepass" || graph["resources"][i]["name"] == "camera:1/prepass")
+            ++prepasses;
+    CHECK(prepasses == 2);
+}
+
+TEST_CASE("postprocess (split screen): each camera adapts its own exposure, by camera and not by place in the frame") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    if (sg_query_pixelformat(SG_PIXELFORMAT_RGBA16F).render == false) return;  // the measure needs float targets
+    auto build = [](World& w, bool stacks, bool swapped) {
+        w.settings().colorSpace = ColorSpace::Linear;
         add_camera(w, {0, 0, 10});
         w.get<Camera>(w.find("cam"))->viewport = Rect{0, 0, 0.5f, 1};
-        add_mesh(w, "cube", {0, 0, 0}, {2, 2, 2});
-        add_outline(w, 3.0f);
-        g.draw(w);
-        const std::vector<std::string> order = order_of(g.renderer);
-        CHECK(count_suffix(order, "/prepass") == 0);
-        CHECK(count_suffix(order, "/post") == 0);
+        // A cube that fills the view of each camera: a dark one for the left camera, a bright one for the right.
+        Entity dark = add_mesh(w, "cube", {0, 0, 0}, {12, 12, 12});
+        w.get<MeshRenderer>(dark)->color = Color{0.1f, 0.1f, 0.1f, 1};
+        Entity second = make(w, "cam2", {100, 0, 10});
+        auto& c = w.add<Camera>(second);
+        c.projection = Projection::Perspective;
+        c.viewport = Rect{0.5f, 0, 0.5f, 1};
+        c.depth =
+            swapped ? -1 : 1;  // the right camera drawn first: the place in the frame changes, the camera does not
+        Entity bright = add_mesh(w, "cube", {100, 0, 0}, {12, 12, 12});
+        w.get<MeshRenderer>(bright)->color = Color{0.8f, 0.8f, 0.8f, 1};
+        if (stacks)
+            for (const char* name : {"cam", "cam2"}) {
+                PostProcess& p = w.add<PostProcess>(w.find(name));
+                p.exposureEnabled = true;
+                p.exposureMode = ExposureMode::Auto;
+                p.exposureMinEv = -6.0f;
+                p.exposureMaxEv = 8.0f;
+            }
+    };
+    World ref, w;
+    build(ref, false, false);
+    build(w, true, false);
+    const Image plain = g.draw(ref);
+    const Image img = g.draw(w);
+    const std::vector<std::string> order = order_of(g.renderer);
+    INFO(joined(order));
+    CHECK(index_of(order, "camera:0/exposure-luma") >= 0);
+    CHECK(index_of(order, "camera:1/exposure-luma") >= 0);
+    CHECK(count_suffix(order, "/post") == 2);
+    // Without a stack the two halves differ a lot; the first frame of an automatic exposure brings each half to 18% grey on its own.
+    const int plainGap = std::abs(c8(plain.pixel(240, 90).r) - c8(plain.pixel(80, 90).r));
+    const int gap = std::abs(c8(img.pixel(240, 90).r) - c8(img.pixel(80, 90).r));
+    CHECK(plainGap > 60);
+    CHECK(gap <= 10);
+    CHECK(c8(img.pixel(80, 90).r) > c8(plain.pixel(80, 90).r) + 20);    // the dark half was brought up
+    CHECK(c8(img.pixel(240, 90).r) < c8(plain.pixel(240, 90).r) - 20);  // the bright one down
+    // The same scene with the cameras' order swapped (the camera on the right is drawn first now): each camera keeps its own exposure.
+    World sw;
+    build(sw, true, true);
+    g.draw(sw);
+    const Image again = g.draw(sw);
+    CHECK(std::abs(c8(again.pixel(240, 90).r) - c8(again.pixel(80, 90).r)) <= 10);
+}
+
+TEST_CASE(
+    "postprocess (split screen): overlapping cameras with different stacks - the inset without a stack keeps its own "
+    "picture") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    World w;
+    add_camera(w, {0, 0, 10});
+    add_mesh(w, "cube", {0, 0, 0}, {2, 2, 2});
+    w.get<MeshRenderer>(w.find("cube"))->color = Color{0.3f, 0.6f, 0.9f, 1};
+    PostProcess& p = w.add<PostProcess>(w.find("cam"));
+    p.posterizeEnabled = true;
+    p.posterizeLevels = 2;
+    Entity second = make(w, "cam2", {0, 0, 10});
+    auto& c = w.add<Camera>(second);
+    c.projection = Projection::Perspective;
+    c.viewport = Rect{0.7f, 0.05f, 0.25f, 0.25f};
+    c.depth = 1;
+    const Image img = g.draw(w);
+    const std::vector<std::string> order = order_of(g.renderer);
+    INFO(joined(order));
+    CHECK(near_rgb(img.pixel(160, 90), 0, 255, 255, 3));   // the whole-picture camera: posterized
+    CHECK(near_rgb(img.pixel(264, 31), 77, 153, 230, 4));  // the inset: no stack, the stack below does not reach it
+    // The first camera's pass covers the picture, so no pass of an empty stack is needed under it: its own, plus the plain one over the inset.
+    CHECK(count_suffix(order, "/post") == 2);
+    CHECK(count_suffix(order, "/post-base") == 0);
+    CHECK(index_of(order, "camera:1/post") > index_of(order, "camera:0/post"));
+}
+
+TEST_CASE("postprocess (split screen): a first camera with no pixel does not take the frame's bloom away") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    World w;
+    add_camera(w, {0, 0, 10});
+    w.get<Camera>(w.find("cam"))->viewport =
+        Rect{0, 0, 0.0005f, 0.0005f};  // valid, but under half a pixel: draws nothing
+    add_mesh(w, "cube", {0, 0, 0}, {2, 2, 2});
+    Entity second = make(w, "cam2", {0, 0, 10});
+    auto& c = w.add<Camera>(second);
+    c.projection = Projection::Perspective;
+    c.depth = 1;
+    PostProcess& p = w.add<PostProcess>(second);
+    p.bloomEnabled = true;
+    g.draw(w);
+    const std::vector<std::string> order = order_of(g.renderer);
+    INFO(joined(order));
+    CHECK(count_suffix(order, "/bloom-bright") == 1);
+}
+
+TEST_CASE(
+    "postprocess (split screen): a camera's rectangle in uv, and where its pass reads the picture, on every backend") {
+    using namespace fa::render;
+    const int W = 320, H = 180;
+    const PostRect whole;
+    const PostRect right{160, 0, 160, 180}, topLeft{0, 0, 160, 90}, inner{32, 18, 64, 36};
+    // The rectangle as fractions of the picture, top-left origin.
+    const PostRectUv r = post_rect_uv(right, W, H);
+    CHECK(r.x == doctest::Approx(0.5f));
+    CHECK(r.y == doctest::Approx(0.0f));
+    CHECK(r.w == doctest::Approx(0.5f));
+    CHECK(r.h == doctest::Approx(1.0f));
+    const PostRectUv all = post_rect_uv(whole, W, H);
+    CHECK((all.x == 0.0f && all.y == 0.0f && all.w == 1.0f && all.h == 1.0f));
+    CHECK(post_rect_uv(PostRect{0, 0, W, H}, W, H).w == 1.0f);
+    // The exposure measure reads the image as stored: on OpenGL (origin at the bottom) the rectangle's v is flipped, elsewhere it is the same.
+    CHECK(post_rect_uv_native(topLeft, W, H, false).y == doctest::Approx(0.0f));
+    CHECK(post_rect_uv_native(topLeft, W, H, true).y == doctest::Approx(0.5f));
+    CHECK(post_rect_uv_native(inner, W, H, false).y == doctest::Approx(0.1f));
+    CHECK(post_rect_uv_native(inner, W, H, true).y == doctest::Approx(0.7f));  // 1 - (0.1 + 0.2)
+    CHECK(post_rect_uv_native(inner, W, H, true).h == doctest::Approx(0.2f));
+    CHECK(post_rect_uv_native(inner, W, H, true).x == doctest::Approx(0.1f));
+    CHECK(post_rect_uv_native(right, W, H, true).y == doctest::Approx(0.0f));  // a full-height rectangle stays put
+    // post.glsl src_uv: the centre of the rectangle reads the centre of the rectangle's pixels; GL flips v after the mapping.
+    for (const bool gl : {false, true}) {
+        const Vec2 c = post_source_uv(Vec2{0.5f, 0.5f}, inner, W, H, gl, 64, 36);
+        const PostRectUv n = post_rect_uv_native(inner, W, H, gl);
+        CHECK(c.x == doctest::Approx(n.x + n.w * 0.5f));
+        CHECK(c.y == doctest::Approx(n.y + n.h * 0.5f));  // the measure's rectangle and the pass's reading agree
     }
-    {
-        World w;
-        add_camera(w, {0, 0, 10});
-        add_outline(w, 3.0f);  // nothing to find edges of: no prepass, the plain clear
-        const Image img = g.draw(w);
-        CHECK(count_suffix(order_of(g.renderer), "/prepass") == 0);
-        CHECK(is_black(img.pixel(10, 10)));
-    }
+    // The corner is kept half a texel of the rectangle inside it, never reading the camera next to it.
+    const Vec2 corner = post_source_uv(Vec2{0.0f, 0.0f}, topLeft, W, H, false, 160, 90);
+    CHECK(corner.x == doctest::Approx(0.5f / 160.0f * 0.5f));
+    CHECK(corner.y == doctest::Approx(0.5f / 90.0f * 0.5f));
+    const Vec2 cornerGl = post_source_uv(Vec2{0.0f, 0.0f}, topLeft, W, H, true, 160, 90);
+    CHECK(cornerGl.x == doctest::Approx(corner.x));
+    CHECK(cornerGl.y == doctest::Approx(1.0f - corner.y));
+    const Vec2 far = post_source_uv(Vec2{1.0f, 1.0f}, right, W, H, false, 160, 180);
+    CHECK(far.x == doctest::Approx(0.5f + (1.0f - 0.5f / 160.0f) * 0.5f));
+    CHECK(far.x < 1.0f);
+    // The whole picture: s itself (flipped on OpenGL), no clamp.
+    const Vec2 whole0 = post_source_uv(Vec2{0.0f, 1.0f}, whole, W, H, true, W, H);
+    CHECK(whole0.x == 0.0f);
+    CHECK(whole0.y == 0.0f);
+    CHECK(post_source_uv(Vec2{0.25f, 0.75f}, whole, W, H, false, W, H).y == doctest::Approx(0.75f));
 }
