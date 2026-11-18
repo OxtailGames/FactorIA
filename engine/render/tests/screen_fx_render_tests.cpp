@@ -163,7 +163,7 @@ TEST_CASE("screen fx: a flash is the colour at its start and fades out, a fade g
         flash.color = Color{1.0f, 0.5f, 0.0f, 1};
         start(s.world, flash);
         Image img = g.draw(s.world);
-        for (const auto [x, y] : {std::pair{10, 10}, std::pair{160, 90}, std::pair{300, 170}}) {
+        for (const auto& [x, y] : {std::pair{10, 10}, std::pair{160, 90}, std::pair{300, 170}}) {
             CHECK(img.pixel(x, y).r == doctest::Approx(1.0f).epsilon(0.01));
             CHECK(img.pixel(x, y).g == doctest::Approx(0.5f).epsilon(0.02));
             CHECK(img.pixel(x, y).b < 2.0f * kStep);
