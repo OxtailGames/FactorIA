@@ -429,6 +429,9 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 
 ### [material](commands/material.md)
 
+- [`material.graph.generate`](commands/material.md#materialgraphgenerate-modifies-state): Generate the GLSL snippet of a material from its node graph and record its hash in the material file. _Not released yet._
+- [`material.graph.nodes`](commands/material.md#materialgraphnodes): List the node types of the material graph library, with their inputs, outputs and the kinds they work in. _Not released yet._
+- [`material.graph.validate`](commands/material.md#materialgraphvalidate): Check the node graph of a material and say whether its snippet is in sync with it. _Not released yet._
 - [`material.info`](commands/material.md#materialinfo): Describe a custom material: lighting, alpha mode, params with types, defaults, ranges and docs, textures, programs and compile state. _Since 0.2.0._
 
 ### [physics](commands/physics.md)
