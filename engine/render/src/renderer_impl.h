@@ -104,7 +104,8 @@ struct Renderer::Impl {
         std::uint64_t frame = 0;  // the frameSerial it was drawn in
     };
     std::unordered_map<std::uint64_t, PrevCamera> prevViewProj;  // by Entity::bits() of the camera
-    bool prepassWarned = false;                                  // one warning when the prepass cannot be made
+    bool prepassSplitWarned = false;  // one warning when a split frame has no prepass for a depth effect
+    bool prepassWarned = false;       // one warning when the prepass cannot be made
     bool shadowTargetFailed = false;  // the shadow map could not be made: no shadows until a resize
     Target shadowTarget;  // the shadow map: R32F colour + depth (shadowTarget.texView is what the mesh programs sample)
     static constexpr int kShadowSize = 2048;

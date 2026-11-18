@@ -387,8 +387,8 @@ orthographic 3D camera.
   it is compiled, like its shadow programs.
 - **Where it is not made.** A camera that draws into a texture (`renderTarget`), a `CameraView`, a GPU that cannot render and
   sample a float image (`render.supports` says `sampledDepth` is not available, and the effects that need it are skipped), and a frame
-  split between several cameras or a camera with a viewport smaller than the screen: there the camera whose picture carries the
-  effects draws only the screen-space items, so it has no 3D to read.
+  split between several primary cameras or with a camera whose viewport is smaller than the screen: the stack belongs to the first
+  camera and the prepass would not match what each camera draws, so the effects that read the depth are skipped (one warning).
 - **Cost.** One more draw of every opaque batch, vertex work only plus the fragment work of a depth and normal write, and 16 bytes a
   pixel of memory at `RGBA32F` (8 at `RGBA16F`), returned to the pool when the frame ends.
 - **Seeing it.** `FA_RENDER_DEBUG_VIEW=depth` or `normals` in the environment (C++: `Renderer::set_debug_view`) paints the prepass over

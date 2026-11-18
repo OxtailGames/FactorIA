@@ -1038,7 +1038,21 @@ void Renderer::Impl::shadow_pass(DrawContext& ctx) {
 bool Renderer::Impl::plan_prepass(DrawContext& ctx) {
     const PostPlan& pp = ctx.postPlan;
     ctx.doPrepass = ctx.debugPrepass = false;
-    if (!ctx.plan.last || ctx.plan.view || !ctx.fr.wantWorld) return false;
+    if (!ctx.plan.last || ctx.plan.view) return false;
+    // The stack belongs to the first camera and the prepass covers the whole image: only a frame of one job that draws the world with a
+    // camera over the whole screen has one. Several cameras, a viewport smaller than the screen and the screen-only job of a split frame
+    // have none (the effects that read the depth are skipped there: say so once).
+    if (!ctx.plan.first || !ctx.fr.wantWorld || !ctx.fr.cam.fullViewport()) {
+        if ((pp.needsDepth || pp.needsNormals) && !prepassSplitWarned) {
+            prepassSplitWarned = true;
+            FA_WARN("render", "The stack has an effect that reads the depth or the normals, but the frame is split "
+                              "between several cameras or a camera "
+                              "has a viewport smaller than the screen: the effect is skipped. Hint: give the camera "
+                              "that carries the PostProcess the "
+                              "whole screen (viewport [0, 0, 1, 1]) and make it the only primary camera.");
+        }
+        return false;
+    }
     if (!(pp.needsDepth || pp.needsNormals || debugView != DebugView::None)) return false;
     bool anyMesh = false;
     for (const MeshBatch& b : ctx.opaqueBatches) anyMesh = anyMesh || b.mainCount > 0;
