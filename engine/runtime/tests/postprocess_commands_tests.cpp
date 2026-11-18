@@ -295,6 +295,13 @@ TEST_CASE("postprocess.get resolved: the stack of a camera with the source of ea
     r = c.call("postprocess.get", Json::parse(R"({"resolved":true})"));
     REQUIRE_MESSAGE(r.ok, r.error.dump());
     CHECK(r.result["id"] == "cam");
+    // A camera that draws into a texture (a minimap) with a lower depth is never the main camera: the renderer skips it too.
+    r = c.call("scene.spawn",
+               Json::parse(R"({"id":"minimap","components":{"Camera":{"depth":-5,"renderTarget":"minimap"}}})"));
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+    r = c.call("postprocess.get", Json::parse(R"({"resolved":true})"));
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+    CHECK(r.result["id"] == "cam");
     r = c.call("postprocess.get", Json::parse(R"({"id":"plain","resolved":true})"));
     REQUIRE_FALSE(r.ok);
     CHECK(r.error["message"].get<std::string>().find("no Camera") != std::string::npos);

@@ -9,6 +9,7 @@
 #include "fa/core/strings.h"
 #include "fa/render/post_report.h"
 #include "fa/runtime/postprocess_presets.h"
+#include "fa/scene/camera_query.h"
 #include "fa/scene/postprocess.h"
 #include "fa/scene/serialize.h"
 
@@ -62,7 +63,7 @@ std::vector<std::string> preset_effects(const Json& fields) {
 }
 
 // The camera whose stack is asked for: the Camera entity `id` names, or without `id` the project's main camera (the active primary
-// one with the lowest depth); kNullEntity when the world has no camera (the default camera, which only global volumes reach).
+// one that draws to the screen with the lowest depth, as the renderer chooses); kNullEntity when the world has no camera (the default camera, which only global volumes reach).
 Entity camera_for_stack(Engine::Impl& I, const Json& a) {
     if (a.contains("id")) {
         const Entity e = need_entity(I.world, a);
@@ -74,16 +75,10 @@ Entity camera_for_stack(Engine::Impl& I, const Json& a) {
                 "camera, or read the volume's own fields with resolved false.");
         return e;
     }
-    Entity best = kNullEntity;
-    int bestDepth = 0;
-    I.world.each<Camera>([&](Entity e, Camera& c) {
-        if (!c.primary || !I.world.active_in_hierarchy(e)) return;
-        if (best.is_null() || c.depth < bestDepth) {
-            best = e;
-            bestDepth = c.depth;
-        }
-    });
-    return best;
+    // The renderer's own choice (rendering_cameras: primary, no renderTarget, active, not being destroyed, by depth), so a minimap
+    // camera that draws into a texture is never taken for the main one.
+    const std::vector<Entity> cams = rendering_cameras(I.world);
+    return cams.empty() ? kNullEntity : cams.front();
 }
 
 }  // namespace
@@ -123,8 +118,9 @@ void register_postprocess_commands(Engine&, Engine::Impl& I) {
          "parameter "
          "to {value, from, strength}: `from` is \"own\", \"legacy\", \"volume:<entity id>\" or \"default\" (no layer "
          "wrote it). "
-         "`count` is how many effects run. Without `id` the main camera is used (the active primary one with the "
-         "lowest "
+         "`count` is how many effects run. Without `id` the main camera is used (the camera that draws first: active, "
+         "primary, not "
+         "drawing into a `renderTarget`, lowest "
          "depth); a scene with no camera answers for the default camera, which only global volumes reach. Errors: "
          "`not_found` "
          "for an unknown entity, `invalid_argument` for an entity without a PostProcess (add one with "
@@ -256,7 +252,9 @@ void register_postprocess_commands(Engine&, Engine::Impl& I) {
          "the effects: "
          "every effect field the component has goes back to its default first, so the result is exactly the preset "
          "(the meta "
-         "fields of a volume - enabled, shape, size, blendDistance, priority, weight - are never touched). With `keep` "
+         "fields of a volume - enabled, shape, size, blendDistance, priority, weight - and the entity fields, such as "
+         "a "
+         "depth-of-field focus target, are never touched). With `keep` "
          "true only "
          "the preset's own fields are written and every other effect stays as it was. `neutral` switches every effect "
          "off. "
