@@ -7,6 +7,22 @@ Part of [Building FactorIA](BUILDING.md) (the entry page lists every page).
 - `ctest --preset <name>` runs every test and prints the output of failing tests.
 - One module: `cmake --build --preset linux-debug --target fa_test_core`, then
   `ctest --preset linux-debug -R core`. Test targets are named `fa_test_<module>`.
+- **Windowed tests on a Mac whose displays sleep.** The tests that open a window carry the label `window`
+  (`editor_autotest_*`, `cli_player_frames`, `cli_plugin`). On a Mac with every display asleep (lid closed, or idle past
+  the display sleep time) a window gets no frame, and the test would wait for ever: script time limits count CPU time,
+  which a blocked process does not use, so they hung for hours. Under plain `ctest` too (no script involved), the program
+  under test therefore skips itself: in a test run (`FA_EDITOR_AUTOTEST` set, or `FA_TEST_DISPLAY_WATCHDOG=1`, which the
+  ctest entries that run a player set), a watchdog thread of the macOS app loop (`engine/platform/src/display_watchdog.h`,
+  started by `to_sapp_desc`) looks every second; when no frame has been drawn for 10 s and `CGDisplayIsAsleep` is true
+  for every online display, it prints one line, kills every descendant process (an orphan holding ctest's stdout pipe would keep ctest
+  waiting) and ends the process with exit code 77 (`_Exit`: no destructors run). Those tests have `SKIP_RETURN_CODE 77`, so ctest says `***Skipped` and lists them under "The following tests did not run"; the two
+  python tests pass the player's 77 on as their own exit code. Awake displays: nothing happens, a slow frame on a loaded
+  machine is not a skip. Normal games and the editor in normal use never start the watchdog; Linux (Xvfb) and Windows
+  have none. Environment: `FA_TEST_IGNORE_DISPLAY_SLEEP=1` runs whatever the display says (`FA_AGENT_WINDOW_TESTS=run`
+  sets it); `FA_TEST_FAKE_DISPLAYS_ASLEEP=1` fakes "every display asleep and no frame" to check the path end to end
+  (`FA_TEST_DISPLAY_IDLE_SECONDS=0.3` shortens the 10 s: `FA_TEST_FAKE_DISPLAYS_ASLEEP=1 FA_TEST_DISPLAY_IDLE_SECONDS=0.3
+  ctest -R editor_autotest_1` ends `***Skipped`). The decision and the thread have doctests in
+  `engine/platform/tests/display_watchdog_tests.cpp` with an injected display query.
 - GPU tests carry the CTest label `gpu`, and `ctest --preset <name> -LE gpu` skips
   them, for example on machines without a GPU.
 - Tests run with the repository root as their working directory, so fixture

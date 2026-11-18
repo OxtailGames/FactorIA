@@ -11,11 +11,15 @@
 
 #include "shaders/bloom.glsl.h"
 #include "shaders/colorfilter.glsl.h"
+#include "shaders/exposure.glsl.h"
+#include "shaders/prepass_view.glsl.h"
+#include "shaders/post.glsl.h"
 #include "shaders/blit.glsl.h"
 #include "shaders/light.glsl.h"
 #include "shaders/mesh.glsl.h"
 #include "shaders/quad.glsl.h"
 #include "shaders/sky.glsl.h"
+#include "shaders/ssao.glsl.h"
 
 namespace fa::render {
 
@@ -56,6 +60,54 @@ void set_skin_layout(sg_pipeline_desc& d, int jointsAttr, int weightsAttr) {
 }
 }  // namespace
 
+void Gpu::refresh_scene_format() {
+    const SceneChain& c = sceneChain_[linear_ ? 1 : 0];
+    if (c.count <= 0) return;  // no chain (nothing was queried yet): keep the format
+    sceneFormat_ = c.formats[std::min(c.at, c.count - 1)];
+}
+
+bool Gpu::set_linear(bool on) {
+    if (on == linear_) return false;
+    const sg_pixel_format before = sceneFormat_;
+    linear_ = on;
+    refresh_scene_format();
+    return sceneFormat_ != before;
+}
+
+bool Gpu::next_scene_format() {
+    SceneChain& c = sceneChain_[linear_ ? 1 : 0];
+    if (c.at + 1 >= c.count) return false;
+    ++c.at;
+    refresh_scene_format();
+    return true;
+}
+
+void Gpu::set_scene_pick(int pick) {
+    SceneChain& c = sceneChain_[linear_ ? 1 : 0];
+    c.at = std::clamp(pick, 0, std::max(0, c.count - 1));
+    refresh_scene_format();
+}
+
+bool Gpu::scene_has_alpha() const { return sceneFormat_ != SG_PIXELFORMAT_RG11B10F; }
+bool Gpu::scene_is_float() const {
+    return sceneFormat_ == SG_PIXELFORMAT_RGBA16F || sceneFormat_ == SG_PIXELFORMAT_RG11B10F;
+}
+
+sg_pixel_format Gpu::texture_format(sg_pixel_format unorm) const {
+    if (!linear_) return unorm;
+    sg_pixel_format srgb = SG_PIXELFORMAT_NONE;
+    switch (unorm) {
+        case SG_PIXELFORMAT_RGBA8: srgb = SG_PIXELFORMAT_SRGB8A8; break;
+        case SG_PIXELFORMAT_BC7_RGBA: srgb = SG_PIXELFORMAT_BC7_SRGBA; break;
+        case SG_PIXELFORMAT_ASTC_4x4_RGBA: srgb = SG_PIXELFORMAT_ASTC_4x4_SRGBA; break;
+        case SG_PIXELFORMAT_ETC2_RGBA8: srgb = SG_PIXELFORMAT_ETC2_SRGB8A8; break;
+        default: break;
+    }
+    if (srgb == SG_PIXELFORMAT_NONE) return unorm;
+    const sg_pixelformat_info info = sg_query_pixelformat(srgb);
+    return info.sample && info.filter ? srgb : unorm;
+}
+
 bool Gpu::init(int sampleCount, std::string* error) {
     sampleCount_ = std::max(1, sampleCount);
     sg_backend backend = sg_query_backend();
@@ -81,14 +133,32 @@ bool Gpu::init(int sampleCount, std::string* error) {
     }
 
     {
-        // The format of the game target and of every pass that draws into it or reads it (bloom, colour filter): RGBA16F where
-        // the GPU renders to it with blending and filtering (and multisampling when asked), so a colour above white (an emissive
-        // above 1, a bright additive sum) reaches bloom, else RGBA8, which keeps the frame but clamps at white.
+        // The format of the game target and of every pass that draws into it or reads it (bloom, colour filter), in the order
+        // they are tried. Gamma scene (every project before M71): RGBA16F where the GPU renders to it with blending and filtering
+        // (and multisampling when asked), so a colour above white (an emissive above 1, a bright additive sum) reaches bloom,
+        // else RGBA8, which keeps the frame but clamps at white. Linear scene (SceneSettings.colorSpace "linear"): the same,
+        // then R11G11B10 (a float target without alpha, half the memory of RGBA16F: GPUs that cannot render to RGBA16F, phones),
+        // then SRGB8A8 (8 bits that hold linear light: the GPU encodes what is written and decodes what is read, so the darks keep
+        // their precision and blending is done in linear light), then plain RGBA8 (the GPU has no sRGB target: banding in the darks).
         const sg_pixelformat_info half = sg_query_pixelformat(SG_PIXELFORMAT_RGBA16F);
         const bool halfOk = half.render && half.blend && half.filter && (sampleCount_ <= 1 || half.msaa);
-        sceneFormat_ = halfOk ? SG_PIXELFORMAT_RGBA16F : SG_PIXELFORMAT_RGBA8;
-        if (const char* want = std::getenv("FA_SCENE_FORMAT"))
-            if (std::string(want) == "rgba8") sceneFormat_ = SG_PIXELFORMAT_RGBA8;
+        // sokol-gfx reports no blend flag for RG11B10F on GL (the format blends there when it renders at all); D3D11 and Metal do.
+        const sg_pixelformat_info packed = sg_query_pixelformat(SG_PIXELFORMAT_RG11B10F);
+        const bool packedOk =
+            packed.render && packed.filter && (packed.blend || isGl_) && (sampleCount_ <= 1 || packed.msaa);
+        const sg_pixelformat_info srgb = sg_query_pixelformat(SG_PIXELFORMAT_SRGB8A8);
+        const bool srgbTarget = srgb.render && srgb.blend && srgb.filter && (sampleCount_ <= 1 || srgb.msaa);
+        srgbTextures_ = srgb.sample && srgb.filter;
+        const std::string want = std::getenv("FA_SCENE_FORMAT") ? std::getenv("FA_SCENE_FORMAT") : "";
+        for (SceneChain& c : sceneChain_) c = SceneChain{};
+        auto add = [](SceneChain& c, sg_pixel_format f) { c.formats[c.count++] = f; };
+        if (halfOk && want != "rgba8" && want != "r11g11b10") add(sceneChain_[0], SG_PIXELFORMAT_RGBA16F);
+        add(sceneChain_[0], SG_PIXELFORMAT_RGBA8);
+        if (halfOk && want != "rgba8" && want != "r11g11b10") add(sceneChain_[1], SG_PIXELFORMAT_RGBA16F);
+        if (packedOk && want != "rgba8") add(sceneChain_[1], SG_PIXELFORMAT_RG11B10F);
+        if (srgbTarget) add(sceneChain_[1], SG_PIXELFORMAT_SRGB8A8);
+        add(sceneChain_[1], SG_PIXELFORMAT_RGBA8);
+        refresh_scene_format();
     }
 
     quad_shader_ = make_shader(quad_quad_shader_desc(backend), "quad_quad");
@@ -180,6 +250,24 @@ void Gpu::shutdown() {
     if (colorfilter_shader_.id) sg_destroy_shader(colorfilter_shader_);
     colorfilter_shader_ = {};
     colorfilterState_ = 0;
+    if (post_shader_.id) sg_destroy_shader(post_shader_);
+    post_shader_ = {};
+    postState_ = 0;
+    for (sg_shader& s : exposure_shaders_) {
+        if (s.id) sg_destroy_shader(s);
+        s = {};
+    }
+    exposureState_ = 0;
+    for (sg_shader& s : ssao_shaders_) {
+        if (s.id) sg_destroy_shader(s);
+        s = {};
+    }
+    ssaoState_ = 0;
+    for (sg_shader* s : {&prepassShader_, &prepassSkinShader_, &prepassViewShader_}) {
+        if (s->id) sg_destroy_shader(*s);
+        *s = {};
+    }
+    prepassState_ = prepassViewState_ = 0;
     if (light_shader_.id) sg_destroy_shader(light_shader_);
     light_shader_ = {};
     lightState_ = 0;
@@ -476,6 +564,228 @@ sg_pipeline Gpu::colorfilter_pipeline(const TargetFormat& format) {
     d.depth.write_enabled = false;
     d.face_winding = SG_FACEWINDING_CCW;
     d.label = "colorfilter";
+    return find_or_make(key, format, d);
+}
+
+bool Gpu::post_ready() {
+    ++postReadyCalls_;
+    if (postState_ != 0) return postState_ > 0;
+    post_shader_ = make_shader(post_post_shader_desc(sg_query_backend()), "post_post");
+    if (sg_query_shader_state(post_shader_) != SG_RESOURCESTATE_VALID) {
+        sg_destroy_shader(post_shader_);
+        post_shader_ = {};
+        postState_ = -1;
+        FA_ERROR("render",
+                 "The post-processing pass (exposure, tonemap, colour filter) is unavailable: its shader failed to "
+                 "compile for "
+                 "this graphics backend (see the sokol log lines above). The game renders without it. Hint: update the "
+                 "graphics driver (Mesa: try LIBGL_ALWAYS_SOFTWARE=1) or remove the PostProcess component.");
+        return false;
+    }
+    postState_ = 1;
+    return true;
+}
+
+sg_pipeline Gpu::post_pipeline(const TargetFormat& format) {
+    if (!post_ready()) return {};
+    PipelineKey key{0xA00u};
+    sg_pipeline_desc d{};
+    d.shader = post_shader_;
+    d.layout.attrs[ATTR_post_post_pos].format = SG_VERTEXFORMAT_FLOAT2;
+    d.depth.compare = SG_COMPAREFUNC_ALWAYS;
+    d.depth.write_enabled = false;
+    d.face_winding = SG_FACEWINDING_CCW;
+    d.label = "post";
+    return find_or_make(key, format, d);
+}
+
+sg_pixel_format Gpu::prepass_color_format() {
+    // The prepass image is only sampled with a nearest sampler (a depth is never blended or filtered), so it needs no more than render + sample.
+    for (sg_pixel_format f : {SG_PIXELFORMAT_RGBA32F, SG_PIXELFORMAT_RGBA16F}) {
+        const sg_pixelformat_info info = sg_query_pixelformat(f);
+        if (info.render && info.sample) return f;
+    }
+    return SG_PIXELFORMAT_NONE;
+}
+
+namespace {
+// The slots a built-in program declares, as the twin of a custom one says them (MaterialProgram).
+MaterialProgram program_slots(sg_shader shader, const sg_shader_desc* desc) {
+    MaterialProgram out;
+    out.shader = shader;
+    for (int i = 0; i < SG_MAX_UNIFORMBLOCK_BINDSLOTS; ++i) {
+        if (desc->uniform_blocks[i].stage == SG_SHADERSTAGE_NONE) continue;
+        out.ubMask |= 1u << i;
+        out.ubSize[i] = desc->uniform_blocks[i].size;
+    }
+    for (int i = 0; i < SG_MAX_VIEW_BINDSLOTS; ++i)
+        if (desc->views[i].texture.stage != SG_SHADERSTAGE_NONE) out.viewMask |= 1u << i;
+    for (int i = 0; i < SG_MAX_SAMPLER_BINDSLOTS; ++i)
+        if (desc->samplers[i].stage != SG_SHADERSTAGE_NONE) out.samplerMask |= 1u << i;
+    return out;
+}
+}  // namespace
+
+bool Gpu::prepass_ready() {
+    if (prepassState_ != 0) return prepassState_ > 0;
+    const sg_backend backend = sg_query_backend();
+    prepassShader_ = make_shader(mesh_prepass_shader_desc(backend), "mesh_prepass");
+    prepassSkinShader_ = make_shader(mesh_prepass_skin_shader_desc(backend), "mesh_prepass_skin");
+    if (prepass_color_format() == SG_PIXELFORMAT_NONE ||
+        sg_query_shader_state(prepassShader_) != SG_RESOURCESTATE_VALID ||
+        sg_query_shader_state(prepassSkinShader_) != SG_RESOURCESTATE_VALID) {
+        for (sg_shader* s : {&prepassShader_, &prepassSkinShader_}) {
+            if (s->id) sg_destroy_shader(*s);
+            *s = {};
+        }
+        prepassState_ = -1;
+        FA_ERROR(
+            "render",
+            "The depth and normal prepass is unavailable: the GPU cannot render to a float image or its shader failed "
+            "to "
+            "compile for this graphics backend (see the sokol log lines above). The effects that read the depth are "
+            "skipped. Hint: update the graphics driver (Mesa: try LIBGL_ALWAYS_SOFTWARE=1).");
+        return false;
+    }
+    prepassProgram_[0] = program_slots(prepassShader_, mesh_prepass_shader_desc(backend));
+    prepassProgram_[1] = program_slots(prepassSkinShader_, mesh_prepass_skin_shader_desc(backend));
+    prepassState_ = 1;
+    return true;
+}
+
+sg_pipeline Gpu::prepass_pipeline(const TargetFormat& format, bool doubleSided, bool skinned, sg_shader shader) {
+    if (!shader.id && !prepass_ready()) return {};
+    PipelineKey key{0xC00u | (doubleSided ? 2u : 0u) | (skinned ? 4u : 0u), shader.id};
+    sg_pipeline_desc d{};
+    d.shader = shader.id ? shader : (skinned ? prepassSkinShader_ : prepassShader_);
+    d.layout.attrs[ATTR_mesh_prepass_fa_position].format = SG_VERTEXFORMAT_FLOAT3;
+    d.layout.attrs[ATTR_mesh_prepass_fa_normal].format = SG_VERTEXFORMAT_FLOAT3;
+    d.layout.attrs[ATTR_mesh_prepass_fa_texcoord0].format = SG_VERTEXFORMAT_FLOAT2;
+    d.layout.attrs[ATTR_mesh_prepass_fa_tangent].format = SG_VERTEXFORMAT_FLOAT4;
+    d.layout.attrs[ATTR_mesh_prepass_fa_color].format = SG_VERTEXFORMAT_UBYTE4N;
+    set_instance_layout(d, ATTR_mesh_prepass_fa_inst_m0);
+    if (skinned) set_skin_layout(d, ATTR_mesh_prepass_skin_fa_joints, ATTR_mesh_prepass_skin_fa_weights);
+    d.index_type = SG_INDEXTYPE_UINT32;
+    d.depth.compare = SG_COMPAREFUNC_LESS_EQUAL;
+    d.depth.write_enabled = true;
+    d.cull_mode = doubleSided ? SG_CULLMODE_NONE : SG_CULLMODE_BACK;
+    d.face_winding = SG_FACEWINDING_CCW;
+    d.label = "prepass";
+    return find_or_make(key, format, d);
+}
+
+bool Gpu::prepass_view_ready() {
+    if (prepassViewState_ != 0) return prepassViewState_ > 0;
+    prepassViewShader_ = make_shader(prepass_view_prepass_view_shader_desc(sg_query_backend()), "prepass_view");
+    if (sg_query_shader_state(prepassViewShader_) != SG_RESOURCESTATE_VALID) {
+        sg_destroy_shader(prepassViewShader_);
+        prepassViewShader_ = {};
+        prepassViewState_ = -1;
+        FA_ERROR("render",
+                 "The prepass debug view is unavailable: its shader failed to compile for this graphics backend.");
+        return false;
+    }
+    prepassViewState_ = 1;
+    return true;
+}
+
+sg_pipeline Gpu::prepass_view_pipeline(const TargetFormat& format) {
+    if (!prepass_view_ready()) return {};
+    PipelineKey key{0xD00u};
+    sg_pipeline_desc d{};
+    d.shader = prepassViewShader_;
+    d.layout.attrs[ATTR_prepass_view_prepass_view_pos].format = SG_VERTEXFORMAT_FLOAT2;
+    d.depth.compare = SG_COMPAREFUNC_ALWAYS;
+    d.depth.write_enabled = false;
+    d.face_winding = SG_FACEWINDING_CCW;
+    d.label = "prepass-view";
+    return find_or_make(key, format, d);
+}
+
+bool Gpu::exposure_ready() {
+    if (exposureState_ != 0) return exposureState_ > 0;
+    exposure_shaders_[int(ExposureStage::Luma)] =
+        make_shader(exposure_luma_shader_desc(sg_query_backend()), "exposure_luma");
+    exposure_shaders_[int(ExposureStage::Adapt)] =
+        make_shader(exposure_adapt_shader_desc(sg_query_backend()), "exposure_adapt");
+    bool ok = true;
+    for (sg_shader s : exposure_shaders_) ok = ok && sg_query_shader_state(s) == SG_RESOURCESTATE_VALID;
+    if (!ok) {
+        for (sg_shader& s : exposure_shaders_) {
+            if (s.id) sg_destroy_shader(s);
+            s = {};
+        }
+        exposureState_ = -1;
+        FA_ERROR(
+            "render",
+            "The automatic exposure is unavailable: its shaders failed to compile for this graphics backend (see the "
+            "sokol log lines above). The exposure stays at PostProcess.exposureEv. Hint: update the graphics driver "
+            "(Mesa: try LIBGL_ALWAYS_SOFTWARE=1) or set exposureMode to manual.");
+        return false;
+    }
+    exposureState_ = 1;
+    return true;
+}
+
+sg_pipeline Gpu::exposure_pipeline(ExposureStage stage, const TargetFormat& format) {
+    if (!exposure_ready()) return {};
+    PipelineKey key{0xB00u | std::uint32_t(stage)};
+    sg_pipeline_desc d{};
+    d.shader = exposure_shaders_[int(stage)];
+    d.layout.attrs[ATTR_exposure_luma_pos].format = SG_VERTEXFORMAT_FLOAT2;
+    d.depth.compare = SG_COMPAREFUNC_ALWAYS;
+    d.depth.write_enabled = false;
+    d.face_winding = SG_FACEWINDING_CCW;
+    d.label = stage == ExposureStage::Luma ? "exposure-luma" : "exposure-adapt";
+    return find_or_make(key, format, d);
+}
+
+bool Gpu::ssao_ready() {
+    if (ssaoState_ != 0) return ssaoState_ > 0;
+    ssao_shaders_[0] = make_shader(ssao_ao_shader_desc(sg_query_backend()), "ssao_ao");
+    ssao_shaders_[1] = make_shader(ssao_blur_shader_desc(sg_query_backend()), "ssao_blur");
+    ssao_shaders_[2] = make_shader(ssao_apply_shader_desc(sg_query_backend()), "ssao_apply");
+    bool ok = true;
+    for (sg_shader s : ssao_shaders_) ok = ok && sg_query_shader_state(s) == SG_RESOURCESTATE_VALID;
+    if (!ok) {
+        for (sg_shader& s : ssao_shaders_) {
+            if (s.id) sg_destroy_shader(s);
+            s = {};
+        }
+        ssaoState_ = -1;
+        FA_ERROR(
+            "render",
+            "The ambient occlusion is unavailable: its shaders failed to compile for this graphics backend (see the "
+            "sokol log lines above). PostProcess.ssaoEnabled draws nothing. Hint: update the graphics driver "
+            "(Mesa: try LIBGL_ALWAYS_SOFTWARE=1) or set ssaoEnabled to false.");
+        return false;
+    }
+    ssaoState_ = 1;
+    return true;
+}
+
+sg_pipeline Gpu::ssao_pipeline(SsaoStage stage, const TargetFormat& format) {
+    if (!ssao_ready()) return {};
+    PipelineKey key{0xE00u | std::uint32_t(stage)};
+    sg_pipeline_desc d{};
+    d.shader = ssao_shaders_[stage == SsaoStage::View ? int(SsaoStage::Apply) : int(stage)];
+    d.layout.attrs[ATTR_ssao_ao_pos].format = SG_VERTEXFORMAT_FLOAT2;
+    d.depth.compare = SG_COMPAREFUNC_ALWAYS;
+    d.depth.write_enabled = false;
+    d.face_winding = SG_FACEWINDING_CCW;
+    switch (stage) {
+        case SsaoStage::Apply:  // dst.rgb *= src.rgb (the occlusion); alpha stays
+            d.colors[0].blend.enabled = true;
+            d.colors[0].blend.src_factor_rgb = SG_BLENDFACTOR_DST_COLOR;
+            d.colors[0].blend.dst_factor_rgb = SG_BLENDFACTOR_ZERO;
+            d.colors[0].blend.src_factor_alpha = SG_BLENDFACTOR_ZERO;
+            d.colors[0].blend.dst_factor_alpha = SG_BLENDFACTOR_ONE;
+            d.label = "ssao-apply";
+            break;
+        case SsaoStage::View: d.label = "ssao-view"; break;
+        case SsaoStage::Blur: d.label = "ssao-blur"; break;
+        default: d.label = "ssao-ao"; break;
+    }
     return find_or_make(key, format, d);
 }
 

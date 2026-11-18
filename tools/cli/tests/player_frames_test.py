@@ -4,7 +4,8 @@
 usage: player_frames_test.py <path-to-factoria> <path-to-factoria_player>
 
 The player draws N frames and exits 0; it exits 1 when a script failed by then, and 2 for a bad --frames value. It opens a
-window, so the test carries the gpu label.
+window, so the test carries the gpu and window labels; when every display of the Mac sleeps the player exits 77 (its
+display watchdog) and this test exits 77 too, which ctest reports as skipped.
 """
 import json
 import os
@@ -40,6 +41,9 @@ def main():
         def play(*args):
             try:
                 r = subprocess.run([PLAYER, game, *args], env=env, capture_output=True, text=True, timeout=120)
+                if r.returncode == 77:  # the player's display watchdog: every display of this Mac sleeps, no frame can come
+                    print("skipped: " + (r.stdout + r.stderr).strip()[-300:], flush=True)
+                    sys.exit(1 if failures else 77)  # 77 is ctest's SKIP_RETURN_CODE; a failure already seen stays one
                 return r.returncode, r.stdout + r.stderr
             except subprocess.TimeoutExpired:
                 return "timeout", ""

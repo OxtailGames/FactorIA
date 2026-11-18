@@ -6,15 +6,32 @@
 
 Since 0.17.0.
 
-Ends the game feel effects of an entity at once (flash, squash, shake, knockback), or of everything.
+Ends the game feel effects of an entity at once (flash, squash, shake, knockback, and the screen effects of a camera), or of everything.
 
 Capabilities: read, state
 
-Without `entity` it ends every effect of the scene, hit-stops included. The entity's Transform is not touched: effects never wrote to it, except the position a body-less knockback already moved. Example: feel.cancel {}
+Without `entity` it ends every effect of the scene, hit-stops and screen effects (a held fade too) included. For a camera it ends the screen effects drawn on that camera only. The entity's Transform is not touched: effects never wrote to it, except the position a body-less knockback already moved. Example: feel.cancel {}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `entity` | string | no | The entity (id or name). Default: everything. |
+
+## `feel.fade` (modifies state)
+
+Since 0.31.0.
+
+Fades the screen to a colour (default black) and holds it, or from that colour back to the picture.
+
+Capabilities: read, state
+
+The same as `camera.fadeOut(opts)` / `camera.fadeIn(opts)`. direction "out" goes from the picture to the colour over `duration` and STAYS there until a fade in or feel.cancel; "in" goes from the colour to the picture and ends (with no fade running it starts from the full colour: the way to open a scene). A new fade on the camera continues from the opacity the old one had reached. Drawn over the picture at the end of the camera's post pass, before the colour filter. `entity` limits it to one camera. A scene load clears it. Example: feel.fade {"direction":"out","duration":0.8}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `entity` | string | no | The camera (id or name) that draws it. Default: every camera. |
+| `direction` | string ["out","in"] | no | "out": to the colour (held); "in": from the colour to the picture. Default "out". |
+| `color` | any | no | The colour: "#rrggbb", a name or [r, g, b, a] in 0..1. Default black. Alpha is ignored. |
+| `duration` | number | no | Seconds; 0 is instant. Default 0.5. |
 
 ## `feel.flash` (modifies state)
 
@@ -33,6 +50,25 @@ The same as `entity.flash(opts)`. The entity's own colour, material and Transfor
 | `duration` | number | no | Seconds. Default 0.12. |
 | `fade` | boolean | no | true: from `strength` down to 0; false: `strength` for the whole duration, then off. Default true. |
 | `strength` | number | no | How much of the colour replaces the entity's own (1 = solid). Default 1. |
+
+## `feel.heatHaze` (modifies state)
+
+Since 0.31.0.
+
+Heat haze: a rippling distortion over a region of the screen for a while.
+
+Capabilities: read, state
+
+The same as `camera.heatHaze(opts)`. The picture inside `region` is pushed sideways by a smooth ripple that travels upwards; it fades in and out over 0.15 s at its ends. Strength is a fraction of the picture's height (0.004 is a gentle shimmer). `entity` limits it to one camera; a camera draws the newest 2 hazes. Runs on the game clock. With reduceMotion on the strength is a quarter. Example: feel.heatHaze {"region":[0,0.5,1,0.5],"duration":3}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `entity` | string | no | The camera (id or name) that draws it. Default: every camera. |
+| `region` | array | no | [x, y, width, height] in fractions of the camera's rectangle, (0, 0) top-left. Default [0,0,1,1]. |
+| `duration` | number | no | Seconds. Default 2. |
+| `strength` | number | no | How far the picture is pushed, a fraction of its height. Default 0.004. |
+| `frequency` | number | no | Ripples per picture height. Default 10. |
+| `speed` | number | no | Cycles per second the ripples travel. Default 1. |
 
 ## `feel.hitStop` (modifies state)
 
@@ -68,6 +104,43 @@ The same as `entity.knockback(direction, opts)`. A dynamic RigidBody2D/RigidBody
 | `decay` | number | no | Entities without a dynamic body: the velocity falls by exp(-decay * dt) per second. Default 8. |
 | `local` | boolean | no | true: `direction` is in the entity's own space (a mirrored sprite is pushed the other way). Default false. |
 
+## `feel.radialBlur` (modifies state)
+
+Since 0.31.0.
+
+A radial blur pulse: the picture streaks away from a point and settles, for a speed or impact burst.
+
+Capabilities: read, state
+
+The same as `camera.radialBlur(opts)`. Draws the same blur as PostProcess.radialBlurEnabled, with an intensity that dies out over `duration`; when the camera's PostProcess has the blur on, the larger of the two is drawn. `screen` or `world` is the centre (see feel.shockwave). `entity` limits it to one camera. With reduceMotion on the intensity is a quarter. Example: feel.radialBlur {"intensity":0.5,"duration":0.4}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `entity` | string | no | The camera (id or name) that draws it. Default: every camera. |
+| `screen` | array | no | The centre, [x, y] in fractions of the camera's rectangle. Default [0.5,0.5]. |
+| `world` | array | no | The centre as a world point; wins over `screen`. |
+| `duration` | number | no | Seconds until the blur is gone. Default 0.35. |
+| `intensity` | number | no | The blur at the start, same scale as PostProcess.radialBlurIntensity. Default 0.4. |
+| `samples` | integer | no | Taps along each streak: more is smoother and costs more. Default 12. |
+
+## `feel.screenFlash` (modifies state)
+
+Since 0.31.0.
+
+Flashes the whole screen in one colour for a moment (a damage or pickup flash), drawn over the finished picture.
+
+Capabilities: read, state
+
+The same as `camera.flash(opts)`. Not to be confused with feel.flash, which flashes one entity. The colour is blended over the picture at the end of the camera's post pass (before the colour filter), at `strength` and fading to 0 over `duration` (or held, with fade false). With reducedEffects on (feel.settings) the strength is capped at 0.35 and it always fades. `entity` limits it to one camera. Example: feel.screenFlash {"color":"#ffffff","duration":0.15}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `entity` | string | no | The camera (id or name) that draws it. Default: every camera. |
+| `color` | any | no | The colour: "#rrggbb", a name or [r, g, b, a] in 0..1. Default white. Alpha is ignored. |
+| `duration` | number | no | Seconds. Default 0.15. |
+| `strength` | number | no | How much of the colour covers the picture at the start. Default 1. |
+| `fade` | boolean | no | true: from `strength` down to 0; false: `strength` for the whole duration, then off. Default true. |
+
 ## `feel.settings` (modifies state)
 
 Since 0.17.0.
@@ -102,6 +175,26 @@ The same as `camera.shake(amount, opts)` in a script. Adds `amount` (0..1) of tr
 | `maxOffset` | number | no | Largest offset at trauma 1, world units. Default: 2.5% of an orthographic camera's visible height, 0.3 for a perspective one. |
 | `maxAngle` | number | no | Largest turn at trauma 1, degrees. Default 2. |
 | `cap` | number | no | Trauma never goes above this: stacked hits stop here. Default 1. |
+
+## `feel.shockwave` (modifies state)
+
+Since 0.31.0.
+
+Screen shockwave: a ring that expands from a point and bends the picture, drawn by the camera's post-processing pass.
+
+Capabilities: read, state
+
+The same as `camera.shockwave(opts)` in a script. The ring leaves the centre fast and slows down, and its push dies out as it grows. `screen` is the centre as fractions of the camera's rectangle ((0.5, 0.5) is the middle, (0, 0) top-left); `world` is a world point each camera projects itself (it is not drawn behind a perspective camera) and wins over `screen`. Strength, radius and width are fractions of the picture's height, so the ring looks the same at every resolution. `entity` limits it to one camera (a split screen); without it every camera draws it. At most 16 screen effects are alive and a camera draws the newest 4 shockwaves; a new call never fails, the oldest effect goes. It runs on the game clock (time.scale 0 holds it) and needs no PostProcess component. With reduceMotion on (feel.settings) the strength is a quarter. Example: feel.shockwave {"screen":[0.5,0.4],"strength":0.05,"duration":0.7}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `entity` | string | no | The camera (id or name) that draws it. Default: every camera. |
+| `screen` | array | no | The centre, [x, y] in fractions of the camera's rectangle. Default [0.5,0.5]. |
+| `world` | array | no | The centre as a world point [x, y] or [x, y, z]; wins over `screen`. |
+| `duration` | number | no | Seconds until the ring is gone. Default 0.6. |
+| `strength` | number | no | How far the ring pushes the picture, a fraction of its height. Default 0.04. |
+| `radius` | number | no | The radius the ring reaches, a fraction of the picture's height. Default 0.6. |
+| `width` | number | no | The width of the ring, same unit. Default 0.1. |
 
 ## `feel.sound` (modifies state)
 
@@ -165,5 +258,5 @@ What the game feel effects are doing now: hit-stop, and per entity its shake, fl
 
 Capabilities: read
 
-Returns {reduceMotion, reducedEffects, reduceMotionSetting, reducedEffectsSetting, hitStop: {remaining, scale, running}, queued: {sounds, spawns, spawnLifetimes} (sounds and spawns waiting for the next frame, spawned effects that will be destroyed), entities: [{entity, shake?, flash?, squash?, knockback?, pose?}]}. `pose` is what is added to the entity at draw time (position, rotation degrees, scale factor); its Transform is unchanged. Example: feel.state {}
+Returns {reduceMotion, reducedEffects, reduceMotionSetting, reducedEffectsSetting, hitStop: {remaining, scale, running}, queued: {sounds, spawns, spawnLifetimes} (sounds and spawns waiting for the next frame, spawned effects that will be destroyed), screenEffects: [{kind, camera (null = every camera), elapsed, duration, alpha? (flash, fade), held? (fade)}], entities: [{entity, shake?, flash?, squash?, knockback?, pose?}]}. `pose` is what is added to the entity at draw time (position, rotation degrees, scale factor); its Transform is unchanged. Example: feel.state {}
 

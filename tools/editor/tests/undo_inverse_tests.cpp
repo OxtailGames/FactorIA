@@ -267,6 +267,42 @@ TEST_CASE("undo inverse: a component that was absent is removed again, and a rem
     CHECK(rm->inverse[0].args["fields"].contains("color"));
 }
 
+TEST_CASE("undo inverse: postprocess.set and postprocess.apply_preset are one undo step each") {
+    Session s;
+    CHECK(has_undo_builder("postprocess.set"));
+    CHECK(has_undo_builder("postprocess.apply_preset"));
+    // The component the entity did not have is added, and removed again by undo.
+    const Json set =
+        Json::object({{"id", "hero"}, {"fields", Json::object({{"bloomEnabled", true}, {"bloomIntensity", 0.4}})}});
+    const auto plan = plan_undo(s.world(), "postprocess.set", set);
+    REQUIRE(plan.has_value());
+    CHECK(plan->inverse[0].cmd == "scene.remove_component");
+    CHECK(plan->forward[0].args["component"] == "PostProcess");
+    s.round_trip("postprocess.set", set);
+    // With the component there, undo gives back exactly the named fields; merge null resets.
+    REQUIRE(s.engine.commands().call("postprocess.set", set).ok);
+    const Json second = Json::object({{"id", "hero"}, {"fields", Json::object({{"bloomIntensity", 2.5}})}});
+    s.round_trip("postprocess.set", second);
+    const Json reset =
+        Json::object({{"id", "hero"}, {"fields", Json::object({{"bloomIntensity", nullptr}})}, {"merge", true}});
+    s.round_trip("postprocess.set", reset);
+    // A preset writes every effect field (replace) or only its own (keep); both undo to the scene as it was.
+    s.round_trip("postprocess.apply_preset", Json::object({{"id", "hero"}, {"preset", "noir"}}));
+    s.round_trip("postprocess.apply_preset", Json::object({{"id", "hero"}, {"preset", "vivid"}, {"keep", true}}));
+    s.round_trip("postprocess.apply_preset", Json::object({{"id", "target"}, {"preset", "cinematic"}}));
+    const auto replace =
+        plan_undo(s.world(), "postprocess.apply_preset", Json::object({{"id", "hero"}, {"preset", "noir"}}));
+    const auto keep = plan_undo(s.world(), "postprocess.apply_preset",
+                                Json::object({{"id", "hero"}, {"preset", "noir"}, {"keep", true}}));
+    REQUIRE(replace.has_value());
+    REQUIRE(keep.has_value());
+    CHECK(replace->inverse[0].args["fields"].size() > keep->inverse[0].args["fields"].size());
+    CHECK_FALSE(plan_undo(s.world(), "postprocess.apply_preset", Json::object({{"id", "hero"}, {"preset", "nope"}}))
+                    .has_value());
+    CHECK_FALSE(plan_undo(s.world(), "postprocess.apply_preset", Json::object({{"id", "nobody"}, {"preset", "noir"}}))
+                    .has_value());
+}
+
 TEST_CASE("undo inverse: a call that is wrong, or has no builder, gives no plan") {
     Session s;
     CHECK_FALSE(

@@ -7,6 +7,7 @@
 
 #include "fa/core/det_math.h"
 #include "fa/core/reflect.h"
+#include "fa/scene/postprocess.h"
 
 namespace fa {
 
@@ -372,10 +373,11 @@ void register_builtin_components(TypeRegistry& r) {
             "set it "
             "equal on the cameras of a split screen to give every player the same zoom. Each camera is culled and lit "
             "on its "
-            "own, so a Light2D only lights the cameras it reaches. The post effects (bloom, colorFilter, "
-            "bloomScreenSpace) "
-            "are applied once to the finished frame with the settings of the lowest-depth camera; the other cameras' "
-            "values are ignored. UI and screen-space items cover the whole screen, not one viewport. "
+            "own, so a Light2D only lights the cameras it reaches. The post-processing stack of a "
+            "camera (exposure, tonemap and the screen effects, outline included) runs over that camera's own "
+            "rectangle; only bloom, bloomScreenSpace and colorFilter are applied once to the finished frame, with the "
+            "settings of the lowest-depth camera that draws, and the other cameras' values of those are ignored. UI "
+            "and screen-space items cover the whole screen, not one viewport. "
             "camera.screenToWorld(point, camera) and camera.at(point) tell which camera is under a screen point. "
             "To show a camera INSIDE a widget of the UI instead (an item on a stage in a menu, a map in a panel) give "
             "it a "
@@ -3694,6 +3696,8 @@ void register_builtin_components(TypeRegistry& r) {
                "Lets one script serve many entities with different settings.")
         .field("enabled", &Script::enabled, "false = the script receives no callbacks.");
 
+    register_postprocess_component(r);  // fa/scene/postprocess.h (M71)
+
     // ------------------------------------------------------------ Scene ---
     r.add<SceneSettings>("SceneSettings",
                          "Scene-wide settings stored under \"settings\" in the scene file: lighting, fog, gravity and "
@@ -3729,7 +3733,36 @@ void register_builtin_components(TypeRegistry& r) {
                "picture); "
                "use 0.5 on mobile or the web when many lights are on screen. Only matters when a scene has lit visuals "
                "and Light2D lights.")
-        .range(0.25f, 1);
+        .range(0.25f, 1)
+        .enum_field(
+            "colorSpace", &SceneSettings::colorSpace, {"gamma", "linear"},
+            "How lighting and blending are computed. gamma (default, what every project made before M71 uses, so "
+            "old projects keep their exact look): on the sRGB-encoded values, with 8-bit targets. linear: in "
+            "linear light. The colours you pick (tints, sprite and material colours, light colours, ambient, fog, "
+            "sky, clear colour, particle colours) are still sRGB values and are converted for you; colour textures "
+            "(sprites, albedo, emissive, particles) are read as sRGB and data textures (normal, "
+            "metallic-roughness, masks) as plain numbers; lights add up and fade as they do in the world, and the "
+            "result is encoded for the display. The frame is kept in RGBA16F (values above 1 survive), else "
+            "R11G11B10 (no alpha), else 8 bits that hold linear light (SRGB8A8), else plain RGBA8 with banding in "
+            "the darks. RGBA16F costs twice the memory of RGBA8. Switch it on deliberately: colours picked by eye "
+            "in gamma space look different and a project needs a second look (docs/RENDERING.md, Color space). "
+            "Switching at run time is allowed. render.supports {\"feature\": \"linearColor\"} says whether this "
+            "build and GPU can. Values above 1 survive until the display: without exposure, tonemap or "
+            "colour filter in a PostProcess they clip there and the HUD blends in linear light too; with one, the "
+            "final pass tonemaps and encodes the picture once and the HUD is drawn after it in display colours.")
+        .enum_field(
+            "hdrOutput", &SceneSettings::hdrOutput, {"off", "auto"},
+            "off (default): the picture is shown in the standard range. auto: use a high dynamic range display "
+            "where the platform allows it (Windows scRGB or HDR10, macOS and iOS EDR); on any other display it "
+            "is the standard range, with no error. Only the tonemap of a camera's PostProcess (exposure or "
+            "tonemap on) goes above paper white, up to the display's headroom; the HUD, a camera without it and "
+            "a colour-filtered frame stay at paper white. render.output says what the window shows and why; "
+            "render.supports {\"feature\": \"hdrOutput\"} says whether the window's display could.")
+        .field("paperWhiteNits", &SceneSettings::paperWhiteNits,
+               "Only used with hdrOutput auto on an HDR display: the brightness of white (1.0) in nits (cd/m2), "
+               "80..1000. 200 is "
+               "comfortable indoors, 400 and more suits a bright room; the display shows brighter highlights above it.")
+        .range(80, 1000);
 }
 
 void ensure_builtin_components() {

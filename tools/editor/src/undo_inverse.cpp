@@ -6,6 +6,7 @@
 #include <utility>
 
 #include "fa/core/reflect.h"
+#include "fa/runtime/postprocess_presets.h"
 #include "fa/scene/components.h"
 #include "fa/scene/serialize.h"
 
@@ -129,6 +130,30 @@ std::optional<UndoPlan> plan_set_component(const World& world, const Json& a) {
     if (!old) return std::nullopt;
     plan.inverse.push_back(make_call("scene.set_component", t, Json::object({{"fields", *old}})));
     return plan;
+}
+
+// postprocess.set {id, fields, merge?} is scene.set_component on the PostProcess component: the same plan (redo and undo run
+// scene.set_component, so a component the entity did not have is removed again).
+std::optional<UndoPlan> plan_postprocess_set(const World& world, const Json& a) {
+    if (!a.is_object()) return std::nullopt;
+    Json args = a;  // `merge` means the same as in scene.set_component
+    args["component"] = "PostProcess";
+    return plan_set_component(world, args);
+}
+
+// postprocess.apply_preset {id, preset, keep?}: one scene.set_component with every field the preset writes (the effects at their
+// defaults, then the preset's own), so undo puts back the values of exactly those fields.
+std::optional<UndoPlan> plan_postprocess_apply_preset(const World& world, const Json& a) {
+    if (!a.is_object() || !a.contains("id") || !a["id"].is_string() || !a.contains("preset") ||
+        !a["preset"].is_string())
+        return std::nullopt;
+    const PostPreset* preset = find_postprocess_preset(a["preset"].get<std::string>());
+    if (!preset || (a.contains("keep") && !a["keep"].is_boolean())) return std::nullopt;
+    Json args =
+        Json::object({{"id", a["id"]},
+                      {"component", "PostProcess"},
+                      {"fields", postprocess_preset_fields(*preset, a.contains("keep") && a["keep"].get<bool>())}});
+    return plan_set_component(world, args);
 }
 
 // scene.remove_component {id, component}: undo adds the component back with every serialized field it had.
@@ -446,6 +471,8 @@ std::optional<UndoPlan> plan_set_parent(const World& w, const Json& a) {
 const BuilderRow kBuilders[] = {
     {"scene.set_component", &plan_set_component, nullptr},
     {"scene.remove_component", &plan_remove_component, nullptr},
+    {"postprocess.set", &plan_postprocess_set, nullptr},
+    {"postprocess.apply_preset", &plan_postprocess_apply_preset, nullptr},
     {"scene.spawn", &plan_spawn, &finish_spawn},
     {"scene.destroy", &plan_destroy, nullptr},
     {"scene.set_parent", &plan_set_parent, nullptr},

@@ -9,6 +9,7 @@
 #include "fa/scene/text_fit.h"
 #include "fa/scene/tilemap.h"
 #include "fa/scene/ui_rect.h"
+#include "color_space.h"
 #include "frame.h"
 #include "nine_slice.h"
 #include "render_jobs.h"
@@ -264,7 +265,7 @@ void gather_lights(World& world, Frame& f) {
     f.lights2d.clear();
     f.shadowData.clear();
     f.shadowRows = 0;
-    f.ambient2d = world.settings().ambientLight;
+    f.ambient2d = to_scene(world.settings().ambientLight, f.linear);
     struct Candidate {
         Light2DData data;
         bool directional = false;
@@ -281,9 +282,10 @@ void gather_lights(World& world, Frame& f) {
         if (!entity_active(world, e) || l.intensity <= 0.0f) return;
         Candidate c{};
         c.intensity = l.intensity;
-        c.data.color[0] = l.color.r * l.intensity;
-        c.data.color[1] = l.color.g * l.intensity;
-        c.data.color[2] = l.color.b * l.intensity;
+        const Color lc = to_scene(l.color, f.linear);  // picked as sRGB; the light adds up in linear light
+        c.data.color[0] = lc.r * l.intensity;
+        c.data.color[1] = lc.g * l.intensity;
+        c.data.color[2] = lc.b * l.intensity;
         c.data.color[3] = std::max(l.falloff, 0.01f);
         if (l.type == Light2DType::Directional) {
             const float d = radians(l.direction), el = radians(std::clamp(l.elevation, 0.0f, 90.0f));
@@ -866,7 +868,10 @@ void gather_tilemaps_and_text(World& world, Frame& f) {
     std::vector<TextLight> textLights;
     bool textLightsGathered = false;
     // What a flat surface at `pos` facing `normal` receives: SceneSettings.ambientLight + the Lambert term of every Light with the
-    // mesh shader's fall-off (mesh_common.glsl), once per Text.
+    // mesh shader's fall-off (mesh_common.glsl), once per Text. The colours (ambientLight, Light.color) are the authored sRGB values,
+    // not converted to the scene's space: the factor multiplies the text's own authored tint, and the shader converts the product
+    // (one light, or the ambient alone, then gives the same linear result as the mesh path). With several lights the sum is taken
+    // on the authored values, which comes out a little brighter than the mesh path's sum of linear light.
     auto text_light_factor = [&](Vec3 pos, Vec3 normal) {
         if (!textLightsGathered) {
             textLightsGathered = true;

@@ -392,3 +392,63 @@ TEST_CASE("feel.spawn: the lifetime runs on the game clock, so a hit-stop holds 
     CHECK(g.num("world.find('spark') ? 1 : 0") == 0);
     CHECK(g.state()["queued"]["spawnLifetimes"] == 0);
 }
+
+TEST_CASE("screen effects: the commands and camera.* start them, feel.state lists them, a scene load drops them") {
+    Game g("screen_fx");
+    for (const char* name : {"feel.shockwave", "feel.heatHaze", "feel.radialBlur", "feel.screenFlash", "feel.fade"}) {
+        INFO(name);
+        const CommandInfo* info = g.e.commands().info(name);
+        REQUIRE(info != nullptr);
+        CHECK(info->description.find("Example") != std::string::npos);
+        CHECK(info->category == "feel");
+        CHECK(info->inputSchema["additionalProperties"] == false);
+    }
+    g.e.step(1);
+    CHECK(g.state()["screenEffects"].empty());
+    g.call("feel.shockwave", R"({"screen":[0.3,0.4],"strength":0.05,"duration":1})");
+    g.call("feel.screenFlash", R"({"color":"#ff0000","duration":0.5,"entity":"cam"})");
+    Json st = g.state();
+    REQUIRE(st["screenEffects"].size() == 2);
+    CHECK(st["screenEffects"][0]["kind"] == "shockwave");
+    CHECK(st["screenEffects"][0]["camera"].is_null());  // every camera
+    CHECK(st["screenEffects"][1]["kind"] == "screenFlash");
+    CHECK(st["screenEffects"][1]["camera"] == "cam");
+    // The clock runs them (the commands and the script are the same code).
+    g.e.step(6);
+    st = g.state();
+    CHECK(st["screenEffects"][0]["elapsed"].get<double>() > 0.05);
+    CHECK(st["screenEffects"][1]["alpha"].get<double>() < 1.0);
+    g.e.step(60);  // 1.1 s: both are over
+    CHECK(g.state()["screenEffects"].empty());
+
+    // The script API: every call of camera.* starts one, a camera option aims it.
+    g.run("camera.shockwave({ screen: [0.5, 0.5], radius: 0.4 }); camera.heatHaze({ region: [0, 0.5, 1, 0.5] });"
+          "camera.radialBlur({ intensity: 0.5 }); camera.flash({ color: '#ffffff', duration: 0.1 });"
+          "camera.fadeOut({ duration: 0.2, camera: world.find('cam') })");
+    st = g.state();
+    CHECK(st["screenEffects"].size() == 5);
+    CHECK(st["screenEffects"][4]["kind"] == "fade");
+    CHECK(st["screenEffects"][4]["camera"] == "cam");
+    g.e.step(180);  // 3 s: the heat haze (2 s) is over too
+    st = g.state();
+    REQUIRE(st["screenEffects"].size() == 1);  // the held fade is all that is left
+    CHECK(st["screenEffects"][0]["held"] == true);
+    g.run("camera.fadeIn({ duration: 0.2, camera: world.find('cam') })");
+    g.e.step(30);
+    CHECK(g.state()["screenEffects"].empty());
+    // A wrong option is refused with the names, from the command and from the script.
+    auto bad = g.e.commands().call("feel.shockwave", Json::parse(R"({"raduis":0.5})"));
+    CHECK_FALSE(bad.ok);
+    CHECK_FALSE(g.e.scripts().eval("camera.shockwave({ radius: -1 })").ok());
+    CHECK(g.state()["screenEffects"].empty());
+    // feel.cancel ends them (a held fade too), a scene load drops what is alive.
+    g.call("feel.fade", R"({"direction":"out","duration":0.1})");
+    g.e.step(10);
+    CHECK(g.state()["screenEffects"].size() == 1);
+    g.call("feel.cancel", "{}");
+    CHECK(g.state()["screenEffects"].empty());
+    g.call("feel.fade", R"({"direction":"out","duration":0.1})");
+    g.call("scene.load", R"({"path":"scenes/main.scene.json"})");
+    g.e.step(2);
+    CHECK(g.state()["screenEffects"].empty());
+}

@@ -6,6 +6,8 @@
 //   @program mesh_skin vs_skin fs
 //   @program shadow shadow_vs shadow_fs
 //   @program shadow_skin shadow_vs_skin shadow_fs
+//   @program prepass prepass_vs prepass_fs
+//   @program prepass_skin prepass_vs_skin prepass_fs
 //
 // Metallic-roughness PBR (Cook-Torrance GGX) with normal, metallic-roughness, occlusion and emissive maps, up to 32
 // directional/point/spot lights, sky image-based lighting (a procedural environment built from the scene's sky and
@@ -18,6 +20,11 @@
 //
 // alphaMode "clip" defines FA_ALPHA_CLIP: fs discards below alphaCutoff after surface(), and the shadow programs run
 // surface() too (shadow_vs outputs the varyings, shadow_fs includes the fragment resources) to cut the same holes.
+//
+// The prepass programs draw the view-space linear depth and normal of the opaque meshes for the depth-based post effects (ambient
+// occlusion, depth of field, fog, ...): vertex() and surface() run as in the main pass (a displaced vertex, a cutout, a normal map
+// give the depth and normal the camera sees). The pass writes one RGBA float texel per pixel, see prepass_fs. There fa_light_vp
+// holds the VIEW matrix (the shadow matrix is not used), fa_view_proj the camera's.
 //
 // Every engine identifier starts with fa_ (FA_ for constants), so "names starting with fa_ are the engine's" is the one
 // rule a snippet follows. Uniform block bindings: vertex 0 fa_mesh_vs_params, 3 fa_skin (4 is left for the material's
@@ -203,8 +210,13 @@ layout(binding=1) uniform fa_mesh_fs_params {
     vec4 fa_emissive;           // rgb MeshRenderer.emissive, w = 1 when unlit
     vec4 fa_model_emissive;     // rgb glTF emissiveFactor (multiplies fa_emissive_tex)
     vec4 fa_pbr;                // x metallic, y roughness, z receive shadow (0/1), w shadow depth bias
-    vec4 fa_maps;               // x normal scale, y occlusion strength, z = 1 when a normal map is bound
-    vec4 fa_fog;                // rgb color, w density
+    vec4 fa_maps;               // x normal scale, y occlusion strength, z = 1 when a normal map is bound, w = the colour space
+                                // fixes of the textures (SceneSettings.colorSpace, see fa_tex_fix): base + 4 * emissive +
+                                // 16 * normal + 64 * metallic-roughness + 256 * occlusion, each 0, 1 or 2; 0 in a gamma scene with 8-bit images
+    vec4 fa_fog;                // rgb color, w density (exponential squared, SceneSettings.fogDensity or the stack's fogDensity)
+    vec4 fa_fog_b;              // the stack's fog (PostProcess.fog*) on a blended mesh: x = fogStart, y = height density,
+                                // z = height base (world y), w = height falloff; all 0 for the scene's own fog
+    vec4 fa_fog_c;              // xyz = the camera's forward axis in the world, w = 1 for an orthographic camera (0 otherwise)
     vec4 fa_counts;             // x = light count, y = shadow texel size, z = 1 on OpenGL backends
     vec4 fa_env_sky;            // rgb sky color (top of the environment)
     vec4 fa_env_horizon;        // rgb horizon color
@@ -220,24 +232,49 @@ in vec4 fa_vertex_color;
 @include_block fa_types
 @include_block fa_user
 
+// The sRGB transfer functions (the CPU side is engine/render/src/color_space.h) and the fix of one texture sample: 0 = as
+// sampled, 1 = sRGB-encoded values -> linear (a colour texture the GPU did not decode), 2 = linear -> sRGB-encoded (a data
+// texture the GPU decoded as sRGB, or any texture in a gamma scene).
+vec3 fa_srgb_to_linear(vec3 c) {
+    c = max(c, vec3(0.0));
+    return mix(pow((c + 0.055) / 1.055, vec3(2.4)), c / 12.92, step(c, vec3(0.04045)));
+}
+vec3 fa_linear_to_srgb(vec3 c) {
+    c = max(c, vec3(0.0));
+    return mix(1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, c * 12.92, step(c, vec3(0.0031308)));
+}
+vec3 fa_tex_fix(vec3 c, float mode) {
+    // Explicit branches on a uniform: a gamma scene (mode 0) skips both pow() blocks instead of computing and discarding them.
+    if (mode > 1.5) {
+        c = fa_linear_to_srgb(c);
+    } else if (mode > 0.5) {
+        c = fa_srgb_to_linear(c);
+    }
+    return c;
+}
+float fa_fix_of(float packed, float scale) { return mod(floor(packed / scale + 0.01), 4.0); }
+
 // What a MeshRenderer without a material draws: texture * color, normal map, metallic/roughness maps, occlusion,
 // emissive. surface() starts from it.
 Surface fa_standard_surface(in SurfaceInput i) {
     Surface s;
-    vec4 albedo4 = texture(sampler2D(fa_tex, fa_smp), i.uv) * fa_base_color * i.vertex_color;
+    vec4 base_t = texture(sampler2D(fa_tex, fa_smp), i.uv);
+    base_t.rgb = fa_tex_fix(base_t.rgb, fa_fix_of(fa_maps.w, 1.0));
+    vec4 albedo4 = base_t * fa_base_color * i.vertex_color;
     s.albedo = albedo4.rgb;
     s.alpha = albedo4.a;
     s.normal = i.world_normal;
     if (fa_maps.z > 0.5) {
-        vec3 m = texture(sampler2D(fa_normal_tex, fa_smp), i.uv).xyz * 2.0 - 1.0;
+        vec3 m = fa_tex_fix(texture(sampler2D(fa_normal_tex, fa_smp), i.uv).xyz, fa_fix_of(fa_maps.w, 16.0)) * 2.0 - 1.0;
         m.xy *= fa_maps.x;
         s.normal = fa_tangent_normal(i, m);
     }
     vec4 mrt = texture(sampler2D(fa_mr_tex, fa_smp), i.uv);
+    mrt.rgb = fa_tex_fix(mrt.rgb, fa_fix_of(fa_maps.w, 64.0));
     s.metallic = clamp(fa_pbr.x * mrt.b, 0.0, 1.0);
     s.roughness = clamp(fa_pbr.y * mrt.g, 0.05, 1.0);
-    s.occlusion = 1.0 + fa_maps.y * (texture(sampler2D(fa_occlusion_tex, fa_smp), i.uv).r - 1.0);
-    s.emission = fa_emissive.rgb + fa_model_emissive.rgb * texture(sampler2D(fa_emissive_tex, fa_smp), i.uv).rgb;
+    s.occlusion = 1.0 + fa_maps.y * (fa_tex_fix(texture(sampler2D(fa_occlusion_tex, fa_smp), i.uv).rrr, fa_fix_of(fa_maps.w, 256.0)).r - 1.0);
+    s.emission = fa_emissive.rgb + fa_model_emissive.rgb * fa_tex_fix(texture(sampler2D(fa_emissive_tex, fa_smp), i.uv).rgb, fa_fix_of(fa_maps.w, 4.0));
     return s;
 }
 @end
@@ -370,10 +407,32 @@ void main() {
         result = lit;
     }
     result += s.emission;
-    if (fa_fog.w > 0.0) {
-        float dist = length(fa_camera_pos.xyz - i.world_pos);
-        float f = 1.0 - exp(-(fa_fog.w * dist) * (fa_fog.w * dist));
-        result = mix(result, fa_fog.rgb, clamp(f, 0.0, 1.0));
+    if (fa_fog.w > 0.0 || fa_fog_b.y > 0.0) {
+        // The same formula as the fog of the post stack (fog.glsl): from fogStart along the view ray, the distance fog
+        // (density * length)^2 plus the integral of the height density; the scene's own fog is the case start = 0, no height.
+        vec3 rel = i.world_pos - fa_camera_pos.xyz;
+        float dep = dot(rel, fa_fog_c.xyz);
+        float dist = fa_fog_c.w > 0.5 ? dep : length(rel);
+        float len = dist - fa_fog_b.x;
+        if (len > 0.0) {
+            float tau = fa_fog.w * len;
+            tau *= tau;
+            if (fa_fog_b.y > 0.0) {
+                float py = i.world_pos.y;
+                float ey = fa_fog_c.w > 0.5 ? py - fa_fog_c.y * dep : fa_camera_pos.y;
+                float ya = mix(ey, py, clamp(fa_fog_b.x / dist, 0.0, 1.0));
+                float dy = py - ya;
+                float ka = ya - fa_fog_b.z;
+                float kb = py - fa_fog_b.z;
+                float ha = (ka <= 0.0 || fa_fog_b.w < 1e-4) ? fa_fog_b.y : fa_fog_b.y * exp(-min(fa_fog_b.w * ka, 80.0));
+                float ia = (ka <= 0.0 || fa_fog_b.w < 1e-4) ? fa_fog_b.y * ka : fa_fog_b.y * (1.0 - exp(-min(fa_fog_b.w * ka, 80.0))) / fa_fog_b.w;
+                float ib = (kb <= 0.0 || fa_fog_b.w < 1e-4) ? fa_fog_b.y * kb : fa_fog_b.y * (1.0 - exp(-min(fa_fog_b.w * kb, 80.0))) / fa_fog_b.w;
+                float avg = abs(dy) < 1e-3 ? ha : (ib - ia) / dy;
+                tau += len * max(avg, 0.0);
+            }
+            float f = 1.0 - exp(-clamp(tau, 0.0, 80.0));
+            result = mix(result, fa_fog.rgb, clamp(f, 0.0, 1.0));
+        }
     }
     fa_frag_color = vec4(result, s.alpha);
 }
@@ -489,5 +548,120 @@ void main() {
     if (s.alpha < alphaCutoff) { discard; }
 #endif
     fa_frag_color = vec4(gl_FragCoord.z, 0.0, 0.0, 1.0);
+}
+@end
+
+// ---- the depth and normal prepass (M71) ----
+// Both vertex shaders have the attributes of the main program (vs, vs_skin), so the engine's mesh pipeline layout serves them.
+// The vertex outputs of the prepass: what surface() reads (as the shadow programs of an alphaMode "clip" material), the linear view
+// depth, and the rotation of the view matrix as three rows (the fragment shader turns the surface normal, which surface() may have
+// changed, into view space; a varying that is the same at every vertex is exact after interpolation).
+@block fa_prepass_vs
+out vec3 fa_world_pos;
+out vec3 fa_world_normal;
+out vec4 fa_world_tangent;
+out vec2 fa_uv;
+out vec4 fa_vertex_color;
+out float fa_pre_depth;
+out vec3 fa_pre_r0;
+out vec3 fa_pre_r1;
+out vec3 fa_pre_r2;
+
+void fa_prepass_vertex(mat4 model, vec3 position, vec3 normal, vec4 tangent, vec2 texcoord0, vec4 color) {
+    VertexData v = fa_vertex_data(model, position, normal, tangent, texcoord0, color);
+#ifdef FA_HAS_VERTEX
+    vertex(v);
+#endif
+    mat4 view = fa_light_vp;
+    vec4 wp = vec4(v.world_pos, 1.0);
+    fa_world_pos = v.world_pos;
+    fa_world_normal = v.world_normal;
+    fa_world_tangent = v.world_tangent;
+    fa_uv = v.uv;
+    fa_vertex_color = v.color;
+    // The camera looks down -z in view space: the depth is the distance along the view axis, positive in front.
+    fa_pre_depth = -(view * wp).z;
+    fa_pre_r0 = vec3(view[0].x, view[1].x, view[2].x);
+    fa_pre_r1 = vec3(view[0].y, view[1].y, view[2].y);
+    fa_pre_r2 = vec3(view[0].z, view[1].z, view[2].z);
+    gl_Position = fa_view_proj * wp;
+}
+@end
+
+@vs prepass_vs
+@include_block fa_vs_common
+@include_block fa_prepass_vs
+layout(location=0) in vec3 fa_position;
+layout(location=1) in vec3 fa_normal;
+layout(location=2) in vec2 fa_texcoord0;
+layout(location=3) in vec4 fa_tangent;
+layout(location=4) in vec4 fa_color;
+layout(location=5) in vec4 fa_inst_m0;
+layout(location=6) in vec4 fa_inst_m1;
+layout(location=7) in vec4 fa_inst_m2;
+layout(location=8) in vec4 fa_inst_m3;
+void main() {
+    fa_prepass_vertex(mat4(fa_inst_m0, fa_inst_m1, fa_inst_m2, fa_inst_m3), fa_position, fa_normal, fa_tangent, fa_texcoord0, fa_color);
+}
+@end
+
+@vs prepass_vs_skin
+@include_block fa_vs_common
+@include_block fa_skin_common
+@include_block fa_prepass_vs
+layout(location=0) in vec3 fa_position;
+layout(location=1) in vec3 fa_normal;
+layout(location=2) in vec2 fa_texcoord0;
+layout(location=3) in vec4 fa_tangent;
+layout(location=4) in vec4 fa_color;
+layout(location=5) in vec4 fa_inst_m0;
+layout(location=6) in vec4 fa_inst_m1;
+layout(location=7) in vec4 fa_inst_m2;
+layout(location=8) in vec4 fa_inst_m3;
+layout(location=9) in vec4 fa_joints;
+layout(location=10) in vec4 fa_weights;
+void main() {
+    fa_prepass_vertex(mat4(fa_inst_m0, fa_inst_m1, fa_inst_m2, fa_inst_m3) * fa_skin_matrix(fa_joints, fa_weights), fa_position,
+                      fa_normal, fa_tangent, fa_texcoord0, fa_color);
+}
+@end
+
+// One texel per pixel of the prepass target (an RGBA float image, cleared to r = far, a = 0 where nothing is drawn):
+//   r  the linear view depth in world units (the distance along the camera's axis, so the same for a perspective and an
+//      orthographic camera and in every graphics API); far (60000) where nothing was drawn, and never more than that where
+//      something was (clamped, so an RGBA16F fallback never stores Inf)
+//   gb the surface normal in view space (x right, y up, z toward the camera), octahedral encoded in -1..1 (decode below); 0 0 where
+//      nothing was drawn
+//   a  1 where an opaque mesh was drawn, 0 where not: the truth about coverage (a drawn surface at 60000 or more has r = 60000 too)
+// The normal is the one the main pass lights with (a normal map and surface() included); a cutout (alphaMode "clip") leaves holes.
+@fs prepass_fs
+@include_block fa_fs_surface
+in float fa_pre_depth;
+in vec3 fa_pre_r0;
+in vec3 fa_pre_r1;
+in vec3 fa_pre_r2;
+out vec4 fa_frag_color;
+void main() {
+    SurfaceInput i;
+    i.world_pos = fa_world_pos;
+    i.front_facing = gl_FrontFacing;
+    i.world_normal = normalize(fa_world_normal);
+    if (!i.front_facing) { i.world_normal = -i.world_normal; }
+    i.world_tangent = fa_world_tangent;
+    i.uv = fa_uv;
+    i.vertex_color = fa_vertex_color;
+    i.view_dir = normalize(fa_camera_pos.xyz - fa_world_pos);
+    Surface s = fa_standard_surface(i);
+    surface(i, s);
+#ifdef FA_ALPHA_CLIP
+    if (s.alpha < alphaCutoff) { discard; }
+#endif
+    vec3 n = normalize(s.normal);
+    vec3 nv = normalize(vec3(dot(fa_pre_r0, n), dot(fa_pre_r1, n), dot(fa_pre_r2, n)));
+    // Octahedral encoding: the sphere folded onto the square -1..1 (decode: n = (e.x, e.y, 1 - |e.x| - |e.y|); where n.z < 0,
+    // e = (1 - |e.yx|) * sign(e) first; normalize).
+    vec2 e = nv.xy / (abs(nv.x) + abs(nv.y) + abs(nv.z));
+    if (nv.z < 0.0) { e = (1.0 - abs(e.yx)) * vec2(e.x >= 0.0 ? 1.0 : -1.0, e.y >= 0.0 ? 1.0 : -1.0); }
+    fa_frag_color = vec4(min(fa_pre_depth, 60000.0), e, 1.0);
 }
 @end

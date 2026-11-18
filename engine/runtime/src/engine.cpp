@@ -470,6 +470,13 @@ void Engine::Impl::draw(double dt, bool settled) {
     renderer->begin_frame();
     renderer->render_world(world, float(dt));
     renderer->end_frame();
+    // HDR output (docs/RENDERING.md, "HDR output"): the window's swapchain follows SceneSettings.hdrOutput and the display the
+    // window is on, before the swapchain of this frame is taken. The editor's window shows its own UI: it never switches.
+    if (windowed && !gpu) {
+        static const std::string kEditorBlocked = "the editor shows the game in its own view, in the standard range";
+        static const std::string kNotBlocked;  // no string is built or copied per frame
+        renderer->update_output(world.settings(), cfg.editorMode ? kEditorBlocked : kNotBlocked);
+    }
     if (gpu)
         gpu->end_frame();
     else if (windowed && !cfg.editorMode)
@@ -521,8 +528,8 @@ void Engine::Impl::poll_hot_reload(bool force) {
     for (const std::string& p : changed) {
         const bool songAsset = ends_with(p, ".song.json");
         const bool renderAsset =
-            ends_with(p, ".material.json") ||
-            has_ext(p, {".glsl", ".png", ".jpg", ".jpeg", ".tga", ".bmp", ".ttf", ".otf", ".obj", ".gltf", ".glb"});
+            ends_with(p, ".material.json") || has_ext(p, {".glsl", ".png", ".jpg", ".jpeg", ".tga", ".bmp", ".ttf",
+                                                          ".otf", ".obj", ".gltf", ".glb", ".cube"});
         if (assetsOnly && !renderAsset && !songAsset && !has_ext(p, {".wav", ".ogg", ".mp3", ".qoa"}))
             continue;  // scripts, scenes and locales belong to the host
         if (starts_with(p, "locales/") && has_ext(p, {".json"})) {

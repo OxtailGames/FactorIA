@@ -162,6 +162,71 @@ TEST_CASE("frame graph report: the graph, the pass times and the GPU state of th
     CHECK(gpu["maxTimedPasses"].get<int>() > 0);
 }
 
+TEST_CASE("post pass times: the post passes are named, summed, and a missing GPU time is null with a reason, never 0") {
+    CHECK(is_post_pass("camera:0/post"));
+    CHECK(is_post_pass("camera:0/bloom-bright"));
+    CHECK(is_post_pass("target:minimap/exposure-adapt"));
+    CHECK(is_post_pass("post"));
+    CHECK(!is_post_pass("camera:0/prepass"));
+    CHECK(!is_post_pass("camera:0/sprite-coverage"));
+    CHECK(!is_post_pass("camera:0/game"));
+
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    World world;
+    bloom_scene(world);
+    g.render(world);  // the profiler is off: nothing is timed on the GPU
+    Json rep = g.renderer.frame_graph_report();
+    REQUIRE(rep["postProcess"].is_object());
+    const Json* pp = &rep["postProcess"];
+    REQUIRE((*pp)["passes"].size() > 0);  // the bloom passes
+    bool bright = false;
+    double cpu = 0.0;
+    for (const Json& p : (*pp)["passes"]) {
+        bright = bright || p["name"].get<std::string>().find("bloom-bright") != std::string::npos;
+        CHECK(is_post_pass(p["name"].get<std::string>()));
+        cpu += p["cpuMs"].get<double>();
+    }
+    CHECK(bright);
+    CHECK(cpu == doctest::Approx((*pp)["cpuMs"].get<double>()).epsilon(0.01).scale(1.0));
+    CHECK((*pp)["gpuMs"].is_null());
+    CHECK((*pp)["gpuStatus"] == "unavailable");
+    REQUIRE((*pp)["gpuReason"].is_string());
+    CHECK(!(*pp)["gpuReason"].get<std::string>().empty());
+    const PostPassTimes none = post_pass_times(g.renderer.stats());
+    CHECK(none.gpuMs == -1.0);
+    CHECK(none.passes.size() == (*pp)["passes"].size());
+
+    {  // with the profiler on: a number, or the same "unavailable" with the backend's reason
+        ProfilerOn on;
+        for (int i = 0; i < 12; ++i) g.render(world);
+        rep = g.renderer.frame_graph_report();
+        pp = &rep["postProcess"];
+        if ((*pp)["gpuStatus"] == "measured") {
+            CHECK((*pp)["gpuMs"].get<double>() >= 0.0);
+            CHECK((*pp)["gpuReason"].is_null());
+        } else {
+            CHECK((*pp)["gpuMs"].is_null());
+            CHECK((*pp)["gpuReason"].is_string());
+        }
+    }
+}
+
+TEST_CASE("is_post_pass: an effect's own name or <effect>-<what>, nothing that merely starts like it") {
+    CHECK(is_post_pass("main/post"));
+    CHECK(is_post_pass("camera:2/post-base"));  // per-camera stacks (M71-C3a): the pass under the cameras' rectangles
+    CHECK(is_post_pass("camera:1/exposure-luma"));
+    CHECK(is_post_pass("camera:1/exposure-adapt"));
+    CHECK(!is_post_pass("camera:1/post-basement"));
+    CHECK(is_post_pass("main/bloom-bright"));
+    CHECK(is_post_pass("main/ssao"));
+    CHECK(is_post_pass("main/color-filter"));
+    CHECK(!is_post_pass("main/fogbank"));
+    CHECK(!is_post_pass("main/taaa"));
+    CHECK(!is_post_pass("main/prepass"));
+    CHECK(!is_post_pass("main/sprite-coverage"));
+}
+
 TEST_CASE("frame graph report: null before the first frame") {
     Gfx& g = gfx();
     REQUIRE(g.ok);

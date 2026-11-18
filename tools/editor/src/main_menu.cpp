@@ -168,6 +168,10 @@ menu::MainMenu Editor::build_main_menu(bool native) {
     view.push_back(with(toggle("Profiler", showProfiler_), "menu:profiler",
                         "Where the time goes while the game plays: milliseconds per engine system and per script "
                         "behaviour class, GPU time, memory"));
+    view.push_back(with(
+        toggle("Post-processing", showPostFx_), "menu:postfx",
+        "The post-processing stack of a camera: each effect in the order it runs, where every value comes from, what "
+        "this renderer draws, looks to start from, and a switch to compare with the stack off"));
     view.push_back(
         with(toggle("Level generator", showLevelGen_), "menu:levelgen",
              "Make a level from a sample you drew: pick a seed, regenerate, preview it and keep the one you like"));

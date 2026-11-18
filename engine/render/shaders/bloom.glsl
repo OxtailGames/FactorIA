@@ -35,20 +35,21 @@ void main() {
 @include_block source
 layout(binding=1) uniform bloom_bright_params {
     vec4 p;         // xy = one SOURCE texel in uv units, z = threshold, w = 1 / max(1 - threshold, 1/255)
-    vec4 q;         // x = taps per axis: 2 (writes 1/2 res) or 4 (writes 1/4 res); the n x n source pixels are covered exactly
+    vec4 q;         // x = taps per axis: 2 (writes 1/2 res) or 4 (writes 1/4 res); the n x n source pixels are covered exactly,
+                    // y = half-width of the soft knee in units of the ramp (PostProcess.bloomKnee / 2; 0 = the hard start of Camera.bloom)
 };
 in vec2 uv;
 out vec4 frag_color;
 
-// One channel of the float game target made safe: NaN, Inf and anything from 65000 up (RGBA16F tops out at 65504, where an
-// overflow ends) become 0, a negative becomes 0. NaN/Inf are found by their bits (an all-ones exponent), not by a comparison
+// One channel of the float game target made safe: NaN and Inf become 0, a negative becomes 0, a finite value is kept up to 65504
+// (what RGBA16F holds; the same rule as post.glsl). NaN/Inf are found by their bits (an all-ones exponent), not by a comparison
 // or isnan(): drivers compile with fast-math (Metal by default) and may fold those away, because they assume no NaN or Inf
 // exists. Without this one NaN pixel (a pow() of a negative in a custom material, a 0/0) would spread through the blur over
 // the whole glow. A multisample resolve can average an Inf at a lamp's edge into a large finite value, which is light as far
 // as this pass can tell.
 float sane(float x) {
-    if (((floatBitsToUint(x) >> 23u) & 255u) == 255u || x >= 65000.0) return 0.0;
-    return max(x, 0.0);
+    if (((floatBitsToUint(x) >> 23u) & 255u) == 255u) return 0.0;
+    return clamp(x, 0.0, 65504.0);
 }
 
 // Keeps the hue; scales the color from 0 (at the threshold) to 1 (at full brightness). "Brightness" is the largest
@@ -56,7 +57,12 @@ float sane(float x) {
 vec3 bright(vec3 c) {
     c = vec3(sane(c.r), sane(c.g), sane(c.b));
     float v = max(c.r, max(c.g, c.b));
-    float f = clamp((v - p.z) * p.w, 0.0, 1.0);
+    // The ramp x runs from 0 at the threshold to 1 at full brightness. A soft knee of half-width w rounds its start: below -w nothing,
+    // above w the ramp itself, and between them the parabola (x + w)^2 / 4w that meets both with the same slope.
+    float x = (v - p.z) * p.w;
+    float w = q.y;
+    float f = clamp(x, 0.0, 1.0);
+    if (w > 1e-5 && x > -w && x < w) f = (x + w) * (x + w) / (4.0 * w);
     return c * f;
 }
 
@@ -121,13 +127,17 @@ void main() {
 // ---- composite (additive, see Gpu::bloom_pipeline) --------------------------------------------------------
 @fs fs_composite
 @include_block source
+layout(binding=1) uniform texture2D dirt_tex;   // the lens dirt (PostProcess.bloomLensDirt), stretched over the picture; a white image when unused
 layout(binding=1) uniform bloom_composite_params {
-    vec4 p;         // x = intensity
+    vec4 p;         // x = intensity, y = lens dirt intensity (0 = none: the glow is added as it is)
 };
 in vec2 uv;
 out vec4 frag_color;
 void main() {
-    frag_color = vec4(fetch(uv) * p.x, 0.0);
+    vec3 glow = fetch(uv) * p.x;
+    // A dirty lens scatters more light where the dirt is: the glow is multiplied by 1 + dirt * intensity.
+    vec3 dirt = textureLod(sampler2D(dirt_tex, smp), uv, 0.0).rgb;
+    frag_color = vec4(glow * (1.0 + dirt * p.y), 0.0);
 }
 @end
 

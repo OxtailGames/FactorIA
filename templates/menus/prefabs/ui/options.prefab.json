@@ -5,6 +5,8 @@
     "components": {
       "Panel": {
         "size": [760, 680],
+        "minSize": [760, 680],
+        "fit": true,
         "anchor": [0.5, 0.5],
         "layer": 300,
         "layout": "column",
@@ -39,7 +41,8 @@
             "layout": "row",
             "direction": "auto",
             "padding": [0, 0, 0, 0],
-            "fit": true
+            "fit": true,
+            "fallbackLayout": "column"
           }
         },
         "children": [
@@ -50,7 +53,7 @@
                 "autoSize": true,
                 "text": "Video",
                 "key": "options.tab.video",
-                "size": [160, 48],
+                "size": [136, 48],
                 "layer": 302,
                 "autoFocus": true
               }
@@ -63,7 +66,7 @@
                 "autoSize": true,
                 "text": "Audio",
                 "key": "options.tab.audio",
-                "size": [160, 48],
+                "size": [136, 48],
                 "layer": 302
               }
             }
@@ -75,7 +78,7 @@
                 "autoSize": true,
                 "text": "Controls",
                 "key": "options.tab.controls",
-                "size": [160, 48],
+                "size": [136, 48],
                 "layer": 302
               }
             }
@@ -87,7 +90,19 @@
                 "autoSize": true,
                 "text": "Language",
                 "key": "options.tab.language",
-                "size": [160, 48],
+                "size": [136, 48],
+                "layer": 302
+              }
+            }
+          },
+          {
+            "id": "tab_graphics",
+            "components": {
+              "Button": {
+                "autoSize": true,
+                "text": "Graphics",
+                "key": "options.tab.graphics",
+                "size": [136, 48],
                 "layer": 302
               }
             }
@@ -198,6 +213,120 @@
               "Text": {
                 "text": "Video settings apply when the game runs in its own window.",
                 "key": "options.videoNote",
+                "fontSize": 18,
+                "color": [0.75, 0.8, 0.9, 1],
+                "space": "screen",
+                "align": "start",
+                "maxWidth": 560,
+                "layer": 302
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": "graphics_section",
+        "components": {
+          "Panel": {
+            "size": [712, 424],
+            "layer": 301,
+            "color": [0, 0, 0, 0.25],
+            "layout": "column",
+            "direction": "auto",
+            "align": "start",
+            "spacing": 8
+          }
+        },
+        "children": [
+          {
+            "id": "gfx_quality",
+            "components": {
+              "Button": {
+                "autoSize": true,
+                "text": "Effects quality",
+                "size": [560, 44],
+                "layer": 302,
+                "fontSize": 22
+              }
+            }
+          },
+          {
+            "id": "gfx_bloom",
+            "components": {
+              "Toggle": {
+                "autoSize": true,
+                "label": "Bloom",
+                "key": "options.gfx.bloom",
+                "size": [560, 44],
+                "layer": 302
+              }
+            }
+          },
+          {
+            "id": "gfx_grain",
+            "components": {
+              "Toggle": {
+                "autoSize": true,
+                "label": "Film grain",
+                "key": "options.gfx.grain",
+                "size": [560, 44],
+                "layer": 302
+              }
+            }
+          },
+          {
+            "id": "gfx_vignette",
+            "components": {
+              "Toggle": {
+                "autoSize": true,
+                "label": "Vignette",
+                "key": "options.gfx.vignette",
+                "size": [560, 44],
+                "layer": 302
+              }
+            }
+          },
+          {
+            "id": "gfx_chromatic",
+            "components": {
+              "Toggle": {
+                "autoSize": true,
+                "label": "Chromatic aberration",
+                "key": "options.gfx.chromatic",
+                "size": [560, 44],
+                "layer": 302
+              }
+            }
+          },
+          {
+            "id": "gfx_outline",
+            "components": {
+              "Toggle": {
+                "autoSize": true,
+                "label": "Outlines",
+                "key": "options.gfx.outline",
+                "size": [560, 44],
+                "layer": 302
+              }
+            }
+          },
+          {
+            "id": "gfx_hdr",
+            "components": {
+              "Toggle": {
+                "autoSize": true,
+                "label": "HDR output",
+                "key": "options.gfx.hdr",
+                "size": [560, 44],
+                "layer": 302
+              }
+            }
+          },
+          {
+            "id": "graphics_note",
+            "components": {
+              "Text": {
+                "text": "This scene has no screen effects; your choices apply to the scenes that do.",
                 "fontSize": 18,
                 "color": [0.75, 0.8, 0.9, 1],
                 "space": "screen",

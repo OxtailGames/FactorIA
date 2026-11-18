@@ -46,6 +46,46 @@ bool readback_rgba8(sg_image image, int width, int height, std::vector<std::uint
     return ok;
 }
 
+bool readback_rgba16f(sg_image image, int width, int height, std::vector<float>& out, std::string* error) {
+    sg_gl_image_info info = sg_gl_query_image_info(image);
+    GLuint tex = info.tex[info.active_slot];
+    if (!tex) {
+        if (error) *error = "readback: the image has no GL texture";
+        return false;
+    }
+    GLint prevFbo = 0;
+    glGetIntegerv(GL_FRAMEBUFFER_BINDING, &prevFbo);
+    GLuint fbo = 0;
+    glGenFramebuffers(1, &fbo);
+    glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, tex, 0);
+    bool ok = glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE;
+    if (ok) {
+        // Clear the errors of earlier calls: a bounded count, because a lost context answers GL_CONTEXT_LOST on every call.
+        for (int i = 0; i < 16 && glGetError() != GL_NO_ERROR; ++i) {
+        }
+        const std::size_t stride = std::size_t(width) * 4;
+        std::vector<float> raw(stride * std::size_t(height));
+        glPixelStorei(GL_PACK_ALIGNMENT, 4);
+        glReadPixels(0, 0, width, height, GL_RGBA, GL_FLOAT, raw.data());
+        ok = glGetError() == GL_NO_ERROR;
+        if (ok) {
+            out.resize(raw.size());
+            for (int y = 0; y < height; ++y)  // GL rows are bottom-up
+                std::memcpy(&out[std::size_t(y) * stride], &raw[std::size_t(height - 1 - y) * stride],
+                            stride * sizeof(float));
+        } else if (error) {
+            *error = "readback: this GL driver does not read a float framebuffer back as floats";
+        }
+    } else if (error) {
+        *error = "readback: GL framebuffer incomplete while reading back a float image";
+    }
+    glBindFramebuffer(GL_FRAMEBUFFER, GLuint(prevFbo));
+    glDeleteFramebuffers(1, &fbo);
+    sg_reset_state_cache();
+    return ok;
+}
+
 }  // namespace fa::render
 
 #endif

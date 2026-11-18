@@ -16,6 +16,7 @@ const char* format_name(sg_pixel_format f) {
         case SG_PIXELFORMAT_NONE: return "none";
         case SG_PIXELFORMAT_RGBA8: return "rgba8";
         case SG_PIXELFORMAT_RGBA16F: return "rgba16f";
+        case SG_PIXELFORMAT_R16F: return "r16f";
         case SG_PIXELFORMAT_DEPTH: return "depth";
         case SG_PIXELFORMAT_DEPTH_STENCIL: return "depth_stencil";
         default: return nullptr;

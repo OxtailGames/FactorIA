@@ -1,6 +1,9 @@
 #include "renderer_impl.h"
 #include "scene2d.h"
+#include "render_features.h"
 
+#include <cstdlib>
+#include <cstring>
 #include <map>
 
 namespace fa {
@@ -93,8 +96,35 @@ CameraInfo Renderer::Impl::build_camera(World& world, Entity best, const Vec2* v
     }
     ci.clearColor = cam.clearColor;
     ci.clear = cam.clear || viewSize != nullptr;
-    ci.colorFilter = std::clamp(int(cam.colorFilter), 0, 5);
-    ci.bloom = sanitize_bloom(cam.bloom, cam.bloomThreshold, cam.bloomIntensity, cam.bloomRadius, cam.bloomScreenSpace);
+    // The deprecated Camera.bloom* and Camera.colorFilter fields are the PostProcess of a camera that has none: a hard bloom (knee 0)
+    // and the colour filter, exactly as before.
+    PostProcess legacy;
+    const bool useLegacy = legacy_post_of_camera(cam, legacy);
+    // A PostProcess of the camera's own wins over the deprecated fields: said once, or "bloom: true" would do nothing without a word.
+    if (useLegacy && best) {
+        const PostProcess* own = world.get<PostProcess>(best);
+        if (own && own->enabled && world.active_in_hierarchy(best) && warnedLegacyIgnored.insert(best.bits()).second)
+            FA_WARN("render",
+                    "Camera '{}' has Camera.bloom or Camera.colorFilter set and a PostProcess of its own: the "
+                    "deprecated fields are ignored. "
+                    "Hint: set bloomEnabled / colorFilterEnabled on the PostProcess (or remove the PostProcess).",
+                    world.id_of(best));
+    }
+    // The editor's A/B switch (set_post_bypass): the picture as the scene draws it, with no stack, to compare it with the stack on.
+    if (!postBypass && (useLegacy || world.any<PostProcess>())) {
+        auto stack = std::make_shared<PostStack>(resolve_post_stack(world, ci, useLegacy ? &legacy : nullptr));
+        ci.bloom = bloom_from_stack(*stack);
+        ci.colorFilter = stack->has(PostEffect::ColorFilter) ? std::clamp(int(stack->fx.colorFilterMode), 0, 5) : 0;
+        if (stack->any()) ci.postStack = std::move(stack);
+    }
+    // The transient screen effects (shockwave, flash, fade ...) of this camera: not part of the stack, they work with the editor's A/B
+    // switch on too (it compares the stack, not the game's own effects). The camera's own and those of every camera; a camera that
+    // draws into a texture (a minimap, a mirror) only has the ones aimed at it, so a fade of the game does not black it out.
+    for (const ScreenFx& e : world.feel().screenFx.live)
+        if (best && e.camera == best)
+            ci.screenFx.push_back(e);
+        else if (!e.camera && !renderTarget)
+            ci.screenFx.push_back(e);
     return ci;
 }
 
@@ -159,7 +189,7 @@ sg_desc make_sg_desc(const GfxEnvironment& env) {
     sd.image_pool_size = 1024;
     sd.view_pool_size = 4096;
     sd.sampler_pool_size = 64;
-    sd.shader_pool_size = 256;  // 11 built-in shaders, up to 4 per custom material
+    sd.shader_pool_size = 384;  // about 15 built-in shaders, up to 6 per custom material
     sd.pipeline_pool_size = 256;
     sd.uniform_buffer_size = 16 * 1024 * 1024;
     return sd;
@@ -222,6 +252,20 @@ int Renderer::warm_step(const GfxSwapchain& swapchain, World& world) {
         // Group order = what the first frames of a game need first. Every pipeline is keyed deterministically in Gpu, so a
         // frame that needs one before its group ran makes it itself, the same pipeline.
         im.warmGroups.push_back([gpu, presentFormat] { gpu->blit_pipeline(presentFormat); });
+        // A game that asks for HDR on a backend that has it: the copy into the RGBA16F swapchain (scRGB, EDR) is made before the
+        // window switches to it, not on the frame it does. D3D11 also falls back to the 10-bit swapchain (HDR10) where the driver
+        // refuses scRGB: that copy is made too (without multisampling: a 10-bit swapchain has no multisampled image, so such a
+        // window never takes it).
+        const render::FeatureBackend backend = render::feature_env_from_sokol().backend;
+        if (world.settings().hdrOutput == HdrOutput::Auto &&
+            (backend == render::FeatureBackend::Metal || backend == render::FeatureBackend::D3d11)) {
+            const TargetFormat hdrFormat{SG_PIXELFORMAT_RGBA16F, presentFormat.depth, presentFormat.samples};
+            im.warmGroups.push_back([gpu, hdrFormat] { gpu->blit_pipeline(hdrFormat); });
+            if (backend == render::FeatureBackend::D3d11 && presentFormat.samples <= 1) {
+                const TargetFormat hdr10Format{SG_PIXELFORMAT_RGB10A2, presentFormat.depth, presentFormat.samples};
+                im.warmGroups.push_back([gpu, hdr10Format] { gpu->blit_pipeline(hdr10Format); });
+            }
+        }
         im.warmGroups.push_back([gpu] {
             gpu->quad_pipeline(false, false, BlendMode::Alpha);
             gpu->quad_pipeline(false, false, BlendMode::Alpha, true);
@@ -302,6 +346,11 @@ bool Renderer::init(const RendererDesc& desc, const GfxEnvironment& env, std::st
     impl_ = std::make_unique<Impl>();
     Impl& im = *impl_;
     im.desc = desc;
+    if (const char* dv = std::getenv("FA_RENDER_DEBUG_VIEW"))
+        im.debugView = std::strcmp(dv, "depth") == 0     ? DebugView::Depth
+                       : std::strcmp(dv, "normals") == 0 ? DebugView::Normals
+                       : std::strcmp(dv, "ao") == 0      ? DebugView::Ao
+                                                         : DebugView::None;
     im.adopted = desc.adoptContext && sg_isvalid();
     if (!im.adopted) {
         sg_desc sd = make_sg_desc(env);
@@ -343,6 +392,9 @@ void Renderer::shutdown() {
     Impl& im = *impl_;
     if (im.initialized) {
         im.fonts.reset();
+        im.ssr.release();
+        im.sceneFx.release();
+        im.fogFx.release();
         im.ramps.destroy();
         im.assets.reset();
         im.destroy_targets();
@@ -400,18 +452,45 @@ DebugDraw& Renderer::debug() {
     static DebugDraw dummy;
     return impl_ ? impl_->debug : dummy;
 }
+bool is_post_pass(std::string_view passName) {
+    const std::size_t slash = passName.rfind('/');
+    const std::string_view n = slash == std::string_view::npos ? passName : passName.substr(slash + 1);
+    if (n == "post" || n == "post-base")
+        return true;  // a camera's final pass, and the pass under the cameras' rectangles
+    // A pass is an effect's when its name is the effect's or `<effect>-<what>`; "fogbank" or "taaa" are not.
+    for (std::string_view effect :
+         {"bloom", "exposure", "ssao", "dof", "ssr", "motion", "fog", "shafts", "radial", "taa", "color-filter"})
+        if (n == effect ||
+            (n.size() > effect.size() && n.substr(0, effect.size()) == effect && n[effect.size()] == '-'))
+            return true;
+    return false;
+}
+
+PostPassTimes post_pass_times(const RenderStats& st) {
+    PostPassTimes out;
+    for (const RenderStats::PassTime& p : st.passes) {
+        if (!is_post_pass(p.name)) continue;
+        out.cpuMs += p.cpuMs;
+        if (p.gpuMs >= 0.0) out.gpuMs = std::max(out.gpuMs, 0.0) + p.gpuMs;
+        out.passes.push_back(p);
+    }
+    return out;
+}
+
 RenderStats Renderer::stats(bool passTimes) const {
     if (!impl_) return RenderStats{};
     RenderStats s = impl_->stats;
     if (passTimes && impl_->passTimesPending) impl_->pass_times(s.passes, s.jobs);
     return s;
 }
-std::uint32_t Renderer::game_target_image_id() const {
-    if (!impl_) return 0;
-    return impl_->final_image().id;
+std::uint32_t Renderer::game_target_image_id() const { return impl_ ? impl_->display_image().id : 0; }
+std::uint32_t Renderer::game_target_view_id() const { return impl_ ? impl_->display_view().id : 0; }
+void Renderer::set_editor_view(bool on) {
+    if (!impl_) return;
+    impl_->editorView = on;
+    if (!on) destroy_target(impl_->editorTarget);
 }
-std::uint32_t Renderer::game_target_view_id() const { return impl_ ? impl_->final_view().id : 0; }
-bool Renderer::hdr_scene() const { return impl_ && impl_->gpu.scene_format() == SG_PIXELFORMAT_RGBA16F; }
+bool Renderer::hdr_scene() const { return impl_ && impl_->gpu.scene_is_float(); }
 
 void Renderer::reload_asset(std::string_view path) {
     if (impl_ && impl_->assets) impl_->assets->reload(std::string(path));
@@ -449,6 +528,67 @@ void Renderer::take_gpu_ms(std::vector<double>& out) {
     out.insert(out.end(), impl_->gpuFrames.begin(), impl_->gpuFrames.end());
     impl_->gpuFrames.clear();
 }
+
+bool Renderer::supports(std::string_view feature) const {
+    if (!initialized()) return false;
+    const int index = render::find_feature(feature);
+    if (index < 0) return false;
+    render::FeatureEnv env = render::feature_env_from_sokol();
+    render::set_hdr_env(env, app_hdr_output().display);
+    return render::feature_supported(env, index);
+}
+std::vector<std::string> Renderer::feature_names() { return fa::render::feature_names(); }
+Json Renderer::supports_report() const {
+    if (!initialized()) return Json::object();
+    render::FeatureEnv env = render::feature_env_from_sokol();
+    render::set_hdr_env(env, app_hdr_output().display);
+    return render::feature_report(env, backend_name());
+}
+
+void Renderer::update_output(const SceneSettings& settings, const std::string& blocked) {
+    if (!initialized()) return;
+    Impl& im = *impl_;
+    if (!im.backendKnown) {  // the backend never changes once the context is open: asked once, not every frame
+        im.backend = render::feature_env_from_sokol().backend;
+        im.backendKnown = true;
+    }
+    // Called every frame: the request is kept and changed only where a value differs (a string is compared, never assigned, when it
+    // is the same), so a game that does not want HDR (the common case) builds no string here and the platform answers "unchanged".
+    const bool want = settings.hdrOutput == HdrOutput::Auto;
+    HdrRequest& request = im.outputRequest;
+    if (!im.outputRequestMade) {
+        request = render::hdr_request(im.backend, want, settings.paperWhiteNits);
+        im.outputRequestMade = true;
+        // The window's switch belongs to the process, not to this renderer: a second renderer starts from what the window
+        // shows, since the platform answers "unchanged" (and fills nothing) while the request is the one of its last update.
+        im.outputInfo = app_hdr_output();
+    }
+    request.want = want;
+    request.paperWhiteNits = settings.paperWhiteNits;
+    if (request.blocked != blocked) request.blocked = blocked;
+    // What the status adds while an HDR encoding is on and the picture still stays within paper white (the last frame's); nothing
+    // is on when HDR is not wanted.
+    const char* note = "";
+    if (want) {
+        if (!im.float_display())
+            note = im.gpu.scene_format() == SG_PIXELFORMAT_RG11B10F
+                       ? "the scene is in R11G11B10, which holds the final picture in 8 bits, so it stays within paper "
+                         "white"
+                       : "this GPU draws the picture in 8 bits, so it stays within paper white";
+        else if (!im.frameAboveWhite)
+            note = "the picture stays within paper white: only the tonemap of a PostProcess (exposure or tonemap, "
+                   "no colour filter) goes above it";
+    }
+    if (request.activeNote != note) request.activeNote = note;
+    app_update_hdr_output(request, im.outputInfo);
+}
+
+HdrOutputInfo Renderer::output_info() const { return app_hdr_output(); }
+
+void Renderer::set_post_bypass(bool bypass) {
+    if (impl_) impl_->postBypass = bypass;
+}
+bool Renderer::post_bypass() const { return impl_ && impl_->postBypass; }
 
 Json Renderer::frame_graph_report() const {
     if (!impl_ || !(impl_->anyFrameRendered || impl_->graphFromCapture)) return Json();
@@ -493,6 +633,39 @@ Json Renderer::frame_graph_report() const {
     gpu["reason"] = why.empty() ? Json(nullptr) : Json(why);
     gpu["maxTimedPasses"] = GpuTimer::kMaxTimedPasses;
     out["gpu"] = std::move(gpu);
+    // The post-processing passes on their own: each with its times and their sum. A GPU time that does not exist is null with the
+    // reason ("unavailable"), never 0. The effects folded into the `post` pass share its time: they are not timed one by one.
+    {
+        RenderStats st;
+        st.passes = passes;
+        const PostPassTimes post = post_pass_times(st);
+        Json pl = Json::array();
+        for (const RenderStats::PassTime& p : post.passes)
+            pl.push_back(Json::object({{"name", p.name},
+                                       {"job", p.job},
+                                       {"cpuMs", r3(p.cpuMs)},
+                                       {"gpuMs", p.gpuMs >= 0.0 ? Json(r3(p.gpuMs)) : Json(nullptr)}}));
+        std::size_t timed = 0;
+        for (const RenderStats::PassTime& p : post.passes) timed += p.gpuMs >= 0.0 ? 1 : 0;
+        Json pp = Json::object();
+        pp["passes"] = std::move(pl);
+        pp["gpuPassesTimed"] = timed;
+        // A total over only some of the passes is a lower bound, never the whole cost: say so.
+        pp["gpuPartial"] = timed > 0 && timed < post.passes.size();
+        pp["cpuMs"] = r3(post.cpuMs);
+        pp["gpuMs"] = post.gpuMs >= 0.0 ? Json(r3(post.gpuMs)) : Json(nullptr);
+        pp["gpuStatus"] = post.gpuMs >= 0.0 ? "measured" : "unavailable";
+        pp["gpuReason"] = post.gpuMs >= 0.0     ? Json(nullptr)
+                          : post.passes.empty() ? Json("this frame has no post-processing pass")
+                          : !why.empty()        ? Json(why)
+                                                : Json("the GPU timer has no answer for these passes yet");
+        pp["note"] = "The sum of the passes named bloom-*, exposure-*, post and the other effect passes (prepass and "
+                     "sprite-coverage "
+                     "are not counted). Effects folded into the single `post` pass (vignette, grain, grading, sharpen, "
+                     "outline, ...) "
+                     "have no time of their own: `post` is their total.";
+        out["postProcess"] = std::move(pp);
+    }
     return out;
 }
 
@@ -590,11 +763,35 @@ render::TransientPoolStats render::renderer_transient_stats(Renderer& r) {
     return out;
 }
 
+void render::renderer_force_output(Renderer& r, const HdrOutputInfo* info) {
+    if (!r.impl_) return;
+    r.impl_->outputForced = info != nullptr;
+    r.impl_->forcedOutput = info ? *info : HdrOutputInfo{};
+}
+
+bool render::renderer_read_floats(Renderer& r, bool present, std::vector<float>& out, std::string* error) {
+    if (!r.initialized()) {
+        if (error) *error = "Renderer is not initialized";
+        return false;
+    }
+    return r.impl_->read_floats(present, out, error);
+}
+
 render::ShadowRowsStats render::renderer_shadow_rows_stats(Renderer& r) {
     render::ShadowRowsStats out;
     if (r.impl_) out = {int(r.impl_->shadowRowsRing.size()), int(r.impl_->shadowRowUploads)};
     return out;
 }
+
+void render::renderer_force_post_effects(Renderer& r, std::uint32_t effects) {
+    if (r.impl_) r.impl_->forceEffects = effects;
+}
+
+void Renderer::set_debug_view(DebugView view) {
+    if (impl_) impl_->debugView = view;
+}
+
+DebugView Renderer::debug_view() const { return impl_ ? impl_->debugView : DebugView::None; }
 
 void Renderer::update(World& world) {
     if (!initialized()) return;
@@ -665,6 +862,7 @@ void Renderer::Impl::setup_frame(Frame& fr, World& world, float dt) {
     fr.textScale = textScale;
     fr.uiScale = ui_scale_clamped(world.ui_scale());
     fr.renderScale = renderScale;
+    fr.linear = gpu.linear();
     fr.warnedLights2d = &warnedLights2d;
     fr.warnedShadows2d = &warnedShadows2d;
     fr.warnedSpriteMesh = &warnedSpriteMesh;
@@ -682,6 +880,11 @@ void Renderer::Impl::setup_frame(Frame& fr, World& world, float dt) {
 // camera and no viewport is one job that draws all of it in one pass, as before. Bloom and Camera.colorFilter act once over
 // the finished frame, with the settings of the first camera.
 void Renderer::Impl::render(World& world, float dt) {
+    sync_color_space(world);  // before anything is gathered or drawn: the scene's format and the colours depend on it
+    // What this frame is drawn for: the window's output as update_output() last answered (the final pass's tonemap and
+    // present() read it).
+    frameOutput = render::select_output(output(), float_display());
+    frameAboveWhite = false;
     auto t0 = std::chrono::steady_clock::now();
     if (Profiler::on()) {
         // Answers of earlier frames are read now (never waited for): the passes of this frame report them as their GPU time.
@@ -716,6 +919,7 @@ void Renderer::Impl::render(World& world, float dt) {
         warnedSpriteMesh = false;
         warnedGradientStops = false;
         warnedCameras = false;
+        warnedLegacyIgnored.clear();
     }
 
     struct JobSpec {
@@ -1043,6 +1247,7 @@ void Renderer::Impl::render(World& world, float dt) {
         plan_job(world, frames[i], plan);
     }
     run_frame_graph();
+    update_editor_copy();
     graphFromCapture = false;
     passTimesPending = true;  // stats() and the frame graph report build them from the graph when asked for
     stats.sortKeyFallbacks = int(std::min<std::uint64_t>(renderScene.sort_key_fallbacks(), 0x7fffffffu));
@@ -1142,6 +1347,8 @@ Renderer::BackgroundWork Renderer::background_work(std::string_view pathIn, Back
     switch (kind) {
         case BackgroundKind::Texture: {
             const sg_pixel_format format = impl_ ? render::ktx2_target_format() : SG_PIXELFORMAT_RGBA8;
+            // The colour space the texture will be made for (asked here, on the calling thread, not in the worker).
+            const bool srgbMips = impl_ && impl_->gpu.texture_format(SG_PIXELFORMAT_RGBA8) != SG_PIXELFORMAT_RGBA8;
             w.read = [path]() -> Result<IoFile> {
                 // As Assets::load_texture: an export packed it into an atlas (read the atlas), or made a KTX2 twin.
                 const assets::PackedTexture packed = assets::packed_texture(path);
@@ -1150,10 +1357,10 @@ Renderer::BackgroundWork Renderer::background_work(std::string_view pathIn, Back
                     fs::extension(key) == kTextureTwinExtension ? key : key + kTextureTwinExtension;
                 return background_read(fs::exists(twin) ? twin : key);
             };
-            w.decode = [path, format](IoFile& f) {
+            w.decode = [path, format, srgbMips](IoFile& f) {
                 const assets::PackedTexture packed = assets::packed_texture(path);
                 const std::string key = packed.atlas.empty() ? path : packed.atlas;
-                auto p = render::decode_texture_file(key, f.path, f.view.data(), f.view.size(), format);
+                auto p = render::decode_texture_file(key, f.path, f.view.data(), f.view.size(), format, srgbMips);
                 if (!p) return background_failure(p.error().message, p.error().hint);
                 IoResult r;
                 r.ok = true;

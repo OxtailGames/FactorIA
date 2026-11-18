@@ -24,6 +24,7 @@
 //   sg_commit() is done by end_frame()/present() as appropriate.
 #pragma once
 
+#include <cstdint>
 #include <functional>
 #include <memory>
 #include <optional>
@@ -36,6 +37,7 @@
 #include "fa/core/json.h"
 #include "fa/core/math.h"
 #include "fa/platform/app.h"
+#include "fa/platform/hdr_output.h"
 #include "fa/scene/rich_text.h"
 #include "fa/scene/text_fit.h"
 #include "fa/scene/world.h"
@@ -66,7 +68,21 @@ struct ShadowRowsStats {
     int slots = 0, uploads = 0;
 };
 ShadowRowsStats renderer_shadow_rows_stats(Renderer& r);
+// Draws the depth and normal prepass as if the camera's stack switched on the effects of `effects` (a mask like PostStack::mask, bit i =
+// PostEffect(i); 0 = as the stack says), for the tests of the prepass: no effect that reads it is drawn yet.
+void renderer_force_post_effects(Renderer& r, std::uint32_t effects);
+// The HDR output: the next frames are drawn and presented as if update_output() had answered `info` (null: back to what it
+// answers), for the render tests of the encodes without an HDR display.
+void renderer_force_output(Renderer& r, const HdrOutputInfo* info);
+// The last frame's finished picture as floats (RGBA, top row first): as the final target holds it (`present` false), or
+// through present()'s encode for the output (scRGB, PQ, EDR or sRGB values). False with `error` where the GPU cannot draw or
+// read back an RGBA16F image.
+bool renderer_read_floats(Renderer& r, bool present, std::vector<float>& out, std::string* error);
 }  // namespace render
+
+// What the renderer shows instead of the game picture, to check the depth and normal prepass and the ambient occlusion
+// (Renderer::set_debug_view). Ao paints the occlusion as a grey over the picture, drawn with the camera's own settings or the defaults.
+enum class DebugView : std::uint8_t { None, Depth, Normals, Ao };
 
 enum class ScaleMode : std::int32_t {
     Fit,          // keep aspect, letterbox (default)
@@ -162,6 +178,21 @@ struct RenderStats {
     std::vector<JobTime> jobs;     // one per job, in the order the first pass of each ran
     Json to_json() const;
 };
+
+// Whether a pass of the frame graph belongs to the post-processing: its name (`<job>/<pass>` or the part after the last '/') is
+// `post`, or starts with `bloom-`, `exposure-`, `ssao`, `dof`, `ssr`, `motion`, `fog`, `shafts`, `radial` or `taa`. The `prepass`
+// and `sprite-coverage` passes are not counted: they also serve the 3D picture, and they feed the effects that need them.
+bool is_post_pass(std::string_view passName);
+
+// What the post-processing passes of one frame cost: the passes of `st` that is_post_pass() accepts, and their sum. `gpuMs` is the
+// sum of the passes that have a GPU time, -1 when none has one (no timer on this backend, the profiler off, or no answer yet:
+// never a 0 that would look like a measurement). Effects folded into the single `post` pass are not timed one by one.
+struct PostPassTimes {
+    std::vector<RenderStats::PassTime> passes;
+    double cpuMs = 0.0;
+    double gpuMs = -1.0;
+};
+PostPassTimes post_pass_times(const RenderStats& st);
 
 // Immediate-mode debug drawing (cleared after each render). World space unless
 // stated; drawn on top of the scene. Scripts reach it via `debug.line(...)`.
@@ -383,9 +414,16 @@ public:
     // when asked for (about 40 strings), so a caller that reads the counters of every frame passes false.
     RenderStats stats(bool passTimes = true) const;
 
-    // Native handle of the game target color image (sg_image id) for the editor viewport.
+    // Native handle of the picture the editor viewport shows (sg_image id) and a texture view of it for sampling (sg_view id): the
+    // finished game image (after the colour filter) in a gamma scene. In a linear scene that image holds linear light, which would be
+    // too dark on screen: once set_editor_view(true) was called these are an 8-bit copy encoded to sRGB, made after each frame and
+    // freed when the scene goes back to gamma (0 until the first frame of a linear scene made it). The same copy clamps a picture
+    // above paper white (an HDR output's final pass) to the standard range. Without set_editor_view they are the game image as it is.
     std::uint32_t game_target_image_id() const;
-    std::uint32_t game_target_view_id() const;  // texture view (sg_view id) for sampling
+    std::uint32_t game_target_view_id() const;
+    // Asks for the encoded copy above (the editor calls it once). Costs one full-screen copy per frame of a linear scene, so a game
+    // never asks. false frees the copy.
+    void set_editor_view(bool on);
     // True when the game target holds colours above white (a 16-bit float format): MeshRenderer.emissiveStrength above 1 then
     // reaches Camera.bloom with its full strength. False on a GPU that cannot render to RGBA16F with blending, filtering and the
     // requested multisampling (or with FA_SCENE_FORMAT=rgba8), or that lists it but cannot make the game target's images in it
@@ -442,13 +480,58 @@ public:
     // gpuMs is -1 where there is no measurement (gpu_timing_supported(), and the profiler must be on). Measurement only.
     Json frame_graph_report() const;
 
+    // Whether this renderer can do `feature` on the backend and GPU it runs on: a capability of the GPU ("floatTargets",
+    // "r11g11b10", "sampledDepth", "computeShaders"), an engine feature ("linearColor", "hdrOutput") or a post effect (the
+    // names of kPostEffectOrder: "bloom", "tonemap", ...). False for a name that is not in feature_names(), before init(), on the
+    // headless (dummy) backend, and for what the engine does not draw (no effect is left out today;
+    // linearColor is drawn on every GPU): it never claims what the renderer cannot do. "hdrOutput" is true when the display
+    // the window showed its last frame on can show HDR in an encoding the renderer writes (EDR on Metal, scRGB or HDR10 on
+    // D3D11), whatever the scene's hdrOutput setting. `render.supports` answers the same with the reason.
+    bool supports(std::string_view feature) const;
+    // Every name supports() knows, in a fixed order.
+    static std::vector<std::string> feature_names();
+    // The answer of the `render.supports` command: {backend, backendLabel, features: [{name, kind, supported, status, doc,
+    // backends}]}. Empty object before init().
+    Json supports_report() const;
+
+    // HDR display output (fa/platform/hdr_output.h; docs/RENDERING.md, "HDR output"). Once per frame before present(), on the
+    // window's thread: asks the display the window is on and switches the window's swapchain to an HDR format when
+    // `settings.hdrOutput` is auto, the display can show HDR and the renderer writes that encoding (EDR on Metal, scRGB or
+    // HDR10 on D3D11), or back to the standard range. Non-empty `blocked`: never switch, and say this (the editor, whose window
+    // shows its own UI). Nothing before init(). The next frames are drawn for the answer: the tonemap of a PostProcess goes
+    // above paper white up to the output's headroom, and present() encodes the picture for the swapchain (docs/RENDERING.md).
+    // The HUD and a frame without the final pass stay at paper white.
+    void update_output(const SceneSettings& settings, const std::string& blocked = {});
+    // What the window shows now (the `render.output` command): the last answer of update_output(), any thread.
+    HdrOutputInfo output_info() const;
+
+    // The editor's A/B switch of the Post-processing panel: true draws every following frame as if no camera had a post-processing
+    // stack (no PostProcess, no deprecated Camera.bloom* or colorFilter), without touching any data; false (the default) draws
+    // them. Not saved and not part of a scene: a game never sets it. Takes effect on the next frame. While it is on it applies to every
+    // capture too (game.screenshot, render.inspect, what an AI asks to see), not only to the window.
+    void set_post_bypass(bool bypass);
+    bool post_bypass() const;
+
+    // The depth or the normals the prepass drew (docs/RENDERING.md, "Depth and normals"), as a picture over the 3D meshes of the frame: depth in
+    // greys (near is light, 10 / (10 + distance) of the camera), normals as the view-space direction mapped to colours (x, y, z -> r, g, b)
+    // and black where no opaque mesh is. Needs a perspective or orthographic 3D camera that draws opaque meshes; any other frame, a GPU
+    // without float render targets and a frame that is split between cameras draw the game normally. A debugging aid: it does not change
+    // what a screenshot of the scene shows unless it is on. Ao shows the ambient occlusion alone, per camera, even in a split screen. The
+    // environment variable FA_RENDER_DEBUG_VIEW=depth|normals|ao sets it when
+    // the renderer starts. Main thread.
+    void set_debug_view(DebugView view);
+    DebugView debug_view() const;
+
     struct Impl;
 
 private:
     friend render::Gpu* render::renderer_gpu(Renderer& r);
+    friend void render::renderer_force_post_effects(Renderer& r, std::uint32_t effects);
     friend const render::FrameGraph* render::renderer_frame_graph(Renderer& r);
     friend render::TransientPoolStats render::renderer_transient_stats(Renderer& r);
     friend render::ShadowRowsStats render::renderer_shadow_rows_stats(Renderer& r);
+    friend void render::renderer_force_output(Renderer& r, const HdrOutputInfo* info);
+    friend bool render::renderer_read_floats(Renderer& r, bool present, std::vector<float>& out, std::string* error);
     std::unique_ptr<Impl> impl_;
     std::vector<std::string> fallbackFonts_;
     RichTextStyle richStyle_;

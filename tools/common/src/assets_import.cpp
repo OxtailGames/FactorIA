@@ -12,6 +12,7 @@
 #include "music_internal.h"
 #include "fa/core/asset_manifest.h"
 #include "fa/core/strings.h"
+#include "fa/render/cube_lut.h"
 #include "fa/tooling/asset_import.h"
 #include "fa/tooling/image_doc.h"
 #include "fa/tooling/project_fs.h"
@@ -112,6 +113,7 @@ struct Route {
 };
 
 std::string default_folder(const std::string& outExt) {
+    if (outExt == ".cube") return "assets/luts/";
     switch (assets::kind_of("x" + outExt)) {
         case assets::AssetKind::Model: return "assets/models/";
         case assets::AssetKind::Audio: return "assets/audio/";
@@ -175,6 +177,24 @@ Result<ImportOutput> import_copy(const ImportRequest& request) {
                               "Open it in an image editor and save it again as PNG.");
         out.details = Json::object({{"width", image->width}, {"height", image->height}});
     }
+    out.files.push_back({request.dest, std::move(*bytes)});
+    return out;
+}
+
+// A .cube 3D colour lookup table (PostProcess.colorGradingLut): checked with the parser the renderer uses, so a file that would be
+// skipped at run time is refused here with the line that is wrong, then copied as it is.
+Result<ImportOutput> import_lut(const ImportRequest& request) {
+    auto bytes = read_bytes(request.source);
+    if (!bytes.ok()) return bytes.error();
+    if (bytes->size() > kCubeLutMaxFileBytes)
+        return make_error(std::format("'{}' is larger than {} MB, more than a 3D table of {} entries per side needs",
+                                      request.source.filename().string(), kCubeLutMaxFileBytes >> 20, kCubeLutMaxSize),
+                          "Export the table with 32 or 64 entries per side.");
+    const std::string text(bytes->begin(), bytes->end());
+    auto lut = parse_cube_lut(text, request.source.filename().string());
+    if (!lut.ok()) return lut.error();
+    ImportOutput out;
+    out.details = Json::object({{"size", lut->size}, {"title", lut->title}});
     out.files.push_back({request.dest, std::move(*bytes)});
     return out;
 }
@@ -546,6 +566,7 @@ const std::map<std::string, Route>& routes() {
                                                    {".ttf", {"copy", ".ttf", import_copy}},
                                                    {".otf", {"copy", ".otf", import_copy}},
                                                    {".qoa", {"copy", ".qoa", import_copy}},
+                                                   {".cube", {"lut", ".cube", import_lut}},
                                                    {".mpg", {"video", ".mpg", import_video}},
                                                    {".mpeg", {"video", ".mpeg", import_video}},
                                                    {".mp4", {"video", ".mpg", import_video}},
@@ -568,6 +589,9 @@ std::string supported_extensions() {
 // ---- the command ----------------------------------------------------------------------------------------------
 
 std::vector<std::string> default_next_steps(const std::string& path) {
+    if (to_lower(fs::extension(path)) == ".cube")
+        return {"Use it: a PostProcess with \"colorGradingEnabled\": true and \"colorGradingLut\": \"" + path +
+                "\" (\"colorGradingLutContribution\" blends it in; docs/RENDERING.md, \"Colour grading with a LUT\")."};
     switch (assets::kind_of(path)) {
         case assets::AssetKind::Texture:
             return {"Draw it: a Sprite with \"texture\": \"" + path +
@@ -799,6 +823,9 @@ void register_asset_commands(CommandRegistry& registry, const std::string& proje
         "give flat shading, and the result has the bounds so you can scale it.\n"
         "- .fbx: converted to .glb by FBX2glTF ($FACTORIA_FBX2GLTF or PATH) or by Blender (PATH or its "
         "install folder). With neither installed the error says where to get them.\n"
+        "- .cube: a 3D colour lookup table for PostProcess.colorGradingLut, checked and copied to "
+        "assets/luts/ (LUT_3D_SIZE 2 to 65, the 0 to 1 domain; a malformed file is an error that names the "
+        "line; a 1D table is refused).\n"
         "- .mid .midi: becomes a song document (assets/music/<name>.song.json, or `path`): tracks, patterns, "
         "sections from markers, drums as grids (music.import_midi has the options `quantize` and "
         "`soundfont`; docs/MUSIC.md, \"MIDI\").\n"
@@ -816,7 +843,7 @@ void register_asset_commands(CommandRegistry& registry, const std::string& proje
       "type":"object","required":["source"],
       "properties":{
         "source":{"type":"string","description":"The file to import: an absolute path on this machine, or a path relative to the project folder. Not a URL: download it first."},
-        "path":{"type":"string","description":"Where it lands, under assets/ (a path ending in / is a folder). Default: assets/<name>.<ext>, or assets/models/, assets/audio/, assets/fonts/ or assets/video/ for those kinds. The extension is the importer's output (.png for Aseprite and PSD, .gltf for OBJ, .glb for FBX, .mpg for a video)."},
+        "path":{"type":"string","description":"Where it lands, under assets/ (a path ending in / is a folder). Default: assets/<name>.<ext>, or assets/models/, assets/audio/, assets/fonts/, assets/video/ or assets/luts/ for those kinds. The extension is the importer's output (.png for Aseprite and PSD, .gltf for OBJ, .glb for FBX, .mpg for a video)."},
         "license":{"type":"string","description":"License or terms of the file, e.g. \"CC0\", \"CC-BY 4.0\", \"bought from itch.io, single project\". Recorded in assets.json."},
         "author":{"type":"string","description":"Who made it. Recorded in assets.json for the credits."},
         "sourceUrl":{"type":"string","description":"Where the file came from (a page URL). Recorded as the provenance source instead of the local path."},

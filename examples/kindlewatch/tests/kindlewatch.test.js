@@ -3,6 +3,7 @@
 import { test, describe, expect, game, beforeEach } from "factoria:test";
 import { scene, fa } from "factoria";
 import { Bot } from "./helpers/bot.js";
+import * as settings from "../scripts/settings.js";
 
 const GAME = "scenes/game.scene.json";
 const flow = () => game.find("game").behaviour;
@@ -270,6 +271,27 @@ describe("the pause menu", () => {
     game.tap("pause");
     game.step(30);
     expect(flow().timer).toBeGreaterThan(paused);
+  });
+});
+
+describe("the colour filter", () => {
+  test("changing the filter sets the PostProcess filter and keeps the bloom of the night, and 'none' switches only the filter off", () => {
+    start();
+    const pp = () => game.find("camera").get("PostProcess");
+    // What the scene's PostProcess holds when the game starts (not pinned here: the scene may switch its bloom off).
+    const bloomOn = pp().bloomEnabled;
+    const bloom = pp().bloomIntensity;
+    for (const filter of ["deuteranopia", "highContrast"]) {
+      settings.applyColorFilter({ ...settings.load(), colorFilter: filter });
+      expect(pp().colorFilterEnabled).toBe(true);
+      expect(pp().colorFilterMode).toBe(filter);
+      expect(pp().bloomEnabled).toBe(bloomOn);
+      expect(pp().bloomIntensity).toBeCloseTo(bloom);
+    }
+    settings.applyColorFilter({ ...settings.load(), colorFilter: "none" });
+    expect(pp().colorFilterEnabled).toBe(false);
+    expect(pp().bloomEnabled).toBe(bloomOn);
+    expect(pp().bloomIntensity).toBeCloseTo(bloom);
   });
 });
 

@@ -21,17 +21,18 @@ finds the game target's images or views not VALID, as GLES3/WebGL2 with MSAA and
 same size works in RGBA8, the format becomes RGBA8 (the pipelines made for RGBA16F stay in the cache under their own key; no flush) and the game is drawn
 in RGBA8, on every backend. A later resize or render scale that fails never changes the format. Only the game target falls
 back: a CameraView, a bloom level or the colour filter image that cannot be made keeps the format and its own warning, so
-`hdr_scene()` can stay true with one of them invalid. `FA_SCENE_FORMAT=rgba16f_invalid` forces the fall-back in tests; likewise a shadow map the GPU cannot make turns the
+`hdr_scene()` can stay true with one of them invalid. `FA_SCENE_FORMAT=rgba16f_invalid` forces the fall-back in tests and `FA_SCENE_FORMAT=r11g11b10` makes a linear scene use R11G11B10 (no alpha) as if RGBA16F were not renderable; likewise a shadow map the GPU cannot make turns the
 shadows off with one warning until the next resize, and `FA_SHADOW_MAP=invalid` forces that): a float target keeps a colour above white (`MeshRenderer.emissive` times
 `emissiveStrength`), and the bright pass hands bloom that excess, so it glows more. The screen, screenshots and video stay
 8-bit: `Impl::read_rgba8` copies a float target into an RGBA8 image (the `blit_keep` program, which keeps alpha) before
 reading it, and the colour filter clamps its input for every mode but `none`. With `Camera.bloomScreenSpace = false`
 the frame is split: world pass, bloom, then a second pass that draws the screen-space
 groups (HUD) on top; with MSAA the glow is added to the multisampled image and the
-HUD pass loads it again, so the HUD is multisampled too. `Camera.colorFilter` is the last post-process
-(`Renderer::Impl::ensure_filter_target` and `color_filter_pass`, `shaders/colorfilter.glsl`): a pass cannot read what it writes, so the filter
+HUD pass loads it again, so the HUD is multisampled too. The colour filter is the last post-process
+(`Renderer::Impl::ensure_filter_target` and `post_pass`, `shaders/post.glsl`; `colorfilter.glsl` stays only for the GL copy of a
+render target's picture): a pass cannot read what it writes, so the filter
 draws the finished target into a second image of the same size, and `present()`, `capture()` (screenshots, video) and
-the editor viewport read that image while a filter is on; `none` skips the pass and the image. The colour-blind
+the editor viewport read that image (`Impl::final_target()`) while a filter or the final pass is on; `none` skips the pass and the image. The colour-blind
 CHECK (`simulate` of `game.screenshot`) is separate: `simulate_color_vision()` in `fa/core/image.h` on the captured
 pixels. `game.screenshot` (whole view, `region` + `zoom` via `Engine::capture_region`, filmstrip), `render.inspect` and `render.pick` are in
 `runtime/src/shot_commands.cpp`; pixel work (crop, contact sheet, line profile) is `fa/core/image_tools.h`, and which files a screenshot
@@ -48,7 +49,7 @@ cap keeps everything, and the pipelines the warm-up makes or asks for (`Renderer
 the limits count frames, never time. `pipelines`, `pipelineHits`,
 `pipelinesMade` and `pipelinesEvicted` are in the start-up report (`loading.startup.gpu`). Shaders are GLSL annotated for
 `sokol-shdc`; generated headers are committed (`tools/shaders/compile_shaders.sh`). Every mesh program (`mesh`,
-`mesh_skin`, `shadow`, `shadow_skin`) comes from one template, `shaders/mesh_common.glsl`: a top file defines the
+`mesh_skin`, `prepass`, `prepass_skin`, `shadow`, `shadow_skin`) comes from one template, `shaders/mesh_common.glsl`: a top file defines the
 `@block fa_user` (a `surface()` snippet, plus `vertex()` with `FA_HAS_VERTEX`), `@include`s the template and declares
 the programs. `mesh.glsl` is that top file with an empty `surface()`; a custom material is the same with its own
 snippet, so the engine and the materials share one source of truth (an empty `surface()` renders pixel-identical to a
@@ -169,8 +170,8 @@ decides, and the game event `ui.viewPointer` goes out like the other ui.* events
   views 6-9 and samplers 2-5.
 - *Generator* (`tools/common/src/shaders_generate.cpp`). `generate_material_shader` writes the sokol-shdc top file: the
   params as one alphabetical block (each padded to a `vec4`), the textures, the snippet verbatim with a line table, then
-  `@include mesh_common.glsl` and the programs (`mesh`, `mesh_skin`, plus `shadow`, `shadow_skin` with `vertex()` or
-  `"clip"`). `shaders_compile.cpp` runs sokol-shdc through the injectable `SetupContext::run`, maps its errors back to
+  `@include mesh_common.glsl` and the programs (`mesh`, `mesh_skin`, `prepass`, `prepass_skin`, plus `shadow`, `shadow_skin`
+  with `vertex()` or `"clip"`). `shaders_compile.cpp` runs sokol-shdc through the injectable `SetupContext::run`, maps its errors back to
   the snippet's lines and adds hints, and reads the YAML reflection (`shaders_yaml.cpp`).
 - *Twins and cache.* Each dialect becomes a `factoria.shader/1` JSON document, the *twin*
   `<material>.json.<slang>.shader` (cross-compiled source per program plus binding reflection, stamped with the engine
@@ -205,7 +206,9 @@ decides, and the game event `ui.viewPointer` goes out like the other ui.* events
   the light buffer (`light-buffer`), the shadow map (`shadow`, only when a light casts), the world (`game`, `view` for a
   view or target job, `game-hud` for the job of a split frame that draws only the screen-space groups), the bloom stages
   of the last job (`bloom-bright`, `bloom-down-<n>`, `bloom-blur-h`, `bloom-blur-v`, `bloom-composite`), the HUD over the
-  glow (`hud-over-bloom`, with `bloomScreenSpace = false`), the colour filter (`color-filter`) and, where the backend
+  glow (`hud-over-bloom`, with `bloomScreenSpace = false`), per camera of the frame the exposure measure (`camera:<i>/exposure-luma`,
+  `camera:<i>/exposure-adapt`), the final pass (`post` of each camera over its own rectangle, plus `post-base` when no camera's pass
+  covers the whole picture first), the HUD over it (`hud-over-post`), the colour filter (`color-filter`) and, where the backend
   stores a target bottom-up (GL), `<job>/flip`, the copy of a target's picture into the image its texture samples; it
   exists only for render targets and only in GL, and it is declared right after the target's `view` pass (so in GL the
   order reads `target:B/view`, `target:B/flip`, `target:A/view`, `target:A/flip`, `camera:0/game`; Metal and D3D11 have
@@ -229,8 +232,8 @@ decides, and the game event `ui.viewPointer` goes out like the other ui.* events
   resource for the whole frame, shared by the jobs that use them. *Transient* resources are the bloom levels and the
   blur's second image: `bloom.cpp` declares them with the format of the game image (`Gpu::scene_format()`, so RGBA8 when
   the GPU cannot render RGBA16F) and the `TransientTargets` of `Impl` (`transient_targets.h`, a `TargetPool` over
-  `make_target`) makes them on the first frame and hands the same ones out on the next. Only the last job has post
-  effects, so N views of the same size need no more transients than one, and two jobs never share a transient alive at
+  `make_target`) makes them on the first frame and hands the same ones out on the next. Only the last job declares the
+  frame's bloom and final passes (a camera's prepass, coverage and exposure measure are its own job's), so N views of the same size need no more transients than one, and two jobs never share a transient alive at
   the same time (the planner aliases only resources whose uses do not overlap). A transient's contents are UNDEFINED at
   its first writer: that pass must CLEAR it or DONTCARE and cover every pixel, never LOAD it. `execute` gives back every
   transient on every way out (an error or a pass that throws). A bloom whose targets cannot be made warns once and
@@ -321,3 +324,128 @@ SheenBidi reordering, line breaking), so tests can look at glyph ids and positio
 for tools. Fallback fonts and the text size option live on the `Renderer` (`set_fallback_fonts`, `set_text_scale`). Details for
 game makers: [TEXT.md](../TEXT.md).
 
+
+## PostProcess (M71)
+M71 added a linear HDR frame (below, "Linear colour"), a stack of post effects (every effect of `kPostEffectOrder` is drawn) and the HDR
+display output.
+
+- **Linear colour, where the conversions are** (`SceneSettings.colorSpace linear`; every one of them is a no-op in a gamma scene, so
+  its pixels do not change). `Renderer::Impl::sync_color_space` (called first in `render` and in `capture_world`) tells the `Gpu`
+  (`set_linear`) and makes the game target again when the scene format changes. The `Gpu` holds two format chains (`sceneChain_[0]`
+  gamma: RGBA16F, RGBA8; `[1]` linear: RGBA16F, RG11B10F, SRGB8A8, RGBA8), each tried in order by `create_targets` (a creation that is not
+  VALID moves to the next one); `scene_format()` is the active one. Authored colours are converted on the CPU with `color_space.h`
+  (`to_scene`, `Frame::linear`): light, ambient, fog, sky, clear and material colours in `renderer_draw.cpp` and `scene2d.cpp`; vertex
+  colours of the quad stream (sprites, shapes, text, particles, HUD) in the quad vertex shader (`vs_params.cspace.x`). Colour textures
+  are made in the sRGB variant of their format when they are first uploaded in a linear scene (`Gpu::texture_format`,
+  `TextureAsset::enc`); `TextureAsset::tex_fix(linearScene, colour)` gives the shader's correction when the use does not match the
+  format (`fa_tex_fix`: quad `cspace.yz`, mesh `fa_maps.w` packing five 2-bit codes), so one asset serves both uses and a run-time
+  switch makes no texture again. View and render-target images are `TexEncoding::Scene` (never corrected); the font atlas, ramps and
+  video textures stay raw. The final blit encodes linear to sRGB (`blit_fs_params.encode`, replaced by the final pass of the stack) and
+  so does `read_rgba8`; an SRGB8A8 target is encoded by the GPU on write, so a gamma-correct read-back of it is a plain read.
+  R11G11B10 has no alpha (`scene_has_alpha`): view and render-target images and world captures share the scene's format, so on that
+  format their background is opaque (`view_image` logs one warning; a format with alpha would need every pass that reads `scene_format()`
+  to follow it); `FeatureEnv.r11g11b10` follows the same rule as the chain (blend, or GL where sokol does
+  not report it; on GLES3/WebGL2 sokol ties filtering to `OES_texture_float_linear`, so a false there can mean that). The editor viewport shows `Impl::display_view()`: the finished game image in gamma; in linear, after
+  `Renderer::set_editor_view(true)` (the editor, once; a game never), an RGBA8 copy that `update_editor_copy()` draws after each frame
+  with blit_keep and `encode` on (not counted as a draw call, freed when the scene returns to gamma or the editor stops asking; until the
+  copy exists, in the first frame or after a failed make_target, the viewport shows the unencoded image). M71-B4
+  points `display_image()` / `display_view()` at its final target. Known approximations of the linear path: the ramps of Shape2D
+  `gradientStops` are baked in 8 bits and blend on the sRGB values (the two-colour gradient blends in linear light); the 2D light buffer is
+  RGBA8 with range 2 on a GPU that cannot render to a float format (`light_format()`), which bands in dark light; text lighting
+  (`text_light_factor`) sums authored sRGB values, a little brighter than the mesh path's sum of linear light; mips of a colour
+  texture are averaged in linear light when it is made as sRGB (`mip_chain(img, true)`), but a `.ktx2` twin keeps the mips the export
+  made, on the encoded values. The shader helper `fa_tex_fix` is written with `if` branches on a
+  uniform, so a gamma scene skips the pow() blocks on compilers that would run both sides of a `?:`.
+
+- **Data, in `engine/scene`.** `SceneSettings.colorSpace` (`gamma`, the default, or `linear`), `hdrOutput` (`off` or `auto`) and
+  `paperWhiteNits` (200) are stored and saved with the scene; an old scene without them loads as gamma. The `PostProcess` component
+  (`fa/scene/postprocess.h`) is flat: the meta fields `enabled`, `shape` (`global`, `box`, `circle`, `sphere`), `size`,
+  `blendDistance`, `priority`, `weight`, then for each effect `<effect>Enabled` and its parameters (`bloomIntensity`,
+  `tonemapMode`, ...). A field belongs to the effect whose name its own starts with (`post_field_effect`), so the resolver blends a
+  parameter added later without being edited. Everything is off by default. On a Camera it is that camera's own stack; on any other
+  entity it is a volume.
+- **Effect order, one list.** `kPostEffectOrder` (and `enum PostEffect`, same order) is the order the passes run, HDR effects first,
+  display effects after the tonemap: `ssao`, `ssr`, `fog`, `sunShafts`, `exposure`, `depthOfField`, `motionBlur`, `radialBlur`,
+  `lensDistortion`, `chromaticAberration`, `bloom`, `tonemap`, `colorGrading`, `vignette`, `sharpen`, `outline`, `pixelate`,
+  `posterize`, `filmGrain`, `colorFilter`. A pass never reorders it; `post_effect_is_hdr` tells the effects that run before the
+  tonemap (up to `bloom`).
+- **The CPU resolve, in `engine/render` (`src/postprocess_resolve.h`).** `resolve_post_stack(world, camera)` returns the one
+  `PostStack` of a frame: `fx` (a PostProcess whose values are already blended), `mask` (bit i = effect `PostEffect(i)` runs),
+  `sources` (how many components contributed). `build_camera` fills `CameraInfo::postStack`; the passes of the last job read it (`make_post_plan`, `src/postprocess.h`). It is pure CPU and
+  deterministic: it starts from the neutral stack (`postprocess_neutral()`, every effect off at its identity values), applies the
+  camera's own PostProcess, then the enabled volumes active in the hierarchy in ascending `priority`, equal priorities by entity id
+  (so the last id wins), each with strength `weight * influence`. The influence is 1 inside the shape and falls linearly to 0 over
+  `blendDistance` outside it (box: half extents `size * scale / 2` in the entity's rotated frame; circle: radius `size.x`; sphere:
+  radius `size.x`; scale by the largest axis; a 2D camera tests x and y only). A component switching an effect on that the stack has
+  off first sets it to the neutral values, so it fades in; numbers, vectors and colours are mixed `stack * (1 - s) + value * s`
+  (integers rounded); switches, modes, textures, curves and the autofocus entity switch at `s >= 0.5`. A component that leaves an
+  effect off never switches it off. A world without a PostProcess costs one count.
+- **What the GPU can do, `Renderer::supports(name)` and the `render.supports` command (`src/render_features.h`).** One table of
+  named features: the GPU capabilities `floatTargets` (RGBA16F renders, blends and filters), `r11g11b10`, `sampledDepth`,
+  `computeShaders`; the engine features `linearColor` and `hdrOutput`; and one per effect (the names above). Each row says the
+  backends it can ever run on (GL, GLES3, WebGL2, D3D11, Metal; the headless dummy backend has none), what it needs from the GPU
+  (read with `sg_query_pixelformat` / `sg_query_features`), and whether the engine draws it yet. A feature the engine does not draw
+  answers false with the status "planned (<milestone>)" (`effect_drawn` in `render_features.cpp`: today every effect of `kPostEffectOrder` is
+  drawn, so none answers it, and a new effect stays planned until its pass lands). The `needs` words of a row (`half`, `depth`,
+  `r11g11b10`, `compute`) are what the effect asks of the GPU: the depth of field and the sun shafts need `half+depth` (their
+  half-size images are RGBA16F), so `supports` never claims what the renderer cannot do; `kEffectRows` carries the effect's name and a
+  `static_assert` checks it against `kPostEffectOrder`. The editor's post panel calls `Renderer::supports_report()` directly (the same
+  table `render.supports` answers), not the command. Compute shaders exist on GL, D3D11 and Metal, never on GLES3 or WebGL2; `hdrOutput` only on D3D11 and Metal.
+  The decision is a pure function of a `FeatureEnv` (backend + what the GPU reported), so a test asks what D3D11 would say.
+- **Commands.** `postprocess.get`, `postprocess.set` (thin wrappers of `scene.set_component` for `PostProcess`), `postprocess.presets` and
+  `postprocess.apply_preset` are in `engine/runtime/src/postprocess_commands.cpp`. The looks are data
+  (`engine/runtime/data/postprocess_presets.json`, `fa/runtime/postprocess_presets.h`; `postprocess_preset_fields` gives the fields a
+  look writes, replace or `keep`, Entity fields never touched, and is shared with the editor's undo plan). `postprocess.get
+  {resolved}` runs `resolve_post_stack` with a `PostTrace` (which layer wrote each field) through `fa::render::post_stack_report`
+  (`post_report.h`) on the CPU, for the camera `rendering_cameras()` puts first. The editor's Post-processing panel
+  (`tools/editor/src/postfx_panel.cpp`) draws that report and writes only through `postprocess.set` / `apply_preset`; its A/B check is
+  `Renderer::set_post_bypass`, which makes `build_camera` declare no stack (data untouched).
+- **The stack's passes and the final pass (`src/postprocess.{h,cpp}`, `shaders/post.glsl`, `shaders/exposure.glsl`).** `build_graph`
+  declares them in the last job, one stack per camera: every camera job that draws pixels (`plan_job`) makes its own `PostPlan` from its
+  own PostStack and keeps it in its `DrawContext`; `Impl::postCams` lists those contexts in drawing order. `PostPlan::rect` (a `PostRect`:
+  top-left, physical pixels; empty = the whole picture) is the camera's rectangle, which the camera's `post` pass draws into (viewport
+  and scissor) and reads from (post.glsl, mask bit 2048: `rc` is the rectangle as fractions of the picture, `src_uv` clamps to half a texel
+  inside it and then flips on a bottom-up backend; `post_rect_uv`, `post_rect_uv_native` and `post_source_uv` in `postprocess.cpp` are the
+  same maths on the CPU, with a test for the GL and the Metal/D3D11 flips). When the first camera's final pass does not cover the whole
+  picture, a `post-base` pass (the plan of an empty stack: the encode of a linear scene, a copy of a gamma one, the colour filter) draws
+  the whole picture first and the camera passes load it and draw over their rectangles; a camera without a stack that overlaps one with a
+  stack gets that plain pass over its own rectangle too. Cameras with stacks that tile the picture need no `post-base`, nor does a first
+  camera with a stack over the whole picture. An `AutoExposure` (its `exposure-luma` and `exposure-adapt` passes, named after the camera's
+  job) is kept per camera, by `Entity::bits()` in `Impl::autoExposures`, and released after two frames without a request. Bloom and the
+  colour filter are the exception: one of each per frame, with the settings of the first camera that draws a pixel (a camera whose
+  rectangle has no pixel does not count). `make_post_plan` turns the stack into sanitised numbers
+  (`PostPlan`); `PostPlan::convert()` (exposure, tonemap, or `linear`, which `make_post_plan` sets only for a linear scene that also has exposure, a tonemap or a colour filter: a linear scene with none keeps B1's encode in the present copy) decides whether the final pass runs. Encode matrix: `Impl::finalEncoded` is set by the `post` pass; the present copy and `read_rgba8` encode (`blit_fs_params.encode`) only when the scene is linear and it is false, and `display_image()` shows the final target itself and `update_editor_copy()` makes no copy when it is true. `filterTarget` and `hudTarget` are `Gpu::display_format()` (the scene format, but RGBA8 for SRGB8A8, whose writes would encode the display values again), and `hud_pass` draws as a gamma scene (`fr.linear` off) when the items go over the final picture Order: bloom
+  (`bloom.h`, now with a soft knee in `q.y` of the bright pass and a lens dirt texture in the composite) -> `exposure-luma` /
+  `exposure-adapt` (`AutoExposure`) -> `post` (exposure, tonemap, the sRGB encode, a one-step interleaved-gradient-noise dither, and
+  the colour filter, in one fragment shader) -> `hud-over-post` -> `color-filter`. Four cases, by `plan.last`: (1) no conversion and
+  no HUD after: the filter alone is `color-filter` (post.glsl with `convert` 0, the old filter's maths); (2) legacy
+  `bloomScreenSpace = false` without conversion: `hud-over-bloom`, then `color-filter`; (3) conversion and no screen-space items: one
+  `post` pass game -> `filterTarget` with the filter fused in; (4) conversion with screen-space items: `post` game -> `hudTarget` (a
+  game-like target made on demand by `ensure_hud_target`: same MSAA and depth, so the HUD pipelines draw into it), `hud-over-post`,
+  then `color-filter` hudTarget -> `filterTarget` when a filter is on. `Impl::final_target()` is the image present, `capture()` and
+  `read_rgba8` use; the `post` program is compiled only for a frame that converts or filters (`Gpu::post_ready()`, counted by
+  `post_ready_calls()` in the tests), so a game without a stack never builds it; the pass sanitises NaN and Inf at the texel read.
+  `Impl::finalEncoded` says the final pass already encoded it, so the present blit must not encode again.
+  Automatic exposure never reads back: `exposure-luma` takes 8x8 fixed log2-luminance taps per texel into a 32x32 transient,
+  `exposure-adapt` moves a stored 1x1 EV (two persistent targets used in turn, imported into the graph) toward
+  `log2(0.18) - mean` by `1 - exp(-speed * dt)` (the EV targets are RGBA16F 1x1 on every GPU, the EV stored as two channels, `r = round(ev * 128) / 128` (exact in 16 bits up to
+  +-16) and `g = ev - r`, read as `r + g`: one 16-bit number would lose the step under half a unit of its last place and the result
+  would depend on the frame rate, and a 32-bit target cannot be filtered or rendered on WebGL2 and iOS) with the engine's frame dt;
+  a first frame, new targets or a frame in which the passes were not declared (`lastSerial_ + 1 != serial`, where `serial` is
+  `Impl::postSerial`, the count of the game's frames: `capture_world` calls `begin_frame_graph(false)` and does not advance it, so
+  a capture neither resets the exposure nor, with `framePost` false, reads or writes the motion-blur matrices) take the target at once;
+  a target that cannot be made leaves the exposure manual for 300 frames (`kRetryFrames`) and then tries again, dt 0 leaves it as it is, and it needs the
+  RGBA16F scene format (else one warning and the exposure stays manual). The legacy fields: `build_camera` builds an implicit
+  `PostProcess` from the sanitised `Camera.bloom*` and `colorFilter` (knee 0, no dirt) and `resolve_post_stack` uses it when the
+  camera has no enabled `PostProcess` of its own, so `CameraInfo::bloom` and `colorFilter` are always derived from the stack
+  (`bloom_from_stack`); the six fields are in `api_since.json` "deprecated.components". The HDR output (`hdr_encode.h`): the frame
+  takes `OutputTarget` (`select_output` of the last `update_output` answer: encode, headroom, paper white) when it starts;
+  an extended one (an HDR encode, headroom above 1, a float display format) makes the final pass run `tonemap_hdr` (`p.z`
+  and `h` of post.glsl, without a colour filter) and write sRGB-encoded values past 1, and `present_params` decodes them in
+  blit.glsl and encodes them for the swapchain the window has at present time (sRGB, scRGB, PQ in Rec.2020, EDR linear),
+  clamped to the frame's headroom only when its final pass went above white (`frameAboveWhite`). The CPU functions mirror
+  the shaders; `renderer_force_output` and `renderer_read_floats` let the tests check them without an HDR display. Screen-space items are drawn after the final pass, so exposure and tonemap
+  never touch them; in a linear scene their quad and text pipelines must write display-space values into `hudTarget`.
+- **The effects, one bullet each,** are on the page [rendering, the post-processing effects](ARCHITECTURE_RENDERING_POST.md): the grading and lens
+effects, the radial blur and the transient screen effects, the outline, pixelate and posterize, the ambient occlusion, the depth and
+normal prepass, and the depth of field and motion blur.

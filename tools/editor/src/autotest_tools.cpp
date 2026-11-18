@@ -309,6 +309,10 @@ void Editor::at_build_tools_script() {
             showParticle_ = false;
             reset_auto_play_state();  // section S3: the Play sessions window, its list and a run still going are not carried over
             reset_review_state();  // section R4: the Review window, its sheet, its pictures and a sheet of seeds still being made are not carried over
+            showPostFx_ =
+                false;  // section G2: the Post-processing panel, its target and its A/B switch are not carried over
+            postfx_release();
+            postFx_ = PostFxUi{};
             showLevelGen_ =
                 false;  // section R3: the Level generator window, its sample, its preview and its history are not carried over
             levelGen_.clear(level_gen_caller());
@@ -374,6 +378,8 @@ void Editor::at_build_tools_script() {
     at_section_F(at);
     section("G");
     at_section_G(at);
+    section("G2");
+    at_section_G2(at);
     section("H");
     at_section_H(at);
     section("I");

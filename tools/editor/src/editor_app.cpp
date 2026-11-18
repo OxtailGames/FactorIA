@@ -709,6 +709,9 @@ bool Editor::boot(const std::string& dirIn) {
             engine_->shutdown();
             engine_.reset();
             dir.clear();
+        } else if (engine_->renderer()) {
+            engine_->renderer()->set_editor_view(
+                true);  // a linear scene is shown encoded, not as the dark linear light it holds
         }
     }
     if (!engine_) {
@@ -1540,9 +1543,10 @@ void Editor::open_screenshots_folder() {
 // Layout and top-level UI
 // The panels that can be closed, in the order of the saved mask. The dock layout itself is saved by ImGui in the same ini file.
 int Editor::panels_mask() const {
-    const bool flags[] = {showViewport_, showHierarchy_, showInspector_, showConsole_,   showProject_,   showAi_,
-                          showFeedback_, showAudio_,     showProfiler_,  showAnimation_, showBoneTools_, showImage_,
-                          showVector_,   showSound_,     showMusic_,     showModeler_,   showParticle_,  showLevelGen_};
+    const bool flags[] = {showViewport_,  showHierarchy_, showInspector_, showConsole_,  showProject_,
+                          showAi_,        showFeedback_,  showAudio_,     showProfiler_, showAnimation_,
+                          showBoneTools_, showImage_,     showVector_,    showSound_,    showMusic_,
+                          showModeler_,   showParticle_,  showLevelGen_,  showPostFx_};
     int mask = 0;
     for (std::size_t i = 0; i < std::size(flags); ++i)
         if (flags[i]) mask |= 1 << i;
@@ -1553,7 +1557,7 @@ void Editor::set_panels_mask(int mask) {
     bool* flags[] = {&showViewport_,  &showHierarchy_, &showInspector_, &showConsole_,  &showProject_,
                      &showAi_,        &showFeedback_,  &showAudio_,     &showProfiler_, &showAnimation_,
                      &showBoneTools_, &showImage_,     &showVector_,    &showSound_,    &showMusic_,
-                     &showModeler_,   &showParticle_,  &showLevelGen_};
+                     &showModeler_,   &showParticle_,  &showLevelGen_,  &showPostFx_};
     for (std::size_t i = 0; i < std::size(flags); ++i) *flags[i] = (mask >> i) & 1;
 }
 
@@ -1732,6 +1736,10 @@ void Editor::build_ui() {
         }
         if (showAudio_) draw_audio_panel();
         if (showProfiler_) draw_profiler_panel();
+        if (showPostFx_)
+            draw_postfx_panel();
+        else if (postFx_.bypassSet)
+            postfx_release();  // the panel was closed: the picture gets its stack back
         if (showLevelGen_)
             draw_level_gen_panel();
         else if (levelGen_.running())

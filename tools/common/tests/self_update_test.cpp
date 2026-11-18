@@ -165,21 +165,33 @@ TEST_CASE("self update: file_mtime_ms gives the same milliseconds every time for
     TempDir dir;
     const std::string path = dir.sub("stamp.txt");
     write_bytes(path, "x");
-    // A time that is a whole number of seconds since 1970 in system time (and so in the file clock's own epoch): the
-    // reading must not lose a millisecond to the nanoseconds between the two clock reads inside file_mtime_ms.
-    const std::int64_t wantedMs = 1'700'000'000'000;
-    const auto sysNow = std::chrono::system_clock::now().time_since_epoch();
-    const auto fileNow = std::filesystem::file_time_type::clock::now().time_since_epoch();
-    const auto skew = std::chrono::round<std::chrono::seconds>(sysNow - fileNow);
+    // A file time that is a whole number of seconds: the file clock and the system clock differ by a whole number of
+    // seconds (their epochs), so the answer is a whole number of seconds since 1970 too, and the reading must not lose a
+    // millisecond to the nanoseconds between the two clock reads inside file_mtime_ms. The test builds the file time
+    // from the file's own, never from the implementation's formula.
     std::error_code ec;
-    std::filesystem::last_write_time(
-        path,
-        std::filesystem::file_time_type(std::chrono::duration_cast<std::filesystem::file_time_type::duration>(
-            std::chrono::milliseconds(wantedMs) - skew)),
-        ec);
+    const auto written = std::filesystem::last_write_time(path, ec);
     REQUIRE_FALSE(ec);
-    for (int i = 0; i < 50; ++i) CHECK(file_mtime_ms(path) == wantedMs);
+    std::filesystem::last_write_time(path, std::chrono::floor<std::chrono::seconds>(written), ec);
+    REQUIRE_FALSE(ec);
+    const std::int64_t first = file_mtime_ms(path);
+    CHECK(first % 1000 == 0);
+    for (int i = 0; i < 50; ++i) CHECK(file_mtime_ms(path) == first);
     CHECK(file_mtime_ms(dir.sub("missing.txt")) == 0);
+}
+
+TEST_CASE("self update: file_mtime_ms of a file just written is the wall clock in milliseconds since 1970") {
+    // Independent of the implementation's own epoch arithmetic: a wrong epoch offset (the 1601 of a Windows FILETIME)
+    // is off by centuries, so a few seconds of slack (a slow disk, a coarse file time) are enough.
+    TempDir dir;
+    const std::string path = dir.sub("fresh.txt");
+    write_bytes(path, "x");
+    const std::int64_t nowMs =
+        std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch())
+            .count();
+    const std::int64_t mtime = file_mtime_ms(path);
+    CHECK(mtime > nowMs - 10'000);
+    CHECK(mtime < nowMs + 10'000);
 }
 
 TEST_CASE("mcp config: read_claude_code_mcp_state and ensure_claude_code_mcp_timeout") {

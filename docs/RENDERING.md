@@ -8,8 +8,18 @@ Two ways to get a picture of the world into a texture, as opposed to onto the sc
 - **Off-screen capture** (`render.captureTexture({ entity | rect, space: "world", scale })`): a still picture of a part of the
   world, taken once, at a pixel scale you choose, even when that part is hidden, covered or nowhere near a camera.
 
+Showing the picture on an HDR display is the last section, "HDR output".
+
 For cameras on the screen (split screen, insets, post effects) see docs/AI_GUIDE.md, section 9.29; for a camera inside a menu
 widget see docs/MENUS.md, "A camera inside the UI".
+
+## Pages
+
+This page has the render targets, the post-processing stack, the depth and normals prepass, capture and HDR output. The rest is on three pages (`docs.read rendering-effects`, `rendering-passes`, `rendering-screen-effects`):
+
+- [Screen-space effects](rendering/RENDERING_EFFECTS.md): ambient occlusion and its cost, screen-space reflections, and the outline (both modes, where it is skipped).
+- [The passes of a frame](rendering/RENDERING_PASSES.md): every pass of the post-processing stack, when it runs and what it draws.
+- [Transient screen effects](rendering/RENDERING_SCREEN_EFFECTS.md): Shockwave, heat haze, radial blur pulse, flash and fade of the camera, drawn by its post pass.
 
 ## Render targets
 
@@ -257,6 +267,262 @@ touching the entity's colour: sprites take a flash variant of the quad shader (O
 keep a little specular and image-based reflection). A flashing entity never shares a draw with a non-flashing one. `Text`,
 `Tilemap`, particles and the UI are not flashed. See [GAME_FEEL.md](GAME_FEEL.md).
 
+## Color space: gamma and linear
+
+`SceneSettings.colorSpace` decides how the renderer adds and blends light. Nothing else in the project changes: you keep
+picking colours by eye and keep the same PNG files.
+
+- **`gamma`** (the default): lighting and blending work on the sRGB values themselves, in 8 bits (a float frame where the GPU
+  has one). It is what every project made before M71 uses, and it is drawn exactly as it always was: same pixels, same goldens.
+- **`linear`**: lighting and blending work in linear light, the way light adds up in the world. Two lamps add their light,
+  a light fades with the square of the distance as it should, and a half-transparent white over black is half the light, which a
+  display shows as 0.735, not 0.5. The picture is encoded to sRGB on its way to the screen.
+
+### What changes in a linear scene
+
+- **Colours you pick are converted for you** (they stay sRGB values in the scene file): sprite, shape, tilemap, text and mesh
+  tints, `MeshRenderer.color` and `emissive`, a model's `materialColors`, light and ambient colours, fog, sky and horizon, the
+  camera's clear colour, particle colours, gradient and flash colours. The colours a glTF model carries are already linear and are
+  not converted. Alpha is coverage, not light: it is never converted.
+- **Colour textures are read as sRGB:** sprites, tilemaps, particles, text, albedo and emissive maps. The GPU decodes the texels
+  before it filters them (format `SRGB8A8`, and the sRGB variants of BC7, ASTC and ETC2 for exported `.ktx2` twins). Where a
+  backend has no sRGB variant the shader decodes (same result, the filtering happens on the encoded values).
+- **Data textures stay as plain numbers:** normal maps, metallic-roughness, occlusion, masks, the light buffer and the shadow maps.
+- **One texture used both ways** (an image you use as a sprite and as a mask): the first user that loads it decides the format of
+  the GPU image; every later use is corrected in the shader (a decode, or an encode) so that a colour use always sees linear light
+  and a data use always sees the file's own values. The cost is that such a texture is filtered in the other space (a small
+  difference, only visible on hard edges). Nothing is loaded twice.
+- **The scene target holds linear light**: `RGBA16F` where the GPU renders to it (twice the memory of RGBA8), else `R11G11B10`
+  (half the memory of RGBA16F, no alpha: the picture's own alpha is not used by the screen, but a CameraView, a render target or a world capture
+  (`render.captureTexture` of an area) drawn in it has an opaque background, with one warning in the log), else `SRGB8A8` (8 bits that hold linear light: the GPU encodes what is written and
+  decodes what is read, so the darks keep their precision and blending is in linear light), else plain `RGBA8` (banding in the
+  darks; only a GPU with no sRGB render target, rare). `render.supports {"feature": "linearColor"}` is true on every GPU;
+  `render.supports {"feature": "r11g11b10"}` says whether the packed float is there. The tests pick the formats with
+  `FA_SCENE_FORMAT` (`rgba8`, `r11g11b10`). `R11G11B10` has a 6-bit mantissa (5 for blue): between two powers of two it has 64 steps (32
+  in blue), so a smooth gradient of values ABOVE 1.0 (a bright emissive surface, a glow, a sun disc) shows bands of 1.5 to 3% of the
+  value (3 to 6% in blue) that `RGBA16F` does not have, and the darks keep their precision. The picture the final pass writes (sRGB
+  values) is therefore never kept in it: on such a GPU the final images are plain `RGBA8`, which cannot go above white, so an HDR
+  output stays within paper white there (`render.output`'s `status` says so).
+- **A switch at run time is allowed** (a script writes `colorSpace`): the game target is made again in the other format, the
+  textures, shaders and pipelines are kept, and no GPU image is left behind. A texture already made is not made again.
+
+### What a linear scene shows on the screen
+
+With nothing in the post-processing stack that converts the picture (no exposure, tonemap or colour filter), the present copy encodes
+linear light to sRGB, values above 1 clip, and the HUD and screen-space UI are drawn into the scene, so they blend in linear light too
+(their colours still come out as picked, the blending of half-transparent edges differs slightly). Bloom works on the linear values.
+With exposure, a tonemap or a colour filter the final pass of the stack does the encode instead (see "Post-processing" below): the
+picture is tonemapped, encoded and dithered once, and the HUD is drawn afterwards in display colours, as in a gamma scene. The editor's
+viewport shows what the game shows: after the final pass the picture itself, otherwise the renderer keeps an 8-bit encoded copy of the finished frame for it (`Renderer::set_editor_view`, made only while the scene is linear and freed when it goes back to gamma; a game never makes it). The mips of a texture made as sRGB are averaged in linear light (an exported `.ktx2` twin keeps the
+mips of the export, averaged on the sRGB values). A custom material ([SHADERS.md](SHADERS.md)) gets what the GPU gives for its own textures (linear light
+when the texture was first loaded in a linear scene, the file's numbers otherwise) and its colour parameters as authored, and what
+its `surface()` returns is taken as linear light in a linear scene: convert a colour parameter yourself (`pow(c, vec3(2.2))` is
+close enough).
+
+### Migrating a project
+
+1. Switch `colorSpace` to `linear` in one scene and look at it: lit scenes get darker where the lights are weak and brighter
+   where two overlap; the ambient light that looked right in gamma is now too dark (raise it, or `ambientLight` roughly to the
+   colour you would see: gamma 0.5 grey is a linear 0.21).
+2. Sprites and UI keep their colours; soft shadows, glows and particles that were blended with additive or alpha blending look
+   different (usually cleaner). Lower the intensity of strong additive glows.
+3. A texture that is not a colour (a height map, a noise or mask) works unchanged as a sprite mask or a normal map; if it is
+   shown as a sprite in a linear scene it is shown as a colour, i.e. darker than its numbers say.
+4. Check custom materials ([SHADERS.md](SHADERS.md)) as above.
+
+## Post-processing: bloom, exposure, tonemap, colour grading, lens effects, colour filter
+
+A `PostProcess` component (`docs.components`; docs/COMPONENTS.md is repository only, not in the binary) on the entity of a `Camera` is that camera's stack of screen effects; on an entity
+without a camera it is a volume that blends into the stacks of the cameras inside it. Every effect is off by default, and **a frame
+without any stack declares no pass and makes no render target**: the picture goes straight to the screen, as before. **Every camera
+has its own stack**, also in a split screen or with a viewport smaller than the screen: its `post` pass, its prepass, its coverage
+image and its automatic exposure work over that camera's rectangle of the picture only, in the camera's own pixels (the pixelate
+grid, the lens centre, the vignette, the grain and the dither start at the corner of the rectangle, so the two halves of a split
+screen look alike). Two things stay one per frame, taken from the camera that draws first: the **bloom** (it runs over the whole
+picture, before the final passes) and the **colour filter** (it is the last step over everything the screen shows).
+`Camera.bloom*` and `Camera.colorFilter` stand in for a `PostProcess` on a camera that has none (deprecated, the same picture).
+The passes of camera `n` are named `camera:<n>/post`, `camera:<n>/prepass` and so on. Where the cameras' rectangles do not cover the
+picture, or overlap, a `post-base` pass first draws the picture the way a frame without effects would (the encode of a linear scene, a
+copy of a gamma one), and a camera without a stack over one with a stack gets that plain pass over its own rectangle, so the stack
+of one camera never reaches another's pixels.
+
+The passes of a frame (bloom, exposure, prepass, ambient occlusion, shafts, depth of field, motion blur, `post`, the HUD and the colour
+filter), each with when it runs and what it draws, are on the page [The passes of a frame](rendering/RENDERING_PASSES.md)
+(`docs.read rendering-passes`); `render.frame_graph` lists them and `RenderStats::passes` times them.
+
+A game in the default gamma colour space with only bloom or only a colour filter gets exactly the passes it had before the stack
+existed (the old pictures are byte for byte the same). Exposure and tonemap decode the stored colours to light, work in linear
+light and encode back, so `exposureEv` +1 doubles the light, not the stored number. A stack without the ten effects below runs the
+same code as before: they are switched on by a bit mask, so an effect that is off costs no sample and no arithmetic.
+
+### The effects of the final pass
+
+Ten effects run in the `post` pass, in the order of this table (`render.supports {"feature": "<effect>"}` is true where this build
+draws them). They work in display space (the encoded values the screen shows), the same on an SDR and on an HDR output, except the
+two that bend the picture and the pixelation, which move the place it is read from.
+
+| Effect | Fields (`PostProcess`) | What it does |
+|---|---|---|
+| `radialBlur` | `radialBlurIntensity`, `radialBlurCenter`, `radialBlurSamples` | The picture streaks away from the centre: `radialBlurSamples` taps along the line from the pixel toward `radialBlurCenter`, as far as `radialBlurIntensity` says, averaged. It reads the scene, so it acts before the grade and the other display effects. `camera.radialBlur` starts a pulse of the same blur (see "Transient screen effects"). |
+| `lensDistortion` | `lensDistortionIntensity` (-1 pincushion .. 1 barrel), `lensDistortionScale` (zoom), `lensDistortionCenter` | Moves the point each pixel reads. It acts while the picture is sampled, so the bloom glow bends with it. Where the lens reads outside the picture the pixel is **black** (raise the scale to hide it). |
+| `chromaticAberration` | `chromaticAberrationIntensity` | Red and blue are read at slightly different distances from the centre, growing toward the edge; green stays. Read at the same moment as the lens; the sample is clamped to the picture's edge. |
+| `colorGrading` | `colorGradingTemperature`, `Tint`, `Lift`, `Gamma`, `Gain`, `Contrast`, `Saturation`, `HueShift`, `colorGradingLut`, `colorGradingLutContribution` | After the tonemap and the encode, in display space: white balance, gain, lift, gamma, contrast around mid grey, saturation, hue rotation, then the LUT. Nothing is clipped at white, so an HDR value above 1 stays above 1. |
+| `vignette` | `vignetteIntensity`, `Smoothness`, `Roundness`, `Center`, `Color` | Mixes the display value toward `vignetteColor` toward the edge of the screen. The same on SDR and HDR (it works on the encoded value). |
+| `sharpen` | `sharpenIntensity` | Contrast-adaptive: it reads the four neighbours (each shaded the same way as the pixel) and sharpens less where the local contrast is already high, so edges ring less. |
+| `outline` | `outlineMode` (`depth`, `sprite`), `outlineColor` (alpha = opacity), `outlineWidth`, `outlineDepthThreshold`, `outlineNormalThreshold`, `outlineAlphaThreshold` | Lines at the edges of things, drawn over the sharpened picture (see [The outline](rendering/RENDERING_EFFECTS.md#the-outline)). |
+| `pixelate` | `pixelateSize` | Every pixel of a block of `pixelateSize` design pixels shows the colour at the block's centre (the block grid starts at the top-left of the camera's rectangle of the picture, so a block cut by the right or bottom edge reads its centre clamped to the picture). It moves the place everything of the final pass reads (the lens, the grade, the vignette, the sharpen and the outline see the block centre, so the outline is blocky too); only the film grain and the dither stay per pixel. |
+| `posterize` | `posterizeLevels` | Each colour channel of the display value is cut to `posterizeLevels` evenly spaced values (`round(c * (n - 1)) / (n - 1)`), after the grading, the vignette, the sharpen and the outline. An HDR excess above white is kept as it is. The 1/255 dither is switched off while it is on, since it would move a value off its level. |
+| `filmGrain` | `filmGrainIntensity`, `Size`, `Animated`, `LuminanceResponse` | An integer hash noise added to the display value, weighted toward the mid tones by `LuminanceResponse` (1) or even (0). It is seeded by the engine's frame counter (`world.frame()`), so a recorded or replayed run gives the same grain; `filmGrainAnimated` false uses a fixed seed. It is added before the dither and the colour filter. |
+
+### Ambient occlusion and the other screen-space effects
+
+`ssaoEnabled` darkens creases and contact points of 3D meshes (passes `ssao-*`, drawn before the bloom). Its section, its costs, the
+effects that follow it (reflections, fog) and the outline (`outlineEnabled`, depth and sprite mode) are on the page
+[Screen-space effects](rendering/RENDERING_EFFECTS.md).
+
+A gamma scene's stored colours are display values already: the effects use them as they are, and a scene with exposure or tonemap
+decodes, tonemaps and encodes first. A linear scene always runs the conversion. On an HDR output the final pass goes above paper
+white only when exposure or tonemap is on (see "HDR output"); a stack with only these effects is drawn in the standard range.
+
+### Depth of field and motion blur
+
+Two effects that read the depth prepass ("Depth and normals") and work on the **scene colour**, before the bloom and the final pass (so
+they blur light, and the HUD, drawn over them, is never blurred). They need opaque 3D meshes in view: a camera without any (a 2D game)
+draws a frame without them. Every camera has its own passes and its own focus (a split screen blurs each rectangle on its own). With
+both off there is no pass and no prepass for them: the picture is the one without them, byte for byte.
+
+- **`depthOfField`.** Each pixel gets a signed circle of confusion from its linear view depth: 0 inside the band of `depthOfFieldFocusRange`
+  world units centred on the focus distance, growing smoothly to `depthOfFieldNearBlur` (in front) or `depthOfFieldFarBlur` (behind), in
+  design pixels times the render scale. Where no mesh was drawn (the sky, sprites, shapes) the depth counts as infinite: the far blur
+  applies. `dof-down` halves the picture and keeps the circle, `dof-gather` blurs it with a disc of taps (a fixed per-pixel rotation, so
+  every run draws the same frame; about 4 taps per pixel of radius, at most 64), `dof-composite` mixes the sharp picture with the blur.
+  A sharp object never takes colour from a blurred one behind it; a blurred near object spreads past its silhouette.
+  `depthOfFieldBokeh` weights bright points so they show as discs. **Autofocus:** with `depthOfFieldTarget` the focus is that entity's
+  view depth, moved toward it each frame by `1 - exp(-depthOfFieldFocusSpeed * dt)` of the way (engine clock: the same frames give the
+  same focus on every machine). The focus is state of the renderer, one per camera; the first frame, a camera that did not draw the frame
+  before, no target, a destroyed target or one behind the camera use `depthOfFieldFocusDistance` at once.
+- **`motionBlur`.** A pixel's velocity is the screen distance between its point now and in the frame before (from the depth and the
+  previous view-projection); the picture is sampled along it (`motionBlurSamples` taps, a fixed jitter) over `motionBlurIntensity` of
+  it, at most 8% of the picture's larger side. **Only the camera's movement blurs**; an object that moves on its own does not. No blur
+  on the first frame or after the camera did not draw (a camera switch, a deactivated camera). A camera moved to another place between
+  two frames is **not** told from a very fast one: it blurs with the longest streak for that frame.
+- **Both on.** `dof-down`, `dof-gather`, `dof-composite` (into a scratch image of the camera's size), `motion-blur` (reads the scratch,
+  writes the picture). Each alone ends with a copy (`dof-copy`, `motion-copy`): a pass cannot read the image it writes.
+- **Cost.** The prepass, a scratch image of the camera's size and, for the depth of field, two half-size `RGBA16F` images. If the GPU
+  cannot make them the effects are skipped for that size, and the log says so once.
+
+### Colour grading with a LUT
+
+`colorGradingLut` is the project path of a `.cube` file (the 3D lookup table that DaVinci Resolve, Photoshop and most grading
+tools export). `assets.import` takes a `.cube` into `assets/luts/`; the importer parses it, reports its size and title, and refuses
+a file the renderer could not use, with the line number (a 1D table, a size outside 2 to 65, a domain other than 0 to 1, a wrong
+row count). A table of any size from 2 to 65 is used as it is (16, 32 and 64 are the usual ones). It is stored as an 8-bit strip
+texture (the slices of blue tiled side by side) and sampled with a manual trilinear blend, so the result does not depend on the
+backend. The LUT adds `(lut(x) - x) * colorGradingLutContribution` to the graded colour, where `x` is the colour looked up
+(clamped to 0..1), so a contribution of 0.5 is half of it and a value above 1 keeps its excess. A path that does not resolve is
+skipped (the rest of the stack is drawn). The LUT is applied last, in display space: use one exported for sRGB.
+
+Cost (a 1280x720 frame, counted by `render.frame_graph`; the extra render targets are RGBA16F where the GPU draws in float, 8 bytes a
+pixel, else RGBA8):
+
+| Setting | Extra full-screen passes | Extra memory |
+|---|---|---|
+| no `PostProcess` | 0 | 0 |
+| `colorFilterEnabled` alone | 1 | one full-size target |
+| manual `exposureEnabled` and/or `tonemapEnabled` | 1 (`post`; the HUD draws as before, into another target) | one full-size target, and with a HUD a second one with a depth buffer |
+| `exposureMode` auto | 2 more (32x32 and 1x1) | a few KB |
+| `bloomEnabled`, `bloomRadius` 20 | 4 (`bloom-bright`, two blurs, `bloom-composite`) | two 320x180 targets, 0.9 MB |
+| `bloomEnabled`, `bloomRadius` 64 | 6 | four smaller targets, 0.6 MB |
+| colour grading, vignette, chromatic aberration, lens distortion, sharpen, pixelate, posterize or film grain, alone or together | 1 (`post`; sharpen shades the pixel's four neighbours too, about five times that part's work; the LUT one table lookup) | one full-size target |
+| `outlineEnabled`, depth mode | 1 (`post`, reads 4 texels of the prepass) + `prepass` | one full-size target and the prepass image (16 bytes a pixel) |
+| `outlineEnabled`, sprite mode | 1 (`post`, up to 17 texels of the coverage) + `sprite-coverage` (the 2D batches again) | one full-size target and one RGBA8 image (4 bytes a pixel) |
+| everything on except outline, with a HUD | 8: auto exposure 2 + bloom 4 + `post` 1 + `color-filter` 1 (its own pass because the HUD went between) | the sum of the above |
+
+The time of each pass is in `render.frame_graph` with `profileFrames` (`passTimes[].gpuMs` on D3D11 and OpenGL, `cpuMs` of the
+recording everywhere; Metal has no GPU timer in sokol_gfx, so `gpuMs` is -1 there). A full-screen pass reads one texture and
+writes one: on a GPU its cost is the fill rate of the frame, and bloom's chain runs at a quarter of the pixels or less.
+
+Where to see what the effects cost: `render.frame_graph` has a `postProcess` object with the post-processing passes (`bloom-*`,
+`exposure-*`, `post`...) and their summed `cpuMs` and `gpuMs`; the GPU time is `null` with `gpuStatus` `"unavailable"` and a reason where
+the backend has no timer (never 0), and the editor's Profiler panel shows the same in its "Post-processing" tab. The effects that share
+the single `post` pass are not timed one by one (no per-effect estimate): `post` is their total
+([PERFORMANCE_PROFILING.md](performance/PERFORMANCE_PROFILING.md)).
+
+Things to know:
+- **Linear scenes.** `SceneSettings.colorSpace` `linear` with nothing that converts the picture (no exposure, tonemap or colour filter)
+  adds no pass: the copy to the screen encodes it, as in "Color space". With any of them the `post` pass reads the linear light, converts
+  it and encodes it once (the screen copy then only copies), and the HUD is drawn after it in display colours.
+- **The HUD is not exposed.** A game that wants its HUD to follow the exposure draws it into the world instead. The colour filter
+  does cover it (it is the player's setting).
+- **`bloomScreenSpace`.** With `post` in the frame the HUD is drawn after it, so it never glows whatever the field says; without
+  `post` the field works as before.
+- **Lens dirt.** `bloomLensDirt` is a texture (stretched over the screen) that multiplies the glow by `1 + dirt * bloomLensDirtIntensity`.
+- A camera that draws into a texture (`renderTarget`) never has a stack: the effects are for the picture the player sees.
+
+### Reading and changing the stack: commands, looks and the editor panel
+
+- `postprocess.get {"id": "camera", "resolved": true}` answers with the stack the camera draws, computed on the CPU (it works without a
+  window): `layers` (the camera's own PostProcess or the deprecated `Camera.bloom*` fields, then each volume the camera is inside, with
+  its priority, weight and influence) and `effects`, every effect in the order it runs with `enabled` and, for each parameter of an
+  effect that runs, `{value, from, strength}`. `from` is `own`, `legacy`, `volume:<entity id>` or `default`, so "why is the picture
+  this dark" has an answer: the field that sets it and the entity that owns it. Without `resolved` it reads the component's own fields.
+- `postprocess.set {"id", "fields"}` writes fields of a PostProcess (added when the entity has none: on a Camera entity it is the
+  camera's own stack, on an entity without a Camera a volume) and `postprocess.presets` lists the looks. `postprocess.apply_preset
+  {"id", "preset"}` applies one: without `"keep": true` the look replaces every effect of the target with exactly its own (the
+  volume's shape, size and priority stay), with it only the effects the look names change. The looks are data, not code
+  (`engine/runtime/data/postprocess_presets.json`): `neutral` (everything off, the way back), `cinematic`, `retro`, `noir`, `dreamy`,
+  `vivid` and `horror`, built only from fields that exist. A look that names an effect this renderer does not draw
+  (`render.supports` says `false` with the reason: a GPU without float targets or without the depth prepass, say) still
+  applies, and the answer says so: `notDrawn` lists them and `note` explains that their fields are stored and show where
+  the renderer can draw them. `drawnChecked` is false when there is no renderer to ask
+  (`graphics=false`).
+- **View > Post-processing** (docs/EDITOR.md) is the same stack on screen: a camera chooser, each effect in the order it runs with its
+  switch, a "running" or "off" mark, whether this renderer draws it (`unsupported` with the reason on hover), its fields
+  with the source of each value, one button per look and a **Stack off (A/B)** check that draws the game without any post-processing
+  to compare (`Renderer::set_post_bypass`: it changes no data and ends when the panel closes, collapses or is hidden behind another tab; while it is on, every capture of the game shows the picture without the stack too). Every edit goes through
+  `postprocess.set` or `postprocess.apply_preset`, one undo step each, to the camera's own PostProcess or to the volume picked under
+  "Edit"; an effect this renderer does not draw (unsupported on this GPU) cannot be switched on from the panel (a look that switched it on can be switched off).
+
+## Transient screen effects
+
+Shockwave, heat haze, radial blur pulse, flash and fade: five short effects of the camera that the `post` pass draws over the
+finished picture, started by `camera.shockwave(opts)` and its four siblings or by the `feel.*` commands, on the game clock. They
+have a page of their own: [Transient screen effects](rendering/RENDERING_SCREEN_EFFECTS.md).
+
+## Depth and normals
+
+The effects that need to know how far away something is or which way it faces (ambient occlusion, reflections, fog, sun shafts,
+depth of field, motion blur, outline) read a **prepass**: the opaque meshes of the camera drawn once more, before the main pass, into
+one floating-point image of their own (`RGBA32F`, else `RGBA16F`), never multisampled (a multisampled game picture keeps its samples; the prepass has one per pixel). Each
+pixel holds the distance along the camera's view axis in world units (`60000` where nothing was drawn), the view-space normal
+(an octahedral encoding in two channels) and 1 where a mesh is (0 elsewhere). It is the same distance for a perspective and an
+orthographic 3D camera.
+
+- **When it is made.** For each camera whose post stack has an effect that reads the
+  depth or the normals and that the renderer draws, when that camera draws opaque meshes (a camera of a split screen has its own, the
+  size of its rectangle). A frame without such an effect declares no
+  prepass pass, makes no image and builds no shader: the draw calls are the same as before. Of the effects that read the depth the
+  outline (depth mode), the ambient occlusion, the reflections, the fog, the sun shafts, the depth of field and the motion blur are drawn; one that has nothing to draw this frame (a depth of field with no blur, a motion blur on a camera's first frame or after a cut, shafts with no sun in view) does not ask for it. The debug view below makes the image too.
+- **What is in it.** Opaque meshes, skinned ones at their pose, with their material's `vertex()` displacement, the normals of their material's `surface()` and, for `alphaMode`
+  `"clip"`, the same holes as the main pass. Not in it: blended meshes, the sky, sprites, particles, shapes, text, debug lines
+  and the HUD. A custom material gets its own prepass programs when
+  it is compiled, like its shadow programs.
+- **Where it is not made.** A camera that draws into a texture (`renderTarget`), a `CameraView`, a GPU that cannot render and
+  sample a float image (`render.supports` says `sampledDepth` is not available, and the effects that need it are skipped).
+- **Cost.** One more draw of every opaque batch, vertex work only plus the fragment work of a depth and normal write, and 16 bytes a
+  pixel of memory at `RGBA32F` (8 at `RGBA16F`), returned to the pool when the frame ends.
+- **Seeing it.** The command `render.debug_view {"view":"depth"}` (or `"normals"`, `"none"` to go back; without `view` it
+  reports the current one) paints the prepass over the 3D picture of the frame, so `game.step` then `game.screenshot` shows what the
+  depth-based effects read: depth as a grey, `10 / (10 + distance)` (white next to the camera), normals as the view-space direction
+  mapped to colours (`x`, `y`, `z` as red, green, blue: a surface that faces the camera is blue), black where no opaque mesh was
+  drawn. `"ao"` paints the ambient occlusion instead (see [Screen-space effects](rendering/RENDERING_EFFECTS.md)). `FA_RENDER_DEBUG_VIEW=depth`, `normals` or `ao` in the environment sets the first view at start (C++: `Renderer::set_debug_view`).
+  It is a way to check a scene, not an effect: it is not saved and a game does not set it. `game.screenshot` has no
+  argument for it: set the view, step a frame, take the shot.
+- **What the image holds.** `r` is the depth, clamped to 60000 (the far value) so a half-float fallback never stores infinity;
+  `a` is 1 where an opaque mesh was drawn and 0 elsewhere, and is the truth about coverage, not `r` (a surface at 60000 or more has
+  `r` = 60000 too). A custom material whose shader was made before the prepass has no prepass programs: it is left out of the
+  image, and the renderer logs one warning at load that says so (make the shader again).
+
 ## Off-screen capture
 
 `render.captureTexture({ entity | rect, space: "world", scale })` draws a part of the world into a texture of its own, with a
@@ -294,3 +560,72 @@ const map = render.captureTexture({ rect: [0, 0, 1600, 900], space: "world", sca
 - It is synchronous: no Promise, no scene change to wait for. The entity must still exist when you call it.
 
 For the whole frame the player sees (at most 2048 on a side), use `render.captureTexture({ width, height })`.
+
+## HDR output
+
+A display that can show more than white (an HDR monitor or TV on Windows, a Mac or iPhone screen with extended dynamic range)
+is used when the scene asks for it: `SceneSettings.hdrOutput` `"auto"` (the default is `"off"`). Each frame the engine asks
+the display the window is on and switches the window's swapchain to an HDR format, or back to the standard range, before the
+frame is shown, so moving the window to another monitor or switching HDR in the OS settings takes effect on the next frame.
+
+| Platform | What it needs | What the swapchain becomes |
+|---|---|---|
+| macOS, iOS 16+ (Metal) | A screen with EDR headroom (`NSScreen.maximumPotentialExtendedDynamicRangeColorComponentValue` above 1: XDR and recent built-in displays, HDR monitors with "High Dynamic Range" on) | `RGBA16Float` with `wantsExtendedDynamicRangeContent`, extended LINEAR sRGB colour space (encoding `edr`) |
+| Windows 10+ (D3D11) | Settings > System > Display > **Use HDR** on for that monitor | `R16G16B16A16_FLOAT` in scRGB (encoding `scRGB`), or `R10G10B10A2` in HDR10 (ST 2084 PQ, Rec.2020; encoding `hdr10`) where the driver refuses scRGB (never with multisampling: the 10-bit swapchain has no multisampled image, so such a window stays in the standard range) |
+| Linux, Android, the web (OpenGL, GLES3, WebGL2), headless runs | — | Always the standard range: these backends have no HDR swapchain, and `render.supports {"feature":"hdrOutput"}` says why |
+
+The editor's window never switches (it shows the game in its own view, in the standard range).
+
+### What goes above white
+
+Only the final pass of the post-processing stack decides what is brighter than paper white: a camera with a `PostProcess` whose
+exposure or tonemap is on (the colour grading, vignette, lens, sharpen and grain effects run in that pass too, in display space, but
+alone they do not make the picture go above white). On an HDR output its tonemap does not stop at 1:
+
+- Below the curve's shoulder (display value 0.76 for `neutral`, which follows Khronos PBR Neutral above its shoulder without the black offset; 0.5 for the others) the picture is the SDR curve, so mid tones,
+  shadows and skin look the same as on an SDR screen.
+- Above it, the brightest channel rolls off toward the output's headroom H (how many times paper white the display can go,
+  `render.output`'s `headroom`) instead of toward 1, with `start + (H - start) x / (1 + x)`, x = slope (c - input) / (H - start),
+  which meets the SDR curve with the same value and slope; the colour keeps the SDR curve's ratios between its channels.
+  Between H = 1 and 2 the curve is mixed with the SDR one, so a headroom that follows the screen's brightness (EDR) never jumps.
+- `tonemapMode` `none` clips at the headroom instead of at 1.
+
+What stays at paper white whatever the display: the HUD and the screen-space UI (drawn after the final pass, at 1.0), a camera
+without the final pass (no exposure or tonemap: nothing decides how to map the light above white, so it is clipped there as on an
+SDR screen), a frame with a colour filter (it works on what an SDR screen shows), and a GPU that draws the picture in 8 bits
+(`render.supports {"feature":"floatTargets"}` false). `render.output`'s `status` says so while the HDR swapchain is on and the
+picture stays within paper white. Screenshots, `render.captureTexture` and the editor's view are 8-bit: they show the picture
+clipped at paper white. That is not the SDR look: in a window on an HDR display the frame is drawn with the HDR tonemap (its
+highlights rolling off toward the headroom) and the 8-bit copy then cuts everything above 1, so the brightest areas of a screenshot
+are flatter than on the screen, and than the same frame on an SDR screen. A run without a window (`factoria call`, tests) draws in the standard range with the SDR tonemap, so its screenshots are the reference for how
+the game looks on an SDR display. The editor's viewport clamps the same way, with an 8-bit copy of the picture when it went above
+white.
+
+The present pass encodes the picture for the swapchain:
+
+| Encoding | Swapchain | What 1.0 (paper white) is written as |
+|---|---|---|
+| `sdr` | 8-bit sRGB | 1.0, everything above clipped |
+| `edr` | `RGBA16Float`, extended linear sRGB | 1.0, the screen's white; values up to the current EDR headroom |
+| `scRGB` | `R16G16B16A16_FLOAT`, linear Rec.709 with 1.0 = 80 nits | `paperWhiteNits / 80` (2.5 at 200 nits) |
+| `hdr10` | `R10G10B10A2`, Rec.2020 primaries, ST 2084 (PQ) | the PQ signal of `paperWhiteNits` (0.58 at 200 nits) |
+
+`SceneSettings.paperWhiteNits` (80 to 1000, default 200) is how bright white (1.0) is on an HDR display, in nits: in scRGB and
+HDR10 the picture's white is placed there, and the tonemap's highlights go up to the display's peak (headroom = peak nits /
+paper white). On Apple screens the system sets white itself (EDR 1.0 is the screen's current white), so paper white only
+matters on Windows.
+
+Check what the window shows with `render.output`:
+
+```bash
+factoria call --project games/my-game render.output '{}'
+```
+
+It answers `{hdrActive, encoding, swapchainFormat, requested, paperWhiteNits, maxNits, headroom, status, display}`: `encoding`
+is `sdr`, `edr`, `scRGB` or `hdr10`; `headroom` is how many times brighter than white the output can go now (the screen's
+current EDR headroom on Apple, peak nits / paper white on Windows); `status` is one sentence that says what is shown or why the
+window stays in the standard range (hdrOutput off, Windows' HDR switch off, a screen without EDR, the platform). A `factoria call`
+run is headless, so it always answers `sdr` with "there is no window". In a window, the game's log prints one `HDR output: ...`
+line at the `info` level when the encoding changes, with the display's name and EDR headroom (`factoria run --log-level info`).
+`render.supports {"feature":"hdrOutput"}` says whether the display the window showed its last frame on could show HDR, whatever
+the scene asks.

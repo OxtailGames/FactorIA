@@ -120,6 +120,9 @@ and sampler form: `texture(sampler2D(waves, waves_smp), uv)`; `texture(waves, uv
   `textureLod(sampler2D(t, t_smp), uv, 0.0)` there. `factoria validate` compiles every platform's dialect, so it finds this.
 - `vertex()` moves the vertices before lighting and also in the shadow pass, so waves cast the shadow of the waves.
   When the snippet has `vertex()` or the material is `"clip"`, the material also gets its own shadow programs.
+- `vertex()` and `surface()` also run in the depth and normal prepass of the effects that read the depth (docs/RENDERING.md, "Depth and
+  normals"): a displaced vertex is displaced there, `s.normal` is the normal it stores and, for `"clip"`, the holes are the same.
+  Nothing to write for it; the material gets its `prepass` programs when it is compiled.
 
 ## Putting a material on an entity
 
@@ -152,6 +155,15 @@ calls; vary the Transform instead, or give a few groups the same value. `play.re
 `materials` (custom materials drawn) and `materialFallbacks` (materials that failed and are drawn magenta; the error log,
 `game.logs`, says why). A test checks the same with `game.screenshot(path)` (tests draw nothing until asked) and then
 `game.state().renderStats`; `material.info` says in `compile.toolFound` whether this computer can compile materials.
+
+## Color space
+
+With `SceneSettings.colorSpace` `"linear"` ([RENDERING.md](RENDERING.md), "Color space") the shader works in linear light:
+the colour `surface()` starts from (`albedo`: the tint and the texture) arrives already converted, and what `surface()`
+returns (`albedo`, `emission`) is taken as linear light, so a number you type in the snippet is not an sRGB value. A colour
+**param** is passed as you wrote it in the material file or in `materialParams` (sRGB, like every colour you pick): convert it
+in the snippet when the scene may be linear (`pow(c, vec3(2.2))` is close enough). A texture you sample yourself gives what the GPU
+holds: linear light when it was first loaded in a linear scene, the file's own numbers otherwise. In a gamma scene nothing changes.
 
 ## Errors you will see
 

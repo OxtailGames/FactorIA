@@ -520,7 +520,7 @@ TEST_CASE("api_since: a deprecated entry reaches the typings, the markdown, docs
 
 TEST_CASE("api_since: with no deprecated entries nothing is marked") {
     RestoreDeprecations restore;
-    install_deprecations(true);
+    Deprecations::global().clear();  // the file lists the Camera.bloom fields now: start from an empty table
     CHECK(Deprecations::global().empty());
     CHECK(deprecation_json("commands", "game.step").is_null());
     with_command_registry([&](Engine& e) {

@@ -112,41 +112,119 @@ PassDesc pass_into(const Target& t, const char* label) {
 
 namespace fa {
 
-void Renderer::Impl::create_targets(int w, int h) {
+void Renderer::Impl::create_targets(int w, int h, bool settle) {
     destroy_targets();
     targetW = std::max(1, w);
     targetH = std::max(1, h);
     physW = std::max(1, int(std::lround(double(targetW) * renderScale)));
     physH = std::max(1, int(std::lround(double(targetH) * renderScale)));
     make_game_targets();
-    // A GPU can list RGBA16F as renderable and still refuse these images: GLES3/WebGL2 with multisampling but without
+    // A GPU can list a float format as renderable and still refuse these images: GLES3/WebGL2 with multisampling but without
     // EXT_color_buffer_float, a framebuffer the driver calls incomplete (sokol marks the image or the attachment view
-    // FAILED). Then the game is drawn in RGBA8 (everything clamps at white, hdr_scene() says false) rather than not at
-    // all. The same check runs on every backend (GL, GLES, D3D11, Metal). FA_SCENE_FORMAT=rgba16f_invalid is a test
-    // hook: it makes the check fail on a GPU that never would, to run the fall-back there.
-    // Only the FIRST creation may change the format, and only when the same size works in RGBA8: later calls (an
-    // Expand-mode resize, a render scale for a big screenshot) can fail for a moment (out of GPU memory), and that must
-    // not downgrade the game for good in the middle of it. Then the old behaviour stays: the failure is reported by
-    // the capture or the frame that needs the target.
-    if (!initialized && gpu.scene_format() == SG_PIXELFORMAT_RGBA16F) {
-        const char* hook = std::getenv("FA_SCENE_FORMAT");
-        if (!game_targets_valid() || (hook && std::string(hook) == "rgba16f_invalid")) {
-            destroy_targets();
-            gpu.set_scene_format(SG_PIXELFORMAT_RGBA8);
-            make_game_targets();
-            if (game_targets_valid()) {
-                FA_WARN("render",
-                        "The GPU cannot make the {}x{} game target in RGBA16F{}, but can in RGBA8: the game is drawn "
-                        "in RGBA8 "
-                        "(colours above white are clamped, Camera.bloom is weaker, hdr_scene() is false)",
-                        physW, physH, gpu.sample_count() > 1 ? " with multisampling" : "");
-            } else {  // RGBA8 fails too: it is not the format; keep the float one and its errors
-                destroy_targets();
-                gpu.set_scene_format(SG_PIXELFORMAT_RGBA16F);
-                make_game_targets();
-            }
+    // FAILED). Then the game is drawn in the next format of the chain (Gpu::init: R11G11B10 or SRGB8A8 in a linear scene, then
+    // RGBA8, where everything clamps at white and hdr_scene() says false) rather than not at all. The same check runs on every
+    // backend (GL, GLES, D3D11, Metal). FA_SCENE_FORMAT=rgba16f_invalid is a test hook: it makes the check fail on a GPU that
+    // never would, to run the fall-back there.
+    // Only the FIRST creation in a colour space may change the format (`settle`: the colour space has just been switched), and
+    // only when the same size works in the next one: later calls (an Expand-mode resize, a render scale for a big screenshot) can
+    // fail for a moment (out of GPU memory), and that must not downgrade the game for good in the middle of it. Then the old
+    // behaviour stays: the failure is reported by the capture or the frame that needs the target.
+    if (initialized && !settle) return;
+    const char* hook = std::getenv("FA_SCENE_FORMAT");
+    const bool hookInvalid = hook && std::string(hook) == "rgba16f_invalid";
+    auto refused = [&] {
+        return !game_targets_valid() || (hookInvalid && gpu.scene_format() == SG_PIXELFORMAT_RGBA16F);
+    };
+    if (!refused() || gpu.scene_format() == SG_PIXELFORMAT_RGBA8) return;
+    const int first = gpu.scene_pick();
+    const sg_pixel_format firstFormat = gpu.scene_format();
+    while (gpu.next_scene_format()) {
+        destroy_targets();
+        make_game_targets();
+        if (refused()) continue;
+        FA_WARN("render", "The GPU cannot make the {}x{} game target in {}{}, but can in {}: the game is drawn in {}{}",
+                physW, physH, pixel_format_name(firstFormat), gpu.sample_count() > 1 ? " with multisampling" : "",
+                pixel_format_name(gpu.scene_format()), pixel_format_name(gpu.scene_format()),
+                gpu.scene_is_float()
+                    ? ""
+                    : " (colours above white are clamped, Camera.bloom is weaker, hdr_scene() is false)");
+        return;
+    }
+    // Nothing of the chain works: it is not the format; keep the first one and its errors.
+    destroy_targets();
+    gpu.set_scene_pick(first);
+    make_game_targets();
+}
+
+// SceneSettings.colorSpace of the world about to be drawn: a change of the scene's format (RGBA8 <-> SRGB8A8; RGBA16F stays)
+// makes the game target again; the textures, the pipelines and every other resource are kept (the shaders fix the textures that
+// were made for the other colour space, TextureAsset::tex_fix).
+void Renderer::Impl::sync_color_space(const World& world) {
+    const bool linear = world.settings().colorSpace == ColorSpace::Linear;
+    if (linear == gpu.linear()) return;
+    if (!linear) destroy_target(editorTarget);  // back in gamma the viewport shows the game image itself
+    if (gpu.set_linear(linear)) create_targets(targetW, targetH, true);
+}
+
+bool Renderer::Impl::editor_copy_wanted() const {
+    if (!editorView || !game_targets_valid()) return false;
+    // finalEncoded: the final pass already made display values (sRGB, within 1 unless it drew for an HDR output).
+    return (gpu.linear() && !finalEncoded) || (finalEncoded && frameAboveWhite);
+}
+
+// While the copy does not exist yet (the first frame, after a resize or a failed make_target) the viewport shows the image itself,
+// unencoded (too dark in a linear scene): better than the "no render target" text.
+sg_image Renderer::Impl::display_image() const {
+    if (!editor_copy_wanted() || !editorTarget.color.id) return final_image();
+    return editorTarget.texture_image();
+}
+
+sg_view Renderer::Impl::display_view() const {
+    if (!editor_copy_wanted() || !editorTarget.color.id) return final_view();
+    return editorTarget.texView;
+}
+
+// A linear scene holds linear light: shown as it is, the editor's viewport would be too dark. After the frame is drawn (and the colour
+// filter, if any) the finished image is encoded into an RGBA8 copy that ImGui shows. A final pass picture above paper white (an HDR
+// output) is copied as it is into the 8-bit image, which clamps it to [0, 1] as present() does for an SDR output. Same orientation as
+// the game image (the viewport flips it on GL), not counted in RenderStats::drawCalls. Made only when the editor asked and one of the
+// two applies.
+void Renderer::Impl::update_editor_copy() {
+    if (!editor_copy_wanted()) {
+        destroy_target(editorTarget);
+        return;
+    }
+    if (editorTarget.color.id && (editorTarget.w != physW || editorTarget.h != physH)) destroy_target(editorTarget);
+    if (!editorTarget.color.id) {
+        TargetDesc d;
+        d.label = "editor-view";
+        d.width = physW;
+        d.height = physH;
+        d.colorFormat = SG_PIXELFORMAT_RGBA8;
+        editorTarget = make_target(d);
+        if (!editorTarget.valid()) {
+            destroy_target(editorTarget);  // the viewport shows its "no render target" text; tried again next frame
+            return;
         }
     }
+    PassDesc p = pass_into(editorTarget, "editor-view");
+    p.colorLoad = SG_LOADACTION_DONTCARE;  // every pixel is drawn
+    p.colorStore = SG_STOREACTION_STORE;
+    gpu.begin_pass(p);
+    sg_apply_pipeline(gpu.blit_keep_pipeline(p.format));
+    sg_bindings b{};
+    b.vertex_buffers[0] = gpu.fullscreen_triangle();
+    b.views[VIEW_blit_tex] = final_view();
+    b.samplers[SMP_blit_smp] = gpu.sampler(SamplerKind::Nearest);
+    sg_apply_bindings(&b);
+    blit_blit_vs_params_t u{};  // flip stays 0: the copy is stored like the game image
+    apply_uniforms(UB_blit_blit_vs_params, u);
+    blit_blit_fs_params_t fu{};
+    fu.encode[0] =
+        finalEncoded ? 0.0f : 1.0f;  // linear light is encoded; the final pass's picture already holds sRGB values
+    apply_uniforms(UB_blit_blit_fs_params, fu);
+    sg_draw(0, 3, 1);
+    gpu.end_pass();
 }
 
 void Renderer::Impl::make_game_targets() {
@@ -165,6 +243,7 @@ bool Renderer::Impl::game_targets_valid() const { return gameTarget.valid(); }
 
 void Renderer::Impl::free_read_image() {
     destroy_target(readbackTarget);
+    destroy_target(floatTarget);
     readW = readH = 0;
 }
 
@@ -172,11 +251,22 @@ void Renderer::Impl::destroy_targets() {
     for (auto& [key, t] : viewTargets) release_view(*t);
     viewTargets.clear();
     bloom.release();
+    ssr.forget_targets();
+    ssao.release();
+    sceneFx.forget_targets();
+    fogFx.forget_targets();
     if (transients) transients->pool.clear_free();  // the bloom levels are made again, at the new size
     destroy_target(lightTarget);
     lightW = lightH = 0;
     filterActive = false;
+    hudActive = false;
+    finalEncoded = false;
     destroy_target(filterTarget);
+    destroy_target(hudTarget);
+    for (auto& [key, slot] : autoExposures)
+        if (slot.exposure) slot.exposure->release();
+    autoExposures.clear();
+    destroy_target(editorTarget);
     free_read_image();
     destroy_target(gameTarget);
 }
@@ -190,6 +280,15 @@ TextureAsset* Renderer::Impl::view_image(std::uint64_t key, int w, int h, bool r
     t.used = true;
     if (t.main.color.id && t.w == w && t.h == h) return &t.asset;
     release_view(t);
+    // R11G11B10 (a linear scene on a GPU that cannot render to RGBA16F) has no alpha: these images share the scene's format, so a
+    // transparent background comes out opaque. Said once, not silently.
+    if (!gpu.scene_has_alpha() && !viewAlphaWarned) {
+        viewAlphaWarned = true;
+        FA_WARN("render",
+                "A CameraView, a render target or a world capture is drawn in R11G11B10 here (the linear scene's "
+                "format on a GPU "
+                "that cannot render to RGBA16F), which has no alpha: its picture has an opaque background (alpha 1)");
+    }
     t.flipCopy = renderTarget && gpu.is_gl();
     TargetDesc d;
     d.label = "view";
@@ -225,6 +324,8 @@ TextureAsset* Renderer::Impl::view_image(std::uint64_t key, int w, int h, bool r
     t.h = h;
     t.asset = TextureAsset{};
     t.asset.path = renderTarget ? "target" : "view";
+    t.asset.enc =
+        TexEncoding::Scene;  // holds the scene's own values (linear in a linear scene): never converted when sampled
     t.asset.image = t.flipCopy ? t.flip.color : t.main.texture_image();
     t.asset.view = t.flipCopy ? t.flip.texView : t.main.texView;
     t.asset.width = w;
@@ -453,19 +554,21 @@ void Renderer::Impl::destroy_light_resources() {
     shadowRowsWindow = 0;
 }
 
-// Makes (or keeps) the image the colour filter draws into. False (and one logged error) when the GPU cannot make it:
-// the game is then drawn without the filter. It is the frame's output while filterActive: present() and capture()
-// sample it after the frame graph ran, so it is an imported target of the graph and not a transient of the pool.
+// Makes (or keeps) the image the final pass or the colour filter draws into. False (and one logged error) when the GPU cannot make
+// it: the game is then drawn without them. It is the frame's output while filterActive: present() and capture() sample it after the
+// frame graph ran, so it is an imported target of the graph and not a transient of the pool.
 bool Renderer::Impl::ensure_filter_target() {
     if (filterTarget.color.id) return true;
     TargetDesc d;
     d.label = "game-filtered";
     d.width = physW;
     d.height = physH;
-    d.colorFormat = gpu.scene_format();
+    d.colorFormat = gpu.display_format();
     filterTarget = make_target(d);
     if (!filterTarget.valid()) {
-        FA_ERROR("render", "Camera.colorFilter: cannot create the {}x{} target; the game is drawn without the filter",
+        FA_ERROR("render",
+                 "Post-processing (PostProcess, Camera.colorFilter): cannot create the {}x{} target; the game is drawn "
+                 "without it",
                  physW, physH);
         destroy_target(filterTarget);
         return false;
@@ -473,33 +576,56 @@ bool Renderer::Impl::ensure_filter_target() {
     return true;
 }
 
-// Draws the finished game target through colorfilter.glsl into filterTarget (ensure_filter_target made it).
-void Renderer::Impl::color_filter_pass(int mode) {
-    PassDesc p = pass_into(filterTarget, "color-filter");
-    p.colorLoad = SG_LOADACTION_DONTCARE;  // every pixel is drawn
-    p.colorStore = SG_STOREACTION_STORE;
-    gpu.begin_pass(p);
-    sg_apply_pipeline(gpu.colorfilter_pipeline(p.format));
-    sg_bindings b{};
-    b.vertex_buffers[0] = gpu.fullscreen_triangle();
-    b.views[VIEW_colorfilter_tex] = gameTarget.texView;
-    b.samplers[SMP_colorfilter_smp] = gpu.sampler(SamplerKind::Nearest);
-    sg_apply_bindings(&b);
-    colorfilter_colorfilter_vs_params_t vu{};
-    vu.flip[0] = gpu.is_gl() ? 1.0f : 0.0f;
-    apply_uniforms(UB_colorfilter_colorfilter_vs_params, vu);
-    colorfilter_colorfilter_params_t fu{};
-    fu.p[0] = float(mode);
-    apply_uniforms(UB_colorfilter_colorfilter_params, fu);
-    sg_draw(0, 3, 1);
-    gpu.end_pass();
-    filterActive = true;
-    ++stats.drawCalls;
+// Makes (or keeps) the image the final pass writes when the screen-space items are drawn over it: a game target without the bloom's
+// resolve-as-colour view, so the pipelines of the game (same colour and depth formats, same sample count) draw into it too.
+bool Renderer::Impl::ensure_hud_target() {
+    if (hudTarget.color.id) return true;
+    TargetDesc d;
+    d.label = "game-post";
+    d.width = physW;
+    d.height = physH;
+    d.colorFormat = gpu.display_format();
+    d.samples = gpu.sample_count();
+    d.depthFormat = kSceneDepthFormat;
+    hudTarget = make_target(d);
+    if (!hudTarget.valid()) {
+        FA_ERROR("render",
+                 "Post-processing: cannot create the {}x{} target the interface is drawn into after the final pass; "
+                 "the interface is "
+                 "drawn into the game picture instead",
+                 physW, physH);
+        destroy_target(hudTarget);
+        return false;
+    }
+    return true;
 }
 
+// Draws `src` through post.glsl into `dst` (ensure_filter_target / ensure_hud_target made it).
+void Renderer::Impl::post_pass(const PostPlan& pp, bool finalPass, int filter, bool autoExposure, sg_view src,
+                               sg_view expo, sg_view aux, Target& dst, const char* label, bool keepMsaa,
+                               const PostRect& rect, bool load) {
+    PassDesc p = pass_into(dst, label);
+    p.colorLoad = load ? SG_LOADACTION_LOAD : SG_LOADACTION_DONTCARE;  // else every pixel is drawn
+    p.colorStore = (dst.samples > 1 && !keepMsaa) ? SG_STOREACTION_DONTCARE : SG_STOREACTION_STORE;
+    run_post_pass(gpu, pp, finalPass, filter, autoExposure, p, src, expo, assets->white()->view, aux, dst.w, dst.h,
+                  frameOutput, rect);
+    ++stats.drawCalls;
+    // A colour filter clamps to paper white (also when it follows the HDR picture); the conversion alone goes above it.
+    if (filter != 0)
+        frameAboveWhite = false;
+    else if (finalPass && pp.convert() && frameOutput.extended())
+        frameAboveWhite = true;
+}
+
+// The 8-bit picture the screen shows. A gamma RGBA8 scene is read as it is. An SRGB8A8 scene holds the encoded bytes already (the GPU
+// encoded them when they were drawn), so they are read as they are too, except `premultiplied` (a world capture on a transparent
+// background): the colour must be un-premultiplied in linear light, which only the copy below does. Anything else (a float scene,
+// a linear scene in plain RGBA8) goes through blit_keep, which encodes linear light to sRGB when the scene is linear.
 bool Renderer::Impl::read_rgba8(sg_image image, sg_view view, int w, int h, std::vector<std::uint8_t>& out,
-                                std::string* error) {
-    if (gpu.scene_format() == SG_PIXELFORMAT_RGBA8) return readback_rgba8(image, w, h, out, error);
+                                std::string* error, bool premultiplied, bool displayValues) {
+    const sg_pixel_format sf = gpu.scene_format();
+    if ((sf == SG_PIXELFORMAT_RGBA8 && !gpu.linear()) || (sf == SG_PIXELFORMAT_SRGB8A8 && !premultiplied))
+        return readback_rgba8(image, w, h, out, error);
     if (!readbackTarget.color.id || readW != w || readH != h) {
         free_read_image();
         TargetDesc d;
@@ -533,6 +659,11 @@ bool Renderer::Impl::read_rgba8(sg_image image, sg_view view, int w, int h, std:
     blit_blit_vs_params_t u{};
     u.flip[0] = gpu.is_gl() ? 1.0f : 0.0f;
     apply_uniforms(UB_blit_blit_vs_params, u);
+    blit_blit_fs_params_t fu{};
+    fu.encode[0] =
+        gpu.linear() && !displayValues ? 1.0f : 0.0f;  // linear light -> sRGB; display values stay (present_params)
+    fu.encode[1] = premultiplied ? 1.0f : 0.0f;
+    apply_uniforms(UB_blit_blit_fs_params, fu);
     sg_draw(0, 3, 1);
     gpu.end_pass();
     // The read-back waits for the GPU and on Metal only an sg_commit() submits the copy (see Renderer::capture()).

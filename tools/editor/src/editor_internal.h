@@ -64,6 +64,7 @@
 #include "editor_tools.h"
 #include "export_job.h"
 #include "phone_model.h"
+#include "postfx_ui.h"
 #include "auto_play_job.h"
 #include "play_sessions_model.h"
 #include "child_command_job.h"
@@ -440,6 +441,19 @@ public:
     std::unique_ptr<ScopedShareEnv>
         atShareEnv_;  // the autotest: a fake transport and a config folder of its own, no network
     void draw_audio_panel();
+    // Post-processing panel (postfx_panel.cpp; View > Post-processing): the stack a camera draws in the order the effects run, with
+    // each effect's switch, fields, the source of each value (the camera's own PostProcess, a volume, the deprecated Camera fields),
+    // and what this renderer draws (render.supports); edits and the preset buttons are postprocess.set / postprocess.apply_preset
+    // calls through edit_command (one undo step each) on the camera's own PostProcess or on a volume; the A/B checkbox switches
+    // the renderer's stack off without touching the data (Renderer::set_post_bypass). The autotest drives postfx_edit / postfx_preset.
+    void draw_postfx_panel();
+    void postfx_release();                 // the panel closed: the A/B switch goes back to "stack on"
+    bool postfx_edit(const Json& fields);  // postprocess.set on the edit target; false (and postFx_.error) when refused
+    bool postfx_preset(const std::string& name);  // postprocess.apply_preset on the edit target
+    std::string
+    postfx_target_id();  // the entity an edit goes to: the chosen volume, else the camera (the main one when none chosen)
+    PostFxUi postFx_;
+    bool showPostFx_ = false;
     // Animation panel (anim_panel.cpp; View > Animation): the clips of the selected entity's Animator as a dopesheet and a curve
     // view, a time ruler to scrub, event markers, record mode and the onion skin. Every edit of a clip is an anim.* command through
     // anim_edit(), so the Console and the AI see the same calls; a clip file is not part of the scene, so its undo steps are
@@ -1355,6 +1369,7 @@ public:
     // Profiler panel (View > Profiler) and the `profile` section of play sessions (fa/core/profiler.h). The profiler runs only while
     // a play session records or the panel is open; profile_tick() runs once per UI frame after the engine frame.
     ProfilerView profView_;
+    void sample_post_passes();      // ProfilerView::post from the renderer's last frame (profiler_panel.cpp)
     int profMemoryIn_ = 0;          // frames until the next memory sample
     bool profShowThreads_ = false;  // select the Profiler's Threads tab on its next draw (autotest)
     void profile_tick(std::uint64_t frameBefore);
@@ -1746,6 +1761,7 @@ public:
     void at_section_R4(AtScript& at);
     void at_section_P4(AtScript& at);  // autotest_editing.cpp
     void at_section_X2(AtScript& at);  // autotest_examples.cpp
+    void at_section_G2(AtScript& at);  // autotest_postfx.cpp
     void at_run_steps(int frame);
     bool capture_window(Image& img);
     void inject_key(int type, int keyCode);
