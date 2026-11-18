@@ -113,6 +113,8 @@ bool Renderer::capture(Image& out, std::string* error) {
         sg_commit();
         im.gpu.note_commit();
     }
+    // 8 bits: a frame drawn for an HDR output (the HDR tonemap, values above paper white) is clipped at white here, not drawn again
+    // with the SDR curve (docs/RENDERING.md, "What goes above white").
     sg_image img = im.final_image();
     std::vector<std::uint8_t> px;
     if (!im.read_rgba8(img, im.final_view(), im.physW, im.physH, px, error, false, im.finalEncoded)) return false;

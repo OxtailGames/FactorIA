@@ -82,7 +82,7 @@ bool float_path(Gfx& g) {
     g.draw(warm.world);
     render::Gpu* gpu = render::renderer_gpu(g.renderer);
     const sg_pixel_format f = gpu ? gpu->display_format() : SG_PIXELFORMAT_NONE;
-    if (f != SG_PIXELFORMAT_RGBA16F && f != SG_PIXELFORMAT_RG11B10F) {
+    if (f != SG_PIXELFORMAT_RGBA16F) {  // R11G11B10 scenes keep their display picture in RGBA8 (Gpu::display_format)
         MESSAGE("skipped: this GPU holds the picture in 8 bits (nothing above paper white can be stored)");
         return false;
     }
@@ -133,8 +133,11 @@ TEST_CASE("hdr output: the final pass tonemaps above paper white up to the headr
             const float light = std::exp2(ev);  // a gamma scene: clear colour 1.0 is linear 1.0
             const float expected = linear_to_srgb(render::tonemap_hdr({light, light, light}, m, H)[0]);
             const float got = fin.at(160, 90, 0);
-            // The dither (one 8-bit step) and half precision.
-            CHECK(std::fabs(got - expected) <= kStep + 0.002f * expected);
+            // The dither (one 8-bit step) and half precision, plus the GPU's own pow() and exp2(): a software rasteriser (WARP,
+            // llvmpipe) does not compute them to the last bit, and the curves above paper white (AgX, ACES) amplify it. One
+            // percent of the value and two steps stay far below a visible difference and still catch a wrong curve, whose
+            // shoulder or headroom is off by tenths.
+            CHECK(std::fabs(got - expected) <= 2 * kStep + 0.01f * expected);
             CHECK(std::fabs(fin.at(160, 90, 1) - got) <= 2 * kStep);
             if (ev >= 2.0f) CHECK(got > 1.0f);  // above paper white
             CHECK(got <= linear_to_srgb(H) + kStep);
@@ -229,4 +232,39 @@ TEST_CASE("hdr output: a frame without the final pass, or drawn before the switc
     const Floats out = read(g, shot, true);
     CHECK(out.at(160, 90, 0) == doctest::Approx(srgb_to_linear(sdr.at(160, 90, 0))).epsilon(0.004));
     CHECK(out.at(160, 90, 0) <= 1.0f + 0.002f);
+}
+
+TEST_CASE("hdr output: the editor viewport shows a picture above paper white clamped to the standard range") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    if (!float_path(g)) return;
+    struct EditorView {  // the editor's copy, switched on for the case and off after (the renderer is shared)
+        Renderer& r;
+        explicit EditorView(Renderer& rr) : r(rr) { r.set_editor_view(true); }
+        ~EditorView() { r.set_editor_view(false); }
+    } view(g.renderer);
+    Forced f(g, forced(HdrEncoding::Edr, 4.0f));
+    Flat s(1.0f);
+    s.post().exposureEnabled = true;
+    s.post().exposureEv = 2.0f;
+    s.post().tonemapEnabled = true;
+    s.post().tonemapMode = TonemapMode::None;  // clips at the headroom (4), not at 1
+    const Image shot = g.draw(s.world);
+    // The final pass wrote above white (sRGB-encoded 4.0 is about 1.6) ...
+    const Floats fin = read(g, shot, false);
+    CHECK(fin.at(160, 90, 0) > 1.2f);
+    // ... and the image the viewport shows is the 8-bit copy, which holds at most white: an EDR editor window would not show it
+    // brighter than the SDR present() does. (readback_rgba8 reads RGBA8 images only: a float image would make it fail.)
+    const std::uint32_t id = g.renderer.game_target_image_id();
+    REQUIRE(id != 0);
+    CHECK(g.renderer.game_target_view_id() != 0);
+    sg_image image{};
+    image.id = id;
+    std::vector<std::uint8_t> px;
+    std::string err;
+    const int tw = g.renderer.target_width(), th = g.renderer.target_height();
+    REQUIRE_MESSAGE(render::readback_rgba8(image, tw, th, px, &err), err);
+    const std::size_t mid = (std::size_t(th / 2) * std::size_t(tw) + std::size_t(tw / 2)) * 4;
+    CHECK(int(px[mid]) == 255);
+    CHECK(int(px[mid + 1]) == 255);
 }

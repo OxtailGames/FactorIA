@@ -9,6 +9,7 @@
 // switches its own on (the `planned` field becomes nullptr), so `supports` never claims what the renderer cannot do.
 #pragma once
 
+#include <cstdint>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -48,6 +49,11 @@ HdrRequest hdr_request(FeatureBackend b, bool want, float paperWhiteNits);
 // Fills env.hdrOutput / env.hdrWhy from `display`, the scene's hdrOutput setting aside (supports answers whether the window could
 // show HDR, not whether the scene asks for it).
 void set_hdr_env(FeatureEnv& env, const HdrDisplay& display);
+
+// The effects of kPostEffectOrder the renderer draws today, as a mask (bit i = PostEffect(i)): what `supports` answers true for (when the GPU
+// has what the effect needs) and what the prepass is made for (postprocess.cpp). A stack that switches on an effect outside it draws
+// nothing for that effect.
+std::uint32_t post_drawn_mask();
 
 enum class FeatureKind { Capability, Engine, Effect };
 

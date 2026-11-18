@@ -31,6 +31,7 @@ inline constexpr AutotestSection kAutotestSections[] = {
     {"E", "Ctrl+V into the AI Assistant input"},
     {"F", "AI Assistant text: wrapping, right-click menu, selectable messages"},
     {"G", "Delete a project from the Open project dialog"},
+    {"G2", "Post-processing panel: the stack and its effects, the A/B switch, a field and a look through postprocess.set / postprocess.apply_preset, undo"},
     {"H", "Export window and its report"},
     {"I", "Platform settings window"},
     {"J", "Set Up This Computer"},

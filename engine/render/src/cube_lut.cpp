@@ -11,8 +11,8 @@ namespace fa {
 
 namespace {
 
-// A decimal number: sign, digits, a point, an exponent. Not strtod (the C locale may use a comma) and not NaN / inf: a LUT never holds
-// them, and they must be an error with a line, not a silent hole in the picture.
+// A decimal number: sign, digits, a point, an exponent. Not strtod (the C locale may use a comma) and not NaN / inf: a LUT
+// never holds them, and they must be an error with a line, not a silent hole in the picture.
 bool parse_number(std::string_view t, double& out) {
     std::size_t i = 0;
     bool neg = false;
@@ -72,9 +72,8 @@ Error line_error(std::string_view name, int line, const std::string& what, const
 }
 
 const std::vector<std::string>& keywords() {
-    static const std::vector<std::string> k = {"TITLE",          "DOMAIN_MIN",         "DOMAIN_MAX",
-                                               "LUT_3D_SIZE",    "LUT_3D_INPUT_RANGE", "LUT_1D_SIZE",
-                                               "LUT_1D_INPUT_RANGE"};
+    static const std::vector<std::string> k = {
+        "TITLE", "DOMAIN_MIN", "DOMAIN_MAX", "LUT_3D_SIZE", "LUT_3D_INPUT_RANGE", "LUT_1D_SIZE", "LUT_1D_INPUT_RANGE"};
     return k;
 }
 
@@ -100,17 +99,19 @@ Result<CubeLut> parse_cube_lut(std::string_view text, std::string_view name) {
         if (!keyword) {
             // A colour: three numbers.
             if (lut.size == 0)
-                return line_error(name, line, "a colour row comes before LUT_3D_SIZE",
-                                  "Put `LUT_3D_SIZE <n>` (16, 32 or 64 for most files) before the first row of colours.");
+                return line_error(
+                    name, line, "a colour row comes before LUT_3D_SIZE",
+                    "Put `LUT_3D_SIZE <n>` (16, 32 or 64 for most files) before the first row of colours.");
             double v[3];
             if (n != 3 || !parse_number(tok[0], v[0]) || !parse_number(tok[1], v[1]) || !parse_number(tok[2], v[2]))
                 return line_error(name, line, std::format("'{}' is not a colour of three numbers", trim(raw)),
                                   "Each row holds the red, green and blue of one entry, like `0.25 0.5 0.75`.");
             if (lut.rgb.size() >= expected * 3)
-                return line_error(name, line,
-                                  std::format("there are more colour rows than the {}x{}x{} = {} that LUT_3D_SIZE {} announces",
-                                              lut.size, lut.size, lut.size, expected, lut.size),
-                                  "Fix LUT_3D_SIZE or cut the extra rows; the file must hold exactly size^3 rows.");
+                return line_error(
+                    name, line,
+                    std::format("there are more colour rows than the {}x{}x{} = {} that LUT_3D_SIZE {} announces",
+                                lut.size, lut.size, lut.size, expected, lut.size),
+                    "Fix LUT_3D_SIZE or cut the extra rows; the file must hold exactly size^3 rows.");
             for (double c : v) lut.rgb.push_back(float(c));
             dataLine = line;
             continue;
@@ -126,14 +127,12 @@ Result<CubeLut> parse_cube_lut(std::string_view text, std::string_view name) {
         } else if (key == "LUT_3D_SIZE") {
             double v = 0;
             if (n != 2 || !parse_number(tok[1], v) || v != std::floor(v))
-                return line_error(name, line, "LUT_3D_SIZE needs one whole number",
-                                  "Write it like `LUT_3D_SIZE 32`.");
-            if (lut.size != 0)
-                return line_error(name, line, "LUT_3D_SIZE appears twice", "Keep one LUT_3D_SIZE line.");
+                return line_error(name, line, "LUT_3D_SIZE needs one whole number", "Write it like `LUT_3D_SIZE 32`.");
+            if (lut.size != 0) return line_error(name, line, "LUT_3D_SIZE appears twice", "Keep one LUT_3D_SIZE line.");
             if (v < kCubeLutMinSize || v > kCubeLutMaxSize)
-                return line_error(name, line,
-                                  std::format("LUT_3D_SIZE {} is outside {} to {}", v, kCubeLutMinSize, kCubeLutMaxSize),
-                                  "Export the table with 16, 32 or 64 entries per side (17, 33 and 65 work too).");
+                return line_error(
+                    name, line, std::format("LUT_3D_SIZE {} is outside {} to {}", v, kCubeLutMinSize, kCubeLutMaxSize),
+                    "Export the table with 16, 32 or 64 entries per side (17, 33 and 65 work too).");
             lut.size = int(v);
             expected = std::size_t(lut.size) * std::size_t(lut.size) * std::size_t(lut.size);
             lut.rgb.reserve(expected * 3);
@@ -149,20 +148,23 @@ Result<CubeLut> parse_cube_lut(std::string_view text, std::string_view name) {
             for (std::size_t i = 0; good && i < want; ++i) good = parse_number(tok[i + 1], v[i]);
             if (!good)
                 return line_error(name, line, std::format("{} needs {} numbers", key, want),
-                                  range ? "Write `LUT_3D_INPUT_RANGE 0.0 1.0`." : "Write it like `DOMAIN_MIN 0.0 0.0 0.0`.");
+                                  range ? "Write `LUT_3D_INPUT_RANGE 0.0 1.0`."
+                                        : "Write it like `DOMAIN_MIN 0.0 0.0 0.0`.");
             const bool isMax = key == "DOMAIN_MAX" || range;
             for (std::size_t i = 0; i < want; ++i) {
                 const double expect = range ? (i == 0 ? 0.0 : 1.0) : (isMax ? 1.0 : 0.0);
                 if (std::fabs(v[i] - expect) > 1e-6)
-                    return line_error(name, line,
-                                      std::format("{} is not the 0 to 1 input range the final pass looks tables up in", key),
-                                      "Export the LUT with the standard 0 to 1 domain (DOMAIN_MIN 0 0 0, DOMAIN_MAX 1 1 1).");
+                    return line_error(
+                        name, line,
+                        std::format("{} is not the 0 to 1 input range the final pass looks tables up in", key),
+                        "Export the LUT with the standard 0 to 1 domain (DOMAIN_MIN 0 0 0, DOMAIN_MAX 1 1 1).");
             }
         } else {
-            return line_error(name, line, std::format("unknown keyword '{}'", tok[0]),
-                              "A .cube file has TITLE, DOMAIN_MIN, DOMAIN_MAX, LUT_3D_SIZE and then size^3 rows of three "
-                              "numbers." +
-                                  did_you_mean(key, keywords()));
+            return line_error(
+                name, line, std::format("unknown keyword '{}'", tok[0]),
+                "A .cube file has TITLE, DOMAIN_MIN, DOMAIN_MAX, LUT_3D_SIZE and then size^3 rows of three "
+                "numbers." +
+                    did_you_mean(key, keywords()));
         }
     }
     if (lut.size == 0)

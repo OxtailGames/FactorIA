@@ -40,8 +40,9 @@ enum PostFxBit : int {
 
 struct PostFx {
     bool lens = false;
-    float lensK = 0.0f;       // PostProcess.lensDistortionIntensity * kLensStrength: the radius grows by 1 + k r^2 (r = 1 at a corner)
-    float lensZoom = 1.0f;    // lensDistortionScale: above 1 the picture is zoomed in
+    float lensK =
+        0.0f;  // PostProcess.lensDistortionIntensity * kLensStrength: the radius grows by 1 + k r^2 (r = 1 at a corner)
+    float lensZoom = 1.0f;  // lensDistortionScale: above 1 the picture is zoomed in
     Vec2 lensCenter{0.5f, 0.5f};
     bool aberration = false;
     float aberrationAmount = 0.0f;  // the red and blue taps move by (uv - 0.5) * this: intensity * kAberrationStrength
@@ -49,15 +50,17 @@ struct PostFx {
     Vec3 whiteBalance{1, 1, 1};  // per-channel gains from temperature and tint (luminance kept)
     Vec3 lift{0, 0, 0}, gain{1, 1, 1}, invGamma{1, 1, 1};
     float contrast = 1.0f, saturation = 1.0f;
-    float hueA = 1.0f, hueB = 0.0f, hueC = 0.0f;  // the hue rotation about the grey axis: rows (a b c), (c a b), (b c a)
-    bool lut = false;  // a table is bound (the renderer clears it when the file cannot be loaded)
+    float hueA = 1.0f, hueB = 0.0f,
+          hueC = 0.0f;  // the hue rotation about the grey axis: rows (a b c), (c a b), (b c a)
+    bool lut = false;   // a table is bound (the renderer clears it when the file cannot be loaded)
     float lutContribution = 1.0f;
     bool vignette = false;
     float vignetteIntensity = 0.0f, vignetteSmoothness = 0.5f, vignetteRoundness = 1.0f;
     Vec2 vignetteCenter{0.5f, 0.5f};
     Vec3 vignetteColor{0, 0, 0};
     bool sharpen = false;
-    float sharpenWeight = 0.0f;  // the weight of each of the four neighbours: -0.1 * intensity (negative: it takes from them)
+    float sharpenWeight =
+        0.0f;  // the weight of each of the four neighbours: -0.1 * intensity (negative: it takes from them)
     bool grain = false;
     float grainIntensity = 0.0f, grainSize = 1.0f, grainResponse = 0.0f;
     std::uint32_t grainSeed = 0;  // the frame number (24 bits) when animated, else 0
@@ -72,9 +75,11 @@ struct PostFx {
 };
 
 // How far the intensities (0..1) go in picture terms. The component's docs say what they mean; these are the factors.
-inline constexpr float kLensStrength = 0.3f;        // intensity 1: a corner is sampled 1.3 times as far out (barrel); -1: 0.7 (pincushion)
-inline constexpr float kAberrationStrength = 0.04f;  // intensity 1: red and blue sit 2% of the picture's width from green at the edge
-inline constexpr float kGrainStrength = 0.25f;       // intensity 1: the grain swings the display value by up to 0.25
+inline constexpr float kLensStrength =
+    0.3f;  // intensity 1: a corner is sampled 1.3 times as far out (barrel); -1: 0.7 (pincushion)
+inline constexpr float kAberrationStrength =
+    0.04f;  // intensity 1: red and blue sit 2% of the picture's width from green at the edge
+inline constexpr float kGrainStrength = 0.25f;  // intensity 1: the grain swings the display value by up to 0.25
 
 // The effects of `stack` (PostEffect::LensDistortion .. FilmGrain that this file draws), sanitised: NaN and out-of-range numbers are
 // clamped to what the component documents. `frame`: the world's frame counter, the seed of an animated grain (never a clock). The LUT

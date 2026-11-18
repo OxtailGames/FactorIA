@@ -8,6 +8,9 @@ Older versions, one file per minor version with its patch releases: [0.29](chang
 
 ### M71 (in progress): linear HDR and a post-processing stack
 
+- **Prepass follow-ups:** the new command `render.debug_view` (`none`, `depth`, `normals`; no argument reports the current view) shows the
+  depth or normals of the prepass in a screenshot; the written depth is clamped to 60000 (`a` is the coverage); a custom material whose
+  shader has no prepass programs logs a warning at load.
 - **Linear colour:** `SceneSettings.colorSpace` (`gamma`, the default, or `linear`) now works. In a linear scene lighting and
   blending happen in linear light: the colours you pick (tints, lights, ambient, fog, sky, clear colour, particles) are converted for
   you, colour textures (sprites, albedo, emissive) are read as sRGB (`SRGB8A8`, and the sRGB variants of BC7, ASTC and ETC2) and data
@@ -27,7 +30,16 @@ Older versions, one file per minor version with its patch releases: [0.29](chang
   (docs/design/ARCHITECTURE_RENDERING.md, "PostProcess").
 - **Commands:** `render.supports` says what the renderer can do on this graphics backend and GPU (float targets, R11G11B10, sampled
   depth, compute shaders, linear colour, HDR output and each post effect; false for what is not drawn yet); `postprocess.get`,
-  `postprocess.set` and `postprocess.presets` read and write the PostProcess component.
+  `postprocess.set`, `postprocess.presets` and `postprocess.apply_preset` read and write the PostProcess component.
+  `postprocess.get {"resolved": true}` answers with the stack a camera really draws and where each value comes from (its own
+  PostProcess, a volume, or the deprecated Camera fields). The seven looks (`neutral`, `cinematic`, `retro`, `noir`, `dreamy`, `vivid`,
+  `horror`) are data in `engine/runtime/data/postprocess_presets.json`; a look that names an effect the renderer does not draw yet
+  still applies and says which parts will show later (`notDrawn`).
+- **Post-processing panel:** View > Post-processing shows the stack of a camera in the order its effects run: each effect's switch,
+  whether this renderer draws it (`planned` or `unsupported`, with the reason), its fields with the source of each value, a button
+  per look and a **Stack off (A/B)** check that draws the game without post-processing to compare (`Renderer::set_post_bypass`; it
+  changes no data). Edits go to the camera's own PostProcess or to a volume you pick through `postprocess.set` and
+  `postprocess.apply_preset`, one undo step each (docs/EDITOR.md, docs/RENDERING.md, AI_GUIDE recipe 9.20).
 - **Exposure, bloom, tonemap and colour filter are drawn.** The stack of the camera that draws first is now a set of frame-graph
   passes: bloom (with a new soft `bloomKnee`, a `bloomLensDirt` texture and a `bloomThreshold` that may exceed 1), exposure (manual
   `exposureEv`, or `exposureMode` auto: a 32x32 brightness reduction and a 1x1 adaptation on the GPU, deterministic from the frame
@@ -64,6 +76,14 @@ Older versions, one file per minor version with its patch releases: [0.29](chang
   colour-filtered frame stay at paper white, and `render.output`'s `status` says when the picture does. A game that asks for
   HDR builds the 16-bit present pipeline before its first frame; a game in the standard range asks the display every 120
   frames instead of every frame (docs/RENDERING.md, "What goes above white").
+- **Depth and normal prepass:** the opaque meshes of the camera can be drawn once more into a float image of their own (view depth,
+  view-space normal, coverage; never multisampled) for the effects that will need the depth (ambient occlusion, reflections, fog, sun
+  shafts, depth of field, motion blur, outline). A frame without such an effect makes no image, declares no pass and draws the same
+  number of times as before. No effect that reads it is drawn yet, so for now you see it with `FA_RENDER_DEBUG_VIEW=depth` or `normals`
+  (C++: `Renderer::set_debug_view`). Custom materials get `prepass` and `prepass_skin` programs (six programs a material instead of
+  two to four): their `vertex()` and `alphaMode` `"clip"` apply there too, so the compiled shaders of custom materials must be made again
+  (`factoria validate`). `render.supports` answers `sampledDepth` from the formats this GPU renders to and samples (docs/RENDERING.md,
+  "Depth and normals").
 
 ## 0.30.1
 

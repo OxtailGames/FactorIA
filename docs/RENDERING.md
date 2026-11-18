@@ -290,7 +290,11 @@ picking colours by eye and keep the same PNG files.
   decodes what is read, so the darks keep their precision and blending is in linear light), else plain `RGBA8` (banding in the
   darks; only a GPU with no sRGB render target, rare). `render.supports {"feature": "linearColor"}` is true on every GPU;
   `render.supports {"feature": "r11g11b10"}` says whether the packed float is there. The tests pick the formats with
-  `FA_SCENE_FORMAT` (`rgba8`, `r11g11b10`).
+  `FA_SCENE_FORMAT` (`rgba8`, `r11g11b10`). `R11G11B10` has a 6-bit mantissa (5 for blue): between two powers of two it has 64 steps (32
+  in blue), so a smooth gradient of values ABOVE 1.0 (a bright emissive surface, a glow, a sun disc) shows bands of 1.5 to 3% of the
+  value (3 to 6% in blue) that `RGBA16F` does not have, and the darks keep their precision. The picture the final pass writes (sRGB
+  values) is therefore never kept in it: on such a GPU the final images are plain `RGBA8`, which cannot go above white, so an HDR
+  output stays within paper white there (`render.output`'s `status` says so).
 - **A switch at run time is allowed** (a script writes `colorSpace`): the game target is made again in the other format, the
   textures, shaders and pipelines are kept, and no GPU image is left behind. A texture already made is not made again.
 
@@ -400,6 +404,64 @@ Things to know:
 - **Lens dirt.** `bloomLensDirt` is a texture (stretched over the screen) that multiplies the glow by `1 + dirt * bloomLensDirtIntensity`.
 - A camera that draws into a texture (`renderTarget`) never has a stack: the effects are for the picture the player sees.
 
+### Reading and changing the stack: commands, looks and the editor panel
+
+- `postprocess.get {"id": "camera", "resolved": true}` answers with the stack the camera draws, computed on the CPU (it works without a
+  window): `layers` (the camera's own PostProcess or the deprecated `Camera.bloom*` fields, then each volume the camera is inside, with
+  its priority, weight and influence) and `effects`, every effect in the order it runs with `enabled` and, for each parameter of an
+  effect that runs, `{value, from, strength}`. `from` is `own`, `legacy`, `volume:<entity id>` or `default`, so "why is the picture
+  this dark" has an answer: the field that sets it and the entity that owns it. Without `resolved` it reads the component's own fields.
+- `postprocess.set {"id", "fields"}` writes fields of a PostProcess (added when the entity has none: on a Camera entity it is the
+  camera's own stack, on an entity without a Camera a volume) and `postprocess.presets` lists the looks. `postprocess.apply_preset
+  {"id", "preset"}` applies one: without `"keep": true` the look replaces every effect of the target with exactly its own (the
+  volume's shape, size and priority stay), with it only the effects the look names change. The looks are data, not code
+  (`engine/runtime/data/postprocess_presets.json`): `neutral` (everything off, the way back), `cinematic`, `retro`, `noir`, `dreamy`,
+  `vivid` and `horror`, built only from fields that exist. A look that names an effect this renderer does not draw yet (`ssao`,
+  `depthOfField`... say `planned` in `render.supports`) still applies, and the answer says so: `notDrawn` lists them and `note` explains
+  that their fields are stored and show once the renderer draws them. `drawnChecked` is false when there is no renderer to ask
+  (`graphics=false`).
+- **View > Post-processing** (docs/EDITOR.md) is the same stack on screen: a camera chooser, each effect in the order it runs with its
+  switch, a "running" or "off" mark, whether this renderer draws it (`planned`, or `unsupported` with the reason on hover), its fields
+  with the source of each value, one button per look and a **Stack off (A/B)** check that draws the game without any post-processing
+  to compare (`Renderer::set_post_bypass`: it changes no data and ends when the panel closes). Every edit goes through
+  `postprocess.set` or `postprocess.apply_preset`, one undo step each, to the camera's own PostProcess or to the volume picked under
+  "Edit"; an effect this renderer does not draw (planned, or unsupported on this GPU) cannot be switched on from the panel (a look that switched it on can be switched off).
+
+## Depth and normals
+
+The effects that need to know how far away something is or which way it faces (ambient occlusion, reflections, fog, sun shafts,
+depth of field, motion blur, outline) read a **prepass**: the opaque meshes of the camera drawn once more, before the main pass, into
+one floating-point image of their own (`RGBA32F`, else `RGBA16F`), never multisampled (a multisampled game picture keeps its samples; the prepass has one per pixel). Each
+pixel holds the distance along the camera's view axis in world units (`60000` where nothing was drawn), the view-space normal
+(an octahedral encoding in two channels) and 1 where a mesh is (0 elsewhere). It is the same distance for a perspective and an
+orthographic 3D camera.
+
+- **When it is made.** Only in a frame whose post stack (the `PostProcess` of the camera that draws first) has an effect that reads the
+  depth or the normals and that the renderer draws, for a camera that draws opaque meshes. A frame without such an effect declares no
+  prepass pass, makes no image and builds no shader: the draw calls are the same as before. No effect that reads the depth is drawn
+  yet, so today only the debug view below makes it.
+- **What is in it.** Opaque meshes, skinned ones at their pose, with their material's `vertex()` displacement, the normals of their material's `surface()` and, for `alphaMode`
+  `"clip"`, the same holes as the main pass. Not in it: blended meshes, the sky, sprites, particles, shapes, text, debug lines
+  and the HUD. A custom material gets its own prepass programs when
+  it is compiled, like its shadow programs.
+- **Where it is not made.** A camera that draws into a texture (`renderTarget`), a `CameraView`, a GPU that cannot render and
+  sample a float image (`render.supports` says `sampledDepth` is not available, and the effects that need it are skipped), and a frame
+  split between several primary cameras or with a camera whose viewport is smaller than the screen: the stack belongs to the first
+  camera and the prepass would not match what each camera draws, so the effects that read the depth are skipped (one warning).
+- **Cost.** One more draw of every opaque batch, vertex work only plus the fragment work of a depth and normal write, and 16 bytes a
+  pixel of memory at `RGBA32F` (8 at `RGBA16F`), returned to the pool when the frame ends.
+- **Seeing it.** The command `render.debug_view {"view":"depth"}` (or `"normals"`, `"none"` to go back; without `view` it
+  reports the current one) paints the prepass over the 3D picture of the frame, so `game.step` then `game.screenshot` shows what the
+  depth-based effects read: depth as a grey, `10 / (10 + distance)` (white next to the camera), normals as the view-space direction
+  mapped to colours (`x`, `y`, `z` as red, green, blue: a surface that faces the camera is blue), black where no opaque mesh was
+  drawn. `FA_RENDER_DEBUG_VIEW=depth` or `normals` in the environment sets the first view at start (C++: `Renderer::set_debug_view`).
+  It is a way to check a scene, not an effect: it is not saved and a game does not set it. `game.screenshot` has no
+  argument for it: set the view, step a frame, take the shot.
+- **What the image holds.** `r` is the depth, clamped to 60000 (the far value) so a half-float fallback never stores infinity;
+  `a` is 1 where an opaque mesh was drawn and 0 elsewhere, and is the truth about coverage, not `r` (a surface at 60000 or more has
+  `r` = 60000 too). A custom material whose shader was made before the prepass has no prepass programs: it is left out of the
+  image, and the renderer logs one warning at load that says so (make the shader again).
+
 ## Off-screen capture
 
 `render.captureTexture({ entity | rect, space: "world", scale })` draws a part of the world into a texture of its own, with a
@@ -472,7 +534,11 @@ without the final pass (no exposure or tonemap: nothing decides how to map the l
 SDR screen), a frame with a colour filter (it works on what an SDR screen shows), and a GPU that draws the picture in 8 bits
 (`render.supports {"feature":"floatTargets"}` false). `render.output`'s `status` says so while the HDR swapchain is on and the
 picture stays within paper white. Screenshots, `render.captureTexture` and the editor's view are 8-bit: they show the picture
-clipped at paper white.
+clipped at paper white. That is not the SDR look: in a window on an HDR display the frame is drawn with the HDR tonemap (its
+highlights rolling off toward the headroom) and the 8-bit copy then cuts everything above 1, so the brightest areas of a screenshot
+are flatter than on the screen, and than the same frame on an SDR screen. A run without a window (`factoria call`, tests) draws in the standard range with the SDR tonemap, so its screenshots are the reference for how
+the game looks on an SDR display. The editor's viewport clamps the same way, with an 8-bit copy of the picture when it went above
+white.
 
 The present pass encodes the picture for the swapchain:
 

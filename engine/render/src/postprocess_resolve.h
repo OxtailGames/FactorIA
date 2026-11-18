@@ -4,7 +4,11 @@
 // fa/scene/postprocess.h; the blending rules are documented in docs/design/ARCHITECTURE_RENDERING.md ("PostProcess").
 #pragma once
 
+#include <array>
 #include <cstdint>
+#include <string>
+#include <unordered_map>
+#include <vector>
 
 #include "fa/scene/camera_geometry.h"
 #include "fa/scene/postprocess.h"
@@ -26,6 +30,54 @@ struct PostStack {
     int effect_count() const;  // how many effects run
 };
 
+// Where the values of a PostStack came from, filled by resolve_post_stack when the caller passes one (the postprocess.get command and
+// the editor's panel show it; the renderer never asks, so a frame pays nothing).
+struct PostLayer {
+    enum class Kind {
+        Own,
+        Volume,
+        Legacy
+    };  // the camera's own PostProcess, a volume, the deprecated Camera.bloom* / colorFilter
+    Kind kind = Kind::Own;
+    Entity entity = kNullEntity;  // the entity that holds it (the camera for Own and Legacy)
+    float weight = 1.0f;          // PostProcess.weight, clamped to 0..1
+    float influence = 1.0f;  // how deep the camera is inside the volume (1 for the camera's own and for global volumes)
+    float strength() const { return weight * influence; }  // what the layer was applied with
+};
+struct PostTrace {
+    std::vector<PostLayer> layers;  // in the order they were applied: own first, then ascending priority
+    std::array<std::vector<int>, kPostEffectCount>
+        effectLayers{};  // per effect: the indices into `layers` that switch it on
+    // Per parameter field (its name): the index into `layers` of the layer whose value it is (the last one that wrote it; for a
+    // number blended by several, the last of them), -1 for the neutral default (no layer switched its effect on, or a switch
+    // such as a mode that the layers were too weak to change).
+    std::unordered_map<std::string, int> fieldLayer;
+};
+
+// The PostProcess standing in for the deprecated Camera.bloom* and Camera.colorFilter fields of `cam` (hard knee, the same picture as
+// before the stack existed): false (and `out` left alone) when the camera uses neither. Shared by Renderer::Impl::build_camera and
+// post_stack_report, so both see the same stack.
+bool legacy_post_of_camera(const Camera& cam, PostProcess& out);
+
+// What an effect reads from the prepass (renderer_draw.cpp, "prepass"; ARCHITECTURE_RENDERING.md, "PostProcess"): the linear view-space
+// depth of the opaque 3D meshes, and their view-space normals. Pure tables, so the gating of the prepass is testable without a GPU. The
+// outline needs both (depth and normal edges), fog and sun shafts and depth of field and motion blur the depth, ssao and ssr both.
+constexpr bool post_effect_needs_depth(PostEffect e) {
+    return e == PostEffect::Ssao || e == PostEffect::Ssr || e == PostEffect::Fog || e == PostEffect::SunShafts ||
+           e == PostEffect::DepthOfField || e == PostEffect::MotionBlur || e == PostEffect::Outline;
+}
+constexpr bool post_effect_needs_normals(PostEffect e) {
+    return e == PostEffect::Ssao || e == PostEffect::Ssr || e == PostEffect::Outline;
+}
+// The same for a mask of effects (bit i = PostEffect(i), PostStack::mask).
+constexpr bool post_mask_needs(std::uint32_t mask, bool (*needs)(PostEffect)) {
+    for (int i = 0; i < kPostEffectCount; ++i)
+        if (((mask >> i) & 1u) && needs(PostEffect(i))) return true;
+    return false;
+}
+constexpr bool post_mask_needs_depth(std::uint32_t mask) { return post_mask_needs(mask, post_effect_needs_depth); }
+constexpr bool post_mask_needs_normals(std::uint32_t mask) { return post_mask_needs(mask, post_effect_needs_normals); }
+
 // How much the volume `vol` (a PostProcess on an entity without a Camera, whose world matrix is `world`) applies at `point`, 0..1:
 // 1 inside the shape (or always for shape global), falling linearly to 0 over blendDistance outside it, and 0 beyond. The shape is
 // turned and scaled with the entity (the box by its rotation and scale, the circle and the sphere by the largest scale of the axes
@@ -46,6 +98,8 @@ float post_volume_influence(const PostProcess& vol, const Mat4& world, Vec3 poin
 // Entities that are not active in the hierarchy contribute nothing. Costs one count when the world has no PostProcess.
 // `implicitOwn` (optional) stands in for the camera's own component when it has none (or it is disabled): the renderer passes one made
 // of the deprecated Camera.bloom* and Camera.colorFilter fields, so a camera that uses them still gets its bloom and filter.
-PostStack resolve_post_stack(World& world, const CameraGeometry& cam, const PostProcess* implicitOwn = nullptr);
+// `trace` (optional) records which layer every value came from.
+PostStack resolve_post_stack(World& world, const CameraGeometry& cam, const PostProcess* implicitOwn = nullptr,
+                             PostTrace* trace = nullptr);
 
 }  // namespace fa::render

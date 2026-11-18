@@ -24,6 +24,7 @@
 //   sg_commit() is done by end_frame()/present() as appropriate.
 #pragma once
 
+#include <cstdint>
 #include <functional>
 #include <memory>
 #include <optional>
@@ -67,6 +68,9 @@ struct ShadowRowsStats {
     int slots = 0, uploads = 0;
 };
 ShadowRowsStats renderer_shadow_rows_stats(Renderer& r);
+// Draws the depth and normal prepass as if the camera's stack switched on the effects of `effects` (a mask like PostStack::mask, bit i =
+// PostEffect(i); 0 = as the stack says), for the tests of the prepass: no effect that reads it is drawn yet.
+void renderer_force_post_effects(Renderer& r, std::uint32_t effects);
 // The HDR output: the next frames are drawn and presented as if update_output() had answered `info` (null: back to what it
 // answers), for the render tests of the encodes without an HDR display.
 void renderer_force_output(Renderer& r, const HdrOutputInfo* info);
@@ -75,6 +79,9 @@ void renderer_force_output(Renderer& r, const HdrOutputInfo* info);
 // read back an RGBA16F image.
 bool renderer_read_floats(Renderer& r, bool present, std::vector<float>& out, std::string* error);
 }  // namespace render
+
+// What the renderer shows instead of the game picture, to check the depth and normal prepass (Renderer::set_debug_view).
+enum class DebugView : std::uint8_t { None, Depth, Normals };
 
 enum class ScaleMode : std::int32_t {
     Fit,          // keep aspect, letterbox (default)
@@ -394,8 +401,8 @@ public:
     // Native handle of the picture the editor viewport shows (sg_image id) and a texture view of it for sampling (sg_view id): the
     // finished game image (after the colour filter) in a gamma scene. In a linear scene that image holds linear light, which would be
     // too dark on screen: once set_editor_view(true) was called these are an 8-bit copy encoded to sRGB, made after each frame and
-    // freed when the scene goes back to gamma (0 until the first frame of a linear scene made it). Without set_editor_view they
-    // are the game image as it is.
+    // freed when the scene goes back to gamma (0 until the first frame of a linear scene made it). The same copy clamps a picture
+    // above paper white (an HDR output's final pass) to the standard range. Without set_editor_view they are the game image as it is.
     std::uint32_t game_target_image_id() const;
     std::uint32_t game_target_view_id() const;
     // Asks for the encoded copy above (the editor calls it once). Costs one full-screen copy per frame of a linear scene, so a game
@@ -482,10 +489,26 @@ public:
     // What the window shows now (the `render.output` command): the last answer of update_output(), any thread.
     HdrOutputInfo output_info() const;
 
+    // The editor's A/B switch of the Post-processing panel: true draws every following frame as if no camera had a post-processing
+    // stack (no PostProcess, no deprecated Camera.bloom* or colorFilter), without touching any data; false (the default) draws
+    // them. Not saved and not part of a scene: a game never sets it. Takes effect on the next frame.
+    void set_post_bypass(bool bypass);
+    bool post_bypass() const;
+
+    // The depth or the normals the prepass drew (docs/RENDERING.md, "Depth and normals"), as a picture over the 3D meshes of the frame: depth in
+    // greys (near is light, 10 / (10 + distance) of the camera), normals as the view-space direction mapped to colours (x, y, z -> r, g, b)
+    // and black where no opaque mesh is. Needs a perspective or orthographic 3D camera that draws opaque meshes; any other frame, a GPU
+    // without float render targets and a frame that is split between cameras draw the game normally. A debugging aid: it does not change
+    // what a screenshot of the scene shows unless it is on. The environment variable FA_RENDER_DEBUG_VIEW=depth|normals sets it when
+    // the renderer starts. Main thread.
+    void set_debug_view(DebugView view);
+    DebugView debug_view() const;
+
     struct Impl;
 
 private:
     friend render::Gpu* render::renderer_gpu(Renderer& r);
+    friend void render::renderer_force_post_effects(Renderer& r, std::uint32_t effects);
     friend const render::FrameGraph* render::renderer_frame_graph(Renderer& r);
     friend render::TransientPoolStats render::renderer_transient_stats(Renderer& r);
     friend render::ShadowRowsStats render::renderer_shadow_rows_stats(Renderer& r);

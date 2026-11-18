@@ -382,6 +382,49 @@ TEST_CASE(
     CHECK(at(img, 0, 0).r == doctest::Approx(0.7354f).epsilon(0.04));
 }
 
+TEST_CASE("color space: the picture the final pass writes is held in RGBA8 when the scene is 8-bit or R11G11B10, and "
+          "is the same "
+          "picture") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    // The final pass writes sRGB-ENCODED values: SRGB8A8 would encode them twice and R11G11B10 (6-bit mantissa) bands near 1.
+    // A stack with the tonemap off draws what no stack draws, so every scene format must show the same picture.
+    auto fill = [](World& w, bool stack) {
+        Entity cam = camera(w);
+        linear(w);
+        rect(w, {-80, 0, 0}, Color{0.05f, 0.05f, 0.05f, 1}, {40, 120});
+        rect(w, {-30, 0, 0}, Color{0.5f, 0.5f, 0.5f, 1}, {40, 120});
+        rect(w, {20, 0, 0}, Color{0.9f, 0.6f, 0.3f, 1}, {40, 120});
+        rect(w, {70, 0, 0}, Color{0.95f, 0.95f, 0.95f, 1}, {40, 120});
+        if (stack) {
+            auto& pp = w.add<PostProcess>(cam);
+            pp.tonemapEnabled = true;
+            pp.tonemapMode = TonemapMode::None;
+        }
+    };
+    Own best(g);
+    REQUIRE_MESSAGE(best.ok, best.error);
+    World plain;
+    fill(plain, false);
+    const Image reference = best.draw(g, plain);
+    for (const char* format : {"rgba8", "r11g11b10"}) {
+        CAPTURE(format);
+        Own r(g, format);
+        REQUIRE_MESSAGE(r.ok, r.error);
+        World w;
+        fill(w, true);
+        const Image img = r.draw(g, w);
+        const sg_pixel_format scene = r.gpu().scene_format();
+        const sg_pixel_format display = r.gpu().display_format();
+        if (scene == SG_PIXELFORMAT_RG11B10F || scene == SG_PIXELFORMAT_SRGB8A8 || scene == SG_PIXELFORMAT_RGBA8)
+            CHECK(display == SG_PIXELFORMAT_RGBA8);
+        else
+            CHECK(display == scene);
+        CHECK(worst_error(img, reference) < 0.04);
+        CHECK(at(img, -30, 0).r == doctest::Approx(0.5f).epsilon(0.02));  // an authored colour is shown as picked
+    }
+}
+
 TEST_CASE("color space: colour textures are made sRGB in a linear scene, with the shader as the fall-back, data "
           "textures stay as they were") {
     Gfx& g = gfx();

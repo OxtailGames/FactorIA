@@ -1,11 +1,12 @@
-// M71-C1: the final-pass effects on the GPU (post.glsl: colour grading and the LUT, vignette, lens distortion, chromatic aberration,
-// sharpen, film grain), each compared with the CPU form of the same maths (src/post_fx.h) on a picture drawn without the effect, with
-// the off state pixel-identical to a frame without a stack, and a golden per effect. The tests of the CPU maths and of the .cube parser
-// are in postfx_tests.cpp.
+// M71-C1: the final-pass effects on the GPU (post.glsl: colour grading and the LUT, vignette, lens distortion, chromatic
+// aberration, sharpen, film grain), each compared with the CPU form of the same maths (src/post_fx.h) on a picture drawn
+// without the effect, with the off state pixel-identical to a frame without a stack, and a golden per effect. The tests of
+// the CPU maths and of the .cube parser are in postfx_tests.cpp.
 #include "test_util.h"
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <fstream>
 #include <functional>
 #include <string>
@@ -25,8 +26,8 @@ namespace {
 
 constexpr float kStep = 1.0f / 255.0f;
 
-// A picture with something for every effect: flat areas of several colours, a white and a dark vertical stripe (edges for the lens, the
-// aberration and the sharpen), over a bluish grey. Pixel (px, py) is the world position (px - 160, 90 - py).
+// A picture with something for every effect: flat areas of several colours, a white and a dark vertical stripe (edges for
+// the lens, the aberration and the sharpen), over a bluish grey. Pixel (px, py) is the world position (px - 160, 90 - py).
 struct FxChart {
     World world;
     Entity cam;
@@ -91,7 +92,9 @@ Vec3 bilinear(const Image& im, Vec2 uv) {
     const Vec3 b = lerp(texel(im, x0, y0 + 1), texel(im, x0 + 1, y0 + 1), tx);
     return lerp(a, b, ty);
 }
-Vec2 uv_of(const Image& im, int x, int y) { return {(float(x) + 0.5f) / float(im.width), (float(y) + 0.5f) / float(im.height)}; }
+Vec2 uv_of(const Image& im, int x, int y) {
+    return {(float(x) + 0.5f) / float(im.width), (float(y) + 0.5f) / float(im.height)};
+}
 Vec3 clamp01(Vec3 c) { return {saturate(c.x), saturate(c.y), saturate(c.z)}; }
 
 struct Diff {
@@ -186,7 +189,8 @@ TEST_CASE("post fx: effects switched on with their neutral values draw no pass a
 
 // ---- colour grading ----
 
-TEST_CASE("colour grading: white balance, lift, gamma, gain, contrast, saturation and hue match the CPU, in a gamma and a linear scene") {
+TEST_CASE("colour grading: white balance, lift, gamma, gain, contrast, saturation and hue match the CPU, in a gamma "
+          "and a linear scene") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     struct Case {
@@ -195,7 +199,11 @@ TEST_CASE("colour grading: white balance, lift, gamma, gain, contrast, saturatio
     };
     const Case cases[] = {
         {"warm", [](PostProcess& p) { p.colorGradingTemperature = 60.0f; }},
-        {"cool magenta", [](PostProcess& p) { p.colorGradingTemperature = -40.0f; p.colorGradingTint = 50.0f; }},
+        {"cool magenta",
+         [](PostProcess& p) {
+             p.colorGradingTemperature = -40.0f;
+             p.colorGradingTint = 50.0f;
+         }},
         {"lift", [](PostProcess& p) { p.colorGradingLift = Color{0.1f, 0.0f, 0.15f, 1}; }},
         {"gamma", [](PostProcess& p) { p.colorGradingGamma = Color{1.6f, 1.0f, 0.7f, 1}; }},
         {"gain", [](PostProcess& p) { p.colorGradingGain = Color{1.2f, 0.9f, 0.6f, 1}; }},
@@ -203,7 +211,8 @@ TEST_CASE("colour grading: white balance, lift, gamma, gain, contrast, saturatio
         {"saturation 0", [](PostProcess& p) { p.colorGradingSaturation = 0.0f; }},
         {"saturation 1.8", [](PostProcess& p) { p.colorGradingSaturation = 1.8f; }},
         {"hue 90", [](PostProcess& p) { p.colorGradingHueShift = 90.0f; }},
-        {"everything", [](PostProcess& p) {
+        {"everything",
+         [](PostProcess& p) {
              p.colorGradingTemperature = 20.0f;
              p.colorGradingLift = Color{0.03f, 0.03f, 0.05f, 1};
              p.colorGradingGamma = Color{1.2f, 1.2f, 1.2f, 1};
@@ -227,7 +236,8 @@ TEST_CASE("colour grading: white balance, lift, gamma, gain, contrast, saturatio
             c.set(p);
             const PostFx fx = fx_of(p);
             REQUIRE(fx.grade);
-            const Diff d = compare(got, [&](int x, int y) { return clamp01(render::grade_color(fx, texel(ref, x, y))); });
+            const Diff d =
+                compare(got, [&](int x, int y) { return clamp01(render::grade_color(fx, texel(ref, x, y))); });
             CHECK(d.mean < 0.004);
             CHECK(d.max < 0.03f);
             CHECK(got.rgba != ref.rgba);
@@ -244,7 +254,8 @@ TEST_CASE("colour grading: white balance, lift, gamma, gain, contrast, saturatio
     expect_golden(warm, "post_fx_grade");
 }
 
-TEST_CASE("colour grading: a .cube LUT of 16, 32 and 64 entries matches the CPU table, and the contribution blends it") {
+TEST_CASE(
+    "colour grading: a .cube LUT of 16, 32 and 64 entries matches the CPU table, and the contribution blends it") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     const Image ref = reference(g);
@@ -370,7 +381,8 @@ TEST_CASE("vignette: the corners go to the vignette colour as the CPU computes, 
     expect_golden(gold, "post_fx_vignette");
 }
 
-TEST_CASE("lens distortion: barrel, pincushion, scale and an off-centre axis sample the picture where the CPU says, black outside") {
+TEST_CASE("lens distortion: barrel, pincushion, scale and an off-centre axis sample the picture where the CPU says, "
+          "black outside") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     const Image ref = reference(g);
@@ -396,9 +408,8 @@ TEST_CASE("lens distortion: barrel, pincushion, scale and an off-centre axis sam
         PostProcess p;
         set(p);
         const PostFx fx = fx_of(p);
-        const Diff d = compare(got, [&](int x, int y) {
-            return bilinear(ref, render::lens_source(fx, uv_of(ref, x, y), aspect));
-        });
+        const Diff d = compare(
+            got, [&](int x, int y) { return bilinear(ref, render::lens_source(fx, uv_of(ref, x, y), aspect)); });
         CHECK(d.mean < 0.006);
         if (std::string(c.name) == "barrel") {
             expect_golden(got, "post_fx_lens_barrel");
@@ -411,7 +422,8 @@ TEST_CASE("lens distortion: barrel, pincushion, scale and an off-centre axis sam
     }
 }
 
-TEST_CASE("chromatic aberration: red and blue are read further out and in, green stays, the centre column is untouched") {
+TEST_CASE(
+    "chromatic aberration: red and blue are read further out and in, green stays, the centre column is untouched") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     const Image ref = reference(g);
@@ -501,7 +513,8 @@ TEST_CASE("film grain: the GPU adds the CPU's noise (any size and response), and
         PostProcess p;
         set(p);
         const PostFx fx = fx_of(p);
-        const Diff d = compare(got, [&](int x, int y) { return clamp01(render::grain_color(fx, texel(ref, x, y), x, y)); });
+        const Diff d =
+            compare(got, [&](int x, int y) { return clamp01(render::grain_color(fx, texel(ref, x, y), x, y)); });
         CHECK(d.mean < 0.004);
         CHECK(d.max < 0.03f);
         CHECK(got.rgba != ref.rgba);
@@ -509,7 +522,8 @@ TEST_CASE("film grain: the GPU adds the CPU's noise (any size and response), and
     }
 }
 
-TEST_CASE("film grain: the same frame gives the same picture on every run, the next frame another, and a still grain never changes") {
+TEST_CASE("film grain: the same frame gives the same picture on every run, the next frame another, and a still grain "
+          "never changes") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     auto frame = [&](bool animated, int advance) {
@@ -532,7 +546,8 @@ TEST_CASE("film grain: the same frame gives the same picture on every run, the n
         p.filmGrainEnabled = true;
         p.filmGrainIntensity = 0.6f;
         const PostFx fx = fx_of(p, 5);
-        const Diff d = compare(later, [&](int x, int y) { return clamp01(render::grain_color(fx, texel(ref, x, y), x, y)); });
+        const Diff d =
+            compare(later, [&](int x, int y) { return clamp01(render::grain_color(fx, texel(ref, x, y), x, y)); });
         CHECK(d.mean < 0.004);
     }
     const Image still0 = frame(false, 0), still9 = frame(false, 9);
@@ -580,7 +595,8 @@ Floats read(Gfx& g, const Image& shot) {
 }
 }  // namespace
 
-TEST_CASE("hdr output: the grade keeps what is above white and the vignette darkens the HDR picture as it does the SDR one") {
+TEST_CASE(
+    "hdr output: the grade keeps what is above white and the vignette darkens the HDR picture as it does the SDR one") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     if (!float_path(g)) return;
@@ -647,7 +663,8 @@ TEST_CASE("hdr output: the grade keeps what is above white and the vignette dark
     });
     for (int y = 4; y < 180; y += 16)
         for (int x = 4; x < 320; x += 16) {
-            const float a = render::vignette_amount(vfx, {(float(x) + 0.5f) / 320.0f, (float(y) + 0.5f) / 180.0f}, 320.0f / 180.0f);
+            const float a =
+                render::vignette_amount(vfx, {(float(x) + 0.5f) / 320.0f, (float(y) + 0.5f) / 180.0f}, 320.0f / 180.0f);
             const Vec3 c = base.at(x, y), got = vig.at(x, y);
             for (int i = 0; i < 3; ++i) CHECK(std::fabs(got[i] - c[i] * (1.0f - a)) <= 0.01f + 0.01f * c[i]);
         }
