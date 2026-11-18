@@ -1061,7 +1061,7 @@ void Renderer::Impl::draw_group(DrawContext& ctx, const std::vector<QuadBatch>& 
     for (const QuadBatch& qb : batches) {
         apply_clip(qb.clip);
         sg_apply_pipeline(gpu.quad_pipeline(depthTest, false, qb.blend, qb.plain, qb.opaque));
-        u.cspace[1] = float(qb.tex->tex_fix(fr.linear, true));
+        u.cspace[1] = float(qb.tex->tex_fix(fr.linear, true, fr.displayOverLinear));
         u.cspace[2] = qb.lit && qb.normal ? float(qb.normal->tex_fix(fr.linear, false)) : 0.0f;
         apply_uniforms(UB_quad_vs_params, u);
         if (qb.lit) {
@@ -1275,7 +1275,11 @@ void Renderer::Impl::hud_pass(DrawContext& ctx, const Target& into, const char* 
     const DrawContext::Group& gDebugScreen = ctx.gDebugScreen;
     // The items go over the final picture, which holds display (sRGB) values: they are drawn as in a gamma scene, whatever the colour space.
     const bool saveLinear = ctx.fr.linear;
-    if (ctx.hudAfterPost) ctx.fr.linear = false;
+    const bool saveOver = ctx.fr.displayOverLinear;
+    if (ctx.hudAfterPost) {
+        ctx.fr.displayOverLinear = saveLinear;
+        ctx.fr.linear = false;
+    }
     PassDesc hp = pass_into(into, label);
     hp.colorLoad = SG_LOADACTION_LOAD;  // keep the world and its glow
     hp.colorStore = msaa ? SG_STOREACTION_DONTCARE : SG_STOREACTION_STORE;
@@ -1287,6 +1291,7 @@ void Renderer::Impl::hud_pass(DrawContext& ctx, const Target& into, const char* 
     draw_group(ctx, gDebugScreen.batches, screenProj, false, fullPx, 0);
     gpu.end_pass();
     ctx.fr.linear = saveLinear;
+    ctx.fr.displayOverLinear = saveOver;
 }
 
 // Declares the passes of the job in `graph` (the frame's), named "<job>/<pass>", in the order they always ran: the light buffer,
