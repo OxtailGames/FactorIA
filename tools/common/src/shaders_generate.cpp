@@ -2,6 +2,7 @@
 // scanning of snippets needs.
 #include <algorithm>
 #include <cctype>
+#include <map>
 #include <set>
 
 #include "fa/tooling/bundle.h"
@@ -58,7 +59,8 @@ bool is_reserved_word(std::string_view s) {
         "external", "interface", "long", "short", "half", "fixed", "unsigned", "superp", "input", "output", "filter",
         "sizeof", "cast", "namespace", "using",
         // names of the snippet contract
-        "main", "surface", "vertex", "Surface", "SurfaceInput", "VertexData"};
+        "main", "surface", "vertex", "Surface", "SurfaceInput", "VertexData", "QuadInput", "QuadSurface", "SkyInput",
+        "SkySurface", "PostInput", "PostSurface"};
     return words.count(s) > 0;
 }
 
@@ -94,48 +96,79 @@ std::string normalize_snippet(std::string_view snippet) {
     return out;
 }
 
-std::vector<std::pair<std::string, std::string>> template_files() {
+const std::vector<std::string>& template_file_names(const std::string& kind) {
+    // One list per kind, equal to FA_TEMPLATE_FILES_<KIND> of engine/render/CMakeLists.txt (a test compares the hashes). The mesh
+    // list is the one file the template hash was made of before kinds existed.
+    static const std::map<std::string, std::vector<std::string>> names = {{"mesh", {"mesh_common.glsl"}},
+                                                                          {"sprite", {"quad_common.glsl"}},
+                                                                          {"sky", {"sky_common.glsl"}},
+                                                                          {"post", {"post_common.glsl"}},
+                                                                          {"compute", {}}};
+    static const std::vector<std::string> none;
+    auto it = names.find(kind);
+    return it == names.end() ? none : it->second;
+}
+
+std::vector<std::pair<std::string, std::string>> template_files(const std::string& kind) {
     std::vector<std::pair<std::string, std::string>> out;
-    for (const std::string& path : bundled_list("engine/render/shaders/")) {
-        if (!path.ends_with("_common.glsl")) continue;
-        auto content = bundled_read(path);
+    for (const std::string& name : template_file_names(kind)) {
+        auto content = bundled_read("engine/render/shaders/" + name);
         if (!content) continue;
-        out.emplace_back(path.substr(path.rfind('/') + 1), *content);
+        out.emplace_back(name, *content);
     }
     std::sort(out.begin(), out.end());
     return out;
 }
 
-const std::vector<std::pair<std::string, std::vector<std::string>>>& contract_structs() {
-    static const std::vector<std::pair<std::string, std::vector<std::string>>> structs = [] {
-        std::vector<std::pair<std::string, std::vector<std::string>>> out;
-        std::string all;
-        for (auto& [name, content] : template_files()) all += blank_comments(content) + "\n";
-        for (const std::string wanted : {"SurfaceInput", "Surface", "VertexData"}) {
-            std::size_t pos = 0;
-            while ((pos = all.find("struct " + wanted + " ", pos)) != std::string::npos) {
-                const std::size_t open = all.find('{', pos), close = all.find('}', pos);
-                if (open == std::string::npos || close == std::string::npos || close < open) break;
-                std::vector<std::string> fields;
-                std::string body = all.substr(open + 1, close - open - 1);
-                std::size_t from = 0;
-                while (from < body.size()) {
-                    std::size_t semi = body.find(';', from);
-                    if (semi == std::string::npos) break;
-                    std::string decl = body.substr(from, semi - from);
-                    from = semi + 1;
-                    while (!decl.empty() && std::isspace(static_cast<unsigned char>(decl.back()))) decl.pop_back();
-                    std::size_t b = decl.size();
-                    while (b > 0 && ident_char(decl[b - 1])) --b;
-                    if (b < decl.size()) fields.push_back(decl.substr(b));
+const std::vector<std::pair<std::string, std::vector<std::string>>>& contract_structs(const std::string& kind) {
+    using Structs = std::vector<std::pair<std::string, std::vector<std::string>>>;
+    // The structs each kind's snippet contract is made of (the template's @block of types).
+    static const std::map<std::string, std::vector<std::string>> wantedByKind = {
+        {"mesh", {"SurfaceInput", "Surface", "VertexData"}},
+        {"sprite", {"QuadInput", "QuadSurface"}},
+        {"sky", {"SkyInput", "SkySurface"}},
+        {"post", {"PostInput", "PostSurface"}},
+        {"compute", {}}};
+    static const std::map<std::string, Structs> byKind = [] {
+        std::map<std::string, Structs> result;
+        for (const auto& [kindName, wantedList] : wantedByKind) {
+            Structs out;
+            std::string all;
+            for (auto& [name, content] : template_files(kindName)) all += blank_comments(content) + "\n";
+            for (const std::string& wanted : wantedList) {
+                std::size_t pos = 0;
+                while ((pos = all.find("struct " + wanted + " ", pos)) != std::string::npos) {
+                    const std::size_t open = all.find('{', pos), close = all.find('}', pos);
+                    if (open == std::string::npos || close == std::string::npos || close < open) break;
+                    std::vector<std::string> fields;
+                    std::string body = all.substr(open + 1, close - open - 1);
+                    std::size_t from = 0;
+                    while (from < body.size()) {
+                        std::size_t semi = body.find(';', from);
+                        if (semi == std::string::npos) break;
+                        std::string decl = body.substr(from, semi - from);
+                        from = semi + 1;
+                        while (!decl.empty() && std::isspace(static_cast<unsigned char>(decl.back()))) decl.pop_back();
+                        std::size_t b = decl.size();
+                        while (b > 0 && ident_char(decl[b - 1])) --b;
+                        if (b < decl.size()) fields.push_back(decl.substr(b));
+                    }
+                    out.emplace_back(wanted, std::move(fields));
+                    break;
                 }
-                out.emplace_back(wanted, std::move(fields));
-                break;
             }
+            result[kindName] = std::move(out);
         }
-        return out;
+        return result;
     }();
-    return structs;
+    static const Structs none;
+    auto it = byKind.find(kind);
+    return it == byKind.end() ? none : it->second;
+}
+
+std::string kind_refusal(const std::string& kind) {
+    const char* package = kind == "post" ? "M72.2" : kind == "compute" ? "M72.4" : "M72.1";
+    return "kind \"" + kind + "\" is not compiled yet: " + kind + " materials arrive with " + package;
 }
 
 }  // namespace shaders_detail

@@ -332,8 +332,8 @@ MaterialParse parse_material(const Json& doc, const std::string& projectDir, con
                 "\"shaders/x.surface.glsl\", ...}.");
         return std::move(c.out);
     }
-    static const std::vector<std::string> topKeys = {"$schema",   "format",      "doc",    "shader",  "lighting",
-                                                     "alphaMode", "doubleSided", "params", "textures"};
+    static const std::vector<std::string> topKeys = {"$schema",  "format",    "doc",         "kind",   "shader",
+                                                     "lighting", "alphaMode", "doubleSided", "params", "textures"};
     for (auto it = doc.begin(); it != doc.end(); ++it)
         if (std::find(topKeys.begin(), topKeys.end(), it.key()) == topKeys.end())
             c.error("/" + escape_token(it.key()), "unknown key \"" + it.key() + "\"", did_you_mean(it.key(), topKeys));
@@ -347,6 +347,7 @@ MaterialParse parse_material(const Json& doc, const std::string& projectDir, con
                 std::string("Use \"") + kMaterialFormat + "\".");
 
     c.read_string(doc, "", "doc", m.doc);
+    c.read_enum(doc, "", "kind", material_kind_names(), m.kind);
     c.check_shader_path(doc, m);
     c.read_enum(doc, "", "lighting", kLightings, m.lighting);
     c.read_enum(doc, "", "alphaMode", kAlphaModes, m.alphaMode);

@@ -380,8 +380,14 @@ enum MaterialProgramId : int {
     kProgShadowSkin,
     kProgPrepass,  // the depth and normal prepass (mesh_common.glsl prepass_vs / prepass_fs)
     kProgPrepassSkin,
-    kProgCount
+    kProgCount  // the programs of a mesh material; the other kinds name theirs in material_program_names()
 };
+// Room for the programs of every kind of material (a mesh material has kProgCount of them).
+constexpr int kMaxMaterialPrograms = 8;
+static_assert(kProgCount <= kMaxMaterialPrograms);
+// The programs a twin of `kind` carries, in MaterialAsset::programs order (the "programs" keys of the twin). Empty for a kind
+// that cannot be built yet.
+const std::vector<const char*>& material_program_names(MaterialKind kind);
 
 struct MaterialParamDef {
     std::string name;
@@ -395,14 +401,15 @@ struct MaterialTextureDef {
 };
 
 struct MaterialAsset {
-    std::string path;     // the .material.json
-    std::string snippet;  // its `shader` file (a change of it reloads the material)
+    std::string path;                        // the .material.json
+    std::string snippet;                     // its `shader` file (a change of it reloads the material)
+    MaterialKind kind = MaterialKind::Mesh;  // its "kind"; only Mesh materials are built so far
     std::string lighting = "pbr", alphaMode = "opaque";
     bool doubleSided = false;
-    std::vector<MaterialParamDef> params;      // in the order of the twin's "params" (the packing order)
-    std::vector<MaterialTextureDef> textures;  // in the order of the twin's "textures" (views 6+i, samplers 2+i)
-    MaterialProgram programs[kProgCount];
-    bool ok = false;                         // false = drawn with the error material
+    std::vector<MaterialParamDef> params;            // in the order of the twin's "params" (the packing order)
+    std::vector<MaterialTextureDef> textures;        // in the order of the twin's "textures" (views 6+i, samplers 2+i)
+    MaterialProgram programs[kMaxMaterialPrograms];  // by MaterialProgramId for a mesh material
+    bool ok = false;                                 // false = drawn with the error material
     std::string error;                       // the last build error (kept while an older good build still draws)
     int generation = 0;                      // counts successful builds
     std::unordered_set<std::string> warned;  // params already complained about

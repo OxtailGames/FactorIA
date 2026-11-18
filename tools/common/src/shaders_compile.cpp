@@ -51,16 +51,17 @@ std::string ShaderIssue::to_string() const {
 // The cache
 // ---------------------------------------------------------------------------------------------------------------
 
-std::string shader_template_hash() {
-    // The renderer's own value (computed by CMake from engine/render/shaders/*_common.glsl, the files embedded here), so a
-    // twin's "template" is what the player that loads it checks.
-    return template_files().empty() ? std::string() : mesh_template_hash();
+std::string shader_template_hash(const std::string& kind) {
+    // The renderer's own value (computed by CMake from the template files of the kind, embedded here), so a twin's "template"
+    // is what the player that loads it checks.
+    const auto parsed = material_kind_from_name(kind);
+    return !parsed || template_files(kind).empty() ? std::string() : material_template_hash(*parsed);
 }
 
 std::string shader_cache_path(const std::string& projectDir, const GeneratedShader& generated, std::string_view snippet,
                               const std::string& slang) {
     std::string key = generated.top;
-    const std::string templateHash = shader_template_hash();
+    const std::string templateHash = shader_template_hash(generated.kind);
     for (std::string_view part : {snippet, std::string_view(templateHash), std::string_view(slang),
                                   std::string_view(kSetupSokolShdcCommit), std::string_view(FA_ENGINE_VERSION)}) {
         key += '\x01';
@@ -475,10 +476,13 @@ Result<std::map<std::string, Json>> build_twins(const stdfs::path& work, const s
         if (std::find(slangs.begin(), slangs.end(), slang) == slangs.end()) continue;
         Json twin = Json::object({{"format", kShaderTwinFormat},
                                   {"engine", FA_ENGINE_VERSION},
-                                  {"template", shader_template_hash()},
+                                  {"template", shader_template_hash(material.kind)},
                                   {"slang", slang},
                                   {"params", paramNames},
                                   {"textures", textureNames}});
+        // A twin without "kind" is a mesh twin: mesh twins stay as they were before M72, so no committed or exported one is
+        // made stale by the kinds.
+        if (material.kind != "mesh") twin["kind"] = material.kind;
         Json programs = Json::object();
         for (const Json& prog : shader.value("programs", Json::array())) {
             const std::string name = prog.value("name", std::string());
@@ -575,6 +579,17 @@ Result<ShaderCompileResult> compile_material(const std::string& projectDir, cons
         res.errors.push_back(std::move(i));
     }
     if (!mp.ok()) return res;
+    if (res.material.kind != "mesh") {  // the other kinds are filled in by their M72 packages
+        ShaderIssue i;
+        i.file = materialPath;
+        i.pointer = "/kind";
+        i.message = kind_refusal(res.material.kind);
+        i.hint =
+            "Only \"mesh\" materials (the default kind) compile now. Remove \"kind\" or set it to \"mesh\" to use the "
+            "material on a MeshRenderer.";
+        res.errors.push_back(std::move(i));
+        return res;
+    }
 
     auto raw = tooling_detail::read_file(stdfs::path(projectDir) / res.material.shader);
     if (!raw)
