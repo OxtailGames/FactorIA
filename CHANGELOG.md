@@ -6,6 +6,14 @@ Older versions, one file per minor version with its patch releases: [0.30](chang
 
 ## Unreleased
 
+- **Material kinds (M72 base):** `*.material.json` takes an optional `"kind"`: `"mesh"` (default, what materials were so far),
+  `"sprite"`, `"sky"`, `"post"` or `"compute"`. Only mesh materials compile and draw; `shader.compile`, `factoria validate`
+  and the renderer refuse the others with an error that names the package that brings them, and `shader.compile` and
+  `material.info` report the `kind`. Each kind hashes only its own template files (`fa::material_template_hash(kind)`), so
+  a change to one template no longer makes the twins of the other kinds stale; the mesh hash did not change, so no export
+  needs to be redone. The skeletons `quad_common.glsl`, `sky_common.glsl` and `post_common.glsl` declare each kind's snippet
+  contract; nothing draws with them yet.
+
 ## 0.31.0
 
 The scene is lit in linear light and drawn into a float target, and every camera gets a post-processing stack: tonemap and exposure (manual or automatic), bloom, colour grading with LUTs, vignette, lens effects, grain, sharpen, outline, pixelate and posterize, ambient occlusion, screen-space reflections, distance and height fog, sun shafts, depth of field and camera motion blur, plus transient screen effects (shockwave, heat haze, radial blur, flash, fade) and HDR display output on macOS and Windows. A `PostProcess` component and volumes set the stack, `render.supports` says what each GPU draws, and the editor's Post-processing panel shows it live with an A/B switch.

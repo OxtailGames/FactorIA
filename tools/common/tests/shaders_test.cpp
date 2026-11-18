@@ -397,6 +397,113 @@ TEST_CASE("template: the generator includes every _common.glsl and the contract 
     CHECK(shader_template_hash().size() == 64);
     const auto g = generate_material_shader(parse(kGemMaterial).material, kGemSnippet);
     CHECK(g.top.find("@include mesh_common.glsl") != std::string::npos);
+    // the mesh hash is the one committed twins carry (the kinds did not change it)
+    const Json fixtureTwin =
+        Json::parse(testing::read_all(stdfs::path(FA_REPO_ROOT) / "engine/render/tests/data/materials/"
+                                                                  "materials/empty.material.json.hlsl5.shader"));
+    CHECK(fixtureTwin["template"] == shader_template_hash("mesh"));
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Kinds (M72)
+// ---------------------------------------------------------------------------------------------------------------
+
+TEST_CASE("material kind: absent means mesh, every kind is read, and a wrong one says what the kinds are") {
+    CHECK(parse(R"({"format":"factoria.material/1","shader":"s.glsl"})").material.kind == "mesh");
+    for (const char* kind : {"mesh", "sprite", "sky", "post", "compute"}) {
+        const auto ok = parse(
+            (std::string(R"({"format":"factoria.material/1","shader":"s.glsl","kind":")") + kind + "\"}").c_str());
+        CAPTURE(kind);
+        CHECK(ok.ok());
+        CHECK(ok.material.kind == kind);
+    }
+    auto bad = parse(R"({"format":"factoria.material/1","shader":"s.glsl","kind":"spirte"})");
+    CHECK(has_error(bad, "/kind", "unknown kind"));
+    CHECK(has_error(bad, "/kind", "Did you mean 'sprite'?"));
+    bad = parse(R"({"format":"factoria.material/1","shader":"s.glsl","kind":3})");
+    CHECK(has_error(bad, "/kind", "Use one of: mesh, sprite, sky, post, compute"));
+    // the schema lists the same kinds
+    const Json schema = Json::parse(*bundled_read("schemas/material.schema.json"));
+    CHECK(schema["properties"]["kind"]["enum"] == Json(material_kind_names()));
+    CHECK(schema["properties"]["kind"]["default"] == "mesh");
+    CHECK(validate_json(Json::parse(R"({"format":"factoria.material/1","shader":"s.glsl","kind":"sky"})"), schema)
+              .empty());
+}
+
+TEST_CASE("material kind: only mesh compiles, the others are refused with the package that brings them") {
+    Project p;
+    FakeShdc shdc;
+    ShaderCompileOptions options;
+    options.setup = shdc.context(p.str());
+    const std::vector<std::pair<std::string, std::string>> kinds = {{"sprite", "sprite materials arrive with M72.1"},
+                                                                    {"sky", "sky materials arrive with M72.1"},
+                                                                    {"post", "post materials arrive with M72.2"},
+                                                                    {"compute", "compute materials arrive with M72.4"}};
+    CommandRegistry registry;
+    register_shader_commands(registry, p.str(), shdc.context(p.str()));
+    for (const auto& [kind, text] : kinds) {
+        CAPTURE(kind);
+        p.write("materials/" + kind + ".material.json",
+                R"({"format":"factoria.material/1","kind":")" + kind + R"(","shader":"shaders/gem.surface.glsl"})");
+        auto r = compile_material(p.str(), "materials/" + kind + ".material.json", options);
+        REQUIRE(r.ok());
+        CHECK_FALSE(r->ok);
+        CHECK(r->material.kind == kind);
+        REQUIRE(r->errors.size() == 1);
+        CHECK(r->errors[0].pointer == "/kind");
+        CHECK(r->errors[0].message.find(text) != std::string::npos);
+        CHECK(r->errors[0].hint.find("\"mesh\"") != std::string::npos);
+        CHECK(shdc.calls == 0);
+
+        auto c =
+            registry.call("shader.compile", Json::parse(R"({"material":"materials/)" + kind + R"(.material.json"})"));
+        REQUIRE(c.ok);
+        CHECK(c.result["ok"] == false);
+        CHECK(c.result["kind"] == kind);
+        CHECK(c.result["errors"][0]["pointer"] == "/kind");
+        auto info =
+            registry.call("material.info", Json::parse(R"({"material":"materials/)" + kind + R"(.material.json"})"));
+        REQUIRE(info.ok);
+        CHECK(info.result["kind"] == kind);
+        CHECK(info.result["programs"].empty());
+        CHECK(info.result["compile"]["state"] == "unsupported");
+        CHECK(info.result["compile"]["hint"].get<std::string>().find(text) != std::string::npos);
+    }
+    // `factoria validate` lists the refusal as an error of the material
+    // (the project's three mesh materials do compile, one run each; the four refused kinds never reach the compiler)
+    ValidationReport report;
+    validate_materials(p.str(), shdc.context(p.str()), report);
+    CHECK_FALSE(report.ok);
+    CHECK(shdc.calls == 3);
+    int kindErrors = 0;
+    for (const auto& e : report.errors)
+        if (e.message.find("is not compiled yet") != std::string::npos) ++kindErrors;
+    CHECK(kindErrors == 4);
+}
+
+TEST_CASE("material kind: a mesh twin has no kind key (the format of every twin made before M72), info and compile say "
+          "\"mesh\"") {
+    Project p;
+    FakeShdc shdc;
+    shdc.reflection = fixture("shdc_mesh_hlsl5_glsl430.yaml");
+    ShaderCompileOptions options;
+    options.setup = shdc.context(p.str());
+    options.dialects = {"hlsl5"};
+    auto r = compile_material(p.str(), "materials/gem.material.json", options);
+    REQUIRE(r.ok());
+    REQUIRE(r->ok);
+    CHECK(r->material.kind == "mesh");
+    CHECK(r->generated.kind == "mesh");
+    CHECK_FALSE(r->twins.at("hlsl5").contains("kind"));
+    CommandRegistry registry;
+    register_shader_commands(registry, p.str(), shdc.context(p.str()));
+    auto info = registry.call("material.info", Json::parse(R"({"material":"materials/gem.material.json"})"));
+    REQUIRE(info.ok);
+    CHECK(info.result["kind"] == "mesh");
+    auto c = registry.call("shader.compile",
+                           Json::parse(R"({"material":"materials/gem.material.json","platforms":["windows"]})"));
+    REQUIRE(c.ok);
+    CHECK(c.result["kind"] == "mesh");
 }
 
 // ---------------------------------------------------------------------------------------------------------------

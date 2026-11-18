@@ -30,12 +30,18 @@ int column_of(std::string_view text, std::size_t offset);
 // The text of 1-based line `line` (without the newline); "" when out of range.
 std::string line_text(std::string_view text, int line);
 
-// The fields of the structs of the snippet contract (SurfaceInput, Surface, VertexData), read from the bundled template so
-// they cannot drift from it: struct name -> field names.
-const std::vector<std::pair<std::string, std::vector<std::string>>>& contract_structs();
+// The fields of the structs of the snippet contract of a material kind (mesh: SurfaceInput, Surface, VertexData; sprite:
+// QuadInput, QuadSurface; sky: SkyInput, SkySurface; post: PostInput, PostSurface), read from the bundled template so they
+// cannot drift from it: struct name -> field names. Empty for an unknown kind or one without a template.
+const std::vector<std::pair<std::string, std::vector<std::string>>>& contract_structs(const std::string& kind = "mesh");
 
-// The template files the generator includes: file name (without folder) and content, sorted by name.
-std::vector<std::pair<std::string, std::string>> template_files();
+// The names of the template files of a material kind (one list per kind, the same as engine/render/CMakeLists.txt hashes).
+const std::vector<std::string>& template_file_names(const std::string& kind);
+// The template files the generator includes for a kind: file name (without folder) and content, sorted by name.
+std::vector<std::pair<std::string, std::string>> template_files(const std::string& kind = "mesh");
+
+// Why a kind other than "mesh" is refused for now: names the M72 package that brings it ("sprite materials arrive with M72.1").
+std::string kind_refusal(const std::string& kind);
 
 // The snippet's text with CRs removed (the line numbers stay those of the file).
 std::string normalize_snippet(std::string_view snippet);

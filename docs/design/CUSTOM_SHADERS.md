@@ -370,10 +370,50 @@ does not build is an error, like a broken shadow program.
   `min`/`max` exist) writing `materialParams`, a button to open the snippet, and the compile error under the field.
   Saving a snippet in an external editor reloads it through hot reload.
 
+## Kinds (M72)
+
+M72 (custom shaders for everything) applies the same machinery (template + snippet + twin) to more than meshes. A
+material says what it is for with the optional key `"kind"` of its `*.material.json`:
+
+| `kind` | What it will be | Template file | Package |
+|---|---|---|---|
+| `"mesh"` (default) | the surface of a `MeshRenderer`: everything in this document | `mesh_common.glsl` | built |
+| `"sprite"` | the 2D quad path: `Sprite`, `Shape2D`, `Tilemap`, `Text`, particles and trails, UI images | `quad_common.glsl` | M72.1 |
+| `"sky"` | the sky the scene and its environment lighting use | `sky_common.glsl` | M72.1 |
+| `"post"` | one pass of a camera's post-processing stack | `post_common.glsl` | M72.2 |
+| `"compute"` | compute shaders (storage buffers) | none yet | M72.4 |
+
+Built by M72.0 (the shared base): the key, its check, the per-kind template hash and the skeletons. Only `"mesh"`
+compiles and draws; `shader.compile` and `factoria validate` refuse the others with a message that names the package
+that brings them (`kind "sprite" is not compiled yet: sprite materials arrive with M72.1`, pointer `/kind`), and the
+renderer refuses to build such a material. A `kind` that is not one of the five is an error with "did you mean" and the
+pointer `/kind` (`parse_material`, `schemas/material.schema.json`).
+
+- **One template hash per kind.** `fa::material_template_hash(kind)` (the tooling's `shader_template_hash(kind)` returns
+  the same value) hashes only the template files of that kind, as listed explicitly in `engine/render/CMakeLists.txt`
+  (`FA_TEMPLATE_FILES_<KIND>`) and in `template_file_names()` of `tools/common/src/shaders_generate.cpp`; a doctest checks
+  that both lists give the same hash and that every `*_common.glsl` is in one list. Editing the sprite template leaves
+  every mesh twin valid. The mesh list is `mesh_common.glsl`, the one file the hash was made of before kinds existed, so
+  its value did not change and no committed fixture or exported game needs a new export. `compute` has no template yet:
+  its hash is empty.
+- **The twin names its kind.** A twin of any kind other than mesh carries `"kind": "<kind>"`; a twin without the key is a
+  mesh twin (so every twin made before M72 stays valid, and mesh twins are written as they always were).
+  `build_material_checked` compares the twin's kind with the material file's and refuses a mismatch with the re-export
+  hint, then checks the `engine` and `template` fields against the hash of that kind.
+- **One contract per kind.** Each template declares its own structs, so a top file includes the template of one kind
+  and the error hints read the fields from the right one: mesh `SurfaceInput`, `Surface`, `VertexData`; sprite
+  `QuadInput`, `QuadSurface`; sky `SkyInput`, `SkySurface`; post `PostInput`, `PostSurface` (the last three are the
+  skeletons M72.1 and M72.2 fill in: today they only declare the structs, and nothing includes them).
+- **Programs per kind.** `MaterialAsset` stores its `kind` and `kMaxMaterialPrograms` (8) program slots; the programs a
+  kind's twin carries are named by `material_program_names(kind)` (the six of a mesh material today), so a kind adds its
+  own list when it becomes buildable.
+- **Commands.** `shader.compile` and `material.info` return `kind`; `material.info` of a kind that does not compile yet
+  reports `programs: []` and `compile.state: "unsupported"` with the package in `compile.hint`.
+
 ## Out of scope (recorded so nobody assumes it)
 
-- Custom shaders for `Sprite`/`Shape2D` (quad.glsl), the sky, particles, and custom post-processing. The same
-  machinery (template + snippet + twins) applies; each is its own package when a game asks.
+- Custom shaders for `Sprite`/`Shape2D` (quad.glsl), the sky, particles, and custom post-processing: M72.1 and M72.2
+  (see "Kinds (M72)"; the kinds, hashes and skeletons exist, the programs do not).
 - A full-GLSL escape hatch (D1).
 - Compute shaders, tessellation, geometry shaders (not in sokol_gfx's common subset for these backends anyway).
 - Vertex-stage textures (heightmaps sampled in `vertex()`): a texture in both stages needs a second binding; later.
@@ -455,8 +495,8 @@ Acceptance (headless GPU tests on D3D11 WARP and llvmpipe; goldens):
 
 Built (2026-10-19):
 - The template hash is computed by CMake (engine/render/CMakeLists.txt, CRs stripped, the shaders are checked out with LF
-  through .gitattributes) and returned by `fa::mesh_template_hash()`; the tooling's `shader_template_hash()` returns the
-  same value, so the twins and the player cannot disagree across hosts.
+  through .gitattributes) and returned by `fa::mesh_template_hash()` (since M72 one hash per kind, see "Kinds (M72)"); the
+  tooling's `shader_template_hash()` returns the same value, so the twins and the player cannot disagree across hosts.
 - `fs` and the clip `shadow_fs` share `@block fa_fs_surface` (engine textures, `fa_mesh_fs_params`, the varyings,
   `fa_standard_surface`); sokol-shdc honours `@include_block` inside `#ifdef`. The clip shadow program declares
   `fa_mesh_fs_params`, `fa_material`, views 0 and 2-5 plus the material's, samplers 0 and the material's, and no

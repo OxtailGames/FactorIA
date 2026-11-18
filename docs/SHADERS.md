@@ -26,6 +26,7 @@ The loop for an AI (or a person):
 | `format` | Always `"factoria.material/1"`. Required. |
 | `shader` | Project-relative path of the snippet, e.g. `"shaders/pulse.surface.glsl"`. Required. |
 | `doc` | What the material looks like and is for. Shown by `material.info`. |
+| `kind` | What the material is for: `"mesh"` (default; the surface of a `MeshRenderer`, what this page describes), or the reserved `"sprite"`, `"sky"`, `"post"` and `"compute"`. Only `"mesh"` compiles today: `shader.compile` refuses the others with an error on `/kind` that names the engine milestone package that will bring them (sprite and sky: M72.1, post: M72.2, compute: M72.4). |
 | `lighting` | `"pbr"` (default): the engine's lighting, fog and sky reflection. `"unlit"`: the surface albedo is drawn as it is, plus emission and fog. |
 | `alphaMode` | `"opaque"` (default): alpha is ignored. `"clip"`: fragments with `alpha` below `alphaCutoff` are discarded, also in the shadow pass. `"blend"`: drawn with the blended meshes, far to near. |
 | `doubleSided` | `true` draws back faces too. Default `false`. |

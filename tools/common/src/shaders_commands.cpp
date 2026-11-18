@@ -75,7 +75,10 @@ void register_shader_commands(CommandRegistry& registry, const std::string& proj
             "metal_ios and metal_sim for macOS and iOS, glsl300es for Android and web). Some errors exist in "
             "one dialect only (a gradient inside a loop is fine in GLSL and refused by HLSL), so compile for "
             "the platforms you ship. Returns {ok, material, dialects, errors: [{file, line, column, message, "
-            "hint, source}], cached}: a snippet error is mapped to the line of your snippet, with the "
+            "hint, source}], cached, kind}: `kind` is the material's \"kind\" (\"mesh\" by default; the sprite, sky, "
+            "post and "
+            "compute kinds are refused with an error, pointer /kind, naming the M72 package that brings them). A "
+            "snippet error is mapped to the line of your snippet, with the "
             "offending line in `source` and a fix in `hint` (an unknown field of Surface gets \"did you mean "
             "albedo?\", texture(waves, uv) gets the separate-sampler form); a mistake in the material file "
             "has a JSON `pointer` instead of a line. Fix the file and call again until ok, then look at the "
@@ -110,7 +113,8 @@ void register_shader_commands(CommandRegistry& registry, const std::string& proj
                                      {"material", material},
                                      {"dialects", Json(result->dialects)},
                                      {"errors", issues_json(result->errors)},
-                                     {"cached", result->cacheHits}});
+                                     {"cached", result->cacheHits},
+                                     {"kind", result->material.kind}});
             if (!result->errors.empty()) {
                 std::string text;
                 for (const ShaderIssue& i : result->errors) text += (text.empty() ? "" : "\n") + i.to_string();
@@ -127,8 +131,12 @@ void register_shader_commands(CommandRegistry& registry, const std::string& proj
         info.summary = "Describe a custom material: lighting, alpha mode, params with types, defaults, ranges and "
                        "docs, textures, programs and compile state.";
         info.description =
-            "Reads a *.material.json (schemas/material.schema.json) and returns {material, doc, shader, "
+            "Reads a *.material.json (schemas/material.schema.json) and returns {material, doc, kind, shader, "
             "lighting, alphaMode, doubleSided, "
+            "`kind` is \"mesh\" (the default), \"sprite\", \"sky\", \"post\" or \"compute\"; only mesh materials "
+            "compile now, the "
+            "others report programs [] and compile.state \"unsupported\" with the package that brings them in "
+            "compile.hint. "
             "params: [{name, type, default, min?, max?, doc, implicit?}], textures: [{name, default, "
             "sampler, doc}], programs, compile: {state, dialect, toolFound}}. "
             "params are listed in the order of the uniform block (alphabetical); `implicit` marks "
@@ -166,12 +174,14 @@ void register_shader_commands(CommandRegistry& registry, const std::string& proj
             std::string snippet;
             if (auto raw = tooling_detail::read_file(stdfs::path(dir) / m.shader))
                 snippet = shaders_detail::normalize_snippet(*raw);
-            const GeneratedShader g = generate_material_shader(m, snippet);
+            const bool supported = m.kind == "mesh";  // the other kinds compile when their M72 package lands
+            const GeneratedShader g = supported ? generate_material_shader(m, snippet) : GeneratedShader{};
             const std::string dialect = host_shader_dialect(context);
-            const bool compiled =
-                !shader_template_hash().empty() && stdfs::exists(shader_cache_path(dir, g, snippet, dialect));
+            const bool compiled = supported && !shader_template_hash(m.kind).empty() &&
+                                  stdfs::exists(shader_cache_path(dir, g, snippet, dialect));
             Json out = Json::object({{"material", path},
                                      {"doc", m.doc},
+                                     {"kind", m.kind},
                                      {"shader", m.shader},
                                      {"lighting", m.lighting},
                                      {"alphaMode", m.alphaMode},
@@ -179,9 +189,12 @@ void register_shader_commands(CommandRegistry& registry, const std::string& proj
                                      {"params", params},
                                      {"textures", textures},
                                      {"programs", Json(g.programs)}});
-            out["compile"] = Json::object({{"state", compiled ? "compiled" : "not_compiled"},
+            out["compile"] = Json::object({{"state", !supported ? "unsupported"
+                                                     : compiled ? "compiled"
+                                                                : "not_compiled"},
                                            {"dialect", dialect},
                                            {"toolFound", !find_sokol_shdc(context).empty()}});
+            if (!supported) out["compile"]["hint"] = shaders_detail::kind_refusal(m.kind);
             if (!out["compile"]["toolFound"].get<bool>()) out["compile"]["toolHint"] = sokol_shdc_missing_hint(context);
             return out;
         });
