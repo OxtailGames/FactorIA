@@ -5,6 +5,8 @@
 #include <cmath>
 #include <string>
 
+#include "fa/scene/postprocess.h"
+
 using namespace fa;
 using namespace fa::test;
 
@@ -26,9 +28,10 @@ int differing(const Image& a, const Image& b, int x0, int y0, int x1, int y1) {
     return n;
 }
 
-void game_camera(World& w) {
-    auto& c = w.add<Camera>(make(w, "game"));
-    c.clearColor = kClear;
+Entity game_camera(World& w) {
+    Entity e = make(w, "game");
+    w.add<Camera>(e).clearColor = kClear;
+    return e;
 }
 
 // A perspective camera, not drawn by itself (primary = false), at `stage` looking down -Z. Studio lighting by default
@@ -85,6 +88,27 @@ TEST_CASE("camera view: draws its camera inside the rectangle, and only there") 
     CHECK(near(img.pixel(100, 145), kClear));
     // The 3D scene is not drawn by the game camera too.
     CHECK(near(img.pixel(160, 90), kClear));
+}
+
+TEST_CASE("camera view: over a linear scene with the final pass the widget is encoded once, as in a gamma scene") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    World w;
+    const Entity game = game_camera(w);
+    view_camera(w, "stage", {500, 0, 0});
+    view_widget(w, "view", "stage", 40, 30, 120, 100);
+    const Image gamma = g.render(w);
+    CHECK(near(gamma.pixel(45, 35), kStage, 0.02f));
+    w.settings().colorSpace = ColorSpace::Linear;
+    auto& p = w.add<PostProcess>(game);
+    p.tonemapEnabled = true;
+    p.tonemapMode = TonemapMode::None;
+    const Image linear = g.render(w);
+    // The widget is drawn after the final pass (display values) from a target that holds linear light: the encode must not be
+    // missing (0.2 would come out as 0.03) nor doubled.
+    CHECK(near(linear.pixel(45, 35), kStage, 0.02f));
+    CHECK(near(linear.pixel(155, 125), kStage, 0.02f));
+    CHECK(near(linear.pixel(20, 80), kClear, 0.02f));
 }
 
 TEST_CASE("camera view: a missing, inactive or empty camera draws only the background") {

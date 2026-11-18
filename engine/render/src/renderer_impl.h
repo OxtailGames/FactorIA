@@ -27,7 +27,9 @@
 #include "fa/scene/text_fit.h"
 #include "fa/scene/ui_rect.h"
 #include "bloom.h"
+#include "hdr_encode.h"
 #include "postprocess.h"
+#include "render_features.h"
 #include "shaders/colorfilter.glsl.h"
 #include "frame.h"
 #include "mesh_batch.h"
@@ -106,6 +108,32 @@ struct Renderer::Impl {
     std::unordered_map<std::uint64_t, PrevCamera> prevViewProj;  // by Entity::bits() of the camera
     bool prepassSplitWarned = false;  // one warning when a split frame has no prepass for a depth effect
     bool prepassWarned = false;       // one warning when the prepass cannot be made
+    // The HDR display output (hdr_encode.h; docs/RENDERING.md, "HDR output"). outputInfo: the last answer of update_output()
+    // (window thread; a renderer that never asks, a headless one, stays in the standard range). frameOutput: what the frame
+    // is drawn for, taken from it when the frame starts (so the final pass and present() of a frame agree on the headroom).
+    // frameAboveWhite: the last frame's final pass wrote values above paper white (the HDR tonemap, no colour filter after
+    // it), so present() lets them through up to frameOutput.headroom. forcedOutput: renderer_force_output (tests).
+    HdrOutputInfo outputInfo;
+    bool outputForced = false;
+    HdrOutputInfo forcedOutput;
+    render::OutputTarget frameOutput;
+    bool frameAboveWhite = false;
+    bool backendKnown = false;
+    render::FeatureBackend backend =
+        render::FeatureBackend::Headless;  // sg_query_backend(), asked once (update_output)
+    const HdrOutputInfo& output() const { return outputForced ? forcedOutput : outputInfo; }
+    // The images the final pass writes hold values above 1 (RGBA16F, R11G11B10): an HDR output can go above paper white.
+    bool float_display() const {
+        const sg_pixel_format f = gpu.display_format();
+        return f == SG_PIXELFORMAT_RGBA16F || f == SG_PIXELFORMAT_RG11B10F;
+    }
+    // The fragment uniforms of present(): the encode for the output the window has now (output()), the light let through up to
+    // the frame's headroom when its final pass went above white.
+    blit_blit_fs_params_t present_params() const;
+    // Tests (renderer_final_floats / renderer_present_floats): the finished picture as floats, copied as it is (`present`
+    // false) or through present()'s encode, read back from an RGBA16F image of physW x physH.
+    bool read_floats(bool present, std::vector<float>& out, std::string* error);
+    Target floatTarget;               // the RGBA16F image read_floats draws into (tests only; freed with the targets)
     bool shadowTargetFailed = false;  // the shadow map could not be made: no shadows until a resize
     Target shadowTarget;  // the shadow map: R32F colour + depth (shadowTarget.texView is what the mesh programs sample)
     static constexpr int kShadowSize = 2048;

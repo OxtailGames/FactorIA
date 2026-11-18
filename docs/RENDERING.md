@@ -443,17 +443,45 @@ frame is shown, so moving the window to another monitor or switching HDR in the 
 
 | Platform | What it needs | What the swapchain becomes |
 |---|---|---|
-| macOS, iOS 16+ (Metal) | A screen with EDR headroom (`NSScreen.maximumPotentialExtendedDynamicRangeColorComponentValue` above 1: XDR and recent built-in displays, HDR monitors with "High Dynamic Range" on) | `RGBA16Float` with `wantsExtendedDynamicRangeContent`, extended sRGB colour space (encoding `edr`) |
-| Windows 10+ (D3D11) | Settings > System > Display > **Use HDR** on for that monitor | Not yet: the renderer does not write scRGB or HDR10 until the HDR encode of M71. Then `R16G16B16A16_FLOAT` in scRGB, or `R10G10B10A2` in HDR10 (ST.2084, Rec.2020) where scRGB is refused |
-| Linux, Android, the web, headless runs | — | Always the standard range |
+| macOS, iOS 16+ (Metal) | A screen with EDR headroom (`NSScreen.maximumPotentialExtendedDynamicRangeColorComponentValue` above 1: XDR and recent built-in displays, HDR monitors with "High Dynamic Range" on) | `RGBA16Float` with `wantsExtendedDynamicRangeContent`, extended LINEAR sRGB colour space (encoding `edr`) |
+| Windows 10+ (D3D11) | Settings > System > Display > **Use HDR** on for that monitor | `R16G16B16A16_FLOAT` in scRGB (encoding `scRGB`), or `R10G10B10A2` in HDR10 (ST 2084 PQ, Rec.2020; encoding `hdr10`) where the driver refuses scRGB (never with multisampling: the 10-bit swapchain has no multisampled image, so such a window stays in the standard range) |
+| Linux, Android, the web (OpenGL, GLES3, WebGL2), headless runs | — | Always the standard range: these backends have no HDR swapchain, and `render.supports {"feature":"hdrOutput"}` says why |
 
-What this version shows: on Metal the swapchain switches to EDR, but the present pass still writes the picture as for an SDR
-screen and keeps it within white, so the game looks exactly as before; values above white reach the display once the HDR encode
-of M71 lands. The editor's window never switches (it shows the game in its own view).
+The editor's window never switches (it shows the game in its own view, in the standard range).
 
-`SceneSettings.paperWhiteNits` (80 to 1000, default 200) is how bright white (1.0) is on an HDR display, in nits: the HDR encode
-will place the picture's white there, and everything brighter (emissive surfaces, bloom) goes up to the display's peak. On
-Apple screens the system sets white itself (EDR 1.0 is the screen's current white), so paper white only matters on Windows.
+### What goes above white
+
+Only the final pass of the post-processing stack decides what is brighter than paper white: a camera with a `PostProcess` whose
+exposure or tonemap is on. On an HDR output its tonemap does not stop at 1:
+
+- Below the curve's shoulder (display value 0.76 for `neutral`, 0.5 for the others) the picture is the SDR curve, so mid tones,
+  shadows and skin look the same as on an SDR screen.
+- Above it, the brightest channel rolls off toward the output's headroom H (how many times paper white the display can go,
+  `render.output`'s `headroom`) instead of toward 1, with `start + (H - start) x / (1 + x)`, x = slope (c - input) / (H - start),
+  which meets the SDR curve with the same value and slope; the colour keeps the SDR curve's ratios between its channels.
+  Between H = 1 and 2 the curve is mixed with the SDR one, so a headroom that follows the screen's brightness (EDR) never jumps.
+- `tonemapMode` `none` clips at the headroom instead of at 1.
+
+What stays at paper white whatever the display: the HUD and the screen-space UI (drawn after the final pass, at 1.0), a camera
+without the final pass (no exposure or tonemap: nothing decides how to map the light above white, so it is clipped there as on an
+SDR screen), a frame with a colour filter (it works on what an SDR screen shows), and a GPU that draws the picture in 8 bits
+(`render.supports {"feature":"floatTargets"}` false). `render.output`'s `status` says so while the HDR swapchain is on and the
+picture stays within paper white. Screenshots, `render.captureTexture` and the editor's view are 8-bit: they show the picture
+clipped at paper white.
+
+The present pass encodes the picture for the swapchain:
+
+| Encoding | Swapchain | What 1.0 (paper white) is written as |
+|---|---|---|
+| `sdr` | 8-bit sRGB | 1.0, everything above clipped |
+| `edr` | `RGBA16Float`, extended linear sRGB | 1.0, the screen's white; values up to the current EDR headroom |
+| `scRGB` | `R16G16B16A16_FLOAT`, linear Rec.709 with 1.0 = 80 nits | `paperWhiteNits / 80` (2.5 at 200 nits) |
+| `hdr10` | `R10G10B10A2`, Rec.2020 primaries, ST 2084 (PQ) | the PQ signal of `paperWhiteNits` (0.58 at 200 nits) |
+
+`SceneSettings.paperWhiteNits` (80 to 1000, default 200) is how bright white (1.0) is on an HDR display, in nits: in scRGB and
+HDR10 the picture's white is placed there, and the tonemap's highlights go up to the display's peak (headroom = peak nits /
+paper white). On Apple screens the system sets white itself (EDR 1.0 is the screen's current white), so paper white only
+matters on Windows.
 
 Check what the window shows with `render.output`:
 

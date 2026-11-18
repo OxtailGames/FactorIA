@@ -95,7 +95,7 @@ describe("accessibility options", () => {
     game.step(2);
     const f = settings.load().colorFilter;
     expect(f).not.toBe("none");
-    expect(game.find("camera").get("Camera").colorFilter).toBe(f);
+    expect(game.find("camera").get("PostProcess").colorFilterMode).toBe(f);
   });
 
   test("the caption background changes the alpha of the Captions component and of the dialogue box", () => {

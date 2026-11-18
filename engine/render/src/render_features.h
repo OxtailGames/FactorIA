@@ -40,13 +40,11 @@ struct FeatureEnv {
     std::string hdrWhy;
 };
 
-// The HDR encodings the present pass writes correctly on `b` (hdr_encoding_bit): EDR on Metal (the picture as for an SDR screen,
-// sRGB-encoded in extended sRGB, so it looks the same and stays within white); none on D3D11 until the scRGB / HDR10 encode of
-// M71 (an sRGB-encoded picture read as linear scRGB or as PQ would look wrong). Every other backend: none.
+// The HDR encodings the present pass writes on `b` (hdr_encoding_bit; the encodes are in hdr_encode.h): EDR on Metal (extended
+// linear sRGB), scRGB and HDR10 on D3D11. Every other backend: none (GL, GLES3 and WebGL2 have no HDR swapchain in sokol).
 unsigned hdr_encodable(FeatureBackend b);
-// "planned (M71): ...": why a backend whose displays can show HDR does not use them yet (D3D11).
-extern const char* const kHdrPending;
-// What the renderer asks app_update_hdr_output() for on backend `b`.
+// What the renderer asks app_update_hdr_output() for on backend `b` (Metal: an extended LINEAR sRGB swapchain, what the present
+// pass writes).
 HdrRequest hdr_request(FeatureBackend b, bool want, float paperWhiteNits);
 // Fills env.hdrOutput / env.hdrWhy from `display`, the scene's hdrOutput setting aside (supports answers whether the window could
 // show HDR, not whether the scene asks for it).

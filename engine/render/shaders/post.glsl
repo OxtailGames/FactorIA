@@ -6,8 +6,9 @@
 //      a linear scene is used as it is
 //   2. exposure: x 2^EV (manual: PostProcess.exposureEv; auto: the adapted EV of exposure.glsl plus the compensation)
 //   3. tonemap: none (a clip), neutral, ACES, AgX, Reinhard
-//   4. the output encode (p.z): 0 = sdr, the sRGB transfer function with a dither of one 8-bit step; the other values are the hook of
-//      the HDR display outputs (scRGB, PQ), which a later package fills in
+//   4. the encode: the sRGB transfer function with a dither of one 8-bit step. For an HDR window (p.z = 1) the tonemap goes above
+//      paper white up to the output's headroom (h.x; tonemap_hdr) and the sRGB curve is extended past 1: the target then holds
+//      display light ENCODED, 1.0 = paper white, and present() (blit.glsl) encodes it for the swapchain (scRGB, HDR10 PQ, EDR)
 //   5. the colour filter (Camera.colorFilter), on the encoded picture, the same filters as colorfilter.glsl
 //
 // A frame that needs no conversion (a gamma scene with only a colour filter) skips 1 to 4: the pass is then exactly the old colour filter.
@@ -32,9 +33,10 @@ layout(binding=0) uniform texture2D tex;
 layout(binding=1) uniform texture2D expo_tex;    // the adapted exposure (1x1, EV in x); a 1x1 white image when the exposure is not automatic
 layout(binding=0) uniform sampler smp;
 layout(binding=1) uniform post_params {
-    vec4 p;         // x = 1 when the scene is linear (0: gamma), y = 1 when the frame is converted (steps 1 to 4), z = output encode (0 sdr), w = colour filter (0 none, 1 greyscale, 2 highContrast, 3 protanopia, 4 deuteranopia, 5 tritanopia)
+    vec4 p;         // x = 1 when the scene is linear (0: gamma), y = 1 when the frame is converted (steps 1 to 4), z = 1 for an HDR output (above paper white), w = colour filter (0 none, 1 greyscale, 2 highContrast, 3 protanopia, 4 deuteranopia, 5 tritanopia)
     vec4 q;         // x = tonemap (0 none, 1 neutral, 2 aces, 3 agx, 4 reinhard), y = exposure multiplier 2^EV (manual) or 2^compensation (auto), z = 1 for the automatic exposure, w = dither amplitude (one 8-bit step, 0 = off)
     vec4 r;         // xy = size of the picture in pixels (for the dither pattern)
+    vec4 h;         // the HDR tonemap (p.z = 1): x = headroom (how many times paper white), y = the scene value where the HDR curve leaves the SDR one, z = the SDR curve's slope there, w = its display value there
 };
 in vec2 uv;
 out vec4 frag_color;
@@ -120,6 +122,28 @@ vec3 tonemap(vec3 c, int mode) {
     return clamp(c, 0.0, 1.0);
 }
 
+// The tonemap of an HDR output (hdr_encode.h, tonemap_hdr, is the same maths on the CPU): the SDR curve below its shoulder, then the
+// brightest channel rolls off toward the headroom H instead of toward 1, with the same value and slope where the two meet; the colour
+// keeps the SDR curve's ratios between its channels. Between H = 1 and 2 it is mixed with the SDR curve, so a headroom that follows the
+// screen never jumps. `none` clips at the headroom.
+vec3 tonemap_hdr(vec3 c, int mode) {
+    float hr = max(h.x, 1.0);
+    if (mode < 1 || mode > 4) return clamp(c, 0.0, hr);
+    vec3 s = tonemap(c, mode);
+    float cm = max(c.r, max(c.g, c.b));
+    if (hr <= 1.0 || !(cm > h.y)) return s;
+    float x = h.z * (cm - h.y) / (hr - h.w);
+    float e = h.w + (hr - h.w) * x / (1.0 + x);
+    float t = tonemap(vec3(cm), mode).r;
+    float peak = mix(t, e, clamp(hr - 1.0, 0.0, 1.0));
+    return s * (peak / max(t, 1e-6));
+}
+// The sRGB transfer function extended past 1 (an HDR output): negatives are 0, the curve goes on above white.
+vec3 to_srgb_ext(vec3 c) {
+    c = max(c, vec3(0.0));
+    return mix(1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, c * 12.92, vec3(lessThanEqual(c, vec3(0.0031308))));
+}
+
 // Interleaved gradient noise (Jimenez): a fixed pattern from the pixel position, so a run is reproducible.
 float dither_noise(vec2 pixel) {
     return fract(52.9829189 * fract(dot(pixel, vec2(0.06711056, 0.00583715))));
@@ -165,12 +189,16 @@ void main() {
         float mul = q.y;
         if (q.z > 0.5) mul *= exp2(textureLod(sampler2D(expo_tex, smp), vec2(0.5, 0.5), 0.0).r);
         c *= mul;
-        // 3. tonemap, then 4. the output encode (sdr: sRGB) with a dither of one 8-bit step
-        c = tonemap(c, int(q.x + 0.5));
-        c = to_srgb(c);
+        // 3. tonemap, then 4. the sRGB encode with a dither of one 8-bit step (an HDR output: above paper white, extended)
+        if (p.z > 0.5) {
+            c = to_srgb_ext(tonemap_hdr(c, int(q.x + 0.5)));
+        } else {
+            c = to_srgb(tonemap(c, int(q.x + 0.5)));
+        }
         if (q.w > 0.0) c += (dither_noise(uv * r.xy) - 0.5) * q.w;
     }
-    // 5. the colour filter works on what the screen shows, so it clamps; without a filter the picture is kept as it is
+    // 5. the colour filter works on what the screen shows, so it clamps (an HDR picture too: a filtered frame stays within paper
+    //    white); without a filter the picture is kept as it is
     if (filter_mode != 0) c = color_filter(clamp(c, 0.0, 1.0), filter_mode);
     frag_color = vec4(c, filter_mode != 0 ? 1.0 : texel.a);
 }

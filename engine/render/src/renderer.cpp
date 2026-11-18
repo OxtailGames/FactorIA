@@ -245,6 +245,14 @@ int Renderer::warm_step(const GfxSwapchain& swapchain, World& world) {
         // Group order = what the first frames of a game need first. Every pipeline is keyed deterministically in Gpu, so a
         // frame that needs one before its group ran makes it itself, the same pipeline.
         im.warmGroups.push_back([gpu, presentFormat] { gpu->blit_pipeline(presentFormat); });
+        // A game that asks for HDR on a backend that has it: the copy into the RGBA16F swapchain (scRGB, EDR) is made before the
+        // window switches to it, not on the frame it does.
+        const render::FeatureBackend backend = render::feature_env_from_sokol().backend;
+        if (world.settings().hdrOutput == HdrOutput::Auto &&
+            (backend == render::FeatureBackend::Metal || backend == render::FeatureBackend::D3d11)) {
+            const TargetFormat hdrFormat{SG_PIXELFORMAT_RGBA16F, presentFormat.depth, presentFormat.samples};
+            im.warmGroups.push_back([gpu, hdrFormat] { gpu->blit_pipeline(hdrFormat); });
+        }
         im.warmGroups.push_back([gpu] {
             gpu->quad_pipeline(false, false, BlendMode::Alpha);
             gpu->quad_pipeline(false, false, BlendMode::Alpha, true);
@@ -497,10 +505,22 @@ Json Renderer::supports_report() const {
 
 void Renderer::update_output(const SceneSettings& settings, const std::string& blocked) {
     if (!initialized()) return;
-    HdrRequest request = render::hdr_request(render::feature_env_from_sokol().backend,
-                                             settings.hdrOutput == HdrOutput::Auto, settings.paperWhiteNits);
+    Impl& im = *impl_;
+    if (!im.backendKnown) {  // the backend never changes once the context is open: asked once, not every frame
+        im.backend = render::feature_env_from_sokol().backend;
+        im.backendKnown = true;
+    }
+    HdrRequest request =
+        render::hdr_request(im.backend, settings.hdrOutput == HdrOutput::Auto, settings.paperWhiteNits);
     request.blocked = blocked;
-    app_update_hdr_output(request);
+    // What the status adds while an HDR encoding is on and the picture still stays within paper white (the last frame's).
+    if (!im.float_display())
+        request.activeNote = "this GPU draws the picture in 8 bits, so it stays within paper white";
+    else if (!im.frameAboveWhite)
+        request.activeNote =
+            "the picture stays within paper white: only the tonemap of a PostProcess (exposure or tonemap, "
+            "no colour filter) goes above it";
+    im.outputInfo = app_update_hdr_output(request);
 }
 
 HdrOutputInfo Renderer::output_info() const { return app_hdr_output(); }
@@ -645,6 +665,20 @@ render::TransientPoolStats render::renderer_transient_stats(Renderer& r) {
     return out;
 }
 
+void render::renderer_force_output(Renderer& r, const HdrOutputInfo* info) {
+    if (!r.impl_) return;
+    r.impl_->outputForced = info != nullptr;
+    r.impl_->forcedOutput = info ? *info : HdrOutputInfo{};
+}
+
+bool render::renderer_read_floats(Renderer& r, bool present, std::vector<float>& out, std::string* error) {
+    if (!r.initialized()) {
+        if (error) *error = "Renderer is not initialized";
+        return false;
+    }
+    return r.impl_->read_floats(present, out, error);
+}
+
 render::ShadowRowsStats render::renderer_shadow_rows_stats(Renderer& r) {
     render::ShadowRowsStats out;
     if (r.impl_) out = {int(r.impl_->shadowRowsRing.size()), int(r.impl_->shadowRowUploads)};
@@ -749,6 +783,10 @@ void Renderer::Impl::setup_frame(Frame& fr, World& world, float dt) {
 // the finished frame, with the settings of the first camera.
 void Renderer::Impl::render(World& world, float dt) {
     sync_color_space(world);  // before anything is gathered or drawn: the scene's format and the colours depend on it
+    // What this frame is drawn for: the window's output as update_output() last answered (the final pass's tonemap and
+    // present() read it).
+    frameOutput = render::select_output(output(), float_display());
+    frameAboveWhite = false;
     auto t0 = std::chrono::steady_clock::now();
     if (Profiler::on()) {
         // Answers of earlier frames are read now (never waited for): the passes of this frame report them as their GPU time.

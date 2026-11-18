@@ -7,12 +7,12 @@
 //     scRGB (DXGI_COLOR_SPACE_RGB_FULL_G10_NONE_P709), or R10G10B10A2 in HDR10 (ST.2084, Rec.2020) when scRGB is refused.
 //   * macOS and iOS (Metal): the screen's extended dynamic range (EDR) headroom: how many times brighter than white it can
 //     go (NSScreen / UIScreen). The CAMetalLayer becomes RGBA16Float with wantsExtendedDynamicRangeContent and an
-//     extended sRGB colour space.
+//     extended linear sRGB colour space (HdrRequest::edrLinear; the renderer asks for it).
 //   * Linux, Android, the web and headless runs: no HDR output.
 //
-// The display is asked again each frame (cheap calls only): the window moving to another monitor, the user switching HDR
-// on or off and a display change all reach the next frame, and the swapchain goes back to the standard range cleanly when
-// the display loses HDR.
+// The display is asked again each frame while the scene wants HDR (cheap calls only), else every 120th frame: the window
+// moving to another monitor, the user switching HDR on or off and a display change all reach the next frame, and the
+// swapchain goes back to the standard range cleanly when the display loses HDR.
 #pragma once
 
 #include <string>
@@ -21,7 +21,7 @@ namespace fa {
 
 // How the window's pixels are encoded. Sdr: 8-bit sRGB, white is the brightest. ScRgb (Windows): 16-bit float, linear,
 // 1.0 = 80 nits. Hdr10 (Windows): 10-bit ST.2084 (PQ) in Rec.2020, absolute nits. Edr (macOS, iOS): 16-bit float in
-// extended sRGB, 1.0 = the display's white (its current brightness), values up to the EDR headroom are brighter.
+// extended sRGB (extended linear sRGB with HdrRequest::edrLinear), 1.0 = the display's white (its current brightness), values up to the EDR headroom are brighter.
 enum class HdrEncoding { Sdr, ScRgb, Hdr10, Edr };
 inline constexpr int kHdrEncodingCount = 4;
 // "sdr", "scRGB", "hdr10", "edr".
@@ -76,7 +76,7 @@ struct HdrOutputInfo {
     bool requested = false;  // SceneSettings.hdrOutput is auto
     bool active = false;     // the swapchain is in an HDR encoding
     HdrEncoding encoding = HdrEncoding::Sdr;
-    std::string swapchainFormat;  // "BGRA8", "RGBA16F", "RGB10A2"; "" without a window
+    std::string swapchainFormat;  // "BGRA8", "RGBA16F", "RGB10A2"; "" without a window or before the first frame
     float maxNits = 0.0f;         // the display's peak (0 = unknown)
     float paperWhiteNits = 200.0f;
     // How many times brighter than white (paper white) the output can go now: the current EDR headroom, maxNits /
@@ -101,7 +101,8 @@ HdrDisplay hdr_display_from_edr(float maxHeadroom, float headroom, const std::st
 // known == false. Call on the thread that runs the window's callbacks.
 HdrDisplay app_hdr_display();
 // Once per frame before app_gfx_swapchain(): decides and switches the window's swapchain (only when the answer changes)
-// and returns what is shown. Window thread only.
+// and returns what is shown. Window thread only. The display is asked each call while the request wants HDR (and is not
+// blocked), else every 120th call.
 HdrOutputInfo app_update_hdr_output(const HdrRequest& request);
 // The last answer of app_update_hdr_output (any thread). Before the first one: SDR, status "no frame presented yet".
 HdrOutputInfo app_hdr_output();

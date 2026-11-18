@@ -202,7 +202,7 @@ export default class Options extends Behaviour {
         this.refreshAccess();
       });
     cycle("text_scale", settings.TEXT_SCALES, (k) => Math.abs(k - s.textScale) < 1e-3, (k) => { s.textScale = k; ui.textScale = k; });
-    cycle("color_filter", settings.COLOR_FILTERS, (f) => f === s.colorFilter, (f) => { s.colorFilter = f; settings.applyColorFilter(s); }); // Camera.colorFilter: the whole frame, this panel included
+    cycle("color_filter", settings.COLOR_FILTERS, (f) => f === s.colorFilter, (f) => { s.colorFilter = f; settings.applyColorFilter(s); }); // PostProcess colour filter: the whole frame, this panel included
     cycle("caption_bg", settings.CAPTION_BACKGROUNDS, (b) => b.name === s.captionBackground, (b) => { s.captionBackground = b.name; settings.applyCaptionBackground(s); });
     cycle("auto_advance", settings.AUTO_ADVANCE, (a) => a.name === s.autoAdvance, (a) => { s.autoAdvance = a.name; });
     cycle("glyphs", settings.GLYPH_MODES, (g) => g === s.glyphs, (g) => { s.glyphs = g; });

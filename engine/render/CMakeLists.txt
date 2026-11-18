@@ -68,9 +68,9 @@ if(TARGET fa_test_render AND FA_XVFB_RUN AND FA_PLATFORM STREQUAL "linux")
         WORKING_DIRECTORY ${FA_ROOT})
 endif()
 
-# The CPU side of the post-processing stack and the feature table need no GPU either.
+# The CPU side of the post-processing stack, the feature table and the HDR encodes need no GPU either.
 if(TARGET fa_test_render)
     add_test(NAME render_postprocess_core
-        COMMAND fa_test_render --fa-files=postprocess_resolve_tests.cpp
+        COMMAND fa_test_render --fa-files=postprocess_resolve_tests.cpp,hdr_encode_tests.cpp
         WORKING_DIRECTORY ${FA_ROOT})
 endif()
