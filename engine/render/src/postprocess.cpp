@@ -54,6 +54,9 @@ PostPlan make_post_plan(const CameraInfo& cam, bool linear, std::uint32_t forceE
         const std::uint32_t outlineBit = 1u << int(PostEffect::Outline);
         if ((drawn & outlineBit) != 0 && !make_post_fx(*cam.postStack, frame, designScale).outline_depth())
             drawn &= ~outlineBit;
+        // The reflections read the prepass only with an intensity above 0 (renderer_ssr.h).
+        if ((drawn & (1u << int(PostEffect::Ssr))) != 0 && !ssr_active(*cam.postStack))
+            drawn &= ~(1u << int(PostEffect::Ssr));
         read |= drawn;
     }
     p.needsDepth = post_mask_needs_depth(read);

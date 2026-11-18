@@ -370,6 +370,8 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
             pp.prevViewProj = prev->second.viewProj;
             pp.prevValid = true;
         }
+        if (fr.cam.postStack)
+            pp.ssr = make_ssr_plan(fr.cam, *fr.cam.postStack);  // screen-space reflections (renderer_ssr.h)
         PrevCamera& now = prevViewProj[camKey];
         now.viewProj = fr.cam.viewProj;
         now.frame = frameSerial;
@@ -403,6 +405,15 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
     cull_and_batch(ctx);
     plan_prepass(ctx);
     plan_outline(ctx);
+    // Screen-space reflections work on the scene colour, so the screen-space items are drawn after them (as they are over the bloom).
+    if (plan.last && !plan.view) {
+        bool ssrDrawn = false;
+        for (const DrawContext* c : postCams) ssrDrawn = ssrDrawn || (c->postPlan.ssr.any() && c->doPrepass);
+        if (ssrDrawn) {
+            ctx.hudAfterBloom = true;
+            ctx.doMainPass = fr.wantWorld || !ctx.hudAfterBloom;
+        }
+    }
     build_quad_stream(ctx);
     // The final pass converts the picture (exposure, tonemap, the encode of a linear scene): the screen-space items go over its result, in
     // display space, and are drawn after it instead of in the main pass. Only when there is something to draw, and the image for it exists.
@@ -1663,6 +1674,17 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
             use.skip_outline();  // the pass did not get the image: drawn without
         return t && use.fx.outline ? t->texView : sg_view{};
     };
+    // Screen-space reflections of every camera (renderer_ssr.h), over its rectangle of the scene colour, after the ambient occlusion and
+    // before everything else of the stack that works on the scene colour.
+    for (DrawContext* c : postCams) {
+        if (!c->postPlan.ssr.any() || !c->postPlan.prepass.valid()) continue;
+        const BloomTarget ssrDst =
+            ctx.hudAfterBloom && ctx.msaa
+                ? BloomTarget{gameTarget.colorAtt, gameTarget.resolveAtt, gpu.sample_count()}
+                : BloomTarget{ctx.msaa ? gameTarget.resolveColorAtt : gameTarget.colorAtt, sg_view{}, 1};
+        ssr.add_passes(graph, transient_targets(), gpu, c->postPlan.ssr, c->postPlan.rect, physW, physH, game,
+                       gameTarget.texView, ssrDst, c->postPlan.prepass, &stats.drawCalls, c->plan.name);
+    }
     if (pp.bloom.enabled) {
         BloomTarget dst;
         if (ctx.hudAfterBloom && ctx.msaa) {

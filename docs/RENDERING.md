@@ -485,7 +485,7 @@ orthographic 3D camera.
   depth or the normals and that the renderer draws, when that camera draws opaque meshes (a camera of a split screen has its own, the
   size of its rectangle). A frame without such an effect declares no
   prepass pass, makes no image and builds no shader: the draw calls are the same as before. Of the effects that read the depth only the
-  outline (depth mode) is drawn so far; the rest are drawn as their M71 packages land, and the debug view below makes the image too.
+  outline (depth mode) and the screen-space reflections ([Rendering effects](RENDERING_EFFECTS.md)) are drawn so far; the rest are drawn as their M71 packages land, and the debug view below makes the image too.
 - **What is in it.** Opaque meshes, skinned ones at their pose, with their material's `vertex()` displacement, the normals of their material's `surface()` and, for `alphaMode`
   `"clip"`, the same holes as the main pass. Not in it: blended meshes, the sky, sprites, particles, shapes, text, debug lines
   and the HUD. A custom material gets its own prepass programs when

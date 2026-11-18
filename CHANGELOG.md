@@ -8,6 +8,14 @@ Older versions, one file per minor version with its patch releases: [0.29](chang
 
 ### M71 (in progress): linear HDR and a post-processing stack
 
+- **Screen-space reflections:** `PostProcess.ssrEnabled` is drawn: opaque 3D surfaces reflect what the camera shows. Each pixel marches
+  its reflected ray across the screen in the depth prepass (`ssrSteps` steps with a deterministic jitter, a thickness test of
+  `ssrThickness`, six bisections to refine the hit, a longest ray of `ssrMaxDistance`) and takes the scene colour there, before the
+  exposure, so a bright object reflects bright. Reflections fade at the screen border, toward the end of the ray and on the back of a
+  surface. There is no roughness or metalness image: every surface reflects by a fresnel term (more at a grazing angle) times
+  `ssrIntensity`. Each camera of a split screen traces its own rectangle; a frame without the effect (or with `ssrIntensity` 0) adds no
+  pass, no image, no prepass and draws the same bytes as before. The passes are `ssr-trace` and `ssr-copy` in `render.frame_graph`;
+  `render.supports` answers `ssr` true where the GPU has float targets and the sampled depth. New page: docs/RENDERING_EFFECTS.md.
 - **Post-processing costs and a graphics page:** `render.frame_graph` returns `postProcess`: the post-processing passes with their
   summed CPU and GPU time (`gpuMs` is `null` with `gpuStatus` `"unavailable"` and a reason where the backend has no GPU timer; the effects
   folded into the `post` pass are not timed one by one), and the editor's Profiler panel has a "Post-processing" tab with the same table.
