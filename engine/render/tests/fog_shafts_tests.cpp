@@ -324,7 +324,8 @@ TEST_CASE("fog: fogStart keeps what is nearer than it clear") {
     // The near cube (9 .. 11 m) is closer than the start: untouched, to the last bit; the far one (49 m) has 29 m of fog.
     CHECK(max_diff(img, reference, 80, 60, 140, 120) == 0);
     const float farR = img.pixel(207, 90).r;
-    CHECK(farR == doctest::Approx(1.0f - 0.5f * expected_fog(surface_at(207, 90, 49.0f), 0.05f, 20.0f, 0, 0, 0)).epsilon(0.02));
+    CHECK(farR ==
+          doctest::Approx(1.0f - 0.5f * expected_fog(surface_at(207, 90, 49.0f), 0.05f, 20.0f, 0, 0, 0)).epsilon(0.02));
     CHECK(farR < 0.55f);
     // A start beyond everything: no pixel changes.
     Scene beyond;
@@ -357,7 +358,8 @@ TEST_CASE("fog: the height fog is thicker below fogHeightBase and thins above it
     const float up = img.pixel(126, 31).r, down = img.pixel(126, 149).r;
     CHECK(up > down + 0.15f);
     CHECK(up == doctest::Approx(1.0f - expected_fog(surface_at(126, 31, 9.25f), 0, 0, 0.3f, 0.0f, 0.5f)).epsilon(0.03));
-    CHECK(down == doctest::Approx(1.0f - expected_fog(surface_at(126, 149, 9.25f), 0, 0, 0.3f, 0.0f, 0.5f)).epsilon(0.03));
+    CHECK(down ==
+          doctest::Approx(1.0f - expected_fog(surface_at(126, 149, 9.25f), 0, 0, 0.3f, 0.0f, 0.5f)).epsilon(0.03));
     // Moving the base up above both cubes makes them equally thick (the layer is flat up to its base).
     p.fogHeightBase = 10.0f;
     p.fogHeightFalloff = 0.5f;

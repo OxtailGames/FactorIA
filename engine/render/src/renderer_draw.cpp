@@ -419,8 +419,9 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
         bool haveSun = false;
         if (!fr.cam.studio)  // the studio rig is not a sun
             for (const LightData& l : ctx.lights)
-                if (!haveSun && l.color.w == 0.0f && l.pos.w == 0.0f) {  // a directional light: the first is the shadow caster
-                    sun = Vec3{l.pos.x, l.pos.y, l.pos.z};              // pos = the direction toward the light
+                if (!haveSun && l.color.w == 0.0f &&
+                    l.pos.w == 0.0f) {                      // a directional light: the first is the shadow caster
+                    sun = Vec3{l.pos.x, l.pos.y, l.pos.z};  // pos = the direction toward the light
                     haveSun = true;
                 }
         ctx.postPlan.fogFx = make_fog_plan(fr.cam, *fr.cam.postStack, fr.linear, haveSun ? &sun : nullptr);
