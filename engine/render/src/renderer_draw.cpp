@@ -334,7 +334,9 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
     if (plan.last) {
         PostPlan& pp = ctx.postPlan;
         pp = make_post_plan(ctx.post, world.settings().colorSpace == ColorSpace::Linear);
-        if (!gpu.post_ready()) {  // logged once; the frame is drawn without the final pass
+        // The program is made only for a frame that runs it (a conversion or a colour filter): a game without a stack never compiles it.
+        if ((pp.convert() || pp.colorFilter != 0) &&
+            !gpu.post_ready()) {  // logged once; the frame is drawn without the final pass
             pp.exposure = pp.tonemap = pp.linear = false;
             pp.colorFilter = 0;
         }

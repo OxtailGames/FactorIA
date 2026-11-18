@@ -20,9 +20,9 @@ void apply_uniforms(int slot, const T& u) {
     sg_apply_uniforms(slot, &r);
 }
 
-constexpr float kMaxEv = 16.0f;       // +-16 stops: far beyond anything a display or a float target keeps
-constexpr int kLumaSize = 32;         // the exposure measures the frame at 32x32 (exposure.glsl)
-constexpr float kMaxSpeed = 100.0f;   // per second: 100 is "at once" at 60 fps
+constexpr float kMaxEv = 16.0f;      // +-16 stops: far beyond anything a display or a float target keeps
+constexpr int kLumaSize = 32;        // the exposure measures the frame at 32x32 (exposure.glsl)
+constexpr float kMaxSpeed = 100.0f;  // per second: 100 is "at once" at 60 fps
 
 }  // namespace
 
@@ -30,7 +30,8 @@ BloomSettings bloom_from_stack(const PostStack& stack) {
     if (!stack.has(PostEffect::Bloom)) return {};
     const PostProcess& f = stack.fx;
     BloomSettings b = sanitize_bloom(true, f.bloomThreshold, f.bloomIntensity, f.bloomRadius, f.bloomScreenSpace);
-    b.threshold = std::clamp(finite_or(f.bloomThreshold, b.threshold), 0.0f, 20.0f);  // above 1: HDR light of a linear scene
+    b.threshold =
+        std::clamp(finite_or(f.bloomThreshold, b.threshold), 0.0f, 20.0f);  // above 1: HDR light of a linear scene
     b.knee = std::clamp(finite_or(f.bloomKnee, 0.0f), 0.0f, 1.0f);
     b.dirtIntensity = std::clamp(finite_or(f.bloomLensDirtIntensity, 1.0f), 0.0f, 10.0f);
     b.dirt = f.bloomLensDirt;
@@ -71,7 +72,8 @@ void run_post_pass(Gpu& gpu, const PostPlan& plan, bool convert, int filter, boo
     b.vertex_buffers[0] = gpu.fullscreen_triangle();
     b.views[VIEW_post_tex] = src;
     b.views[VIEW_post_expo_tex] = expo;
-    b.samplers[SMP_post_smp] = gpu.sampler(SamplerKind::Nearest);  // the source has the size of the destination: texel for texel
+    b.samplers[SMP_post_smp] =
+        gpu.sampler(SamplerKind::Nearest);  // the source has the size of the destination: texel for texel
     sg_apply_bindings(&b);
     post_post_vs_params_t vu{};
     vu.flip[0] = gpu.is_gl() ? 1.0f : 0.0f;
@@ -101,16 +103,19 @@ bool AutoExposure::ensure_targets(Gpu& gpu) {
     TargetDesc d;
     d.label = "exposure-ev";
     d.width = d.height = 1;
-    d.colorFormat = gpu.scene_format();
+    // 32-bit float where it renders and filters: a 16-bit EV stalls once prev + (target - prev) * k is under half a step of it (up to
+    // ~0.06 EV short at a slow speed, and the more frames a second the shorter), so the adaptation would depend on the frame rate.
+    const sg_pixelformat_info r32 = sg_query_pixelformat(SG_PIXELFORMAT_R32F);
+    d.colorFormat = r32.render && r32.filter ? SG_PIXELFORMAT_R32F : gpu.scene_format();
     for (Target& t : ev_) t = make_target(d);
     if (!ev_[0].valid() || !ev_[1].valid()) {
         for (Target& t : ev_) destroy_target(t);
         failed_ = true;
         if (!warned_) {
             warned_ = true;
-            FA_ERROR("render",
-                     "PostProcess.exposureMode auto: cannot create the 1x1 exposure target; the exposure stays at exposureEv. "
-                     "Hint: set exposureMode to manual.");
+            FA_ERROR("render", "PostProcess.exposureMode auto: cannot create the 1x1 exposure target; the exposure "
+                               "stays at exposureEv. "
+                               "Hint: set exposureMode to manual.");
         }
         return false;
     }
@@ -139,7 +144,8 @@ ResourceId AutoExposure::add_passes(FrameGraph& graph, TransientTargets& targets
         if (!warned_) {
             warned_ = true;
             FA_WARN("render",
-                    "PostProcess.exposureMode auto needs a float render target and this GPU draws the game in {}: the exposure "
+                    "PostProcess.exposureMode auto needs a float render target and this GPU draws the game in {}: the "
+                    "exposure "
                     "stays at exposureEv. Hint: set exposureMode to manual",
                     fmt == SG_PIXELFORMAT_RGBA8 ? "RGBA8" : "a format without it");
         }
@@ -157,9 +163,10 @@ ResourceId AutoExposure::add_passes(FrameGraph& graph, TransientTargets& targets
             failed_ = true;
             if (!warned_) {
                 warned_ = true;
-                FA_ERROR("render",
-                         "PostProcess.exposureMode auto: cannot create the 32x32 measuring target; the exposure stays at "
-                         "exposureEv. Hint: set exposureMode to manual.");
+                FA_ERROR(
+                    "render",
+                    "PostProcess.exposureMode auto: cannot create the 32x32 measuring target; the exposure stays at "
+                    "exposureEv. Hint: set exposureMode to manual.");
             }
             return {};
         }
