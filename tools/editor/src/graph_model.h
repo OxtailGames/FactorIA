@@ -196,21 +196,26 @@ private:
     bool load_from_disk(bool startGraph);
     Stamp stamp() const;
     Json& nodes() { return graph_["nodes"]; }
-    const Json& nodes() const { return graph_["nodes"]; }
+    const Json&
+    nodes() const {  // never inserts: a graph with no "nodes" (a file edited by hand) reads as an empty list
+        static const Json none = Json::array();
+        auto it = graph_.is_object() ? graph_.find("nodes") : graph_.end();
+        return graph_.is_object() && it != graph_.end() ? *it : none;
+    }
     // Replaces the graph with `next`: strict = refuse when the check finds an error the graph had not; records the step.
     GraphEditOutcome commit(Json next, const std::string& label, bool strict);
     GraphEditOutcome fail(const std::string& message) const;
     void touch();
     static bool same_graph(const Json& a, const Json& b);
-    static std::string unique_id(const Json& nodes, const std::string& base);
+    static std::string unique_id(const Json& list, const std::string& base);
     Json graph_for_save() const;
 
     std::string projectDir_;
     GraphCommandFn call_;
     std::string rel_, error_, status_;
-    Json doc_;          // the file, with doc_["graph"] == graph_ (kept in step)
-    Json graph_;        // the graph as edited
-    Json savedGraph_;   // the graph as in the file (null: a draft that was never saved)
+    Json doc_;         // the file, with doc_["graph"] == graph_ (kept in step)
+    Json graph_;       // the graph as edited
+    Json savedGraph_;  // the graph as in the file (null: a draft that was never saved)
     View view_;
     std::string snippetState_ = "unchecked";
     std::set<std::string> selected_;

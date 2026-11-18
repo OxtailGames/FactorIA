@@ -2,6 +2,8 @@
 #include "graph_preview.h"
 
 #include <algorithm>
+#include <cmath>
+#include <exception>
 #include <filesystem>
 
 #include "fa/core/fs.h"
@@ -55,7 +57,9 @@ struct GraphPreview::Job {
 GraphPreview::GraphPreview(std::string projectDir) : projectDir_(std::move(projectDir)) {}
 
 GraphPreview::~GraphPreview() {
-    if (worker_.joinable()) worker_.join();
+    // A compile that is still running (sokol-shdc can take seconds) never blocks the UI thread: the worker only holds copies
+    // (the project directory and the shared job), so it is let go and ends by itself.
+    if (worker_.joinable()) worker_.detach();
 }
 
 void GraphPreview::set_document(const Json& material, std::uint64_t revision) {
@@ -79,9 +83,9 @@ void GraphPreview::clear() {
     drawn_ = false;
 }
 
-void GraphPreview::set_shape(PreviewShape shape) {
-    if (shape == shape_) return;
-    shape_ = shape;
+void GraphPreview::set_shape(PreviewShape newShape) {
+    if (newShape == shape_) return;
+    shape_ = newShape;
     shapeChanged_ = true;
 }
 
@@ -159,23 +163,31 @@ void GraphPreview::start(Renderer* renderer) {
     auto run = [projectDir, job]() {
         // The material file and the snippet it names, then the compile of that material for this backend: the result goes to the
         // content-keyed cache (.factoria/shader-cache), so the renderer finds it when it loads the live copy.
-        auto w1 = fs::write_text(abs_path(projectDir, kStageSnippet), job->snippet);
-        auto w2 = fs::write_text(abs_path(projectDir, kStageMaterial), job->stageText);
-        if (!w1.ok() || !w2.ok()) {
-            const auto& e = w1.ok() ? w2.error() : w1.error();
-            job->error = "Cannot write the preview files in " + std::string(kDir) + ": " + e.message + " " + e.hint;
-        } else {
-            ShaderCompileOptions opt;
-            opt.dialects = {job->dialect};
-            auto r = compile_material(projectDir, kStageMaterial, opt);
-            if (!r.ok()) {
-                job->error = r.error().message + (r.error().hint.empty() ? std::string() : " " + r.error().hint);
-            } else if (!r->ok) {
-                for (const ShaderIssue& issue : r->errors) job->error += issue.to_string() + "\n";
-                if (job->error.empty()) job->error = "The shader did not compile.";
+        try {
+            auto w1 = fs::write_text(abs_path(projectDir, kStageSnippet), job->snippet);
+            auto w2 = fs::write_text(abs_path(projectDir, kStageMaterial), job->stageText);
+            if (!w1.ok() || !w2.ok()) {
+                const auto& e = w1.ok() ? w2.error() : w1.error();
+                job->error = "Cannot write the preview files in " + std::string(kDir) + ": " + e.message + " " + e.hint;
             } else {
-                job->ok = true;
+                ShaderCompileOptions opt;
+                opt.dialects = {job->dialect};
+                auto r = compile_material(projectDir, kStageMaterial, opt);
+                if (!r.ok()) {
+                    job->error = r.error().message + (r.error().hint.empty() ? std::string() : " " + r.error().hint);
+                } else if (!r->ok) {
+                    for (const ShaderIssue& issue : r->errors) job->error += issue.to_string() + "\n";
+                    if (job->error.empty()) job->error = "The shader did not compile.";
+                } else {
+                    job->ok = true;
+                }
             }
+        } catch (const std::exception& e) {  // a worker thread never lets an exception reach std::terminate
+            job->ok = false;
+            job->error = std::string("The preview compile failed: ") + e.what();
+        } catch (...) {
+            job->ok = false;
+            job->error = "The preview compile failed with an unknown error.";
         }
         job->done.store(true, std::memory_order_release);
     };
@@ -221,20 +233,22 @@ void GraphPreview::draw(Renderer* renderer) {
     MeshRenderer* mr = world_->get<MeshRenderer>(meshEntity_);
     if (!t || !mr) return;
     mr->material = material_path();
+    // Animate: the shape turns (a quad sways so it never goes edge-on), so the lighting on it changes from picture to picture
+    const float spin = animated_ ? std::fmod(float(animFrame_) * 1.5f, 360.0f) : 0.0f;
     switch (shape_) {
         case PreviewShape::Sphere:
             mr->mesh = "sphere";
-            t->rotation = Vec3{0, 0, 0};
+            t->rotation = Vec3{0, spin, 0};
             t->scale = Vec3{190, 190, 190};
             break;
         case PreviewShape::Cube:
             mr->mesh = "cube";
-            t->rotation = Vec3{-28.0f, 38.0f, 0.0f};
+            t->rotation = Vec3{-28.0f, 38.0f + spin, 0.0f};
             t->scale = Vec3{110, 110, 110};
             break;
         case PreviewShape::Quad:
             mr->mesh = "quad";
-            t->rotation = Vec3{0, 0, 0};
+            t->rotation = Vec3{0, 40.0f * std::sin(spin * 0.0174533f), 0};
             t->scale = Vec3{200, 200, 1};
             break;
     }
@@ -255,7 +269,8 @@ void GraphPreview::draw(Renderer* renderer) {
         for (const Json& m : report["materials"])
             if (m.is_object() && m.value("material", std::string()) == material_path() && !m.value("ok", true)) {
                 state_ = PreviewState::Error;
-                message_ = clip("The renderer could not build the material: " + m.value("error", std::string("unknown error")));
+                message_ = clip("The renderer could not build the material: " +
+                                m.value("error", std::string("unknown error")));
                 image_ = std::move(img);
                 ++serial_;
                 return;

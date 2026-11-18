@@ -214,30 +214,35 @@ bool Editor::open_graph_document(const std::string& rel, bool startGraph, bool d
     GraphUi& u = graph_;
     showGraph_ = true;
     focus_window("Graph");
-    if (!discard && m.is_open() && m.dirty() && m.path() != rel) {  // unsaved edits of another material: ask first
+    if (m.is_open() && m.path() == rel) return true;  // already open: its unsaved edits and undo steps stay
+    if (!discard && m.is_open() && m.dirty()) {       // unsaved edits of another material: ask first
         u.askDiscard = true;
         u.pendingOpen = rel;
         u.pendingStart = startGraph;
+        u.openError.clear();
         return false;
     }
     const bool ok = m.open(rel, startGraph);
     u.openError = ok ? std::string() : m.error();
     u.pendingOpen = ok ? std::string() : rel;  // the "Start a graph" button of a material that has none
-    u.selectedLink = -1;
-    u.drag = GraphUi::Drag::None;
-    u.viewApplied = false;
     if (ok) {
+        u.selectedLink = -1;
+        u.drag = GraphUi::Drag::None;
+        u.viewApplied = false;
         if (u.preview) u.preview->set_document(m.material_json(), m.revision());
-    } else if (u.preview) {
-        u.preview->clear();
+    } else {
+        // a failed open changes nothing: the document that was open stays, with its edits
+        if (!m.is_open() && u.preview) u.preview->clear();
+        notify("Cannot open " + rel + " in the Graph panel: " + m.error(), 1);
     }
-    if (!ok) notify("Cannot open " + rel + " in the Graph panel: " + m.error(), 1);
     return ok;
 }
 
 void Editor::graph_close_document() {
     if (graph_.model) graph_.model->close();
     if (graph_.preview) graph_.preview->clear();
+    graph_.openError.clear();
+    graph_.pendingOpen.clear();
     graph_.selectedLink = -1;
     graph_.drag = GraphUi::Drag::None;
 }
@@ -343,20 +348,27 @@ void Editor::draw_graph_panel() {
         at_track("gr:reload");
         hint("Takes the file as it is on disk; the edits not saved yet are lost.");
     }
+    if (!u.openError.empty()) {  // the last open that failed, with or without a document open under it
+        ImGui::TextColored(kBad, "%s", u.openError.c_str());
+        if (!u.pendingOpen.empty() && ImGui::Button("Start a graph in this material")) {
+            const std::string rel = u.pendingOpen;
+            open_graph_document(rel, true, false);  // asks first when the open graph has unsaved edits
+        }
+        at_track("gr:start");
+        hint("Starts an empty graph (the output node). The first Save writes the shader snippet from it: the "
+             "material's own "
+             "\"shader\" is replaced, after you confirm.");
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Dismiss##gopenerr")) {
+            u.openError.clear();
+            u.pendingOpen.clear();
+        }
+    }
     if (!m.is_open()) {
         ImGui::Spacing();
-        ImGui::TextDisabled("Open a material with a graph from the list above, make one with New graph material, or double click a");
+        ImGui::TextDisabled(
+            "Open a material with a graph from the list above, make one with New graph material, or double click a");
         ImGui::TextDisabled("*.material.json with a graph in the Project panel (docs/SHADERS.md, \"Node graphs\").");
-        if (!u.openError.empty()) {
-            ImGui::TextColored(kBad, "%s", u.openError.c_str());
-            if (!u.pendingOpen.empty() && ImGui::Button("Start a graph in this material")) {
-                const std::string rel = u.pendingOpen;
-                open_graph_document(rel, true, true);
-            }
-            at_track("gr:start");
-            hint("Starts an empty graph (the output node). The first Save writes the shader snippet from it: the material's own "
-                 "\"shader\" is replaced, after you confirm.");
-        }
         draw_graph_questions(m);
         ImGui::End();
         return;
@@ -366,7 +378,8 @@ void Editor::draw_graph_panel() {
     const ImVec2 avail = ImGui::GetContentRegionAvail();
     const float rightW = std::clamp(avail.x * 0.36f, 210.0f, 320.0f);
     const float leftW = std::max(160.0f, avail.x - rightW - ImGui::GetStyle().ItemSpacing.x);
-    ImGui::BeginChild("##gcanvasbox", ImVec2(leftW, avail.y), false, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+    ImGui::BeginChild("##gcanvasbox", ImVec2(leftW, avail.y), false,
+                      ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
     draw_graph_canvas(m);
     ImGui::EndChild();
     ImGui::SameLine();
@@ -416,7 +429,8 @@ void Editor::draw_graph_toolbar(GraphModel& m) {
     if (ImGui::Button("New graph material")) {
         std::string rel;
         for (int i = 1; i < 1000; ++i) {
-            rel = i == 1 ? "assets/materials/graph.material.json" : std::format("assets/materials/graph{}.material.json", i);
+            rel = i == 1 ? "assets/materials/graph.material.json"
+                         : std::format("assets/materials/graph{}.material.json", i);
             std::error_code ec;
             if (!std::filesystem::exists(std::filesystem::path(projectDir_) / rel, ec)) break;
         }
@@ -436,7 +450,8 @@ void Editor::draw_graph_toolbar(GraphModel& m) {
         }
     }
     at_track("gr:new");
-    hint("material.graph.generate: writes assets/materials/graph.material.json with a graph of one output node, and opens it.");
+    hint("material.graph.generate: writes assets/materials/graph.material.json with a graph of one output node, and "
+         "opens it.");
     if (!m.is_open()) return;
 
     row.next("Add node");
@@ -452,7 +467,8 @@ void Editor::draw_graph_toolbar(GraphModel& m) {
     at_track("gr:save");
     ImGui::EndDisabled();
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-        ImGui::SetTooltip("material.graph.generate: writes the graph into the material and the shader snippet from it. Ctrl+S in the canvas.");
+        ImGui::SetTooltip("material.graph.generate: writes the graph into the material and the shader snippet from it. "
+                          "Ctrl+S in the canvas.");
     row.next("Fit");
     if (ImGui::Button("Fit")) u.wantFit = true;
     at_track("gr:fit");
@@ -467,7 +483,8 @@ void Editor::draw_graph_toolbar(GraphModel& m) {
     const std::string& st = m.snippet_state();
     if (st == "hand_edited" || st == "unmanaged") {
         ImGui::TextColored(kWarn, "snippet edited by hand");
-        hint("The shader snippet was changed outside the graph (or was never written by it). Save asks before it overwrites it.");
+        hint("The shader snippet was changed outside the graph (or was never written by it). Save asks before it "
+             "overwrites it.");
     } else if (st == "in_sync") {
         ImGui::TextColored(kGood, "snippet in sync");
         hint("The shader snippet on disk is the one this graph generates.");
@@ -494,8 +511,9 @@ void Editor::draw_graph_questions(GraphModel& m) {
     }
     if (ImGui::BeginPopupModal("Overwrite the shader snippet?", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
         ImGui::PushTextWrapPos(ImGui::GetFontSize() * 30.0f);
-        ImGui::TextUnformatted("The shader snippet of this material was edited by hand, or was not written by a graph. Saving writes the "
-                               "snippet again from the graph and the hand edits are lost.");
+        ImGui::TextUnformatted(
+            "The shader snippet of this material was edited by hand, or was not written by a graph. Saving writes the "
+            "snippet again from the graph and the hand edits are lost.");
         ImGui::PopTextWrapPos();
         if (ImGui::Button("Overwrite")) {
             graph_save(true);
@@ -509,7 +527,8 @@ void Editor::draw_graph_questions(GraphModel& m) {
     }
     if (ImGui::BeginPopupModal("Discard the graph changes?", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
         ImGui::PushTextWrapPos(ImGui::GetFontSize() * 30.0f);
-        ImGui::Text("%s has changes that are not saved. Opening %s drops them.", m.title().c_str(), u.pendingOpen.c_str());
+        ImGui::Text("%s has changes that are not saved. Opening %s drops them.", m.title().c_str(),
+                    u.pendingOpen.c_str());
         ImGui::PopTextWrapPos();
         if (ImGui::Button("Discard and open")) {
             const std::string rel = u.pendingOpen;
@@ -547,7 +566,8 @@ void Editor::draw_graph_canvas(GraphModel& m) {
     size.x = std::max(size.x, 100.0f);
     size.y = std::max(size.y, 100.0f);
     ImGui::InvisibleButton("##gcanvas", size,
-                           ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight | ImGuiButtonFlags_MouseButtonMiddle);
+                           ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight |
+                               ImGuiButtonFlags_MouseButtonMiddle);
     at_track("gr:canvas");
     const bool hovered = ImGui::IsItemHovered();
     u.canvasX = p0.x;
@@ -629,7 +649,8 @@ void Editor::draw_graph_canvas(GraphModel& m) {
         for (int i = int(boxes.size()) - 1; i >= 0 && hit.kind == Hit::None; --i) {
             const Box& b = boxes[std::size_t(i)];
             const ImVec2 a = S(b.x, b.y), c = S(b.x + b.w, b.y + b.h);
-            if (mouse.x >= a.x && mouse.x <= c.x && mouse.y >= a.y && mouse.y <= c.y) hit = {Hit::Node, i, -1, -1, false};
+            if (mouse.x >= a.x && mouse.x <= c.x && mouse.y >= a.y && mouse.y <= c.y)
+                hit = {Hit::Node, i, -1, -1, false};
         }
     }
     // The links: where each starts and ends on the screen, and the one the mouse is on.
@@ -681,9 +702,11 @@ void Editor::draw_graph_canvas(GraphModel& m) {
         std::string tip;
         if (hit.kind == Hit::Port) {
             const Box& b = boxes[std::size_t(hit.node)];
-            const GraphPort& p = hit.output ? b.type->outputs[std::size_t(hit.port)] : b.type->inputs[std::size_t(hit.port)];
+            const GraphPort& p =
+                hit.output ? b.type->outputs[std::size_t(hit.port)] : b.type->inputs[std::size_t(hit.port)];
             tip = std::format("{}.{} ({}, {})\n{}", b.id, p.name, p.type, hit.output ? "output" : "input", p.doc);
-            if (!hit.output && m.link_index_into(b.id, p.name) >= 0) tip += "\nDrag from here to move the link; drop it on empty canvas to cut it.";
+            if (!hit.output && m.link_index_into(b.id, p.name) >= 0)
+                tip += "\nDrag from here to move the link; drop it on empty canvas to cut it.";
         } else if (hit.kind == Hit::Node) {
             const Box& b = boxes[std::size_t(hit.node)];
             tip = (b.type ? b.type->type + "\n" + b.type->doc : b.id);
@@ -730,7 +753,10 @@ void Editor::draw_graph_canvas(GraphModel& m) {
                 const std::string& id = boxes[std::size_t(hit.node)].id;
                 u.selectedLink = -1;
                 if (io.KeyShift || io.KeyCtrl || io.KeySuper) {
-                    if (m.is_selected(id)) m.deselect(id); else m.select(id, true);
+                    if (m.is_selected(id))
+                        m.deselect(id);
+                    else
+                        m.select(id, true);
                 } else if (!m.is_selected(id)) {
                     m.select(id);
                 }
@@ -760,7 +786,8 @@ void Editor::draw_graph_canvas(GraphModel& m) {
             if (hovered && !popupOpen) {
                 u.openPalette = true;
                 u.menuAt = G(mouse);
-                if (hit.kind == Hit::Node && !m.is_selected(boxes[std::size_t(hit.node)].id)) m.select(boxes[std::size_t(hit.node)].id);
+                if (hit.kind == Hit::Node && !m.is_selected(boxes[std::size_t(hit.node)].id))
+                    m.select(boxes[std::size_t(hit.node)].id);
             }
         } else if (std::hypot(mouse.x - u.dragStart.x, mouse.y - u.dragStart.y) > 4.0f) {
             u.rightPanCandidate = false;
@@ -773,10 +800,12 @@ void Editor::draw_graph_canvas(GraphModel& m) {
         case GraphUi::Drag::Pan:
             u.panX += io.MouseDelta.x;
             u.panY += io.MouseDelta.y;
-            if (!ImGui::IsMouseDown(ImGuiMouseButton_Right) && !ImGui::IsMouseDown(ImGuiMouseButton_Middle)) u.drag = GraphUi::Drag::None;
+            if (!ImGui::IsMouseDown(ImGuiMouseButton_Right) && !ImGui::IsMouseDown(ImGuiMouseButton_Middle))
+                u.drag = GraphUi::Drag::None;
             break;
         case GraphUi::Drag::Nodes: {
-            const float tx = std::round((mouse.x - u.dragStart.x) / zoom), ty = std::round((mouse.y - u.dragStart.y) / zoom);
+            const float tx = std::round((mouse.x - u.dragStart.x) / zoom),
+                        ty = std::round((mouse.y - u.dragStart.y) / zoom);
             if (tx != u.dragApplied.x || ty != u.dragApplied.y) {
                 m.move_nodes(m.selection(), tx - u.dragApplied.x, ty - u.dragApplied.y);
                 u.dragApplied = Vec2{tx, ty};
@@ -792,7 +821,8 @@ void Editor::draw_graph_canvas(GraphModel& m) {
                 u.drag = GraphUi::Drag::None;
                 const float x0 = std::min(u.dragStart.x, mouse.x), x1 = std::max(u.dragStart.x, mouse.x);
                 const float y0 = std::min(u.dragStart.y, mouse.y), y1 = std::max(u.dragStart.y, mouse.y);
-                std::set<std::string> ids = (io.KeyShift || io.KeyCtrl || io.KeySuper) ? m.selection() : std::set<std::string>();
+                std::set<std::string> ids =
+                    (io.KeyShift || io.KeyCtrl || io.KeySuper) ? m.selection() : std::set<std::string>();
                 for (const Box& b : boxes) {
                     const ImVec2 a = S(b.x, b.y), c = S(b.x + b.w, b.y + b.h);
                     if (c.x >= x0 && a.x <= x1 && c.y >= y0 && a.y <= y1) ids.insert(b.id);
@@ -808,14 +838,17 @@ void Editor::draw_graph_canvas(GraphModel& m) {
                 std::string target;
                 if (hit.kind == Hit::Port && hit.output != fromOutput) {
                     const Box& b = boxes[std::size_t(hit.node)];
-                    target = b.id + "." + (hit.output ? b.type->outputs[std::size_t(hit.port)].name : b.type->inputs[std::size_t(hit.port)].name);
+                    target = b.id + "." +
+                             (hit.output ? b.type->outputs[std::size_t(hit.port)].name
+                                         : b.type->inputs[std::size_t(hit.port)].name);
                 }
                 const std::string fromEnd = u.linkFrom.node + "." + u.linkFrom.port;
                 GraphEditOutcome o;
                 if (!target.empty()) {
                     o = fromOutput ? m.connect(fromEnd, target) : m.connect(target, fromEnd);
                     if (!o.ok) u.linkMessage = o.error;
-                    if (o.ok && u.linkPicked.valid() && (u.linkPicked.node + "." + u.linkPicked.port) != (fromOutput ? target : fromEnd))
+                    if (o.ok && u.linkPicked.valid() &&
+                        (u.linkPicked.node + "." + u.linkPicked.port) != (fromOutput ? target : fromEnd))
                         m.disconnect(u.linkPicked.node + "." + u.linkPicked.port);
                 } else if (u.linkPicked.valid()) {  // dropped on empty canvas: the link that was picked up is cut
                     o = m.disconnect(u.linkPicked.node + "." + u.linkPicked.port);
@@ -857,10 +890,13 @@ void Editor::draw_graph_canvas(GraphModel& m) {
         }
         if (cmd && ImGui::IsKeyPressed(ImGuiKey_V, false)) {
             const char* sys = ImGui::GetClipboardText();
-            const std::string text = sys && *sys && std::string(sys).find("factoria.graph.clip") != std::string::npos ? std::string(sys) : u.clipboard;
+            const std::string text = sys && *sys && std::string(sys).find("factoria.graph.clip") != std::string::npos
+                                         ? std::string(sys)
+                                         : u.clipboard;
             if (!text.empty()) outcome(m.paste(text, G(mouse)));
         }
-        if (cmd && ImGui::IsKeyPressed(ImGuiKey_D, false) && !m.selection().empty()) outcome(m.duplicate(m.selection()));
+        if (cmd && ImGui::IsKeyPressed(ImGuiKey_D, false) && !m.selection().empty())
+            outcome(m.duplicate(m.selection()));
         if (cmd && ImGui::IsKeyPressed(ImGuiKey_S, false)) graph_save(false);
         if (!cmd && ImGui::IsKeyPressed(ImGuiKey_F, false)) u.wantFit = true;
     }
@@ -870,7 +906,8 @@ void Editor::draw_graph_canvas(GraphModel& m) {
     const ImVec2 p1(p0.x + size.x, p0.y + size.y);
     dl->PushClipRect(p0, p1, true);
     dl->AddRectFilled(p0, p1, IM_COL32(28, 29, 33, 255));
-    for (const auto& [step, col] : {std::pair<float, ImU32>{32.0f, IM_COL32(255, 255, 255, 14)}, std::pair<float, ImU32>{160.0f, IM_COL32(255, 255, 255, 30)}}) {
+    for (const auto& [step, col] : {std::pair<float, ImU32>{32.0f, IM_COL32(255, 255, 255, 14)},
+                                    std::pair<float, ImU32>{160.0f, IM_COL32(255, 255, 255, 30)}}) {
         const float px = step * zoom;
         if (px < 9.0f) continue;
         float x = std::fmod(u.panX, px);
@@ -907,7 +944,8 @@ void Editor::draw_graph_canvas(GraphModel& m) {
                 const ImVec2 a = S(pp.x, pp.y);
                 const float dx = std::max(40.0f * zoom, std::abs(mouse.x - a.x) * 0.5f);
                 const float sign = u.linkFrom.output ? 1.0f : -1.0f;
-                dl->AddBezierCubic(a, ImVec2(a.x + dx * sign, a.y), ImVec2(mouse.x - dx * sign, mouse.y), mouse, port_color(ports[std::size_t(k)].type), 2.5f);
+                dl->AddBezierCubic(a, ImVec2(a.x + dx * sign, a.y), ImVec2(mouse.x - dx * sign, mouse.y), mouse,
+                                   port_color(ports[std::size_t(k)].type), 2.5f);
             }
         }
     }
@@ -923,13 +961,21 @@ void Editor::draw_graph_canvas(GraphModel& m) {
         const bool sel = m.is_selected(b.id);
         const float r = 5.0f * zoom;
         dl->AddRectFilled(a, c, IM_COL32(48, 50, 56, 245), r);
-        dl->AddRectFilled(a, ImVec2(c.x, a.y + kHeaderH * zoom), header_color(b.type ? b.type->category : "?"), r, ImDrawFlags_RoundCornersTop);
-        dl->AddRect(a, c, bad ? IM_COL32(235, 80, 70, 255) : warn ? IM_COL32(235, 190, 70, 255) : sel ? IM_COL32(255, 255, 255, 255) : IM_COL32(90, 92, 100, 255), r,
-                    0, (bad || warn || sel ? 2.0f : 1.0f));
-        if (bad && sel) dl->AddRect(ImVec2(a.x - 2, a.y - 2), ImVec2(c.x + 2, c.y + 2), IM_COL32(255, 255, 255, 200), r + 2.0f, 0, 1.0f);
+        dl->AddRectFilled(a, ImVec2(c.x, a.y + kHeaderH * zoom), header_color(b.type ? b.type->category : "?"), r,
+                          ImDrawFlags_RoundCornersTop);
+        dl->AddRect(a, c,
+                    bad    ? IM_COL32(235, 80, 70, 255)
+                    : warn ? IM_COL32(235, 190, 70, 255)
+                    : sel  ? IM_COL32(255, 255, 255, 255)
+                           : IM_COL32(90, 92, 100, 255),
+                    r, 0, (bad || warn || sel ? 2.0f : 1.0f));
+        if (bad && sel)
+            dl->AddRect(ImVec2(a.x - 2, a.y - 2), ImVec2(c.x + 2, c.y + 2), IM_COL32(255, 255, 255, 200), r + 2.0f, 0,
+                        1.0f);
         if (labels) {
             const std::string title = b.type ? b.type->type : b.id + " (unknown type)";
-            dl->AddText(font, fs, ImVec2(a.x + 8.0f * zoom, a.y + (kHeaderH * zoom - fs) * 0.5f), IM_COL32(240, 240, 240, 255), title.c_str());
+            dl->AddText(font, fs, ImVec2(a.x + 8.0f * zoom, a.y + (kHeaderH * zoom - fs) * 0.5f),
+                        IM_COL32(240, 240, 240, 255), title.c_str());
         }
         if (!b.type) continue;
         for (int k = 0; k < int(b.type->inputs.size()); ++k) {
@@ -937,7 +983,8 @@ void Editor::draw_graph_canvas(GraphModel& m) {
             const Vec2 pp = input_pos(b, k);
             const ImVec2 sp = S(pp.x, pp.y);
             const bool linked = m.link_index_into(b.id, port.name) >= 0;
-            const bool over = hit.kind == Hit::Port && hit.node >= 0 && boxes[std::size_t(hit.node)].id == b.id && !hit.output && hit.port == k;
+            const bool over = hit.kind == Hit::Port && hit.node >= 0 && boxes[std::size_t(hit.node)].id == b.id &&
+                              !hit.output && hit.port == k;
             bool compatible = true;
             if (u.drag == GraphUi::Drag::Link && u.linkFrom.output) {
                 const int fi = m.node_index(u.linkFrom.node);
@@ -945,16 +992,20 @@ void Editor::draw_graph_canvas(GraphModel& m) {
                 const GraphPort* fp = ft ? find_port(ft->outputs, u.linkFrom.port) : nullptr;
                 compatible = fp && u.linkFrom.node != b.id && graph_ports_may_link(fp->type, port.type);
             }
-            dl->AddCircleFilled(sp, (over ? kPortR + 2.0f : kPortR) * std::max(zoom, 0.7f), compatible ? port_color(port.type) : IM_COL32(80, 80, 80, 255));
+            dl->AddCircleFilled(sp, (over ? kPortR + 2.0f : kPortR) * std::max(zoom, 0.7f),
+                                compatible ? port_color(port.type) : IM_COL32(80, 80, 80, 255));
             if (!linked) dl->AddCircleFilled(sp, 2.0f * std::max(zoom, 0.7f), IM_COL32(28, 29, 33, 255));
             if (labels) {
-                dl->AddText(font, fs, ImVec2(sp.x + 9.0f * zoom, sp.y - fs * 0.5f), IM_COL32(215, 215, 220, 255), port.name.c_str());
+                dl->AddText(font, fs, ImVec2(sp.x + 9.0f * zoom, sp.y - fs * 0.5f), IM_COL32(215, 215, 220, 255),
+                            port.name.c_str());
                 if (!linked && std::size_t(k) >= b.type->outputs.size()) {
                     const Json v = m.input_value(b.id, port.name);
                     const std::string txt = value_text(v.is_null() ? port.defaultValue : v);
                     if (!txt.empty()) {
                         const float nameW = ImGui::CalcTextSize(port.name.c_str()).x * fs / ImGui::GetFontSize();
-                        dl->AddText(font, fs, ImVec2(sp.x + 16.0f * zoom + nameW, sp.y - fs * 0.5f), v.is_null() ? IM_COL32(130, 132, 140, 255) : IM_COL32(250, 220, 120, 255), txt.c_str());
+                        dl->AddText(font, fs, ImVec2(sp.x + 16.0f * zoom + nameW, sp.y - fs * 0.5f),
+                                    v.is_null() ? IM_COL32(130, 132, 140, 255) : IM_COL32(250, 220, 120, 255),
+                                    txt.c_str());
                     }
                 }
             }
@@ -963,7 +1014,8 @@ void Editor::draw_graph_canvas(GraphModel& m) {
             const GraphPort& port = b.type->outputs[std::size_t(k)];
             const Vec2 pp = output_pos(b, k);
             const ImVec2 sp = S(pp.x, pp.y);
-            const bool over = hit.kind == Hit::Port && hit.node >= 0 && boxes[std::size_t(hit.node)].id == b.id && hit.output && hit.port == k;
+            const bool over = hit.kind == Hit::Port && hit.node >= 0 && boxes[std::size_t(hit.node)].id == b.id &&
+                              hit.output && hit.port == k;
             bool compatible = true;
             if (u.drag == GraphUi::Drag::Link && !u.linkFrom.output) {
                 const int fi = m.node_index(u.linkFrom.node);
@@ -971,10 +1023,12 @@ void Editor::draw_graph_canvas(GraphModel& m) {
                 const GraphPort* fp = ft ? find_port(ft->inputs, u.linkFrom.port) : nullptr;
                 compatible = fp && u.linkFrom.node != b.id && graph_ports_may_link(port.type, fp->type);
             }
-            dl->AddCircleFilled(sp, (over ? kPortR + 2.0f : kPortR) * std::max(zoom, 0.7f), compatible ? port_color(port.type) : IM_COL32(80, 80, 80, 255));
+            dl->AddCircleFilled(sp, (over ? kPortR + 2.0f : kPortR) * std::max(zoom, 0.7f),
+                                compatible ? port_color(port.type) : IM_COL32(80, 80, 80, 255));
             if (labels) {
                 const float w = ImGui::CalcTextSize(port.name.c_str()).x * fs / ImGui::GetFontSize();
-                dl->AddText(font, fs, ImVec2(sp.x - 9.0f * zoom - w, sp.y - fs * 0.5f), IM_COL32(215, 215, 220, 255), port.name.c_str());
+                dl->AddText(font, fs, ImVec2(sp.x - 9.0f * zoom - w, sp.y - fs * 0.5f), IM_COL32(215, 215, 220, 255),
+                            port.name.c_str());
             }
         }
         if (labels && !b.type->ref.empty()) {
@@ -982,25 +1036,30 @@ void Editor::draw_graph_canvas(GraphModel& m) {
             const std::string ref = nodeJson.value(b.type->ref, std::string());
             const float y = b.y + kHeaderH + float(b.rows - 1) * kRowH + kRowH * 0.5f;
             const ImVec2 sp = S(b.x + 10.0f, y);
-            dl->AddText(font, fs, ImVec2(sp.x, sp.y - fs * 0.5f), ref.empty() ? IM_COL32(235, 120, 100, 255) : IM_COL32(250, 220, 120, 255),
+            dl->AddText(font, fs, ImVec2(sp.x, sp.y - fs * 0.5f),
+                        ref.empty() ? IM_COL32(235, 120, 100, 255) : IM_COL32(250, 220, 120, 255),
                         (b.type->ref + ": " + (ref.empty() ? std::string("(none)") : ref)).c_str());
         }
     }
     if (u.drag == GraphUi::Drag::Box) {
-        const ImVec2 a(std::min(u.dragStart.x, mouse.x), std::min(u.dragStart.y, mouse.y)), c(std::max(u.dragStart.x, mouse.x), std::max(u.dragStart.y, mouse.y));
+        const ImVec2 a(std::min(u.dragStart.x, mouse.x), std::min(u.dragStart.y, mouse.y)),
+            c(std::max(u.dragStart.x, mouse.x), std::max(u.dragStart.y, mouse.y));
         dl->AddRectFilled(a, c, IM_COL32(120, 160, 255, 40));
         dl->AddRect(a, c, IM_COL32(120, 160, 255, 160));
     }
     if (!u.linkMessage.empty()) {
-        dl->AddText(ImVec2(p0.x + 8, p1.y - ImGui::GetFontSize() - 6), IM_COL32(255, 140, 120, 255), u.linkMessage.c_str());
+        dl->AddText(ImVec2(p0.x + 8, p1.y - ImGui::GetFontSize() - 6), IM_COL32(255, 140, 120, 255),
+                    u.linkMessage.c_str());
     }
     if (boxes.size() <= 1 && u.drag == GraphUi::Drag::None)
-        dl->AddText(ImVec2(p0.x + 12, p0.y + 8), IM_COL32(150, 152, 160, 255), "Right click for the node list. Drag from a port to link.");
+        dl->AddText(ImVec2(p0.x + 12, p0.y + 8), IM_COL32(150, 152, 160, 255),
+                    "Right click for the node list. Drag from a port to link.");
     dl->PopClipRect();
 
     // Remember where the user left the view (the file keeps it; the generator ignores it).
-    if (u.drag == GraphUi::Drag::None && (std::abs(m.saved_view().zoom - u.zoom) > 1e-4f || std::abs(m.saved_view().panX - u.panX) > 0.5f ||
-                                         std::abs(m.saved_view().panY - u.panY) > 0.5f || !m.saved_view().known))
+    if (u.drag == GraphUi::Drag::None &&
+        (std::abs(m.saved_view().zoom - u.zoom) > 1e-4f || std::abs(m.saved_view().panX - u.panX) > 0.5f ||
+         std::abs(m.saved_view().panY - u.panY) > 0.5f || !m.saved_view().known))
         m.set_view(u.zoom, std::round(u.panX), std::round(u.panY));
 
     draw_graph_palette(m);
@@ -1021,7 +1080,8 @@ void Editor::draw_graph_palette(GraphModel& m) {
         u.focusFilter = false;
     }
     ImGui::SetNextItemWidth(-FLT_MIN);
-    const bool enter = ImGui::InputTextWithHint("##gfilter", "Search nodes (noise, mix, time...)", &u.filter, ImGuiInputTextFlags_EnterReturnsTrue);
+    const bool enter = ImGui::InputTextWithHint("##gfilter", "Search nodes (noise, mix, time...)", &u.filter,
+                                                ImGuiInputTextFlags_EnterReturnsTrue);
     at_track("gr:filter");
     hint("Matches the name, the category and the description of every node of the library.");
     const std::vector<const GraphNodeType*> list = m.palette(u.filter);
@@ -1032,8 +1092,10 @@ void Editor::draw_graph_palette(GraphModel& m) {
     for (const GraphNodeType* t : list) {
         if (t->category != category) {
             category = t->category;
-            if (u.filter.empty()) open = ImGui::CollapsingHeader(category.c_str(), ImGuiTreeNodeFlags_DefaultOpen);
-            else ImGui::TextDisabled("%s", category.c_str());
+            if (u.filter.empty())
+                open = ImGui::CollapsingHeader(category.c_str(), ImGuiTreeNodeFlags_DefaultOpen);
+            else
+                ImGui::TextDisabled("%s", category.c_str());
         }
         if (!open) continue;
         if (ImGui::Selectable((t->type + "##pal" + t->type).c_str())) add = t->type;
@@ -1069,8 +1131,11 @@ void Editor::draw_graph_side(GraphModel& m) {
     at_track("gr:preview");
     ImDrawList* dl = ImGui::GetWindowDrawList();
     dl->AddRectFilled(q0, ImVec2(q0.x + w, q0.y + w), IM_COL32(40, 42, 48, 255));
-    if (u.picture.view) dl->AddImage(ImTextureRef(ImTextureID(ui::texture_from_view(u.picture.view, true))), q0, ImVec2(q0.x + w, q0.y + w));
-    hint("The material as it is now, drawn by the engine's renderer (not as saved). It follows the edits a moment after they stop.");
+    if (u.picture.view)
+        dl->AddImage(ImTextureRef(ImTextureID(ui::texture_from_view(u.picture.view, true))), q0,
+                     ImVec2(q0.x + w, q0.y + w));
+    hint("The material as it is now, drawn by the engine's renderer (not as saved). It follows the edits a moment "
+         "after they stop.");
     switch (pv.state()) {
         case PreviewState::Waiting: ImGui::TextDisabled("waiting for the edits to stop..."); break;
         case PreviewState::Compiling: ImGui::TextDisabled("compiling the shader..."); break;
@@ -1087,7 +1152,9 @@ void Editor::draw_graph_side(GraphModel& m) {
     }
     PreviewShape shape = pv.shape();
     FitRow row;
-    for (const auto& [label, s] : {std::pair<const char*, PreviewShape>{"Sphere", PreviewShape::Sphere}, {"Cube", PreviewShape::Cube}, {"Quad", PreviewShape::Quad}}) {
+    for (const auto& [label, s] : {std::pair<const char*, PreviewShape>{"Sphere", PreviewShape::Sphere},
+                                   {"Cube", PreviewShape::Cube},
+                                   {"Quad", PreviewShape::Quad}}) {
         if (ImGui::RadioButton(label, shape == s)) pv.set_shape(s);
         at_track(std::string("gr:shape:") + label);
         row.next("Quad");
@@ -1181,7 +1248,8 @@ void Editor::draw_graph_node_inspector(GraphModel& m, const std::string& id) {
         if (ImGui::BeginCombo("##gref", cur.empty() ? "(choose)" : cur.c_str())) {
             for (const std::string& n : names)
                 if (ImGui::Selectable(n.c_str(), n == cur)) graph_edited(m.set_ref(id, n));
-            if (names.empty()) ImGui::TextDisabled("The material declares no %s yet (edit the file or ask an AI).", section);
+            if (names.empty())
+                ImGui::TextDisabled("The material declares no %s yet (edit the file or ask an AI).", section);
             ImGui::EndCombo();
         }
         at_track("gr:ref");

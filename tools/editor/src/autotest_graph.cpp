@@ -67,7 +67,8 @@ void Editor::at_section_G3(AtScript& at) {
                 inject_mouse(SAPP_EVENTTYPE_MOUSE_DOWN, graph_node_screen(fromNode, fromPort, true));
             });
             step(2, [this, fromNode, fromPort, toNode, toPort] {
-                const Vec2 a = graph_node_screen(fromNode, fromPort, true), b = graph_node_screen(toNode, toPort, false);
+                const Vec2 a = graph_node_screen(fromNode, fromPort, true),
+                           b = graph_node_screen(toNode, toPort, false);
                 inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, Vec2{(a.x + b.x) * 0.5f, (a.y + b.y) * 0.5f});
             });
             step(2, [this, toNode, toPort] {
@@ -112,7 +113,8 @@ void Editor::at_section_G3(AtScript& at) {
         wait_until(ready, "the Graph panel to open the material");
         step(3, [this, gs, rel] {
             GraphModel& m = *graph_.model;
-            at_check(m.path() == rel && m.node_count() == 1 && m.link_count() == 0, "the material opens with its one output node");
+            at_check(m.path() == rel && m.node_count() == 1 && m.link_count() == 0,
+                     "the material opens with its one output node");
             at_check(m.snippet_state() == "missing", "...its snippet has not been written yet (state \"missing\")");
             at_check(undo_depth() == gs->undo, "...and opening is not an undo step");
             // a fixed view, so the script knows where the graph is: half size, a little off the corner
@@ -129,15 +131,18 @@ void Editor::at_section_G3(AtScript& at) {
             // the search box has the keyboard: "noise" narrows the list
             for (char c : std::string("noise")) inject_char(unsigned(static_cast<unsigned char>(c)));
         });
-        wait_until([this] { return at_visible("gr:add:noise.fbm") && graph_.filter == "noise"; }, "the palette to list noise.fbm");
+        wait_until([this] { return at_visible("gr:add:noise.fbm") && graph_.filter == "noise"; },
+                   "the palette to list noise.fbm");
         step(3, [this] {
             const std::vector<const GraphNodeType*> list = graph_.model->palette(graph_.filter);
-            at_check(!list.empty() && !at_visible("gr:add:math.add"), "the search narrows the palette: noise nodes stay, math.add goes");
+            at_check(!list.empty() && !at_visible("gr:add:math.add"),
+                     "the search narrows the palette: noise nodes stay, math.add goes");
         });
         click_widget("gr:add:noise.fbm");
         step(3, [this, gs] {
             GraphModel& m = *graph_.model;
-            at_check(m.node_count() == 2 && m.node_index("noise_fbm") >= 0, "a click in the palette adds the node (noise_fbm)");
+            at_check(m.node_count() == 2 && m.node_index("noise_fbm") >= 0,
+                     "a click in the palette adds the node (noise_fbm)");
             at_check(undo_depth() == gs->undo + 1, "...as one undo step");
         });
         right_click_graph(0.0f, 200.0f);
@@ -148,9 +153,11 @@ void Editor::at_section_G3(AtScript& at) {
         click_widget("gr:add:dissolve");
         step(3, [this, gs] {
             GraphModel& m = *graph_.model;
-            at_check(m.node_count() == 4 && m.node_index("param") >= 0 && m.node_index("dissolve") >= 0, "the param and dissolve nodes are added too");
+            at_check(m.node_count() == 4 && m.node_index("param") >= 0 && m.node_index("dissolve") >= 0,
+                     "the param and dissolve nodes are added too");
             const Json node = m.graph()["nodes"][std::size_t(m.node_index("param"))];
-            at_check(node.value("param", std::string()) == "dissolve", "...the param node names the material's one param");
+            at_check(node.value("param", std::string()) == "dissolve",
+                     "...the param node names the material's one param");
             at_check(undo_depth() == gs->undo + 3, "...three nodes, three undo steps");
         });
 
@@ -179,7 +186,8 @@ void Editor::at_section_G3(AtScript& at) {
         wait_until(
             [this] {
                 const PreviewState s = graph_.preview->state();
-                return graph_.preview->shown_revision() == graph_.model->revision() || s == PreviewState::Error || s == PreviewState::NoRenderer;
+                return graph_.preview->shown_revision() == graph_.model->revision() || s == PreviewState::Error ||
+                       s == PreviewState::NoRenderer;
             },
             "the preview to compile the dissolve graph");
         step(3, [this, gs] {
@@ -192,7 +200,8 @@ void Editor::at_section_G3(AtScript& at) {
             }
             if (pv.state() == PreviewState::Error) {
                 // a machine without the shader compiler cannot compile any material; CI installs it and sets FA_REQUIRE_SHDC=1
-                const bool noShdc = msg.find("shdc") != std::string::npos || msg.find("shader compiler") != std::string::npos;
+                const bool noShdc =
+                    msg.find("shdc") != std::string::npos || msg.find("shader compiler") != std::string::npos;
                 const char* required = std::getenv("FA_REQUIRE_SHDC");
                 if (noShdc && !(required && std::string(required) == "1")) {
                     gs->skip = true;
@@ -202,7 +211,8 @@ void Editor::at_section_G3(AtScript& at) {
                 at_check(false, "the preview compiled the dissolve graph: " + msg);
                 return;
             }
-            at_check(pv.state() == PreviewState::Ready && !pv.image().empty(), "the preview compiled the graph and drew a picture");
+            at_check(pv.state() == PreviewState::Ready && !pv.image().empty(),
+                     "the preview compiled the graph and drew a picture");
             int covered = 0;
             for (std::size_t i = 3; i < pv.image().rgba.size(); i += 4)
                 if (pv.image().rgba[i] > 0) ++covered;
@@ -217,7 +227,8 @@ void Editor::at_section_G3(AtScript& at) {
             GraphModel& m = *graph_.model;
             // a node whose type does not exist cannot be added by the panel; a link the checker refuses is refused by the model
             const GraphEditOutcome bad = m.connect("dissolve.emission", "noise_fbm.scale");
-            at_check(!bad.ok && !bad.error.empty(), "a link of the wrong type is refused with the checker's sentence: " + bad.error);
+            at_check(!bad.ok && !bad.error.empty(),
+                     "a link of the wrong type is refused with the checker's sentence: " + bad.error);
             at_check(m.link_count() == 4 && !m.has_errors(), "...and the graph stays as it was");
         });
 
@@ -229,14 +240,16 @@ void Editor::at_section_G3(AtScript& at) {
             at_check(!file.is_discarded() && file.contains("graphHash") && file["graph"]["links"].size() == 4,
                      "Save wrote the graph and its hash into the material");
             const std::string text = read_text(snippet);
-            at_check(!text.empty() && text.find("dissolve") != std::string::npos, "...and the shader snippet next to it");
+            at_check(!text.empty() && text.find("dissolve") != std::string::npos,
+                     "...and the shader snippet next to it");
             at_check(!m.dirty() && m.snippet_state() == "in_sync", "...the panel says the snippet is in sync");
             gs->saved = text;
         });
 
         // ---- a snippet edited by hand is not overwritten without the question
         step(3, [this, gs, snippet, read_text] {
-            std::ofstream(stdfs::path(projectDir_) / snippet, std::ios::binary | std::ios::app) << "\n// edited by hand\n";
+            std::ofstream(stdfs::path(projectDir_) / snippet, std::ios::binary | std::ios::app)
+                << "\n// edited by hand\n";
             GraphModel& m = *graph_.model;
             graph_edited(m.move_nodes({"out"}, 20.0f, 0.0f));
             at_check(read_text(snippet).find("edited by hand") != std::string::npos, "the snippet was edited by hand");
@@ -249,7 +262,8 @@ void Editor::at_section_G3(AtScript& at) {
         });
         click_widget("gr:force:cancel");
         step(3, [this, snippet, read_text] {
-            at_check(read_text(snippet).find("edited by hand") != std::string::npos && graph_.model->dirty(), "Cancel keeps the hand edit and the unsaved graph");
+            at_check(read_text(snippet).find("edited by hand") != std::string::npos && graph_.model->dirty(),
+                     "Cancel keeps the hand edit and the unsaved graph");
         });
         click_widget("gr:save");
         wait_until([this] { return at_visible("gr:force"); }, "the question before overwriting a hand-edited snippet");
@@ -268,7 +282,8 @@ void Editor::at_section_G3(AtScript& at) {
         step(3, [this, gs] {
             for (int i = 0; i < 40; ++i) redo();
             GraphModel& m = *graph_.model;
-            at_check(m.node_count() == 4 && m.link_count() == 4 && !m.has_errors(), "Redo brings the dissolve graph back");
+            at_check(m.node_count() == 4 && m.link_count() == 4 && !m.has_errors(),
+                     "Redo brings the dissolve graph back");
             at_check(undo_depth() > gs->undo, "...on the editor's undo stack");
         });
 

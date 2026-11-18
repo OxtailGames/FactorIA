@@ -38,7 +38,7 @@ enum class PreviewState {
     Waiting,    // edits are still arriving (the debounce)
     Compiling,  // the worker is compiling
     Ready,      // the picture is the latest document
-    Error,      // the latest document does not check or does not compile: message() says why; the last good picture stays
+    Error,  // the latest document does not check or does not compile: message() says why; the last good picture stays
     NoRenderer  // the editor has no GPU renderer (a headless run): nothing to draw with
 };
 
@@ -50,12 +50,12 @@ inline constexpr int kPreviewMaxMessage = 4000;
 class GraphPreview {
 public:
     explicit GraphPreview(std::string projectDir);
-    ~GraphPreview();  // waits for a compile that is running (at most one), never at an edit
+    ~GraphPreview();  // lets a compile that is running (at most one) end by itself: never waits for it
 
     // The material to show (the file's JSON with the graph as edited) and the model's revision, which tells a new edit from the same document.
     void set_document(const Json& material, std::uint64_t revision);
     void clear();
-    void set_shape(PreviewShape shape);
+    void set_shape(PreviewShape newShape);
     PreviewShape shape() const { return shape_; }
     // Draw again every few frames (a graph that reads the clock moves).
     void set_animated(bool on) { animated_ = on; }
