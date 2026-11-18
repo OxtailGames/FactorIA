@@ -127,7 +127,9 @@ int count_prefix(const std::vector<std::string>& names, const std::string& prefi
 }
 int resource_count(Gfx& g, const char* kind) {
     int n = 0;
-    for (const Json& r : render::renderer_frame_graph(g.renderer)->to_json()["resources"])
+    // The graph's JSON is kept in a local: a range-for over a member of a temporary reads freed memory (before C++23).
+    const Json graph = render::renderer_frame_graph(g.renderer)->to_json();
+    for (const Json& r : graph["resources"])
         if (r["kind"].get<std::string>() == kind) ++n;
     return n;
 }
