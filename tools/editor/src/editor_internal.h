@@ -768,7 +768,8 @@ public:
     bool draw_field_widget(const std::string& key, const FieldInfo& f, const Json& current, bool disabled, Json& out,
                            const FieldMix* mix = nullptr, std::vector<bool>* forced = nullptr);
     void draw_animator_clips(Entity e, const std::string& id, const Json& current);
-    void draw_material_params(Entity e, const Json& current);
+    void draw_material_params(Entity e, const Json& current, const std::string& component,
+                              const std::string& paramsField);
     void draw_profiler_panel();
     // Level generator window (level_gen_panel.cpp; the model, level_gen_model.h, has no ImGui).
     void draw_level_gen_panel();
