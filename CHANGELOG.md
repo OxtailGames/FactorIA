@@ -8,6 +8,13 @@ Older versions, one file per minor version with its patch releases: [0.29](chang
 
 ### M71 (in progress): linear HDR and a post-processing stack
 
+- **Post-processing costs and a graphics page:** `render.frame_graph` returns `postProcess`: the post-processing passes with their
+  summed CPU and GPU time (`gpuMs` is `null` with `gpuStatus` `"unavailable"` and a reason where the backend has no GPU timer; the effects
+  folded into the `post` pass are not timed one by one), and the editor's Profiler panel has a "Post-processing" tab with the same table.
+  The menu kit's options panel gets a Graphics tab: effects quality (high, medium, low, off), bloom, film grain, vignette, chromatic
+  aberration and outline switches, and HDR output where the display can show it; it writes the scene's `PostProcess` fields and is saved in
+  `settings.graphics`.
+
 - **Prepass follow-ups:** the new command `render.debug_view` (`none`, `depth`, `normals`; no argument reports the current view) shows the
   depth or normals of the prepass in a screenshot; the written depth is clamped to 60000 (`a` is the coverage); a custom material whose
   shader has no prepass programs logs a warning at load.
