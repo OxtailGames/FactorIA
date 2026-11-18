@@ -348,7 +348,7 @@ window_note() {
 # left out (displays_asleep) or a test case skipped the step that runs a windowed program (FA_TEST_NO_WINDOW).
 run_ctest() {  # run_ctest <dir> <label> <log> <ctest arguments...>
     local dir="$1" label="$2" log="$3"; shift 3
-    local t0=$SECONDS rc=0 disabled asleep=0 skipped="" steps="" entries="" own=""
+    local t0=$SECONDS rc=0 disabled asleep=0 skipped="" steps="" entries="" own="" foreign=""
     set_phase "$label" "$log"
     # FA_AGENT_WINDOW_TESTS=run: the windowed programs do not skip themselves either (display_watchdog.h)
     [ "${FA_AGENT_WINDOW_TESTS:-auto}" = run ] && export FA_TEST_IGNORE_DISPLAY_SLEEP=1
@@ -426,14 +426,33 @@ run_ctest() {  # run_ctest <dir> <label> <log> <ctest arguments...>
             "$dir/Testing/Temporary/LastTest.log" 2>/dev/null | sort -u | tr '\n' ' ' | sed 's/ *$//')"
     fi
     # Tests that ended themselves with 77 (SKIP_RETURN_CODE, the display watchdog): ctest lists them as (Skipped).
-    own="$(grep -E '^[[:space:]]+[0-9]+ - .+\(Skipped\)' "$log" | sed -E 's/^[[:space:]]*[0-9]+ - //; s/ \(Skipped\)$//' |
-        sort -u | tr '\n' ' ' | sed 's/ *$//')"
+    # Only the tests of label `window` carry SKIP_RETURN_CODE 77 (the display watchdog): another Skipped test (its own
+    # skip property) is listed apart, with no cause claimed.
+    local name windows
+    windows=" $(ctest --test-dir "$dir" -N -L '^window$' 2>/dev/null | sed -n 's/^ *Test *#[0-9]*: *//p' | tr '\n' ' ') "
+    while IFS= read -r name; do
+        [ -n "$name" ] || continue
+        case "$windows" in
+            *" $name "*) own="$own $name" ;;
+            *) foreign="$foreign $name" ;;
+        esac
+    done <<EOF_SKIPPED
+$(grep -E '^[[:space:]]+[0-9]+ - .+\(Skipped\)' "$log" | sed -E 's/^[[:space:]]*[0-9]+ - //; s/ \(Skipped\)$//' | sort -u)
+EOF_SKIPPED
+    own="${own# }" foreign="${foreign# }"
+    if [ -n "$foreign" ]; then
+        # No cause is claimed: ctest says Skipped for a test that returned its SKIP_RETURN_CODE or printed its
+        # SKIP_REGULAR_EXPRESSION, and this script cannot tell which one it was. The test's output says why.
+        say "$label: SKIPPED (not passed): $(printf '%s\n' "$foreign" | wc -w | tr -d ' ') test(s) that ctest reports as" \
+            "Skipped ($foreign). See their output in $log for the reason; run them where it can be met, or say in your" \
+            "report that they did not run."
+    fi
     [ -n "$skipped$steps$own" ] && say "$(window_note "$label" $asleep "$skipped" "$steps" "$entries" "$own")"
     if [ $rc -ne 0 ]; then
         say "$label: FAILED ($((SECONDS - t0)) s). Full log: $log"
         return 1
     fi
-    if [ -n "$skipped$steps$own" ]; then
+    if [ -n "$skipped$steps$own$foreign" ]; then
         say "$label: everything else passed ($((SECONDS - t0)) s)"
         return 77
     fi

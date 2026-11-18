@@ -10,7 +10,10 @@ Copies the factoria binary to a temp folder, starts `factoria mcp` from the copy
      Windows cannot replace a running program: the server says so in the next tool result and a notifications/message.
   2. a project .mcp.json without `timeout`, client "claude-code": the server adds it and tells the AI (in a tool result) to ask the
      user to restart the client or reconnect.
-Every wait has a timeout, so a hang fails the test instead of blocking ctest.
+Every wait has a timeout, so a hang fails the test instead of blocking ctest. Every wait counts WALL-CLOCK time, because the
+time limits of the scripts count CPU time and a process blocked on a pipe, a socket or a child uses none (and
+time.monotonic() stops while a Mac sleeps): the child programs run with a timeout, a watchdog thread ends the whole test
+(servers included, each one in its own process group) after WATCHDOG_SECONDS, and the servers are killed on every way out.
 """
 import json
 import os
@@ -25,7 +28,36 @@ import time
 
 FACTORIA = os.path.abspath(sys.argv[1])
 IS_WINDOWS = os.name == "nt"
+WATCHDOG_SECONDS = 240  # a safety net far above a run (under 30 s on a loaded VM), below the TIMEOUT 300 of the ctest entry
+CHILD_SECONDS = 90  # `factoria new`, codesign
 failures = []
+servers = []  # every server this test started, for the cleanup and the watchdog
+
+
+def kill_servers():
+    """Kills every server and whatever it started (its own process group on POSIX), so that no orphan outlives the test."""
+    for s in list(servers):
+        if s.p.poll() is not None:
+            continue  # already gone: its pid (and process group) may belong to another program by now
+        try:
+            if IS_WINDOWS:
+                s.p.kill()
+            else:
+                os.killpg(s.p.pid, 9)
+        except (OSError, ProcessLookupError):
+            pass
+
+
+def watchdog():
+    """Wall clock (time.time keeps counting while a Mac sleeps; time.monotonic does not) and not CPU time: a test that waits
+    on a pipe, a socket or a child for ever uses none."""
+    end = time.time() + WATCHDOG_SECONDS
+    while time.time() < end:
+        time.sleep(1)
+    print("\nFAIL  the test did not end within %d s (wall clock): a wait on a server or a child program never returned"
+          % WATCHDOG_SECONDS, flush=True)
+    kill_servers()
+    os._exit(1)
 
 
 def check(cond, what, detail=""):
@@ -41,7 +73,8 @@ class Server:
     def __init__(self, exe, project, home, client="test"):
         env = dict(os.environ, HOME=home, APPDATA=home, XDG_DATA_HOME=home, USERPROFILE=home)
         self.p = subprocess.Popen([exe, "mcp", "--project", project], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                                  stderr=subprocess.DEVNULL, env=env)
+                                  stderr=subprocess.DEVNULL, env=env, start_new_session=not IS_WINDOWS)
+        servers.append(self)
         self.q = queue.Queue()
         self.seen = []
         self.next_id = 1
@@ -144,7 +177,8 @@ def another_build(src, dst):
     open(dst, "wb").write(bytes(data))
     shutil.copymode(src, dst)
     if sys.platform == "darwin":  # arm64 macOS refuses a file whose signature no longer matches its bytes
-        subprocess.run(["codesign", "--force", "-s", "-", dst], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.run(["codesign", "--force", "-s", "-", dst], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                       timeout=CHILD_SECONDS)
     return True
 
 
@@ -158,7 +192,8 @@ def main():
         exe = os.path.join(bindir, "factoria" + (".exe" if IS_WINDOWS else ""))
         shutil.copy2(FACTORIA, exe)
         project = os.path.join(tmp, "game")
-        r = subprocess.run([exe, "new", project], capture_output=True, text=True, env=dict(os.environ, HOME=home, APPDATA=home))
+        r = subprocess.run([exe, "new", project], capture_output=True, text=True, env=dict(os.environ, HOME=home, APPDATA=home),
+                           stdin=subprocess.DEVNULL, timeout=CHILD_SECONDS)
         check(r.returncode == 0, "factoria new makes the project", r.stdout + r.stderr)
         newexe = os.path.join(tmp, "factoria.new")
         if not check(another_build(exe, newexe), "the copy is turned into another build (the binary carries its markers)"):
@@ -232,9 +267,11 @@ def main():
         check("[FactorIA notice]" not in text, "the notice is given once", text)
         s.close()
     finally:
+        kill_servers()  # also when a check raised: no server stays behind holding the folder
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+threading.Thread(target=watchdog, daemon=True).start()
 try:
     main()
 except Exception as e:  # a crash in the test is a failure, with its message
