@@ -975,6 +975,79 @@ TEST_CASE("materials: a twin from another factoria version is refused with the r
     CHECK(g.renderer.stats().materialFallbacks.size() == 1);
 }
 
+// The kind of a material (M72): the twin must carry the material's kind (a twin without one is a mesh twin), and a kind that
+// has no programs yet is refused with a message instead of being drawn.
+TEST_CASE("materials: a twin of another kind than its material is refused with the re-export hint") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    MaterialScope scope;
+    const std::string dialect = g.renderer.shader_dialect();
+    auto twin = load_json_file("materials/empty.material.json." + dialect + ".shader");
+    REQUIRE(twin.ok());
+    CHECK_FALSE(twin->contains("kind"));  // the committed twins are mesh twins as they were before kinds
+    auto draw = [&](const std::string& name, const std::string& material, const Json& twinDoc) {
+        REQUIRE(fs::write_text("materials/" + name + ".material.json", material).ok());
+        REQUIRE(fs::write_text("materials/" + name + ".material.json." + dialect + ".shader", twinDoc.dump()).ok());
+        World w;
+        add_stage(w);
+        const std::string path = "materials/" + name + ".material.json";
+        add_material_mesh(w, "cube", path.c_str(), {0, 0, 0});
+        return g.render(w);
+    };
+    {  // a sprite twin on a mesh material
+        Json other = *twin;
+        other["kind"] = "sprite";
+        ErrorLog log;
+        const Image img =
+            draw("kindtwin", R"({"format": "factoria.material/1", "shader": "shaders/empty.surface.glsl"})", other);
+        CHECK(img.pixel(160, 90).g < 0.1f);  // magenta
+        REQUIRE(log.messages().size() == 1);
+        CHECK(log.messages()[0].find("\"sprite\" shader") != std::string::npos);
+        CHECK(log.messages()[0].find("kind \"mesh\"") != std::string::npos);
+        CHECK(log.messages()[0].find("Export the game again with this factoria version") != std::string::npos);
+    }
+    {  // "mesh" written out is the same as no kind
+        Json same = *twin;
+        same["kind"] = "mesh";
+        ErrorLog log;
+        draw("kindmesh", R"({"format": "factoria.material/1", "kind": "mesh", "shader": "shaders/empty.surface.glsl"})",
+             same);
+        CHECK(log.messages().empty());
+        CHECK(g.renderer.stats().materialFallbacks.empty());
+    }
+    {  // a material of a kind that cannot be drawn yet
+        ErrorLog log;
+        const Image img = draw(
+            "kindsprite",
+            R"({"format": "factoria.material/1", "kind": "sprite", "shader": "shaders/empty.surface.glsl"})", *twin);
+        CHECK(img.pixel(160, 90).g < 0.1f);
+        REQUIRE(log.messages().size() == 1);
+        CHECK(log.messages()[0].find("kind \"sprite\"") != std::string::npos);
+        CHECK(log.messages()[0].find("cannot draw yet") != std::string::npos);
+    }
+    {  // a kind that does not exist
+        ErrorLog log;
+        draw("kindtypo",
+             R"({"format": "factoria.material/1", "kind": "spirte", "shader": "shaders/empty.surface.glsl"})", *twin);
+        REQUIRE(log.messages().size() == 1);
+        CHECK(log.messages()[0].find("unknown kind \"spirte\"") != std::string::npos);
+        CHECK(log.messages()[0].find("sprite") != std::string::npos);
+    }
+}
+
+TEST_CASE("materials: the template hash is per kind and the mesh one is unchanged by the other kinds") {
+    CHECK(mesh_template_hash() == material_template_hash(MaterialKind::Mesh));
+    CHECK(mesh_template_hash().size() == 64);
+    CHECK(material_template_hash(MaterialKind::Sprite).size() == 64);
+    CHECK(material_template_hash(MaterialKind::Sprite) != mesh_template_hash());
+    CHECK(material_template_hash(MaterialKind::Sky) != material_template_hash(MaterialKind::Post));
+    CHECK(material_template_hash(MaterialKind::Compute).empty());
+    CHECK(material_kind_names().size() == 5);
+    CHECK(std::string(material_kind_name(MaterialKind::Post)) == "post");
+    CHECK(material_kind_from_name("sky") == MaterialKind::Sky);
+    CHECK_FALSE(material_kind_from_name("mesh2").has_value());
+}
+
 // fa_time is the engine clock (World::time, advanced by the fixed steps), so a material that animates with it draws the
 // same picture after the same number of steps, whatever ran before in the process.
 TEST_CASE("3D mesh template: a material's emission driven by fa_time is the same after the same fixed steps") {

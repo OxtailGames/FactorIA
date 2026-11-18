@@ -62,7 +62,9 @@ struct MaterialTexture {
 struct MaterialDef {
     std::string path;  // project-relative path of the .material.json
     std::string doc;
-    std::string shader;                // project-relative path of the snippet
+    std::string shader;  // project-relative path of the snippet
+    std::string kind =
+        "mesh";  // "mesh" | "sprite" | "sky" | "post" | "compute" (fa::material_kind_names()); only mesh compiles
     std::string lighting = "pbr";      // "pbr" | "unlit"
     std::string alphaMode = "opaque";  // "opaque" | "clip" | "blend"
     bool doubleSided = false;
@@ -111,6 +113,8 @@ std::string host_shader_dialect(const SetupContext& context = {});
 // ---------------------------------------------------------------------------------------------------------------
 
 struct GeneratedShader {
+    std::string kind =
+        "mesh";       // the material's kind (its template files and template hash); only "mesh" is generated so far
     std::string top;  // the sokol-shdc input
     std::vector<int>
         snippetLine;  // per line of `top` (index = line - 1): the 1-based line of the snippet it holds, 0 = generated
@@ -169,8 +173,9 @@ struct ShaderCompileResult {
 // How to get sokol-shdc, for the errors and warnings that say it is missing or would not start: `factoria setup shaders`,
 // SOKOL_SHDC and, on Windows, that Windows Defender may have quarantined sokol-shdc.exe as a false positive.
 std::string sokol_shdc_missing_hint(const SetupContext& context);
-// SHA-256 of the template files the generator includes (name and content, sorted by name); "" when none is bundled.
-std::string shader_template_hash();
+// SHA-256 of the template files of a material kind (fa::material_template_hash: the value this build of the renderer checks
+// twins against); "" when the kind has no template or none is bundled.
+std::string shader_template_hash(const std::string& kind = "mesh");
 // Compiles the material at `materialPath` (project-relative) for the dialects asked. Fails (Error) when sokol-shdc is needed
 // and not found, or cannot be started; everything the author can fix is in result.errors.
 Result<ShaderCompileResult> compile_material(const std::string& projectDir, const std::string& materialPath,

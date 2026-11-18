@@ -12,7 +12,32 @@
 
 namespace fa {
 
-std::string mesh_template_hash() { return FA_MESH_TEMPLATE_HASH; }
+const std::vector<std::string>& material_kind_names() {
+    static const std::vector<std::string> names = {"mesh", "sprite", "sky", "post", "compute"};
+    return names;
+}
+
+const char* material_kind_name(MaterialKind kind) { return material_kind_names()[std::size_t(kind)].c_str(); }
+
+std::optional<MaterialKind> material_kind_from_name(std::string_view name) {
+    const auto& names = material_kind_names();
+    for (std::size_t i = 0; i < names.size(); ++i)
+        if (names[i] == name) return MaterialKind(i);
+    return std::nullopt;
+}
+
+std::string material_template_hash(MaterialKind kind) {
+    switch (kind) {
+        case MaterialKind::Mesh: return FA_TEMPLATE_HASH_MESH;
+        case MaterialKind::Sprite: return FA_TEMPLATE_HASH_SPRITE;
+        case MaterialKind::Sky: return FA_TEMPLATE_HASH_SKY;
+        case MaterialKind::Post: return FA_TEMPLATE_HASH_POST;
+        case MaterialKind::Compute: return FA_TEMPLATE_HASH_COMPUTE;
+    }
+    return {};
+}
+
+std::string mesh_template_hash() { return material_template_hash(MaterialKind::Mesh); }
 
 }  // namespace fa
 
@@ -28,6 +53,14 @@ std::string backend_dialect(sg_backend backend) {
         case SG_BACKEND_METAL_SIMULATOR: return "metal_sim";
         default: return {};
     }
+}
+
+const std::vector<const char*>& material_program_names(MaterialKind kind) {
+    // The order of MaterialProgramId. The other kinds list theirs when their package makes them buildable.
+    static const std::vector<const char*> mesh = {"mesh",        "mesh_skin", "shadow",
+                                                  "shadow_skin", "prepass",   "prepass_skin"};
+    static const std::vector<const char*> none;
+    return kind == MaterialKind::Mesh ? mesh : none;
 }
 
 namespace {
@@ -295,10 +328,27 @@ Result<void> Assets::build_material_checked(MaterialAsset& m) {
         return make_error("material '" + m.path + "' must be a JSON object",
                           "Start from the example in docs/SHADERS.md.");
     if (const std::string* s = str_of(*doc, "shader")) m.snippet = fs::normalize(*s);
+    // "kind": absent = mesh. The tooling checks the file with a JSON pointer; a player reads it from an export.
+    MaterialKind kind = MaterialKind::Mesh;
+    if (auto k = doc->find("kind"); k != doc->end()) {
+        const auto parsed = k->is_string() ? material_kind_from_name(k->get<std::string>()) : std::nullopt;
+        if (!parsed)
+            return make_error("material '" + m.path + "' has an unknown kind " +
+                                  (k->is_string() ? "\"" + k->get<std::string>() + "\"" : describe_json_value(*k)),
+                              k->is_string() ? did_you_mean(k->get<std::string>(), material_kind_names())
+                                             : "Use one of: " + join(material_kind_names(), ", ") + ".");
+        kind = *parsed;
+    }
+    if (material_program_names(kind).empty())
+        return make_error("material '" + m.path + "' has kind \"" + material_kind_name(kind) +
+                              "\", which this factoria version cannot draw yet",
+                          "Only \"mesh\" materials (the default) are drawn so far; the other kinds arrive with M72 "
+                          "(docs/design/CUSTOM_SHADERS.md, \"Kinds (M72)\").");
     const std::string lighting = str_of(*doc, "lighting") ? text_of(*doc, "lighting") : "pbr";
     const std::string alphaMode = str_of(*doc, "alphaMode") ? text_of(*doc, "alphaMode") : "opaque";
     const bool doubleSided = doc->find("doubleSided") != doc->end() && doc->at("doubleSided") == true;
     if (!m.ok) {  // never built: the error material still needs to be sorted into the right draw list
+        m.kind = kind;
         m.lighting = lighting;
         m.alphaMode = alphaMode;
         m.doubleSided = doubleSided;
@@ -324,10 +374,16 @@ Result<void> Assets::build_material_checked(MaterialAsset& m) {
         return make_error("the shader of material '" + m.path + "' has format '" + text_of(twin, "format") +
                               "', expected 'factoria.shader/1'",
                           kReexportHint);
-    if (text_of(twin, "engine") != FA_ENGINE_VERSION || text_of(twin, "template") != mesh_template_hash())
+    // A twin without "kind" is a mesh twin (the format before M72).
+    const std::string twinKind = str_of(twin, "kind") ? text_of(twin, "kind") : "mesh";
+    if (twinKind != material_kind_name(kind))
+        return make_error("the shader of material '" + m.path + "' is a \"" + twinKind +
+                              "\" shader, but the material has kind \"" + material_kind_name(kind) + "\"",
+                          "The material's \"kind\" changed after its shader was made. " + std::string(kReexportHint));
+    if (text_of(twin, "engine") != FA_ENGINE_VERSION || text_of(twin, "template") != material_template_hash(kind))
         return make_error("the shader of material '" + m.path + "' was made by factoria " + text_of(twin, "engine") +
                               (text_of(twin, "engine") == FA_ENGINE_VERSION
-                                   ? " with another mesh template"
+                                   ? std::string(" with another ") + material_kind_name(kind) + " template"
                                    : ", but this is " + std::string(FA_ENGINE_VERSION)),
                           kReexportHint);
     if (text_of(twin, "slang") != dialect)
@@ -388,11 +444,10 @@ Result<void> Assets::build_material_checked(MaterialAsset& m) {
     }
 
     // The shaders. Nothing of `m` changes unless all of them are made.
-    static const char* const names[kProgCount] = {"mesh",        "mesh_skin", "shadow",
-                                                  "shadow_skin", "prepass",   "prepass_skin"};
-    MaterialProgram programs[kProgCount];
+    const std::vector<const char*>& names = material_program_names(kind);
+    MaterialProgram programs[kMaxMaterialPrograms];
     auto programsJson = twin.find("programs");
-    for (int i = 0; i < kProgCount; ++i) {
+    for (int i = 0; i < int(names.size()); ++i) {
         const Json* prog = programsJson != twin.end() && programsJson->is_object() && programsJson->contains(names[i])
                                ? &programsJson->at(names[i])
                                : nullptr;
@@ -417,6 +472,7 @@ Result<void> Assets::build_material_checked(MaterialAsset& m) {
     for (MaterialProgram& old : m.programs)
         if (old.shader.id) gpu_.destroy_shader(old.shader);
     std::copy(std::begin(programs), std::end(programs), std::begin(m.programs));
+    m.kind = kind;
     m.lighting = lighting;
     m.alphaMode = alphaMode;
     m.doubleSided = doubleSided;

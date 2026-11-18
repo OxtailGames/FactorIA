@@ -102,8 +102,20 @@ inline constexpr float kMaxTextScale = 3.0f;
 // On failure the error message lists every compile error ("shaders/x.surface.glsl:7:5: error: ...").
 using ShaderCompiler = std::function<Result<Json>(const std::string& materialPath, const std::string& slang)>;
 
-// SHA-256 of the mesh template files (engine/render/shaders/*_common.glsl) this renderer was built with: a material twin
-// made from another template is refused. The tooling writes the same value into every twin.
+// What a custom material is for (the "kind" of *.material.json, docs/design/CUSTOM_SHADERS.md "Kinds (M72)"): Mesh = a
+// MeshRenderer's surface (the default), Sprite = the 2D quad path (Sprite, Shape2D, Tilemap, Text, particles, UI images),
+// Sky, Post = a pass of the post-processing stack, Compute. Each kind has its own template files and its own template hash.
+enum class MaterialKind { Mesh, Sprite, Sky, Post, Compute };
+// "mesh", "sprite", "sky", "post", "compute", in the order of MaterialKind.
+const std::vector<std::string>& material_kind_names();
+const char* material_kind_name(MaterialKind kind);
+std::optional<MaterialKind> material_kind_from_name(std::string_view name);
+
+// SHA-256 of the template files of `kind` (engine/render/shaders/*_common.glsl, one list per kind in
+// engine/render/CMakeLists.txt) this renderer was built with: a material twin made from another template is refused. The
+// tooling writes the same value into every twin of that kind. "" for a kind without a template yet (Compute).
+std::string material_template_hash(MaterialKind kind);
+// material_template_hash(MaterialKind::Mesh).
 std::string mesh_template_hash();
 
 struct RendererDesc {
