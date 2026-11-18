@@ -212,6 +212,7 @@ struct Renderer::Impl {
     // The frames of the game's pictures (begin_frame_graph(true)): what the auto exposure counts, so a capture_world between two
     // frames does not make the exposure jump to the measured value.
     std::uint64_t postSerial = 0;
+    bool framePost = true;  // the frame being planned is one of the game's (false in capture_world)
     void trim_shadow_rows();
     bool updated = false;  // update() ran since the last draw
     ScaleMode scaleMode = ScaleMode::Fit;

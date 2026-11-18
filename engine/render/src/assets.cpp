@@ -677,11 +677,22 @@ const LutAsset* Assets::lut(const std::string& pathIn) {
     if (pathIn.empty()) return nullptr;
     std::string key = fs::normalize(pathIn);
     if (key.empty()) key = pathIn;
-    if (auto it = luts_.find(key); it != luts_.end()) return it->second->view.id ? it->second.get() : nullptr;
-    auto slot = std::make_unique<LutAsset>();
-    LutAsset& l = *slot;
-    l.path = key;
-    luts_[key] = std::move(slot);  // a failed load stays in the cache: one error, no read of the file every frame
+    bool secondTry = false;  // the slot's first read or parse failed: this is the one retry, its failure is final
+    LutAsset* slotPtr = nullptr;
+    if (auto it = luts_.find(key); it != luts_.end()) {
+        if (it->second->view.id) return it->second.get();
+        if (!it->second->retryPending)
+            return nullptr;  // a failed load stays in the cache: one error, no read every frame
+        it->second->retryPending = false;
+        secondTry = true;
+        slotPtr = it->second.get();
+    } else {
+        auto slot = std::make_unique<LutAsset>();
+        slotPtr = slot.get();
+        slot->path = key;
+        luts_[key] = std::move(slot);
+    }
+    LutAsset& l = *slotPtr;
     auto fail = [&](const std::string& message, const std::string& hint) -> const LutAsset* {
         note_failure("lut", key, message, hint);
         return nullptr;
@@ -696,26 +707,28 @@ const LutAsset* Assets::lut(const std::string& pathIn) {
                     "Export a 32 or 33 entry LUT (a 64 entry one is about 8 MB).");
     // A file that is read or parses badly is tried once more on the next ask (the next frame) before it is an error: on Windows the
     // editor that saves a .cube may still be writing it (a half-written file) when the hot reload finds it.
-    auto retry_once = [&]() {
-        if (!lutRetried_.insert(key).second) return false;  // the second failure is the real one
-        luts_.erase(key);                                   // `l` is gone with it: nothing below may use it
+    // The slot stays in the cache with retryPending set (so a file nobody asks for again costs nothing, and a later ask still gets its
+    // retry); the first failure is logged as a warning, so a one-frame render (a capture, the CLI) does not fail in silence.
+    auto retry_once = [&](const std::string& what) {
+        if (secondTry) return false;  // the second failure is the real one
+        l.retryPending = true;
+        FA_WARN("render",
+                "colour grading LUT '{}' {}; trying once more on the next frame (a file that is still being written).",
+                key, what);
         return true;
     };
     auto text = fs::read_text(key);
     if (!text) {
-        if (retry_once()) return nullptr;
-        lutRetried_.erase(key);
+        if (retry_once("could not be read: " + text.error().message)) return nullptr;
         return fail(std::format("colour grading LUT '{}' could not be read: {}", key, text.error().message),
                     text.error().hint);
     }
     auto parsed = parse_cube_lut(*text, key);
     if (!parsed) {
         const std::string message = parsed.error().message, hint = parsed.error().hint;
-        if (retry_once()) return nullptr;
-        lutRetried_.erase(key);
+        if (retry_once("does not parse: " + message)) return nullptr;
         return fail("colour grading LUT " + message, hint);
     }
-    lutRetried_.erase(key);
     const CubeLutStrip strip = cube_lut_strip(*parsed);
     sg_image_desc d{};
     d.width = strip.width();

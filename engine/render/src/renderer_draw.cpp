@@ -264,6 +264,7 @@ void Renderer::Impl::begin_frame_graph(bool countPost) {
     frameJobs.clear();
     jobImages.clear();
     ++frameSerial;
+    framePost = countPost;
     if (countPost) ++postSerial;
     trim_shadow_rows();
     sharedGame = sharedLight = sharedShadow = ResourceId{};
@@ -380,21 +381,25 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
         // The camera's view-projection of the frame before, for the effects that reproject (motion blur); one entry per camera, and the
         // cameras that were not drawn last frame are forgotten.
         const std::uint64_t camKey = fr.cam.entity.bits();
+        // Counted in the frames of the game (postSerial): a capture_world between two of them neither reads nor writes the matrices,
+        // so the next frame still reprojects from the one before the capture.
         const auto prev = prevViewProj.find(camKey);
-        if (prev != prevViewProj.end() && prev->second.frame + 1 == frameSerial) {
+        if (prev != prevViewProj.end() && prev->second.frame + 1 == postSerial && framePost) {
             pp.prevViewProj = prev->second.viewProj;
             pp.prevValid = true;
         }
         if (fr.cam.postStack)
             pp.ssr = make_ssr_plan(fr.cam, *fr.cam.postStack);  // screen-space reflections (renderer_ssr.h)
-        PrevCamera& now = prevViewProj[camKey];
-        now.viewProj = fr.cam.viewProj;
-        now.frame = frameSerial;
-        for (auto it = prevViewProj.begin(); it != prevViewProj.end();)
-            it = it->second.frame + 1 < frameSerial ? prevViewProj.erase(it) : std::next(it);
+        if (framePost) {
+            PrevCamera& now = prevViewProj[camKey];
+            now.viewProj = fr.cam.viewProj;
+            now.frame = postSerial;
+            for (auto it = prevViewProj.begin(); it != prevViewProj.end();)
+                it = it->second.frame + 1 < postSerial ? prevViewProj.erase(it) : std::next(it);
+        }
         // Depth of field and motion blur (renderer_dof.h): the focus of this camera for the frame, the matrices of its movement.
         if (fr.cam.postStack)
-            pp.sceneFx = sceneFx.plan(world, fr.cam, *fr.cam.postStack, camKey, frameSerial, fr.dt, renderScale,
+            pp.sceneFx = sceneFx.plan(world, fr.cam, *fr.cam.postStack, camKey, postSerial, fr.dt, renderScale,
                                       pp.prevViewProj, pp.prevValid);
         // The program is made only for a frame that runs it (a conversion or a colour filter): a game without a stack never compiles it.
         if ((pp.final_pass() || pp.colorFilter != 0) &&
