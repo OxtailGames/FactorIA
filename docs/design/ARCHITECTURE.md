@@ -13,7 +13,8 @@ layout, the AI integration, the feedback loop and the testing rules; the rest is
 - [Commands](ARCHITECTURE_COMMANDS.md): the command (tool) system, capabilities.
 - [Files and block codecs](ARCHITECTURE_FILES.md): `fa::fs`, the file rules, block codecs.
 - [Game loop, jobs and loading](ARCHITECTURE_THREADS.md): the game loop, jobs and threads, systems that run as jobs, background loading.
-- [Rendering](ARCHITECTURE_RENDERING.md): coordinates and units, rendering, start-up order and the shader cache, textures, bounds.
+- [Rendering](ARCHITECTURE_RENDERING.md): coordinates and units, rendering, start-up order and the shader cache, textures, bounds, the PostProcess stack.
+- [Rendering, the post-processing effects](ARCHITECTURE_RENDERING_POST.md): the grading and lens effects, radial blur and transient screen effects, outline, ambient occlusion, prepass, depth of field.
 - [Animation, UI, platform, localization, docs](ARCHITECTURE_RUNTIME.md): animation, UI, platform services, localization, headless, docs.
 
 ## Design principles

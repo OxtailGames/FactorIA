@@ -1,5 +1,5 @@
 Part of [RENDERING.md](../RENDERING.md): the screen-space effects of the post-processing stack that read the depth and normal prepass
-(ambient occlusion and reflections now; fog joins this page when the renderer draws it).
+(ambient occlusion, reflections and the outline now; fog joins this page when the renderer draws it).
 
 # Rendering: screen-space effects
 
@@ -104,3 +104,28 @@ the wet floor) so only that part of the world reflects.
 ```json
 { "type": "PostProcess", "ssrEnabled": true, "ssrIntensity": 0.8, "ssrMaxDistance": 30, "ssrSteps": 48 }
 ```
+
+## The outline
+
+`outlineWidth` is in design pixels (it follows the render scale, minimum 0.5), `outlineColor` is the line's colour and its alpha is the
+opacity (alpha 0, width 0 or an unmet need below draw nothing: the frame is the one without the stack, byte for byte).
+
+- **Depth mode (3D).** An edge is a pixel whose neighbours (a Roberts cross: two diagonal pairs of prepass texels, at most
+  `ceil(width / 2)` texels from the pixel, so the line straddles the edge) differ by a silhouette (a mesh next to no mesh), by a relative depth jump larger than
+  `outlineDepthThreshold` (divided by how face-on the surface is, so a floor seen at a grazing angle is not full of lines) or by a change
+  of the view-space normal larger than `outlineNormalThreshold` (the length of the difference of the two unit normals, 0 to 2, so 0.4 is
+  about 23 degrees). It reads the depth and normal prepass ("Depth and normals"): a stack with the outline on turns it on. Sprites,
+  shapes, text, particles, the sky, blended meshes and the HUD are not in it, so they get no depth outline.
+- **Sprite mode (2D).** A line of `outlineWidth` pixels **outside** the border of the 2D world, where the coverage rises above
+  `outlineAlphaThreshold`. The source is a transient `sprite-coverage` pass: the quads of the world (sprites, tiles, shapes, text,
+  particles) drawn once more into an RGBA8 image with alpha blending, so the image's alpha is the union of what they cover; additive and
+  multiply quads add nothing. Why not the game picture's alpha: it is cleared to 1 (the picture is opaque), so it cannot tell a sprite from
+  the background. Cost: one RGBA8 image of the frame size and one more draw of the 2D batches (vertex work and a plain fill), only while
+  a sprite outline is on. 3D models and the clear colour are not outlined; translucent sprites (alpha below the threshold) get no line.
+- **Where it is skipped.** The prepass needs a GPU that can sample a float image: where it cannot, `render.supports {"feature":
+  "outline"}` is false with the reason (for both modes: the row is one per effect, and the coverage image is read the same way); a
+  depth outline in a frame without opaque meshes is dropped too (the log says so once). In a split screen or with a viewport smaller
+  than the screen each camera that has the outline makes its own prepass or coverage image, the size of its rectangle, and its final
+  pass maps each pixel to that image by the camera-local top-left coordinates (flipped on OpenGL, where the images are stored
+  bottom-up).
+

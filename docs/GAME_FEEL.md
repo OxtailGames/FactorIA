@@ -20,6 +20,12 @@ and does not depend on interpolation.
 
 `feel.cancel` ends them, `feel.settings` sets the accessibility choices and `feel.state` shows what is running.
 
+The camera has five more, drawn by its post-processing pass over the finished picture: `camera.shockwave`, `camera.heatHaze`,
+`camera.radialBlur`, `camera.flash` and `camera.fadeOut` / `camera.fadeIn` (commands `feel.shockwave`, `feel.heatHaze`,
+`feel.radialBlur`, `feel.screenFlash`, `feel.fade`; actions `shockwave`, `heatHaze`, `radialBlur`, `screenFlash`, `fade`). They
+follow the same rules (the scene is not changed, the game clock, the accessibility settings) and are described in
+docs/rendering/RENDERING_SCREEN_EFFECTS.md. `feel.flash` flashes one entity, `feel.screenFlash` the whole camera.
+
 ## The rule: an effect never changes the scene
 
 Shake, flash and squash are a pose added when the frame is DRAWN. The `Transform`, the colour of the `Sprite`, the physics
@@ -149,7 +155,7 @@ Action: `{"action":"squash","amount":0.35,"duration":0.25,"axis":"y"}`.
 
 | Effect | Runs on | While `time.scale = 0` / paused | During a hit-stop |
 |---|---|---|---|
-| Shake, flash, squash | real frame time times `time.scale` | stops | keeps going |
+| Shake, flash, squash, camera screen effects | real frame time times `time.scale` | stops | keeps going |
 | Knockback | the fixed clock times the effective scale | stops | stops |
 | Hit-stop timer | real time | keeps counting | counts |
 
@@ -163,7 +169,9 @@ Two settings, both read from the player's choice when the game set one and from 
 | Setting | Script | What it changes (when an action STARTS) |
 |---|---|---|
 | `reduceMotion` | `feel.reduceMotion = true` | shake amount x0.25, squash amount x0.25, hit-stop duration x0.5 |
-| `reducedEffects` | `feel.reducedEffects = true` | flash strength at most 0.35 and always fading: never a full-bright pulse or a square wave |
+| `reducedEffects` | `feel.reducedEffects = true` | flash strength at most 0.35 and always fading: never a full-bright pulse or a square wave (also `camera.flash`) |
+
+`reduceMotion` also makes a shockwave, a heat haze and a radial blur a quarter of their strength; a fade is never changed.
 
 `feel.reduceMotion = null` (and `reducedEffects`) goes back to following the system. A choice belongs to one run of the game: a new
 engine starts following the system, and so does the editor when a Play session stops (a test of the game started its own

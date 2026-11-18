@@ -13,6 +13,13 @@ Showing the picture on an HDR display is the last section, "HDR output".
 For cameras on the screen (split screen, insets, post effects) see docs/AI_GUIDE.md, section 9.29; for a camera inside a menu
 widget see docs/MENUS.md, "A camera inside the UI".
 
+## Pages
+
+This page has the render targets, the post-processing stack, the depth and normals prepass, capture and HDR output. The rest is on two pages (`docs.read rendering-effects`, `rendering-screen-effects`):
+
+- [Screen-space effects](rendering/RENDERING_EFFECTS.md): ambient occlusion and its cost, screen-space reflections, and the outline (both modes, where it is skipped).
+- [Transient screen effects](rendering/RENDERING_SCREEN_EFFECTS.md): Shockwave, heat haze, radial blur pulse, flash and fade of the camera, drawn by its post pass.
+
 ## Render targets
 
 ### Set one up
@@ -348,62 +355,40 @@ The passes of a frame, in order (`render.frame_graph` lists them, and `RenderSta
 | `ssao-ao`, `ssao-blur-h`, `ssao-blur-v`, `ssao-apply` | `ssaoEnabled`, 3D meshes in the view | The ambient occlusion, before the bloom (see [Screen-space effects](rendering/RENDERING_EFFECTS.md)). |
 | `dof-down`, `dof-gather`, `dof-composite`, `dof-copy` | `depthOfFieldEnabled` | The depth of field (see "Depth of field and motion blur"). |
 | `motion-blur`, `motion-copy` | `motionBlurEnabled` | The camera motion blur (same section). |
-| `sprite-coverage` | `outlineEnabled` in sprite mode | The 2D world drawn once more into an RGBA8 image whose alpha is how much each pixel is covered, read by the sprite outline (see "The outline"). |
+| `sprite-coverage` | `outlineEnabled` in sprite mode | The 2D world drawn once more into an RGBA8 image whose alpha is how much each pixel is covered, read by the sprite outline (see [The outline](rendering/RENDERING_EFFECTS.md#the-outline)). |
 | `post` | exposure, tonemap, colour grading, vignette, chromatic aberration, lens distortion, sharpen, outline, pixelate, posterize, film grain, or a colour filter in a linear scene | The final pass, one full-screen pass: pixelate (the picture is read at the block centres), lens distortion and chromatic aberration (while the picture is read), exposure, tonemap (`none` clips, `neutral`, `aces`, `agx`, `reinhard`), the encode for the display, colour grading, vignette, sharpen, outline, posterize, film grain, a one-step (1/255) dither so smooth gradients do not band on an 8-bit screen (not under posterize), and the colour filter. |
 | `hud-over-post` | the final pass ran and screen-space items exist | The HUD, drawn over the final picture in display colours: it is never exposed or tonemapped, and never glows. |
 | `color-filter` | a colour filter with no `post` (or a HUD after it) | The accessibility filter over everything, the last pass. With `post` and no HUD it is part of `post`. |
 
 A game in the default gamma colour space with only bloom or only a colour filter gets exactly the passes it had before the stack
 existed (the old pictures are byte for byte the same). Exposure and tonemap decode the stored colours to light, work in linear
-light and encode back, so `exposureEv` +1 doubles the light, not the stored number. A stack without the nine effects below runs the
+light and encode back, so `exposureEv` +1 doubles the light, not the stored number. A stack without the ten effects below runs the
 same code as before: they are switched on by a bit mask, so an effect that is off costs no sample and no arithmetic.
 
 ### The effects of the final pass
 
-Nine effects run in the `post` pass, in the order of this table (`render.supports {"feature": "<effect>"}` is true where this build
+Ten effects run in the `post` pass, in the order of this table (`render.supports {"feature": "<effect>"}` is true where this build
 draws them). They work in display space (the encoded values the screen shows), the same on an SDR and on an HDR output, except the
 two that bend the picture and the pixelation, which move the place it is read from.
 
 | Effect | Fields (`PostProcess`) | What it does |
 |---|---|---|
+| `radialBlur` | `radialBlurIntensity`, `radialBlurCenter`, `radialBlurSamples` | The picture streaks away from the centre: `radialBlurSamples` taps along the line from the pixel toward `radialBlurCenter`, as far as `radialBlurIntensity` says, averaged. It reads the scene, so it acts before the grade and the other display effects. `camera.radialBlur` starts a pulse of the same blur (see "Transient screen effects"). |
 | `lensDistortion` | `lensDistortionIntensity` (-1 pincushion .. 1 barrel), `lensDistortionScale` (zoom), `lensDistortionCenter` | Moves the point each pixel reads. It acts while the picture is sampled, so the bloom glow bends with it. Where the lens reads outside the picture the pixel is **black** (raise the scale to hide it). |
 | `chromaticAberration` | `chromaticAberrationIntensity` | Red and blue are read at slightly different distances from the centre, growing toward the edge; green stays. Read at the same moment as the lens; the sample is clamped to the picture's edge. |
 | `colorGrading` | `colorGradingTemperature`, `Tint`, `Lift`, `Gamma`, `Gain`, `Contrast`, `Saturation`, `HueShift`, `colorGradingLut`, `colorGradingLutContribution` | After the tonemap and the encode, in display space: white balance, gain, lift, gamma, contrast around mid grey, saturation, hue rotation, then the LUT. Nothing is clipped at white, so an HDR value above 1 stays above 1. The curves (`colorGradingCurve*`) are not drawn yet. |
 | `vignette` | `vignetteIntensity`, `Smoothness`, `Roundness`, `Center`, `Color` | Mixes the display value toward `vignetteColor` toward the edge of the screen. The same on SDR and HDR (it works on the encoded value). |
 | `sharpen` | `sharpenIntensity` | Contrast-adaptive: it reads the four neighbours (each shaded the same way as the pixel) and sharpens less where the local contrast is already high, so edges ring less. |
-| `outline` | `outlineMode` (`depth`, `sprite`), `outlineColor` (alpha = opacity), `outlineWidth`, `outlineDepthThreshold`, `outlineNormalThreshold`, `outlineAlphaThreshold` | Lines at the edges of things, drawn over the sharpened picture (see "The outline" below). |
+| `outline` | `outlineMode` (`depth`, `sprite`), `outlineColor` (alpha = opacity), `outlineWidth`, `outlineDepthThreshold`, `outlineNormalThreshold`, `outlineAlphaThreshold` | Lines at the edges of things, drawn over the sharpened picture (see [The outline](rendering/RENDERING_EFFECTS.md#the-outline)). |
 | `pixelate` | `pixelateSize` | Every pixel of a block of `pixelateSize` design pixels shows the colour at the block's centre (the block grid starts at the top-left of the camera's rectangle of the picture, so a block cut by the right or bottom edge reads its centre clamped to the picture). It moves the place everything of the final pass reads (the lens, the grade, the vignette, the sharpen and the outline see the block centre, so the outline is blocky too); only the film grain and the dither stay per pixel. |
 | `posterize` | `posterizeLevels` | Each colour channel of the display value is cut to `posterizeLevels` evenly spaced values (`round(c * (n - 1)) / (n - 1)`), after the grading, the vignette, the sharpen and the outline. An HDR excess above white is kept as it is. The 1/255 dither is switched off while it is on, since it would move a value off its level. |
 | `filmGrain` | `filmGrainIntensity`, `Size`, `Animated`, `LuminanceResponse` | An integer hash noise added to the display value, weighted toward the mid tones by `LuminanceResponse` (1) or even (0). It is seeded by the engine's frame counter (`world.frame()`), so a recorded or replayed run gives the same grain; `filmGrainAnimated` false uses a fixed seed. It is added before the dither and the colour filter. |
 
 ### Ambient occlusion and the other screen-space effects
 
-`ssaoEnabled` darkens creases and contact points of 3D meshes (passes `ssao-*`, drawn before the bloom). Its section, its costs and
-the effects that follow it (reflections, fog) are on the page [Screen-space effects](rendering/RENDERING_EFFECTS.md).
-
-### The outline
-
-`outlineWidth` is in design pixels (it follows the render scale, minimum 0.5), `outlineColor` is the line's colour and its alpha is the
-opacity (alpha 0, width 0 or an unmet need below draw nothing: the frame is the one without the stack, byte for byte).
-
-- **Depth mode (3D).** An edge is a pixel whose neighbours (a Roberts cross: two diagonal pairs of prepass texels, at most
-  `ceil(width / 2)` texels from the pixel, so the line straddles the edge) differ by a silhouette (a mesh next to no mesh), by a relative depth jump larger than
-  `outlineDepthThreshold` (divided by how face-on the surface is, so a floor seen at a grazing angle is not full of lines) or by a change
-  of the view-space normal larger than `outlineNormalThreshold` (the length of the difference of the two unit normals, 0 to 2, so 0.4 is
-  about 23 degrees). It reads the depth and normal prepass ("Depth and normals"): a stack with the outline on turns it on. Sprites,
-  shapes, text, particles, the sky, blended meshes and the HUD are not in it, so they get no depth outline.
-- **Sprite mode (2D).** A line of `outlineWidth` pixels **outside** the border of the 2D world, where the coverage rises above
-  `outlineAlphaThreshold`. The source is a transient `sprite-coverage` pass: the quads of the world (sprites, tiles, shapes, text,
-  particles) drawn once more into an RGBA8 image with alpha blending, so the image's alpha is the union of what they cover; additive and
-  multiply quads add nothing. Why not the game picture's alpha: it is cleared to 1 (the picture is opaque), so it cannot tell a sprite from
-  the background. Cost: one RGBA8 image of the frame size and one more draw of the 2D batches (vertex work and a plain fill), only while
-  a sprite outline is on. 3D models and the clear colour are not outlined; translucent sprites (alpha below the threshold) get no line.
-- **Where it is skipped.** The prepass needs a GPU that can sample a float image: where it cannot, `render.supports {"feature":
-  "outline"}` is false with the reason (for both modes: the row is one per effect, and the coverage image is read the same way); a
-  depth outline in a frame without opaque meshes is dropped too (the log says so once). In a split screen or with a viewport smaller
-  than the screen each camera that has the outline makes its own prepass or coverage image, the size of its rectangle, and its final
-  pass maps each pixel to that image by the camera-local top-left coordinates (flipped on OpenGL, where the images are stored
-  bottom-up).
+`ssaoEnabled` darkens creases and contact points of 3D meshes (passes `ssao-*`, drawn before the bloom). Its section, its costs, the
+effects that follow it (reflections, fog) and the outline (`outlineEnabled`, depth and sprite mode) are on the page
+[Screen-space effects](rendering/RENDERING_EFFECTS.md).
 
 A gamma scene's stored colours are display values already: the effects use them as they are, and a scene with exposure or tonemap
 decodes, tonemaps and encodes first. A linear scene always runs the conversion. On an HDR output the final pass goes above paper
@@ -506,6 +491,12 @@ Things to know:
   to compare (`Renderer::set_post_bypass`: it changes no data and ends when the panel closes). Every edit goes through
   `postprocess.set` or `postprocess.apply_preset`, one undo step each, to the camera's own PostProcess or to the volume picked under
   "Edit"; an effect this renderer does not draw (planned, or unsupported on this GPU) cannot be switched on from the panel (a look that switched it on can be switched off).
+
+## Transient screen effects
+
+Shockwave, heat haze, radial blur pulse, flash and fade: five short effects of the camera that the `post` pass draws over the
+finished picture, started by `camera.shockwave(opts)` and its four siblings or by the `feel.*` commands, on the game clock. They
+have a page of their own: [Transient screen effects](rendering/RENDERING_SCREEN_EFFECTS.md).
 
 ## Depth and normals
 

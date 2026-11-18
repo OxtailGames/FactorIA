@@ -33,6 +33,17 @@ Older versions, one file per minor version with its patch releases: [0.29](chang
   machine) and falls back to `depthOfFieldFocusDistance` with no target. The motion blur smears along the camera's own movement with a
   fixed jitter, up to 8% of the picture's larger side, and never on the first frame or after a camera cut. With both off nothing is
   declared and the picture is unchanged (docs/RENDERING.md, "Depth of field and motion blur").
+
+- **Screen effects: radial blur and transient effects.** The `radialBlur` effect of `PostProcess` is drawn now (`render.supports
+  {"feature": "radialBlur"}` is true). Five short effects of the camera, drawn by its post pass over the finished picture:
+  `camera.shockwave` (a ring that expands and bends the picture), `camera.heatHaze` (a ripple over a region), `camera.radialBlur` (a
+  pulse of the blur), `camera.flash` (the screen in one colour, fading) and `camera.fadeOut` / `camera.fadeIn` (a fade to a colour
+  that is held, and back). Commands `feel.shockwave`, `feel.heatHaze`, `feel.radialBlur`, `feel.screenFlash` and `feel.fade`; the
+  same names are feel actions (animation clip events, effect documents) and `feel.state` lists them. They run on the game clock
+  (deterministic, `time.scale 0` holds them), belong to one camera or to all of them (a split screen shows one on its half), need no
+  `PostProcess`, honour reduce motion and reduced effects, are bounded (16 alive, a camera draws 4 shockwaves and 2 hazes) and cost
+  nothing when none is alive. See docs/rendering/RENDERING_SCREEN_EFFECTS.md.
+
 - **Post-processing costs and a graphics page:** `render.frame_graph` returns `postProcess`: the post-processing passes with their
   summed CPU and GPU time (`gpuMs` is `null` with `gpuStatus` `"unavailable"` and a reason where the backend has no GPU timer; the effects
   folded into the `post` pass are not timed one by one), and the editor's Profiler panel has a "Post-processing" tab with the same table.
