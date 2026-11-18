@@ -32,7 +32,17 @@ Older versions, one file per minor version with its patch releases: [0.30](chang
   batch, and the draw order is unchanged. `fa_time` and `fa_target` are filled. A material that did not build (or is of
   another kind) draws the sprite magenta with the built-in shader and shows in `materialFallbacks`; a hot reload rebuilds it
   and a failed one keeps the last good version. A material with an empty `fragment()` draws the same pixels as none.
-  `Shape2D`, `Tilemap`, `Text`, particles and UI keep the engine's shader until the next package.
+- **Every 2D emitter draws with its material (M72.5):** `Shape2D`, `Tilemap`, `Text`, `ParticleEmitter` and the background of
+  every UI widget now draw with their `material` and `materialParams`, like `Sprite`. A Tilemap takes one material for all its
+  tiles, an emitter one for all its particles and trails (they batch together), a `Text` for its glyph quads (the glyph atlas
+  stays the main texture, so `fa_sample_main(uv)` reads the glyph coverage; the pictures of a rich text keep the built-in
+  shader), and a widget for its background only (the `texture` as a 9-slice or the solid `color`): the label of a Button,
+  Toggle or TextField, icons, knobs, the picture of a Chart, Video or CameraView, Captions and the tooltip stay on the
+  built-in shader (field docs and docs/SHADERS.md say so). A material that did not build draws the item magenta and shows in
+  `materialFallbacks`. The lookup of a material is made once per frame for every distinct material and set of values, not
+  once per component (`RenderStats.materialResolves` counts them), so a thousand sprites with one material cost one lookup.
+  `stats.materials` now counts each material once per frame (it counted once per quad group and camera), and the coverage
+  pass of the sprite outline effect gives `fa_target` and `screen_uv` the size of its own image.
 
 - **Custom lighting and textures in `vertex()` (M72.3):** a mesh material with `"lighting": "custom"` defines
   `vec3 light(in SurfaceInput i, in Surface s, in LightSample l)`, which the engine's light loop calls once per light

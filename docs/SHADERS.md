@@ -670,16 +670,28 @@ void surface(in SurfaceInput i, inout Surface s) {
 compiler, the cache, `factoria validate` and `factoria export` are the ones described above; the snippet and what it
 starts from differ.
 
-**What is built.** The template, the compiler and the tooling: `shader.compile`, `material.info` (programs `quad` and
-`quad_plain`), `factoria validate` and `factoria export` (`<name>.material.json.<dialect>.shader`) work for a sprite
-material. The renderer draws it for a **`Sprite`** (its `material` and `materialParams` fields): the item is drawn with the
-material's compiled programs. `Shape2D`, `Tilemap`, `Text`, particles and UI images still draw with the engine's own shader
-(their `material` fields are listed by `docs.components`; the draw for them is the next package of the same milestone), so
-check a material on those with `shader.compile` and `factoria validate`.
+**Which components take a material.** `Sprite`, `Shape2D`, `Tilemap`, `Text`, `ParticleEmitter` and every UI widget
+(`UiBox`: Panel, Button, Toggle, Slider, TextField, ScrollList, TouchStick, TouchButton, Captions, Chart, CameraView, Video)
+have the fields `material` and `materialParams`. What each one covers:
+
+| Component | The material draws | One material per | Stays on the built-in shader |
+|---|---|---|---|
+| `Sprite` | the sprite's quad (a sprite mesh or a skin included) | sprite | |
+| `Shape2D` | the shape (`i.mode` 7 for the rounded rectangle, circle, outline and gradient, 1 and 2 for the others) | shape | |
+| `Tilemap` | every tile | Tilemap: all its tiles draw as one batch; a second layer with another material is another Tilemap | |
+| `Text` | the glyph quads (`i.mode` 4); the glyph atlas is the main texture, so `fa_sample_main(uv)` returns glyph coverage | Text | the pictures of a rich text (`[icon:name]`) |
+| `ParticleEmitter` | every particle and its trail (a sub-emitter group uses its own emitter's material) | emitter: all its particles batch together | |
+| UI widgets | the **background** only: `texture` as a 9-slice, or the solid `color` rectangle | widget | the label of a Button, Toggle or TextField, the Button icon, the Slider knob and fill, the Toggle mark, the caret and focus ring, the bars and lines of a Chart, the picture of a Video or CameraView, the Captions text, a TouchStick or TouchButton disc and knob (its background only when it has a `texture`), the tooltip |
+
+UI text is drawn through the same glyph quads as `Text`, but only the `Text` component has `material` for them.
+
+Check a material on any of these with `shader.compile` and `factoria validate`; `material.info` lists its params.
 
 **What the renderer does with a sprite material.** Sprites with the same material and equal param values share a draw call;
 a different value, another material or a sprite without one starts a new batch (the draw order is the same as without
-materials). `fa_time` is the engine clock and `fa_target` the size of the render target, in both programs. A material that
+materials). `fa_time` is the engine clock and `fa_target` the size of the render target (the image the pass draws into, which is the
+camera's rectangle, not the whole screen, in the coverage pass of the sprite outline effect), in both programs. The 2D quads of a frame look their material up once
+per component, not once per quad or particle (`materialResolves` in the render stats counts the lookups). A material that
 did not build, or that is not of kind `"sprite"`, draws the sprite in magenta (its alpha stays) with the engine's own shader
 and logs the compile error once; the error log (`game.logs`) says why, `materialFallbacks` in the render stats names it, and the previous version of a
 material stays in use when a hot reload of its shader fails.

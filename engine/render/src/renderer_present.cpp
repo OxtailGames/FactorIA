@@ -181,6 +181,7 @@ bool Renderer::capture_world(World& world, const WorldCapture& spec, Image& out,
 
     im.settle_pass_times();  // the capture replaces the frame graph that the last frame's pass times are read from
     const RenderStats savedStats = im.stats;
+    const std::vector<const MaterialAsset*> savedMaterialsCounted = im.materialsCounted;
     im.targetSelf.clear();
     im.ramps.begin_frame();
     Frame fr;
@@ -196,6 +197,7 @@ bool Renderer::capture_world(World& world, const WorldCapture& spec, Image& out,
         fr.targetH = h;
         fr.renderScale = spec.scale;
         apply_sprite_frames(world, fr);
+        im.assets->drop_material_cache();  // this world's components are not the ones the last frame asked about
         gather_2d(world, fr);
         gather_particles(world, fr);
         if (im.fonts->atlas_epoch() == atlasEpoch) break;  // else the atlas was remade halfway: gather again
@@ -237,6 +239,7 @@ bool Renderer::capture_world(World& world, const WorldCapture& spec, Image& out,
     // The RGBA8 copy of a big picture (a 4K capture is 64 MB) is not worth keeping: only the game target's size is asked for again.
     if (im.readW != im.physW || im.readH != im.physH) im.free_read_image();
     im.stats = savedStats;
+    im.materialsCounted = savedMaterialsCounted;
     if (!ok) return fail("reading the picture back from the GPU failed: " + readError);
     // The pass blended onto a transparent background, so the colour is premultiplied by alpha; texture fields expect straight alpha.
     for (std::size_t i = 0; i + 3 < px.size(); i += 4) {

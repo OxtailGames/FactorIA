@@ -31,6 +31,7 @@ Json RenderStats::to_json() const {
                 {"lights2dShadowed", lights2dShadowed},
                 {"materials", materials},
                 {"materialFallbacks", materialFallbacks},
+                {"materialResolves", materialResolves},
                 {"sortKeyFallbacks", sortKeyFallbacks},
                 {"cpuMs", std::round(cpuMs * 1000.0) / 1000.0}};
 }
@@ -480,6 +481,7 @@ PostPassTimes post_pass_times(const RenderStats& st) {
 RenderStats Renderer::stats(bool passTimes) const {
     if (!impl_) return RenderStats{};
     RenderStats s = impl_->stats;
+    if (impl_->assets) s.materialResolves = int(impl_->assets->material_resolves());
     if (passTimes && impl_->passTimesPending) impl_->pass_times(s.passes, s.jobs);
     return s;
 }
@@ -901,6 +903,7 @@ void Renderer::Impl::render(World& world, float dt) {
         gpuFrames.clear();
     }
     stats = RenderStats{};
+    materialsCounted.clear();
     anyFrameRendered = true;
     transient_targets().pool.begin_frame();  // the bloom levels of the frame graphs below come from this pool
 
