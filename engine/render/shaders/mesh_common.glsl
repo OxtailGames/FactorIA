@@ -213,7 +213,10 @@ layout(binding=1) uniform fa_mesh_fs_params {
     vec4 fa_maps;               // x normal scale, y occlusion strength, z = 1 when a normal map is bound, w = the colour space
                                 // fixes of the textures (SceneSettings.colorSpace, see fa_tex_fix): base + 4 * emissive +
                                 // 16 * normal + 64 * metallic-roughness + 256 * occlusion, each 0, 1 or 2; 0 in a gamma scene with 8-bit images
-    vec4 fa_fog;                // rgb color, w density
+    vec4 fa_fog;                // rgb color, w density (exponential squared, SceneSettings.fogDensity or the stack's fogDensity)
+    vec4 fa_fog_b;              // the stack's fog (PostProcess.fog*) on a blended mesh: x = fogStart, y = height density,
+                                // z = height base (world y), w = height falloff; all 0 for the scene's own fog
+    vec4 fa_fog_c;              // xyz = the camera's forward axis in the world, w = 1 for an orthographic camera (0 otherwise)
     vec4 fa_counts;             // x = light count, y = shadow texel size, z = 1 on OpenGL backends
     vec4 fa_env_sky;            // rgb sky color (top of the environment)
     vec4 fa_env_horizon;        // rgb horizon color
@@ -404,10 +407,32 @@ void main() {
         result = lit;
     }
     result += s.emission;
-    if (fa_fog.w > 0.0) {
-        float dist = length(fa_camera_pos.xyz - i.world_pos);
-        float f = 1.0 - exp(-(fa_fog.w * dist) * (fa_fog.w * dist));
-        result = mix(result, fa_fog.rgb, clamp(f, 0.0, 1.0));
+    if (fa_fog.w > 0.0 || fa_fog_b.y > 0.0) {
+        // The same formula as the fog of the post stack (fog.glsl): from fogStart along the view ray, the distance fog
+        // (density * length)^2 plus the integral of the height density; the scene's own fog is the case start = 0, no height.
+        vec3 rel = i.world_pos - fa_camera_pos.xyz;
+        float dep = dot(rel, fa_fog_c.xyz);
+        float dist = fa_fog_c.w > 0.5 ? dep : length(rel);
+        float len = dist - fa_fog_b.x;
+        if (len > 0.0) {
+            float tau = fa_fog.w * len;
+            tau *= tau;
+            if (fa_fog_b.y > 0.0) {
+                float py = i.world_pos.y;
+                float ey = fa_fog_c.w > 0.5 ? py - fa_fog_c.y * dep : fa_camera_pos.y;
+                float ya = mix(ey, py, clamp(fa_fog_b.x / dist, 0.0, 1.0));
+                float dy = py - ya;
+                float ka = ya - fa_fog_b.z;
+                float kb = py - fa_fog_b.z;
+                float ha = (ka <= 0.0 || fa_fog_b.w < 1e-4) ? fa_fog_b.y : fa_fog_b.y * exp(-min(fa_fog_b.w * ka, 80.0));
+                float ia = (ka <= 0.0 || fa_fog_b.w < 1e-4) ? fa_fog_b.y * ka : fa_fog_b.y * (1.0 - exp(-min(fa_fog_b.w * ka, 80.0))) / fa_fog_b.w;
+                float ib = (kb <= 0.0 || fa_fog_b.w < 1e-4) ? fa_fog_b.y * kb : fa_fog_b.y * (1.0 - exp(-min(fa_fog_b.w * kb, 80.0))) / fa_fog_b.w;
+                float avg = abs(dy) < 1e-3 ? ha : (ib - ia) / dy;
+                tau += len * max(avg, 0.0);
+            }
+            float f = 1.0 - exp(-clamp(tau, 0.0, 80.0));
+            result = mix(result, fa_fog.rgb, clamp(f, 0.0, 1.0));
+        }
     }
     fa_frag_color = vec4(result, s.alpha);
 }

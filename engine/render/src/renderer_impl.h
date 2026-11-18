@@ -388,7 +388,9 @@ struct Renderer::Impl {
     void upload_instances(DrawContext& ctx);
     void scene_uniforms(DrawContext& ctx);
     PartDraw part_draw(DrawContext& ctx, const MeshItem& mi, const SubMesh& part);
-    mesh_fa_mesh_fs_params_t fill_fs(DrawContext& ctx, const MeshItem& mi, const SubMesh& part, const PartDraw& d);
+    // `blended`: a part of the blended meshes, which fog themselves with the camera's stack fog (DrawContext::fuBlend).
+    mesh_fa_mesh_fs_params_t fill_fs(DrawContext& ctx, const MeshItem& mi, const SubMesh& part, const PartDraw& d,
+                                     bool blended = false);
     void material_inputs(const MeshItem& mi, MaterialAsset* mat, MaterialInputs& in);
     void bind_textures(DrawContext& ctx, sg_bindings& b, const PartDraw& d, const MaterialProgram* prog,
                        const MaterialInputs& in, bool shadowPass);
@@ -405,8 +407,9 @@ struct Renderer::Impl {
     void coverage_pass(DrawContext& ctx, const Target& t);
     void prepass_view_pass(DrawContext& ctx, const Target& t);
     void draw_group(DrawContext& ctx, const std::vector<QuadBatch>& batches, const Mat4& vp, bool depthTest,
-                    const Px& base, int flatMode = 0, const TargetFormat* format = nullptr);
-    void main_pass(DrawContext& ctx);
+                    const Px& base, int flatMode = 0, const TargetFormat* format = nullptr,
+                    const FogFxPlan* fog = nullptr);
+    void main_pass(DrawContext& ctx, const PassContext& pc);
     void hud_pass(DrawContext& ctx, const Target& into, const char* label);
     // Declares the job's passes in `graph` (plan_job).
     void build_graph(DrawContext& ctx);
