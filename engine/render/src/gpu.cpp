@@ -351,11 +351,12 @@ sg_pipeline Gpu::find_or_make(PipelineKey key, const TargetFormat& format, const
 }
 
 sg_pipeline Gpu::quad_pipeline(const TargetFormat& format, bool depthTest, bool lines, BlendMode blend, bool plain,
-                               bool opaque) {
+                               bool opaque, sg_shader shader) {
     PipelineKey key{0x100u | (depthTest ? 1u : 0u) | (lines ? 2u : 0u) | (std::uint32_t(blend) << 2) |
-                    (plain ? 0x10u : 0u) | (opaque ? 0x20u : 0u)};
+                        (plain ? 0x10u : 0u) | (opaque ? 0x20u : 0u),
+                    shader.id};
     sg_pipeline_desc d{};
-    d.shader = plain ? quadPlainShader_ : quad_shader_;
+    d.shader = shader.id ? shader : (plain ? quadPlainShader_ : quad_shader_);
     d.layout.attrs[ATTR_quad_quad_position].format = SG_VERTEXFORMAT_FLOAT3;
     d.layout.attrs[ATTR_quad_quad_texcoord0].format = SG_VERTEXFORMAT_FLOAT2;
     d.layout.attrs[ATTR_quad_quad_color0].format = SG_VERTEXFORMAT_UBYTE4N;

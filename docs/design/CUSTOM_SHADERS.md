@@ -378,7 +378,7 @@ material says what it is for with the optional key `"kind"` of its `*.material.j
 | `kind` | What it will be | Template file | Package |
 |---|---|---|---|
 | `"mesh"` (default) | the surface of a `MeshRenderer`: everything in this document | `mesh_common.glsl` | built |
-| `"sprite"` | the 2D quad path: `Sprite`, `Shape2D`, `Tilemap`, `Text`, particles and trails, UI images | `quad_common.glsl` (+ `color_space.glsl`, `light_shadow.glsl`) | M72.1: template and tooling built (M72-P1), the fields and the draw follow |
+| `"sprite"` | the 2D quad path: `Sprite`, `Shape2D`, `Tilemap`, `Text`, particles and trails, UI images | `quad_common.glsl` (+ `color_space.glsl`, `light_shadow.glsl`) | M72.1: template, tooling and the `Sprite` draw built (M72-P1, P3); the other 2D emitters follow |
 | `"sky"` | the sky the scene and its environment lighting use | `sky_common.glsl` | M72.1 |
 | `"post"` | one pass of a camera's post-processing stack | `post_common.glsl` | M72.2 |
 | `"compute"` | compute shaders (storage buffers) | none yet | M72.4 |
@@ -418,14 +418,13 @@ pointer `/kind` (`parse_material`, `schemas/material.schema.json`).
 binds by generated names (`quad`, `quad_plain`; so every name `quad.glsl` already had is unchanged and a material must
 not take it). A sprite material's generated top file has that very shape with its own `fa_user` block, so a material
 whose `fragment()` is empty draws the pixels of the engine's own program (the tooling test "sprite template" compares the
-generated top file with the built-in source modulo the user block; the render-level comparison comes with the draw).
+generated top file with the built-in source modulo the user block; the render tests "sprite materials" compare the pixels of the two, in the lean and the full program).
 
 - **Contract.** `void fragment(in QuadInput i, inout QuadSurface s)` (required) and `void vertex(inout QuadVertex v)`
   (optional, defines `FA_HAS_VERTEX`). `s.color` arrives holding what the engine would draw for the mode (the textured,
   lit, glyph, circle, ring, soft or SDF-shape result, alpha already including the coverage); the engine applies the flash,
   the multiply conversion and the fog to what the snippet leaves in it. `QuadInput` carries `uv`, `color` (the tint),
-  `world_pos`, `screen_uv` (y down on every backend), `time`, `mode` and `custom` (zero until the material fields reach the
-  vertex, a later M72 package). `fa_sample_main(uv)` samples the main texture in the colour space of the scene,
+  `world_pos`, `screen_uv` (y down on every backend), `time`, `mode` and `custom` (zero for now). `fa_sample_main(uv)` samples the main texture in the colour space of the scene,
   `fa_scene_rgb(c)` takes an sRGB colour of the author to the scene's.
 - **One program per variant.** `quad` has every mode; `quad_plain` is the lean program the renderer picks for a batch of
   plain textured quads (no lights, no multiply). The snippet runs in both, so it must not depend on anything the plain
@@ -435,8 +434,9 @@ generated top file with the built-in source modulo the user block; the render-le
   `light_tex`, `shadow_tex`) and samplers 0-2 are the engine's, so a material's textures take views 4..7 and samplers 3..6
   (`kMaterialSpriteFirstView`, `kMaterialSpriteFirstSampler` in `engine/render/src/render_internal.h`; a mesh material uses
   views from 6 and samplers from 2). `fa_time` and `fa_target` are members of the fragment block `quad_fs_params`, and
-  `fa_time` of the vertex block `vs_params`: the renderer fills them for a material's draws (the draw package), and in the
-  engine's own programs they stay zero and unread (the lean program has no uniform block at all).
+  `fa_time` of the vertex block `vs_params`: the renderer fills them for a material's draws, and in the
+  engine's own programs they stay zero and unread (the lean program has no uniform block at all). A material's `quad_plain`
+  does get the fragment block (`fa_time`, `fa_target`: the lean built-in has none), so its draw binds UB1 too.
 - **Not a material key.** `alphaMode: "clip"` (the mesh template's alpha test and implicit `alphaCutoff`) is an error for a
   sprite: write `discard` in `fragment()`. `lighting` and `doubleSided` mean nothing to a sprite and are ignored.
 - **Tooling.** `generate_material_shader` sets `GeneratedShader::kind`, includes `quad_common.glsl`, defines
@@ -444,6 +444,24 @@ generated top file with the built-in source modulo the user block; the render-le
   and the compile all use the hash of the kind (the sprite one covers `color_space.glsl`, `light_shadow.glsl` and
   `quad_common.glsl`). The error hints name `fragment()`, `QuadInput` and its fields. Export writes
   `<name>.material.json.<dialect>.shader` as for any kind.
+
+Built (M72-P3, the `Sprite` draw): `Sprite` draws with its material (`scene2d.cpp` asks `Assets::sprite_material` while it
+gathers, on the calling thread, and the emit jobs only copy the result).
+
+- **`MaterialUse`.** The material, its packed params (UB5 layout) and its textures are one interned record per distinct
+  (material, generation, values, textures), pooled in the `MaterialAsset` and swept after two frames without use. A
+  `QuadItem` and a `QuadBatch` hold a `const MaterialUse*`, so flatten splits batches on pointer equality (never copies
+  `materialParams` per frame), keeps the draw-order rules, and a donor Frame's items stay valid in another camera's Frame.
+  The reload of a snippet or material bumps `generation`, which makes the next frame take a new use with the new programs.
+- **Draw.** `draw_group` picks the material's `quad` or `quad_plain` program (the same blend and depth state as the built-in:
+  `Gpu::quad_pipeline` takes the shader and keys its cache on it), writes UB0 (`fa_time`), UB1 (`fa_time`, `fa_target`: 1 / the
+  target size in pixels and z = 1 on GL, where `screen_uv.y` is flipped to run down), UB4/UB5 and binds the textures at views
+  4+ and samplers 3+. Views and samplers the program does not declare are cleared.
+- **Error material.** A material that did not build, or whose kind is not `"sprite"`, makes the use an error use: flatten
+  replaces the vertex colours by magenta (the alpha stays), the batch draws with the built-in program, and
+  `RenderStats::materialFallbacks` names the material. The build error is logged once (`note_failure`); a wrong kind warns once.
+- **Left for the next package:** `Shape2D`, `Tilemap`, `Text`, particles and UI call the same `QuadList::set_material`;
+  `QuadInput.custom` stays zero.
 
 ## Node graphs
 

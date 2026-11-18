@@ -23,6 +23,13 @@ Older versions, one file per minor version with its patch releases: [0.30](chang
   The engine's own pixels do not change (an empty `fragment()` is the built-in program). The renderer draws with the
   compiled programs in a later package; docs/SHADERS.md has the contract, the slots and an example with a dissolve and a
   hit flash. The sprite template hash covers `quad_common.glsl`, `color_space.glsl` and `light_shadow.glsl`.
+- **Sprites draw with their material (M72.1):** a `Sprite` with `material` (and `materialParams`) is drawn by the
+  compiled `quad` / `quad_plain` programs of a `"kind": "sprite"` material, with the engine's blend and depth state. Sprites
+  with the same material and equal values share a draw call; a different value, another material or no material splits the
+  batch, and the draw order is unchanged. `fa_time` and `fa_target` are filled. A material that did not build (or is of
+  another kind) draws the sprite magenta with the built-in shader and shows in `materialFallbacks`; a hot reload rebuilds it
+  and a failed one keeps the last good version. A material with an empty `fragment()` draws the same pixels as none.
+  `Shape2D`, `Tilemap`, `Text`, particles and UI keep the engine's shader until the next package.
 
 - **Materials on every renderer (fields):** `Sprite`, `Shape2D`, `Tilemap`, `Text`, `ParticleEmitter` and every UI widget (`UiBox`) get `material` and `materialParams`, and `SceneSettings` gets `skyMaterial` and `skyMaterialParams`, like `MeshRenderer`; `factoria validate` checks that a `material` is an existing `*.material.json` and suggests the closest one, and the Inspector types the params of each by `material.info`.
 
