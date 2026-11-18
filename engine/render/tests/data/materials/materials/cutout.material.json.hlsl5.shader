@@ -1,7 +1,7 @@
 {
   "format": "factoria.shader/1",
   "engine": "0.30.1",
-  "template": "616705bcddf9b6a98bc0277c05f4815433dd40e61efe9f55376421e3ba39eecd",
+  "template": "1c5c13939b42ed419c168b2362b97b70828f5b0a66b0224d5329f32307923339",
   "slang": "hlsl5",
   "params": [
     "alphaCutoff"
@@ -588,6 +588,518 @@
             "sampler_name": "fa_shadow_smp",
             "view_slot": 1,
             "sampler_slot": 1
+          }
+        ]
+      }
+    },
+    "prepass": {
+      "vs": "struct VertexData\n{\n    float3 world_pos;\n    float3 world_normal;\n    float4 world_tangent;\n    float2 uv;\n    float4 color;\n    float3 object_pos;\n};\n\ncbuffer fa_mesh_vs_params : register(b0)\n{\n    row_major float4x4 _129_fa_view_proj : packoffset(c0);\n    row_major float4x4 _129_fa_light_vp : packoffset(c4);\n    float4 _129_fa_uv_scale : packoffset(c8);\n    float4 _129_fa_time : packoffset(c9);\n};\n\n\nstatic float4 gl_Position;\nstatic float3 fa_world_pos;\nstatic float3 fa_world_normal;\nstatic float4 fa_world_tangent;\nstatic float2 fa_uv;\nstatic float4 fa_vertex_color;\nstatic float fa_pre_depth;\nstatic float3 fa_pre_r0;\nstatic float3 fa_pre_r1;\nstatic float3 fa_pre_r2;\nstatic float4 fa_inst_m0;\nstatic float4 fa_inst_m1;\nstatic float4 fa_inst_m2;\nstatic float4 fa_inst_m3;\nstatic float3 fa_position;\nstatic float3 fa_normal;\nstatic float4 fa_tangent;\nstatic float2 fa_texcoord0;\nstatic float4 fa_color;\n\nstruct SPIRV_Cross_Input\n{\n    float3 fa_position : TEXCOORD0;\n    float3 fa_normal : TEXCOORD1;\n    float2 fa_texcoord0 : TEXCOORD2;\n    float4 fa_tangent : TEXCOORD3;\n    float4 fa_color : TEXCOORD4;\n    float4 fa_inst_m0 : TEXCOORD5;\n    float4 fa_inst_m1 : TEXCOORD6;\n    float4 fa_inst_m2 : TEXCOORD7;\n    float4 fa_inst_m3 : TEXCOORD8;\n};\n\nstruct SPIRV_Cross_Output\n{\n    float3 fa_world_pos : TEXCOORD0;\n    float3 fa_world_normal : TEXCOORD1;\n    float4 fa_world_tangent : TEXCOORD2;\n    float2 fa_uv : TEXCOORD3;\n    float4 fa_vertex_color : TEXCOORD4;\n    float fa_pre_depth : TEXCOORD5;\n    float3 fa_pre_r0 : TEXCOORD6;\n    float3 fa_pre_r1 : TEXCOORD7;\n    float3 fa_pre_r2 : TEXCOORD8;\n    float4 gl_Position : SV_Position;\n};\n\nVertexData fa_vertex_data(float4x4 model, float3 position, float3 normal, float4 tangent, float2 texcoord0, float4 color)\n{\n    float3 _67 = cross(model[1].xyz, model[2].xyz);\n    float _73 = (dot(model[0].xyz, _67) < 0.0f) ? (-1.0f) : 1.0f;\n    VertexData _298 = { mul(float4(position, 1.0f), model).xyz, (((_67 * normal.x) + (cross(model[2].xyz, model[0].xyz) * normal.y)) + (cross(model[0].xyz, model[1].xyz) * normal.z)) * _73, float4(((model[0].xyz * tangent.x) + (model[1].xyz * tangent.y)) + (model[2].xyz * tangent.z), tangent.w * _73), texcoord0 * _129_fa_uv_scale.xy, color, position };\n    return _298;\n}\n\nvoid fa_prepass_vertex(float4x4 model, float3 position, float3 normal, float4 tangent, float2 texcoord0, float4 color)\n{\n    float4x4 param = model;\n    float3 param_1 = position;\n    float3 param_2 = normal;\n    float4 param_3 = tangent;\n    float2 param_4 = texcoord0;\n    float4 param_5 = color;\n    VertexData _158 = fa_vertex_data(param, param_1, param_2, param_3, param_4, param_5);\n    float3 _305 = _158.world_pos;\n    float4 _169 = float4(_305, 1.0f);\n    fa_world_pos = _305;\n    fa_world_normal = _158.world_normal;\n    fa_world_tangent = _158.world_tangent;\n    fa_uv = _158.uv;\n    fa_vertex_color = _158.color;\n    fa_pre_depth = -mul(_169, _129_fa_light_vp).z;\n    fa_pre_r0 = float3(_129_fa_light_vp[0].x, _129_fa_light_vp[1].x, _129_fa_light_vp[2].x);\n    fa_pre_r1 = float3(_129_fa_light_vp[0].y, _129_fa_light_vp[1].y, _129_fa_light_vp[2].y);\n    fa_pre_r2 = float3(_129_fa_light_vp[0].z, _129_fa_light_vp[1].z, _129_fa_light_vp[2].z);\n    gl_Position = mul(_169, _129_fa_view_proj);\n}\n\nvoid vert_main()\n{\n    float4x4 param = float4x4(fa_inst_m0, fa_inst_m1, fa_inst_m2, fa_inst_m3);\n    float3 param_1 = fa_position;\n    float3 param_2 = fa_normal;\n    float4 param_3 = fa_tangent;\n    float2 param_4 = fa_texcoord0;\n    float4 param_5 = fa_color;\n    fa_prepass_vertex(param, param_1, param_2, param_3, param_4, param_5);\n}\n\nSPIRV_Cross_Output main(SPIRV_Cross_Input stage_input)\n{\n    fa_inst_m0 = stage_input.fa_inst_m0;\n    fa_inst_m1 = stage_input.fa_inst_m1;\n    fa_inst_m2 = stage_input.fa_inst_m2;\n    fa_inst_m3 = stage_input.fa_inst_m3;\n    fa_position = stage_input.fa_position;\n    fa_normal = stage_input.fa_normal;\n    fa_tangent = stage_input.fa_tangent;\n    fa_texcoord0 = stage_input.fa_texcoord0;\n    fa_color = stage_input.fa_color;\n    vert_main();\n    SPIRV_Cross_Output stage_output;\n    stage_output.gl_Position = gl_Position;\n    stage_output.fa_world_pos = fa_world_pos;\n    stage_output.fa_world_normal = fa_world_normal;\n    stage_output.fa_world_tangent = fa_world_tangent;\n    stage_output.fa_uv = fa_uv;\n    stage_output.fa_vertex_color = fa_vertex_color;\n    stage_output.fa_pre_depth = fa_pre_depth;\n    stage_output.fa_pre_r0 = fa_pre_r0;\n    stage_output.fa_pre_r1 = fa_pre_r1;\n    stage_output.fa_pre_r2 = fa_pre_r2;\n    return stage_output;\n}\n",
+      "fs": "struct SurfaceInput\n{\n    float3 world_pos;\n    float3 world_normal;\n    float4 world_tangent;\n    float2 uv;\n    float4 vertex_color;\n    float3 view_dir;\n    bool front_facing;\n};\n\nstruct Surface\n{\n    float3 albedo;\n    float alpha;\n    float3 normal;\n    float metallic;\n    float roughness;\n    float occlusion;\n    float3 emission;\n};\n\ncbuffer fa_mesh_fs_params : register(b1)\n{\n    float4 _223_fa_camera_pos : packoffset(c0);\n    float4 _223_fa_ambient : packoffset(c1);\n    float4 _223_fa_base_color : packoffset(c2);\n    float4 _223_fa_emissive : packoffset(c3);\n    float4 _223_fa_model_emissive : packoffset(c4);\n    float4 _223_fa_pbr : packoffset(c5);\n    float4 _223_fa_maps : packoffset(c6);\n    float4 _223_fa_fog : packoffset(c7);\n    float4 _223_fa_counts : packoffset(c8);\n    float4 _223_fa_env_sky : packoffset(c9);\n    float4 _223_fa_env_horizon : packoffset(c10);\n    float4 _223_fa_time : packoffset(c11);\n};\n\ncbuffer fa_material : register(b5)\n{\n    float _451_alphaCutoff : packoffset(c0);\n    float _451_fa_pad0 : packoffset(c0.y);\n    float _451_fa_pad1 : packoffset(c0.z);\n    float _451_fa_pad2 : packoffset(c0.w);\n};\n\nTexture2D<float4> mask : register(t5);\nSamplerState mask_smp : register(s2);\nTexture2D<float4> fa_tex : register(t0);\nSamplerState fa_smp : register(s0);\nTexture2D<float4> fa_normal_tex : register(t1);\nTexture2D<float4> fa_mr_tex : register(t2);\nTexture2D<float4> fa_occlusion_tex : register(t3);\nTexture2D<float4> fa_emissive_tex : register(t4);\n\nstatic bool gl_FrontFacing;\nstatic float3 fa_world_pos;\nstatic float3 fa_world_normal;\nstatic float4 fa_world_tangent;\nstatic float2 fa_uv;\nstatic float4 fa_vertex_color;\nstatic float3 fa_pre_r0;\nstatic float3 fa_pre_r1;\nstatic float3 fa_pre_r2;\nstatic float4 fa_frag_color;\nstatic float fa_pre_depth;\n\nstruct SPIRV_Cross_Input\n{\n    float3 fa_world_pos : TEXCOORD0;\n    float3 fa_world_normal : TEXCOORD1;\n    float4 fa_world_tangent : TEXCOORD2;\n    float2 fa_uv : TEXCOORD3;\n    float4 fa_vertex_color : TEXCOORD4;\n    float fa_pre_depth : TEXCOORD5;\n    float3 fa_pre_r0 : TEXCOORD6;\n    float3 fa_pre_r1 : TEXCOORD7;\n    float3 fa_pre_r2 : TEXCOORD8;\n    bool gl_FrontFacing : SV_IsFrontFace;\n};\n\nstruct SPIRV_Cross_Output\n{\n    float4 fa_frag_color : SV_Target0;\n};\n\nfloat mod(float x, float y)\n{\n    return x - y * floor(x / y);\n}\n\nfloat2 mod(float2 x, float2 y)\n{\n    return x - y * floor(x / y);\n}\n\nfloat3 mod(float3 x, float3 y)\n{\n    return x - y * floor(x / y);\n}\n\nfloat4 mod(float4 x, float4 y)\n{\n    return x - y * floor(x / y);\n}\n\nfloat fa_fix_of(float _packed, float scale)\n{\n    return mod(floor((_packed / scale) + 0.00999999977648258209228515625f), 4.0f);\n}\n\nfloat3 fa_linear_to_srgb(inout float3 c)\n{\n    c = max(c, 0.0f.xxx);\n    return lerp((pow(c, 0.4166666567325592041015625f.xxx) * 1.05499994754791259765625f) - 0.054999999701976776123046875f.xxx, c * 12.9200000762939453125f, step(c, 0.003130800090730190277099609375f.xxx));\n}\n\nfloat3 fa_srgb_to_linear(inout float3 c)\n{\n    c = max(c, 0.0f.xxx);\n    return lerp(pow((c + 0.054999999701976776123046875f.xxx) * 0.947867333889007568359375f.xxx, 2.400000095367431640625f.xxx), c * 0.077399380505084991455078125f.xxx, step(c, 0.040449999272823333740234375f.xxx));\n}\n\nfloat3 fa_tex_fix(inout float3 c, float mode)\n{\n    if (mode > 1.5f)\n    {\n        float3 param = c;\n        float3 _189 = fa_linear_to_srgb(param);\n        c = _189;\n    }\n    else\n    {\n        if (mode > 0.5f)\n        {\n            float3 param_1 = c;\n            float3 _198 = fa_srgb_to_linear(param_1);\n            c = _198;\n        }\n    }\n    return c;\n}\n\nfloat3 fa_tangent_normal(SurfaceInput i, float3 m)\n{\n    float3 _54;\n    if (i.front_facing)\n    {\n        _54 = i.world_normal;\n    }\n    else\n    {\n        _54 = -i.world_normal;\n    }\n    float3 _79 = normalize(i.world_tangent.xyz - (_54 * dot(_54, i.world_tangent.xyz)));\n    float3 _107 = normalize(((_79 * m.x) + ((cross(_54, _79) * i.world_tangent.w) * m.y)) + (_54 * m.z));\n    float3 _110;\n    if (i.front_facing)\n    {\n        _110 = _107;\n    }\n    else\n    {\n        _110 = -_107;\n    }\n    return _110;\n}\n\nSurface fa_standard_surface(SurfaceInput i)\n{\n    float4 base_t = fa_tex.Sample(fa_smp, i.uv);\n    float param = _223_fa_maps.w;\n    float param_1 = 1.0f;\n    float3 param_2 = base_t.xyz;\n    float param_3 = fa_fix_of(param, param_1);\n    float3 _235 = fa_tex_fix(param_2, param_3);\n    float4 _600 = base_t;\n    _600.x = _235.x;\n    _600.y = _235.y;\n    _600.z = _235.z;\n    base_t = _600;\n    float4 _251 = (_600 * _223_fa_base_color) * i.vertex_color;\n    float3 _581 = i.world_normal;\n    if (_223_fa_maps.z > 0.5f)\n    {\n        float param_4 = _223_fa_maps.w;\n        float param_5 = 16.0f;\n        float3 param_6 = fa_normal_tex.Sample(fa_smp, i.uv).xyz;\n        float param_7 = fa_fix_of(param_4, param_5);\n        float3 _285 = fa_tex_fix(param_6, param_7);\n        float3 _288 = (_285 * 2.0f) - 1.0f.xxx;\n        float2 _293 = _288.xy * _223_fa_maps.x;\n        float3 _608 = _288;\n        _608.x = _293.x;\n        _608.y = _293.y;\n        SurfaceInput param_8 = i;\n        float3 param_9 = _608;\n        _581 = fa_tangent_normal(param_8, param_9);\n    }\n    float4 mrt = fa_mr_tex.Sample(fa_smp, i.uv);\n    float param_10 = _223_fa_maps.w;\n    float param_11 = 64.0f;\n    float3 param_12 = mrt.xyz;\n    float param_13 = fa_fix_of(param_10, param_11);\n    float3 _322 = fa_tex_fix(param_12, param_13);\n    float4 _611 = mrt;\n    _611.x = _322.x;\n    _611.y = _322.y;\n    _611.z = _322.z;\n    mrt = _611;\n    float param_14 = _223_fa_maps.w;\n    float param_15 = 256.0f;\n    float3 param_16 = fa_occlusion_tex.Sample(fa_smp, i.uv).xxx;\n    float param_17 = fa_fix_of(param_14, param_15);\n    float3 _363 = fa_tex_fix(param_16, param_17);\n    float param_18 = _223_fa_maps.w;\n    float param_19 = 4.0f;\n    float3 param_20 = fa_emissive_tex.Sample(fa_smp, i.uv).xyz;\n    float param_21 = fa_fix_of(param_18, param_19);\n    float3 _390 = fa_tex_fix(param_20, param_21);\n    Surface _593 = { _251.xyz, _251.w, _581, clamp(_223_fa_pbr.x * _322.z, 0.0f, 1.0f), clamp(_223_fa_pbr.y * _322.y, 0.0500000007450580596923828125f, 1.0f), 1.0f + (_223_fa_maps.y * (_363.x - 1.0f)), _223_fa_emissive.xyz + (_223_fa_model_emissive.xyz * _390) };\n    return _593;\n}\n\nvoid surface(SurfaceInput i, inout Surface s)\n{\n    s.alpha = mask.Sample(mask_smp, i.uv * 2.0f).x;\n}\n\nvoid frag_main()\n{\n    float3 _528 = normalize(fa_world_normal);\n    if (!gl_FrontFacing)\n    {\n        _528 = -_528;\n    }\n    float3 _435 = normalize(_223_fa_camera_pos.xyz - fa_world_pos);\n    SurfaceInput _541 = { fa_world_pos, _528, fa_world_tangent, fa_uv, fa_vertex_color, _435, gl_FrontFacing };\n    SurfaceInput param = _541;\n    Surface _440 = fa_standard_surface(param);\n    float3 _552 = _440.normal;\n    SurfaceInput _549 = { fa_world_pos, _528, fa_world_tangent, fa_uv, fa_vertex_color, _435, gl_FrontFacing };\n    SurfaceInput param_1 = _549;\n    Surface param_2 = _440;\n    surface(param_1, param_2);\n    _552 = param_2.normal;\n    if (param_2.alpha < _451_alphaCutoff)\n    {\n        discard;\n    }\n    float3 _461 = normalize(_552);\n    float3 _476 = normalize(float3(dot(fa_pre_r0, _461), dot(fa_pre_r1, _461), dot(fa_pre_r2, _461)));\n    float _488 = _476.z;\n    float2 e = _476.xy / ((abs(_476.x) + abs(_476.y)) + abs(_488)).xx;\n    if (_488 < 0.0f)\n    {\n        e = (1.0f.xx - abs(e.yx)) * float2((e.x >= 0.0f) ? 1.0f : (-1.0f), (e.y >= 0.0f) ? 1.0f : (-1.0f));\n    }\n    fa_frag_color = float4(min(fa_pre_depth, 60000.0f), e, 1.0f);\n}\n\nSPIRV_Cross_Output main(SPIRV_Cross_Input stage_input)\n{\n    gl_FrontFacing = stage_input.gl_FrontFacing;\n    fa_world_pos = stage_input.fa_world_pos;\n    fa_world_normal = stage_input.fa_world_normal;\n    fa_world_tangent = stage_input.fa_world_tangent;\n    fa_uv = stage_input.fa_uv;\n    fa_vertex_color = stage_input.fa_vertex_color;\n    fa_pre_r0 = stage_input.fa_pre_r0;\n    fa_pre_r1 = stage_input.fa_pre_r1;\n    fa_pre_r2 = stage_input.fa_pre_r2;\n    fa_pre_depth = stage_input.fa_pre_depth;\n    frag_main();\n    SPIRV_Cross_Output stage_output;\n    stage_output.fa_frag_color = fa_frag_color;\n    return stage_output;\n}\n",
+      "reflection": {
+        "vertex_func": {
+          "entry_point": "main",
+          "d3d11_target": "vs_5_0"
+        },
+        "fragment_func": {
+          "entry_point": "main",
+          "d3d11_target": "ps_5_0"
+        },
+        "attrs": [
+          {
+            "slot": 0,
+            "type": "vec3",
+            "base_type": "Float",
+            "hlsl_sem_name": "TEXCOORD",
+            "hlsl_sem_index": 0
+          },
+          {
+            "slot": 1,
+            "type": "vec3",
+            "base_type": "Float",
+            "hlsl_sem_name": "TEXCOORD",
+            "hlsl_sem_index": 1
+          },
+          {
+            "slot": 2,
+            "type": "vec2",
+            "base_type": "Float",
+            "hlsl_sem_name": "TEXCOORD",
+            "hlsl_sem_index": 2
+          },
+          {
+            "slot": 3,
+            "type": "vec4",
+            "base_type": "Float",
+            "hlsl_sem_name": "TEXCOORD",
+            "hlsl_sem_index": 3
+          },
+          {
+            "slot": 4,
+            "type": "vec4",
+            "base_type": "Float",
+            "hlsl_sem_name": "TEXCOORD",
+            "hlsl_sem_index": 4
+          },
+          {
+            "slot": 5,
+            "type": "vec4",
+            "base_type": "Float",
+            "hlsl_sem_name": "TEXCOORD",
+            "hlsl_sem_index": 5
+          },
+          {
+            "slot": 6,
+            "type": "vec4",
+            "base_type": "Float",
+            "hlsl_sem_name": "TEXCOORD",
+            "hlsl_sem_index": 6
+          },
+          {
+            "slot": 7,
+            "type": "vec4",
+            "base_type": "Float",
+            "hlsl_sem_name": "TEXCOORD",
+            "hlsl_sem_index": 7
+          },
+          {
+            "slot": 8,
+            "type": "vec4",
+            "base_type": "Float",
+            "hlsl_sem_name": "TEXCOORD",
+            "hlsl_sem_index": 8
+          }
+        ],
+        "uniform_blocks": [
+          {
+            "slot": 0,
+            "stage": "vertex",
+            "size": 160,
+            "struct_name": "fa_mesh_vs_params",
+            "inst_name": "_129",
+            "hlsl_register_b_n": 0
+          },
+          {
+            "slot": 1,
+            "stage": "fragment",
+            "size": 192,
+            "struct_name": "fa_mesh_fs_params",
+            "inst_name": "_223",
+            "hlsl_register_b_n": 1
+          },
+          {
+            "slot": 5,
+            "stage": "fragment",
+            "size": 16,
+            "struct_name": "fa_material",
+            "inst_name": "_451",
+            "hlsl_register_b_n": 5
+          }
+        ],
+        "views": [
+          {
+            "texture": {
+              "slot": 0,
+              "stage": "fragment",
+              "name": "fa_tex",
+              "multisampled": false,
+              "type": "2d",
+              "sample_type": "float",
+              "hlsl_register_t_n": 0
+            }
+          },
+          {
+            "texture": {
+              "slot": 2,
+              "stage": "fragment",
+              "name": "fa_normal_tex",
+              "multisampled": false,
+              "type": "2d",
+              "sample_type": "float",
+              "hlsl_register_t_n": 1
+            }
+          },
+          {
+            "texture": {
+              "slot": 3,
+              "stage": "fragment",
+              "name": "fa_mr_tex",
+              "multisampled": false,
+              "type": "2d",
+              "sample_type": "float",
+              "hlsl_register_t_n": 2
+            }
+          },
+          {
+            "texture": {
+              "slot": 4,
+              "stage": "fragment",
+              "name": "fa_occlusion_tex",
+              "multisampled": false,
+              "type": "2d",
+              "sample_type": "float",
+              "hlsl_register_t_n": 3
+            }
+          },
+          {
+            "texture": {
+              "slot": 5,
+              "stage": "fragment",
+              "name": "fa_emissive_tex",
+              "multisampled": false,
+              "type": "2d",
+              "sample_type": "float",
+              "hlsl_register_t_n": 4
+            }
+          },
+          {
+            "texture": {
+              "slot": 6,
+              "stage": "fragment",
+              "name": "mask",
+              "multisampled": false,
+              "type": "2d",
+              "sample_type": "float",
+              "hlsl_register_t_n": 5
+            }
+          }
+        ],
+        "samplers": [
+          {
+            "slot": 2,
+            "stage": "fragment",
+            "name": "mask_smp",
+            "sampler_type": "filtering",
+            "hlsl_register_s_n": 2
+          },
+          {
+            "slot": 0,
+            "stage": "fragment",
+            "name": "fa_smp",
+            "sampler_type": "filtering",
+            "hlsl_register_s_n": 0
+          }
+        ],
+        "texture_sampler_pairs": [
+          {
+            "slot": 0,
+            "stage": "fragment",
+            "name": "fa_tex_fa_smp",
+            "view_name": "fa_tex",
+            "sampler_name": "fa_smp",
+            "view_slot": 0,
+            "sampler_slot": 0
+          },
+          {
+            "slot": 1,
+            "stage": "fragment",
+            "name": "fa_normal_tex_fa_smp",
+            "view_name": "fa_normal_tex",
+            "sampler_name": "fa_smp",
+            "view_slot": 2,
+            "sampler_slot": 0
+          },
+          {
+            "slot": 2,
+            "stage": "fragment",
+            "name": "fa_mr_tex_fa_smp",
+            "view_name": "fa_mr_tex",
+            "sampler_name": "fa_smp",
+            "view_slot": 3,
+            "sampler_slot": 0
+          },
+          {
+            "slot": 3,
+            "stage": "fragment",
+            "name": "fa_occlusion_tex_fa_smp",
+            "view_name": "fa_occlusion_tex",
+            "sampler_name": "fa_smp",
+            "view_slot": 4,
+            "sampler_slot": 0
+          },
+          {
+            "slot": 4,
+            "stage": "fragment",
+            "name": "fa_emissive_tex_fa_smp",
+            "view_name": "fa_emissive_tex",
+            "sampler_name": "fa_smp",
+            "view_slot": 5,
+            "sampler_slot": 0
+          },
+          {
+            "slot": 5,
+            "stage": "fragment",
+            "name": "mask_mask_smp",
+            "view_name": "mask",
+            "sampler_name": "mask_smp",
+            "view_slot": 6,
+            "sampler_slot": 2
+          }
+        ]
+      }
+    },
+    "prepass_skin": {
+      "vs": "struct VertexData\n{\n    float3 world_pos;\n    float3 world_normal;\n    float4 world_tangent;\n    float2 uv;\n    float4 color;\n    float3 object_pos;\n};\n\ncbuffer fa_mesh_vs_params : register(b0)\n{\n    row_major float4x4 _134_fa_view_proj : packoffset(c0);\n    row_major float4x4 _134_fa_light_vp : packoffset(c4);\n    float4 _134_fa_uv_scale : packoffset(c8);\n    float4 _134_fa_time : packoffset(c9);\n};\n\ncbuffer fa_skin : register(b3)\n{\n    float4 _181_fa_joint_rows[192] : packoffset(c0);\n};\n\n\nstatic float4 gl_Position;\nstatic float3 fa_world_pos;\nstatic float3 fa_world_normal;\nstatic float4 fa_world_tangent;\nstatic float2 fa_uv;\nstatic float4 fa_vertex_color;\nstatic float fa_pre_depth;\nstatic float3 fa_pre_r0;\nstatic float3 fa_pre_r1;\nstatic float3 fa_pre_r2;\nstatic float4 fa_inst_m0;\nstatic float4 fa_inst_m1;\nstatic float4 fa_inst_m2;\nstatic float4 fa_inst_m3;\nstatic float4 fa_joints;\nstatic float4 fa_weights;\nstatic float3 fa_position;\nstatic float3 fa_normal;\nstatic float4 fa_tangent;\nstatic float2 fa_texcoord0;\nstatic float4 fa_color;\n\nstruct SPIRV_Cross_Input\n{\n    float3 fa_position : TEXCOORD0;\n    float3 fa_normal : TEXCOORD1;\n    float2 fa_texcoord0 : TEXCOORD2;\n    float4 fa_tangent : TEXCOORD3;\n    float4 fa_color : TEXCOORD4;\n    float4 fa_inst_m0 : TEXCOORD5;\n    float4 fa_inst_m1 : TEXCOORD6;\n    float4 fa_inst_m2 : TEXCOORD7;\n    float4 fa_inst_m3 : TEXCOORD8;\n    float4 fa_joints : TEXCOORD9;\n    float4 fa_weights : TEXCOORD10;\n};\n\nstruct SPIRV_Cross_Output\n{\n    float3 fa_world_pos : TEXCOORD0;\n    float3 fa_world_normal : TEXCOORD1;\n    float4 fa_world_tangent : TEXCOORD2;\n    float2 fa_uv : TEXCOORD3;\n    float4 fa_vertex_color : TEXCOORD4;\n    float fa_pre_depth : TEXCOORD5;\n    float3 fa_pre_r0 : TEXCOORD6;\n    float3 fa_pre_r1 : TEXCOORD7;\n    float3 fa_pre_r2 : TEXCOORD8;\n    float4 gl_Position : SV_Position;\n};\n\nfloat4x4 fa_skin_matrix(float4 joints, float4 weights)\n{\n    float4 r0 = 0.0f.xxxx;\n    float4 r1 = 0.0f.xxxx;\n    float4 r2 = 0.0f.xxxx;\n    for (int i = 0; i < 4; i++)\n    {\n        int _172 = int((joints[i] * 255.0f) + 0.5f) * 3;\n        r0 += (_181_fa_joint_rows[_172] * weights[i]);\n        r1 += (_181_fa_joint_rows[_172 + 1] * weights[i]);\n        r2 += (_181_fa_joint_rows[_172 + 2] * weights[i]);\n    }\n    return float4x4(float4(r0.x, r1.x, r2.x, 0.0f), float4(r0.y, r1.y, r2.y, 0.0f), float4(r0.z, r1.z, r2.z, 0.0f), float4(r0.w, r1.w, r2.w, 1.0f));\n}\n\nVertexData fa_vertex_data(float4x4 model, float3 position, float3 normal, float4 tangent, float2 texcoord0, float4 color)\n{\n    float3 _72 = cross(model[1].xyz, model[2].xyz);\n    float _78 = (dot(model[0].xyz, _72) < 0.0f) ? (-1.0f) : 1.0f;\n    VertexData _419 = { mul(float4(position, 1.0f), model).xyz, (((_72 * normal.x) + (cross(model[2].xyz, model[0].xyz) * normal.y)) + (cross(model[0].xyz, model[1].xyz) * normal.z)) * _78, float4(((model[0].xyz * tangent.x) + (model[1].xyz * tangent.y)) + (model[2].xyz * tangent.z), tangent.w * _78), texcoord0 * _134_fa_uv_scale.xy, color, position };\n    return _419;\n}\n\nvoid fa_prepass_vertex(float4x4 model, float3 position, float3 normal, float4 tangent, float2 texcoord0, float4 color)\n{\n    float4x4 param = model;\n    float3 param_1 = position;\n    float3 param_2 = normal;\n    float4 param_3 = tangent;\n    float2 param_4 = texcoord0;\n    float4 param_5 = color;\n    VertexData _271 = fa_vertex_data(param, param_1, param_2, param_3, param_4, param_5);\n    float3 _426 = _271.world_pos;\n    float4 _282 = float4(_426, 1.0f);\n    fa_world_pos = _426;\n    fa_world_normal = _271.world_normal;\n    fa_world_tangent = _271.world_tangent;\n    fa_uv = _271.uv;\n    fa_vertex_color = _271.color;\n    fa_pre_depth = -mul(_282, _134_fa_light_vp).z;\n    fa_pre_r0 = float3(_134_fa_light_vp[0].x, _134_fa_light_vp[1].x, _134_fa_light_vp[2].x);\n    fa_pre_r1 = float3(_134_fa_light_vp[0].y, _134_fa_light_vp[1].y, _134_fa_light_vp[2].y);\n    fa_pre_r2 = float3(_134_fa_light_vp[0].z, _134_fa_light_vp[1].z, _134_fa_light_vp[2].z);\n    gl_Position = mul(_282, _134_fa_view_proj);\n}\n\nvoid vert_main()\n{\n    float4 param = fa_joints;\n    float4 param_1 = fa_weights;\n    float4x4 param_2 = mul(fa_skin_matrix(param, param_1), float4x4(fa_inst_m0, fa_inst_m1, fa_inst_m2, fa_inst_m3));\n    float3 param_3 = fa_position;\n    float3 param_4 = fa_normal;\n    float4 param_5 = fa_tangent;\n    float2 param_6 = fa_texcoord0;\n    float4 param_7 = fa_color;\n    fa_prepass_vertex(param_2, param_3, param_4, param_5, param_6, param_7);\n}\n\nSPIRV_Cross_Output main(SPIRV_Cross_Input stage_input)\n{\n    fa_inst_m0 = stage_input.fa_inst_m0;\n    fa_inst_m1 = stage_input.fa_inst_m1;\n    fa_inst_m2 = stage_input.fa_inst_m2;\n    fa_inst_m3 = stage_input.fa_inst_m3;\n    fa_joints = stage_input.fa_joints;\n    fa_weights = stage_input.fa_weights;\n    fa_position = stage_input.fa_position;\n    fa_normal = stage_input.fa_normal;\n    fa_tangent = stage_input.fa_tangent;\n    fa_texcoord0 = stage_input.fa_texcoord0;\n    fa_color = stage_input.fa_color;\n    vert_main();\n    SPIRV_Cross_Output stage_output;\n    stage_output.gl_Position = gl_Position;\n    stage_output.fa_world_pos = fa_world_pos;\n    stage_output.fa_world_normal = fa_world_normal;\n    stage_output.fa_world_tangent = fa_world_tangent;\n    stage_output.fa_uv = fa_uv;\n    stage_output.fa_vertex_color = fa_vertex_color;\n    stage_output.fa_pre_depth = fa_pre_depth;\n    stage_output.fa_pre_r0 = fa_pre_r0;\n    stage_output.fa_pre_r1 = fa_pre_r1;\n    stage_output.fa_pre_r2 = fa_pre_r2;\n    return stage_output;\n}\n",
+      "fs": "struct SurfaceInput\n{\n    float3 world_pos;\n    float3 world_normal;\n    float4 world_tangent;\n    float2 uv;\n    float4 vertex_color;\n    float3 view_dir;\n    bool front_facing;\n};\n\nstruct Surface\n{\n    float3 albedo;\n    float alpha;\n    float3 normal;\n    float metallic;\n    float roughness;\n    float occlusion;\n    float3 emission;\n};\n\ncbuffer fa_mesh_fs_params : register(b1)\n{\n    float4 _223_fa_camera_pos : packoffset(c0);\n    float4 _223_fa_ambient : packoffset(c1);\n    float4 _223_fa_base_color : packoffset(c2);\n    float4 _223_fa_emissive : packoffset(c3);\n    float4 _223_fa_model_emissive : packoffset(c4);\n    float4 _223_fa_pbr : packoffset(c5);\n    float4 _223_fa_maps : packoffset(c6);\n    float4 _223_fa_fog : packoffset(c7);\n    float4 _223_fa_counts : packoffset(c8);\n    float4 _223_fa_env_sky : packoffset(c9);\n    float4 _223_fa_env_horizon : packoffset(c10);\n    float4 _223_fa_time : packoffset(c11);\n};\n\ncbuffer fa_material : register(b5)\n{\n    float _451_alphaCutoff : packoffset(c0);\n    float _451_fa_pad0 : packoffset(c0.y);\n    float _451_fa_pad1 : packoffset(c0.z);\n    float _451_fa_pad2 : packoffset(c0.w);\n};\n\nTexture2D<float4> mask : register(t5);\nSamplerState mask_smp : register(s2);\nTexture2D<float4> fa_tex : register(t0);\nSamplerState fa_smp : register(s0);\nTexture2D<float4> fa_normal_tex : register(t1);\nTexture2D<float4> fa_mr_tex : register(t2);\nTexture2D<float4> fa_occlusion_tex : register(t3);\nTexture2D<float4> fa_emissive_tex : register(t4);\n\nstatic bool gl_FrontFacing;\nstatic float3 fa_world_pos;\nstatic float3 fa_world_normal;\nstatic float4 fa_world_tangent;\nstatic float2 fa_uv;\nstatic float4 fa_vertex_color;\nstatic float3 fa_pre_r0;\nstatic float3 fa_pre_r1;\nstatic float3 fa_pre_r2;\nstatic float4 fa_frag_color;\nstatic float fa_pre_depth;\n\nstruct SPIRV_Cross_Input\n{\n    float3 fa_world_pos : TEXCOORD0;\n    float3 fa_world_normal : TEXCOORD1;\n    float4 fa_world_tangent : TEXCOORD2;\n    float2 fa_uv : TEXCOORD3;\n    float4 fa_vertex_color : TEXCOORD4;\n    float fa_pre_depth : TEXCOORD5;\n    float3 fa_pre_r0 : TEXCOORD6;\n    float3 fa_pre_r1 : TEXCOORD7;\n    float3 fa_pre_r2 : TEXCOORD8;\n    bool gl_FrontFacing : SV_IsFrontFace;\n};\n\nstruct SPIRV_Cross_Output\n{\n    float4 fa_frag_color : SV_Target0;\n};\n\nfloat mod(float x, float y)\n{\n    return x - y * floor(x / y);\n}\n\nfloat2 mod(float2 x, float2 y)\n{\n    return x - y * floor(x / y);\n}\n\nfloat3 mod(float3 x, float3 y)\n{\n    return x - y * floor(x / y);\n}\n\nfloat4 mod(float4 x, float4 y)\n{\n    return x - y * floor(x / y);\n}\n\nfloat fa_fix_of(float _packed, float scale)\n{\n    return mod(floor((_packed / scale) + 0.00999999977648258209228515625f), 4.0f);\n}\n\nfloat3 fa_linear_to_srgb(inout float3 c)\n{\n    c = max(c, 0.0f.xxx);\n    return lerp((pow(c, 0.4166666567325592041015625f.xxx) * 1.05499994754791259765625f) - 0.054999999701976776123046875f.xxx, c * 12.9200000762939453125f, step(c, 0.003130800090730190277099609375f.xxx));\n}\n\nfloat3 fa_srgb_to_linear(inout float3 c)\n{\n    c = max(c, 0.0f.xxx);\n    return lerp(pow((c + 0.054999999701976776123046875f.xxx) * 0.947867333889007568359375f.xxx, 2.400000095367431640625f.xxx), c * 0.077399380505084991455078125f.xxx, step(c, 0.040449999272823333740234375f.xxx));\n}\n\nfloat3 fa_tex_fix(inout float3 c, float mode)\n{\n    if (mode > 1.5f)\n    {\n        float3 param = c;\n        float3 _189 = fa_linear_to_srgb(param);\n        c = _189;\n    }\n    else\n    {\n        if (mode > 0.5f)\n        {\n            float3 param_1 = c;\n            float3 _198 = fa_srgb_to_linear(param_1);\n            c = _198;\n        }\n    }\n    return c;\n}\n\nfloat3 fa_tangent_normal(SurfaceInput i, float3 m)\n{\n    float3 _54;\n    if (i.front_facing)\n    {\n        _54 = i.world_normal;\n    }\n    else\n    {\n        _54 = -i.world_normal;\n    }\n    float3 _79 = normalize(i.world_tangent.xyz - (_54 * dot(_54, i.world_tangent.xyz)));\n    float3 _107 = normalize(((_79 * m.x) + ((cross(_54, _79) * i.world_tangent.w) * m.y)) + (_54 * m.z));\n    float3 _110;\n    if (i.front_facing)\n    {\n        _110 = _107;\n    }\n    else\n    {\n        _110 = -_107;\n    }\n    return _110;\n}\n\nSurface fa_standard_surface(SurfaceInput i)\n{\n    float4 base_t = fa_tex.Sample(fa_smp, i.uv);\n    float param = _223_fa_maps.w;\n    float param_1 = 1.0f;\n    float3 param_2 = base_t.xyz;\n    float param_3 = fa_fix_of(param, param_1);\n    float3 _235 = fa_tex_fix(param_2, param_3);\n    float4 _600 = base_t;\n    _600.x = _235.x;\n    _600.y = _235.y;\n    _600.z = _235.z;\n    base_t = _600;\n    float4 _251 = (_600 * _223_fa_base_color) * i.vertex_color;\n    float3 _581 = i.world_normal;\n    if (_223_fa_maps.z > 0.5f)\n    {\n        float param_4 = _223_fa_maps.w;\n        float param_5 = 16.0f;\n        float3 param_6 = fa_normal_tex.Sample(fa_smp, i.uv).xyz;\n        float param_7 = fa_fix_of(param_4, param_5);\n        float3 _285 = fa_tex_fix(param_6, param_7);\n        float3 _288 = (_285 * 2.0f) - 1.0f.xxx;\n        float2 _293 = _288.xy * _223_fa_maps.x;\n        float3 _608 = _288;\n        _608.x = _293.x;\n        _608.y = _293.y;\n        SurfaceInput param_8 = i;\n        float3 param_9 = _608;\n        _581 = fa_tangent_normal(param_8, param_9);\n    }\n    float4 mrt = fa_mr_tex.Sample(fa_smp, i.uv);\n    float param_10 = _223_fa_maps.w;\n    float param_11 = 64.0f;\n    float3 param_12 = mrt.xyz;\n    float param_13 = fa_fix_of(param_10, param_11);\n    float3 _322 = fa_tex_fix(param_12, param_13);\n    float4 _611 = mrt;\n    _611.x = _322.x;\n    _611.y = _322.y;\n    _611.z = _322.z;\n    mrt = _611;\n    float param_14 = _223_fa_maps.w;\n    float param_15 = 256.0f;\n    float3 param_16 = fa_occlusion_tex.Sample(fa_smp, i.uv).xxx;\n    float param_17 = fa_fix_of(param_14, param_15);\n    float3 _363 = fa_tex_fix(param_16, param_17);\n    float param_18 = _223_fa_maps.w;\n    float param_19 = 4.0f;\n    float3 param_20 = fa_emissive_tex.Sample(fa_smp, i.uv).xyz;\n    float param_21 = fa_fix_of(param_18, param_19);\n    float3 _390 = fa_tex_fix(param_20, param_21);\n    Surface _593 = { _251.xyz, _251.w, _581, clamp(_223_fa_pbr.x * _322.z, 0.0f, 1.0f), clamp(_223_fa_pbr.y * _322.y, 0.0500000007450580596923828125f, 1.0f), 1.0f + (_223_fa_maps.y * (_363.x - 1.0f)), _223_fa_emissive.xyz + (_223_fa_model_emissive.xyz * _390) };\n    return _593;\n}\n\nvoid surface(SurfaceInput i, inout Surface s)\n{\n    s.alpha = mask.Sample(mask_smp, i.uv * 2.0f).x;\n}\n\nvoid frag_main()\n{\n    float3 _528 = normalize(fa_world_normal);\n    if (!gl_FrontFacing)\n    {\n        _528 = -_528;\n    }\n    float3 _435 = normalize(_223_fa_camera_pos.xyz - fa_world_pos);\n    SurfaceInput _541 = { fa_world_pos, _528, fa_world_tangent, fa_uv, fa_vertex_color, _435, gl_FrontFacing };\n    SurfaceInput param = _541;\n    Surface _440 = fa_standard_surface(param);\n    float3 _552 = _440.normal;\n    SurfaceInput _549 = { fa_world_pos, _528, fa_world_tangent, fa_uv, fa_vertex_color, _435, gl_FrontFacing };\n    SurfaceInput param_1 = _549;\n    Surface param_2 = _440;\n    surface(param_1, param_2);\n    _552 = param_2.normal;\n    if (param_2.alpha < _451_alphaCutoff)\n    {\n        discard;\n    }\n    float3 _461 = normalize(_552);\n    float3 _476 = normalize(float3(dot(fa_pre_r0, _461), dot(fa_pre_r1, _461), dot(fa_pre_r2, _461)));\n    float _488 = _476.z;\n    float2 e = _476.xy / ((abs(_476.x) + abs(_476.y)) + abs(_488)).xx;\n    if (_488 < 0.0f)\n    {\n        e = (1.0f.xx - abs(e.yx)) * float2((e.x >= 0.0f) ? 1.0f : (-1.0f), (e.y >= 0.0f) ? 1.0f : (-1.0f));\n    }\n    fa_frag_color = float4(min(fa_pre_depth, 60000.0f), e, 1.0f);\n}\n\nSPIRV_Cross_Output main(SPIRV_Cross_Input stage_input)\n{\n    gl_FrontFacing = stage_input.gl_FrontFacing;\n    fa_world_pos = stage_input.fa_world_pos;\n    fa_world_normal = stage_input.fa_world_normal;\n    fa_world_tangent = stage_input.fa_world_tangent;\n    fa_uv = stage_input.fa_uv;\n    fa_vertex_color = stage_input.fa_vertex_color;\n    fa_pre_r0 = stage_input.fa_pre_r0;\n    fa_pre_r1 = stage_input.fa_pre_r1;\n    fa_pre_r2 = stage_input.fa_pre_r2;\n    fa_pre_depth = stage_input.fa_pre_depth;\n    frag_main();\n    SPIRV_Cross_Output stage_output;\n    stage_output.fa_frag_color = fa_frag_color;\n    return stage_output;\n}\n",
+      "reflection": {
+        "vertex_func": {
+          "entry_point": "main",
+          "d3d11_target": "vs_5_0"
+        },
+        "fragment_func": {
+          "entry_point": "main",
+          "d3d11_target": "ps_5_0"
+        },
+        "attrs": [
+          {
+            "slot": 0,
+            "type": "vec3",
+            "base_type": "Float",
+            "hlsl_sem_name": "TEXCOORD",
+            "hlsl_sem_index": 0
+          },
+          {
+            "slot": 1,
+            "type": "vec3",
+            "base_type": "Float",
+            "hlsl_sem_name": "TEXCOORD",
+            "hlsl_sem_index": 1
+          },
+          {
+            "slot": 2,
+            "type": "vec2",
+            "base_type": "Float",
+            "hlsl_sem_name": "TEXCOORD",
+            "hlsl_sem_index": 2
+          },
+          {
+            "slot": 3,
+            "type": "vec4",
+            "base_type": "Float",
+            "hlsl_sem_name": "TEXCOORD",
+            "hlsl_sem_index": 3
+          },
+          {
+            "slot": 4,
+            "type": "vec4",
+            "base_type": "Float",
+            "hlsl_sem_name": "TEXCOORD",
+            "hlsl_sem_index": 4
+          },
+          {
+            "slot": 5,
+            "type": "vec4",
+            "base_type": "Float",
+            "hlsl_sem_name": "TEXCOORD",
+            "hlsl_sem_index": 5
+          },
+          {
+            "slot": 6,
+            "type": "vec4",
+            "base_type": "Float",
+            "hlsl_sem_name": "TEXCOORD",
+            "hlsl_sem_index": 6
+          },
+          {
+            "slot": 7,
+            "type": "vec4",
+            "base_type": "Float",
+            "hlsl_sem_name": "TEXCOORD",
+            "hlsl_sem_index": 7
+          },
+          {
+            "slot": 8,
+            "type": "vec4",
+            "base_type": "Float",
+            "hlsl_sem_name": "TEXCOORD",
+            "hlsl_sem_index": 8
+          },
+          {
+            "slot": 9,
+            "type": "vec4",
+            "base_type": "Float",
+            "hlsl_sem_name": "TEXCOORD",
+            "hlsl_sem_index": 9
+          },
+          {
+            "slot": 10,
+            "type": "vec4",
+            "base_type": "Float",
+            "hlsl_sem_name": "TEXCOORD",
+            "hlsl_sem_index": 10
+          }
+        ],
+        "uniform_blocks": [
+          {
+            "slot": 0,
+            "stage": "vertex",
+            "size": 160,
+            "struct_name": "fa_mesh_vs_params",
+            "inst_name": "_134",
+            "hlsl_register_b_n": 0
+          },
+          {
+            "slot": 3,
+            "stage": "vertex",
+            "size": 3072,
+            "struct_name": "fa_skin",
+            "inst_name": "_181",
+            "hlsl_register_b_n": 3
+          },
+          {
+            "slot": 1,
+            "stage": "fragment",
+            "size": 192,
+            "struct_name": "fa_mesh_fs_params",
+            "inst_name": "_223",
+            "hlsl_register_b_n": 1
+          },
+          {
+            "slot": 5,
+            "stage": "fragment",
+            "size": 16,
+            "struct_name": "fa_material",
+            "inst_name": "_451",
+            "hlsl_register_b_n": 5
+          }
+        ],
+        "views": [
+          {
+            "texture": {
+              "slot": 0,
+              "stage": "fragment",
+              "name": "fa_tex",
+              "multisampled": false,
+              "type": "2d",
+              "sample_type": "float",
+              "hlsl_register_t_n": 0
+            }
+          },
+          {
+            "texture": {
+              "slot": 2,
+              "stage": "fragment",
+              "name": "fa_normal_tex",
+              "multisampled": false,
+              "type": "2d",
+              "sample_type": "float",
+              "hlsl_register_t_n": 1
+            }
+          },
+          {
+            "texture": {
+              "slot": 3,
+              "stage": "fragment",
+              "name": "fa_mr_tex",
+              "multisampled": false,
+              "type": "2d",
+              "sample_type": "float",
+              "hlsl_register_t_n": 2
+            }
+          },
+          {
+            "texture": {
+              "slot": 4,
+              "stage": "fragment",
+              "name": "fa_occlusion_tex",
+              "multisampled": false,
+              "type": "2d",
+              "sample_type": "float",
+              "hlsl_register_t_n": 3
+            }
+          },
+          {
+            "texture": {
+              "slot": 5,
+              "stage": "fragment",
+              "name": "fa_emissive_tex",
+              "multisampled": false,
+              "type": "2d",
+              "sample_type": "float",
+              "hlsl_register_t_n": 4
+            }
+          },
+          {
+            "texture": {
+              "slot": 6,
+              "stage": "fragment",
+              "name": "mask",
+              "multisampled": false,
+              "type": "2d",
+              "sample_type": "float",
+              "hlsl_register_t_n": 5
+            }
+          }
+        ],
+        "samplers": [
+          {
+            "slot": 2,
+            "stage": "fragment",
+            "name": "mask_smp",
+            "sampler_type": "filtering",
+            "hlsl_register_s_n": 2
+          },
+          {
+            "slot": 0,
+            "stage": "fragment",
+            "name": "fa_smp",
+            "sampler_type": "filtering",
+            "hlsl_register_s_n": 0
+          }
+        ],
+        "texture_sampler_pairs": [
+          {
+            "slot": 0,
+            "stage": "fragment",
+            "name": "fa_tex_fa_smp",
+            "view_name": "fa_tex",
+            "sampler_name": "fa_smp",
+            "view_slot": 0,
+            "sampler_slot": 0
+          },
+          {
+            "slot": 1,
+            "stage": "fragment",
+            "name": "fa_normal_tex_fa_smp",
+            "view_name": "fa_normal_tex",
+            "sampler_name": "fa_smp",
+            "view_slot": 2,
+            "sampler_slot": 0
+          },
+          {
+            "slot": 2,
+            "stage": "fragment",
+            "name": "fa_mr_tex_fa_smp",
+            "view_name": "fa_mr_tex",
+            "sampler_name": "fa_smp",
+            "view_slot": 3,
+            "sampler_slot": 0
+          },
+          {
+            "slot": 3,
+            "stage": "fragment",
+            "name": "fa_occlusion_tex_fa_smp",
+            "view_name": "fa_occlusion_tex",
+            "sampler_name": "fa_smp",
+            "view_slot": 4,
+            "sampler_slot": 0
+          },
+          {
+            "slot": 4,
+            "stage": "fragment",
+            "name": "fa_emissive_tex_fa_smp",
+            "view_name": "fa_emissive_tex",
+            "sampler_name": "fa_smp",
+            "view_slot": 5,
+            "sampler_slot": 0
+          },
+          {
+            "slot": 5,
+            "stage": "fragment",
+            "name": "mask_mask_smp",
+            "view_name": "mask",
+            "sampler_name": "mask_smp",
+            "view_slot": 6,
+            "sampler_slot": 2
           }
         ]
       }

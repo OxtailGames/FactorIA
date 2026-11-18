@@ -38,7 +38,7 @@ constexpr EffectRow kEffectRows[kPostEffectCount] = {
          ".cube LUT (the tone curves are not drawn yet)."},
     {"", "Vignette: the edges of the picture darken toward a colour."},
     {"", "Sharpening: contrast-adaptive, on the finished picture."},
-    {"", "Outline: depth and normal edges (3D) or the border of 2D sprites."},
+    {"depth", "Outline: depth and normal edges (3D) or the border of 2D sprites."},
     {"", "Pixelation: the picture drawn in big square pixels."},
     {"", "Posterization: colours reduced to a few levels per channel."},
     {"", "Film grain: noise over the picture, from the frame number (the same on every run)."},
@@ -55,6 +55,17 @@ constexpr bool effect_drawn(PostEffect e) {
            e == PostEffect::FilmGrain;
 }
 
+}  // namespace
+
+std::uint32_t post_drawn_mask() {
+    std::uint32_t m = 0;
+    for (int i = 0; i < kPostEffectCount; ++i)
+        if (effect_drawn(PostEffect(i))) m |= 1u << i;
+    return m;
+}
+
+namespace {
+
 std::vector<FeatureDef> build_table() {
     std::vector<FeatureDef> t;
     // The capabilities: facts about the GPU, answered from what it reports.
@@ -67,8 +78,10 @@ std::vector<FeatureDef> build_table() {
          "The packed float render target R11G11B10 (half the memory of RGBA16F, no alpha), for HDR frames on phones."});
     t.push_back(
         {"sampledDepth", FeatureKind::Capability, kEveryGpu, "depth", nullptr,
-         "A depth buffer that a later pass can sample as a texture: what ambient occlusion, depth of field, fog, "
-         "reflections and motion blur read."});
+         "The scene's depth and normals as images that a later pass can sample (the depth and normal prepass, drawn "
+         "only "
+         "for a frame with an effect that reads them): what ambient occlusion, depth of field, fog, reflections and "
+         "motion blur read."});
     t.push_back({"computeShaders", FeatureKind::Capability,
                  bit(FeatureBackend::Gl) | bit(FeatureBackend::D3d11) | bit(FeatureBackend::Metal), "compute", nullptr,
                  "Compute shaders and storage buffers (D3D11, Metal, OpenGL 4.3; never GLES3 or WebGL2)."});
@@ -100,7 +113,8 @@ bool needs_met(const FeatureEnv& env, const char* needs, std::string* missing) {
     bool ok = true;
     ok &= need("half", env.halfTargets, "RGBA16F render targets that blend and filter");
     ok &= need("r11g11b10", env.r11g11b10, "the R11G11B10 float render target");
-    ok &= need("depth", env.sampledDepth, "sampling the depth buffer in a shader");
+    ok &= need("depth", env.sampledDepth,
+               "sampling the depth of the scene in a shader (a float render target for the depth prepass)");
     ok &= need("compute", env.compute, "compute shaders");
     return ok;
 }
@@ -220,8 +234,12 @@ FeatureEnv feature_env_from_sokol() {
     const sg_pixelformat_info packed = sg_query_pixelformat(SG_PIXELFORMAT_RG11B10F);
     // The rule of Gpu::init: sokol-gfx reports no blend flag for RG11B10F on GL, where the format blends when it renders at all.
     env.r11g11b10 = packed.render && packed.filter && (packed.blend || env.backend == FeatureBackend::Gl);
+    // sampledDepth: the renderer's prepass (Gpu::prepass_color_format) writes the depth into a float colour image, because a depth buffer
+    // cannot be sampled when it is multisampled and its range differs per backend; so the answer follows that image's format.
     const sg_pixelformat_info depth = sg_query_pixelformat(SG_PIXELFORMAT_DEPTH);
-    env.sampledDepth = depth.render && depth.sample;
+    const sg_pixelformat_info f32 = sg_query_pixelformat(SG_PIXELFORMAT_RGBA32F);
+    const sg_pixelformat_info f16 = sg_query_pixelformat(SG_PIXELFORMAT_RGBA16F);
+    env.sampledDepth = depth.render && ((f32.render && f32.sample) || (f16.render && f16.sample));
     env.compute = sg_query_features().compute;
     return env;
 }

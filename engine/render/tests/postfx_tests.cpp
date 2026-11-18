@@ -26,12 +26,14 @@ PostStack stack_with(PostEffect e) {
 
 // An identity table of `n` entries per side, as the text of a .cube file.
 std::string identity_cube(int n, const char* title = "identity") {
-    std::string t = std::format("# made by a test\nTITLE \"{}\"\nLUT_3D_SIZE {}\nDOMAIN_MIN 0 0 0\nDOMAIN_MAX 1 1 1\n", title, n);
+    std::string t =
+        std::format("# made by a test\nTITLE \"{}\"\nLUT_3D_SIZE {}\nDOMAIN_MIN 0 0 0\nDOMAIN_MAX 1 1 1\n", title, n);
     t.reserve(std::size_t(n) * n * n * 24 + 128);
     const float m = float(n - 1);
     for (int b = 0; b < n; ++b)
         for (int g = 0; g < n; ++g)
-            for (int r = 0; r < n; ++r) t += std::format("{:.6f} {:.6f} {:.6f}\n", float(r) / m, float(g) / m, float(b) / m);
+            for (int r = 0; r < n; ++r)
+                t += std::format("{:.6f} {:.6f} {:.6f}\n", float(r) / m, float(g) / m, float(b) / m);
     return t;
 }
 
@@ -186,7 +188,8 @@ TEST_CASE("grading: the LUT adds what the table changes and keeps the part above
     CHECK(near_v(apply_lut(t.value(), 1.0f, {1.0f, 0.0f, 0.25f}), {0.0f, 1.0f, 0.75f}, 1e-5f));
     CHECK(near_v(apply_lut(t.value(), 0.5f, {1.0f, 0.0f, 0.5f}), {0.5f, 0.5f, 0.5f}, 1e-5f));
     CHECK(near_v(apply_lut(t.value(), 0.0f, {1.0f, 0.0f, 0.5f}), {1.0f, 0.0f, 0.5f}, 1e-6f));
-    CHECK(apply_lut(t.value(), 1.0f, {2.0f, 0.0f, 0.0f}).x == doctest::Approx(1.0f));  // 2 -> table(1) = 0, plus the 1 above white
+    CHECK(apply_lut(t.value(), 1.0f, {2.0f, 0.0f, 0.0f}).x ==
+          doctest::Approx(1.0f));  // 2 -> table(1) = 0, plus the 1 above white
 }
 
 // ---- vignette, lens, sharpen, grain ----
@@ -213,7 +216,8 @@ TEST_CASE("vignette: nothing at the centre, the full intensity at a corner, a di
     CHECK(vignette_amount(f, {1.0f, 1.0f}, aspect) == doctest::Approx(0.6f));
 }
 
-TEST_CASE("lens: the centre stays, barrel samples further out, pincushion nearer, scale zooms, the corner can leave the picture") {
+TEST_CASE("lens: the centre stays, barrel samples further out, pincushion nearer, scale zooms, the corner can leave "
+          "the picture") {
     PostStack s = stack_with(PostEffect::LensDistortion);
     const float aspect = 16.0f / 9.0f;
     s.fx.lensDistortionIntensity = 1.0f;
@@ -257,10 +261,12 @@ TEST_CASE("sharpen: a flat area is kept, an edge gets more contrast, and a pixel
     CHECK(near_v(sharpen_color(f, white, black, black, black, black), white, 1e-5f));
     // A higher intensity pushes further.
     s.fx.sharpenIntensity = 2.0f;
-    CHECK(sharpen_color(make_post_fx(s, 0), mid, dark, dark, dark, dark).x > sharpen_color(f, mid, dark, dark, dark, dark).x);
+    CHECK(sharpen_color(make_post_fx(s, 0), mid, dark, dark, dark, dark).x >
+          sharpen_color(f, mid, dark, dark, dark, dark).x);
 }
 
-TEST_CASE("film grain: the same frame and pixel give the same noise, another frame another one, a cell of size 2 is one value") {
+TEST_CASE("film grain: the same frame and pixel give the same noise, another frame another one, a cell of size 2 is "
+          "one value") {
     PostStack s = stack_with(PostEffect::FilmGrain);
     s.fx.filmGrainIntensity = 0.5f;
     s.fx.filmGrainSize = 1.0f;
@@ -277,7 +283,7 @@ TEST_CASE("film grain: the same frame and pixel give the same noise, another fra
             sum += n;
             if (n != grain_noise(x, y, b)) ++differ;
         }
-    CHECK(differ > 64 * 64 * 9 / 10);      // another frame: a new pattern
+    CHECK(differ > 64 * 64 * 9 / 10);          // another frame: a new pattern
     CHECK(std::fabs(sum / (64 * 64)) < 0.03);  // no bias
     // Not animated: the frame does not matter.
     s.fx.filmGrainAnimated = false;

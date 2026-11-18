@@ -90,18 +90,32 @@ struct Renderer::Impl {
     // The post-processing stack (postprocess.h). hudTarget is the game-like image the final pass writes when screen-space items are drawn
     // over it in display space (made on first use: a frame without exposure, tonemap or linear colour never makes it); the HUD draws into
     // it with the game target's formats and sample count, so the pipelines of the game fit. hudActive: the last frame's picture is in it
-    // (when filterActive is false). finalEncoded: the last frame's final pass already encoded the picture for the display (a linear scene),
-    // so present() and the captures copy it as it is.
+    // (when filterActive is false). finalEncoded: the last frame's final pass already made display values (sRGB-encoded, extended above 1
+    // for an HDR output), so the captures copy them as they are and present() only decodes them for an HDR swapchain.
     AutoExposure autoExposure;
     Target hudTarget;
     bool hudActive = false;
     bool finalEncoded = false;
+    // The depth and normal prepass (renderer_draw.cpp, plan_job and prepass_pass). `debugView` shows it (Renderer::set_debug_view),
+    // `forceEffects` pretends the stack has those effects (tests). prevViewProj: the view-projection each camera drew its last frame
+    // with, for the effects that reproject (PostPlan::prevViewProj); an entry the camera did not refresh in the frame before is dropped.
+    DebugView debugView = DebugView::None;
+    std::uint32_t forceEffects = 0;
+    struct PrevCamera {
+        Mat4 viewProj;
+        std::uint64_t frame = 0;  // the frameSerial it was drawn in
+    };
+    std::unordered_map<std::uint64_t, PrevCamera> prevViewProj;  // by Entity::bits() of the camera
+    bool prepassSplitWarned = false;  // one warning when a split frame has no prepass for a depth effect
+    bool prepassWarned = false;       // one warning when the prepass cannot be made
     // The HDR display output (hdr_encode.h; docs/RENDERING.md, "HDR output"). outputInfo: the last answer of update_output()
     // (window thread; a renderer that never asks, a headless one, stays in the standard range). frameOutput: what the frame
     // is drawn for, taken from it when the frame starts (so the final pass and present() of a frame agree on the headroom).
     // frameAboveWhite: the last frame's final pass wrote values above paper white (the HDR tonemap, no colour filter after
     // it), so present() lets them through up to frameOutput.headroom. forcedOutput: renderer_force_output (tests).
     HdrOutputInfo outputInfo;
+    HdrRequest outputRequest;  // what update_output() asked the last time, changed in place (it runs every frame)
+    bool outputRequestMade = false;
     bool outputForced = false;
     HdrOutputInfo forcedOutput;
     render::OutputTarget frameOutput;
@@ -110,11 +124,9 @@ struct Renderer::Impl {
     render::FeatureBackend backend =
         render::FeatureBackend::Headless;  // sg_query_backend(), asked once (update_output)
     const HdrOutputInfo& output() const { return outputForced ? forcedOutput : outputInfo; }
-    // The images the final pass writes hold values above 1 (RGBA16F, R11G11B10): an HDR output can go above paper white.
-    bool float_display() const {
-        const sg_pixel_format f = gpu.display_format();
-        return f == SG_PIXELFORMAT_RGBA16F || f == SG_PIXELFORMAT_RG11B10F;
-    }
+    // The images the final pass writes hold values above 1 (RGBA16F; R11G11B10 scenes keep their display picture in RGBA8, see
+    // Gpu::display_format): an HDR output can go above paper white.
+    bool float_display() const { return gpu.display_format() == SG_PIXELFORMAT_RGBA16F; }
     // The fragment uniforms of present(): the encode for the output the window has now (output()), the light let through up to
     // the frame's headroom when its final pass went above white.
     blit_blit_fs_params_t present_params() const;
@@ -137,7 +149,8 @@ struct Renderer::Impl {
     bool warnedNoLight = false;
     std::string
         warnedViewport;  // the last "bad Camera.viewport" problem logged (a viewport a script sets live is clamped)
-    bool warnedCameras = false;        // the "more cameras than the limit" warning, once per scene
+    bool postBypass = false;     // Renderer::set_post_bypass: draw without any post-processing stack (the editor's A/B)
+    bool warnedCameras = false;  // the "more cameras than the limit" warning, once per scene
     bool warnedLights2d = false;       // the "more Light2D in view than the budget" warning, once per scene
     bool warnedShadows2d = false;      // the "more shadow casters than the budget" warning, once per scene
     bool warnedSpriteMesh = false;     // the "too many mesh cells" warning, once per scene
@@ -250,12 +263,18 @@ struct Renderer::Impl {
     sg_view final_view() const { return final_target().texView; }
     // The picture the editor viewport shows (Renderer::game_target_view_id): the finished game image in a gamma scene; in a linear one,
     // when the editor asked for it (Renderer::set_editor_view), the 8-bit encoded copy update_editor_copy() makes after each frame
-    // (an empty handle until the first one exists). M71-B4 points this at its final (tonemapped) target.
+    // (an empty handle until the first one exists). The final pass's picture is shown as it is, except when it went above paper white
+    // (an HDR output; the editor's window never switches, but a viewport that can show extended values would show them brighter
+    // than the SDR present() does): then the 8-bit copy clamps it to [0, 1].
     sg_image display_image() const;
     sg_view display_view() const;
-    bool editorView = false;  // set_editor_view(true): make the encoded copy of a linear scene
+    bool editorView =
+        false;  // set_editor_view(true): make the 8-bit copy of a linear scene (or of a picture above white)
     Target
-        editorTarget;  // the copy: RGBA8, only while the scene is linear and the editor asked; freed when either stops
+        editorTarget;  // the copy: RGBA8, only while the editor asked and it is needed (see editor_copy_wanted); freed when not
+    // The viewport shows the copy: a linear scene not yet encoded by the final pass (the copy encodes it), or a final pass picture
+    // that went above paper white (the copy clamps it).
+    bool editor_copy_wanted() const;
     void update_editor_copy();
     bool create_shadow_targets();
     bool ensure_light_target(float scale);
@@ -355,6 +374,11 @@ struct Renderer::Impl {
     void light_plan(DrawContext& ctx);
     void light_pass(DrawContext& ctx);
     void shadow_pass(DrawContext& ctx);
+    // The depth and normal prepass (M71): plan_prepass decides whether the job has one, prepass_pass draws it into `t` (a transient of
+    // the graph), prepass_view_pass paints it over the game image (Renderer::set_debug_view).
+    bool plan_prepass(DrawContext& ctx);
+    void prepass_pass(DrawContext& ctx, const Target& t);
+    void prepass_view_pass(DrawContext& ctx, const Target& t);
     void draw_group(DrawContext& ctx, const std::vector<QuadBatch>& batches, const Mat4& vp, bool depthTest,
                     const Px& base, int flatMode = 0);
     void main_pass(DrawContext& ctx);

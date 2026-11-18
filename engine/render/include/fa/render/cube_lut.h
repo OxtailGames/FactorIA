@@ -23,13 +23,15 @@ inline constexpr int kCubeLutMaxSize = 65;
 inline constexpr std::size_t kCubeLutMaxFileBytes = std::size_t(32) << 20;
 
 struct CubeLut {
-    int size = 0;            // colours per side (LUT_3D_SIZE)
-    std::string title;       // TITLE, "" when the file has none
-    std::vector<float> rgb;  // size^3 colours, 3 floats each, red varying fastest, then green, then blue (the file's order)
+    int size = 0;       // colours per side (LUT_3D_SIZE)
+    std::string title;  // TITLE, "" when the file has none
+    std::vector<float>
+        rgb;  // size^3 colours, 3 floats each, red varying fastest, then green, then blue (the file's order)
 
     // One entry; r, g, b in 0..size-1.
     Vec3 at(int r, int g, int b) const {
-        const std::size_t i = (std::size_t(b) * std::size_t(size) + std::size_t(g)) * std::size_t(size) + std::size_t(r);
+        const std::size_t i =
+            (std::size_t(b) * std::size_t(size) + std::size_t(g)) * std::size_t(size) + std::size_t(r);
         return {rgb[i * 3], rgb[i * 3 + 1], rgb[i * 3 + 2]};
     }
     // The colour the table gives `c` (each channel clamped to 0..1 first), by trilinear interpolation between the 8 nearest entries.

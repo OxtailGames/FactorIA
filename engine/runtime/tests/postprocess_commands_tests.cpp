@@ -5,7 +5,9 @@
 #include <fstream>
 
 #include "fa/core/fs.h"
+#include "fa/core/reflect.h"
 #include "fa/runtime/engine.h"
+#include "fa/runtime/postprocess_presets.h"
 #include "fa/scene/postprocess.h"
 
 using namespace fa;
@@ -59,7 +61,8 @@ TEST_CASE("postprocess and render.supports commands are documented and closed") 
     Engine e;
     std::string err;
     REQUIRE_MESSAGE(e.init(cfg(p), nullptr, &err), err);
-    for (const char* name : {"postprocess.get", "postprocess.set", "postprocess.presets", "render.supports"}) {
+    for (const char* name : {"postprocess.get", "postprocess.set", "postprocess.presets", "postprocess.apply_preset",
+                             "render.supports", "render.debug_view"}) {
         INFO(name);
         const CommandInfo* info = e.commands().info(name);
         REQUIRE(info != nullptr);
@@ -155,7 +158,7 @@ TEST_CASE("postprocess.set adds the component, sets fields and changes nothing o
     e.shutdown();
 }
 
-TEST_CASE("postprocess.presets lists no presets yet") {
+TEST_CASE("postprocess.presets lists the looks, and every field of every preset exists and is in range") {
     TempProject p;
     Engine e;
     std::string err;
@@ -163,7 +166,149 @@ TEST_CASE("postprocess.presets lists no presets yet") {
     auto r = e.commands().call("postprocess.presets", Json::object());
     REQUIRE_MESSAGE(r.ok, r.error.dump());
     REQUIRE(r.result["presets"].is_array());
-    CHECK(r.result["presets"].empty());
+    std::vector<std::string> names;
+    for (const Json& j : r.result["presets"]) names.push_back(j["name"].get<std::string>());
+    CHECK(names == std::vector<std::string>{"neutral", "cinematic", "retro", "noir", "dreamy", "vivid", "horror"});
+    CHECK(r.result["presets"][0]["effects"].empty());
+    CHECK(r.result["presets"][1]["effects"].dump().find("bloom") != std::string::npos);
+
+    // The data, field by field: a preset cannot name a field that does not exist or a value outside its range.
+    ensure_builtin_components();
+    const TypeInfo* type = TypeRegistry::global().of<PostProcess>();
+    REQUIRE(type);
+    CHECK(e.commands().call("postprocess.presets", Json::parse(R"({"x":1})")).ok == false);
+    for (const PostPreset& preset : postprocess_presets()) {
+        INFO(preset.name);
+        CHECK_FALSE(preset.doc.empty());
+        PostProcess scratch;
+        auto patched = object_patch_from_json(*type, &scratch, preset.fields);
+        REQUIRE_MESSAGE(patched.ok(), (patched.ok() ? std::string() : patched.error().message));
+        for (auto it = preset.fields.begin(); it != preset.fields.end(); ++it) {
+            INFO(it.key());
+            const FieldInfo* f = type->field(it.key());
+            REQUIRE(f != nullptr);
+            CHECK(post_field_effect(f->name) >= 0);  // an effect field: a preset never sets a volume's shape or weight
+            if (f->minValue != f->maxValue && it->is_number()) {
+                CHECK(it->get<double>() >= double(f->minValue));
+                CHECK(it->get<double>() <= double(f->maxValue));
+            }
+        }
+    }
+    e.shutdown();
+}
+
+TEST_CASE("postprocess.apply_preset replaces or keeps, says what is not drawn, and teaches") {
+    TempProject p;
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(cfg(p), nullptr, &err), err);
+    auto& c = e.commands();
+    CHECK(c.info("postprocess.apply_preset")->description.find("Example") != std::string::npos);
+    CHECK(c.info("postprocess.apply_preset")->inputSchema["additionalProperties"] == false);
+
+    // The scene's camera has bloom 0.9. Replace (the default): the result is exactly the preset.
+    auto r = c.call("postprocess.apply_preset", Json::parse(R"({"id":"cam","preset":"noir"})"));
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+    PostProcess* pp = e.world().get<PostProcess>(e.world().find("cam"));
+    REQUIRE(pp);
+    CHECK(pp->vignetteEnabled);
+    CHECK(pp->colorGradingSaturation == doctest::Approx(0.0f));
+    CHECK(pp->bloomIntensity == doctest::Approx(0.35f));  // the preset's own bloom, not the 0.9 of the scene
+    CHECK(r.result["preset"] == "noir");
+    CHECK(r.result["effects"].dump().find("sharpen") != std::string::npos);
+    CHECK(r.result["notDrawn"].is_array());
+    CHECK(r.result["drawnChecked"].is_boolean());
+    CHECK(r.result["note"].is_string());
+
+    // Keep: an effect the preset does not name stays. Neutral without keep switches everything off.
+    pp->pixelateEnabled = true;
+    r = c.call("postprocess.apply_preset", Json::parse(R"({"id":"cam","preset":"vivid","keep":true})"));
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+    CHECK(e.world().get<PostProcess>(e.world().find("cam"))->pixelateEnabled);
+    CHECK(e.world().get<PostProcess>(e.world().find("cam"))->colorGradingSaturation == doctest::Approx(1.4f));
+    r = c.call("postprocess.apply_preset", Json::parse(R"({"id":"cam","preset":"neutral"})"));
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+    CHECK(r.result["effects"].empty());
+    CHECK_FALSE(e.world().get<PostProcess>(e.world().find("cam"))->pixelateEnabled);
+
+    // A volume keeps its meta fields; the component is added where there is none.
+    r = c.call("postprocess.set",
+               Json::parse(R"({"id":"plain","fields":{"shape":"box","size":[4,4,4],"priority":3}})"));
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+    r = c.call("postprocess.apply_preset", Json::parse(R"({"id":"plain","preset":"horror"})"));
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+    const PostProcess* vol = e.world().get<PostProcess>(e.world().find("plain"));
+    REQUIRE(vol);
+    CHECK(vol->shape == PostShape::Box);
+    CHECK(vol->priority == 3);
+    CHECK(vol->fogEnabled);
+
+    // Teaching errors; nothing changed.
+    r = c.call("postprocess.apply_preset", Json::parse(R"({"id":"cam","preset":"cinematc"})"));
+    REQUIRE_FALSE(r.ok);
+    CHECK(r.error.dump().find("cinematic") != std::string::npos);
+    r = c.call("postprocess.apply_preset", Json::parse(R"({"id":"cam"})"));
+    CHECK_FALSE(r.ok);
+    r = c.call("postprocess.apply_preset", Json::parse(R"({"id":"nobody","preset":"noir"})"));
+    CHECK_FALSE(r.ok);
+    r = c.call("postprocess.apply_preset", Json::parse(R"({"id":"cam","preset":"noir","keeps":true})"));
+    CHECK_FALSE(r.ok);
+    r = c.call("postprocess.apply_preset", Json::parse(R"({"id":"cam","preset":"noir","keep":"yes"})"));
+    CHECK_FALSE(r.ok);
+    e.shutdown();
+}
+
+TEST_CASE("postprocess.get resolved: the stack of a camera with the source of each value") {
+    TempProject p;
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(cfg(p), nullptr, &err), err);
+    auto& c = e.commands();
+    auto r = c.call("postprocess.set", Json::parse(R"({"id":"plain","fields":{"shape":"box","size":[100,100,100],
+                       "vignetteEnabled":true,"vignetteIntensity":0.6,"bloomEnabled":true,"bloomIntensity":0.2,"priority":1}})"));
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+    r = c.call("postprocess.get", Json::parse(R"({"id":"cam","resolved":true})"));
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+    const Json& rep = r.result["resolved"];
+    REQUIRE(rep["layers"].size() == 2);
+    CHECK(rep["layers"][0]["from"] == "own");
+    CHECK(rep["layers"][1]["from"] == "volume:" + e.world().id_of(e.world().find("plain")));
+    CHECK(rep["layers"][1]["priority"] == 1);
+    CHECK(rep["layers"][1]["weight"] == doctest::Approx(1.0));
+    REQUIRE(rep["effects"].size() == std::size_t(kPostEffectCount));
+    CHECK(rep["effects"][0]["name"] == "ssao");  // canonical order
+    CHECK(rep["count"] == 2);
+    const Json* vignette = nullptr;
+    const Json* bloom = nullptr;
+    for (const Json& fx : rep["effects"]) {
+        if (fx["name"] == "vignette") vignette = &fx;
+        if (fx["name"] == "bloom") bloom = &fx;
+    }
+    REQUIRE(vignette);
+    REQUIRE(bloom);
+    CHECK((*vignette)["enabled"] == true);
+    CHECK((*vignette)["fields"]["vignetteIntensity"]["from"].get<std::string>().rfind("volume:", 0) == 0);
+    CHECK((*bloom)["fields"]["bloomIntensity"]["from"].get<std::string>().rfind("volume:", 0) == 0);  // the volume wins
+    CHECK((*bloom)["layers"].size() == 2);
+
+    // Without an id: the main camera. A non-camera, `fields` with resolved and a bad flag are taught.
+    r = c.call("postprocess.get", Json::parse(R"({"resolved":true})"));
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+    CHECK(r.result["id"] == "cam");
+    // A camera that draws into a texture (a minimap) with a lower depth is never the main camera: the renderer skips it too.
+    r = c.call("scene.spawn",
+               Json::parse(R"({"id":"minimap","components":{"Camera":{"depth":-5,"renderTarget":"minimap"}}})"));
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+    r = c.call("postprocess.get", Json::parse(R"({"resolved":true})"));
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+    CHECK(r.result["id"] == "cam");
+    r = c.call("postprocess.get", Json::parse(R"({"id":"plain","resolved":true})"));
+    REQUIRE_FALSE(r.ok);
+    CHECK(r.error["message"].get<std::string>().find("no Camera") != std::string::npos);
+    r = c.call("postprocess.get", Json::parse(R"({"id":"cam","resolved":true,"fields":["bloomEnabled"]})"));
+    CHECK_FALSE(r.ok);
+    r = c.call("postprocess.get", Json::parse(R"({"id":"cam","resolved":"yes"})"));
+    CHECK_FALSE(r.ok);
     e.shutdown();
 }
 
@@ -232,5 +377,33 @@ TEST_CASE("render.output: a headless run shows the standard range, says why and 
 
     r = c.call("render.output", Json::parse(R"({"display":0})"));
     CHECK_FALSE(r.ok);
+    e.shutdown();
+}
+
+TEST_CASE("render.debug_view teaches an unknown view, and says there is no renderer without graphics") {
+    TempProject p;
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(cfg(p), nullptr, &err), err);
+    auto& c = e.commands();
+    CHECK_FALSE(e.commands().info("render.debug_view")->readOnly);
+    auto r = c.call("render.debug_view", Json::parse(R"({"view":"normal"})"));
+    REQUIRE_FALSE(r.ok);
+    CHECK(r.error["code"] == "invalid_argument");
+    CHECK(r.error["message"].get<std::string>().find("normals") != std::string::npos);  // did you mean
+    CHECK_FALSE(c.call("render.debug_view", Json::parse(R"({"view":3})")).ok);
+    CHECK_FALSE(c.call("render.debug_view", Json::parse(R"({"vew":"depth"})")).ok);
+    r = c.call("render.debug_view", Json::object());
+    if (!r.ok) {
+        CHECK(r.error["code"] == "unavailable");
+    } else {
+        CHECK(r.result["view"] == "none");
+        r = c.call("render.debug_view", Json::parse(R"({"view":"depth"})"));
+        REQUIRE(r.ok);
+        CHECK(r.result["view"] == "depth");
+        CHECK(r.result["previous"] == "none");
+        CHECK(c.call("render.debug_view", Json::object()).result["view"] == "depth");
+        CHECK(c.call("render.debug_view", Json::parse(R"({"view":"none"})")).result["view"] == "none");
+    }
     e.shutdown();
 }

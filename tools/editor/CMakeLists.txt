@@ -69,7 +69,7 @@ if(FA_BUILD_TESTS)
             # window, and FA_EDITOR_AUTOTEST_SECTIONS=K,M only those (docs/EDITOR.md).
             set(editor_autotest_entries
                 "1:I,J,Q,R,U,X,Z,M3,P3,X2"
-                "2:S,A,G,H,L,V,B2,C2,E2"
+                "2:S,A,G,G2,H,L,V,B2,C2,E2"
                 "3:B,C,D,M,M4,O,P,W,E3,S2,R4"
                 "4:T,A2,A3,E,F,K,M5,N,Y,H2,K2,E4,P4"
                 "5:D2,F2,I2,J2,K3,L3,N3,O3,Q2,R2,R3,T2,S3")

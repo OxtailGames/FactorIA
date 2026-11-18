@@ -2,6 +2,8 @@
 #include "scene2d.h"
 #include "render_features.h"
 
+#include <cstdlib>
+#include <cstring>
 #include <map>
 
 namespace fa {
@@ -96,21 +98,10 @@ CameraInfo Renderer::Impl::build_camera(World& world, Entity best, const Vec2* v
     ci.clear = cam.clear || viewSize != nullptr;
     // The deprecated Camera.bloom* and Camera.colorFilter fields are the PostProcess of a camera that has none: a hard bloom (knee 0)
     // and the colour filter, exactly as before.
-    PostProcess legacy = postprocess_neutral();
-    const bool useLegacy = cam.bloom || cam.colorFilter != ColorFilter::None;
-    if (useLegacy) {
-        const BloomSettings b =
-            sanitize_bloom(cam.bloom, cam.bloomThreshold, cam.bloomIntensity, cam.bloomRadius, cam.bloomScreenSpace);
-        legacy.bloomEnabled = b.enabled;
-        legacy.bloomThreshold = b.threshold;
-        legacy.bloomIntensity = b.intensity;
-        legacy.bloomRadius = b.radius;
-        legacy.bloomScreenSpace = b.screenSpace;
-        legacy.bloomKnee = 0.0f;
-        legacy.colorFilterEnabled = cam.colorFilter != ColorFilter::None;
-        legacy.colorFilterMode = cam.colorFilter;
-    }
-    if (useLegacy || world.any<PostProcess>()) {
+    PostProcess legacy;
+    const bool useLegacy = legacy_post_of_camera(cam, legacy);
+    // The editor's A/B switch (set_post_bypass): the picture as the scene draws it, with no stack, to compare it with the stack on.
+    if (!postBypass && (useLegacy || world.any<PostProcess>())) {
         auto stack = std::make_shared<PostStack>(resolve_post_stack(world, ci, useLegacy ? &legacy : nullptr));
         ci.bloom = bloom_from_stack(*stack);
         ci.colorFilter = stack->has(PostEffect::ColorFilter) ? std::clamp(int(stack->fx.colorFilterMode), 0, 5) : 0;
@@ -180,7 +171,7 @@ sg_desc make_sg_desc(const GfxEnvironment& env) {
     sd.image_pool_size = 1024;
     sd.view_pool_size = 4096;
     sd.sampler_pool_size = 64;
-    sd.shader_pool_size = 256;  // 11 built-in shaders, up to 4 per custom material
+    sd.shader_pool_size = 384;  // about 15 built-in shaders, up to 6 per custom material
     sd.pipeline_pool_size = 256;
     sd.uniform_buffer_size = 16 * 1024 * 1024;
     return sd;
@@ -244,12 +235,18 @@ int Renderer::warm_step(const GfxSwapchain& swapchain, World& world) {
         // frame that needs one before its group ran makes it itself, the same pipeline.
         im.warmGroups.push_back([gpu, presentFormat] { gpu->blit_pipeline(presentFormat); });
         // A game that asks for HDR on a backend that has it: the copy into the RGBA16F swapchain (scRGB, EDR) is made before the
-        // window switches to it, not on the frame it does.
+        // window switches to it, not on the frame it does. D3D11 also falls back to the 10-bit swapchain (HDR10) where the driver
+        // refuses scRGB: that copy is made too (without multisampling: a 10-bit swapchain has no multisampled image, so such a
+        // window never takes it).
         const render::FeatureBackend backend = render::feature_env_from_sokol().backend;
         if (world.settings().hdrOutput == HdrOutput::Auto &&
             (backend == render::FeatureBackend::Metal || backend == render::FeatureBackend::D3d11)) {
             const TargetFormat hdrFormat{SG_PIXELFORMAT_RGBA16F, presentFormat.depth, presentFormat.samples};
             im.warmGroups.push_back([gpu, hdrFormat] { gpu->blit_pipeline(hdrFormat); });
+            if (backend == render::FeatureBackend::D3d11 && presentFormat.samples <= 1) {
+                const TargetFormat hdr10Format{SG_PIXELFORMAT_RGB10A2, presentFormat.depth, presentFormat.samples};
+                im.warmGroups.push_back([gpu, hdr10Format] { gpu->blit_pipeline(hdr10Format); });
+            }
         }
         im.warmGroups.push_back([gpu] {
             gpu->quad_pipeline(false, false, BlendMode::Alpha);
@@ -331,6 +328,10 @@ bool Renderer::init(const RendererDesc& desc, const GfxEnvironment& env, std::st
     impl_ = std::make_unique<Impl>();
     Impl& im = *impl_;
     im.desc = desc;
+    if (const char* dv = std::getenv("FA_RENDER_DEBUG_VIEW"))
+        im.debugView = std::strcmp(dv, "depth") == 0     ? DebugView::Depth
+                       : std::strcmp(dv, "normals") == 0 ? DebugView::Normals
+                                                         : DebugView::None;
     im.adopted = desc.adoptContext && sg_isvalid();
     if (!im.adopted) {
         sg_desc sd = make_sg_desc(env);
@@ -504,20 +505,37 @@ void Renderer::update_output(const SceneSettings& settings, const std::string& b
         im.backend = render::feature_env_from_sokol().backend;
         im.backendKnown = true;
     }
-    HdrRequest request =
-        render::hdr_request(im.backend, settings.hdrOutput == HdrOutput::Auto, settings.paperWhiteNits);
-    request.blocked = blocked;
-    // What the status adds while an HDR encoding is on and the picture still stays within paper white (the last frame's).
-    if (!im.float_display())
-        request.activeNote = "this GPU draws the picture in 8 bits, so it stays within paper white";
-    else if (!im.frameAboveWhite)
-        request.activeNote =
-            "the picture stays within paper white: only the tonemap of a PostProcess (exposure or tonemap, "
-            "no colour filter) goes above it";
-    im.outputInfo = app_update_hdr_output(request);
+    // Called every frame: the request is kept and changed only where a value differs (a string is compared, never assigned, when it
+    // is the same), so a game that does not want HDR (the common case) builds no string here and the platform answers "unchanged".
+    const bool want = settings.hdrOutput == HdrOutput::Auto;
+    HdrRequest& request = im.outputRequest;
+    if (!im.outputRequestMade) {
+        request = render::hdr_request(im.backend, want, settings.paperWhiteNits);
+        im.outputRequestMade = true;
+    }
+    request.want = want;
+    request.paperWhiteNits = settings.paperWhiteNits;
+    if (request.blocked != blocked) request.blocked = blocked;
+    // What the status adds while an HDR encoding is on and the picture still stays within paper white (the last frame's); nothing
+    // is on when HDR is not wanted.
+    const char* note = "";
+    if (want) {
+        if (!im.float_display())
+            note = "this GPU draws the picture in 8 bits, so it stays within paper white";
+        else if (!im.frameAboveWhite)
+            note = "the picture stays within paper white: only the tonemap of a PostProcess (exposure or tonemap, "
+                   "no colour filter) goes above it";
+    }
+    if (request.activeNote != note) request.activeNote = note;
+    app_update_hdr_output(request, im.outputInfo);
 }
 
 HdrOutputInfo Renderer::output_info() const { return app_hdr_output(); }
+
+void Renderer::set_post_bypass(bool bypass) {
+    if (impl_) impl_->postBypass = bypass;
+}
+bool Renderer::post_bypass() const { return impl_ && impl_->postBypass; }
 
 Json Renderer::frame_graph_report() const {
     if (!impl_ || !(impl_->anyFrameRendered || impl_->graphFromCapture)) return Json();
@@ -678,6 +696,16 @@ render::ShadowRowsStats render::renderer_shadow_rows_stats(Renderer& r) {
     if (r.impl_) out = {int(r.impl_->shadowRowsRing.size()), int(r.impl_->shadowRowUploads)};
     return out;
 }
+
+void render::renderer_force_post_effects(Renderer& r, std::uint32_t effects) {
+    if (r.impl_) r.impl_->forceEffects = effects;
+}
+
+void Renderer::set_debug_view(DebugView view) {
+    if (impl_) impl_->debugView = view;
+}
+
+DebugView Renderer::debug_view() const { return impl_ ? impl_->debugView : DebugView::None; }
 
 void Renderer::update(World& world) {
     if (!initialized()) return;

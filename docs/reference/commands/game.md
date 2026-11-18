@@ -117,6 +117,7 @@ WITHOUT `path` the picture is temporary: the result is {width, height, frame, te
 Examples: game.screenshot {"path":"shots/start.png","scale":1.5}; game.screenshot {"region":[600,0,80,720],"zoom":8}; game.screenshot {"frames":48,"everyFrames":4,"region":[400,200,480,300]}
 
 `scale` (0.25 to 4, default 1) draws the same frame into an image scale times larger, sharp and not upscaled, for store screenshots: HUD, camera and visible area stay the same, so a 1280x720 game at scale 1.5 gives a 1920x1080 PNG.
+A PNG holds 8 bits, at most paper white. In a window on an HDR display the frame is drawn with the HDR tonemap and what it puts above white is clipped, so the brightest areas look flatter than on the screen; a run without a window draws in the standard range, the SDR look (see docs/RENDERING.md, "HDR output").
 `region` [x, y, width, height] (design pixels, origin top-left) with `zoom` (0.25 to 32) shows only that part magnified: use it to look at a seam, a join, a gradient end or a one-pixel gap that is invisible in the whole view. Up to zoom 4 the frame is drawn again at that render scale and cropped (lines, text and shapes are sharp, the HUD is included); above 4 the 4x picture is enlarged with nearest-neighbour sampling (hard pixel blocks, nothing blurred). The result is round(width * zoom) x round(height * zoom), at most 8192 px a side; the region is clamped to the view. `zoom` without `region` magnifies the whole view the same way.
 `frames` makes a FILMSTRIP: one PNG with a grid of pictures, each labelled with its frame number ("f130 +4" = game frame 130, 4 frames after the start). The first picture is the game now, then the game is STEPPED `everyFrames` frames (default 1) and captured again until `frames` frames have passed, so frames 48 and everyFrames 4 give 13 tiles and leave the game 48 frames further. At most 64 tiles. `region` and `zoom` apply to every tile (the same region each time); without `zoom` the tiles are sized so the sheet is about 2048 px wide (never enlarged). `columns` sets the grid width (default: nearly square). Use it to see a whole transition or animation at once. A tween or script keeps running while it steps: it shows what the game does, it does not freeze anything. The result adds `tiles` [{frame, offset}], `columns`, `rows`, `tileWidth`, `tileHeight` and `zoom`.
 `simulate` (greyscale, protanopia, deuteranopia, tritanopia) converts the picture to what a colour-blind viewer sees (Machado 2009 matrices, severity 1.0, applied to the sRGB pixels in linear light; greyscale = Rec. 709 luminance) without changing what the player sees: use it to check that hazards, pickups and buttons read without their colour. Needs graphics.
@@ -194,6 +195,22 @@ Capabilities: read, state, writeProject
 |---|---|---|---|
 | `action` | string ["start","stop"] | yes | start: begin recording now. stop: end it and return the replay. |
 | `path` | string | no | stop only: also write the replay to this project-relative file inside the project (e.g. replays/run1.json; absolute paths need writeAnywhere). Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
+
+## `render.debug_view` (modifies state)
+
+Not released yet (on main after 0.30.1).
+
+Show the depth or the normals of the depth and normal prepass instead of the game picture, or report which view is on.
+
+Capabilities: read, state
+
+A way to look at the data the depth-based post effects (ssao, depth of field, fog...) read: `depth` paints the prepass depth as a grey (10 / (10 + distance), white next to the camera), `normals` the view-space normal as colours (a surface that faces the camera is blue), black where no opaque mesh was drawn; `none` shows the game again. It is a look at the data for a person or an AI checking a scene, not an effect: it is not saved and a game does not set it. Without `view` it only reports the current one. Result: {view, previous}. The view shows from the next frame (game.step, then game.screenshot). Example: render.debug_view {"view":"depth"}
+
+The environment variable FA_RENDER_DEBUG_VIEW sets the first view at start. The picture changes only on a frame that draws the prepass (a post effect that reads the depth is on, see docs/RENDERING.md, "Depth and normals"). Errors: `invalid_argument` for a `view` that is not none, depth or normals (with a did-you-mean); `unavailable` without graphics (graphics=false). The same is Renderer::set_debug_view in C++.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `view` | string | no | none (the game picture), depth or normals. Omitted: report the current view. |
 
 ## `render.frame_graph`
 

@@ -1,7 +1,7 @@
 {
   "format": "factoria.shader/1",
   "engine": "0.30.1",
-  "template": "616705bcddf9b6a98bc0277c05f4815433dd40e61efe9f55376421e3ba39eecd",
+  "template": "1c5c13939b42ed419c168b2362b97b70828f5b0a66b0224d5329f32307923339",
   "slang": "metal_macos",
   "params": [],
   "textures": [],
@@ -470,6 +470,404 @@
             "sampler_name": "fa_shadow_smp",
             "view_slot": 1,
             "sampler_slot": 1
+          }
+        ]
+      }
+    },
+    "prepass": {
+      "vs": "#pragma clang diagnostic ignored \"-Wmissing-prototypes\"\n\n#include <metal_stdlib>\n#include <simd/simd.h>\n\nusing namespace metal;\n\nstruct VertexData\n{\n    float3 world_pos;\n    float3 world_normal;\n    float4 world_tangent;\n    float2 uv;\n    float4 color;\n    float3 object_pos;\n};\n\nstruct fa_mesh_vs_params\n{\n    float4x4 fa_view_proj;\n    float4x4 fa_light_vp;\n    float4 fa_uv_scale;\n    float4 fa_time;\n};\n\nstruct main0_out\n{\n    float3 fa_world_pos [[user(locn0)]];\n    float3 fa_world_normal [[user(locn1)]];\n    float4 fa_world_tangent [[user(locn2)]];\n    float2 fa_uv [[user(locn3)]];\n    float4 fa_vertex_color [[user(locn4)]];\n    float fa_pre_depth [[user(locn5)]];\n    float3 fa_pre_r0 [[user(locn6)]];\n    float3 fa_pre_r1 [[user(locn7)]];\n    float3 fa_pre_r2 [[user(locn8)]];\n    float4 gl_Position [[position]];\n};\n\nstruct main0_in\n{\n    float3 fa_position [[attribute(0)]];\n    float3 fa_normal [[attribute(1)]];\n    float2 fa_texcoord0 [[attribute(2)]];\n    float4 fa_tangent [[attribute(3)]];\n    float4 fa_color [[attribute(4)]];\n    float4 fa_inst_m0 [[attribute(5)]];\n    float4 fa_inst_m1 [[attribute(6)]];\n    float4 fa_inst_m2 [[attribute(7)]];\n    float4 fa_inst_m3 [[attribute(8)]];\n};\n\nstatic inline __attribute__((always_inline))\nVertexData fa_vertex_data(thread const float4x4& model, thread const float3& position, thread const float3& normal, thread const float4& tangent, thread const float2& texcoord0, thread const float4& color, constant fa_mesh_vs_params& _129)\n{\n    float3 _67 = cross(model[1].xyz, model[2].xyz);\n    float _73 = (dot(model[0].xyz, _67) < 0.0) ? (-1.0) : 1.0;\n    return VertexData{ (model * float4(position, 1.0)).xyz, (((_67 * normal.x) + (cross(model[2].xyz, model[0].xyz) * normal.y)) + (cross(model[0].xyz, model[1].xyz) * normal.z)) * _73, float4(((model[0].xyz * tangent.x) + (model[1].xyz * tangent.y)) + (model[2].xyz * tangent.z), tangent.w * _73), texcoord0 * _129.fa_uv_scale.xy, color, position };\n}\n\nstatic inline __attribute__((always_inline))\nvoid fa_prepass_vertex(thread const float4x4& model, thread const float3& position, thread const float3& normal, thread const float4& tangent, thread const float2& texcoord0, thread const float4& color, constant fa_mesh_vs_params& _129, thread float3& fa_world_pos, thread float3& fa_world_normal, thread float4& fa_world_tangent, thread float2& fa_uv, thread float4& fa_vertex_color, thread float& fa_pre_depth, thread float3& fa_pre_r0, thread float3& fa_pre_r1, thread float3& fa_pre_r2, thread float4& gl_Position)\n{\n    float4x4 param = model;\n    float3 param_1 = position;\n    float3 param_2 = normal;\n    float4 param_3 = tangent;\n    float2 param_4 = texcoord0;\n    float4 param_5 = color;\n    VertexData _158 = fa_vertex_data(param, param_1, param_2, param_3, param_4, param_5, _129);\n    float3 _296 = _158.world_pos;\n    float4 _169 = float4(_296, 1.0);\n    fa_world_pos = _296;\n    fa_world_normal = _158.world_normal;\n    fa_world_tangent = _158.world_tangent;\n    fa_uv = _158.uv;\n    fa_vertex_color = _158.color;\n    fa_pre_depth = -(_129.fa_light_vp * _169).z;\n    fa_pre_r0 = float3(_129.fa_light_vp[0].x, _129.fa_light_vp[1].x, _129.fa_light_vp[2].x);\n    fa_pre_r1 = float3(_129.fa_light_vp[0].y, _129.fa_light_vp[1].y, _129.fa_light_vp[2].y);\n    fa_pre_r2 = float3(_129.fa_light_vp[0].z, _129.fa_light_vp[1].z, _129.fa_light_vp[2].z);\n    gl_Position = _129.fa_view_proj * _169;\n}\n\nvertex main0_out main0(main0_in in [[stage_in]], constant fa_mesh_vs_params& _129 [[buffer(0)]])\n{\n    main0_out out = {};\n    float4x4 param = float4x4(in.fa_inst_m0, in.fa_inst_m1, in.fa_inst_m2, in.fa_inst_m3);\n    float3 param_1 = in.fa_position;\n    float3 param_2 = in.fa_normal;\n    float4 param_3 = in.fa_tangent;\n    float2 param_4 = in.fa_texcoord0;\n    float4 param_5 = in.fa_color;\n    fa_prepass_vertex(param, param_1, param_2, param_3, param_4, param_5, _129, out.fa_world_pos, out.fa_world_normal, out.fa_world_tangent, out.fa_uv, out.fa_vertex_color, out.fa_pre_depth, out.fa_pre_r0, out.fa_pre_r1, out.fa_pre_r2, out.gl_Position);\n    return out;\n}\n\n",
+      "fs": "#pragma clang diagnostic ignored \"-Wmissing-prototypes\"\n\n#include <metal_stdlib>\n#include <simd/simd.h>\n\nusing namespace metal;\n\n// Implementation of the GLSL mod() function, which is slightly different than Metal fmod()\ntemplate<typename Tx, typename Ty>\ninline Tx mod(Tx x, Ty y)\n{\n    return x - y * floor(x / y);\n}\n\nstruct SurfaceInput\n{\n    float3 world_pos;\n    float3 world_normal;\n    float4 world_tangent;\n    float2 uv;\n    float4 vertex_color;\n    float3 view_dir;\n    short front_facing;\n};\n\nstruct Surface\n{\n    float3 albedo;\n    float alpha;\n    float3 normal;\n    float metallic;\n    float roughness;\n    float occlusion;\n    float3 emission;\n};\n\nstruct fa_mesh_fs_params\n{\n    float4 fa_camera_pos;\n    float4 fa_ambient;\n    float4 fa_base_color;\n    float4 fa_emissive;\n    float4 fa_model_emissive;\n    float4 fa_pbr;\n    float4 fa_maps;\n    float4 fa_fog;\n    float4 fa_counts;\n    float4 fa_env_sky;\n    float4 fa_env_horizon;\n    float4 fa_time;\n};\n\nstruct main0_out\n{\n    float4 fa_frag_color [[color(0)]];\n};\n\nstruct main0_in\n{\n    float3 fa_world_pos [[user(locn0)]];\n    float3 fa_world_normal [[user(locn1)]];\n    float4 fa_world_tangent [[user(locn2)]];\n    float2 fa_uv [[user(locn3)]];\n    float4 fa_vertex_color [[user(locn4)]];\n    float fa_pre_depth [[user(locn5)]];\n    float3 fa_pre_r0 [[user(locn6)]];\n    float3 fa_pre_r1 [[user(locn7)]];\n    float3 fa_pre_r2 [[user(locn8)]];\n};\n\nstatic inline __attribute__((always_inline))\nfloat fa_fix_of(thread const float& _packed, thread const float& scale)\n{\n    return mod(floor((_packed / scale) + 0.00999999977648258209228515625), 4.0);\n}\n\nstatic inline __attribute__((always_inline))\nfloat3 fa_linear_to_srgb(thread float3& c)\n{\n    c = fast::max(c, float3(0.0));\n    return mix((powr(c, float3(0.4166666567325592041015625)) * 1.05499994754791259765625) - float3(0.054999999701976776123046875), c * 12.9200000762939453125, step(c, float3(0.003130800090730190277099609375)));\n}\n\nstatic inline __attribute__((always_inline))\nfloat3 fa_srgb_to_linear(thread float3& c)\n{\n    c = fast::max(c, float3(0.0));\n    return mix(powr((c + float3(0.054999999701976776123046875)) * float3(0.947867333889007568359375), float3(2.400000095367431640625)), c * float3(0.077399380505084991455078125), step(c, float3(0.040449999272823333740234375)));\n}\n\nstatic inline __attribute__((always_inline))\nfloat3 fa_tex_fix(thread float3& c, thread const float& mode)\n{\n    if (mode > 1.5)\n    {\n        float3 param = c;\n        float3 _170 = fa_linear_to_srgb(param);\n        c = _170;\n    }\n    else\n    {\n        if (mode > 0.5)\n        {\n            float3 param_1 = c;\n            float3 _179 = fa_srgb_to_linear(param_1);\n            c = _179;\n        }\n    }\n    return c;\n}\n\nstatic inline __attribute__((always_inline))\nfloat3 fa_tangent_normal(thread const SurfaceInput& i, thread const float3& m)\n{\n    float3 _54;\n    if (bool(i.front_facing))\n    {\n        _54 = i.world_normal;\n    }\n    else\n    {\n        _54 = -i.world_normal;\n    }\n    float3 _79 = fast::normalize(i.world_tangent.xyz - (_54 * dot(_54, i.world_tangent.xyz)));\n    float3 _107 = fast::normalize(((_79 * m.x) + ((cross(_54, _79) * i.world_tangent.w) * m.y)) + (_54 * m.z));\n    float3 _110;\n    if (bool(i.front_facing))\n    {\n        _110 = _107;\n    }\n    else\n    {\n        _110 = -_107;\n    }\n    return _110;\n}\n\nstatic inline __attribute__((always_inline))\nSurface fa_standard_surface(thread const SurfaceInput& i, texture2d<float> fa_tex, sampler fa_smp, constant fa_mesh_fs_params& _211, texture2d<float> fa_normal_tex, texture2d<float> fa_mr_tex, texture2d<float> fa_occlusion_tex, texture2d<float> fa_emissive_tex)\n{\n    float4 base_t = fa_tex.sample(fa_smp, i.uv);\n    float param = _211.fa_maps.w;\n    float param_1 = 1.0;\n    float3 param_2 = base_t.xyz;\n    float param_3 = fa_fix_of(param, param_1);\n    float3 _223 = fa_tex_fix(param_2, param_3);\n    float4 _578 = base_t;\n    _578.x = _223.x;\n    _578.y = _223.y;\n    _578.z = _223.z;\n    base_t = _578;\n    float4 _239 = (_578 * _211.fa_base_color) * i.vertex_color;\n    float3 _559 = i.world_normal;\n    if (_211.fa_maps.z > 0.5)\n    {\n        float param_4 = _211.fa_maps.w;\n        float param_5 = 16.0;\n        float3 param_6 = fa_normal_tex.sample(fa_smp, i.uv).xyz;\n        float param_7 = fa_fix_of(param_4, param_5);\n        float3 _273 = fa_tex_fix(param_6, param_7);\n        float3 _277 = (_273 * 2.0) - float3(1.0);\n        float2 _282 = _277.xy * _211.fa_maps.x;\n        float3 _586 = _277;\n        _586.x = _282.x;\n        _586.y = _282.y;\n        SurfaceInput param_8 = i;\n        float3 param_9 = _586;\n        _559 = fa_tangent_normal(param_8, param_9);\n    }\n    float4 mrt = fa_mr_tex.sample(fa_smp, i.uv);\n    float param_10 = _211.fa_maps.w;\n    float param_11 = 64.0;\n    float3 param_12 = mrt.xyz;\n    float param_13 = fa_fix_of(param_10, param_11);\n    float3 _311 = fa_tex_fix(param_12, param_13);\n    float4 _589 = mrt;\n    _589.x = _311.x;\n    _589.y = _311.y;\n    _589.z = _311.z;\n    mrt = _589;\n    float param_14 = _211.fa_maps.w;\n    float param_15 = 256.0;\n    float3 param_16 = fa_occlusion_tex.sample(fa_smp, i.uv).xxx;\n    float param_17 = fa_fix_of(param_14, param_15);\n    float3 _352 = fa_tex_fix(param_16, param_17);\n    float param_18 = _211.fa_maps.w;\n    float param_19 = 4.0;\n    float3 param_20 = fa_emissive_tex.sample(fa_smp, i.uv).xyz;\n    float param_21 = fa_fix_of(param_18, param_19);\n    float3 _379 = fa_tex_fix(param_20, param_21);\n    return Surface{ _239.xyz, _239.w, _559, fast::clamp(_211.fa_pbr.x * _311.z, 0.0, 1.0), fast::clamp(_211.fa_pbr.y * _311.y, 0.0500000007450580596923828125, 1.0), 1.0 + (_211.fa_maps.y * (_352.x - 1.0)), _211.fa_emissive.xyz + (_211.fa_model_emissive.xyz * _379) };\n}\n\nstatic inline __attribute__((always_inline))\nvoid surface(thread const SurfaceInput& i, thread const Surface& s)\n{\n}\n\nfragment main0_out main0(main0_in in [[stage_in]], constant fa_mesh_fs_params& _211 [[buffer(1)]], texture2d<float> fa_tex [[texture(0)]], texture2d<float> fa_normal_tex [[texture(1)]], texture2d<float> fa_mr_tex [[texture(2)]], texture2d<float> fa_occlusion_tex [[texture(3)]], texture2d<float> fa_emissive_tex [[texture(4)]], sampler fa_smp [[sampler(0)]], bool gl_FrontFacing [[front_facing]])\n{\n    main0_out out = {};\n    float3 _506 = fast::normalize(in.fa_world_normal);\n    if (!gl_FrontFacing)\n    {\n        _506 = -_506;\n    }\n    float3 _424 = fast::normalize(_211.fa_camera_pos.xyz - in.fa_world_pos);\n    SurfaceInput param = SurfaceInput{ in.fa_world_pos, _506, in.fa_world_tangent, in.fa_uv, in.fa_vertex_color, _424, short(gl_FrontFacing) };\n    SurfaceInput param_1 = SurfaceInput{ in.fa_world_pos, _506, in.fa_world_tangent, in.fa_uv, in.fa_vertex_color, _424, short(gl_FrontFacing) };\n    Surface param_2 = fa_standard_surface(param, fa_tex, fa_smp, _211, fa_normal_tex, fa_mr_tex, fa_occlusion_tex, fa_emissive_tex);\n    surface(param_1, param_2);\n    float3 _439 = fast::normalize(param_2.normal);\n    float3 _454 = fast::normalize(float3(dot(in.fa_pre_r0, _439), dot(in.fa_pre_r1, _439), dot(in.fa_pre_r2, _439)));\n    float _466 = _454.z;\n    float2 e = _454.xy / float2((abs(_454.x) + abs(_454.y)) + abs(_466));\n    if (_466 < 0.0)\n    {\n        e = (float2(1.0) - abs(e.yx)) * float2((e.x >= 0.0) ? 1.0 : (-1.0), (e.y >= 0.0) ? 1.0 : (-1.0));\n    }\n    out.fa_frag_color = float4(fast::min(in.fa_pre_depth, 60000.0), e, 1.0);\n    return out;\n}\n\n",
+      "reflection": {
+        "vertex_func": {
+          "entry_point": "main0"
+        },
+        "fragment_func": {
+          "entry_point": "main0"
+        },
+        "attrs": [
+          {
+            "slot": 0,
+            "type": "vec3",
+            "base_type": "Float"
+          },
+          {
+            "slot": 1,
+            "type": "vec3",
+            "base_type": "Float"
+          },
+          {
+            "slot": 2,
+            "type": "vec2",
+            "base_type": "Float"
+          },
+          {
+            "slot": 3,
+            "type": "vec4",
+            "base_type": "Float"
+          },
+          {
+            "slot": 4,
+            "type": "vec4",
+            "base_type": "Float"
+          },
+          {
+            "slot": 5,
+            "type": "vec4",
+            "base_type": "Float"
+          },
+          {
+            "slot": 6,
+            "type": "vec4",
+            "base_type": "Float"
+          },
+          {
+            "slot": 7,
+            "type": "vec4",
+            "base_type": "Float"
+          },
+          {
+            "slot": 8,
+            "type": "vec4",
+            "base_type": "Float"
+          }
+        ],
+        "uniform_blocks": [
+          {
+            "slot": 0,
+            "stage": "vertex",
+            "size": 160,
+            "struct_name": "fa_mesh_vs_params",
+            "inst_name": "_129",
+            "msl_buffer_n": 0
+          },
+          {
+            "slot": 1,
+            "stage": "fragment",
+            "size": 192,
+            "struct_name": "fa_mesh_fs_params",
+            "inst_name": "_211",
+            "msl_buffer_n": 1
+          }
+        ],
+        "views": [
+          {
+            "texture": {
+              "slot": 0,
+              "stage": "fragment",
+              "name": "fa_tex",
+              "multisampled": false,
+              "type": "2d",
+              "sample_type": "float",
+              "msl_texture_n": 0
+            }
+          },
+          {
+            "texture": {
+              "slot": 2,
+              "stage": "fragment",
+              "name": "fa_normal_tex",
+              "multisampled": false,
+              "type": "2d",
+              "sample_type": "float",
+              "msl_texture_n": 1
+            }
+          },
+          {
+            "texture": {
+              "slot": 3,
+              "stage": "fragment",
+              "name": "fa_mr_tex",
+              "multisampled": false,
+              "type": "2d",
+              "sample_type": "float",
+              "msl_texture_n": 2
+            }
+          },
+          {
+            "texture": {
+              "slot": 4,
+              "stage": "fragment",
+              "name": "fa_occlusion_tex",
+              "multisampled": false,
+              "type": "2d",
+              "sample_type": "float",
+              "msl_texture_n": 3
+            }
+          },
+          {
+            "texture": {
+              "slot": 5,
+              "stage": "fragment",
+              "name": "fa_emissive_tex",
+              "multisampled": false,
+              "type": "2d",
+              "sample_type": "float",
+              "msl_texture_n": 4
+            }
+          }
+        ],
+        "samplers": [
+          {
+            "slot": 0,
+            "stage": "fragment",
+            "name": "fa_smp",
+            "sampler_type": "filtering",
+            "msl_sampler_n": 0
+          }
+        ],
+        "texture_sampler_pairs": [
+          {
+            "slot": 0,
+            "stage": "fragment",
+            "name": "fa_tex_fa_smp",
+            "view_name": "fa_tex",
+            "sampler_name": "fa_smp",
+            "view_slot": 0,
+            "sampler_slot": 0
+          },
+          {
+            "slot": 1,
+            "stage": "fragment",
+            "name": "fa_normal_tex_fa_smp",
+            "view_name": "fa_normal_tex",
+            "sampler_name": "fa_smp",
+            "view_slot": 2,
+            "sampler_slot": 0
+          },
+          {
+            "slot": 2,
+            "stage": "fragment",
+            "name": "fa_mr_tex_fa_smp",
+            "view_name": "fa_mr_tex",
+            "sampler_name": "fa_smp",
+            "view_slot": 3,
+            "sampler_slot": 0
+          },
+          {
+            "slot": 3,
+            "stage": "fragment",
+            "name": "fa_occlusion_tex_fa_smp",
+            "view_name": "fa_occlusion_tex",
+            "sampler_name": "fa_smp",
+            "view_slot": 4,
+            "sampler_slot": 0
+          },
+          {
+            "slot": 4,
+            "stage": "fragment",
+            "name": "fa_emissive_tex_fa_smp",
+            "view_name": "fa_emissive_tex",
+            "sampler_name": "fa_smp",
+            "view_slot": 5,
+            "sampler_slot": 0
+          }
+        ]
+      }
+    },
+    "prepass_skin": {
+      "vs": "#pragma clang diagnostic ignored \"-Wmissing-prototypes\"\n\n#include <metal_stdlib>\n#include <simd/simd.h>\n\nusing namespace metal;\n\nstruct VertexData\n{\n    float3 world_pos;\n    float3 world_normal;\n    float4 world_tangent;\n    float2 uv;\n    float4 color;\n    float3 object_pos;\n};\n\nstruct fa_mesh_vs_params\n{\n    float4x4 fa_view_proj;\n    float4x4 fa_light_vp;\n    float4 fa_uv_scale;\n    float4 fa_time;\n};\n\nstruct fa_skin\n{\n    float4 fa_joint_rows[192];\n};\n\nstruct main0_out\n{\n    float3 fa_world_pos [[user(locn0)]];\n    float3 fa_world_normal [[user(locn1)]];\n    float4 fa_world_tangent [[user(locn2)]];\n    float2 fa_uv [[user(locn3)]];\n    float4 fa_vertex_color [[user(locn4)]];\n    float fa_pre_depth [[user(locn5)]];\n    float3 fa_pre_r0 [[user(locn6)]];\n    float3 fa_pre_r1 [[user(locn7)]];\n    float3 fa_pre_r2 [[user(locn8)]];\n    float4 gl_Position [[position]];\n};\n\nstruct main0_in\n{\n    float3 fa_position [[attribute(0)]];\n    float3 fa_normal [[attribute(1)]];\n    float2 fa_texcoord0 [[attribute(2)]];\n    float4 fa_tangent [[attribute(3)]];\n    float4 fa_color [[attribute(4)]];\n    float4 fa_inst_m0 [[attribute(5)]];\n    float4 fa_inst_m1 [[attribute(6)]];\n    float4 fa_inst_m2 [[attribute(7)]];\n    float4 fa_inst_m3 [[attribute(8)]];\n    float4 fa_joints [[attribute(9)]];\n    float4 fa_weights [[attribute(10)]];\n};\n\nstatic inline __attribute__((always_inline))\nfloat4x4 fa_skin_matrix(thread const float4& joints, thread const float4& weights, constant fa_skin& _181)\n{\n    float4 r0 = float4(0.0);\n    float4 r1 = float4(0.0);\n    float4 r2 = float4(0.0);\n    for (int i = 0; i < 4; i++)\n    {\n        int _172 = int((joints[i] * 255.0) + 0.5) * 3;\n        r0 += (_181.fa_joint_rows[_172] * weights[i]);\n        r1 += (_181.fa_joint_rows[_172 + 1] * weights[i]);\n        r2 += (_181.fa_joint_rows[_172 + 2] * weights[i]);\n    }\n    return float4x4(float4(r0.x, r1.x, r2.x, 0.0), float4(r0.y, r1.y, r2.y, 0.0), float4(r0.z, r1.z, r2.z, 0.0), float4(r0.w, r1.w, r2.w, 1.0));\n}\n\nstatic inline __attribute__((always_inline))\nVertexData fa_vertex_data(thread const float4x4& model, thread const float3& position, thread const float3& normal, thread const float4& tangent, thread const float2& texcoord0, thread const float4& color, constant fa_mesh_vs_params& _134)\n{\n    float3 _72 = cross(model[1].xyz, model[2].xyz);\n    float _78 = (dot(model[0].xyz, _72) < 0.0) ? (-1.0) : 1.0;\n    return VertexData{ (model * float4(position, 1.0)).xyz, (((_72 * normal.x) + (cross(model[2].xyz, model[0].xyz) * normal.y)) + (cross(model[0].xyz, model[1].xyz) * normal.z)) * _78, float4(((model[0].xyz * tangent.x) + (model[1].xyz * tangent.y)) + (model[2].xyz * tangent.z), tangent.w * _78), texcoord0 * _134.fa_uv_scale.xy, color, position };\n}\n\nstatic inline __attribute__((always_inline))\nvoid fa_prepass_vertex(thread const float4x4& model, thread const float3& position, thread const float3& normal, thread const float4& tangent, thread const float2& texcoord0, thread const float4& color, constant fa_mesh_vs_params& _134, thread float3& fa_world_pos, thread float3& fa_world_normal, thread float4& fa_world_tangent, thread float2& fa_uv, thread float4& fa_vertex_color, thread float& fa_pre_depth, thread float3& fa_pre_r0, thread float3& fa_pre_r1, thread float3& fa_pre_r2, thread float4& gl_Position)\n{\n    float4x4 param = model;\n    float3 param_1 = position;\n    float3 param_2 = normal;\n    float4 param_3 = tangent;\n    float2 param_4 = texcoord0;\n    float4 param_5 = color;\n    VertexData _271 = fa_vertex_data(param, param_1, param_2, param_3, param_4, param_5, _134);\n    float3 _417 = _271.world_pos;\n    float4 _282 = float4(_417, 1.0);\n    fa_world_pos = _417;\n    fa_world_normal = _271.world_normal;\n    fa_world_tangent = _271.world_tangent;\n    fa_uv = _271.uv;\n    fa_vertex_color = _271.color;\n    fa_pre_depth = -(_134.fa_light_vp * _282).z;\n    fa_pre_r0 = float3(_134.fa_light_vp[0].x, _134.fa_light_vp[1].x, _134.fa_light_vp[2].x);\n    fa_pre_r1 = float3(_134.fa_light_vp[0].y, _134.fa_light_vp[1].y, _134.fa_light_vp[2].y);\n    fa_pre_r2 = float3(_134.fa_light_vp[0].z, _134.fa_light_vp[1].z, _134.fa_light_vp[2].z);\n    gl_Position = _134.fa_view_proj * _282;\n}\n\nvertex main0_out main0(main0_in in [[stage_in]], constant fa_mesh_vs_params& _134 [[buffer(0)]], constant fa_skin& _181 [[buffer(3)]])\n{\n    main0_out out = {};\n    float4 param = in.fa_joints;\n    float4 param_1 = in.fa_weights;\n    float4x4 param_2 = float4x4(in.fa_inst_m0, in.fa_inst_m1, in.fa_inst_m2, in.fa_inst_m3) * fa_skin_matrix(param, param_1, _181);\n    float3 param_3 = in.fa_position;\n    float3 param_4 = in.fa_normal;\n    float4 param_5 = in.fa_tangent;\n    float2 param_6 = in.fa_texcoord0;\n    float4 param_7 = in.fa_color;\n    fa_prepass_vertex(param_2, param_3, param_4, param_5, param_6, param_7, _134, out.fa_world_pos, out.fa_world_normal, out.fa_world_tangent, out.fa_uv, out.fa_vertex_color, out.fa_pre_depth, out.fa_pre_r0, out.fa_pre_r1, out.fa_pre_r2, out.gl_Position);\n    return out;\n}\n\n",
+      "fs": "#pragma clang diagnostic ignored \"-Wmissing-prototypes\"\n\n#include <metal_stdlib>\n#include <simd/simd.h>\n\nusing namespace metal;\n\n// Implementation of the GLSL mod() function, which is slightly different than Metal fmod()\ntemplate<typename Tx, typename Ty>\ninline Tx mod(Tx x, Ty y)\n{\n    return x - y * floor(x / y);\n}\n\nstruct SurfaceInput\n{\n    float3 world_pos;\n    float3 world_normal;\n    float4 world_tangent;\n    float2 uv;\n    float4 vertex_color;\n    float3 view_dir;\n    short front_facing;\n};\n\nstruct Surface\n{\n    float3 albedo;\n    float alpha;\n    float3 normal;\n    float metallic;\n    float roughness;\n    float occlusion;\n    float3 emission;\n};\n\nstruct fa_mesh_fs_params\n{\n    float4 fa_camera_pos;\n    float4 fa_ambient;\n    float4 fa_base_color;\n    float4 fa_emissive;\n    float4 fa_model_emissive;\n    float4 fa_pbr;\n    float4 fa_maps;\n    float4 fa_fog;\n    float4 fa_counts;\n    float4 fa_env_sky;\n    float4 fa_env_horizon;\n    float4 fa_time;\n};\n\nstruct main0_out\n{\n    float4 fa_frag_color [[color(0)]];\n};\n\nstruct main0_in\n{\n    float3 fa_world_pos [[user(locn0)]];\n    float3 fa_world_normal [[user(locn1)]];\n    float4 fa_world_tangent [[user(locn2)]];\n    float2 fa_uv [[user(locn3)]];\n    float4 fa_vertex_color [[user(locn4)]];\n    float fa_pre_depth [[user(locn5)]];\n    float3 fa_pre_r0 [[user(locn6)]];\n    float3 fa_pre_r1 [[user(locn7)]];\n    float3 fa_pre_r2 [[user(locn8)]];\n};\n\nstatic inline __attribute__((always_inline))\nfloat fa_fix_of(thread const float& _packed, thread const float& scale)\n{\n    return mod(floor((_packed / scale) + 0.00999999977648258209228515625), 4.0);\n}\n\nstatic inline __attribute__((always_inline))\nfloat3 fa_linear_to_srgb(thread float3& c)\n{\n    c = fast::max(c, float3(0.0));\n    return mix((powr(c, float3(0.4166666567325592041015625)) * 1.05499994754791259765625) - float3(0.054999999701976776123046875), c * 12.9200000762939453125, step(c, float3(0.003130800090730190277099609375)));\n}\n\nstatic inline __attribute__((always_inline))\nfloat3 fa_srgb_to_linear(thread float3& c)\n{\n    c = fast::max(c, float3(0.0));\n    return mix(powr((c + float3(0.054999999701976776123046875)) * float3(0.947867333889007568359375), float3(2.400000095367431640625)), c * float3(0.077399380505084991455078125), step(c, float3(0.040449999272823333740234375)));\n}\n\nstatic inline __attribute__((always_inline))\nfloat3 fa_tex_fix(thread float3& c, thread const float& mode)\n{\n    if (mode > 1.5)\n    {\n        float3 param = c;\n        float3 _170 = fa_linear_to_srgb(param);\n        c = _170;\n    }\n    else\n    {\n        if (mode > 0.5)\n        {\n            float3 param_1 = c;\n            float3 _179 = fa_srgb_to_linear(param_1);\n            c = _179;\n        }\n    }\n    return c;\n}\n\nstatic inline __attribute__((always_inline))\nfloat3 fa_tangent_normal(thread const SurfaceInput& i, thread const float3& m)\n{\n    float3 _54;\n    if (bool(i.front_facing))\n    {\n        _54 = i.world_normal;\n    }\n    else\n    {\n        _54 = -i.world_normal;\n    }\n    float3 _79 = fast::normalize(i.world_tangent.xyz - (_54 * dot(_54, i.world_tangent.xyz)));\n    float3 _107 = fast::normalize(((_79 * m.x) + ((cross(_54, _79) * i.world_tangent.w) * m.y)) + (_54 * m.z));\n    float3 _110;\n    if (bool(i.front_facing))\n    {\n        _110 = _107;\n    }\n    else\n    {\n        _110 = -_107;\n    }\n    return _110;\n}\n\nstatic inline __attribute__((always_inline))\nSurface fa_standard_surface(thread const SurfaceInput& i, texture2d<float> fa_tex, sampler fa_smp, constant fa_mesh_fs_params& _211, texture2d<float> fa_normal_tex, texture2d<float> fa_mr_tex, texture2d<float> fa_occlusion_tex, texture2d<float> fa_emissive_tex)\n{\n    float4 base_t = fa_tex.sample(fa_smp, i.uv);\n    float param = _211.fa_maps.w;\n    float param_1 = 1.0;\n    float3 param_2 = base_t.xyz;\n    float param_3 = fa_fix_of(param, param_1);\n    float3 _223 = fa_tex_fix(param_2, param_3);\n    float4 _578 = base_t;\n    _578.x = _223.x;\n    _578.y = _223.y;\n    _578.z = _223.z;\n    base_t = _578;\n    float4 _239 = (_578 * _211.fa_base_color) * i.vertex_color;\n    float3 _559 = i.world_normal;\n    if (_211.fa_maps.z > 0.5)\n    {\n        float param_4 = _211.fa_maps.w;\n        float param_5 = 16.0;\n        float3 param_6 = fa_normal_tex.sample(fa_smp, i.uv).xyz;\n        float param_7 = fa_fix_of(param_4, param_5);\n        float3 _273 = fa_tex_fix(param_6, param_7);\n        float3 _277 = (_273 * 2.0) - float3(1.0);\n        float2 _282 = _277.xy * _211.fa_maps.x;\n        float3 _586 = _277;\n        _586.x = _282.x;\n        _586.y = _282.y;\n        SurfaceInput param_8 = i;\n        float3 param_9 = _586;\n        _559 = fa_tangent_normal(param_8, param_9);\n    }\n    float4 mrt = fa_mr_tex.sample(fa_smp, i.uv);\n    float param_10 = _211.fa_maps.w;\n    float param_11 = 64.0;\n    float3 param_12 = mrt.xyz;\n    float param_13 = fa_fix_of(param_10, param_11);\n    float3 _311 = fa_tex_fix(param_12, param_13);\n    float4 _589 = mrt;\n    _589.x = _311.x;\n    _589.y = _311.y;\n    _589.z = _311.z;\n    mrt = _589;\n    float param_14 = _211.fa_maps.w;\n    float param_15 = 256.0;\n    float3 param_16 = fa_occlusion_tex.sample(fa_smp, i.uv).xxx;\n    float param_17 = fa_fix_of(param_14, param_15);\n    float3 _352 = fa_tex_fix(param_16, param_17);\n    float param_18 = _211.fa_maps.w;\n    float param_19 = 4.0;\n    float3 param_20 = fa_emissive_tex.sample(fa_smp, i.uv).xyz;\n    float param_21 = fa_fix_of(param_18, param_19);\n    float3 _379 = fa_tex_fix(param_20, param_21);\n    return Surface{ _239.xyz, _239.w, _559, fast::clamp(_211.fa_pbr.x * _311.z, 0.0, 1.0), fast::clamp(_211.fa_pbr.y * _311.y, 0.0500000007450580596923828125, 1.0), 1.0 + (_211.fa_maps.y * (_352.x - 1.0)), _211.fa_emissive.xyz + (_211.fa_model_emissive.xyz * _379) };\n}\n\nstatic inline __attribute__((always_inline))\nvoid surface(thread const SurfaceInput& i, thread const Surface& s)\n{\n}\n\nfragment main0_out main0(main0_in in [[stage_in]], constant fa_mesh_fs_params& _211 [[buffer(1)]], texture2d<float> fa_tex [[texture(0)]], texture2d<float> fa_normal_tex [[texture(1)]], texture2d<float> fa_mr_tex [[texture(2)]], texture2d<float> fa_occlusion_tex [[texture(3)]], texture2d<float> fa_emissive_tex [[texture(4)]], sampler fa_smp [[sampler(0)]], bool gl_FrontFacing [[front_facing]])\n{\n    main0_out out = {};\n    float3 _506 = fast::normalize(in.fa_world_normal);\n    if (!gl_FrontFacing)\n    {\n        _506 = -_506;\n    }\n    float3 _424 = fast::normalize(_211.fa_camera_pos.xyz - in.fa_world_pos);\n    SurfaceInput param = SurfaceInput{ in.fa_world_pos, _506, in.fa_world_tangent, in.fa_uv, in.fa_vertex_color, _424, short(gl_FrontFacing) };\n    SurfaceInput param_1 = SurfaceInput{ in.fa_world_pos, _506, in.fa_world_tangent, in.fa_uv, in.fa_vertex_color, _424, short(gl_FrontFacing) };\n    Surface param_2 = fa_standard_surface(param, fa_tex, fa_smp, _211, fa_normal_tex, fa_mr_tex, fa_occlusion_tex, fa_emissive_tex);\n    surface(param_1, param_2);\n    float3 _439 = fast::normalize(param_2.normal);\n    float3 _454 = fast::normalize(float3(dot(in.fa_pre_r0, _439), dot(in.fa_pre_r1, _439), dot(in.fa_pre_r2, _439)));\n    float _466 = _454.z;\n    float2 e = _454.xy / float2((abs(_454.x) + abs(_454.y)) + abs(_466));\n    if (_466 < 0.0)\n    {\n        e = (float2(1.0) - abs(e.yx)) * float2((e.x >= 0.0) ? 1.0 : (-1.0), (e.y >= 0.0) ? 1.0 : (-1.0));\n    }\n    out.fa_frag_color = float4(fast::min(in.fa_pre_depth, 60000.0), e, 1.0);\n    return out;\n}\n\n",
+      "reflection": {
+        "vertex_func": {
+          "entry_point": "main0"
+        },
+        "fragment_func": {
+          "entry_point": "main0"
+        },
+        "attrs": [
+          {
+            "slot": 0,
+            "type": "vec3",
+            "base_type": "Float"
+          },
+          {
+            "slot": 1,
+            "type": "vec3",
+            "base_type": "Float"
+          },
+          {
+            "slot": 2,
+            "type": "vec2",
+            "base_type": "Float"
+          },
+          {
+            "slot": 3,
+            "type": "vec4",
+            "base_type": "Float"
+          },
+          {
+            "slot": 4,
+            "type": "vec4",
+            "base_type": "Float"
+          },
+          {
+            "slot": 5,
+            "type": "vec4",
+            "base_type": "Float"
+          },
+          {
+            "slot": 6,
+            "type": "vec4",
+            "base_type": "Float"
+          },
+          {
+            "slot": 7,
+            "type": "vec4",
+            "base_type": "Float"
+          },
+          {
+            "slot": 8,
+            "type": "vec4",
+            "base_type": "Float"
+          },
+          {
+            "slot": 9,
+            "type": "vec4",
+            "base_type": "Float"
+          },
+          {
+            "slot": 10,
+            "type": "vec4",
+            "base_type": "Float"
+          }
+        ],
+        "uniform_blocks": [
+          {
+            "slot": 0,
+            "stage": "vertex",
+            "size": 160,
+            "struct_name": "fa_mesh_vs_params",
+            "inst_name": "_134",
+            "msl_buffer_n": 0
+          },
+          {
+            "slot": 3,
+            "stage": "vertex",
+            "size": 3072,
+            "struct_name": "fa_skin",
+            "inst_name": "_181",
+            "msl_buffer_n": 3
+          },
+          {
+            "slot": 1,
+            "stage": "fragment",
+            "size": 192,
+            "struct_name": "fa_mesh_fs_params",
+            "inst_name": "_211",
+            "msl_buffer_n": 1
+          }
+        ],
+        "views": [
+          {
+            "texture": {
+              "slot": 0,
+              "stage": "fragment",
+              "name": "fa_tex",
+              "multisampled": false,
+              "type": "2d",
+              "sample_type": "float",
+              "msl_texture_n": 0
+            }
+          },
+          {
+            "texture": {
+              "slot": 2,
+              "stage": "fragment",
+              "name": "fa_normal_tex",
+              "multisampled": false,
+              "type": "2d",
+              "sample_type": "float",
+              "msl_texture_n": 1
+            }
+          },
+          {
+            "texture": {
+              "slot": 3,
+              "stage": "fragment",
+              "name": "fa_mr_tex",
+              "multisampled": false,
+              "type": "2d",
+              "sample_type": "float",
+              "msl_texture_n": 2
+            }
+          },
+          {
+            "texture": {
+              "slot": 4,
+              "stage": "fragment",
+              "name": "fa_occlusion_tex",
+              "multisampled": false,
+              "type": "2d",
+              "sample_type": "float",
+              "msl_texture_n": 3
+            }
+          },
+          {
+            "texture": {
+              "slot": 5,
+              "stage": "fragment",
+              "name": "fa_emissive_tex",
+              "multisampled": false,
+              "type": "2d",
+              "sample_type": "float",
+              "msl_texture_n": 4
+            }
+          }
+        ],
+        "samplers": [
+          {
+            "slot": 0,
+            "stage": "fragment",
+            "name": "fa_smp",
+            "sampler_type": "filtering",
+            "msl_sampler_n": 0
+          }
+        ],
+        "texture_sampler_pairs": [
+          {
+            "slot": 0,
+            "stage": "fragment",
+            "name": "fa_tex_fa_smp",
+            "view_name": "fa_tex",
+            "sampler_name": "fa_smp",
+            "view_slot": 0,
+            "sampler_slot": 0
+          },
+          {
+            "slot": 1,
+            "stage": "fragment",
+            "name": "fa_normal_tex_fa_smp",
+            "view_name": "fa_normal_tex",
+            "sampler_name": "fa_smp",
+            "view_slot": 2,
+            "sampler_slot": 0
+          },
+          {
+            "slot": 2,
+            "stage": "fragment",
+            "name": "fa_mr_tex_fa_smp",
+            "view_name": "fa_mr_tex",
+            "sampler_name": "fa_smp",
+            "view_slot": 3,
+            "sampler_slot": 0
+          },
+          {
+            "slot": 3,
+            "stage": "fragment",
+            "name": "fa_occlusion_tex_fa_smp",
+            "view_name": "fa_occlusion_tex",
+            "sampler_name": "fa_smp",
+            "view_slot": 4,
+            "sampler_slot": 0
+          },
+          {
+            "slot": 4,
+            "stage": "fragment",
+            "name": "fa_emissive_tex_fa_smp",
+            "view_name": "fa_emissive_tex",
+            "sampler_name": "fa_smp",
+            "view_slot": 5,
+            "sampler_slot": 0
           }
         ]
       }

@@ -5,6 +5,8 @@
 
 #include "fa/core/log.h"
 
+#include "postprocess_resolve.h"
+#include "render_features.h"
 #include "shaders/exposure.glsl.h"
 #include "shaders/post.glsl.h"
 
@@ -38,10 +40,14 @@ BloomSettings bloom_from_stack(const PostStack& stack) {
     return b;
 }
 
-PostPlan make_post_plan(const CameraInfo& cam, bool linear, std::uint64_t frame) {
+PostPlan make_post_plan(const CameraInfo& cam, bool linear, std::uint32_t forceEffects, std::uint64_t frame) {
     PostPlan p;
     p.bloom = cam.bloom;
     p.colorFilter = std::clamp(cam.colorFilter, 0, 5);
+    std::uint32_t read = forceEffects;
+    if (cam.postStack) read |= cam.postStack->mask & post_drawn_mask();  // an effect that is not drawn reads nothing
+    p.needsDepth = post_mask_needs_depth(read);
+    p.needsNormals = post_mask_needs_normals(read);
     if (!cam.postStack) return p;  // no stack: only what the bloom and the colour filter above say (both off then)
     const PostStack& s = *cam.postStack;
     const PostProcess& f = s.fx;

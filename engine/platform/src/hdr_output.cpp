@@ -6,6 +6,7 @@
 #include <cmath>
 #include <cstdio>
 #include <mutex>
+#include <utility>
 
 #include "fa/core/log.h"
 #include "sokol_app.h"
@@ -173,6 +174,9 @@ struct OutputState {
     bool haveDisplay = false;
     bool displayWindow = false;  // whether a window existed when `display` was asked
     unsigned sinceAsked = 0;
+    // The request of the last full update: while the next one is the same, nothing is asked and nothing is built (below).
+    bool haveRequest = false;
+    HdrRequest request;
 };
 constexpr unsigned kIdleRefresh = 120;
 OutputState& output_state() {
@@ -197,6 +201,12 @@ std::string swapchain_format() {
         case SAPP_PIXELFORMAT_RGBA16F: return "RGBA16F";
         default: return "?";
     }
+}
+
+bool same_request(const HdrRequest& a, const HdrRequest& b) {
+    return a.want == b.want && a.paperWhiteNits == b.paperWhiteNits && a.encodable == b.encodable &&
+           a.edrLinear == b.edrLinear && a.pending == b.pending && a.activeNote == b.activeNote &&
+           a.blocked == b.blocked;
 }
 
 HdrEncoding apply(HdrEncoding e, bool linear) {
@@ -244,15 +254,28 @@ HdrDisplay app_hdr_display() {
 }
 
 HdrOutputInfo app_update_hdr_output(const HdrRequest& request) {
+    HdrOutputInfo info;
+    if (!app_update_hdr_output(request, info)) info = app_hdr_output();
+    return info;
+}
+
+bool app_update_hdr_output(const HdrRequest& request, HdrOutputInfo& out) {
     OutputState& s = output_state();
     const bool live = request.want && request.blocked.empty();
     const bool window = sapp_isvalid();
-    if (live || !s.haveDisplay || s.displayWindow != window || ++s.sinceAsked >= kIdleRefresh) {
+    const bool due = live || !s.haveDisplay || s.displayWindow != window || ++s.sinceAsked >= kIdleRefresh;
+    // The same request, no HDR wanted and the display not due to be asked: the answer cannot have changed (the switch was made, or
+    // refused, by the update that took this request), so nothing is built, copied or locked. The common case of a game in the
+    // standard range, every frame.
+    if (!due && s.haveRequest && same_request(request, s.request)) return false;
+    if (due) {
         s.display = app_hdr_display();
         s.haveDisplay = true;
         s.displayWindow = window;
         s.sinceAsked = 0;
     }
+    if (!s.haveRequest || !same_request(request, s.request)) s.request = request;
+    s.haveRequest = true;
     const HdrDisplay display = s.display;
     const HdrDecision decision = decide_hdr_output(request, display);
     const bool linear = decision.encoding == HdrEncoding::Edr && request.edrLinear;
@@ -263,6 +286,10 @@ HdrOutputInfo app_update_hdr_output(const HdrRequest& request) {
         if (s.applied != decision.encoding && decision.fallback != HdrEncoding::Sdr)
             s.applied = apply(decision.fallback, false);
     }
+#if defined(FA_HDR_DXGI)
+    if (sapp_isvalid())
+        hdr_impl::dxgi_keep_color_space(s.applied);  // a window resize gave the buffers DXGI's default colour space
+#endif
     // A switch the driver refused is not counted as asked for again while the decision stays; the fallback that took is
     // what the info reports.
     HdrDecision shown = decision;
@@ -278,7 +305,8 @@ HdrOutputInfo app_update_hdr_output(const HdrRequest& request) {
     std::lock_guard<std::mutex> lock(s.mutex);
     s.info = info;
     s.updated = true;
-    return info;
+    out = std::move(info);
+    return true;
 }
 
 HdrOutputInfo app_hdr_output() {
