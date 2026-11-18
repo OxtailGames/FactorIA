@@ -1,17 +1,25 @@
-// FactorIA post-processing stack (M71, PostProcess): the FINAL pass, one full-screen triangle that fuses exposure, tonemap, the output
-// encode (with dithering) and the accessibility colour filter. It reads the finished game target and writes the picture present() and
-// the captures show. The bloom has its own chain (bloom.glsl) and runs before this pass, on the scene-referred colour.
+// FactorIA post-processing stack (M71, PostProcess): the FINAL pass, one full-screen triangle that fuses the lens, exposure, tonemap, the
+// output encode (with dithering), the display-space effects and the accessibility colour filter. It reads the finished game target and
+// writes the picture present() and the captures show. The bloom has its own chain (bloom.glsl) and runs before this pass, on the
+// scene-referred colour (so the glow is bent by the lens with the rest of the picture).
 //
+//   0. how the scene is read (only with lensDistortion / chromaticAberration, bit 1 / 2 of ex.x): the pixel samples the scene at a bent
+//      position (bilinear; black where the lens looks beyond the picture), red and blue a little further out and in than green
 //   1. the input to scene-linear light: a gamma scene (SceneSettings.colorSpace gamma) holds sRGB-encoded values, which are decoded;
 //      a linear scene is used as it is
 //   2. exposure: x 2^EV (manual: PostProcess.exposureEv; auto: the adapted EV of exposure.glsl plus the compensation)
 //   3. tonemap: none (a clip), neutral, ACES, AgX, Reinhard
-//   4. the encode: the sRGB transfer function with a dither of one 8-bit step. For an HDR window (p.z = 1) the tonemap goes above
-//      paper white up to the output's headroom (h.x; tonemap_hdr) and the sRGB curve is extended past 1: the target then holds
-//      display light ENCODED, 1.0 = paper white, and present() (blit.glsl) encodes it for the swapchain (scRGB, HDR10 PQ, EDR)
-//   5. the colour filter (Camera.colorFilter), on the encoded picture, the same filters as colorfilter.glsl
+//   4. the encode: the sRGB transfer function. For an HDR window (p.z = 1) the tonemap goes above paper white up to the output's
+//      headroom (h.x; tonemap_hdr) and the sRGB curve is extended past 1: the target then holds display light ENCODED, 1.0 = paper
+//      white, and present() (blit.glsl) encodes it for the swapchain (scRGB, HDR10 PQ, EDR)
+//   5. the display-space effects, on the encoded picture (what the screen shows), none of them clipping above 1: colour grading (white
+//      balance, gain, lift, gamma, contrast, saturation, hue, then the LUT), the vignette, the sharpen (it shades the four neighbours of
+//      the pixel through 0 to 5 too), the film grain; then the dither of one 8-bit step
+//   6. the colour filter (Camera.colorFilter), on the encoded picture, the same filters as colorfilter.glsl
 //
 // A frame that needs no conversion (a gamma scene with only a colour filter) skips 1 to 4: the pass is then exactly the old colour filter.
+// A frame without any effect of 0 and 5 (ex.x = 0) runs exactly the code it did before them: they are all behind uniform branches.
+// The CPU form of the effects' maths is post_fx.cpp (the tests compare the two).
 @module post
 
 @vs vs
@@ -31,12 +39,27 @@ void main() {
 @fs fs
 layout(binding=0) uniform texture2D tex;
 layout(binding=1) uniform texture2D expo_tex;    // the adapted exposure (1x1, EV in x); a 1x1 white image when the exposure is not automatic
-layout(binding=0) uniform sampler smp;
+layout(binding=2) uniform texture2D lut_tex;     // the colour grading LUT as a strip of slices (RGBA8, cube_lut.h); a 1x1 white image when there is none
+layout(binding=0) uniform sampler smp;           // nearest: the source has the size of the destination
+layout(binding=1) uniform sampler lin_smp;       // bilinear, clamp to edge: the lens and the LUT
 layout(binding=1) uniform post_params {
     vec4 p;         // x = 1 when the scene is linear (0: gamma), y = 1 when the frame is converted (steps 1 to 4), z = 1 for an HDR output (above paper white), w = colour filter (0 none, 1 greyscale, 2 highContrast, 3 protanopia, 4 deuteranopia, 5 tritanopia)
     vec4 q;         // x = tonemap (0 none, 1 neutral, 2 aces, 3 agx, 4 reinhard), y = exposure multiplier 2^EV (manual) or 2^compensation (auto), z = 1 for the automatic exposure, w = dither amplitude (one 8-bit step, 0 = off)
     vec4 r;         // xy = size of the picture in pixels (for the dither pattern)
     vec4 h;         // the HDR tonemap (p.z = 1): x = headroom (how many times paper white), y = the scene value where the HDR curve leaves the SDR one, z = the SDR curve's slope there, w = its display value there
+};
+layout(binding=2) uniform post_fx_params {
+    vec4 ex;        // x = the effect mask (1 lens, 2 chromatic aberration, 4 grade, 8 LUT, 16 vignette, 32 sharpen, 64 grain; 0 = none), y = 1 when render targets are bottom-up (OpenGL), z = width / height, w = the grain's seed (a whole number below 2^24)
+    vec4 ln;        // lens: x = k (the radius grows by 1 + k r^2), y = zoom, zw = the centre (screen uv, top-left origin)
+    vec4 ab;        // x = the aberration (red and blue move by (uv - 0.5) * x), y = the sharpen weight of each neighbour (negative), z = the LUT contribution, w = contrast
+    vec4 wb;        // rgb = white balance gains, w = saturation
+    vec4 lf;        // rgb = lift, w = the hue matrix's a
+    vec4 gn;        // rgb = gain, w = the hue matrix's b
+    vec4 ig;        // rgb = 1 / gamma, w = the hue matrix's c
+    vec4 vg;        // vignette: x = intensity, y = smoothness, z = roundness, w = the grain's intensity (already x its strength)
+    vec4 vc;        // xy = the vignette's centre (screen uv), z = the grain's size in pixels, w = the grain's luminance response
+    vec4 vk;        // rgb = the vignette's colour
+    vec4 lt;        // the LUT strip: x = size (colours per side), y = tiles across, z = tiles down
 };
 in vec2 uv;
 out vec4 frag_color;
@@ -177,30 +200,161 @@ vec3 color_filter(vec3 c, int mode) {
     return o;
 }
 
-void main() {
-    vec4 texel = textureLod(sampler2D(tex, smp), uv, 0.0);
-    int filter_mode = int(p.w + 0.5);
-    vec3 c = texel.rgb;
-    if (p.y > 0.5) {
-        c = vec3(sane(c.r), sane(c.g), sane(c.b));
-        // 1. scene-linear light
-        if (p.x < 0.5) c = to_linear_ext(c);
-        // 2. exposure
-        float mul = q.y;
-        if (q.z > 0.5) mul *= exp2(textureLod(sampler2D(expo_tex, smp), vec2(0.5, 0.5), 0.0).r);
-        c *= mul;
-        // 3. tonemap, then 4. the sRGB encode with a dither of one 8-bit step (an HDR output: above paper white, extended)
-        if (p.z > 0.5) {
-            c = to_srgb_ext(tonemap_hdr(c, int(q.x + 0.5)));
-        } else {
-            c = to_srgb(tonemap(c, int(q.x + 0.5)));
-        }
-        if (q.w > 0.0) c += (dither_noise(uv * r.xy) - 0.5) * q.w;
+// ---- the screen effects (post_fx.cpp is the same maths on the CPU) ------------------------------------------------------------------
+// Screen space `s`: the picture's uv with the origin at the top left on every backend (the effects' centres and the grain's pixels are
+// written in it); `uv` is where this backend's render target has its origin. Their conversion is its own inverse.
+vec2 flip_v(vec2 s) {
+    return vec2(s.x, mix(s.y, 1.0 - s.y, ex.y));
+}
+
+// Where the lens reads the scene for the pixel at s: the radius from the centre grows by (1 + k r^2) / zoom, r = 1 at a corner.
+vec2 lens_source(vec2 s) {
+    float aspect = ex.z;
+    vec2 d = s - ln.zw;
+    d.x *= aspect;
+    float r2 = dot(d, d) / (0.25 * (aspect * aspect + 1.0));
+    d *= (1.0 + ln.x * r2) / ln.y;
+    d.x /= aspect;
+    return ln.zw + d;
+}
+
+vec4 scene_tap(vec2 s) {
+    return textureLod(sampler2D(tex, lin_smp), flip_v(s), 0.0);
+}
+
+// The scene at screen position s, as the lens and the aberration read it (fm = the effect mask). A pixel with neither reads its own
+// texel; with the mask 0 that is `uv` itself, so a frame without effects reads exactly what it did before them.
+vec4 read_scene(vec2 s, int fm) {
+    if (fm == 0) return textureLod(sampler2D(tex, smp), uv, 0.0);
+    if ((fm & 3) == 0) return textureLod(sampler2D(tex, smp), flip_v(s), 0.0);
+    vec2 t = s;
+    if ((fm & 1) != 0) {
+        t = lens_source(s);
+        if (t.x < 0.0 || t.y < 0.0 || t.x > 1.0 || t.y > 1.0) return vec4(0.0, 0.0, 0.0, 1.0);  // beyond the picture: black
     }
-    // 5. the colour filter works on what the screen shows, so it clamps (an HDR picture too: a filtered frame stays within paper
+    if ((fm & 2) != 0) {
+        vec2 d = (t - 0.5) * ab.x;
+        vec4 g = scene_tap(t);
+        return vec4(scene_tap(t + d).r, g.g, scene_tap(t - d).b, g.a);
+    }
+    return scene_tap(t);
+}
+
+// Steps 1 to 4: scene colour to the encoded display picture (no dither).
+vec3 convert_scene(vec3 c, float mul) {
+    c = vec3(sane(c.r), sane(c.g), sane(c.b));
+    // 1. scene-linear light
+    if (p.x < 0.5) c = to_linear_ext(c);
+    // 2. exposure
+    c *= mul;
+    // 3. tonemap, then 4. the sRGB encode (an HDR output: above paper white, extended)
+    if (p.z > 0.5) return to_srgb_ext(tonemap_hdr(c, int(q.x + 0.5)));
+    return to_srgb(tonemap(c, int(q.x + 0.5)));
+}
+
+// Colour grading on the encoded picture: white balance and gain (multiplied in), lift (added to what is below white), gamma, contrast
+// around 0.5, saturation, the hue's rotation about the grey axis. Nothing clips above 1; nothing goes below 0.
+vec3 grade(vec3 c) {
+    c = c * wb.rgb * gn.rgb;
+    c += lf.rgb * (1.0 - clamp(c, 0.0, 1.0));
+    c = pow(max(c, vec3(0.0)), ig.rgb);
+    c = max((c - 0.5) * ab.w + 0.5, vec3(0.0));
+    float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
+    c = vec3(l) + (c - vec3(l)) * wb.w;
+    c = vec3(dot(c, vec3(lf.w, gn.w, ig.w)), dot(c, vec3(ig.w, lf.w, gn.w)), dot(c, vec3(gn.w, ig.w, lf.w)));
+    return max(c, vec3(0.0));
+}
+
+// One slice of the LUT strip at (red, green): the slices are tiled lt.y across; the sample is at texel centres, so the bilinear
+// footprint never leaves the slice.
+vec3 lut_slice(vec2 rg, int slice) {
+    int cols = int(lt.y + 0.5);
+    vec2 tile = vec2(float(slice % cols), float(slice / cols));
+    vec2 inside = rg * (lt.x - 1.0) + 0.5;
+    vec2 at = (tile * lt.x + inside) / (vec2(lt.y, lt.z) * lt.x);
+    return textureLod(sampler2D(lut_tex, lin_smp), at, 0.0).rgb;
+}
+// The LUT is looked up at the picture clamped to 0..1 (trilinear: the bilinear of the strip between two slices, mixed by hand); what it
+// changes is added to the picture, so the part above white is kept.
+vec3 apply_lut(vec3 c) {
+    vec3 x = clamp(c, 0.0, 1.0);
+    float n = lt.x;
+    float bz = x.b * (n - 1.0);
+    float b0 = min(floor(bz), n - 2.0);
+    vec3 l = mix(lut_slice(x.rg, int(b0 + 0.5)), lut_slice(x.rg, int(b0 + 1.5)), bz - b0);
+    return c + (l - x) * ab.z;
+}
+
+vec3 apply_vignette(vec3 c, vec2 s) {
+    vec2 d = s - vc.xy;
+    d.x *= mix(1.0, ex.z, vg.z);
+    float rad = length(d) * 1.41421356;
+    float w = mix(0.02, 1.0, vg.y);
+    return mix(c, vk.rgb, vg.x * smoothstep(1.0 - w, 1.0, rad));
+}
+
+// Everything per pixel up to and including the vignette: what the sharpen compares a pixel with its neighbours in.
+vec4 shade(vec2 s, int fm, float mul) {
+    vec4 t = read_scene(s, fm);
+    vec3 c = t.rgb;
+    if (p.y > 0.5) c = convert_scene(c, mul);
+    else if (fm != 0) c = vec3(sane(c.r), sane(c.g), sane(c.b));
+    if ((fm & 4) != 0) c = grade(c);
+    if ((fm & 8) != 0) c = apply_lut(c);
+    if ((fm & 16) != 0) c = apply_vignette(c, s);
+    return vec4(c, t.a);
+}
+
+// Contrast-adaptive sharpen (after AMD CAS): the four neighbours are subtracted, weighted by how far the neighbourhood is from the limits
+// of the range, so flat areas and edges already at black or white are not pushed (no halos, no clipping).
+vec3 apply_sharpen(vec3 c, vec3 n, vec3 e, vec3 sth, vec3 w) {
+    vec3 mn = min(min(min(c, n), min(e, sth)), w);
+    vec3 mx = max(max(max(c, n), max(e, sth)), w);
+    vec3 amp = sqrt(clamp(min(mn, 1.0 - mx) / max(mx, vec3(1e-4)), 0.0, 1.0));
+    vec3 k = amp * ab.y;
+    return max((c + k * (n + e + sth + w)) / (1.0 + 4.0 * k), vec3(0.0));
+}
+
+// PCG hash on whole numbers: the same bits on every GPU, so a run is reproducible.
+uint pcg(uint v) {
+    uint st = v * 747796405u + 2891336453u;
+    uint wd = ((st >> ((st >> 28u) + 4u)) ^ st) * 277803737u;
+    return (wd >> 22u) ^ wd;
+}
+// Film grain: monochrome triangular noise per cell of vc.z pixels, from the pixel, the frame's seed and nothing else, scaled by how mid-toned
+// the pixel is (vc.w) and by its intensity (vg.w).
+vec3 apply_grain(vec3 c, vec2 s) {
+    vec2 cell = floor((floor(s * r.xy) + 0.5) / vc.z);
+    uint h1 = pcg(uint(int(cell.x)) + pcg(uint(int(cell.y)) + pcg(uint(ex.w + 0.5))));
+    uint h2 = pcg(h1 ^ 0x68E31DA4u);
+    float noise = float(h1 >> 8u) * (1.0 / 16777216.0) + float(h2 >> 8u) * (1.0 / 16777216.0) - 1.0;
+    float l = clamp(dot(c, vec3(0.2126, 0.7152, 0.0722)), 0.0, 1.0);
+    float weight = mix(1.0, 4.0 * l * (1.0 - l), vc.w);
+    return max(c + vec3(noise * vg.w * weight), vec3(0.0));
+}
+
+void main() {
+    int fm = int(ex.x + 0.5);
+    int filter_mode = int(p.w + 0.5);
+    float mul = q.y;
+    if (p.y > 0.5 && q.z > 0.5) mul *= exp2(textureLod(sampler2D(expo_tex, smp), vec2(0.5, 0.5), 0.0).r);
+    vec2 s = fm == 0 ? uv : flip_v(uv);
+    vec4 px = shade(s, fm, mul);
+    vec3 c = px.rgb;
+    // 5. (the sharpen needs the neighbours shaded the same way; the grain goes over it)
+    if ((fm & 32) != 0) {
+        vec2 dx = vec2(1.0 / r.x, 0.0);
+        vec2 dy = vec2(0.0, 1.0 / r.y);
+        c = apply_sharpen(c, shade(s - dy, fm, mul).rgb, shade(s + dx, fm, mul).rgb, shade(s + dy, fm, mul).rgb,
+                          shade(s - dx, fm, mul).rgb);
+    }
+    if ((fm & 64) != 0) c = apply_grain(c, s);
+    // the dither of one 8-bit step (q.w: after a conversion or an effect)
+    if (q.w > 0.0) c += (dither_noise(uv * r.xy) - 0.5) * q.w;
+    // 6. the colour filter works on what the screen shows, so it clamps (an HDR picture too: a filtered frame stays within paper
     //    white); without a filter the picture is kept as it is
     if (filter_mode != 0) c = color_filter(clamp(c, 0.0, 1.0), filter_mode);
-    frag_color = vec4(c, filter_mode != 0 ? 1.0 : texel.a);
+    frag_color = vec4(c, filter_mode != 0 ? 1.0 : px.a);
 }
 @end
 

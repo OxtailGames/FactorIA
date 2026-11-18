@@ -230,10 +230,10 @@ struct Renderer::Impl {
     // frame is then drawn without the stack.
     bool ensure_filter_target();
     bool ensure_hud_target();
-    // One full-screen pass of post.glsl: `src` (a texture view of the finished picture) through the plan's conversion (`convert`) and the
+    // One full-screen pass of post.glsl: `src` (a texture view of the finished picture) through the plan's final pass (`finalPass`: conversion and effects) and the
     // colour filter `filter` into `dst`; `expo` is the adapted exposure or a dummy image. `keepMsaa`: an MSAA destination keeps its
     // multisampled image (a pass that draws over it follows).
-    void post_pass(const PostPlan& pp, bool convert, int filter, bool autoExposure, sg_view src, sg_view expo,
+    void post_pass(const PostPlan& pp, bool finalPass, int filter, bool autoExposure, sg_view src, sg_view expo,
                    Target& dst, const char* label, bool keepMsaa);
     // The 8-bit picture of a game or view image (top row first). In a float scene format the image is first drawn into an
     // RGBA8 copy (clamped at white, as the screen shows it), because the per-backend readbacks read RGBA8 only.

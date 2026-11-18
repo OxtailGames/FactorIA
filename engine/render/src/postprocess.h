@@ -3,7 +3,8 @@
 //
 //   PostPlan          the stack as the passes read it: sanitised numbers, nothing of the components (make_post_plan)
 //   AutoExposure      PostProcess.exposureMode auto: two passes measure the frame and adapt a stored EV on the GPU (no readback)
-//   run_post_pass     the final pass (post.glsl): exposure, tonemap, the output encode with a dither, the colour filter, fused
+//   run_post_pass     the final pass (post.glsl): the lens, exposure, tonemap, the output encode, the display-space effects of
+//                     post_fx.h (grade, vignette, sharpen, grain), a dither, the colour filter, fused
 //
 // A frame without a PostProcess and without Camera.bloom / Camera.colorFilter has an empty plan: no pass is declared and no target is
 // made. The renderer declares the passes in build_graph (renderer_draw.cpp) in this order: bloom (bloom.h) -> automatic exposure ->
@@ -19,9 +20,16 @@
 #include "frame_graph.h"
 #include "render_internal.h"
 #include "hdr_encode.h"
+#include "post_fx.h"
 #include "transient_targets.h"
 
 namespace fa::render {
+
+// The LUT strip the final pass binds (Assets::lut): the view and the layout of its slices.
+struct LutInfo {
+    sg_view view{};
+    int size = 0, cols = 0, rows = 0;
+};
 
 struct PostPlan {
     BloomSettings bloom;  // bloom.enabled = false: no bloom
@@ -34,27 +42,36 @@ struct PostPlan {
     int tonemapMode = 0;  // TonemapMode as an int: 0 none (a clip), 1 neutral, 2 aces, 3 agx, 4 reinhard
     int colorFilter = 0;  // Camera.colorFilter / PostProcess.colorFilterMode as an int, 0 none .. 5 tritanopia
     bool linear =
-        false;  // a linear scene that has exposure, a tonemap or a colour filter: the target holds linear light, the final pass encodes it
+        false;  // a linear scene that has exposure, a tonemap, an effect or a colour filter: the target holds linear light,
+                // the final pass encodes it
+    PostFx fx;  // the display-space effects and the lens (post_fx.h); empty when none is on
+    std::string
+        lut;  // fx.lut: the project path of the .cube file (the renderer looks it up and clears fx.lut when it cannot)
+    LutInfo lutInfo;  // what the renderer found for `lut`
 
-    // True when the final pass converts the picture (exposure, tonemap, or the encode of a linear scene): the pass is then `post`. A
-    // frame that only has a colour filter is the plain filter pass; one that only has bloom has none.
+    // True when the final pass converts the picture (exposure, tonemap, or the encode of a linear scene): `post` runs steps 1 to 4.
     bool convert() const { return exposure || tonemap || linear; }
-    bool any() const { return bloom.enabled || convert() || colorFilter != 0; }
+    // True when the final pass runs: a conversion or an effect. A frame that only has a colour filter is the plain filter pass; one
+    // that only has bloom has none.
+    bool final_pass() const { return convert() || fx.any(); }
+    bool any() const { return bloom.enabled || final_pass() || colorFilter != 0; }
 };
 
 // The plan of a camera (CameraInfo::postStack, null without one, and the bloom / colorFilter derived from it). `linear`: SceneSettings.colorSpace.
-PostPlan make_post_plan(const CameraInfo& cam, bool linear);
+// `frame`: World::frame(), the seed of an animated film grain.
+PostPlan make_post_plan(const CameraInfo& cam, bool linear, std::uint64_t frame = 0);
 
 // Camera.bloom* / PostProcess bloom fields -> supported ranges (sanitize_bloom for the stack): the knee and the dirt intensity too.
 BloomSettings bloom_from_stack(const PostStack& stack);
 
-// What the final pass draws (post.glsl): `convert` runs exposure, tonemap and the encode (the plan's), `filter` the colour filter
+// What the final pass draws (post.glsl): `convert` is true for the final pass itself (not the colour-filter-only pass): it runs the
+// plan's exposure, tonemap and encode (when plan.convert()) and plan.fx, `filter` the colour filter
 // (0 none; the picture is clamped for it); `expo` is the adapted-exposure image (the 1x1 of AutoExposure) or any 1x1 image when the
-// exposure is not automatic. `pass` is the PassDesc of the destination (the caller sets its load and store actions); the pass draws
+// exposure is not automatic; `white`: any 1x1 white image (bound as the LUT when the plan has none). `pass` is the PassDesc of the destination (the caller sets its load and store actions); the pass draws
 // one full-screen triangle and ends. `w` x `h`: the size of the destination in pixels (the dither pattern). `output`: what the frame is
 // drawn for (hdr_encode.h); an HDR output with headroom runs the tonemap above paper white (tonemap_hdr), the rest the SDR one.
 void run_post_pass(Gpu& gpu, const PostPlan& plan, bool convert, int filter, bool autoExposure, const PassDesc& pass,
-                   sg_view src, sg_view expo, int w, int h, const OutputTarget& output = {});
+                   sg_view src, sg_view expo, sg_view white, int w, int h, const OutputTarget& output = {});
 
 // PostProcess.exposureMode auto. The adapted EV lives in a 1x1 RGBA16F target (two of them, taking turns: a pass cannot read what it
 // writes); `exposure-luma` reduces the finished game image to 32x32 log-luminances and `exposure-adapt` moves the stored EV toward the

@@ -425,8 +425,10 @@ TEST_CASE("features: what the engine does not draw yet is false and says planned
     const FeatureEnv full = gpu(FeatureBackend::D3d11, true, true, true, true);
     std::string why;
     CHECK(supported(full, "linearColor", &why));  // M71-B1: drawn on every GPU
-    // The effects the renderer draws (M71-B4) answer true on a GPU that can; the others are planned.
-    const std::string_view drawn[] = {"exposure", "bloom", "tonemap", "colorFilter"};
+    // The effects the renderer draws (M71-B4, C1) answer true on a GPU that can; the others are planned.
+    const std::string_view drawn[] = {
+        "exposure",     "bloom",    "tonemap", "colorFilter", "lensDistortion", "chromaticAberration",
+        "colorGrading", "vignette", "sharpen", "filmGrain"};
     for (const std::string_view e : kPostEffectOrder) {
         CAPTURE(e);
         if (std::find(std::begin(drawn), std::end(drawn), e) != std::end(drawn)) {

@@ -339,12 +339,24 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
     ctx.doMainPass = fr.wantWorld || !ctx.hudAfterBloom;
     if (plan.last) {
         PostPlan& pp = ctx.postPlan;
-        pp = make_post_plan(ctx.post, world.settings().colorSpace == ColorSpace::Linear);
+        pp = make_post_plan(ctx.post, world.settings().colorSpace == ColorSpace::Linear, world.frame());
         // The program is made only for a frame that runs it (a conversion or a colour filter): a game without a stack never compiles it.
-        if ((pp.convert() || pp.colorFilter != 0) &&
+        if ((pp.final_pass() || pp.colorFilter != 0) &&
             !gpu.post_ready()) {  // logged once; the frame is drawn without the final pass
             pp.exposure = pp.tonemap = pp.linear = false;
+            pp.fx = PostFx{};
             pp.colorFilter = 0;
+        }
+        if (pp.fx.lut) {
+            // The .cube table of the grade: loaded (once) into a strip image; a file that cannot be read or parsed is logged once by
+            // the asset cache and the table is skipped, the rest of the grade is drawn.
+            const LutAsset* lut = assets->lut(pp.lut);
+            if (lut && lut->view.id != 0) {
+                pp.lutInfo = LutInfo{lut->view, lut->size, lut->cols, lut->rows};
+            } else {
+                pp.fx.lut = false;
+                pp.lut.clear();
+            }
         }
     }
 
@@ -355,7 +367,7 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
     build_quad_stream(ctx);
     // The final pass converts the picture (exposure, tonemap, the encode of a linear scene): the screen-space items go over its result, in
     // display space, and are drawn after it instead of in the main pass. Only when there is something to draw, and the image for it exists.
-    if (ctx.postPlan.convert() && fr.wantScreen &&
+    if (ctx.postPlan.final_pass() && fr.wantScreen &&
         (!ctx.gScreen.batches.empty() || !ctx.gDebugScreen.batches.empty()) && ensure_hud_target()) {
         ctx.hudAfterPost = true;
         ctx.hudAfterBloom =
@@ -1391,7 +1403,7 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
             [this, &ctx](const PassContext&) { hud_pass(ctx, gameTarget, "game-hud"); });
     }
     // The final pass: exposure, tonemap and the output encode (and the colour filter, when nothing is drawn in between) in one pass.
-    const bool convert = pp.convert();
+    const bool convert = pp.final_pass();
     if (convert && (ctx.hudAfterPost || ensure_filter_target())) {
         ResourceId evRes;
         if (pp.autoExposure)

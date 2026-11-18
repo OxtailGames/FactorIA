@@ -11,6 +11,7 @@
 #include "fa/core/fs.h"
 #include "fa/core/log.h"
 #include "fa/core/strings.h"
+#include "fa/render/cube_lut.h"
 #include "fa/scene/gltf_file.h"
 #include "fa/scene/skeleton.h"
 #include "render_internal.h"
@@ -645,6 +646,8 @@ void Assets::clear() {
     videoTextures_.clear();
     for (auto& [k, t] : textures_) destroy_texture(*t);
     textures_.clear();
+    for (auto& [k, l] : luts_) destroy_lut(*l);
+    luts_.clear();
     for (auto& t : anonymous_) destroy_texture(*t);
     anonymous_.clear();
     for (auto& [k, m] : meshes_) destroy_mesh(*m);
@@ -662,6 +665,69 @@ void Assets::clear() {
 }
 
 TextureAsset* Assets::white() { return white_.get(); }
+
+void Assets::destroy_lut(LutAsset& l) {
+    if (l.view.id) sg_destroy_view(l.view);
+    if (l.image.id) sg_destroy_image(l.image);
+    l.view = {};
+    l.image = {};
+}
+
+const LutAsset* Assets::lut(const std::string& pathIn) {
+    if (pathIn.empty()) return nullptr;
+    std::string key = fs::normalize(pathIn);
+    if (key.empty()) key = pathIn;
+    if (auto it = luts_.find(key); it != luts_.end()) return it->second->view.id ? it->second.get() : nullptr;
+    auto slot = std::make_unique<LutAsset>();
+    LutAsset& l = *slot;
+    l.path = key;
+    luts_[key] = std::move(slot);  // a failed load stays in the cache: one error, no read of the file every frame
+    auto fail = [&](const std::string& message, const std::string& hint) -> const LutAsset* {
+        note_failure("lut", key, message, hint);
+        return nullptr;
+    };
+    if (!fs::exists(key))
+        return fail("colour grading LUT " + missing_hint(key, fs::extension(key)),
+                    "Set PostProcess.colorGradingLut to a .cube file in the project (import one with assets.import).");
+    const std::int64_t bytes = fs::file_size(key);
+    if (bytes > std::int64_t(kCubeLutMaxFileBytes))
+        return fail(std::format("colour grading LUT '{}' is {} MB, over the {} MB a .cube file may have", key,
+                                bytes >> 20, kCubeLutMaxFileBytes >> 20),
+                    "Export a 32 or 33 entry LUT (a 64 entry one is about 8 MB).");
+    auto text = fs::read_text(key);
+    if (!text)
+        return fail(std::format("colour grading LUT '{}' could not be read: {}", key, text.error().message),
+                    text.error().hint);
+    auto parsed = parse_cube_lut(*text, key);
+    if (!parsed) return fail("colour grading LUT " + parsed.error().message, parsed.error().hint);
+    const CubeLutStrip strip = cube_lut_strip(*parsed);
+    sg_image_desc d{};
+    d.width = strip.width();
+    d.height = strip.height();
+    d.pixel_format = SG_PIXELFORMAT_RGBA8;  // the table's own numbers: never decoded as sRGB
+    d.data.mip_levels[0] = {strip.rgba.data(), strip.rgba.size()};
+    d.label = key.c_str();
+    l.image = make_image(d);
+    if (sg_query_image_state(l.image) != SG_RESOURCESTATE_VALID) {
+        destroy_lut(l);
+        return fail(std::format("colour grading LUT '{}': the GPU could not make its {}x{} image", key, strip.width(),
+                                strip.height()),
+                    "Use a smaller LUT (32 entries per side).");
+    }
+    sg_view_desc vd{};
+    vd.texture.image = l.image;
+    vd.label = key.c_str();
+    l.view = sg_make_view(&vd);
+    l.size = strip.size;
+    l.cols = strip.cols;
+    l.rows = strip.rows;
+    l.bytes = strip.rgba.size();
+    // A successful (re)load clears an older failure record.
+    failures_.erase(std::remove_if(failures_.begin(), failures_.end(),
+                                   [&](const Failure& f) { return f.kind == "lut" && f.path == key; }),
+                    failures_.end());
+    return &l;
+}
 
 void Assets::upload_texture(TextureAsset& t, const Image& img, bool mips) {
     upload_rgba(t, img, mips ? mip_chain(img) : std::vector<Image>());
@@ -1341,6 +1407,13 @@ void Assets::reload(const std::string& pathIn) {
         }
         load_texture(t->first);
     }
+    if (auto l = luts_.find(path); l != luts_.end()) {  // forgotten: the next frame that names it loads the new file
+        destroy_lut(*l->second);
+        luts_.erase(l);
+        failures_.erase(std::remove_if(failures_.begin(), failures_.end(),
+                                       [&](const Failure& f) { return f.kind == "lut" && f.path == path; }),
+                        failures_.end());
+    }
     auto m = meshes_.find(path);
     if (m != meshes_.end()) {
         if (m->second->placeholder) m->second->parts.clear();  // shared handles
@@ -1362,6 +1435,7 @@ std::size_t Assets::texture_bytes() const {
         if (!t->placeholder && !t->atlas) total += t->bytes;
     for (const auto& [k, v] : videoTextures_) total += v.tex->bytes;
     for (const auto& [k, t] : runtime_) total += t->bytes;
+    for (const auto& [k, l] : luts_) total += l->bytes;
     return total;
 }
 
