@@ -6,13 +6,11 @@
 
 #include "display_watchdog.h"
 
-#include <signal.h>
-#include <unistd.h>
-
-#include <libproc.h>
-
 #if !TARGET_OS_IPHONE
 #include <CoreGraphics/CoreGraphics.h>
+#include <libproc.h>  // only in the macOS SDK
+#include <signal.h>
+#include <unistd.h>
 #endif
 
 namespace fa::display_watchdog {
@@ -33,6 +31,7 @@ DisplayState query_system_displays() {
 #endif
 }
 
+#if !TARGET_OS_IPHONE
 namespace {
 // The pids of the direct children of `pid` (libproc; an empty list on any error).
 std::vector<pid_t> children_of(pid_t pid) {
@@ -66,5 +65,8 @@ void end_child_processes() {
         if (queue[i] > 1) kill(queue[i], SIGKILL);
     }
 }
+#else
+void end_child_processes() {}  // iOS: no libproc, and a phone app has no children
+#endif
 
 }  // namespace fa::display_watchdog
