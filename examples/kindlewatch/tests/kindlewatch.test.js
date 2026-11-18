@@ -278,18 +278,19 @@ describe("the colour filter", () => {
   test("changing the filter sets the PostProcess filter and keeps the bloom of the night, and 'none' switches only the filter off", () => {
     start();
     const pp = () => game.find("camera").get("PostProcess");
-    expect(pp().bloomEnabled).toBe(true);
+    // What the scene's PostProcess holds when the game starts (not pinned here: the scene may switch its bloom off).
+    const bloomOn = pp().bloomEnabled;
     const bloom = pp().bloomIntensity;
     for (const filter of ["deuteranopia", "highContrast"]) {
       settings.applyColorFilter({ ...settings.load(), colorFilter: filter });
       expect(pp().colorFilterEnabled).toBe(true);
       expect(pp().colorFilterMode).toBe(filter);
-      expect(pp().bloomEnabled).toBe(true);
+      expect(pp().bloomEnabled).toBe(bloomOn);
       expect(pp().bloomIntensity).toBeCloseTo(bloom);
     }
     settings.applyColorFilter({ ...settings.load(), colorFilter: "none" });
     expect(pp().colorFilterEnabled).toBe(false);
-    expect(pp().bloomEnabled).toBe(true);
+    expect(pp().bloomEnabled).toBe(bloomOn);
     expect(pp().bloomIntensity).toBeCloseTo(bloom);
   });
 });

@@ -24,6 +24,13 @@ Older versions, one file per minor version with its patch releases: [0.29](chang
   unencoded image, not "No render target", while the encoded copy of a linear scene does not exist yet. A second renderer starts from
   what the window shows (HDR status), the status says that an R11G11B10 scene holds the final picture in 8 bits, and Windows asks for
   the swapchain's colour space again after a resize at most eight frames in a row.
+- **Last polish:** a texture that was decoded in the background before the first frame of a linear scene is adopted with its mips
+  averaged in linear light too (the chain is made again on the main thread when the colour space changed meanwhile). The editor
+  viewport test covers the fallback before the encoded copy exists. The automatic exposure warns once when its measuring target
+  could not be made on a frame (it was skipped silently), and a scene change clears the "deprecated Camera.bloom ignored" warnings
+  so they can be said again. Windows: the colour space retry count starts again for each new window size during a resize drag, and a
+  WebSocket peer that answers our close with empty messages ends the wait after 1000 of them, not at the deadline. Larkspur Lodge's
+  colour filter cycle is wrapped under 120 columns and Kindlewatch's filter test reads the bloom of the scene instead of pinning it.
 - **Screen-space reflections:** `PostProcess.ssrEnabled` is drawn: opaque 3D surfaces reflect what the camera shows. Each pixel marches
   its reflected ray across the screen in the depth prepass (`ssrSteps` steps with a deterministic jitter, a thickness test of
   `ssrThickness`, six bisections to refine the hit, a longest ray of `ssrMaxDistance`) and takes the scene colour there, before the
