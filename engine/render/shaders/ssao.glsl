@@ -15,12 +15,17 @@
 // The view space is the prepass's: x right, y up, the camera looks down -z. `cam` of every program: xy = what a unit of normalised device
 // coordinates is in view space at depth 1 (a perspective camera: 1 / proj[0][0] and 1 / proj[1][1]; an orthographic one: the half
 // extents), z = 1 for an orthographic camera (the depth does not scale x and y), w = 1 when render targets have their origin at the bottom
-// (OpenGL).
+// (OpenGL), which also means "every lookup is flipped": ssao_tex turns the picture's top-down uv into the uv of the image on that backend.
 //
 // Every program works in the picture's top-down coordinates on every backend: uv.y and the texel rows run down from the top of the
 // camera's rectangle, and only a texture fetch turns that into the image's own uv (ssao_tex: flipped on OpenGL, whose images are
 // stored bottom-up). So a texel of the half resolution occlusion image covers the same two rows of the picture, and the 4x4 pattern
-// falls on the same pixels, on OpenGL as on Metal, D3D11 and WebGPU: the picture is the same, not shifted by a row.
+// falls on the same pixels, on OpenGL as on Metal, D3D11 and WebGPU. (Counted from the bottom, as OpenGL did before, a picture of even
+// height kept the pairs of rows of a texel but computed the texel at the lower row of its pair instead of the upper one, and moved the
+// 4x4 pattern by a phase; with an odd height the pairs themselves were other rows, since the last texel row covers one row of the picture.)
+//
+// The half resolution occlusion image: texel t is computed at the prepass pixel 2t (the upper left pixel of its 2x2 block, never the
+// centre of the block), so the apply puts it at 2t when it upsamples: a pixel p lies at p / 2 in texel units.
 @module ssao
 
 @image_sample_type pre_tex unfilterable_float
@@ -296,7 +301,8 @@ void main() {
         vec3 Pc = ssao_view_pos(cuv, c.r, cam);
         vec3 nc = ssao_oct_decode(c.gb);
         float sigma = c.r * a.z * a.y;
-        vec2 qp = (pixel + 0.5) / a.y - 0.5;
+        // Texel t was computed at the prepass pixel a.y * t (see the top of the file), so it sits at t, not at t + 0.5 of a block.
+        vec2 qp = pixel / a.y;
         vec2 i0 = floor(qp);
         vec2 f = qp - i0;
         float sum = 0.0;
