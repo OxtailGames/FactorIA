@@ -214,6 +214,10 @@ TEST_CASE("post pass times: the post passes are named, summed, and a missing GPU
 
 TEST_CASE("is_post_pass: an effect's own name or <effect>-<what>, nothing that merely starts like it") {
     CHECK(is_post_pass("main/post"));
+    CHECK(is_post_pass("camera:2/post-base"));  // per-camera stacks (M71-C3a): the pass under the cameras' rectangles
+    CHECK(is_post_pass("camera:1/exposure-luma"));
+    CHECK(is_post_pass("camera:1/exposure-adapt"));
+    CHECK(!is_post_pass("camera:1/post-basement"));
     CHECK(is_post_pass("main/bloom-bright"));
     CHECK(is_post_pass("main/ssao"));
     CHECK(is_post_pass("main/color-filter"));
