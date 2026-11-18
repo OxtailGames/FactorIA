@@ -447,9 +447,15 @@ private:
         // Also once over: the server's answer to our last close frame ends the driver's wait for it (open_phase).
         if (type == WINHTTP_WEB_SOCKET_CLOSE_BUFFER_TYPE) closeFrameReceived_ = true;
         if (finished_) {
-            // What the driver reads and discards while it waits for the close answer: empty reads in a row are counted,
-            // so that the wait does not arm receives for ever on a peer that sends nothing.
-            if (type != WINHTTP_WEB_SOCKET_CLOSE_BUFFER_TYPE) emptyReadsOver_ = bytes == 0 ? emptyReadsOver_ + 1 : 0;
+            // What the driver reads and discards while it waits for the close answer. A read of 0 bytes that is neither
+            // a close frame nor a whole message (an empty message is something the server sent, like any other) is an
+            // empty read: they are counted in a row, so that the wait does not arm receives for ever on a peer that
+            // answers with nothing. The server that keeps sending empty messages is bounded by the deadline.
+            if (type != WINHTTP_WEB_SOCKET_CLOSE_BUFFER_TYPE) {
+                const bool wholeMessage = type == WINHTTP_WEB_SOCKET_UTF8_MESSAGE_BUFFER_TYPE ||
+                                          type == WINHTTP_WEB_SOCKET_BINARY_MESSAGE_BUFFER_TYPE;
+                emptyReadsOver_ = bytes == 0 && !wholeMessage ? emptyReadsOver_ + 1 : 0;
+            }
             return;
         }
         if (type == WINHTTP_WEB_SOCKET_CLOSE_BUFFER_TYPE) {
@@ -876,7 +882,8 @@ private:
     }
 
     // mutex_ held (through `lock`) except during the call; the caller checked that no receive is in flight. Arms one
-    // receive. False when the connection is gone (reported unless it was over already).
+    // receive. False when the connection is gone: reported to the game as a failure unless the connection was over
+    // already (finished_, as in the drain after our close frame), where the caller reports nothing and ends.
     bool arm_receive(std::unique_lock<std::mutex>& lock, HINTERNET socket) {
         recvPending_ = true;
         lock.unlock();
@@ -933,7 +940,8 @@ private:
     bool closeAsked_ = false, closeFrameSent_ = false;
     bool peerCloseSeen_ = false, peerCloseRead_ = false, echoOwed_ = false;
     bool closeFrameReceived_ = false;  // a close frame arrived, even after the connection was over (received_locked)
-    int emptyReadsOver_ = 0;  // empty non-close reads in a row once over (received_locked); the drain stops at two
+    // Empty reads in a row once over (no bytes, not a close frame or a whole message; received_locked): two end the drain.
+    int emptyReadsOver_ = 0;
     USHORT echoCode_ = kEmptyCloseStatus;
     int closeCode_ = 0, goodbyeCode_ = 0;
     std::string closeReason_;

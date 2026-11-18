@@ -4,14 +4,17 @@
 // edit is a postprocess.set call and a preset button a postprocess.apply_preset call, both through Editor::edit_command (the path of
 // the Console and the AI, one undo step each), on the camera's own PostProcess or on the volume chosen as the edit target. The A/B
 // checkbox turns the stack off in the renderer (Renderer::set_post_bypass) and changes no data. The stack shown is
-// `postprocess.get {resolved: true}`: the same one the renderer draws, computed on the CPU.
+// `postprocess.get {resolved: true}`: the same one the renderer draws, computed on the CPU (render::post_stack_report called directly: a
+// command call every frame would reach the console and the MCP history through the command interceptor).
 #include <algorithm>
 #include <utility>
 
 #include "editor_internal.h"
 #include "fa/core/reflect.h"
+#include "fa/render/post_report.h"
 #include "fa/render/renderer.h"
 #include "fa/runtime/postprocess_presets.h"
+#include "fa/scene/camera_query.h"
 #include "fa/scene/postprocess.h"
 #include "imgui_internal.h"
 
@@ -135,8 +138,10 @@ void Editor::draw_postfx_panel() {
     Renderer* renderer = engine_ ? engine_->renderer() : nullptr;
     if (!ImGui::Begin("Post-processing", &showPostFx_)) {
         // A panel that is not on screen must not leave the picture without its stack: the A/B switch only holds while it is seen.
+        // The check is not seen either: it goes back to off, or it would stay on while the picture has its stack again.
         if (postFx_.bypassSet && renderer) renderer->set_post_bypass(false);
         postFx_.bypassSet = false;
+        postFx_.compare = false;
         ImGui::End();
         return;
     }
@@ -159,11 +164,14 @@ void Editor::draw_postfx_panel() {
         w.each<Camera>([&](Entity e, Camera&) { cameras.push_back(w.id_of(e)); });
         if (!postFx_.camera.empty() && std::find(cameras.begin(), cameras.end(), postFx_.camera) == cameras.end())
             postFx_.camera.clear();  // the camera was deleted
-        Json args = Json::object({{"resolved", true}});
-        if (!postFx_.camera.empty()) args["id"] = postFx_.camera;
-        const CommandResult r = engine_->commands().call("postprocess.get", args);
-        postFx_.report = r.ok ? r.result : Json();
-        if (!r.ok && postFx_.error.empty()) postFx_.error = command_error_text(r.error);
+        // The chosen camera, or the main one (the renderer's own choice). No command call: nothing is logged per frame.
+        Entity cam = kNullEntity;
+        if (!postFx_.camera.empty())
+            cam = w.find_by_id(postFx_.camera);
+        else if (const std::vector<Entity> cams = rendering_cameras(w); !cams.empty())
+            cam = cams.front();
+        postFx_.report = Json::object(
+            {{"id", cam.is_null() ? std::string() : w.id_of(cam)}, {"resolved", render::post_stack_report(w, cam)}});
         if (postFx_.support.is_null() || time_ - postFx_.supportAt > 3.0) {
             const CommandResult s = engine_->commands().call("render.supports", Json::object());
             postFx_.support = s.ok ? s.result : Json::object();
@@ -196,7 +204,10 @@ void Editor::draw_postfx_panel() {
         at_track("postfx:ab");
         tip("Draws the game without any post-processing (no PostProcess component and no Camera.bloom or colorFilter) "
             "to compare "
-            "it with the stack on. It changes no data and is not saved; it ends when this panel is closed or hidden.");
+            "it with the stack on. It changes no data and is not saved; it ends when this panel is closed, collapsed "
+            "or hidden behind another tab. "
+            "While it is on, every capture of the game (game.screenshot, render.inspect, the captures an AI asks for) "
+            "shows the picture without the stack too.");
         if (renderer) {
             renderer->set_post_bypass(postFx_.compare);
             postFx_.bypassSet = postFx_.compare;

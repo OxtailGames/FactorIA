@@ -30,8 +30,8 @@ Older versions, one file per minor version with its patch releases: [0.29](chang
 - **Ambient occlusion (`ssao`):** `PostProcess.ssaoEnabled` now darkens creases and contact points of 3D meshes (GTAO from the depth and
   normal prepass, at half resolution for `low` and `medium`, full for `high` and `ultra`, a blur that follows the surfaces, no random
   numbers: the same picture every run). `ssaoRadius` is in world units, `ssaoIntensity` the power of the occlusion, and each camera of a
-  split screen has its own passes over its own rectangle. It works in place on the game picture (the interface drawn before the post
-  passes is darkened where it covers meshes); off, at intensity 0, or without opaque meshes it adds no pass and no prepass.
+  split screen has its own passes over its own rectangle. It works in place on the game picture, on the opaque meshes only (see "Effects
+  before the transparent things" below); off, at intensity 0, or without opaque meshes it adds no pass and no prepass.
   `render.supports {"feature": "ssao"}` is true where the GPU has RGBA16F targets that blend, and `render.debug_view {"view": "ao"}`
   shows the occlusion alone.
 
@@ -40,8 +40,17 @@ Older versions, one file per minor version with its patch releases: [0.29](chang
   `fogHeightFalloff`) along the view ray from the depth; the sky is not fogged, and a camera whose stack fog is drawn does not also draw
   `SceneSettings.fogDensity` (never twice). The shafts scatter the bright sky (above `sunShaftsThreshold`) toward the sun's place on the screen (the shadow-casting or
   brightest directional light) with 48 jittered taps at half resolution, tinted and added, fading out as the sun leaves the screen or
-  goes behind the camera (perspective cameras). Each camera of a split screen has its own `fog-blend` / `shafts-*` passes over its
-  rectangle; off adds no pass and no prepass. See docs/rendering/RENDERING_EFFECTS.md.
+  goes behind the camera (perspective cameras). Each camera of a split screen fogs and traces its own rectangle (`shafts-*` passes);
+  off adds no pass and no prepass. See docs/rendering/RENDERING_EFFECTS.md.
+
+- **Effects before the transparent things:** the ambient occlusion and the stack's fog are applied in the camera's main pass, right
+  after the sky and the opaque meshes and before the blended meshes, sprites, particles and 3D text. Before, both were passes after the
+  whole main pass, so glass, sprites and particles were darkened by the occlusion of the opaque meshes behind them and fogged with that
+  surface's distance (and a blended mesh against the sky got no fog). Now they keep their colour under the occlusion and fog
+  themselves by their own distance with the same law (a blended mesh in front of a far, fogged wall shows its own fog, one over the sky
+  is fogged). The occlusion passes (`ssao-ao`, `ssao-blur-h`, `ssao-blur-v`) come before the main pass; `ssao-apply`, `ssao-view` and
+  `fog-blend` are gone from `render.frame_graph` (they are draws inside the main pass); the interface is neither darkened nor fogged.
+  A frame with neither effect draws the same bytes as before. Custom materials are recompiled (their shaders carry the fog numbers).
 
 - **Depth of field and camera motion blur:** `depthOfFieldEnabled` and `motionBlurEnabled` of `PostProcess` are drawn now (`render.supports`
   says so, `postprocess.apply_preset` no longer lists them in `notDrawn`). Both read the depth prepass and work on the scene colour,

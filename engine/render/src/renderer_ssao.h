@@ -1,12 +1,15 @@
 // Ambient occlusion (PostProcess.ssaoEnabled, the first effect of the stack): GTAO from the depth and normal prepass of a camera
-// (postprocess.h, PrepassRef), drawn as passes of the frame graph over the camera's rectangle of the game image, before the bloom:
+// (postprocess.h, PrepassRef). Three passes of the frame graph make the occlusion image BEFORE the camera's main pass (they read only the
+// prepass):
 //
 //   ssao-ao        the horizon search at half (low, medium) or full (high, ultra) resolution (shaders/ssao.glsl)
 //   ssao-blur-h    bilateral blur, weighted by the depth, two passes of five taps: the fixed 4x4 pattern of the search averages out
 //   ssao-blur-v
-//   ssao-apply     the visibility raised to a power (intensity), multiplied into the game image in place (a blend with DST_COLOR),
-//                  so every pass after it (bloom, the final pass) sees the darkened picture. With the debug view `ao`, `ssao-view`
-//                  writes the occlusion as a grey over the picture instead.
+//
+// and the main pass draws the apply (draw_apply) inside itself, after the sky and the opaque meshes and before the blended meshes and the
+// quads of the world: the visibility raised to a power (intensity), multiplied into the game image in place (a blend with DST_COLOR). The
+// pixels drawn after it (glass, sprites, particles, 3D text, the HUD) are not darkened, and every pass after the main pass (bloom, the
+// final pass) sees the darkened picture. With the debug view `ao` the same draw writes the occlusion as a grey instead.
 //
 // Nothing is random and nothing depends on the frame number: the same scene gives the same picture on every run. A camera without the
 // effect, with an intensity or a radius of 0, or without an opaque mesh, declares none of it and makes no target.
@@ -42,12 +45,17 @@ struct SsaoCamera {
 };
 SsaoCamera ssao_camera(const CameraGeometry& cam);
 
-// Where the darkening goes: `att` is a colour attachment of the game image (the resolved image of an MSAA target, or, when the interface is
-// drawn over the glow afterwards, the multisampled one with `resolve` its resolve attachment and `samples` its sample count).
-struct SsaoTarget {
-    sg_view att{};
-    sg_view resolve{};
-    int samples = 1;
+// What the main pass draws once the passes of add_passes are declared: the numbers of the apply and the images it reads (resources of the
+// graph, which the main pass lists in its reads).
+struct SsaoApply {
+    bool valid = false;
+    ResourceId ao;       // the occlusion image (the output of ssao-blur-v)
+    ResourceId prepass;  // the camera's prepass
+    float power = 1.0f;  // the visibility is raised to it
+    float scale = 1.0f;  // prepass pixels per texel of the occlusion image (1 or 2)
+    float sz[4]{};       // xy = size of the occlusion image, zw = size of the prepass image
+    float cam[4]{};      // SsaoCamera and the flip of OpenGL, as shaders/ssao.glsl reads it
+    bool view = false;   // the debug view: the occlusion as a grey
 };
 
 class Ssao {
@@ -56,14 +64,18 @@ public:
     Ssao(const Ssao&) = delete;
     Ssao& operator=(const Ssao&) = delete;
 
-    // Declares the passes of one camera, named "<job>/ssao-...", after the passes that draw the game image `game` (and the camera's
-    // prepass, `prepass`, which they read). `rect` is the camera's rectangle of the picture of `picW` x `picH`. `linear`: the scene
-    // holds linear light (a gamma scene is darkened by the power that gives the same linear result). Returns the number of passes
-    // declared, 0 when the effect is skipped (not enabled, no prepass, the GPU cannot make the targets or the shaders: logged once).
-    // The targets are transients of the graph; each pass adds one to *drawCalls when it runs.
+    // Declares the passes of one camera, named "<job>/ssao-...", after the camera's prepass `prepass`, which they read, and before its main
+    // pass. `rect` is the camera's rectangle of the picture of `picW` x `picH`. `linear`: the scene holds linear light (a gamma scene is
+    // darkened by the power that gives the same linear result). Returns the number of passes declared, 0 when the effect is skipped (not
+    // enabled, no prepass, the GPU cannot make the targets or the shaders: logged once); `*apply` says what the main pass draws then
+    // (valid only when passes were declared). The targets are transients of the graph; each pass adds one to *drawCalls when it runs.
     int add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, const SsaoSettings& s, const SsaoCamera& cam,
-                   const PrepassRef& prepass, const PostRect& rect, int picW, int picH, ResourceId game,
-                   const SsaoTarget& dst, bool linear, int* drawCalls, const std::string& job);
+                   const PrepassRef& prepass, const PostRect& rect, int picW, int picH, bool linear, int* drawCalls,
+                   const std::string& job, SsaoApply* apply);
+
+    // The apply, drawn inside the pass being drawn whose target has `format`: one full-screen triangle over its viewport (the caller has set
+    // the viewport and the scissor to the camera's rectangle), reading the occlusion image `ao` and the prepass `pre`.
+    static void draw_apply(Gpu& gpu, const SsaoApply& apply, sg_view ao, sg_view pre, const TargetFormat& format);
 
     // Forgets the shapes whose targets could not be made (the game target was resized or recreated).
     void release() { failed_.clear(); }
