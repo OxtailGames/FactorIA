@@ -21,7 +21,8 @@ void apply_uniforms(int slot, const T& u) {
 }
 
 constexpr float kMaxIntensity = 4.0f;
-constexpr float kMinRadius = 0.001f, kMaxRadius = 1000.0f;
+constexpr float kMinRadius = 0.001f,
+                kMaxRadius = 20.0f;  // the top is the field's own range (0.01..20); under kMinRadius the effect is off
 // The visibility is raised to intensity * kPower: intensity 1 is a soft but clear contact shadow in a crease.
 constexpr float kPower = 1.5f;
 // A neighbour is on the same surface for the blur when it is within this fraction of the depth of the centre's plane.
@@ -42,7 +43,8 @@ void run_pass(Gpu& gpu, const Target& dst, SsaoStage stage, sg_view pre, sg_view
     sg_bindings b{};
     b.vertex_buffers[0] = gpu.fullscreen_triangle();
     b.views[VIEW_ssao_pre_tex] = pre;
-    b.views[VIEW_ssao_ao_tex] = ao.id ? ao : pre;  // the search has no occlusion image yet (its program ignores the slot)
+    b.views[VIEW_ssao_ao_tex] =
+        ao.id ? ao : pre;  // the search has no occlusion image yet (its program ignores the slot)
     b.samplers[SMP_ssao_smp] = gpu.sampler(SamplerKind::Nearest);
     sg_apply_bindings(&b);
     ssao_ssao_vs_params_t vu{};
@@ -108,20 +110,23 @@ int Ssao::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, con
                      ResourceId game, const SsaoTarget& dst, bool linear, int* drawCalls, const std::string& job) {
     if (!s.enabled || !prepass.valid() || picW < 1 || picH < 1) return 0;
     const bool partial = !rect.whole(picW, picH);
-    const int w = partial ? rect.w : picW, h = partial ? rect.h : picH;  // the prepass has the size of the camera's rectangle
+    const int w = partial ? rect.w : picW,
+              h = partial ? rect.h : picH;  // the prepass has the size of the camera's rectangle
     if (w < 1 || h < 1) return 0;
     // RGBA16F targets that blend and filter (what `render.supports` asks for): without them the effect is not drawn.
     const sg_pixelformat_info fmtInfo = sg_query_pixelformat(SG_PIXELFORMAT_RGBA16F);
     if (!(fmtInfo.render && fmtInfo.blend && fmtInfo.filter)) {
         if (!warned_) {
             warned_ = true;
-            FA_WARN("render",
-                    "PostProcess.ssaoEnabled needs RGBA16F render targets and this GPU has none that blend: the ambient "
-                    "occlusion is not drawn. Hint: set ssaoEnabled to false.");
+            FA_WARN(
+                "render",
+                "PostProcess.ssaoEnabled needs RGBA16F render targets and this GPU has none that blend: the ambient "
+                "occlusion is not drawn. Hint: set ssaoEnabled to false.");
         }
         return 0;
     }
-    if (std::find(failed_.begin(), failed_.end(), Shape{w, h}) != failed_.end()) return 0;  // not tried again every frame
+    if (std::find(failed_.begin(), failed_.end(), Shape{w, h}) != failed_.end())
+        return 0;  // not tried again every frame
     if (!gpu.ssao_ready()) return 0;
 
     const SsaoQualityInfo q = ssao_quality_info(s.quality);
@@ -146,10 +151,11 @@ int Ssao::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, con
             failed_.push_back(Shape{w, h});
             if (!warned_) {
                 warned_ = true;
-                FA_ERROR("render",
-                         "PostProcess.ssaoEnabled: cannot create the {}x{} occlusion targets, so the ambient occlusion is "
-                         "not drawn. Hint: lower the window size or the render scale, or ssaoQuality.",
-                         aw, ah);
+                FA_ERROR(
+                    "render",
+                    "PostProcess.ssaoEnabled: cannot create the {}x{} occlusion targets, so the ambient occlusion is "
+                    "not drawn. Hint: lower the window size or the render scale, or ssaoQuality.",
+                    aw, ah);
             }
             return 0;
         }

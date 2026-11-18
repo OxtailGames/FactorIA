@@ -282,7 +282,7 @@ TEST_CASE("ssao: the settings are clamped, and a scene without an opaque mesh dr
     render::SsaoSettings s = render::ssao_from_stack(stack);
     CHECK(s.enabled);
     CHECK(s.intensity == 4.0f);
-    CHECK(s.radius == 1000.0f);
+    CHECK(s.radius == 20.0f);
     stack.fx.ssaoIntensity = std::nanf("");
     stack.fx.ssaoRadius = std::nanf("");
     s = render::ssao_from_stack(stack);

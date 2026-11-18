@@ -381,6 +381,10 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
         now.frame = frameSerial;
         for (auto it = prevViewProj.begin(); it != prevViewProj.end();)
             it = it->second.frame + 1 < frameSerial ? prevViewProj.erase(it) : std::next(it);
+        // Depth of field and motion blur (renderer_dof.h): the focus of this camera for the frame, the matrices of its movement.
+        if (fr.cam.postStack)
+            pp.sceneFx = sceneFx.plan(world, fr.cam, *fr.cam.postStack, camKey, frameSerial, fr.dt, renderScale,
+                                      pp.prevViewProj, pp.prevValid);
         // The program is made only for a frame that runs it (a conversion or a colour filter): a game without a stack never compiles it.
         if ((pp.final_pass() || pp.colorFilter != 0) &&
             !gpu.post_ready()) {  // logged once; the frame is drawn without the final pass
@@ -409,6 +413,16 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
     cull_and_batch(ctx);
     plan_prepass(ctx);
     plan_outline(ctx);
+    // Depth of field and motion blur work on the scene colour, so the screen-space items are drawn after them (as they are over the bloom).
+    if (plan.last && !plan.view) {
+        bool sceneFxDrawn = false;
+        for (const DrawContext* c : postCams)
+            sceneFxDrawn = sceneFxDrawn || (c->postPlan.sceneFx.any() && c->doPrepass);
+        if (sceneFxDrawn) {
+            ctx.hudAfterBloom = true;
+            ctx.doMainPass = fr.wantWorld || !ctx.hudAfterBloom;
+        }
+    }
     build_quad_stream(ctx);
     // The final pass converts the picture (exposure, tonemap, the encode of a linear scene): the screen-space items go over its result, in
     // display space, and are drawn after it instead of in the main pass. Only when there is something to draw, and the image for it exists.
@@ -1681,6 +1695,16 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
         ssao.add_passes(graph, transient_targets(), gpu, c->postPlan.ssao, ssao_camera(c->fr.cam), c->postPlan.prepass,
                         c->postPlan.rect, physW, physH, game, dst, c->postPlan.sceneLinear, &stats.drawCalls,
                         c->plan.name);
+    }
+    // Depth of field and motion blur of every camera (renderer_dof.h), over its rectangle of the scene colour and before the bloom.
+    for (DrawContext* c : postCams) {
+        if (!c->postPlan.sceneFx.any() || !c->postPlan.prepass.valid()) continue;
+        const BloomTarget fxDst =
+            ctx.hudAfterBloom && ctx.msaa
+                ? BloomTarget{gameTarget.colorAtt, gameTarget.resolveAtt, gpu.sample_count()}
+                : BloomTarget{ctx.msaa ? gameTarget.resolveColorAtt : gameTarget.colorAtt, sg_view{}, 1};
+        sceneFx.add_passes(graph, transient_targets(), gpu, c->postPlan.sceneFx, c->postPlan.rect, physW, physH, game,
+                           gameTarget.texView, fxDst, c->postPlan.prepass, &stats.drawCalls, c->plan.name);
     }
     if (pp.bloom.enabled) {
         BloomTarget dst;

@@ -484,14 +484,14 @@ final pass) are drawn; the others are not yet.
   is dropped). 3D meshes are not in it (a mesh is not "a sprite"), nor the clear colour, nor the
   screen-space items (the HUD is drawn after the final pass).
 - **Ambient occlusion (M71-D1; `src/renderer_ssao.{h,cpp}`, `shaders/ssao.glsl`).** `PostPlan::ssao` (`ssao_from_stack`: quality 0..3,
-  intensity 0..4, radius 0..1000, off at intensity 0 or radius < 0.001) is what `make_post_plan` takes from the stack (not from `forceEffects`),
+  intensity 0..4, radius 0..20, off at intensity 0 or radius < 0.001) is what `make_post_plan` takes from the stack (not from `forceEffects`),
   and it asks for the prepass. `Ssao::add_passes` declares, per camera and after its game passes and before the bloom, `<job>/ssao-ao` (GTAO,
   half resolution at low and medium, full at high and ultra: 2, 3, 3, 5 directions, 3, 5, 6, 8 steps), `ssao-blur-h`, `ssao-blur-v` (bilateral,
   the weights of the distance to the plane of the centre) and `ssao-apply`, over the camera's rectangle (viewport and scissor when it is a part
   of the picture). The two RGBA16F images are transients of the graph (`<job>/ssao-a|b`). The apply pass works in place: a multiply blend
   (`DST_COLOR`, `ZERO`) on the game image, so the bloom and the final pass see the darkened picture (with `hudAfterBloom` and MSAA it
-  writes into the multisampled image, like the bloom's composite). The noise is a fixed 4x4 pattern of the pixel: no random numbers, no frame.
-  `DebugView::Ao` replaces the apply by `ssao-view` (the grey). `is_post_pass` counts the `ssao-*` passes. The effect is skipped, with one
+  writes into the multisampled image, like the bloom's composite). The noise is a fixed 4x4 pattern: no random numbers.
+  `DebugView::Ao` replaces the apply by `ssao-view` (the grey). The effect is skipped, with one
   warning, where the GPU has no RGBA16F target that blends and filters.
 - **Depth and normal prepass** (`Renderer::Impl::plan_prepass`, `prepass_pass`, `prepass_view_pass` in `renderer_draw.cpp`). A pass
   of every camera job's graph that needs one, declared before "main" as `<job>/prepass`, with a transient of its own (`PostPlan::prepass`, a `PrepassRef` the effects that read
@@ -510,7 +510,14 @@ final pass) are drawn; the others are not yet.
   pooled image of the size of the camera's rectangle (`ctx.camPx`) could be made (else one error and no prepass). A split screen
   therefore has one prepass per camera that asks, each the size of its own viewport, and the camera's final pass reads it by camera-local
   coordinates. `Impl::prevViewProj` keeps each camera's view-projection of the frame before (by entity,
-  with the frame serial, forgotten after a frame without it) for `PostPlan::prevViewProj`, which motion blur will read. Tests force an
+  with the frame serial, forgotten after a frame without it) for `PostPlan::prevViewProj` and `prevValid`, which the motion blur reads (`SceneFx::plan`: no previous frame, no blur). Tests force an
   effect with `render::renderer_force_post_effects`; `Renderer::set_debug_view` (and `FA_RENDER_DEBUG_VIEW`) adds the "prepass-view"
   pass, which draws `prepass_view.glsl` over the game image (the main pass then keeps its multisampled colour). The tests read the image
   through that view because only RGBA8 can be read back.
+- **Depth of field and motion blur** (`src/renderer_dof.*`, `shaders/dof.glsl`, `motion_blur.glsl`). `SceneFx` (a member of `Impl`) plans
+  per camera in `plan_job` (`PostPlan::sceneFx`: the clamped numbers, the autofocus, the previous-frame matrices) and `build_graph`
+  declares its passes (`add_passes`) before the bloom, so they work on the scene colour: with a stack that has them `plan_job` makes the
+  HUD draw after the post stack (as `hudAfterBloom`), and the passes write the unresolved colour attachment or the resolved one as the
+  bloom does. A pass cannot read what it writes, so the chain goes through one scratch transient and ends with a copy (or the last
+  effect writes the picture itself). The focus per camera is state of `SceneFx` keyed by the camera entity, moved by the engine clock
+  (`smooth_focus`), never by wall time. It owns its shaders and pipelines (made on first use, `release()` on shutdown).

@@ -16,6 +16,14 @@ Older versions, one file per minor version with its patch releases: [0.29](chang
   `render.supports {"feature": "ssao"}` is true where the GPU has RGBA16F targets that blend, and `render.debug_view {"view": "ao"}`
   shows the occlusion alone.
 
+- **Depth of field and camera motion blur:** `depthOfFieldEnabled` and `motionBlurEnabled` of `PostProcess` are drawn now (`render.supports`
+  says so, `postprocess.apply_preset` no longer lists them in `notDrawn`). Both read the depth prepass and work on the scene colour,
+  before the bloom and the final pass; each camera has its own passes (split screen). The depth of field blurs by a circle of confusion
+  from the view depth, with a near and a far blur in design pixels, a half-size disc gather and an optional bokeh weighting; the
+  autofocus follows `depthOfFieldTarget` by `depthOfFieldFocusSpeed` on the engine clock (the same frames give the same focus on every
+  machine) and falls back to `depthOfFieldFocusDistance` with no target. The motion blur smears along the camera's own movement with a
+  fixed jitter, up to 8% of the picture's larger side, and never on the first frame or after a camera cut. With both off nothing is
+  declared and the picture is unchanged (docs/RENDERING.md, "Depth of field and motion blur").
 - **Post-processing costs and a graphics page:** `render.frame_graph` returns `postProcess`: the post-processing passes with their
   summed CPU and GPU time (`gpuMs` is `null` with `gpuStatus` `"unavailable"` and a reason where the backend has no GPU timer; the effects
   folded into the `post` pass are not timed one by one), and the editor's Profiler panel has a "Post-processing" tab with the same table.
