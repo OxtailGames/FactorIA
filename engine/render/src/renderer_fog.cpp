@@ -39,8 +39,8 @@ Rect rect_of(const PostRect& r, int picW, int picH) {
     return o;
 }
 
-// One full-screen triangle with `prog` into the pass `pd`. `tc`, `tp`: the picture and prepass (or, for Add, the rays image in `tc`) the
-// program declares; a binding a program does not use is not made (it would be a validation error). `fu`: the program's uniform block.
+// One full-screen triangle with `prog` (Rays or Add) into the pass `pd`. `tc`, `tp`: the picture and prepass (or, for Add, the rays image in
+// `tc`) the program declares; a binding a program does not use is not made (it would be a validation error). `fu`: the program's uniform block.
 // `part`: the rectangle of the destination the pass covers (null: all of it).
 void draw_fullscreen(FogFx& fx, Gpu& gpu, FogFx::Prog prog, const PassDesc& pd, sg_view tc, sg_view tp, const void* fu,
                      std::size_t fuSize, const Rect* part) {
@@ -54,10 +54,6 @@ void draw_fullscreen(FogFx& fx, Gpu& gpu, FogFx::Prog prog, const PassDesc& pd, 
     sg_bindings b{};
     b.vertex_buffers[0] = gpu.fullscreen_triangle();
     switch (prog) {
-        case FogFx::Prog::Fog:
-            b.views[0] = tp;
-            b.samplers[0] = gpu.sampler(SamplerKind::Nearest);
-            break;
         case FogFx::Prog::Rays:
             b.views[0] = tc;
             b.views[1] = tp;
@@ -172,6 +168,7 @@ FogFxPlan make_fog_plan(const CameraGeometry& cam, const PostStack& stack, bool 
         p.axisY[0] = cam.right.y;
         p.axisY[1] = cam.up.y;
         p.axisY[2] = cam.forward.y;
+        p.forward = cam.forward;
         for (float a : p.axisY) ok = ok && std::isfinite(a);
         ok = ok && std::isfinite(p.eye.y);
         p.fog = ok && (p.density > 0.0f || p.heightDensity > 0.0f);
@@ -273,6 +270,38 @@ void FogFx::release() {
     warnedTargets_ = false;
 }
 
+bool FogFx::draw_fog(Gpu& gpu, const FogFxPlan& plan, sg_view prepassTex, const TargetFormat& format) {
+    if (!plan.fog || !prepassTex.id || !ready(Prog::Fog)) return false;
+    fog_fog_params_t u{};
+    u.a[0] = gpu.is_gl() ? 1.0f : 0.0f;
+    u.a[1] = plan.ortho ? 1.0f : 0.0f;
+    for (int i = 0; i < 3; ++i) u.col[i] = plan.color[i];
+    u.col[3] = plan.density;
+    u.d[0] = plan.start;
+    u.d[1] = plan.heightDensity;
+    u.d[2] = plan.heightBase;
+    u.d[3] = plan.heightFalloff;
+    for (int i = 0; i < 4; ++i) u.pa[i] = plan.proj[i];
+    for (int i = 0; i < 4; ++i) u.pb[i] = plan.proj[4 + i];
+    u.eye[0] = plan.eye.x;
+    u.eye[1] = plan.eye.y;
+    u.eye[2] = plan.eye.z;
+    for (int i = 0; i < 3; ++i) u.ax[i] = plan.axisY[i];
+    sg_apply_pipeline(pipeline(Prog::Fog, format));
+    sg_bindings b{};
+    b.vertex_buffers[0] = gpu.fullscreen_triangle();
+    b.views[VIEW_fog_tex_p] = prepassTex;
+    b.samplers[SMP_fog_smp_pt] = gpu.sampler(SamplerKind::Nearest);
+    sg_apply_bindings(&b);
+    float flip[4] = {gpu.is_gl() ? 1.0f : 0.0f, 0.0f, 0.0f, 0.0f};
+    sg_range vr{flip, sizeof(flip)};
+    sg_apply_uniforms(UB_fog_fog_vs_params, &vr);
+    sg_range fr{&u, sizeof(u)};
+    sg_apply_uniforms(UB_fog_fog_params, &fr);
+    sg_draw(0, 3, 1);
+    return true;
+}
+
 // The pass callbacks capture uniform blocks by value, which are alignas(16): MSVC warns (C4324, an error under /WX) that each closure is
 // padded, which is what alignas asks for.
 #if defined(_MSC_VER)
@@ -282,16 +311,15 @@ void FogFx::release() {
 int FogFx::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, const FogFxPlan& plan,
                       const PostRect& rectIn, int picW, int picH, ResourceId game, sg_view srcTex,
                       const BloomTarget& dst, const PrepassRef& prepass, int* drawCalls, const std::string& job) {
-    if (!plan.any() || !prepass.valid()) return 0;
+    if (!plan.shafts || !prepass.valid()) return 0;
     const Rect rect = rect_of(rectIn, picW, picH);
     if (rect.w < 1 || rect.h < 1) return 0;
     const sg_pixel_format fmt = gpu.scene_format();
     const int rw = rect.w, rh = rect.h;
     const int hw = std::max(1, (rw + 1) / 2), hh = std::max(1, (rh + 1) / 2);
     const std::uint64_t shapeKey = (std::uint64_t(rw) << 40) ^ (std::uint64_t(rh) << 16) ^ std::uint64_t(fmt);
-    bool doFog = plan.fog && ready(Prog::Fog);
-    bool doShafts = plan.shafts && ready(Prog::Rays) && ready(Prog::Add);
-    if (!doFog && !doShafts) return 0;
+    bool doShafts = ready(Prog::Rays) && ready(Prog::Add);
+    if (!doShafts) return 0;
 
     // The half-resolution image of the rays: made now (and given back to the pool) so that a GPU that refuses it is one warning here, not a
     // pass that cannot run halfway through the frame.
@@ -322,7 +350,7 @@ int FogFx::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, co
             }
         }
     }
-    if (!doFog && !doShafts) return 0;
+    if (!doShafts) return 0;
 
     int declared = 0;
     TransientTargets* tt = &targets;
@@ -345,7 +373,7 @@ int FogFx::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, co
     const PrepassRef prepassRef = prepass;
     const PostRectUv ruv = post_rect_uv(rectIn, picW, picH);
     const float gl = gpu.is_gl() ? 1.0f : 0.0f;
-    // The pass that draws into the camera's rectangle of the picture, keeping what is there (both effects blend over it).
+    // The pass that draws into the camera's rectangle of the picture, keeping what is there (the shafts add to it).
     const TargetFormat dstFormat{fmt, SG_PIXELFORMAT_NONE, dst.samples};
     auto into_picture = [dst, dstFormat](const char* label) {
         PassDesc pd;
@@ -358,30 +386,6 @@ int FogFx::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, co
         return pd;
     };
 
-    if (doFog) {
-        fog_fog_params_t u{};
-        u.a[0] = gl;
-        u.a[1] = plan.ortho ? 1.0f : 0.0f;
-        for (int i = 0; i < 3; ++i) u.col[i] = plan.color[i];
-        u.col[3] = plan.density;
-        u.d[0] = plan.start;
-        u.d[1] = plan.heightDensity;
-        u.d[2] = plan.heightBase;
-        u.d[3] = plan.heightFalloff;
-        for (int i = 0; i < 4; ++i) u.pa[i] = plan.proj[i];
-        for (int i = 0; i < 4; ++i) u.pb[i] = plan.proj[4 + i];
-        u.eye[0] = plan.eye.x;
-        u.eye[1] = plan.eye.y;
-        u.eye[2] = plan.eye.z;
-        for (int i = 0; i < 3; ++i) u.ax[i] = plan.axisY[i];
-        add("fog-blend", {pre, game}, {game}, [=](const PassContext& c) {
-            const Target* pt = prepassRef.target(c);
-            if (!pt) return;
-            draw_fullscreen(*self, *g, Prog::Fog, into_picture("fog-blend"), sg_view{}, pt->texView, &u, sizeof(u),
-                            rect.whole ? nullptr : &rect);
-            ++*drawCalls;
-        });
-    }
     if (doShafts) {
         const ResourceId half = graph.create_transient(ha);
         sun_shafts_rays_params_t u{};

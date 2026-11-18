@@ -84,6 +84,11 @@ struct Renderer::Impl::DrawContext {
     mesh_fa_lights_t lightUniforms{};
     mesh_fa_mesh_vs_params_t vuScene{};
     mesh_fa_mesh_fs_params_t fuScene{};
+    // fuScene with the camera's stack fog (PostProcess.fog*): the blended meshes fog themselves with it, while the opaque meshes and the sky
+    // are fogged by the full-screen draw (fuScene has no fog then). Equal to fuScene when the camera has no stack fog.
+    mesh_fa_mesh_fs_params_t fuBlend{};
+    // build_graph: the occlusion image the main pass applies after the opaque meshes (valid when the "ssao-*" passes were declared).
+    SsaoApply ssaoApply;
     // light_pass
     int litMode = 0;
     sg_view shadowRowsTex{};
@@ -447,14 +452,14 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
             if (ff.shafts && !(fogFx.ready(FogFx::Prog::Rays) && fogFx.ready(FogFx::Prog::Add))) ff.shafts = false;
         }
     }
-    // Reflections, fog, sun shafts, depth of field and motion blur work on the scene colour, so the screen-space items are drawn after them
+    // Reflections, sun shafts, depth of field and motion blur work on the scene colour, so the screen-space items are drawn after them
     // (as they are over the bloom).
     if (plan.last && !plan.view) {
         bool sceneColorFx = false;
         for (const DrawContext* c : postCams)
             sceneColorFx =
                 sceneColorFx ||
-                ((c->postPlan.ssr.any() || c->postPlan.fogFx.any() || c->postPlan.sceneFx.any()) && c->doPrepass);
+                ((c->postPlan.ssr.any() || c->postPlan.fogFx.shafts || c->postPlan.sceneFx.any()) && c->doPrepass);
         if (sceneColorFx) {
             ctx.hudAfterBloom = true;
             ctx.doMainPass = fr.wantWorld || !ctx.hudAfterBloom;
@@ -811,7 +816,7 @@ void Renderer::Impl::scene_uniforms(DrawContext& ctx) {
         ss.horizonColor = Color{0.4f * k, 0.4f * k, 0.42f * k, 1.0f};
         ss.fogDensity = 0.0f;
     }
-    // The camera's own fog (PostProcess.fog*, drawn from the depth after the main pass) replaces the scene's: the two never add up. It is
+    // The camera's own fog (PostProcess.fog*, drawn from the depth inside the main pass) replaces the scene's: the two never add up. It is
     // only planned (fogFx.fog) when its prepass and shader exist, so a frame that cannot draw it keeps the scene's fog.
     if (ctx.postPlan.fogFx.fog) ss.fogDensity = 0.0f;
     // Colours the author picked are sRGB values; a linear scene computes with linear light (sky, fog and ambient, below, and the
@@ -852,6 +857,25 @@ void Renderer::Impl::scene_uniforms(DrawContext& ctx) {
     fuScene.fa_env_horizon[2] = ss.horizonColor.b;
     fuScene.fa_pbr[3] = 0.0015f;
     fuScene.fa_time[0] = float(world.time());
+    // The blended meshes fog themselves with the stack's fog (the same numbers as the full-screen draw, the same formula): by their own
+    // distance, not by the opaque mesh behind them, and over the sky too.
+    ctx.fuBlend = fuScene;
+    const FogFxPlan& ff = ctx.postPlan.fogFx;
+    if (ff.fog) {
+        mesh_fa_mesh_fs_params_t& fb = ctx.fuBlend;
+        fb.fa_fog[0] = ff.color[0];
+        fb.fa_fog[1] = ff.color[1];
+        fb.fa_fog[2] = ff.color[2];
+        fb.fa_fog[3] = ff.density;
+        fb.fa_fog_b[0] = ff.start;
+        fb.fa_fog_b[1] = ff.heightDensity;
+        fb.fa_fog_b[2] = ff.heightBase;
+        fb.fa_fog_b[3] = ff.heightFalloff;
+        fb.fa_fog_c[0] = ff.forward.x;
+        fb.fa_fog_c[1] = ff.forward.y;
+        fb.fa_fog_c[2] = ff.forward.z;
+        fb.fa_fog_c[3] = ff.ortho ? 1.0f : 0.0f;
+    }
 }
 
 // What one part of an item is drawn with (reads ctx.white).
@@ -868,10 +892,10 @@ Renderer::Impl::PartDraw Renderer::Impl::part_draw(DrawContext& ctx, const MeshI
     return d;
 }
 
-// The fragment parameters (fa_mesh_fs_params) of one part (reads ctx.fuScene, ctx.doShadows).
+// The fragment parameters (fa_mesh_fs_params) of one part (reads ctx.fuScene, or ctx.fuBlend for a blended part, ctx.doShadows).
 mesh_fa_mesh_fs_params_t Renderer::Impl::fill_fs(DrawContext& ctx, const MeshItem& mi, const SubMesh& part,
-                                                 const PartDraw& d) {
-    const mesh_fa_mesh_fs_params_t& fuScene = ctx.fuScene;
+                                                 const PartDraw& d, bool blended) {
+    const mesh_fa_mesh_fs_params_t& fuScene = blended ? ctx.fuBlend : ctx.fuScene;
     const bool doShadows = ctx.doShadows;
     const MeshRenderer& mr = *mi.mr;
     mesh_fa_mesh_fs_params_t fu = fuScene;
@@ -1294,7 +1318,7 @@ void Renderer::Impl::prepass_view_pass(DrawContext& ctx, const Target& t) {
 // Draws the batches of a quad group. Reads: ctx.vbuf, ctx.shadowRowsTex, fr (lights2d, shadowRows, ambient2d), renderScale,
 // physW / physH, gpu.light_range(), lightTarget.texView (`flatMode` 1 reads the light buffer). Writes: stats.drawCalls.
 void Renderer::Impl::draw_group(DrawContext& ctx, const std::vector<QuadBatch>& batches, const Mat4& vp, bool depthTest,
-                                const Px& base, int flatMode, const TargetFormat* format) {
+                                const Px& base, int flatMode, const TargetFormat* format, const FogFxPlan* fog) {
     Frame& fr = ctx.fr;
     const sg_buffer vbuf = ctx.vbuf;
     const sg_view shadowRowsTex = ctx.shadowRowsTex;
@@ -1345,12 +1369,41 @@ void Renderer::Impl::draw_group(DrawContext& ctx, const std::vector<QuadBatch>& 
         litUniforms.light_shadow_v[i][0] =
             row >= 0.0f && fr.shadowRows > 0 ? (row + 0.5f) / float(fr.shadowRows) : -1.0f;
     }
+    // The camera's stack fog on the world's quads (shaders/quad.glsl): each batch fades to the fog colour, an additive one to nothing and a
+    // multiplying one to 1 (the colour that changes nothing), by the quad's own distance. Only the full program reads it.
+    quad_quad_fs_params_t fogged{};
+    if (fog && fog->fog) {
+        fogged.fog_b[0] = fog->start;
+        fogged.fog_b[1] = fog->heightDensity;
+        fogged.fog_b[2] = fog->heightBase;
+        fogged.fog_b[3] = fog->heightFalloff;
+        fogged.fog_c[0] = fog->forward.x;
+        fogged.fog_c[1] = fog->forward.y;
+        fogged.fog_c[2] = fog->forward.z;
+        fogged.fog_c[3] = fog->ortho ? 1.0f : 0.0f;
+        fogged.fog_eye[0] = fog->eye.x;
+        fogged.fog_eye[1] = fog->eye.y;
+        fogged.fog_eye[2] = fog->eye.z;
+        std::memcpy(litUniforms.fog_b, fogged.fog_b, sizeof(fogged.fog_b));
+        std::memcpy(litUniforms.fog_c, fogged.fog_c, sizeof(fogged.fog_c));
+        std::memcpy(litUniforms.fog_eye, fogged.fog_eye, sizeof(fogged.fog_eye));
+        fogged.fog_col[3] = litUniforms.fog_col[3] = fog->density;
+    }
+    const bool fogOn = fog && fog->fog;
     const sg_view lightTexBound = flatMode == 1 ? lightTarget.texView : assets->white()->view;
     const sg_view shadowTexBound = shadowRowsTex.id ? shadowRowsTex : assets->white()->view;
     for (const QuadBatch& qb : batches) {
         apply_clip(qb.clip);
-        sg_apply_pipeline(format ? gpu.quad_pipeline(*format, depthTest, false, qb.blend, qb.plain, qb.opaque)
-                                 : gpu.quad_pipeline(depthTest, false, qb.blend, qb.plain, qb.opaque));
+        const bool plain = qb.plain && !fogOn;  // the lean program has no fog
+        sg_apply_pipeline(format ? gpu.quad_pipeline(*format, depthTest, false, qb.blend, plain, qb.opaque)
+                                 : gpu.quad_pipeline(depthTest, false, qb.blend, plain, qb.opaque));
+        if (fogOn) {
+            const float to = qb.blend == BlendMode::Multiply ? 1.0f : qb.blend == BlendMode::Additive ? 0.0f : -1.0f;
+            for (int c = 0; c < 3; ++c) {
+                const float v = to < 0.0f ? fog->color[c] : to;
+                fogged.fog_col[c] = litUniforms.fog_col[c] = v;
+            }
+        }
         u.cspace[1] = float(qb.tex->tex_fix(fr.linear, true, fr.displayOverLinear));
         u.cspace[2] = qb.lit && qb.normal ? float(qb.normal->tex_fix(fr.linear, false)) : 0.0f;
         apply_uniforms(UB_quad_vs_params, u);
@@ -1358,8 +1411,8 @@ void Renderer::Impl::draw_group(DrawContext& ctx, const std::vector<QuadBatch>& 
             litUniforms.lit[1] = qb.normal ? 1.0f : 0.0f;
             if (qb.normal) normal_uv_transform(*qb.tex, *qb.normal, litUniforms.normal_uv);
             apply_uniforms(UB_quad_quad_fs_params, litUniforms);
-        } else if (!qb.plain) {  // quad_plain declares no fragment uniforms
-            apply_uniforms(UB_quad_quad_fs_params, unlit);
+        } else if (!plain) {  // quad_plain declares no fragment uniforms
+            apply_uniforms(UB_quad_quad_fs_params, fogOn ? fogged : unlit);
         }
         std::uint32_t done = 0;
         while (done < qb.quadCount) {
@@ -1396,7 +1449,7 @@ void Renderer::Impl::draw_group(DrawContext& ctx, const std::vector<QuadBatch>& 
 // lineFirst, screenProj, shadowTarget.texView (doShadows) and lightTarget.texView (litMode 1), the game target images.
 // Writes: the game target (gameTarget.colorAtt / resolveAtt / depthAtt); stats (drawCalls, triangles, meshes, meshBatches, materials,
 // materialFallbacks).
-void Renderer::Impl::main_pass(DrawContext& ctx) {
+void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
     Frame& fr = ctx.fr;
     const JobPlan& plan = ctx.plan;
     const bool z01 = ctx.z01, msaa = ctx.msaa, hudAfterBloom = ctx.hudAfterBloom;
@@ -1504,7 +1557,7 @@ void Renderer::Impl::main_pass(DrawContext& ctx) {
                     apply_uniforms(UB_mesh_fa_mesh_vs_params, vu);
                     if (skinned && declares(prog, UB_mesh_fa_skin))
                         apply_uniforms(UB_mesh_fa_skin, pack_palette(palette_of(*mi.anim, part.skin)));
-                    apply_uniforms(UB_mesh_fa_mesh_fs_params, fill_fs(ctx, mi, part, pd));
+                    apply_uniforms(UB_mesh_fa_mesh_fs_params, fill_fs(ctx, mi, part, pd, isBlend));
                     apply_uniforms(UB_mesh_fa_lights, lightUniforms);
                     if (prog) apply_material_params(*prog, inputs);
                     sg_draw(0, part.indexCount, int(batch.mainCount));
@@ -1516,11 +1569,30 @@ void Renderer::Impl::main_pass(DrawContext& ctx) {
             }
         };
         draw_meshes(opaqueBatches, opaque, false);
+
+        // The effects that work on the opaque picture (the sky and the opaque meshes) and nothing else: the ambient occlusion and the
+        // camera's fog, as full-screen draws over the camera's rectangle, reading the prepass. What is drawn after them (blended meshes,
+        // sprites, particles, 3D text, the HUD) is not darkened, and fogs itself by its own distance (mesh_common.glsl, quad.glsl).
+        const Target* preT = ctx.postPlan.prepass.target(pc);
+        if (preT && preT->texView.id) {
+            if (partial) apply_view(camPx);
+            if (ctx.ssaoApply.valid) {
+                const Target* aoT = transient_targets().get(pc.handle(ctx.ssaoApply.ao));
+                if (aoT && aoT->texView.id) {
+                    Ssao::draw_apply(gpu, ctx.ssaoApply, aoT->texView, preT->texView, mp.format);
+                    ++stats.drawCalls;
+                }
+            }
+            if (ctx.postPlan.fogFx.fog && fogFx.draw_fog(gpu, ctx.postPlan.fogFx, preT->texView, mp.format))
+                ++stats.drawCalls;
+        }
+
         draw_meshes(blendedBatches, blended, true);
         stats.materials += int(materialsDrawn.size());
 
         // quad groups
-        draw_group(ctx, gWorld.batches, fr.cam.viewProj, fr.cam.perspective, camPx, litMode);
+        draw_group(ctx, gWorld.batches, fr.cam.viewProj, fr.cam.perspective, camPx, litMode, nullptr,
+                   ctx.postPlan.fogFx.fog ? &ctx.postPlan.fogFx : nullptr);
         draw_group(ctx, gDebugWorld.batches, fr.cam.viewProj, false, camPx);
         if (!fr.debugLines.empty()) {
             sg_apply_pipeline(gpu.quad_pipeline(false, true));
@@ -1665,8 +1737,17 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
             },
             true);
     }
+    // The ambient occlusion (renderer_ssao.h): its images are made from the prepass before the main pass, which applies them after the
+    // opaque meshes (main_pass). Only a job that draws the world and has the prepass declares them.
+    ctx.ssaoApply = SsaoApply{};
+    if (ctx.doMainPass && ctx.doPrepass && fr.wantWorld && ctx.postPlan.ssao.enabled && ctx.postPlan.prepass.valid())
+        ssao.add_passes(graph, transient_targets(), gpu, ctx.postPlan.ssao, ssao_camera(fr.cam), ctx.postPlan.prepass,
+                        ctx.postPlan.rect, physW, physH, ctx.postPlan.sceneLinear, &stats.drawCalls, plan.name,
+                        &ctx.ssaoApply);
     if (ctx.doMainPass) {
         std::vector<ResourceId> reads;
+        if (ctx.postPlan.prepass.valid()) reads.push_back(ctx.postPlan.prepass.res);
+        if (ctx.ssaoApply.valid) reads.push_back(ctx.ssaoApply.ao);
         if (ctx.litMode == 1) reads.push_back(lightRes);
         if (ctx.doShadows) reads.push_back(shadowRes);
         if (!ctx.clearByLoad) reads.push_back(game);  // LOAD: a second camera or the HUD job continues the picture
@@ -1674,7 +1755,7 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
         add(plan.view      ? "view"
             : fr.wantWorld ? "game"
                            : "game-hud",
-            std::move(reads), {game}, [this, &ctx](const PassContext&) { main_pass(ctx); });
+            std::move(reads), {game}, [this, &ctx](const PassContext& c) { main_pass(ctx, c); });
         if (ctx.debugPrepass)
             add("prepass-view", {prepassRes, game}, {game}, [this, &ctx, prepassRes](const PassContext& c) {
                 const Target* t = transient_targets().get(c.handle(prepassRes));
@@ -1723,21 +1804,8 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
             use.skip_outline();  // the pass did not get the image: drawn without
         return t && use.fx.outline ? t->texView : sg_view{};
     };
-    // The ambient occlusion of every camera, before the bloom: it darkens the camera's rectangle of the game image in place, so the glow and
-    // the final pass see the darkened picture. With the HUD over the glow and MSAA the multisampled image is what the HUD pass and the
-    // bloom composite load again, so the occlusion goes into it (resolved at the end of the pass), like the glow.
-    for (const DrawContext* c : postCams) {
-        if (!c->postPlan.ssao.enabled || !c->postPlan.prepass.valid()) continue;
-        const SsaoTarget dst =
-            ctx.hudAfterBloom && ctx.msaa
-                ? SsaoTarget{gameTarget.colorAtt, gameTarget.resolveAtt, gpu.sample_count()}
-                : SsaoTarget{ctx.msaa ? gameTarget.resolveColorAtt : gameTarget.colorAtt, sg_view{}, 1};
-        ssao.add_passes(graph, transient_targets(), gpu, c->postPlan.ssao, ssao_camera(c->fr.cam), c->postPlan.prepass,
-                        c->postPlan.rect, physW, physH, game, dst, c->postPlan.sceneLinear, &stats.drawCalls,
-                        c->plan.name);
-    }
-    // Screen-space reflections of every camera (renderer_ssr.h), over its rectangle of the scene colour, after the ambient occlusion and
-    // before the fog, the depth of field and the rest of the stack.
+    // Screen-space reflections of every camera (renderer_ssr.h), over its rectangle of the scene colour, on the picture the main pass drew (the ambient occlusion
+    // and the fog are already in it), before the sun shafts, the depth of field and the rest of the stack.
     for (DrawContext* c : postCams) {
         if (!c->postPlan.ssr.any() || !c->postPlan.prepass.valid()) continue;
         const BloomTarget ssrDst =
@@ -1747,9 +1815,10 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
         ssr.add_passes(graph, transient_targets(), gpu, c->postPlan.ssr, c->postPlan.rect, physW, physH, game,
                        gameTarget.texView, ssrDst, c->postPlan.prepass, &stats.drawCalls, c->plan.name);
     }
-    // Fog and sun shafts of every camera (renderer_fog.h), over its rectangle of the scene colour, before the depth of field.
+    // The sun shafts of every camera (renderer_fog.h), over its rectangle of the scene colour, before the depth of field. (The fog is
+    // drawn in the main pass.)
     for (DrawContext* c : postCams) {
-        if (!c->postPlan.fogFx.any() || !c->postPlan.prepass.valid()) continue;
+        if (!c->postPlan.fogFx.shafts || !c->postPlan.prepass.valid()) continue;
         const BloomTarget fogDst =
             ctx.hudAfterBloom && ctx.msaa
                 ? BloomTarget{gameTarget.colorAtt, gameTarget.resolveAtt, gpu.sample_count()}

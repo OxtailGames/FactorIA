@@ -53,6 +53,7 @@ out vec4 color2;
 out vec2 shape_half;
 out vec2 shape_rs;
 out vec3 xform;
+out float world_z;
 
 void main() {
     gl_Position = view_proj * vec4(position, 1.0);
@@ -62,6 +63,7 @@ void main() {
     xform = cspace.xyz;
     params = params0;
     world_xy = position.xy;
+    world_z = position.z;
     color2 = color2_0;
     shape_half = shape_half0;
     shape_rs = shape_rs0;
@@ -90,6 +92,12 @@ layout(binding=1) uniform quad_fs_params {
     vec4 light_pos[16];        // point: xyz position (z = height), w radius; directional: xyz unit vector TO the light, w = -1
     vec4 light_color[16];      // rgb color * intensity; w falloff exponent
     vec4 light_shadow_v[16];   // x = v coordinate of the light's row in shadow_tex, -1 = it casts no shadow
+    // The fog of the camera's post stack (PostProcess.fog*) on the quads of the world: the same formula as fog.glsl. Only the full
+    // program reads it (a batch under stack fog never uses quad_plain). All 0 without that fog: nothing changes.
+    vec4 fog_col;              // rgb = what the quad fades to (the fog colour; 0 for an additive quad, 1 for a multiplying one), w = density
+    vec4 fog_b;                // x = fogStart, y = height density, z = height base (world y), w = height falloff
+    vec4 fog_c;                // xyz = the camera's forward axis, w = 1 for an orthographic camera
+    vec4 fog_eye;              // xyz = the camera's world position
 };
 
 in vec2 uv;
@@ -100,6 +108,7 @@ in vec4 color2;
 in vec2 shape_half;
 in vec2 shape_rs;
 in vec3 xform;
+in float world_z;
 out vec4 frag_color;
 
 @include_block light_shadow
@@ -246,6 +255,31 @@ void main() {
     }
     if (flash) frag_color.rgb = mix(frag_color.rgb, scene_rgb(color2.rgb), color2.a);
     if (mul) frag_color = vec4(mix(vec3(1.0), frag_color.rgb, frag_color.a), 1.0);
+    if (fog_col.w > 0.0 || fog_b.y > 0.0) {
+        vec3 rel = vec3(world_xy, world_z) - fog_eye.xyz;
+        float dep = dot(rel, fog_c.xyz);
+        float dist = fog_c.w > 0.5 ? dep : length(rel);
+        float len = dist - fog_b.x;
+        if (len > 0.0) {
+            float tau = fog_col.w * len;
+            tau *= tau;
+            if (fog_b.y > 0.0) {
+                float py = world_xy.y;
+                float ey = fog_c.w > 0.5 ? py - fog_c.y * dep : fog_eye.y;
+                float ya = mix(ey, py, clamp(fog_b.x / dist, 0.0, 1.0));
+                float dy = py - ya;
+                float ka = ya - fog_b.z;
+                float kb = py - fog_b.z;
+                float ha = (ka <= 0.0 || fog_b.w < 1e-4) ? fog_b.y : fog_b.y * exp(-min(fog_b.w * ka, 80.0));
+                float ia = (ka <= 0.0 || fog_b.w < 1e-4) ? fog_b.y * ka : fog_b.y * (1.0 - exp(-min(fog_b.w * ka, 80.0))) / fog_b.w;
+                float ib = (kb <= 0.0 || fog_b.w < 1e-4) ? fog_b.y * kb : fog_b.y * (1.0 - exp(-min(fog_b.w * kb, 80.0))) / fog_b.w;
+                float avg = abs(dy) < 1e-3 ? ha : (ib - ia) / dy;
+                tau += len * max(avg, 0.0);
+            }
+            float f = 1.0 - exp(-clamp(tau, 0.0, 80.0));
+            frag_color.rgb = mix(frag_color.rgb, fog_col.rgb, clamp(f, 0.0, 1.0));
+        }
+    }
 }
 @end
 
@@ -264,6 +298,7 @@ in vec4 color2;
 in vec2 shape_half;
 in vec2 shape_rs;
 in vec3 xform;
+in float world_z;
 out vec4 frag_color;
 
 @include_block color_space
