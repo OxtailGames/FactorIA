@@ -28,7 +28,8 @@
       "video": "Video",
       "audio": "Audio",
       "controls": "Controls",
-      "language": "Language"
+      "language": "Language",
+      "graphics": "Graphics"
     },
     "windowMode": "Window mode: {mode}",
     "mode": {
@@ -53,6 +54,23 @@
       "tritanopia": "tritanopia (blue)"
     },
     "videoNote": "Video settings apply when the game runs in its own window.",
+    "gfx": {
+      "quality": "Effects quality: {quality}",
+      "q": {
+        "high": "high",
+        "medium": "medium",
+        "low": "low",
+        "off": "off"
+      },
+      "bloom": "Bloom",
+      "grain": "Film grain",
+      "vignette": "Vignette",
+      "chromatic": "Chromatic aberration",
+      "outline": "Outlines",
+      "hdr": "HDR output",
+      "note": "This scene has no screen effects; your choices apply to the scenes that do.",
+      "hdrNote": "HDR output needs an HDR display and a graphics backend that can show it."
+    },
     "volume": {
       "master": "Master",
       "music": "Music",

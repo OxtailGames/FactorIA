@@ -14,7 +14,7 @@
   "pause": { "title": "إيقاف مؤقت", "resume": "متابعة", "mainMenu": "القائمة الرئيسية" },
   "options": {
     "title": "الخيارات",
-    "tab": { "video": "الفيديو", "audio": "الصوت", "controls": "التحكم", "language": "اللغة" },
+    "tab": { "video": "الفيديو", "audio": "الصوت", "controls": "التحكم", "language": "اللغة", "graphics": "الرسوميات" },
     "windowMode": "وضع النافذة: {mode}",
     "mode": {
       "windowed": "نافذة",
@@ -31,6 +31,7 @@
     "colorFilter": "فلتر الألوان: {filter}",
     "filter": { "none": "متوقف", "greyscale": "تدرج رمادي", "highContrast": "تباين عالٍ", "protanopia": "عمى اللون الأحمر", "deuteranopia": "عمى اللون الأخضر", "tritanopia": "عمى اللون الأزرق" },
     "videoNote": "تُطبَّق إعدادات الفيديو عندما تعمل اللعبة في نافذتها الخاصة.",
+    "gfx": {"quality": "جودة المؤثرات: {quality}", "q": {"high": "عالية", "medium": "متوسطة", "low": "منخفضة", "off": "معطّلة"}, "bloom": "التوهج", "grain": "حبيبات الفيلم", "vignette": "التعتيم عند الحواف", "chromatic": "الزيغ اللوني", "outline": "الحدود", "hdr": "إخراج HDR", "note": "لا تحتوي هذا المشهد على مؤثرات شاشة؛ تنطبق اختياراتك على المشاهد التي تحتويها.", "hdrNote": "يحتاج إخراج HDR إلى شاشة HDR وواجهة رسوميات قادرة على عرضه."},
     "volume": { "master": "العام", "music": "الموسيقى", "effects": "المؤثرات", "interface": "الواجهة" },
     "action": { "move_left": "تحرك يسارًا", "move_right": "تحرك يمينًا", "jump": "اقفز", "pause": "إيقاف مؤقت" },
     "binding": "{action}: {button}",
