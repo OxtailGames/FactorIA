@@ -24,11 +24,12 @@ const Json* shown_effect(const Json& report, const std::string& name) {
     return nullptr;
 }
 
-// Whether render.supports says the renderer draws `effect` (the panel disables the switch of one it does not).
-bool renderer_draws(const Json& support, const std::string& effect) {
+// The panel disables the switch of an effect when render.supports lists it and says it is not supported (planned, or no GPU feature
+// for it here), whatever the reason: the same condition as the panel's.
+bool switch_blocked(const Json& support, const std::string& effect) {
     if (!support.is_object() || !support.contains("features")) return false;
     for (const Json& f : support["features"])
-        if (f.value("name", std::string()) == effect) return f.value("supported", false);
+        if (f.value("name", std::string()) == effect) return !f.value("supported", false);
     return false;
 }
 
@@ -60,10 +61,10 @@ void Editor::at_section_G2(AtScript& at) {
                  "the panel lists every effect, from ssao to colorFilter, in the order they run");
         at_check(postFx_.support.is_object() && postFx_.support.contains("features"),
                  "...with what the renderer draws of each (render.supports)");
-        const bool drawn = renderer_draws(postFx_.support, "ssao");
-        at_check(at_visible("postfx:on:ssao") && at_enabled("postfx:on:ssao") == drawn,
+        const bool blocked = switch_blocked(postFx_.support, "ssao");
+        at_check(at_visible("postfx:on:ssao") && at_enabled("postfx:on:ssao") == !blocked,
                  "an effect the renderer does not draw has a disabled switch, one it draws an enabled one");
-        at_check(at_enabled("postfx:on:bloom") == renderer_draws(postFx_.support, "bloom"),
+        at_check(at_enabled("postfx:on:bloom") == !switch_blocked(postFx_.support, "bloom"),
                  "...and the switch of bloom follows what the renderer says of bloom");
         at_check(at_visible("postfx:preset:cinematic") && at_visible("postfx:preset:neutral"),
                  "the look buttons are listed (cinematic, neutral...)");

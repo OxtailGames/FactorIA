@@ -389,7 +389,7 @@ Things to know:
   with the source of each value, one button per look and a **Stack off (A/B)** check that draws the game without any post-processing
   to compare (`Renderer::set_post_bypass`: it changes no data and ends when the panel closes). Every edit goes through
   `postprocess.set` or `postprocess.apply_preset`, one undo step each, to the camera's own PostProcess or to the volume picked under
-  "Edit"; an effect that is planned cannot be switched on from the panel (a look that switched it on can be switched off).
+  "Edit"; an effect this renderer does not draw (planned, or unsupported on this GPU) cannot be switched on from the panel (a look that switched it on can be switched off).
 
 ## Off-screen capture
 

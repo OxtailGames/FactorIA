@@ -104,8 +104,9 @@ bool Editor::postfx_preset(const std::string& name) {
         return false;
     }
     std::string err;
-    const CommandResult r = edit_command("postfx:preset:" + std::to_string(uiFrame_), "postprocess.apply_preset",
-                                         Json::object({{"id", id}, {"preset", name}, {"keep", postFx_.keepOthers}}), &err);
+    const CommandResult r =
+        edit_command("postfx:preset:" + std::to_string(uiFrame_), "postprocess.apply_preset",
+                     Json::object({{"id", id}, {"preset", name}, {"keep", postFx_.keepOthers}}), &err);
     if (!r.ok) {
         postFx_.error = err;
         return false;
@@ -177,8 +178,9 @@ void Editor::draw_postfx_panel() {
         std::vector<std::string> cameras;
         w.each<Camera>([&](Entity e, Camera&) { cameras.push_back(w.id_of(e)); });
         ImGui::SetNextItemWidth(170);
-        const std::string label = postFx_.camera.empty() ? "Main camera" + (cameraId.empty() ? std::string() : " (" + cameraId + ")")
-                                                          : postFx_.camera;
+        const std::string label = postFx_.camera.empty()
+                                      ? "Main camera" + (cameraId.empty() ? std::string() : " (" + cameraId + ")")
+                                      : postFx_.camera;
         if (ImGui::BeginCombo("Camera", label.c_str())) {
             if (ImGui::Selectable("Main camera", postFx_.camera.empty())) postFx_.camera.clear();
             for (const std::string& c : cameras)
@@ -186,12 +188,14 @@ void Editor::draw_postfx_panel() {
             ImGui::EndCombo();
         }
         at_track("postfx:camera");
-        tip("The camera whose stack is shown: the one the game draws first (the active primary camera with the lowest depth), or "
+        tip("The camera whose stack is shown: the one the game draws first (the active primary camera with the lowest "
+            "depth), or "
             "any other Camera of the scene.");
         ImGui::SameLine();
         ImGui::Checkbox("Stack off (A/B)", &postFx_.compare);
         at_track("postfx:ab");
-        tip("Draws the game without any post-processing (no PostProcess component and no Camera.bloom or colorFilter) to compare "
+        tip("Draws the game without any post-processing (no PostProcess component and no Camera.bloom or colorFilter) "
+            "to compare "
             "it with the stack on. It changes no data and is not saved; it ends when this panel is closed or hidden.");
         if (renderer) {
             renderer->set_post_bypass(postFx_.compare);
@@ -214,8 +218,10 @@ void Editor::draw_postfx_panel() {
             ImGui::EndCombo();
         }
         at_track("postfx:target");
-        tip("Where the switches, fields and presets below write: the PostProcess of the camera (added when it has none), or one "
-            "of the volumes of the scene (an entity with a PostProcess and no Camera: create one with postprocess.set).");
+        tip("Where the switches, fields and presets below write: the PostProcess of the camera (added when it has "
+            "none), or one "
+            "of the volumes of the scene (an entity with a PostProcess and no Camera: create one with "
+            "postprocess.set).");
     }
 
     // ------------------------------------------------------------------------------------------------ presets
@@ -223,7 +229,8 @@ void Editor::draw_postfx_panel() {
     ImGui::SameLine();
     ImGui::Checkbox("Keep other effects", &postFx_.keepOthers);
     at_track("postfx:keep");
-    tip("Off: a look replaces every effect of the edit target with exactly its own. On: it only sets the effects it names.");
+    tip("Off: a look replaces every effect of the edit target with exactly its own. On: it only sets the effects it "
+        "names.");
     for (const PostPreset& p : postprocess_presets()) {
         if (ImGui::SmallButton(p.name.c_str())) postfx_preset(p.name);
         at_track("postfx:preset:" + p.name);
@@ -246,7 +253,8 @@ void Editor::draw_postfx_panel() {
 
     // ------------------------------------------------------------------------------------------------ layers
     const Json& resolved = postFx_.report["resolved"];
-    const std::string backend = postFx_.support.is_object() ? postFx_.support.value("backendLabel", std::string()) : std::string();
+    const std::string backend =
+        postFx_.support.is_object() ? postFx_.support.value("backendLabel", std::string()) : std::string();
     ImGui::Text("%d effect%s run%s", resolved.value("count", 0), resolved.value("count", 0) == 1 ? "" : "s",
                 resolved.value("count", 0) == 1 ? "s" : "");
     if (!backend.empty()) {
@@ -290,27 +298,29 @@ void Editor::draw_postfx_panel() {
         const bool ownOn = own_value(*enabledField).is_boolean() && own_value(*enabledField).get<bool>();
         const EffectSupport support = support_of(postFx_.support, effect);
         const bool planned = support.known && support.planned;
+        const bool blocked = support.known && !support.supported;  // planned, or unsupported on this GPU or backend
         ImGui::PushID(effect.c_str());
 
-        // The switch writes <effect>Enabled of the edit target. A planned effect cannot be switched on (the renderer does not draw it
-        // yet), but one that a look switched on can be switched off.
-        ImGui::BeginDisabled(planned && !ownOn);
+        // The switch writes <effect>Enabled of the edit target. An effect this renderer does not draw (planned, or unsupported on this
+        // GPU or backend) cannot be switched on, but one that a look switched on can be switched off.
+        ImGui::BeginDisabled(blocked && !ownOn);
         bool on = ownOn;
         if (ImGui::Checkbox("##on", &on)) postfx_edit(Json::object({{enabledName, on}}));
         ImGui::EndDisabled();
-        at_track("postfx:on:" + effect, !(planned && !ownOn));
-        if (planned && !ownOn)
-            tip_always(effect + " is planned: " + support.status + "\nIt is listed so you can see where it will run.");
+        at_track("postfx:on:" + effect, !(blocked && !ownOn));
+        if (blocked && !ownOn)
+            tip_always(effect + (planned ? " is planned: " : " is not drawn here: ") + support.status +
+                       (planned ? "\nIt is listed so you can see where it will run."
+                                : "\nIts fields are stored and saved with the scene."));
         else
-            tip_always("Switch " + effect + " on or off in the edit target (" + (postFx_.target.empty() ? "the camera's own PostProcess"
-                                                                                                      : "volume " + postFx_.target) +
-                       ").");
+            tip_always("Switch " + effect + " on or off in the edit target (" +
+                       (postFx_.target.empty() ? "the camera's own PostProcess" : "volume " + postFx_.target) + ").");
         ImGui::SameLine();
         ImGui::SetNextItemOpen(postFx_.open.count(effect) > 0, ImGuiCond_Always);
-        if (planned && !ownOn) ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
-        const bool open = ImGui::TreeNodeEx("##node", ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_AllowOverlap, "%s",
-                                            effect.c_str());
-        if (planned && !ownOn) ImGui::PopStyleColor();
+        if (blocked && !ownOn) ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+        const bool open = ImGui::TreeNodeEx(
+            "##node", ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_AllowOverlap, "%s", effect.c_str());
+        if (blocked && !ownOn) ImGui::PopStyleColor();
         at_track("postfx:open:" + effect);
         if (open)
             postFx_.open.insert(effect);
@@ -323,8 +333,11 @@ void Editor::draw_postfx_panel() {
             ImGui::TextColored(kOrange, "on here, not running");
         else
             ImGui::TextDisabled("off");
-        if (running) tip_always("The stack the camera draws runs this effect.");
-        else if (ownOn) tip_always("The edit target switches it on, but the camera's stack does not run it: the target is a volume the camera is not inside, or a layer too weak to switch it.");
+        if (running)
+            tip_always("The stack the camera draws runs this effect.");
+        else if (ownOn)
+            tip_always("The edit target switches it on, but the camera's stack does not run it: the target is a volume "
+                       "the camera is not inside, or a layer too weak to switch it.");
         if (support.known && !support.supported) {
             ImGui::SameLine();
             ImGui::TextColored(planned ? kOrange : kRed, planned ? "planned" : "unsupported");
@@ -332,7 +345,7 @@ void Editor::draw_postfx_panel() {
         }
 
         if (open) {
-            ImGui::BeginDisabled(planned && !ownOn);
+            ImGui::BeginDisabled(blocked && !ownOn);
             if (ImGui::BeginTable("##fields", 2, ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_NoSavedSettings)) {
                 ImGui::TableSetupColumn("name", ImGuiTableColumnFlags_WidthStretch, 0.45f);
                 ImGui::TableSetupColumn("value", ImGuiTableColumnFlags_WidthStretch, 0.55f);
@@ -355,7 +368,10 @@ void Editor::draw_postfx_panel() {
                     tip(f.doc);
                     ImGui::SameLine();
                     const bool mine = from == "own" || from == "legacy";
-                    ImGui::TextColored(mine ? kGreen : from.rfind("volume:", 0) == 0 ? kProjectBlue : ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled),
+                    ImGui::TextColored(mine ? kGreen
+                                       : from.rfind("volume:", 0) == 0
+                                           ? kProjectBlue
+                                           : ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled),
                                        "%s", from.c_str());
                     ImGui::TableSetColumnIndex(1);
                     Json out;

@@ -379,8 +379,14 @@ colour") and the effects listed in the last bullet (exposure, bloom, tonemap, co
   answers false with the status "planned (M71)": each M71 package turns its own on (`effect_drawn` in `render_features.cpp`: exposure,
   bloom, tonemap and colorFilter so far), so `supports` never claims what the renderer cannot do. Compute shaders exist on GL, D3D11 and Metal, never on GLES3 or WebGL2; `hdrOutput` only on D3D11 and Metal.
   The decision is a pure function of a `FeatureEnv` (backend + what the GPU reported), so a test asks what D3D11 would say.
-- **Commands.** `postprocess.get`, `postprocess.set` (thin wrappers of `scene.set_component` for `PostProcess`) and
-  `postprocess.presets` (empty until the effects exist) are in `engine/runtime/src/postprocess_commands.cpp`.
+- **Commands.** `postprocess.get`, `postprocess.set` (thin wrappers of `scene.set_component` for `PostProcess`), `postprocess.presets` and
+  `postprocess.apply_preset` are in `engine/runtime/src/postprocess_commands.cpp`. The looks are data
+  (`engine/runtime/data/postprocess_presets.json`, `fa/runtime/postprocess_presets.h`; `postprocess_preset_fields` gives the fields a
+  look writes, replace or `keep`, Entity fields never touched, and is shared with the editor's undo plan). `postprocess.get
+  {resolved}` runs `resolve_post_stack` with a `PostTrace` (which layer wrote each field) through `fa::render::post_stack_report`
+  (`post_report.h`) on the CPU, for the camera `rendering_cameras()` puts first. The editor's Post-processing panel
+  (`tools/editor/src/postfx_panel.cpp`) draws that report and writes only through `postprocess.set` / `apply_preset`; its A/B check is
+  `Renderer::set_post_bypass`, which makes `build_camera` declare no stack (data untouched).
 - **The stack's passes and the final pass (`src/postprocess.{h,cpp}`, `shaders/post.glsl`, `shaders/exposure.glsl`).** `build_graph`
   declares them for the last job, from the PostStack of the camera that drives post (`specs.front().cam`; a stack per camera job is a
   `PostPlan` and an `AutoExposure` per job, nothing else is shared). `make_post_plan` turns the stack into sanitised numbers
