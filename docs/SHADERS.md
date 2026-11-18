@@ -32,6 +32,8 @@ The loop for an AI (or a person):
 | `doubleSided` | `true` draws back faces too. Default `false`. |
 | `params` | Typed parameters the snippet reads (below). |
 | `textures` | Textures the snippet samples (below). |
+| `graph` | Optional [node graph](#node-graphs) the snippet is generated from. |
+| `graphHash` | Written by `material.graph.generate`: the hash of the snippet it generated. Do not write it by hand. |
 
 **Params.** Each key is a variable of your snippet (`"strength"` becomes `strength`). Every param needs `type`, `default`
 and a `doc` saying what it does and its unit (AIs read these through `material.info`).
@@ -165,6 +167,68 @@ returns (`albedo`, `emission`) is taken as linear light, so a number you type in
 **param** is passed as you wrote it in the material file or in `materialParams` (sRGB, like every colour you pick): convert it
 in the snippet when the scene may be linear (`pow(c, vec3(2.2))` is close enough). A texture you sample yourself gives what the GPU
 holds: linear light when it was first loaded in a linear scene, the file's own numbers otherwise. In a gamma scene nothing changes.
+
+## Node graphs
+
+A material can be built from nodes instead of GLSL. Add a `"graph"` to the `.material.json` and `material.graph.generate`
+writes the snippet named by `shader` from it, so a graph and the code stay one document: the generated GLSL is plain, readable
+text (one line per node, with a comment naming the node id) that compiles through the same path as a hand-written snippet
+(`shader.compile`, `factoria validate`, hot reload, export). A graph needs no editor: an AI or a person writes the JSON, and
+the editor's canvas (a later release) edits the same JSON.
+
+```json
+"graph": {
+  "nodes": [
+    { "id": "noise",  "type": "noise.fbm", "pos": [0, 0],     "inputs": { "scale": 6.0 } },
+    { "id": "amount", "type": "param",     "pos": [0, 120],   "param": "dissolve" },
+    { "id": "burn",   "type": "dissolve",  "pos": [220, 60],  "inputs": { "edgeWidth": 0.06, "edgeColor": [1.0, 0.4, 0.1] } },
+    { "id": "out",    "type": "output",    "pos": [440, 60],  "inputs": { "albedo": [0.6, 0.6, 0.65], "roughness": 0.7 } }
+  ],
+  "links": [
+    { "from": "noise.value", "to": "burn.noise" },
+    { "from": "amount.value", "to": "burn.threshold" },
+    { "from": "burn.alpha", "to": "out.alpha" },
+    { "from": "burn.emission", "to": "out.emission" }
+  ]
+}
+```
+
+(with `"alphaMode": "clip"` and a float param `dissolve` in the same material; `material.graph.nodes` returns a complete example.)
+
+- **Nodes.** `id` (unique; a letter, then letters, digits and single `_`), `type`, `pos` (`[x, y]`, where the editor draws
+  it; the snippet does not depend on it), `inputs` (constants for inputs without a link: a number, or an array of 2 to 4
+  numbers) and, for the nodes that need one, `param` or `texture` (the name of one of the material's own `params` or
+  `textures`: they stay normal params and textures, so `material.info`, `MeshRenderer.materialParams` and the inspector
+  work as for any material). An input with neither a link nor a constant reads its default (`material.graph.nodes` lists
+  it; `$uv` means the mesh's uv). One node of type `output` sets the fields of the surface: `albedo`, `alpha`, `emission`,
+  `metallic`, `roughness`, `occlusion`, `normal` or `tangentNormal` (a normal map; not both) and `vertexOffset` (world-space
+  offset written into `vertex()`). A field that is neither linked nor set keeps what the MeshRenderer gave.
+- **Links.** `"from": "nodeId.output"`, `"to": "nodeId.input"`; an input takes one link. Types are `float`, `vec2`, `vec3`,
+  `vec4`: a float widens to any size by itself, anything else needs `math.split` and `math.combine`. Math nodes take a float or
+  a vector (the size their linked inputs agree on).
+- **Library** (`material.graph.nodes` has every input, output and doc): constants (`const.float`, `const.vec2`, `const.vec3`,
+  `const.vec4`, `const.color`), `param`, `uv`, `time`, `vertex.color`, `position.world`, `position.view`, `normal.world`,
+  `view.dir`, `texture`, `texture.normal`, `triplanar`, `parallax` (occlusion mapping), math (`add`, `sub`, `mul`, `div`, `min`,
+  `max`, `pow`, `lerp`, `clamp`, `saturate`, `smoothstep`, `step`, `abs`, `fract`, `sin`, `oneminus`, `dot`, `length`,
+  `normalize`, `split`, `combine`), noise (`noise.value`, `noise.gradient`, `noise.voronoi`, `noise.fbm`), effects (`dissolve`,
+  `flow`, `fresnel`) and `output`. Noise helpers are plain GLSL functions named `gn_...`, pasted into the snippet only when a
+  node uses them.
+- **Where a node can go.** Nodes that sample a texture or read the view direction (`texture`, `texture.normal`, `triplanar`,
+  `parallax`, `view.dir`, `position.view`, `fresnel`) run in `surface()` only: they may not feed `vertexOffset` (the vertex
+  stage has no textures; see "Not available yet"). Each node lists the material kinds it works in; graphs are generated for
+  materials of kind `mesh` (today's only kind).
+- **Commands.** `material.graph.nodes` (the library), `material.graph.validate {material}` (every problem with its JSON
+  pointer, what is wrong and the fix: unknown node type with a "did you mean", a link to a node or port that does not exist,
+  a type mismatch, a cycle, a missing output, a node used in the vertex path that needs the fragment stage), and
+  `material.graph.generate {material, force?, dryRun?}`, which writes the snippet and `graphHash`. Run `shader.compile`
+  afterwards.
+
+**The hand-edit rule.** `graphHash` is the SHA-256 of the snippet the generator wrote (line endings ignored). When you
+generate again, the command first compares the snippet on disk with it: if they differ, someone edited the generated code
+by hand (or the file was never generated), and the command refuses and changes nothing, because the edit would be lost. Then
+either pass `force: true` to overwrite the snippet with the graph's code, or delete `graph` and `graphHash` from the
+material to keep the hand-written code as a normal snippet. A snippet that is still what the previous graph made is simply
+updated. The generator also rewrites the material file (2-space JSON) to store the hash; the graph itself is kept as written.
 
 ## Errors you will see
 

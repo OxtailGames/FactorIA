@@ -7,6 +7,7 @@
 #include "fa/tooling/examples.h"
 #include "fa/tooling/ci_workflow.h"
 #include "fa/tooling/ios_sim.h"
+#include "fa/tooling/material_graph.h"
 #include "fa/tooling/menu_kit.h"
 #include "fa/tooling/perf.h"
 #include "fa/tooling/play_auto.h"
@@ -26,6 +27,7 @@ void register_tooling_commands(CommandRegistry& registry, const std::string& pro
     register_asset_commands(registry, projectDir);
     register_validate_commands(registry, projectDir);
     register_shader_commands(registry, projectDir);
+    register_material_graph_commands(registry, projectDir);
     register_translation_commands(registry, projectDir);
     register_export_commands(registry, projectDir);
     register_serve_web_commands(registry, projectDir);
