@@ -500,7 +500,14 @@ final pass) are drawn; the others are not yet.
   pooled image of the size of the camera's rectangle (`ctx.camPx`) could be made (else one error and no prepass). A split screen
   therefore has one prepass per camera that asks, each the size of its own viewport, and the camera's final pass reads it by camera-local
   coordinates. `Impl::prevViewProj` keeps each camera's view-projection of the frame before (by entity,
-  with the frame serial, forgotten after a frame without it) for `PostPlan::prevViewProj`, which motion blur will read. Tests force an
+  with the frame serial, forgotten after a frame without it) for `PostPlan::prevViewProj` and `prevValid`, which the motion blur reads (`SceneFx::plan`: no previous frame, no blur). Tests force an
   effect with `render::renderer_force_post_effects`; `Renderer::set_debug_view` (and `FA_RENDER_DEBUG_VIEW`) adds the "prepass-view"
   pass, which draws `prepass_view.glsl` over the game image (the main pass then keeps its multisampled colour). The tests read the image
   through that view because only RGBA8 can be read back.
+- **Depth of field and motion blur** (`src/renderer_dof.*`, `shaders/dof.glsl`, `motion_blur.glsl`). `SceneFx` (a member of `Impl`) plans
+  per camera in `plan_job` (`PostPlan::sceneFx`: the clamped numbers, the autofocus, the previous-frame matrices) and `build_graph`
+  declares its passes (`add_passes`) before the bloom, so they work on the scene colour: with a stack that has them `plan_job` makes the
+  HUD draw after the post stack (as `hudAfterBloom`), and the passes write the unresolved colour attachment or the resolved one as the
+  bloom does. A pass cannot read what it writes, so the chain goes through one scratch transient and ends with a copy (or the last
+  effect writes the picture itself). The focus per camera is state of `SceneFx` keyed by the camera entity, moved by the engine clock
+  (`smooth_focus`), never by wall time. It owns its shaders and pipelines (made on first use, `release()` on shutdown).
