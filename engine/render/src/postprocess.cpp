@@ -61,7 +61,8 @@ PostPlan make_post_plan(const CameraInfo& cam, bool linear, std::uint32_t forceE
             if (!p.ssao.enabled) drawn &= ~ssaoBit;
         }
         // Fog and sun shafts read the depth only when they have something to draw (a fog with no density, shafts with no intensity do not).
-        if ((drawn & (1u << int(PostEffect::Fog))) != 0 && !fog_has_effect(*cam.postStack)) drawn &= ~(1u << int(PostEffect::Fog));
+        if ((drawn & (1u << int(PostEffect::Fog))) != 0 && !fog_has_effect(*cam.postStack))
+            drawn &= ~(1u << int(PostEffect::Fog));
         if ((drawn & (1u << int(PostEffect::SunShafts))) != 0 && !shafts_has_effect(*cam.postStack))
             drawn &= ~(1u << int(PostEffect::SunShafts));
         read |= drawn;

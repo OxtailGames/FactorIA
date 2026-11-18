@@ -92,8 +92,9 @@ void to_array(const Color& c, float out[3]) {
 static_assert(UB_fog_fog_vs_params == 0 && UB_fog_fog_params == 1 && UB_sun_shafts_shafts_vs_params == 0 &&
                   UB_sun_shafts_rays_params == 1 && UB_sun_shafts_add_params == 1,
               "the fog and sun shafts programs use uniform slots 0 (vertex) and 1 (fragment)");
-static_assert(VIEW_fog_tex_p == 0 && VIEW_sun_shafts_tex_c == 0 && VIEW_sun_shafts_tex_p == 1 && VIEW_sun_shafts_tex_r == 0 &&
-                  SMP_fog_smp_pt == 0 && SMP_sun_shafts_smp_lin == 0 && SMP_sun_shafts_smp_pt == 1,
+static_assert(VIEW_fog_tex_p == 0 && VIEW_sun_shafts_tex_c == 0 && VIEW_sun_shafts_tex_p == 1 &&
+                  VIEW_sun_shafts_tex_r == 0 && SMP_fog_smp_pt == 0 && SMP_sun_shafts_smp_lin == 0 &&
+                  SMP_sun_shafts_smp_pt == 1,
               "draw_fullscreen binds the images and samplers at these slots");
 
 bool fog_has_effect(const PostStack& stack) {
@@ -158,7 +159,8 @@ FogFxPlan make_fog_plan(const CameraGeometry& cam, const PostStack& stack, bool 
         p.heightFalloff = std::clamp(finite_or(f.fogHeightFalloff, 0.1f), 0.0f, 10.0f);
         p.ortho = !cam.perspective;
         const Mat4& P = cam.proj;
-        const float terms[8] = {P.at(0, 0), P.at(1, 1), P.at(2, 0), P.at(2, 1), P.at(3, 0), P.at(3, 1), P.at(2, 3), P.at(3, 3)};
+        const float terms[8] = {P.at(0, 0), P.at(1, 1), P.at(2, 0), P.at(2, 1),
+                                P.at(3, 0), P.at(3, 1), P.at(2, 3), P.at(3, 3)};
         bool ok = std::fabs(terms[0]) > 1e-12f && std::fabs(terms[1]) > 1e-12f;
         for (int i = 0; i < 8; ++i) {
             ok = ok && std::isfinite(terms[i]);
@@ -195,9 +197,7 @@ bool FogFx::ready(Prog prog) {
     sg_shader s{};
     const char* what = "fog";
     switch (prog) {
-        case Prog::Fog:
-            s = make_shader(fog_fog_shader_desc(backend), "fog_fog");
-            break;
+        case Prog::Fog: s = make_shader(fog_fog_shader_desc(backend), "fog_fog"); break;
         case Prog::Rays:
             what = "sun shafts";
             s = make_shader(sun_shafts_rays_shader_desc(backend), "sun_shafts_rays");
@@ -211,8 +211,10 @@ bool FogFx::ready(Prog prog) {
         if (s.id) sg_destroy_shader(s);
         st = -1;
         FA_ERROR("render",
-                 "The {} effect is unavailable: its shader failed to compile for this graphics backend (see the sokol log lines "
-                 "above). The game renders without it. Hint: update the graphics driver (Mesa: try LIBGL_ALWAYS_SOFTWARE=1) or turn "
+                 "The {} effect is unavailable: its shader failed to compile for this graphics backend (see the sokol "
+                 "log lines "
+                 "above). The game renders without it. Hint: update the graphics driver (Mesa: try "
+                 "LIBGL_ALWAYS_SOFTWARE=1) or turn "
                  "fogEnabled and sunShaftsEnabled off.",
                  what);
         return false;
@@ -245,7 +247,8 @@ sg_pipeline FogFx::pipeline(Prog prog, const TargetFormat& format) {
     }
     d.label = prog == Prog::Fog ? "fog-blend" : prog == Prog::Rays ? "shafts-rays" : "shafts-add";
     const sg_pipeline p = sg_make_pipeline(&d);
-    if (sg_query_pipeline_state(p) != SG_RESOURCESTATE_VALID) FA_ERROR("render", "failed to create pipeline '{}'", d.label);
+    if (sg_query_pipeline_state(p) != SG_RESOURCESTATE_VALID)
+        FA_ERROR("render", "failed to create pipeline '{}'", d.label);
     pipelines_.push_back({prog, format, p});
     return p;
 }
@@ -274,9 +277,9 @@ void FogFx::release() {
 #pragma warning(push)
 #pragma warning(disable : 4324)
 #endif
-int FogFx::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, const FogFxPlan& plan, const PostRect& rectIn, int picW,
-                      int picH, ResourceId game, sg_view srcTex, const BloomTarget& dst, const PrepassRef& prepass, int* drawCalls,
-                      const std::string& job) {
+int FogFx::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, const FogFxPlan& plan,
+                      const PostRect& rectIn, int picW, int picH, ResourceId game, sg_view srcTex,
+                      const BloomTarget& dst, const PrepassRef& prepass, int* drawCalls, const std::string& job) {
     if (!plan.any() || !prepass.valid()) return 0;
     const Rect rect = rect_of(rectIn, picW, picH);
     if (rect.w < 1 || rect.h < 1) return 0;
@@ -307,7 +310,8 @@ int FogFx::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, co
                 if (!warnedTargets_) {
                     warnedTargets_ = true;
                     FA_ERROR("render",
-                             "Sun shafts: cannot create the intermediate image for a {}x{} camera; they are skipped. Hint: turn them off, or "
+                             "Sun shafts: cannot create the intermediate image for a {}x{} camera; they are skipped. "
+                             "Hint: turn them off, or "
                              "lower the render scale.",
                              rw, rh);
                 }

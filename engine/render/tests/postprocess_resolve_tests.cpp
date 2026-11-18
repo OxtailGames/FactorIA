@@ -427,9 +427,9 @@ TEST_CASE("features: what the engine does not draw yet is false and says planned
     CHECK(supported(full, "linearColor", &why));  // M71-B1: drawn on every GPU
     // The effects the renderer draws (M71-B4, C1, C2, D1, D2, D3b) answer true on a GPU that can; the others are planned.
     const std::string_view drawn[] = {
-        "ssao",         "exposure",  "bloom",   "tonemap", "colorFilter", "lensDistortion", "chromaticAberration",
-        "colorGrading", "vignette",  "sharpen", "outline", "pixelate",    "posterize",      "filmGrain",
-        "depthOfField", "motionBlur", "fog",    "sunShafts"};
+        "ssao",         "exposure",   "bloom",   "tonemap",  "colorFilter", "lensDistortion", "chromaticAberration",
+        "colorGrading", "vignette",   "sharpen", "outline",  "pixelate",    "posterize",      "filmGrain",
+        "depthOfField", "motionBlur", "fog",     "sunShafts"};
     for (const std::string_view e : kPostEffectOrder) {
         CAPTURE(e);
         if (std::find(std::begin(drawn), std::end(drawn), e) != std::end(drawn)) {

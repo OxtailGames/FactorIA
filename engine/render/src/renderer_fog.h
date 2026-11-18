@@ -38,22 +38,22 @@ struct FogFxPlan {
     // ---- fog ----
     bool fog = false;
     float color[3]{0.5f, 0.6f, 0.7f};  // in the scene's colour space (a linear scene: linear light)
-    float density = 0.0f;              // the distance fog's thickness (exponential squared, the law of SceneSettings.fogDensity)
-    float start = 0.0f;                // world units from the camera before the fog begins
+    float density = 0.0f;  // the distance fog's thickness (exponential squared, the law of SceneSettings.fogDensity)
+    float start = 0.0f;    // world units from the camera before the fog begins
     float heightDensity = 0.0f;
     float heightBase = 0.0f;
     float heightFalloff = 0.1f;
     bool ortho = false;
-    float proj[8]{};                  // P00, P11, P02, P12, P03, P13, P32, P33 (see motion_blur.glsl)
-    Vec3 eye{0, 0, 0};                // the camera's world position
-    float axisY[3]{0, 1, 0};          // right.y, up.y, forward.y
+    float proj[8]{};          // P00, P11, P02, P12, P03, P13, P32, P33 (see motion_blur.glsl)
+    Vec3 eye{0, 0, 0};        // the camera's world position
+    float axisY[3]{0, 1, 0};  // right.y, up.y, forward.y
     // ---- sun shafts ----
     bool shafts = false;
-    float sunUv[2]{0.5f, 0.5f};       // the sun's place in the camera's rectangle (top-left uv; may lie outside 0..1)
-    float intensity = 0.0f;           // sunShaftsIntensity * the fade of the sun's place
+    float sunUv[2]{0.5f, 0.5f};  // the sun's place in the camera's rectangle (top-left uv; may lie outside 0..1)
+    float intensity = 0.0f;      // sunShaftsIntensity * the fade of the sun's place
     float threshold = 0.8f;
-    float reach = 0.5f;               // the longest ray, in screen heights
-    float tint[3]{1.0f, 0.95f, 0.8f}; // in the scene's colour space
+    float reach = 0.5f;                // the longest ray, in screen heights
+    float tint[3]{1.0f, 0.95f, 0.8f};  // in the scene's colour space
     bool linearScene = false;
 
     bool any() const { return fog || shafts; }
@@ -85,9 +85,9 @@ public:
     // `srcTex`), `rect` the camera's rectangle of it (picW x picH), `dst` where the passes draw (as the bloom's BloomTarget), `prepass` the
     // camera's prepass (invalid: nothing is drawn). Each pass adds one to *drawCalls when it runs. Returns the number of passes declared
     // (0: nothing is drawn: no effect, no prepass, shaders or targets the GPU cannot make; logged once).
-    int add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, const FogFxPlan& plan, const PostRect& rect, int picW, int picH,
-                   ResourceId game, sg_view srcTex, const BloomTarget& dst, const PrepassRef& prepass, int* drawCalls,
-                   const std::string& job);
+    int add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, const FogFxPlan& plan, const PostRect& rect,
+                   int picW, int picH, ResourceId game, sg_view srcTex, const BloomTarget& dst,
+                   const PrepassRef& prepass, int* drawCalls, const std::string& job);
 
     // Destroys the shaders and the pipelines; call while the graphics context is open.
     void release();
