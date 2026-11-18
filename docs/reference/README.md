@@ -38,6 +38,7 @@ Version marks: an entry added after 0.1.0 ends with "(Since 0.1.x)", and "(Not r
 ### [Camera](components/camera.md)
 
 - [Camera](components/camera.md#camera): Renders the scene to the screen.
+- [PostProcess](components/camera.md#postprocess): A stack of screen effects (tonemap, exposure, bloom, colour grading, vignette, chromatic aberration, film grain, lens distortion, sharpen, outline, pixelate, posterize, ambient occlusion, depth of field, motion blur, reflections, fog, sun shafts, radial blur, colour filter), every one off by default. _Since 0.31.0._
 
 ### [Core](components/core.md)
 
@@ -362,12 +363,17 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 
 ### [feel](commands/feel.md)
 
-- [`feel.cancel`](commands/feel.md#feelcancel-modifies-state): Ends the game feel effects of an entity at once (flash, squash, shake, knockback), or of everything. _Since 0.17.0._
+- [`feel.cancel`](commands/feel.md#feelcancel-modifies-state): Ends the game feel effects of an entity at once (flash, squash, shake, knockback, and the screen effects of a camera), or of everything. _Since 0.17.0._
+- [`feel.fade`](commands/feel.md#feelfade-modifies-state): Fades the screen to a colour (default black) and holds it, or from that colour back to the picture. _Since 0.31.0._
 - [`feel.flash`](commands/feel.md#feelflash-modifies-state): Draws an entity in one colour for a moment (a hit flash): sprites, shapes and 3D meshes, fading or square. _Since 0.17.0._
+- [`feel.heatHaze`](commands/feel.md#feelheathaze-modifies-state): Heat haze: a rippling distortion over a region of the screen for a while. _Since 0.31.0._
 - [`feel.hitStop`](commands/feel.md#feelhitstop-modifies-state): Hit-stop: freezes or slows gameplay for a moment of real time; UI, audio and the stop's own timer keep going. _Since 0.17.0._
 - [`feel.knockback`](commands/feel.md#feelknockback-modifies-state): Pushes an entity away and holds `isKnockedBack` for a moment: an impulse on its physics body, else a decaying velocity. _Since 0.17.0._
+- [`feel.radialBlur`](commands/feel.md#feelradialblur-modifies-state): A radial blur pulse: the picture streaks away from a point and settles, for a speed or impact burst. _Since 0.31.0._
+- [`feel.screenFlash`](commands/feel.md#feelscreenflash-modifies-state): Flashes the whole screen in one colour for a moment (a damage or pickup flash), drawn over the finished picture. _Since 0.31.0._
 - [`feel.settings`](commands/feel.md#feelsettings-modifies-state): The accessibility choices of the game feel effects: reduceMotion and reducedEffects. _Since 0.17.0._
 - [`feel.shake`](commands/feel.md#feelshake-modifies-state): Camera shake: adds trauma to a camera (2D and 3D); it stacks up to `cap` and dies out over `duration`. _Since 0.17.0._
+- [`feel.shockwave`](commands/feel.md#feelshockwave-modifies-state): Screen shockwave: a ring that expands from a point and bends the picture, drawn by the camera's post-processing pass. _Since 0.31.0._
 - [`feel.sound`](commands/feel.md#feelsound-modifies-state): Plays a sound once through the audio system (the same one a clip event's "sound" action uses). _Since 0.17.0._
 - [`feel.spawn`](commands/feel.md#feelspawn-modifies-state): Makes an effect appear: instantiates a prefab at an entity (or at a point) the next frame. _Since 0.17.0._
 - [`feel.squash`](commands/feel.md#feelsquash-modifies-state): Squash and stretch: a short scale pulse that keeps the volume and springs back to exactly the entity's scale. _Since 0.17.0._
@@ -396,9 +402,12 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`game.state_hash`](commands/game.md#gamestate_hash): One 64-bit hash of the whole simulation state: every entity, component and field, the live particles of every emitter, the clock and the random generator. _Since 0.19.0._
 - [`game.step`](commands/game.md#gamestep-modifies-state): Advance the simulation by N fixed frames (deterministic) and return a state summary.
 - [`input.record`](commands/game.md#inputrecord-modifies-state): Record the input the game receives as an input replay (start / stop). _Since 0.3.0._
+- [`render.debug_view`](commands/game.md#renderdebug_view-modifies-state): Show the depth or the normals of the depth and normal prepass, or the ambient occlusion, instead of the game picture, or report which view is on. _Since 0.31.0._
 - [`render.frame_graph`](commands/game.md#renderframe_graph): Where the last frame's time went, pass by pass: the frame graph with the CPU and GPU time of every pass. _Since 0.28.0._
 - [`render.inspect`](commands/game.md#renderinspect): Luminance profile of the current picture along a line, with the hard steps (seams, bands) in it. _Since 0.4.0._
+- [`render.output`](commands/game.md#renderoutput): What the game window shows: the standard range or HDR, in which encoding, and what the display can do. _Since 0.31.0._
 - [`render.pick`](commands/game.md#renderpick): Which entities draw a design-space pixel of the picture, topmost first. _Since 0.4.0._
+- [`render.supports`](commands/game.md#rendersupports): What this renderer can do on this graphics backend and GPU: float targets, linear colour, HDR output, post effects. _Since 0.31.0._
 - [`vfx.budget`](commands/game.md#vfxbudget): What an effect document costs on a phone: live particles and the screen they cover, with the fixes. _Since 0.17.0._
 - [`vfx.check`](commands/game.md#vfxcheck): Read an effect document (*.vfx.json) and list every problem, with its JSON pointer and the fix. _Since 0.17.0._
 - [`vfx.filmstrip`](commands/game.md#vfxfilmstrip-modifies-state): Film an effect playing in the game: one picture with a grid of frames, to see its timing and look at once. _Since 0.17.0._
@@ -512,6 +521,10 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`bones.create`](commands/scene.md#bonescreate-modifies-state): Create a chain of Bone2D entities along points, under a parent. _Since 0.7.0._
 - [`load.cancel`](commands/scene.md#loadcancel-modifies-state): Stop a background load, or drop the files a finished one read ahead. _Since 0.19.0._
 - [`load.status`](commands/scene.md#loadstatus): Show the background loads: progress, items, bytes, errors. _Since 0.19.0._
+- [`postprocess.apply_preset`](commands/scene.md#postprocessapply_preset-modifies-state): Apply a named look (cinematic, retro, noir...) to the PostProcess of an entity. _Since 0.31.0._
+- [`postprocess.get`](commands/scene.md#postprocessget): Read the PostProcess component of an entity, or (resolved) the stack a camera really draws and where each value comes from. _Since 0.31.0._
+- [`postprocess.presets`](commands/scene.md#postprocesspresets): List the named post-processing looks that postprocess.apply_preset can apply. _Since 0.31.0._
+- [`postprocess.set`](commands/scene.md#postprocessset-modifies-state): Set fields of the PostProcess component of an entity (added when missing). _Since 0.31.0._
 - [`prefab.apply`](commands/scene.md#prefabapply-modifies-state): Write an instance's values into its prefab file: one field, one component, or everything; the other instances follow. _Since 0.30.0._
 - [`prefab.overrides`](commands/scene.md#prefaboverrides): List what a prefab instance of the open scene overrides: what differs from its prefab. _Since 0.30.0._
 - [`prefab.revert`](commands/scene.md#prefabrevert-modifies-state): Put the prefab's values back into an instance: one field, one component, or everything. _Since 0.30.0._

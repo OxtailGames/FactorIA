@@ -1,0 +1,721 @@
+// M71-C1: the CPU side of the final-pass effects (src/post_fx.h, include/fa/render/cube_lut.h): the sanitised numbers a stack makes, the
+// grading, vignette, lens, sharpen and grain maths the GPU is compared with (postfx_render_tests.cpp), and the .cube importer. No GPU.
+#include <doctest.h>
+
+#include <algorithm>
+#include <cmath>
+#include <format>
+#include <limits>
+#include <set>
+#include <string>
+
+#include "fa/render/cube_lut.h"
+#include "post_fx.h"
+
+using namespace fa;
+using namespace fa::render;
+
+namespace {
+
+PostStack stack_with(PostEffect e) {
+    PostStack s;
+    s.mask |= 1u << int(e);
+    s.sources = 1;
+    return s;
+}
+
+// An identity table of `n` entries per side, as the text of a .cube file.
+std::string identity_cube(int n, const char* title = "identity") {
+    std::string t =
+        std::format("# made by a test\nTITLE \"{}\"\nLUT_3D_SIZE {}\nDOMAIN_MIN 0 0 0\nDOMAIN_MAX 1 1 1\n", title, n);
+    t.reserve(std::size_t(n) * n * n * 24 + 128);
+    const float m = float(n - 1);
+    for (int b = 0; b < n; ++b)
+        for (int g = 0; g < n; ++g)
+            for (int r = 0; r < n; ++r)
+                t += std::format("{:.6f} {:.6f} {:.6f}\n", float(r) / m, float(g) / m, float(b) / m);
+    return t;
+}
+
+bool near_v(Vec3 a, Vec3 b, float tol) {
+    return std::fabs(a.x - b.x) <= tol && std::fabs(a.y - b.y) <= tol && std::fabs(a.z - b.z) <= tol;
+}
+float luma(Vec3 c) { return c.x * 0.2126f + c.y * 0.7152f + c.z * 0.0722f; }
+
+}  // namespace
+
+// ---- make_post_fx ----
+
+TEST_CASE("post fx: a stack without these effects, or with them at their neutral values, draws none") {
+    CHECK_FALSE(make_post_fx(PostStack{}, 5).any());
+    // Switched on but neutral: nothing to draw, so the final pass is not made for them.
+    PostStack s;
+    s.mask |= 1u << int(PostEffect::ColorGrading);
+    s.mask |= 1u << int(PostEffect::LensDistortion);
+    s.mask |= 1u << int(PostEffect::Vignette);
+    s.fx = postprocess_neutral();
+    s.fx.lensDistortionIntensity = 0.0f;
+    s.fx.vignetteIntensity = 0.0f;
+    CHECK_FALSE(make_post_fx(s, 5).any());
+    // The numbers of an effect that is not switched on are ignored.
+    PostStack off;
+    off.fx.vignetteIntensity = 1.0f;
+    off.fx.filmGrainIntensity = 1.0f;
+    CHECK_FALSE(make_post_fx(off, 0).any());
+}
+
+TEST_CASE("post fx: every number is clamped to its documented range and NaN falls back to neutral") {
+    const float nan = std::numeric_limits<float>::quiet_NaN();
+    PostStack g = stack_with(PostEffect::ColorGrading);
+    g.fx.colorGradingContrast = 99.0f;
+    g.fx.colorGradingSaturation = nan;
+    g.fx.colorGradingGain = Color{-5, 100, nan, 1};
+    g.fx.colorGradingHueShift = 720.0f;
+    PostFx f = make_post_fx(g, 0);
+    CHECK(f.grade);
+    CHECK(f.contrast == doctest::Approx(3.0f));
+    CHECK(f.saturation == doctest::Approx(1.0f));
+    CHECK(f.gain.x == doctest::Approx(0.0f));
+    CHECK(f.gain.y == doctest::Approx(8.0f));
+    CHECK(f.gain.z == doctest::Approx(1.0f));
+    CHECK(std::isfinite(f.hueA));
+
+    PostStack v = stack_with(PostEffect::Vignette);
+    v.fx.vignetteIntensity = 3.0f;
+    v.fx.vignetteCenter = Vec2{nan, -4.0f};
+    f = make_post_fx(v, 0);
+    CHECK(f.vignette);
+    CHECK(f.vignetteIntensity == doctest::Approx(1.0f));
+    CHECK(f.vignetteCenter.x == doctest::Approx(0.5f));
+    CHECK(f.vignetteCenter.y == doctest::Approx(0.0f));
+
+    PostStack n = stack_with(PostEffect::FilmGrain);
+    n.fx.filmGrainSize = 100.0f;
+    f = make_post_fx(n, 0);
+    CHECK(f.grainSize == doctest::Approx(4.0f));
+}
+
+TEST_CASE("post fx: a LUT is flagged only with a path and a contribution above 0") {
+    PostStack s = stack_with(PostEffect::ColorGrading);
+    CHECK_FALSE(make_post_fx(s, 0).lut);
+    s.fx.colorGradingLut = "assets/grade.cube";
+    s.fx.colorGradingLutContribution = 0.0f;
+    CHECK_FALSE(make_post_fx(s, 0).lut);
+    s.fx.colorGradingLutContribution = 0.5f;
+    const PostFx f = make_post_fx(s, 0);
+    CHECK(f.lut);
+    CHECK(f.any());
+    CHECK((f.mask() & kFxLut) != 0);
+    CHECK(f.lutContribution == doctest::Approx(0.5f));
+}
+
+// ---- grading ----
+
+TEST_CASE("grading: neutral values change nothing, and nothing clips above white") {
+    const PostFx neutral;
+    for (const Vec3 c : {Vec3{0, 0, 0}, Vec3{0.25f, 0.5f, 0.75f}, Vec3{4.0f, 2.0f, 0.5f}})
+        CHECK(near_v(grade_color(neutral, c), c, 1e-5f));
+    // Gain 1.5 scales a value above white too.
+    PostFx f;
+    f.gain = {1.5f, 1.5f, 1.5f};
+    CHECK(near_v(grade_color(f, {2.0f, 1.0f, 0.5f}), {3.0f, 1.5f, 0.75f}, 1e-5f));
+    // Saturation 0 is the luminance; contrast 2 about mid grey; the part above white stays.
+    PostFx s;
+    s.saturation = 0.0f;
+    const Vec3 grey = grade_color(s, {1.0f, 0.0f, 0.0f});
+    CHECK(near_v(grey, {0.2126f, 0.2126f, 0.2126f}, 1e-4f));
+    PostFx k;
+    k.contrast = 2.0f;
+    CHECK(near_v(grade_color(k, {0.75f, 0.5f, 0.25f}), {1.0f, 0.5f, 0.0f}, 1e-5f));
+    CHECK(grade_color(k, {3.0f, 3.0f, 3.0f}).x == doctest::Approx(5.5f));
+}
+
+TEST_CASE("grading: lift lifts the shadows only, gamma moves the midtones, white balance keeps the luminance") {
+    PostFx l;
+    l.lift = {0.2f, 0.2f, 0.2f};
+    CHECK(near_v(grade_color(l, {0, 0, 0}), {0.2f, 0.2f, 0.2f}, 1e-5f));
+    CHECK(near_v(grade_color(l, {1, 1, 1}), {1, 1, 1}, 1e-5f));
+    CHECK(near_v(grade_color(l, {2, 2, 2}), {2, 2, 2}, 1e-5f));
+    PostFx g;
+    g.invGamma = {0.5f, 0.5f, 0.5f};  // PostProcess.colorGradingGamma 2
+    CHECK(near_v(grade_color(g, {0.25f, 0.25f, 0.25f}), {0.5f, 0.5f, 0.5f}, 1e-5f));
+    CHECK(near_v(grade_color(g, {1, 1, 1}), {1, 1, 1}, 1e-5f));
+
+    PostStack warm = stack_with(PostEffect::ColorGrading);
+    warm.fx.colorGradingTemperature = 60.0f;
+    const PostFx w = make_post_fx(warm, 0);
+    CHECK(w.grade);
+    CHECK(w.whiteBalance.x > 1.0f);
+    CHECK(w.whiteBalance.z < 1.0f);
+    CHECK(luma(w.whiteBalance) == doctest::Approx(1.0f).epsilon(1e-4));
+    const Vec3 out = grade_color(w, {0.5f, 0.5f, 0.5f});
+    CHECK(out.x > out.z);
+    PostStack cool = warm;
+    cool.fx.colorGradingTemperature = -60.0f;
+    const PostFx c = make_post_fx(cool, 0);
+    CHECK(c.whiteBalance.x < 1.0f);
+    CHECK(c.whiteBalance.z > 1.0f);
+}
+
+TEST_CASE("grading: the hue shift turns red into green at 120 degrees, keeps greys, and a full turn is the identity") {
+    PostStack s = stack_with(PostEffect::ColorGrading);
+    s.fx.colorGradingHueShift = 120.0f;
+    PostFx f = make_post_fx(s, 0);
+    CHECK(near_v(grade_color(f, {1, 0, 0}), {0, 1, 0}, 1e-4f));
+    CHECK(near_v(grade_color(f, {0, 1, 0}), {0, 0, 1}, 1e-4f));
+    CHECK(near_v(grade_color(f, {0.4f, 0.4f, 0.4f}), {0.4f, 0.4f, 0.4f}, 1e-4f));
+    s.fx.colorGradingHueShift = 180.0f;
+    f = make_post_fx(s, 0);
+    const Vec3 a = grade_color(f, {0.8f, 0.3f, 0.1f});
+    s.fx.colorGradingHueShift = -180.0f;
+    const Vec3 b = grade_color(make_post_fx(s, 0), {0.8f, 0.3f, 0.1f});
+    CHECK(near_v(a, b, 1e-4f));
+    CHECK(luma(a) > 0.0f);
+}
+
+TEST_CASE("grading: the LUT adds what the table changes and keeps the part above white") {
+    const Result<CubeLut> id = parse_cube_lut(identity_cube(16), "id.cube");
+    REQUIRE(id.ok());
+    CHECK(near_v(apply_lut(id.value(), 1.0f, {0.3f, 0.6f, 0.9f}), {0.3f, 0.6f, 0.9f}, 1e-4f));
+    CHECK(near_v(apply_lut(id.value(), 1.0f, {3.0f, 2.0f, 0.5f}), {3.0f, 2.0f, 0.5f}, 1e-4f));
+    // An inverting table: contribution 1 inverts what is up to white, 0.5 lands on grey, 0 leaves it.
+    std::string inv = "LUT_3D_SIZE 2\n";
+    for (int b = 0; b < 2; ++b)
+        for (int g = 0; g < 2; ++g)
+            for (int r = 0; r < 2; ++r) inv += std::format("{} {} {}\n", 1 - r, 1 - g, 1 - b);
+    const Result<CubeLut> t = parse_cube_lut(inv, "inv.cube");
+    REQUIRE(t.ok());
+    CHECK(near_v(apply_lut(t.value(), 1.0f, {1.0f, 0.0f, 0.25f}), {0.0f, 1.0f, 0.75f}, 1e-5f));
+    CHECK(near_v(apply_lut(t.value(), 0.5f, {1.0f, 0.0f, 0.5f}), {0.5f, 0.5f, 0.5f}, 1e-5f));
+    CHECK(near_v(apply_lut(t.value(), 0.0f, {1.0f, 0.0f, 0.5f}), {1.0f, 0.0f, 0.5f}, 1e-6f));
+    CHECK(apply_lut(t.value(), 1.0f, {2.0f, 0.0f, 0.0f}).x ==
+          doctest::Approx(1.0f));  // 2 -> table(1) = 0, plus the 1 above white
+}
+
+// ---- vignette, lens, sharpen, grain ----
+
+TEST_CASE("vignette: nothing at the centre, the full intensity at a corner, a different centre moves it") {
+    PostStack s = stack_with(PostEffect::Vignette);
+    s.fx.vignetteIntensity = 0.6f;
+    s.fx.vignetteRoundness = 0.0f;
+    s.fx.vignetteSmoothness = 0.2f;
+    PostFx f = make_post_fx(s, 0);
+    const float aspect = 16.0f / 9.0f;
+    CHECK(vignette_amount(f, {0.5f, 0.5f}, aspect) == doctest::Approx(0.0f));
+    CHECK(vignette_amount(f, {0.0f, 0.0f}, aspect) == doctest::Approx(0.6f));
+    CHECK(vignette_amount(f, {1.0f, 1.0f}, aspect) == doctest::Approx(0.6f));
+    float prev = -1.0f;
+    for (float x = 0.5f; x >= 0.0f; x -= 0.1f) {  // darker toward the corner
+        const float v = vignette_amount(f, {x, x}, aspect);
+        CHECK(v >= prev - 1e-6f);
+        prev = v;
+    }
+    s.fx.vignetteCenter = Vec2{0.0f, 0.0f};
+    f = make_post_fx(s, 0);
+    CHECK(vignette_amount(f, {0.0f, 0.0f}, aspect) == doctest::Approx(0.0f));
+    CHECK(vignette_amount(f, {1.0f, 1.0f}, aspect) == doctest::Approx(0.6f));
+}
+
+TEST_CASE("lens: the centre stays, barrel samples further out, pincushion nearer, scale zooms, the corner can leave "
+          "the picture") {
+    PostStack s = stack_with(PostEffect::LensDistortion);
+    const float aspect = 16.0f / 9.0f;
+    s.fx.lensDistortionIntensity = 1.0f;
+    PostFx barrel = make_post_fx(s, 0);
+    REQUIRE(barrel.lens);
+    const Vec2 c = lens_source(barrel, {0.5f, 0.5f}, aspect);
+    CHECK(c.x == doctest::Approx(0.5f));
+    CHECK(c.y == doctest::Approx(0.5f));
+    const Vec2 e = lens_source(barrel, {0.9f, 0.5f}, aspect);
+    CHECK(e.x > 0.9f);
+    CHECK(e.y == doctest::Approx(0.5f));
+    const Vec2 corner = lens_source(barrel, {1.0f, 1.0f}, aspect);
+    CHECK(corner.x == doctest::Approx(0.5f + 0.5f * 1.3f));  // outside 0..1: the pass draws black there
+    CHECK(corner.y == doctest::Approx(0.5f + 0.5f * 1.3f));
+    s.fx.lensDistortionIntensity = -1.0f;
+    CHECK(lens_source(make_post_fx(s, 0), {0.9f, 0.5f}, aspect).x < 0.9f);
+    s.fx.lensDistortionIntensity = 0.0f;
+    s.fx.lensDistortionScale = 2.0f;  // zoomed in: the pixel at 0.9 shows what is at 0.7
+    const PostFx zoom = make_post_fx(s, 0);
+    REQUIRE(zoom.lens);
+    CHECK(lens_source(zoom, {0.9f, 0.5f}, aspect).x == doctest::Approx(0.7f));
+    // The axis moves with lensDistortionCenter: that point does not move.
+    s.fx.lensDistortionScale = 1.0f;
+    s.fx.lensDistortionIntensity = 1.0f;
+    s.fx.lensDistortionCenter = Vec2{0.25f, 0.75f};
+    const Vec2 p = lens_source(make_post_fx(s, 0), {0.25f, 0.75f}, aspect);
+    CHECK(p.x == doctest::Approx(0.25f));
+    CHECK(p.y == doctest::Approx(0.75f));
+}
+
+TEST_CASE("sharpen: a flat area is kept, an edge gets more contrast, and a pixel already at the limit is not pushed") {
+    PostStack s = stack_with(PostEffect::Sharpen);
+    s.fx.sharpenIntensity = 1.0f;
+    const PostFx f = make_post_fx(s, 0);
+    REQUIRE(f.sharpen);
+    const Vec3 mid{0.5f, 0.5f, 0.5f}, dark{0.3f, 0.3f, 0.3f};
+    CHECK(near_v(sharpen_color(f, mid, mid, mid, mid, mid), mid, 1e-5f));
+    CHECK(sharpen_color(f, mid, dark, dark, dark, dark).x > 0.5f);
+    CHECK(sharpen_color(f, dark, mid, mid, mid, mid).x < 0.3f);
+    const Vec3 white{1, 1, 1}, black{0, 0, 0};
+    CHECK(near_v(sharpen_color(f, white, black, black, black, black), white, 1e-5f));
+    // A higher intensity pushes further.
+    s.fx.sharpenIntensity = 2.0f;
+    CHECK(sharpen_color(make_post_fx(s, 0), mid, dark, dark, dark, dark).x >
+          sharpen_color(f, mid, dark, dark, dark, dark).x);
+}
+
+TEST_CASE("film grain: the same frame and pixel give the same noise, another frame another one, a cell of size 2 is "
+          "one value") {
+    PostStack s = stack_with(PostEffect::FilmGrain);
+    s.fx.filmGrainIntensity = 0.5f;
+    s.fx.filmGrainSize = 1.0f;
+    s.fx.filmGrainAnimated = true;
+    const PostFx a = make_post_fx(s, 7), a2 = make_post_fx(s, 7), b = make_post_fx(s, 8);
+    int differ = 0;
+    double sum = 0.0;
+    for (int y = 0; y < 64; ++y)
+        for (int x = 0; x < 64; ++x) {
+            const float n = grain_noise(x, y, a);
+            CHECK(n == grain_noise(x, y, a2));
+            CHECK(n >= -1.0f);
+            CHECK(n <= 1.0f);
+            sum += n;
+            if (n != grain_noise(x, y, b)) ++differ;
+        }
+    CHECK(differ > 64 * 64 * 9 / 10);          // another frame: a new pattern
+    CHECK(std::fabs(sum / (64 * 64)) < 0.03);  // no bias
+    // Not animated: the frame does not matter.
+    s.fx.filmGrainAnimated = false;
+    const PostFx st1 = make_post_fx(s, 1), st2 = make_post_fx(s, 999);
+    CHECK(grain_noise(3, 4, st1) == grain_noise(3, 4, st2));
+    // Size 2: the four pixels of a cell share a value, the next cell has another.
+    s.fx.filmGrainSize = 2.0f;
+    const PostFx big = make_post_fx(s, 0);
+    CHECK(grain_noise(0, 0, big) == grain_noise(1, 0, big));
+    CHECK(grain_noise(0, 0, big) == grain_noise(1, 1, big));
+    int cells = 0;
+    for (int x = 2; x < 40; x += 2)
+        if (grain_noise(x, 0, big) != grain_noise(0, 0, big)) ++cells;
+    CHECK(cells > 15);
+}
+
+TEST_CASE("film grain: the second camera of a frame gets another seed, the first keeps it, and a cell edge is stable") {
+    CHECK(grain_seed_for_camera(1234u, 0) == 1234u);
+    std::set<std::uint32_t> seeds;
+    for (int i = 0; i < 8; ++i) {
+        const std::uint32_t s = grain_seed_for_camera(1234u, i);
+        CHECK(s < (1u << 24));  // the shader reads it as an exact float
+        seeds.insert(s);
+    }
+    CHECK(seeds.size() == 8);
+    PostStack st = stack_with(PostEffect::FilmGrain);
+    st.fx.filmGrainIntensity = 0.5f;
+    st.fx.filmGrainAnimated = false;
+    const PostFx a = make_post_fx(st, 0);
+    PostFx b = a;
+    b.grainSeed = grain_seed_for_camera(a.grainSeed, 1);
+    int differ = 0;
+    for (int x = 0; x < 32; ++x) differ += grain_noise(x, 5, a) != grain_noise(x, 5, b) ? 1 : 0;
+    CHECK(differ > 28);
+    // Size 1.5: the centre of pixel 1 is on the border of two cells (1.5 / 1.5), the offset puts it in the second one.
+    st.fx.filmGrainSize = 1.5f;
+    const PostFx h = make_post_fx(st, 0);
+    CHECK(grain_noise(1, 0, h) == grain_noise(2, 0, h));
+    CHECK(grain_noise(0, 0, h) != grain_noise(1, 0, h));
+    // Size 3: the pixels 0..2 are one cell, 3..5 the next, whatever the rounding of the pixel centre.
+    st.fx.filmGrainSize = 3.0f;
+    const PostFx c = make_post_fx(st, 0);
+    CHECK(grain_noise(0, 0, c) == grain_noise(2, 0, c));
+    CHECK(grain_noise(3, 0, c) == grain_noise(5, 0, c));
+}
+
+TEST_CASE("lens: the picture fades over one pixel at its edge, full inside and nothing outside") {
+    CHECK(lens_coverage({0.5f, 0.5f}, 320, 180) == doctest::Approx(1.0f));
+    CHECK(lens_coverage({-0.1f, 0.5f}, 320, 180) == doctest::Approx(0.0f));
+    CHECK(lens_coverage({0.5f, 1.2f}, 320, 180) == doctest::Approx(0.0f));
+    CHECK(lens_coverage({0.0f, 0.5f}, 320, 180) == doctest::Approx(0.5f));           // on the edge: half
+    CHECK(lens_coverage({1.0f / 320.0f, 0.5f}, 320, 180) == doctest::Approx(1.0f));  // a pixel inside: full
+    const float quarter = lens_coverage({0.25f / 320.0f, 0.5f}, 320, 180);
+    CHECK(quarter > 0.5f);
+    CHECK(quarter < 1.0f);
+}
+
+TEST_CASE("cube: the TITLE keyword is read in any case") {
+    std::string text = identity_cube(16, "lower case");
+    const std::size_t at = text.find("TITLE");
+    REQUIRE(at != std::string::npos);
+    text.replace(at, 5, "title");
+    const Result<CubeLut> r = parse_cube_lut(text, "t.cube");
+    REQUIRE(r.ok());
+    CHECK(r.value().title == "lower case");
+}
+
+TEST_CASE("film grain: the luminance response weakens it in black and white and the intensity bounds it") {
+    PostStack s = stack_with(PostEffect::FilmGrain);
+    s.fx.filmGrainIntensity = 1.0f;
+    s.fx.filmGrainLuminanceResponse = 1.0f;
+    const PostFx f = make_post_fx(s, 3);
+    float darkMax = 0, midMax = 0;
+    for (int x = 0; x < 64; ++x) {
+        darkMax = std::max(darkMax, std::fabs(grain_color(f, {0, 0, 0}, x, 0).x));
+        midMax = std::max(midMax, std::fabs(grain_color(f, {0.5f, 0.5f, 0.5f}, x, 0).x - 0.5f));
+    }
+    CHECK(darkMax == doctest::Approx(0.0f));
+    CHECK(midMax > 0.05f);
+    CHECK(midMax <= kGrainStrength + 1e-5f);
+    s.fx.filmGrainLuminanceResponse = 0.0f;
+    float blackMax = 0;
+    for (int x = 0; x < 64; ++x) blackMax = std::max(blackMax, grain_color(make_post_fx(s, 3), {0, 0, 0}, x, 0).x);
+    CHECK(blackMax > 0.05f);  // the same grain everywhere (never below 0)
+}
+
+// ---- the .cube importer ----
+
+TEST_CASE("cube: tables of 16, 32 and 64 entries parse, sample as the identity, and lay out as a strip") {
+    for (const int n : {16, 32, 64}) {
+        CAPTURE(n);
+        const Result<CubeLut> r = parse_cube_lut(identity_cube(n, "my grade"), "grade.cube");
+        REQUIRE(r.ok());
+        const CubeLut& lut = r.value();
+        CHECK(lut.size == n);
+        CHECK(lut.title == "my grade");
+        CHECK(lut.rgb.size() == std::size_t(n) * n * n * 3);
+        CHECK(near_v(lut.sample({0.37f, 0.62f, 0.11f}), {0.37f, 0.62f, 0.11f}, 1e-4f));
+        CHECK(near_v(lut.at(n - 1, 0, 0), {1, 0, 0}, 1e-6f));  // red varies fastest
+        CHECK(near_v(lut.at(0, n - 1, 0), {0, 1, 0}, 1e-6f));
+        CHECK(near_v(lut.at(0, 0, n - 1), {0, 0, 1}, 1e-6f));
+        const CubeLutStrip strip = cube_lut_strip(lut);
+        CHECK(strip.size == n);
+        CHECK(strip.cols * strip.rows >= n);
+        CHECK(strip.rgba.size() == std::size_t(strip.width()) * std::size_t(strip.height()) * 4);
+        // The slice of blue index b sits at (b % cols, b / cols); its pixel (r, g) holds the entry (r, g, b).
+        const int b = n - 1, er = n / 2, eg = n / 3;
+        const int px = (b % strip.cols) * n + er, py = (b / strip.cols) * n + eg;
+        const std::size_t at = (std::size_t(py) * std::size_t(strip.width()) + std::size_t(px)) * 4;
+        CHECK(int(strip.rgba[at + 2]) == 255);
+        CHECK(int(strip.rgba[at + 3]) == 255);
+        CHECK(std::abs(int(strip.rgba[at]) - int(std::lround(float(er) / float(n - 1) * 255.0f))) <= 1);
+    }
+}
+
+TEST_CASE("cube: the odd sizes 17, 33 and 65 and the CRLF line ends of a Windows export parse too") {
+    for (const int n : {17, 33, 65}) {
+        const Result<CubeLut> r = parse_cube_lut(identity_cube(n), "x.cube");
+        CHECK(r.ok());
+    }
+    std::string crlf = identity_cube(16);
+    std::string out;
+    for (const char ch : crlf) {
+        if (ch == '\n') out += '\r';
+        out += ch;
+    }
+    const Result<CubeLut> r = parse_cube_lut("\xEF\xBB\xBF" + out, "crlf.cube");  // with a byte order mark too
+    REQUIRE(r.ok());
+    CHECK(r.value().size == 16);
+}
+
+TEST_CASE("cube: a malformed file is an error that names the file and the line, and says how to fix it") {
+    auto fails = [](const std::string& text, const char* where, const char* what) {
+        INFO("text: " << text.substr(0, 60));
+        const Result<CubeLut> r = parse_cube_lut(text, "bad.cube");
+        REQUIRE_FALSE(r.ok());
+        const std::string msg = r.error().message;
+        CAPTURE(msg);
+        CHECK(msg.find(where) != std::string::npos);
+        CHECK(msg.find(what) != std::string::npos);
+        CHECK_FALSE(r.error().hint.empty());
+        return r.error();
+    };
+    fails("TITLE \"x\"\nLUT_1D_SIZE 16\n", "bad.cube:2:", "1D");
+    fails("LUT_3D_SIZE 2\n0 0 0\n1 0 0\n0 oops 0\n", "bad.cube:4:", "three numbers");
+    fails("LUT_3D_SIZE 2\n0 0\n", "bad.cube:2:", "three numbers");
+    fails("LUT_3D_SIZE 1\n0 0 0\n", "bad.cube:1:", "LUT_3D_SIZE");
+    fails("LUT_3D_SIZE 99\n", "bad.cube:1:", "LUT_3D_SIZE");
+    fails("0 0 0\nLUT_3D_SIZE 2\n", "bad.cube:1:", "before LUT_3D_SIZE");
+    fails("# only a comment\n", "bad.cube", "LUT_3D_SIZE");
+    fails("LUT_3D_SIZE 2\nDOMAIN_MAX 2 2 2\n", "bad.cube:2:", "DOMAIN_MAX");
+    fails("LUT_3D_SIZE 2\n0 0 0\n1 0 0\n", "bad.cube", "colour rows");  // 2 of 8
+    const Error typo = fails("LUT_3D_SIZ 2\n", "bad.cube:1:", "unknown keyword");
+    CHECK(typo.hint.find("LUT_3D_SIZE") != std::string::npos);  // did you mean
+    std::string tooMany = "LUT_3D_SIZE 2\n";
+    for (int i = 0; i < 9; ++i) tooMany += "0 0 0\n";
+    fails(tooMany, "bad.cube:10:", "more colour rows");
+}
+
+TEST_CASE("cube: numbers are read the same in every locale (a decimal point, never a comma)") {
+    std::string t = "LUT_3D_SIZE 2\n";
+    for (int i = 0; i < 8; ++i) t += "0.5 1e-1 -0.25\n";
+    const Result<CubeLut> r = parse_cube_lut(t, "n.cube");
+    REQUIRE(r.ok());
+    CHECK(r.value().at(1, 1, 1).x == doctest::Approx(0.5f));
+    CHECK(r.value().at(1, 1, 1).y == doctest::Approx(0.1f));
+    CHECK(r.value().at(1, 1, 1).z == doctest::Approx(-0.25f));  // kept as written; the strip clamps
+    const CubeLutStrip strip = cube_lut_strip(r.value());
+    CHECK(int(strip.rgba[2]) == 0);
+}
+
+// ---- outline, pixelate, posterize (M71-C2) ----
+
+TEST_CASE("post fx: the outline, pixelate and posterize are on only with a value that changes the picture") {
+    // Neutral values: no width, a block of 1 pixel, 256 levels.
+    PostStack o = stack_with(PostEffect::Outline);
+    o.fx.outlineWidth = 0.0f;
+    CHECK_FALSE(make_post_fx(o, 0).any());
+    o.fx.outlineWidth = 2.0f;
+    o.fx.outlineColor = Color{1, 0, 0, 0.0f};  // fully transparent: nothing to draw
+    CHECK_FALSE(make_post_fx(o, 0).any());
+    o.fx.outlineColor = Color{1, 0, 0, 1};
+    PostFx f = make_post_fx(o, 0);
+    CHECK(f.outline);
+    CHECK(f.outline_depth());
+    CHECK_FALSE(f.outline_sprite());
+    CHECK(f.mask() == kFxOutline);
+    o.fx.outlineMode = OutlineMode::Sprite;
+    f = make_post_fx(o, 0);
+    CHECK(f.outline_sprite());
+    CHECK(f.mask() == kFxOutlineSprite);
+
+    PostStack p = stack_with(PostEffect::Pixelate);
+    p.fx.pixelateSize = 1.0f;
+    CHECK_FALSE(make_post_fx(p, 0).any());
+    p.fx.pixelateSize = 6.0f;
+    CHECK(make_post_fx(p, 0).pixelate);
+    CHECK(make_post_fx(p, 0).mask() == kFxPixelate);
+
+    PostStack q = stack_with(PostEffect::Posterize);
+    q.fx.posterizeLevels = 256;
+    CHECK_FALSE(make_post_fx(q, 0).any());
+    q.fx.posterizeLevels = 6;
+    CHECK(make_post_fx(q, 0).posterize);
+    CHECK(make_post_fx(q, 0).mask() == kFxPosterize);
+
+    // An effect that is not in the stack's mask reads none of its numbers.
+    PostStack off;
+    off.fx.outlineWidth = 4.0f;
+    off.fx.pixelateSize = 8.0f;
+    off.fx.posterizeLevels = 4;
+    CHECK_FALSE(make_post_fx(off, 0).any());
+}
+
+TEST_CASE("post fx: widths and blocks are in design pixels and follow the render scale; bad numbers are clamped") {
+    const float nan = std::numeric_limits<float>::quiet_NaN();
+    PostStack o = stack_with(PostEffect::Outline);
+    o.fx.outlineWidth = 3.0f;
+    CHECK(make_post_fx(o, 0, 1.0f).outlineWidth == doctest::Approx(3.0f));
+    CHECK(make_post_fx(o, 0, 2.0f).outlineWidth == doctest::Approx(6.0f));
+    o.fx.outlineWidth = 100.0f;
+    CHECK(make_post_fx(o, 0).outlineWidth == doctest::Approx(8.0f));
+    o.fx.outlineWidth = 0.1f;  // a hair line is drawn half a pixel wide at least
+    CHECK(make_post_fx(o, 0).outlineWidth == doctest::Approx(0.5f));
+    o.fx.outlineWidth = nan;  // falls back to the default width
+    CHECK(make_post_fx(o, 0).outlineWidth == doctest::Approx(1.0f));
+    o.fx.outlineDepthThreshold = -3.0f;
+    o.fx.outlineNormalThreshold = 40.0f;
+    o.fx.outlineAlphaThreshold = nan;
+    const PostFx f = make_post_fx(o, 0);
+    CHECK(f.outlineDepthThreshold > 0.0f);
+    CHECK(f.outlineNormalThreshold == doctest::Approx(1.0f));
+    CHECK(f.outlineAlphaThreshold == doctest::Approx(0.5f));
+
+    PostStack p = stack_with(PostEffect::Pixelate);
+    p.fx.pixelateSize = 4.0f;
+    CHECK(make_post_fx(p, 0, 1.0f).pixelateBlock == 4);
+    CHECK(make_post_fx(p, 0, 2.0f).pixelateBlock == 8);
+    CHECK(make_post_fx(p, 0, 0.5f).pixelateBlock == 2);
+    p.fx.pixelateSize = 3.0f;  // 1.5 physical pixels: a whole number of them
+    CHECK(make_post_fx(p, 0, 0.5f).pixelateBlock == 2);
+    p.fx.pixelateSize = 1000.0f;
+    CHECK(make_post_fx(p, 0).pixelateBlock == 64);
+    p.fx.pixelateSize = nan;
+    CHECK_FALSE(make_post_fx(p, 0).pixelate);
+
+    PostStack q = stack_with(PostEffect::Posterize);
+    q.fx.posterizeLevels = 1;
+    CHECK(make_post_fx(q, 0).posterizeLevels == 2);
+    q.fx.posterizeLevels = 4000;
+    CHECK_FALSE(make_post_fx(q, 0).posterize);
+}
+
+TEST_CASE("pixelate: a pixel reads the centre of its block, the last pixel where the edge cuts a block") {
+    PostStack p = stack_with(PostEffect::Pixelate);
+    p.fx.pixelateSize = 4.0f;
+    const PostFx f = make_post_fx(p, 0);
+    int x = 0, y = 0;
+    pixelate_pixel(f, 0, 0, 320, 180, x, y);
+    CHECK((x == 2 && y == 2));
+    pixelate_pixel(f, 3, 7, 320, 180, x, y);
+    CHECK((x == 2 && y == 6));
+    pixelate_pixel(f, 4, 4, 320, 180, x, y);
+    CHECK((x == 6 && y == 6));
+    pixelate_pixel(f, 6, 0, 7, 7, x, y);  // 7 wide: the last block holds 3 pixels and its centre (6) is the last one
+    CHECK(x == 6);
+    pixelate_pixel(f, 5, 0, 6, 6, x,
+                   y);  // 6 wide: the block starting at 4 has its centre at 6, beyond the last pixel 5
+    CHECK(x == 5);
+    // A block of 3 centres on its middle pixel; the picture is shown at the same place whatever is in it.
+    p.fx.pixelateSize = 3.0f;
+    const PostFx g = make_post_fx(p, 0);
+    pixelate_pixel(g, 5, 5, 100, 100, x, y);
+    CHECK((x == 4 && y == 4));
+}
+
+TEST_CASE("posterize: values go to the nearest of the levels, black and white stay, what is above white is kept") {
+    PostStack q = stack_with(PostEffect::Posterize);
+    q.fx.posterizeLevels = 5;  // 0, 0.25, 0.5, 0.75, 1
+    const PostFx f = make_post_fx(q, 0);
+    CHECK(near_v(posterize_color(f, {0, 0, 0}), {0, 0, 0}, 1e-6f));
+    CHECK(near_v(posterize_color(f, {1, 1, 1}), {1, 1, 1}, 1e-6f));
+    CHECK(near_v(posterize_color(f, {0.1f, 0.4f, 0.9f}), {0.0f, 0.5f, 1.0f}, 1e-6f));
+    CHECK(near_v(posterize_color(f, {0.37f, 0.38f, 0.63f}), {0.25f, 0.5f, 0.75f}, 1e-6f));
+    CHECK(near_v(posterize_color(f, {1.6f, 0.0f, 0.0f}), {1.6f, 0.0f, 0.0f}, 1e-5f));  // the HDR excess stays
+    q.fx.posterizeLevels = 2;
+    CHECK(near_v(posterize_color(make_post_fx(q, 0), {0.49f, 0.51f, 0.2f}), {0, 1, 0}, 1e-6f));
+}
+
+// ---- the transient screen effects (M71-C3b) ----
+
+namespace {
+
+ScreenFx live_fx(ScreenFxKind kind, float elapsed = 0.0f) {
+    ScreenFx e;
+    e.o = screen_fx_defaults(kind);
+    e.elapsed = elapsed;
+    return e;
+}
+
+}  // namespace
+
+TEST_CASE("screen fx maths: nothing alive leaves the PostFx untouched and off") {
+    PostFx f;
+    add_screen_fx(f, {}, Mat4{});
+    CHECK_FALSE(f.any());
+    CHECK(f.mask() == 0);
+    CHECK(shockwave_offset(f, {0.3f, 0.3f}, 1.78f) == Vec2{0.0f, 0.0f});
+    Vec2 taps[32];
+    CHECK(radial_blur_taps(f, {0.3f, 0.3f}, taps) == 0);
+    CHECK(overlay_color(f, {0.2f, 0.4f, 0.6f}) == Vec3{0.2f, 0.4f, 0.6f});
+}
+
+TEST_CASE("screen fx maths: a shockwave pushes outward inside the ring only, the push is strongest at its middle") {
+    ScreenFx e = live_fx(ScreenFxKind::Shockwave, 0.2f);
+    e.o.duration = 1.0f;
+    e.o.screen = {0.5f, 0.5f};
+    e.o.strength = 0.1f;
+    e.o.radius = 0.5f;
+    e.o.width = 0.2f;
+    PostFx f;
+    add_screen_fx(f, {e}, Mat4{});
+    REQUIRE(f.ringCount == 1);
+    CHECK((f.mask() & kFxShockwave) != 0);
+    const float r = f.rings[0].radius, aspect = 2.0f;
+    CHECK(r == doctest::Approx(screen_fx_ring_radius(e)));
+    // On the ring, to the right of the centre: the pixel reads from nearer the centre (a negative x offset), none vertically.
+    const Vec2 onRing{0.5f + r / aspect, 0.5f};
+    const Vec2 o = shockwave_offset(f, onRing, aspect);
+    CHECK(o.x < 0.0f);
+    CHECK(o.y == doctest::Approx(0.0f).epsilon(1e-5));
+    CHECK(std::fabs(o.x) * aspect == doctest::Approx(f.rings[0].push).epsilon(1e-4));
+    // Away from the ring (inside it by more than half its width, outside it, at the centre): nothing.
+    CHECK(shockwave_offset(f, {0.5f, 0.5f}, aspect) == Vec2{0.0f, 0.0f});
+    CHECK(shockwave_offset(f, {0.5f + (r + 0.2f) / aspect, 0.5f}, aspect) == Vec2{0.0f, 0.0f});
+    // Above the ring the push is vertical, up (toward smaller y: away from the centre it reads from nearer, so + y).
+    const Vec2 up = shockwave_offset(f, {0.5f, 0.5f - r}, aspect);
+    CHECK(up.y > 0.0f);
+    CHECK(std::fabs(up.x) < 1e-6f);
+}
+
+TEST_CASE("screen fx maths: only the newest rings, hazes and the strongest radial blur are drawn, flashes composite") {
+    std::vector<ScreenFx> live;
+    for (int i = 0; i < 7; ++i) {
+        ScreenFx e = live_fx(ScreenFxKind::Shockwave, 0.1f);
+        e.o.duration = 1.0f;
+        e.o.radius = 0.1f * float(i + 1);  // told apart by their radius at the same age
+        live.push_back(e);
+    }
+    PostFx f;
+    add_screen_fx(f, live, Mat4{});
+    CHECK(f.ringCount == kMaxScreenRings);
+    CHECK(f.rings[0].radius < f.rings[std::size_t(kMaxScreenRings - 1)].radius);  // the last four, in order
+    CHECK(f.rings[std::size_t(kMaxScreenRings - 1)].radius == doctest::Approx(screen_fx_ring_radius(live.back())));
+    CHECK(f.rings[0].radius == doctest::Approx(screen_fx_ring_radius(live[7 - kMaxScreenRings])));
+
+    live.clear();
+    for (int i = 0; i < 5; ++i) live.push_back(live_fx(ScreenFxKind::HeatHaze, 0.5f));
+    PostFx h;
+    add_screen_fx(h, live, Mat4{});
+    CHECK(h.hazeCount == kMaxScreenHaze);
+
+    // Radial blur: the strongest wins; a persistent one that is stronger stays.
+    ScreenFx weak = live_fx(ScreenFxKind::RadialBlur), strong = live_fx(ScreenFxKind::RadialBlur);
+    weak.o.intensity = 0.2f;
+    strong.o.intensity = 0.9f;
+    strong.o.screen = {0.2f, 0.7f};
+    strong.o.samples = 20;
+    PostFx b;
+    add_screen_fx(b, {strong, weak}, Mat4{});
+    REQUIRE(b.radialBlur);
+    CHECK(b.radialLength == doctest::Approx(0.9f * kRadialBlurStrength));
+    CHECK(b.radialCenter == Vec2{0.2f, 0.7f});
+    CHECK(b.radialSamples == 20);
+    PostFx persistent;
+    persistent.radialBlur = true;
+    persistent.radialLength = 1.0f * kRadialBlurStrength;
+    persistent.radialCenter = {0.5f, 0.5f};
+    add_screen_fx(persistent, {strong}, Mat4{});
+    CHECK(persistent.radialCenter == Vec2{0.5f, 0.5f});
+    Vec2 taps[32];
+    CHECK(radial_blur_taps(b, {0.9f, 0.7f}, taps) == 20);
+    CHECK(taps[0] == Vec2{0.9f, 0.7f});  // the first tap is the pixel itself
+    CHECK(taps[19].x == doctest::Approx(0.2f + 0.7f * (1.0f - b.radialLength)));
+
+    // Flash and fade: composited oldest first into one colour.
+    ScreenFx red = live_fx(ScreenFxKind::Flash, 0.0f), black = live_fx(ScreenFxKind::Fade, 0.0f);
+    red.o.color = {1, 0, 0, 1};
+    red.o.strength = 0.5f;
+    red.o.fade = false;
+    black.o.color = {0, 0, 0, 1};
+    black.o.duration = 1.0f;
+    black.fromAlpha = 0.5f;
+    black.toAlpha = 0.5f;  // a fade that holds half
+    PostFx o;
+    add_screen_fx(o, {red, black}, Mat4{});
+    REQUIRE(o.overlay);
+    CHECK(o.overlayAlpha == doctest::Approx(0.75f));  // 1 - (1 - 0.5)(1 - 0.5)
+    // Red at 0.5 then black at 0.5 over it: the colour is (0.25 red) / 0.75.
+    CHECK(o.overlayColor.x == doctest::Approx(0.25f / 0.75f));
+    CHECK(o.overlayColor.y == doctest::Approx(0.0f));
+    const Vec3 c = overlay_color(o, {1, 1, 1});
+    CHECK(c.x == doctest::Approx(0.25f + 0.25f));  // 1 * 0.25 + 0.25 red
+    CHECK(c.y == doctest::Approx(0.25f));
+}
+
+TEST_CASE("screen fx maths: a world point is projected by the camera, one behind a perspective camera is not drawn") {
+    ScreenFx e = live_fx(ScreenFxKind::Shockwave, 0.1f);
+    e.o.atWorld = true;
+    e.o.world = {80, 0, 0};
+    e.o.duration = 1.0f;
+    // An orthographic 320 x 180 view: x = +80 is three quarters across, y = 0 the middle.
+    const Mat4 ortho = Mat4::ortho(-160, 160, -90, 90, -1, 1, false);
+    PostFx f;
+    add_screen_fx(f, {e}, ortho);
+    REQUIRE(f.ringCount == 1);
+    CHECK(f.rings[0].center.x == doctest::Approx(0.75f).epsilon(1e-4));
+    CHECK(f.rings[0].center.y == doctest::Approx(0.5f).epsilon(1e-4));
+    // A perspective camera looking down -z: a point at z = +5 is behind it.
+    const Mat4 persp = Mat4::perspective(60.0f, 1.78f, 0.1f, 100.0f, false);
+    e.o.world = {0, 0, 5};
+    PostFx behind;
+    add_screen_fx(behind, {e}, persp);
+    CHECK(behind.ringCount == 0);
+    e.o.world = {0, 0, -5};
+    PostFx front;
+    add_screen_fx(front, {e}, persp);
+    REQUIRE(front.ringCount == 1);
+    CHECK(front.rings[0].center.x == doctest::Approx(0.5f).epsilon(1e-4));
+    // A non-finite world point never reaches the shader.
+    e.o.world = {std::numeric_limits<float>::quiet_NaN(), 0, -5};
+    PostFx nan;
+    add_screen_fx(nan, {e}, persp);
+    CHECK(nan.ringCount == 0);
+}

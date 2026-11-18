@@ -329,7 +329,7 @@ TEST_CASE(
     CHECK(g.hasSurface);
     CHECK_FALSE(g.hasVertex);
     CHECK(g.defines.empty());
-    CHECK(g.programs == std::vector<std::string>{"mesh", "mesh_skin"});
+    CHECK(g.programs == std::vector<std::string>{"mesh", "mesh_skin", "prepass", "prepass_skin"});
     // alphabetical block: pulse (padded to a vec4) then tint
     const std::size_t pulse = g.top.find("float pulse; float fa_pad0; float fa_pad1; float fa_pad2;");
     const std::size_t tint = g.top.find("vec4 tint;");
@@ -366,7 +366,8 @@ TEST_CASE("generator: vertex() and alphaMode clip add the shadow programs; comme
     const GeneratedShader g = generate_material_shader(wave, kWaveSnippet);
     CHECK(g.hasVertex);
     CHECK(g.hasSurface);
-    CHECK(g.programs == std::vector<std::string>{"mesh", "mesh_skin", "shadow", "shadow_skin"});
+    CHECK(g.programs ==
+          std::vector<std::string>{"mesh", "mesh_skin", "shadow", "shadow_skin", "prepass", "prepass_skin"});
     CHECK(g.defines == std::vector<std::string>{"FA_HAS_VERTEX", "FA_ALPHA_CLIP"});
     CHECK(g.top.find("@program shadow_skin shadow_vs_skin shadow_fs") != std::string::npos);
     CHECK(g.top.find("#ifdef GL_VERTEX_SHADER\nvoid vertex(") != std::string::npos);
@@ -379,11 +380,11 @@ TEST_CASE("generator: vertex() and alphaMode clip add the shadow programs; comme
                                         "inout Surface s) {} */\nvoid helper() {}\n");
     CHECK_FALSE(c.hasVertex);
     CHECK_FALSE(c.hasSurface);
-    CHECK(c.programs == std::vector<std::string>{"mesh", "mesh_skin"});
+    CHECK(c.programs == std::vector<std::string>{"mesh", "mesh_skin", "prepass", "prepass_skin"});
     // clip alone is enough for the shadow programs
     const GeneratedShader clipOnly =
         generate_material_shader(wave, "void surface(in SurfaceInput i, inout Surface s) {}\n");
-    CHECK(clipOnly.programs.size() == 4);
+    CHECK(clipOnly.programs.size() == 6);
     CHECK(clipOnly.defines == std::vector<std::string>{"FA_ALPHA_CLIP"});
     // CRLF snippets keep their line numbers
     const GeneratedShader crlf =
@@ -768,14 +769,14 @@ TEST_CASE("shader.compile and material.info: arguments, results and teaching err
     CHECK(info.result["params"][1]["default"] == Json::parse("[0.2,0.6,1.0,1.0]"));
     CHECK(info.result["textures"][0]["name"] == "glow");
     CHECK(info.result["textures"][0]["doc"] == "Glow mask (rgb).");
-    CHECK(info.result["programs"] == Json::parse(R"(["mesh","mesh_skin"])"));
+    CHECK(info.result["programs"] == Json::parse(R"(["mesh","mesh_skin","prepass","prepass_skin"])"));
     CHECK(info.result["compile"]["state"] == "not_compiled");
     CHECK(info.result["compile"]["dialect"] == "glsl430");
     CHECK(info.result["compile"]["toolFound"] == true);
     auto wave =
         registry.call("material.info", Json::parse(R"({"material":"materials/wave"})"));  // the suffix may be left out
     REQUIRE(wave.ok);
-    CHECK(wave.result["programs"].size() == 4);
+    CHECK(wave.result["programs"].size() == 6);
     CHECK(wave.result["params"][0]["implicit"] == true);
 
     // compile for two platforms; the dialects come back in the table's order
@@ -941,7 +942,7 @@ TEST_CASE("real sokol-shdc: the fixture material compiles to every dialect and t
         REQUIRE(gem->twins.count(slang) == 1);
         const Json& twin = gem->twins.at(slang);
         CHECK(twin["slang"] == slang);
-        CHECK(twin["programs"].size() == 2);
+        CHECK(twin["programs"].size() == 4);
         CHECK(twin["programs"].contains("mesh"));
         CHECK(twin["programs"].contains("mesh_skin"));
         CHECK_FALSE(twin["programs"]["mesh"]["vs"].get<std::string>().empty());
@@ -967,7 +968,7 @@ TEST_CASE("real sokol-shdc: the fixture material compiles to every dialect and t
     REQUIRE(wave->ok);
     for (const auto& [slang, twin] : wave->twins) {
         CAPTURE(slang);
-        CHECK(twin["programs"].size() == 4);
+        CHECK(twin["programs"].size() == 6);
         CHECK(twin["programs"].contains("shadow"));
         CHECK(twin["programs"].contains("shadow_skin"));
         // vertex() reads amp: the vertex stage has its own block, at binding 4

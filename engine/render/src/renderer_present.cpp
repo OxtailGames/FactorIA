@@ -3,6 +3,67 @@
 
 namespace fa {
 
+blit_blit_fs_params_t Renderer::Impl::present_params() const {
+    blit_blit_fs_params_t fu{};
+    // A linear scene without the final pass holds linear light: the copy encodes it (sRGB) or reads it as it is (HDR). After the
+    // final pass the picture holds sRGB-encoded display values (extended past 1 when it went above paper white).
+    fu.encode[0] = gpu.linear() && !finalEncoded ? 1.0f : 0.0f;
+    // The encode for the swapchain the window has NOW (update_output() may have switched it after the frame was drawn).
+    const render::OutputTarget now = render::select_output(output(), float_display());
+    fu.hdr[0] = float(int(now.encode));
+    fu.hdr[1] = frameAboveWhite ? std::clamp(frameOutput.headroom, 1.0f, render::kMaxHeadroom) : 1.0f;
+    fu.hdr[2] = now.paperWhiteNits / 80.0f;
+    fu.hdr[3] = now.paperWhiteNits / 10000.0f;
+    return fu;
+}
+
+bool Renderer::Impl::read_floats(bool present, std::vector<float>& out, std::string* error) {
+    if (!gpu.committed()) {  // see Renderer::capture(): the frame's work must be submitted before a read-back waits for it
+        sg_commit();
+        gpu.note_commit();
+    }
+    const sg_pixelformat_info half = sg_query_pixelformat(SG_PIXELFORMAT_RGBA16F);
+    if (!half.render) {
+        if (error) *error = "this GPU cannot draw into an RGBA16F image";
+        return false;
+    }
+    if (floatTarget.color.id && (floatTarget.w != physW || floatTarget.h != physH)) destroy_target(floatTarget);
+    if (!floatTarget.color.id) {
+        TargetDesc d;
+        d.label = "readback-rgba16f";
+        d.width = physW;
+        d.height = physH;
+        d.colorFormat = SG_PIXELFORMAT_RGBA16F;
+        floatTarget = make_target(d);
+        if (!floatTarget.valid()) {
+            destroy_target(floatTarget);
+            if (error)
+                *error = std::format("the {}x{} RGBA16F image for the read-back could not be created", physW, physH);
+            return false;
+        }
+    }
+    PassDesc p = pass_into(floatTarget, "readback-rgba16f");
+    p.colorLoad = SG_LOADACTION_DONTCARE;  // every pixel is drawn
+    p.colorStore = SG_STOREACTION_STORE;
+    gpu.begin_pass(p);
+    sg_apply_pipeline(present ? gpu.blit_pipeline(p.format) : gpu.blit_keep_pipeline(p.format));
+    sg_bindings b{};
+    b.vertex_buffers[0] = gpu.fullscreen_triangle();
+    b.views[VIEW_blit_tex] = final_view();
+    b.samplers[SMP_blit_smp] = gpu.sampler(SamplerKind::Nearest);
+    sg_apply_bindings(&b);
+    blit_blit_vs_params_t u{};
+    u.flip[0] = gpu.is_gl() ? 1.0f : 0.0f;  // as read_rgba8: the per-backend read-back turns GL's rows top-down
+    apply_uniforms(UB_blit_blit_vs_params, u);
+    const blit_blit_fs_params_t fu = present ? present_params() : blit_blit_fs_params_t{};
+    apply_uniforms(UB_blit_blit_fs_params, fu);
+    sg_draw(0, 3, 1);
+    gpu.end_pass();
+    sg_commit();
+    gpu.note_commit();
+    return render::readback_rgba16f(floatTarget.color, physW, physH, out, error);
+}
+
 void Renderer::present(const GfxSwapchain& swapchain, int fbW, int fbH, ScaleMode mode) {
     if (!initialized()) return;
     Impl& im = *impl_;
@@ -28,6 +89,9 @@ void Renderer::present(const GfxSwapchain& swapchain, int fbW, int fbH, ScaleMod
     blit_blit_vs_params_t u{};
     u.flip[0] = im.gpu.is_gl() ? 1.0f : 0.0f;
     apply_uniforms(UB_blit_blit_vs_params, u);
+    // The encode for the window's output (hdr_encode.h): sRGB within white, or scRGB, HDR10 (PQ) or EDR linear light.
+    const blit_blit_fs_params_t fu = im.present_params();
+    apply_uniforms(UB_blit_blit_fs_params, fu);
     sg_draw(0, 3, 1);
     im.gpu.end_pass();
     sg_commit();
@@ -49,9 +113,11 @@ bool Renderer::capture(Image& out, std::string* error) {
         sg_commit();
         im.gpu.note_commit();
     }
+    // 8 bits: a frame drawn for an HDR output (the HDR tonemap, values above paper white) is clipped at white here, not drawn again
+    // with the SDR curve (docs/RENDERING.md, "What goes above white").
     sg_image img = im.final_image();
     std::vector<std::uint8_t> px;
-    if (!im.read_rgba8(img, im.final_view(), im.physW, im.physH, px, error)) return false;
+    if (!im.read_rgba8(img, im.final_view(), im.physW, im.physH, px, error, false, im.finalEncoded)) return false;
     out.width = im.physW;
     out.height = im.physH;
     out.rgba = std::move(px);
@@ -111,6 +177,7 @@ bool Renderer::capture_world(World& world, const WorldCapture& spec, Image& out,
     ci.visible = Rect{cx - ci.halfW, cy - ci.halfH, ci.halfW * 2.0f, ci.halfH * 2.0f};
     ci.clear = true;
     ci.clearColor = Color{0, 0, 0, 0};
+    im.sync_color_space(world);  // the picture is made in the world's colour space
 
     im.settle_pass_times();  // the capture replaces the frame graph that the last frame's pass times are read from
     const RenderStats savedStats = im.stats;
@@ -151,7 +218,7 @@ bool Renderer::capture_world(World& world, const WorldCapture& spec, Image& out,
     im.gpu.begin_frame();
     im.transient_targets().pool.begin_frame();
     // One job in a frame graph of its own; gather_meshes builds the scene of fr.scopeRoot (the subject).
-    im.begin_frame_graph();
+    im.begin_frame_graph(false);
     Impl::JobPlan plan;
     plan.name = "capture";
     im.plan_view_job(world, fr, *im.viewTargets[kKey], kKey, plan);
@@ -164,7 +231,7 @@ bool Renderer::capture_world(World& world, const WorldCapture& spec, Image& out,
     const Impl::ViewTarget& vt = *im.viewTargets[kKey];
     std::vector<std::uint8_t> px;
     std::string readError;
-    const bool ok = im.read_rgba8(vt.asset.image, vt.asset.view, w, h, px, &readError);
+    const bool ok = im.read_rgba8(vt.asset.image, vt.asset.view, w, h, px, &readError, true);
     im.release_view(*im.viewTargets[kKey]);
     im.viewTargets.erase(kKey);
     // The RGBA8 copy of a big picture (a 4K capture is 64 MB) is not worth keeping: only the game target's size is asked for again.

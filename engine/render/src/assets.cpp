@@ -11,6 +11,7 @@
 #include "fa/core/fs.h"
 #include "fa/core/log.h"
 #include "fa/core/strings.h"
+#include "fa/render/cube_lut.h"
 #include "fa/scene/gltf_file.h"
 #include "fa/scene/skeleton.h"
 #include "render_internal.h"
@@ -645,6 +646,8 @@ void Assets::clear() {
     videoTextures_.clear();
     for (auto& [k, t] : textures_) destroy_texture(*t);
     textures_.clear();
+    for (auto& [k, l] : luts_) destroy_lut(*l);
+    luts_.clear();
     for (auto& t : anonymous_) destroy_texture(*t);
     anonymous_.clear();
     for (auto& [k, m] : meshes_) destroy_mesh(*m);
@@ -663,8 +666,102 @@ void Assets::clear() {
 
 TextureAsset* Assets::white() { return white_.get(); }
 
+void Assets::destroy_lut(LutAsset& l) {
+    if (l.view.id) sg_destroy_view(l.view);
+    if (l.image.id) sg_destroy_image(l.image);
+    l.view = {};
+    l.image = {};
+}
+
+const LutAsset* Assets::lut(const std::string& pathIn) {
+    if (pathIn.empty()) return nullptr;
+    std::string key = fs::normalize(pathIn);
+    if (key.empty()) key = pathIn;
+    bool secondTry = false;  // the slot's first read or parse failed: this is the one retry, its failure is final
+    LutAsset* slotPtr = nullptr;
+    if (auto it = luts_.find(key); it != luts_.end()) {
+        if (it->second->view.id) return it->second.get();
+        if (!it->second->retryPending)
+            return nullptr;  // a failed load stays in the cache: one error, no read every frame
+        it->second->retryPending = false;
+        secondTry = true;
+        slotPtr = it->second.get();
+    } else {
+        auto slot = std::make_unique<LutAsset>();
+        slotPtr = slot.get();
+        slot->path = key;
+        luts_[key] = std::move(slot);
+    }
+    LutAsset& l = *slotPtr;
+    auto fail = [&](const std::string& message, const std::string& hint) -> const LutAsset* {
+        note_failure("lut", key, message, hint);
+        return nullptr;
+    };
+    if (!fs::exists(key))
+        return fail("colour grading LUT " + missing_hint(key, fs::extension(key)),
+                    "Set PostProcess.colorGradingLut to a .cube file in the project (import one with assets.import).");
+    const std::int64_t bytes = fs::file_size(key);
+    if (bytes > std::int64_t(kCubeLutMaxFileBytes))
+        return fail(std::format("colour grading LUT '{}' is {} MB, over the {} MB a .cube file may have", key,
+                                bytes >> 20, kCubeLutMaxFileBytes >> 20),
+                    "Export a 32 or 33 entry LUT (a 64 entry one is about 8 MB).");
+    // A file that is read or parses badly is tried once more on the next ask (the next frame) before it is an error: on Windows the
+    // editor that saves a .cube may still be writing it (a half-written file) when the hot reload finds it.
+    // The slot stays in the cache with retryPending set (so a file nobody asks for again costs nothing, and a later ask still gets its
+    // retry); the first failure is logged as a warning, so a one-frame render (a capture, the CLI) does not fail in silence.
+    auto retry_once = [&](const std::string& what) {
+        if (secondTry) return false;  // the second failure is the real one
+        l.retryPending = true;
+        FA_WARN("render",
+                "colour grading LUT '{}' {}; trying once more on the next frame (a file that is still being written).",
+                key, what);
+        return true;
+    };
+    auto text = fs::read_text(key);
+    if (!text) {
+        if (retry_once("could not be read: " + text.error().message)) return nullptr;
+        return fail(std::format("colour grading LUT '{}' could not be read: {}", key, text.error().message),
+                    text.error().hint);
+    }
+    auto parsed = parse_cube_lut(*text, key);
+    if (!parsed) {
+        const std::string message = parsed.error().message, hint = parsed.error().hint;
+        if (retry_once("does not parse: " + message)) return nullptr;
+        return fail("colour grading LUT " + message, hint);
+    }
+    const CubeLutStrip strip = cube_lut_strip(*parsed);
+    sg_image_desc d{};
+    d.width = strip.width();
+    d.height = strip.height();
+    d.pixel_format = SG_PIXELFORMAT_RGBA8;  // the table's own numbers: never decoded as sRGB
+    d.data.mip_levels[0] = {strip.rgba.data(), strip.rgba.size()};
+    d.label = key.c_str();
+    l.image = make_image(d);
+    if (sg_query_image_state(l.image) != SG_RESOURCESTATE_VALID) {
+        destroy_lut(l);
+        return fail(std::format("colour grading LUT '{}': the GPU could not make its {}x{} image", key, strip.width(),
+                                strip.height()),
+                    "Use a smaller LUT (32 entries per side).");
+    }
+    sg_view_desc vd{};
+    vd.texture.image = l.image;
+    vd.label = key.c_str();
+    l.view = sg_make_view(&vd);
+    l.size = strip.size;
+    l.cols = strip.cols;
+    l.rows = strip.rows;
+    l.bytes = strip.rgba.size();
+    // A successful (re)load clears an older failure record.
+    failures_.erase(std::remove_if(failures_.begin(), failures_.end(),
+                                   [&](const Failure& f) { return f.kind == "lut" && f.path == key; }),
+                    failures_.end());
+    return &l;
+}
+
 void Assets::upload_texture(TextureAsset& t, const Image& img, bool mips) {
-    upload_rgba(t, img, mips ? mip_chain(img) : std::vector<Image>());
+    // In a linear scene the image is made as sRGB (upload_rgba): the mips average in linear light, as the GPU filters it.
+    const bool srgb = gpu_.texture_format(SG_PIXELFORMAT_RGBA8) != SG_PIXELFORMAT_RGBA8;
+    upload_rgba(t, img, mips ? mip_chain(img, srgb) : std::vector<Image>());
 }
 
 // RGBA8 pixels with their mip chain (empty: no mips; chain[0] is not read, mip_chain puts the base there).
@@ -672,7 +769,10 @@ void Assets::upload_rgba(TextureAsset& t, const Image& img, const std::vector<Im
     sg_image_desc d{};
     d.width = img.width;
     d.height = img.height;
-    d.pixel_format = SG_PIXELFORMAT_RGBA8;
+    // A linear scene reads colours as linear light: made as sRGB the GPU decodes them (the mip chain was averaged in linear light
+    // for it, see upload_texture; one made for the other colour space stays as it was).
+    const sg_pixel_format format = gpu_.texture_format(SG_PIXELFORMAT_RGBA8);
+    d.pixel_format = format;
     d.num_mipmaps = chain.empty() ? 1 : int(chain.size());
     d.data.mip_levels[0] = {img.rgba.data(), img.rgba.size()};
     t.bytes = img.rgba.size();
@@ -688,7 +788,8 @@ void Assets::upload_rgba(TextureAsset& t, const Image& img, const std::vector<Im
     t.view = sg_make_view(&vd);
     t.width = img.width;
     t.height = img.height;
-    t.format = SG_PIXELFORMAT_RGBA8;
+    t.format = format;
+    t.enc = format == SG_PIXELFORMAT_RGBA8 ? TexEncoding::Raw : TexEncoding::Srgb;
 }
 
 // Uploads transcoded KTX2 levels; false (nothing kept) when the GPU rejects them.
@@ -696,7 +797,9 @@ bool Assets::upload_transcoded(TextureAsset& t, const TranscodedTexture& tex) {
     sg_image_desc d{};
     d.width = tex.width;
     d.height = tex.height;
-    d.pixel_format = tex.format;
+    const sg_pixel_format format =
+        gpu_.texture_format(tex.format);  // the sRGB variant in a linear scene: the same blocks
+    d.pixel_format = format;
     d.num_mipmaps = int(tex.levels.size());
     t.bytes = 0;
     for (std::size_t i = 0; i < tex.levels.size(); ++i) {
@@ -712,7 +815,8 @@ bool Assets::upload_transcoded(TextureAsset& t, const TranscodedTexture& tex) {
         t.view = sg_make_view(&vd);
         t.width = tex.width;
         t.height = tex.height;
-        t.format = tex.format;
+        t.format = format;
+        t.enc = format == tex.format ? TexEncoding::Raw : TexEncoding::Srgb;
         return true;
     }
     sg_destroy_image(t.image);
@@ -737,7 +841,7 @@ bool Assets::upload_ktx2(TextureAsset& t, const std::vector<std::uint8_t>& file,
 }
 
 Result<PreparedTexture> decode_texture_file(const std::string& key, const std::string& file, const std::uint8_t* data,
-                                            std::size_t size, sg_pixel_format ktx2Format) {
+                                            std::size_t size, sg_pixel_format ktx2Format, bool srgbMips) {
     AssetLoadScope trace("texture", key);  // the decode time (the read was the IO thread's); free without a load trace
     trace.set_bytes(size);
     PreparedTexture p;
@@ -752,7 +856,8 @@ Result<PreparedTexture> decode_texture_file(const std::string& key, const std::s
     }
     auto img = decode_image(data, size);
     if (!img) return img.error();
-    p.chain = mip_chain(*img);
+    p.chain = mip_chain(*img, srgbMips);
+    p.srgbMips = srgbMips;
     p.image = std::move(*img);
     return p;
 }
@@ -761,6 +866,15 @@ std::uint64_t Assets::adopt_texture(PreparedTexture& p, std::vector<std::string>
     if (p.key.empty() || textures_.count(p.key)) return 0;  // loaded on first use meanwhile: that one stays
     auto t = std::make_unique<TextureAsset>();
     t->path = p.key;
+    if (!p.ktx2) {
+        // The colour space was asked when the load was requested; a linear scene may have rendered since (the format of
+        // the GPU image follows it): the chain is made again, on this thread, when the two differ.
+        const bool srgb = gpu_.texture_format(SG_PIXELFORMAT_RGBA8) != SG_PIXELFORMAT_RGBA8;
+        if (srgb != p.srgbMips) {
+            p.chain = mip_chain(p.image, srgb);
+            p.srgbMips = srgb;
+        }
+    }
     const bool ok = p.ktx2 ? upload_transcoded(*t, p.transcoded) : (upload_rgba(*t, p.image, p.chain), true);
     if (!ok) return 0;  // the GPU rejected the compressed format: the load on first use falls back to RGBA8
     t->untraced = std::move(files);
@@ -804,7 +918,8 @@ void Assets::use_placeholder(TextureAsset& t) {
     t.view = placeholderTex_->view;
     t.width = placeholderTex_->width;
     t.height = placeholderTex_->height;
-    t.format = SG_PIXELFORMAT_RGBA8;
+    t.format = placeholderTex_->format;
+    t.enc = placeholderTex_->enc;
     t.bytes = 0;
 }
 
@@ -1334,6 +1449,13 @@ void Assets::reload(const std::string& pathIn) {
         }
         load_texture(t->first);
     }
+    if (auto l = luts_.find(path); l != luts_.end()) {  // forgotten: the next frame that names it loads the new file
+        destroy_lut(*l->second);
+        luts_.erase(l);
+        failures_.erase(std::remove_if(failures_.begin(), failures_.end(),
+                                       [&](const Failure& f) { return f.kind == "lut" && f.path == path; }),
+                        failures_.end());
+    }
     auto m = meshes_.find(path);
     if (m != meshes_.end()) {
         if (m->second->placeholder) m->second->parts.clear();  // shared handles
@@ -1355,6 +1477,7 @@ std::size_t Assets::texture_bytes() const {
         if (!t->placeholder && !t->atlas) total += t->bytes;
     for (const auto& [k, v] : videoTextures_) total += v.tex->bytes;
     for (const auto& [k, t] : runtime_) total += t->bytes;
+    for (const auto& [k, l] : luts_) total += l->bytes;
     return total;
 }
 

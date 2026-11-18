@@ -22,7 +22,7 @@ export const GAME_SPEEDS = [1, 0.8, 0.6];
 /** How a held action is read: "hold" (keep the button down) or "toggle" (press once to start, again to stop). */
 export const HOLD_MODES = ["hold", "toggle"];
 
-/** Values of Camera.colorFilter the options menu cycles through (accessibility: the last post-process of the frame). */
+/** Values of PostProcess.colorFilterMode the options menu cycles through (accessibility: the last post-process of the frame). */
 export const COLOR_FILTERS = ["none", "greyscale", "highContrast", "protanopia", "deuteranopia", "tritanopia"];
 
 /**
@@ -134,10 +134,14 @@ export function gameSpeedOf(s = current()) {
   return GAME_SPEEDS.includes(s.gameSpeed) ? s.gameSpeed : 1;
 }
 
-/** Camera.colorFilter of the scene's camera (the entity with the id "camera"): every scene has its own camera, so each scene sets it again. */
+/**
+ * PostProcess colour filter on the scene's camera (the entity with the id "camera"): every scene has its own camera,
+ * so each scene sets it again.
+ */
 export function applyColorFilter(s = load()) {
   const camera = world.find("camera");
-  if (camera) camera.get("Camera").colorFilter = s.colorFilter;
+  if (!camera || (s.colorFilter === "none" && !camera.has("PostProcess"))) return;
+  camera.set("PostProcess", { colorFilterEnabled: s.colorFilter !== "none", colorFilterMode: s.colorFilter });
 }
 
 /** Captions follow the "Subtitles" option by switching the scene's "captions" entity on or off, and the sound captions of a shift ("sound_captions") follow their own option. The game keeps calling audio.play({ caption }) and ui.caption(): they are tracked while hidden. */

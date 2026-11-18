@@ -1,7 +1,14 @@
 // Renderer::Impl, part 3: draw_view_job and draw_job, the passes of one frame's jobs.
+#include "color_space.h"
 #include "renderer_impl.h"
 
+#include <iterator>
+
+#include "shaders/prepass_view.glsl.h"
+
 namespace fa {
+
+using render::to_scene;
 
 // ---------------------------------------------------------------------------
 // The state of one draw_job, shared by its phases: what the lambdas of the former single function captured. Every phase
@@ -29,6 +36,11 @@ struct Renderer::Impl::MaterialInputs {
 // Holds references to the job's world and frame and a copy of its plan. It lives (Impl::jobContexts) from plan_job until the
 // frame graph has run, because the callbacks of the job's passes use it; the world, the frame and the camera `plan.post`
 // points to belong to the caller of plan_job, which keeps them until run_frame_graph().
+// The sokol-shdc uniform blocks it holds are alignas(16): MSVC warns (C4324, an error under /WX) that the struct is padded.
+#if defined(_MSC_VER)
+#pragma warning(push)
+#pragma warning(disable : 4324)
+#endif
 struct Renderer::Impl::DrawContext {
     DrawContext(World& w, Frame& f, const JobPlan& p) : world(w), fr(f), plan(p), post(*p.post) {}
     World& world;
@@ -37,7 +49,11 @@ struct Renderer::Impl::DrawContext {
     const CameraInfo& post;
     JobEnv env;  // the sizes and images the job's passes draw with (a view job's are not the game target's)
     // plan_job: the viewports and clears of this job
-    bool hudAfterBloom = false, msaa = false, z01 = false;
+    // hudAfterBloom: the screen-space items are drawn over the glowing game target (Camera.bloomScreenSpace false, no final pass).
+    // hudAfterPost: the final passes of the frame write hudTarget and the screen-space items are drawn over it, in display space.
+    bool hudAfterBloom = false, hudAfterPost = false, msaa = false, z01 = false;
+    PostPlan
+        postPlan;  // the post-processing stack of this job's camera (empty for the screen-only job and the view jobs)
     // Does this job begin the main pass? The screen-space job of a frame whose HUD goes over the bloom draws it after instead.
     bool doMainPass = false;
     Px fullPx, camPx;
@@ -50,6 +66,11 @@ struct Renderer::Impl::DrawContext {
     bool haveShadowCaster = false;
     Mat4 lightVP;
     bool doShadows = false;
+    // plan_prepass: this job declares the prepass (its image is a transient of the graph, PostPlan::prepass) and, with a debug view on,
+    // the pass that paints it over the game image.
+    bool doPrepass = false, debugPrepass = false;
+    // plan_outline: this job declares the sprite-coverage pass (PostPlan::coverage) for a sprite outline.
+    bool doCoverage = false;
     std::vector<MeshBatch> opaqueBatches, blendedBatches;
     std::vector<Mat4> mainMats, shadowMats;
     // build_quad_stream
@@ -68,10 +89,18 @@ struct Renderer::Impl::DrawContext {
     mesh_fa_lights_t lightUniforms{};
     mesh_fa_mesh_vs_params_t vuScene{};
     mesh_fa_mesh_fs_params_t fuScene{};
+    // fuScene with the camera's stack fog (PostProcess.fog*): the blended meshes fog themselves with it, while the opaque meshes and the sky
+    // are fogged by the full-screen draw (fuScene has no fog then). Equal to fuScene when the camera has no stack fog.
+    mesh_fa_mesh_fs_params_t fuBlend{};
+    // build_graph: the occlusion image the main pass applies after the opaque meshes (valid when the "ssao-*" passes were declared).
+    SsaoApply ssaoApply;
     // light_pass
     int litMode = 0;
     sg_view shadowRowsTex{};
 };
+#if defined(_MSC_VER)
+#pragma warning(pop)
+#endif
 
 namespace {
 
@@ -127,7 +156,9 @@ void apply_view(const Px& r) {
 }
 
 // The glTF base color factor of a part, or the MeshRenderer.materialColors entry for its material name.
-Color part_base_color(const MeshRenderer& mr, const SubMesh& part) {
+// `authored` is set when the colour comes from materialColors (picked by eye, sRGB) rather than from the model (glTF: linear).
+Color part_base_color(const MeshRenderer& mr, const SubMesh& part, bool* authored = nullptr) {
+    if (authored) *authored = false;
     if (!part.materialName.empty() && mr.materialColors.is_object()) {
         auto it = mr.materialColors.find(part.materialName);
         if (it != mr.materialColors.end() && it->is_array() && it->size() >= 3 && it->size() <= 4) {
@@ -136,6 +167,7 @@ Color part_base_color(const MeshRenderer& mr, const SubMesh& part) {
                 if (!(*it)[i].is_number()) return part.baseColor;  // validate reports it; the part keeps its own colour
                 v[i] = (*it)[i].get<float>();
             }
+            if (authored) *authored = true;
             return Color{v[0], v[1], v[2], v[3]};
         }
     }
@@ -178,7 +210,7 @@ void Renderer::Impl::set_job_env(const JobEnv& e) {
 
 // Declares a CameraView's (or a render target's) camera in the frame graph, drawing into the view's image: the pass(es) of
 // plan_job with the image in the place of the game target. The image is an imported resource that later jobs read
-// (jobImages). No post effects (the frame has one set, the first camera's), no 2D light buffer. While the job is planned and
+// (jobImages). No post effects (the frame's are those of the cameras on the screen), no 2D light buffer. While the job is planned and
 // while its passes run, the renderer's sizes and game images are the view's (the job's JobEnv).
 void Renderer::Impl::plan_view_job(World& world, Frame& fr, ViewTarget& target, std::uint64_t key, JobPlan plan) {
     static const CameraInfo noPost;  // bloom off, no colour filter
@@ -219,7 +251,7 @@ void Renderer::Impl::plan_view_job(World& world, Frame& fr, ViewTarget& target, 
 }
 
 // Starts the frame graph of a frame: nothing declared, no job yet.
-void Renderer::Impl::begin_frame_graph() {
+void Renderer::Impl::begin_frame_graph(bool countPost) {
     if (!passHooksSet) {
         passHooksSet = true;
         // Every pass is a GPU timestamp pair while the GPU timer measures the frame (the profiler is on) and a zone of the
@@ -236,9 +268,12 @@ void Renderer::Impl::begin_frame_graph() {
     }
     graph.clear();
     jobContexts.clear();
+    postCams.clear();
     frameJobs.clear();
     jobImages.clear();
     ++frameSerial;
+    framePost = countPost;
+    if (countPost) ++postSerial;
     trim_shadow_rows();
     sharedGame = sharedLight = sharedShadow = ResourceId{};
 }
@@ -264,6 +299,7 @@ void Renderer::Impl::run_frame_graph() {
         report(e.error(), true);
     graph.release_callbacks();
     jobContexts.clear();
+    postCams.clear();
 }
 
 void Renderer::Impl::pass_times(std::vector<RenderStats::PassTime>& passes,
@@ -317,9 +353,13 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
     jobContexts.push_back(owner);  // a shared_ptr<void> keeps the type incomplete outside this file
     DrawContext& ctx = *owner;
     ctx.env = job_env();
-    ctx.hudAfterBloom = ctx.post.bloom.enabled && ctx.post.bloom.intensity > 0.0f && !ctx.post.bloom.screenSpace;
     ctx.fullPx = Px{0, 0, physW, physH};
     ctx.camPx = fr.wantWorld ? px_rect(fr.cam.viewport, physW, physH) : ctx.fullPx;
+    const bool draws = !plan.view && fr.wantWorld && ctx.camPx.w > 0 && ctx.camPx.h > 0;
+    // The frame's bloom and colour filter are those of the camera that draws first (a camera whose rectangle has no pixel does not count);
+    // a job before any camera drew, or a view job, uses the plan's.
+    const CameraInfo& frameCam = plan.view || postCams.empty() ? (draws ? fr.cam : ctx.post) : postCams.front()->fr.cam;
+    ctx.hudAfterBloom = frameCam.bloom.enabled && frameCam.bloom.intensity > 0.0f && !frameCam.bloom.screenSpace;
     ctx.partial = fr.wantWorld && !fr.cam.fullViewport();
     // A camera that clears and is not the first one (or the only one) cannot use a load action (it clears the whole target,
     // not its rectangle): a colour quad over its viewport does it.
@@ -328,12 +368,161 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
     ctx.z01 = gpu.depth_zero_to_one();
     ctx.msaa = gpu.sample_count() > 1;
     ctx.doMainPass = fr.wantWorld || !ctx.hudAfterBloom;
+    // Every camera that draws the world has its own plan (its stack, its rectangle of the picture); a rectangle with no pixel draws
+    // nothing and has none. Bloom and the colour filter are the frame's, from the camera that draws first (ctx.post).
+    if (draws) {
+        PostPlan& pp = ctx.postPlan;
+        pp = make_post_plan(fr.cam, world.settings().colorSpace == ColorSpace::Linear, forceEffects, world.frame(),
+                            renderScale, &frameCam);
+        if (!(ctx.camPx.x == 0 && ctx.camPx.y == 0 && ctx.camPx.w == physW && ctx.camPx.h == physH))
+            pp.rect = PostRect{ctx.camPx.x, ctx.camPx.y, ctx.camPx.w, ctx.camPx.h};
+        if (debugView ==
+            DebugView::
+                Ao) {  // the occlusion alone: the camera's own settings or the defaults, and the prepass it reads
+            pp.ssao = ssao_debug_settings(pp.ssao);
+            pp.needsDepth = pp.needsNormals = true;
+        }
+        if (pp.fx.grain)
+            pp.fx.grainSeed =
+                grain_seed_for_camera(pp.fx.grainSeed, int(postCams.size()));  // not the same grain per half
+        postCams.push_back(&ctx);
+        // The camera's view-projection of the frame before, for the effects that reproject (motion blur); one entry per camera, and the
+        // cameras that were not drawn last frame are forgotten.
+        const std::uint64_t camKey = fr.cam.entity.bits();
+        // Counted in the frames of the game (postSerial): a capture_world between two of them neither reads nor writes the matrices,
+        // so the next frame still reprojects from the one before the capture.
+        // A second job of the same camera in the same frame (entry.frame == postSerial) takes what the first one took. A world frame
+        // that went back, or more than 8 simulation ticks ahead, is a cut (a scene loaded, a seek): no blur across it.
+        const auto prev = prevViewProj.find(camKey);
+        if (prev != prevViewProj.end() && framePost) {
+            const PrevCamera& e = prev->second;
+            if (e.frame == postSerial) {
+                if (e.hadBefore) {
+                    pp.prevViewProj = e.before;
+                    pp.prevValid = true;
+                }
+            } else if (e.frame + 1 == postSerial && world.frame() >= e.worldFrame &&
+                       world.frame() - e.worldFrame <= 8) {
+                pp.prevViewProj = e.viewProj;
+                pp.prevValid = true;
+            }
+        }
+        if (fr.cam.postStack)
+            pp.ssr = make_ssr_plan(fr.cam, *fr.cam.postStack);  // screen-space reflections (renderer_ssr.h)
+        if (framePost) {
+            PrevCamera& now = prevViewProj[camKey];
+            if (now.frame != postSerial) {  // the first job of the camera this frame
+                now.before = pp.prevViewProj;
+                now.hadBefore = pp.prevValid;
+                now.viewProj = fr.cam.viewProj;
+                now.frame = postSerial;
+                now.worldFrame = world.frame();
+            }
+            for (auto it = prevViewProj.begin(); it != prevViewProj.end();)
+                it = it->second.frame + 1 < postSerial ? prevViewProj.erase(it) : std::next(it);
+        }
+        // Depth of field and motion blur (renderer_dof.h): the focus of this camera for the frame, the matrices of its movement.
+        if (fr.cam.postStack)
+            pp.sceneFx = sceneFx.plan(world, fr.cam, *fr.cam.postStack, camKey, postSerial, fr.dt, renderScale,
+                                      pp.prevViewProj, pp.prevValid);
+        // A depth of field with no blur, and a motion blur with nothing to smear (the first frame, a cut, a still camera's null
+        // intensity), draw nothing: they must not ask for a prepass. A forced effect (tests) and the AO debug view keep theirs.
+        if (debugView != DebugView::Ao) {
+            std::uint32_t drop = 0;
+            if (!pp.sceneFx.dof) drop |= 1u << int(PostEffect::DepthOfField);
+            if (!pp.sceneFx.motion) drop |= 1u << int(PostEffect::MotionBlur);
+            drop &= ~forceEffects;
+            if ((pp.readMask & drop) != 0) {
+                pp.readMask &= ~drop;
+                pp.needsDepth = post_mask_needs_depth(pp.readMask);
+                pp.needsNormals = post_mask_needs_normals(pp.readMask);
+            }
+        }
+        // The program is made only for a frame that runs it (a conversion or a colour filter): a game without a stack never compiles it.
+        if ((pp.final_pass() || pp.colorFilter != 0) &&
+            !gpu.post_ready()) {  // logged once; the frame is drawn without the final pass
+            pp.exposure = pp.tonemap = pp.linear = false;
+            pp.fx = PostFx{};
+            pp.colorFilter = 0;
+        }
+        if (pp.fx.lut) {
+            // The .cube table of the grade: loaded (once) into a strip image; a file that cannot be read or parsed is logged once by
+            // the asset cache and the table is skipped, the rest of the grade is drawn.
+            const LutAsset* lut = assets->lut(pp.lut);
+            if (lut && lut->view.id != 0) {
+                pp.lutInfo = LutInfo{lut->view, lut->size, lut->cols, lut->rows};
+            } else {
+                pp.fx.lut = false;
+                pp.lut.clear();
+                // A LUT alone was the only reason to convert a linear scene: without it the present copy encodes it, as without a stack.
+                pp.linear = pp.linear && (pp.exposure || pp.tonemap || pp.colorFilter != 0 || pp.fx.any());
+            }
+        }
+    }
 
     gather_meshes(ctx);
     collect_lights(ctx);
     shadow_bounds(ctx);
     cull_and_batch(ctx);
+    // Fog and sun shafts (renderer_fog.h), planned before the prepass: the sun is known once the lights are, and shafts alone with no sun in
+    // view must not ask for a prepass. The sun is the light of slot 0 when it is a directional one (the shadow caster, otherwise the
+    // brightest directional light) and it shines (select_lights); the studio rig is not a sun.
+    if (draws && fr.cam.postStack) {
+        Vec3 sun;
+        bool haveSun = false;
+        if (!fr.cam.studio && !ctx.lights.empty()) {
+            const LightData& l = ctx.lights[0];
+            if (l.color.w == 0.0f && l.pos.w == 0.0f && l.color.x + l.color.y + l.color.z > 0.0f) {
+                sun = Vec3{l.pos.x, l.pos.y, l.pos.z};  // pos = the direction toward the light
+                haveSun = true;
+            }
+        }
+        PostPlan& pp = ctx.postPlan;
+        pp.fogFx = make_fog_plan(fr.cam, *fr.cam.postStack, fr.linear, haveSun ? &sun : nullptr);
+        const std::uint32_t shaftsBit = 1u << int(PostEffect::SunShafts);
+        if ((pp.readMask & shaftsBit) != 0 && !pp.fogFx.shafts && debugView != DebugView::Ao) {
+            pp.readMask &= ~shaftsBit;  // no sun in view: the shafts draw nothing, so they need no depth
+            pp.needsDepth = post_mask_needs_depth(pp.readMask);
+            pp.needsNormals = post_mask_needs_normals(pp.readMask);
+        }
+    }
+    plan_prepass(ctx);
+    plan_outline(ctx);
+    // The passes need the prepass and their shaders: a camera that cannot draw them keeps the scene's own fog (ss.fogDensity, below).
+    if (ctx.postPlan.fogFx.any()) {
+        FogFxPlan& ff = ctx.postPlan.fogFx;
+        if (!ctx.doPrepass) {
+            ff = FogFxPlan{};
+        } else {
+            if (ff.fog && !fogFx.ready(FogFx::Prog::Fog)) ff.fog = false;
+            if (ff.shafts && !(fogFx.ready(FogFx::Prog::Rays) && fogFx.ready(FogFx::Prog::Add))) ff.shafts = false;
+        }
+    }
+    // Reflections, sun shafts, depth of field and motion blur work on the scene colour, so the screen-space items are drawn after them
+    // (as they are over the bloom).
+    if (plan.last && !plan.view) {
+        bool sceneColorFx = false;
+        for (const DrawContext* c : postCams)
+            sceneColorFx =
+                sceneColorFx ||
+                ((c->postPlan.ssr.any() || c->postPlan.fogFx.shafts || c->postPlan.sceneFx.any()) && c->doPrepass);
+        if (sceneColorFx) {
+            ctx.hudAfterBloom = true;
+            ctx.doMainPass = fr.wantWorld || !ctx.hudAfterBloom;
+        }
+    }
     build_quad_stream(ctx);
+    // The final pass converts the picture (exposure, tonemap, the encode of a linear scene): the screen-space items go over its result, in
+    // display space, and are drawn after it instead of in the main pass. Only when there is something to draw, and the image for it exists.
+    bool frameFinal = false;  // some camera of the frame runs a final pass
+    for (const DrawContext* c : postCams) frameFinal = frameFinal || c->postPlan.final_pass();
+    if (plan.last && !plan.view && frameFinal && fr.wantScreen &&
+        (!ctx.gScreen.batches.empty() || !ctx.gDebugScreen.batches.empty()) && ensure_hud_target()) {
+        ctx.hudAfterPost = true;
+        ctx.hudAfterBloom =
+            false;  // the glow goes into the resolved image: the multisampled one is not drawn over again
+        ctx.doMainPass = fr.wantWorld;
+    }
     upload_instances(ctx);
     scene_uniforms(ctx);
     light_plan(ctx);
@@ -439,7 +628,8 @@ void Renderer::Impl::collect_lights(DrawContext& ctx) {
             if (!entity_active(world, e)) return;
             Mat4 m = world.world_matrix(e);
             LightData ld;
-            Vec3 col{l.color.r * l.intensity, l.color.g * l.intensity, l.color.b * l.intensity};
+            const Color lc = to_scene(l.color, fr.linear);  // picked as sRGB; the light adds up in linear light
+            Vec3 col{lc.r * l.intensity, lc.g * l.intensity, lc.b * l.intensity};
             const float brightness = std::max({col.x, col.y, col.z});
             if (l.type == LightType::Directional) {
                 Vec3 d = normalize(m.transform_dir(kForward));
@@ -472,7 +662,8 @@ void Renderer::Impl::collect_lights(DrawContext& ctx) {
             const Vec3 toward = normalize(fr.cam.right * toRight + fr.cam.up * toUp - fr.cam.forward * toCamera);
             LightData ld;
             ld.pos = Vec4{toward, 0.0f};
-            ld.color = Vec4{color * (intensity * fr.cam.studioIntensity), 0.0f};
+            const Color lc = to_scene(Color{color.x, color.y, color.z, 1.0f}, fr.linear);
+            ld.color = Vec4{Vec3{lc.r, lc.g, lc.b} * (intensity * fr.cam.studioIntensity), 0.0f};
             ld.dir = Vec4{-toward, 1.0f};
             ld.rank = 1;
             ld.score = intensity;
@@ -671,6 +862,15 @@ void Renderer::Impl::scene_uniforms(DrawContext& ctx) {
         ss.horizonColor = Color{0.4f * k, 0.4f * k, 0.42f * k, 1.0f};
         ss.fogDensity = 0.0f;
     }
+    // The camera's own fog (PostProcess.fog*, drawn from the depth inside the main pass) replaces the scene's: the two never add up. It is
+    // only planned (fogFx.fog) when its prepass and shader exist, so a frame that cannot draw it keeps the scene's fog.
+    if (ctx.postPlan.fogFx.fog) ss.fogDensity = 0.0f;
+    // Colours the author picked are sRGB values; a linear scene computes with linear light (sky, fog and ambient, below, and the
+    // main pass's sky and clear colour read these).
+    ss.ambientLight = to_scene(ss.ambientLight, fr.linear);
+    ss.fogColor = to_scene(ss.fogColor, fr.linear);
+    ss.skyColor = to_scene(ss.skyColor, fr.linear);
+    ss.horizonColor = to_scene(ss.horizonColor, fr.linear);
     ctx.white = assets->white();
     for (std::size_t i = 0; i < lights.size(); ++i) {
         for (int c = 0; c < 4; ++c) {
@@ -703,6 +903,25 @@ void Renderer::Impl::scene_uniforms(DrawContext& ctx) {
     fuScene.fa_env_horizon[2] = ss.horizonColor.b;
     fuScene.fa_pbr[3] = 0.0015f;
     fuScene.fa_time[0] = float(world.time());
+    // The blended meshes fog themselves with the stack's fog (the same numbers as the full-screen draw, the same formula): by their own
+    // distance, not by the opaque mesh behind them, and over the sky too.
+    ctx.fuBlend = fuScene;
+    const FogFxPlan& ff = ctx.postPlan.fogFx;
+    if (ff.fog) {
+        mesh_fa_mesh_fs_params_t& fb = ctx.fuBlend;
+        fb.fa_fog[0] = ff.color[0];
+        fb.fa_fog[1] = ff.color[1];
+        fb.fa_fog[2] = ff.color[2];
+        fb.fa_fog[3] = ff.density;
+        fb.fa_fog_b[0] = ff.start;
+        fb.fa_fog_b[1] = ff.heightDensity;
+        fb.fa_fog_b[2] = ff.heightBase;
+        fb.fa_fog_b[3] = ff.heightFalloff;
+        fb.fa_fog_c[0] = ff.forward.x;
+        fb.fa_fog_c[1] = ff.forward.y;
+        fb.fa_fog_c[2] = ff.forward.z;
+        fb.fa_fog_c[3] = ff.ortho ? 1.0f : 0.0f;
+    }
 }
 
 // What one part of an item is drawn with (reads ctx.white).
@@ -719,10 +938,10 @@ Renderer::Impl::PartDraw Renderer::Impl::part_draw(DrawContext& ctx, const MeshI
     return d;
 }
 
-// The fragment parameters (fa_mesh_fs_params) of one part (reads ctx.fuScene, ctx.doShadows).
+// The fragment parameters (fa_mesh_fs_params) of one part (reads ctx.fuScene, or ctx.fuBlend for a blended part, ctx.doShadows).
 mesh_fa_mesh_fs_params_t Renderer::Impl::fill_fs(DrawContext& ctx, const MeshItem& mi, const SubMesh& part,
-                                                 const PartDraw& d) {
-    const mesh_fa_mesh_fs_params_t& fuScene = ctx.fuScene;
+                                                 const PartDraw& d, bool blended) {
+    const mesh_fa_mesh_fs_params_t& fuScene = blended ? ctx.fuBlend : ctx.fuScene;
     const bool doShadows = ctx.doShadows;
     const MeshRenderer& mr = *mi.mr;
     mesh_fa_mesh_fs_params_t fu = fuScene;
@@ -730,14 +949,19 @@ mesh_fa_mesh_fs_params_t Renderer::Impl::fill_fs(DrawContext& ctx, const MeshIte
     // MeshRenderer.emissiveStrength scales both the component's colour and the model's own emission; a NaN or negative
     // value (a script wrote it) counts as 0, no glow.
     const float strength = mr.emissiveStrength > 0.0f ? std::min(mr.emissiveStrength, 1000.0f) : 0.0f;
+    const bool linear = ctx.fr.linear;
     if (!d.error) {
-        fu.fa_emissive[0] = mr.emissive.r * strength;
-        fu.fa_emissive[1] = mr.emissive.g * strength;
-        fu.fa_emissive[2] = mr.emissive.b * strength;
+        const Color emissive = to_scene(mr.emissive, linear);
+        fu.fa_emissive[0] = emissive.r * strength;
+        fu.fa_emissive[1] = emissive.g * strength;
+        fu.fa_emissive[2] = emissive.b * strength;
     }
     fu.fa_emissive[3] = unlit ? 1.0f : 0.0f;
     fu.fa_pbr[2] = (doShadows && mr.receiveShadows) ? 1.0f : 0.0f;
-    const Color base = d.error ? Color{1, 0, 1, 1} : mr.color * part_base_color(mr, part);
+    bool authoredPart = false;
+    const Color partColor = d.error ? Color{} : part_base_color(mr, part, &authoredPart);
+    const Color base = d.error ? Color{1, 0, 1, 1}
+                               : to_scene(mr.color, linear) * (authoredPart ? to_scene(partColor, linear) : partColor);
     fu.fa_base_color[0] = base.r;
     fu.fa_base_color[1] = base.g;
     fu.fa_base_color[2] = base.b;
@@ -753,12 +977,18 @@ mesh_fa_mesh_fs_params_t Renderer::Impl::fill_fs(DrawContext& ctx, const MeshIte
     fu.fa_maps[0] = mi.normalTex ? mr.normalScale : part.normalScale;
     fu.fa_maps[1] = part.occlusionStrength;
     fu.fa_maps[2] = d.normal ? 1.0f : 0.0f;
+    // How the shader reads each texture (mesh_common.glsl fa_tex_fix): the colour ones as linear light in a linear scene, the data
+    // ones (normal, metallic-roughness, occlusion) as the file's values, whichever format the images were made in.
+    fu.fa_maps[3] = float(d.tex->tex_fix(linear, true) + 4 * d.emissive->tex_fix(linear, true) +
+                          16 * (d.normal ? d.normal->tex_fix(linear, false) : 0) + 64 * d.mr->tex_fix(linear, false) +
+                          256 * d.occlusion->tex_fix(linear, false));
     if (mi.flash.a > 0.0f && !d.error) {
         // A flash (feel.h) needs no shader change: the surface colour fades to nothing and the emission, which both the lit
         // and the unlit path add at the end (fog comes after), carries the flash colour. Lit meshes keep a little
         // specular and image-based reflection of their own.
         const float k = 1.0f - std::min(mi.flash.a, 1.0f), a = 1.0f - k;
-        const float flash[3] = {mi.flash.r, mi.flash.g, mi.flash.b};
+        const Color flashColor = to_scene(mi.flash, linear);
+        const float flash[3] = {flashColor.r, flashColor.g, flashColor.b};
         for (int i = 0; i < 3; ++i) {
             fu.fa_base_color[i] *= k;
             fu.fa_emissive[i] = fu.fa_emissive[i] * k + flash[i] * a;
@@ -955,16 +1185,193 @@ void Renderer::Impl::shadow_pass(DrawContext& ctx) {
     gpu.end_pass();
 }
 
+// ---- depth and normal prepass ----
+// For the effects that read the scene's depth and normals (ambient occlusion, reflections, fog, sun shafts, depth of field, motion blur,
+// outline): the opaque meshes of a camera drawn again into one float image (Gpu::prepass_color_format; r = linear view
+// depth, gb = octahedral view-space normal, a = 1 on a mesh) with a depth buffer of its own, never multisampled (a multisampled depth
+// cannot be sampled). Blended meshes, the sky, sprites, particles, shapes, text, debug lines and the HUD are not in it, and a CameraView or
+// render target never has one. Meshes of a material with alphaMode "clip" cut the same holes as in the main pass (the prepass program runs
+// its surface()), and a material's vertex() moves them the same way.
+
+// Does this job draw the prepass? Every camera job that draws the world and has a stack with an effect that reads the depth or the
+// normals (or a debug view, or a test that forces an effect) gets its own, when it draws opaque meshes and the GPU can make the image:
+// a frame without any of that costs nothing (no pass, no image, no shader). The image has the size of the camera's rectangle of the
+// picture (ctx.camPx), so a camera of a split screen reads depth at its own pixels. Reads: ctx.plan, ctx.postPlan, ctx.camPx,
+// ctx.opaqueBatches, debugView. Writes: ctx.doPrepass, ctx.debugPrepass.
+bool Renderer::Impl::plan_prepass(DrawContext& ctx) {
+    const PostPlan& pp = ctx.postPlan;
+    ctx.doPrepass = ctx.debugPrepass = false;
+    if (ctx.plan.view || !ctx.fr.wantWorld || ctx.camPx.w < 1 || ctx.camPx.h < 1) return false;
+    if (!(pp.needsDepth || pp.needsNormals || debugView != DebugView::None)) return false;
+    bool anyMesh = false;
+    for (const MeshBatch& b : ctx.opaqueBatches) anyMesh = anyMesh || b.mainCount > 0;
+    if (!anyMesh || !gpu.prepass_ready()) return false;  // prepass_ready logs once why it is not
+    // Made now (and given back to the pool) so that a GPU that refuses the image is one warning here, not a failed pass.
+    TransientDesc d;
+    d.width = ctx.camPx.w;
+    d.height = ctx.camPx.h;
+    d.format = gpu.prepass_target_format();
+    d.label = "prepass";
+    const std::uint64_t h = transient_targets().pool.acquire(d);
+    if (h == 0) {
+        if (!prepassWarned) {
+            prepassWarned = true;
+            FA_ERROR("render",
+                     "The depth and normal prepass image ({}x{}) could not be made: the effects that read the depth "
+                     "are skipped. "
+                     "Hint: lower the window size or the render scale.",
+                     ctx.camPx.w, ctx.camPx.h);
+        }
+        return false;
+    }
+    transient_targets().pool.release(h);
+    ctx.doPrepass = true;
+    ctx.debugPrepass = (debugView == DebugView::Depth || debugView == DebugView::Normals) && gpu.prepass_view_ready();
+    return true;
+}
+
+// The image the outline reads. Depth mode needs the prepass (plan_prepass made it or said why not, once); sprite mode needs a coverage
+// image of the camera's rectangle, made when the pool can make an RGBA8 image. Each camera of a split screen has its own.
+// An outline without its image is dropped from the plan (PostPlan::skip_outline), so the camera is drawn as if the effect were off.
+// Reads: ctx.plan, ctx.fr, ctx.camPx, ctx.doPrepass. Writes: ctx.postPlan, ctx.doCoverage, coverageWarned.
+void Renderer::Impl::plan_outline(DrawContext& ctx) {
+    PostPlan& pp = ctx.postPlan;
+    ctx.doCoverage = false;
+    if (ctx.plan.view || !ctx.fr.wantWorld || ctx.camPx.w < 1 || ctx.camPx.h < 1) return;
+    if (pp.fx.outline_depth()) {
+        if (!ctx.doPrepass) pp.skip_outline();
+        return;
+    }
+    if (!pp.fx.outline_sprite()) return;
+    auto skip = [&](const char* why) {
+        if (!coverageWarned) {
+            coverageWarned = true;
+            FA_WARN("render", "The sprite outline is skipped: {}. Hint: lower the window size or the render scale.",
+                    why);
+        }
+        pp.skip_outline();
+    };
+    TransientDesc d;
+    d.width = ctx.camPx.w;
+    d.height = ctx.camPx.h;
+    d.format = TargetFormat{SG_PIXELFORMAT_RGBA8, SG_PIXELFORMAT_NONE, 1};
+    d.label = "sprite-coverage";
+    const std::uint64_t h = transient_targets().pool.acquire(d);
+    if (h == 0) {
+        skip("the coverage image could not be made (out of GPU memory? lower the window size or the render scale)");
+        return;
+    }
+    transient_targets().pool.release(h);
+    ctx.doCoverage = true;
+}
+
+// Draws the 2D world of the job into `t` as coverage: only the alpha channel matters (alpha blending accumulates how much of a pixel
+// the sprites, tiles, shapes, text and particles cover; additive and multiply quads leave it alone). Cleared to 0 first. Reads:
+// ctx.gWorld, ctx.fr.cam, ctx.camPx, the quad stream of the job. Writes: `t`; stats.drawCalls.
+void Renderer::Impl::coverage_pass(DrawContext& ctx, const Target& t) {
+    PassDesc pd = pass_into(t, "sprite-coverage");
+    pd.colorLoad = SG_LOADACTION_CLEAR;
+    pd.clearColor = {0.0f, 0.0f, 0.0f, 0.0f};
+    pd.colorStore = SG_STOREACTION_STORE;
+    gpu.begin_pass(pd);
+    // The image has the size of the camera's rectangle and the camera's matrix maps the world onto that rectangle: the whole image.
+    draw_group(ctx, ctx.gWorld.batches, ctx.fr.cam.viewProj, false, Px{0, 0, t.w, t.h}, 0, &pd.format);
+    gpu.end_pass();
+}
+
+// Draws the opaque meshes of the job into `t`. Reads: ctx.opaque / opaqueBatches, ctx.mainInst, ctx.vuScene, ctx.fuScene, ctx.fr.cam, the
+// custom prepass programs of the materials. Writes: `t`; stats.drawCalls.
+void Renderer::Impl::prepass_pass(DrawContext& ctx, const Target& t) {
+    const std::vector<MeshBatch>& batches = ctx.opaqueBatches;
+    const std::vector<MeshItem>& items = ctx.opaque;
+    PassDesc pd = pass_into(t, "prepass");
+    pd.colorLoad = SG_LOADACTION_CLEAR;  // nothing drawn: far depth, no normal, coverage 0
+    pd.clearColor = {PrepassRef::kFarDepth, 0.0f, 0.0f, 0.0f};
+    pd.colorStore = SG_STOREACTION_STORE;
+    pd.depthLoad = SG_LOADACTION_CLEAR;
+    pd.clearDepth = 1.0f;
+    gpu.begin_pass(pd);
+    mesh_fa_mesh_vs_params_t vu = ctx.vuScene;
+    copy_mat(vu.fa_light_vp,
+             ctx.fr.cam.view);  // the prepass programs read the view matrix where the shadow programs read the light's
+    for (const MeshBatch& batch : batches) {
+        if (batch.mainCount == 0) continue;
+        const MeshItem& mi = items[batch.rep];
+        vu.fa_uv_scale[0] = mi.mr->uvScale.x;
+        vu.fa_uv_scale[1] = mi.mr->uvScale.y;
+        MaterialAsset* mat = mi.material && mi.material->ok ? mi.material : nullptr;
+        MaterialInputs inputs{};
+        if (mat && (mat->programs[kProgPrepass].shader.id || mat->programs[kProgPrepassSkin].shader.id))
+            material_inputs(mi, mat, inputs);
+        for (const SubMesh& part : mi.mesh->parts) {
+            const bool skinned = mi.anim && part.skinVb.id;
+            const PartDraw pd0 = part_draw(ctx, mi, part);
+            const MaterialProgram* custom = mat ? &mat->programs[skinned ? kProgPrepassSkin : kProgPrepass] : nullptr;
+            if (custom && !custom->shader.id) custom = nullptr;  // a twin made before the prepass: the engine's program
+            const MaterialProgram* prog = custom ? custom : &gpu.prepass_program(skinned);
+            PartDraw bind = pd0;
+            if (!custom) bind.mat = nullptr;  // the engine's program has no material textures
+            sg_apply_pipeline(gpu.prepass_pipeline(pd.format, part.doubleSided || (pd0.mat && pd0.mat->doubleSided),
+                                                   skinned, custom ? custom->shader : sg_shader{}));
+            sg_bindings b{};
+            b.vertex_buffers[0] = part.vb;
+            b.vertex_buffers[1] = ctx.mainInst;
+            b.vertex_buffer_offsets[1] = int(batch.mainFirst * kMeshInstanceBytes);
+            if (skinned) b.vertex_buffers[2] = part.skinVb;
+            b.index_buffer = part.ib;
+            b.index_buffer_offset = part.ibOffset;
+            bind_textures(ctx, b, bind, prog, inputs, true);
+            sg_apply_bindings(&b);
+            apply_uniforms(UB_mesh_fa_mesh_vs_params, vu);
+            if (skinned && prog->has_ub(UB_mesh_fa_skin))
+                apply_uniforms(UB_mesh_fa_skin, pack_palette(palette_of(*mi.anim, part.skin)));
+            if (prog->has_ub(UB_mesh_fa_mesh_fs_params))
+                apply_uniforms(UB_mesh_fa_mesh_fs_params, fill_fs(ctx, mi, part, pd0));
+            if (prog->has_ub(UB_mesh_fa_lights)) apply_uniforms(UB_mesh_fa_lights, ctx.lightUniforms);
+            apply_material_params(*prog, inputs);
+            sg_draw(0, part.indexCount, int(batch.mainCount));
+            ++stats.drawCalls;
+        }
+    }
+    gpu.end_pass();
+}
+
+// Paints the prepass (depth or normals, Renderer::set_debug_view) over the game image the main pass drew.
+void Renderer::Impl::prepass_view_pass(DrawContext& ctx, const Target& t) {
+    PassDesc dp = pass_into(gameTarget, "prepass-view");
+    dp.colorLoad = SG_LOADACTION_LOAD;
+    // Like the main pass: only the last job may drop its multisampled colour (a camera after it loads the picture).
+    dp.colorStore = (ctx.msaa && ctx.plan.last && !ctx.hudAfterBloom) ? SG_STOREACTION_DONTCARE : SG_STOREACTION_STORE;
+    gpu.begin_pass(dp);
+    sg_apply_pipeline(gpu.prepass_view_pipeline(dp.format));
+    if (!ctx.postPlan.rect.whole(physW, physH)) apply_view(ctx.camPx);  // the camera's rectangle of the game image
+    sg_bindings b{};
+    b.vertex_buffers[0] = gpu.fullscreen_triangle();
+    b.views[VIEW_prepass_view_tex] = t.texView;
+    b.samplers[SMP_prepass_view_smp] = gpu.sampler(SamplerKind::Nearest);
+    sg_apply_bindings(&b);
+    prepass_view_prepass_view_vs_params_t vu{};
+    vu.flip[0] = gpu.is_gl() ? 1.0f : 0.0f;
+    apply_uniforms(UB_prepass_view_prepass_view_vs_params, vu);
+    prepass_view_prepass_view_fs_params_t fu{};
+    fu.mode[0] = debugView == DebugView::Normals ? 2.0f : 1.0f;
+    apply_uniforms(UB_prepass_view_prepass_view_fs_params, fu);
+    sg_draw(0, 3, 1);
+    ++stats.drawCalls;
+    gpu.end_pass();
+}
+
 // Draws the batches of a quad group. Reads: ctx.vbuf, ctx.shadowRowsTex, fr (lights2d, shadowRows, ambient2d), renderScale,
 // physW / physH, gpu.light_range(), lightTarget.texView (`flatMode` 1 reads the light buffer). Writes: stats.drawCalls.
 void Renderer::Impl::draw_group(DrawContext& ctx, const std::vector<QuadBatch>& batches, const Mat4& vp, bool depthTest,
-                                const Px& base, int flatMode) {
+                                const Px& base, int flatMode, const TargetFormat* format, const FogFxPlan* fog) {
     Frame& fr = ctx.fr;
     const sg_buffer vbuf = ctx.vbuf;
     const sg_view shadowRowsTex = ctx.shadowRowsTex;
     if (batches.empty()) return;
     quad_vs_params_t u{};
     copy_mat(u.view_proj, vp);
+    u.cspace[0] = fr.linear ? 1.0f : 0.0f;  // vertex colours are sRGB values: decoded in the vertex shader
     Rect
         scissor;  // the clip applied now (w <= 0: `base`, the whole target or the camera's viewport); a ScrollList's content is cut at its rectangle
     auto apply_clip = [&](const Rect& c) {
@@ -1008,18 +1415,50 @@ void Renderer::Impl::draw_group(DrawContext& ctx, const std::vector<QuadBatch>& 
         litUniforms.light_shadow_v[i][0] =
             row >= 0.0f && fr.shadowRows > 0 ? (row + 0.5f) / float(fr.shadowRows) : -1.0f;
     }
+    // The camera's stack fog on the world's quads (shaders/quad.glsl): each batch fades to the fog colour, an additive one to nothing and a
+    // multiplying one to 1 (the colour that changes nothing), by the quad's own distance. Only the full program reads it.
+    quad_quad_fs_params_t fogged{};
+    if (fog && fog->fog) {
+        fogged.fog_b[0] = fog->start;
+        fogged.fog_b[1] = fog->heightDensity;
+        fogged.fog_b[2] = fog->heightBase;
+        fogged.fog_b[3] = fog->heightFalloff;
+        fogged.fog_c[0] = fog->forward.x;
+        fogged.fog_c[1] = fog->forward.y;
+        fogged.fog_c[2] = fog->forward.z;
+        fogged.fog_c[3] = fog->ortho ? 1.0f : 0.0f;
+        fogged.fog_eye[0] = fog->eye.x;
+        fogged.fog_eye[1] = fog->eye.y;
+        fogged.fog_eye[2] = fog->eye.z;
+        std::memcpy(litUniforms.fog_b, fogged.fog_b, sizeof(fogged.fog_b));
+        std::memcpy(litUniforms.fog_c, fogged.fog_c, sizeof(fogged.fog_c));
+        std::memcpy(litUniforms.fog_eye, fogged.fog_eye, sizeof(fogged.fog_eye));
+        fogged.fog_col[3] = litUniforms.fog_col[3] = fog->density;
+    }
+    const bool fogOn = fog && fog->fog;
     const sg_view lightTexBound = flatMode == 1 ? lightTarget.texView : assets->white()->view;
     const sg_view shadowTexBound = shadowRowsTex.id ? shadowRowsTex : assets->white()->view;
     for (const QuadBatch& qb : batches) {
         apply_clip(qb.clip);
-        sg_apply_pipeline(gpu.quad_pipeline(depthTest, false, qb.blend, qb.plain, qb.opaque));
+        const bool plain = qb.plain && !fogOn;  // the lean program has no fog
+        sg_apply_pipeline(format ? gpu.quad_pipeline(*format, depthTest, false, qb.blend, plain, qb.opaque)
+                                 : gpu.quad_pipeline(depthTest, false, qb.blend, plain, qb.opaque));
+        if (fogOn) {
+            const float to = qb.blend == BlendMode::Multiply ? 1.0f : qb.blend == BlendMode::Additive ? 0.0f : -1.0f;
+            for (int c = 0; c < 3; ++c) {
+                const float v = to < 0.0f ? fog->color[c] : to;
+                fogged.fog_col[c] = litUniforms.fog_col[c] = v;
+            }
+        }
+        u.cspace[1] = float(qb.tex->tex_fix(fr.linear, true, fr.displayOverLinear));
+        u.cspace[2] = qb.lit && qb.normal ? float(qb.normal->tex_fix(fr.linear, false)) : 0.0f;
         apply_uniforms(UB_quad_vs_params, u);
         if (qb.lit) {
             litUniforms.lit[1] = qb.normal ? 1.0f : 0.0f;
             if (qb.normal) normal_uv_transform(*qb.tex, *qb.normal, litUniforms.normal_uv);
             apply_uniforms(UB_quad_quad_fs_params, litUniforms);
-        } else if (!qb.plain) {  // quad_plain declares no fragment uniforms
-            apply_uniforms(UB_quad_quad_fs_params, unlit);
+        } else if (!plain) {  // quad_plain declares no fragment uniforms
+            apply_uniforms(UB_quad_quad_fs_params, fogOn ? fogged : unlit);
         }
         std::uint32_t done = 0;
         while (done < qb.quadCount) {
@@ -1056,7 +1495,7 @@ void Renderer::Impl::draw_group(DrawContext& ctx, const std::vector<QuadBatch>& 
 // lineFirst, screenProj, shadowTarget.texView (doShadows) and lightTarget.texView (litMode 1), the game target images.
 // Writes: the game target (gameTarget.colorAtt / resolveAtt / depthAtt); stats (drawCalls, triangles, meshes, meshBatches, materials,
 // materialFallbacks).
-void Renderer::Impl::main_pass(DrawContext& ctx) {
+void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
     Frame& fr = ctx.fr;
     const JobPlan& plan = ctx.plan;
     const bool z01 = ctx.z01, msaa = ctx.msaa, hudAfterBloom = ctx.hudAfterBloom;
@@ -1080,13 +1519,16 @@ void Renderer::Impl::main_pass(DrawContext& ctx) {
     const sg_buffer mainInst = ctx.mainInst;
     const mesh_fa_mesh_vs_params_t& vuScene = ctx.vuScene;
     const mesh_fa_lights_t& lightUniforms = ctx.lightUniforms;
-    const bool drawHudInPass = fr.wantScreen && !hudAfterBloom;
+    const bool drawHudInPass = fr.wantScreen && !hudAfterBloom && !ctx.hudAfterPost;
     if (ctx.doMainPass) {
         PassDesc mp = pass_into(gameTarget, plan.view ? "view" : fr.wantWorld ? "game" : "game-hud");
         mp.colorLoad = clearByLoad ? SG_LOADACTION_CLEAR : SG_LOADACTION_LOAD;
-        mp.clearColor = {fr.cam.clearColor.r, fr.cam.clearColor.g, fr.cam.clearColor.b, fr.cam.clearColor.a};
-        mp.colorStore =
-            (msaa && (plan.last || plan.view) && !hudAfterBloom) ? SG_STOREACTION_DONTCARE : SG_STOREACTION_STORE;
+        const Color clearScene = to_scene(fr.cam.clearColor, fr.linear);
+        mp.clearColor = {clearScene.r, clearScene.g, clearScene.b, clearScene.a};
+        // The debug view of the prepass draws over the multisampled image next, so it must be kept.
+        mp.colorStore = (msaa && (plan.last || plan.view) && !hudAfterBloom && !ctx.debugPrepass)
+                            ? SG_STOREACTION_DONTCARE
+                            : SG_STOREACTION_STORE;
         mp.depthLoad = SG_LOADACTION_CLEAR;
         mp.clearDepth = 1.0f;
         mp.stencilLoad = SG_LOADACTION_CLEAR;
@@ -1161,7 +1603,7 @@ void Renderer::Impl::main_pass(DrawContext& ctx) {
                     apply_uniforms(UB_mesh_fa_mesh_vs_params, vu);
                     if (skinned && declares(prog, UB_mesh_fa_skin))
                         apply_uniforms(UB_mesh_fa_skin, pack_palette(palette_of(*mi.anim, part.skin)));
-                    apply_uniforms(UB_mesh_fa_mesh_fs_params, fill_fs(ctx, mi, part, pd));
+                    apply_uniforms(UB_mesh_fa_mesh_fs_params, fill_fs(ctx, mi, part, pd, isBlend));
                     apply_uniforms(UB_mesh_fa_lights, lightUniforms);
                     if (prog) apply_material_params(*prog, inputs);
                     sg_draw(0, part.indexCount, int(batch.mainCount));
@@ -1173,16 +1615,48 @@ void Renderer::Impl::main_pass(DrawContext& ctx) {
             }
         };
         draw_meshes(opaqueBatches, opaque, false);
+
+        // The effects that work on the opaque picture (the sky and the opaque meshes) and nothing else: the ambient occlusion and the
+        // camera's fog, as full-screen draws over the camera's rectangle, reading the prepass. What is drawn after them (blended meshes,
+        // sprites, particles, 3D text, the HUD) is not darkened, and fogs itself by its own distance (mesh_common.glsl, quad.glsl).
+        bool fogDrawn = false;
+        const Target* preT = ctx.postPlan.prepass.target(pc);
+        if (preT && preT->texView.id) {
+            if (partial) apply_view(camPx);
+            if (ctx.ssaoApply.valid) {
+                const Target* aoT = transient_targets().get(pc.handle(ctx.ssaoApply.ao));
+                if (aoT && aoT->texView.id) {
+                    Ssao::draw_apply(gpu, ctx.ssaoApply, aoT->texView, preT->texView, mp.format);
+                    ++stats.drawCalls;
+                }
+            }
+            if (ctx.postPlan.fogFx.fog && fogFx.draw_fog(gpu, ctx.postPlan.fogFx, preT->texView, mp.format)) {
+                ++stats.drawCalls;
+                fogDrawn = true;
+            }
+        }
+        // Planned with its prepass, but the prepass image or the draw failed: the scene's own fog was already switched off for this
+        // camera, so the opaque meshes show none. Said once (a frame later the plan is made again and may succeed).
+        if (ctx.postPlan.fogFx.fog && !fogDrawn && !fogMissingWarned) {
+            fogMissingWarned = true;
+            FA_ERROR("render",
+                     "The camera's fog could not be drawn this frame (its depth image is missing): the opaque meshes "
+                     "show no fog. "
+                     "Hint: turn PostProcess.fogEnabled off, or lower the render scale if the GPU is out of memory.");
+        }
+
         draw_meshes(blendedBatches, blended, true);
         stats.materials += int(materialsDrawn.size());
 
         // quad groups
-        draw_group(ctx, gWorld.batches, fr.cam.viewProj, fr.cam.perspective, camPx, litMode);
+        draw_group(ctx, gWorld.batches, fr.cam.viewProj, fr.cam.perspective, camPx, litMode, nullptr,
+                   ctx.postPlan.fogFx.fog ? &ctx.postPlan.fogFx : nullptr);
         draw_group(ctx, gDebugWorld.batches, fr.cam.viewProj, false, camPx);
         if (!fr.debugLines.empty()) {
             sg_apply_pipeline(gpu.quad_pipeline(false, true));
             quad_vs_params_t u{};
             copy_mat(u.view_proj, fr.cam.viewProj);
+            u.cspace[0] = fr.linear ? 1.0f : 0.0f;
             apply_uniforms(UB_quad_vs_params, u);
             quad_quad_fs_params_t unlit{};
             apply_uniforms(UB_quad_quad_fs_params, unlit);
@@ -1209,16 +1683,26 @@ void Renderer::Impl::main_pass(DrawContext& ctx) {
     }  // doMainPass
 }
 
-// ---- HUD pass (Camera.bloomScreenSpace = false): screen-space groups over the glowing frame ----
-// Reads: ctx.gScreen, ctx.gDebugScreen, ctx.screenProj, ctx.vbuf, ctx.msaa, the game target (LOAD). Writes: the game target;
-// stats.drawCalls. Declared by build_graph when there is something to draw.
-void Renderer::Impl::hud_pass(DrawContext& ctx) {
+// ---- HUD pass: screen-space groups over the finished frame ----
+// Camera.bloomScreenSpace = false draws them over the glowing game target ("hud-over-bloom"); a final pass that converts the picture
+// (exposure, tonemap, linear colour) draws them over its result in hudTarget, in display space ("hud-over-post"). Either way they are
+// never glowed, tonemapped or exposed.
+// Reads: ctx.gScreen, ctx.gDebugScreen, ctx.screenProj, ctx.vbuf, ctx.msaa, `into` (LOAD). Writes: `into`; stats.drawCalls. Declared by
+// build_graph when there is something to draw.
+void Renderer::Impl::hud_pass(DrawContext& ctx, const Target& into, const char* label) {
     const bool msaa = ctx.msaa;
     const Px& fullPx = ctx.fullPx;
     const Mat4& screenProj = ctx.screenProj;
     const DrawContext::Group& gScreen = ctx.gScreen;
     const DrawContext::Group& gDebugScreen = ctx.gDebugScreen;
-    PassDesc hp = pass_into(gameTarget, "game-hud");
+    // The items go over the final picture, which holds display (sRGB) values: they are drawn as in a gamma scene, whatever the colour space.
+    const bool saveLinear = ctx.fr.linear;
+    const bool saveOver = ctx.fr.displayOverLinear;
+    if (ctx.hudAfterPost) {
+        ctx.fr.displayOverLinear = saveLinear;
+        ctx.fr.linear = false;
+    }
+    PassDesc hp = pass_into(into, label);
     hp.colorLoad = SG_LOADACTION_LOAD;  // keep the world and its glow
     hp.colorStore = msaa ? SG_STOREACTION_DONTCARE : SG_STOREACTION_STORE;
     hp.depthLoad = SG_LOADACTION_CLEAR;
@@ -1228,13 +1712,16 @@ void Renderer::Impl::hud_pass(DrawContext& ctx) {
     draw_group(ctx, gScreen.batches, screenProj, false, fullPx, 0);
     draw_group(ctx, gDebugScreen.batches, screenProj, false, fullPx, 0);
     gpu.end_pass();
+    ctx.fr.linear = saveLinear;
+    ctx.fr.displayOverLinear = saveOver;
 }
 
 // Declares the passes of the job in `graph` (the frame's), named "<job>/<pass>", in the order they always ran: the light buffer,
-// the shadow map, the main pass, and in the last job of the frame the post effects: bloom (its stages), the HUD over the
-// bloom, then Camera.colorFilter (costs nothing with "none"). The targets that outlive the frame (the game target or the
-// view's image, the light buffer, the shadow map, the colour-filter image: present() and capture() sample them after the
-// graph ran) are imported; the bloom levels are transients of the pool. The game target, the light buffer and the shadow map
+// the shadow map, the main pass, and in the last job of the frame the post-processing stack of the frame (the postCams' plans, postprocess.h): bloom (its
+// stages), the HUD over the bloom (Camera.bloomScreenSpace false), the automatic exposure of each camera, the final pass `post` of each camera over its rectangle (exposure, tonemap, the
+// output encode), the HUD over it (`hud-over-post`) and the colour filter. A frame without a stack declares none of them. The targets
+// that outlive the frame (the game target or the view's image, the light buffer, the shadow map, the final images: present() and
+// capture() sample them after the graph ran) are imported; the bloom levels and the exposure measure are transients of the pool. The game target, the light buffer and the shadow map
 // are one resource each for the whole frame (the jobs that use them are declared in the order they run, so each one sees what
 // the one before wrote); a view job's image is its own resource, which the jobs that show it read (`plan.shows`).
 // Every callback puts the job's JobEnv in place while it runs (a view job draws with the view's size and images).
@@ -1244,12 +1731,12 @@ void Renderer::Impl::hud_pass(DrawContext& ctx) {
 void Renderer::Impl::build_graph(DrawContext& ctx) {
     Frame& fr = ctx.fr;
     const JobPlan& plan = ctx.plan;
-    const CameraInfo& post = ctx.post;
-    const std::string prefix = plan.name + "/";
     // `fn` keeps its own type instead of becoming a std::function first: the pass's callback wraps it once, not twice.
-    auto add = [&](const std::string& name, std::vector<ResourceId> reads, std::vector<ResourceId> writes, auto&& fn) {
+    auto add_job = [&](const std::string& jobName, const std::string& name, std::vector<ResourceId> reads,
+                       std::vector<ResourceId> writes, auto&& fn, bool sideEffect = false) {
         GraphPass p;
-        p.name = prefix + name;
+        p.name = jobName + "/" + name;
+        p.sideEffect = sideEffect;
         p.reads = std::move(reads);
         p.writes = std::move(writes);
         p.execute = [this, &ctx, body = std::forward<decltype(fn)>(fn)](const PassContext& c) {
@@ -1257,6 +1744,10 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
             body(c);
         };
         graph.add_pass(std::move(p));
+    };
+    auto add = [&](const std::string& name, std::vector<ResourceId> reads, std::vector<ResourceId> writes, auto&& fn,
+                   bool sideEffect = false) {
+        add_job(plan.name, name, std::move(reads), std::move(writes), std::forward<decltype(fn)>(fn), sideEffect);
     };
     // One imported resource per frame for a target the jobs share; its handle and size follow the latest job.
     auto shared = [&](ResourceId& slot, const char* name, std::uint64_t handle, const TransientDesc& imageDesc) {
@@ -1286,8 +1777,35 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
                            import_desc(shadowTarget.w, shadowTarget.h, shadowTarget.format, "shadow-map"));
         add("shadow", {}, {shadowRes}, [this, &ctx](const PassContext&) { shadow_pass(ctx); });
     }
+    ResourceId prepassRes;
+    if (ctx.doPrepass) {  // the image is a transient: the effects that read it list it in their reads
+        TransientDesc pdsc;
+        pdsc.width = ctx.camPx.w;  // the camera's rectangle of the picture
+        pdsc.height = ctx.camPx.h;
+        pdsc.format = gpu.prepass_target_format();
+        pdsc.label = plan.name + "/prepass";  // resource names are unique in a graph, and every camera has its own
+        prepassRes = graph.create_transient(pdsc);
+        ctx.postPlan.prepass = PrepassRef{prepassRes, &transient_targets()};
+        // Never culled: nothing reads the image until an effect or the debug view does, and the passes that need it are declared after.
+        add(
+            "prepass", {}, {prepassRes},
+            [this, &ctx, prepassRes](const PassContext& c) {
+                const Target* t = transient_targets().get(c.handle(prepassRes));
+                if (t) prepass_pass(ctx, *t);
+            },
+            true);
+    }
+    // The ambient occlusion (renderer_ssao.h): its images are made from the prepass before the main pass, which applies them after the
+    // opaque meshes (main_pass). Only a job that draws the world and has the prepass declares them.
+    ctx.ssaoApply = SsaoApply{};
+    if (ctx.doMainPass && ctx.doPrepass && fr.wantWorld && ctx.postPlan.ssao.enabled && ctx.postPlan.prepass.valid())
+        ssao.add_passes(graph, transient_targets(), gpu, ctx.postPlan.ssao, ssao_camera(fr.cam), ctx.postPlan.prepass,
+                        ctx.postPlan.rect, physW, physH, ctx.postPlan.sceneLinear, &stats.drawCalls, plan.name,
+                        &ctx.ssaoApply);
     if (ctx.doMainPass) {
         std::vector<ResourceId> reads;
+        if (ctx.postPlan.prepass.valid()) reads.push_back(ctx.postPlan.prepass.res);
+        if (ctx.ssaoApply.valid) reads.push_back(ctx.ssaoApply.ao);
         if (ctx.litMode == 1) reads.push_back(lightRes);
         if (ctx.doShadows) reads.push_back(shadowRes);
         if (!ctx.clearByLoad) reads.push_back(game);  // LOAD: a second camera or the HUD job continues the picture
@@ -1295,12 +1813,88 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
         add(plan.view      ? "view"
             : fr.wantWorld ? "game"
                            : "game-hud",
-            std::move(reads), {game}, [this, &ctx](const PassContext&) { main_pass(ctx); });
+            std::move(reads), {game}, [this, &ctx](const PassContext& c) { main_pass(ctx, c); });
+        if (ctx.debugPrepass)
+            add("prepass-view", {prepassRes, game}, {game}, [this, &ctx, prepassRes](const PassContext& c) {
+                const Target* t = transient_targets().get(c.handle(prepassRes));
+                if (t) prepass_view_pass(ctx, *t);
+            });
+    }
+    ResourceId coverageRes;
+    if (ctx.doCoverage) {  // a sprite outline: the 2D world's alpha in an RGBA8 transient, read by the final pass
+        TransientDesc cdsc;
+        cdsc.width = ctx.camPx.w;
+        cdsc.height = ctx.camPx.h;
+        cdsc.format = TargetFormat{SG_PIXELFORMAT_RGBA8, SG_PIXELFORMAT_NONE, 1};
+        cdsc.label = plan.name + "/sprite-coverage";
+        coverageRes = graph.create_transient(cdsc);
+        ctx.postPlan.coverage = PrepassRef{coverageRes, &transient_targets()};
+        add("sprite-coverage", {}, {coverageRes}, [this, &ctx, coverageRes](const PassContext& c) {
+            const Target* t = transient_targets().get(c.handle(coverageRes));
+            if (t) coverage_pass(ctx, *t);
+        });
     }
     if (!plan.last) return;
 
+    // ---- the post-processing stack of the frame (postprocess.h): bloom -> the final pass of every camera -> the HUD -> the colour filter ----
     filterActive = false;
-    if (post.bloom.enabled) {
+    hudActive = false;
+    finalEncoded = false;
+    for (auto it = autoExposures.begin(); it != autoExposures.end();) {
+        if (it->second.frame + 1 < postSerial) {  // its camera has not asked for two frames
+            if (it->second.exposure) it->second.exposure->release();
+            it = autoExposures.erase(it);
+        } else {
+            ++it;
+        }
+    }
+    if (postCams.empty()) return;  // no camera drew a pixel
+    for (DrawContext* c : postCams)
+        if (c->postPlan.fx.outline && !c->postPlan.outline_source().valid())
+            c->postPlan.skip_outline();  // no image to read
+    // The frame's bloom and colour filter are the first camera's (the one that draws first); everything else is the camera's own.
+    const PostPlan& pp = postCams.front()->postPlan;
+    // The final pass reads the outline's image, and hands its view to post.glsl (a pass that is not the final one has none).
+    auto outline_view = [](const PostPlan& plan_, const PassContext& c, PostPlan& use) {
+        use = plan_;
+        const Target* t = use.fx.outline ? use.outline_source().target(c) : nullptr;
+        if (use.fx.outline && !(t && t->texView.id))
+            use.skip_outline();  // the pass did not get the image: drawn without
+        return t && use.fx.outline ? t->texView : sg_view{};
+    };
+    // Screen-space reflections of every camera (renderer_ssr.h), over its rectangle of the scene colour, on the picture the main pass drew (the ambient occlusion
+    // and the fog are already in it), before the sun shafts, the depth of field and the rest of the stack.
+    for (DrawContext* c : postCams) {
+        if (!c->postPlan.ssr.any() || !c->postPlan.prepass.valid()) continue;
+        const BloomTarget ssrDst =
+            ctx.hudAfterBloom && ctx.msaa
+                ? BloomTarget{gameTarget.colorAtt, gameTarget.resolveAtt, gpu.sample_count()}
+                : BloomTarget{ctx.msaa ? gameTarget.resolveColorAtt : gameTarget.colorAtt, sg_view{}, 1};
+        ssr.add_passes(graph, transient_targets(), gpu, c->postPlan.ssr, c->postPlan.rect, physW, physH, game,
+                       gameTarget.texView, ssrDst, c->postPlan.prepass, &stats.drawCalls, c->plan.name);
+    }
+    // The sun shafts of every camera (renderer_fog.h), over its rectangle of the scene colour, before the depth of field. (The fog is
+    // drawn in the main pass.)
+    for (DrawContext* c : postCams) {
+        if (!c->postPlan.fogFx.shafts || !c->postPlan.prepass.valid()) continue;
+        const BloomTarget fogDst =
+            ctx.hudAfterBloom && ctx.msaa
+                ? BloomTarget{gameTarget.colorAtt, gameTarget.resolveAtt, gpu.sample_count()}
+                : BloomTarget{ctx.msaa ? gameTarget.resolveColorAtt : gameTarget.colorAtt, sg_view{}, 1};
+        fogFx.add_passes(graph, transient_targets(), gpu, c->postPlan.fogFx, c->postPlan.rect, physW, physH, game,
+                         gameTarget.texView, fogDst, c->postPlan.prepass, &stats.drawCalls, c->plan.name);
+    }
+    // Depth of field and motion blur of every camera (renderer_dof.h), over its rectangle of the scene colour and before the bloom.
+    for (DrawContext* c : postCams) {
+        if (!c->postPlan.sceneFx.any() || !c->postPlan.prepass.valid()) continue;
+        const BloomTarget fxDst =
+            ctx.hudAfterBloom && ctx.msaa
+                ? BloomTarget{gameTarget.colorAtt, gameTarget.resolveAtt, gpu.sample_count()}
+                : BloomTarget{ctx.msaa ? gameTarget.resolveColorAtt : gameTarget.colorAtt, sg_view{}, 1};
+        sceneFx.add_passes(graph, transient_targets(), gpu, c->postPlan.sceneFx, c->postPlan.rect, physW, physH, game,
+                           gameTarget.texView, fxDst, c->postPlan.prepass, &stats.drawCalls, c->plan.name);
+    }
+    if (pp.bloom.enabled) {
         BloomTarget dst;
         if (ctx.hudAfterBloom && ctx.msaa) {
             // Glow into the multisampled image (resolved again at the end of the composite pass) so the HUD pass below
@@ -1310,19 +1904,141 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
             // The finished frame: the resolved image when MSAA is on (the main pass already resolved into it).
             dst = BloomTarget{ctx.msaa ? gameTarget.resolveColorAtt : gameTarget.colorAtt, sg_view{}, 1};
         }
-        bloom.add_passes(graph, transient_targets(), gpu, post.bloom, physW, physH, game, gameTarget.texView, dst,
+        // The lens dirt: its texture, or a white one the composite ignores (intensity 0) when there is none.
+        const sg_view dirt = pp.bloom.dirt.empty() ? assets->white()->view : assets->texture(pp.bloom.dirt)->view;
+        bloom.add_passes(graph, transient_targets(), gpu, pp.bloom, physW, physH, game, gameTarget.texView, dst, dirt,
                          &stats.drawCalls, plan.name);
     }
-    if (ctx.hudAfterBloom && fr.wantScreen && (!ctx.gScreen.batches.empty() || !ctx.gDebugScreen.batches.empty())) {
+    const bool hudItems = fr.wantScreen && (!ctx.gScreen.batches.empty() || !ctx.gDebugScreen.batches.empty());
+    if (ctx.hudAfterBloom && hudItems) {
         std::vector<ResourceId> reads{game};
         reads.insert(reads.end(), shown.begin(), shown.end());
-        add("hud-over-bloom", std::move(reads), {game}, [this, &ctx](const PassContext&) { hud_pass(ctx); });
+        add("hud-over-bloom", std::move(reads), {game},
+            [this, &ctx](const PassContext&) { hud_pass(ctx, gameTarget, "game-hud"); });
     }
-    if (post.colorFilter != 0 && gpu.colorfilter_ready() && ensure_filter_target()) {
+    // The final pass of every camera that has one: exposure, tonemap and the output encode (and the colour filter, when nothing is drawn
+    // in between) in one pass over the camera's rectangle.
+    bool anyFinal = false;
+    for (const DrawContext* c : postCams) anyFinal = anyFinal || c->postPlan.final_pass();
+    if (anyFinal && (ctx.hudAfterPost || ensure_filter_target())) {
+        const bool hud = ctx.hudAfterPost;
+        const ResourceId dest =
+            hud ? graph.import_target("game-post", hudTarget.colorAtt.id,
+                                      import_desc(physW, physH, gameTarget.format, "game-post"))
+                : graph.import_target("game-filtered", filterTarget.color.id,
+                                      import_desc(physW, physH, filterTarget.format, "game-filtered"));
+        // The colour filter works on what the screen shows, the interface included: with the interface over the picture it is a pass of
+        // its own after it, else it is part of each final pass.
+        const int filter = hud ? 0 : pp.colorFilter;
+        // The rectangles of the cameras with a final pass. When they tile the picture every pixel is written by one of them; else a first
+        // pass with the plan of an empty stack (the encode of a linear scene, a copy of a gamma one, the colour filter) fills the picture and
+        // the cameras draw over it. A camera without a stack that draws over one with a stack gets that plain pass over its own rectangle
+        // too (the stack of the camera below must not reach its pixels).
+        struct Rc {
+            int x0, y0, x1, y1;
+        };
+        auto rect_of = [&](const PostPlan& p) {
+            return p.rect.whole(physW, physH) ? Rc{0, 0, physW, physH}
+                                              : Rc{p.rect.x, p.rect.y, p.rect.x + p.rect.w, p.rect.y + p.rect.h};
+        };
+        auto overlap = [](const Rc& a, const Rc& b) {
+            return a.x0 < b.x1 && b.x0 < a.x1 && a.y0 < b.y1 && b.y0 < a.y1;
+        };
+        std::vector<Rc> stacked;
+        std::int64_t area = 0;
+        bool disjoint = true;
+        for (const DrawContext* c : postCams) {
+            if (!c->postPlan.final_pass()) continue;
+            const Rc r = rect_of(c->postPlan);
+            for (const Rc& o : stacked) disjoint = disjoint && !overlap(r, o);
+            stacked.push_back(r);
+            area += std::int64_t(r.x1 - r.x0) * std::int64_t(r.y1 - r.y0);
+        }
+        // Not needed when the first camera has a stack and covers the whole picture: its pass draws every pixel.
+        const bool firstCoversAll =
+            postCams.front()->postPlan.final_pass() && postCams.front()->postPlan.rect.whole(physW, physH);
+        const bool needBase = !firstCoversAll && !(disjoint && area == std::int64_t(physW) * std::int64_t(physH));
+        PostPlan basePlan;
+        basePlan.sceneLinear = pp.sceneLinear;
+        basePlan.linear = pp.sceneLinear;
+        basePlan.colorFilter = pp.colorFilter;
+        bool first =
+            true;  // the first pass draws every pixel it covers; the others keep what the passes before them drew
+        auto declare = [&](const std::string& job, const char* name, const PostPlan& use, AutoExposure* exposure,
+                           ResourceId evRes, const PostRect& rect) {
+            const bool autoExp = evRes.valid();
+            std::vector<ResourceId> reads{game};
+            if (autoExp) reads.push_back(evRes);
+            if (use.fx.outline) reads.push_back(use.outline_source().res);
+            if (!first) reads.push_back(dest);
+            const bool load = !first;
+            first = false;
+            add_job(job, name, std::move(reads), {dest},
+                    [this, use, autoExp, exposure, outline_view, filter, rect, load, hud](const PassContext& c) {
+                        PostPlan drawn;
+                        const sg_view aux = outline_view(use, c, drawn);
+                        post_pass(drawn, true, filter, autoExp, gameTarget.texView,
+                                  autoExp ? exposure->ev_view() : assets->white()->view, aux,
+                                  hud ? hudTarget : filterTarget, "post", hud, rect, load);
+                        if (hud)
+                            hudActive = true;
+                        else
+                            filterActive = true;
+                        finalEncoded = true;
+                    });
+        };
+        if (needBase) declare(plan.name, "post-base", basePlan, nullptr, ResourceId{}, PostRect{});
+        for (std::size_t i = 0; i < postCams.size(); ++i) {
+            DrawContext* c = postCams[i];
+            const PostPlan& cp = c->postPlan;
+            if (cp.final_pass()) {
+                ResourceId evRes;
+                AutoExposure* exposure = nullptr;
+                if (cp.autoExposure) {
+                    ExposureSlot& slot = autoExposures[c->fr.cam.entity.bits()];
+                    if (!slot.exposure) slot.exposure = std::make_unique<AutoExposure>();
+                    slot.frame = postSerial;
+                    exposure = slot.exposure.get();
+                    evRes = exposure->add_passes(graph, transient_targets(), gpu, cp, game, gameTarget.texView, fr.dt,
+                                                 postSerial, &stats.drawCalls, c->plan.name, physW, physH);
+                }
+                declare(c->plan.name, "post", cp, exposure, evRes, cp.rect);
+                continue;
+            }
+            // No stack: the plain pass, only where a stack drawn before it reaches its pixels.
+            bool covered = false;
+            const Rc mine = rect_of(cp);
+            for (std::size_t j = 0; j < i && !covered; ++j)
+                covered = postCams[j]->postPlan.final_pass() && overlap(mine, rect_of(postCams[j]->postPlan));
+            if (covered) declare(c->plan.name, "post", basePlan, nullptr, ResourceId{}, cp.rect);
+        }
+        if (hud) {
+            // The picture went into hudTarget (its multisampled image kept), the screen-space items are drawn over it, and the colour
+            // filter (it works on what the screen shows, the items included) copies it into filterTarget.
+            std::vector<ResourceId> hudReads{dest};
+            hudReads.insert(hudReads.end(), shown.begin(), shown.end());
+            add("hud-over-post", std::move(hudReads), {dest},
+                [this, &ctx](const PassContext&) { hud_pass(ctx, hudTarget, "game-post-hud"); });
+            if (pp.colorFilter != 0 && ensure_filter_target()) {
+                const ResourceId filtered =
+                    graph.import_target("game-filtered", filterTarget.color.id,
+                                        import_desc(physW, physH, filterTarget.format, "game-filtered"));
+                add("color-filter", {dest}, {filtered}, [this, pp](const PassContext&) {
+                    post_pass(pp, false, pp.colorFilter, false, hudTarget.texView, assets->white()->view, sg_view{},
+                              filterTarget, "color-filter", false);
+                    filterActive = true;
+                });
+            }
+        }
+    } else if (pp.colorFilter != 0 && ensure_filter_target()) {
+        // Only the colour filter (Camera.colorFilter / PostProcess.colorFilter): a copy of the game target through the filter.
         const ResourceId filtered = graph.import_target(
             "game-filtered", filterTarget.color.id, import_desc(physW, physH, filterTarget.format, "game-filtered"));
-        const int mode = post.colorFilter;
-        add("color-filter", {game}, {filtered}, [this, mode](const PassContext&) { color_filter_pass(mode); });
+        add("color-filter", {game}, {filtered}, [this, pp](const PassContext&) {
+            post_pass(pp, false, pp.colorFilter, false, gameTarget.texView, assets->white()->view, sg_view{},
+                      filterTarget, "color-filter", false);
+            filterActive = true;
+        });
     }
 }
 

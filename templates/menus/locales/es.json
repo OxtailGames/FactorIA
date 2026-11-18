@@ -28,7 +28,8 @@
       "video": "Vídeo",
       "audio": "Audio",
       "controls": "Controles",
-      "language": "Idioma"
+      "language": "Idioma",
+      "graphics": "Gráficos"
     },
     "windowMode": "Modo de ventana: {mode}",
     "mode": {
@@ -53,6 +54,23 @@
       "tritanopia": "tritanopia (azul)"
     },
     "videoNote": "Los ajustes de vídeo se aplican cuando el juego se ejecuta en su propia ventana.",
+    "gfx": {
+      "quality": "Calidad de efectos: {quality}",
+      "q": {
+        "high": "alta",
+        "medium": "media",
+        "low": "baja",
+        "off": "desactivados"
+      },
+      "bloom": "Bloom",
+      "grain": "Grano de película",
+      "vignette": "Viñeta",
+      "chromatic": "Aberración cromática",
+      "outline": "Contornos",
+      "hdr": "Salida HDR",
+      "note": "Esta escena no tiene efectos de pantalla; tus elecciones valen para las escenas que sí los tienen.",
+      "hdrNote": "La salida HDR necesita una pantalla HDR y un backend gráfico que pueda mostrarla."
+    },
     "volume": {
       "master": "General",
       "music": "Música",

@@ -163,7 +163,8 @@ over the old one, so a crash never leaves half a file. Deleting the folder is al
 | WebGL2 | Web | No, and it cannot have one: a page has no folder of its own to keep files in (the browser caches compiled shaders itself). | The same limits as GL ES 3, and textures stay PNG. |
 
 Whether a given feature works on every backend is documented where the feature is (for example [SHADERS.md](../SHADERS.md)); a
-`renderer.supports(...)` query that scripts and tools can ask is planned (ROADMAP, M71 onward) and does not exist yet.
+`render.supports` command (`Renderer::supports(name)` in C++) answers it for the running backend and GPU: capabilities, linear colour,
+HDR output and every post effect, each with the reason when it is false.
 
 ## Loading
 

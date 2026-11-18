@@ -233,6 +233,7 @@ void FeelState::clear_scene() {
     lifetimes.clear();
     warnedClipActions.clear();
     failedSounds.clear();
+    screenFx.live.clear();
 }
 
 // ----------------------------------------------------------------------------------------------------- actions
@@ -418,8 +419,10 @@ void feel_cancel(World& w, Entity e) {
         fs.hitStops.clear();
         fs.entities.clear();
         fs.poseCount = 0;
+        screen_fx_cancel(w, kNullEntity);
         return;
     }
+    if (w.has<Camera>(e)) screen_fx_cancel(w, e);
     auto it = fs.entities.find(e.bits());
     if (it == fs.entities.end()) return;
     if (it->second.hasPose && fs.poseCount > 0) --fs.poseCount;
@@ -428,8 +431,9 @@ void feel_cancel(World& w, Entity e) {
 
 // ------------------------------------------------------------------------------------------------ JSON actions
 const std::vector<std::string>& feel_action_names() {
-    static const std::vector<std::string> names = {"shake", "hitStop", "flash", "knockback",
-                                                   "push",  "squash",  "spawn", "sound"};
+    static const std::vector<std::string> names = {"shake",      "hitStop",     "flash", "knockback", "push",
+                                                   "squash",     "spawn",       "sound", "shockwave", "heatHaze",
+                                                   "radialBlur", "screenFlash", "fade"};
     return names;
 }
 
@@ -501,6 +505,40 @@ struct Reader {
         }
         return true;
     }
+    // [x, y] of numbers (fractions of the camera's rectangle).
+    bool vec2(const char* key, Vec2& out) {
+        auto it = a.find(key);
+        if (it == a.end()) return true;
+        if (!it->is_array() || it->size() != 2 || !(*it)[0].is_number() || !(*it)[1].is_number()) {
+            error = std::format("{}: '{}' must be [x, y], got {}", action, key, describe_json_value(*it));
+            return false;
+        }
+        out = {(*it)[0].get<float>(), (*it)[1].get<float>()};
+        return true;
+    }
+    bool region(const char* key, std::array<float, 4>& out) {
+        auto it = a.find(key);
+        if (it == a.end()) return true;
+        if (!it->is_array() || it->size() != 4) {
+            error = std::format("{}: '{}' must be [x, y, w, h], got {}", action, key, describe_json_value(*it));
+            return false;
+        }
+        for (std::size_t i = 0; i < 4; ++i) {
+            if (!(*it)[i].is_number()) {
+                error = std::format("{}: '{}' must be [x, y, w, h] of numbers, got {}", action, key,
+                                    describe_json_value(*it));
+                return false;
+            }
+            out[i] = (*it)[i].get<float>();
+        }
+        return true;
+    }
+    bool integer(const char* key, std::int32_t& out) {
+        float v = static_cast<float>(out);
+        if (!number(key, v)) return false;
+        out = static_cast<std::int32_t>(std::clamp(v, -1000.0f, 1000.0f));
+        return true;
+    }
     bool keys(std::initializer_list<const char*> allowed) {
         std::vector<std::string> names;
         for (const char* k : allowed) names.push_back(k);
@@ -518,7 +556,7 @@ struct Reader {
 struct ParsedAction {
     std::string name;
     std::variant<ShakeOptions, HitStopOptions, FlashOptions, KnockbackOptions, SquashOptions, SpawnOptions,
-                 SoundOptions>
+                 SoundOptions, ScreenFxOptions>
         options;
 };
 
@@ -596,6 +634,61 @@ Result<ParsedAction> parse_action(const Json& action) {
             return fail();
         return checked(o);
     }
+    ScreenFxKind fxKind{};
+    if (screen_fx_kind_from_action(name, fxKind)) {
+        ScreenFxOptions o = screen_fx_defaults(fxKind);
+        bool ok = false;
+        // `screen` is the centre in fractions of the camera's rectangle; `world` (a point) wins when both are given.
+        switch (fxKind) {
+            case ScreenFxKind::Shockwave:
+                ok = r.keys({"screen", "world", "duration", "strength", "radius", "width"}) &&
+                     r.vec2("screen", o.screen) && r.number("duration", o.duration) &&
+                     r.number("strength", o.strength) && r.number("radius", o.radius) && r.number("width", o.width);
+                break;
+            case ScreenFxKind::HeatHaze:
+                ok = r.keys({"region", "duration", "strength", "frequency", "speed"}) && r.region("region", o.region) &&
+                     r.number("duration", o.duration) && r.number("strength", o.strength) &&
+                     r.number("frequency", o.frequency) && r.number("speed", o.speed);
+                break;
+            case ScreenFxKind::RadialBlur:
+                ok = r.keys({"screen", "world", "duration", "intensity", "samples"}) && r.vec2("screen", o.screen) &&
+                     r.number("duration", o.duration) && r.number("intensity", o.intensity) &&
+                     r.integer("samples", o.samples);
+                break;
+            case ScreenFxKind::Flash:
+                ok = r.keys({"color", "duration", "strength", "fade"}) && r.color("color", o.color) &&
+                     r.number("duration", o.duration) && r.number("strength", o.strength) && r.boolean("fade", o.fade);
+                break;
+            case ScreenFxKind::Fade:
+                ok = r.keys({"color", "duration", "direction"}) && r.color("color", o.color) &&
+                     r.number("duration", o.duration);
+                if (ok) {
+                    auto d = action.find("direction");
+                    if (d != action.end()) {
+                        const std::string v = d->is_string() ? d->get<std::string>() : std::string();
+                        if (v != "out" && v != "in")
+                            return make_error(
+                                std::format("fade: 'direction' must be \"out\" (to the colour, the default) "
+                                            "or \"in\" (from the colour to the picture), got {}",
+                                            describe_json_value(*d)));
+                        o.fadeIn = v == "in";
+                    }
+                }
+                break;
+        }
+        if (!ok) return fail();
+        if (fxKind == ScreenFxKind::Shockwave || fxKind == ScreenFxKind::RadialBlur) {
+            if (action.find("world") != action.end()) {
+                Vec3 p{};
+                if (!r.vec("world", p)) return fail();
+                o.atWorld = true;
+                o.world = p;
+            }
+        }
+        if (auto c = screen_fx_check(o); !c.ok()) return c.error();
+        out.options = std::move(o);
+        return out;
+    }
     return make_error(std::format("unknown feel action '{}'. {}", name, did_you_mean(name, feel_action_names())));
 }
 
@@ -620,6 +713,7 @@ Result<void> feel_apply_action(World& w, Entity target, const Json& action) {
         Result<void> operator()(const SquashOptions& o) const { return feel_squash(w, target, o); }
         Result<void> operator()(const SpawnOptions& o) const { return feel_spawn(w, target, o); }
         Result<void> operator()(const SoundOptions& o) const { return feel_sound(w, target, o); }
+        Result<void> operator()(const ScreenFxOptions& o) const { return screen_fx_start(w, target, o); }
     };
     return std::visit(Run{w, target}, parsed->options);
 }
@@ -639,9 +733,13 @@ std::vector<Json> feel_event_actions(const Json& event) {
 void feel_run_clip_actions(World& w, Entity player, const std::vector<Json>& actions, std::string_view where) {
     for (const Json& a : actions) {
         const auto kind = a.is_object() ? a.find("action") : a.end();
-        const bool shake = a.is_object() && kind != a.end() && kind->is_string() && kind->get<std::string>() == "shake";
-        // The camera that plays the clip shakes itself; any other entity's clip shakes the main camera.
-        const Entity target = shake && !w.has<Camera>(player) ? kNullEntity : player;
+        ScreenFxKind fxKind{};
+        const bool onCamera =
+            a.is_object() && kind != a.end() && kind->is_string() &&
+            (kind->get<std::string>() == "shake" || screen_fx_kind_from_action(kind->get<std::string>(), fxKind));
+        // The camera that plays the clip shakes itself; any other entity's clip shakes the main camera and draws the
+        // screen effects on every camera.
+        const Entity target = onCamera && !w.has<Camera>(player) ? kNullEntity : player;
         Result<void> r = feel_apply_action(w, target, a);
         if (r.ok()) continue;
         FeelState& fs = w.feel();
@@ -725,6 +823,7 @@ void run_spawns(World& w, float dt) {
 void feel_update(World& w, double clockDtD, double gameDtD) {
     FeelState& fs = w.feel();
     const float dt = static_cast<float>(std::max(0.0, clockDtD));
+    screen_fx_update(w, dt);
     if (!fs.spawns.empty() || !fs.lifetimes.empty()) run_spawns(w, static_cast<float>(std::max(0.0, gameDtD)));
     if (fs.entities.empty()) {
         fs.poseCount = 0;
@@ -830,6 +929,7 @@ Json feel_state_json(const World& w) {
         list.push_back(std::move(o));
     }
     j["entities"] = std::move(list);
+    j["screenEffects"] = screen_fx_json(w);
     return j;
 }
 

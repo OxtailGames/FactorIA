@@ -205,6 +205,7 @@ and next steps with the component settings to use. Each written file gets an `as
 | `.obj` (+ `.mtl`, textures) | A `.gltf` with its data embedded, plus the textures next to it. |
 | `.fbx` | A `.glb`, converted by FBX2glTF or Blender (see below). |
 | `.mpg` `.mpeg` | Copied into `assets/video/` after the engine opened it (it must be MPEG-1 video; the size, length and frame rate are in `details`). |
+| `.cube` | Copied into `assets/luts/` after it was parsed (a 3D colour lookup table, 2 to 65 entries per side; a 1D table, a domain other than 0 to 1 or a wrong row count is an error with the line number; the size and title are in `details`). Set `PostProcess.colorGradingLut` to it (docs/RENDERING.md, "Colour grading with a LUT"). |
 | `.mp4` `.m4v` `.mov` `.webm` `.mkv` `.avi` | An `.mpg` in `assets/video/`, converted by ffmpeg (see "Video" below). |
 
 Not supported (the error says what to do instead): `.blend` (export glTF from Blender), `.webp` `.gif` `.psb`

@@ -325,6 +325,18 @@ TEST_CASE("render.frame_graph: the graph of the last frame with the time of ever
         CHECK(j["gpu"]["measuring"] == true);
     }
     for (const Json& pt : times) CHECK((pt["gpuMs"].get<double>() == -1.0 || pt["gpuMs"].get<double>() >= 0.0));
+    // The post-processing passes on their own: a number, or null with "unavailable" and the reason, never 0.
+    REQUIRE(j["postProcess"].is_object());
+    const Json& post = j["postProcess"];
+    CHECK(post["passes"].is_array());
+    CHECK(post["cpuMs"].get<double>() >= 0.0);
+    if (post["gpuMs"].is_null()) {
+        CHECK(post["gpuStatus"] == "unavailable");
+        CHECK(post["gpuReason"].is_string());
+    } else {
+        CHECK(post["gpuStatus"] == "measured");
+        CHECK(post["gpuMs"].get<double>() >= 0.0);
+    }
     // profileFrames 0 reads what is there: nothing drawn, and the profiler is not touched.
     auto none = c.call("render.frame_graph", Json{{"profileFrames", 0}});
     REQUIRE_MESSAGE(none.ok, none.error.dump());
@@ -366,6 +378,28 @@ TEST_CASE("render.frame_graph: an engine without a renderer says so") {
     auto r = e.commands().call("render.frame_graph", Json::object());
     REQUIRE_FALSE(r.ok);
     CHECK(r.error.dump().find("renderer") != std::string::npos);
+}
+
+TEST_CASE("render.debug_view: the schema's enum turns a wrong view into an error with a did-you-mean hint") {
+    TempProject p("debug-view-enum");
+    Engine e;
+    std::string err;
+    EngineConfig cfg = headless_cfg(p);
+    cfg.graphics = false;  // the schema check comes before the "no renderer" answer
+    REQUIRE_MESSAGE(e.init(cfg, nullptr, &err), err);
+    const CommandInfo* info = e.commands().info("render.debug_view");
+    REQUIRE(info != nullptr);
+    CHECK(info->inputSchema.dump().find("\"enum\":[\"none\",\"depth\",\"normals\",\"ao\"]") != std::string::npos);
+    auto r = e.commands().call("render.debug_view", Json::parse(R"({"view":"normal"})"));
+    REQUIRE_FALSE(r.ok);
+    CHECK(r.error["code"] == "invalid_arguments");  // the schema's own error, not a check of the handler
+    const std::string text = r.error.dump();
+    INFO(text);
+    CHECK(text.find("/view") != std::string::npos);
+    CHECK(text.find("Did you mean 'normals'?") != std::string::npos);
+    r = e.commands().call("render.debug_view", Json::parse(R"({"view":"depth"})"));
+    REQUIRE_FALSE(r.ok);  // a valid view passes the schema and reaches the missing renderer
+    CHECK(r.error["code"] == "unavailable");
 }
 
 TEST_CASE("render.pick: lists what draws a pixel, topmost first") {

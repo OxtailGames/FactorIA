@@ -41,16 +41,16 @@ Renders the scene to the screen. Every active camera with primary=true draws its
 | `clear` | bool | `true` | Clear this camera's viewport to clearColor before it draws. Set false on an overlay camera that draws on top of what an earlier camera (a lower depth) drew in the same area. The first camera in depth order clears the whole target, also the part its viewport does not cover; a camera with clear false first in depth order keeps the previous frame under it. |
 | `primary` | bool | `true` | true: this camera renders (when it is active), into its viewport, in depth order with the other primary cameras. false: it does not render (an unused camera, or one a script switches on for a split screen). |
 | `depth` | int | `0` | Draw order of the cameras: the lowest depth draws first, the highest on top where viewports overlap. The lowest is the camera that camera.main, a screen conversion without a camera and the post effects (bloom, colorFilter) use. Cameras with the same depth keep the order of creation. |
-| `viewport` | rect | `[0.0,0.0,1.0,1.0]` | The part of the screen this camera draws into: [x, y, width, height], each from 0 to 1, with [0, 0] the TOP-LEFT corner and +Y down (like screen space). The fractions count the GAME TARGET (what `viewportSpace` says): not the pixels of the window, whose letterbox bars (a window with another shape than the game) are outside it. [0, 0, 1, 1] (default) is the whole screen, [0, 0, 0.5, 1] the left half, [0.5, 0, 0.5, 1] the right half, [0, 0, 0.5, 0.5] the top-left quarter, [0.7, 0.05, 0.25, 0.25] a minimap inset. x + width and y + height must not pass 1 and the size must be above 0, or the scene fails to load. The aspect ratio follows the rectangle: an orthographic camera with orthoSize 0 keeps one world unit per design pixel (it sees half the width in a half-width viewport); with an orthoSize it keeps the same visible height, so set it equal on the cameras of a split screen to give every player the same zoom. Each camera is culled and lit on its own, so a Light2D only lights the cameras it reaches. The post effects (bloom, colorFilter, bloomScreenSpace) are applied once to the finished frame with the settings of the lowest-depth camera; the other cameras' values are ignored. UI and screen-space items cover the whole screen, not one viewport. camera.screenToWorld(point, camera) and camera.at(point) tell which camera is under a screen point. To show a camera INSIDE a widget of the UI instead (an item on a stage in a menu, a map in a panel) give it a CameraView: that fits the rectangle of the widget, with the clipping, layering and mirroring of the UI, and ignores this field. (since 0.3.0) |
+| `viewport` | rect | `[0.0,0.0,1.0,1.0]` | The part of the screen this camera draws into: [x, y, width, height], each from 0 to 1, with [0, 0] the TOP-LEFT corner and +Y down (like screen space). The fractions count the GAME TARGET (what `viewportSpace` says): not the pixels of the window, whose letterbox bars (a window with another shape than the game) are outside it. [0, 0, 1, 1] (default) is the whole screen, [0, 0, 0.5, 1] the left half, [0.5, 0, 0.5, 1] the right half, [0, 0, 0.5, 0.5] the top-left quarter, [0.7, 0.05, 0.25, 0.25] a minimap inset. x + width and y + height must not pass 1 and the size must be above 0, or the scene fails to load. The aspect ratio follows the rectangle: an orthographic camera with orthoSize 0 keeps one world unit per design pixel (it sees half the width in a half-width viewport); with an orthoSize it keeps the same visible height, so set it equal on the cameras of a split screen to give every player the same zoom. Each camera is culled and lit on its own, so a Light2D only lights the cameras it reaches. The post-processing stack of a camera (exposure, tonemap and the screen effects, outline included) runs over that camera's own rectangle; only bloom, bloomScreenSpace and colorFilter are applied once to the finished frame, with the settings of the lowest-depth camera that draws, and the other cameras' values of those are ignored. UI and screen-space items cover the whole screen, not one viewport. camera.screenToWorld(point, camera) and camera.at(point) tell which camera is under a screen point. To show a camera INSIDE a widget of the UI instead (an item on a stage in a menu, a map in a panel) give it a CameraView: that fits the rectangle of the widget, with the clipping, layering and mirroring of the UI, and ignores this field. (since 0.3.0) |
 | `viewportSpace` | enum: screen \| design | `"screen"` | Which rectangle the fractions of `viewport` count. screen (default): the whole game target, that is the design resolution, or the area the Expand scale mode grows it to for a window with another shape (the letterbox bars of the Fit modes are not part of it). design: the design resolution (display.designWidth x designHeight) from the top-left corner, which is where a UI laid out from anchor [0, 0] in design pixels sits, so a viewport of [430 / 1280, 84 / 720, 400 / 1280, 360 / 720] lands on the same pixels as a 400 x 360 Panel at [430, 84] even when Expand has grown the target. The two are the same in every mode but Expand. For a rectangle that follows a widget, use a CameraView. (since 0.3.0) |
 | `lighting` | enum: scene \| studio | `"scene"` | What lights the 3D meshes this camera draws. scene (default): the Light entities, SceneSettings.ambientLight, the sky and environment colours and the fog of the scene. studio: a rig that follows the camera instead, whatever the scene holds and wherever the camera is: a warm key light from the upper left, a cool fill from the right, a rim light from behind, a neutral ambient and environment for reflections, no sky (the camera paints clearColor), no fog, no shadows. Scene lights do not reach the camera and a 2D lit sprite it draws is lit by the ambient alone (full brightness). Use it for an item turning on a stage in a menu (CameraView), or a portrait, that must look the same in a dark cellar and in a bright field. MeshRenderer.unlit meshes are not affected. Scale the rig with studioIntensity. (since 0.3.0) |
 | `studioIntensity` | float | `1.0` | Only used when lighting is studio. Multiplies the brightness of the studio rig (the three lights, the ambient and the environment): 1 (default) shows a mid-grey surface at about its own colour, 0.5 is dimmer, 2 is bright and may wash out pale colours. Range 0.0..8.0. (since 0.3.0) |
-| `bloom` | bool | `false` | Bloom (glow) post-process: bright pixels bleed light into their surroundings, the neon / laser / fire / explosion look. Works for 2D and 3D cameras, is applied to the whole finished frame (screen-space HUD included, unless bloomScreenSpace is false) and shows in screenshots. Combine with blend "additive" on Sprite, Shape2D or ParticleEmitter instead of hand-drawing blurred halo sprites. Off by default; costs a few extra render passes per frame (cheap on a GPU, about 5 ms at 1280x720 on the software renderer used for headless runs). Tune with bloomThreshold, bloomIntensity and bloomRadius; keep the HUD crisp with bloomScreenSpace. With several cameras the bloom settings of the lowest-depth camera apply to the whole frame. |
-| `bloomThreshold` | float | `0.7` | Only used when bloom is true. Brightness (0..1, the largest of a pixel's r, g, b) at which glow starts: pixels at or below it do not glow, the glow ramps up linearly to full strength at 1 (white / fully saturated). Lower it (0.3-0.6) to make dim colors glow too; raise it (0.9+) so only the brightest pixels do (values above 0.99 behave like 0.99). Range 0.0..1.0. |
-| `bloomIntensity` | float | `1.2` | Only used when bloom is true. Strength of the glow that is added back onto the frame: 0 = none, 1 = the blurred bright pixels are added once, 2 = twice (brighter, saturates sooner). Limited to 0..10. Range 0.0..10.0. |
-| `bloomRadius` | float | `20.0` | Only used when bloom is true. How far the glow reaches, in design pixels (1280x720 by default): a gaussian blur whose visible halo fades out roughly this far from the bright pixels. Values below ~5 behave like 5 (the glow is computed at reduced resolution, and larger radii at even lower resolution, so wide glows are softer). Limited to 1..128. Range 1.0..128.0. |
-| `bloomScreenSpace` | bool | `true` | Only used when bloom is true. true (default): the whole finished frame glows, screen-space items (Sprite, Shape2D, Text with space "screen", and debug text) included, so a bright neon title or HUD icon glows too. false: screen-space items are drawn AFTER the bloom, so the HUD (score, lives, menus) stays crisp and never glows while the world still does. Set it to false whenever the HUD has white or bright text over a glowing world; leave it true to make a screen-space title or logo glow. |
-| `colorFilter` | enum: none \| greyscale \| highContrast \| protanopia \| deuteranopia \| tritanopia | `"none"` | Accessibility colour filter, the LAST post-process pass: it is applied to the whole finished frame (HUD included, after the bloom) on every graphics backend, so screenshots, factoria run --screenshot-at and --record-video show it too. A game's options screen sets it from the player's choice (it is not saved by itself). none (default): no pass, no cost. greyscale: Rec. 709 luminance in linear light. highContrast: contrast stretched 1.8x around mid grey, clipped. protanopia, deuteranopia, tritanopia: a daltonize correction for a player who lacks that cone: the loss is estimated with the Machado 2009 matrix (severity 1.0) and the lost information is shifted into the channels the player still sees (Fidaner's method), so colours that collapse together (red vs green) differ in brightness or in the remaining hue. To CHECK a game without changing what the player sees, use the `simulate` option of game.screenshot / --screenshot-simulate instead. With several cameras the lowest-depth camera's filter covers the whole frame. (since 0.2.0) |
+| `bloom` | bool | `false` | Bloom (glow) post-process: bright pixels bleed light into their surroundings, the neon / laser / fire / explosion look. Works for 2D and 3D cameras, is applied to the whole finished frame (screen-space HUD included, unless bloomScreenSpace is false) and shows in screenshots. Combine with blend "additive" on Sprite, Shape2D or ParticleEmitter instead of hand-drawing blurred halo sprites. Off by default; costs a few extra render passes per frame (cheap on a GPU, about 5 ms at 1280x720 on the software renderer used for headless runs). Tune with bloomThreshold, bloomIntensity and bloomRadius; keep the HUD crisp with bloomScreenSpace. With several cameras the bloom settings of the lowest-depth camera apply to the whole frame. **Deprecated since 0.31.0 - use `PostProcess.bloomEnabled`. Removed in 0.33.0. Add a PostProcess to the camera's entity and switch bloomEnabled on; Camera.bloom still draws the same bloom (a hard knee, no lens dirt).** |
+| `bloomThreshold` | float | `0.7` | Only used when bloom is true. Brightness (0..1, the largest of a pixel's r, g, b) at which glow starts: pixels at or below it do not glow, the glow ramps up linearly to full strength at 1 (white / fully saturated). Lower it (0.3-0.6) to make dim colors glow too; raise it (0.9+) so only the brightest pixels do (values above 0.99 behave like 0.99). Range 0.0..1.0. **Deprecated since 0.31.0 - use `PostProcess.bloomThreshold`. Removed in 0.33.0. Same meaning and range; PostProcess.bloomKnee softens the start of the glow.** |
+| `bloomIntensity` | float | `1.2` | Only used when bloom is true. Strength of the glow that is added back onto the frame: 0 = none, 1 = the blurred bright pixels are added once, 2 = twice (brighter, saturates sooner). Limited to 0..10. Range 0.0..10.0. **Deprecated since 0.31.0 - use `PostProcess.bloomIntensity`. Removed in 0.33.0. Same meaning and range.** |
+| `bloomRadius` | float | `20.0` | Only used when bloom is true. How far the glow reaches, in design pixels (1280x720 by default): a gaussian blur whose visible halo fades out roughly this far from the bright pixels. Values below ~5 behave like 5 (the glow is computed at reduced resolution, and larger radii at even lower resolution, so wide glows are softer). Limited to 1..128. Range 1.0..128.0. **Deprecated since 0.31.0 - use `PostProcess.bloomRadius`. Removed in 0.33.0. Same meaning and range.** |
+| `bloomScreenSpace` | bool | `true` | Only used when bloom is true. true (default): the whole finished frame glows, screen-space items (Sprite, Shape2D, Text with space "screen", and debug text) included, so a bright neon title or HUD icon glows too. false: screen-space items are drawn AFTER the bloom, so the HUD (score, lives, menus) stays crisp and never glows while the world still does. Set it to false whenever the HUD has white or bright text over a glowing world; leave it true to make a screen-space title or logo glow. **Deprecated since 0.31.0 - use `PostProcess.bloomScreenSpace`. Removed in 0.33.0. Same meaning: whether the screen-space UI glows too.** |
+| `colorFilter` | enum: none \| greyscale \| highContrast \| protanopia \| deuteranopia \| tritanopia | `"none"` | Accessibility colour filter, the LAST post-process pass: it is applied to the whole finished frame (HUD included, after the bloom) on every graphics backend, so screenshots, factoria run --screenshot-at and --record-video show it too. A game's options screen sets it from the player's choice (it is not saved by itself). none (default): no pass, no cost. greyscale: Rec. 709 luminance in linear light. highContrast: contrast stretched 1.8x around mid grey, clipped. protanopia, deuteranopia, tritanopia: a daltonize correction for a player who lacks that cone: the loss is estimated with the Machado 2009 matrix (severity 1.0) and the lost information is shifted into the channels the player still sees (Fidaner's method), so colours that collapse together (red vs green) differ in brightness or in the remaining hue. To CHECK a game without changing what the player sees, use the `simulate` option of game.screenshot / --screenshot-simulate instead. With several cameras the lowest-depth camera's filter covers the whole frame. **Deprecated since 0.31.0 - use `PostProcess.colorFilterMode`. Removed in 0.33.0. Switch PostProcess.colorFilterEnabled on and set colorFilterMode to the same value.** (since 0.2.0) |
 | `renderTarget` | string | `""` | Makes this camera draw into a TEXTURE instead of the screen, live every frame: a name such as "book". The texture is the id "target:book" and goes wherever a texture path does: MeshRenderer.texture or normalMap (a screen on a 3D model, a page of a book, a mirror), a texture parameter of a material (materialParams), Sprite.texture, Panel.texture, Button.icon. A camera with a name draws only into its texture: it is not drawn to the screen, ignores viewport, primary and clear (it always clears to clearColor, alpha included, so a transparent target composes over what is behind it) and is never camera.main nor the audio listener. It still has to be active (entity and ancestors). The target is drawn BEFORE the cameras that show it in the same frame, so there is no lag; a camera whose own view shows its target gets a missing-texture checker there and one error that says so (a render loop needs two targets: A shows B and B shows A, each one frame late). The camera draws everything in its frustum unless you give it showTags / hideTags: tag what a target shows (the root of a 2D page of Text, Sprites, Buttons as world-space entities, tag "page_left"), give the target camera showTags ["page_left"] and the camera that draws the model hideTags ["page_left"], so each sees only its own content wherever it is in the world. Screen-space UI (Panel, Button and the other widgets, space "screen" items) is not drawn into a target: use world-space Sprite, Text and Shape2D, whose Interactable components still get the pointer through the mesh (docs/RENDERING.md, "Render targets"). Names are unique: a second camera with the same name is not drawn, with an error. "" (default) = the screen. Letters, digits, '_', '-' and '.', up to 64 characters. (since 0.9.0) |
 | `renderTargetSize` | vec2 | `[1024.0,1024.0]` | Only used with renderTarget: the size of the texture in pixels, [width, height], each 1..4096 (default [1024, 1024]). The camera's aspect is this rectangle's, so an orthographic camera with orthoSize 0 sees one world unit per texture pixel and with an orthoSize it sees that half-height whatever the size. Changing it live remakes the texture; memory is about width x height x 8 bytes (4 more per pixel with antialiasing). (since 0.9.0) |
 | `showTags` | json | `[]` | Culling mask, the allow list: an array of tag names (EntityInfo "tags"), default [] = no restriction. When it is not empty the camera draws only the entities that have one of these tags OR have an ancestor that does, so tagging the root of a page covers its Sprites, Text, Shape2D and every other child. Applies to what the camera draws in world space, on a screen camera and on one with renderTarget alike: Sprite, Shape2D, Text, Tilemap, ParticleEmitter and MeshRenderer (a world-space item; screen-space UI and items with space "screen" belong to the screen and ignore it). Lights are not filtered: a Light still lights everything its camera draws. An entity the camera does not draw casts no shadow in that camera's view, takes no click through it and is not picked by it: the pointer, Interactable hit tests (also through a mesh that shows a render target) and game.click only reach what the camera draws. Combine with hideTags: an entity is drawn when it passes showTags AND is not in hideTags. `factoria validate` warns about a tag no entity carries (with a did-you-mean) and rejects a tag in both lists. Example: the camera of a page, showTags ["page_left"]. Assign a whole new array to change it from a script (cam.showTags = ["page_right"]); a tag added with entity.addTag(...) takes effect on the next frame drawn. (since 0.12.0) |
@@ -1227,6 +1227,122 @@ Attaches JavaScript behaviour to the entity. `path` is an ES module whose defaul
 | `props` | json | `{}` | JSON object of tunable values assigned onto the behaviour instance (this.speed = props.speed) before onStart. Lets one script serve many entities with different settings. |
 | `enabled` | bool | `true` | false = the script receives no callbacks. |
 
+## Camera
+
+### PostProcess
+
+Since 0.31.0.
+
+A stack of screen effects (tonemap, exposure, bloom, colour grading, vignette, chromatic aberration, film grain, lens distortion, sharpen, outline, pixelate, posterize, ambient occlusion, depth of field, motion blur, reflections, fog, sun shafts, radial blur, colour filter), every one off by default. On the entity of a Camera it is that camera's own stack. On any other entity it is a VOLUME: shape "global" applies to every camera, "box", "circle" (2D, x and y) and "sphere" to the cameras whose position is inside it or within blendDistance of it, blended into the camera's stack by priority (a higher one wins) and by weight. Numbers and colours are interpolated by the volume's influence; switches, modes, textures and curves switch over when the influence reaches 0.5. A volume only adds to or changes the effects it switches on: to remove an effect inside a volume switch it on with its neutral values (bloomIntensity 0, vignetteIntensity 0, ...). Each effect has a `<effect>Enabled` switch and parameters named `<effect><Parameter>`. The effects run in a fixed order: ssao, ssr, fog, sunShafts, exposure, depthOfField, motionBlur, radialBlur, lensDistortion, chromaticAberration, bloom (all on HDR colour), tonemap, colorGrading, vignette, sharpen, outline, pixelate, posterize, filmGrain, colorFilter (the last pass). Every effect is drawn; render.supports {"feature": "<effect>"} says whether this backend and GPU can run it (an effect needs float targets, a depth image or both) and why not. The lens distortion, the chromatic aberration, the colour grading, the vignette, the sharpen, the outline, the pixelation, the posterization and the film grain are drawn in the final pass, after the bloom: the lens and the aberration bend how the scene is read (in scene colour, before the exposure), the rest work on the display picture (what the screen shows, paper white = 1, the same on an SDR and an HDR output) and none of them clips above white. The ambient occlusion, the reflections, the fog, the sun shafts, the depth of field and the motion blur read the depth prepass and are drawn on the scene colour, before the bloom and the final pass. Every camera draws its own stack over its own part of the picture (a split screen: each half has its own); the bloom and the colour filter are one per frame, the ones of the camera that draws first. Camera.bloom* and Camera.colorFilter are deprecated and keep working unchanged: they stand in for a PostProcess with bloom and the colour filter. A frame without any stack costs nothing: no pass, no target. Screen-space items (the HUD) are drawn over the finished picture, so exposure, tonemap and the output encode never touch them; the colour filter does. The ambient occlusion (ssao) darkens the opaque 3D meshes where they meet, inside the main pass before the blended geometry, so blended meshes, sprites, particles, text and the HUD are never darkened.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `enabled` | bool | `true` | false: this component contributes nothing (all its effects are ignored), without losing its values. |
+| `shape` | enum: global \| box \| circle \| sphere | `"global"` | Volume shape (an entity without a Camera). global: every camera, size and blendDistance are ignored. box: the cameras inside the box (an orthographic camera is tested in x and y only; a perspective one in x, y and z), turned and scaled with the entity. circle: a disc in x and y, radius size.x. sphere: a ball, radius size.x. On an entity with a Camera the shape is ignored: it is that camera's own stack. |
+| `size` | vec3 | `[10.0,10.0,10.0]` | Box: full width, height and depth in world units (before the entity's scale). circle and sphere: size.x is the radius. Pixels in a 2D game, metres in 3D. |
+| `blendDistance` | float | `0.0` | World units outside the shape over which the influence fades from 1 (at the edge) to 0. 0 = a hard edge. A camera inside the shape always has influence 1. Range 0.0..100000.0. |
+| `priority` | int | `0` | Order of the volumes: a volume with a higher priority is applied later, so it wins where two disagree. Equal priorities are applied in the order of the entity ids, so a result never changes between runs. |
+| `weight` | float | `1.0` | 0..1: the overall strength of this component, multiplied with its distance influence. 0 = as if it were disabled. Range 0.0..1.0. |
+| `tonemapEnabled` | bool | `false` | Switches the tonemap on: it brings the HDR colour of a linear scene (SceneSettings.colorSpace "linear") to the range of the display. Cost: none of its own: it is folded into the one final pass that also does the exposure, the colour filter and the encode for the display (one full-screen pass). |
+| `tonemapMode` | enum: none \| neutral \| aces \| agx \| reinhard | `"neutral"` | Only used when tonemapEnabled. none: clamp at white. neutral (default): keeps colours as they are up to 0.76 and rolls the brightest channel off above it, desaturating what it compressed (the curve of Khronos PBR Neutral above its shoulder, without that curve's black offset). aces: the filmic curve with high contrast and saturated highlights. agx: a filmic curve that desaturates very bright colours toward white. reinhard: the simplest, flattest curve. |
+| `exposureEnabled` | bool | `false` | Switches the exposure on: the brightness the picture is scaled to before the tonemap. Cost: manual exposure is folded into the one final pass (free); auto exposure adds two tiny passes (a 32x32 brightness reduction and a 1x1 adaptation, no read back to the CPU) and needs float render targets, else it stays at exposureEv. |
+| `exposureMode` | enum: manual \| auto | `"manual"` | manual: the picture is scaled by exposureEv. auto: the exposure follows the measured brightness of the scene (adaptation speed exposureAdaptationSpeed, between exposureMinEv and exposureMaxEv), plus exposureEv. |
+| `exposureEv` | float | `0.0` | Exposure in stops (each +1 doubles the brightness). In auto mode it is a compensation added to what is measured. Range -10.0..10.0. |
+| `exposureMinEv` | float | `-4.0` | Auto exposure only: the lowest exposure the adaptation may choose, in stops. Range -10.0..10.0. |
+| `exposureMaxEv` | float | `4.0` | Auto exposure only: the highest exposure the adaptation may choose, in stops. Range -10.0..10.0. |
+| `exposureAdaptationSpeed` | float | `2.0` | Auto exposure only: how fast the exposure follows the scene, per second (2 = most of the way in a second); higher adapts faster. Range 0.0..20.0. |
+| `bloomEnabled` | bool | `false` | Switches the bloom on: a glow around bright pixels. The same effect as Camera.bloom, moved into the stack. Cost: a bright pass, a few down-sampling and blur passes at reduced resolution (lower for a wider bloomRadius) and one composite pass over the frame; see docs/RENDERING.md for the measured cost. |
+| `bloomIntensity` | float | `1.2` | Only used when bloomEnabled. Strength of the glow added back, 0..10 (0 = none). Range 0.0..10.0. |
+| `bloomThreshold` | float | `0.7` | Only used when bloomEnabled. Brightness (the largest of r, g, b) where the glow starts; the glow reaches full strength at 1 (or 0.01 above the threshold when that is higher). In a linear scene it can be above 1. Range 0.0..20.0. |
+| `bloomKnee` | float | `0.5` | Only used when bloomEnabled. 0..1: how softly the glow starts above the threshold (0 = a hard cut, 1 = a wide ramp). Range 0.0..1.0. |
+| `bloomRadius` | float | `20.0` | Only used when bloomEnabled. How far the glow reaches, in design pixels (1..128). Range 1.0..128.0. |
+| `bloomScreenSpace` | bool | `true` | Only used when bloomEnabled. true: the HUD glows too. false: screen-space items are drawn after the bloom and stay crisp. When the final pass runs (exposure, tonemap, or a colour filter in a linear scene) the HUD is drawn after it and never glows, whatever this says. |
+| `bloomLensDirt` | asset (texture) | `""` | Only used when bloomEnabled. A texture that dirties the glow like smudges on a lens (the glow shows it where the texture is bright). Empty = none. |
+| `bloomLensDirtIntensity` | float | `1.0` | Only used with a bloomLensDirt texture. How much the dirt shows in the glow, 0..10. Range 0.0..10.0. |
+| `colorGradingEnabled` | bool | `false` | Switches the colour grading on: white balance, lift/gamma/gain, contrast, saturation, hue shift and a .cube LUT, applied to the display picture (what the screen shows) in that order, without clipping above white. Cost: part of the final pass. |
+| `colorGradingLift` | color | `[0.0,0.0,0.0,1.0]` | Only used when colorGradingEnabled. Colour added to the shadows (rgb, -1..1; alpha ignored): full in black, fading to nothing at white. [0, 0, 0] = unchanged; a blue tint here gives cold shadows. |
+| `colorGradingGamma` | color | `[1.0,1.0,1.0,1.0]` | Only used when colorGradingEnabled. Midtones per channel (rgb, 0.1..10; alpha ignored). [1, 1, 1] = unchanged; above 1 lightens that channel's midtones (black and white stay). |
+| `colorGradingGain` | color | `[1.0,1.0,1.0,1.0]` | Only used when colorGradingEnabled. Multiplies the highlights per channel (rgb, 0..8; alpha ignored). [1, 1, 1] = unchanged. |
+| `colorGradingTemperature` | float | `0.0` | Only used when colorGradingEnabled. White balance, -100 (cooler, blue) to 100 (warmer, orange): at +-100 red and blue gain 20% against each other, the brightness is kept. 0 = unchanged. Range -100.0..100.0. |
+| `colorGradingTint` | float | `0.0` | Only used when colorGradingEnabled. White balance, -100 (green) to 100 (magenta), the same strength as the temperature. 0 = unchanged. Range -100.0..100.0. |
+| `colorGradingSaturation` | float | `1.0` | Only used when colorGradingEnabled. 0 = greyscale, 1 = unchanged, above 1 more vivid. Range 0.0..3.0. |
+| `colorGradingContrast` | float | `1.0` | Only used when colorGradingEnabled. 1 = unchanged, above 1 more contrast around mid grey (display value 0.5), below 1 flatter. Range 0.0..3.0. |
+| `colorGradingHueShift` | float | `0.0` | Only used when colorGradingEnabled. Degrees, -180..180: turns every hue around the grey axis (red toward green for a positive shift). 0 = unchanged. Range -180.0..180.0. |
+| `colorGradingCurveMaster` | arrayF32 | `[]` | NOT DRAWN YET (the values are stored; render.supports colorGrading lists what is drawn). A tone curve on all channels as a flat list of points [x0, y0, x1, y1, ...], x and y in 0..1 with x ascending (input brightness to output brightness). Empty = the straight line. Example: [0, 0, 0.5, 0.4, 1, 1] darkens the midtones. For a tone curve today use a colorGradingLut. |
+| `colorGradingCurveRed` | arrayF32 | `[]` | NOT DRAWN YET. A curve on the red channel only (same format as colorGradingCurveMaster), applied after the master curve. Empty = unchanged. |
+| `colorGradingCurveGreen` | arrayF32 | `[]` | NOT DRAWN YET. A curve on the green channel only (same format as colorGradingCurveMaster). Empty = unchanged. |
+| `colorGradingCurveBlue` | arrayF32 | `[]` | NOT DRAWN YET. A curve on the blue channel only (same format as colorGradingCurveMaster). Empty = unchanged. |
+| `colorGradingLut` | asset (any) | `""` | Only used when colorGradingEnabled. Project path of a .cube 3D lookup table (the file a colour grading tool exports: LUT_3D_SIZE 2 to 65, 16, 32 and 64 are the usual ones, DOMAIN 0..1) applied last, on the display picture; import it with assets.import. A file that is missing or malformed is logged once with its line and the LUT is skipped. Empty = none. |
+| `colorGradingLutContribution` | float | `1.0` | Only used with a colorGradingLut. 0..1: how much of the LUT is mixed in (1 = fully, 0 = the LUT is skipped). Range 0.0..1.0. |
+| `colorFilterEnabled` | bool | `false` | Switches the accessibility colour filter on. The same filters as Camera.colorFilter, in the stack; it is the last pass of the frame and covers the HUD. Cost: one full-screen pass; none of its own when the final pass runs and there is no HUD (it is fused into it). |
+| `colorFilterMode` | enum: none \| greyscale \| highContrast \| protanopia \| deuteranopia \| tritanopia | `"none"` | Only used when colorFilterEnabled. The filter, with the meaning of Camera.colorFilter. |
+| `vignetteEnabled` | bool | `false` | Switches the vignette on: the edges darken toward a colour. Drawn on the display picture, so it looks the same on an SDR and an HDR output. Cost: part of the final pass. |
+| `vignetteIntensity` | float | `0.4` | Only used when vignetteEnabled. 0..1: how far the edge is pulled to vignetteColor (0 = none, 1 = fully). Range 0.0..1.0. |
+| `vignetteSmoothness` | float | `0.5` | Only used when vignetteEnabled. 0..1: how soft the transition from the clear centre to the edge is (0 = a sharp ring, 1 = it starts at the centre). Range 0.0..1.0. |
+| `vignetteRoundness` | float | `1.0` | Only used when vignetteEnabled. 0..1: 1 = a circle, 0 = an ellipse that follows the shape of the screen. The darkening is full at the corners of the screen only with 0; a circle on a wide screen is full before the left and right edges and lighter at the top and bottom. Range 0.0..1.0. |
+| `vignetteCenter` | vec2 | `[0.5,0.5]` | Only used when vignetteEnabled. The clear centre [x, y] as fractions of the picture, (0, 0) the top-left corner and (0.5, 0.5) the middle. Use it to follow the player or an impact. |
+| `vignetteColor` | color | `[0.0,0.0,0.0,1.0]` | Only used when vignetteEnabled. Colour of the darkened edge (rgb; alpha ignored), as the screen shows it. Black by default; red gives a damage flash. |
+| `chromaticAberrationEnabled` | bool | `false` | Switches the chromatic aberration on: red and blue are read from a little further out and in than green, radially from the middle of the picture, like a cheap lens. Made in scene colour (before the exposure and the tonemap); beyond the picture the edge colour is repeated. Cost: two more reads of the scene in the final pass. |
+| `chromaticAberrationIntensity` | float | `0.3` | Only used when chromaticAberrationEnabled. 0..1: how far the channels separate at the screen's edge (0 = none; 1 = red and blue sit 2% of the width each side of green at the edge). Range 0.0..1.0. |
+| `filmGrainEnabled` | bool | `false` | Switches the film grain on: monochrome noise over the display picture (after the sharpen, before the colour filter), the same on an SDR and an HDR output. Cost: part of the final pass. |
+| `filmGrainIntensity` | float | `0.2` | Only used when filmGrainEnabled. 0..1: how strong the noise is (0 = none; 1 moves a midtone by up to a quarter of white). Range 0.0..1.0. |
+| `filmGrainSize` | float | `1.0` | Only used when filmGrainEnabled. Grain size in pixels of the picture, 0.5 to 4 (a grain below 1 is a pixel). Range 0.5..4.0. |
+| `filmGrainAnimated` | bool | `true` | Only used when filmGrainEnabled. true: the pattern changes every frame (from the world's frame number, never the clock, so a recorded run is the same every time). false: a still pattern. |
+| `filmGrainLuminanceResponse` | float | `0.8` | Only used when filmGrainEnabled. 0..1: 0 = the grain is as strong in black and white as in the midtones, 1 = none in pure black and pure white, strongest at mid grey (like film). Range 0.0..1.0. |
+| `lensDistortionEnabled` | bool | `false` | Switches the lens distortion on: the picture bulges (barrel) or pinches (pincushion) like a lens. Drawn in the final pass, after the bloom (the glow is bent with the picture). Where the lens reads beyond the picture (the corners of a barrel, the edges of a zoom below 1) the result is BLACK: raise lensDistortionScale to hide it. Cost: one bilinear read of the scene in the final pass. |
+| `lensDistortionIntensity` | float | `0.3` | Only used when lensDistortionEnabled. -1 (pincushion) to 1 (barrel). 0 = none (a scale other than 1 still zooms). Range -1.0..1.0. |
+| `lensDistortionScale` | float | `1.0` | Only used when lensDistortionEnabled. 0.5..2: zooms the picture (above 1 in); raise it to hide the black edges a barrel distortion leaves (about 1.3 at intensity 1). Range 0.5..2.0. |
+| `lensDistortionCenter` | vec2 | `[0.5,0.5]` | Only used when lensDistortionEnabled. The lens axis [x, y] as fractions of the picture, (0, 0) the top-left corner and (0.5, 0.5) the middle. |
+| `sharpenEnabled` | bool | `false` | Switches the sharpening on: it brings out the detail the picture lost to scaling or antialiasing. Contrast adaptive (flat areas and edges already at black or white are left alone, so it makes no halos) and drawn on the display picture. Cost: the final pass shades the pixel and its four neighbours (about five times the work of the rest of the pass, so it matters on a weak GPU or a large screen). |
+| `sharpenIntensity` | float | `0.3` | Only used when sharpenEnabled. 0..2: strength (0 = none; 2 is the strongest, harsh on noisy pictures). Range 0.0..2.0. |
+| `outlineEnabled` | bool | `false` | Switches the outline on: lines drawn at the edges of things, over the finished picture. Depth mode needs the depth and normal prepass (3D); sprite mode draws the 2D world once more as coverage. Both draw their own outline per camera, over its own viewport: it works in split screen too, and a line never crosses into the camera next to it. |
+| `outlineMode` | enum: depth \| sprite | `"depth"` | Only used when outlineEnabled. depth: edges found where depth or surface direction jump (3D models, the line straddles the edge). sprite: a line outside the border of the 2D world (sprites, tiles, shapes, text, particles), found from how much each pixel is covered; 3D models and the clear colour do not count. |
+| `outlineColor` | color | `[0.0,0.0,0.0,1.0]` | Only used when outlineEnabled. Colour of the lines (alpha = opacity; alpha 0 draws nothing). |
+| `outlineWidth` | float | `1.0` | Only used when outlineEnabled. Line width in design pixels, 0.5 to 8 (0 = none), so the line has the same look at any render scale. Range 0.0..8.0. |
+| `outlineDepthThreshold` | float | `0.1` | Only used in depth mode. The relative jump of depth that makes an edge; smaller finds more edges. Range 0.0..1.0. |
+| `outlineNormalThreshold` | float | `0.4` | Only used in depth mode. The change of surface direction (0..1) that makes an edge; smaller finds more edges. Range 0.0..1.0. |
+| `outlineAlphaThreshold` | float | `0.5` | Only used in sprite mode. The alpha level (0..1) that counts as the sprite's border. Range 0.0..1.0. |
+| `pixelateEnabled` | bool | `false` | Switches the pixelation on: the picture is drawn in blocks of one colour (read at the block's centre). Cost: folded into the final pass. |
+| `pixelateSize` | float | `4.0` | Only used when pixelateEnabled. Size of a block in design pixels, 1 to 64 (1 = unchanged), so the blocks look the same at any render scale. Range 1.0..64.0. |
+| `posterizeEnabled` | bool | `false` | Switches the posterization on: each colour channel of the display picture is cut to a few levels, after the grading. Cost: folded into the final pass. |
+| `posterizeLevels` | int | `8` | Only used when posterizeEnabled. Levels per colour channel, 2 to 256 (256 = unchanged). Range 2..256. |
+| `ssaoEnabled` | bool | `false` | Switches the ambient occlusion on: creases and contact points of 3D models get darker. Needs the depth buffer (3D) and a GPU with RGBA16F targets that blend; it costs the most of the effects at high quality. It darkens the opaque meshes only: blended meshes, sprites, particles, text and the interface drawn over them keep their colour. |
+| `ssaoQuality` | enum: low \| medium \| high \| ultra | `"medium"` | Only used when ssaoEnabled. The number of directions and steps (GTAO): low is for phones and the web; each level costs about twice the one before. low and medium work at half the resolution of the camera's rectangle, high and ultra at full resolution. |
+| `ssaoIntensity` | float | `1.0` | Only used when ssaoEnabled. 0..4: how dark the occlusion is. Range 0.0..4.0. |
+| `ssaoRadius` | float | `0.5` | Only used when ssaoEnabled. World units: how far from a point an occluder still darkens it. Range 0.01..20.0. |
+| `depthOfFieldEnabled` | bool | `false` | Switches the depth of field on: opaque 3D meshes away from the focus distance are blurred, those in front of it and those behind it each by their own largest blur. It reads the depth prepass, so it needs opaque meshes in view (a frame without any is drawn without it); where no mesh was drawn (the sky, sprites, shapes) the depth is taken as infinite and the far blur applies. It runs before the bloom and the final pass, and the HUD is not blurred. |
+| `depthOfFieldFocusDistance` | float | `10.0` | Only used when depthOfFieldEnabled. World units from the camera that are in focus (ignored while depthOfFieldTarget is set). Range 0.01..100000.0. |
+| `depthOfFieldTarget` | entity |  | Only used when depthOfFieldEnabled. Autofocus: the focus follows the view depth of this entity (its distance along the camera's axis), moving by depthOfFieldFocusSpeed. Empty, a destroyed entity or one behind the camera = use depthOfFieldFocusDistance. |
+| `depthOfFieldFocusSpeed` | float | `5.0` | Only used with an autofocus target. How fast the focus moves to it, per second: each frame covers 1 - exp(-speed * dt) of the way (engine clock, the same on every machine); higher is quicker, 0 stays where it is. Range 0.0..100.0. |
+| `depthOfFieldFocusRange` | float | `5.0` | Only used when depthOfFieldEnabled. World units of the band that stays fully sharp, centred on the focus distance (half of it on each side); the blur then grows smoothly to its largest in front of the band over the distance to the camera, and behind it over the focus distance. Range 0.0..100000.0. |
+| `depthOfFieldNearBlur` | float | `6.0` | Only used when depthOfFieldEnabled. The largest blur, in design pixels (times the render scale), in front of the focus (0..32). It spreads past the silhouette of the near object. Range 0.0..32.0. |
+| `depthOfFieldFarBlur` | float | `8.0` | Only used when depthOfFieldEnabled. The largest blur, in design pixels (times the render scale), behind the focus (0..32). A sharper object never takes colour from a blurred one behind it. Range 0.0..32.0. |
+| `depthOfFieldBokeh` | bool | `true` | Only used when depthOfFieldEnabled. true: a disc-shaped blur where bright points become discs (more expensive). false: a smooth blur. |
+| `motionBlurEnabled` | bool | `false` | Switches the camera motion blur on: the picture smears along the way the camera moved since the frame before, computed from the depth prepass (opaque 3D meshes; the sky only smears when the camera turns). Objects that move on their own are not blurred. There is no blur on the first frame or after the camera did not draw the frame before (a cut); a camera that jumps to another place in one frame blurs up to a longest streak. It runs before the bloom and the final pass. |
+| `motionBlurIntensity` | float | `0.5` | Only used when motionBlurEnabled. 0..1: the fraction of the frame the shutter stays open (1 = the whole movement). Range 0.0..1.0. |
+| `motionBlurSamples` | int | `8` | Only used when motionBlurEnabled. 4..32 taps along the movement; more is smoother and costs more. A streak is at most 8% of the picture's larger side. Range 4..32. |
+| `ssrEnabled` | bool | `false` | Switches the screen-space reflections on: surfaces reflect what is on the screen, the more the shinier they are seen (a fresnel term; there is no per-material roughness). Needs the depth buffer (3D); it only reflects what is visible, so the edges of the screen fade out. |
+| `ssrIntensity` | float | `0.5` | Only used when ssrEnabled. 0..1 (default 0.5): how much reflection is mixed in; surfaces reflect by a fresnel term (more at a grazing angle), there is no per-material roughness, and a pixel is never more than 75% reflection (docs/rendering/RENDERING_EFFECTS.md). Range 0.0..1.0. |
+| `ssrMaxDistance` | float | `50.0` | Only used when ssrEnabled. World units a reflected ray travels before it gives up. Range 1.0..1000.0. |
+| `ssrThickness` | float | `0.3` | Only used when ssrEnabled. World units behind a surface that still count as a hit; far away it grows to at least 0.2% of the distance, so the depth precision there does not break the reflection. Range 0.01..10.0. |
+| `ssrSteps` | int | `32` | Only used when ssrEnabled. 8..128 steps along the ray; more is more accurate and costs more. Range 8..128. |
+| `fogEnabled` | bool | `false` | Switches the stack's fog on: distance and height fog drawn from the depth buffer of the opaque 3D meshes. The sky is not fogged; blended meshes, sprites, particles and 3D text are fogged by their own distance with the same numbers (the interface is not). It replaces SceneSettings.fogColor and fogDensity for a camera that draws it. |
+| `fogColor` | color | `[0.5,0.6,0.7,1.0]` | Only used when fogEnabled. Colour distant things fade to. |
+| `fogDensity` | float | `0.02` | Only used when fogEnabled. Fog thickness with distance (the same scale as SceneSettings.fogDensity); 0 = none. Range 0.0..10.0. |
+| `fogStart` | float | `0.0` | Only used when fogEnabled. World units from the camera before the fog begins. Range 0.0..100000.0. |
+| `fogHeightDensity` | float | `0.0` | Only used when fogEnabled. Extra fog thickness near fogHeightBase (a ground mist); 0 = no height fog. Range 0.0..10.0. |
+| `fogHeightBase` | float | `0.0` | Only used when fogEnabled. World y where the height fog is thickest. |
+| `fogHeightFalloff` | float | `0.1` | Only used when fogEnabled. How fast the height fog thins going up, per world unit (larger = a thinner layer). Range 0.0..10.0. |
+| `sunShaftsEnabled` | bool | `false` | Switches the sun shafts on: rays of light spreading from the bright sky toward the sun through gaps in the scene (3D, perspective cameras, needs the depth buffer). The sun is the directional Light that casts shadows, otherwise the brightest directional one; with no such light, a light of intensity 0 or the sun behind the camera there are no shafts. |
+| `sunShaftsIntensity` | float | `0.5` | Only used when sunShaftsEnabled. 0..2: strength. Range 0.0..2.0. |
+| `sunShaftsThreshold` | float | `0.8` | Only used when sunShaftsEnabled. Brightness the sky needs to cast rays. Range 0.0..20.0. |
+| `sunShaftsLength` | float | `0.5` | Only used when sunShaftsEnabled. 0..1: how far the rays reach, as a fraction of the screen. Range 0.0..1.0. |
+| `sunShaftsColor` | color | `[1.0,0.95,0.8,1.0]` | Only used when sunShaftsEnabled. Tint of the rays (rgb). |
+| `radialBlurEnabled` | bool | `false` | Switches the radial blur on: the picture streaks away from a point (speed, impact, a dash). |
+| `radialBlurIntensity` | float | `0.3` | Only used when radialBlurEnabled. 0..1: how far the streaks reach. Range 0.0..1.0. |
+| `radialBlurCenter` | vec2 | `[0.5,0.5]` | Only used when radialBlurEnabled. The centre of the blur [x, y] as fractions of the picture, (0, 0) the top-left corner and (0.5, 0.5) the middle. |
+| `radialBlurSamples` | int | `12` | Only used when radialBlurEnabled. 4..32 taps; more is smoother and costs more. Range 4..32. |
+
 ## Scene
 
 ### SceneSettings
@@ -1245,6 +1361,9 @@ Scene-wide settings stored under "settings" in the scene file: lighting, fog, gr
 | `music` | asset (audio) | `""` | Looping background music asset path. Empty = none. Loading a scene stops every sound and the music, then starts this track again, even when the previous scene had the same one; music a script started with audio.music(path, {persist: true}) keeps playing through the load, and is not restarted when this is the same track. |
 | `musicVolume` | float | `0.6` | Volume of the background music, 0..1. Range 0.0..1.0. |
 | `lightScale` | float | `1.0` | Size of the Light2D light buffer as a fraction of the picture, 0.25 .. 1 (default 1: one light pixel per picture pixel). Lower values make lights cost less fill rate and look softer (the light is smoothed up to the picture); use 0.5 on mobile or the web when many lights are on screen. Only matters when a scene has lit visuals and Light2D lights. Range 0.25..1.0. (since 0.3.0) |
+| `colorSpace` | enum: gamma \| linear | `"gamma"` | How lighting and blending are computed. gamma (default, what every project made before M71 uses, so old projects keep their exact look): on the sRGB-encoded values, with 8-bit targets. linear: in linear light. The colours you pick (tints, sprite and material colours, light colours, ambient, fog, sky, clear colour, particle colours) are still sRGB values and are converted for you; colour textures (sprites, albedo, emissive, particles) are read as sRGB and data textures (normal, metallic-roughness, masks) as plain numbers; lights add up and fade as they do in the world, and the result is encoded for the display. The frame is kept in RGBA16F (values above 1 survive), else R11G11B10 (no alpha), else 8 bits that hold linear light (SRGB8A8), else plain RGBA8 with banding in the darks. RGBA16F costs twice the memory of RGBA8. Switch it on deliberately: colours picked by eye in gamma space look different and a project needs a second look (docs/RENDERING.md, Color space). Switching at run time is allowed. render.supports {"feature": "linearColor"} says whether this build and GPU can. Values above 1 survive until the display: without exposure, tonemap or colour filter in a PostProcess they clip there and the HUD blends in linear light too; with one, the final pass tonemaps and encodes the picture once and the HUD is drawn after it in display colours. (since 0.31.0) |
+| `hdrOutput` | enum: off \| auto | `"off"` | off (default): the picture is shown in the standard range. auto: use a high dynamic range display where the platform allows it (Windows scRGB or HDR10, macOS and iOS EDR); on any other display it is the standard range, with no error. Only the tonemap of a camera's PostProcess (exposure or tonemap on) goes above paper white, up to the display's headroom; the HUD, a camera without it and a colour-filtered frame stay at paper white. render.output says what the window shows and why; render.supports {"feature": "hdrOutput"} says whether the window's display could. (since 0.31.0) |
+| `paperWhiteNits` | float | `200.0` | Only used with hdrOutput auto on an HDR display: the brightness of white (1.0) in nits (cd/m2), 80..1000. 200 is comfortable indoors, 400 and more suits a bright room; the display shows brighter highlights above it. Range 80.0..1000.0. (since 0.31.0) |
 
 
 # Commands reference
@@ -2703,6 +2822,7 @@ Example: {"source":"C:/art/hero.aseprite","license":"CC0","author":"Ana"}.
 - .psd: the layers become an image document (<name>.image.json, one PNG per layer in <name>.layers/; names, opacity, visibility, blend modes, clipping, groups and layer masks are kept) and the PNG is baked from it; a file whose layers cannot be read imports its merged image as a PNG with a warning.
 - .obj (with its .mtl and textures): becomes a .gltf with an embedded buffer and the textures next to it; polygons are triangulated, objects/groups/materials become separate meshes, missing normals give flat shading, and the result has the bounds so you can scale it.
 - .fbx: converted to .glb by FBX2glTF ($FACTORIA_FBX2GLTF or PATH) or by Blender (PATH or its install folder). With neither installed the error says where to get them.
+- .cube: a 3D colour lookup table for PostProcess.colorGradingLut, checked and copied to assets/luts/ (LUT_3D_SIZE 2 to 65, the 0 to 1 domain; a malformed file is an error that names the line; a 1D table is refused).
 - .mid .midi: becomes a song document (assets/music/<name>.song.json, or `path`): tracks, patterns, sections from markers, drums as grids (music.import_midi has the options `quantize` and `soundfont`; docs/MUSIC.md, "MIDI").
 - .mp4 .mov .webm .mkv .avi .m4v: converted to an MPEG-1 video with MP2 audio in an .mpg (the only video the engine plays, the same on every platform) by ffmpeg, at most 1280 px wide, quality 4, 30 fps when the frame rate is not one MPEG-1 has. ffmpeg is found through $FACTORIA_FFMPEG, PATH or the copy `factoria setup ffmpeg` installs; without it the error names that command. A source with no audio track gives a silent video (the result warns). The result has width, height, fps and duration and the Video component that plays it. An .mpg or .mpeg is checked to be MPEG-1 and copied.
 Files land in assets/ (models in assets/models/, sounds in assets/audio/, fonts in assets/fonts/, videos in assets/video/ by default) or at `path`, which must be under assets/. An existing file is an error unless overwrite is true.
@@ -2710,7 +2830,7 @@ Files land in assets/ (models in assets/models/, sounds in assets/audio/, fonts 
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `source` | string | yes | The file to import: an absolute path on this machine, or a path relative to the project folder. Not a URL: download it first. Path the command reads. |
-| `path` | string | no | Where it lands, under assets/ (a path ending in / is a folder). Default: assets/<name>.<ext>, or assets/models/, assets/audio/, assets/fonts/ or assets/video/ for those kinds. The extension is the importer's output (.png for Aseprite and PSD, .gltf for OBJ, .glb for FBX, .mpg for a video). Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
+| `path` | string | no | Where it lands, under assets/ (a path ending in / is a folder). Default: assets/<name>.<ext>, or assets/models/, assets/audio/, assets/fonts/, assets/video/ or assets/luts/ for those kinds. The extension is the importer's output (.png for Aseprite and PSD, .gltf for OBJ, .glb for FBX, .mpg for a video). Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `license` | string | no | License or terms of the file, e.g. "CC0", "CC-BY 4.0", "bought from itch.io, single project". Recorded in assets.json. |
 | `author` | string | no | Who made it. Recorded in assets.json for the credits. |
 | `sourceUrl` | string | no | Where the file came from (a page URL). Recorded as the provenance source instead of the local path. |
@@ -3632,15 +3752,32 @@ Asks POST /v1/verdicts for the entries of this project's ENGINE_FEEDBACK.json (a
 
 Since 0.17.0.
 
-Ends the game feel effects of an entity at once (flash, squash, shake, knockback), or of everything.
+Ends the game feel effects of an entity at once (flash, squash, shake, knockback, and the screen effects of a camera), or of everything.
 
 Capabilities: read, state
 
-Without `entity` it ends every effect of the scene, hit-stops included. The entity's Transform is not touched: effects never wrote to it, except the position a body-less knockback already moved. Example: feel.cancel {}
+Without `entity` it ends every effect of the scene, hit-stops and screen effects (a held fade too) included. For a camera it ends the screen effects drawn on that camera only. The entity's Transform is not touched: effects never wrote to it, except the position a body-less knockback already moved. Example: feel.cancel {}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `entity` | string | no | The entity (id or name). Default: everything. |
+
+### `feel.fade` (modifies state)
+
+Since 0.31.0.
+
+Fades the screen to a colour (default black) and holds it, or from that colour back to the picture.
+
+Capabilities: read, state
+
+The same as `camera.fadeOut(opts)` / `camera.fadeIn(opts)`. direction "out" goes from the picture to the colour over `duration` and STAYS there until a fade in or feel.cancel; "in" goes from the colour to the picture and ends (with no fade running it starts from the full colour: the way to open a scene). A new fade on the camera continues from the opacity the old one had reached. Drawn over the picture at the end of the camera's post pass, before the colour filter. `entity` limits it to one camera. A scene load clears it. Example: feel.fade {"direction":"out","duration":0.8}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `entity` | string | no | The camera (id or name) that draws it. Default: every camera. |
+| `direction` | string ["out","in"] | no | "out": to the colour (held); "in": from the colour to the picture. Default "out". |
+| `color` | any | no | The colour: "#rrggbb", a name or [r, g, b, a] in 0..1. Default black. Alpha is ignored. |
+| `duration` | number | no | Seconds; 0 is instant. Default 0.5. |
 
 ### `feel.flash` (modifies state)
 
@@ -3659,6 +3796,25 @@ The same as `entity.flash(opts)`. The entity's own colour, material and Transfor
 | `duration` | number | no | Seconds. Default 0.12. |
 | `fade` | boolean | no | true: from `strength` down to 0; false: `strength` for the whole duration, then off. Default true. |
 | `strength` | number | no | How much of the colour replaces the entity's own (1 = solid). Default 1. |
+
+### `feel.heatHaze` (modifies state)
+
+Since 0.31.0.
+
+Heat haze: a rippling distortion over a region of the screen for a while.
+
+Capabilities: read, state
+
+The same as `camera.heatHaze(opts)`. The picture inside `region` is pushed sideways by a smooth ripple that travels upwards; it fades in and out over 0.15 s at its ends. Strength is a fraction of the picture's height (0.004 is a gentle shimmer). `entity` limits it to one camera; a camera draws the newest 2 hazes. Runs on the game clock. With reduceMotion on the strength is a quarter. Example: feel.heatHaze {"region":[0,0.5,1,0.5],"duration":3}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `entity` | string | no | The camera (id or name) that draws it. Default: every camera. |
+| `region` | array | no | [x, y, width, height] in fractions of the camera's rectangle, (0, 0) top-left. Default [0,0,1,1]. |
+| `duration` | number | no | Seconds. Default 2. |
+| `strength` | number | no | How far the picture is pushed, a fraction of its height. Default 0.004. |
+| `frequency` | number | no | Ripples per picture height. Default 10. |
+| `speed` | number | no | Cycles per second the ripples travel. Default 1. |
 
 ### `feel.hitStop` (modifies state)
 
@@ -3694,6 +3850,43 @@ The same as `entity.knockback(direction, opts)`. A dynamic RigidBody2D/RigidBody
 | `decay` | number | no | Entities without a dynamic body: the velocity falls by exp(-decay * dt) per second. Default 8. |
 | `local` | boolean | no | true: `direction` is in the entity's own space (a mirrored sprite is pushed the other way). Default false. |
 
+### `feel.radialBlur` (modifies state)
+
+Since 0.31.0.
+
+A radial blur pulse: the picture streaks away from a point and settles, for a speed or impact burst.
+
+Capabilities: read, state
+
+The same as `camera.radialBlur(opts)`. Draws the same blur as PostProcess.radialBlurEnabled, with an intensity that dies out over `duration`; when the camera's PostProcess has the blur on, the larger of the two is drawn. `screen` or `world` is the centre (see feel.shockwave). `entity` limits it to one camera. With reduceMotion on the intensity is a quarter. Example: feel.radialBlur {"intensity":0.5,"duration":0.4}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `entity` | string | no | The camera (id or name) that draws it. Default: every camera. |
+| `screen` | array | no | The centre, [x, y] in fractions of the camera's rectangle. Default [0.5,0.5]. |
+| `world` | array | no | The centre as a world point; wins over `screen`. |
+| `duration` | number | no | Seconds until the blur is gone. Default 0.35. |
+| `intensity` | number | no | The blur at the start, same scale as PostProcess.radialBlurIntensity. Default 0.4. |
+| `samples` | integer | no | Taps along each streak: more is smoother and costs more. Default 12. |
+
+### `feel.screenFlash` (modifies state)
+
+Since 0.31.0.
+
+Flashes the whole screen in one colour for a moment (a damage or pickup flash), drawn over the finished picture.
+
+Capabilities: read, state
+
+The same as `camera.flash(opts)`. Not to be confused with feel.flash, which flashes one entity. The colour is blended over the picture at the end of the camera's post pass (before the colour filter), at `strength` and fading to 0 over `duration` (or held, with fade false). With reducedEffects on (feel.settings) the strength is capped at 0.35 and it always fades. `entity` limits it to one camera. Example: feel.screenFlash {"color":"#ffffff","duration":0.15}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `entity` | string | no | The camera (id or name) that draws it. Default: every camera. |
+| `color` | any | no | The colour: "#rrggbb", a name or [r, g, b, a] in 0..1. Default white. Alpha is ignored. |
+| `duration` | number | no | Seconds. Default 0.15. |
+| `strength` | number | no | How much of the colour covers the picture at the start. Default 1. |
+| `fade` | boolean | no | true: from `strength` down to 0; false: `strength` for the whole duration, then off. Default true. |
+
 ### `feel.settings` (modifies state)
 
 Since 0.17.0.
@@ -3728,6 +3921,26 @@ The same as `camera.shake(amount, opts)` in a script. Adds `amount` (0..1) of tr
 | `maxOffset` | number | no | Largest offset at trauma 1, world units. Default: 2.5% of an orthographic camera's visible height, 0.3 for a perspective one. |
 | `maxAngle` | number | no | Largest turn at trauma 1, degrees. Default 2. |
 | `cap` | number | no | Trauma never goes above this: stacked hits stop here. Default 1. |
+
+### `feel.shockwave` (modifies state)
+
+Since 0.31.0.
+
+Screen shockwave: a ring that expands from a point and bends the picture, drawn by the camera's post-processing pass.
+
+Capabilities: read, state
+
+The same as `camera.shockwave(opts)` in a script. The ring leaves the centre fast and slows down, and its push dies out as it grows. `screen` is the centre as fractions of the camera's rectangle ((0.5, 0.5) is the middle, (0, 0) top-left); `world` is a world point each camera projects itself (it is not drawn behind a perspective camera) and wins over `screen`. Strength, radius and width are fractions of the picture's height, so the ring looks the same at every resolution. `entity` limits it to one camera (a split screen); without it every camera draws it. At most 16 screen effects are alive and a camera draws the newest 4 shockwaves; a new call never fails, the oldest effect goes. It runs on the game clock (time.scale 0 holds it) and needs no PostProcess component. With reduceMotion on (feel.settings) the strength is a quarter. Example: feel.shockwave {"screen":[0.5,0.4],"strength":0.05,"duration":0.7}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `entity` | string | no | The camera (id or name) that draws it. Default: every camera. |
+| `screen` | array | no | The centre, [x, y] in fractions of the camera's rectangle. Default [0.5,0.5]. |
+| `world` | array | no | The centre as a world point [x, y] or [x, y, z]; wins over `screen`. |
+| `duration` | number | no | Seconds until the ring is gone. Default 0.6. |
+| `strength` | number | no | How far the ring pushes the picture, a fraction of its height. Default 0.04. |
+| `radius` | number | no | The radius the ring reaches, a fraction of the picture's height. Default 0.6. |
+| `width` | number | no | The width of the ring, same unit. Default 0.1. |
 
 ### `feel.sound` (modifies state)
 
@@ -3791,7 +4004,7 @@ What the game feel effects are doing now: hit-stop, and per entity its shake, fl
 
 Capabilities: read
 
-Returns {reduceMotion, reducedEffects, reduceMotionSetting, reducedEffectsSetting, hitStop: {remaining, scale, running}, queued: {sounds, spawns, spawnLifetimes} (sounds and spawns waiting for the next frame, spawned effects that will be destroyed), entities: [{entity, shake?, flash?, squash?, knockback?, pose?}]}. `pose` is what is added to the entity at draw time (position, rotation degrees, scale factor); its Transform is unchanged. Example: feel.state {}
+Returns {reduceMotion, reducedEffects, reduceMotionSetting, reducedEffectsSetting, hitStop: {remaining, scale, running}, queued: {sounds, spawns, spawnLifetimes} (sounds and spawns waiting for the next frame, spawned effects that will be destroyed), screenEffects: [{kind, camera (null = every camera), elapsed, duration, alpha? (flash, fade), held? (fade)}], entities: [{entity, shake?, flash?, squash?, knockback?, pose?}]}. `pose` is what is added to the entity at draw time (position, rotation degrees, scale factor); its Transform is unchanged. Example: feel.state {}
 
 ## fs
 
@@ -4002,6 +4215,7 @@ WITHOUT `path` the picture is temporary: the result is {width, height, frame, te
 Examples: game.screenshot {"path":"shots/start.png","scale":1.5}; game.screenshot {"region":[600,0,80,720],"zoom":8}; game.screenshot {"frames":48,"everyFrames":4,"region":[400,200,480,300]}
 
 `scale` (0.25 to 4, default 1) draws the same frame into an image scale times larger, sharp and not upscaled, for store screenshots: HUD, camera and visible area stay the same, so a 1280x720 game at scale 1.5 gives a 1920x1080 PNG.
+A PNG holds 8 bits, at most paper white. In a window on an HDR display the frame is drawn with the HDR tonemap and what it puts above white is clipped, so the brightest areas look flatter than on the screen; a run without a window draws in the standard range, the SDR look (see docs/RENDERING.md, "HDR output").
 `region` [x, y, width, height] (design pixels, origin top-left) with `zoom` (0.25 to 32) shows only that part magnified: use it to look at a seam, a join, a gradient end or a one-pixel gap that is invisible in the whole view. Up to zoom 4 the frame is drawn again at that render scale and cropped (lines, text and shapes are sharp, the HUD is included); above 4 the 4x picture is enlarged with nearest-neighbour sampling (hard pixel blocks, nothing blurred). The result is round(width * zoom) x round(height * zoom), at most 8192 px a side; the region is clamped to the view. `zoom` without `region` magnifies the whole view the same way.
 `frames` makes a FILMSTRIP: one PNG with a grid of pictures, each labelled with its frame number ("f130 +4" = game frame 130, 4 frames after the start). The first picture is the game now, then the game is STEPPED `everyFrames` frames (default 1) and captured again until `frames` frames have passed, so frames 48 and everyFrames 4 give 13 tiles and leave the game 48 frames further. At most 64 tiles. `region` and `zoom` apply to every tile (the same region each time); without `zoom` the tiles are sized so the sheet is about 2048 px wide (never enlarged). `columns` sets the grid width (default: nearly square). Use it to see a whole transition or animation at once. A tween or script keeps running while it steps: it shows what the game does, it does not freeze anything. The result adds `tiles` [{frame, offset}], `columns`, `rows`, `tileWidth`, `tileHeight` and `zoom`.
 `simulate` (greyscale, protanopia, deuteranopia, tritanopia) converts the picture to what a colour-blind viewer sees (Machado 2009 matrices, severity 1.0, applied to the sRGB pixels in linear light; greyscale = Rec. 709 luminance) without changing what the player sees: use it to check that hazards, pickups and buttons read without their colour. Needs graphics.
@@ -5186,7 +5400,7 @@ Describe a custom material: lighting, alpha mode, params with types, defaults, r
 
 Capabilities: read
 
-Reads a *.material.json (schemas/material.schema.json) and returns {material, doc, shader, lighting, alphaMode, doubleSided, params: [{name, type, default, min?, max?, doc, implicit?}], textures: [{name, default, sampler, doc}], programs, compile: {state, dialect, toolFound}}. params are listed in the order of the uniform block (alphabetical); `implicit` marks alphaCutoff, which alphaMode "clip" adds by itself. `programs` are the shader programs the material makes: mesh and mesh_skin, plus shadow and shadow_skin when the snippet defines vertex() or the alpha mode is clip. compile.state is "compiled" when the cache holds this exact material for this machine's dialect, else "not_compiled" (run shader.compile); nothing is compiled by this command. A material file with errors returns them (JSON pointer, message, fix). Example: {"material": "materials/water.material.json"}
+Reads a *.material.json (schemas/material.schema.json) and returns {material, doc, shader, lighting, alphaMode, doubleSided, params: [{name, type, default, min?, max?, doc, implicit?}], textures: [{name, default, sampler, doc}], programs, compile: {state, dialect, toolFound}}. params are listed in the order of the uniform block (alphabetical); `implicit` marks alphaCutoff, which alphaMode "clip" adds by itself. `programs` are the shader programs the material makes: mesh and mesh_skin, plus shadow and shadow_skin when the snippet defines vertex() or the alpha mode is clip, and prepass and prepass_skin (the depth and normal prepass of the post effects that read the depth). compile.state is "compiled" when the cache holds this exact material for this machine's dialect, else "not_compiled" (run shader.compile); nothing is compiled by this command. A material file with errors returns them (JSON pointer, message, fix). Example: {"material": "materials/water.material.json"}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -6477,6 +6691,72 @@ The replay is applied by frame number to the window's frames at their real durat
 
 ## scene
 
+### `postprocess.apply_preset` (modifies state)
+
+Since 0.31.0.
+
+Apply a named look (cinematic, retro, noir...) to the PostProcess of an entity.
+
+Capabilities: read, state
+
+Sets the fields of the preset on the PostProcess of `id` (added when missing). By default the look REPLACES the effects: every effect field the component has goes back to its default first, so the result is exactly the preset (the meta fields of a volume - enabled, shape, size, blendDistance, priority, weight - and the entity fields, such as a depth-of-field focus target, are never touched). With `keep` true only the preset's own fields are written and every other effect stays as it was. `neutral` switches every effect off. Result: {id, preset, effects, value, drawnChecked, notDrawn, note}. Example: postprocess.apply_preset {"id":"camera","preset":"cinematic"}
+
+`effects` are the effects now on. A preset that names an effect the renderer does not draw yet (render.supports says "planned" or why it is unsupported here) is still applied: its fields are stored and `notDrawn` lists {effect, status} for each such effect, with a `note` saying it will show once drawn; `drawnChecked` is false (and `notDrawn` empty) when there is no renderer to ask (graphics=false). The call is one edit: the editor undoes it in one step. Errors: `not_found` for an unknown entity, `invalid_argument` for an unknown preset (with a did-you-mean).
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `id` | string | yes | Entity id (or name): a camera, or a volume. The PostProcess is added when it has none. |
+| `preset` | string | yes | Preset name, as listed by postprocess.presets (neutral, cinematic, retro, noir, dreamy, vivid, horror). |
+| `keep` | boolean | no | true = write only the preset's fields and keep every other effect as it is; false = reset every effect to its default first. Default false. |
+
+### `postprocess.get`
+
+Since 0.31.0.
+
+Read the PostProcess component of an entity, or (resolved) the stack a camera really draws and where each value comes from.
+
+Capabilities: read
+
+The PostProcess component (a camera's own stack, or a volume: an entity with a shape and a size) holds one block of fields per post effect, named `<effect>Enabled` and `<effect>Parameter`: bloomEnabled, bloomIntensity, tonemapMode, vignetteIntensity... and the meta fields enabled, shape (global, box, circle, sphere), size, blendDistance, priority and weight. Result: {id, effects, order, value}; `effects` lists the effects this component switches on, in the order they run; `order` is the order of every effect (the same as render.supports lists them); `value` has every field (or only the names in `fields`). With resolved true the answer is the stack a CAMERA draws: {id, resolved: {camera, position, perspective, layers, effects, count}}. Example: postprocess.get {"id":"camera","fields":["bloomEnabled","bloomIntensity"]}; postprocess.get {"id":"camera","resolved":true}
+
+The resolved stack is the one the renderer draws, computed on the CPU (it works with graphics=false): the camera's own PostProcess (or, without one, the deprecated Camera.bloom* and colorFilter fields that stand in for it), then every volume the camera is inside (or within blendDistance of) by ascending priority, each blended by its weight and how deep the camera is. `layers` lists them: {index, from, kind (own, legacy, volume), entity, priority (volumes), weight, influence, strength}; `strength` is weight times influence. `effects` has every effect in the canonical order: {name, enabled, layers (the indexes that write it), fields} where `fields` (only for an effect that runs) maps each parameter to {value, from, strength}: `from` is "own", "legacy", "volume:<entity id>" or "default" (no layer wrote it). `count` is how many effects run. Without `id` the main camera is used (the camera that draws first: active, primary, not drawing into a `renderTarget`, lowest depth); a scene with no camera answers for the default camera, which only global volumes reach. Errors: `not_found` for an unknown entity, `invalid_argument` for an entity without a PostProcess (add one with postprocess.set), a resolved id that is not a camera, `fields` together with resolved, or a field name that does not exist (with a did-you-mean). The fields are stored and saved with the scene; an effect is drawn only when the renderer supports it (render.supports names which).
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `id` | string | no | Entity id (or name) that has the PostProcess component; with resolved true, the Camera entity (default: the main camera). |
+| `fields` | array | no | Only these fields (names as in api.components, e.g. bloomIntensity). Default: every field. Not with resolved. |
+| `resolved` | boolean | no | true = the stack the camera draws (its own PostProcess or legacy fields, plus the volumes it is inside) with the source of every value. Default false. |
+
+### `postprocess.presets`
+
+Since 0.31.0.
+
+List the named post-processing looks that postprocess.apply_preset can apply.
+
+Capabilities: read
+
+A preset is a named set of PostProcess fields (a look). The list is data (engine/runtime/data/postprocess_presets.json): neutral (everything off), cinematic, retro, noir, dreamy, vivid and horror, each using only fields that exist. Result: {presets: [{name, doc, effects, fields}]}; `effects` are the effects the preset switches on, in the order they run. Example: postprocess.presets {}
+
+A preset may switch on an effect the renderer does not draw yet: apply_preset still stores its fields and says which effects are not drawn (render.supports lists the effects a renderer draws).
+
+### `postprocess.set` (modifies state)
+
+Since 0.31.0.
+
+Set fields of the PostProcess component of an entity (added when missing).
+
+Capabilities: read, state
+
+Like scene.set_component with component "PostProcess": `fields` is a partial object, the fields you do not name keep their value, a bad field or value changes nothing and the error names the field, the allowed values and the range. Turn an effect on with `<effect>Enabled` and tune it with its parameters in one call. Example: postprocess.set {"id":"camera","fields":{"tonemapEnabled":true,"tonemapMode":"aces","bloomEnabled":true,"bloomIntensity":0.8}}. A volume: an entity without a Camera whose PostProcess has shape box, circle or sphere (size, blendDistance, priority, weight): postprocess.set {"id":"cave","fields":{"shape":"box","size":[10,6,10],"blendDistance":3,"vignetteEnabled":true}}
+
+Result: {id, effects, value} as postprocess.get. `merge` reads `fields` as an RFC 7386 merge-patch like scene.set_component (a null resets a field to its default). The editor undoes the call in one step. The picture changes when the renderer draws the effect (render.supports says which it does); the fields are stored either way.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `id` | string | yes | Entity id (or name). The PostProcess is added when it has none. |
+| `fields` | object | yes | Field name -> value, e.g. {"bloomEnabled": true, "bloomIntensity": 0.8}. |
+| `merge` | boolean | no | true = read `fields` as an RFC 7386 merge-patch: a null resets the field to its default. Default false. |
+
 ### `prefab.apply` (modifies state)
 
 Since 0.30.0.
@@ -6561,7 +6841,7 @@ A language the kit has no texts for gets the English ones. The "pause" part also
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `parts` | array | no | Which parts to add; default all. Parts and what they copy: core: Shared by every menu: the player's settings saved in storage (scripts/settings.js), the stack of panels that open over each other (scripts/ui/menu_stack.js), read-aloud for focused widgets (scripts/ui/read_aloud.js) and the menu.* strings.; options: The options panel: video, a colour filter, audio per bus, controls (rebinding every action of the game) and language, saved between runs (prefabs/ui/options.prefab.json, scripts/ui/options.js). The textSpeed part adds a dialogue "Text speed" row to the audio tab; addOptionsRow() of scripts/ui/options.js adds a row of the game to any tab.; textSpeed: A "Text speed" row in the options panel's audio tab (slow, normal, fast, instant), saved as settings.textSpeed in characters per second; the game's dialogue box reveals a line with Text.visibleCharacters = revealedCharacters(seconds) (scripts/settings.js). Without this part the options prefab has no such row (all parts by default).; credits: The credits panel that lists the software inside the runtime (scripts/ui/credits.js).; shop: The shop panel for in-app purchases (scripts/ui/shop.js) and the behaviour that pauses a level while the store's overlay is open (scripts/store_events.js). Needs the products in factoria.json "platform" (docs/PLATFORM.md).; ageGate: The age gate for a game whose ads reach children and adults (factoria.json platform.ads.audience "mixed"): a neutral birth-year screen (prefabs/ui/age_gate.prefab.json, scripts/ui/age_gate.js) that tells the ad network whether the player is under the age of consent with platform.ads.setUnderAge(). The main menu, when added too, opens it once, before any ad; its tests/age_gate.test.js checks it.; analyticsConsent: The analytics question for a game whose factoria.json has an "analytics" section (docs/ANALYTICS.md): a short screen (prefabs/ui/analytics_consent.prefab.json, scripts/ui/analytics_consent.js) that asks once whether the game may count anonymous usage, and gives the answer to analytics.setConsent(). Nothing is sent before it. The main menu, when added too, opens it on its first run; the Options switch (options part) changes the answer later. tests/analytics_consent.test.js checks it.; main-menu: The title screen: scenes/menu.scene.json (Play, Options, Credits, Quit, with the options and credits panels in it), scripts/main_menu.js, and tests/recipe.test.js, the kit's test, which drives the menu with a gamepad only. Needs core, options and credits. The Shop button and panel, the line that opens the age gate and the line that opens the analytics question are written only when the shop, ageGate and analyticsConsent parts are added too (all parts by default).; pause: The pause menu (prefabs/ui/pause.prefab.json, scripts/pause_menu.js): Resume, Options, Main menu. Put one entity with scripts/pause_menu.js in every level; adds the "pause" action to factoria.json when the game has none.; loading: The loading screen (scenes/loading.scene.json, scripts/loading.js): the main menu's Play button goes through it to the first level, which it loads in the background (scene.load with {async: true}) while it shows the real progress.; keyboard: The on-screen keyboard for a player without a physical one (prefabs/ui/keyboard.prefab.json, scripts/ui/keyboard.js): put one entity with the script in every scene that has a TextField.; slots: Save slots (scripts/slots.js, scripts/ui/slot_screen.js, prefabs/ui/slots.prefab.json, prefabs/ui/slot_dialog.prefab.json, tests/slots.test.js): five named slots and an autosave in storage, each a record with a counter, name, chapter, play time, picture and the game's data, the cloud merge by counter, and the save / load screen with a dialog that names a save (the on-screen keyboard opens for a gamepad player). Needs core and keyboard. The game supplies what is saved and how a slot is loaded: docs/MENUS.md, "Save slots".; dialogue: Subtitles for spoken lines and hints: say(key, {sound, speaker}) in scripts/dialogue.js, drawn by a Captions entity. Its strings are the example lines captions.* (replace them with the game's own).; card: A choice card for events, stories and decisions (scripts/ui/card.js, prefabs/ui/card.prefab.json): a modal panel (Panel.modal) with a title, a wrapped body, choice buttons that each have a detail line, a choice greyed out with its reason, a result stage with Continue, and an option to hold the game clock (game.paused) while it is open. The mouse, the arrows and the pad reach only the card. tests/card.test.js checks it.; cameraRig: The strategy camera for a management or strategy game (scripts/camera_rig.js): put the script on the orthographic camera. Drag pan, keys, screen-edge pan, wheel zoom towards the cursor between zoomMin and zoomMax, and a limit from the bounds() of an entity; it ignores the wheel and drags over the UI. Adds the input actions camera_drag, camera_left, camera_right, camera_up, camera_down, camera_zoom_in and camera_zoom_out to factoria.json when the game has none of that name. tests/camera_rig.test.js checks it. |
+| `parts` | array | no | Which parts to add; default all. Parts and what they copy: core: Shared by every menu: the player's settings saved in storage (scripts/settings.js), the stack of panels that open over each other (scripts/ui/menu_stack.js), read-aloud for focused widgets (scripts/ui/read_aloud.js) and the menu.* strings.; options: The options panel: video, a colour filter, a graphics tab (quality of the screen effects, bloom, grain, vignette, chromatic aberration, outlines, HDR output), audio per bus, controls (rebinding every action of the game) and language, saved between runs (prefabs/ui/options.prefab.json, scripts/ui/options.js). The textSpeed part adds a dialogue "Text speed" row to the audio tab; addOptionsRow() of scripts/ui/options.js adds a row of the game to any tab.; textSpeed: A "Text speed" row in the options panel's audio tab (slow, normal, fast, instant), saved as settings.textSpeed in characters per second; the game's dialogue box reveals a line with Text.visibleCharacters = revealedCharacters(seconds) (scripts/settings.js). Without this part the options prefab has no such row (all parts by default).; credits: The credits panel that lists the software inside the runtime (scripts/ui/credits.js).; shop: The shop panel for in-app purchases (scripts/ui/shop.js) and the behaviour that pauses a level while the store's overlay is open (scripts/store_events.js). Needs the products in factoria.json "platform" (docs/PLATFORM.md).; ageGate: The age gate for a game whose ads reach children and adults (factoria.json platform.ads.audience "mixed"): a neutral birth-year screen (prefabs/ui/age_gate.prefab.json, scripts/ui/age_gate.js) that tells the ad network whether the player is under the age of consent with platform.ads.setUnderAge(). The main menu, when added too, opens it once, before any ad; its tests/age_gate.test.js checks it.; analyticsConsent: The analytics question for a game whose factoria.json has an "analytics" section (docs/ANALYTICS.md): a short screen (prefabs/ui/analytics_consent.prefab.json, scripts/ui/analytics_consent.js) that asks once whether the game may count anonymous usage, and gives the answer to analytics.setConsent(). Nothing is sent before it. The main menu, when added too, opens it on its first run; the Options switch (options part) changes the answer later. tests/analytics_consent.test.js checks it.; main-menu: The title screen: scenes/menu.scene.json (Play, Options, Credits, Quit, with the options and credits panels in it), scripts/main_menu.js, and tests/recipe.test.js, the kit's test, which drives the menu with a gamepad only. Needs core, options and credits. The Shop button and panel, the line that opens the age gate and the line that opens the analytics question are written only when the shop, ageGate and analyticsConsent parts are added too (all parts by default).; pause: The pause menu (prefabs/ui/pause.prefab.json, scripts/pause_menu.js): Resume, Options, Main menu. Put one entity with scripts/pause_menu.js in every level; adds the "pause" action to factoria.json when the game has none.; loading: The loading screen (scenes/loading.scene.json, scripts/loading.js): the main menu's Play button goes through it to the first level, which it loads in the background (scene.load with {async: true}) while it shows the real progress.; keyboard: The on-screen keyboard for a player without a physical one (prefabs/ui/keyboard.prefab.json, scripts/ui/keyboard.js): put one entity with the script in every scene that has a TextField.; slots: Save slots (scripts/slots.js, scripts/ui/slot_screen.js, prefabs/ui/slots.prefab.json, prefabs/ui/slot_dialog.prefab.json, tests/slots.test.js): five named slots and an autosave in storage, each a record with a counter, name, chapter, play time, picture and the game's data, the cloud merge by counter, and the save / load screen with a dialog that names a save (the on-screen keyboard opens for a gamepad player). Needs core and keyboard. The game supplies what is saved and how a slot is loaded: docs/MENUS.md, "Save slots".; dialogue: Subtitles for spoken lines and hints: say(key, {sound, speaker}) in scripts/dialogue.js, drawn by a Captions entity. Its strings are the example lines captions.* (replace them with the game's own).; card: A choice card for events, stories and decisions (scripts/ui/card.js, prefabs/ui/card.prefab.json): a modal panel (Panel.modal) with a title, a wrapped body, choice buttons that each have a detail line, a choice greyed out with its reason, a result stage with Continue, and an option to hold the game clock (game.paused) while it is open. The mouse, the arrows and the pad reach only the card. tests/card.test.js checks it.; cameraRig: The strategy camera for a management or strategy game (scripts/camera_rig.js): put the script on the orthographic camera. Drag pan, keys, screen-edge pan, wheel zoom towards the cursor between zoomMin and zoomMax, and a limit from the bounds() of an entity; it ignores the wheel and drags over the UI. Adds the input actions camera_drag, camera_left, camera_right, camera_up, camera_down, camera_zoom_in and camera_zoom_out to factoria.json when the game has none of that name. tests/camera_rig.test.js checks it. |
 | `overwrite` | boolean | no | Replace a kit file the game has changed (a file that is the same is left alone). Without it that file is left as it is and listed in `skipped`. String keys the game has are never replaced. Default false. |
 
 ### `project.create` (modifies state)
@@ -6879,6 +7159,22 @@ Uploads the folders project.export wrote (build/export/<game-slug>-windows, -mac
 
 ## game
 
+### `render.debug_view` (modifies state)
+
+Since 0.31.0.
+
+Show the depth or the normals of the depth and normal prepass, or the ambient occlusion, instead of the game picture, or report which view is on.
+
+Capabilities: read, state
+
+A way to look at the data the depth-based post effects (ssao, depth of field, fog...) read: `depth` paints the prepass depth as a grey (10 / (10 + distance), white next to the camera), `normals` the view-space normal as colours (a surface that faces the camera is blue), black where no opaque mesh was drawn; `ao` paints the ambient occlusion alone as a grey (white = open or no mesh, dark = occluded) over the camera's rectangle, with the camera's own PostProcess ssao settings or, when it has none, the defaults; `none` shows the game again. It is a look at the data for a person or an AI checking a scene, not an effect: it is not saved and a game does not set it. Without `view` it only reports the current one. Result: {view, previous}. The view shows from the next frame (game.step, then game.screenshot). Example: render.debug_view {"view":"depth"}
+
+The environment variable FA_RENDER_DEBUG_VIEW sets the first view at start. The picture changes only on a frame that draws the prepass (a post effect that reads the depth is on, see docs/RENDERING.md, "Depth and normals"). Errors: `invalid_arguments` for a `view` that is not none, depth, normals or ao (with a did-you-mean); `unavailable` without graphics (graphics=false). The same is Renderer::set_debug_view in C++.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `view` | string ["none","depth","normals","ao"] | no | none (the game picture), depth, normals or ao (the ambient occlusion). Omitted: report the current view. |
+
 ### `render.frame_graph`
 
 Since 0.28.0.
@@ -6887,9 +7183,9 @@ Where the last frame's time went, pass by pass: the frame graph with the CPU and
 
 Capabilities: read
 
-Returns the frame graph of the last frame the renderer drew and what each of its passes cost, so you can see which job and which pass makes a frame slow. Result: {source, backend, frame, profileFrames, graph, passTimes, jobTimes, gpu}. `passTimes` has one {name, job, cpuMs, gpuMs} per pass that ran, in order (cpuMs: time to record the pass on the CPU; gpuMs: GPU time, or -1 when not measured: D3D11 and desktop OpenGL only, while the profiler is on); `jobTimes` adds them per job; `gpu` says whether GPU times exist and why not. Compare passes with each other, not the decimals. Draws a frame first when none is current. The GPU times need the profiler: with `profileFrames` (default 8, 0 to 60) this command switches it on for the call when it is off and the backend can time the GPU, draws the current state up to that many times until the GPU times arrive, and puts the profiler back; `profileFrames: 0` is the call that only reads: it neither switches the profiler on nor draws a frame again (gpuMs is then -1 unless a profile or the editor's Profiler panel already runs). Example: render.frame_graph {"profileFrames":8}
+Returns the frame graph of the last frame the renderer drew and what each of its passes cost, so you can see which job and which pass makes a frame slow. Result: {source, backend, frame, profileFrames, graph, passTimes, jobTimes, gpu, postProcess}. `passTimes` has one {name, job, cpuMs, gpuMs} per pass that ran, in order (cpuMs: time to record the pass on the CPU; gpuMs: GPU time, or -1 when not measured: D3D11 and desktop OpenGL only, while the profiler is on); `jobTimes` adds them per job; `gpu` says whether GPU times exist and why not. Compare passes with each other, not the decimals. Draws a frame first when none is current. The GPU times need the profiler: with `profileFrames` (default 8, 0 to 60) this command switches it on for the call when it is off and the backend can time the GPU, draws the current state up to that many times until the GPU times arrive, and puts the profiler back; `profileFrames: 0` is the call that only reads: it neither switches the profiler on nor draws a frame again (gpuMs is then -1 unless a profile or the editor's Profiler panel already runs). Example: render.frame_graph {"profileFrames":8}
 
-`frame` is the engine's frame counter (the same number as game.state's `frame`) when the graph was read: the graph itself is the one of the last frame drawn. `profileFrames` is how many frames this call drew with the profiler switched on to get the GPU times (0 when it did not need to: the profiler was already on, or profileFrames was 0, or the backend has no GPU timer; `gpu.reason` says which). `source` is "frame" (a normal frame) or "capture" (the last graph was the picture of one entity's subtree, not a frame of the game: the next frame shows the game's own). `backend` is the graphics backend (metal, d3d11, glcore, gles3, dummy). READ `graph` like this: a JOB is one picture the frame draws: `camera:<i>` (a camera of the frame, in depth order), `screen` (the screen-space items of a split frame), `view:<n>` (a CameraView's image), `target:<name>` (a Camera.renderTarget texture) or `capture`; a PASS is named `<job>/<pass>` (`game` draws the world, `light-buffer` the 2D lights, `shadow` the shadow map, `bloom-*` the glow, `hud-over-bloom`, `color-filter`, `flip`). graph.resources are the images the passes read and write: `imported` ones are owned by the renderer and persist (the game image, a view's image, the light buffer, the shadow map); `transient` ones exist only inside the frame (the bloom levels) and share a physical target when their lifetimes do not overlap (`aliasSlot`, listed in graph.aliasSlots; `firstUse` and `lastUse` are positions in `order`). graph.passes lists every declared pass with what it reads and writes; a pass is `culled` when nothing reads what it writes and it has no side effect, so it did not run (graph.culled names them) and it has no time. graph.order is the order the live passes ran. graph.cycleBreaks lists passes that ran before a pass they waited for because two render targets show each other: the one that went first shows the other's picture of the PREVIOUS frame (empty is normal). `passTimes` has one entry per pass that ran, in `order`: {name, job, cpuMs, gpuMs}. cpuMs is the wall-clock time the pass took to record its GPU commands on the CPU (a pass that is cheap here can still be slow on the GPU). gpuMs is the GPU time of that pass in a recent frame (timer queries are read a few frames late and never waited for), or -1 when it was not measured; the numbers jitter from frame to frame, so compare passes against each other rather than reading the decimals. `jobTimes` adds the passes of each job: {job, passes, cpuMs, gpuMs} (gpuMs is -1 when no pass of the job has one). `gpu` says whether GPU times exist: {supported, measuring, reason, maxTimedPasses}: they exist on Direct3D 11 (Windows) and desktop OpenGL (Linux), only while the profiler is on (this command's profileFrames, perf.profile, play.report's profile, the editor's Profiler panel), and at most maxTimedPasses passes per frame are timed; `reason` says why there are none (Metal, GLES3 and WebGL2 have no timer queries here). The same pass times are in the profiler's `zones`. Like game.render_stats it draws a frame first when none was drawn since the last change (a headless run draws on demand). Errors: `unavailable` without graphics, or when no frame could be drawn, and `invalid_argument` for a profileFrames that is not an integer from 0 to 60. Example: render.frame_graph {"profileFrames":8}
+`frame` is the engine's frame counter (the same number as game.state's `frame`) when the graph was read: the graph itself is the one of the last frame drawn. `profileFrames` is how many frames this call drew with the profiler switched on to get the GPU times (0 when it did not need to: the profiler was already on, or profileFrames was 0, or the backend has no GPU timer; `gpu.reason` says which). `source` is "frame" (a normal frame) or "capture" (the last graph was the picture of one entity's subtree, not a frame of the game: the next frame shows the game's own). `backend` is the graphics backend (metal, d3d11, glcore, gles3, dummy). READ `graph` like this: a JOB is one picture the frame draws: `camera:<i>` (a camera of the frame, in depth order), `screen` (the screen-space items of a split frame), `view:<n>` (a CameraView's image), `target:<name>` (a Camera.renderTarget texture) or `capture`; a PASS is named `<job>/<pass>` (`game` draws the world, `light-buffer` the 2D lights, `shadow` the shadow map, `bloom-*` the glow, `hud-over-bloom`, `color-filter`, `flip`). graph.resources are the images the passes read and write: `imported` ones are owned by the renderer and persist (the game image, a view's image, the light buffer, the shadow map); `transient` ones exist only inside the frame (the bloom levels) and share a physical target when their lifetimes do not overlap (`aliasSlot`, listed in graph.aliasSlots; `firstUse` and `lastUse` are positions in `order`). graph.passes lists every declared pass with what it reads and writes; a pass is `culled` when nothing reads what it writes and it has no side effect, so it did not run (graph.culled names them) and it has no time. graph.order is the order the live passes ran. graph.cycleBreaks lists passes that ran before a pass they waited for because two render targets show each other: the one that went first shows the other's picture of the PREVIOUS frame (empty is normal). `passTimes` has one entry per pass that ran, in `order`: {name, job, cpuMs, gpuMs}. cpuMs is the wall-clock time the pass took to record its GPU commands on the CPU (a pass that is cheap here can still be slow on the GPU). gpuMs is the GPU time of that pass in a recent frame (timer queries are read a few frames late and never waited for), or -1 when it was not measured; the numbers jitter from frame to frame, so compare passes against each other rather than reading the decimals. `jobTimes` adds the passes of each job: {job, passes, cpuMs, gpuMs} (gpuMs is -1 when no pass of the job has one). `gpu` says whether GPU times exist: {supported, measuring, reason, maxTimedPasses}: they exist on Direct3D 11 (Windows) and desktop OpenGL (Linux), only while the profiler is on (this command's profileFrames, perf.profile, play.report's profile, the editor's Profiler panel), and at most maxTimedPasses passes per frame are timed; `reason` says why there are none (Metal, GLES3 and WebGL2 have no timer queries here). `postProcess` is the post-processing alone: {passes: [{name, job, cpuMs, gpuMs}], cpuMs, gpuMs, gpuStatus, gpuReason, gpuPassesTimed, gpuPartial, note}, the passes named bloom-*, exposure-*, post and the other effect passes (prepass and sprite-coverage are not in it), with their summed times. `gpuMs` is null, `gpuStatus` "unavailable" and `gpuReason` the reason (the `gpu.reason` text, which says when the profiler is off, or that the frame has no post pass) when no GPU time exists, never 0. When only some passes came back with a time, `gpuMs` is their sum, `gpuPassesTimed` counts them and `gpuPartial` is true: a lower bound, not the whole cost. The effects folded into the single `post` pass (vignette, grain, grading, sharpen, outline...) are not timed one by one: `post` is their total, and no per-effect estimate is made. The same pass times are in the profiler's `zones`. Like game.render_stats it draws a frame first when none was drawn since the last change (a headless run draws on demand). Errors: `unavailable` without graphics, or when no frame could be drawn, and `invalid_argument` for a profileFrames that is not an integer from 0 to 60. Example: render.frame_graph {"profileFrames":8}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -6914,6 +7210,18 @@ Draws the picture as it is now and reads the pixels along the segment `from` -> 
 | `channel` | string ["luminance","red","green","blue"] | no | What to measure: Rec. 709 luminance or one colour channel of the sRGB bytes. Default "luminance". |
 | `scale` | number | no | Render scale to sample at; higher finds finer gaps. Default 1. |
 
+### `render.output`
+
+Since 0.31.0.
+
+What the game window shows: the standard range or HDR, in which encoding, and what the display can do.
+
+Capabilities: read
+
+The window's swapchain switches to HDR when SceneSettings.hdrOutput is "auto", the display the window is on can show HDR and the renderer writes that encoding (docs/RENDERING.md, "HDR output"); this command says what happened and why. Returns {hdrActive, encoding, swapchainFormat, requested, paperWhiteNits, maxNits, headroom, status, display}. Example: render.output {}
+
+`encoding` is "sdr" (8-bit sRGB), "edr" (macOS and iOS: 16-bit float in extended linear sRGB, 1.0 = the display's white), "scRGB" (Windows: 16-bit float, linear, 1.0 = 80 nits) or "hdr10" (Windows: 10-bit ST 2084 PQ in Rec.2020). Only the tonemap of a PostProcess goes above paper white; while the picture stays within it (no exposure or tonemap, a colour filter, an 8-bit GPU) `status` says so. `swapchainFormat` is "BGRA8", "RGBA16F" or "RGB10A2" ("" without a window or before the first frame). `requested`: the current scene's hdrOutput is auto. `headroom`: how many times brighter than paper white the output can go now (the screen's current EDR headroom; maxNits / paperWhiteNits in scRGB and HDR10; 1 in sdr), rounded to 2 decimals. `status`: one sentence, what is shown or why the window stays in the standard range (hdrOutput off, Windows' HDR switch off, a screen without EDR, the editor, a platform without HDR output). `display`: {known, hdr, name, offers: [encodings], maxNits, minNits, maxFullFrameNits, maxHeadroom, headroom, why}; nits are 0 where the platform does not report them (macOS, iOS), headrooms are 1 outside Apple. The answer is the one of the last frame the window presented (the display is asked once per frame: moving the window to another monitor or switching HDR in the OS settings shows on the next one). Headless runs, graphics=false, Linux, Android and the web answer sdr with display.known false or the platform's reason. The same answer is Renderer::output_info() in C++.
+
 ### `render.pick`
 
 Since 0.4.0.
@@ -6930,6 +7238,22 @@ Lists the 2D visuals (Sprite, Shape2D, Text, Tilemap, UI widgets) whose drawn bo
 |---|---|---|---|
 | `position` | array | yes | [x, y] in design pixels (origin top-left). |
 | `max` | integer | no | At most this many hits. Default 20. |
+
+### `render.supports`
+
+Since 0.31.0.
+
+What this renderer can do on this graphics backend and GPU: float targets, linear colour, HDR output, post effects.
+
+Capabilities: read
+
+Answers from the renderer's table per backend (GL, GLES3, WebGL2, D3D11, Metal, headless) and from what the GPU reports, so a game or a tool can ask before it relies on a feature. Without `feature`: {backend, backendLabel, features: [{name, kind, supported, status, doc, backends}]}; with `feature`: {feature, backend, supported, status}. A feature the renderer does not draw is false with the status "planned (<milestone>)" (none is today): this command never claims what is not drawn. Example: render.supports {"feature":"floatTargets"}
+
+`kind` is capability (a fact of the GPU: floatTargets, r11g11b10, sampledDepth, computeShaders), engine (linearColor, hdrOutput) or effect (one per PostProcess effect: ssao, ssr, fog, sunShafts, exposure, depthOfField, motionBlur, radialBlur, lensDistortion, chromaticAberration, bloom, tonemap, colorGrading, vignette, sharpen, outline, pixelate, posterize, filmGrain, colorFilter); `backends` says on which backends the feature can ever run. `status` is "supported", "planned (<milestone>)" for an engine feature or effect the renderer does not draw (none today), or one sentence that names the backend or the missing GPU capability. hdrOutput is true when the display the window showed its last frame on can show HDR in an encoding the renderer writes (EDR on Metal, scRGB or HDR10 on D3D11), whatever the scene asks; its status otherwise says why (the display or the OS setting); render.output says what the window shows. The headless dummy backend (no GPU) answers false to everything; a headless run with Mesa/EGL is a GL or GLES3 backend like any other. Errors: `invalid_argument` for a `feature` that is not in the list (with a did-you-mean); `unavailable` without graphics (graphics=false). The same answer is Renderer::supports(name) in C++.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `feature` | string | no | One feature name (floatTargets, r11g11b10, sampledDepth, computeShaders, linearColor, hdrOutput, or a post effect such as bloom or ssao). Omitted: every feature. |
 
 ## review
 
@@ -11376,6 +11700,163 @@ declare module "factoria" {
   }
 
   /**
+   * Which camera a transient screen effect (camera.shockwave, heatHaze, radialBlur, flash, fadeOut, fadeIn) is drawn on.
+   * @since 0.31.0
+   */
+  export interface ScreenFxTarget {
+    /**
+     * The camera that draws the effect, for example one half of a split screen. Default: every camera.
+     * @since 0.31.0
+     */
+    camera?: Entity | string;
+  }
+
+  /**
+   * Options of camera.shockwave(opts) and of the "shockwave" feel action. Strength, radius and width are fractions of the picture's height, so the ring looks the same at every resolution.
+   * @since 0.31.0
+   */
+  export interface ShockwaveOptions {
+    /**
+     * The centre of the ring as fractions of the camera's rectangle: (0.5, 0.5) is the middle (default), (0, 0) the top-left corner. Values outside 0..1 are a centre off the screen (up to +-10).
+     * @since 0.31.0
+     */
+    screen?: Vec2Like;
+    /**
+     * The centre as a world point; each camera projects it itself, and a point behind a perspective camera draws nothing. Wins over `screen`.
+     * @since 0.31.0
+     */
+    world?: Vec3Like;
+    /**
+     * Seconds until the ring is gone (default 0.6, 0.05 to 60).
+     * @since 0.31.0
+     */
+    duration?: number;
+    /**
+     * How far the ring pushes the picture, 0..0.5 (default 0.04); a quarter with reduceMotion on.
+     * @since 0.31.0
+     */
+    strength?: number;
+    /**
+     * The radius the ring reaches (default 0.6, 0.01 to 4). It leaves the centre fast and slows down.
+     * @since 0.31.0
+     */
+    radius?: number;
+    /**
+     * The width of the ring (default 0.1, 0.005 to 2).
+     * @since 0.31.0
+     */
+    width?: number;
+  }
+
+  /**
+   * Options of camera.heatHaze(opts) and of the "heatHaze" feel action.
+   * @since 0.31.0
+   */
+  export interface HeatHazeOptions {
+    /**
+     * The part of the camera's rectangle that ripples, [x, y, w, h] in fractions with (0, 0) top-left (default [0, 0, 1, 1], all of it). The edge is soft.
+     * @since 0.31.0
+     */
+    region?: RectLike;
+    /**
+     * Seconds (default 2, 0.05 to 600). The haze fades in and out over 0.15 s at its ends.
+     * @since 0.31.0
+     */
+    duration?: number;
+    /**
+     * How far the picture is pushed, as a fraction of its height, 0..0.1 (default 0.004, a gentle shimmer); a quarter with reduceMotion on.
+     * @since 0.31.0
+     */
+    strength?: number;
+    /**
+     * Ripples per picture height (default 10, 0.5 to 200).
+     * @since 0.31.0
+     */
+    frequency?: number;
+    /**
+     * Cycles per second the ripples travel upwards (default 1, 0 to 20).
+     * @since 0.31.0
+     */
+    speed?: number;
+  }
+
+  /**
+   * Options of camera.radialBlur(opts) and of the "radialBlur" feel action: a burst of the effect PostProcess.radialBlurEnabled draws all the time.
+   * @since 0.31.0
+   */
+  export interface RadialBlurOptions {
+    /**
+     * The centre the streaks leave, fractions of the camera's rectangle (default [0.5, 0.5]).
+     * @since 0.31.0
+     */
+    screen?: Vec2Like;
+    /**
+     * The centre as a world point; wins over `screen`.
+     * @since 0.31.0
+     */
+    world?: Vec3Like;
+    /**
+     * Seconds until the blur is gone (default 0.35, 0.01 to 60); the intensity dies out quadratically.
+     * @since 0.31.0
+     */
+    duration?: number;
+    /**
+     * 0..1, the blur at the start, same scale as PostProcess.radialBlurIntensity (default 0.4); a quarter with reduceMotion on.
+     * @since 0.31.0
+     */
+    intensity?: number;
+    /**
+     * Taps along each streak, 4 to 32 (default 12).
+     * @since 0.31.0
+     */
+    samples?: number;
+  }
+
+  /**
+   * Options of camera.flash(opts) and of the "screenFlash" feel action (entity.flash is FlashOptions).
+   * @since 0.31.0
+   */
+  export interface ScreenFlashOptions {
+    /**
+     * The colour laid over the picture (default white); alpha is ignored.
+     * @since 0.31.0
+     */
+    color?: Color | string | [number, number, number, number?];
+    /**
+     * Seconds (default 0.15, 0.01 to 60).
+     * @since 0.31.0
+     */
+    duration?: number;
+    /**
+     * 0..1, how much of the colour covers the picture at the start (default 1). With reducedEffects on it is capped at 0.35.
+     * @since 0.31.0
+     */
+    strength?: number;
+    /**
+     * true (default): from `strength` down to 0; false: `strength` for the whole duration, then off. Always true with reducedEffects on.
+     * @since 0.31.0
+     */
+    fade?: boolean;
+  }
+
+  /**
+   * Options of camera.fadeOut(opts) and camera.fadeIn(opts), and of the "fade" feel action (which takes `direction`: "out" or "in").
+   * @since 0.31.0
+   */
+  export interface ScreenFadeOptions {
+    /**
+     * The colour faded to or from (default black); alpha is ignored.
+     * @since 0.31.0
+     */
+    color?: Color | string | [number, number, number, number?];
+    /**
+     * Seconds, 0 to 600 (default 0.5); 0 is instant.
+     * @since 0.31.0
+     */
+    duration?: number;
+  }
+
+  /**
    * Options of entity.flash(opts) and of the "flash" feel action.
    * @since 0.17.0
    */
@@ -11523,10 +12004,10 @@ declare module "factoria" {
   }
 
   /**
-   * A game feel effect as data: what the `feel` of Animator, SpriteAnimator and clip-file events, the feel.* commands and feel.do run. Same names as the options of the matching function; "push" is "knockback", "spawn" and "sound" have no function of their own (docs/GAME_FEEL.md, "Effects as data").
+   * A game feel effect as data: what the `feel` of Animator, SpriteAnimator and clip-file events, the feel.* commands and feel.do run. Same names as the options of the matching function; "push" is "knockback", "spawn" and "sound" have no function of their own, and the five screen effects ("shockwave", "heatHaze", "radialBlur", "screenFlash", "fade") are camera.shockwave ... camera.fadeIn (docs/GAME_FEEL.md, "Effects as data").
    * @since 0.17.0
    */
-  export type FeelAction = { action: "shake"; amount?: number } & ShakeOptions | { action: "hitStop"; duration?: number } & HitStopOptions | { action: "flash" } & FlashOptions | { action: "knockback" | "push"; direction?: Vec3Like } & KnockbackOptions | { action: "squash" } & SquashOptions | { action: "spawn" } & FeelSpawnOptions | { action: "sound" } & FeelSoundOptions;
+  export type FeelAction = { action: "shake"; amount?: number } & ShakeOptions | { action: "hitStop"; duration?: number } & HitStopOptions | { action: "flash" } & FlashOptions | { action: "knockback" | "push"; direction?: Vec3Like } & KnockbackOptions | { action: "squash" } & SquashOptions | { action: "spawn" } & FeelSpawnOptions | { action: "sound" } & FeelSoundOptions | { action: "shockwave" } & ShockwaveOptions | { action: "heatHaze" } & HeatHazeOptions | { action: "radialBlur" } & RadialBlurOptions | { action: "screenFlash" } & ScreenFlashOptions | { action: "fade"; direction?: "out" | "in" } & ScreenFadeOptions;
 
   /**
    * Game feel settings and the data form of the effects (docs/GAME_FEEL.md). The effects themselves are camera.shake, time.hitStop, entity.flash, entity.knockback and entity.squash.
@@ -11544,12 +12025,12 @@ declare module "factoria" {
      */
     reducedEffects: boolean;
     /**
-     * Runs one effect given as data on `target` (the entity of flash, knockback, squash, spawn and sound; the camera of shake, default camera.main; spawn without a target puts the effect at `offset`). Unknown keys and wrong types throw with a "did you mean".
+     * Runs one effect given as data on `target` (the entity of flash, knockback, squash, spawn and sound; the camera of shake, default camera.main, and of the screen effects, default every camera; spawn without a target puts the effect at `offset`). Unknown keys and wrong types throw with a "did you mean".
      * @since 0.17.0
      */
     do(action: FeelAction, target?: Entity | string): void;
     /**
-     * Ends the flash, squash, shake and knockback of `target` at once; without an argument every effect of the scene, hit-stops included.
+     * Ends the flash, squash, shake and knockback of `target` at once (and, for a camera, the screen effects drawn on it, a held fade included); without an argument every effect of the scene, hit-stops and screen effects included.
      * @since 0.17.0
      */
     cancel(target?: Entity | string): void;
@@ -11656,6 +12137,36 @@ declare module "factoria" {
      * @since 0.17.0
      */
     shake(amount?: number, opts?: ShakeOptions): void;
+    /**
+     * Screen shockwave: a ring that leaves a point and bends the picture as it grows, drawn by the camera's post-processing pass over the finished frame (no PostProcess component needed). It runs on the game clock (time.scale 0 holds it), is deterministic, and shows on every camera unless opts.camera names one (a split screen). At most 16 screen effects are alive at once and a camera draws the newest 4 shockwaves; starting one more never fails, the oldest ends. With reduceMotion on the strength is a quarter. Example: camera.shockwave({ screen: [0.5, 0.4], strength: 0.05 });
+     * @since 0.31.0
+     */
+    shockwave(opts?: ShockwaveOptions & ScreenFxTarget): void;
+    /**
+     * Heat haze: a ripple that shimmers a region of the picture for opts.duration seconds, fading in and out at its ends. Same rules as shockwave (game clock, per camera, bounded: a camera draws the newest 2). Example: camera.heatHaze({ region: [0, 0.6, 1, 0.4], duration: 3 });
+     * @since 0.31.0
+     */
+    heatHaze(opts?: HeatHazeOptions & ScreenFxTarget): void;
+    /**
+     * A radial blur pulse from a point that dies out over opts.duration, for a speed burst or a heavy hit. When the camera's PostProcess has radialBlurEnabled the stronger of the two blurs is drawn. Same rules as shockwave. Example: camera.radialBlur({ intensity: 0.5, duration: 0.4 });
+     * @since 0.31.0
+     */
+    radialBlur(opts?: RadialBlurOptions & ScreenFxTarget): void;
+    /**
+     * Flashes the whole screen in a colour over the finished picture (before the colour filter): a damage or pickup flash. Not entity.flash, which flashes one entity. With reducedEffects on the strength is capped at 0.35 and it always fades. Example: camera.flash({ color: "#ff0000", strength: 0.4, duration: 0.2 });
+     * @since 0.31.0
+     */
+    flash(opts?: ScreenFlashOptions & ScreenFxTarget): void;
+    /**
+     * Fades the picture to a colour (default black) over opts.duration and HOLDS it until camera.fadeIn or feel.cancel(camera); a scene load clears it. A new fade on the camera continues from the opacity the old one had reached. Example: camera.fadeOut({ duration: 0.8 });
+     * @since 0.31.0
+     */
+    fadeOut(opts?: ScreenFadeOptions & ScreenFxTarget): void;
+    /**
+     * Fades from a colour (default black) back to the picture. With no fade running it starts from the full colour, which is the way to open a scene. Example: camera.fadeIn({ duration: 0.6 });
+     * @since 0.31.0
+     */
+    fadeIn(opts?: ScreenFadeOptions & ScreenFxTarget): void;
   }
 
   /**
@@ -15597,7 +16108,7 @@ declare module "factoria" {
      */
     depth: number;
     /**
-     * The part of the screen this camera draws into: [x, y, width, height], each from 0 to 1, with [0, 0] the TOP-LEFT corner and +Y down (like screen space). The fractions count the GAME TARGET (what `viewportSpace` says): not the pixels of the window, whose letterbox bars (a window with another shape than the game) are outside it. [0, 0, 1, 1] (default) is the whole screen, [0, 0, 0.5, 1] the left half, [0.5, 0, 0.5, 1] the right half, [0, 0, 0.5, 0.5] the top-left quarter, [0.7, 0.05, 0.25, 0.25] a minimap inset. x + width and y + height must not pass 1 and the size must be above 0, or the scene fails to load. The aspect ratio follows the rectangle: an orthographic camera with orthoSize 0 keeps one world unit per design pixel (it sees half the width in a half-width viewport); with an orthoSize it keeps the same visible height, so set it equal on the cameras of a split screen to give every player the same zoom. Each camera is culled and lit on its own, so a Light2D only lights the cameras it reaches. The post effects (bloom, colorFilter, bloomScreenSpace) are applied once to the finished frame with the settings of the lowest-depth camera; the other cameras' values are ignored. UI and screen-space items cover the whole screen, not one viewport. camera.screenToWorld(point, camera) and camera.at(point) tell which camera is under a screen point. To show a camera INSIDE a widget of the UI instead (an item on a stage in a menu, a map in a panel) give it a CameraView: that fits the rectangle of the widget, with the clipping, layering and mirroring of the UI, and ignores this field.
+     * The part of the screen this camera draws into: [x, y, width, height], each from 0 to 1, with [0, 0] the TOP-LEFT corner and +Y down (like screen space). The fractions count the GAME TARGET (what `viewportSpace` says): not the pixels of the window, whose letterbox bars (a window with another shape than the game) are outside it. [0, 0, 1, 1] (default) is the whole screen, [0, 0, 0.5, 1] the left half, [0.5, 0, 0.5, 1] the right half, [0, 0, 0.5, 0.5] the top-left quarter, [0.7, 0.05, 0.25, 0.25] a minimap inset. x + width and y + height must not pass 1 and the size must be above 0, or the scene fails to load. The aspect ratio follows the rectangle: an orthographic camera with orthoSize 0 keeps one world unit per design pixel (it sees half the width in a half-width viewport); with an orthoSize it keeps the same visible height, so set it equal on the cameras of a split screen to give every player the same zoom. Each camera is culled and lit on its own, so a Light2D only lights the cameras it reaches. The post-processing stack of a camera (exposure, tonemap and the screen effects, outline included) runs over that camera's own rectangle; only bloom, bloomScreenSpace and colorFilter are applied once to the finished frame, with the settings of the lowest-depth camera that draws, and the other cameras' values of those are ignored. UI and screen-space items cover the whole screen, not one viewport. camera.screenToWorld(point, camera) and camera.at(point) tell which camera is under a screen point. To show a camera INSIDE a widget of the UI instead (an item on a stage in a menu, a map in a panel) give it a CameraView: that fits the rectangle of the widget, with the clipping, layering and mirroring of the UI, and ignores this field.
      * @since 0.3.0
      */
     get viewport(): Rect;
@@ -15619,27 +16130,33 @@ declare module "factoria" {
     studioIntensity: number;
     /**
      * Bloom (glow) post-process: bright pixels bleed light into their surroundings, the neon / laser / fire / explosion look. Works for 2D and 3D cameras, is applied to the whole finished frame (screen-space HUD included, unless bloomScreenSpace is false) and shows in screenshots. Combine with blend "additive" on Sprite, Shape2D or ParticleEmitter instead of hand-drawing blurred halo sprites. Off by default; costs a few extra render passes per frame (cheap on a GPU, about 5 ms at 1280x720 on the software renderer used for headless runs). Tune with bloomThreshold, bloomIntensity and bloomRadius; keep the HUD crisp with bloomScreenSpace. With several cameras the bloom settings of the lowest-depth camera apply to the whole frame.
+     * @deprecated 0.31.0: use `PostProcess.bloomEnabled`. Removed in 0.33.0. Add a PostProcess to the camera's entity and switch bloomEnabled on; Camera.bloom still draws the same bloom (a hard knee, no lens dirt).
      */
     bloom: boolean;
     /**
      * Only used when bloom is true. Brightness (0..1, the largest of a pixel's r, g, b) at which glow starts: pixels at or below it do not glow, the glow ramps up linearly to full strength at 1 (white / fully saturated). Lower it (0.3-0.6) to make dim colors glow too; raise it (0.9+) so only the brightest pixels do (values above 0.99 behave like 0.99).
+     * @deprecated 0.31.0: use `PostProcess.bloomThreshold`. Removed in 0.33.0. Same meaning and range; PostProcess.bloomKnee softens the start of the glow.
      */
     bloomThreshold: number;
     /**
      * Only used when bloom is true. Strength of the glow that is added back onto the frame: 0 = none, 1 = the blurred bright pixels are added once, 2 = twice (brighter, saturates sooner). Limited to 0..10.
+     * @deprecated 0.31.0: use `PostProcess.bloomIntensity`. Removed in 0.33.0. Same meaning and range.
      */
     bloomIntensity: number;
     /**
      * Only used when bloom is true. How far the glow reaches, in design pixels (1280x720 by default): a gaussian blur whose visible halo fades out roughly this far from the bright pixels. Values below ~5 behave like 5 (the glow is computed at reduced resolution, and larger radii at even lower resolution, so wide glows are softer). Limited to 1..128.
+     * @deprecated 0.31.0: use `PostProcess.bloomRadius`. Removed in 0.33.0. Same meaning and range.
      */
     bloomRadius: number;
     /**
      * Only used when bloom is true. true (default): the whole finished frame glows, screen-space items (Sprite, Shape2D, Text with space "screen", and debug text) included, so a bright neon title or HUD icon glows too. false: screen-space items are drawn AFTER the bloom, so the HUD (score, lives, menus) stays crisp and never glows while the world still does. Set it to false whenever the HUD has white or bright text over a glowing world; leave it true to make a screen-space title or logo glow.
+     * @deprecated 0.31.0: use `PostProcess.bloomScreenSpace`. Removed in 0.33.0. Same meaning: whether the screen-space UI glows too.
      */
     bloomScreenSpace: boolean;
     /**
      * Accessibility colour filter, the LAST post-process pass: it is applied to the whole finished frame (HUD included, after the bloom) on every graphics backend, so screenshots, factoria run --screenshot-at and --record-video show it too. A game's options screen sets it from the player's choice (it is not saved by itself). none (default): no pass, no cost. greyscale: Rec. 709 luminance in linear light. highContrast: contrast stretched 1.8x around mid grey, clipped. protanopia, deuteranopia, tritanopia: a daltonize correction for a player who lacks that cone: the loss is estimated with the Machado 2009 matrix (severity 1.0) and the lost information is shifted into the channels the player still sees (Fidaner's method), so colours that collapse together (red vs green) differ in brightness or in the remaining hue. To CHECK a game without changing what the player sees, use the `simulate` option of game.screenshot / --screenshot-simulate instead. With several cameras the lowest-depth camera's filter covers the whole frame.
      * @since 0.2.0
+     * @deprecated 0.31.0: use `PostProcess.colorFilterMode`. Removed in 0.33.0. Switch PostProcess.colorFilterEnabled on and set colorFilterMode to the same value.
      */
     colorFilter: "none" | "greyscale" | "highContrast" | "protanopia" | "deuteranopia" | "tritanopia";
     /**
@@ -19869,6 +20386,555 @@ declare module "factoria" {
     enabled: boolean;
   }
   /**
+   * A stack of screen effects (tonemap, exposure, bloom, colour grading, vignette, chromatic aberration, film grain, lens distortion, sharpen, outline, pixelate, posterize, ambient occlusion, depth of field, motion blur, reflections, fog, sun shafts, radial blur, colour filter), every one off by default. On the entity of a Camera it is that camera's own stack. On any other entity it is a VOLUME: shape "global" applies to every camera, "box", "circle" (2D, x and y) and "sphere" to the cameras whose position is inside it or within blendDistance of it, blended into the camera's stack by priority (a higher one wins) and by weight. Numbers and colours are interpolated by the volume's influence; switches, modes, textures and curves switch over when the influence reaches 0.5. A volume only adds to or changes the effects it switches on: to remove an effect inside a volume switch it on with its neutral values (bloomIntensity 0, vignetteIntensity 0, ...). Each effect has a `<effect>Enabled` switch and parameters named `<effect><Parameter>`. The effects run in a fixed order: ssao, ssr, fog, sunShafts, exposure, depthOfField, motionBlur, radialBlur, lensDistortion, chromaticAberration, bloom (all on HDR colour), tonemap, colorGrading, vignette, sharpen, outline, pixelate, posterize, filmGrain, colorFilter (the last pass). Every effect is drawn; render.supports {"feature": "<effect>"} says whether this backend and GPU can run it (an effect needs float targets, a depth image or both) and why not. The lens distortion, the chromatic aberration, the colour grading, the vignette, the sharpen, the outline, the pixelation, the posterization and the film grain are drawn in the final pass, after the bloom: the lens and the aberration bend how the scene is read (in scene colour, before the exposure), the rest work on the display picture (what the screen shows, paper white = 1, the same on an SDR and an HDR output) and none of them clips above white. The ambient occlusion, the reflections, the fog, the sun shafts, the depth of field and the motion blur read the depth prepass and are drawn on the scene colour, before the bloom and the final pass. Every camera draws its own stack over its own part of the picture (a split screen: each half has its own); the bloom and the colour filter are one per frame, the ones of the camera that draws first. Camera.bloom* and Camera.colorFilter are deprecated and keep working unchanged: they stand in for a PostProcess with bloom and the colour filter. A frame without any stack costs nothing: no pass, no target. Screen-space items (the HUD) are drawn over the finished picture, so exposure, tonemap and the output encode never touch them; the colour filter does. The ambient occlusion (ssao) darkens the opaque 3D meshes where they meet, inside the main pass before the blended geometry, so blended meshes, sprites, particles, text and the HUD are never darkened.
+   * 
+   * Category: Camera
+   * @since 0.31.0
+   */
+  export interface PostProcessComponent {
+    /**
+     * false: this component contributes nothing (all its effects are ignored), without losing its values.
+     * @since 0.31.0
+     */
+    enabled: boolean;
+    /**
+     * Volume shape (an entity without a Camera). global: every camera, size and blendDistance are ignored. box: the cameras inside the box (an orthographic camera is tested in x and y only; a perspective one in x, y and z), turned and scaled with the entity. circle: a disc in x and y, radius size.x. sphere: a ball, radius size.x. On an entity with a Camera the shape is ignored: it is that camera's own stack.
+     * @since 0.31.0
+     */
+    shape: "global" | "box" | "circle" | "sphere";
+    /**
+     * Box: full width, height and depth in world units (before the entity's scale). circle and sphere: size.x is the radius. Pixels in a 2D game, metres in 3D.
+     * @since 0.31.0
+     */
+    get size(): Vec3;
+    set size(value: Vec3Like);
+    /**
+     * World units outside the shape over which the influence fades from 1 (at the edge) to 0. 0 = a hard edge. A camera inside the shape always has influence 1.
+     * @since 0.31.0
+     */
+    blendDistance: number;
+    /**
+     * Order of the volumes: a volume with a higher priority is applied later, so it wins where two disagree. Equal priorities are applied in the order of the entity ids, so a result never changes between runs.
+     * @since 0.31.0
+     */
+    priority: number;
+    /**
+     * 0..1: the overall strength of this component, multiplied with its distance influence. 0 = as if it were disabled.
+     * @since 0.31.0
+     */
+    weight: number;
+    /**
+     * Switches the tonemap on: it brings the HDR colour of a linear scene (SceneSettings.colorSpace "linear") to the range of the display. Cost: none of its own: it is folded into the one final pass that also does the exposure, the colour filter and the encode for the display (one full-screen pass).
+     * @since 0.31.0
+     */
+    tonemapEnabled: boolean;
+    /**
+     * Only used when tonemapEnabled. none: clamp at white. neutral (default): keeps colours as they are up to 0.76 and rolls the brightest channel off above it, desaturating what it compressed (the curve of Khronos PBR Neutral above its shoulder, without that curve's black offset). aces: the filmic curve with high contrast and saturated highlights. agx: a filmic curve that desaturates very bright colours toward white. reinhard: the simplest, flattest curve.
+     * @since 0.31.0
+     */
+    tonemapMode: "none" | "neutral" | "aces" | "agx" | "reinhard";
+    /**
+     * Switches the exposure on: the brightness the picture is scaled to before the tonemap. Cost: manual exposure is folded into the one final pass (free); auto exposure adds two tiny passes (a 32x32 brightness reduction and a 1x1 adaptation, no read back to the CPU) and needs float render targets, else it stays at exposureEv.
+     * @since 0.31.0
+     */
+    exposureEnabled: boolean;
+    /**
+     * manual: the picture is scaled by exposureEv. auto: the exposure follows the measured brightness of the scene (adaptation speed exposureAdaptationSpeed, between exposureMinEv and exposureMaxEv), plus exposureEv.
+     * @since 0.31.0
+     */
+    exposureMode: "manual" | "auto";
+    /**
+     * Exposure in stops (each +1 doubles the brightness). In auto mode it is a compensation added to what is measured.
+     * @since 0.31.0
+     */
+    exposureEv: number;
+    /**
+     * Auto exposure only: the lowest exposure the adaptation may choose, in stops.
+     * @since 0.31.0
+     */
+    exposureMinEv: number;
+    /**
+     * Auto exposure only: the highest exposure the adaptation may choose, in stops.
+     * @since 0.31.0
+     */
+    exposureMaxEv: number;
+    /**
+     * Auto exposure only: how fast the exposure follows the scene, per second (2 = most of the way in a second); higher adapts faster.
+     * @since 0.31.0
+     */
+    exposureAdaptationSpeed: number;
+    /**
+     * Switches the bloom on: a glow around bright pixels. The same effect as Camera.bloom, moved into the stack. Cost: a bright pass, a few down-sampling and blur passes at reduced resolution (lower for a wider bloomRadius) and one composite pass over the frame; see docs/RENDERING.md for the measured cost.
+     * @since 0.31.0
+     */
+    bloomEnabled: boolean;
+    /**
+     * Only used when bloomEnabled. Strength of the glow added back, 0..10 (0 = none).
+     * @since 0.31.0
+     */
+    bloomIntensity: number;
+    /**
+     * Only used when bloomEnabled. Brightness (the largest of r, g, b) where the glow starts; the glow reaches full strength at 1 (or 0.01 above the threshold when that is higher). In a linear scene it can be above 1.
+     * @since 0.31.0
+     */
+    bloomThreshold: number;
+    /**
+     * Only used when bloomEnabled. 0..1: how softly the glow starts above the threshold (0 = a hard cut, 1 = a wide ramp).
+     * @since 0.31.0
+     */
+    bloomKnee: number;
+    /**
+     * Only used when bloomEnabled. How far the glow reaches, in design pixels (1..128).
+     * @since 0.31.0
+     */
+    bloomRadius: number;
+    /**
+     * Only used when bloomEnabled. true: the HUD glows too. false: screen-space items are drawn after the bloom and stay crisp. When the final pass runs (exposure, tonemap, or a colour filter in a linear scene) the HUD is drawn after it and never glows, whatever this says.
+     * @since 0.31.0
+     */
+    bloomScreenSpace: boolean;
+    /**
+     * Only used when bloomEnabled. A texture that dirties the glow like smudges on a lens (the glow shows it where the texture is bright). Empty = none. (asset path: texture)
+     * @since 0.31.0
+     */
+    bloomLensDirt: string;
+    /**
+     * Only used with a bloomLensDirt texture. How much the dirt shows in the glow, 0..10.
+     * @since 0.31.0
+     */
+    bloomLensDirtIntensity: number;
+    /**
+     * Switches the colour grading on: white balance, lift/gamma/gain, contrast, saturation, hue shift and a .cube LUT, applied to the display picture (what the screen shows) in that order, without clipping above white. Cost: part of the final pass.
+     * @since 0.31.0
+     */
+    colorGradingEnabled: boolean;
+    /**
+     * Only used when colorGradingEnabled. Colour added to the shadows (rgb, -1..1; alpha ignored): full in black, fading to nothing at white. [0, 0, 0] = unchanged; a blue tint here gives cold shadows.
+     * @since 0.31.0
+     */
+    get colorGradingLift(): Color;
+    set colorGradingLift(value: ColorLike);
+    /**
+     * Only used when colorGradingEnabled. Midtones per channel (rgb, 0.1..10; alpha ignored). [1, 1, 1] = unchanged; above 1 lightens that channel's midtones (black and white stay).
+     * @since 0.31.0
+     */
+    get colorGradingGamma(): Color;
+    set colorGradingGamma(value: ColorLike);
+    /**
+     * Only used when colorGradingEnabled. Multiplies the highlights per channel (rgb, 0..8; alpha ignored). [1, 1, 1] = unchanged.
+     * @since 0.31.0
+     */
+    get colorGradingGain(): Color;
+    set colorGradingGain(value: ColorLike);
+    /**
+     * Only used when colorGradingEnabled. White balance, -100 (cooler, blue) to 100 (warmer, orange): at +-100 red and blue gain 20% against each other, the brightness is kept. 0 = unchanged.
+     * @since 0.31.0
+     */
+    colorGradingTemperature: number;
+    /**
+     * Only used when colorGradingEnabled. White balance, -100 (green) to 100 (magenta), the same strength as the temperature. 0 = unchanged.
+     * @since 0.31.0
+     */
+    colorGradingTint: number;
+    /**
+     * Only used when colorGradingEnabled. 0 = greyscale, 1 = unchanged, above 1 more vivid.
+     * @since 0.31.0
+     */
+    colorGradingSaturation: number;
+    /**
+     * Only used when colorGradingEnabled. 1 = unchanged, above 1 more contrast around mid grey (display value 0.5), below 1 flatter.
+     * @since 0.31.0
+     */
+    colorGradingContrast: number;
+    /**
+     * Only used when colorGradingEnabled. Degrees, -180..180: turns every hue around the grey axis (red toward green for a positive shift). 0 = unchanged.
+     * @since 0.31.0
+     */
+    colorGradingHueShift: number;
+    /**
+     * NOT DRAWN YET (the values are stored; render.supports colorGrading lists what is drawn). A tone curve on all channels as a flat list of points [x0, y0, x1, y1, ...], x and y in 0..1 with x ascending (input brightness to output brightness). Empty = the straight line. Example: [0, 0, 0.5, 0.4, 1, 1] darkens the midtones. For a tone curve today use a colorGradingLut. Reading returns a typed-array COPY (writing into it changes nothing); assign a typed array or an array of numbers to write the whole field.
+     * @since 0.31.0
+     */
+    get colorGradingCurveMaster(): Float32Array;
+    set colorGradingCurveMaster(value: Float32Array | readonly number[]);
+    /**
+     * NOT DRAWN YET. A curve on the red channel only (same format as colorGradingCurveMaster), applied after the master curve. Empty = unchanged. Reading returns a typed-array COPY (writing into it changes nothing); assign a typed array or an array of numbers to write the whole field.
+     * @since 0.31.0
+     */
+    get colorGradingCurveRed(): Float32Array;
+    set colorGradingCurveRed(value: Float32Array | readonly number[]);
+    /**
+     * NOT DRAWN YET. A curve on the green channel only (same format as colorGradingCurveMaster). Empty = unchanged. Reading returns a typed-array COPY (writing into it changes nothing); assign a typed array or an array of numbers to write the whole field.
+     * @since 0.31.0
+     */
+    get colorGradingCurveGreen(): Float32Array;
+    set colorGradingCurveGreen(value: Float32Array | readonly number[]);
+    /**
+     * NOT DRAWN YET. A curve on the blue channel only (same format as colorGradingCurveMaster). Empty = unchanged. Reading returns a typed-array COPY (writing into it changes nothing); assign a typed array or an array of numbers to write the whole field.
+     * @since 0.31.0
+     */
+    get colorGradingCurveBlue(): Float32Array;
+    set colorGradingCurveBlue(value: Float32Array | readonly number[]);
+    /**
+     * Only used when colorGradingEnabled. Project path of a .cube 3D lookup table (the file a colour grading tool exports: LUT_3D_SIZE 2 to 65, 16, 32 and 64 are the usual ones, DOMAIN 0..1) applied last, on the display picture; import it with assets.import. A file that is missing or malformed is logged once with its line and the LUT is skipped. Empty = none. (asset path: any)
+     * @since 0.31.0
+     */
+    colorGradingLut: string;
+    /**
+     * Only used with a colorGradingLut. 0..1: how much of the LUT is mixed in (1 = fully, 0 = the LUT is skipped).
+     * @since 0.31.0
+     */
+    colorGradingLutContribution: number;
+    /**
+     * Switches the accessibility colour filter on. The same filters as Camera.colorFilter, in the stack; it is the last pass of the frame and covers the HUD. Cost: one full-screen pass; none of its own when the final pass runs and there is no HUD (it is fused into it).
+     * @since 0.31.0
+     */
+    colorFilterEnabled: boolean;
+    /**
+     * Only used when colorFilterEnabled. The filter, with the meaning of Camera.colorFilter.
+     * @since 0.31.0
+     */
+    colorFilterMode: "none" | "greyscale" | "highContrast" | "protanopia" | "deuteranopia" | "tritanopia";
+    /**
+     * Switches the vignette on: the edges darken toward a colour. Drawn on the display picture, so it looks the same on an SDR and an HDR output. Cost: part of the final pass.
+     * @since 0.31.0
+     */
+    vignetteEnabled: boolean;
+    /**
+     * Only used when vignetteEnabled. 0..1: how far the edge is pulled to vignetteColor (0 = none, 1 = fully).
+     * @since 0.31.0
+     */
+    vignetteIntensity: number;
+    /**
+     * Only used when vignetteEnabled. 0..1: how soft the transition from the clear centre to the edge is (0 = a sharp ring, 1 = it starts at the centre).
+     * @since 0.31.0
+     */
+    vignetteSmoothness: number;
+    /**
+     * Only used when vignetteEnabled. 0..1: 1 = a circle, 0 = an ellipse that follows the shape of the screen. The darkening is full at the corners of the screen only with 0; a circle on a wide screen is full before the left and right edges and lighter at the top and bottom.
+     * @since 0.31.0
+     */
+    vignetteRoundness: number;
+    /**
+     * Only used when vignetteEnabled. The clear centre [x, y] as fractions of the picture, (0, 0) the top-left corner and (0.5, 0.5) the middle. Use it to follow the player or an impact.
+     * @since 0.31.0
+     */
+    get vignetteCenter(): Vec2;
+    set vignetteCenter(value: Vec2Like);
+    /**
+     * Only used when vignetteEnabled. Colour of the darkened edge (rgb; alpha ignored), as the screen shows it. Black by default; red gives a damage flash.
+     * @since 0.31.0
+     */
+    get vignetteColor(): Color;
+    set vignetteColor(value: ColorLike);
+    /**
+     * Switches the chromatic aberration on: red and blue are read from a little further out and in than green, radially from the middle of the picture, like a cheap lens. Made in scene colour (before the exposure and the tonemap); beyond the picture the edge colour is repeated. Cost: two more reads of the scene in the final pass.
+     * @since 0.31.0
+     */
+    chromaticAberrationEnabled: boolean;
+    /**
+     * Only used when chromaticAberrationEnabled. 0..1: how far the channels separate at the screen's edge (0 = none; 1 = red and blue sit 2% of the width each side of green at the edge).
+     * @since 0.31.0
+     */
+    chromaticAberrationIntensity: number;
+    /**
+     * Switches the film grain on: monochrome noise over the display picture (after the sharpen, before the colour filter), the same on an SDR and an HDR output. Cost: part of the final pass.
+     * @since 0.31.0
+     */
+    filmGrainEnabled: boolean;
+    /**
+     * Only used when filmGrainEnabled. 0..1: how strong the noise is (0 = none; 1 moves a midtone by up to a quarter of white).
+     * @since 0.31.0
+     */
+    filmGrainIntensity: number;
+    /**
+     * Only used when filmGrainEnabled. Grain size in pixels of the picture, 0.5 to 4 (a grain below 1 is a pixel).
+     * @since 0.31.0
+     */
+    filmGrainSize: number;
+    /**
+     * Only used when filmGrainEnabled. true: the pattern changes every frame (from the world's frame number, never the clock, so a recorded run is the same every time). false: a still pattern.
+     * @since 0.31.0
+     */
+    filmGrainAnimated: boolean;
+    /**
+     * Only used when filmGrainEnabled. 0..1: 0 = the grain is as strong in black and white as in the midtones, 1 = none in pure black and pure white, strongest at mid grey (like film).
+     * @since 0.31.0
+     */
+    filmGrainLuminanceResponse: number;
+    /**
+     * Switches the lens distortion on: the picture bulges (barrel) or pinches (pincushion) like a lens. Drawn in the final pass, after the bloom (the glow is bent with the picture). Where the lens reads beyond the picture (the corners of a barrel, the edges of a zoom below 1) the result is BLACK: raise lensDistortionScale to hide it. Cost: one bilinear read of the scene in the final pass.
+     * @since 0.31.0
+     */
+    lensDistortionEnabled: boolean;
+    /**
+     * Only used when lensDistortionEnabled. -1 (pincushion) to 1 (barrel). 0 = none (a scale other than 1 still zooms).
+     * @since 0.31.0
+     */
+    lensDistortionIntensity: number;
+    /**
+     * Only used when lensDistortionEnabled. 0.5..2: zooms the picture (above 1 in); raise it to hide the black edges a barrel distortion leaves (about 1.3 at intensity 1).
+     * @since 0.31.0
+     */
+    lensDistortionScale: number;
+    /**
+     * Only used when lensDistortionEnabled. The lens axis [x, y] as fractions of the picture, (0, 0) the top-left corner and (0.5, 0.5) the middle.
+     * @since 0.31.0
+     */
+    get lensDistortionCenter(): Vec2;
+    set lensDistortionCenter(value: Vec2Like);
+    /**
+     * Switches the sharpening on: it brings out the detail the picture lost to scaling or antialiasing. Contrast adaptive (flat areas and edges already at black or white are left alone, so it makes no halos) and drawn on the display picture. Cost: the final pass shades the pixel and its four neighbours (about five times the work of the rest of the pass, so it matters on a weak GPU or a large screen).
+     * @since 0.31.0
+     */
+    sharpenEnabled: boolean;
+    /**
+     * Only used when sharpenEnabled. 0..2: strength (0 = none; 2 is the strongest, harsh on noisy pictures).
+     * @since 0.31.0
+     */
+    sharpenIntensity: number;
+    /**
+     * Switches the outline on: lines drawn at the edges of things, over the finished picture. Depth mode needs the depth and normal prepass (3D); sprite mode draws the 2D world once more as coverage. Both draw their own outline per camera, over its own viewport: it works in split screen too, and a line never crosses into the camera next to it.
+     * @since 0.31.0
+     */
+    outlineEnabled: boolean;
+    /**
+     * Only used when outlineEnabled. depth: edges found where depth or surface direction jump (3D models, the line straddles the edge). sprite: a line outside the border of the 2D world (sprites, tiles, shapes, text, particles), found from how much each pixel is covered; 3D models and the clear colour do not count.
+     * @since 0.31.0
+     */
+    outlineMode: "depth" | "sprite";
+    /**
+     * Only used when outlineEnabled. Colour of the lines (alpha = opacity; alpha 0 draws nothing).
+     * @since 0.31.0
+     */
+    get outlineColor(): Color;
+    set outlineColor(value: ColorLike);
+    /**
+     * Only used when outlineEnabled. Line width in design pixels, 0.5 to 8 (0 = none), so the line has the same look at any render scale.
+     * @since 0.31.0
+     */
+    outlineWidth: number;
+    /**
+     * Only used in depth mode. The relative jump of depth that makes an edge; smaller finds more edges.
+     * @since 0.31.0
+     */
+    outlineDepthThreshold: number;
+    /**
+     * Only used in depth mode. The change of surface direction (0..1) that makes an edge; smaller finds more edges.
+     * @since 0.31.0
+     */
+    outlineNormalThreshold: number;
+    /**
+     * Only used in sprite mode. The alpha level (0..1) that counts as the sprite's border.
+     * @since 0.31.0
+     */
+    outlineAlphaThreshold: number;
+    /**
+     * Switches the pixelation on: the picture is drawn in blocks of one colour (read at the block's centre). Cost: folded into the final pass.
+     * @since 0.31.0
+     */
+    pixelateEnabled: boolean;
+    /**
+     * Only used when pixelateEnabled. Size of a block in design pixels, 1 to 64 (1 = unchanged), so the blocks look the same at any render scale.
+     * @since 0.31.0
+     */
+    pixelateSize: number;
+    /**
+     * Switches the posterization on: each colour channel of the display picture is cut to a few levels, after the grading. Cost: folded into the final pass.
+     * @since 0.31.0
+     */
+    posterizeEnabled: boolean;
+    /**
+     * Only used when posterizeEnabled. Levels per colour channel, 2 to 256 (256 = unchanged).
+     * @since 0.31.0
+     */
+    posterizeLevels: number;
+    /**
+     * Switches the ambient occlusion on: creases and contact points of 3D models get darker. Needs the depth buffer (3D) and a GPU with RGBA16F targets that blend; it costs the most of the effects at high quality. It darkens the opaque meshes only: blended meshes, sprites, particles, text and the interface drawn over them keep their colour.
+     * @since 0.31.0
+     */
+    ssaoEnabled: boolean;
+    /**
+     * Only used when ssaoEnabled. The number of directions and steps (GTAO): low is for phones and the web; each level costs about twice the one before. low and medium work at half the resolution of the camera's rectangle, high and ultra at full resolution.
+     * @since 0.31.0
+     */
+    ssaoQuality: "low" | "medium" | "high" | "ultra";
+    /**
+     * Only used when ssaoEnabled. 0..4: how dark the occlusion is.
+     * @since 0.31.0
+     */
+    ssaoIntensity: number;
+    /**
+     * Only used when ssaoEnabled. World units: how far from a point an occluder still darkens it.
+     * @since 0.31.0
+     */
+    ssaoRadius: number;
+    /**
+     * Switches the depth of field on: opaque 3D meshes away from the focus distance are blurred, those in front of it and those behind it each by their own largest blur. It reads the depth prepass, so it needs opaque meshes in view (a frame without any is drawn without it); where no mesh was drawn (the sky, sprites, shapes) the depth is taken as infinite and the far blur applies. It runs before the bloom and the final pass, and the HUD is not blurred.
+     * @since 0.31.0
+     */
+    depthOfFieldEnabled: boolean;
+    /**
+     * Only used when depthOfFieldEnabled. World units from the camera that are in focus (ignored while depthOfFieldTarget is set).
+     * @since 0.31.0
+     */
+    depthOfFieldFocusDistance: number;
+    /**
+     * Only used when depthOfFieldEnabled. Autofocus: the focus follows the view depth of this entity (its distance along the camera's axis), moving by depthOfFieldFocusSpeed. Empty, a destroyed entity or one behind the camera = use depthOfFieldFocusDistance.
+     * @since 0.31.0
+     */
+    get depthOfFieldTarget(): Entity | null;
+    set depthOfFieldTarget(value: EntityLike);
+    /**
+     * Only used with an autofocus target. How fast the focus moves to it, per second: each frame covers 1 - exp(-speed * dt) of the way (engine clock, the same on every machine); higher is quicker, 0 stays where it is.
+     * @since 0.31.0
+     */
+    depthOfFieldFocusSpeed: number;
+    /**
+     * Only used when depthOfFieldEnabled. World units of the band that stays fully sharp, centred on the focus distance (half of it on each side); the blur then grows smoothly to its largest in front of the band over the distance to the camera, and behind it over the focus distance.
+     * @since 0.31.0
+     */
+    depthOfFieldFocusRange: number;
+    /**
+     * Only used when depthOfFieldEnabled. The largest blur, in design pixels (times the render scale), in front of the focus (0..32). It spreads past the silhouette of the near object.
+     * @since 0.31.0
+     */
+    depthOfFieldNearBlur: number;
+    /**
+     * Only used when depthOfFieldEnabled. The largest blur, in design pixels (times the render scale), behind the focus (0..32). A sharper object never takes colour from a blurred one behind it.
+     * @since 0.31.0
+     */
+    depthOfFieldFarBlur: number;
+    /**
+     * Only used when depthOfFieldEnabled. true: a disc-shaped blur where bright points become discs (more expensive). false: a smooth blur.
+     * @since 0.31.0
+     */
+    depthOfFieldBokeh: boolean;
+    /**
+     * Switches the camera motion blur on: the picture smears along the way the camera moved since the frame before, computed from the depth prepass (opaque 3D meshes; the sky only smears when the camera turns). Objects that move on their own are not blurred. There is no blur on the first frame or after the camera did not draw the frame before (a cut); a camera that jumps to another place in one frame blurs up to a longest streak. It runs before the bloom and the final pass.
+     * @since 0.31.0
+     */
+    motionBlurEnabled: boolean;
+    /**
+     * Only used when motionBlurEnabled. 0..1: the fraction of the frame the shutter stays open (1 = the whole movement).
+     * @since 0.31.0
+     */
+    motionBlurIntensity: number;
+    /**
+     * Only used when motionBlurEnabled. 4..32 taps along the movement; more is smoother and costs more. A streak is at most 8% of the picture's larger side.
+     * @since 0.31.0
+     */
+    motionBlurSamples: number;
+    /**
+     * Switches the screen-space reflections on: surfaces reflect what is on the screen, the more the shinier they are seen (a fresnel term; there is no per-material roughness). Needs the depth buffer (3D); it only reflects what is visible, so the edges of the screen fade out.
+     * @since 0.31.0
+     */
+    ssrEnabled: boolean;
+    /**
+     * Only used when ssrEnabled. 0..1 (default 0.5): how much reflection is mixed in; surfaces reflect by a fresnel term (more at a grazing angle), there is no per-material roughness, and a pixel is never more than 75% reflection (docs/rendering/RENDERING_EFFECTS.md).
+     * @since 0.31.0
+     */
+    ssrIntensity: number;
+    /**
+     * Only used when ssrEnabled. World units a reflected ray travels before it gives up.
+     * @since 0.31.0
+     */
+    ssrMaxDistance: number;
+    /**
+     * Only used when ssrEnabled. World units behind a surface that still count as a hit; far away it grows to at least 0.2% of the distance, so the depth precision there does not break the reflection.
+     * @since 0.31.0
+     */
+    ssrThickness: number;
+    /**
+     * Only used when ssrEnabled. 8..128 steps along the ray; more is more accurate and costs more.
+     * @since 0.31.0
+     */
+    ssrSteps: number;
+    /**
+     * Switches the stack's fog on: distance and height fog drawn from the depth buffer of the opaque 3D meshes. The sky is not fogged; blended meshes, sprites, particles and 3D text are fogged by their own distance with the same numbers (the interface is not). It replaces SceneSettings.fogColor and fogDensity for a camera that draws it.
+     * @since 0.31.0
+     */
+    fogEnabled: boolean;
+    /**
+     * Only used when fogEnabled. Colour distant things fade to.
+     * @since 0.31.0
+     */
+    get fogColor(): Color;
+    set fogColor(value: ColorLike);
+    /**
+     * Only used when fogEnabled. Fog thickness with distance (the same scale as SceneSettings.fogDensity); 0 = none.
+     * @since 0.31.0
+     */
+    fogDensity: number;
+    /**
+     * Only used when fogEnabled. World units from the camera before the fog begins.
+     * @since 0.31.0
+     */
+    fogStart: number;
+    /**
+     * Only used when fogEnabled. Extra fog thickness near fogHeightBase (a ground mist); 0 = no height fog.
+     * @since 0.31.0
+     */
+    fogHeightDensity: number;
+    /**
+     * Only used when fogEnabled. World y where the height fog is thickest.
+     * @since 0.31.0
+     */
+    fogHeightBase: number;
+    /**
+     * Only used when fogEnabled. How fast the height fog thins going up, per world unit (larger = a thinner layer).
+     * @since 0.31.0
+     */
+    fogHeightFalloff: number;
+    /**
+     * Switches the sun shafts on: rays of light spreading from the bright sky toward the sun through gaps in the scene (3D, perspective cameras, needs the depth buffer). The sun is the directional Light that casts shadows, otherwise the brightest directional one; with no such light, a light of intensity 0 or the sun behind the camera there are no shafts.
+     * @since 0.31.0
+     */
+    sunShaftsEnabled: boolean;
+    /**
+     * Only used when sunShaftsEnabled. 0..2: strength.
+     * @since 0.31.0
+     */
+    sunShaftsIntensity: number;
+    /**
+     * Only used when sunShaftsEnabled. Brightness the sky needs to cast rays.
+     * @since 0.31.0
+     */
+    sunShaftsThreshold: number;
+    /**
+     * Only used when sunShaftsEnabled. 0..1: how far the rays reach, as a fraction of the screen.
+     * @since 0.31.0
+     */
+    sunShaftsLength: number;
+    /**
+     * Only used when sunShaftsEnabled. Tint of the rays (rgb).
+     * @since 0.31.0
+     */
+    get sunShaftsColor(): Color;
+    set sunShaftsColor(value: ColorLike);
+    /**
+     * Switches the radial blur on: the picture streaks away from a point (speed, impact, a dash).
+     * @since 0.31.0
+     */
+    radialBlurEnabled: boolean;
+    /**
+     * Only used when radialBlurEnabled. 0..1: how far the streaks reach.
+     * @since 0.31.0
+     */
+    radialBlurIntensity: number;
+    /**
+     * Only used when radialBlurEnabled. The centre of the blur [x, y] as fractions of the picture, (0, 0) the top-left corner and (0.5, 0.5) the middle.
+     * @since 0.31.0
+     */
+    get radialBlurCenter(): Vec2;
+    set radialBlurCenter(value: Vec2Like);
+    /**
+     * Only used when radialBlurEnabled. 4..32 taps; more is smoother and costs more.
+     * @since 0.31.0
+     */
+    radialBlurSamples: number;
+  }
+  /**
    * Scene-wide settings stored under "settings" in the scene file: lighting, fog, gravity and background music.
    * 
    * Category: Scene
@@ -19921,6 +20987,21 @@ declare module "factoria" {
      * @since 0.3.0
      */
     lightScale: number;
+    /**
+     * How lighting and blending are computed. gamma (default, what every project made before M71 uses, so old projects keep their exact look): on the sRGB-encoded values, with 8-bit targets. linear: in linear light. The colours you pick (tints, sprite and material colours, light colours, ambient, fog, sky, clear colour, particle colours) are still sRGB values and are converted for you; colour textures (sprites, albedo, emissive, particles) are read as sRGB and data textures (normal, metallic-roughness, masks) as plain numbers; lights add up and fade as they do in the world, and the result is encoded for the display. The frame is kept in RGBA16F (values above 1 survive), else R11G11B10 (no alpha), else 8 bits that hold linear light (SRGB8A8), else plain RGBA8 with banding in the darks. RGBA16F costs twice the memory of RGBA8. Switch it on deliberately: colours picked by eye in gamma space look different and a project needs a second look (docs/RENDERING.md, Color space). Switching at run time is allowed. render.supports {"feature": "linearColor"} says whether this build and GPU can. Values above 1 survive until the display: without exposure, tonemap or colour filter in a PostProcess they clip there and the HUD blends in linear light too; with one, the final pass tonemaps and encodes the picture once and the HUD is drawn after it in display colours.
+     * @since 0.31.0
+     */
+    colorSpace: "gamma" | "linear";
+    /**
+     * off (default): the picture is shown in the standard range. auto: use a high dynamic range display where the platform allows it (Windows scRGB or HDR10, macOS and iOS EDR); on any other display it is the standard range, with no error. Only the tonemap of a camera's PostProcess (exposure or tonemap on) goes above paper white, up to the display's headroom; the HUD, a camera without it and a colour-filtered frame stay at paper white. render.output says what the window shows and why; render.supports {"feature": "hdrOutput"} says whether the window's display could.
+     * @since 0.31.0
+     */
+    hdrOutput: "off" | "auto";
+    /**
+     * Only used with hdrOutput auto on an HDR display: the brightness of white (1.0) in nits (cd/m2), 80..1000. 200 is comfortable indoors, 400 and more suits a bright room; the display shows brighter highlights above it.
+     * @since 0.31.0
+     */
+    paperWhiteNits: number;
   }
   /** Component views by name, as returned by entity.get(name). */
   export interface Components {
@@ -19973,6 +21054,7 @@ declare module "factoria" {
     CameraView: CameraViewComponent;
     Chart: ChartComponent;
     Script: ScriptComponent;
+    PostProcess: PostProcessComponent;
     SceneSettings: SceneSettingsComponent;
   }
   /** Field objects accepted by entity.add(name, fields) / entity.set(name, fields) and world.spawn. */
@@ -20026,7 +21108,8 @@ declare module "factoria" {
     CameraView: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; draggable?: any; mirror?: boolean; camera?: string; tint?: ColorLike; pointerEvents?: boolean; captureWheel?: boolean; resolution?: number };
     Chart: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; draggable?: any; mirror?: boolean; values?: any; kind?: "bar" | "line"; colors?: any; min?: any; max?: any; baseline?: number; showBaseline?: boolean; includeBaseline?: boolean; slots?: number; marks?: any; baselineColor?: ColorLike; markColor?: ColorLike; lineWidth?: number; barGap?: number; padding?: number; showLabels?: boolean; decimals?: number; font?: string; fontSize?: number; textColor?: ColorLike };
     Script: { path?: string; props?: any; enabled?: boolean };
-    SceneSettings: { ambientLight?: ColorLike; gravity2D?: Vec2Like; gravity3D?: Vec3Like; fogColor?: ColorLike; fogDensity?: number; skyColor?: ColorLike; horizonColor?: ColorLike; music?: string; musicVolume?: number; lightScale?: number };
+    PostProcess: { enabled?: boolean; shape?: "global" | "box" | "circle" | "sphere"; size?: Vec3Like; blendDistance?: number; priority?: number; weight?: number; tonemapEnabled?: boolean; tonemapMode?: "none" | "neutral" | "aces" | "agx" | "reinhard"; exposureEnabled?: boolean; exposureMode?: "manual" | "auto"; exposureEv?: number; exposureMinEv?: number; exposureMaxEv?: number; exposureAdaptationSpeed?: number; bloomEnabled?: boolean; bloomIntensity?: number; bloomThreshold?: number; bloomKnee?: number; bloomRadius?: number; bloomScreenSpace?: boolean; bloomLensDirt?: string; bloomLensDirtIntensity?: number; colorGradingEnabled?: boolean; colorGradingLift?: ColorLike; colorGradingGamma?: ColorLike; colorGradingGain?: ColorLike; colorGradingTemperature?: number; colorGradingTint?: number; colorGradingSaturation?: number; colorGradingContrast?: number; colorGradingHueShift?: number; colorGradingCurveMaster?: Float32Array; colorGradingCurveRed?: Float32Array; colorGradingCurveGreen?: Float32Array; colorGradingCurveBlue?: Float32Array; colorGradingLut?: string; colorGradingLutContribution?: number; colorFilterEnabled?: boolean; colorFilterMode?: "none" | "greyscale" | "highContrast" | "protanopia" | "deuteranopia" | "tritanopia"; vignetteEnabled?: boolean; vignetteIntensity?: number; vignetteSmoothness?: number; vignetteRoundness?: number; vignetteCenter?: Vec2Like; vignetteColor?: ColorLike; chromaticAberrationEnabled?: boolean; chromaticAberrationIntensity?: number; filmGrainEnabled?: boolean; filmGrainIntensity?: number; filmGrainSize?: number; filmGrainAnimated?: boolean; filmGrainLuminanceResponse?: number; lensDistortionEnabled?: boolean; lensDistortionIntensity?: number; lensDistortionScale?: number; lensDistortionCenter?: Vec2Like; sharpenEnabled?: boolean; sharpenIntensity?: number; outlineEnabled?: boolean; outlineMode?: "depth" | "sprite"; outlineColor?: ColorLike; outlineWidth?: number; outlineDepthThreshold?: number; outlineNormalThreshold?: number; outlineAlphaThreshold?: number; pixelateEnabled?: boolean; pixelateSize?: number; posterizeEnabled?: boolean; posterizeLevels?: number; ssaoEnabled?: boolean; ssaoQuality?: "low" | "medium" | "high" | "ultra"; ssaoIntensity?: number; ssaoRadius?: number; depthOfFieldEnabled?: boolean; depthOfFieldFocusDistance?: number; depthOfFieldTarget?: EntityLike; depthOfFieldFocusSpeed?: number; depthOfFieldFocusRange?: number; depthOfFieldNearBlur?: number; depthOfFieldFarBlur?: number; depthOfFieldBokeh?: boolean; motionBlurEnabled?: boolean; motionBlurIntensity?: number; motionBlurSamples?: number; ssrEnabled?: boolean; ssrIntensity?: number; ssrMaxDistance?: number; ssrThickness?: number; ssrSteps?: number; fogEnabled?: boolean; fogColor?: ColorLike; fogDensity?: number; fogStart?: number; fogHeightDensity?: number; fogHeightBase?: number; fogHeightFalloff?: number; sunShaftsEnabled?: boolean; sunShaftsIntensity?: number; sunShaftsThreshold?: number; sunShaftsLength?: number; sunShaftsColor?: ColorLike; radialBlurEnabled?: boolean; radialBlurIntensity?: number; radialBlurCenter?: Vec2Like; radialBlurSamples?: number };
+    SceneSettings: { ambientLight?: ColorLike; gravity2D?: Vec2Like; gravity3D?: Vec3Like; fogColor?: ColorLike; fogDensity?: number; skyColor?: ColorLike; horizonColor?: ColorLike; music?: string; musicVolume?: number; lightScale?: number; colorSpace?: "gamma" | "linear"; hdrOutput?: "off" | "auto"; paperWhiteNits?: number };
   }
   /**
    * The native plugins of this game (factoria.json "plugins"): plugins.<plugin>.<function>(...args).

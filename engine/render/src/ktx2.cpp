@@ -50,6 +50,12 @@ const char* pixel_format_name(sg_pixel_format format) {
         case SG_PIXELFORMAT_ASTC_4x4_RGBA: return "ASTC_4x4";
         case SG_PIXELFORMAT_BC7_RGBA: return "BC7";
         case SG_PIXELFORMAT_ETC2_RGBA8: return "ETC2_RGBA8";
+        case SG_PIXELFORMAT_SRGB8A8: return "SRGB8A8";
+        case SG_PIXELFORMAT_BC7_SRGBA: return "BC7_SRGB";
+        case SG_PIXELFORMAT_ASTC_4x4_SRGBA: return "ASTC_4x4_SRGB";
+        case SG_PIXELFORMAT_ETC2_SRGB8A8: return "ETC2_SRGB8A8";
+        case SG_PIXELFORMAT_RGBA16F: return "RGBA16F";
+        case SG_PIXELFORMAT_RG11B10F: return "R11G11B10";
         default: return "RGBA8";
     }
 }

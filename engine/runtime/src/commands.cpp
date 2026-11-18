@@ -645,6 +645,7 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
     register_ui_check_commands(engine, I);         // ui.check_layout
     register_shot_commands(engine, I);             // game.screenshot, render.inspect, render.pick
     register_music_commands(engine, I);            // audio.music_state, audio.music
+    register_postprocess_commands(engine, I);      // postprocess.get, .set, .presets, .apply_preset
     register_vfx_commands(engine, I);              // vfx.play, vfx.stop, vfx.list; fills Impl::vfxHost
     register_feel_commands(engine,
                            I);  // feel.shake, feel.hitStop, feel.flash, feel.knockback, feel.squash, feel.cancel, ...

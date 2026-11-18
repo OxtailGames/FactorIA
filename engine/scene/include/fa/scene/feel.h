@@ -35,6 +35,7 @@
 #include "fa/core/json.h"
 #include "fa/core/math.h"
 #include "fa/core/types.h"
+#include "fa/scene/screen_fx.h"
 
 namespace fa {
 
@@ -200,6 +201,7 @@ public:
         spawns;  // `spawn` actions waiting for feel_update (a spawn never happens inside an iteration)
     std::vector<FeelLifetime> lifetimes;      // spawned effects with a `lifetime`
     std::set<std::string> warnedClipActions;  // clip-event actions that failed and said so (once each per scene)
+    ScreenFxState screenFx;  // the live transient screen effects (screen_fx.h); the renderer reads them
     std::set<std::string>
         failedSounds;  // `sound` paths the audio system could not play in this scene: not tried (decoded, listed) again until the scene changes
 
@@ -249,8 +251,9 @@ inline constexpr std::size_t kMaxQueuedSpawns = 64;
 void feel_cancel(World& w, Entity e);
 
 // The action as JSON, what clip events and the `feel.*` commands pass: {"action": "shake" | "hitStop" | "flash" | "knockback" |
-// "push" | "squash" | "spawn" | "sound", ...the options of that action by their field names}. "push" is "knockback". `target`
-// is the entity of flash, knockback, squash, spawn and sound (and the camera of shake, null = main). Unknown keys and wrong
+// "push" | "squash" | "spawn" | "sound" | "shockwave" | "heatHaze" | "radialBlur" | "screenFlash" | "fade", ...the options of that action by their field names}. "push" is "knockback". `target`
+// is the entity of flash, knockback, squash, spawn and sound (and the camera of shake, null = main; of the five screen
+// effects, null = every camera). Unknown keys and wrong
 // types are errors with a "did you mean".
 Result<void> feel_apply_action(World& w, Entity target, const Json& action);
 // Checks an action as feel_apply_action would (keys, types, ranges) without a world and without doing anything: what a clip

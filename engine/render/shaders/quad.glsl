@@ -25,11 +25,17 @@
 @module quad
 
 @include light_shadow.glsl
+@include color_space.glsl
 
 @vs vs
 layout(binding=0) uniform vs_params {
     mat4 view_proj;
+    vec4 cspace;            // x = 1 in a linear scene (SceneSettings.colorSpace): the vertex colours are sRGB values and are
+                            //     decoded to linear here, with all the precision of a float (a ubyte4n cannot hold linear darks);
+                            // y = the fix of `tex` (fa_tex_fix: 0 as sampled, 1 sRGB -> linear, 2 linear -> sRGB), z = the same
+                            //     for normal_tex; x = y = z = 0 in a gamma scene with 8-bit textures: every output is as before M71
 };
+@include_block color_space
 
 layout(location=0) in vec3 position;
 layout(location=1) in vec2 texcoord0;
@@ -46,13 +52,18 @@ out vec2 world_xy;
 out vec4 color2;
 out vec2 shape_half;
 out vec2 shape_rs;
+out vec3 xform;
+out float world_z;
 
 void main() {
     gl_Position = view_proj * vec4(position, 1.0);
     uv = texcoord0;
     color = color0;
+    if (cspace.x > 0.5) color.rgb = fa_srgb_to_linear(color0.rgb);
+    xform = cspace.xyz;
     params = params0;
     world_xy = position.xy;
+    world_z = position.z;
     color2 = color2_0;
     shape_half = shape_half0;
     shape_rs = shape_rs0;
@@ -81,6 +92,12 @@ layout(binding=1) uniform quad_fs_params {
     vec4 light_pos[16];        // point: xyz position (z = height), w radius; directional: xyz unit vector TO the light, w = -1
     vec4 light_color[16];      // rgb color * intensity; w falloff exponent
     vec4 light_shadow_v[16];   // x = v coordinate of the light's row in shadow_tex, -1 = it casts no shadow
+    // The fog of the camera's post stack (PostProcess.fog*) on the quads of the world: the same formula as fog.glsl. Only the full
+    // program reads it (a batch under stack fog never uses quad_plain). All 0 without that fog: nothing changes.
+    vec4 fog_col;              // rgb = what the quad fades to (the fog colour; 0 for an additive quad, 1 for a multiplying one), w = density
+    vec4 fog_b;                // x = fogStart, y = height density, z = height base (world y), w = height falloff
+    vec4 fog_c;                // xyz = the camera's forward axis, w = 1 for an orthographic camera
+    vec4 fog_eye;              // xyz = the camera's world position
 };
 
 in vec2 uv;
@@ -90,15 +107,29 @@ in vec2 world_xy;
 in vec4 color2;
 in vec2 shape_half;
 in vec2 shape_rs;
+in vec3 xform;
+in float world_z;
 out vec4 frag_color;
 
 @include_block light_shadow
+@include_block color_space
+
+// The sample of `tex` as a colour: decoded to linear (or encoded back) as xform.y says.
+vec4 tex_color(vec2 p) {
+    vec4 t = texture(sampler2D(tex, smp), p);
+    return vec4(fa_tex_fix(t.rgb, xform.y), t.a);
+}
+// A colour that is not in the vertex (color2: the end of a gradient, the colour of a flash): sRGB values -> linear in a linear scene.
+vec3 scene_rgb(vec3 c) {
+    if (xform.x > 0.5) c = fa_srgb_to_linear(c);
+    return c;
+}
 
 vec3 lit_color(vec4 base, float mode) {
     vec3 n = vec3(0.0, 0.0, 1.0);
     bool use_normal = lit.y > 0.5;
     if (use_normal) {
-        vec3 s = texture(sampler2D(normal_tex, smp), uv * normal_uv.xy + normal_uv.zw).xyz * 2.0 - 1.0;
+        vec3 s = fa_tex_fix(texture(sampler2D(normal_tex, smp), uv * normal_uv.xy + normal_uv.zw).xyz, xform.z) * 2.0 - 1.0;
         float a = params.y;
         vec2 t = vec2(cos(a), sin(a));
         vec2 b = vec2(-t.y, t.x) * (mode > 5.5 ? -1.0 : 1.0);
@@ -165,8 +196,10 @@ vec4 shape_color() {
         if (ramp) {
             // Straight-alpha texels (the filtering blends them; the stops are baked premultiplied), level 0 only.
             c = textureLod(sampler2D(tex, smp), vec2((0.5 + g * 255.0) / 256.0, (floor(color2.r * 255.0 + 0.5) + 0.5) / 256.0), 0.0);
+            c.rgb = fa_tex_fix(c.rgb, xform.y);
         } else {
-            vec4 pm = mix(vec4(color.rgb * color.a, color.a), vec4(color2.rgb * color2.a, color2.a), g);
+            vec3 end_rgb = scene_rgb(color2.rgb);
+            vec4 pm = mix(vec4(color.rgb * color.a, color.a), vec4(end_rgb * color2.a, color2.a), g);
             c = vec4(pm.a > 1e-5 ? pm.rgb / pm.a : color.rgb, pm.a);
         }
     }
@@ -174,7 +207,12 @@ vec4 shape_color() {
     if (graded || soft > 0.0) {
         // Interleaved gradient noise, +-0.5/255: breaks the 8-bit steps of a slow gradient or a wide soft edge into fine grain.
         float n = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715)))) - 0.5;
-        c.rgb += n / 255.0;
+        // The grain is added in the display's encoding: that is where its 8-bit steps are.
+        if (xform.x > 0.5) {
+            c.rgb = fa_srgb_to_linear(fa_linear_to_srgb(c.rgb) + n / 255.0);
+        } else {
+            c.rgb += n / 255.0;
+        }
         c.a = clamp(c.a + n / 255.0 * step(0.001, c.a), 0.0, 1.0);
     }
     return c;
@@ -189,13 +227,13 @@ void main() {
     bool mul = mode > 7.5;
     if (mul) mode -= 8.0;
     if (mode < 0.5) {
-        frag_color = texture(sampler2D(tex, smp), uv) * color;
+        frag_color = tex_color(uv) * color;
         if (shade) frag_color = vec4(lit_color(frag_color, 5.0), frag_color.a);
     } else if (mode > 6.5) {
         frag_color = shape_color();
         if (shade) frag_color = vec4(lit_color(frag_color, 5.0), frag_color.a);
     } else if (mode > 4.5) {
-        vec4 base = texture(sampler2D(tex, smp), uv) * color;
+        vec4 base = tex_color(uv) * color;
         frag_color = vec4(lit_color(base, mode), base.a);
     } else if (mode > 3.5) {
         frag_color = vec4(color.rgb, color.a * texture(sampler2D(tex, smp), uv).r);
@@ -215,8 +253,33 @@ void main() {
         }
         frag_color = vec4(shade ? lit_color(color, 5.0) : color.rgb, color.a * cov);
     }
-    if (flash) frag_color.rgb = mix(frag_color.rgb, color2.rgb, color2.a);
+    if (flash) frag_color.rgb = mix(frag_color.rgb, scene_rgb(color2.rgb), color2.a);
     if (mul) frag_color = vec4(mix(vec3(1.0), frag_color.rgb, frag_color.a), 1.0);
+    if (fog_col.w > 0.0 || fog_b.y > 0.0) {
+        vec3 rel = vec3(world_xy, world_z) - fog_eye.xyz;
+        float dep = dot(rel, fog_c.xyz);
+        float dist = fog_c.w > 0.5 ? dep : length(rel);
+        float len = dist - fog_b.x;
+        if (len > 0.0) {
+            float tau = fog_col.w * len;
+            tau *= tau;
+            if (fog_b.y > 0.0) {
+                float py = world_xy.y;
+                float ey = fog_c.w > 0.5 ? py - fog_c.y * dep : fog_eye.y;
+                float ya = mix(ey, py, clamp(fog_b.x / dist, 0.0, 1.0));
+                float dy = py - ya;
+                float ka = ya - fog_b.z;
+                float kb = py - fog_b.z;
+                float ha = (ka <= 0.0 || fog_b.w < 1e-4) ? fog_b.y : fog_b.y * exp(-min(fog_b.w * ka, 80.0));
+                float ia = (ka <= 0.0 || fog_b.w < 1e-4) ? fog_b.y * ka : fog_b.y * (1.0 - exp(-min(fog_b.w * ka, 80.0))) / fog_b.w;
+                float ib = (kb <= 0.0 || fog_b.w < 1e-4) ? fog_b.y * kb : fog_b.y * (1.0 - exp(-min(fog_b.w * kb, 80.0))) / fog_b.w;
+                float avg = abs(dy) < 1e-3 ? ha : (ib - ia) / dy;
+                tau += len * max(avg, 0.0);
+            }
+            float f = 1.0 - exp(-clamp(tau, 0.0, 80.0));
+            frag_color.rgb = mix(frag_color.rgb, fog_col.rgb, clamp(f, 0.0, 1.0));
+        }
+    }
 }
 @end
 
@@ -234,10 +297,15 @@ in vec2 world_xy;
 in vec4 color2;
 in vec2 shape_half;
 in vec2 shape_rs;
+in vec3 xform;
+in float world_z;
 out vec4 frag_color;
 
+@include_block color_space
+
 void main() {
-    frag_color = texture(sampler2D(tex, smp), uv) * color;
+    vec4 t = texture(sampler2D(tex, smp), uv);
+    frag_color = vec4(fa_tex_fix(t.rgb, xform.y), t.a) * color;
 }
 @end
 

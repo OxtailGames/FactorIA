@@ -11,6 +11,8 @@
 #include "fa/core/image_tools.h"
 #include "fa/core/profiler.h"
 #include "fa/core/strings.h"
+#include "fa/platform/hdr_output.h"
+#include "fa/render/renderer.h"
 #include "fa/scene/bounds.h"
 #include "fa/scene/camera_mask.h"
 #include "fa/scene/ui_rect.h"
@@ -82,6 +84,10 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
          "`scale` (0.25 to 4, default 1) draws the same frame into an image scale times larger, sharp and "
          "not upscaled, for store screenshots: HUD, camera and visible area stay the same, so a 1280x720 "
          "game at scale 1.5 gives a 1920x1080 PNG.\n"
+         "A PNG holds 8 bits, at most paper white. In a window on an HDR display the frame is drawn with "
+         "the HDR tonemap and what it puts above white is clipped, so the brightest areas look flatter "
+         "than on the screen; a run without a window draws in the standard range, the SDR look (see "
+         "docs/RENDERING.md, \"HDR output\").\n"
          "`region` [x, y, width, height] (design pixels, origin top-left) with `zoom` (0.25 to 32) shows "
          "only that part magnified: use it to look at a seam, a join, a gradient end or a one-pixel gap "
          "that is invisible in the whole view. Up to zoom 4 the frame is drawn again at that render scale "
@@ -520,7 +526,7 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
          "Where the last frame's time went, pass by pass: the frame graph with the CPU and GPU time of every pass.",
          "Returns the frame graph of the last frame the renderer drew and what each of its passes cost, so you can see "
          "which job and which pass makes a frame slow. Result: {source, backend, frame, profileFrames, graph, "
-         "passTimes, jobTimes, gpu}. "
+         "passTimes, jobTimes, gpu, postProcess}. "
          "`passTimes` has one {name, job, cpuMs, gpuMs} per pass that ran, in order (cpuMs: time to record the pass on "
          "the CPU; gpuMs: GPU time, or -1 when not measured: D3D11 and desktop OpenGL only, while the profiler is "
          "on); `jobTimes` adds them per job; `gpu` says whether GPU times exist and why not. Compare passes with "
@@ -575,7 +581,18 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
          "command's profileFrames, perf.profile, play.report's profile, the editor's Profiler panel), and at most "
          "maxTimedPasses passes per frame are timed; "
          "`reason` "
-         "says why there are none (Metal, GLES3 and WebGL2 have no timer queries here). The same pass times are in "
+         "says why there are none (Metal, GLES3 and WebGL2 have no timer queries here). `postProcess` is the "
+         "post-processing alone: {passes: [{name, job, cpuMs, gpuMs}], cpuMs, gpuMs, gpuStatus, gpuReason, "
+         "gpuPassesTimed, gpuPartial, note}, the "
+         "passes named bloom-*, exposure-*, post and the other effect passes (prepass and sprite-coverage are not in "
+         "it), with their summed times. `gpuMs` is null, `gpuStatus` \"unavailable\" and `gpuReason` the reason "
+         "(the `gpu.reason` text, which says when the profiler is off, or that the frame has no post pass) when no GPU "
+         "time exists, never 0. "
+         "When only some passes came back with a time, `gpuMs` is their sum, `gpuPassesTimed` counts them and "
+         "`gpuPartial` is true: "
+         "a lower bound, not the whole cost. The effects "
+         "folded into the single `post` pass (vignette, grain, grading, sharpen, outline...) are not timed one by "
+         "one: `post` is their total, and no per-effect estimate is made. The same pass times are in "
          "the profiler's `zones`. Like game.render_stats it draws a frame first when none was drawn since the last "
          "change (a headless run draws on demand). Errors: `unavailable` without graphics, or when no frame could be "
          "drawn, and `invalid_argument` for a profileFrames that is not an integer from 0 to 60. Example: "
@@ -634,8 +651,183 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
             return j;
         });
 
+    I.commands.add(
+        {"render.supports",
+         "What this renderer can do on this graphics backend and GPU: float targets, linear colour, HDR output, post "
+         "effects.",
+         "Answers from the renderer's table per backend (GL, GLES3, WebGL2, D3D11, Metal, headless) and from what the "
+         "GPU reports, so a game or a tool can ask before it relies on a feature. Without `feature`: {backend, "
+         "backendLabel, features: [{name, kind, supported, status, doc, backends}]}; with `feature`: {feature, "
+         "backend, "
+         "supported, status}. A feature the renderer does not draw is false with the status \"planned (<milestone>)\" "
+         "(none is today): this command never claims what is not drawn. Example: render.supports "
+         "{\"feature\":\"floatTargets\"}" FA_COMMAND_DETAILS
+         "`kind` is capability (a fact of the GPU: floatTargets, r11g11b10, sampledDepth, computeShaders), engine "
+         "(linearColor, hdrOutput) or effect (one per PostProcess effect: ssao, ssr, fog, sunShafts, exposure, "
+         "depthOfField, motionBlur, radialBlur, lensDistortion, chromaticAberration, bloom, tonemap, colorGrading, "
+         "vignette, sharpen, outline, pixelate, posterize, filmGrain, colorFilter); `backends` says on which backends "
+         "the feature can ever run. `status` is \"supported\", \"planned (<milestone>)\" for an engine feature or "
+         "effect the "
+         "renderer does not draw (none today), or one sentence that names the backend or the missing GPU capability. "
+         "hdrOutput "
+         "is true when the display the window showed its last frame on can show HDR in an encoding the renderer writes "
+         "(EDR on Metal, scRGB or HDR10 on D3D11), whatever the scene asks; its status otherwise says why (the "
+         "display or the OS setting); render.output says what the window shows. The headless dummy backend (no "
+         "GPU) answers false to everything; a headless run with Mesa/EGL is a GL or GLES3 "
+         "backend like any other. Errors: `invalid_argument` for a `feature` that is not in the list (with a "
+         "did-you-mean); `unavailable` without graphics (graphics=false). The same answer is Renderer::supports(name) "
+         "in C++.",
+         parse_schema(R"({"type":"object","properties":{
+               "feature":{"type":"string","description":"One feature name (floatTargets, r11g11b10, sampledDepth, computeShaders, linearColor, hdrOutput, or a post effect such as bloom or ssao). Omitted: every feature."}}})"),
+         true, "game"},
+        [&I](const Json& a) {
+            check_args_known(a, {"feature"}, "render.supports");
+            std::string feature;
+            const bool one = a.is_object() && a.contains("feature");
+            if (one) {
+                if (!a["feature"].is_string())
+                    throw CommandError(
+                        "invalid_argument", "feature: " + describe_json_value(a["feature"]) + " is not a string.",
+                        "Pass one feature name, e.g. \"floatTargets\" or \"bloom\"; leave it out for the whole list.");
+                feature = a["feature"].get<std::string>();
+                const std::vector<std::string> names = Renderer::feature_names();
+                if (std::find(names.begin(), names.end(), feature) == names.end())
+                    throw CommandError("invalid_argument",
+                                       "feature: unknown feature '" + feature + "'. " + did_you_mean(feature, names),
+                                       "Leave `feature` out to list every name with its status.");
+            }
+            if (!I.renderer || !I.renderer->initialized())
+                throw CommandError("unavailable",
+                                   "No renderer: the engine runs with graphics=false, so there is no GPU to ask.",
+                                   "Run with graphics (headless needs Mesa/EGL on Linux), not graphics=false.");
+            Json report = I.renderer->supports_report();
+            if (!one) return report;
+            for (const Json& f : report["features"])
+                if (f["name"] == feature)
+                    return Json::object({{"feature", feature},
+                                         {"backend", report["backend"]},
+                                         {"supported", f["supported"]},
+                                         {"status", f["status"]}});
+            throw CommandError("unavailable", "The renderer reported no feature '" + feature + "'.");
+        });
+
+    I.commands.add(
+        {"render.output",
+         "What the game window shows: the standard range or HDR, in which encoding, and what the display can do.",
+         "The window's swapchain switches to HDR when SceneSettings.hdrOutput is \"auto\", the display the window is "
+         "on "
+         "can show HDR and the renderer writes that encoding (docs/RENDERING.md, \"HDR output\"); this command says "
+         "what "
+         "happened and why. Returns {hdrActive, encoding, swapchainFormat, requested, paperWhiteNits, maxNits, "
+         "headroom, "
+         "status, display}. Example: render.output {}" FA_COMMAND_DETAILS
+         "`encoding` is \"sdr\" (8-bit sRGB), \"edr\" (macOS and iOS: 16-bit float in extended linear sRGB, 1.0 = "
+         "the display's white), \"scRGB\" (Windows: 16-bit float, linear, 1.0 = 80 nits) or \"hdr10\" (Windows: "
+         "10-bit ST 2084 PQ in Rec.2020). Only the tonemap of a PostProcess goes above paper white; while the picture "
+         "stays within it (no exposure or tonemap, a colour filter, an 8-bit GPU) `status` says so. `swapchainFormat` "
+         "is "
+         "\"BGRA8\", \"RGBA16F\" or \"RGB10A2\" (\"\" without a window or before the first frame). `requested`: the "
+         "current scene's hdrOutput is auto. `headroom`: how many times brighter than paper white the output can go "
+         "now (the screen's current EDR "
+         "headroom; maxNits / paperWhiteNits in scRGB and HDR10; 1 in sdr), rounded to 2 decimals. `status`: one "
+         "sentence, what is shown or why the window stays in the standard range (hdrOutput off, Windows' HDR switch "
+         "off, a screen without EDR, the editor, a platform without HDR output). `display`: {known, hdr, name, offers: "
+         "[encodings], maxNits, minNits, maxFullFrameNits, maxHeadroom, headroom, why}; nits are 0 where the platform "
+         "does not report them (macOS, iOS), headrooms are 1 outside Apple. The answer is the one of the last frame "
+         "the "
+         "window presented (the display is asked once per frame: moving the window to another monitor or switching HDR "
+         "in the OS settings shows on the next one). Headless runs, graphics=false, Linux, Android and the web answer "
+         "sdr with display.known false or the platform's reason. The same answer is Renderer::output_info() in C++.",
+         parse_schema(R"({"type":"object","properties":{}})"), true, "game"},
+        [&I](const Json& a) {
+            check_args_known(a, {}, "render.output");
+            const HdrOutputInfo info = I.renderer ? I.renderer->output_info() : app_hdr_output();
+            const SceneSettings& settings = I.world.settings();
+            const float paperWhite =
+                std::isfinite(settings.paperWhiteNits)
+                    ? std::round(std::clamp(settings.paperWhiteNits, 80.0f, 1000.0f) * 100.0f) / 100.0f
+                    : 200.0f;
+            auto offers = [](unsigned bits) {
+                Json list = Json::array();
+                for (int i = 0; i < kHdrEncodingCount; ++i)
+                    if (bits & hdr_encoding_bit(HdrEncoding(i))) list.push_back(hdr_encoding_name(HdrEncoding(i)));
+                return list;
+            };
+            const HdrDisplay& d = info.display;
+            Json display = Json::object({{"known", d.known},
+                                         {"hdr", d.hdr},
+                                         {"name", d.name},
+                                         {"offers", offers(d.offers)},
+                                         {"maxNits", d.maxNits},
+                                         {"minNits", d.minNits},
+                                         {"maxFullFrameNits", d.maxFullFrameNits},
+                                         {"maxHeadroom", d.maxHeadroom},
+                                         {"headroom", d.headroom},
+                                         {"why", d.why}});
+            return Json::object({{"hdrActive", info.active},
+                                 {"encoding", hdr_encoding_name(info.encoding)},
+                                 {"swapchainFormat", info.swapchainFormat},
+                                 {"requested", settings.hdrOutput == HdrOutput::Auto},
+                                 {"paperWhiteNits", paperWhite},
+                                 {"maxNits", info.maxNits},
+                                 {"headroom", info.headroom},
+                                 {"status", info.status},
+                                 {"display", std::move(display)}});
+        });
+
+    I.commands.add(
+        {"render.debug_view",
+         "Show the depth or the normals of the depth and normal prepass, or the ambient occlusion, instead of the game "
+         "picture, or report which view is on.",
+         "A way to look at the data the depth-based post effects (ssao, depth of field, fog...) read: `depth` paints "
+         "the "
+         "prepass depth as a grey (10 / (10 + distance), white next to the camera), `normals` the view-space normal as "
+         "colours (a surface that faces the camera is blue), black where no opaque mesh was drawn; `ao` paints the "
+         "ambient occlusion alone as a grey (white = open or no mesh, dark = occluded) over the camera's rectangle, "
+         "with the camera's own "
+         "PostProcess ssao settings or, when it has none, the defaults; `none` shows the game "
+         "again. It is a look at the data for a person or an AI checking a scene, not an effect: it is not saved and a "
+         "game does not set it. Without `view` it only reports the current one. Result: {view, previous}. The view "
+         "shows from the next frame (game.step, then game.screenshot). Example: render.debug_view "
+         "{\"view\":\"depth\"}" FA_COMMAND_DETAILS "The environment variable FA_RENDER_DEBUG_VIEW sets the first view "
+         "at start. The picture changes only on a frame "
+         "that draws the prepass (a post effect that reads the depth is on, see docs/RENDERING.md, \"Depth and "
+         "normals\"). Errors: `invalid_arguments` for a `view` that is not none, depth, normals or ao (with a "
+         "did-you-mean); "
+         "`unavailable` without graphics (graphics=false). The same is Renderer::set_debug_view in C++.",
+         parse_schema(R"({"type":"object","properties":{
+               "view":{"type":"string","enum":["none","depth","normals","ao"],"description":"none (the game picture), depth, normals or ao (the ambient occlusion). Omitted: report the current view."}}})"),
+         false, "game"},
+        [&I](const Json& a) {
+            check_args_known(a, {"view"}, "render.debug_view");
+            auto name_of = [](DebugView v) {
+                return v == DebugView::Depth     ? "depth"
+                       : v == DebugView::Normals ? "normals"
+                       : v == DebugView::Ao      ? "ao"
+                                                 : "none";
+            };
+            // The schema (enum) already turned a value that is not a string, or not one of the three, into an
+            // invalid_arguments error with a did-you-mean hint before this runs.
+            const bool set = a.is_object() && a.contains("view");
+            const std::string wanted = set ? a["view"].get<std::string>() : std::string();
+            if (!I.renderer || !I.renderer->initialized())
+                throw CommandError("unavailable",
+                                   "No renderer: the engine runs with graphics=false, so there is nothing to show.",
+                                   "Run with graphics (headless needs Mesa/EGL on Linux), not graphics=false.");
+            const DebugView previous = I.renderer->debug_view();
+            if (set)
+                I.renderer->set_debug_view(wanted == "depth"     ? DebugView::Depth
+                                           : wanted == "normals" ? DebugView::Normals
+                                           : wanted == "ao"      ? DebugView::Ao
+                                                                 : DebugView::None);
+            return Json::object({{"view", name_of(I.renderer->debug_view())}, {"previous", name_of(previous)}});
+        });
+
     // Capabilities (capability.h): what each command does outside the engine's memory.
     declare_command_capabilities(I.commands, {
+                                                 {"render.output", capability_sets::reads()},
+                                                 {"render.supports", capability_sets::reads()},
+                                                 {"render.debug_view", capability_sets::changes_state()},
                                                  {"game.screenshot", capability_sets::changes_state()},
                                                  {"render.inspect", capability_sets::reads()},
                                                  {"render.pick", capability_sets::reads()},
