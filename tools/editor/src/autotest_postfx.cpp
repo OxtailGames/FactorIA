@@ -8,6 +8,7 @@
 #include "autotest_common.h"
 #include "editor_internal.h"
 #include "fa/render/renderer.h"
+#include "fa/scene/camera_query.h"
 #include "fa/scene/postprocess.h"
 
 namespace fa::editor {
@@ -15,6 +16,12 @@ namespace fa::editor {
 using namespace at_support;
 
 namespace {
+
+// The camera the panel shows without a choice: the renderer's main camera, whatever the scene calls it.
+Entity main_camera(World& w) {
+    const std::vector<Entity> cams = rendering_cameras(w);
+    return cams.empty() ? kNullEntity : cams.front();
+}
 
 // The effect `name` in the resolved stack the panel shows; nullptr when the panel has no report.
 const Json* shown_effect(const Json& report, const std::string& name) {
@@ -40,7 +47,7 @@ void Editor::at_section_G2(AtScript& at) {
     auto depth0 = std::make_shared<std::size_t>(0);
     auto hadPost = std::make_shared<bool>(false);
     step(2, [this, depth0, hadPost] {
-        const Entity cam = world().find_by_id("camera");
+        const Entity cam = main_camera(world());
         *hadPost = !cam.is_null() && world().get<PostProcess>(cam) != nullptr;
         *depth0 = undo_depth();
     });
@@ -53,7 +60,7 @@ void Editor::at_section_G2(AtScript& at) {
     });
     step(4, [this] {
         const Json& r = postFx_.report;
-        at_check(r.is_object() && r.value("id", std::string()) == "camera",
+        at_check(r.is_object() && r.value("id", std::string()) == world().id_of(main_camera(world())),
                  "the panel shows the stack of the main camera (the id the answer names)");
         const Json* first = shown_effect(r, "ssao");
         const Json* last = shown_effect(r, "colorFilter");
@@ -89,7 +96,7 @@ void Editor::at_section_G2(AtScript& at) {
     // A look: one button, one undo step; neutral clears it again.
     click("postfx:preset:cinematic");
     step(4, [this, depth0] {
-        const Entity cam = world().find_by_id("camera");
+        const Entity cam = main_camera(world());
         const PostProcess* p = cam.is_null() ? nullptr : world().get<PostProcess>(cam);
         at_check(postFx_.error.empty(), "the cinematic look applied without an error: " + postFx_.error);
         at_check(p && p->bloomEnabled && p->tonemapEnabled && p->vignetteEnabled,
@@ -102,7 +109,7 @@ void Editor::at_section_G2(AtScript& at) {
     snap("editor_postfx.png");
     click("postfx:preset:neutral");
     step(4, [this, depth0] {
-        const Entity cam = world().find_by_id("camera");
+        const Entity cam = main_camera(world());
         const PostProcess* p = cam.is_null() ? nullptr : world().get<PostProcess>(cam);
         at_check(p && !p->bloomEnabled && !p->tonemapEnabled && !p->vignetteEnabled,
                  "the neutral look switches every effect off again");
@@ -112,7 +119,7 @@ void Editor::at_section_G2(AtScript& at) {
                  "an edit from the panel (postprocess.set) is accepted: " + postFx_.error);
     });
     step(3, [this, depth0] {
-        const Entity cam = world().find_by_id("camera");
+        const Entity cam = main_camera(world());
         const PostProcess* p = cam.is_null() ? nullptr : world().get<PostProcess>(cam);
         at_check(p && p->bloomEnabled && std::fabs(p->bloomIntensity - 0.9f) < 0.001f,
                  "...and writes the fields it was given");
@@ -122,7 +129,7 @@ void Editor::at_section_G2(AtScript& at) {
         undo();
     });
     step(3, [this, depth0, hadPost] {
-        const Entity cam = world().find_by_id("camera");
+        const Entity cam = main_camera(world());
         const PostProcess* p = cam.is_null() ? nullptr : world().get<PostProcess>(cam);
         at_check(undo_depth() == *depth0, "three undos take the three steps back");
         at_check((p != nullptr) == *hadPost && (!p || (!p->bloomEnabled && !p->tonemapEnabled)),

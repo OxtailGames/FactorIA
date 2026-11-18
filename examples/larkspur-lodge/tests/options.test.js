@@ -96,6 +96,14 @@ describe("accessibility options", () => {
     const f = settings.load().colorFilter;
     expect(f).not.toBe("none");
     expect(game.find("camera").get("PostProcess").colorFilterMode).toBe(f);
+    expect(game.find("camera").get("PostProcess").colorFilterEnabled).toBe(true);
+    // The rest of the list, then back to "none": the filter is switched off again (the mode alone would still read "none").
+    for (let i = 1; i < settings.COLOR_FILTERS.length; i++) {
+      game.click(game.find("color_filter"));
+      game.step(2);
+    }
+    expect(settings.load().colorFilter).toBe("none");
+    expect(game.find("camera").get("PostProcess").colorFilterEnabled).toBe(false);
   });
 
   test("the caption background changes the alpha of the Captions component and of the dialogue box", () => {
