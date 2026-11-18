@@ -803,6 +803,142 @@ TEST_CASE("materials: vertex() moves the shadow with the mesh") {
     expect_golden(lift, "3d_material_lift");
 }
 
+TEST_CASE(
+    "materials: a texture read in vertex() lifts the mesh and its shadow, and the same texture is read in surface()") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    MaterialScope scope;
+    auto frame = [&](bool material, float lift) {
+        World w;
+        add_stage(w);
+        if (material) {
+            Entity e = add_material_mesh(w, "cube", "materials/bump.material.json", {-1.5f, 0, 0}, Color::hex(0xc08040),
+                                         {1, 1, 1});
+            w.get<MeshRenderer>(e)->materialParams = Json::object({{"lift", lift}});
+        } else {
+            add_mesh(w, "cube", {-1.5f, lift, 0}, Color::hex(0xc08040));  // where the material puts it
+        }
+        return g.render(w);
+    };
+    ErrorLog log;
+    const Image lifted = frame(true, 1.2f);
+    CHECK(log.messages().empty());
+    CHECK(g.renderer.stats().materials == 1);
+    // The white height map lifts every vertex by `lift`: the same picture as the plain cube standing there, the shadow
+    // on the ground included (the shadow pass reads the texture too), and the white texel leaves the albedo as it is.
+    CHECK(diff_images(lifted, frame(false, 1.2f), 2.0f / 255.0f).meanError < 0.001);
+    // A lift of 0 is the cube on the ground: the silhouette and the shadow moved.
+    const Image grounded = frame(true, 0.0f);
+    CHECK(diff_images(grounded, frame(false, 0.0f), 2.0f / 255.0f).meanError < 0.001);
+    CHECK(diff_images(lifted, grounded, 4.0f / 255.0f).meanError > 0.005);
+}
+
+namespace {
+struct Band {
+    int count = 0;
+    double sumX = 0, sumY = 0;
+    double meanX() const { return count ? sumX / count : 0; }
+    double meanY() const { return count ? sumY / count : 0; }
+};
+
+// The pixels of a disc around the sphere's center, by the green channel (0..255).
+std::vector<std::pair<int, std::pair<int, int>>> sphere_pixels(const Image& img) {
+    std::vector<std::pair<int, std::pair<int, int>>> px;
+    const int cx = img.width / 2, cy = img.height / 2;
+    for (int y = cy - 34; y <= cy + 34; ++y)
+        for (int x = cx - 34; x <= cx + 34; ++x)
+            if ((x - cx) * (x - cx) + (y - cy) * (y - cy) <= 34 * 34)
+                px.push_back({int(std::lround(img.pixel(x, y).g * 255.0f)), {x, y}});
+    return px;
+}
+
+// A sphere on its own: one directional light from the upper right, a dim grey ambient, no shadows.
+Image sphere_frame(Gfx& g, const char* material, Color albedo, Color ambient = Color{0.2f, 0.2f, 0.2f, 1}) {
+    World w;
+    add_camera(w, {0, 1.5f, 4}, {0, 0, 0});
+    w.settings().ambientLight = ambient;
+    w.get<Light>(add_light(w, LightType::Directional, {0, 5, 0}, {-50, 30, 0}, 0.8f))->castShadows = false;
+    Entity s = add_mesh(w, "sphere", {0, 0, 0}, albedo, {2.4f, 2.4f, 2.4f});
+    w.get<MeshRenderer>(s)->material = material;
+    return g.render(w);
+}
+}  // namespace
+
+TEST_CASE("materials: custom lighting calls light() per light: a two-band toon with the lit side brighter") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    MaterialScope scope;
+    ErrorLog log;
+    const Image toon = sphere_frame(g, "materials/toon.material.json", Color::hex(0xe0e0e0));
+    CHECK(log.messages().empty());
+    CHECK(g.renderer.stats().materials == 1);
+    const auto px = sphere_pixels(toon);
+    int hi = 0, lo = 255;
+    for (const auto& p : px) {
+        hi = std::max(hi, p.first);
+        lo = std::min(lo, p.first);
+    }
+    CHECK(hi - lo > 40);  // the two bands differ clearly
+    Band bright, dim;
+    int between = 0;
+    for (const auto& p : px) {
+        Band* b = nullptr;
+        if (std::abs(p.first - hi) <= 4)
+            b = &bright;
+        else if (std::abs(p.first - lo) <= 4)
+            b = &dim;
+        else
+            ++between;
+        if (!b) continue;
+        ++b->count;
+        b->sumX += p.second.first;
+        b->sumY += p.second.second;
+    }
+    // Two bands and nothing else (a hard step: only the pixels on the edge of the band may be in between).
+    CHECK(bright.count > int(px.size()) / 10);
+    CHECK(dim.count > int(px.size()) / 10);
+    CHECK(between < int(px.size()) / 10);
+    // The sun comes from the right and above: the bright band is on that side of the sphere.
+    CHECK(bright.meanX() > dim.meanX() + 4.0);
+    CHECK(bright.meanY() < dim.meanY());
+
+    // The built-in lighting of the same sphere is a smooth gradient: many more levels than two.
+    const auto plain = sphere_pixels(sphere_frame(g, "", Color::hex(0xe0e0e0)));
+    std::vector<bool> seen(256, false);
+    for (const auto& p : plain) seen[size_t(p.first)] = true;
+    CHECK(std::count(seen.begin(), seen.end(), true) > 12);
+}
+
+TEST_CASE("materials: a light() that returns 0 leaves only the ambient term, and ambient() replaces that term") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    MaterialScope scope;
+    ErrorLog log;
+    const Color white = Color::hex(0xffffff);
+    const Image dark = sphere_frame(g, "materials/dark.material.json", white);
+    const Image plain = sphere_frame(g, "", white);
+    CHECK(log.messages().empty());
+    int hi = 0, lo = 255;
+    double sum = 0, plainSum = 0;
+    for (const auto& p : sphere_pixels(dark)) {
+        hi = std::max(hi, p.first);
+        lo = std::min(lo, p.first);
+        sum += p.first;
+    }
+    for (const auto& p : sphere_pixels(plain)) plainSum += p.first;
+    CHECK(hi - lo <= 4);    // no light: the same color all over the sphere
+    CHECK(lo >= 10);        // the ambient term is there
+    CHECK(sum < plainSum);  // and the sun is not
+
+    // ambient() keeps only the green of the scene's ambient light; light() adds nothing: the sphere is pure green.
+    const Image green = sphere_frame(g, "materials/ambient.material.json", white, Color{0.5f, 0.5f, 0.5f, 1});
+    CHECK(log.messages().empty());
+    const Color c = green.pixel(green.width / 2, green.height / 2);
+    CHECK(c.g > 0.1f);
+    CHECK(c.r < 0.02f);
+    CHECK(c.b < 0.02f);
+}
+
 TEST_CASE("materials: alphaMode clip cuts holes in the mesh and in its shadow") {
     Gfx& g = gfx();
     REQUIRE(g.ok);

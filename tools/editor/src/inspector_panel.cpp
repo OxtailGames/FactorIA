@@ -8,6 +8,7 @@
 #include <cmath>
 
 #include "editor_internal.h"
+#include "fa/core/strings.h"
 #include "imgui_internal.h"  // ImGuiItemFlags_MixedValue: a checkbox that shows "several values"
 
 namespace fa::editor {
@@ -670,6 +671,15 @@ void Editor::draw_inspector_component(Entity e, const TypeInfo& type) {
                     if (!buildError.empty()) {
                         error_text("Build error: " + buildError);
                         at_track("insp:material:error");
+                    }
+                    if (ends_with(value.get<std::string>(), ".material.json")) {
+                        if (ImGui::SmallButton("Edit graph")) open_graph_document(value.get<std::string>());
+                        at_track("insp:material:graph");
+                        if (ImGui::BeginItemTooltip()) {
+                            ImGui::TextUnformatted("Opens this material in the Graph panel (node graph editor). A "
+                                                   "material with no graph offers to start one.");
+                            ImGui::EndTooltip();
+                        }
                     }
                 }
             }

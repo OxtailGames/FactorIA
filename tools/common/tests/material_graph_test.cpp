@@ -862,3 +862,93 @@ TEST_CASE("graph all nodes: the generated snippet compiles with the real sokol-s
     INFO(dwhy);
     CHECK(dr->ok);
 }
+
+// ---------------------------------------------------------------------------------------------------------------
+// The editor's needs: "editor" and "version" keys, the check of a graph held in memory, no cascade, reserved names
+// ---------------------------------------------------------------------------------------------------------------
+
+TEST_CASE("graph editor keys: version and editor are accepted, the generator ignores them, wrong ones are errors") {
+    Project p;
+    Json doc = p.doc();
+    const std::string plain = check_material_document(doc, p.dir.str()).snippet;
+    REQUIRE_FALSE(plain.empty());
+
+    doc["graph"]["version"] = 1;
+    doc["graph"]["editor"] = Json::parse(R"({"zoom":1.5,"pan":[10,20],"comments":["a"]})");
+    doc["graph"]["nodes"][0]["editor"] = Json::parse(R"({"collapsed":true})");
+    MaterialGraphReport r = check_material_document(doc, p.dir.str());
+    CHECK_MESSAGE(r.ok(), all_errors(GraphCheck{r.errors, r.warnings}));
+    CHECK(r.snippet == plain);
+    CHECK(r.hash == graph_snippet_hash(plain));
+
+    doc["graph"]["version"] = 2;
+    r = check_material_document(doc, p.dir.str());
+    REQUIRE_FALSE(r.ok());
+    CHECK(has_error(GraphCheck{r.errors, r.warnings}, "/graph/version", "reads graph version 1"));
+    doc["graph"]["version"] = 1;
+    doc["graph"]["editor"] = 3;
+    doc["graph"]["nodes"][0]["editor"] = "x";
+    r = check_material_document(doc, p.dir.str());
+    GraphCheck gc{r.errors, r.warnings};
+    CHECK(has_error(gc, "/graph/editor", "expected an object"));
+    CHECK(has_error(gc, "/graph/nodes/0/editor", "expected an object"));
+}
+
+TEST_CASE("material.graph.validate and generate take a graph held in memory") {
+    Project p;
+    Json graph = p.doc()["graph"];
+    graph["nodes"][0]["inputs"]["scale"] = 11.0;
+    Json args = {{"material", "materials/dissolve.material.json"}, {"graph", graph}};
+    auto v = p.registry.call("material.graph.validate", args);
+    REQUIRE_MESSAGE(v.ok, failure(v));
+    CHECK(v.result["ok"] == true);
+    // the file is untouched
+    CHECK(p.doc()["graph"]["nodes"][0]["inputs"]["scale"] == 6.0);
+
+    graph["links"][1]["from"] = "amoun.value";
+    args["graph"] = graph;
+    v = p.registry.call("material.graph.validate", args);
+    REQUIRE(v.ok);
+    CHECK(v.result["ok"] == false);
+    CHECK(v.result.dump().find("/graph/links/1/from") != std::string::npos);
+
+    // generate with a graph writes that graph into the material and its snippet
+    graph = p.doc()["graph"];
+    graph["nodes"][0]["inputs"]["scale"] = 11.0;
+    graph["version"] = 1;
+    graph["nodes"][0]["pos"] = Json::parse("[5,6]");
+    auto gen = p.registry.call("material.graph.generate",
+                               Json{{"material", "materials/dissolve.material.json"}, {"graph", graph}});
+    REQUIRE_MESSAGE(gen.ok, failure(gen));
+    CHECK(gen.result["written"] == true);
+    const Json saved = p.doc();
+    CHECK(saved["graph"] == graph);
+    CHECK(saved["graphHash"] == graph_snippet_hash(p.read("shaders/dissolve.surface.glsl")));
+    CHECK(p.read("shaders/dissolve.surface.glsl").find("11.0") != std::string::npos);
+}
+
+TEST_CASE("graph check: a failed param or texture node does not cascade into a type mismatch") {
+    auto c = check_of(R"({"nodes":[{"id":"p","type":"param","param":"amout"},
+                                   {"id":"n","type":"noise.fbm","inputs":{"scale":1}},
+                                   {"id":"mul","type":"dissolve"},
+                                   {"id":"out","type":"output"}],
+                          "links":[{"from":"p.value","to":"mul.threshold"},{"from":"n.value","to":"mul.noise"},
+                                   {"from":"mul.alpha","to":"out.alpha"}]})");
+    CHECK(has_error(c, "/graph/nodes/0/param", "no param \"amout\""));
+    for (const MaterialIssue& e : c.errors)
+        CHECK_MESSAGE(e.message.find("mismatch") == std::string::npos, e.to_string());
+    CHECK(c.errors.size() == 1);
+}
+
+TEST_CASE("graph check: params and textures named gn_ are refused with the fix") {
+    Json doc = base_doc();
+    doc["params"]["gn_amount"] = Json::parse(R"({"type":"float","default":0.5,"doc":"x"})");
+    doc["textures"]["gn_tex"] = Json::parse(R"({"doc":"x"})");
+    doc["graph"] = Json::parse(R"({"nodes":[{"id":"out","type":"output"}]})");
+    const MaterialGraphReport r = check_material_document(doc);
+    const GraphCheck gc{r.errors, r.warnings};
+    CHECK(has_error(gc, "/params/gn_amount", "starts with gn_"));
+    CHECK(has_error(gc, "/textures/gn_tex", "starts with gn_"));
+    for (const MaterialIssue& e : r.errors)
+        if (e.pointer == "/params/gn_amount") CHECK(e.hint.find("Rename") != std::string::npos);
+}

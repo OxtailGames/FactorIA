@@ -374,6 +374,13 @@ constexpr int kMaxMaterialParams = 16,
 //          the 16 texture units GLES3 and WebGL2 guarantee.
 constexpr int kMaterialFirstView = 6, kMaterialFirstSampler = 2, kMaterialUbVertex = 4, kMaterialUbFragment = 5;
 constexpr int kMaterialSpriteFirstView = 4, kMaterialSpriteFirstSampler = 3;
+// A mesh material texture is bound twice: the fragment stage reads it at kMaterialFirstView + i, the vertex stage (vertex() may sample
+// it) at kMaterialVsFirstView + i, with the samplers likewise (fa/tooling/shaders.h kMaterialVsFirstView, the generator's top
+// file). Each program declares only the slots its stages use, and a draw binds only those.
+constexpr int kMaterialVsFirstView = kMaterialFirstView + kMaxMaterialTextures,
+              kMaterialVsFirstSampler = kMaterialFirstSampler + kMaxMaterialTextures;
+// A sprite material's vertex() cannot sample textures (the generator refuses it with a teaching error), so a sprite program has no
+// vertex-stage views: the sprite slots above are the fragment stage's only.
 
 // One program of a twin (mesh, mesh_skin, shadow, shadow_skin, prepass, prepass_skin) and what its reflection declares: a draw binds and applies
 // only those slots (sokol rejects a binding the shader does not declare, and a declared uniform block left unapplied).

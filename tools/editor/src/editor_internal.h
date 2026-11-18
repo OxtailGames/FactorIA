@@ -76,6 +76,7 @@
 #include "image_ui.h"
 #include "vector_ui.h"
 #include "sound_ui.h"
+#include "graph_ui.h"
 #include "particle_ui.h"
 #include "modeler_ui.h"
 #include "music_ui.h"
@@ -656,6 +657,34 @@ public:
     Vec2 particle_canvas_pos(float worldX, float worldY) const;            // ...and the canvas
     ParticleUi particle_;
     bool showParticle_ = false;
+
+    // Graph panel (graph_panel.cpp; View > Graph, or a double click on a *.material.json with a graph in the Project panel): the node-graph editor
+    // of a material, with a canvas, a node palette, an inspector for the constants, the checker's problems and a live preview. The rules are in
+    // graph_model.h: every edit is one undo step ({"$graph": {"step": id}} entries), and Save is material.graph.generate.
+    GraphModel&
+    graph_ensure_model();  // makes the panel's model and preview on first use (and again for another project)
+    void draw_graph_panel();
+    void draw_graph_toolbar(GraphModel& m);
+    void
+    draw_graph_questions(GraphModel& m);  // the modal questions: overwrite a hand-edited snippet, drop unsaved changes
+    void draw_graph_canvas(GraphModel& m);
+    void draw_graph_palette(GraphModel& m);
+    void draw_graph_side(GraphModel& m);
+    void draw_graph_node_inspector(GraphModel& m, const std::string& id);
+    // *.material.json; false and a toast on failure (or when it asked about unsaved changes first). `discard`: do not ask.
+    bool open_graph_document(const std::string& rel, bool startGraph = false, bool discard = false);
+    void graph_edited(const GraphEditOutcome& out);  // after an edit: the undo entry, a toast for an error
+    void graph_apply_undo(const Json& entry, bool forward);
+    void graph_collect_steps();  // drops the undo steps no stack entry points to
+    void graph_save(bool force);
+    void graph_close_document();
+    void graph_release_textures();
+    void
+    graph_pre_frame();  // before ui::new_frame: the preview's compile result and its capture (they commit the GPU frame)
+    Vec2 graph_screen_pos(float graphX, float graphY) const;  // the autotest drives the canvas
+    Vec2 graph_node_screen(const std::string& id, const std::string& port = "", bool output = false) const;
+    GraphUi graph_;
+    bool showGraph_ = false;
     // Music panel (music_panel.cpp, music_mixer_panel.cpp; View > Music, or a double click on a *.song.json in the Project panel): a song as a
     // piano roll, a drum grid, an arrangement and a mixer, played by the same transport a game's entity.music uses (an intensity slider fades
     // the layers, a section can be looped). The rules are in music_model.h: every edit it keeps is a command call (music.edit, music.arpeggio,
@@ -1755,6 +1784,7 @@ public:
     void at_section_N3(AtScript& at);
     void at_section_P3(AtScript& at);
     void at_section_O3(AtScript& at);  // autotest_model_particles.cpp
+    void at_section_G3(AtScript& at);  // autotest_graph.cpp
     void at_section_R3(AtScript& at);
     void at_section_A3(AtScript& at);
     void at_section_T2(AtScript& at);  // autotest_play_review.cpp

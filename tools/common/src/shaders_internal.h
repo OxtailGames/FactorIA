@@ -7,6 +7,7 @@
 //   shaders_commands.cpp  shader.compile, material.info, factoria validate
 #pragma once
 
+#include <set>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -23,6 +24,11 @@ bool ident_char(char c);  // [A-Za-z0-9_]
 bool is_identifier(std::string_view s);
 // A GLSL keyword or a name of the snippet contract that a parameter or texture must not take.
 bool is_reserved_word(std::string_view s);
+// The unprefixed names the template of a material kind declares at the top level of its program (vertex inputs, varyings,
+// textures, samplers, uniform blocks and their members, functions, #defines), read from the bundled template files so they
+// cannot drift from them. Only the sprite template has any: its params and textures must not take one (they would redefine
+// it in sokol-shdc). Empty for every other kind.
+const std::set<std::string, std::less<>>& template_globals(const std::string& kind);
 
 // 1-based line of byte `offset` in `text`, and its 0-based column.
 int line_of(std::string_view text, std::size_t offset);
