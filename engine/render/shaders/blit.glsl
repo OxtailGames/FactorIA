@@ -30,7 +30,8 @@ out vec4 frag_color;
 void main() {
     vec4 c = texture(sampler2D(tex, smp), uv);
     // M71-B1: the minimal encode of the scene for the display. The final pass with the tonemap replaces it (M71-B4).
-    vec3 rgb = encode.x > 0.5 ? fa_linear_to_srgb(c.rgb) : c.rgb;
+    vec3 rgb = c.rgb;
+    if (encode.x > 0.5) rgb = fa_linear_to_srgb(rgb);
     frag_color = vec4(rgb, 1.0);
 }
 @end

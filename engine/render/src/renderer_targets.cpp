@@ -162,7 +162,58 @@ void Renderer::Impl::create_targets(int w, int h, bool settle) {
 void Renderer::Impl::sync_color_space(const World& world) {
     const bool linear = world.settings().colorSpace == ColorSpace::Linear;
     if (linear == gpu.linear()) return;
+    if (!linear) destroy_target(editorTarget);  // back in gamma the viewport shows the game image itself
     if (gpu.set_linear(linear)) create_targets(targetW, targetH, true);
+}
+
+sg_image Renderer::Impl::display_image() const {
+    if (!gpu.linear() || !editorView) return final_image();
+    return editorTarget.texture_image();
+}
+
+sg_view Renderer::Impl::display_view() const {
+    if (!gpu.linear() || !editorView) return final_view();
+    return editorTarget.texView;
+}
+
+// A linear scene holds linear light: shown as it is, the editor's viewport would be too dark. After the frame is drawn (and the colour
+// filter, if any) the finished image is encoded into an RGBA8 copy that ImGui shows. Same orientation as the game image (the viewport
+// flips it on GL), not counted in RenderStats::drawCalls. Made only when the editor asked and the scene is linear.
+void Renderer::Impl::update_editor_copy() {
+    if (!editorView || !gpu.linear() || !game_targets_valid()) {
+        destroy_target(editorTarget);
+        return;
+    }
+    if (editorTarget.color.id && (editorTarget.w != physW || editorTarget.h != physH)) destroy_target(editorTarget);
+    if (!editorTarget.color.id) {
+        TargetDesc d;
+        d.label = "editor-view";
+        d.width = physW;
+        d.height = physH;
+        d.colorFormat = SG_PIXELFORMAT_RGBA8;
+        editorTarget = make_target(d);
+        if (!editorTarget.valid()) {
+            destroy_target(editorTarget);  // the viewport shows its "no render target" text; tried again next frame
+            return;
+        }
+    }
+    PassDesc p = pass_into(editorTarget, "editor-view");
+    p.colorLoad = SG_LOADACTION_DONTCARE;  // every pixel is drawn
+    p.colorStore = SG_STOREACTION_STORE;
+    gpu.begin_pass(p);
+    sg_apply_pipeline(gpu.blit_keep_pipeline(p.format));
+    sg_bindings b{};
+    b.vertex_buffers[0] = gpu.fullscreen_triangle();
+    b.views[VIEW_blit_tex] = final_view();
+    b.samplers[SMP_blit_smp] = gpu.sampler(SamplerKind::Nearest);
+    sg_apply_bindings(&b);
+    blit_blit_vs_params_t u{};  // flip stays 0: the copy is stored like the game image
+    apply_uniforms(UB_blit_blit_vs_params, u);
+    blit_blit_fs_params_t fu{};
+    fu.encode[0] = 1.0f;
+    apply_uniforms(UB_blit_blit_fs_params, fu);
+    sg_draw(0, 3, 1);
+    gpu.end_pass();
 }
 
 void Renderer::Impl::make_game_targets() {
@@ -193,6 +244,7 @@ void Renderer::Impl::destroy_targets() {
     lightW = lightH = 0;
     filterActive = false;
     destroy_target(filterTarget);
+    destroy_target(editorTarget);
     free_read_image();
     destroy_target(gameTarget);
 }

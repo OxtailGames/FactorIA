@@ -340,7 +340,11 @@ colour") is drawn; the effects are not yet.
   video textures stay raw. The final blit encodes linear to sRGB (`blit_fs_params.encode`, replaced by the final pass of the stack) and
   so does `read_rgba8`; an SRGB8A8 target is encoded by the GPU on write, so a gamma-correct read-back of it is a plain read.
   R11G11B10 has no alpha (`scene_has_alpha`); `FeatureEnv.r11g11b10` follows the same rule as the chain (blend, or GL where sokol does
-  not report it).
+  not report it). The editor viewport shows `Impl::display_view()`: the finished game image in gamma; in linear, after
+  `Renderer::set_editor_view(true)` (the editor, once; a game never), an RGBA8 copy that `update_editor_copy()` draws after each frame
+  with blit_keep and `encode` on (not counted as a draw call, freed when the scene returns to gamma or the editor stops asking). M71-B4
+  points `display_image()` / `display_view()` at its final target. The shader helper `fa_tex_fix` is written with `if` branches on a
+  uniform, so a gamma scene skips the pow() blocks on compilers that would run both sides of a `?:`.
 
 - **Data, in `engine/scene`.** `SceneSettings.colorSpace` (`gamma`, the default, or `linear`), `hdrOutput` (`off` or `auto`) and
   `paperWhiteNits` (200) are stored and saved with the scene; an old scene without them loads as gamma. The `PostProcess` component
