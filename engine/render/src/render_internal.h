@@ -174,9 +174,10 @@ struct TextureAsset {
     // always sees the file's values: one texture asset serves both uses, whichever format it was made in (the first user that
     // loads it decides the format; a use the format does not suit is corrected here, at the cost of filtering such a texture in
     // linear light, a small difference). `colour`: the sample is a colour (sprite, albedo, emissive), not data.
-    int tex_fix(bool linearScene, bool colour) const {
+    // `displayOverLinear`: the pass writes display values over a linear scene (Frame::displayOverLinear).
+    int tex_fix(bool linearScene, bool colour, bool displayOverLinear = false) const {
         const TexEncoding e = (atlas ? atlas->enc : enc);
-        if (e == TexEncoding::Scene) return 0;
+        if (e == TexEncoding::Scene) return displayOverLinear && colour ? 2 : 0;
         const bool decoded = e == TexEncoding::Srgb;
         return linearScene && colour ? (decoded ? 0 : 1) : (decoded ? 2 : 0);
     }
@@ -1105,6 +1106,8 @@ private:
 
 // GPU->CPU readback of an RGBA8 image (top row first). Backend specific.
 bool readback_rgba8(sg_image image, int width, int height, std::vector<std::uint8_t>& out, std::string* error);
+// The same for an RGBA16F image, as floats (4 per pixel, top row first): what the HDR tests read (Renderer::Impl::read_floats).
+bool readback_rgba16f(sg_image image, int width, int height, std::vector<float>& out, std::string* error);
 
 // Debug draw storage.
 struct DebugLine {

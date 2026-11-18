@@ -53,6 +53,9 @@ struct Frame {
     Fonts* fonts = nullptr;
     bool linear =
         false;  // SceneSettings.colorSpace linear: the colours of the gather (lights, ambient) are linear light
+    // A pass of display (sRGB) values over a linear scene (the HUD after the final pass): `linear` is false there, but a texture
+    // made in the scene's format (a CameraView, a render target) still holds linear light and is encoded as it is read.
+    bool displayOverLinear = false;
     float renderScale = 1.0f;  // Renderer::set_render_scale: glyphs are rasterized this many times larger (sharp text)
     float textScale = 1.0f;    // Renderer::set_text_scale: multiplies the font size of screen-space Text and UI labels
     float uiScale =

@@ -10934,7 +10934,7 @@ declare module "factoria" {
      */
     colorSpace: "gamma" | "linear";
     /**
-     * off (default): the picture is shown in the standard range. auto: use a high dynamic range display where the platform allows it (Windows HDR10 or scRGB, macOS EDR); on any other display it is the standard range, with no error. It needs colorSpace linear to show anything above white. Today only Metal switches (to EDR) and the picture stays within white until the HDR encode of M71; Windows follows with it. render.output says what the window shows and why; render.supports {"feature": "hdrOutput"} says whether the window's display could.
+     * off (default): the picture is shown in the standard range. auto: use a high dynamic range display where the platform allows it (Windows scRGB or HDR10, macOS and iOS EDR); on any other display it is the standard range, with no error. Only the tonemap of a camera's PostProcess (exposure or tonemap on) goes above paper white, up to the display's headroom; the HUD, a camera without it and a colour-filtered frame stay at paper white. render.output says what the window shows and why; render.supports {"feature": "hdrOutput"} says whether the window's display could.
      * @since unreleased
      */
     hdrOutput: "off" | "auto";

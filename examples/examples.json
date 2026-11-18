@@ -52,7 +52,7 @@
     {
       "name": "neon-swarm",
       "title": "Neon Swarm",
-      "shows": "A twin-stick arena shooter: the neon glow comes from camera bloom and additive shapes, with an adaptive score and an animation drawn with code.",
+      "shows": "A twin-stick arena shooter: the neon glow comes from PostProcess bloom and additive shapes, with an adaptive score and an animation drawn with code.",
       "readFirst": ["docs/EFFECTS.md", "docs/PARTICLES.md"]
     },
     {

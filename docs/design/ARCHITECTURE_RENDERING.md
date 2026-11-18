@@ -404,8 +404,13 @@ colour") and the effects listed in the last bullet (exposure, bloom, tonemap, co
   RGBA16F scene format (else one warning and the exposure stays manual). The legacy fields: `build_camera` builds an implicit
   `PostProcess` from the sanitised `Camera.bloom*` and `colorFilter` (knee 0, no dirt) and `resolve_post_stack` uses it when the
   camera has no enabled `PostProcess` of its own, so `CameraInfo::bloom` and `colorFilter` are always derived from the stack
-  (`bloom_from_stack`); the six fields are in `api_since.json` "deprecated.components". `OutputEncode` (`Sdr` only) is the hook the
-  HDR output adds its encodes to (`p.z` of post.glsl). Screen-space items are drawn after the final pass, so exposure and tonemap
+  (`bloom_from_stack`); the six fields are in `api_since.json` "deprecated.components". The HDR output (`hdr_encode.h`): the frame
+  takes `OutputTarget` (`select_output` of the last `update_output` answer: encode, headroom, paper white) when it starts;
+  an extended one (an HDR encode, headroom above 1, a float display format) makes the final pass run `tonemap_hdr` (`p.z`
+  and `h` of post.glsl, without a colour filter) and write sRGB-encoded values past 1, and `present_params` decodes them in
+  blit.glsl and encodes them for the swapchain the window has at present time (sRGB, scRGB, PQ in Rec.2020, EDR linear),
+  clamped to the frame's headroom only when its final pass went above white (`frameAboveWhite`). The CPU functions mirror
+  the shaders; `renderer_force_output` and `renderer_read_floats` let the tests check them without an HDR display. Screen-space items are drawn after the final pass, so exposure and tonemap
   never touch them; in a linear scene their quad and text pipelines must write display-space values into `hudTarget`.
 - **Depth and normal prepass** (`Renderer::Impl::plan_prepass`, `prepass_pass`, `prepass_view_pass` in `renderer_draw.cpp`). A pass
   of the last job's graph declared before "main", with a transient of its own (`PostPlan::prepass`, a `PrepassRef` the effects that read
