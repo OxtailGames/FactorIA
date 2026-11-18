@@ -21,7 +21,9 @@ struct EffectRow {
 
 // One row per effect, in the order of kPostEffectOrder (checked below).
 constexpr EffectRow kEffectRows[kPostEffectCount] = {
-    {"depth", "Screen-space ambient occlusion (GTAO) from the depth buffer: creases and contacts of 3D models darken."},
+    {"half+depth",
+     "Screen-space ambient occlusion (GTAO) from the depth buffer: creases and contacts of 3D models darken (needs the "
+     "depth prepass; drawn before the bloom, per camera)."},
     {"half+depth", "Screen-space reflections: shiny surfaces reflect what is on the screen."},
     {"depth", "Distance and height fog drawn from the depth buffer."},
     {"depth", "Light shafts spreading from the sun through the scene."},
@@ -52,7 +54,7 @@ static_assert(sizeof(kEffectRows) / sizeof(kEffectRows[0]) == std::size_t(kPostE
 
 // The effects the renderer draws today (postprocess.cpp, bloom.cpp, post.glsl); each M71 package adds its own here.
 constexpr bool effect_drawn(PostEffect e) {
-    return e == PostEffect::Exposure || e == PostEffect::Bloom || e == PostEffect::Tonemap ||
+    return e == PostEffect::Ssao || e == PostEffect::Exposure || e == PostEffect::Bloom || e == PostEffect::Tonemap ||
            e == PostEffect::ColorFilter || e == PostEffect::LensDistortion || e == PostEffect::ChromaticAberration ||
            e == PostEffect::ColorGrading || e == PostEffect::Vignette || e == PostEffect::Sharpen ||
            e == PostEffect::Outline || e == PostEffect::Pixelate || e == PostEffect::Posterize ||

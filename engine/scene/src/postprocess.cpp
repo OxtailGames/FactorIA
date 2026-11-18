@@ -74,7 +74,8 @@ void register_postprocess_component(TypeRegistry& r) {
          "outline, "
          "pixelate, posterize, filmGrain, colorFilter (the last pass). M71 is in progress: the component, the volumes, "
          "the postprocess.* commands and render.supports exist, and each effect is drawn as its M71 package lands: "
-         "render.supports {\"feature\": \"<effect>\"} says which ones this build draws on this GPU (exposure, bloom, "
+         "render.supports {\"feature\": \"<effect>\"} says which ones this build draws on this GPU (ssao, exposure, "
+         "bloom, "
          "tonemap, colorFilter, lensDistortion, chromaticAberration, colorGrading, vignette, sharpen, outline, "
          "pixelate, posterize, filmGrain, depthOfField and motionBlur today), until then the fields only store the "
          "values. The lens distortion, "
@@ -92,7 +93,10 @@ void register_postprocess_component(TypeRegistry& r) {
          "pass, no "
          "target. Screen-space items (the HUD) are drawn over the finished picture, so exposure, tonemap and the "
          "output "
-         "encode never touch them; the colour filter does.",
+         "encode never touch them; the colour filter does. The ambient occlusion (ssao) darkens the 3D meshes where "
+         "they "
+         "meet, in place before the bloom, so the interface drawn before the post passes is darkened where it covers "
+         "meshes.",
          "Camera")
         .field("enabled", &PostProcess::enabled,
                "false: this component contributes nothing (all its effects are ignored), without losing its values.")
@@ -405,11 +409,13 @@ void register_postprocess_component(TypeRegistry& r) {
         .field("ssaoEnabled", &PostProcess::ssaoEnabled,
                "Switches the ambient occlusion on: creases and contact points of 3D models get darker. Needs the depth "
                "buffer "
-               "(3D); it costs the most of the effects at high quality.")
-        .enum_field("ssaoQuality", &PostProcess::ssaoQuality, {"low", "medium", "high", "ultra"},
-                    "Only used when ssaoEnabled. The number of directions and steps (GTAO): low is for phones and the "
-                    "web; each "
-                    "level costs about twice the one before.")
+               "(3D) and a GPU with RGBA16F targets that blend; it costs the most of the effects at high quality.")
+        .enum_field(
+            "ssaoQuality", &PostProcess::ssaoQuality, {"low", "medium", "high", "ultra"},
+            "Only used when ssaoEnabled. The number of directions and steps (GTAO): low is for phones and the "
+            "web; each "
+            "level costs about twice the one before. low and medium work at half the resolution of the camera's "
+            "rectangle, high and ultra at full resolution.")
         .field("ssaoIntensity", &PostProcess::ssaoIntensity,
                "Only used when ssaoEnabled. 0..4: how dark the occlusion is.")
         .range(0, 4)

@@ -54,6 +54,12 @@ PostPlan make_post_plan(const CameraInfo& cam, bool linear, std::uint32_t forceE
         const std::uint32_t outlineBit = 1u << int(PostEffect::Outline);
         if ((drawn & outlineBit) != 0 && !make_post_fx(*cam.postStack, frame, designScale).outline_depth())
             drawn &= ~outlineBit;
+        // The ambient occlusion draws when it has an intensity and a radius (renderer_ssao.h); without, it reads nothing.
+        const std::uint32_t ssaoBit = 1u << int(PostEffect::Ssao);
+        if ((drawn & ssaoBit) != 0) {
+            p.ssao = ssao_from_stack(*cam.postStack);
+            if (!p.ssao.enabled) drawn &= ~ssaoBit;
+        }
         // Fog and sun shafts read the depth only when they have something to draw (a fog with no density, shafts with no intensity do not).
         if ((drawn & (1u << int(PostEffect::Fog))) != 0 && !fog_has_effect(*cam.postStack)) drawn &= ~(1u << int(PostEffect::Fog));
         if ((drawn & (1u << int(PostEffect::SunShafts))) != 0 && !shafts_has_effect(*cam.postStack))

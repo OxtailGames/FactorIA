@@ -338,6 +338,12 @@ TEST_CASE("render.supports answers with a status, or says there is no renderer, 
         CHECK(r.result["status"].is_string());
         r = c.call("render.supports", Json::parse(R"({"feature":"ssao"})"));
         REQUIRE_MESSAGE(r.ok, r.error.dump());
+        CHECK(r.result["supported"]
+                  .is_boolean());  // drawn since M71-D1: true where the GPU has float targets and the prepass
+        if (r.result["supported"] == false)
+            CHECK(r.result["status"].get<std::string>().find("planned") == std::string::npos);
+        r = c.call("render.supports", Json::parse(R"({"feature":"ssr"})"));
+        REQUIRE_MESSAGE(r.ok, r.error.dump());
         CHECK(r.result["supported"] == false);  // M71 in progress: the renderer does not draw it yet
     }
     e.shutdown();
