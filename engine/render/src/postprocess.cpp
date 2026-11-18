@@ -202,11 +202,11 @@ post_post_fx_params_t fx_uniforms(const PostFx& fx, const LutInfo& lut, bool gl,
         u.sw[2 * i + 1][0] = r.push;
     }
     for (int i = 0; i < fx.hazeCount; ++i) {
-        const HazeBand& h = fx.hazes[std::size_t(i)];
-        for (int k = 0; k < 4; ++k) u.hz[2 * i][k] = h.region[std::size_t(k)];
-        u.hz[2 * i + 1][0] = h.strength;
-        u.hz[2 * i + 1][1] = h.frequency;
-        u.hz[2 * i + 1][2] = h.phase;
+        const HazeBand& band = fx.hazes[std::size_t(i)];
+        for (int k = 0; k < 4; ++k) u.hz[2 * i][k] = band.region[std::size_t(k)];
+        u.hz[2 * i + 1][0] = band.strength;
+        u.hz[2 * i + 1][1] = band.frequency;
+        u.hz[2 * i + 1][2] = band.phase;
     }
     if (fx.radialBlur) {
         u.rb[0] = fx.radialCenter.x;
