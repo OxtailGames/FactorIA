@@ -108,6 +108,7 @@ struct Renderer::Impl {
     std::unordered_map<std::uint64_t, PrevCamera> prevViewProj;  // by Entity::bits() of the camera
     bool prepassSplitWarned = false;  // one warning when a split frame has no prepass for a depth effect
     bool prepassWarned = false;       // one warning when the prepass cannot be made
+    bool coverageWarned = false;      // one warning when a sprite outline has no coverage image to read
     // The HDR display output (hdr_encode.h; docs/RENDERING.md, "HDR output"). outputInfo: the last answer of update_output()
     // (window thread; a renderer that never asks, a headless one, stays in the standard range). frameOutput: what the frame
     // is drawn for, taken from it when the frame starts (so the final pass and present() of a frame agree on the headroom).
@@ -246,8 +247,9 @@ struct Renderer::Impl {
     // One full-screen pass of post.glsl: `src` (a texture view of the finished picture) through the plan's final pass (`finalPass`: conversion and effects) and the
     // colour filter `filter` into `dst`; `expo` is the adapted exposure or a dummy image. `keepMsaa`: an MSAA destination keeps its
     // multisampled image (a pass that draws over it follows).
+    // `aux`: the image the outline reads (PostPlan::outline_source of the frame), or a null view when there is none.
     void post_pass(const PostPlan& pp, bool finalPass, int filter, bool autoExposure, sg_view src, sg_view expo,
-                   Target& dst, const char* label, bool keepMsaa);
+                   sg_view aux, Target& dst, const char* label, bool keepMsaa);
     // The 8-bit picture of a game or view image (top row first). In a float scene format the image is first drawn into an
     // RGBA8 copy (clamped at white, as the screen shows it), because the per-backend readbacks read RGBA8 only.
     bool read_rgba8(sg_image image, sg_view view, int w, int h, std::vector<std::uint8_t>& out, std::string* error,
@@ -378,9 +380,13 @@ struct Renderer::Impl {
     // the graph), prepass_view_pass paints it over the game image (Renderer::set_debug_view).
     bool plan_prepass(DrawContext& ctx);
     void prepass_pass(DrawContext& ctx, const Target& t);
+    // The outline's image (M71-C2): plan_outline settles it after plan_prepass (a depth outline needs the prepass, a sprite outline a
+    // coverage image of the 2D world; without it the effect is dropped from the plan), coverage_pass draws the 2D world's alpha into `t`.
+    void plan_outline(DrawContext& ctx);
+    void coverage_pass(DrawContext& ctx, const Target& t);
     void prepass_view_pass(DrawContext& ctx, const Target& t);
     void draw_group(DrawContext& ctx, const std::vector<QuadBatch>& batches, const Mat4& vp, bool depthTest,
-                    const Px& base, int flatMode = 0);
+                    const Px& base, int flatMode = 0, const TargetFormat* format = nullptr);
     void main_pass(DrawContext& ctx);
     void hud_pass(DrawContext& ctx, const Target& into, const char* label);
     // Declares the job's passes in `graph` (plan_job).

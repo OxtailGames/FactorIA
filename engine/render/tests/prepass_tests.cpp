@@ -549,3 +549,213 @@ TEST_CASE("prepass: a custom material twin made before the prepass warns once th
     CHECK(warnings >= 1);
     CHECK(warnings <= 2);  // the prepass and the prepass_skin program, once for this load
 }
+
+// ---- the outline (M71-C2, post.glsl apply_outline_depth) ----
+
+namespace {
+
+bool is_outline_red(const Color& c) { return c.r > 0.7f && c.g < 0.3f && c.b < 0.3f; }
+bool any_red(const Image& img, int x0, int x1, int y) {
+    for (int x = x0; x <= x1; ++x)
+        if (is_outline_red(img.pixel(x, y))) return true;
+    return false;
+}
+PostProcess& add_outline(World& w, float width = 2.0f) {
+    PostProcess& p = w.add<PostProcess>(w.find("cam"));
+    p.outlineEnabled = true;
+    p.outlineMode = OutlineMode::Depth;
+    p.outlineColor = Color{1, 0, 0, 1};
+    p.outlineWidth = width;
+    return p;
+}
+// Two cameras side by side, the first with the outline stack when `withOutline`.
+void split_cameras(World& w, bool withOutline, OutlineMode mode) {
+    add_camera(w, {0, 0, 10});
+    w.get<Camera>(w.find("cam"))->viewport = Rect{0, 0, 0.5f, 1};
+    add_mesh(w, "cube", {0, 0, 0}, {2, 2, 2});
+    Entity second = make(w, "cam2", {0, 0, 10});
+    auto& c = w.add<Camera>(second);
+    c.projection = Projection::Perspective;
+    c.viewport = Rect{0.5f, 0, 0.5f, 1};
+    c.depth = 1;
+    if (withOutline) add_outline(w, 3.0f).outlineMode = mode;
+}
+
+}  // namespace
+
+TEST_CASE("outline (depth): lines at the silhouette and at a crease, none on a flat floor or inside a face") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    World w;
+    add_camera(w, {0, 0, 10});
+    Entity cube = add_mesh(w, "cube", {0, 0, 0}, {2, 2, 2});
+    w.get<Transform>(cube)->rotation = {0, 45,
+                                        0};  // its nearest edge is a crease: two faces 90 degrees apart, no depth step
+    add_mesh(w, "plane", {0, -2, 0}, {20, 1, 20});
+    const Image plain = g.draw(w);
+    add_outline(w, 2.0f);
+    const Image img = g.draw(w);
+    const std::vector<std::string> order = order_of(g.renderer);
+    INFO(joined(order));
+    // The outline turned the prepass on, and the final pass reads it.
+    REQUIRE(count_suffix(order, "/prepass") == 1);
+    REQUIRE(count_suffix(order, "/post") == 1);
+    CHECK(index_of(order, "camera:0/prepass") < index_of(order, "camera:0/post"));
+    CHECK(count_suffix(order, "/sprite-coverage") == 0);
+    CHECK(any_red(img, 133, 144, 90));  // left silhouette
+    CHECK(any_red(img, 156, 163, 90));  // the crease
+    CHECK(any_red(img, 176, 187, 90));  // right silhouette
+    // Inside a face and on the flat floor (seen at a grazing angle): the picture of the stack-less draw.
+    for (const Vec2 p : {Vec2{150, 90}, Vec2{170, 90}, Vec2{150, 80}, Vec2{60, 150}, Vec2{260, 160}, Vec2{160, 170},
+                         Vec2{20, 175}, Vec2{300, 130}}) {
+        INFO("pixel " << p.x << ", " << p.y);
+        const Color a = img.pixel(int(p.x), int(p.y));
+        const Color b = plain.pixel(int(p.x), int(p.y));
+        CHECK_FALSE(is_outline_red(a));
+        CHECK(near_rgb(a, c8(b.r), c8(b.g), c8(b.b), 3));
+    }
+    CHECK(is_black(img.pixel(20, 20)));
+    CHECK(is_black(img.pixel(300, 30)));
+}
+
+TEST_CASE("outline (depth): a wider line covers more pixels, the opacity blends, the colour is the field's") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    World w;
+    add_camera(w, {0, 0, 10});
+    add_mesh(w, "cube", {0, 0, 0}, {2, 2, 2});  // its front face spans x = 142.7 .. 177.3 at row 90
+    PostProcess& p = add_outline(w, 1.0f);
+    auto red_count = [&](float width) {
+        p.outlineWidth = width;
+        const Image img = g.draw(w);
+        int n = 0;
+        for (int x = 120; x < 200; ++x) n += is_outline_red(img.pixel(x, 90)) ? 1 : 0;
+        return n;
+    };
+    const int w1 = red_count(1.0f);
+    const int w3 = red_count(3.0f);
+    const int w6 = red_count(6.0f);
+    INFO(w1 << " " << w3 << " " << w6);
+    CHECK(w1 >= 2);  // two silhouette edges, a pixel each at least
+    CHECK(w3 > w1);
+    CHECK(w6 > w3);
+    CHECK(w6 <= 2 * 6 + 2);
+    // Half opacity over the white face: halfway between white and the outline colour, not red.
+    p.outlineWidth = 4.0f;
+    p.outlineColor = Color{1, 0, 0, 0.5f};
+    const Image half = g.draw(w);
+    bool found = false;
+    for (int x = 143; x < 150 && !found; ++x) {
+        const Color c = half.pixel(x, 90);
+        found = std::fabs(c.g - 0.5f) < 0.06f && c.r > 0.9f;
+    }
+    CHECK(found);
+}
+
+TEST_CASE("outline (depth): the depth threshold decides whether a depth step is an edge, the normals decide the rest") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    World w;
+    add_camera(w, {0, 0, 10});
+    add_mesh(w, "cube", {0, 0, 0}, {2, 2, 2});
+    Entity wall = add_mesh(w, "plane", {0, 0, -5}, {20, 1, 20});
+    w.get<Transform>(wall)->rotation = {
+        90, 0, 0};  // faces the camera, 15 m away; the cube's face is 9 m away and faces it too
+    PostProcess& p = add_outline(w, 2.0f);
+    // The step from 9 to 15 m is a jump of 67% of the nearer one: an edge at 0.1, none at the largest threshold (both surfaces
+    // face the same way, so the normals add nothing).
+    p.outlineDepthThreshold = 0.1f;
+    const Image sharp = g.draw(w);
+    p.outlineDepthThreshold = 1.0f;
+    const Image loose = g.draw(w);
+    CHECK(any_red(sharp, 138, 148, 90));
+    CHECK_FALSE(any_red(loose, 130, 190, 90));
+    CHECK_FALSE(any_red(loose, 130, 190, 60));
+}
+
+TEST_CASE(
+    "outline: the off states draw no prepass and no extra pass - width 0, no opacity - and the mode picks its source") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    World w;
+    cube_and_floor(w);
+    const Image plain = g.draw(w);
+    PostProcess& p = add_outline(w, 0.0f);
+    Image img = g.draw(w);
+    CHECK(count_suffix(order_of(g.renderer), "/prepass") == 0);
+    CHECK(count_suffix(order_of(g.renderer), "/post") == 0);
+    CHECK(img.rgba == plain.rgba);
+    p.outlineWidth = 3.0f;
+    p.outlineColor = Color{1, 0, 0, 0.0f};
+    img = g.draw(w);
+    CHECK(count_suffix(order_of(g.renderer), "/prepass") == 0);
+    CHECK(img.rgba == plain.rgba);
+    // Sprite mode never needs the prepass: it reads the 2D world's coverage.
+    p.outlineColor = Color{1, 0, 0, 1};
+    p.outlineMode = OutlineMode::Sprite;
+    g.draw(w);
+    std::vector<std::string> order = order_of(g.renderer);
+    INFO(joined(order));
+    CHECK(count_suffix(order, "/prepass") == 0);
+    CHECK(count_suffix(order, "/sprite-coverage") == 1);
+    CHECK(count_suffix(order, "/post") == 1);
+    // And back to depth: the coverage pass is gone, the prepass is back.
+    p.outlineMode = OutlineMode::Depth;
+    g.draw(w);
+    order = order_of(g.renderer);
+    CHECK(count_suffix(order, "/sprite-coverage") == 0);
+    CHECK(count_suffix(order, "/prepass") == 1);
+}
+
+TEST_CASE("outline: a frame split between cameras is drawn without it and says so once, depth and sprite mode alike") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    for (const OutlineMode mode : {OutlineMode::Depth, OutlineMode::Sprite}) {
+        INFO(std::string(mode == OutlineMode::Depth ? "depth" : "sprite"));
+        OwnRenderer own(g, 1);  // its own one-time warnings
+        REQUIRE(own.ok);
+        World with, without;
+        split_cameras(with, true, mode);
+        split_cameras(without, false, mode);
+        clear_recent_logs();
+        const Image a = own.draw(with);
+        const std::vector<std::string> order = order_of(own.r);
+        INFO(joined(order));
+        CHECK(count_suffix(order, "/prepass") == 0);
+        CHECK(count_suffix(order, "/sprite-coverage") == 0);
+        CHECK(count_suffix(order, "/post") == 0);
+        CHECK(a.rgba == own.draw(without).rgba);
+        own.draw(with);  // a second frame does not warn again
+        int warnings = 0;
+        for (const LogEntry& l : recent_logs(4096, LogLevel::Warn))
+            if (l.message.find("skipped") != std::string::npos &&
+                (l.message.find("sprite outline") != std::string::npos ||
+                 l.message.find("reads the depth") != std::string::npos))
+                ++warnings;
+        CHECK(warnings == 1);
+    }
+}
+
+TEST_CASE("outline: a camera with a partial viewport is drawn without it, and a frame without opaque meshes too") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    {
+        World w;
+        add_camera(w, {0, 0, 10});
+        w.get<Camera>(w.find("cam"))->viewport = Rect{0, 0, 0.5f, 1};
+        add_mesh(w, "cube", {0, 0, 0}, {2, 2, 2});
+        add_outline(w, 3.0f);
+        g.draw(w);
+        const std::vector<std::string> order = order_of(g.renderer);
+        CHECK(count_suffix(order, "/prepass") == 0);
+        CHECK(count_suffix(order, "/post") == 0);
+    }
+    {
+        World w;
+        add_camera(w, {0, 0, 10});
+        add_outline(w, 3.0f);  // nothing to find edges of: no prepass, the plain clear
+        const Image img = g.draw(w);
+        CHECK(count_suffix(order_of(g.renderer), "/prepass") == 0);
+        CHECK(is_black(img.pixel(10, 10)));
+    }
+}

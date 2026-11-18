@@ -37,7 +37,8 @@ std::uint32_t pcg(std::uint32_t v) {
 
 }  // namespace
 
-PostFx make_post_fx(const PostStack& stack, std::uint64_t frame) {
+PostFx make_post_fx(const PostStack& stack, std::uint64_t frame, float designScale) {
+    const float scale = std::clamp(finite_or(designScale, 1.0f), 0.05f, 16.0f);
     PostFx o;
     const PostProcess& f = stack.fx;
     if (stack.has(PostEffect::LensDistortion)) {
@@ -97,6 +98,27 @@ PostFx make_post_fx(const PostStack& stack, std::uint64_t frame) {
         o.grainResponse = clean(f.filmGrainLuminanceResponse, 0.0f, 1.0f, 0.8f);
         o.grainSeed = f.filmGrainAnimated ? std::uint32_t(frame & 0xFFFFFFu) : 0u;
         o.grain = o.grainIntensity > 0.0f;
+    }
+    if (stack.has(PostEffect::Outline)) {
+        const float width = clean(f.outlineWidth, 0.0f, 8.0f, 1.0f);
+        o.outlineSprite = f.outlineMode == OutlineMode::Sprite;
+        o.outlineWidth = width > 0.0f ? std::max(width, 0.5f) * scale : 0.0f;
+        o.outlineColor = {clean(f.outlineColor.r, 0.0f, 1.0f, 0.0f), clean(f.outlineColor.g, 0.0f, 1.0f, 0.0f),
+                          clean(f.outlineColor.b, 0.0f, 1.0f, 0.0f)};
+        o.outlineOpacity = clean(f.outlineColor.a, 0.0f, 1.0f, 1.0f);
+        o.outlineDepthThreshold = clean(f.outlineDepthThreshold, 0.001f, 1.0f, 0.1f);
+        o.outlineNormalThreshold = clean(f.outlineNormalThreshold, 0.001f, 1.0f, 0.4f);
+        o.outlineAlphaThreshold = clean(f.outlineAlphaThreshold, 1.0f / 255.0f, 1.0f, 0.5f);
+        o.outline = o.outlineWidth > 0.0f && o.outlineOpacity > 0.0f;
+    }
+    if (stack.has(PostEffect::Pixelate)) {
+        const float size = clean(f.pixelateSize, 1.0f, 64.0f, 1.0f) * scale;
+        o.pixelateBlock = std::clamp(int(std::lround(size)), 1, 4096);
+        o.pixelate = o.pixelateBlock > 1;
+    }
+    if (stack.has(PostEffect::Posterize)) {
+        o.posterizeLevels = std::clamp(int(f.posterizeLevels), 2, 256);
+        o.posterize = o.posterizeLevels < 256;
     }
     return o;
 }
@@ -166,6 +188,22 @@ Vec3 grain_color(const PostFx& fx, Vec3 c, int x, int y) {
     const float weight = lerp(1.0f, 4.0f * l * (1.0f - l), fx.grainResponse);
     const float n = grain_noise(x, y, fx) * fx.grainIntensity * kGrainStrength * weight;
     return {std::max(c.x + n, 0.0f), std::max(c.y + n, 0.0f), std::max(c.z + n, 0.0f)};
+}
+
+void pixelate_pixel(const PostFx& fx, int x, int y, int w, int h, int& outX, int& outY) {
+    const int b = std::max(fx.pixelateBlock, 1);
+    outX = std::min((x / b) * b + b / 2, std::max(w - 1, 0));
+    outY = std::min((y / b) * b + b / 2, std::max(h - 1, 0));
+}
+
+Vec3 posterize_color(const PostFx& fx, Vec3 c) {
+    const float n = float(std::max(fx.posterizeLevels, 2) - 1);
+    Vec3 out;
+    for (int i = 0; i < 3; ++i) {
+        const float b = saturate(c[i]);
+        out[i] = std::floor(b * n + 0.5f) / n + (c[i] - b);
+    }
+    return out;
 }
 
 }  // namespace fa::render
