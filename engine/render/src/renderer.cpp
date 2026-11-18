@@ -430,6 +430,27 @@ DebugDraw& Renderer::debug() {
     static DebugDraw dummy;
     return impl_ ? impl_->debug : dummy;
 }
+bool is_post_pass(std::string_view passName) {
+    const std::size_t slash = passName.rfind('/');
+    const std::string_view n = slash == std::string_view::npos ? passName : passName.substr(slash + 1);
+    if (n == "post") return true;
+    for (std::string_view prefix :
+         {"bloom-", "exposure-", "ssao", "dof", "ssr", "motion", "fog", "shafts", "radial", "taa"})
+        if (n.substr(0, prefix.size()) == prefix) return true;
+    return false;
+}
+
+PostPassTimes post_pass_times(const RenderStats& st) {
+    PostPassTimes out;
+    for (const RenderStats::PassTime& p : st.passes) {
+        if (!is_post_pass(p.name)) continue;
+        out.cpuMs += p.cpuMs;
+        if (p.gpuMs >= 0.0) out.gpuMs = std::max(out.gpuMs, 0.0) + p.gpuMs;
+        out.passes.push_back(p);
+    }
+    return out;
+}
+
 RenderStats Renderer::stats(bool passTimes) const {
     if (!impl_) return RenderStats{};
     RenderStats s = impl_->stats;
@@ -580,6 +601,34 @@ Json Renderer::frame_graph_report() const {
     gpu["reason"] = why.empty() ? Json(nullptr) : Json(why);
     gpu["maxTimedPasses"] = GpuTimer::kMaxTimedPasses;
     out["gpu"] = std::move(gpu);
+    // The post-processing passes on their own: each with its times and their sum. A GPU time that does not exist is null with the
+    // reason ("unavailable"), never 0. The effects folded into the `post` pass share its time: they are not timed one by one.
+    {
+        RenderStats st;
+        st.passes = passes;
+        const PostPassTimes post = post_pass_times(st);
+        Json pl = Json::array();
+        for (const RenderStats::PassTime& p : post.passes)
+            pl.push_back(Json::object({{"name", p.name},
+                                       {"job", p.job},
+                                       {"cpuMs", r3(p.cpuMs)},
+                                       {"gpuMs", p.gpuMs >= 0.0 ? Json(r3(p.gpuMs)) : Json(nullptr)}}));
+        Json pp = Json::object();
+        pp["passes"] = std::move(pl);
+        pp["cpuMs"] = r3(post.cpuMs);
+        pp["gpuMs"] = post.gpuMs >= 0.0 ? Json(r3(post.gpuMs)) : Json(nullptr);
+        pp["gpuStatus"] = post.gpuMs >= 0.0 ? "measured" : "unavailable";
+        pp["gpuReason"] = post.gpuMs >= 0.0     ? Json(nullptr)
+                          : post.passes.empty() ? Json("this frame has no post-processing pass")
+                          : !why.empty()        ? Json(why)
+                                                : Json("the GPU timer has no answer for these passes yet");
+        pp["note"] = "The sum of the passes named bloom-*, exposure-*, post and the other effect passes (prepass and "
+                     "sprite-coverage "
+                     "are not counted). Effects folded into the single `post` pass (vignette, grain, grading, sharpen, "
+                     "outline, ...) "
+                     "have no time of their own: `post` is their total.";
+        out["postProcess"] = std::move(pp);
+    }
     return out;
 }
 

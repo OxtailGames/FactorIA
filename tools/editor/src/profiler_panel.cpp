@@ -10,6 +10,7 @@
 
 #include "editor_internal.h"
 #include "fa/core/jobs.h"
+#include "fa/render/renderer.h"
 #include "imgui_internal.h"
 
 namespace fa::editor {
@@ -87,6 +88,32 @@ void draw_profiler_threads(const ProfilerView& v, ImGuiTableFlags flags) {
 
 }  // namespace
 
+// The post-processing passes of the renderer's last frame, into the profiler view (every tenth frame: it builds the pass names).
+void Editor::sample_post_passes() {
+    ProfilerView& v = profView_;
+    v.post.clear();
+    v.postCpuMs = 0;
+    v.postGpuMs = -1;
+    Renderer* r = engine_ ? engine_->renderer() : nullptr;
+    if (!r || !r->initialized()) {
+        v.postGpuReason = "no graphics in this run";
+        return;
+    }
+    const PostPassTimes t = post_pass_times(r->stats());
+    for (const RenderStats::PassTime& p : t.passes) v.post.push_back({p.name, p.cpuMs, p.gpuMs});
+    v.postCpuMs = t.cpuMs;
+    v.postGpuMs = t.gpuMs;
+    std::string why;
+    if (t.gpuMs >= 0.0)
+        v.postGpuReason.clear();
+    else if (t.passes.empty())
+        v.postGpuReason = "the last frame has no post-processing pass";
+    else if (!r->gpu_timing_supported(&why))
+        v.postGpuReason = why;
+    else
+        v.postGpuReason = "no GPU time has arrived yet (the timer answers a few frames late)";
+}
+
 void Editor::profile_tick(std::uint64_t frameBefore) {
     if (!engine_) return;
     const bool want = run_.active || showProfiler_;
@@ -103,6 +130,7 @@ void Editor::profile_tick(std::uint64_t frameBefore) {
         profView_.add_gpu_ms(ms);
         if (run_.active) run_.profile.add_gpu_ms(ms);
     }
+    if (showProfiler_ && engine_->frame_index() % 10 == 0) sample_post_passes();
     if (engine_->frame_index() > frameBefore && Profiler::get().frames() > 0) {
         profView_.add_frame(Profiler::get().last());
         if (--profMemoryIn_ <= 0) {
@@ -232,6 +260,43 @@ void Editor::draw_profiler_panel() {
         profShowThreads_ = false;
         if (threadsOpen) {
             draw_profiler_threads(v, flags);
+            ImGui::EndTabItem();
+        }
+        if (ImGui::BeginTabItem("Post-processing")) {
+            ImGui::SetItemTooltip(
+                "What the passes of the screen effects (bloom, exposure, post...) cost, in the last sampled frame");
+            if (v.post.empty()) {
+                ImGui::TextDisabled("No post-processing pass in the last frame (%s).", v.postGpuReason.c_str());
+            } else {
+                if (v.postGpuMs >= 0.0)
+                    ImGui::Text("Post-processing total: GPU %.3f ms, CPU %.3f ms", v.postGpuMs, v.postCpuMs);
+                else
+                    ImGui::Text("Post-processing total: GPU unavailable (%s), CPU %.3f ms", v.postGpuReason.c_str(),
+                                v.postCpuMs);
+                if (ImGui::BeginTable("##profpost", 3, flags)) {
+                    ImGui::TableSetupScrollFreeze(0, 1);
+                    ImGui::TableSetupColumn("pass", ImGuiTableColumnFlags_WidthStretch, 1.0f);
+                    ImGui::TableSetupColumn("GPU ms", ImGuiTableColumnFlags_WidthFixed, 80);
+                    ImGui::TableSetupColumn("CPU ms", ImGuiTableColumnFlags_WidthFixed, 80);
+                    ImGui::TableHeadersRow();
+                    for (const ProfilerView::PostRow& p : v.post) {
+                        ImGui::TableNextRow();
+                        ImGui::TableSetColumnIndex(0);
+                        ImGui::TextUnformatted(p.name.c_str());
+                        ImGui::TableSetColumnIndex(1);
+                        if (p.gpuMs >= 0.0)
+                            ImGui::Text("%.3f", p.gpuMs);
+                        else
+                            ImGui::TextDisabled("unavailable");
+                        ImGui::TableSetColumnIndex(2);
+                        ImGui::Text("%.3f", p.cpuMs);
+                    }
+                    ImGui::EndTable();
+                }
+                ImGui::TextDisabled("Effects in the single \"post\" pass (vignette, grain, grading, sharpen, "
+                                    "outline...) are not timed one by one: "
+                                    "that pass is their total.");
+            }
             ImGui::EndTabItem();
         }
         ImGui::EndTabBar();

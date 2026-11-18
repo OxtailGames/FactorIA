@@ -424,6 +424,12 @@ The time of each pass is in `render.frame_graph` with `profileFrames` (`passTime
 recording everywhere; Metal has no GPU timer in sokol_gfx, so `gpuMs` is -1 there). A full-screen pass reads one texture and
 writes one: on a GPU its cost is the fill rate of the frame, and bloom's chain runs at a quarter of the pixels or less.
 
+Where to see what the effects cost: `render.frame_graph` has a `postProcess` object with the post-processing passes (`bloom-*`,
+`exposure-*`, `post`...) and their summed `cpuMs` and `gpuMs`; the GPU time is `null` with `gpuStatus` `"unavailable"` and a reason where
+the backend has no timer (never 0), and the editor's Profiler panel shows the same in its "Post-processing" tab. The effects that share
+the single `post` pass are not timed one by one (no per-effect estimate): `post` is their total
+([PERFORMANCE_PROFILING.md](performance/PERFORMANCE_PROFILING.md)).
+
 Things to know:
 - **Linear scenes.** `SceneSettings.colorSpace` `linear` with nothing that converts the picture (no exposure, tonemap or colour filter)
   adds no pass: the copy to the screen encodes it, as in "Color space". With any of them the `post` pass reads the linear light, converts
