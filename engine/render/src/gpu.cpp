@@ -12,6 +12,7 @@
 #include "shaders/bloom.glsl.h"
 #include "shaders/colorfilter.glsl.h"
 #include "shaders/exposure.glsl.h"
+#include "shaders/prepass_view.glsl.h"
 #include "shaders/post.glsl.h"
 #include "shaders/blit.glsl.h"
 #include "shaders/light.glsl.h"
@@ -256,6 +257,11 @@ void Gpu::shutdown() {
         s = {};
     }
     exposureState_ = 0;
+    for (sg_shader* s : {&prepassShader_, &prepassSkinShader_, &prepassViewShader_}) {
+        if (s->id) sg_destroy_shader(*s);
+        *s = {};
+    }
+    prepassState_ = prepassViewState_ = 0;
     if (light_shader_.id) sg_destroy_shader(light_shader_);
     light_shader_ = {};
     lightState_ = 0;
@@ -584,6 +590,109 @@ sg_pipeline Gpu::post_pipeline(const TargetFormat& format) {
     d.depth.write_enabled = false;
     d.face_winding = SG_FACEWINDING_CCW;
     d.label = "post";
+    return find_or_make(key, format, d);
+}
+
+sg_pixel_format Gpu::prepass_color_format() {
+    // The prepass image is only sampled with a nearest sampler (a depth is never blended or filtered), so it needs no more than render + sample.
+    for (sg_pixel_format f : {SG_PIXELFORMAT_RGBA32F, SG_PIXELFORMAT_RGBA16F}) {
+        const sg_pixelformat_info info = sg_query_pixelformat(f);
+        if (info.render && info.sample) return f;
+    }
+    return SG_PIXELFORMAT_NONE;
+}
+
+namespace {
+// The slots a built-in program declares, as the twin of a custom one says them (MaterialProgram).
+MaterialProgram program_slots(sg_shader shader, const sg_shader_desc* desc) {
+    MaterialProgram out;
+    out.shader = shader;
+    for (int i = 0; i < SG_MAX_UNIFORMBLOCK_BINDSLOTS; ++i) {
+        if (desc->uniform_blocks[i].stage == SG_SHADERSTAGE_NONE) continue;
+        out.ubMask |= 1u << i;
+        out.ubSize[i] = desc->uniform_blocks[i].size;
+    }
+    for (int i = 0; i < SG_MAX_VIEW_BINDSLOTS; ++i)
+        if (desc->views[i].texture.stage != SG_SHADERSTAGE_NONE) out.viewMask |= 1u << i;
+    for (int i = 0; i < SG_MAX_SAMPLER_BINDSLOTS; ++i)
+        if (desc->samplers[i].stage != SG_SHADERSTAGE_NONE) out.samplerMask |= 1u << i;
+    return out;
+}
+}  // namespace
+
+bool Gpu::prepass_ready() {
+    if (prepassState_ != 0) return prepassState_ > 0;
+    const sg_backend backend = sg_query_backend();
+    prepassShader_ = make_shader(mesh_prepass_shader_desc(backend), "mesh_prepass");
+    prepassSkinShader_ = make_shader(mesh_prepass_skin_shader_desc(backend), "mesh_prepass_skin");
+    if (prepass_color_format() == SG_PIXELFORMAT_NONE ||
+        sg_query_shader_state(prepassShader_) != SG_RESOURCESTATE_VALID ||
+        sg_query_shader_state(prepassSkinShader_) != SG_RESOURCESTATE_VALID) {
+        for (sg_shader* s : {&prepassShader_, &prepassSkinShader_}) {
+            if (s->id) sg_destroy_shader(*s);
+            *s = {};
+        }
+        prepassState_ = -1;
+        FA_ERROR(
+            "render",
+            "The depth and normal prepass is unavailable: the GPU cannot render to a float image or its shader failed "
+            "to "
+            "compile for this graphics backend (see the sokol log lines above). The effects that read the depth are "
+            "skipped. Hint: update the graphics driver (Mesa: try LIBGL_ALWAYS_SOFTWARE=1).");
+        return false;
+    }
+    prepassProgram_[0] = program_slots(prepassShader_, mesh_prepass_shader_desc(backend));
+    prepassProgram_[1] = program_slots(prepassSkinShader_, mesh_prepass_skin_shader_desc(backend));
+    prepassState_ = 1;
+    return true;
+}
+
+sg_pipeline Gpu::prepass_pipeline(const TargetFormat& format, bool doubleSided, bool skinned, sg_shader shader) {
+    if (!shader.id && !prepass_ready()) return {};
+    PipelineKey key{0xC00u | (doubleSided ? 2u : 0u) | (skinned ? 4u : 0u), shader.id};
+    sg_pipeline_desc d{};
+    d.shader = shader.id ? shader : (skinned ? prepassSkinShader_ : prepassShader_);
+    d.layout.attrs[ATTR_mesh_prepass_fa_position].format = SG_VERTEXFORMAT_FLOAT3;
+    d.layout.attrs[ATTR_mesh_prepass_fa_normal].format = SG_VERTEXFORMAT_FLOAT3;
+    d.layout.attrs[ATTR_mesh_prepass_fa_texcoord0].format = SG_VERTEXFORMAT_FLOAT2;
+    d.layout.attrs[ATTR_mesh_prepass_fa_tangent].format = SG_VERTEXFORMAT_FLOAT4;
+    d.layout.attrs[ATTR_mesh_prepass_fa_color].format = SG_VERTEXFORMAT_UBYTE4N;
+    set_instance_layout(d, ATTR_mesh_prepass_fa_inst_m0);
+    if (skinned) set_skin_layout(d, ATTR_mesh_prepass_skin_fa_joints, ATTR_mesh_prepass_skin_fa_weights);
+    d.index_type = SG_INDEXTYPE_UINT32;
+    d.depth.compare = SG_COMPAREFUNC_LESS_EQUAL;
+    d.depth.write_enabled = true;
+    d.cull_mode = doubleSided ? SG_CULLMODE_NONE : SG_CULLMODE_BACK;
+    d.face_winding = SG_FACEWINDING_CCW;
+    d.label = "prepass";
+    return find_or_make(key, format, d);
+}
+
+bool Gpu::prepass_view_ready() {
+    if (prepassViewState_ != 0) return prepassViewState_ > 0;
+    prepassViewShader_ = make_shader(prepass_view_prepass_view_shader_desc(sg_query_backend()), "prepass_view");
+    if (sg_query_shader_state(prepassViewShader_) != SG_RESOURCESTATE_VALID) {
+        sg_destroy_shader(prepassViewShader_);
+        prepassViewShader_ = {};
+        prepassViewState_ = -1;
+        FA_ERROR("render",
+                 "The prepass debug view is unavailable: its shader failed to compile for this graphics backend.");
+        return false;
+    }
+    prepassViewState_ = 1;
+    return true;
+}
+
+sg_pipeline Gpu::prepass_view_pipeline(const TargetFormat& format) {
+    if (!prepass_view_ready()) return {};
+    PipelineKey key{0xD00u};
+    sg_pipeline_desc d{};
+    d.shader = prepassViewShader_;
+    d.layout.attrs[ATTR_prepass_view_prepass_view_pos].format = SG_VERTEXFORMAT_FLOAT2;
+    d.depth.compare = SG_COMPAREFUNC_ALWAYS;
+    d.depth.write_enabled = false;
+    d.face_winding = SG_FACEWINDING_CCW;
+    d.label = "prepass-view";
     return find_or_make(key, format, d);
 }
 

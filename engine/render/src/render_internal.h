@@ -359,7 +359,7 @@ constexpr int kMaxMaterialParams = 16,
                   4;  // each a vec4 of the fa_material block (fa/tooling/shaders.h kMaterialMaxParams)
 constexpr int kMaterialFirstView = 6, kMaterialFirstSampler = 2, kMaterialUbVertex = 4, kMaterialUbFragment = 5;
 
-// One program of a twin (mesh, mesh_skin, shadow, shadow_skin) and what its reflection declares: a draw binds and applies
+// One program of a twin (mesh, mesh_skin, shadow, shadow_skin, prepass, prepass_skin) and what its reflection declares: a draw binds and applies
 // only those slots (sokol rejects a binding the shader does not declare, and a declared uniform block left unapplied).
 struct MaterialProgram {
     sg_shader shader{};                                       // id 0 = the material has no such program
@@ -367,7 +367,15 @@ struct MaterialProgram {
     std::uint32_t ubSize[SG_MAX_UNIFORMBLOCK_BINDSLOTS]{};    // bytes of each declared uniform block
     bool has_ub(int slot) const { return (ubMask >> slot) & 1u; }
 };
-enum MaterialProgramId : int { kProgMesh, kProgMeshSkin, kProgShadow, kProgShadowSkin, kProgCount };
+enum MaterialProgramId : int {
+    kProgMesh,
+    kProgMeshSkin,
+    kProgShadow,
+    kProgShadowSkin,
+    kProgPrepass,  // the depth and normal prepass (mesh_common.glsl prepass_vs / prepass_fs)
+    kProgPrepassSkin,
+    kProgCount
+};
 
 struct MaterialParamDef {
     std::string name;
@@ -765,6 +773,27 @@ public:
     // The shadow map pass: an R32F colour attachment and a DEPTH one, never multisampled.
     static TargetFormat shadow_target_format() { return {SG_PIXELFORMAT_R32F, SG_PIXELFORMAT_DEPTH, 1}; }
 
+    // The depth and normal prepass (M71, mesh_common.glsl prepass_vs / prepass_fs): one float colour attachment (r = linear view
+    // depth, gb = octahedral view-space normal, a = coverage) and a depth buffer, never multisampled. prepass_color_format() is what
+    // the GPU renders to and samples: RGBA32F (a depth that stays exact far away), else RGBA16F (about three digits), else NONE: no
+    // prepass, and the `sampledDepth` row of render.supports is false. Its shaders (and the debug view's) are made on first use.
+    static sg_pixel_format prepass_color_format();
+    TargetFormat prepass_target_format() const { return {prepass_color_format(), SG_PIXELFORMAT_DEPTH, 1}; }
+    bool prepass_ready();
+    // The slots (uniform blocks, views, samplers) the built-in prepass program declares, for a draw that binds only those; after prepass_ready().
+    const MaterialProgram& prepass_program(bool skinned) const { return prepassProgram_[skinned ? 1 : 0]; }
+    // `shader` = a program of a custom material (its prepass or prepass_skin), default = the built-in one. The vertex layout is the
+    // main program's (every attribute), the culling the main pass's: `doubleSided` as for mesh_pipeline. Invalid when the built-in
+    // shader cannot be made.
+    sg_pipeline prepass_pipeline(const TargetFormat& format, bool doubleSided, bool skinned = false,
+                                 sg_shader shader = {});
+    sg_pipeline prepass_pipeline(bool doubleSided, bool skinned = false, sg_shader shader = {}) {
+        return prepass_pipeline(prepass_target_format(), doubleSided, skinned, shader);
+    }
+    // The debug view of the prepass (prepass_view.glsl): a full-screen triangle that draws it as a picture into `format` (the game target's).
+    bool prepass_view_ready();
+    sg_pipeline prepass_view_pipeline(const TargetFormat& format);
+
     // The pipeline cache. Entries are keyed by what they draw (PipelineKey: the getter's flags, a custom program, the
     // TargetFormat of the pass). It is bounded: begin_frame() counts a use-tick, and once the cache holds more than
     // pipeline_cache_cap() entries (kPipelineCacheCap, 192: the engine's own set is about 50) an entry that no draw has
@@ -933,6 +962,7 @@ public:
     sg_shader colorfilter_shader_{};
     sg_shader post_shader_{};
     sg_shader exposure_shaders_[int(ExposureStage::Count)]{};
+    sg_shader prepassShader_{}, prepassSkinShader_{}, prepassViewShader_{};
     sg_shader light_shader_{};
 
 private:
@@ -951,6 +981,9 @@ private:
     int lightState_ = 0;        // same meaning as bloomState_
     int postState_ = 0;         // same meaning as bloomState_
     int exposureState_ = 0;     // same meaning as bloomState_
+    MaterialProgram prepassProgram_[2];
+    int prepassState_ = 0;      // same meaning as bloomState_ (the built-in prepass programs)
+    int prepassViewState_ = 0;  // same meaning as bloomState_ (the debug view)
     sg_pixel_format lightFormat_ = SG_PIXELFORMAT_NONE;
     sg_pixel_format sceneFormat_ = SG_PIXELFORMAT_RGBA8;  // see scene_format()
     struct SceneChain {
@@ -1073,6 +1106,8 @@ private:
 
 // GPU->CPU readback of an RGBA8 image (top row first). Backend specific.
 bool readback_rgba8(sg_image image, int width, int height, std::vector<std::uint8_t>& out, std::string* error);
+// The same for an RGBA16F image, as floats (4 per pixel, top row first): what the HDR tests read (Renderer::Impl::read_floats).
+bool readback_rgba16f(sg_image image, int width, int height, std::vector<float>& out, std::string* error);
 
 // Debug draw storage.
 struct DebugLine {

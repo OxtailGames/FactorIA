@@ -27,7 +27,9 @@
 #include "fa/scene/text_fit.h"
 #include "fa/scene/ui_rect.h"
 #include "bloom.h"
+#include "hdr_encode.h"
 #include "postprocess.h"
+#include "render_features.h"
 #include "shaders/colorfilter.glsl.h"
 #include "frame.h"
 #include "mesh_batch.h"
@@ -94,6 +96,44 @@ struct Renderer::Impl {
     Target hudTarget;
     bool hudActive = false;
     bool finalEncoded = false;
+    // The depth and normal prepass (renderer_draw.cpp, plan_job and prepass_pass). `debugView` shows it (Renderer::set_debug_view),
+    // `forceEffects` pretends the stack has those effects (tests). prevViewProj: the view-projection each camera drew its last frame
+    // with, for the effects that reproject (PostPlan::prevViewProj); an entry the camera did not refresh in the frame before is dropped.
+    DebugView debugView = DebugView::None;
+    std::uint32_t forceEffects = 0;
+    struct PrevCamera {
+        Mat4 viewProj;
+        std::uint64_t frame = 0;  // the frameSerial it was drawn in
+    };
+    std::unordered_map<std::uint64_t, PrevCamera> prevViewProj;  // by Entity::bits() of the camera
+    bool prepassSplitWarned = false;  // one warning when a split frame has no prepass for a depth effect
+    bool prepassWarned = false;       // one warning when the prepass cannot be made
+    // The HDR display output (hdr_encode.h; docs/RENDERING.md, "HDR output"). outputInfo: the last answer of update_output()
+    // (window thread; a renderer that never asks, a headless one, stays in the standard range). frameOutput: what the frame
+    // is drawn for, taken from it when the frame starts (so the final pass and present() of a frame agree on the headroom).
+    // frameAboveWhite: the last frame's final pass wrote values above paper white (the HDR tonemap, no colour filter after
+    // it), so present() lets them through up to frameOutput.headroom. forcedOutput: renderer_force_output (tests).
+    HdrOutputInfo outputInfo;
+    bool outputForced = false;
+    HdrOutputInfo forcedOutput;
+    render::OutputTarget frameOutput;
+    bool frameAboveWhite = false;
+    bool backendKnown = false;
+    render::FeatureBackend backend =
+        render::FeatureBackend::Headless;  // sg_query_backend(), asked once (update_output)
+    const HdrOutputInfo& output() const { return outputForced ? forcedOutput : outputInfo; }
+    // The images the final pass writes hold values above 1 (RGBA16F, R11G11B10): an HDR output can go above paper white.
+    bool float_display() const {
+        const sg_pixel_format f = gpu.display_format();
+        return f == SG_PIXELFORMAT_RGBA16F || f == SG_PIXELFORMAT_RG11B10F;
+    }
+    // The fragment uniforms of present(): the encode for the output the window has now (output()), the light let through up to
+    // the frame's headroom when its final pass went above white.
+    blit_blit_fs_params_t present_params() const;
+    // Tests (renderer_final_floats / renderer_present_floats): the finished picture as floats, copied as it is (`present`
+    // false) or through present()'s encode, read back from an RGBA16F image of physW x physH.
+    bool read_floats(bool present, std::vector<float>& out, std::string* error);
+    Target floatTarget;               // the RGBA16F image read_floats draws into (tests only; freed with the targets)
     bool shadowTargetFailed = false;  // the shadow map could not be made: no shadows until a resize
     Target shadowTarget;  // the shadow map: R32F colour + depth (shadowTarget.texView is what the mesh programs sample)
     static constexpr int kShadowSize = 2048;
@@ -328,6 +368,11 @@ struct Renderer::Impl {
     void light_plan(DrawContext& ctx);
     void light_pass(DrawContext& ctx);
     void shadow_pass(DrawContext& ctx);
+    // The depth and normal prepass (M71): plan_prepass decides whether the job has one, prepass_pass draws it into `t` (a transient of
+    // the graph), prepass_view_pass paints it over the game image (Renderer::set_debug_view).
+    bool plan_prepass(DrawContext& ctx);
+    void prepass_pass(DrawContext& ctx, const Target& t);
+    void prepass_view_pass(DrawContext& ctx, const Target& t);
     void draw_group(DrawContext& ctx, const std::vector<QuadBatch>& batches, const Mat4& vp, bool depthTest,
                     const Px& base, int flatMode = 0);
     void main_pass(DrawContext& ctx);
