@@ -172,10 +172,123 @@ void register_feel_commands(Engine&, Engine::Impl& I) {
                     false, "feel"},
                    [&I](const Json& a) { return run_action(I, a, "sound", "feel.sound", false); });
 
+    // The transient screen effects (screen_fx.h, docs/rendering/RENDERING_SCREEN_EFFECTS.md). `entity` is the CAMERA they are
+    // drawn on; without it every camera draws them.
+    I.commands.add(
+        {"feel.shockwave",
+         "Screen shockwave: a ring that expands from a point and bends the picture, drawn by the camera's "
+         "post-processing pass.",
+         "The same as `camera.shockwave(opts)` in a script. The ring leaves the centre fast and slows down, and its "
+         "push "
+         "dies out as it grows. `screen` is the centre as fractions of the camera's rectangle ((0.5, 0.5) is the "
+         "middle, (0, "
+         "0) top-left); `world` is a world point each camera projects itself (it is not drawn behind a perspective "
+         "camera) "
+         "and wins over `screen`. Strength, radius and width are fractions of the picture's height, so the ring looks "
+         "the "
+         "same at every resolution. `entity` limits it to one camera (a split screen); without it every camera draws "
+         "it. At "
+         "most 16 screen effects are alive and a camera draws the newest 4 shockwaves; a new call never fails, the "
+         "oldest "
+         "effect goes. It runs on the game clock (time.scale 0 holds it) and needs no PostProcess component. With "
+         "reduceMotion on (feel.settings) the strength is a quarter. Example: feel.shockwave "
+         "{\"screen\":[0.5,0.4],\"strength\":0.05,\"duration\":0.7}",
+         parse_schema(R"({"type":"object","properties":{
+               "entity":{"type":"string","description":"The camera (id or name) that draws it. Default: every camera."},
+               "screen":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":2,"default":[0.5,0.5],"description":"The centre, [x, y] in fractions of the camera's rectangle."},
+               "world":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":3,"description":"The centre as a world point [x, y] or [x, y, z]; wins over `screen`."},
+               "duration":{"type":"number","minimum":0.05,"maximum":60,"default":0.6,"description":"Seconds until the ring is gone."},
+               "strength":{"type":"number","minimum":0,"maximum":0.5,"default":0.04,"description":"How far the ring pushes the picture, a fraction of its height."},
+               "radius":{"type":"number","minimum":0.01,"maximum":4,"default":0.6,"description":"The radius the ring reaches, a fraction of the picture's height."},
+               "width":{"type":"number","minimum":0.005,"maximum":2,"default":0.1,"description":"The width of the ring, same unit."}}})"),
+         false, "feel"},
+        [&I](const Json& a) { return run_action(I, a, "shockwave", "feel.shockwave", false); });
+
+    I.commands.add(
+        {"feel.heatHaze", "Heat haze: a rippling distortion over a region of the screen for a while.",
+         "The same as `camera.heatHaze(opts)`. The picture inside `region` is pushed sideways by a smooth ripple that "
+         "travels "
+         "upwards; it fades in and out over 0.15 s at its ends. Strength is a fraction of the picture's height (0.004 "
+         "is a "
+         "gentle shimmer). `entity` limits it to one camera; a camera draws the newest 2 hazes. Runs on the game "
+         "clock. With "
+         "reduceMotion on the strength is a quarter. Example: feel.heatHaze {\"region\":[0,0.5,1,0.5],\"duration\":3}",
+         parse_schema(R"({"type":"object","properties":{
+               "entity":{"type":"string","description":"The camera (id or name) that draws it. Default: every camera."},
+               "region":{"type":"array","items":{"type":"number"},"minItems":4,"maxItems":4,"default":[0,0,1,1],"description":"[x, y, width, height] in fractions of the camera's rectangle, (0, 0) top-left."},
+               "duration":{"type":"number","minimum":0.05,"maximum":600,"default":2,"description":"Seconds."},
+               "strength":{"type":"number","minimum":0,"maximum":0.1,"default":0.004,"description":"How far the picture is pushed, a fraction of its height."},
+               "frequency":{"type":"number","minimum":0.5,"maximum":200,"default":10,"description":"Ripples per picture height."},
+               "speed":{"type":"number","minimum":0,"maximum":20,"default":1,"description":"Cycles per second the ripples travel."}}})"),
+         false, "feel"},
+        [&I](const Json& a) { return run_action(I, a, "heatHaze", "feel.heatHaze", false); });
+
+    I.commands.add(
+        {"feel.radialBlur",
+         "A radial blur pulse: the picture streaks away from a point and settles, for a speed or impact burst.",
+         "The same as `camera.radialBlur(opts)`. Draws the same blur as PostProcess.radialBlurEnabled, with an "
+         "intensity that "
+         "dies out over `duration`; when the camera's PostProcess has the blur on, the larger of the two is drawn. "
+         "`screen` "
+         "or `world` is the centre (see feel.shockwave). `entity` limits it to one camera. With reduceMotion on the "
+         "intensity is a quarter. Example: feel.radialBlur {\"intensity\":0.5,\"duration\":0.4}",
+         parse_schema(R"({"type":"object","properties":{
+               "entity":{"type":"string","description":"The camera (id or name) that draws it. Default: every camera."},
+               "screen":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":2,"default":[0.5,0.5],"description":"The centre, [x, y] in fractions of the camera's rectangle."},
+               "world":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":3,"description":"The centre as a world point; wins over `screen`."},
+               "duration":{"type":"number","minimum":0.01,"maximum":60,"default":0.35,"description":"Seconds until the blur is gone."},
+               "intensity":{"type":"number","minimum":0,"maximum":1,"default":0.4,"description":"The blur at the start, same scale as PostProcess.radialBlurIntensity."},
+               "samples":{"type":"integer","minimum":4,"maximum":32,"default":12,"description":"Taps along each streak: more is smoother and costs more."}}})"),
+         false, "feel"},
+        [&I](const Json& a) { return run_action(I, a, "radialBlur", "feel.radialBlur", false); });
+
+    I.commands.add(
+        {"feel.screenFlash",
+         "Flashes the whole screen in one colour for a moment (a damage or pickup flash), drawn over the finished "
+         "picture.",
+         "The same as `camera.flash(opts)`. Not to be confused with feel.flash, which flashes one entity. The colour "
+         "is "
+         "blended over the picture at the end of the camera's post pass (before the colour filter), at `strength` and "
+         "fading to 0 over `duration` (or held, with fade false). With reducedEffects on (feel.settings) the strength "
+         "is "
+         "capped at 0.35 and it always fades. `entity` limits it to one camera. Example: feel.screenFlash "
+         "{\"color\":\"#ffffff\",\"duration\":0.15}",
+         parse_schema(R"({"type":"object","properties":{
+               "entity":{"type":"string","description":"The camera (id or name) that draws it. Default: every camera."},
+               "color":{"description":"The colour: \"#rrggbb\", a name or [r, g, b, a] in 0..1. Default white. Alpha is ignored."},
+               "duration":{"type":"number","minimum":0.01,"maximum":60,"default":0.15,"description":"Seconds."},
+               "strength":{"type":"number","minimum":0,"maximum":1,"default":1,"description":"How much of the colour covers the picture at the start."},
+               "fade":{"type":"boolean","default":true,"description":"true: from `strength` down to 0; false: `strength` for the whole duration, then off."}}})"),
+         false, "feel"},
+        [&I](const Json& a) { return run_action(I, a, "screenFlash", "feel.screenFlash", false); });
+
+    I.commands.add(
+        {"feel.fade",
+         "Fades the screen to a colour (default black) and holds it, or from that colour back to the picture.",
+         "The same as `camera.fadeOut(opts)` / `camera.fadeIn(opts)`. direction \"out\" goes from the picture to the "
+         "colour "
+         "over `duration` and STAYS there until a fade in or feel.cancel; \"in\" goes from the colour to the picture "
+         "and "
+         "ends (with no fade running it starts from the full colour: the way to open a scene). A new fade on the "
+         "camera continues from the opacity the old "
+         "one had reached. Drawn over the picture at the end of the camera's post pass, before the colour filter. "
+         "`entity` limits it to one camera. A scene load clears it. Example: feel.fade "
+         "{\"direction\":\"out\",\"duration\":0.8}",
+         parse_schema(R"({"type":"object","properties":{
+               "entity":{"type":"string","description":"The camera (id or name) that draws it. Default: every camera."},
+               "direction":{"type":"string","enum":["out","in"],"default":"out","description":"\"out\": to the colour (held); \"in\": from the colour to the picture."},
+               "color":{"description":"The colour: \"#rrggbb\", a name or [r, g, b, a] in 0..1. Default black. Alpha is ignored."},
+               "duration":{"type":"number","minimum":0,"maximum":600,"default":0.5,"description":"Seconds; 0 is instant."}}})"),
+         false, "feel"},
+        [&I](const Json& a) { return run_action(I, a, "fade", "feel.fade", false); });
+
     I.commands.add(
         {"feel.cancel",
-         "Ends the game feel effects of an entity at once (flash, squash, shake, knockback), or of everything.",
-         "Without `entity` it ends every effect of the scene, hit-stops included. The entity's Transform is not "
+         "Ends the game feel effects of an entity at once (flash, squash, shake, knockback, and the screen effects of "
+         "a camera), or of everything.",
+         "Without `entity` it ends every effect of the scene, hit-stops and screen effects (a held fade too) included. "
+         "For "
+         "a camera it ends the screen effects drawn on that camera only. The entity's Transform is not "
          "touched: effects "
          "never wrote to it, except the position a body-less knockback already moved. Example: feel.cancel {}",
          parse_schema(R"({"type":"object","properties":{
@@ -226,8 +339,9 @@ void register_feel_commands(Engine&, Engine::Impl& I) {
                     "Returns {reduceMotion, reducedEffects, reduceMotionSetting, reducedEffectsSetting, hitStop: "
                     "{remaining, scale, running}, "
                     "queued: {sounds, spawns, spawnLifetimes} (sounds and spawns waiting for the next frame, spawned "
-                    "effects that will be destroyed), entities: [{entity, shake?, flash?, squash?, knockback?, "
-                    "pose?}]}. `pose` is what is added to the entity at draw time "
+                    "effects that will be destroyed), screenEffects: [{kind, camera (null = every camera), elapsed, "
+                    "duration, alpha? (flash, fade), held? (fade)}], entities: [{entity, shake?, flash?, squash?, "
+                    "knockback?, pose?}]}. `pose` is what is added to the entity at draw time "
                     "(position, rotation degrees, scale factor); its Transform is unchanged. Example: feel.state {}",
                     parse_schema(R"({"type":"object","properties":{}})"), true, "feel"},
                    [&I](const Json&) { return feel_state_json(I.world); });
@@ -238,6 +352,11 @@ void register_feel_commands(Engine&, Engine::Impl& I) {
                                                  {"feel.flash", capability_sets::changes_state()},
                                                  {"feel.knockback", capability_sets::changes_state()},
                                                  {"feel.squash", capability_sets::changes_state()},
+                                                 {"feel.shockwave", capability_sets::changes_state()},
+                                                 {"feel.heatHaze", capability_sets::changes_state()},
+                                                 {"feel.radialBlur", capability_sets::changes_state()},
+                                                 {"feel.screenFlash", capability_sets::changes_state()},
+                                                 {"feel.fade", capability_sets::changes_state()},
                                                  {"feel.spawn", capability_sets::changes_state()},
                                                  {"feel.sound", capability_sets::changes_state()},
                                                  {"feel.cancel", capability_sets::changes_state()},

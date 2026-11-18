@@ -349,3 +349,149 @@ TEST_CASE("OrthoView: the conversions without a roll give the same bits as the t
             CHECK(std::memcmp(&gotW, &wantW, sizeof(Vec3)) == 0);
         }
 }
+
+// ---- the transient screen effects (M71-C3b, fa/scene/screen_fx.h) ----
+
+TEST_CASE("screen fx: the five actions start, are checked with teaching errors and name the fix") {
+    Fixture f;
+    CHECK(feel_apply_action(f.w, kNullEntity, Json::parse(R"({"action":"shockwave","screen":[0.3,0.4],"radius":0.5})"))
+              .ok());
+    CHECK(feel_apply_action(f.w, f.cam, Json::parse(R"({"action":"heatHaze","region":[0,0.5,1,0.5],"duration":1})"))
+              .ok());
+    CHECK(feel_apply_action(f.w, kNullEntity, Json::parse(R"({"action":"radialBlur","intensity":0.7,"samples":16})"))
+              .ok());
+    CHECK(feel_apply_action(f.w, kNullEntity, Json::parse(R"({"action":"screenFlash","color":"#ff0000"})")).ok());
+    CHECK(feel_apply_action(f.w, kNullEntity, Json::parse(R"({"action":"fade","color":"#000000","direction":"out"})"))
+              .ok());
+    CHECK(f.w.feel().screenFx.live.size() == 5);
+    // The state lists them, and a check without a world agrees with the start.
+    const Json state = feel_state_json(f.w);
+    REQUIRE(state.contains("screenEffects"));
+    CHECK(state["screenEffects"].size() == 5);
+    CHECK(feel_check_action(Json::parse(R"({"action":"shockwave","radius":0.5})")).ok());
+
+    auto r = feel_apply_action(f.w, kNullEntity, Json::parse(R"({"action":"shockwave","radius":-1})"));
+    REQUIRE_FALSE(r.ok());
+    CHECK(r.error().message.find("radius") != std::string::npos);
+    r = feel_apply_action(f.w, kNullEntity, Json::parse(R"({"action":"radialBlur","samples":2})"));
+    REQUIRE_FALSE(r.ok());
+    CHECK(r.error().message.find("samples") != std::string::npos);
+    r = feel_apply_action(f.w, kNullEntity, Json::parse(R"({"action":"shockwave","raduis":0.5})"));
+    REQUIRE_FALSE(r.ok());
+    CHECK(r.error().message.find("radius") != std::string::npos);  // did you mean
+    r = feel_apply_action(f.w, kNullEntity, Json::parse(R"({"action":"fade","direction":"sideways"})"));
+    CHECK_FALSE(r.ok());
+    r = feel_apply_action(f.w, kNullEntity, Json::parse(R"({"action":"heatHaze","region":[0,0,1]})"));
+    CHECK_FALSE(r.ok());
+    r = feel_apply_action(f.w, kNullEntity, Json::parse(R"({"action":"screenFlash","duration":"long"})"));
+    CHECK_FALSE(r.ok());
+    // A target that is not a camera is refused, naming the fix.
+    r = feel_apply_action(f.w, f.box, Json::parse(R"({"action":"shockwave"})"));
+    CHECK_FALSE(r.ok());
+    CHECK(f.w.feel().screenFx.live.size() == 5);  // nothing of the refused ones was started
+}
+
+TEST_CASE("screen fx: the feel clock runs them out, a hit-stop does not hold them, and they are bounded") {
+    Fixture f;
+    ScreenFxOptions o = screen_fx_defaults(ScreenFxKind::Flash);
+    o.duration = 0.5f;
+    REQUIRE(screen_fx_start(f.w, kNullEntity, o).ok());
+    for (int i = 0; i < 15; ++i) f.frame();  // 0.25 s
+    REQUIRE(f.w.feel().screenFx.live.size() == 1);
+    CHECK(f.w.feel().screenFx.live[0].elapsed == doctest::Approx(0.25f).epsilon(0.01));
+    CHECK(screen_fx_alpha(f.w.feel().screenFx.live[0]) == doctest::Approx(0.5f).epsilon(0.02));
+    // A hit-stop freezes the game, not the effect: the clock is the feel clock.
+    REQUIRE(feel_apply_action(f.w, kNullEntity, Json::parse(R"({"action":"hitStop","duration":0.2})")).ok());
+    f.frame();
+    CHECK(f.w.feel().screenFx.live[0].elapsed > 0.26f);
+    for (int i = 0; i < 20; ++i) f.frame();
+    CHECK(f.w.feel().screenFx.live.empty());  // over: gone by itself
+
+    // A held fade stays until a fade in or a cancel, and a new fade replaces it instead of stacking.
+    ScreenFxOptions fade = screen_fx_defaults(ScreenFxKind::Fade);
+    fade.duration = 0.25f;
+    REQUIRE(screen_fx_start(f.w, kNullEntity, fade).ok());
+    for (int i = 0; i < 60; ++i) f.frame();
+    REQUIRE(f.w.feel().screenFx.live.size() == 1);
+    CHECK(screen_fx_alpha(f.w.feel().screenFx.live[0]) == doctest::Approx(1.0f));
+    fade.fadeIn = true;
+    REQUIRE(screen_fx_start(f.w, kNullEntity, fade).ok());
+    CHECK(f.w.feel().screenFx.live.size() == 1);
+    for (int i = 0; i < 30; ++i) f.frame();
+    CHECK(f.w.feel().screenFx.live.empty());
+
+    // Bounded: a thousand calls never grow the list past kMaxScreenFx, the oldest goes first.
+    ScreenFxOptions w = screen_fx_defaults(ScreenFxKind::Shockwave);
+    w.duration = 30.0f;
+    for (int i = 0; i < 1000; ++i) {
+        w.radius = 0.1f + float(i) * 0.0001f;
+        REQUIRE(screen_fx_start(f.w, kNullEntity, w).ok());
+    }
+    REQUIRE(f.w.feel().screenFx.live.size() == kMaxScreenFx);
+    CHECK(f.w.feel().screenFx.live.back().o.radius == doctest::Approx(0.1f + 999.0f * 0.0001f));
+    CHECK(f.w.feel().screenFx.live.front().o.radius ==
+          doctest::Approx(0.1f + (1000.0f - float(kMaxScreenFx)) * 0.0001f));
+}
+
+TEST_CASE("screen fx: cancel by camera or all, a scene clear drops them, a dead camera is refused") {
+    Fixture f;
+    Entity other = f.w.create("cam2", "cam2");
+    f.w.add<Camera>(other);
+    REQUIRE(screen_fx_start(f.w, f.cam, screen_fx_defaults(ScreenFxKind::Shockwave)).ok());
+    REQUIRE(screen_fx_start(f.w, other, screen_fx_defaults(ScreenFxKind::Shockwave)).ok());
+    REQUIRE(screen_fx_start(f.w, kNullEntity, screen_fx_defaults(ScreenFxKind::Flash)).ok());
+    CHECK(f.w.feel().screenFx.live.size() == 3);
+    feel_cancel(f.w, f.cam);  // the effects of that camera (the ones for every camera stay)
+    CHECK(f.w.feel().screenFx.live.size() == 2);
+    feel_cancel(f.w, kNullEntity);
+    CHECK(f.w.feel().screenFx.live.empty());
+
+    REQUIRE(screen_fx_start(f.w, kNullEntity, screen_fx_defaults(ScreenFxKind::Fade)).ok());
+    f.w.feel().reduceMotionSetting = true;
+    f.w.clear();
+    CHECK(f.w.feel().screenFx.live.empty());  // a held fade does not outlive its scene
+    CHECK(f.w.feel().reduce_motion());        // the player's choice does
+
+    Entity gone = f.w.create("gone", "gone");
+    f.w.add<Camera>(gone);
+    f.w.destroy(gone);
+    f.w.flush();
+    CHECK_FALSE(screen_fx_start(f.w, gone, screen_fx_defaults(ScreenFxKind::Flash)).ok());
+}
+
+TEST_CASE("screen fx: the effects of a camera that is destroyed end, a held fade included") {
+    Fixture f;
+    Entity doomed = f.w.create("doomed", "doomed");
+    f.w.add<Camera>(doomed);
+    REQUIRE(screen_fx_start(f.w, doomed, screen_fx_defaults(ScreenFxKind::Fade)).ok());  // held for ever
+    REQUIRE(screen_fx_start(f.w, f.cam, screen_fx_defaults(ScreenFxKind::Fade)).ok());   // another camera's
+    REQUIRE(screen_fx_start(f.w, kNullEntity, screen_fx_defaults(ScreenFxKind::Flash)).ok());
+    for (int i = 0; i < 60; ++i) f.frame();
+    CHECK(f.w.feel().screenFx.live.size() == 2);  // the two held fades; the flash is over
+    f.w.destroy(doomed);
+    f.w.flush();
+    f.frame();
+    REQUIRE(f.w.feel().screenFx.live.size() == 1);
+    CHECK(f.w.feel().screenFx.live[0].camera == f.cam);
+}
+
+TEST_CASE("screen fx: reduce motion quarters shockwave and blur, reduced effects cap and fade the flash") {
+    Fixture f;
+    f.w.feel().reduceMotionSetting = true;
+    ScreenFxOptions o = screen_fx_defaults(ScreenFxKind::Shockwave);
+    o.strength = 0.08f;
+    REQUIRE(screen_fx_start(f.w, kNullEntity, o).ok());
+    CHECK(f.w.feel().screenFx.live.back().o.strength == doctest::Approx(0.02f));
+    o = screen_fx_defaults(ScreenFxKind::RadialBlur);
+    o.intensity = 0.8f;
+    REQUIRE(screen_fx_start(f.w, kNullEntity, o).ok());
+    CHECK(f.w.feel().screenFx.live.back().o.intensity == doctest::Approx(0.2f));
+    f.w.feel().reduceMotionSetting = false;
+    f.w.feel().reducedEffectsSetting = true;
+    ScreenFxOptions flash = screen_fx_defaults(ScreenFxKind::Flash);
+    flash.fade = false;
+    flash.strength = 1.0f;
+    REQUIRE(screen_fx_start(f.w, kNullEntity, flash).ok());
+    CHECK(f.w.feel().screenFx.live.back().o.strength <= 0.35f + 1e-6f);
+    CHECK(f.w.feel().screenFx.live.back().o.fade);
+}

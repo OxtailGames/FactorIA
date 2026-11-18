@@ -253,6 +253,17 @@ camera.shake(0.35);                                 // trauma, squared; determin
 time.hitStop(0.07);                                 // real seconds; UI and audio keep going; overlapping calls do not add up
 ```
 
+The camera has screen effects too, drawn over the finished picture by its post pass (no PostProcess needed, they run on the game
+clock and a scene load ends them; `docs_read {"name":"rendering-screen-effects"}`):
+
+```js
+camera.main.shockwave({ world: bomb.position, strength: 0.05, duration: 0.7 });   // a ring that bends the picture
+camera.main.radialBlur({ intensity: 0.5, duration: 0.4 });                          // a dash or a big hit
+camera.main.flash({ color: "#ff3030", duration: 0.15 });                            // damage
+camera.main.heatHaze({ region: [0, 0.5, 1, 0.5], duration: 3 });                    // a shimmer over the lower half
+camera.main.fadeOut({ duration: 0.6 });                                             // holds black; open a scene with fadeIn()
+```
+
 `entity.squash({ amount: 0.3 })` keeps the volume and springs back to exactly the entity's scale. The player's reduce motion
 and reduced effects are honoured by the engine (`feel.reduceMotion`, `feel.reducedEffects`); tools and tests use the
 `feel.*` commands (`feel.state` shows what is running).
