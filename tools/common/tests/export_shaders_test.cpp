@@ -260,3 +260,49 @@ TEST_CASE("real sokol-shdc: an android export ships the glsl300es twin it compil
     REQUIRE(twin.ok());
     CHECK((*twin)["programs"]["mesh"]["fs"].get<std::string>().find("#version 300 es") != std::string::npos);
 }
+
+// Compute materials (M72.4): which platforms get a twin, and what an export for the others says.
+namespace {
+void add_compute_material(Fixture& f) {
+    testing::write_all(stdfs::path(f.proj) / "materials/move.material.json", R"({
+  "format": "factoria.material/1", "kind": "compute", "shader": "shaders/move.compute.glsl",
+  "buffers": { "items": { "fields": [ { "name": "v", "type": "float" } ] } }
+})");
+    testing::write_all(stdfs::path(f.proj) / "shaders/move.compute.glsl",
+                       "void compute(in ComputeInput i) { items.data[i.global_id.x].v += 1.0; }\n");
+}
+}  // namespace
+
+TEST_CASE("export shaders: a compute material exported for android or the web says it has no shader there") {
+    for (const char* platform : {"android", "web"}) {
+        INFO(platform);
+        Fixture g;
+        add_compute_material(g);
+        auto r = export_project(g.options(platform));
+        REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
+        bool warned = false;
+        for (const std::string& w : r->warnings)
+            if (w.find("move.material.json has no shader for") != std::string::npos &&
+                w.find("render.supports computeShaders") != std::string::npos && w.find("windows") != std::string::npos)
+                warned = true;
+        CHECK_MESSAGE(warned, "no warning about the compute material");
+        for (const std::string& s : shader_files(files_below(g.tmp.sub(std::string("out/shader-test-") + platform))))
+            CHECK(s.find("move.material.json") == std::string::npos);  // no twin of the compute material
+    }
+}
+
+TEST_CASE("real sokol-shdc: a compute material exported for windows and linux ships its dialect") {
+    FA_SKIP_WITHOUT_SHDC(SetupContext{}, "sokol-shdc is not installed (SOKOL_SHDC, next to factoria, or `factoria "
+                                         "setup shaders`): skipped here, runs in CI");
+    for (const char* platform : {"windows", "linux"}) {
+        INFO(platform);
+        Fixture f;
+        f.setup = SetupContext{};
+        add_compute_material(f);
+        auto r = export_project(f.options(platform, true));
+        REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
+        const std::string dialect = std::string(platform) == "windows" ? "hlsl5" : "glsl430";
+        CHECK(has(shader_files(r->packed), "move.material.json." + dialect + ".shader"));
+        for (const std::string& w : r->warnings) CHECK(w.find("move.material.json") == std::string::npos);
+    }
+}

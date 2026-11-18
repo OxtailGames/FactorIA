@@ -381,7 +381,7 @@ material says what it is for with the optional key `"kind"` of its `*.material.j
 | `"sprite"` | the 2D quad path: `Sprite`, `Shape2D`, `Tilemap`, `Text`, particles and trails, UI images | `quad_common.glsl` | M72.1 |
 | `"sky"` | the sky the scene and its environment lighting use | `sky_common.glsl` | M72.1 |
 | `"post"` | one pass of a camera's post-processing stack | `post_common.glsl` | M72.2 |
-| `"compute"` | compute shaders (storage buffers) | none yet | M72.4 |
+| `"compute"` | compute shaders (storage buffers) | `compute_common.glsl` | built (M72.4) |
 
 Built by M72.0 (the shared base): the key, its check, the per-kind template hash and the skeletons. Only `"mesh"`
 compiles and draws; `shader.compile` and `factoria validate` refuse the others with a message that names the package
@@ -394,8 +394,8 @@ pointer `/kind` (`parse_material`, `schemas/material.schema.json`).
   (`FA_TEMPLATE_FILES_<KIND>`) and in `template_file_names()` of `tools/common/src/shaders_generate.cpp`; a doctest checks
   that both lists give the same hash and that every `*_common.glsl` is in one list. Editing the sprite template leaves
   every mesh twin valid. The mesh list is `mesh_common.glsl`, the one file the hash was made of before kinds existed, so
-  its value did not change and no committed fixture or exported game needs a new export. `compute` has no template yet:
-  its hash is empty.
+  its value did not change and no committed fixture or exported game needs a new export. `compute` hashes `compute_common.glsl`
+  (`FA_TEMPLATE_FILES_COMPUTE`).
 - **The twin names its kind.** A twin of any kind other than mesh carries `"kind": "<kind>"`; a twin without the key is a
   mesh twin (so every twin made before M72 stays valid, and mesh twins are written as they always were).
   `build_material_checked` compares the twin's kind with the material file's and refuses a mismatch with the re-export
@@ -443,7 +443,7 @@ cache, hot reload, export, the runtime) is unchanged: a graph material is a mate
 - Custom shaders for `Sprite`/`Shape2D` (quad.glsl), the sky, particles, and custom post-processing: M72.1 and M72.2
   (see "Kinds (M72)"; the kinds, hashes and skeletons exist, the programs do not).
 - A full-GLSL escape hatch (D1).
-- Compute shaders, tessellation, geometry shaders (not in sokol_gfx's common subset for these backends anyway).
+- Compute storage images, compute on GLES3/WebGL2, tessellation, geometry shaders (not in sokol_gfx's common subset for these backends anyway).
 - Vertex-stage textures (heightmaps sampled in `vertex()`): a texture in both stages needs a second binding; later.
 - Per-instance material data inside one instanced draw.
 - The node-graph editor canvas (the graph document, its generator and the node library exist: "Node graphs").

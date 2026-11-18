@@ -33,6 +33,14 @@ Result<void> convert_shaders(ExportAssets& ea) {
             for (const ValidationIssue& i : shader_validation_issues(*compiled)) message += "\nerror: " + i.to_string();
             return err(message, "Fix it and export again; `factoria validate` lists the same errors.");
         }
+        if (!compiled->skippedDialects.empty() && compiled->twins.empty())
+            ea.report.warnings.push_back(
+                "the " + compiled->material.kind + " material " + path + " has no shader for " + ea.platform +
+                ": that platform has no compute shaders (" + join(compiled->skippedDialects, ", ") +
+                "), so it is exported without one and compute.* calls fail there with an error. Check "
+                "render.supports computeShaders before using it, or leave the material out of this platform's export "
+                "(it runs on " +
+                join(shader_platforms_of_kind(compiled->material.kind), ", ") + ").");
         for (const auto& [slang, twin] : compiled->twins) {
             const std::string shipped = path + "." + slang + ".shader";
             const stdfs::path source = ea.cacheDir / "shaders" / shipped;

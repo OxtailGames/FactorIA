@@ -339,6 +339,12 @@ void outside_snippet(ShaderIssue& issue, const std::string& where, const std::st
     else if (token == "main")
         issue.hint =
             "The engine owns main(): the snippet defines surface() (and vertex()) and must not define main. Remove it.";
+    else if (ctx.material.kind == "compute")
+        issue.hint =
+            "A compute snippet defines `void compute(in ComputeInput i)` and reads its buffers as "
+            "<buffer>.data[i]; do not declare names starting with fa_ or main(). A workgroupSize whose product "
+            "is not a multiple of 32 is refused by the compiler: use [64], [32, 2] or [8, 8]. "
+            "docs/SHADERS.md, \"Compute materials\".";
     else
         issue.hint =
             std::string(
@@ -409,7 +415,16 @@ std::vector<ShaderIssue> map_diagnostics(const std::vector<Diagnostic>& diags, c
 std::vector<ShaderIssue> precheck_snippet(const MaterialDef& material, const GeneratedShader& g,
                                           const std::string& snippet, const std::string& stripped) {
     std::vector<ShaderIssue> out;
-    if (!g.hasSurface) {
+    if (material.kind == "compute" && !g.hasCompute) {
+        ShaderIssue i;
+        i.file = material.shader;
+        i.message = "the snippet defines no compute() function";
+        i.hint =
+            "Define it as `void compute(in ComputeInput i) { ... }`: it runs once per thread, i.global_id.x is the "
+            "thread's index over the whole dispatch. The buffers are <name>.data[i], the params are globals. The "
+            "snippet must not define main.";
+        out.push_back(std::move(i));
+    } else if (material.kind != "compute" && !g.hasSurface) {
         ShaderIssue i;
         i.file = material.shader;
         i.message = "the snippet defines no surface() function";
@@ -483,11 +498,28 @@ Result<std::map<std::string, Json>> build_twins(const stdfs::path& work, const s
         // A twin without "kind" is a mesh twin: mesh twins stay as they were before M72, so no committed or exported one is
         // made stale by the kinds.
         if (material.kind != "mesh") twin["kind"] = material.kind;
+        if (material.kind == "compute") {
+            const Json computeFields = shaders_detail::compute_twin_fields(material);
+            twin["workgroupSize"] = computeFields["workgroupSize"];
+            twin["buffers"] = computeFields["buffers"];
+        }
         Json programs = Json::object();
         for (const Json& prog : shader.value("programs", Json::array())) {
             const std::string name = prog.value("name", std::string());
             Json reflection = prog;
             reflection.erase("name");
+            if (material.kind == "compute") {  // one compute function ("cs") instead of a vertex and a fragment one
+                const Json cf = prog.value("compute_func", Json::object());
+                reflection["compute_func"] = func_reflection(cf);
+                const std::string csText = read_output_file(work, cf.value("path", std::string()));
+                if (csText.empty())
+                    return make_error(
+                        "sokol-shdc did not write the " + slang + " source of program '" + name + "'",
+                        "Run sokol-shdc by hand on the generated top file (`factoria call shader.compile` "
+                        "prints its errors).");
+                programs[name] = Json::object({{"cs", csText}, {"reflection", std::move(reflection)}});
+                continue;
+            }
             const Json vf = prog.value("vertex_func", Json::object()), ff = prog.value("fragment_func", Json::object());
             reflection["vertex_func"] = func_reflection(vf);
             reflection["fragment_func"] = func_reflection(ff);
@@ -579,7 +611,19 @@ Result<ShaderCompileResult> compile_material(const std::string& projectDir, cons
         res.errors.push_back(std::move(i));
     }
     if (!mp.ok()) return res;
-    if (res.material.kind != "mesh") {  // the other kinds are filled in by their M72 packages
+    if (res.material.kind == "compute") {  // no glsl300es twin: GLES3 and WebGL2 have no compute shaders
+        const std::vector<std::string> has = shader_dialects_of_kind("compute");
+        if (options.dialects.empty()) {  // "every dialect" means every dialect the kind has
+            res.dialects = has;
+        } else {
+            std::vector<std::string> kept;
+            for (const std::string& d : res.dialects)
+                (std::find(has.begin(), has.end(), d) != has.end() ? kept : res.skippedDialects).push_back(d);
+            res.dialects = std::move(kept);
+        }
+    }
+    if (res.material.kind != "mesh" &&
+        res.material.kind != "compute") {  // the others are filled in by their M72 packages
         ShaderIssue i;
         i.file = materialPath;
         i.pointer = "/kind";
@@ -600,8 +644,9 @@ Result<ShaderCompileResult> compile_material(const std::string& projectDir, cons
     res.generated = generate_material_shader(res.material, snippet);
     res.errors = precheck_snippet(res.material, res.generated, snippet, stripped);
     if (!res.errors.empty()) return res;
-    if (shader_template_hash().empty())
-        return make_error("this factoria build has no mesh shader template (engine/render/shaders/*_common.glsl)",
+    if (shader_template_hash(res.material.kind).empty())
+        return make_error("this factoria build has no " + res.material.kind +
+                              " shader template (engine/render/shaders/*_common.glsl)",
                           "Rebuild factoria from the full source tree so the template is embedded.");
 
     // What the cache already has.
@@ -631,7 +676,7 @@ Result<ShaderCompileResult> compile_material(const std::string& projectDir, cons
     if (work.error) return *work.error;
     bool written = tooling_detail::write_file(work.path / "top.glsl", res.generated.top) &&
                    tooling_detail::write_file(work.path / "out" / ".keep", "");
-    for (const auto& [name, content] : template_files())
+    for (const auto& [name, content] : template_files(res.material.kind))
         written = written && tooling_detail::write_file(work.path / name, content);
     if (!written)
         return make_error("cannot write to the temporary folder " + work.path.string(), "Check the free disk space.");

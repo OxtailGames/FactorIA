@@ -660,6 +660,7 @@ void Assets::clear() {
         for (MaterialProgram& p : m->programs)
             if (p.shader.id) gpu_.destroy_shader(p.shader);
     materials_.clear();
+    wrongKind_.clear();
     failures_.clear();
     meshSources_.clear();
 }
