@@ -185,13 +185,15 @@ describe("flow", () => {
 });
 
 describe("neon look", () => {
-  test("every scene turns on camera bloom over a dark background", () => {
+  test("every scene turns on the PostProcess bloom over a dark background", () => {
     for (const path of ["scenes/title.scene.json", "scenes/game.scene.json", "scenes/gameover.scene.json"]) {
       game.load(path);
       game.step(1);
       const cam = game.find("camera").get("Camera");
-      expect(cam.bloom).toBe(true);
-      expect(cam.bloomThreshold).toBeLessThan(1);
+      const pp = game.find("camera").get("PostProcess");
+      expect(pp.bloomEnabled).toBe(true);
+      expect(pp.bloomThreshold).toBeLessThan(1);
+      expect(pp.bloomKnee).toBe(0); // the hard threshold the old Camera.bloom had
       expect(Math.max(cam.clearColor.r, cam.clearColor.g, cam.clearColor.b)).toBeLessThan(0.15);
     }
   });
@@ -199,11 +201,11 @@ describe("neon look", () => {
   test("the HUD is drawn after the bloom in the game scene (crisp), the titles still glow", () => {
     game.load("scenes/game.scene.json");
     game.step(1);
-    expect(game.find("camera").get("Camera").bloomScreenSpace).toBe(false);
+    expect(game.find("camera").get("PostProcess").bloomScreenSpace).toBe(false);
     for (const path of ["scenes/title.scene.json", "scenes/gameover.scene.json"]) {
       game.load(path);
       game.step(1);
-      expect(game.find("camera").get("Camera").bloomScreenSpace).toBe(true);
+      expect(game.find("camera").get("PostProcess").bloomScreenSpace).toBe(true);
     }
   });
 
