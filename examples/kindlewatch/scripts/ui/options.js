@@ -131,7 +131,7 @@ export default class Options extends Behaviour {
     ui.on("click", "color_filter", () => {
       const all = settings.COLOR_FILTERS;
       s.colorFilter = all[(all.indexOf(s.colorFilter) + 1) % all.length];
-      settings.applyColorFilter(s); // Camera.colorFilter: the whole frame, this panel included
+      settings.applyColorFilter(s); // PostProcess colour filter: the whole frame, this panel included
       settings.save(s);
       this.refreshVideo();
     });
