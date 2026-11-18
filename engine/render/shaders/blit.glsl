@@ -22,7 +22,9 @@ void main() {
 layout(binding=0) uniform texture2D tex;
 layout(binding=0) uniform sampler smp;
 layout(binding=1) uniform blit_fs_params {
-    vec4 encode;    // x = 1: the source holds linear light and the copy is encoded to sRGB (SceneSettings.colorSpace "linear");
+    vec4 encode;    // x = 1: the source holds linear light (SceneSettings.colorSpace "linear", no final pass): an sdr output encodes it
+                    // to sRGB, an HDR output uses it as it is; 0: it holds sRGB-encoded display values (the final pass's picture,
+                    // extended above 1 when it drew for an HDR output), which an HDR output decodes to linear light first;
                     // y = 1: the source's colour is premultiplied by its alpha (the encode is done on the straight colour)
     vec4 hdr;       // the output (fs only): x = 0 sdr, 1 scRGB, 2 HDR10 (PQ), 3 EDR extended linear sRGB; y = the brightest light
                     // written, in paper whites (the headroom when the final pass drew above white, else 1); z = paper white / 80
@@ -71,7 +73,7 @@ void main() {
 layout(binding=0) uniform texture2D tex;
 layout(binding=0) uniform sampler smp;
 layout(binding=1) uniform blit_fs_params {
-    vec4 encode;    // as in fs
+    vec4 encode;    // as in fs (the readback of a final pass picture, x = 0, copies its display values as they are)
     vec4 hdr;       // as in fs (not read here: the copy keeps the source's range)
 };
 in vec2 uv;

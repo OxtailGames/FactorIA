@@ -61,7 +61,8 @@ bool readback_rgba16f(sg_image image, int width, int height, std::vector<float>&
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, tex, 0);
     bool ok = glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE;
     if (ok) {
-        while (glGetError() != GL_NO_ERROR) {
+        // Clear the errors of earlier calls: a bounded count, because a lost context answers GL_CONTEXT_LOST on every call.
+        for (int i = 0; i < 16 && glGetError() != GL_NO_ERROR; ++i) {
         }
         const std::size_t stride = std::size_t(width) * 4;
         std::vector<float> raw(stride * std::size_t(height));

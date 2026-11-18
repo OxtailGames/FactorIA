@@ -197,3 +197,34 @@ TEST_CASE("hdr output: without a window the display is unknown and nothing switc
     CHECK(info.status.find("no window") != std::string::npos);
     CHECK(app_hdr_output().status == info.status);
 }
+
+TEST_CASE("hdr output: a request that does not want HDR is answered once, then 'unchanged' until the display is asked "
+          "again") {
+    HdrRequest off = wanting(kAll);
+    off.want = false;
+    off.paperWhiteNits = 321.0f;  // not the request of any other case: the first call below always builds an answer
+    HdrOutputInfo info;
+    REQUIRE(app_update_hdr_output(off, info));
+    CHECK_FALSE(info.active);
+    CHECK(info.status.find("hdrOutput is off") != std::string::npos);
+    const std::string status = info.status;
+    // 130 more frames: the display is asked again every 120th (kIdleRefresh), the other ones change nothing and leave `info` alone.
+    int answers = 0;
+    for (int i = 0; i < 130; ++i) {
+        HdrOutputInfo again;
+        again.status = "untouched";
+        if (app_update_hdr_output(off, again)) {
+            ++answers;
+            CHECK(again.status == status);
+        } else {
+            CHECK(again.status == "untouched");
+        }
+    }
+    CHECK(answers >= 1);
+    CHECK(answers <= 2);
+    CHECK(app_hdr_output().status == status);
+    // A different request is answered at once.
+    off.blocked = "the editor shows the game in its own view";
+    CHECK(app_update_hdr_output(off, info));
+    CHECK(app_hdr_output().status == info.status);
+}

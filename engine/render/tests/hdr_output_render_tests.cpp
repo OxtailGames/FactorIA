@@ -230,3 +230,38 @@ TEST_CASE("hdr output: a frame without the final pass, or drawn before the switc
     CHECK(out.at(160, 90, 0) == doctest::Approx(srgb_to_linear(sdr.at(160, 90, 0))).epsilon(0.004));
     CHECK(out.at(160, 90, 0) <= 1.0f + 0.002f);
 }
+
+TEST_CASE("hdr output: the editor viewport shows a picture above paper white clamped to the standard range") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    if (!float_path(g)) return;
+    struct EditorView {  // the editor's copy, switched on for the case and off after (the renderer is shared)
+        Renderer& r;
+        explicit EditorView(Renderer& rr) : r(rr) { r.set_editor_view(true); }
+        ~EditorView() { r.set_editor_view(false); }
+    } view(g.renderer);
+    Forced f(g, forced(HdrEncoding::Edr, 4.0f));
+    Flat s(1.0f);
+    s.post().exposureEnabled = true;
+    s.post().exposureEv = 2.0f;
+    s.post().tonemapEnabled = true;
+    s.post().tonemapMode = TonemapMode::None;  // clips at the headroom (4), not at 1
+    const Image shot = g.draw(s.world);
+    // The final pass wrote above white (sRGB-encoded 4.0 is about 1.6) ...
+    const Floats fin = read(g, shot, false);
+    CHECK(fin.at(160, 90, 0) > 1.2f);
+    // ... and the image the viewport shows is the 8-bit copy, which holds at most white: an EDR editor window would not show it
+    // brighter than the SDR present() does. (readback_rgba8 reads RGBA8 images only: a float image would make it fail.)
+    const std::uint32_t id = g.renderer.game_target_image_id();
+    REQUIRE(id != 0);
+    CHECK(g.renderer.game_target_view_id() != 0);
+    sg_image image{};
+    image.id = id;
+    std::vector<std::uint8_t> px;
+    std::string err;
+    const int tw = g.renderer.target_width(), th = g.renderer.target_height();
+    REQUIRE_MESSAGE(render::readback_rgba8(image, tw, th, px, &err), err);
+    const std::size_t mid = (std::size_t(th / 2) * std::size_t(tw) + std::size_t(tw / 2)) * 4;
+    CHECK(int(px[mid]) == 255);
+    CHECK(int(px[mid + 1]) == 255);
+}
