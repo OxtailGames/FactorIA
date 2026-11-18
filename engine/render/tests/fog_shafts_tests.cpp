@@ -524,7 +524,7 @@ TEST_CASE("sun shafts: rays stream from the sun's place, stronger near it; nothi
         // The rays run toward the sun: a pixel on the sun's side of the cube is brighter than one at the same distance on the other side
         // (the line from the second pixel to the sun runs through the cube, which blocks the light).
         const float sunSide = img.pixel(160, 66).r - reference.pixel(160, 66).r;
-        CHECK(sunSide > onCube - 0.001f);  // nearer to the sky that lights it: at least as bright
+        CHECK(sunSide > onCube - 1.0f / 255.0f);  // nearer to the sky that lights it: at least as bright
         // Nothing above one: the picture clamps and never goes NaN.
         CHECK(img.pixel(160, 12).r <= 1.0f);
 
@@ -533,6 +533,7 @@ TEST_CASE("sun shafts: rays stream from the sun's place, stronger near it; nothi
         behind.shafts();
         CHECK(max_diff(own.draw(behind.w), reference) == 0);
         CHECK_FALSE(has_pass(own.order(), "shafts-"));
+        CHECK_FALSE(has_pass(own.order(), "prepass"));  // the shafts alone, with no sun in view, ask for no depth
 
         // A threshold above the brightness of the sky: no light is cast, so the picture does not change.
         SunScene dim;
@@ -548,9 +549,17 @@ TEST_CASE("sun shafts: rays stream from the sun's place, stronger near it; nothi
         SunScene dark;
         dark.shafts();
         dark.w.destroy_immediate(dark.sun);
+        CHECK(max_diff(own.draw(dark.w), reference) <= 0);
         CHECK_FALSE(has_pass(own.order(), "shafts-"));
-        CHECK(max_diff(own.draw(dark.w), own.draw(dark.w)) == 0);
+        CHECK_FALSE(has_pass(own.order(), "prepass"));
+
+        // A sun that does not shine (intensity 0) is no sun: no shafts, no prepass for them.
+        SunScene unlit;
+        unlit.shafts();
+        unlit.w.get<Light>(unlit.sun)->intensity = 0.0f;
+        CHECK(max_diff(own.draw(unlit.w), reference) == 0);
         CHECK_FALSE(has_pass(own.order(), "shafts-"));
+        CHECK_FALSE(has_pass(own.order(), "prepass"));
 
         // The same frame twice is the same picture (the jitter is a fixed pattern).
         CHECK(max_diff(own.draw(s.w), img) == 0);

@@ -374,6 +374,7 @@ void Renderer::shutdown() {
     Impl& im = *impl_;
     if (im.initialized) {
         im.fonts.reset();
+        im.ssr.release();
         im.sceneFx.release();
         im.fogFx.release();
         im.ramps.destroy();

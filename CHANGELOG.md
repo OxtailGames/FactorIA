@@ -8,6 +8,15 @@ Older versions, one file per minor version with its patch releases: [0.29](chang
 
 ### M71 (in progress): linear HDR and a post-processing stack
 
+- **Screen-space reflections:** `PostProcess.ssrEnabled` is drawn: opaque 3D surfaces reflect what the camera shows. Each pixel marches
+  its reflected ray across the screen in the depth prepass (`ssrSteps` steps with a deterministic jitter, a thickness test of
+  `ssrThickness`, six bisections to refine the hit, a longest ray of `ssrMaxDistance`) and takes the scene colour there, before the
+  exposure, so a bright object reflects bright. Reflections fade at the screen border, toward the end of the ray and on the back of a
+  surface. There is no roughness or metalness image: every surface reflects by a fresnel term (more at a grazing angle) times
+  `ssrIntensity`. Each camera of a split screen traces its own rectangle; a frame without the effect (or with `ssrIntensity` 0) adds no
+  pass, no image, no prepass and draws the same bytes as before. The passes are `ssr-trace` and `ssr-copy` in `render.frame_graph`;
+  `render.supports` answers `ssr` true where the GPU has float targets and the sampled depth. Docs: docs/rendering/RENDERING_EFFECTS.md, "Screen-space reflections".
+
 - **Ambient occlusion (`ssao`):** `PostProcess.ssaoEnabled` now darkens creases and contact points of 3D meshes (GTAO from the depth and
   normal prepass, at half resolution for `low` and `medium`, full for `high` and `ultra`, a blur that follows the surfaces, no random
   numbers: the same picture every run). `ssaoRadius` is in world units, `ssaoIntensity` the power of the occlusion, and each camera of a
@@ -19,8 +28,8 @@ Older versions, one file per minor version with its patch releases: [0.29](chang
 - **Fog and sun shafts:** `fogEnabled` and `sunShaftsEnabled` of `PostProcess` are drawn now (`render.supports` is true for `fog` and
   `sunShafts`). The fog is exponential from `fogStart` plus an exact height fog (`fogHeightDensity`, `fogHeightBase`,
   `fogHeightFalloff`) along the view ray from the depth; the sky is not fogged, and a camera whose stack fog is drawn does not also draw
-  `SceneSettings.fogDensity` (never twice). The shafts scatter the bright sky (above `sunShaftsThreshold`) toward the first directional
-  light's place on the screen with 48 jittered taps at half resolution, tinted and added, fading out as the sun leaves the screen or
+  `SceneSettings.fogDensity` (never twice). The shafts scatter the bright sky (above `sunShaftsThreshold`) toward the sun's place on the screen (the shadow-casting or
+  brightest directional light) with 48 jittered taps at half resolution, tinted and added, fading out as the sun leaves the screen or
   goes behind the camera (perspective cameras). Each camera of a split screen has its own `fog-blend` / `shafts-*` passes over its
   rectangle; off adds no pass and no prepass. See docs/rendering/RENDERING_EFFECTS.md.
 

@@ -27,6 +27,7 @@
 #include "fa/scene/text_fit.h"
 #include "fa/scene/ui_rect.h"
 #include "bloom.h"
+#include "renderer_ssr.h"
 #include "renderer_dof.h"
 #include "renderer_fog.h"
 #include "hdr_encode.h"
@@ -84,6 +85,7 @@ struct Renderer::Impl {
     // bloom, the colour filter and present() sample; gameTarget.resolveColorAtt (MSAA) is the resolved image as a colour
     // attachment, which bloom composites into.
     Target gameTarget;
+    Ssr ssr;    // screen-space reflections (renderer_ssr.h): its shaders and pipelines
     Ssao ssao;  // PostProcess.ssao*: the ambient occlusion passes of each camera (renderer_ssao.h)
     SceneFx
         sceneFx;  // depth of field and motion blur (renderer_dof.h): its shaders, pipelines and the autofocus of each camera
