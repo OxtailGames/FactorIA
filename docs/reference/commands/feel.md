@@ -18,7 +18,7 @@ Without `entity` it ends every effect of the scene, hit-stops and screen effects
 
 ## `feel.fade` (modifies state)
 
-Not released yet (on main after 0.30.1).
+Since 0.31.0.
 
 Fades the screen to a colour (default black) and holds it, or from that colour back to the picture.
 
@@ -53,7 +53,7 @@ The same as `entity.flash(opts)`. The entity's own colour, material and Transfor
 
 ## `feel.heatHaze` (modifies state)
 
-Not released yet (on main after 0.30.1).
+Since 0.31.0.
 
 Heat haze: a rippling distortion over a region of the screen for a while.
 
@@ -106,7 +106,7 @@ The same as `entity.knockback(direction, opts)`. A dynamic RigidBody2D/RigidBody
 
 ## `feel.radialBlur` (modifies state)
 
-Not released yet (on main after 0.30.1).
+Since 0.31.0.
 
 A radial blur pulse: the picture streaks away from a point and settles, for a speed or impact burst.
 
@@ -125,7 +125,7 @@ The same as `camera.radialBlur(opts)`. Draws the same blur as PostProcess.radial
 
 ## `feel.screenFlash` (modifies state)
 
-Not released yet (on main after 0.30.1).
+Since 0.31.0.
 
 Flashes the whole screen in one colour for a moment (a damage or pickup flash), drawn over the finished picture.
 
@@ -178,7 +178,7 @@ The same as `camera.shake(amount, opts)` in a script. Adds `amount` (0..1) of tr
 
 ## `feel.shockwave` (modifies state)
 
-Not released yet (on main after 0.30.1).
+Since 0.31.0.
 
 Screen shockwave: a ring that expands from a point and bends the picture, drawn by the camera's post-processing pass.
 

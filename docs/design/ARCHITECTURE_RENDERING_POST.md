@@ -2,7 +2,7 @@
 
 Part of [FactorIA architecture](ARCHITECTURE.md) (the entry page lists every page). The shared part of M71 (the linear colour, the
 `PostProcess` data, the effect order, the CPU resolve, `render.supports`, the commands, the stack's passes and the final pass) is on
-the [rendering page](ARCHITECTURE_RENDERING.md#postprocess-m71-in-progress); this page has the effects that use them, one bullet
+the [rendering page](ARCHITECTURE_RENDERING.md#postprocess-m71); this page has the effects that use them, one bullet
 each.
 
 ## PostProcess effects (M71)

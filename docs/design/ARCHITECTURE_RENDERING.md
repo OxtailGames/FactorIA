@@ -325,10 +325,9 @@ for tools. Fallback fonts and the text size option live on the `Renderer` (`set_
 game makers: [TEXT.md](../TEXT.md).
 
 
-## PostProcess (M71, in progress)
-M71 adds a linear HDR frame and a stack of post effects. The first package lands the shared interface; the linear frame (below, "Linear
-colour") and the effects listed in the last bullets (exposure, bloom, tonemap, colour filter, and the grading and lens effects of the
-final pass) are drawn; the others are not yet.
+## PostProcess (M71)
+M71 added a linear HDR frame (below, "Linear colour"), a stack of post effects (every effect of `kPostEffectOrder` is drawn) and the HDR
+display output.
 
 - **Linear colour, where the conversions are** (`SceneSettings.colorSpace linear`; every one of them is a no-op in a gamma scene, so
   its pixels do not change). `Renderer::Impl::sync_color_space` (called first in `render` and in `capture_world`) tells the `Gpu`
@@ -386,7 +385,7 @@ final pass) are drawn; the others are not yet.
   `computeShaders`; the engine features `linearColor` and `hdrOutput`; and one per effect (the names above). Each row says the
   backends it can ever run on (GL, GLES3, WebGL2, D3D11, Metal; the headless dummy backend has none), what it needs from the GPU
   (read with `sg_query_pixelformat` / `sg_query_features`), and whether the engine draws it yet. A feature the engine does not draw
-  answers false with the status "planned (M71)" (`effect_drawn` in `render_features.cpp`: today every effect of `kPostEffectOrder` is
+  answers false with the status "planned (<milestone>)" (`effect_drawn` in `render_features.cpp`: today every effect of `kPostEffectOrder` is
   drawn, so none answers it, and a new effect stays planned until its pass lands). The `needs` words of a row (`half`, `depth`,
   `r11g11b10`, `compute`) are what the effect asks of the GPU: the depth of field and the sun shafts need `half+depth` (their
   half-size images are RGBA16F), so `supports` never claims what the renderer cannot do; `kEffectRows` carries the effect's name and a
