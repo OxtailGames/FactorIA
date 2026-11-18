@@ -27,6 +27,7 @@
 #include "fa/scene/text_fit.h"
 #include "fa/scene/ui_rect.h"
 #include "bloom.h"
+#include "renderer_ssr.h"
 #include "hdr_encode.h"
 #include "postprocess.h"
 #include "render_features.h"
@@ -81,6 +82,7 @@ struct Renderer::Impl {
     // bloom, the colour filter and present() sample; gameTarget.resolveColorAtt (MSAA) is the resolved image as a colour
     // attachment, which bloom composites into.
     Target gameTarget;
+    Ssr ssr;      // screen-space reflections (renderer_ssr.h): its shaders and pipelines
     Bloom bloom;  // Camera.bloom post-process (its levels are transients of the frame graph, see bloom.h)
     // Camera.colorFilter: the filtered copy of the finished frame. A pass cannot read what it writes, so the filter
     // draws into this second image (made on first use) and present(), capture() and the editor viewport show it
