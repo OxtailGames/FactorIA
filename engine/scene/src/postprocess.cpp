@@ -74,15 +74,18 @@ void register_postprocess_component(TypeRegistry& r) {
          "outline, "
          "pixelate, posterize, filmGrain, colorFilter (the last pass). M71 is in progress: the component, the volumes, "
          "the postprocess.* commands and render.supports exist, and each effect is drawn as its M71 package lands: "
-         "render.supports {\"feature\": \"<effect>\"} says which ones this build draws on this GPU (exposure, bloom, "
+         "render.supports {\"feature\": \"<effect>\"} says which ones this build draws on this GPU (ssao, exposure, "
+         "bloom, "
          "tonemap, colorFilter, lensDistortion, chromaticAberration, colorGrading, vignette, sharpen, outline, "
-         "pixelate, posterize, filmGrain and ssr today), until then the fields only store the values. The lens "
-         "distortion, "
+         "pixelate, posterize, filmGrain, depthOfField, motionBlur and ssr today), until then the fields only store "
+         "the values. The lens distortion, "
          "the chromatic aberration, the colour grading, the vignette, the sharpen, the outline, the pixelation, the "
          "posterization and the film grain are drawn in the final pass, after the bloom: "
          "the lens and the aberration bend how the scene is read (in scene colour, before the exposure), the rest work "
          "on the display picture (what the screen shows, paper white = 1, the same on an SDR and an HDR output) and "
-         "none of them clips above white. Every camera draws its own stack over its own part of the picture (a "
+         "none of them clips above white. The depth of field and the motion blur read the depth prepass and are "
+         "drawn on the scene colour, before the bloom and the final pass. Every camera draws its own stack over its "
+         "own part of the picture (a "
          "split screen: each half has its own); the bloom and the colour filter are one per frame, the ones of the "
          "camera that draws first. Camera.bloom* and Camera.colorFilter are deprecated and keep working unchanged: "
          "they "
@@ -90,7 +93,10 @@ void register_postprocess_component(TypeRegistry& r) {
          "pass, no "
          "target. Screen-space items (the HUD) are drawn over the finished picture, so exposure, tonemap and the "
          "output "
-         "encode never touch them; the colour filter does.",
+         "encode never touch them; the colour filter does. The ambient occlusion (ssao) darkens the 3D meshes where "
+         "they "
+         "meet, in place before the bloom, so the interface drawn before the post passes is darkened where it covers "
+         "meshes.",
          "Camera")
         .field("enabled", &PostProcess::enabled,
                "false: this component contributes nothing (all its effects are ignored), without losing its values.")
@@ -403,11 +409,13 @@ void register_postprocess_component(TypeRegistry& r) {
         .field("ssaoEnabled", &PostProcess::ssaoEnabled,
                "Switches the ambient occlusion on: creases and contact points of 3D models get darker. Needs the depth "
                "buffer "
-               "(3D); it costs the most of the effects at high quality.")
-        .enum_field("ssaoQuality", &PostProcess::ssaoQuality, {"low", "medium", "high", "ultra"},
-                    "Only used when ssaoEnabled. The number of directions and steps (GTAO): low is for phones and the "
-                    "web; each "
-                    "level costs about twice the one before.")
+               "(3D) and a GPU with RGBA16F targets that blend; it costs the most of the effects at high quality.")
+        .enum_field(
+            "ssaoQuality", &PostProcess::ssaoQuality, {"low", "medium", "high", "ultra"},
+            "Only used when ssaoEnabled. The number of directions and steps (GTAO): low is for phones and the "
+            "web; each "
+            "level costs about twice the one before. low and medium work at half the resolution of the camera's "
+            "rectangle, high and ultra at full resolution.")
         .field("ssaoIntensity", &PostProcess::ssaoIntensity,
                "Only used when ssaoEnabled. 0..4: how dark the occlusion is.")
         .range(0, 4)
@@ -417,27 +425,36 @@ void register_postprocess_component(TypeRegistry& r) {
 
         // depthOfField
         .field("depthOfFieldEnabled", &PostProcess::depthOfFieldEnabled,
-               "Switches the depth of field on: things away from the focus distance are blurred. Needs the depth "
-               "buffer (3D).")
+               "Switches the depth of field on: opaque 3D meshes away from the focus distance are blurred, "
+               "those in front of it and those behind it each by their own largest blur. It reads the depth prepass, "
+               "so it needs opaque meshes in view (a frame without any is drawn without it); where no mesh was "
+               "drawn (the sky, sprites, shapes) the depth is taken as infinite and the far blur applies. It runs "
+               "before the bloom and the final pass, and the HUD is not blurred.")
         .field("depthOfFieldFocusDistance", &PostProcess::depthOfFieldFocusDistance,
                "Only used when depthOfFieldEnabled. World units from the camera that are in focus (ignored while "
                "depthOfFieldTarget is set).")
         .range(0.01f, 100000)
-        .field(
-            "depthOfFieldTarget", &PostProcess::depthOfFieldTarget,
-            "Only used when depthOfFieldEnabled. Autofocus: the focus follows the distance to this entity. Empty = use "
-            "depthOfFieldFocusDistance.")
+        .field("depthOfFieldTarget", &PostProcess::depthOfFieldTarget,
+               "Only used when depthOfFieldEnabled. Autofocus: the focus follows the view depth of this entity (its "
+               "distance along the camera's axis), moving by depthOfFieldFocusSpeed. Empty, a destroyed entity or one "
+               "behind the camera = use depthOfFieldFocusDistance.")
         .field("depthOfFieldFocusSpeed", &PostProcess::depthOfFieldFocusSpeed,
-               "Only used with an autofocus target. How fast the focus moves to it, per second; higher is quicker.")
+               "Only used with an autofocus target. How fast the focus moves to it, per second: each frame covers "
+               "1 - exp(-speed * dt) of the way (engine clock, the same on every machine); higher is quicker, 0 stays "
+               "where it is.")
         .range(0, 100)
         .field("depthOfFieldFocusRange", &PostProcess::depthOfFieldFocusRange,
-               "Only used when depthOfFieldEnabled. World units around the focus distance that stay fully sharp.")
+               "Only used when depthOfFieldEnabled. World units of the band that stays fully sharp, centred on the "
+               "focus distance (half of it on each side); the blur then grows smoothly to its largest in front of the "
+               "band over the distance to the camera, and behind it over the focus distance.")
         .range(0, 100000)
         .field("depthOfFieldNearBlur", &PostProcess::depthOfFieldNearBlur,
-               "Only used when depthOfFieldEnabled. The largest blur, in design pixels, in front of the focus (0..32).")
+               "Only used when depthOfFieldEnabled. The largest blur, in design pixels (times the render scale), in "
+               "front of the focus (0..32). It spreads past the silhouette of the near object.")
         .range(0, 32)
         .field("depthOfFieldFarBlur", &PostProcess::depthOfFieldFarBlur,
-               "Only used when depthOfFieldEnabled. The largest blur, in design pixels, behind the focus (0..32).")
+               "Only used when depthOfFieldEnabled. The largest blur, in design pixels (times the render scale), "
+               "behind the focus (0..32). A sharper object never takes colour from a blurred one behind it.")
         .range(0, 32)
         .field("depthOfFieldBokeh", &PostProcess::depthOfFieldBokeh,
                "Only used when depthOfFieldEnabled. true: a disc-shaped blur where bright points become discs (more "
@@ -446,16 +463,19 @@ void register_postprocess_component(TypeRegistry& r) {
 
         // motionBlur
         .field("motionBlurEnabled", &PostProcess::motionBlurEnabled,
-               "Switches the camera motion blur on: the picture smears along the camera's movement, computed from the "
-               "depth "
-               "buffer (3D).")
+               "Switches the camera motion blur on: the picture smears along the way the camera moved since the frame "
+               "before, computed from the depth prepass (opaque 3D meshes; the sky only smears when the camera "
+               "turns). Objects that move on their own are not blurred. There is no blur on the first frame or "
+               "after the camera did not draw the frame before (a cut); a camera that jumps to another place in "
+               "one frame blurs up to a longest streak. It runs before the bloom and the final pass.")
         .field(
             "motionBlurIntensity", &PostProcess::motionBlurIntensity,
             "Only used when motionBlurEnabled. 0..1: the fraction of the frame the shutter stays open (1 = the whole "
             "movement).")
         .range(0, 1)
         .field("motionBlurSamples", &PostProcess::motionBlurSamples,
-               "Only used when motionBlurEnabled. 4..32 taps along the movement; more is smoother and costs more.")
+               "Only used when motionBlurEnabled. 4..32 taps along the movement; more is smoother and costs more. A "
+               "streak is at most 8% of the picture's larger side.")
         .range(4, 32)
 
         // ssr

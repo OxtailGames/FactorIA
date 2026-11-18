@@ -36,8 +36,8 @@ Rect rect_of(const PostRect& r, int picW, int picH) {
 
 // One full-screen triangle with `prog` into the pass `pd`. `tc`, `tp`: the colour and prepass images (the copy binds only the first).
 // `fu`: the program's uniform block (null: none). `part`: the rectangle of the destination the pass covers (null: all of it).
-void draw_fullscreen(Ssr& fx, Gpu& gpu, Ssr::Prog prog, const PassDesc& pd, sg_view tc, sg_view tp, const void* fu, std::size_t fuSize,
-                     const Rect* part) {
+void draw_fullscreen(Ssr& fx, Gpu& gpu, Ssr::Prog prog, const PassDesc& pd, sg_view tc, sg_view tp, const void* fu,
+                     std::size_t fuSize, const Rect* part) {
     if (!pd.color.id) return;  // the target of the pass is gone
     Gpu::begin_pass(pd);
     if (part) {
@@ -80,7 +80,8 @@ SsrPlan make_ssr_plan(const CameraInfo& cam, const PostStack& stack) {
     p.thickness = std::clamp(finite_or(f.ssrThickness, 0.3f), 0.01f, 10.0f);
     p.steps = std::clamp(int(std::clamp(finite_or(float(f.ssrSteps), 32.0f), -1000.0f, 1000.0f)), 8, 128);
     const Mat4& P = cam.proj;
-    const float terms[8] = {P.at(0, 0), P.at(1, 1), P.at(2, 0), P.at(2, 1), P.at(3, 0), P.at(3, 1), P.at(2, 3), P.at(3, 3)};
+    const float terms[8] = {P.at(0, 0), P.at(1, 1), P.at(2, 0), P.at(2, 1),
+                            P.at(3, 0), P.at(3, 1), P.at(2, 3), P.at(3, 3)};
     bool finite = std::fabs(terms[0]) > 1e-12f && std::fabs(terms[1]) > 1e-12f;
     for (int i = 0; i < 8; ++i) {
         finite = finite && std::isfinite(terms[i]);
@@ -103,10 +104,11 @@ bool Ssr::ready() {
             s = {};
         }
         state_ = -1;
-        FA_ERROR("render",
-                 "Screen-space reflections are unavailable: their shaders failed to compile for this graphics backend (see the sokol log "
-                 "lines above). The game renders without them. Hint: update the graphics driver (Mesa: try LIBGL_ALWAYS_SOFTWARE=1) or "
-                 "turn ssrEnabled off.");
+        FA_ERROR("render", "Screen-space reflections are unavailable: their shaders failed to compile for this "
+                           "graphics backend (see the sokol log "
+                           "lines above). The game renders without them. Hint: update the graphics driver (Mesa: try "
+                           "LIBGL_ALWAYS_SOFTWARE=1) or "
+                           "turn ssrEnabled off.");
         return false;
     }
     state_ = 1;
@@ -128,7 +130,8 @@ sg_pipeline Ssr::pipeline(Prog prog, const TargetFormat& format) {
     d.face_winding = SG_FACEWINDING_CCW;
     d.label = prog == Prog::Trace ? "ssr-trace" : "ssr-copy";
     const sg_pipeline p = sg_make_pipeline(&d);
-    if (sg_query_pipeline_state(p) != SG_RESOURCESTATE_VALID) FA_ERROR("render", "failed to create pipeline '{}'", d.label);
+    if (sg_query_pipeline_state(p) != SG_RESOURCESTATE_VALID)
+        FA_ERROR("render", "failed to create pipeline '{}'", d.label);
     pipelines_.push_back({prog, format, p});
     return p;
 }
@@ -157,9 +160,9 @@ void Ssr::release() {
 #pragma warning(push)
 #pragma warning(disable : 4324)
 #endif
-int Ssr::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, const SsrPlan& plan, const PostRect& rectIn, int picW,
-                    int picH, ResourceId game, sg_view srcTex, const BloomTarget& dst, const PrepassRef& prepass, int* drawCalls,
-                    const std::string& job) {
+int Ssr::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, const SsrPlan& plan, const PostRect& rectIn,
+                    int picW, int picH, ResourceId game, sg_view srcTex, const BloomTarget& dst,
+                    const PrepassRef& prepass, int* drawCalls, const std::string& job) {
     if (!plan.any() || !prepass.valid()) return 0;
     const Rect rect = rect_of(rectIn, picW, picH);
     if (rect.w < 1 || rect.h < 1) return 0;
@@ -184,7 +187,8 @@ int Ssr::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, cons
             if (!warnedTargets_) {
                 warnedTargets_ = true;
                 FA_ERROR("render",
-                         "Screen-space reflections: cannot create the intermediate image for a {}x{} camera; they are skipped. Hint: turn "
+                         "Screen-space reflections: cannot create the intermediate image for a {}x{} camera; they are "
+                         "skipped. Hint: turn "
                          "ssrEnabled off, or lower the render scale.",
                          rw, rh);
             }

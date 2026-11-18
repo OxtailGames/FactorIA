@@ -59,9 +59,9 @@ public:
     // picH); `prepass`: its prepass (invalid: nothing is drawn); `dst`: where the result goes, as the bloom's (BloomTarget). Each pass adds one
     // to *drawCalls when it runs. Returns the number of passes declared (0: nothing is drawn: no effect, no prepass, shaders or targets the GPU
     // cannot make; logged once).
-    int add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, const SsrPlan& plan, const PostRect& rect, int picW, int picH,
-                   ResourceId game, sg_view srcTex, const BloomTarget& dst, const PrepassRef& prepass, int* drawCalls,
-                   const std::string& job);
+    int add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, const SsrPlan& plan, const PostRect& rect,
+                   int picW, int picH, ResourceId game, sg_view srcTex, const BloomTarget& dst,
+                   const PrepassRef& prepass, int* drawCalls, const std::string& job);
 
     // Destroys the shaders and the pipelines; call while the graphics context is open.
     void release();
