@@ -59,8 +59,8 @@ bool is_reserved_word(std::string_view s) {
         "external", "interface", "long", "short", "half", "fixed", "unsigned", "superp", "input", "output", "filter",
         "sizeof", "cast", "namespace", "using",
         // names of the snippet contract
-        "main", "surface", "vertex", "Surface", "SurfaceInput", "VertexData", "QuadInput", "QuadSurface", "SkyInput",
-        "SkySurface", "PostInput", "PostSurface"};
+        "main", "surface", "vertex", "Surface", "SurfaceInput", "VertexData", "QuadInput", "QuadSurface", "QuadVertex",
+        "fragment", "SkyInput", "SkySurface", "PostInput", "PostSurface"};
     return words.count(s) > 0;
 }
 
@@ -98,12 +98,14 @@ std::string normalize_snippet(std::string_view snippet) {
 
 const std::vector<std::string>& template_file_names(const std::string& kind) {
     // One list per kind, equal to FA_TEMPLATE_FILES_<KIND> of engine/render/CMakeLists.txt (a test compares the hashes). The mesh
-    // list is the one file the template hash was made of before kinds existed.
-    static const std::map<std::string, std::vector<std::string>> names = {{"mesh", {"mesh_common.glsl"}},
-                                                                          {"sprite", {"quad_common.glsl"}},
-                                                                          {"sky", {"sky_common.glsl"}},
-                                                                          {"post", {"post_common.glsl"}},
-                                                                          {"compute", {}}};
+    // list is the one file the template hash was made of before kinds existed; the sprite template also @includes the colour-space
+    // and 2D shadow helpers, so a change to them changes the sprite hash.
+    static const std::map<std::string, std::vector<std::string>> names = {
+        {"mesh", {"mesh_common.glsl"}},
+        {"sprite", {"color_space.glsl", "light_shadow.glsl", "quad_common.glsl"}},
+        {"sky", {"sky_common.glsl"}},
+        {"post", {"post_common.glsl"}},
+        {"compute", {}}};
     static const std::vector<std::string> none;
     auto it = names.find(kind);
     return it == names.end() ? none : it->second;
@@ -125,7 +127,7 @@ const std::vector<std::pair<std::string, std::vector<std::string>>>& contract_st
     // The structs each kind's snippet contract is made of (the template's @block of types).
     static const std::map<std::string, std::vector<std::string>> wantedByKind = {
         {"mesh", {"SurfaceInput", "Surface", "VertexData"}},
-        {"sprite", {"QuadInput", "QuadSurface"}},
+        {"sprite", {"QuadInput", "QuadSurface", "QuadVertex"}},
         {"sky", {"SkyInput", "SkySurface"}},
         {"post", {"PostInput", "PostSurface"}},
         {"compute", {}}};
@@ -166,7 +168,10 @@ const std::vector<std::pair<std::string, std::vector<std::string>>>& contract_st
     return it == byKind.end() ? none : it->second;
 }
 
+bool kind_is_compiled(const std::string& kind) { return kind == "mesh" || kind == "sprite"; }
+
 std::string kind_refusal(const std::string& kind) {
+    // Sprite is compiled (M72.1); sky is the other half of M72.1.
     const char* package = kind == "post" ? "M72.2" : kind == "compute" ? "M72.4" : "M72.1";
     return "kind \"" + kind + "\" is not compiled yet: " + kind + " materials arrive with " + package;
 }
@@ -182,11 +187,12 @@ using shaders_detail::normalize_snippet;
 
 struct Function {
     std::size_t begin = 0, end = 0;  // [begin, end) of `void name(...) { ... }` in the snippet
-    bool isVertex = false;           // else surface()
+    bool isVertex = false;           // else the fragment-stage entry point (surface() or fragment())
 };
 
-// The definitions of void surface(...) and void vertex(...) at the top level of the (comment-blanked) snippet.
-std::vector<Function> find_entry_points(const std::string& s) {
+// The definitions of void <fragmentName>(...) (surface or fragment) and void vertex(...) at the top level of the
+// (comment-blanked) snippet.
+std::vector<Function> find_entry_points(const std::string& s, const std::string& fragmentName) {
     std::vector<Function> out;
     int depth = 0;
     std::size_t i = 0;
@@ -212,7 +218,7 @@ std::vector<Function> find_entry_points(const std::string& s) {
             std::size_t nameStart = p;
             while (p < s.size() && ident_char(s[p])) ++p;
             const std::string name = s.substr(nameStart, p - nameStart);
-            if (name == "surface" || name == "vertex") {
+            if (name == fragmentName || name == "vertex") {
                 p = skip_ws(p);
                 if (p < s.size() && s[p] == '(') {
                     int paren = 0;
@@ -292,15 +298,19 @@ std::string block_members(const std::vector<MaterialParam>& params) {
 
 GeneratedShader generate_material_shader(const MaterialDef& material, std::string_view snippetText) {
     GeneratedShader g;
+    g.kind = material.kind;
+    const bool sprite = material.kind == "sprite";
     const bool clip = material.alphaMode == "clip";
     const std::string src = normalize_snippet(snippetText);
-    const std::vector<Function> fns = find_entry_points(blank_comments(src));
+    const std::vector<Function> fns = find_entry_points(blank_comments(src), sprite ? "fragment" : "surface");
     for (const Function& f : fns) (f.isVertex ? g.hasVertex : g.hasSurface) = true;
 
     TopFile t{g};
     t.generated("@module fa_mat\n@block fa_user\n");
     // The material block lives in one stage: a sokol uniform block slot belongs to one stage, so the vertex stage gets its own
-    // block (binding 4) and the fragment stage (binding 5). Unused blocks and textures are not part of a program.
+    // block (binding 4) and the fragment stage (binding 5). Unused blocks and textures are not part of a program. The textures
+    // take the slots after the engine's own (mesh: views 6.., samplers 2..; sprite: views 4.., samplers 3..; kMaterial* of
+    // engine/render/src/render_internal.h).
     t.generated("#ifdef GL_VERTEX_SHADER\n");
     if (!material.params.empty())
         t.generated("layout(binding=4) uniform fa_material_vs {\n" + block_members(material.params) + "};\n");
@@ -310,7 +320,7 @@ GeneratedShader generate_material_shader(const MaterialDef& material, std::strin
     if (!material.params.empty())
         t.generated("layout(binding=5) uniform fa_material {\n" + block_members(material.params) + "};\n");
     t.generated("#endif\n");
-    int view = 6, sampler = 2;
+    int view = sprite ? 4 : 6, sampler = sprite ? 3 : 2;
     for (const MaterialTexture& tex : material.textures)
         t.generated("layout(binding=" + std::to_string(view++) + ") uniform texture2D " + tex.name +
                     ";\nlayout(binding=" + std::to_string(sampler++) + ") uniform sampler " + tex.name + "_smp;\n");
@@ -326,21 +336,29 @@ GeneratedShader generate_material_shader(const MaterialDef& material, std::strin
     t.snippet(src, pos, src.size());
     // The shims stop at the snippet: the engine's own vertex code below sees the real texture() and discard.
     t.generated("#ifdef GL_VERTEX_SHADER\n#undef texture\n#undef discard\n#endif\n");
-    t.generated("@end\n@include mesh_common.glsl\n");
+    t.generated(sprite ? "@end\n@include quad_common.glsl\n" : "@end\n@include mesh_common.glsl\n");
 
-    g.programs = {"mesh", "mesh_skin"};
-    t.generated("@program mesh vs fs\n@program mesh_skin vs_skin fs\n");
-    if (g.hasVertex || clip) {
-        g.programs.push_back("shadow");
-        g.programs.push_back("shadow_skin");
-        t.generated("@program shadow shadow_vs shadow_fs\n@program shadow_skin shadow_vs_skin shadow_fs\n");
+    if (sprite) {
+        // quad: every mode; quad_plain: the lean program of a batch of plain textured quads (the renderer picks one per batch).
+        g.programs = {"quad", "quad_plain"};
+        t.generated("@program quad vs fs\n@program quad_plain vs fs_plain\n");
+        g.defines.push_back("FA_MATERIAL");
+    } else {
+        g.programs = {"mesh", "mesh_skin"};
+        t.generated("@program mesh vs fs\n@program mesh_skin vs_skin fs\n");
+        if (g.hasVertex || clip) {
+            g.programs.push_back("shadow");
+            g.programs.push_back("shadow_skin");
+            t.generated("@program shadow shadow_vs shadow_fs\n@program shadow_skin shadow_vs_skin shadow_fs\n");
+        }
+        // The depth and normal prepass (M71) draws every opaque material: vertex() and surface() run in it as in the main pass.
+        g.programs.push_back("prepass");
+        g.programs.push_back("prepass_skin");
+        t.generated("@program prepass prepass_vs prepass_fs\n@program prepass_skin prepass_vs_skin prepass_fs\n");
     }
-    // The depth and normal prepass (M71) draws every opaque material: vertex() and surface() run in it as in the main pass.
-    g.programs.push_back("prepass");
-    g.programs.push_back("prepass_skin");
-    t.generated("@program prepass prepass_vs prepass_fs\n@program prepass_skin prepass_vs_skin prepass_fs\n");
     if (g.hasVertex) g.defines.push_back("FA_HAS_VERTEX");
-    if (clip) g.defines.push_back("FA_ALPHA_CLIP");
+    // A sprite is blended by the engine: alphaMode "clip" (the mesh template's alpha test) adds nothing to it.
+    if (clip && !sprite) g.defines.push_back("FA_ALPHA_CLIP");
     return g;
 }
 

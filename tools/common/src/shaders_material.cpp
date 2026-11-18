@@ -387,8 +387,8 @@ MaterialParse parse_material(const Json& doc, const std::string& projectDir, con
             if (int(t->size()) > kMaterialMaxTextures)
                 c.error("/textures",
                         std::to_string(t->size()) + " textures, at most " + std::to_string(kMaterialMaxTextures) +
-                            " (the engine already binds 6 texture units of the 16 that GLES3 and WebGL2 guarantee, and "
-                            "materials get the next 4)",
+                            " (the engine already binds " + (m.kind == "sprite" ? "4" : "6") +
+                            " texture units of the 16 that GLES3 and WebGL2 guarantee, and materials get the next 4)",
                         "Pack masks into the channels of one texture (r = foam, g = height...) or remove a texture.");
             for (auto it = t->begin(); it != t->end(); ++it) {
                 MaterialTexture tex;
@@ -409,7 +409,12 @@ MaterialParse parse_material(const Json& doc, const std::string& projectDir, con
     }
 
     // alphaMode "clip": the cutoff is a param of the material, implicit unless declared (see the header).
-    if (m.alphaMode == "clip") {
+    if (m.alphaMode == "clip" && m.kind == "sprite") {
+        c.error("/alphaMode", "alphaMode \"clip\" is the mesh template's alpha test; a sprite material has none",
+                "Use \"blend\" (the default look of a sprite) and write `if (s.color.a < 0.5) discard;` in fragment() "
+                "where "
+                "you want a cut-out.");
+    } else if (m.alphaMode == "clip") {
         auto declared = std::find_if(m.params.begin(), m.params.end(),
                                      [](const MaterialParam& p) { return p.name == kMaterialAlphaCutoff; });
         if (declared == m.params.end()) {
