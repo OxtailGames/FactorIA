@@ -29,17 +29,19 @@ constexpr EffectRow kEffectRows[kPostEffectCount] = {
     {"depth", "Depth of field with near and far blur, bokeh and autofocus."},
     {"depth", "Camera motion blur, from the depth buffer."},
     {"", "Radial blur from a point of the picture."},
-    {"", "Barrel and pincushion lens distortion."},
-    {"", "Chromatic aberration: colour fringes toward the edges."},
+    {"",
+     "Barrel and pincushion lens distortion (drawn in the final pass, after the bloom; outside the picture is black)."},
+    {"", "Chromatic aberration: colour fringes toward the edges (drawn in the final pass)."},
     {"", "Bloom with a soft knee and a lens dirt texture."},
     {"", "Tonemap: none, neutral, ACES, AgX or Reinhard."},
-    {"", "Colour grading: lift/gamma/gain, white balance, curves and .cube LUTs."},
+    {"", "Colour grading on the display picture: white balance, lift/gamma/gain, contrast, saturation, hue shift and a "
+         ".cube LUT (the tone curves are not drawn yet)."},
     {"", "Vignette: the edges of the picture darken toward a colour."},
-    {"", "Sharpening: a light unsharp mask for crisper detail."},
+    {"", "Sharpening: contrast-adaptive, on the finished picture."},
     {"", "Outline: depth and normal edges (3D) or the border of 2D sprites."},
     {"", "Pixelation: the picture drawn in big square pixels."},
     {"", "Posterization: colours reduced to a few levels per channel."},
-    {"", "Film grain: animated noise over the picture."},
+    {"", "Film grain: noise over the picture, from the frame number (the same on every run)."},
     {"", "The accessibility colour filter, the last pass of the frame."},
 };
 static_assert(sizeof(kEffectRows) / sizeof(kEffectRows[0]) == std::size_t(kPostEffectCount),
@@ -48,7 +50,9 @@ static_assert(sizeof(kEffectRows) / sizeof(kEffectRows[0]) == std::size_t(kPostE
 // The effects the renderer draws today (postprocess.cpp, bloom.cpp, post.glsl); each M71 package adds its own here.
 constexpr bool effect_drawn(PostEffect e) {
     return e == PostEffect::Exposure || e == PostEffect::Bloom || e == PostEffect::Tonemap ||
-           e == PostEffect::ColorFilter;
+           e == PostEffect::ColorFilter || e == PostEffect::LensDistortion || e == PostEffect::ChromaticAberration ||
+           e == PostEffect::ColorGrading || e == PostEffect::Vignette || e == PostEffect::Sharpen ||
+           e == PostEffect::FilmGrain;
 }
 
 std::vector<FeatureDef> build_table() {

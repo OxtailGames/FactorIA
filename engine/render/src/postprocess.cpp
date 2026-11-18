@@ -38,7 +38,7 @@ BloomSettings bloom_from_stack(const PostStack& stack) {
     return b;
 }
 
-PostPlan make_post_plan(const CameraInfo& cam, bool linear) {
+PostPlan make_post_plan(const CameraInfo& cam, bool linear, std::uint64_t frame) {
     PostPlan p;
     p.bloom = cam.bloom;
     p.colorFilter = std::clamp(cam.colorFilter, 0, 5);
@@ -60,21 +60,75 @@ PostPlan make_post_plan(const CameraInfo& cam, bool linear) {
         p.tonemap = true;
         p.tonemapMode = std::clamp(int(f.tonemapMode), 0, 4);
     }
+    p.fx = make_post_fx(s, frame);
+    p.lut = p.fx.lut ? f.colorGradingLut : std::string();
     // A linear scene is converted (and encoded) by the final pass only when something needs it; otherwise the present copy encodes it.
-    p.linear = linear && (p.exposure || p.tonemap || p.colorFilter != 0);
+    p.linear = linear && (p.exposure || p.tonemap || p.colorFilter != 0 || p.fx.any());
     return p;
 }
 
-void run_post_pass(Gpu& gpu, const PostPlan& plan, bool convert, int filter, bool autoExposure, const PassDesc& pass,
-                   sg_view src, sg_view expo, int w, int h, const OutputTarget& output) {
+namespace {
+
+// The effects' uniforms (post.glsl, post_fx_params): the plan's PostFx laid out as the shader reads it.
+post_post_fx_params_t fx_uniforms(const PostFx& fx, const LutInfo& lut, bool gl, int w, int h) {
+    post_post_fx_params_t u{};
+    const int mask = fx.mask();
+    u.ex[0] = float(mask);
+    u.ex[1] = gl ? 1.0f : 0.0f;
+    u.ex[2] = float(w) / float(std::max(h, 1));
+    u.ex[3] = float(fx.grainSeed);
+    u.ln[0] = fx.lensK;
+    u.ln[1] = fx.lensZoom;
+    u.ln[2] = fx.lensCenter.x;
+    u.ln[3] = fx.lensCenter.y;
+    u.ab[0] = fx.aberrationAmount;
+    u.ab[1] = fx.sharpenWeight;
+    u.ab[2] = fx.lutContribution;
+    u.ab[3] = fx.contrast;
+    auto set = [](float* dst, Vec3 v, float w4) {
+        dst[0] = v.x;
+        dst[1] = v.y;
+        dst[2] = v.z;
+        dst[3] = w4;
+    };
+    set(u.wb, fx.whiteBalance, fx.saturation);
+    set(u.lf, fx.lift, fx.hueA);
+    set(u.gn, fx.gain, fx.hueB);
+    set(u.ig, fx.invGamma, fx.hueC);
+    u.vg[0] = fx.vignetteIntensity;
+    u.vg[1] = fx.vignetteSmoothness;
+    u.vg[2] = fx.vignetteRoundness;
+    u.vg[3] = fx.grainIntensity * kGrainStrength;
+    u.vc[0] = fx.vignetteCenter.x;
+    u.vc[1] = fx.vignetteCenter.y;
+    u.vc[2] = fx.grainSize;
+    u.vc[3] = fx.grainResponse;
+    set(u.vk, fx.vignetteColor, 0.0f);
+    u.lt[0] = float(lut.size);
+    u.lt[1] = float(lut.cols);
+    u.lt[2] = float(lut.rows);
+    return u;
+}
+
+}  // namespace
+
+void run_post_pass(Gpu& gpu, const PostPlan& plan, bool finalPass, int filter, bool autoExposure, const PassDesc& pass,
+                   sg_view src, sg_view expo, sg_view white, int w, int h, const OutputTarget& output) {
+    // finalPass: the pass that converts and draws the effects; the colour-filter-only pass has neither.
+    const bool convert = finalPass && plan.convert();
+    PostFx fx = finalPass ? plan.fx : PostFx{};
+    fx.lut = fx.lut && plan.lutInfo.view.id != 0;  // the table the renderer found (none: the effect is skipped)
+    const bool lut = fx.lut;
     gpu.begin_pass(pass);
     sg_apply_pipeline(gpu.post_pipeline(pass.format));
     sg_bindings b{};
     b.vertex_buffers[0] = gpu.fullscreen_triangle();
     b.views[VIEW_post_tex] = src;
     b.views[VIEW_post_expo_tex] = expo;
+    b.views[VIEW_post_lut_tex] = lut ? plan.lutInfo.view : white;
     b.samplers[SMP_post_smp] =
         gpu.sampler(SamplerKind::Nearest);  // the source has the size of the destination: texel for texel
+    b.samplers[SMP_post_lin_smp] = gpu.sampler(SamplerKind::LinearClamp);  // the lens and the LUT
     sg_apply_bindings(&b);
     post_post_vs_params_t vu{};
     vu.flip[0] = gpu.is_gl() ? 1.0f : 0.0f;
@@ -89,7 +143,7 @@ void run_post_pass(Gpu& gpu, const PostPlan& plan, bool convert, int filter, boo
     u.q[0] = convert && plan.tonemap ? float(plan.tonemapMode) : 0.0f;
     u.q[1] = convert && plan.exposure ? std::exp2(plan.exposureEv) : 1.0f;
     u.q[2] = convert && plan.exposure && autoExposure ? 1.0f : 0.0f;
-    u.q[3] = convert ? 1.0f / 255.0f : 0.0f;  // the dither: one 8-bit step of the display
+    u.q[3] = convert || fx.any() ? 1.0f / 255.0f : 0.0f;  // the dither: one 8-bit step of the display
     u.r[0] = float(w);
     u.r[1] = float(h);
     if (hdr) {
@@ -101,6 +155,7 @@ void run_post_pass(Gpu& gpu, const PostPlan& plan, bool convert, int filter, boo
         u.h[3] = sh.start;
     }
     apply_uniforms(UB_post_post_params, u);
+    apply_uniforms(UB_post_post_fx_params, fx_uniforms(fx, plan.lutInfo, gpu.is_gl(), w, h));
     sg_draw(0, 3, 1);
     gpu.end_pass();
 }

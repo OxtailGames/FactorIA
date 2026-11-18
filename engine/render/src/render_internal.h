@@ -544,11 +544,24 @@ struct CameraInfo : CameraGeometry {
     int colorFilter = 0;  // 0 none, 1 greyscale, 2 highContrast, 3 protanopia, 4 deuteranopia, 5 tritanopia
 };
 
+// A .cube colour lookup table on the GPU (PostProcess.colorGradingLut): the slices of the table tiled in one RGBA8 image (cube_lut.h,
+// cube_lut_strip). `view` is empty when the file could not be loaded (Assets::lut then answers null).
+struct LutAsset {
+    std::string path;
+    sg_image image{};
+    sg_view view{};
+    int size = 0, cols = 0, rows = 0;  // colours per side, and how many slices sit across and down the image
+    std::size_t bytes = 0;
+};
+
 // Texture/mesh/font caches keyed by project-relative path.
 class Assets {
 public:
     explicit Assets(Gpu& gpu);
     ~Assets();
+    // The LUT of a .cube file, loaded on first use and cached (a failed load too: one logged error, null from then on, until the file
+    // changes on disk and reload() forgets it). Null for an empty path, a missing file or a malformed one.
+    const LutAsset* lut(const std::string& path);
     TextureAsset* texture(const std::string& path);                // never null (placeholder on failure)
     TextureAsset* white();                                         // 1x1 white
     TextureAsset* placeholder() { return placeholderTex_.get(); }  // the missing-texture checker
@@ -645,6 +658,8 @@ private:
 
     Gpu& gpu_;
     std::unordered_map<std::string, std::unique_ptr<TextureAsset>> textures_;
+    std::unordered_map<std::string, std::unique_ptr<LutAsset>> luts_;
+    void destroy_lut(LutAsset& l);
     std::unordered_map<std::string, std::unique_ptr<MeshAsset>> meshes_;
     std::vector<std::unique_ptr<TextureAsset>> anonymous_;  // glTF embedded images
     struct VideoTexture {

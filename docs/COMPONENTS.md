@@ -1233,7 +1233,7 @@ Attaches JavaScript behaviour to the entity. `path` is an ES module whose defaul
 
 Not released yet (on main after 0.30.1).
 
-A stack of screen effects (tonemap, exposure, bloom, colour grading, vignette, chromatic aberration, film grain, lens distortion, sharpen, outline, pixelate, posterize, ambient occlusion, depth of field, motion blur, reflections, fog, sun shafts, radial blur, colour filter), every one off by default. On the entity of a Camera it is that camera's own stack. On any other entity it is a VOLUME: shape "global" applies to every camera, "box", "circle" (2D, x and y) and "sphere" to the cameras whose position is inside it or within blendDistance of it, blended into the camera's stack by priority (a higher one wins) and by weight. Numbers and colours are interpolated by the volume's influence; switches, modes, textures and curves switch over when the influence reaches 0.5. A volume only adds to or changes the effects it switches on: to remove an effect inside a volume switch it on with its neutral values (bloomIntensity 0, vignetteIntensity 0, ...). Each effect has a `<effect>Enabled` switch and parameters named `<effect><Parameter>`. The effects run in a fixed order: ssao, ssr, fog, sunShafts, exposure, depthOfField, motionBlur, radialBlur, lensDistortion, chromaticAberration, bloom (all on HDR colour), tonemap, colorGrading, vignette, sharpen, outline, pixelate, posterize, filmGrain, colorFilter (the last pass). M71 is in progress: the component, the volumes, the postprocess.* commands and render.supports exist, and each effect is drawn as its M71 package lands: render.supports {"feature": "<effect>"} says which ones this build draws on this GPU (exposure, bloom, tonemap and colorFilter today), until then the fields only store the values. Only the stack of the camera that draws first is drawn (the frame has one). Camera.bloom* and Camera.colorFilter are deprecated and keep working unchanged: they stand in for a PostProcess with bloom and the colour filter. A frame without any stack costs nothing: no pass, no target. Screen-space items (the HUD) are drawn over the finished picture, so exposure, tonemap and the output encode never touch them; the colour filter does.
+A stack of screen effects (tonemap, exposure, bloom, colour grading, vignette, chromatic aberration, film grain, lens distortion, sharpen, outline, pixelate, posterize, ambient occlusion, depth of field, motion blur, reflections, fog, sun shafts, radial blur, colour filter), every one off by default. On the entity of a Camera it is that camera's own stack. On any other entity it is a VOLUME: shape "global" applies to every camera, "box", "circle" (2D, x and y) and "sphere" to the cameras whose position is inside it or within blendDistance of it, blended into the camera's stack by priority (a higher one wins) and by weight. Numbers and colours are interpolated by the volume's influence; switches, modes, textures and curves switch over when the influence reaches 0.5. A volume only adds to or changes the effects it switches on: to remove an effect inside a volume switch it on with its neutral values (bloomIntensity 0, vignetteIntensity 0, ...). Each effect has a `<effect>Enabled` switch and parameters named `<effect><Parameter>`. The effects run in a fixed order: ssao, ssr, fog, sunShafts, exposure, depthOfField, motionBlur, radialBlur, lensDistortion, chromaticAberration, bloom (all on HDR colour), tonemap, colorGrading, vignette, sharpen, outline, pixelate, posterize, filmGrain, colorFilter (the last pass). M71 is in progress: the component, the volumes, the postprocess.* commands and render.supports exist, and each effect is drawn as its M71 package lands: render.supports {"feature": "<effect>"} says which ones this build draws on this GPU (exposure, bloom, tonemap, colorFilter, lensDistortion, chromaticAberration, colorGrading, vignette, sharpen and filmGrain today), until then the fields only store the values. The lens distortion, the chromatic aberration, the colour grading, the vignette, the sharpen and the film grain are drawn in the final pass, after the bloom: the lens and the aberration bend how the scene is read (in scene colour, before the exposure), the rest work on the display picture (what the screen shows, paper white = 1, the same on an SDR and an HDR output) and none of them clips above white. Only the stack of the camera that draws first is drawn (the frame has one). Camera.bloom* and Camera.colorFilter are deprecated and keep working unchanged: they stand in for a PostProcess with bloom and the colour filter. A frame without any stack costs nothing: no pass, no target. Screen-space items (the HUD) are drawn over the finished picture, so exposure, tonemap and the output encode never touch them; the colour filter does.
 
 | Field | Type | Default | Description |
 |---|---|---|---|
@@ -1259,38 +1259,42 @@ A stack of screen effects (tonemap, exposure, bloom, colour grading, vignette, c
 | `bloomScreenSpace` | bool | `true` | Only used when bloomEnabled. true: the HUD glows too. false: screen-space items are drawn after the bloom and stay crisp. When the final pass runs (exposure, tonemap, or a colour filter in a linear scene) the HUD is drawn after it and never glows, whatever this says. |
 | `bloomLensDirt` | asset (texture) | `""` | Only used when bloomEnabled. A texture that dirties the glow like smudges on a lens (the glow shows it where the texture is bright). Empty = none. |
 | `bloomLensDirtIntensity` | float | `1.0` | Only used with a bloomLensDirt texture. How much the dirt shows in the glow, 0..10. Range 0.0..10.0. |
-| `colorGradingEnabled` | bool | `false` | Switches the colour grading on: lift/gamma/gain, white balance, saturation, contrast, curves and a LUT. Cost: one pass, shared with the tonemap. |
-| `colorGradingLift` | color | `[0.0,0.0,0.0,1.0]` | Only used when colorGradingEnabled. Colour added to the shadows (rgb; alpha ignored). [0, 0, 0] = unchanged; a blue tint here gives cold shadows. |
-| `colorGradingGamma` | color | `[1.0,1.0,1.0,1.0]` | Only used when colorGradingEnabled. Midtones per channel (rgb; alpha ignored). [1, 1, 1] = unchanged; above 1 lightens that channel's midtones. |
-| `colorGradingGain` | color | `[1.0,1.0,1.0,1.0]` | Only used when colorGradingEnabled. Multiplies the highlights per channel (rgb; alpha ignored). [1, 1, 1] = unchanged. |
-| `colorGradingTemperature` | float | `0.0` | Only used when colorGradingEnabled. White balance, -100 (cooler, blue) to 100 (warmer, orange). 0 = unchanged. Range -100.0..100.0. |
-| `colorGradingTint` | float | `0.0` | Only used when colorGradingEnabled. White balance, -100 (green) to 100 (magenta). 0 = unchanged. Range -100.0..100.0. |
+| `colorGradingEnabled` | bool | `false` | Switches the colour grading on: white balance, lift/gamma/gain, contrast, saturation, hue shift and a .cube LUT, applied to the display picture (what the screen shows) in that order, without clipping above white. Cost: part of the final pass. |
+| `colorGradingLift` | color | `[0.0,0.0,0.0,1.0]` | Only used when colorGradingEnabled. Colour added to the shadows (rgb, -1..1; alpha ignored): full in black, fading to nothing at white. [0, 0, 0] = unchanged; a blue tint here gives cold shadows. |
+| `colorGradingGamma` | color | `[1.0,1.0,1.0,1.0]` | Only used when colorGradingEnabled. Midtones per channel (rgb, 0.1..10; alpha ignored). [1, 1, 1] = unchanged; above 1 lightens that channel's midtones (black and white stay). |
+| `colorGradingGain` | color | `[1.0,1.0,1.0,1.0]` | Only used when colorGradingEnabled. Multiplies the highlights per channel (rgb, 0..8; alpha ignored). [1, 1, 1] = unchanged. |
+| `colorGradingTemperature` | float | `0.0` | Only used when colorGradingEnabled. White balance, -100 (cooler, blue) to 100 (warmer, orange): at +-100 red and blue gain 20% against each other, the brightness is kept. 0 = unchanged. Range -100.0..100.0. |
+| `colorGradingTint` | float | `0.0` | Only used when colorGradingEnabled. White balance, -100 (green) to 100 (magenta), the same strength as the temperature. 0 = unchanged. Range -100.0..100.0. |
 | `colorGradingSaturation` | float | `1.0` | Only used when colorGradingEnabled. 0 = greyscale, 1 = unchanged, above 1 more vivid. Range 0.0..3.0. |
-| `colorGradingContrast` | float | `1.0` | Only used when colorGradingEnabled. 1 = unchanged, above 1 more contrast around mid grey, below 1 flatter. Range 0.0..3.0. |
-| `colorGradingCurveMaster` | arrayF32 | `[]` | Only used when colorGradingEnabled. A tone curve on all channels as a flat list of points [x0, y0, x1, y1, ...], x and y in 0..1 with x ascending (input brightness to output brightness). Empty = the straight line. Example: [0, 0, 0.5, 0.4, 1, 1] darkens the midtones. |
-| `colorGradingCurveRed` | arrayF32 | `[]` | Only used when colorGradingEnabled. A curve on the red channel only (same format as colorGradingCurveMaster), applied after the master curve. Empty = unchanged. |
-| `colorGradingCurveGreen` | arrayF32 | `[]` | Only used when colorGradingEnabled. A curve on the green channel only (same format as colorGradingCurveMaster). Empty = unchanged. |
-| `colorGradingCurveBlue` | arrayF32 | `[]` | Only used when colorGradingEnabled. A curve on the blue channel only (same format as colorGradingCurveMaster). Empty = unchanged. |
-| `colorGradingLut` | asset (any) | `""` | Only used when colorGradingEnabled. Project path of a .cube 3D lookup table (the file a colour grading tool exports) applied last. Empty = none. |
-| `colorGradingLutContribution` | float | `1.0` | Only used with a colorGradingLut. 0..1: how much of the LUT is mixed in (1 = fully). Range 0.0..1.0. |
+| `colorGradingContrast` | float | `1.0` | Only used when colorGradingEnabled. 1 = unchanged, above 1 more contrast around mid grey (display value 0.5), below 1 flatter. Range 0.0..3.0. |
+| `colorGradingHueShift` | float | `0.0` | Only used when colorGradingEnabled. Degrees, -180..180: turns every hue around the grey axis (red toward green for a positive shift). 0 = unchanged. Range -180.0..180.0. |
+| `colorGradingCurveMaster` | arrayF32 | `[]` | NOT DRAWN YET (the values are stored; render.supports colorGrading lists what is drawn). A tone curve on all channels as a flat list of points [x0, y0, x1, y1, ...], x and y in 0..1 with x ascending (input brightness to output brightness). Empty = the straight line. Example: [0, 0, 0.5, 0.4, 1, 1] darkens the midtones. For a tone curve today use a colorGradingLut. |
+| `colorGradingCurveRed` | arrayF32 | `[]` | NOT DRAWN YET. A curve on the red channel only (same format as colorGradingCurveMaster), applied after the master curve. Empty = unchanged. |
+| `colorGradingCurveGreen` | arrayF32 | `[]` | NOT DRAWN YET. A curve on the green channel only (same format as colorGradingCurveMaster). Empty = unchanged. |
+| `colorGradingCurveBlue` | arrayF32 | `[]` | NOT DRAWN YET. A curve on the blue channel only (same format as colorGradingCurveMaster). Empty = unchanged. |
+| `colorGradingLut` | asset (any) | `""` | Only used when colorGradingEnabled. Project path of a .cube 3D lookup table (the file a colour grading tool exports: LUT_3D_SIZE 2 to 65, 16, 32 and 64 are the usual ones, DOMAIN 0..1) applied last, on the display picture; import it with assets.import. A file that is missing or malformed is logged once with its line and the LUT is skipped. Empty = none. |
+| `colorGradingLutContribution` | float | `1.0` | Only used with a colorGradingLut. 0..1: how much of the LUT is mixed in (1 = fully, 0 = the LUT is skipped). Range 0.0..1.0. |
 | `colorFilterEnabled` | bool | `false` | Switches the accessibility colour filter on. The same filters as Camera.colorFilter, in the stack; it is the last pass of the frame and covers the HUD. Cost: one full-screen pass; none of its own when the final pass runs and there is no HUD (it is fused into it). |
 | `colorFilterMode` | enum: none \| greyscale \| highContrast \| protanopia \| deuteranopia \| tritanopia | `"none"` | Only used when colorFilterEnabled. The filter, with the meaning of Camera.colorFilter. |
-| `vignetteEnabled` | bool | `false` | Switches the vignette on: darkened corners. Cost: folded into a shared pass. |
-| `vignetteIntensity` | float | `0.4` | Only used when vignetteEnabled. 0..1: how dark the corners get (0 = none). Range 0.0..1.0. |
-| `vignetteSmoothness` | float | `0.5` | Only used when vignetteEnabled. 0..1: how soft the transition from the clear centre to the dark corners is. Range 0.0..1.0. |
-| `vignetteRoundness` | float | `1.0` | Only used when vignetteEnabled. 0..1: 1 = a circle, 0 = follows the shape of the screen. Range 0.0..1.0. |
-| `vignetteColor` | color | `[0.0,0.0,0.0,1.0]` | Only used when vignetteEnabled. Colour of the darkened edge (rgb; alpha ignored). Black by default. |
-| `chromaticAberrationEnabled` | bool | `false` | Switches the chromatic aberration on: red and blue are shifted apart toward the edges like a cheap lens. Cost: folded into a shared pass. |
-| `chromaticAberrationIntensity` | float | `0.3` | Only used when chromaticAberrationEnabled. 0..1: how far the channels separate at the screen's edge (0 = none). Range 0.0..1.0. |
-| `filmGrainEnabled` | bool | `false` | Switches the film grain on: noise over the picture. Cost: folded into a shared pass. |
-| `filmGrainIntensity` | float | `0.2` | Only used when filmGrainEnabled. 0..1: how strong the noise is (0 = none). Range 0.0..1.0. |
-| `filmGrainSize` | float | `1.0` | Only used when filmGrainEnabled. Grain size in design pixels, 0.5 to 4. Range 0.5..4.0. |
-| `filmGrainAnimated` | bool | `true` | Only used when filmGrainEnabled. true: the pattern changes every frame (from the frame number, so a recorded run is the same every time). false: a still pattern. |
-| `lensDistortionEnabled` | bool | `false` | Switches the lens distortion on: the picture bulges (barrel) or pinches (pincushion) like a lens. Cost: folded into a shared pass. |
-| `lensDistortionIntensity` | float | `0.3` | Only used when lensDistortionEnabled. -1 (pincushion) to 1 (barrel). 0 = none. Range -1.0..1.0. |
-| `lensDistortionScale` | float | `1.0` | Only used when lensDistortionEnabled. 0.5..2: zooms the picture; raise it to hide the empty edges a barrel distortion leaves. Range 0.5..2.0. |
-| `sharpenEnabled` | bool | `false` | Switches the sharpening on: it brings out the detail the picture lost to scaling or antialiasing. Cost: one pass of five samples. |
-| `sharpenIntensity` | float | `0.3` | Only used when sharpenEnabled. 0..2: strength (0 = none; above 1 shows halos). Range 0.0..2.0. |
+| `vignetteEnabled` | bool | `false` | Switches the vignette on: the edges darken toward a colour. Drawn on the display picture, so it looks the same on an SDR and an HDR output. Cost: part of the final pass. |
+| `vignetteIntensity` | float | `0.4` | Only used when vignetteEnabled. 0..1: how far the edge is pulled to vignetteColor (0 = none, 1 = fully). Range 0.0..1.0. |
+| `vignetteSmoothness` | float | `0.5` | Only used when vignetteEnabled. 0..1: how soft the transition from the clear centre to the edge is (0 = a sharp ring, 1 = it starts at the centre). Range 0.0..1.0. |
+| `vignetteRoundness` | float | `1.0` | Only used when vignetteEnabled. 0..1: 1 = a circle, 0 = an ellipse that follows the shape of the screen. Range 0.0..1.0. |
+| `vignetteCenter` | vec2 | `[0.5,0.5]` | Only used when vignetteEnabled. The clear centre [x, y] as fractions of the picture, (0, 0) the top-left corner and (0.5, 0.5) the middle. Use it to follow the player or an impact. |
+| `vignetteColor` | color | `[0.0,0.0,0.0,1.0]` | Only used when vignetteEnabled. Colour of the darkened edge (rgb; alpha ignored), as the screen shows it. Black by default; red gives a damage flash. |
+| `chromaticAberrationEnabled` | bool | `false` | Switches the chromatic aberration on: red and blue are read from a little further out and in than green, radially from the middle of the picture, like a cheap lens. Made in scene colour (before the exposure and the tonemap); beyond the picture the edge colour is repeated. Cost: two more reads of the scene in the final pass. |
+| `chromaticAberrationIntensity` | float | `0.3` | Only used when chromaticAberrationEnabled. 0..1: how far the channels separate at the screen's edge (0 = none; 1 = red and blue sit 2% of the width each side of green at the edge). Range 0.0..1.0. |
+| `filmGrainEnabled` | bool | `false` | Switches the film grain on: monochrome noise over the display picture (after the sharpen, before the colour filter), the same on an SDR and an HDR output. Cost: part of the final pass. |
+| `filmGrainIntensity` | float | `0.2` | Only used when filmGrainEnabled. 0..1: how strong the noise is (0 = none; 1 moves a midtone by up to a quarter of white). Range 0.0..1.0. |
+| `filmGrainSize` | float | `1.0` | Only used when filmGrainEnabled. Grain size in pixels of the picture, 0.5 to 4 (a grain below 1 is a pixel). Range 0.5..4.0. |
+| `filmGrainAnimated` | bool | `true` | Only used when filmGrainEnabled. true: the pattern changes every frame (from the world's frame number, never the clock, so a recorded run is the same every time). false: a still pattern. |
+| `filmGrainLuminanceResponse` | float | `0.8` | Only used when filmGrainEnabled. 0..1: 0 = the grain is as strong in black and white as in the midtones, 1 = none in pure black and pure white, strongest at mid grey (like film). Range 0.0..1.0. |
+| `lensDistortionEnabled` | bool | `false` | Switches the lens distortion on: the picture bulges (barrel) or pinches (pincushion) like a lens. Drawn in the final pass, after the bloom (the glow is bent with the picture). Where the lens reads beyond the picture (the corners of a barrel, the edges of a zoom below 1) the result is BLACK: raise lensDistortionScale to hide it. Cost: one bilinear read of the scene in the final pass. |
+| `lensDistortionIntensity` | float | `0.3` | Only used when lensDistortionEnabled. -1 (pincushion) to 1 (barrel). 0 = none (a scale other than 1 still zooms). Range -1.0..1.0. |
+| `lensDistortionScale` | float | `1.0` | Only used when lensDistortionEnabled. 0.5..2: zooms the picture (above 1 in); raise it to hide the black edges a barrel distortion leaves (about 1.3 at intensity 1). Range 0.5..2.0. |
+| `lensDistortionCenter` | vec2 | `[0.5,0.5]` | Only used when lensDistortionEnabled. The lens axis [x, y] as fractions of the picture, (0, 0) the top-left corner and (0.5, 0.5) the middle. |
+| `sharpenEnabled` | bool | `false` | Switches the sharpening on: it brings out the detail the picture lost to scaling or antialiasing. Contrast adaptive (flat areas and edges already at black or white are left alone, so it makes no halos) and drawn on the display picture. Cost: five reads of the scene per pixel in the final pass. |
+| `sharpenIntensity` | float | `0.3` | Only used when sharpenEnabled. 0..2: strength (0 = none; 2 is the strongest, harsh on noisy pictures). Range 0.0..2.0. |
 | `outlineEnabled` | bool | `false` | Switches the outline on: lines drawn at the edges of things. Depth mode needs the depth buffer (3D). |
 | `outlineMode` | enum: depth \| sprite | `"depth"` | Only used when outlineEnabled. depth: edges found where depth or surface direction jump (3D models). sprite: the border of 2D sprites, found from their alpha. |
 | `outlineColor` | color | `[0.0,0.0,0.0,1.0]` | Only used when outlineEnabled. Colour of the lines (alpha = opacity). |
@@ -2818,6 +2822,7 @@ Example: {"source":"C:/art/hero.aseprite","license":"CC0","author":"Ana"}.
 - .psd: the layers become an image document (<name>.image.json, one PNG per layer in <name>.layers/; names, opacity, visibility, blend modes, clipping, groups and layer masks are kept) and the PNG is baked from it; a file whose layers cannot be read imports its merged image as a PNG with a warning.
 - .obj (with its .mtl and textures): becomes a .gltf with an embedded buffer and the textures next to it; polygons are triangulated, objects/groups/materials become separate meshes, missing normals give flat shading, and the result has the bounds so you can scale it.
 - .fbx: converted to .glb by FBX2glTF ($FACTORIA_FBX2GLTF or PATH) or by Blender (PATH or its install folder). With neither installed the error says where to get them.
+- .cube: a 3D colour lookup table for PostProcess.colorGradingLut, checked and copied to assets/luts/ (LUT_3D_SIZE 2 to 65, the 0 to 1 domain; a malformed file is an error that names the line; a 1D table is refused).
 - .mid .midi: becomes a song document (assets/music/<name>.song.json, or `path`): tracks, patterns, sections from markers, drums as grids (music.import_midi has the options `quantize` and `soundfont`; docs/MUSIC.md, "MIDI").
 - .mp4 .mov .webm .mkv .avi .m4v: converted to an MPEG-1 video with MP2 audio in an .mpg (the only video the engine plays, the same on every platform) by ffmpeg, at most 1280 px wide, quality 4, 30 fps when the frame rate is not one MPEG-1 has. ffmpeg is found through $FACTORIA_FFMPEG, PATH or the copy `factoria setup ffmpeg` installs; without it the error names that command. A source with no audio track gives a silent video (the result warns). The result has width, height, fps and duration and the Video component that plays it. An .mpg or .mpeg is checked to be MPEG-1 and copied.
 Files land in assets/ (models in assets/models/, sounds in assets/audio/, fonts in assets/fonts/, videos in assets/video/ by default) or at `path`, which must be under assets/. An existing file is an error unless overwrite is true.
@@ -2825,7 +2830,7 @@ Files land in assets/ (models in assets/models/, sounds in assets/audio/, fonts 
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `source` | string | yes | The file to import: an absolute path on this machine, or a path relative to the project folder. Not a URL: download it first. Path the command reads. |
-| `path` | string | no | Where it lands, under assets/ (a path ending in / is a folder). Default: assets/<name>.<ext>, or assets/models/, assets/audio/, assets/fonts/ or assets/video/ for those kinds. The extension is the importer's output (.png for Aseprite and PSD, .gltf for OBJ, .glb for FBX, .mpg for a video). Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
+| `path` | string | no | Where it lands, under assets/ (a path ending in / is a folder). Default: assets/<name>.<ext>, or assets/models/, assets/audio/, assets/fonts/, assets/video/ or assets/luts/ for those kinds. The extension is the importer's output (.png for Aseprite and PSD, .gltf for OBJ, .glb for FBX, .mpg for a video). Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `license` | string | no | License or terms of the file, e.g. "CC0", "CC-BY 4.0", "bought from itch.io, single project". Recorded in assets.json. |
 | `author` | string | no | Who made it. Recorded in assets.json for the credits. |
 | `sourceUrl` | string | no | Where the file came from (a page URL). Recorded as the provenance source instead of the local path. |
@@ -20063,7 +20068,7 @@ declare module "factoria" {
     enabled: boolean;
   }
   /**
-   * A stack of screen effects (tonemap, exposure, bloom, colour grading, vignette, chromatic aberration, film grain, lens distortion, sharpen, outline, pixelate, posterize, ambient occlusion, depth of field, motion blur, reflections, fog, sun shafts, radial blur, colour filter), every one off by default. On the entity of a Camera it is that camera's own stack. On any other entity it is a VOLUME: shape "global" applies to every camera, "box", "circle" (2D, x and y) and "sphere" to the cameras whose position is inside it or within blendDistance of it, blended into the camera's stack by priority (a higher one wins) and by weight. Numbers and colours are interpolated by the volume's influence; switches, modes, textures and curves switch over when the influence reaches 0.5. A volume only adds to or changes the effects it switches on: to remove an effect inside a volume switch it on with its neutral values (bloomIntensity 0, vignetteIntensity 0, ...). Each effect has a `<effect>Enabled` switch and parameters named `<effect><Parameter>`. The effects run in a fixed order: ssao, ssr, fog, sunShafts, exposure, depthOfField, motionBlur, radialBlur, lensDistortion, chromaticAberration, bloom (all on HDR colour), tonemap, colorGrading, vignette, sharpen, outline, pixelate, posterize, filmGrain, colorFilter (the last pass). M71 is in progress: the component, the volumes, the postprocess.* commands and render.supports exist, and each effect is drawn as its M71 package lands: render.supports {"feature": "<effect>"} says which ones this build draws on this GPU (exposure, bloom, tonemap and colorFilter today), until then the fields only store the values. Only the stack of the camera that draws first is drawn (the frame has one). Camera.bloom* and Camera.colorFilter are deprecated and keep working unchanged: they stand in for a PostProcess with bloom and the colour filter. A frame without any stack costs nothing: no pass, no target. Screen-space items (the HUD) are drawn over the finished picture, so exposure, tonemap and the output encode never touch them; the colour filter does.
+   * A stack of screen effects (tonemap, exposure, bloom, colour grading, vignette, chromatic aberration, film grain, lens distortion, sharpen, outline, pixelate, posterize, ambient occlusion, depth of field, motion blur, reflections, fog, sun shafts, radial blur, colour filter), every one off by default. On the entity of a Camera it is that camera's own stack. On any other entity it is a VOLUME: shape "global" applies to every camera, "box", "circle" (2D, x and y) and "sphere" to the cameras whose position is inside it or within blendDistance of it, blended into the camera's stack by priority (a higher one wins) and by weight. Numbers and colours are interpolated by the volume's influence; switches, modes, textures and curves switch over when the influence reaches 0.5. A volume only adds to or changes the effects it switches on: to remove an effect inside a volume switch it on with its neutral values (bloomIntensity 0, vignetteIntensity 0, ...). Each effect has a `<effect>Enabled` switch and parameters named `<effect><Parameter>`. The effects run in a fixed order: ssao, ssr, fog, sunShafts, exposure, depthOfField, motionBlur, radialBlur, lensDistortion, chromaticAberration, bloom (all on HDR colour), tonemap, colorGrading, vignette, sharpen, outline, pixelate, posterize, filmGrain, colorFilter (the last pass). M71 is in progress: the component, the volumes, the postprocess.* commands and render.supports exist, and each effect is drawn as its M71 package lands: render.supports {"feature": "<effect>"} says which ones this build draws on this GPU (exposure, bloom, tonemap, colorFilter, lensDistortion, chromaticAberration, colorGrading, vignette, sharpen and filmGrain today), until then the fields only store the values. The lens distortion, the chromatic aberration, the colour grading, the vignette, the sharpen and the film grain are drawn in the final pass, after the bloom: the lens and the aberration bend how the scene is read (in scene colour, before the exposure), the rest work on the display picture (what the screen shows, paper white = 1, the same on an SDR and an HDR output) and none of them clips above white. Only the stack of the camera that draws first is drawn (the frame has one). Camera.bloom* and Camera.colorFilter are deprecated and keep working unchanged: they stand in for a PostProcess with bloom and the colour filter. A frame without any stack costs nothing: no pass, no target. Screen-space items (the HUD) are drawn over the finished picture, so exposure, tonemap and the output encode never touch them; the colour filter does.
    * 
    * Category: Camera
    * @since unreleased
@@ -20181,35 +20186,35 @@ declare module "factoria" {
      */
     bloomLensDirtIntensity: number;
     /**
-     * Switches the colour grading on: lift/gamma/gain, white balance, saturation, contrast, curves and a LUT. Cost: one pass, shared with the tonemap.
+     * Switches the colour grading on: white balance, lift/gamma/gain, contrast, saturation, hue shift and a .cube LUT, applied to the display picture (what the screen shows) in that order, without clipping above white. Cost: part of the final pass.
      * @since unreleased
      */
     colorGradingEnabled: boolean;
     /**
-     * Only used when colorGradingEnabled. Colour added to the shadows (rgb; alpha ignored). [0, 0, 0] = unchanged; a blue tint here gives cold shadows.
+     * Only used when colorGradingEnabled. Colour added to the shadows (rgb, -1..1; alpha ignored): full in black, fading to nothing at white. [0, 0, 0] = unchanged; a blue tint here gives cold shadows.
      * @since unreleased
      */
     get colorGradingLift(): Color;
     set colorGradingLift(value: ColorLike);
     /**
-     * Only used when colorGradingEnabled. Midtones per channel (rgb; alpha ignored). [1, 1, 1] = unchanged; above 1 lightens that channel's midtones.
+     * Only used when colorGradingEnabled. Midtones per channel (rgb, 0.1..10; alpha ignored). [1, 1, 1] = unchanged; above 1 lightens that channel's midtones (black and white stay).
      * @since unreleased
      */
     get colorGradingGamma(): Color;
     set colorGradingGamma(value: ColorLike);
     /**
-     * Only used when colorGradingEnabled. Multiplies the highlights per channel (rgb; alpha ignored). [1, 1, 1] = unchanged.
+     * Only used when colorGradingEnabled. Multiplies the highlights per channel (rgb, 0..8; alpha ignored). [1, 1, 1] = unchanged.
      * @since unreleased
      */
     get colorGradingGain(): Color;
     set colorGradingGain(value: ColorLike);
     /**
-     * Only used when colorGradingEnabled. White balance, -100 (cooler, blue) to 100 (warmer, orange). 0 = unchanged.
+     * Only used when colorGradingEnabled. White balance, -100 (cooler, blue) to 100 (warmer, orange): at +-100 red and blue gain 20% against each other, the brightness is kept. 0 = unchanged.
      * @since unreleased
      */
     colorGradingTemperature: number;
     /**
-     * Only used when colorGradingEnabled. White balance, -100 (green) to 100 (magenta). 0 = unchanged.
+     * Only used when colorGradingEnabled. White balance, -100 (green) to 100 (magenta), the same strength as the temperature. 0 = unchanged.
      * @since unreleased
      */
     colorGradingTint: number;
@@ -20219,41 +20224,46 @@ declare module "factoria" {
      */
     colorGradingSaturation: number;
     /**
-     * Only used when colorGradingEnabled. 1 = unchanged, above 1 more contrast around mid grey, below 1 flatter.
+     * Only used when colorGradingEnabled. 1 = unchanged, above 1 more contrast around mid grey (display value 0.5), below 1 flatter.
      * @since unreleased
      */
     colorGradingContrast: number;
     /**
-     * Only used when colorGradingEnabled. A tone curve on all channels as a flat list of points [x0, y0, x1, y1, ...], x and y in 0..1 with x ascending (input brightness to output brightness). Empty = the straight line. Example: [0, 0, 0.5, 0.4, 1, 1] darkens the midtones. Reading returns a typed-array COPY (writing into it changes nothing); assign a typed array or an array of numbers to write the whole field.
+     * Only used when colorGradingEnabled. Degrees, -180..180: turns every hue around the grey axis (red toward green for a positive shift). 0 = unchanged.
+     * @since unreleased
+     */
+    colorGradingHueShift: number;
+    /**
+     * NOT DRAWN YET (the values are stored; render.supports colorGrading lists what is drawn). A tone curve on all channels as a flat list of points [x0, y0, x1, y1, ...], x and y in 0..1 with x ascending (input brightness to output brightness). Empty = the straight line. Example: [0, 0, 0.5, 0.4, 1, 1] darkens the midtones. For a tone curve today use a colorGradingLut. Reading returns a typed-array COPY (writing into it changes nothing); assign a typed array or an array of numbers to write the whole field.
      * @since unreleased
      */
     get colorGradingCurveMaster(): Float32Array;
     set colorGradingCurveMaster(value: Float32Array | readonly number[]);
     /**
-     * Only used when colorGradingEnabled. A curve on the red channel only (same format as colorGradingCurveMaster), applied after the master curve. Empty = unchanged. Reading returns a typed-array COPY (writing into it changes nothing); assign a typed array or an array of numbers to write the whole field.
+     * NOT DRAWN YET. A curve on the red channel only (same format as colorGradingCurveMaster), applied after the master curve. Empty = unchanged. Reading returns a typed-array COPY (writing into it changes nothing); assign a typed array or an array of numbers to write the whole field.
      * @since unreleased
      */
     get colorGradingCurveRed(): Float32Array;
     set colorGradingCurveRed(value: Float32Array | readonly number[]);
     /**
-     * Only used when colorGradingEnabled. A curve on the green channel only (same format as colorGradingCurveMaster). Empty = unchanged. Reading returns a typed-array COPY (writing into it changes nothing); assign a typed array or an array of numbers to write the whole field.
+     * NOT DRAWN YET. A curve on the green channel only (same format as colorGradingCurveMaster). Empty = unchanged. Reading returns a typed-array COPY (writing into it changes nothing); assign a typed array or an array of numbers to write the whole field.
      * @since unreleased
      */
     get colorGradingCurveGreen(): Float32Array;
     set colorGradingCurveGreen(value: Float32Array | readonly number[]);
     /**
-     * Only used when colorGradingEnabled. A curve on the blue channel only (same format as colorGradingCurveMaster). Empty = unchanged. Reading returns a typed-array COPY (writing into it changes nothing); assign a typed array or an array of numbers to write the whole field.
+     * NOT DRAWN YET. A curve on the blue channel only (same format as colorGradingCurveMaster). Empty = unchanged. Reading returns a typed-array COPY (writing into it changes nothing); assign a typed array or an array of numbers to write the whole field.
      * @since unreleased
      */
     get colorGradingCurveBlue(): Float32Array;
     set colorGradingCurveBlue(value: Float32Array | readonly number[]);
     /**
-     * Only used when colorGradingEnabled. Project path of a .cube 3D lookup table (the file a colour grading tool exports) applied last. Empty = none. (asset path: any)
+     * Only used when colorGradingEnabled. Project path of a .cube 3D lookup table (the file a colour grading tool exports: LUT_3D_SIZE 2 to 65, 16, 32 and 64 are the usual ones, DOMAIN 0..1) applied last, on the display picture; import it with assets.import. A file that is missing or malformed is logged once with its line and the LUT is skipped. Empty = none. (asset path: any)
      * @since unreleased
      */
     colorGradingLut: string;
     /**
-     * Only used with a colorGradingLut. 0..1: how much of the LUT is mixed in (1 = fully).
+     * Only used with a colorGradingLut. 0..1: how much of the LUT is mixed in (1 = fully, 0 = the LUT is skipped).
      * @since unreleased
      */
     colorGradingLutContribution: number;
@@ -20268,83 +20278,100 @@ declare module "factoria" {
      */
     colorFilterMode: "none" | "greyscale" | "highContrast" | "protanopia" | "deuteranopia" | "tritanopia";
     /**
-     * Switches the vignette on: darkened corners. Cost: folded into a shared pass.
+     * Switches the vignette on: the edges darken toward a colour. Drawn on the display picture, so it looks the same on an SDR and an HDR output. Cost: part of the final pass.
      * @since unreleased
      */
     vignetteEnabled: boolean;
     /**
-     * Only used when vignetteEnabled. 0..1: how dark the corners get (0 = none).
+     * Only used when vignetteEnabled. 0..1: how far the edge is pulled to vignetteColor (0 = none, 1 = fully).
      * @since unreleased
      */
     vignetteIntensity: number;
     /**
-     * Only used when vignetteEnabled. 0..1: how soft the transition from the clear centre to the dark corners is.
+     * Only used when vignetteEnabled. 0..1: how soft the transition from the clear centre to the edge is (0 = a sharp ring, 1 = it starts at the centre).
      * @since unreleased
      */
     vignetteSmoothness: number;
     /**
-     * Only used when vignetteEnabled. 0..1: 1 = a circle, 0 = follows the shape of the screen.
+     * Only used when vignetteEnabled. 0..1: 1 = a circle, 0 = an ellipse that follows the shape of the screen.
      * @since unreleased
      */
     vignetteRoundness: number;
     /**
-     * Only used when vignetteEnabled. Colour of the darkened edge (rgb; alpha ignored). Black by default.
+     * Only used when vignetteEnabled. The clear centre [x, y] as fractions of the picture, (0, 0) the top-left corner and (0.5, 0.5) the middle. Use it to follow the player or an impact.
+     * @since unreleased
+     */
+    get vignetteCenter(): Vec2;
+    set vignetteCenter(value: Vec2Like);
+    /**
+     * Only used when vignetteEnabled. Colour of the darkened edge (rgb; alpha ignored), as the screen shows it. Black by default; red gives a damage flash.
      * @since unreleased
      */
     get vignetteColor(): Color;
     set vignetteColor(value: ColorLike);
     /**
-     * Switches the chromatic aberration on: red and blue are shifted apart toward the edges like a cheap lens. Cost: folded into a shared pass.
+     * Switches the chromatic aberration on: red and blue are read from a little further out and in than green, radially from the middle of the picture, like a cheap lens. Made in scene colour (before the exposure and the tonemap); beyond the picture the edge colour is repeated. Cost: two more reads of the scene in the final pass.
      * @since unreleased
      */
     chromaticAberrationEnabled: boolean;
     /**
-     * Only used when chromaticAberrationEnabled. 0..1: how far the channels separate at the screen's edge (0 = none).
+     * Only used when chromaticAberrationEnabled. 0..1: how far the channels separate at the screen's edge (0 = none; 1 = red and blue sit 2% of the width each side of green at the edge).
      * @since unreleased
      */
     chromaticAberrationIntensity: number;
     /**
-     * Switches the film grain on: noise over the picture. Cost: folded into a shared pass.
+     * Switches the film grain on: monochrome noise over the display picture (after the sharpen, before the colour filter), the same on an SDR and an HDR output. Cost: part of the final pass.
      * @since unreleased
      */
     filmGrainEnabled: boolean;
     /**
-     * Only used when filmGrainEnabled. 0..1: how strong the noise is (0 = none).
+     * Only used when filmGrainEnabled. 0..1: how strong the noise is (0 = none; 1 moves a midtone by up to a quarter of white).
      * @since unreleased
      */
     filmGrainIntensity: number;
     /**
-     * Only used when filmGrainEnabled. Grain size in design pixels, 0.5 to 4.
+     * Only used when filmGrainEnabled. Grain size in pixels of the picture, 0.5 to 4 (a grain below 1 is a pixel).
      * @since unreleased
      */
     filmGrainSize: number;
     /**
-     * Only used when filmGrainEnabled. true: the pattern changes every frame (from the frame number, so a recorded run is the same every time). false: a still pattern.
+     * Only used when filmGrainEnabled. true: the pattern changes every frame (from the world's frame number, never the clock, so a recorded run is the same every time). false: a still pattern.
      * @since unreleased
      */
     filmGrainAnimated: boolean;
     /**
-     * Switches the lens distortion on: the picture bulges (barrel) or pinches (pincushion) like a lens. Cost: folded into a shared pass.
+     * Only used when filmGrainEnabled. 0..1: 0 = the grain is as strong in black and white as in the midtones, 1 = none in pure black and pure white, strongest at mid grey (like film).
+     * @since unreleased
+     */
+    filmGrainLuminanceResponse: number;
+    /**
+     * Switches the lens distortion on: the picture bulges (barrel) or pinches (pincushion) like a lens. Drawn in the final pass, after the bloom (the glow is bent with the picture). Where the lens reads beyond the picture (the corners of a barrel, the edges of a zoom below 1) the result is BLACK: raise lensDistortionScale to hide it. Cost: one bilinear read of the scene in the final pass.
      * @since unreleased
      */
     lensDistortionEnabled: boolean;
     /**
-     * Only used when lensDistortionEnabled. -1 (pincushion) to 1 (barrel). 0 = none.
+     * Only used when lensDistortionEnabled. -1 (pincushion) to 1 (barrel). 0 = none (a scale other than 1 still zooms).
      * @since unreleased
      */
     lensDistortionIntensity: number;
     /**
-     * Only used when lensDistortionEnabled. 0.5..2: zooms the picture; raise it to hide the empty edges a barrel distortion leaves.
+     * Only used when lensDistortionEnabled. 0.5..2: zooms the picture (above 1 in); raise it to hide the black edges a barrel distortion leaves (about 1.3 at intensity 1).
      * @since unreleased
      */
     lensDistortionScale: number;
     /**
-     * Switches the sharpening on: it brings out the detail the picture lost to scaling or antialiasing. Cost: one pass of five samples.
+     * Only used when lensDistortionEnabled. The lens axis [x, y] as fractions of the picture, (0, 0) the top-left corner and (0.5, 0.5) the middle.
+     * @since unreleased
+     */
+    get lensDistortionCenter(): Vec2;
+    set lensDistortionCenter(value: Vec2Like);
+    /**
+     * Switches the sharpening on: it brings out the detail the picture lost to scaling or antialiasing. Contrast adaptive (flat areas and edges already at black or white are left alone, so it makes no halos) and drawn on the display picture. Cost: five reads of the scene per pixel in the final pass.
      * @since unreleased
      */
     sharpenEnabled: boolean;
     /**
-     * Only used when sharpenEnabled. 0..2: strength (0 = none; above 1 shows halos).
+     * Only used when sharpenEnabled. 0..2: strength (0 = none; 2 is the strongest, harsh on noisy pictures).
      * @since unreleased
      */
     sharpenIntensity: number;
@@ -20763,7 +20790,7 @@ declare module "factoria" {
     CameraView: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; draggable?: any; mirror?: boolean; camera?: string; tint?: ColorLike; pointerEvents?: boolean; captureWheel?: boolean; resolution?: number };
     Chart: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; draggable?: any; mirror?: boolean; values?: any; kind?: "bar" | "line"; colors?: any; min?: any; max?: any; baseline?: number; showBaseline?: boolean; includeBaseline?: boolean; slots?: number; marks?: any; baselineColor?: ColorLike; markColor?: ColorLike; lineWidth?: number; barGap?: number; padding?: number; showLabels?: boolean; decimals?: number; font?: string; fontSize?: number; textColor?: ColorLike };
     Script: { path?: string; props?: any; enabled?: boolean };
-    PostProcess: { enabled?: boolean; shape?: "global" | "box" | "circle" | "sphere"; size?: Vec3Like; blendDistance?: number; priority?: number; weight?: number; tonemapEnabled?: boolean; tonemapMode?: "none" | "neutral" | "aces" | "agx" | "reinhard"; exposureEnabled?: boolean; exposureMode?: "manual" | "auto"; exposureEv?: number; exposureMinEv?: number; exposureMaxEv?: number; exposureAdaptationSpeed?: number; bloomEnabled?: boolean; bloomIntensity?: number; bloomThreshold?: number; bloomKnee?: number; bloomRadius?: number; bloomScreenSpace?: boolean; bloomLensDirt?: string; bloomLensDirtIntensity?: number; colorGradingEnabled?: boolean; colorGradingLift?: ColorLike; colorGradingGamma?: ColorLike; colorGradingGain?: ColorLike; colorGradingTemperature?: number; colorGradingTint?: number; colorGradingSaturation?: number; colorGradingContrast?: number; colorGradingCurveMaster?: Float32Array; colorGradingCurveRed?: Float32Array; colorGradingCurveGreen?: Float32Array; colorGradingCurveBlue?: Float32Array; colorGradingLut?: string; colorGradingLutContribution?: number; colorFilterEnabled?: boolean; colorFilterMode?: "none" | "greyscale" | "highContrast" | "protanopia" | "deuteranopia" | "tritanopia"; vignetteEnabled?: boolean; vignetteIntensity?: number; vignetteSmoothness?: number; vignetteRoundness?: number; vignetteColor?: ColorLike; chromaticAberrationEnabled?: boolean; chromaticAberrationIntensity?: number; filmGrainEnabled?: boolean; filmGrainIntensity?: number; filmGrainSize?: number; filmGrainAnimated?: boolean; lensDistortionEnabled?: boolean; lensDistortionIntensity?: number; lensDistortionScale?: number; sharpenEnabled?: boolean; sharpenIntensity?: number; outlineEnabled?: boolean; outlineMode?: "depth" | "sprite"; outlineColor?: ColorLike; outlineWidth?: number; outlineDepthThreshold?: number; outlineNormalThreshold?: number; outlineAlphaThreshold?: number; pixelateEnabled?: boolean; pixelateSize?: number; posterizeEnabled?: boolean; posterizeLevels?: number; ssaoEnabled?: boolean; ssaoQuality?: "low" | "medium" | "high" | "ultra"; ssaoIntensity?: number; ssaoRadius?: number; depthOfFieldEnabled?: boolean; depthOfFieldFocusDistance?: number; depthOfFieldTarget?: EntityLike; depthOfFieldFocusSpeed?: number; depthOfFieldFocusRange?: number; depthOfFieldNearBlur?: number; depthOfFieldFarBlur?: number; depthOfFieldBokeh?: boolean; motionBlurEnabled?: boolean; motionBlurIntensity?: number; motionBlurSamples?: number; ssrEnabled?: boolean; ssrIntensity?: number; ssrMaxDistance?: number; ssrThickness?: number; ssrSteps?: number; fogEnabled?: boolean; fogColor?: ColorLike; fogDensity?: number; fogStart?: number; fogHeightDensity?: number; fogHeightBase?: number; fogHeightFalloff?: number; sunShaftsEnabled?: boolean; sunShaftsIntensity?: number; sunShaftsThreshold?: number; sunShaftsLength?: number; sunShaftsColor?: ColorLike; radialBlurEnabled?: boolean; radialBlurIntensity?: number; radialBlurCenter?: Vec2Like; radialBlurSamples?: number };
+    PostProcess: { enabled?: boolean; shape?: "global" | "box" | "circle" | "sphere"; size?: Vec3Like; blendDistance?: number; priority?: number; weight?: number; tonemapEnabled?: boolean; tonemapMode?: "none" | "neutral" | "aces" | "agx" | "reinhard"; exposureEnabled?: boolean; exposureMode?: "manual" | "auto"; exposureEv?: number; exposureMinEv?: number; exposureMaxEv?: number; exposureAdaptationSpeed?: number; bloomEnabled?: boolean; bloomIntensity?: number; bloomThreshold?: number; bloomKnee?: number; bloomRadius?: number; bloomScreenSpace?: boolean; bloomLensDirt?: string; bloomLensDirtIntensity?: number; colorGradingEnabled?: boolean; colorGradingLift?: ColorLike; colorGradingGamma?: ColorLike; colorGradingGain?: ColorLike; colorGradingTemperature?: number; colorGradingTint?: number; colorGradingSaturation?: number; colorGradingContrast?: number; colorGradingHueShift?: number; colorGradingCurveMaster?: Float32Array; colorGradingCurveRed?: Float32Array; colorGradingCurveGreen?: Float32Array; colorGradingCurveBlue?: Float32Array; colorGradingLut?: string; colorGradingLutContribution?: number; colorFilterEnabled?: boolean; colorFilterMode?: "none" | "greyscale" | "highContrast" | "protanopia" | "deuteranopia" | "tritanopia"; vignetteEnabled?: boolean; vignetteIntensity?: number; vignetteSmoothness?: number; vignetteRoundness?: number; vignetteCenter?: Vec2Like; vignetteColor?: ColorLike; chromaticAberrationEnabled?: boolean; chromaticAberrationIntensity?: number; filmGrainEnabled?: boolean; filmGrainIntensity?: number; filmGrainSize?: number; filmGrainAnimated?: boolean; filmGrainLuminanceResponse?: number; lensDistortionEnabled?: boolean; lensDistortionIntensity?: number; lensDistortionScale?: number; lensDistortionCenter?: Vec2Like; sharpenEnabled?: boolean; sharpenIntensity?: number; outlineEnabled?: boolean; outlineMode?: "depth" | "sprite"; outlineColor?: ColorLike; outlineWidth?: number; outlineDepthThreshold?: number; outlineNormalThreshold?: number; outlineAlphaThreshold?: number; pixelateEnabled?: boolean; pixelateSize?: number; posterizeEnabled?: boolean; posterizeLevels?: number; ssaoEnabled?: boolean; ssaoQuality?: "low" | "medium" | "high" | "ultra"; ssaoIntensity?: number; ssaoRadius?: number; depthOfFieldEnabled?: boolean; depthOfFieldFocusDistance?: number; depthOfFieldTarget?: EntityLike; depthOfFieldFocusSpeed?: number; depthOfFieldFocusRange?: number; depthOfFieldNearBlur?: number; depthOfFieldFarBlur?: number; depthOfFieldBokeh?: boolean; motionBlurEnabled?: boolean; motionBlurIntensity?: number; motionBlurSamples?: number; ssrEnabled?: boolean; ssrIntensity?: number; ssrMaxDistance?: number; ssrThickness?: number; ssrSteps?: number; fogEnabled?: boolean; fogColor?: ColorLike; fogDensity?: number; fogStart?: number; fogHeightDensity?: number; fogHeightBase?: number; fogHeightFalloff?: number; sunShaftsEnabled?: boolean; sunShaftsIntensity?: number; sunShaftsThreshold?: number; sunShaftsLength?: number; sunShaftsColor?: ColorLike; radialBlurEnabled?: boolean; radialBlurIntensity?: number; radialBlurCenter?: Vec2Like; radialBlurSamples?: number };
     SceneSettings: { ambientLight?: ColorLike; gravity2D?: Vec2Like; gravity3D?: Vec3Like; fogColor?: ColorLike; fogDensity?: number; skyColor?: ColorLike; horizonColor?: ColorLike; music?: string; musicVolume?: number; lightScale?: number; colorSpace?: "gamma" | "linear"; hdrOutput?: "off" | "auto"; paperWhiteNits?: number };
   }
   /**

@@ -576,17 +576,18 @@ bool Renderer::Impl::ensure_hud_target() {
 }
 
 // Draws `src` through post.glsl into `dst` (ensure_filter_target / ensure_hud_target made it).
-void Renderer::Impl::post_pass(const PostPlan& pp, bool convert, int filter, bool autoExposure, sg_view src,
+void Renderer::Impl::post_pass(const PostPlan& pp, bool finalPass, int filter, bool autoExposure, sg_view src,
                                sg_view expo, Target& dst, const char* label, bool keepMsaa) {
     PassDesc p = pass_into(dst, label);
     p.colorLoad = SG_LOADACTION_DONTCARE;  // every pixel is drawn
     p.colorStore = (dst.samples > 1 && !keepMsaa) ? SG_STOREACTION_DONTCARE : SG_STOREACTION_STORE;
-    run_post_pass(gpu, pp, convert, filter, autoExposure, p, src, expo, dst.w, dst.h, frameOutput);
+    run_post_pass(gpu, pp, finalPass, filter, autoExposure, p, src, expo, assets->white()->view, dst.w, dst.h,
+                  frameOutput);
     ++stats.drawCalls;
     // A colour filter clamps to paper white (also when it follows the HDR picture); the conversion alone goes above it.
     if (filter != 0)
         frameAboveWhite = false;
-    else if (convert && frameOutput.extended())
+    else if (finalPass && pp.convert() && frameOutput.extended())
         frameAboveWhite = true;
 }
 

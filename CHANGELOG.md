@@ -23,7 +23,7 @@ Older versions, one file per minor version with its patch releases: [0.29](chang
   `circle` or `sphere`, `size`, `blendDistance`, `priority`, `weight`), with 20 effects (`ssao`, `ssr`, `fog`, `sunShafts`,
   `exposure`, `depthOfField`, `motionBlur`, `radialBlur`, `lensDistortion`, `chromaticAberration`, `bloom`, `tonemap`,
   `colorGrading`, `vignette`, `sharpen`, `outline`, `pixelate`, `posterize`, `filmGrain`, `colorFilter`). All are off by default and
-  only the four listed below are drawn yet: the other fields are stored and saved. The renderer resolves the volumes at each camera on the CPU
+  only the ones listed below are drawn yet: the other fields are stored and saved. The renderer resolves the volumes at each camera on the CPU
   (docs/design/ARCHITECTURE_RENDERING.md, "PostProcess").
 - **Commands:** `render.supports` says what the renderer can do on this graphics backend and GPU (float targets, R11G11B10, sampled
   depth, compute shaders, linear colour, HDR output and each post effect; false for what is not drawn yet); `postprocess.get`,
@@ -37,6 +37,15 @@ Older versions, one file per minor version with its patch releases: [0.29](chang
   covers it). A frame without any stack still declares no pass and makes no render target. `render.supports` answers true for these
   four effects. docs/RENDERING.md ("Post-processing") has the order and the cost of each; AI_GUIDE recipe 9.20 is rewritten to
   PostProcess.
+- **Colour grading, vignette, chromatic aberration, lens distortion, sharpen and film grain are drawn.** They run in the final `post`
+  pass (a stack with only these effects now gets one full-screen pass; a stack without them draws exactly what it did). The lens and
+  the aberration bend how the scene is read (the bloom glow bends too; outside the lens the picture is black, `lensDistortionScale`
+  hides it); the rest work in display space and do not clip above white: white balance (`colorGradingTemperature`, `Tint`),
+  lift/gamma/gain, contrast, saturation, the new `colorGradingHueShift` and a 3D LUT from a `.cube` file (`colorGradingLut`, mixed
+  by `colorGradingLutContribution`), a vignette (new `vignetteCenter`), a contrast-adaptive sharpen and a film grain seeded by
+  the engine's frame counter (the same on every run; new `filmGrainLuminanceResponse`, new `lensDistortionCenter`). `assets.import`
+  takes a `.cube` into `assets/luts/` and checks it. `render.supports` answers true for the six effects; the
+  `colorGradingCurve*` fields are still only stored (docs/RENDERING.md, "The effects of the final pass").
 - **Deprecated:** `Camera.bloom`, `bloomThreshold`, `bloomIntensity`, `bloomRadius`, `bloomScreenSpace` and `Camera.colorFilter`
   keep drawing exactly the same picture (they stand in for a PostProcess on a camera that has none), but warn once and will be
   removed two minor versions after the release that ships them. Migration: add a `PostProcess` to the camera's entity and set

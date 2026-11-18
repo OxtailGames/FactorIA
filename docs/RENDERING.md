@@ -318,7 +318,7 @@ close enough).
    shown as a sprite in a linear scene it is shown as a colour, i.e. darker than its numbers say.
 4. Check custom materials ([SHADERS.md](SHADERS.md)) as above.
 
-## Post-processing: bloom, exposure, tonemap, colour filter
+## Post-processing: bloom, exposure, tonemap, colour grading, lens effects, colour filter
 
 A `PostProcess` component (`docs.components`; docs/COMPONENTS.md is repository only, not in the binary) on the entity of a `Camera` is that camera's stack of screen effects; on an entity
 without a camera it is a volume that blends into the stacks of the cameras inside it. Every effect is off by default, and **a frame
@@ -332,13 +332,44 @@ The passes of a frame, in order (`render.frame_graph` lists them, and `RenderSta
 |---|---|---|
 | `bloom-bright`, `bloom-down-*`, `bloom-blur-h`, `bloom-blur-v`, `bloom-composite` | `bloomEnabled` | The glow: threshold with a soft knee, a reduced-resolution blur, added back (times the lens dirt texture). |
 | `exposure-luma`, `exposure-adapt` | `exposureMode` auto | The frame reduced to 32x32 brightness values, then the stored 1x1 exposure moves toward the one that makes the average 18% grey by `1 - exp(-speed * dt)`, kept between `exposureMinEv` and `exposureMaxEv`. No read back; the engine's frame `dt`, so the same frames give the same exposure on every run. Needs a float render target; the stored exposure is a 32-bit float where the GPU can filter one (else 16-bit, which stops a little short of the target at a slow speed and a high frame rate). |
-| `post` | exposure, tonemap, or a colour filter in a linear scene | The final pass, one full-screen pass: exposure, tonemap (`none` clips, `neutral`, `aces`, `agx`, `reinhard`), the colour filter, the encode for the display and a one-step (1/255) dither so smooth gradients do not band on an 8-bit screen. |
+| `post` | exposure, tonemap, colour grading, vignette, chromatic aberration, lens distortion, sharpen, film grain, or a colour filter in a linear scene | The final pass, one full-screen pass: lens distortion and chromatic aberration (while the picture is read), exposure, tonemap (`none` clips, `neutral`, `aces`, `agx`, `reinhard`), the encode for the display, colour grading, vignette, sharpen, film grain, a one-step (1/255) dither so smooth gradients do not band on an 8-bit screen, and the colour filter. |
 | `hud-over-post` | the final pass ran and screen-space items exist | The HUD, drawn over the final picture in display colours: it is never exposed or tonemapped, and never glows. |
 | `color-filter` | a colour filter with no `post` (or a HUD after it) | The accessibility filter over everything, the last pass. With `post` and no HUD it is part of `post`. |
 
 A game in the default gamma colour space with only bloom or only a colour filter gets exactly the passes it had before the stack
 existed (the old pictures are byte for byte the same). Exposure and tonemap decode the stored colours to light, work in linear
-light and encode back, so `exposureEv` +1 doubles the light, not the stored number.
+light and encode back, so `exposureEv` +1 doubles the light, not the stored number. A stack without the six effects below runs the
+same code as before: they are switched on by a bit mask, so an effect that is off costs no sample and no arithmetic.
+
+### The effects of the final pass
+
+Six effects run in the `post` pass, in the order of this table (`render.supports {"feature": "<effect>"}` is true where this build
+draws them). They work in display space (the encoded values the screen shows), the same on an SDR and on an HDR output, except the
+two that bend the picture, which move the place it is read from.
+
+| Effect | Fields (`PostProcess`) | What it does |
+|---|---|---|
+| `lensDistortion` | `lensDistortionIntensity` (-1 pincushion .. 1 barrel), `lensDistortionScale` (zoom), `lensDistortionCenter` | Moves the point each pixel reads. It acts while the picture is sampled, so the bloom glow bends with it. Where the lens reads outside the picture the pixel is **black** (raise the scale to hide it). |
+| `chromaticAberration` | `chromaticAberrationIntensity` | Red and blue are read at slightly different distances from the centre, growing toward the edge; green stays. Read at the same moment as the lens; the sample is clamped to the picture's edge. |
+| `colorGrading` | `colorGradingTemperature`, `Tint`, `Lift`, `Gamma`, `Gain`, `Contrast`, `Saturation`, `HueShift`, `colorGradingLut`, `colorGradingLutContribution` | After the tonemap and the encode, in display space: white balance, gain, lift, gamma, contrast around mid grey, saturation, hue rotation, then the LUT. Nothing is clipped at white, so an HDR value above 1 stays above 1. The curves (`colorGradingCurve*`) are not drawn yet. |
+| `vignette` | `vignetteIntensity`, `Smoothness`, `Roundness`, `Center`, `Color` | Mixes the display value toward `vignetteColor` toward the edge of the screen. The same on SDR and HDR (it works on the encoded value). |
+| `sharpen` | `sharpenIntensity` | Contrast-adaptive: it reads the four neighbours (each shaded the same way as the pixel) and sharpens less where the local contrast is already high, so edges ring less. |
+| `filmGrain` | `filmGrainIntensity`, `Size`, `Animated`, `LuminanceResponse` | An integer hash noise added to the display value, weighted toward the mid tones by `LuminanceResponse` (1) or even (0). It is seeded by the engine's frame counter (`world.frame()`), so a recorded or replayed run gives the same grain; `filmGrainAnimated` false uses a fixed seed. It is added before the dither and the colour filter. |
+
+A gamma scene's stored colours are display values already: the effects use them as they are, and a scene with exposure or tonemap
+decodes, tonemaps and encodes first. A linear scene always runs the conversion. On an HDR output the final pass goes above paper
+white only when exposure or tonemap is on (see "HDR output"); a stack with only these effects is drawn in the standard range.
+
+### Colour grading with a LUT
+
+`colorGradingLut` is the project path of a `.cube` file (the 3D lookup table that DaVinci Resolve, Photoshop and most grading
+tools export). `assets.import` takes a `.cube` into `assets/luts/`; the importer parses it, reports its size and title, and refuses
+a file the renderer could not use, with the line number (a 1D table, a size outside 2 to 65, a domain other than 0 to 1, a wrong
+row count). A table of any size from 2 to 65 is used as it is (16, 32 and 64 are the usual ones). It is stored as an 8-bit strip
+texture (the slices of blue tiled side by side) and sampled with a manual trilinear blend, so the result does not depend on the
+backend. The LUT adds `(lut(x) - x) * colorGradingLutContribution` to the graded colour, where `x` is the colour looked up
+(clamped to 0..1), so a contribution of 0.5 is half of it and a value above 1 keeps its excess. A path that does not resolve is
+skipped (the rest of the stack is drawn). The LUT is applied last, in display space: use one exported for sRGB.
 
 Cost (a 1280x720 frame, counted by `render.frame_graph`; the extra render targets are RGBA16F where the GPU draws in float, 8 bytes a
 pixel, else RGBA8):
@@ -351,6 +382,7 @@ pixel, else RGBA8):
 | `exposureMode` auto | 2 more (32x32 and 1x1) | a few KB |
 | `bloomEnabled`, `bloomRadius` 20 | 4 (`bloom-bright`, two blurs, `bloom-composite`) | two 320x180 targets, 0.9 MB |
 | `bloomEnabled`, `bloomRadius` 64 | 6 | four smaller targets, 0.6 MB |
+| colour grading, vignette, chromatic aberration, lens distortion, sharpen or film grain, alone or together | 1 (`post`; sharpen reads four more texels, the LUT one table lookup) | one full-size target |
 | everything on, with a HUD | 8 (`color-filter` is its own pass because the HUD went between) | the sum of the above |
 
 The time of each pass is in `render.frame_graph` with `profileFrames` (`passTimes[].gpuMs` on D3D11 and OpenGL, `cpuMs` of the
@@ -424,7 +456,8 @@ The editor's window never switches (it shows the game in its own view, in the st
 ### What goes above white
 
 Only the final pass of the post-processing stack decides what is brighter than paper white: a camera with a `PostProcess` whose
-exposure or tonemap is on. On an HDR output its tonemap does not stop at 1:
+exposure or tonemap is on (the colour grading, vignette, lens, sharpen and grain effects run in that pass too, in display space, but
+alone they do not make the picture go above white). On an HDR output its tonemap does not stop at 1:
 
 - Below the curve's shoulder (display value 0.76 for `neutral`, 0.5 for the others) the picture is the SDR curve, so mid tones,
   shadows and skin look the same as on an SDR screen.

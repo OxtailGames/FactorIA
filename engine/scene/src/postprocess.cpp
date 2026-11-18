@@ -26,6 +26,7 @@ const PostProcess& postprocess_neutral() {
         p.tonemapMode = TonemapMode::None;
         p.bloomIntensity = 0.0f;
         p.bloomLensDirtIntensity = 0.0f;
+        p.colorGradingLutContribution = 0.0f;
         p.vignetteIntensity = 0.0f;
         p.chromaticAberrationIntensity = 0.0f;
         p.filmGrainIntensity = 0.0f;
@@ -74,8 +75,12 @@ void register_postprocess_component(TypeRegistry& r) {
          "pixelate, posterize, filmGrain, colorFilter (the last pass). M71 is in progress: the component, the volumes, "
          "the postprocess.* commands and render.supports exist, and each effect is drawn as its M71 package lands: "
          "render.supports {\"feature\": \"<effect>\"} says which ones this build draws on this GPU (exposure, bloom, "
-         "tonemap and "
-         "colorFilter today), until then the fields only store the values. Only the stack of the camera that draws "
+         "tonemap, colorFilter, lensDistortion, chromaticAberration, colorGrading, vignette, sharpen and filmGrain "
+         "today), until then the fields only store the values. The lens distortion, the chromatic aberration, the "
+         "colour grading, the vignette, the sharpen and the film grain are drawn in the final pass, after the bloom: "
+         "the lens and the aberration bend how the scene is read (in scene colour, before the exposure), the rest work "
+         "on the display picture (what the screen shows, paper white = 1, the same on an SDR and an HDR output) and "
+         "none of them clips above white. Only the stack of the camera that draws "
          "first is "
          "drawn (the frame has one). Camera.bloom* and Camera.colorFilter are deprecated and keep working unchanged: "
          "they "
@@ -196,56 +201,60 @@ void register_postprocess_component(TypeRegistry& r) {
 
         // colorGrading
         .field("colorGradingEnabled", &PostProcess::colorGradingEnabled,
-               "Switches the colour grading on: lift/gamma/gain, white balance, saturation, contrast, curves and a "
-               "LUT. Cost: "
-               "one pass, shared with the tonemap.")
+               "Switches the colour grading on: white balance, lift/gamma/gain, contrast, saturation, hue shift and a "
+               ".cube LUT, applied to the display picture (what the screen shows) in that order, without clipping "
+               "above white. Cost: part of the final pass.")
         .field("colorGradingLift", &PostProcess::colorGradingLift,
-               "Only used when colorGradingEnabled. Colour added to the shadows (rgb; alpha ignored). [0, 0, 0] = "
-               "unchanged; "
-               "a blue tint here gives cold shadows.")
+               "Only used when colorGradingEnabled. Colour added to the shadows (rgb, -1..1; alpha ignored): full in "
+               "black, fading to nothing at white. [0, 0, 0] = unchanged; a blue tint here gives cold shadows.")
         .field("colorGradingGamma", &PostProcess::colorGradingGamma,
-               "Only used when colorGradingEnabled. Midtones per channel (rgb; alpha ignored). [1, 1, 1] = unchanged; "
-               "above 1 "
-               "lightens that channel's midtones.")
+               "Only used when colorGradingEnabled. Midtones per channel (rgb, 0.1..10; alpha ignored). [1, 1, 1] = "
+               "unchanged; above 1 lightens that channel's midtones (black and white stay).")
         .field("colorGradingGain", &PostProcess::colorGradingGain,
-               "Only used when colorGradingEnabled. Multiplies the highlights per channel (rgb; alpha ignored). [1, 1, "
-               "1] = "
-               "unchanged.")
+               "Only used when colorGradingEnabled. Multiplies the highlights per channel (rgb, 0..8; alpha ignored). "
+               "[1, 1, 1] = unchanged.")
         .field("colorGradingTemperature", &PostProcess::colorGradingTemperature,
-               "Only used when colorGradingEnabled. White balance, -100 (cooler, blue) to 100 (warmer, orange). 0 = "
-               "unchanged.")
+               "Only used when colorGradingEnabled. White balance, -100 (cooler, blue) to 100 (warmer, orange): at "
+               "+-100 red and blue gain 20% against each other, the brightness is kept. 0 = unchanged.")
         .range(-100, 100)
         .field("colorGradingTint", &PostProcess::colorGradingTint,
-               "Only used when colorGradingEnabled. White balance, -100 (green) to 100 (magenta). 0 = unchanged.")
+               "Only used when colorGradingEnabled. White balance, -100 (green) to 100 (magenta), the same strength "
+               "as the temperature. 0 = unchanged.")
         .range(-100, 100)
         .field("colorGradingSaturation", &PostProcess::colorGradingSaturation,
                "Only used when colorGradingEnabled. 0 = greyscale, 1 = unchanged, above 1 more vivid.")
         .range(0, 3)
         .field("colorGradingContrast", &PostProcess::colorGradingContrast,
-               "Only used when colorGradingEnabled. 1 = unchanged, above 1 more contrast around mid grey, below 1 "
-               "flatter.")
+               "Only used when colorGradingEnabled. 1 = unchanged, above 1 more contrast around mid grey (display "
+               "value 0.5), below 1 flatter.")
         .range(0, 3)
+        .field("colorGradingHueShift", &PostProcess::colorGradingHueShift,
+               "Only used when colorGradingEnabled. Degrees, -180..180: turns every hue around the grey axis (red "
+               "toward green for a positive shift). 0 = unchanged.")
+        .range(-180, 180)
         .field("colorGradingCurveMaster", &PostProcess::colorGradingCurveMaster,
-               "Only used when colorGradingEnabled. A tone curve on all channels as a flat list of points [x0, y0, x1, "
-               "y1, ...], "
-               "x and y in 0..1 with x ascending (input brightness to output brightness). Empty = the straight line. "
-               "Example: [0, 0, 0.5, 0.4, 1, 1] darkens the midtones.")
+               "NOT DRAWN YET (the values are stored; render.supports colorGrading lists what is drawn). A tone curve "
+               "on all channels as a flat list of points [x0, y0, x1, y1, ...], x and y in 0..1 with x ascending "
+               "(input brightness to output brightness). Empty = the straight line. Example: [0, 0, 0.5, 0.4, 1, 1] "
+               "darkens the midtones. For a tone curve today use a colorGradingLut.")
         .field("colorGradingCurveRed", &PostProcess::colorGradingCurveRed,
-               "Only used when colorGradingEnabled. A curve on the red channel only (same format as "
-               "colorGradingCurveMaster), "
-               "applied after the master curve. Empty = unchanged.")
+               "NOT DRAWN YET. A curve on the red channel only (same format as colorGradingCurveMaster), applied "
+               "after the master curve. Empty = unchanged.")
         .field("colorGradingCurveGreen", &PostProcess::colorGradingCurveGreen,
-               "Only used when colorGradingEnabled. A curve on the green channel only (same format as "
-               "colorGradingCurveMaster). Empty = unchanged.")
+               "NOT DRAWN YET. A curve on the green channel only (same format as colorGradingCurveMaster). Empty = "
+               "unchanged.")
         .field("colorGradingCurveBlue", &PostProcess::colorGradingCurveBlue,
-               "Only used when colorGradingEnabled. A curve on the blue channel only (same format as "
-               "colorGradingCurveMaster). Empty = unchanged.")
+               "NOT DRAWN YET. A curve on the blue channel only (same format as colorGradingCurveMaster). Empty = "
+               "unchanged.")
         .asset_field(
             "colorGradingLut", &PostProcess::colorGradingLut, "any",
             "Only used when colorGradingEnabled. Project path of a .cube 3D lookup table (the file a colour grading "
-            "tool exports) applied last. Empty = none.")
+            "tool exports: LUT_3D_SIZE 2 to 65, 16, 32 and 64 are the usual ones, DOMAIN 0..1) applied last, on the "
+            "display picture; import it with assets.import. A file that is missing or malformed is logged once with "
+            "its line and the LUT is skipped. Empty = none.")
         .field("colorGradingLutContribution", &PostProcess::colorGradingLutContribution,
-               "Only used with a colorGradingLut. 0..1: how much of the LUT is mixed in (1 = fully).")
+               "Only used with a colorGradingLut. 0..1: how much of the LUT is mixed in (1 = fully, 0 = the LUT is "
+               "skipped).")
         .range(0, 1)
 
         // colorFilter
@@ -261,65 +270,86 @@ void register_postprocess_component(TypeRegistry& r) {
 
         // vignette
         .field("vignetteEnabled", &PostProcess::vignetteEnabled,
-               "Switches the vignette on: darkened corners. Cost: folded into a shared pass.")
+               "Switches the vignette on: the edges darken toward a colour. Drawn on the display picture, so it looks "
+               "the same on an SDR and an HDR output. Cost: part of the final pass.")
         .field("vignetteIntensity", &PostProcess::vignetteIntensity,
-               "Only used when vignetteEnabled. 0..1: how dark the corners get (0 = none).")
+               "Only used when vignetteEnabled. 0..1: how far the edge is pulled to vignetteColor (0 = none, 1 = "
+               "fully).")
         .range(0, 1)
         .field("vignetteSmoothness", &PostProcess::vignetteSmoothness,
-               "Only used when vignetteEnabled. 0..1: how soft the transition from the clear centre to the dark "
-               "corners is.")
+               "Only used when vignetteEnabled. 0..1: how soft the transition from the clear centre to the edge is "
+               "(0 = a sharp ring, 1 = it starts at the centre).")
         .range(0, 1)
         .field("vignetteRoundness", &PostProcess::vignetteRoundness,
-               "Only used when vignetteEnabled. 0..1: 1 = a circle, 0 = follows the shape of the screen.")
+               "Only used when vignetteEnabled. 0..1: 1 = a circle, 0 = an ellipse that follows the shape of the "
+               "screen.")
         .range(0, 1)
+        .field("vignetteCenter", &PostProcess::vignetteCenter,
+               "Only used when vignetteEnabled. The clear centre [x, y] as fractions of the picture, (0, 0) the "
+               "top-left corner and (0.5, 0.5) the middle. Use it to follow the player or an impact.")
         .field("vignetteColor", &PostProcess::vignetteColor,
-               "Only used when vignetteEnabled. Colour of the darkened edge (rgb; alpha ignored). Black by default.")
+               "Only used when vignetteEnabled. Colour of the darkened edge (rgb; alpha ignored), as the screen shows "
+               "it. Black by default; red gives a damage flash.")
 
         // chromaticAberration
         .field(
             "chromaticAberrationEnabled", &PostProcess::chromaticAberrationEnabled,
-            "Switches the chromatic aberration on: red and blue are shifted apart toward the edges like a cheap lens. "
-            "Cost: folded into a shared pass.")
+            "Switches the chromatic aberration on: red and blue are read from a little further out and in than green, "
+            "radially from the middle of the picture, like a cheap lens. Made in scene colour (before the exposure "
+            "and the tonemap); beyond the picture the edge colour is repeated. Cost: two more reads of the scene in "
+            "the final pass.")
         .field("chromaticAberrationIntensity", &PostProcess::chromaticAberrationIntensity,
-               "Only used when chromaticAberrationEnabled. 0..1: how far the channels separate at the screen's edge (0 "
-               "= none).")
+               "Only used when chromaticAberrationEnabled. 0..1: how far the channels separate at the screen's edge "
+               "(0 = none; 1 = red and blue sit 2% of the width each side of green at the edge).")
         .range(0, 1)
 
         // filmGrain
         .field("filmGrainEnabled", &PostProcess::filmGrainEnabled,
-               "Switches the film grain on: noise over the picture. Cost: folded into a shared pass.")
+               "Switches the film grain on: monochrome noise over the display picture (after the sharpen, before the "
+               "colour filter), the same on an SDR and an HDR output. Cost: part of the final pass.")
         .field("filmGrainIntensity", &PostProcess::filmGrainIntensity,
-               "Only used when filmGrainEnabled. 0..1: how strong the noise is (0 = none).")
+               "Only used when filmGrainEnabled. 0..1: how strong the noise is (0 = none; 1 moves a midtone by up to "
+               "a quarter of white).")
         .range(0, 1)
         .field("filmGrainSize", &PostProcess::filmGrainSize,
-               "Only used when filmGrainEnabled. Grain size in design pixels, 0.5 to 4.")
+               "Only used when filmGrainEnabled. Grain size in pixels of the picture, 0.5 to 4 (a grain below 1 is a "
+               "pixel).")
         .range(0.5f, 4)
         .field("filmGrainAnimated", &PostProcess::filmGrainAnimated,
-               "Only used when filmGrainEnabled. true: the pattern changes every frame (from the frame number, so a "
-               "recorded "
-               "run is the same every time). false: a still pattern.")
+               "Only used when filmGrainEnabled. true: the pattern changes every frame (from the world's frame "
+               "number, never the clock, so a recorded run is the same every time). false: a still pattern.")
+        .field("filmGrainLuminanceResponse", &PostProcess::filmGrainLuminanceResponse,
+               "Only used when filmGrainEnabled. 0..1: 0 = the grain is as strong in black and white as in the "
+               "midtones, 1 = none in pure black and pure white, strongest at mid grey (like film).")
+        .range(0, 1)
 
         // lensDistortion
         .field(
             "lensDistortionEnabled", &PostProcess::lensDistortionEnabled,
-            "Switches the lens distortion on: the picture bulges (barrel) or pinches (pincushion) like a lens. Cost: "
-            "folded into a shared pass.")
+            "Switches the lens distortion on: the picture bulges (barrel) or pinches (pincushion) like a lens. Drawn "
+            "in the final pass, after the bloom (the glow is bent with the picture). Where the lens reads beyond the "
+            "picture (the corners of a barrel, the edges of a zoom below 1) the result is BLACK: raise "
+            "lensDistortionScale to hide it. Cost: one bilinear read of the scene in the final pass.")
         .field("lensDistortionIntensity", &PostProcess::lensDistortionIntensity,
-               "Only used when lensDistortionEnabled. -1 (pincushion) to 1 (barrel). 0 = none.")
+               "Only used when lensDistortionEnabled. -1 (pincushion) to 1 (barrel). 0 = none (a scale other than 1 "
+               "still zooms).")
         .range(-1, 1)
         .field("lensDistortionScale", &PostProcess::lensDistortionScale,
-               "Only used when lensDistortionEnabled. 0.5..2: zooms the picture; raise it to hide the empty edges a "
-               "barrel "
-               "distortion leaves.")
+               "Only used when lensDistortionEnabled. 0.5..2: zooms the picture (above 1 in); raise it to hide the "
+               "black edges a barrel distortion leaves (about 1.3 at intensity 1).")
         .range(0.5f, 2)
+        .field("lensDistortionCenter", &PostProcess::lensDistortionCenter,
+               "Only used when lensDistortionEnabled. The lens axis [x, y] as fractions of the picture, (0, 0) the "
+               "top-left corner and (0.5, 0.5) the middle.")
 
         // sharpen
         .field("sharpenEnabled", &PostProcess::sharpenEnabled,
                "Switches the sharpening on: it brings out the detail the picture lost to scaling or antialiasing. "
-               "Cost: one "
-               "pass of five samples.")
+               "Contrast adaptive (flat areas and edges already at black or white are left alone, so it makes no "
+               "halos) and drawn on the display picture. Cost: five reads of the scene per pixel in the final pass.")
         .field("sharpenIntensity", &PostProcess::sharpenIntensity,
-               "Only used when sharpenEnabled. 0..2: strength (0 = none; above 1 shows halos).")
+               "Only used when sharpenEnabled. 0..2: strength (0 = none; 2 is the strongest, harsh on noisy "
+               "pictures).")
         .range(0, 2)
 
         // outline
