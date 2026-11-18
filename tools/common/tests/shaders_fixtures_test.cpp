@@ -22,7 +22,7 @@ TEST_CASE("real sokol-shdc: the committed twins of the renderer's fixture materi
     const bool rewrite = update && std::string(update) == "1";
 
     const std::vector<std::string> dialects = {"hlsl5", "glsl430", "metal_macos"};
-    for (const char* name : {"empty", "glow", "time", "lift", "cutout", "vcut"}) {
+    for (const char* name : {"empty", "glow", "time", "lift", "cutout", "vcut", "toon", "dark", "ambient", "bump"}) {
         const std::string material = std::string("materials/") + name + ".material.json";
         ShaderCompileOptions options;
         options.setup = context;

@@ -76,7 +76,7 @@ TEST_CASE("docs/SHADERS.md: the worked examples pass the schema and the material
     REQUIRE(schema.has_value());
     testing::TempDir dir;
     const std::vector<std::string> materials = write_doc_project(dir.path);
-    REQUIRE(materials.size() == 5);  // pulse, dissolve, water, grass, rim
+    REQUIRE(materials.size() == 9);  // pulse, dissolve, water, grass, rim, toon, ramp, hatch, relief
     for (const std::string& m : materials) {
         CAPTURE(m);
         CHECK(validate_json(Json::parse(*schema), Json::parse(testing::read_all(dir.path / m))).empty());
@@ -94,7 +94,7 @@ TEST_CASE("docs/SHADERS.md: the worked examples compile for every dialect with t
     options.useCache = false;
     testing::TempDir dir;
     const std::vector<std::string> materials = write_doc_project(dir.path);
-    REQUIRE(materials.size() == 5);
+    REQUIRE(materials.size() == 9);
     for (const std::string& m : materials) {
         CAPTURE(m);
         auto result = compile_material(dir.str(), m, options);

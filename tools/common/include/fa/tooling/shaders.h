@@ -33,7 +33,13 @@ namespace fa {
 
 inline constexpr int kMaterialMaxParams = 16;  // each padded to a vec4 (256 bytes)
 inline constexpr int kMaterialMaxTextures =
-    4;  // fragment stage; the engine binds 6 of the 16 units GLES3 and WebGL2 guarantee
+    4;  // each is bound in both stages (see below), so 6 + 4 fragment and 4 vertex units: under the 16 per stage GLES3 and WebGL2 guarantee
+// Where the textures of a material are bound (render_internal.h has the same numbers): the fragment stage reads texture i at view
+// kMaterialFsFirstView + i and sampler kMaterialFsFirstSampler + i, the vertex stage (vertex() may sample too) at kMaterialVsFirstView + i
+// and kMaterialVsFirstSampler + i, under the name fa_vs_<name>. The engine's own six views and two samplers come first.
+inline constexpr int kMaterialFsFirstView = 6, kMaterialFsFirstSampler = 2;
+inline constexpr int kMaterialVsFirstView = kMaterialFsFirstView + kMaterialMaxTextures,
+                     kMaterialVsFirstSampler = kMaterialFsFirstSampler + kMaterialMaxTextures;
 inline constexpr const char* kMaterialFormat = "factoria.material/1";
 inline constexpr const char* kShaderTwinFormat = "factoria.shader/1";
 inline constexpr const char* kMaterialAlphaCutoff = "alphaCutoff";
@@ -65,7 +71,7 @@ struct MaterialDef {
     std::string shader;  // project-relative path of the snippet
     std::string kind =
         "mesh";  // "mesh" | "sprite" | "sky" | "post" | "compute" (fa::material_kind_names()); only mesh compiles
-    std::string lighting = "pbr";      // "pbr" | "unlit"
+    std::string lighting = "pbr";      // "pbr" | "unlit" | "custom" (the snippet defines light())
     std::string alphaMode = "opaque";  // "opaque" | "clip" | "blend"
     bool doubleSided = false;
     std::vector<MaterialParam> params;  // alphabetical (the packing order of the uniform block); includes implicit ones
@@ -124,9 +130,11 @@ struct GeneratedShader {
         snippetLine;  // per line of `top` (index = line - 1): the 1-based line of the snippet it holds, 0 = generated
     bool hasVertex = false;   // the snippet defines vertex()
     bool hasSurface = false;  // the snippet defines surface()
+    bool hasLight = false;    // lighting "custom": the snippet defines light()
+    bool hasAmbient = false;  // lighting "custom": the snippet defines ambient()
     std::vector<std::string>
         programs;  // "mesh", "mesh_skin", with vertex() or "clip" "shadow", "shadow_skin", and "prepass", "prepass_skin"
-    std::vector<std::string> defines;  // for --defines: FA_HAS_VERTEX, FA_ALPHA_CLIP
+    std::vector<std::string> defines;  // for --defines: FA_HAS_VERTEX, FA_ALPHA_CLIP, FA_CUSTOM_LIGHT, FA_HAS_AMBIENT
 };
 
 // Builds the top file of the design: the material block(s) in alphabetical order, the textures, the snippet (surface() only

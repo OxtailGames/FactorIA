@@ -31,7 +31,7 @@ std::string MaterialIssue::to_string() const {
 
 namespace {
 
-const std::vector<std::string> kLightings = {"pbr", "unlit"};
+const std::vector<std::string> kLightings = {"pbr", "unlit", "custom"};
 const std::vector<std::string> kAlphaModes = {"opaque", "clip", "blend"};
 const std::vector<std::string> kParamTypes = {"float", "vec2", "vec3", "vec4", "color"};
 const std::vector<std::string> kSamplers = {"linear", "linearRepeat", "nearest", "nearestRepeat"};
@@ -114,7 +114,7 @@ struct Checker {
                   "Rename it, e.g. \"waveHeight\".");
             return false;
         }
-        if (is_reserved_word(name)) {
+        if (is_reserved_word(name) || (out.material.lighting == "custom" && (name == "light" || name == "ambient"))) {
             error(pointer,
                   std::string(what) + " name \"" + name +
                       "\" is a GLSL keyword or a name of the snippet contract, so it cannot be a variable",

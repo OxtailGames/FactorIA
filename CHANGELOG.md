@@ -13,6 +13,16 @@ Older versions, one file per minor version with its patch releases: [0.30](chang
   a change to one template no longer makes the twins of the other kinds stale; the mesh hash did not change, so no export
   needs to be redone. The skeletons `quad_common.glsl`, `sky_common.glsl` and `post_common.glsl` declare each kind's snippet
   contract; nothing draws with them yet.
+- **Custom lighting and textures in `vertex()` (M72.3):** a mesh material with `"lighting": "custom"` defines
+  `vec3 light(in SurfaceInput i, in Surface s, in LightSample l)`, which the engine's light loop calls once per light
+  (the engine still picks the lights and applies attenuation, shadows, emission and fog), and optionally `ambient()`:
+  toon ramps, cel bands, hatching. `LightSample` carries the direction, the color (attenuation and shadow already in
+  it), the attenuation, the shadow factor, the distance and the light type. A material without `light()` gets an error
+  naming its file and the fix. `vertex()` can now sample the material's textures (always mip 0), also in the shadow and
+  depth prepass programs, so a height map displaces the mesh and its shadow. docs/SHADERS.md has the contract and four
+  new worked examples. **Games with custom materials must re-export:** the mesh template changed (no built-in mesh looks
+  different), so the compiled shader files an older export shipped for custom materials are refused, with the re-export
+  hint, until the game is exported again.
 
 - **Materials on every renderer (fields):** `Sprite`, `Shape2D`, `Tilemap`, `Text`, `ParticleEmitter` and every UI widget (`UiBox`) get `material` and `materialParams`, and `SceneSettings` gets `skyMaterial` and `skyMaterialParams`, like `MeshRenderer`; `factoria validate` checks that a `material` is an existing `*.material.json` and suggests the closest one, and the Inspector types the params of each by `material.info`.
 
