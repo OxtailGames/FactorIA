@@ -482,16 +482,17 @@ Things to know:
   {"id", "preset"}` applies one: without `"keep": true` the look replaces every effect of the target with exactly its own (the
   volume's shape, size and priority stay), with it only the effects the look names change. The looks are data, not code
   (`engine/runtime/data/postprocess_presets.json`): `neutral` (everything off, the way back), `cinematic`, `retro`, `noir`, `dreamy`,
-  `vivid` and `horror`, built only from fields that exist. A look that names an effect this renderer does not draw (`render.supports` says
-  `planned`, or `unsupported` on a GPU that cannot) still applies, and the answer says so: `notDrawn` lists them and `note` explains
-  that their fields are stored and show once the renderer draws them. `drawnChecked` is false when there is no renderer to ask
+  `vivid` and `horror`, built only from fields that exist. A look that names an effect this renderer does not draw
+  (`render.supports` says `false` with the reason: a GPU without float targets or without the depth prepass, say) still
+  applies, and the answer says so: `notDrawn` lists them and `note` explains that their fields are stored and show where
+  the renderer can draw them. `drawnChecked` is false when there is no renderer to ask
   (`graphics=false`).
 - **View > Post-processing** (docs/EDITOR.md) is the same stack on screen: a camera chooser, each effect in the order it runs with its
-  switch, a "running" or "off" mark, whether this renderer draws it (`planned`, or `unsupported` with the reason on hover), its fields
+  switch, a "running" or "off" mark, whether this renderer draws it (`unsupported` with the reason on hover), its fields
   with the source of each value, one button per look and a **Stack off (A/B)** check that draws the game without any post-processing
-  to compare (`Renderer::set_post_bypass`: it changes no data and ends when the panel closes). Every edit goes through
+  to compare (`Renderer::set_post_bypass`: it changes no data and ends when the panel closes, collapses or is hidden behind another tab; while it is on, every capture of the game shows the picture without the stack too). Every edit goes through
   `postprocess.set` or `postprocess.apply_preset`, one undo step each, to the camera's own PostProcess or to the volume picked under
-  "Edit"; an effect this renderer does not draw (planned, or unsupported on this GPU) cannot be switched on from the panel (a look that switched it on can be switched off).
+  "Edit"; an effect this renderer does not draw (unsupported on this GPU) cannot be switched on from the panel (a look that switched it on can be switched off).
 
 ## Transient screen effects
 
