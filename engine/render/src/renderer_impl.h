@@ -92,8 +92,13 @@ struct Renderer::Impl {
     // it with the game target's formats and sample count, so the pipelines of the game fit. hudActive: the last frame's picture is in it
     // (when filterActive is false). finalEncoded: the last frame's final pass already made display values (sRGB-encoded, extended above 1
     // for an HDR output), so the captures copy them as they are and present() only decodes them for an HDR swapchain.
-    // One AutoExposure per camera job of the frame (its adapted EV is its camera's), made when a camera first asks for one.
-    std::vector<std::unique_ptr<AutoExposure>> autoExposures;
+    // One AutoExposure per camera (by Entity::bits(): its adapted EV follows the camera, not its place in the frame), made when a camera
+    // first asks for one and released when it has not asked for two frames.
+    struct ExposureSlot {
+        std::unique_ptr<AutoExposure> exposure;
+        std::uint64_t frame = 0;  // the frameSerial it was last used in
+    };
+    std::unordered_map<std::uint64_t, ExposureSlot> autoExposures;
     // The camera jobs of the frame that carry a post-processing plan (plan_job, in drawing order): the last job declares their final
     // passes together (build_graph). The contexts live in jobContexts.
     struct DrawContext;

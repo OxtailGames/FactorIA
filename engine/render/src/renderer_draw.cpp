@@ -338,9 +338,13 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
     jobContexts.push_back(owner);  // a shared_ptr<void> keeps the type incomplete outside this file
     DrawContext& ctx = *owner;
     ctx.env = job_env();
-    ctx.hudAfterBloom = ctx.post.bloom.enabled && ctx.post.bloom.intensity > 0.0f && !ctx.post.bloom.screenSpace;
     ctx.fullPx = Px{0, 0, physW, physH};
     ctx.camPx = fr.wantWorld ? px_rect(fr.cam.viewport, physW, physH) : ctx.fullPx;
+    const bool draws = !plan.view && fr.wantWorld && ctx.camPx.w > 0 && ctx.camPx.h > 0;
+    // The frame's bloom and colour filter are those of the camera that draws first (a camera whose rectangle has no pixel does not count);
+    // a job before any camera drew, or a view job, uses the plan's.
+    const CameraInfo& frameCam = plan.view || postCams.empty() ? (draws ? fr.cam : ctx.post) : postCams.front()->fr.cam;
+    ctx.hudAfterBloom = frameCam.bloom.enabled && frameCam.bloom.intensity > 0.0f && !frameCam.bloom.screenSpace;
     ctx.partial = fr.wantWorld && !fr.cam.fullViewport();
     // A camera that clears and is not the first one (or the only one) cannot use a load action (it clears the whole target,
     // not its rectangle): a colour quad over its viewport does it.
@@ -351,10 +355,10 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
     ctx.doMainPass = fr.wantWorld || !ctx.hudAfterBloom;
     // Every camera that draws the world has its own plan (its stack, its rectangle of the picture); a rectangle with no pixel draws
     // nothing and has none. Bloom and the colour filter are the frame's, from the camera that draws first (ctx.post).
-    if (!plan.view && fr.wantWorld && ctx.camPx.w > 0 && ctx.camPx.h > 0) {
+    if (draws) {
         PostPlan& pp = ctx.postPlan;
         pp = make_post_plan(fr.cam, world.settings().colorSpace == ColorSpace::Linear, forceEffects, world.frame(),
-                            renderScale, &ctx.post);
+                            renderScale, &frameCam);
         if (!(ctx.camPx.x == 0 && ctx.camPx.y == 0 && ctx.camPx.w == physW && ctx.camPx.h == physH))
             pp.rect = PostRect{ctx.camPx.x, ctx.camPx.y, ctx.camPx.w, ctx.camPx.h};
         postCams.push_back(&ctx);
@@ -1206,7 +1210,8 @@ void Renderer::Impl::prepass_pass(DrawContext& ctx, const Target& t) {
 void Renderer::Impl::prepass_view_pass(DrawContext& ctx, const Target& t) {
     PassDesc dp = pass_into(gameTarget, "prepass-view");
     dp.colorLoad = SG_LOADACTION_LOAD;
-    dp.colorStore = (ctx.msaa && !ctx.hudAfterBloom) ? SG_STOREACTION_DONTCARE : SG_STOREACTION_STORE;
+    // Like the main pass: only the last job may drop its multisampled colour (a camera after it loads the picture).
+    dp.colorStore = (ctx.msaa && ctx.plan.last && !ctx.hudAfterBloom) ? SG_STOREACTION_DONTCARE : SG_STOREACTION_STORE;
     gpu.begin_pass(dp);
     sg_apply_pipeline(gpu.prepass_view_pipeline(dp.format));
     if (!ctx.postPlan.rect.whole(physW, physH)) apply_view(ctx.camPx);  // the camera's rectangle of the game image
@@ -1590,7 +1595,7 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
         pdsc.format = gpu.prepass_target_format();
         pdsc.label = plan.name + "/prepass";  // resource names are unique in a graph, and every camera has its own
         prepassRes = graph.create_transient(pdsc);
-        ctx.postPlan.prepass = PrepassRef{prepassRes, &transient_targets(), ctx.postPlan.rect};
+        ctx.postPlan.prepass = PrepassRef{prepassRes, &transient_targets()};
         // Never culled: nothing reads the image until an effect or the debug view does, and the passes that need it are declared after.
         add(
             "prepass", {}, {prepassRes},
@@ -1624,7 +1629,7 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
         cdsc.format = TargetFormat{SG_PIXELFORMAT_RGBA8, SG_PIXELFORMAT_NONE, 1};
         cdsc.label = plan.name + "/sprite-coverage";
         coverageRes = graph.create_transient(cdsc);
-        ctx.postPlan.coverage = PrepassRef{coverageRes, &transient_targets(), ctx.postPlan.rect};
+        ctx.postPlan.coverage = PrepassRef{coverageRes, &transient_targets()};
         add("sprite-coverage", {}, {coverageRes}, [this, &ctx, coverageRes](const PassContext& c) {
             const Target* t = transient_targets().get(c.handle(coverageRes));
             if (t) coverage_pass(ctx, *t);
@@ -1636,6 +1641,14 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
     filterActive = false;
     hudActive = false;
     finalEncoded = false;
+    for (auto it = autoExposures.begin(); it != autoExposures.end();) {
+        if (it->second.frame + 1 < frameSerial) {  // its camera has not asked for two frames
+            if (it->second.exposure) it->second.exposure->release();
+            it = autoExposures.erase(it);
+        } else {
+            ++it;
+        }
+    }
     if (postCams.empty()) return;  // no camera drew a pixel
     for (DrawContext* c : postCams)
         if (c->postPlan.fx.outline && !c->postPlan.outline_source().valid())
@@ -1710,7 +1723,10 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
             stacked.push_back(r);
             area += std::int64_t(r.x1 - r.x0) * std::int64_t(r.y1 - r.y0);
         }
-        const bool needBase = !(disjoint && area == std::int64_t(physW) * std::int64_t(physH));
+        // Not needed when the first camera has a stack and covers the whole picture: its pass draws every pixel.
+        const bool firstCoversAll =
+            postCams.front()->postPlan.final_pass() && postCams.front()->postPlan.rect.whole(physW, physH);
+        const bool needBase = !firstCoversAll && !(disjoint && area == std::int64_t(physW) * std::int64_t(physH));
         PostPlan basePlan;
         basePlan.sceneLinear = pp.sceneLinear;
         basePlan.linear = pp.sceneLinear;
@@ -1748,9 +1764,10 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
                 ResourceId evRes;
                 AutoExposure* exposure = nullptr;
                 if (cp.autoExposure) {
-                    if (autoExposures.size() <= i) autoExposures.resize(i + 1);
-                    if (!autoExposures[i]) autoExposures[i] = std::make_unique<AutoExposure>();
-                    exposure = autoExposures[i].get();
+                    ExposureSlot& slot = autoExposures[c->fr.cam.entity.bits()];
+                    if (!slot.exposure) slot.exposure = std::make_unique<AutoExposure>();
+                    slot.frame = frameSerial;
+                    exposure = slot.exposure.get();
                     evRes = exposure->add_passes(graph, transient_targets(), gpu, cp, game, gameTarget.texView, fr.dt,
                                                  frameSerial, &stats.drawCalls, c->plan.name, physW, physH);
                 }

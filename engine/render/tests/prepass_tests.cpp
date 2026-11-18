@@ -15,6 +15,7 @@
 #include "fa/scene/animation.h"
 
 #include "frame_graph.h"
+#include "postprocess.h"
 #include "postprocess_resolve.h"
 #include "render_internal.h"
 
@@ -918,4 +919,152 @@ TEST_CASE("prepass (split screen): the graph has one prepass per camera that nee
         if (graph["resources"][i]["name"] == "camera:0/prepass" || graph["resources"][i]["name"] == "camera:1/prepass")
             ++prepasses;
     CHECK(prepasses == 2);
+}
+
+TEST_CASE("postprocess (split screen): each camera adapts its own exposure, by camera and not by place in the frame") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    if (sg_query_pixelformat(SG_PIXELFORMAT_RGBA16F).render == false) return;  // the measure needs float targets
+    auto build = [](World& w, bool stacks, bool swapped) {
+        w.settings().colorSpace = ColorSpace::Linear;
+        add_camera(w, {0, 0, 10});
+        w.get<Camera>(w.find("cam"))->viewport = Rect{0, 0, 0.5f, 1};
+        // A cube that fills the view of each camera: a dark one for the left camera, a bright one for the right.
+        Entity dark = add_mesh(w, "cube", {0, 0, 0}, {12, 12, 12});
+        w.get<MeshRenderer>(dark)->color = Color{0.1f, 0.1f, 0.1f, 1};
+        Entity second = make(w, "cam2", {100, 0, 10});
+        auto& c = w.add<Camera>(second);
+        c.projection = Projection::Perspective;
+        c.viewport = Rect{0.5f, 0, 0.5f, 1};
+        c.depth =
+            swapped ? -1 : 1;  // the right camera drawn first: the place in the frame changes, the camera does not
+        Entity bright = add_mesh(w, "cube", {100, 0, 0}, {12, 12, 12});
+        w.get<MeshRenderer>(bright)->color = Color{0.8f, 0.8f, 0.8f, 1};
+        if (stacks)
+            for (const char* name : {"cam", "cam2"}) {
+                PostProcess& p = w.add<PostProcess>(w.find(name));
+                p.exposureEnabled = true;
+                p.exposureMode = ExposureMode::Auto;
+                p.exposureMinEv = -6.0f;
+                p.exposureMaxEv = 8.0f;
+            }
+    };
+    World ref, w;
+    build(ref, false, false);
+    build(w, true, false);
+    const Image plain = g.draw(ref);
+    const Image img = g.draw(w);
+    const std::vector<std::string> order = order_of(g.renderer);
+    INFO(joined(order));
+    CHECK(index_of(order, "camera:0/exposure-luma") >= 0);
+    CHECK(index_of(order, "camera:1/exposure-luma") >= 0);
+    CHECK(count_suffix(order, "/post") == 2);
+    // Without a stack the two halves differ a lot; the first frame of an automatic exposure brings each half to 18% grey on its own.
+    const int plainGap = std::abs(c8(plain.pixel(240, 90).r) - c8(plain.pixel(80, 90).r));
+    const int gap = std::abs(c8(img.pixel(240, 90).r) - c8(img.pixel(80, 90).r));
+    CHECK(plainGap > 60);
+    CHECK(gap <= 10);
+    CHECK(c8(img.pixel(80, 90).r) > c8(plain.pixel(80, 90).r) + 20);    // the dark half was brought up
+    CHECK(c8(img.pixel(240, 90).r) < c8(plain.pixel(240, 90).r) - 20);  // the bright one down
+    // The same scene with the cameras' order swapped (the camera on the right is drawn first now): each camera keeps its own exposure.
+    World sw;
+    build(sw, true, true);
+    g.draw(sw);
+    const Image again = g.draw(sw);
+    CHECK(std::abs(c8(again.pixel(240, 90).r) - c8(again.pixel(80, 90).r)) <= 10);
+}
+
+TEST_CASE(
+    "postprocess (split screen): overlapping cameras with different stacks - the inset without a stack keeps its own "
+    "picture") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    World w;
+    add_camera(w, {0, 0, 10});
+    add_mesh(w, "cube", {0, 0, 0}, {2, 2, 2});
+    w.get<MeshRenderer>(w.find("cube"))->color = Color{0.3f, 0.6f, 0.9f, 1};
+    PostProcess& p = w.add<PostProcess>(w.find("cam"));
+    p.posterizeEnabled = true;
+    p.posterizeLevels = 2;
+    Entity second = make(w, "cam2", {0, 0, 10});
+    auto& c = w.add<Camera>(second);
+    c.projection = Projection::Perspective;
+    c.viewport = Rect{0.7f, 0.05f, 0.25f, 0.25f};
+    c.depth = 1;
+    const Image img = g.draw(w);
+    const std::vector<std::string> order = order_of(g.renderer);
+    INFO(joined(order));
+    CHECK(near_rgb(img.pixel(160, 90), 0, 255, 255, 3));   // the whole-picture camera: posterized
+    CHECK(near_rgb(img.pixel(264, 31), 77, 153, 230, 4));  // the inset: no stack, the stack below does not reach it
+    // The first camera's pass covers the picture, so no pass of an empty stack is needed under it: its own, plus the plain one over the inset.
+    CHECK(count_suffix(order, "/post") == 2);
+    CHECK(count_suffix(order, "/post-base") == 0);
+    CHECK(index_of(order, "camera:1/post") > index_of(order, "camera:0/post"));
+}
+
+TEST_CASE("postprocess (split screen): a first camera with no pixel does not take the frame's bloom away") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    World w;
+    add_camera(w, {0, 0, 10});
+    w.get<Camera>(w.find("cam"))->viewport =
+        Rect{0, 0, 0.0005f, 0.0005f};  // valid, but under half a pixel: draws nothing
+    add_mesh(w, "cube", {0, 0, 0}, {2, 2, 2});
+    Entity second = make(w, "cam2", {0, 0, 10});
+    auto& c = w.add<Camera>(second);
+    c.projection = Projection::Perspective;
+    c.depth = 1;
+    PostProcess& p = w.add<PostProcess>(second);
+    p.bloomEnabled = true;
+    g.draw(w);
+    const std::vector<std::string> order = order_of(g.renderer);
+    INFO(joined(order));
+    CHECK(count_suffix(order, "/bloom-bright") == 1);
+}
+
+TEST_CASE(
+    "postprocess (split screen): a camera's rectangle in uv, and where its pass reads the picture, on every backend") {
+    using namespace fa::render;
+    const int W = 320, H = 180;
+    const PostRect whole;
+    const PostRect right{160, 0, 160, 180}, topLeft{0, 0, 160, 90}, inner{32, 18, 64, 36};
+    // The rectangle as fractions of the picture, top-left origin.
+    const PostRectUv r = post_rect_uv(right, W, H);
+    CHECK(r.x == doctest::Approx(0.5f));
+    CHECK(r.y == doctest::Approx(0.0f));
+    CHECK(r.w == doctest::Approx(0.5f));
+    CHECK(r.h == doctest::Approx(1.0f));
+    const PostRectUv all = post_rect_uv(whole, W, H);
+    CHECK((all.x == 0.0f && all.y == 0.0f && all.w == 1.0f && all.h == 1.0f));
+    CHECK(post_rect_uv(PostRect{0, 0, W, H}, W, H).w == 1.0f);
+    // The exposure measure reads the image as stored: on OpenGL (origin at the bottom) the rectangle's v is flipped, elsewhere it is the same.
+    CHECK(post_rect_uv_native(topLeft, W, H, false).y == doctest::Approx(0.0f));
+    CHECK(post_rect_uv_native(topLeft, W, H, true).y == doctest::Approx(0.5f));
+    CHECK(post_rect_uv_native(inner, W, H, false).y == doctest::Approx(0.1f));
+    CHECK(post_rect_uv_native(inner, W, H, true).y == doctest::Approx(0.7f));  // 1 - (0.1 + 0.2)
+    CHECK(post_rect_uv_native(inner, W, H, true).h == doctest::Approx(0.2f));
+    CHECK(post_rect_uv_native(inner, W, H, true).x == doctest::Approx(0.1f));
+    CHECK(post_rect_uv_native(right, W, H, true).y == doctest::Approx(0.0f));  // a full-height rectangle stays put
+    // post.glsl src_uv: the centre of the rectangle reads the centre of the rectangle's pixels; GL flips v after the mapping.
+    for (const bool gl : {false, true}) {
+        const Vec2 c = post_source_uv(Vec2{0.5f, 0.5f}, inner, W, H, gl, 64, 36);
+        const PostRectUv n = post_rect_uv_native(inner, W, H, gl);
+        CHECK(c.x == doctest::Approx(n.x + n.w * 0.5f));
+        CHECK(c.y == doctest::Approx(n.y + n.h * 0.5f));  // the measure's rectangle and the pass's reading agree
+    }
+    // The corner is kept half a texel of the rectangle inside it, never reading the camera next to it.
+    const Vec2 corner = post_source_uv(Vec2{0.0f, 0.0f}, topLeft, W, H, false, 160, 90);
+    CHECK(corner.x == doctest::Approx(0.5f / 160.0f * 0.5f));
+    CHECK(corner.y == doctest::Approx(0.5f / 90.0f * 0.5f));
+    const Vec2 cornerGl = post_source_uv(Vec2{0.0f, 0.0f}, topLeft, W, H, true, 160, 90);
+    CHECK(cornerGl.x == doctest::Approx(corner.x));
+    CHECK(cornerGl.y == doctest::Approx(1.0f - corner.y));
+    const Vec2 far = post_source_uv(Vec2{1.0f, 1.0f}, right, W, H, false, 160, 180);
+    CHECK(far.x == doctest::Approx(0.5f + (1.0f - 0.5f / 160.0f) * 0.5f));
+    CHECK(far.x < 1.0f);
+    // The whole picture: s itself (flipped on OpenGL), no clamp.
+    const Vec2 whole0 = post_source_uv(Vec2{0.0f, 1.0f}, whole, W, H, true, W, H);
+    CHECK(whole0.x == 0.0f);
+    CHECK(whole0.y == 0.0f);
+    CHECK(post_source_uv(Vec2{0.25f, 0.75f}, whole, W, H, false, W, H).y == doctest::Approx(0.75f));
 }

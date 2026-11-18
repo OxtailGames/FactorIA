@@ -41,7 +41,8 @@ TEST_CASE("scene settings: the M71 fields default to today's look") {
 
 TEST_CASE("scene settings: a scene without the new fields loads as gamma and saves without them") {
     World w;
-    const Json scene = Json::parse(R"({"format": "factoria.scene/1", "settings": {"gravity2D": [0, -500]}, "entities": []})");
+    const Json scene =
+        Json::parse(R"({"format": "factoria.scene/1", "settings": {"gravity2D": [0, -500]}, "entities": []})");
     LoadReport report = load_scene(w, scene, "<test>");
     CHECK(report.ok());
     CHECK(w.settings().colorSpace == ColorSpace::Gamma);
@@ -73,7 +74,8 @@ TEST_CASE("scene settings: the M71 fields round trip through the scene file") {
 
 TEST_CASE("scene settings: a bad colorSpace teaches the allowed names") {
     World w;
-    const Json scene = Json::parse(R"({"format": "factoria.scene/1", "settings": {"colorSpace": "lineal"}, "entities": []})");
+    const Json scene =
+        Json::parse(R"({"format": "factoria.scene/1", "settings": {"colorSpace": "lineal"}, "entities": []})");
     LoadReport report = load_scene(w, scene, "<test>");
     CHECK_FALSE(report.ok());
     CHECK(report.summary().find("linear") != std::string::npos);

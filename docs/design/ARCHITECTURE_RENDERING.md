@@ -206,8 +206,9 @@ decides, and the game event `ui.viewPointer` goes out like the other ui.* events
   the light buffer (`light-buffer`), the shadow map (`shadow`, only when a light casts), the world (`game`, `view` for a
   view or target job, `game-hud` for the job of a split frame that draws only the screen-space groups), the bloom stages
   of the last job (`bloom-bright`, `bloom-down-<n>`, `bloom-blur-h`, `bloom-blur-v`, `bloom-composite`), the HUD over the
-  glow (`hud-over-bloom`, with `bloomScreenSpace = false`), the exposure measure (`exposure-luma`, `exposure-adapt`), the final
-  pass (`post`), the HUD over it (`hud-over-post`), the colour filter (`color-filter`) and, where the backend
+  glow (`hud-over-bloom`, with `bloomScreenSpace = false`), per camera of the frame the exposure measure (`camera:<i>/exposure-luma`,
+  `camera:<i>/exposure-adapt`), the final pass (`post` of each camera over its own rectangle, plus `post-base` when no camera's pass
+  covers the whole picture first), the HUD over it (`hud-over-post`), the colour filter (`color-filter`) and, where the backend
   stores a target bottom-up (GL), `<job>/flip`, the copy of a target's picture into the image its texture samples; it
   exists only for render targets and only in GL, and it is declared right after the target's `view` pass (so in GL the
   order reads `target:B/view`, `target:B/flip`, `target:A/view`, `target:A/flip`, `camera:0/game`; Metal and D3D11 have
@@ -231,8 +232,8 @@ decides, and the game event `ui.viewPointer` goes out like the other ui.* events
   resource for the whole frame, shared by the jobs that use them. *Transient* resources are the bloom levels and the
   blur's second image: `bloom.cpp` declares them with the format of the game image (`Gpu::scene_format()`, so RGBA8 when
   the GPU cannot render RGBA16F) and the `TransientTargets` of `Impl` (`transient_targets.h`, a `TargetPool` over
-  `make_target`) makes them on the first frame and hands the same ones out on the next. Only the last job has post
-  effects, so N views of the same size need no more transients than one, and two jobs never share a transient alive at
+  `make_target`) makes them on the first frame and hands the same ones out on the next. Only the last job declares the
+  frame's bloom and final passes (a camera's prepass, coverage and exposure measure are its own job's), so N views of the same size need no more transients than one, and two jobs never share a transient alive at
   the same time (the planner aliases only resources whose uses do not overlap). A transient's contents are UNDEFINED at
   its first writer: that pass must CLEAR it or DONTCARE and cover every pixel, never LOAD it. `execute` gives back every
   transient on every way out (an error or a pass that throws). A bloom whose targets cannot be made warns once and
@@ -389,8 +390,19 @@ final pass) are drawn; the others are not yet.
   (`tools/editor/src/postfx_panel.cpp`) draws that report and writes only through `postprocess.set` / `apply_preset`; its A/B check is
   `Renderer::set_post_bypass`, which makes `build_camera` declare no stack (data untouched).
 - **The stack's passes and the final pass (`src/postprocess.{h,cpp}`, `shaders/post.glsl`, `shaders/exposure.glsl`).** `build_graph`
-  declares them for the last job, from the PostStack of the camera that drives post (`specs.front().cam`; a stack per camera job is a
-  `PostPlan` and an `AutoExposure` per job, nothing else is shared). `make_post_plan` turns the stack into sanitised numbers
+  declares them in the last job, one stack per camera: every camera job that draws pixels (`plan_job`) makes its own `PostPlan` from its
+  own PostStack and keeps it in its `DrawContext`; `Impl::postCams` lists those contexts in drawing order. `PostPlan::rect` (a `PostRect`:
+  top-left, physical pixels; empty = the whole picture) is the camera's rectangle, which the camera's `post` pass draws into (viewport
+  and scissor) and reads from (post.glsl, mask bit 2048: `rc` is the rectangle as fractions of the picture, `src_uv` clamps to half a texel
+  inside it and then flips on a bottom-up backend; `post_rect_uv`, `post_rect_uv_native` and `post_source_uv` in `postprocess.cpp` are the
+  same maths on the CPU, with a test for the GL and the Metal/D3D11 flips). When the first camera's final pass does not cover the whole
+  picture, a `post-base` pass (the plan of an empty stack: the encode of a linear scene, a copy of a gamma one, the colour filter) draws
+  the whole picture first and the camera passes load it and draw over their rectangles; a camera without a stack that overlaps one with a
+  stack gets that plain pass over its own rectangle too. Cameras with stacks that tile the picture need no `post-base`, nor does a first
+  camera with a stack over the whole picture. An `AutoExposure` (its `exposure-luma` and `exposure-adapt` passes, named after the camera's
+  job) is kept per camera, by `Entity::bits()` in `Impl::autoExposures`, and released after two frames without a request. Bloom and the
+  colour filter are the exception: one of each per frame, with the settings of the first camera that draws a pixel (a camera whose
+  rectangle has no pixel does not count). `make_post_plan` turns the stack into sanitised numbers
   (`PostPlan`); `PostPlan::convert()` (exposure, tonemap, or `linear`, which `make_post_plan` sets only for a linear scene that also has exposure, a tonemap or a colour filter: a linear scene with none keeps B1's encode in the present copy) decides whether the final pass runs. Encode matrix: `Impl::finalEncoded` is set by the `post` pass; the present copy and `read_rgba8` encode (`blit_fs_params.encode`) only when the scene is linear and it is false, and `display_image()` shows the final target itself and `update_editor_copy()` makes no copy when it is true. `filterTarget` and `hudTarget` are `Gpu::display_format()` (the scene format, but RGBA8 for SRGB8A8, whose writes would encode the display values again), and `hud_pass` draws as a gamma scene (`fr.linear` off) when the items go over the final picture Order: bloom
   (`bloom.h`, now with a soft knee in `q.y` of the bright pass and a lens dirt texture in the composite) -> `exposure-luma` /
   `exposure-adapt` (`AutoExposure`) -> `post` (exposure, tonemap, the sRGB encode, a one-step interleaved-gradient-noise dither, and
@@ -453,26 +465,26 @@ final pass) are drawn; the others are not yet.
   `@image_sample_type aux_tex unfilterable_float`), bound to `aux_tex`; a Roberts cross of four texels (`lo = floor(w/2)` before and `hi =
   ceil(w/2)` after the pixel) with the silhouette (coverage differs), the relative depth jump (against `ol.y` divided by how face-on the
   two normals are, clamped to 0.2..1, so a grazing floor is not an edge) and the normal chord (`ol.z`). `aux_at` maps the screen position
-  to the aux texel by `ax` (scale xy, offset zw: the identity today, the place for a camera rectangle) and flips the row on a bottom-up
+  to the aux texel by `ax` (scale xy: always 1, the prepass has the size of the camera's rectangle and the pass is in camera-local coordinates) and flips the row on a bottom-up
   backend (`ex.y`), because the prepass is drawn by the same camera as the game image and has the same orientation. `postprocess.cpp`
   drops the outline bit from the prepass read mask unless the resolved stack's outline is depth mode and on, so a sprite outline never
   makes a prepass; `plan_outline` calls `PostPlan::skip_outline()` (it clears `fx.outline` and recomputes `linear`, so the plan may
-  drop the final pass altogether) when `plan_prepass` made none (the one warning of `prepassSplitWarned` already says why).
+  drop the final pass altogether) when `plan_prepass` made none (`prepassWarned`: one error when the pool cannot make the image).
   *Sprite outline: the decision.* The three possible sources of the sprites' alpha were the game image's alpha, a coverage render and
   an edge detection on colour. The game image's alpha is useless (the clear colour has alpha 1 and a float scene has no usable alpha on
   R11G11B10), and colour edges find the borders of 3D and of the background as well as the sprites'. So when a sprite outline is on,
-  `plan_outline` has the job declare one more transient pass, `sprite-coverage` (`PostPlan::coverage`): an RGBA8 image of the frame size,
+  `plan_outline` has the camera's job declare one more transient pass, `<job>/sprite-coverage` (`PostPlan::coverage`): an RGBA8 image of the camera's rectangle,
   one sample, no depth, cleared to 0, drawn by `draw_group` with the world's quad batches (`ctx.gWorld.batches`, camera `viewProj`, no depth
   test, `flatMode` 0 so no lights) and `TargetFormat` of its own (`draw_group` takes the format, since quad pipelines are made for the
   scene format by default). Alpha blending accumulates the union of the coverage in `.a`; additive and multiply blends leave `.a`
   alone; the `.rgb` is not used. The final pass reads it as `aux_tex` and draws the line outside the border: a pixel with `a >= ol.w` is
   untouched, any other pixel with such a texel in a ring of 8 taps at `round(width)` (and one at half of it for a thin sprite) takes the
-  colour. Cost: one RGBA8 target and one more draw of the 2D world, only while the effect is on; it is declared only for one job that is
-  the first and the last, draws the world and has a camera over the whole screen (else `coverageWarned`: one warning, the outline is
-  dropped), and only when the pool could make the image. 3D meshes are not in it (a mesh is not "a sprite"), nor the clear colour, nor the
+  colour. Cost: per camera with the effect, one RGBA8 target of its rectangle and one more draw of its 2D world; it is declared for every
+  camera job that draws the world, and only when the pool could make the image (else `coverageWarned`: one warning, that camera's outline
+  is dropped). 3D meshes are not in it (a mesh is not "a sprite"), nor the clear colour, nor the
   screen-space items (the HUD is drawn after the final pass).
 - **Depth and normal prepass** (`Renderer::Impl::plan_prepass`, `prepass_pass`, `prepass_view_pass` in `renderer_draw.cpp`). A pass
-  of the last job's graph declared before "main", with a transient of its own (`PostPlan::prepass`, a `PrepassRef` the effects that read
+  of every camera job's graph that needs one, declared before "main" as `<job>/prepass`, with a transient of its own (`PostPlan::prepass`, a `PrepassRef` the effects that read
   it list in their reads; the pass is `GraphPass::sideEffect` because nothing reads it until an effect or the debug view does). One
   float image (`Gpu::prepass_color_format`: `RGBA32F`, else `RGBA16F`, else none and `prepass_ready()` is false, which is also what
   `render.supports` `sampledDepth` answers) with its own depth buffer, never multisampled: r = linear view depth in world units
@@ -482,13 +494,12 @@ final pass) are drawn; the others are not yet.
   one the main pass lights with) and discard below `alphaCutoff` with `FA_ALPHA_CLIP`, like the shadow programs; they read the camera's view matrix through the slot the shadow programs use for the
   light's (`fa_light_vp`). The pass draws `opaqueBatches` with the same instance rows as the main pass, so its draw calls are one per
   batch part; a material twin without `prepass` programs (made before this version) falls back to the engine's program and draws its
-  mesh without the material. `plan_prepass` is the only decision: the job is the last one (`plan.last`), not a view, draws the world,
-  the resolved stack needs the depth or the normals (`post_mask_needs_depth` / `post_mask_needs_normals` of `postprocess_resolve.h`, masked
+  mesh without the material. `plan_prepass` is the only decision: the job is not a view, draws the world with at least one pixel, the camera's own
+  resolved stack needs the depth or the normals (`post_mask_needs_depth` / `post_mask_needs_normals` of `postprocess_resolve.h`, masked
   by `post_drawn_mask()` so an effect the renderer does not draw yet costs nothing) or a debug view is on, it has an opaque mesh, and a
-  pooled image of the size could be made (else one error and no prepass). `plan_prepass` also requires `plan.first` and a camera over the
-  whole screen (`CameraInfo::fullViewport()`): the `PostPlan` comes from the first camera, and when the screen-space job of a split frame is
-  dropped (no HUD, no text) the last job is the last camera, so a frame split between cameras or with a partial viewport has no prepass
-  (one `FA_WARN` when the stack needs depth there). `Impl::prevViewProj` keeps each camera's view-projection of the frame before (by entity,
+  pooled image of the size of the camera's rectangle (`ctx.camPx`) could be made (else one error and no prepass). A split screen
+  therefore has one prepass per camera that asks, each the size of its own viewport, and the camera's final pass reads it by camera-local
+  coordinates. `Impl::prevViewProj` keeps each camera's view-projection of the frame before (by entity,
   with the frame serial, forgotten after a frame without it) for `PostPlan::prevViewProj`, which motion blur will read. Tests force an
   effect with `render::renderer_force_post_effects`; `Renderer::set_debug_view` (and `FA_RENDER_DEBUG_VIEW`) adds the "prepass-view"
   pass, which draws `prepass_view.glsl` over the game image (the main pass then keeps its multisampled colour). The tests read the image
