@@ -175,6 +175,13 @@ Vec2 lens_source(const PostFx& fx, Vec2 uv, float aspect);
 Vec3 sharpen_color(const PostFx& fx, Vec3 c, Vec3 up, Vec3 down, Vec3 left, Vec3 right);
 // The grain of the pixel (x, y): -1..1, triangular, from an integer hash of the grain cell and the seed: the same on every GPU and run.
 float grain_noise(int x, int y, const PostFx& fx);
+// How much of the picture shows at the output pixel whose lens source is `source` (top-left origin, 0..1) on a `w` x `h` target: 1
+// inside, 0 outside, a one-pixel smoothstep across the edge (the shader's `cover`), so a lens does not leave a stair-stepped border.
+float lens_coverage(Vec2 source, int w, int h);
+// The grain seed of the camera number `cameraIndex` (its place among the frame's cameras, 0 = the first) from the frame's seed
+// (`PostFx::grainSeed`): the first camera keeps it, the others get an odd multiple of a large constant added (24 bits), so the
+// halves of a split screen do not show the same grain.
+std::uint32_t grain_seed_for_camera(std::uint32_t seed, int cameraIndex);
 // The pixel after the grain: `c` plus the noise, scaled by the intensity and by how mid-toned the pixel is (grainResponse).
 Vec3 grain_color(const PostFx& fx, Vec3 c, int x, int y);
 // The pixel a block of the pixelation shows: the picture is read at (x, y) of `w` x `h` through this pixel (the centre of the block that

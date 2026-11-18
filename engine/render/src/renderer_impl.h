@@ -15,6 +15,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <set>
+#include <unordered_set>
 
 #include "fa/core/fs.h"
 #include "font_internal.h"
@@ -168,6 +169,8 @@ struct Renderer::Impl {
     bool warnedNoLight = false;
     std::string
         warnedViewport;  // the last "bad Camera.viewport" problem logged (a viewport a script sets live is clamped)
+    std::unordered_set<std::uint64_t>
+        warnedLegacyIgnored;     // cameras whose Camera.bloom/colorFilter a PostProcess of their own hides
     bool postBypass = false;     // Renderer::set_post_bypass: draw without any post-processing stack (the editor's A/B)
     bool warnedCameras = false;  // the "more cameras than the limit" warning, once per scene
     bool warnedLights2d = false;       // the "more Light2D in view than the budget" warning, once per scene
@@ -206,6 +209,10 @@ struct Renderer::Impl {
     std::vector<ShadowRowsSlot> shadowRowsRing;
     std::uint64_t frameSerial =
         0;  // counts the frame graphs begun (begin_frame_graph); never 0 while a frame is planned
+    // The frames of the game's pictures (begin_frame_graph(true)): what the auto exposure counts, so a capture_world between two
+    // frames does not make the exposure jump to the measured value.
+    std::uint64_t postSerial = 0;
+    bool framePost = true;  // the frame being planned is one of the game's (false in capture_world)
     void trim_shadow_rows();
     bool updated = false;  // update() ran since the last draw
     ScaleMode scaleMode = ScaleMode::Fit;
@@ -345,7 +352,8 @@ struct Renderer::Impl {
     struct JobImage {
         ResourceId drawn, shown;  // `shown` is the flipped copy when the backend needs one, else the same as `drawn`
     };
-    void begin_frame_graph();
+    // `countPost` false for a frame that is not the game's picture (capture_world): it does not count as a frame for the auto exposure.
+    void begin_frame_graph(bool countPost = true);
     void run_frame_graph();
     // The time of every pass that ran in the graph (graph.stats(), in order) and of every job (the passes whose name starts
     // with the same `<job>/`), with the GPU time of the newest finished measurement of each pass name (-1 without one, and
