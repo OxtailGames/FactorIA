@@ -18,13 +18,10 @@
 #include "bloom.h"
 #include "frame_graph.h"
 #include "render_internal.h"
+#include "hdr_encode.h"
 #include "transient_targets.h"
 
 namespace fa::render {
-
-// How the final picture is encoded for the display. Only the sRGB transfer function of an 8-bit display exists today; the values the HDR
-// displays will need (scRGB, PQ) are added here and in post.glsl (uniform `p.z`) without touching the passes around it.
-enum class OutputEncode : std::uint8_t { Sdr };
 
 struct PostPlan {
     BloomSettings bloom;  // bloom.enabled = false: no bloom
@@ -38,7 +35,6 @@ struct PostPlan {
     int colorFilter = 0;  // Camera.colorFilter / PostProcess.colorFilterMode as an int, 0 none .. 5 tritanopia
     bool linear =
         false;  // a linear scene that has exposure, a tonemap or a colour filter: the target holds linear light, the final pass encodes it
-    OutputEncode output = OutputEncode::Sdr;
 
     // True when the final pass converts the picture (exposure, tonemap, or the encode of a linear scene): the pass is then `post`. A
     // frame that only has a colour filter is the plain filter pass; one that only has bloom has none.
@@ -55,9 +51,10 @@ BloomSettings bloom_from_stack(const PostStack& stack);
 // What the final pass draws (post.glsl): `convert` runs exposure, tonemap and the encode (the plan's), `filter` the colour filter
 // (0 none; the picture is clamped for it); `expo` is the adapted-exposure image (the 1x1 of AutoExposure) or any 1x1 image when the
 // exposure is not automatic. `pass` is the PassDesc of the destination (the caller sets its load and store actions); the pass draws
-// one full-screen triangle and ends. `w` x `h`: the size of the destination in pixels (the dither pattern).
+// one full-screen triangle and ends. `w` x `h`: the size of the destination in pixels (the dither pattern). `output`: what the frame is
+// drawn for (hdr_encode.h); an HDR output with headroom runs the tonemap above paper white (tonemap_hdr), the rest the SDR one.
 void run_post_pass(Gpu& gpu, const PostPlan& plan, bool convert, int filter, bool autoExposure, const PassDesc& pass,
-                   sg_view src, sg_view expo, int w, int h);
+                   sg_view src, sg_view expo, int w, int h, const OutputTarget& output = {});
 
 // PostProcess.exposureMode auto. The adapted EV lives in a 1x1 RGBA16F target (two of them, taking turns: a pass cannot read what it
 // writes); `exposure-luma` reduces the finished game image to 32x32 log-luminances and `exposure-adapt` moves the stored EV toward the
