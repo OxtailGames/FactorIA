@@ -1,0 +1,9 @@
+{
+  "format": "factoria.material/1",
+  "doc": "Test fixture: custom lighting, a two-band toon. light() is called once per light; shadows and attenuation arrive in the LightSample.",
+  "shader": "shaders/toon.surface.glsl",
+  "lighting": "custom",
+  "params": {
+    "dark": { "type": "float", "default": 0.35, "min": 0.0, "max": 1.0, "doc": "Brightness of the shaded band, as a fraction of the lit one." }
+  }
+}
