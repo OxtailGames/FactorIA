@@ -89,8 +89,9 @@ void to_array(const Color& c, float out[3]) {
 
 }  // namespace
 
-static_assert(UB_fog_fog_vs_params == 0 && UB_fog_fog_params == 1 && UB_sun_shafts_shafts_vs_params == 0,
-              "the fog and sun shafts programs use uniform slots 0 (vertex) and 1 (fragment)");
+static_assert(UB_fog_fog_vs_params == 0, "the fog vertex shader uses uniform slot 0");
+static_assert(UB_sun_shafts_shafts_vs_params == 0, "the sun shafts vertex shader uses uniform slot 0");
+static_assert(UB_fog_fog_params == 1, "the fog program uses uniform slot 1 (fragment)");
 static_assert(UB_sun_shafts_rays_params == 1, "the sun shafts' ray program uses uniform slot 1 (fragment)");
 static_assert(UB_sun_shafts_add_params == 1, "the sun shafts' add program uses uniform slot 1 (fragment)");
 static_assert(VIEW_fog_tex_p == 0 && VIEW_sun_shafts_tex_c == 0 && VIEW_sun_shafts_tex_p == 1 &&
