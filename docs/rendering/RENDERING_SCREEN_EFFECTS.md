@@ -1,7 +1,7 @@
-# Rendering: transient screen effects
-
 Part of [RENDERING.md](../RENDERING.md): the camera effects the post pass draws for a moment. The post-processing stack they are drawn with is
 described there, in "Post-processing: bloom, exposure, tonemap, colour grading, lens effects, colour filter".
+
+# Rendering: transient screen effects
 
 ## Transient screen effects: shockwave, heat haze, radial blur, flash, fade
 

@@ -382,6 +382,7 @@ void Renderer::shutdown() {
     Impl& im = *impl_;
     if (im.initialized) {
         im.fonts.reset();
+        im.ssr.release();
         im.sceneFx.release();
         im.ramps.destroy();
         im.assets.reset();

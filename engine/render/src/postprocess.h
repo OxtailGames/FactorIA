@@ -23,6 +23,7 @@
 #include "render_internal.h"
 #include "hdr_encode.h"
 #include "post_fx.h"
+#include "renderer_ssr.h"
 #include "renderer_dof.h"
 #include "transient_targets.h"
 
@@ -120,6 +121,8 @@ struct PostPlan {
     // camera (`prevValid`), so a cut or a new camera never blurs.
     Mat4 prevViewProj;
     bool prevValid = false;
+    // Screen-space reflections of this camera (renderer_ssr.h): drawn on the scene colour before the exposure and the bloom; empty when off.
+    SsrPlan ssr;
     // Depth of field and motion blur of this camera (renderer_dof.h): drawn on the scene colour before bloom; empty when neither is on.
     SceneFxPlan sceneFx;
 
