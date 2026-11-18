@@ -2,6 +2,11 @@ fa_add_module(runtime
     DEPS fa_core fa_scene fa_platform fa_render fa_physics fa_audio fa_ui fa_services fa_script)
 fa_add_tests(runtime)
 
+# The post-processing presets are data (postprocess_presets.h), embedded in the binary (namespace fa_runtime_data).
+fa_embed_files(fa_runtime fa_runtime_data embedded_runtime_data
+    FILES ${CMAKE_CURRENT_SOURCE_DIR}/data/postprocess_presets.json
+    BASE ${CMAKE_CURRENT_SOURCE_DIR}/data)
+
 # The Apple backend plugin (platforms/plugins/apple, Swift): its template is instantiated and built into this build tree, and
 # tests/apple_backend_tests.cpp loads it into a real Engine. Only on a Mac with Xcode's Swift; without it that file compiles to nothing.
 if(TARGET fa_test_runtime AND CMAKE_SYSTEM_NAME STREQUAL "Darwin" AND CMAKE_HOST_SYSTEM_NAME STREQUAL "Darwin")

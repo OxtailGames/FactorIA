@@ -96,21 +96,10 @@ CameraInfo Renderer::Impl::build_camera(World& world, Entity best, const Vec2* v
     ci.clear = cam.clear || viewSize != nullptr;
     // The deprecated Camera.bloom* and Camera.colorFilter fields are the PostProcess of a camera that has none: a hard bloom (knee 0)
     // and the colour filter, exactly as before.
-    PostProcess legacy = postprocess_neutral();
-    const bool useLegacy = cam.bloom || cam.colorFilter != ColorFilter::None;
-    if (useLegacy) {
-        const BloomSettings b =
-            sanitize_bloom(cam.bloom, cam.bloomThreshold, cam.bloomIntensity, cam.bloomRadius, cam.bloomScreenSpace);
-        legacy.bloomEnabled = b.enabled;
-        legacy.bloomThreshold = b.threshold;
-        legacy.bloomIntensity = b.intensity;
-        legacy.bloomRadius = b.radius;
-        legacy.bloomScreenSpace = b.screenSpace;
-        legacy.bloomKnee = 0.0f;
-        legacy.colorFilterEnabled = cam.colorFilter != ColorFilter::None;
-        legacy.colorFilterMode = cam.colorFilter;
-    }
-    if (useLegacy || world.any<PostProcess>()) {
+    PostProcess legacy;
+    const bool useLegacy = legacy_post_of_camera(cam, legacy);
+    // The editor's A/B switch (set_post_bypass): the picture as the scene draws it, with no stack, to compare it with the stack on.
+    if (!postBypass && (useLegacy || world.any<PostProcess>())) {
         auto stack = std::make_shared<PostStack>(resolve_post_stack(world, ci, useLegacy ? &legacy : nullptr));
         ci.bloom = bloom_from_stack(*stack);
         ci.colorFilter = stack->has(PostEffect::ColorFilter) ? std::clamp(int(stack->fx.colorFilterMode), 0, 5) : 0;
@@ -498,6 +487,11 @@ void Renderer::update_output(const SceneSettings& settings, const std::string& b
 }
 
 HdrOutputInfo Renderer::output_info() const { return app_hdr_output(); }
+
+void Renderer::set_post_bypass(bool bypass) {
+    if (impl_) impl_->postBypass = bypass;
+}
+bool Renderer::post_bypass() const { return impl_ && impl_->postBypass; }
 
 Json Renderer::frame_graph_report() const {
     if (!impl_ || !(impl_->anyFrameRendered || impl_->graphFromCapture)) return Json();

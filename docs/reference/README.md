@@ -515,8 +515,9 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`bones.create`](commands/scene.md#bonescreate-modifies-state): Create a chain of Bone2D entities along points, under a parent. _Since 0.7.0._
 - [`load.cancel`](commands/scene.md#loadcancel-modifies-state): Stop a background load, or drop the files a finished one read ahead. _Since 0.19.0._
 - [`load.status`](commands/scene.md#loadstatus): Show the background loads: progress, items, bytes, errors. _Since 0.19.0._
-- [`postprocess.get`](commands/scene.md#postprocessget): Read the PostProcess component of an entity: its fields and the effects it switches on. _Not released yet._
-- [`postprocess.presets`](commands/scene.md#postprocesspresets): List the named post-processing looks that postprocess.set can apply. _Not released yet._
+- [`postprocess.apply_preset`](commands/scene.md#postprocessapply_preset-modifies-state): Apply a named look (cinematic, retro, noir...) to the PostProcess of an entity. _Not released yet._
+- [`postprocess.get`](commands/scene.md#postprocessget): Read the PostProcess component of an entity, or (resolved) the stack a camera really draws and where each value comes from. _Not released yet._
+- [`postprocess.presets`](commands/scene.md#postprocesspresets): List the named post-processing looks that postprocess.apply_preset can apply. _Not released yet._
 - [`postprocess.set`](commands/scene.md#postprocessset-modifies-state): Set fields of the PostProcess component of an entity (added when missing). _Not released yet._
 - [`prefab.apply`](commands/scene.md#prefabapply-modifies-state): Write an instance's values into its prefab file: one field, one component, or everything; the other instances follow. _Since 0.30.0._
 - [`prefab.overrides`](commands/scene.md#prefaboverrides): List what a prefab instance of the open scene overrides: what differs from its prefab. _Since 0.30.0._

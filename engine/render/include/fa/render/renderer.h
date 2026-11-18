@@ -473,6 +473,12 @@ public:
     // What the window shows now (the `render.output` command): the last answer of update_output(), any thread.
     HdrOutputInfo output_info() const;
 
+    // The editor's A/B switch of the Post-processing panel: true draws every following frame as if no camera had a post-processing
+    // stack (no PostProcess, no deprecated Camera.bloom* or colorFilter), without touching any data; false (the default) draws
+    // them. Not saved and not part of a scene: a game never sets it. Takes effect on the next frame.
+    void set_post_bypass(bool bypass);
+    bool post_bypass() const;
+
     struct Impl;
 
 private:
