@@ -49,6 +49,45 @@ constexpr const char* kDraggableDoc =
     "ancestor. "
     "Slider and TextField keep their own pointer handling and ignore it. docs/MENUS.md, \"Drag and drop\".";
 
+// Custom materials on the renderers that are not meshes (MeshRenderer has its own, longer text): `material` names a
+// *.material.json and `materialParams` overrides its params, with the same meaning as MeshRenderer.materialParams.
+// TODO(M72-P3, M72-P5, M72-P6): the renderer reads these (sprite batches, sky pass, UI images).
+std::string material_params_doc(const char* sharing) {
+    return std::string(
+               "Per-entity overrides of the material's params and textures, an object keyed by the name declared in "
+               "the material file: numbers for float params, arrays for vectors and colors ([r, g, b, a]), "
+               "project-relative paths for textures. Example: {\"glow\": [1, 0.2, 0, 1], \"mask\": "
+               "\"textures/leaf.png\"}. Unnamed params keep the material's defaults. Same meaning as "
+               "MeshRenderer.materialParams. ") +
+           sharing;
+}
+
+std::string material_params_doc_2d() {
+    return material_params_doc(
+        "Entities that share the same material and the same params are still drawn in one batch; different params "
+        "draw in separate batches.");
+}
+
+std::string material_doc_2d(const char* type, const char* what) {
+    return std::string("Project-relative path of a custom material, a *.material.json file of kind \"sprite\" (e.g. "
+                       "\"materials/wave.material.json\"), or \"\" (default) for the built-in look. The material's "
+                       "fragment() snippet replaces the fragment colour of ") +
+           what + " (it receives the colour the " + type +
+           " would have drawn, texture times `color`, so it can tint, dissolve, outline or distort it) and its "
+           "optional vertex() snippet moves the vertices. The material declares its params, textures and blend. "
+           "`material.info` lists them and `shader.compile` compiles the snippets and reports errors with "
+           "file:line; a material that does not compile draws magenta and logs why. Guide with worked examples: "
+           "docs/SHADERS.md (`factoria docs read shaders`).";
+}
+
+std::string sky_material_doc() {
+    return "Project-relative path of a custom material of kind \"sky\" (a *.material.json), or \"\" (default) for the "
+           "skyColor / horizonColor gradient. The material's fragment() snippet computes the colour of the background "
+           "of a perspective camera from the view direction, so it replaces the gradient. `material.info` lists its "
+           "params and `shader.compile` compiles it and reports errors with file:line; a material that does not "
+           "compile shows the gradient and logs why. Guide: docs/SHADERS.md (`factoria docs read shaders`).";
+}
+
 // The fields every UI widget shares (UiBox), registered once for each kind so their documentation exists in one place.
 template <class T>
 TypeBuilder<T>& ui_box_fields(TypeBuilder<T>& b) {
@@ -112,6 +151,9 @@ TypeBuilder<T>& ui_box_fields(TypeBuilder<T>& b) {
                "image gives "
                "panels of any size. [0, 0, 0, 0] (default) stretches the whole image. When the widget is smaller than "
                "left + right (or top + bottom) the borders shrink proportionally.")
+        .asset_field("material", static_cast<std::string T::*>(&UiBox::material), "material",
+                     material_doc_2d("widget", "the widget's background image (the 9-slice rectangle)").c_str())
+        .field("materialParams", static_cast<Json T::*>(&UiBox::materialParams), material_params_doc_2d().c_str())
         .field("tooltip", static_cast<Json T::*>(&UiBox::tooltip), kTooltipDoc)
         .field("draggable", static_cast<Json T::*>(&UiBox::draggable), kDraggableDoc)
         .field("mirror", static_cast<bool T::*>(&UiBox::mirror),
@@ -672,7 +714,9 @@ void register_builtin_components(TypeRegistry& r) {
                "its light and dark along the curve with [0.6,0.6,0.6,1] at the vertices in shade and [1,1,1,1] in "
                "light. Write the "
                "whole array to change it (like vertexOffsets). [] (default) = every vertex white. Not used with "
-               "SpriteSkin.");
+               "SpriteSkin.")
+        .asset_field("material", &Sprite::material, "material", material_doc_2d("Sprite", "the sprite's quad").c_str())
+        .field("materialParams", &Sprite::materialParams, material_params_doc_2d().c_str());
 
     r.add<Tint>(
          "Tint",
@@ -1214,7 +1258,9 @@ void register_builtin_components(TypeRegistry& r) {
             "end); quadIn/cubicIn hold the start colour longer. It applies to the two-colour gradient and to "
             "gradientStops alike (stop positions are on the curve's input side: a stop at 0.5 is where the eased "
             "position "
-            "is 0.5). The shape costs the same as a linear gradient.");
+            "is 0.5). The shape costs the same as a linear gradient.")
+        .asset_field("material", &Shape2D::material, "material", material_doc_2d("Shape2D", "the shape").c_str())
+        .field("materialParams", &Shape2D::materialParams, material_params_doc_2d().c_str());
 
     r.add<Text>("Text", "Draws a string with a TrueType font (or the built-in font). Works in world and screen space.",
                 "2D")
@@ -1325,7 +1371,11 @@ void register_builtin_components(TypeRegistry& r) {
                "rounded corners and system bars of a phone (screen.safeArea in scripts), instead of the whole "
                "screen: anchor [0, 0] is the top-left corner of the safe area, [1, 1] its bottom-right. Keeps "
                "HUD and buttons out of the notch. On a screen without cutouts (desktop, most tablets) it changes "
-               "nothing. Default false.");
+               "nothing. Default false.")
+        .asset_field(
+            "material", &Text::material, "material",
+            material_doc_2d("Text", "the glyphs (the glyph coverage is part of the alpha it receives)").c_str())
+        .field("materialParams", &Text::materialParams, material_params_doc_2d().c_str());
 
     r.add<Tilemap>("Tilemap",
                    "A grid of tiles drawn from a tileset texture; tile index -1 is empty. Row 0 is the TOP row. "
@@ -1452,7 +1502,9 @@ void register_builtin_components(TypeRegistry& r) {
                "same "
                "solidTiles. Editing a tile at run time (set_tile) moves the shadows on the next frame. The tilemap "
                "needs no "
-               "`lit` itself to cast. Default false.");
+               "`lit` itself to cast. Default false.")
+        .asset_field("material", &Tilemap::material, "material", material_doc_2d("Tilemap", "every tile").c_str())
+        .field("materialParams", &Tilemap::materialParams, material_params_doc_2d().c_str());
 
     r.add<ParticleEmitter>(
          "ParticleEmitter",
@@ -1733,7 +1785,10 @@ void register_builtin_components(TypeRegistry& r) {
         .field("seed", &ParticleEmitter::seed,
                "0 (default): the random run is derived from the entity's stable id. Another number gives another run, "
                "and the same number "
-               "always the same one, on every platform. Read when the emitter first appears.");
+               "always the same one, on every platform. Read when the emitter first appears.")
+        .asset_field("material", &ParticleEmitter::material, "material",
+                     material_doc_2d("ParticleEmitter", "every particle and its trail").c_str())
+        .field("materialParams", &ParticleEmitter::materialParams, material_params_doc_2d().c_str());
 
     // --------------------------------------------------------------- 3D ---
     r.add<MeshRenderer>("MeshRenderer",
@@ -3762,7 +3817,10 @@ void register_builtin_components(TypeRegistry& r) {
                "Only used with hdrOutput auto on an HDR display: the brightness of white (1.0) in nits (cd/m2), "
                "80..1000. 200 is "
                "comfortable indoors, 400 and more suits a bright room; the display shows brighter highlights above it.")
-        .range(80, 1000);
+        .range(80, 1000)
+        .asset_field("skyMaterial", &SceneSettings::skyMaterial, "material", sky_material_doc().c_str())
+        .field("skyMaterialParams", &SceneSettings::skyMaterialParams,
+               material_params_doc("They apply to the sky material only.").c_str());
 }
 
 void ensure_builtin_components() {
