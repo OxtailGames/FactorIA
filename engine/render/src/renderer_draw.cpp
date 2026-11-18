@@ -383,17 +383,33 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
         const std::uint64_t camKey = fr.cam.entity.bits();
         // Counted in the frames of the game (postSerial): a capture_world between two of them neither reads nor writes the matrices,
         // so the next frame still reprojects from the one before the capture.
+        // A second job of the same camera in the same frame (entry.frame == postSerial) takes what the first one took. A world frame
+        // that went back, or more than 8 simulation ticks ahead, is a cut (a scene loaded, a seek): no blur across it.
         const auto prev = prevViewProj.find(camKey);
-        if (prev != prevViewProj.end() && prev->second.frame + 1 == postSerial && framePost) {
-            pp.prevViewProj = prev->second.viewProj;
-            pp.prevValid = true;
+        if (prev != prevViewProj.end() && framePost) {
+            const PrevCamera& e = prev->second;
+            if (e.frame == postSerial) {
+                if (e.hadBefore) {
+                    pp.prevViewProj = e.before;
+                    pp.prevValid = true;
+                }
+            } else if (e.frame + 1 == postSerial && world.frame() >= e.worldFrame &&
+                       world.frame() - e.worldFrame <= 8) {
+                pp.prevViewProj = e.viewProj;
+                pp.prevValid = true;
+            }
         }
         if (fr.cam.postStack)
             pp.ssr = make_ssr_plan(fr.cam, *fr.cam.postStack);  // screen-space reflections (renderer_ssr.h)
         if (framePost) {
             PrevCamera& now = prevViewProj[camKey];
-            now.viewProj = fr.cam.viewProj;
-            now.frame = postSerial;
+            if (now.frame != postSerial) {  // the first job of the camera this frame
+                now.before = pp.prevViewProj;
+                now.hadBefore = pp.prevValid;
+                now.viewProj = fr.cam.viewProj;
+                now.frame = postSerial;
+                now.worldFrame = world.frame();
+            }
             for (auto it = prevViewProj.begin(); it != prevViewProj.end();)
                 it = it->second.frame + 1 < postSerial ? prevViewProj.erase(it) : std::next(it);
         }
@@ -401,6 +417,19 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
         if (fr.cam.postStack)
             pp.sceneFx = sceneFx.plan(world, fr.cam, *fr.cam.postStack, camKey, postSerial, fr.dt, renderScale,
                                       pp.prevViewProj, pp.prevValid);
+        // A depth of field with no blur, and a motion blur with nothing to smear (the first frame, a cut, a still camera's null
+        // intensity), draw nothing: they must not ask for a prepass. A forced effect (tests) and the AO debug view keep theirs.
+        if (debugView != DebugView::Ao) {
+            std::uint32_t drop = 0;
+            if (!pp.sceneFx.dof) drop |= 1u << int(PostEffect::DepthOfField);
+            if (!pp.sceneFx.motion) drop |= 1u << int(PostEffect::MotionBlur);
+            drop &= ~forceEffects;
+            if ((pp.readMask & drop) != 0) {
+                pp.readMask &= ~drop;
+                pp.needsDepth = post_mask_needs_depth(pp.readMask);
+                pp.needsNormals = post_mask_needs_normals(pp.readMask);
+            }
+        }
         // The program is made only for a frame that runs it (a conversion or a colour filter): a game without a stack never compiles it.
         if ((pp.final_pass() || pp.colorFilter != 0) &&
             !gpu.post_ready()) {  // logged once; the frame is drawn without the final pass
@@ -1582,6 +1611,7 @@ void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
         // The effects that work on the opaque picture (the sky and the opaque meshes) and nothing else: the ambient occlusion and the
         // camera's fog, as full-screen draws over the camera's rectangle, reading the prepass. What is drawn after them (blended meshes,
         // sprites, particles, 3D text, the HUD) is not darkened, and fogs itself by its own distance (mesh_common.glsl, quad.glsl).
+        bool fogDrawn = false;
         const Target* preT = ctx.postPlan.prepass.target(pc);
         if (preT && preT->texView.id) {
             if (partial) apply_view(camPx);
@@ -1592,8 +1622,19 @@ void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
                     ++stats.drawCalls;
                 }
             }
-            if (ctx.postPlan.fogFx.fog && fogFx.draw_fog(gpu, ctx.postPlan.fogFx, preT->texView, mp.format))
+            if (ctx.postPlan.fogFx.fog && fogFx.draw_fog(gpu, ctx.postPlan.fogFx, preT->texView, mp.format)) {
                 ++stats.drawCalls;
+                fogDrawn = true;
+            }
+        }
+        // Planned with its prepass, but the prepass image or the draw failed: the scene's own fog was already switched off for this
+        // camera, so the opaque meshes show none. Said once (a frame later the plan is made again and may succeed).
+        if (ctx.postPlan.fogFx.fog && !fogDrawn && !fogMissingWarned) {
+            fogMissingWarned = true;
+            FA_ERROR("render",
+                     "The camera's fog could not be drawn this frame (its depth image is missing): the opaque meshes "
+                     "show no fog. "
+                     "Hint: turn PostProcess.fogEnabled off, or lower the render scale if the GPU is out of memory.");
         }
 
         draw_meshes(blendedBatches, blended, true);

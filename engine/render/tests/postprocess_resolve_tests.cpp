@@ -436,8 +436,15 @@ TEST_CASE("features: what the engine does not draw yet is false and says planned
             CHECK(supported(full, std::string(e).c_str(), &why));
             // A GPU without float targets draws them too: they need nothing of it (the exposure stays manual there). The outline, the depth of field
             // and the motion blur read the depth prepass, so it needs a GPU that can sample the scene's depth: the answer names that, not the plan.
-            if (e == "outline" || e == "depthOfField" || e == "motionBlur" || e == "fog" || e == "sunShafts") {
+            if (e == "outline" || e == "motionBlur" || e == "fog") {
                 CHECK_FALSE(supported(gpu(FeatureBackend::Gles3, false, false, false), std::string(e).c_str(), &why));
+                CHECK(why.find("depth") != std::string::npos);
+                CHECK(why.find("planned") == std::string::npos);
+            } else if (e == "depthOfField" ||
+                       e == "sunShafts") {  // their half-size images are RGBA16F: they need float targets too
+                CHECK_FALSE(supported(gpu(FeatureBackend::Gles3, false, false, true), std::string(e).c_str(), &why));
+                CHECK(why.find("RGBA16F") != std::string::npos);
+                CHECK_FALSE(supported(gpu(FeatureBackend::Gles3, true, true, false), std::string(e).c_str(), &why));
                 CHECK(why.find("depth") != std::string::npos);
                 CHECK(why.find("planned") == std::string::npos);
             } else if (e == "ssao") {  // M71-D1: float targets for its images, the prepass for the depth

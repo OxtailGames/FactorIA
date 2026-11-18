@@ -15,9 +15,10 @@ widget see docs/MENUS.md, "A camera inside the UI".
 
 ## Pages
 
-This page has the render targets, the post-processing stack, the depth and normals prepass, capture and HDR output. The rest is on two pages (`docs.read rendering-effects`, `rendering-screen-effects`):
+This page has the render targets, the post-processing stack, the depth and normals prepass, capture and HDR output. The rest is on three pages (`docs.read rendering-effects`, `rendering-passes`, `rendering-screen-effects`):
 
 - [Screen-space effects](rendering/RENDERING_EFFECTS.md): ambient occlusion and its cost, screen-space reflections, and the outline (both modes, where it is skipped).
+- [The passes of a frame](rendering/RENDERING_PASSES.md): every pass of the post-processing stack, when it runs and what it draws.
 - [Transient screen effects](rendering/RENDERING_SCREEN_EFFECTS.md): Shockwave, heat haze, radial blur pulse, flash and fade of the camera, drawn by its post pass.
 
 ## Render targets
@@ -345,21 +346,9 @@ picture, or overlap, a `post-base` pass first draws the picture the way a frame 
 copy of a gamma one), and a camera without a stack over one with a stack gets that plain pass over its own rectangle, so the stack
 of one camera never reaches another's pixels.
 
-The passes of a frame, in order (`render.frame_graph` lists them, and `RenderStats::passes` times them):
-
-| Pass | When | What |
-|---|---|---|
-| `bloom-bright`, `bloom-down-*`, `bloom-blur-h`, `bloom-blur-v`, `bloom-composite` | `bloomEnabled` | The glow: threshold with a soft knee, a reduced-resolution blur, added back (times the lens dirt texture). |
-| `exposure-luma`, `exposure-adapt` | `exposureMode` auto | The frame reduced to 32x32 brightness values, then the stored 1x1 exposure moves toward the one that makes the average 18% grey by `1 - exp(-speed * dt)`, kept between `exposureMinEv` and `exposureMaxEv`. No read back; the engine's frame `dt`, so the same frames give the same exposure on every run. Needs a float render target. The 1x1 exposure is kept as two 16-bit numbers (a coarse step and the remainder), so a slow speed at a high frame rate reaches the target on every GPU. Frames of `capture_world` do not count as frames of the game, so a capture does not make it jump. |
-| `prepass` | `outlineEnabled` in depth mode, `ssaoEnabled` (and the effects of "Depth and normals") | The opaque meshes' depth and normals, read by the outline and the ambient occlusion (see "Depth and normals"). |
-| `ssao-ao`, `ssao-blur-h`, `ssao-blur-v` | `ssaoEnabled`, 3D meshes in the view | The ambient occlusion image, made before the camera's main pass, which applies it right after the opaque meshes (see [Screen-space effects](rendering/RENDERING_EFFECTS.md)). |
-| `shafts-rays`, `shafts-add` | `sunShaftsEnabled` | The sun shafts (see [Screen-space effects](rendering/RENDERING_EFFECTS.md)). The distance and height fog is not a pass: the main pass draws it after the opaque meshes. |
-| `dof-down`, `dof-gather`, `dof-composite`, `dof-copy` | `depthOfFieldEnabled` | The depth of field (see "Depth of field and motion blur"). |
-| `motion-blur`, `motion-copy` | `motionBlurEnabled` | The camera motion blur (same section). |
-| `sprite-coverage` | `outlineEnabled` in sprite mode | The 2D world drawn once more into an RGBA8 image whose alpha is how much each pixel is covered, read by the sprite outline (see [The outline](rendering/RENDERING_EFFECTS.md#the-outline)). |
-| `post` | exposure, tonemap, colour grading, vignette, chromatic aberration, lens distortion, sharpen, outline, pixelate, posterize, film grain, or a colour filter in a linear scene | The final pass, one full-screen pass: pixelate (the picture is read at the block centres), lens distortion and chromatic aberration (while the picture is read), exposure, tonemap (`none` clips, `neutral`, `aces`, `agx`, `reinhard`), the encode for the display, colour grading, vignette, sharpen, outline, posterize, film grain, a one-step (1/255) dither so smooth gradients do not band on an 8-bit screen, on an HDR output too (not under posterize), and the colour filter. |
-| `hud-over-post` | the final pass ran and screen-space items exist | The HUD, drawn over the final picture in display colours: it is never exposed or tonemapped, and never glows. |
-| `color-filter` | a colour filter with no `post` (or a HUD after it) | The accessibility filter over everything, the last pass. With `post` and no HUD it is part of `post`. |
+The passes of a frame (bloom, exposure, prepass, ambient occlusion, shafts, depth of field, motion blur, `post`, the HUD and the colour
+filter), each with when it runs and what it draws, are on the page [The passes of a frame](rendering/RENDERING_PASSES.md)
+(`docs.read rendering-passes`); `render.frame_graph` lists them and `RenderStats::passes` times them.
 
 A game in the default gamma colour space with only bloom or only a colour filter gets exactly the passes it had before the stack
 existed (the old pictures are byte for byte the same). Exposure and tonemap decode the stored colours to light, work in linear
@@ -377,7 +366,7 @@ two that bend the picture and the pixelation, which move the place it is read fr
 | `radialBlur` | `radialBlurIntensity`, `radialBlurCenter`, `radialBlurSamples` | The picture streaks away from the centre: `radialBlurSamples` taps along the line from the pixel toward `radialBlurCenter`, as far as `radialBlurIntensity` says, averaged. It reads the scene, so it acts before the grade and the other display effects. `camera.radialBlur` starts a pulse of the same blur (see "Transient screen effects"). |
 | `lensDistortion` | `lensDistortionIntensity` (-1 pincushion .. 1 barrel), `lensDistortionScale` (zoom), `lensDistortionCenter` | Moves the point each pixel reads. It acts while the picture is sampled, so the bloom glow bends with it. Where the lens reads outside the picture the pixel is **black** (raise the scale to hide it). |
 | `chromaticAberration` | `chromaticAberrationIntensity` | Red and blue are read at slightly different distances from the centre, growing toward the edge; green stays. Read at the same moment as the lens; the sample is clamped to the picture's edge. |
-| `colorGrading` | `colorGradingTemperature`, `Tint`, `Lift`, `Gamma`, `Gain`, `Contrast`, `Saturation`, `HueShift`, `colorGradingLut`, `colorGradingLutContribution` | After the tonemap and the encode, in display space: white balance, gain, lift, gamma, contrast around mid grey, saturation, hue rotation, then the LUT. Nothing is clipped at white, so an HDR value above 1 stays above 1. The curves (`colorGradingCurve*`) are not drawn yet. |
+| `colorGrading` | `colorGradingTemperature`, `Tint`, `Lift`, `Gamma`, `Gain`, `Contrast`, `Saturation`, `HueShift`, `colorGradingLut`, `colorGradingLutContribution` | After the tonemap and the encode, in display space: white balance, gain, lift, gamma, contrast around mid grey, saturation, hue rotation, then the LUT. Nothing is clipped at white, so an HDR value above 1 stays above 1. |
 | `vignette` | `vignetteIntensity`, `Smoothness`, `Roundness`, `Center`, `Color` | Mixes the display value toward `vignetteColor` toward the edge of the screen. The same on SDR and HDR (it works on the encoded value). |
 | `sharpen` | `sharpenIntensity` | Contrast-adaptive: it reads the four neighbours (each shaded the same way as the pixel) and sharpens less where the local contrast is already high, so edges ring less. |
 | `outline` | `outlineMode` (`depth`, `sprite`), `outlineColor` (alpha = opacity), `outlineWidth`, `outlineDepthThreshold`, `outlineNormalThreshold`, `outlineAlphaThreshold` | Lines at the edges of things, drawn over the sharpened picture (see [The outline](rendering/RENDERING_EFFECTS.md#the-outline)). |
@@ -513,7 +502,7 @@ orthographic 3D camera.
   depth or the normals and that the renderer draws, when that camera draws opaque meshes (a camera of a split screen has its own, the
   size of its rectangle). A frame without such an effect declares no
   prepass pass, makes no image and builds no shader: the draw calls are the same as before. Of the effects that read the depth the
-  outline (depth mode), the ambient occlusion, the reflections, the depth of field and the motion blur are drawn so far; the rest are drawn as their M71 packages land, and the debug view below makes the image too.
+  outline (depth mode), the ambient occlusion, the reflections, the fog, the sun shafts, the depth of field and the motion blur are drawn; one that has nothing to draw this frame (a depth of field with no blur, a motion blur on a camera's first frame or after a cut, shafts with no sun in view) does not ask for it. The debug view below makes the image too.
 - **What is in it.** Opaque meshes, skinned ones at their pose, with their material's `vertex()` displacement, the normals of their material's `surface()` and, for `alphaMode`
   `"clip"`, the same holes as the main pass. Not in it: blended meshes, the sky, sprites, particles, shapes, text, debug lines
   and the HUD. A custom material gets its own prepass programs when

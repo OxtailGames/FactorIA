@@ -58,9 +58,10 @@ Rect rect_of(const PostRect& r, int picW, int picH) {
 // One full-screen triangle with `prog` into the pass `pd`. `tc`, `tp`, `tg`: the colour, prepass and blur images the program declares
 // (the others are not bound: a binding a program does not use is a validation error). `fu`: the program's uniform block (null: none).
 // `part`: the rectangle of the destination the pass covers (null: all of it).
-void draw_fullscreen(SceneFx& fx, Gpu& gpu, SceneFx::Prog prog, const PassDesc& pd, sg_view tc, sg_view tp, sg_view tg,
+// Returns false (nothing drawn) when the target of the pass is gone.
+bool draw_fullscreen(SceneFx& fx, Gpu& gpu, SceneFx::Prog prog, const PassDesc& pd, sg_view tc, sg_view tp, sg_view tg,
                      const void* fu, std::size_t fuSize, const Rect* part) {
-    if (!pd.color.id) return;  // the target of the pass is gone
+    if (!pd.color.id) return false;
     Gpu::begin_pass(pd);
     if (part) {
         sg_apply_viewport(part->x, part->y, part->w, part->h, true);
@@ -87,6 +88,7 @@ void draw_fullscreen(SceneFx& fx, Gpu& gpu, SceneFx::Prog prog, const PassDesc& 
     }
     sg_draw(0, 3, 1);
     Gpu::end_pass();
+    return true;
 }
 
 }  // namespace
@@ -147,7 +149,7 @@ SceneFxPlan SceneFx::plan(World& world, const CameraInfo& cam, const PostStack& 
         p.motionTaps = std::clamp(int(f.motionBlurSamples), 4, 32);
         // A view-space position of this frame -> the clip position of the frame before. (viewProj)^-1 * proj = view^-1, whatever the
         // depth range of the matrices (a backend's), which only the z row of the clip position sees.
-        const Mat4 invView = cam.invViewProj * cam.proj;
+        const Mat4 invView = cam.view.inverse();
         p.prevFromView = prevViewProj * invView;
         const Mat4& P = cam.proj;
         const float terms[8] = {P.at(0, 0), P.at(1, 1), P.at(2, 0), P.at(2, 1),
@@ -220,6 +222,7 @@ sg_pipeline SceneFx::pipeline(Prog prog, const TargetFormat& format) {
 
 void SceneFx::forget_targets() {
     failed_.clear();
+    probed_.clear();
     warnedTargets_ = false;
 }
 
@@ -234,6 +237,7 @@ void SceneFx::release() {
     state_ = 0;
     focus_.clear();
     failed_.clear();
+    probed_.clear();
     warnedTargets_ = false;
 }
 
@@ -252,8 +256,13 @@ int SceneFx::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, 
     if (!ready()) return 0;
     const sg_pixel_format fmt = gpu.scene_format();
     const int rw = rect.w, rh = rect.h;
+    // Half size rounded up: with an odd size the last half-size texel covers one picture pixel and a half-texel offset of the linear
+    // read is below the blur's own radius (the gather runs in this image only).
     const int hw = std::max(1, (rw + 1) / 2), hh = std::max(1, (rh + 1) / 2);
-    const std::uint64_t shapeKey = (std::uint64_t(rw) << 40) ^ (std::uint64_t(rh) << 16) ^ std::uint64_t(fmt);
+    // The size, the format and whether the two half-size images are part of it: a motion-blur-only frame must not hide (or be hidden
+    // by) the failure of the depth-of-field images of the same size.
+    const std::uint64_t shapeKey =
+        (std::uint64_t(rw) << 40) ^ (std::uint64_t(rh) << 16) ^ std::uint64_t(fmt) ^ (plan.dof ? (1ull << 63) : 0ull);
 
     // The scratch image of the picture's format and, for the blur, two RGBA16F images of half the size (the circle of confusion is signed:
     // it needs a float alpha). Make sure the GPU can have them all at once, so a failure is one warning here and not a pass that cannot run
@@ -272,7 +281,7 @@ int SceneFx::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, 
     hb.label = job + "/dof-half-b";
     const bool alreadyFailed = std::find(failed_.begin(), failed_.end(), shapeKey) != failed_.end();
     if (alreadyFailed) return 0;
-    {
+    if (std::find(probed_.begin(), probed_.end(), shapeKey) == probed_.end()) {  // once per shape, not every frame
         std::vector<std::uint64_t> held;
         bool ok = true;
         for (const TransientDesc* d : {&sd, &ha, &hb}) {
@@ -298,6 +307,8 @@ int SceneFx::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, 
             }
             return 0;
         }
+        if (probed_.size() >= kMaxFailed) probed_.erase(probed_.begin());
+        probed_.push_back(shapeKey);
     }
 
     const ResourceId scratch = graph.create_transient(sd);
@@ -372,20 +383,21 @@ int SceneFx::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, 
         add("dof-down", {game, pre}, {halfA}, [=](const PassContext& c) {
             const Target* pt = prepassRef.target(c);
             if (!pt || !srcTex.id) return;
-            draw_fullscreen(*self, *g, Prog::Down, into_scratch(c, halfA, "dof-down"), srcTex, pt->texView, sg_view{},
-                            &u, sizeof(u), nullptr);
-            ++*drawCalls;
+            if (draw_fullscreen(*self, *g, Prog::Down, into_scratch(c, halfA, "dof-down"), srcTex, pt->texView,
+                                sg_view{}, &u, sizeof(u), nullptr))
+                ++*drawCalls;
         });
         add("dof-gather", {halfA}, {halfB}, [=](const PassContext& c) {
-            draw_fullscreen(*self, *g, Prog::Gather, into_scratch(c, halfB, "dof-gather"), sg_view{}, sg_view{},
-                            tex(c, halfA), &u, sizeof(u), nullptr);
-            ++*drawCalls;
+            if (draw_fullscreen(*self, *g, Prog::Gather, into_scratch(c, halfB, "dof-gather"), sg_view{}, sg_view{},
+                                tex(c, halfA), &u, sizeof(u), nullptr))
+                ++*drawCalls;
         });
         add("dof-composite", {game, pre, halfB}, {scratch}, [=](const PassContext& c) {
             const Target* pt = prepassRef.target(c);
             if (!pt || !srcTex.id) return;
-            draw_fullscreen(*self, *g, Prog::Composite, into_scratch(c, scratch, "dof-composite"), srcTex, pt->texView,
-                            tex(c, halfB), &u, sizeof(u), nullptr);
+            if (!draw_fullscreen(*self, *g, Prog::Composite, into_scratch(c, scratch, "dof-composite"), srcTex,
+                                 pt->texView, tex(c, halfB), &u, sizeof(u), nullptr))
+                return;
             *scratchReady = true;
             ++*drawCalls;
         });
@@ -415,16 +427,17 @@ int SceneFx::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, 
             add("motion-blur", {scratch, pre, game}, {game}, [=](const PassContext& c) {
                 const Target* pt = prepassRef.target(c);
                 if (!pt || !*scratchReady) return;
-                draw_fullscreen(*self, *g, Prog::Motion, into_picture("motion-blur"), tex(c, scratch), pt->texView,
-                                sg_view{}, &u, sizeof(u), rect.whole ? nullptr : &rect);
-                ++*drawCalls;
+                if (draw_fullscreen(*self, *g, Prog::Motion, into_picture("motion-blur"), tex(c, scratch), pt->texView,
+                                    sg_view{}, &u, sizeof(u), rect.whole ? nullptr : &rect))
+                    ++*drawCalls;
             });
         } else {
             add("motion-blur", {game, pre}, {scratch}, [=](const PassContext& c) {
                 const Target* pt = prepassRef.target(c);
                 if (!pt || !srcTex.id) return;
-                draw_fullscreen(*self, *g, Prog::Motion, into_scratch(c, scratch, "motion-blur"), srcTex, pt->texView,
-                                sg_view{}, &u, sizeof(u), nullptr);
+                if (!draw_fullscreen(*self, *g, Prog::Motion, into_scratch(c, scratch, "motion-blur"), srcTex,
+                                     pt->texView, sg_view{}, &u, sizeof(u), nullptr))
+                    return;
                 *scratchReady = true;
                 ++*drawCalls;
             });
@@ -434,9 +447,9 @@ int SceneFx::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, 
         // The result is in the scratch: copy it into the camera's rectangle of the picture.
         add(plan.dof ? "dof-copy" : "motion-copy", {scratch, game}, {game}, [=](const PassContext& c) {
             if (!*scratchReady) return;
-            draw_fullscreen(*self, *g, Prog::Copy, into_picture(plan.dof ? "dof-copy" : "motion-copy"), tex(c, scratch),
-                            sg_view{}, sg_view{}, nullptr, 0, rect.whole ? nullptr : &rect);
-            ++*drawCalls;
+            if (draw_fullscreen(*self, *g, Prog::Copy, into_picture(plan.dof ? "dof-copy" : "motion-copy"),
+                                tex(c, scratch), sg_view{}, sg_view{}, nullptr, 0, rect.whole ? nullptr : &rect))
+                ++*drawCalls;
         });
     }
     return declared;
