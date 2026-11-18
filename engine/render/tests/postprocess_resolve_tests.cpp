@@ -423,8 +423,7 @@ TEST_CASE("features: compute shaders exist on GL, D3D11 and Metal and never on G
 TEST_CASE("features: what the engine does not draw yet is false and says planned") {
     const FeatureEnv full = gpu(FeatureBackend::D3d11, true, true, true, true);
     std::string why;
-    CHECK_FALSE(supported(full, "linearColor", &why));
-    CHECK(why == "planned (M71)");
+    CHECK(supported(full, "linearColor", &why));  // M71-B1: drawn on every GPU
     for (const std::string_view e : kPostEffectOrder) {
         CAPTURE(e);
         CHECK_FALSE(supported(full, std::string(e).c_str(), &why));

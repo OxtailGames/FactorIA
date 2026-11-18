@@ -51,6 +51,8 @@ struct Frame {
     RenderStats* stats = nullptr;
     Assets* assets = nullptr;
     Fonts* fonts = nullptr;
+    bool linear =
+        false;  // SceneSettings.colorSpace linear: the colours of the gather (lights, ambient) are linear light
     float renderScale = 1.0f;  // Renderer::set_render_scale: glyphs are rasterized this many times larger (sharp text)
     float textScale = 1.0f;    // Renderer::set_text_scale: multiplies the font size of screen-space Text and UI labels
     float uiScale =

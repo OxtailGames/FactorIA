@@ -709,6 +709,9 @@ bool Editor::boot(const std::string& dirIn) {
             engine_->shutdown();
             engine_.reset();
             dir.clear();
+        } else if (engine_->renderer()) {
+            engine_->renderer()->set_editor_view(
+                true);  // a linear scene is shown encoded, not as the dark linear light it holds
         }
     }
     if (!engine_) {
