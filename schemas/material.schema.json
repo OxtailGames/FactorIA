@@ -10,7 +10,7 @@
     "$schema": { "type": "string", "description": "Optional schema reference for editors." },
     "format": { "const": "factoria.material/1", "description": "File format identifier. Always \"factoria.material/1\"." },
     "doc": { "type": "string", "description": "What the material looks like and what it is for (shown by material.info)." },
-    "shader": { "type": "string", "description": "Project-relative path of the GLSL snippet that defines `void surface(in SurfaceInput i, inout Surface s)` and optionally `void vertex(inout VertexData v)`, e.g. \"shaders/water.surface.glsl\"." },
+    "shader": { "type": "string", "description": "Project-relative path of the GLSL snippet (generated from `graph` when the material has one) that defines `void surface(in SurfaceInput i, inout Surface s)` and optionally `void vertex(inout VertexData v)`, e.g. \"shaders/water.surface.glsl\"." },
     "lighting": { "enum": ["pbr", "unlit"], "default": "pbr", "description": "\"pbr\": the engine's Cook-Torrance lighting, fog and sky reflection. \"unlit\": the surface albedo is drawn as it is (plus emission and fog)." },
     "alphaMode": { "enum": ["opaque", "clip", "blend"], "default": "opaque", "description": "\"opaque\": alpha is ignored. \"clip\": fragments with alpha below the float param `alphaCutoff` (added automatically, default 0.5; declare it yourself to change default, range or doc) are discarded, in the shadow pass too. \"blend\": drawn with the blended meshes, far to near." },
     "doubleSided": { "type": "boolean", "default": false, "description": "Draw back faces too." },
@@ -43,6 +43,46 @@
           "doc": { "type": "string", "minLength": 1, "description": "What the texture holds (channels, color space). Required." }
         }
       }
-    }
+    },
+    "graph": {
+      "type": "object",
+      "description": "Optional node graph the snippet named by `shader` is GENERATED from (`material.graph.generate`; docs/SHADERS.md, \"Node graphs\"). Without it the snippet is hand-written. `material.graph.nodes` lists the node types. Params and textures the nodes name are this material's own `params` and `textures`.",
+      "additionalProperties": false,
+      "required": ["nodes"],
+      "properties": {
+        "nodes": {
+          "type": "array",
+          "minItems": 1,
+          "description": "The nodes. Exactly one has type \"output\".",
+          "items": {
+            "type": "object",
+            "required": ["id", "type"],
+            "additionalProperties": false,
+            "properties": {
+              "id": { "type": "string", "description": "Unique name that links refer to: a letter, then letters, digits and single underscores." },
+              "type": { "type": "string", "description": "A node type of `material.graph.nodes`, e.g. \"noise.fbm\", \"math.lerp\", \"output\"." },
+              "pos": { "type": "array", "items": { "type": "number" }, "minItems": 2, "maxItems": 2, "description": "[x, y] where the editor draws the node. The generated snippet does not depend on it." },
+              "inputs": { "type": "object", "description": "Constants for inputs that have no link: a number, or an array of 2 to 4 numbers. An input with neither reads its default." },
+              "param": { "type": "string", "description": "For type \"param\": the name of one of the material's params." },
+              "texture": { "type": "string", "description": "For the texture nodes: the name of one of the material's textures." }
+            }
+          }
+        },
+        "links": {
+          "type": "array",
+          "description": "Connections from an output to an input; an input takes one link.",
+          "items": {
+            "type": "object",
+            "required": ["from", "to"],
+            "additionalProperties": false,
+            "properties": {
+              "from": { "type": "string", "description": "\"nodeId.output\", e.g. \"noise1.value\"." },
+              "to": { "type": "string", "description": "\"nodeId.input\", e.g. \"out.alpha\"." }
+            }
+          }
+        }
+      }
+    },
+    "graphHash": { "type": "string", "pattern": "^[0-9a-f]{64}$", "description": "Written by `material.graph.generate`: the SHA-256 of the snippet it generated. A snippet that no longer matches was edited by hand, and the next generate refuses to overwrite it without force. Do not write it by hand." }
   }
 }

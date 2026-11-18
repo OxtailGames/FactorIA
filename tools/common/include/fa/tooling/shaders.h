@@ -1,7 +1,7 @@
 // Custom materials, the tooling half (docs/design/CUSTOM_SHADERS.md): reads and checks `*.material.json`
 // (schemas/material.schema.json), generates the sokol-shdc top file around the author's GLSL snippet and the engine's mesh
 // template (engine/render/shaders/*_common.glsl, embedded), runs sokol-shdc, maps its errors back to the snippet, and keeps
-// the result as one JSON "twin" per dialect (`factoria.shader/1`). Commands: "shader.compile", "material.info";
+// the result as one JSON "twin" per dialect (`factoria.shader/1`). Commands: "shader.compile", "material.info", and the node-graph ones in fa/tooling/material_graph.h;
 // `factoria validate` compiles every material for every dialect; `factoria export` ships the twins of the target's dialects
 // (<material>.json.<slang>.shader) in place of the snippets (tools/common/src/export_shaders.cpp).
 //
@@ -68,6 +68,10 @@ struct MaterialDef {
     bool doubleSided = false;
     std::vector<MaterialParam> params;  // alphabetical (the packing order of the uniform block); includes implicit ones
     std::vector<MaterialTexture> textures;  // alphabetical (view bindings 6.., sampler bindings 2..)
+    // The node graph the snippet is generated from (fa/tooling/material_graph.h); null = the snippet is hand-written. graphHash
+    // is the hash of the snippet material.graph.generate wrote ("" = never generated).
+    Json graph;
+    std::string graphHash;
 };
 
 struct MaterialIssue {

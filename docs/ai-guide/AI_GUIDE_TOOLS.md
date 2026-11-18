@@ -22,7 +22,7 @@ A tool name is the command name with `.` replaced by `_`. Arguments are one JSON
 | game | `game_click`, `game_input`, `game_logs`, `game_pause`, `game_render_stats`, `game_resume`, `game_rumble`, `game_screenshot`, `game_state`, `game_state_hash`, `game_step`, `input_record`, `render_debug_view`, `render_frame_graph`, `render_inspect`, `render_output`, `render_pick`, `render_supports`, `vfx_budget`, `vfx_check`, `vfx_filmstrip`, `vfx_list`, `vfx_play`, `vfx_review`, `vfx_stop` | Run the headless game: step, pause, input, clicks, screenshots, state, logs; render and VFX probes. |
 | i18n | `i18n_export`, `i18n_import`, `i18n_set_language`, `i18n_state` | Translations: export and import string tables, switch language, see missing strings. |
 | jobs | `jobs_info` | The job system: worker threads and what ran. |
-| material | `material_info` | Describe custom materials. |
+| material | `material_graph_generate`, `material_graph_nodes`, `material_graph_validate`, `material_info` | Describe custom materials. |
 | physics | `nav_bake`, `nav_find_path`, `nav_find_paths`, `nav_find_tile_path`, `nav_find_tile_paths`, `nav_flow_field`, `nav_info`, `physics_raycast`, `physics_raycast_all`, `physics_shape_cast` | Physics queries (raycasts, sweeps, overlaps) and navigation (NavMesh and tile paths). |
 | platform | `platform_add_backend`, `platform_emit`, `platform_remote_play_connect`, `platform_remote_play_disconnect`, `platform_reset`, `platform_respond`, `platform_revoke`, `platform_set_ad`, `platform_set_fake`, `platform_state` | Fake store platform: set up a store backend, send store events, Remote Play. |
 | play | `play_auto`, `play_report`, `play_sessions` | Let the game play itself (`play.auto`) and read the reports of play sessions. |

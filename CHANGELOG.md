@@ -6,6 +6,14 @@ Older versions, one file per minor version with its patch releases: [0.30](chang
 
 ## Unreleased
 
+- **Material node graphs (the document and the generator):** a `*.material.json` can hold a `"graph"` of nodes and links, and
+  `material.graph.generate` writes the material's GLSL snippet from it (deterministic, readable text, one line per node, with
+  `graphHash` recorded in the material file). A snippet edited by hand is never overwritten without `force`; deleting `graph`
+  keeps the hand-written code. The library has 46 node types: constants, params, textures, uv, time, vertex colour and
+  position and normal inputs, math, value, gradient, voronoi and fractal noise, dissolve, flow maps, fresnel, triplanar and
+  parallax occlusion, and an output node (surface fields and a vertex offset). `material.graph.nodes` lists them and
+  `material.graph.validate` checks a graph with the JSON pointer of every problem. The editor canvas follows in a later release.
+
 ## 0.31.0
 
 The scene is lit in linear light and drawn into a float target, and every camera gets a post-processing stack: tonemap and exposure (manual or automatic), bloom, colour grading with LUTs, vignette, lens effects, grain, sharpen, outline, pixelate and posterize, ambient occlusion, screen-space reflections, distance and height fog, sun shafts, depth of field and camera motion blur, plus transient screen effects (shockwave, heat haze, radial blur, flash, fade) and HDR display output on macOS and Windows. A `PostProcess` component and volumes set the stack, `render.supports` says what each GPU draws, and the editor's Post-processing panel shows it live with an A/B switch.
