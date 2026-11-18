@@ -19,6 +19,7 @@
 #include "shaders/mesh.glsl.h"
 #include "shaders/quad.glsl.h"
 #include "shaders/sky.glsl.h"
+#include "shaders/ssao.glsl.h"
 
 namespace fa::render {
 
@@ -257,6 +258,11 @@ void Gpu::shutdown() {
         s = {};
     }
     exposureState_ = 0;
+    for (sg_shader& s : ssao_shaders_) {
+        if (s.id) sg_destroy_shader(s);
+        s = {};
+    }
+    ssaoState_ = 0;
     for (sg_shader* s : {&prepassShader_, &prepassSkinShader_, &prepassViewShader_}) {
         if (s->id) sg_destroy_shader(*s);
         *s = {};
@@ -731,6 +737,55 @@ sg_pipeline Gpu::exposure_pipeline(ExposureStage stage, const TargetFormat& form
     d.depth.write_enabled = false;
     d.face_winding = SG_FACEWINDING_CCW;
     d.label = stage == ExposureStage::Luma ? "exposure-luma" : "exposure-adapt";
+    return find_or_make(key, format, d);
+}
+
+bool Gpu::ssao_ready() {
+    if (ssaoState_ != 0) return ssaoState_ > 0;
+    ssao_shaders_[0] = make_shader(ssao_ao_shader_desc(sg_query_backend()), "ssao_ao");
+    ssao_shaders_[1] = make_shader(ssao_blur_shader_desc(sg_query_backend()), "ssao_blur");
+    ssao_shaders_[2] = make_shader(ssao_apply_shader_desc(sg_query_backend()), "ssao_apply");
+    bool ok = true;
+    for (sg_shader s : ssao_shaders_) ok = ok && sg_query_shader_state(s) == SG_RESOURCESTATE_VALID;
+    if (!ok) {
+        for (sg_shader& s : ssao_shaders_) {
+            if (s.id) sg_destroy_shader(s);
+            s = {};
+        }
+        ssaoState_ = -1;
+        FA_ERROR(
+            "render",
+            "The ambient occlusion is unavailable: its shaders failed to compile for this graphics backend (see the "
+            "sokol log lines above). PostProcess.ssaoEnabled draws nothing. Hint: update the graphics driver "
+            "(Mesa: try LIBGL_ALWAYS_SOFTWARE=1) or set ssaoEnabled to false.");
+        return false;
+    }
+    ssaoState_ = 1;
+    return true;
+}
+
+sg_pipeline Gpu::ssao_pipeline(SsaoStage stage, const TargetFormat& format) {
+    if (!ssao_ready()) return {};
+    PipelineKey key{0xE00u | std::uint32_t(stage)};
+    sg_pipeline_desc d{};
+    d.shader = ssao_shaders_[stage == SsaoStage::View ? int(SsaoStage::Apply) : int(stage)];
+    d.layout.attrs[ATTR_ssao_ao_pos].format = SG_VERTEXFORMAT_FLOAT2;
+    d.depth.compare = SG_COMPAREFUNC_ALWAYS;
+    d.depth.write_enabled = false;
+    d.face_winding = SG_FACEWINDING_CCW;
+    switch (stage) {
+        case SsaoStage::Apply:  // dst.rgb *= src.rgb (the occlusion); alpha stays
+            d.colors[0].blend.enabled = true;
+            d.colors[0].blend.src_factor_rgb = SG_BLENDFACTOR_DST_COLOR;
+            d.colors[0].blend.dst_factor_rgb = SG_BLENDFACTOR_ZERO;
+            d.colors[0].blend.src_factor_alpha = SG_BLENDFACTOR_ZERO;
+            d.colors[0].blend.dst_factor_alpha = SG_BLENDFACTOR_ONE;
+            d.label = "ssao-apply";
+            break;
+        case SsaoStage::View: d.label = "ssao-view"; break;
+        case SsaoStage::Blur: d.label = "ssao-blur"; break;
+        default: d.label = "ssao-ao"; break;
+    }
     return find_or_make(key, format, d);
 }
 

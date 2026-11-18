@@ -174,7 +174,8 @@ TEST_CASE("depth of field: both effects are drawn effects now (render.supports, 
     CHECK(((mask >> int(PostEffect::MotionBlur)) & 1u) == 1u);
 }
 
-TEST_CASE("depth of field: smooth_focus moves by the engine clock only, and stays put when it has no speed or a bad number") {
+TEST_CASE(
+    "depth of field: smooth_focus moves by the engine clock only, and stays put when it has no speed or a bad number") {
     using render::smooth_focus;
     CHECK(smooth_focus(10.0f, 20.0f, 0.0f, 0.1f) == 10.0f);
     CHECK(smooth_focus(10.0f, 20.0f, 5.0f, 0.0f) == 10.0f);
@@ -225,7 +226,7 @@ TEST_CASE("depth of field: the plan follows the target's view depth, determinist
     std::vector<float> a, b;
     run(a);
     run(b);
-    CHECK(a == b);  // the same frames give the same focus, bit for bit
+    CHECK(a == b);                               // the same frames give the same focus, bit for bit
     CHECK(a.front() == doctest::Approx(10.0f));  // the first frame is focused at once: there is nothing to move from
     for (std::size_t i = 1; i < a.size(); ++i) CHECK(a[i] == doctest::Approx(10.0f).epsilon(1e-5));
 
@@ -290,7 +291,8 @@ TEST_CASE("motion blur: the plan blurs only with the frame before; a cut, the fi
     CHECK_FALSE(fxState.plan(w, cam, stack_of(fx), 1, 3, 0.016f, 1.0f, cam.viewProj, true).any());
 }
 
-TEST_CASE("depth of field: an object at the focus stays sharp, one far behind it is blurred, off is the same picture as no stack") {
+TEST_CASE("depth of field: an object at the focus stays sharp, one far behind it is blurred, off is the same picture "
+          "as no stack") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     for (const int samples : {1, 4}) {
@@ -313,7 +315,7 @@ TEST_CASE("depth of field: an object at the focus stays sharp, one far behind it
         CHECK(has_pass(order, "dof-down"));
         CHECK(has_pass(order, "dof-gather"));
         CHECK(has_pass(order, "dof-composite"));
-        CHECK(soft_pixels(img, 90, 80, 140) <= 6);   // at the focus: as sharp as without the effect
+        CHECK(soft_pixels(img, 90, 80, 140) <= 6);    // at the focus: as sharp as without the effect
         CHECK(soft_pixels(img, 90, 180, 240) >= 10);  // 30 m behind it: two soft edges
         CHECK(soft_pixels(img, 90, 180, 240) > farSharp + 6);
         // A blur keeps the light: the far cube is still bright in its middle and the sky still black.
@@ -350,8 +352,8 @@ TEST_CASE("depth of field: an object in front of the focus is blurred and its bl
     s.dof(20.0f, 1.0f, 8.0f, 8.0f);
     const Image img = own.draw(s.w);
     CHECK(soft_pixels(img, 90, 100, 220) >= 10);
-    CHECK(img.pixel(125, 90).r > 0.05f);   // the near blur reaches outside the silhouette ...
-    CHECK(img.pixel(160, 90).r > 0.9f);    // ... and the middle of the cube stays bright
+    CHECK(img.pixel(125, 90).r > 0.05f);  // the near blur reaches outside the silhouette ...
+    CHECK(img.pixel(160, 90).r > 0.9f);   // ... and the middle of the cube stays bright
     // Far blur 0: the near cube is still blurred (the settings are independent).
     Scene onlyNear;
     make_scene(onlyNear);
@@ -386,7 +388,8 @@ TEST_CASE("depth of field: the autofocus follows the target entity (and the focu
     CHECK(soft_pixels(back, 90, 80, 140) <= 6);
 }
 
-TEST_CASE("motion blur: a still camera gives the same picture, a moving one smears along its movement, a cut or the first frame do not") {
+TEST_CASE("motion blur: a still camera gives the same picture, a moving one smears along its movement, a cut or the "
+          "first frame do not") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     auto motion_scene = [](Scene& s) {
