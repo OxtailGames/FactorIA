@@ -500,7 +500,8 @@ void register_postprocess_component(TypeRegistry& r) {
                "Only used when ssrEnabled. World units a reflected ray travels before it gives up.")
         .range(1, 1000)
         .field("ssrThickness", &PostProcess::ssrThickness,
-               "Only used when ssrEnabled. World units behind a surface that still count as a hit.")
+               "Only used when ssrEnabled. World units behind a surface that still count as a hit; far away it grows "
+               "to at least 0.2% of the distance, so the depth precision there does not break the reflection.")
         .range(0.01f, 10)
         .field("ssrSteps", &PostProcess::ssrSteps,
                "Only used when ssrEnabled. 8..128 steps along the ray; more is more accurate and costs more.")

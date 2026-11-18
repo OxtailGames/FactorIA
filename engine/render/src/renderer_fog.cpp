@@ -331,7 +331,7 @@ int FogFx::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, co
     // One channel of rays: R16F where the GPU renders to and samples it (half the memory), else RGBA16F.
     const sg_pixelformat_info r16 = sg_query_pixelformat(SG_PIXELFORMAT_R16F);
     ha.format =
-        TargetFormat{r16.render && r16.sample ? SG_PIXELFORMAT_R16F : SG_PIXELFORMAT_RGBA16F, SG_PIXELFORMAT_NONE, 1};
+        TargetFormat{r16.render && r16.sample && r16.filter ? SG_PIXELFORMAT_R16F : SG_PIXELFORMAT_RGBA16F, SG_PIXELFORMAT_NONE, 1};
     ha.label = job + "/shafts-half";
     if (doShafts) {
         if (std::find(failed_.begin(), failed_.end(), shapeKey) != failed_.end()) {
