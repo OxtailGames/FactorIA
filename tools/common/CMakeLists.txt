@@ -60,6 +60,10 @@ list(APPEND FA_EMBED_LICENSES ${FA_EMBED_EXTRA_FONTS})
 # The mesh shader template (engine/render/shaders/*_common.glsl, @included by every mesh program): custom materials are
 # compiled against it (docs/design/CUSTOM_SHADERS.md), also by an installed factoria without the engine source.
 file(GLOB FA_EMBED_SHADER_TEMPLATES CONFIGURE_DEPENDS ${FA_ROOT}/engine/render/shaders/*_common.glsl)
+# The files the templates @include (the sprite template: the colour-space and 2D shadow helpers; keep in step with
+# template_file_names() in tools/common/src/shaders_generate.cpp and FA_TEMPLATE_FILES_* in engine/render/CMakeLists.txt).
+list(APPEND FA_EMBED_SHADER_TEMPLATES ${FA_ROOT}/engine/render/shaders/color_space.glsl
+    ${FA_ROOT}/engine/render/shaders/light_shadow.glsl)
 # The C API of native plugins: project.new_plugin copies it into every new plugin.
 # The VS Code extension of the script debugger (tools/vscode/): `factoria setup vscode` copies it into VS Code's extensions folder.
 file(GLOB FA_EMBED_VSCODE CONFIGURE_DEPENDS LIST_DIRECTORIES false ${FA_ROOT}/tools/vscode/*)

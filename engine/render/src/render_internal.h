@@ -363,7 +363,17 @@ class Assets;
 constexpr int kMaxMaterialParams = 16,
               kMaxMaterialTextures =
                   4;  // each a vec4 of the fa_material block (fa/tooling/shaders.h kMaterialMaxParams)
+// Where a material's uniform blocks and textures sit. The engine's own programs use the slots below the first one; the twin's
+// reflection says what a program declares, and a draw binds only that. The uniform block slots are the same for both kinds
+// (fa_material_vs in the vertex stage, fa_material in the fragment stage); the generator writes these numbers into the top file
+// (tools/common/src/shaders_generate.cpp, generate_material_shader).
+//   mesh   (mesh_common.glsl): views 0-5 and samplers 0-1 are the engine's (albedo, normal, shadow, IBL...), uniform blocks 0-3.
+//   sprite (quad_common.glsl): uniform blocks vertex 0 quad_vs_params and fragment 1 quad_fs_params; views 0-3 (tex, normal_tex,
+//          light_tex, shadow_tex) and samplers 0-2 (smp, light_smp, shadow_smp) are the engine's, so a material's textures are
+//          views 4..7 and samplers 3..6 (kMaterialSprite*): none collides with the 2D slots, and 4 + 4 views stay far below
+//          the 16 texture units GLES3 and WebGL2 guarantee.
 constexpr int kMaterialFirstView = 6, kMaterialFirstSampler = 2, kMaterialUbVertex = 4, kMaterialUbFragment = 5;
+constexpr int kMaterialSpriteFirstView = 4, kMaterialSpriteFirstSampler = 3;
 
 // One program of a twin (mesh, mesh_skin, shadow, shadow_skin, prepass, prepass_skin) and what its reflection declares: a draw binds and applies
 // only those slots (sokol rejects a binding the shader does not declare, and a declared uniform block left unapplied).
@@ -403,13 +413,14 @@ struct MaterialTextureDef {
 struct MaterialAsset {
     std::string path;                        // the .material.json
     std::string snippet;                     // its `shader` file (a change of it reloads the material)
-    MaterialKind kind = MaterialKind::Mesh;  // its "kind"; only Mesh materials are built so far
+    MaterialKind kind = MaterialKind::Mesh;  // its "kind"; Mesh and Sprite materials are built so far
     std::string lighting = "pbr", alphaMode = "opaque";
     bool doubleSided = false;
-    std::vector<MaterialParamDef> params;            // in the order of the twin's "params" (the packing order)
-    std::vector<MaterialTextureDef> textures;        // in the order of the twin's "textures" (views 6+i, samplers 2+i)
-    MaterialProgram programs[kMaxMaterialPrograms];  // by MaterialProgramId for a mesh material
-    bool ok = false;                                 // false = drawn with the error material
+    std::vector<MaterialParamDef> params;      // in the order of the twin's "params" (the packing order)
+    std::vector<MaterialTextureDef> textures;  // in the order of the twin's "textures" (views 6+i, samplers 2+i)
+    MaterialProgram
+        programs[kMaxMaterialPrograms];      // by MaterialProgramId for a mesh material; a sprite one: quad, quad_plain
+    bool ok = false;                         // false = drawn with the error material
     std::string error;                       // the last build error (kept while an older good build still draws)
     int generation = 0;                      // counts successful builds
     std::unordered_set<std::string> warned;  // params already complained about
