@@ -63,8 +63,10 @@ The user's choices on the open points are at the end ([Decisions taken](#decisio
   types, so that sokol-shdc can flatten the block for GL (it flattens uniform blocks of floats into `vec4` arrays; ints
   would need per-uniform reflection on GL). At most 16 parameters (each padded to a `vec4`: 256 bytes); they are laid out
   in **alphabetical order** so the C++ packer and the generated block agree without depending on JSON key order.
-- At most 4 textures (fragment stage). The engine binds 6 already; 10 stays under the 16 texture units GLES3 and WebGL2
-  guarantee. `sampler`: `linear`, `linearRepeat`, `nearest`, `nearestRepeat` (the engine's `SamplerKind`s).
+- At most 4 textures, readable in both stages (M72.3: a texture is declared once per stage, see "Textures in `vertex()`").
+  The fragment stage binds 6 engine textures already, so the material's go to view 6.. (10 in all, under the 16 texture
+  units GLES3 and WebGL2 guarantee); the vertex stage adds 4 more at view 10.. (and 4 samplers at 6.., 10 samplers in all,
+  under sokol's 12). `sampler`: `linear`, `linearRepeat`, `nearest`, `nearestRepeat` (the engine's `SamplerKind`s).
 - Every param and texture needs `doc` (the docs rule: the doc strings ARE what AIs read; `material.info` returns them).
 - Names: GLSL identifiers, not starting with `fa_` and not a GLSL keyword; the error states the rule with a valid
   example.
@@ -416,7 +418,6 @@ pointer `/kind` (`parse_material`, `schemas/material.schema.json`).
   (see "Kinds (M72)"; the kinds, hashes and skeletons exist, the programs do not).
 - A full-GLSL escape hatch (D1).
 - Compute shaders, tessellation, geometry shaders (not in sokol_gfx's common subset for these backends anyway).
-- Vertex-stage textures (heightmaps sampled in `vertex()`): a texture in both stages needs a second binding; later.
 - Per-instance material data inside one instanced draw.
 - A node-graph shader editor.
 
@@ -462,7 +463,7 @@ Built (2026-10-18), with what the real tool showed:
 - `fa_user` is included by both `@vs` and `@fs`, so the generated block is split with `GL_VERTEX_SHADER` /
   `GL_FRAGMENT_SHADER` (glslang defines one per stage): `fa_material_vs` (binding 4) and `vertex()` in the vertex stage,
   `fa_material` (binding 5) and `surface()` in the fragment stage, helpers in both (with `texture()`/`discard` shims in
-  the vertex stage, undefined again after the snippet). A texture sampled in `vertex()` is an error (out of scope).
+  the vertex stage, undefined again after the snippet). A texture sampled in `vertex()` was an error at this point; M72.3 (P6 below) built it.
 - `alphaCutoff` is implicit for `"clip"` (float, default 0.5, 0..1, counts toward the 16); a material may declare it to
   change default, range or doc. The generator defines `FA_ALPHA_CLIP`. **P3 must make the template read it**: `discard`
   below `alphaCutoff` after `surface()` in `fs`, and `shadow_fs` running `surface()` for clip materials (today the
@@ -574,16 +575,38 @@ D3 built (2026-10-19): the factoria downloads carry sokol-shdc next to `factoria
   check, where to report a false positive) and nothing changes antivirus settings. `sokol-shdc.exe` stays unsigned even
   once the Windows certificate exists: a signature would change the SHA-256 makers can check.
 
-### P6. Custom lighting (M, when a game asks)
+### P6. Custom lighting and textures in `vertex()` (M72.3, built)
 
-`"lighting": "custom"`: the snippet adds `vec3 light(in SurfaceInput i, in Surface s, in LightSample l)` (direction to
-the light, color times intensity, attenuation, shadow factor), called by the engine's light loop instead of
-Cook-Torrance; ambient, emission and fog stay the engine's, and the sky reflection (IBL) is off for custom lighting
-(a toon look does not want it; a snippet can add its own term to `s.emission`). Like the full-GLSL escape hatch, it
-waits for an `ENGINE_FEEDBACK.json` entry; the template's light loop is written so that the hook fits later. This is what toon and stylised
-games ask for first.
+`"lighting": "custom"`: the snippet adds `vec3 light(in SurfaceInput i, in Surface s, in LightSample l)`, called by the
+engine's light loop once per light instead of Cook-Torrance, and optionally `vec3 ambient(in SurfaceInput i, in Surface s,
+vec3 ambientColor)`. The engine keeps choosing the lights, their attenuation and the shadow, and adds emission and fog;
+the sky reflection (IBL) is off for custom lighting (a toon look does not want it; a snippet can add its own term to
+`s.emission`). `LightSample` holds `direction`, `color` (the light's color times intensity times attenuation times
+shadow: what reaches the surface), `attenuation`, `shadow`, `distance` and `type`. What was built:
 
-Acceptance: a two-band toon material renders its golden with a directional and a point light, and its shadow.
+- **Template.** `mesh_common.glsl` has the `LightSample` struct in the contract block and, under `FA_CUSTOM_LIGHT`, the
+  light loop calls `light()` and sums; `FA_HAS_AMBIENT` makes the ambient term the snippet's. In `"pbr"` the loop is
+  the old code (`atten *= shadow` instead of a later multiplication: identical result, so the built-in meshes and every
+  existing golden did not change), but the template text changed, so the mesh template hash did, and every committed
+  twin (the renderer's test fixtures; a game's exports) must be rebuilt: games with custom materials re-export.
+- **Generator.** `light` and `ambient` are entry points (and reserved names) only when `lighting` is `"custom"`; they are
+  wrapped in the fragment stage like `surface()`. The defines are `FA_CUSTOM_LIGHT` and `FA_HAS_AMBIENT`. A material
+  without `light()` stops with an error that names the material file and shows the signature, before the compiler runs.
+- **HLSL gradients.** The loop forbids gradients (`texture()`) in HLSL (X3570), so the docs tell `light()` to use
+  `textureLod`.
+- **Textures in `vertex()`** (decision): sokol-shdc refuses one name in both stages ("conflicting texture definitions")
+  and a view or sampler slot belongs to one stage. So each material texture `t` is declared twice: in the fragment stage
+  as `t` at view 6.. and sampler 2.. (what it always was), in the vertex stage as `fa_vs_t` at view 10.. and sampler 6..,
+  with `#define t fa_vs_t` (and `t_smp`) only while the vertex stage compiles the snippet, so the author writes one name.
+  The renderer binds both slots from the same image; each program's `viewMask` / `samplerMask` keeps only what its stage
+  declares, so a material with no `vertex()` pays nothing. The shadow and prepass programs run the same `vertex()` with
+  the same bindings, so the displacement is identical in the three. The `texture()` shim of the vertex stage reads mip 0.
+  The normal is not recomputed (documented).
+
+Tests: tooling (the generated top file, the missing-`light()` error, reserved names, the twins' per-stage bindings with
+the real sokol-shdc, the doc examples), renderer ("materials: ..." cases: a toon shows two bands with the lit side
+brighter, a `light()` returning 0 leaves the ambient term, `ambient()` replaces it, a texture in `vertex()` lifts the mesh
+and its shadow like a mesh standing there).
 
 ## Risks
 
@@ -605,5 +628,5 @@ The user took the five recommendations on 2026-10-18:
 3. **Material = a `*.material.json` file + per-entity `materialParams`** (D4), no shader/material split; a second
    material reusing a snippet repeats its param declarations.
 4. **Custom lighting (P6, toon) waits for a game that asks** (an `ENGINE_FEEDBACK.json` entry); the template leaves
-   room for the hook.
+   room for the hook. (Built in M72.3 together with textures in `vertex()`, see P6.)
 5. **Error material = unlit magenta**, never a silent fallback to the standard material.

@@ -1,0 +1,6 @@
+{
+  "format": "factoria.material/1",
+  "doc": "Test fixture: custom lighting with an ambient() hook that keeps only the green of the scene's ambient light.",
+  "shader": "shaders/ambient.surface.glsl",
+  "lighting": "custom"
+}
