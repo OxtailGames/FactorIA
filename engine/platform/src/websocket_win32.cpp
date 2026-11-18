@@ -450,11 +450,13 @@ private:
             // What the driver reads and discards while it waits for the close answer. A read of 0 bytes that is neither
             // a close frame nor a whole message (an empty message is something the server sent, like any other) is an
             // empty read: they are counted in a row, so that the wait does not arm receives for ever on a peer that
-            // answers with nothing. The server that keeps sending empty messages is bounded by the deadline.
+            // answers with nothing. A server that keeps sending empty messages is counted apart (emptyMessagesOver_): the
+            // wait ends after kMaxEmptyMessagesOver of them in a row, without waiting for the deadline.
             if (type != WINHTTP_WEB_SOCKET_CLOSE_BUFFER_TYPE) {
                 const bool wholeMessage = type == WINHTTP_WEB_SOCKET_UTF8_MESSAGE_BUFFER_TYPE ||
                                           type == WINHTTP_WEB_SOCKET_BINARY_MESSAGE_BUFFER_TYPE;
                 emptyReadsOver_ = bytes == 0 && !wholeMessage ? emptyReadsOver_ + 1 : 0;
+                emptyMessagesOver_ = bytes == 0 && wholeMessage ? emptyMessagesOver_ + 1 : 0;
             }
             return;
         }
@@ -817,7 +819,7 @@ private:
                 // An empty read that is not a close frame is armed again once; a second one in a row ends the wait (a
                 // peer that answers with nothing would otherwise keep this loop busy until the deadline).
                 if (closeFrameSent_ && !closeFrameReceived_ && !recvPending_ && emptyReadsOver_ < 2 &&
-                    Clock::now() < endDeadline) {
+                    emptyMessagesOver_ < kMaxEmptyMessagesOver && Clock::now() < endDeadline) {
                     // False: the connection is gone, and the game has its Close event already.
                     if (!arm_receive(lock, socket)) return;
                     continue;
@@ -942,6 +944,10 @@ private:
     bool closeFrameReceived_ = false;  // a close frame arrived, even after the connection was over (received_locked)
     // Empty reads in a row once over (no bytes, not a close frame or a whole message; received_locked): two end the drain.
     int emptyReadsOver_ = 0;
+    // Empty complete messages in a row once over: a peer that floods them is not waited for until the deadline. A count, not a
+    // time, so the result does not depend on the speed of the machine; far above what a server that is closing sends.
+    static constexpr int kMaxEmptyMessagesOver = 1000;
+    int emptyMessagesOver_ = 0;
     USHORT echoCode_ = kEmptyCloseStatus;
     int closeCode_ = 0, goodbyeCode_ = 0;
     std::string closeReason_;

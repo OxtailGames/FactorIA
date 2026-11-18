@@ -919,6 +919,7 @@ void Renderer::Impl::render(World& world, float dt) {
         warnedSpriteMesh = false;
         warnedGradientStops = false;
         warnedCameras = false;
+        warnedLegacyIgnored.clear();
     }
 
     struct JobSpec {

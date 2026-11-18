@@ -288,6 +288,16 @@ void run_post_pass(Gpu& gpu, const PostPlan& plan, bool finalPass, int filter, b
 
 // ---- automatic exposure ------------------------------------------------------------------------------------------------------
 
+void AutoExposure::warn_luma_missing() {
+    if (warnedLuma_) return;
+    warnedLuma_ = true;
+    FA_WARN(
+        "render",
+        "PostProcess.exposureMode auto: the 32x32 measuring target could not be made this frame (the GPU is short of "
+        "memory?); the exposure stays where it was and the measure continues when it can. Hint: set exposureMode to "
+        "manual if it keeps happening.");
+}
+
 bool AutoExposure::ensure_targets(Gpu& gpu) {
     if (ev_[0].valid() && ev_[1].valid()) return true;
     for (Target& t : ev_) destroy_target(t);
@@ -411,7 +421,10 @@ ResourceId AutoExposure::add_passes(FrameGraph& graph, TransientTargets& targets
         u.rc[3] = rh;
         p.execute = [=](const PassContext& c) {
             const Target* t = tt->get(c.handle(luma));
-            if (!t) return;
+            if (!t) {
+                self->warn_luma_missing();
+                return;
+            }
             PassDesc pd = pass_into(*t, "exposure-luma");
             pd.colorLoad = SG_LOADACTION_DONTCARE;  // every texel is drawn
             g->begin_pass(pd);
@@ -444,7 +457,10 @@ ResourceId AutoExposure::add_passes(FrameGraph& graph, TransientTargets& targets
         u.q[0] = reset ? 1.0f : 0.0f;
         p.execute = [=](const PassContext& c) {
             const Target* lt = tt->get(c.handle(luma));
-            if (!lt) return;
+            if (!lt) {
+                self->warn_luma_missing();
+                return;
+            }
             Target& dst = self->ev_[next];
             PassDesc pd = pass_into(dst, "exposure-adapt");
             pd.colorLoad = SG_LOADACTION_DONTCARE;

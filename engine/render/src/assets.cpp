@@ -857,6 +857,7 @@ Result<PreparedTexture> decode_texture_file(const std::string& key, const std::s
     auto img = decode_image(data, size);
     if (!img) return img.error();
     p.chain = mip_chain(*img, srgbMips);
+    p.srgbMips = srgbMips;
     p.image = std::move(*img);
     return p;
 }
@@ -865,6 +866,15 @@ std::uint64_t Assets::adopt_texture(PreparedTexture& p, std::vector<std::string>
     if (p.key.empty() || textures_.count(p.key)) return 0;  // loaded on first use meanwhile: that one stays
     auto t = std::make_unique<TextureAsset>();
     t->path = p.key;
+    if (!p.ktx2) {
+        // The colour space was asked when the load was requested; a linear scene may have rendered since (the format of
+        // the GPU image follows it): the chain is made again, on this thread, when the two differ.
+        const bool srgb = gpu_.texture_format(SG_PIXELFORMAT_RGBA8) != SG_PIXELFORMAT_RGBA8;
+        if (srgb != p.srgbMips) {
+            p.chain = mip_chain(p.image, srgb);
+            p.srgbMips = srgb;
+        }
+    }
     const bool ok = p.ktx2 ? upload_transcoded(*t, p.transcoded) : (upload_rgba(*t, p.image, p.chain), true);
     if (!ok) return 0;  // the GPU rejected the compressed format: the load on first use falls back to RGBA8
     t->untraced = std::move(files);
