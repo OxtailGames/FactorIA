@@ -107,6 +107,14 @@ CameraInfo Renderer::Impl::build_camera(World& world, Entity best, const Vec2* v
         ci.colorFilter = stack->has(PostEffect::ColorFilter) ? std::clamp(int(stack->fx.colorFilterMode), 0, 5) : 0;
         if (stack->any()) ci.postStack = std::move(stack);
     }
+    // The transient screen effects (shockwave, flash, fade ...) of this camera: not part of the stack, they work with the editor's A/B
+    // switch on too (it compares the stack, not the game's own effects). The camera's own and those of every camera; a camera that
+    // draws into a texture (a minimap, a mirror) only has the ones aimed at it, so a fade of the game does not black it out.
+    for (const ScreenFx& e : world.feel().screenFx.live)
+        if (best && e.camera == best)
+            ci.screenFx.push_back(e);
+        else if (!e.camera && !renderTarget)
+            ci.screenFx.push_back(e);
     return ci;
 }
 

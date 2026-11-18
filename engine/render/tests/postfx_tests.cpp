@@ -521,3 +521,150 @@ TEST_CASE("posterize: values go to the nearest of the levels, black and white st
     q.fx.posterizeLevels = 2;
     CHECK(near_v(posterize_color(make_post_fx(q, 0), {0.49f, 0.51f, 0.2f}), {0, 1, 0}, 1e-6f));
 }
+
+// ---- the transient screen effects (M71-C3b) ----
+
+namespace {
+
+ScreenFx live_fx(ScreenFxKind kind, float elapsed = 0.0f) {
+    ScreenFx e;
+    e.o = screen_fx_defaults(kind);
+    e.elapsed = elapsed;
+    return e;
+}
+
+}  // namespace
+
+TEST_CASE("screen fx maths: nothing alive leaves the PostFx untouched and off") {
+    PostFx f;
+    add_screen_fx(f, {}, Mat4{});
+    CHECK_FALSE(f.any());
+    CHECK(f.mask() == 0);
+    CHECK(shockwave_offset(f, {0.3f, 0.3f}, 1.78f) == Vec2{0.0f, 0.0f});
+    Vec2 taps[32];
+    CHECK(radial_blur_taps(f, {0.3f, 0.3f}, taps) == 0);
+    CHECK(overlay_color(f, {0.2f, 0.4f, 0.6f}) == Vec3{0.2f, 0.4f, 0.6f});
+}
+
+TEST_CASE("screen fx maths: a shockwave pushes outward inside the ring only, the push is strongest at its middle") {
+    ScreenFx e = live_fx(ScreenFxKind::Shockwave, 0.2f);
+    e.o.duration = 1.0f;
+    e.o.screen = {0.5f, 0.5f};
+    e.o.strength = 0.1f;
+    e.o.radius = 0.5f;
+    e.o.width = 0.2f;
+    PostFx f;
+    add_screen_fx(f, {e}, Mat4{});
+    REQUIRE(f.ringCount == 1);
+    CHECK((f.mask() & kFxShockwave) != 0);
+    const float r = f.rings[0].radius, aspect = 2.0f;
+    CHECK(r == doctest::Approx(screen_fx_ring_radius(e)));
+    // On the ring, to the right of the centre: the pixel reads from nearer the centre (a negative x offset), none vertically.
+    const Vec2 onRing{0.5f + r / aspect, 0.5f};
+    const Vec2 o = shockwave_offset(f, onRing, aspect);
+    CHECK(o.x < 0.0f);
+    CHECK(o.y == doctest::Approx(0.0f).epsilon(1e-5));
+    CHECK(std::fabs(o.x) * aspect == doctest::Approx(f.rings[0].push).epsilon(1e-4));
+    // Away from the ring (inside it by more than half its width, outside it, at the centre): nothing.
+    CHECK(shockwave_offset(f, {0.5f, 0.5f}, aspect) == Vec2{0.0f, 0.0f});
+    CHECK(shockwave_offset(f, {0.5f + (r + 0.2f) / aspect, 0.5f}, aspect) == Vec2{0.0f, 0.0f});
+    // Above the ring the push is vertical, up (toward smaller y: away from the centre it reads from nearer, so + y).
+    const Vec2 up = shockwave_offset(f, {0.5f, 0.5f - r}, aspect);
+    CHECK(up.y > 0.0f);
+    CHECK(std::fabs(up.x) < 1e-6f);
+}
+
+TEST_CASE("screen fx maths: only the newest rings, hazes and the strongest radial blur are drawn, flashes composite") {
+    std::vector<ScreenFx> live;
+    for (int i = 0; i < 7; ++i) {
+        ScreenFx e = live_fx(ScreenFxKind::Shockwave, 0.1f);
+        e.o.duration = 1.0f;
+        e.o.radius = 0.1f * float(i + 1);  // told apart by their radius at the same age
+        live.push_back(e);
+    }
+    PostFx f;
+    add_screen_fx(f, live, Mat4{});
+    CHECK(f.ringCount == kMaxScreenRings);
+    CHECK(f.rings[0].radius < f.rings[std::size_t(kMaxScreenRings - 1)].radius);  // the last four, in order
+    CHECK(f.rings[std::size_t(kMaxScreenRings - 1)].radius == doctest::Approx(screen_fx_ring_radius(live.back())));
+    CHECK(f.rings[0].radius == doctest::Approx(screen_fx_ring_radius(live[7 - kMaxScreenRings])));
+
+    live.clear();
+    for (int i = 0; i < 5; ++i) live.push_back(live_fx(ScreenFxKind::HeatHaze, 0.5f));
+    PostFx h;
+    add_screen_fx(h, live, Mat4{});
+    CHECK(h.hazeCount == kMaxScreenHaze);
+
+    // Radial blur: the strongest wins; a persistent one that is stronger stays.
+    ScreenFx weak = live_fx(ScreenFxKind::RadialBlur), strong = live_fx(ScreenFxKind::RadialBlur);
+    weak.o.intensity = 0.2f;
+    strong.o.intensity = 0.9f;
+    strong.o.screen = {0.2f, 0.7f};
+    strong.o.samples = 20;
+    PostFx b;
+    add_screen_fx(b, {strong, weak}, Mat4{});
+    REQUIRE(b.radialBlur);
+    CHECK(b.radialLength == doctest::Approx(0.9f * kRadialBlurStrength));
+    CHECK(b.radialCenter == Vec2{0.2f, 0.7f});
+    CHECK(b.radialSamples == 20);
+    PostFx persistent;
+    persistent.radialBlur = true;
+    persistent.radialLength = 1.0f * kRadialBlurStrength;
+    persistent.radialCenter = {0.5f, 0.5f};
+    add_screen_fx(persistent, {strong}, Mat4{});
+    CHECK(persistent.radialCenter == Vec2{0.5f, 0.5f});
+    Vec2 taps[32];
+    CHECK(radial_blur_taps(b, {0.9f, 0.7f}, taps) == 20);
+    CHECK(taps[0] == Vec2{0.9f, 0.7f});  // the first tap is the pixel itself
+    CHECK(taps[19].x == doctest::Approx(0.2f + 0.7f * (1.0f - b.radialLength)));
+
+    // Flash and fade: composited oldest first into one colour.
+    ScreenFx red = live_fx(ScreenFxKind::Flash, 0.0f), black = live_fx(ScreenFxKind::Fade, 0.0f);
+    red.o.color = {1, 0, 0, 1};
+    red.o.strength = 0.5f;
+    red.o.fade = false;
+    black.o.color = {0, 0, 0, 1};
+    black.o.duration = 1.0f;
+    black.fromAlpha = 0.5f;
+    black.toAlpha = 0.5f;  // a fade that holds half
+    PostFx o;
+    add_screen_fx(o, {red, black}, Mat4{});
+    REQUIRE(o.overlay);
+    CHECK(o.overlayAlpha == doctest::Approx(0.75f));  // 1 - (1 - 0.5)(1 - 0.5)
+    // Red at 0.5 then black at 0.5 over it: the colour is (0.25 red) / 0.75.
+    CHECK(o.overlayColor.x == doctest::Approx(0.25f / 0.75f));
+    CHECK(o.overlayColor.y == doctest::Approx(0.0f));
+    const Vec3 c = overlay_color(o, {1, 1, 1});
+    CHECK(c.x == doctest::Approx(0.25f + 0.25f));  // 1 * 0.25 + 0.25 red
+    CHECK(c.y == doctest::Approx(0.25f));
+}
+
+TEST_CASE("screen fx maths: a world point is projected by the camera, one behind a perspective camera is not drawn") {
+    ScreenFx e = live_fx(ScreenFxKind::Shockwave, 0.1f);
+    e.o.atWorld = true;
+    e.o.world = {80, 0, 0};
+    e.o.duration = 1.0f;
+    // An orthographic 320 x 180 view: x = +80 is three quarters across, y = 0 the middle.
+    const Mat4 ortho = Mat4::ortho(-160, 160, -90, 90, -1, 1, false);
+    PostFx f;
+    add_screen_fx(f, {e}, ortho);
+    REQUIRE(f.ringCount == 1);
+    CHECK(f.rings[0].center.x == doctest::Approx(0.75f).epsilon(1e-4));
+    CHECK(f.rings[0].center.y == doctest::Approx(0.5f).epsilon(1e-4));
+    // A perspective camera looking down -z: a point at z = +5 is behind it.
+    const Mat4 persp = Mat4::perspective(60.0f, 1.78f, 0.1f, 100.0f, false);
+    e.o.world = {0, 0, 5};
+    PostFx behind;
+    add_screen_fx(behind, {e}, persp);
+    CHECK(behind.ringCount == 0);
+    e.o.world = {0, 0, -5};
+    PostFx front;
+    add_screen_fx(front, {e}, persp);
+    REQUIRE(front.ringCount == 1);
+    CHECK(front.rings[0].center.x == doctest::Approx(0.5f).epsilon(1e-4));
+    // A non-finite world point never reaches the shader.
+    e.o.world = {std::numeric_limits<float>::quiet_NaN(), 0, -5};
+    PostFx nan;
+    add_screen_fx(nan, {e}, persp);
+    CHECK(nan.ringCount == 0);
+}

@@ -526,10 +526,25 @@
       const v = opts[k];
       if (v === undefined) continue;
       if (k === "color") a[k] = typeof v === "string" ? v : Array.isArray(v) ? v : [v.r, v.g, v.b, v.a ?? 1];
-      else if (k === "direction") a[k] = vecArr(v, 3, `${what} \`direction\``);
+      else if (k === "direction" && name !== "fade") a[k] = vecArr(v, 3, `${what} \`direction\``);
+      else if (k === "screen") a[k] = vecArr(v, 2, `${what} \`screen\``);
+      else if (k === "world") a[k] = vecArr(v, 3, `${what} \`world\``);
+      else if (k === "region") a[k] = rectArr(v, `${what} \`region\``).slice(0, 4);
       else a[k] = v;
     }
     return a;
+  }
+
+  // Starts a transient screen effect (camera.shockwave ...): opts.camera picks the camera, default every camera.
+  function screenFx(name, opts, what, extra) {
+    let cam;
+    if (isObj(opts) && !Array.isArray(opts)) {
+      opts = { ...opts };
+      cam = opts.camera;
+      delete opts.camera;
+    }
+    const a = feelAction(name, extra ? { ...(opts ?? {}), ...extra } : opts, what);
+    N.feelDo(cam === undefined || cam === null ? null : entityHandle(cam, `${what} option camera`), a);
   }
 
   class Entity {
@@ -1871,6 +1886,16 @@
       N.feelDo(cam === undefined || cam === null ? null : entityHandle(cam, "camera.shake(amount, { camera })"),
         feelAction("shake", { ...o, amount }, "camera.shake(amount, opts)"));
     },
+    // Transient screen effects (docs/rendering/RENDERING_SCREEN_EFFECTS.md): drawn by the camera's post-processing pass, on the
+    // game clock, on every camera unless opts.camera names one. At most 16 are alive; the oldest goes when one more starts.
+    // shockwave: an expanding ring that bends the picture; heatHaze: a rippling distortion over opts.region; radialBlur: a streak
+    // pulse; flash: the screen in one colour that fades; fadeOut / fadeIn: to / from a colour (a fade out is held).
+    shockwave(opts) { screenFx("shockwave", opts, "camera.shockwave(opts)"); },
+    heatHaze(opts) { screenFx("heatHaze", opts, "camera.heatHaze(opts)"); },
+    radialBlur(opts) { screenFx("radialBlur", opts, "camera.radialBlur(opts)"); },
+    flash(opts) { screenFx("screenFlash", opts, "camera.flash(opts)"); },
+    fadeOut(opts) { screenFx("fade", opts, "camera.fadeOut(opts)", { direction: "out" }); },
+    fadeIn(opts) { screenFx("fade", opts, "camera.fadeIn(opts)", { direction: "in" }); },
     // The camera whose viewport contains the screen point (design pixels), else the first one. Null when no camera is active.
     at(v) { const a = vecArr(v, 2, "camera.at(v)"); return entityOf(N.cameraAt(a[0], a[1])); },
     // World point to design pixels, as seen by `cam` (default: the first camera drawn).
