@@ -1,0 +1,6 @@
+{
+  "format": "factoria.material/1",
+  "kind": "sky",
+  "doc": "Test fixture: a sky that reads the direction of the sun (a bright disc where the sun is), so the environment it lights the meshes with depends on the sun.",
+  "shader": "shaders/skysun.sky.glsl"
+}

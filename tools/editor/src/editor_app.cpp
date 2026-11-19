@@ -274,6 +274,8 @@ int Editor::run() {
     const char* at = std::getenv("FA_EDITOR_AUTOTEST");
     autotest_ = at && *at && std::string(at) != "0";
     if (autotest_)
+        clipboard_use_private(true);  // the scripted copies and pastes never touch (or read) the user's clipboard
+    if (autotest_)
         set_ui_lock_wait_sec(2.0);  // a scripted click must not fail because a loaded machine held a lock past 0.3 s
     load_recent_projects();         // before any project opens, so opening one never overwrites the history
     atWelcome_ = autotest_ && std::string(at) == "welcome";  // no project: screenshot the Open/New dialog
@@ -725,8 +727,12 @@ bool Editor::boot(const std::string& dirIn) {
     register_layout_settings();
     // sokol_app hands back the last pasted text when the clipboard holds no text (a picture): ImGui would paste that
     // again, and the AI panel's Ctrl+V would never see an empty clipboard and attach the picture.
+    // Both directions go through the editor's clipboard (clipboard.cpp), which is private to the process under the autotest.
     ImGui::GetPlatformIO().Platform_GetClipboardTextFn = [](ImGuiContext*) {
-        return clipboard_has_text() ? sapp_get_clipboard_string() : "";
+        return clipboard_has_text() ? clipboard_get_text() : "";
+    };
+    ImGui::GetPlatformIO().Platform_SetClipboardTextFn = [](ImGuiContext*, const char* text) {
+        clipboard_set_text(text);
     };
     uiUp_ = true;
     queue_.reopen();

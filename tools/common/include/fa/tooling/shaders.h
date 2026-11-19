@@ -78,6 +78,9 @@ inline constexpr int kComputeMaxWorkgroupZ =
 // A post material's textures (kind "post") are fragment-stage only, at view kMaterialPostFirstView + i and sampler
 // kMaterialPostFirstSampler + i: the pass's own scene colour and prepass views (0, 1) and its two samplers come first.
 inline constexpr int kMaterialPostFirstView = 2, kMaterialPostFirstSampler = 2;
+// The history of a post pass (fa_history(): the pass's own output of the frame before) is a view after the material's textures; it is read
+// through the engine's sampler 0.
+inline constexpr int kMaterialPostHistoryView = kMaterialPostFirstView + kMaterialMaxTextures;
 inline constexpr const char* kMaterialFormat = "factoria.material/1";
 inline constexpr const char* kShaderTwinFormat = "factoria.shader/1";
 inline constexpr const char* kMaterialAlphaCutoff = "alphaCutoff";

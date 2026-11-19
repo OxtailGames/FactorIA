@@ -6,6 +6,30 @@ Older versions, one file per minor version with its patch releases: [0.30](chang
 
 ## Unreleased
 
+- **Material tools polish (M72):** `shader.compile` and `factoria validate` tell you to run `material.graph.generate` when the
+  snippet of a graph material is missing or older than its graph. `material.param.create` and `material.texture.create` take
+  an optional `index` (where in `params`/`textures` to insert; the order of textures decides the slots) and the matching
+  `delete` returns the `index` it had, so an undo puts the entry back in place. `create`, `rename` and `delete` work on a file
+  whose graph reads a param that is not declared yet (create fixes it), and `rename`/`delete` return `warnings` when a
+  hand-written snippet still uses the name. `"graph": null` is an error with a pointer instead of a hand-written snippet; a
+  material called `..x.material.json` or `~tmp.material.json` is no longer refused as outside the project or absolute; the
+  command descriptions say the material file is rewritten (2-space JSON) by every command that writes it.
+
+- **Scene, Inspector and validation polish (M72):** `factoria validate` refuses a material path with a backslash, an absolute
+  path or `..` the same way on every OS (the error names the JSON pointer and the form to write), and checks that
+  `SceneSettings.skyMaterial` is a material of kind `sky` (the error names the kind it found and lists the project's sky
+  materials). The Inspector's material params keep one edit and one error per component, so two components of one entity with
+  a param of the same name no longer share them. Undo of two edits of one block of material params made within a moment redoes
+  both. The editor's Viewport draws the sky as the game does (docs/EDITOR.md says so). The editor autotest copies and pastes
+  through a clipboard of its own, so other programs using the system clipboard cannot fail it.
+- **Post history (M72.16):** a post material that calls `fa_history(uv)` reads its own output of the frame before (trails,
+  feedback, accumulation), with `fa_history_valid` for the frames where there is none (the first one, after a resize or a
+  change of render scale or format, when the camera was not drawn the frame before, at a scene or clock cut, and after the
+  new command `render.reset_post_history`, which takes an optional camera). Each camera and pass keeps two images that swap
+  every frame, freed 120 frames after the last frame that used them; a history that does not fit the 1 GiB budget (256 MiB on
+  the web) leaves the pass drawn without it. Using `fa_history` as a texture, `fa_history_valid` as a call, or either outside a
+  post material is refused with the fix before sokol-shdc runs. See `factoria docs read shaders-post`, "History".
+  **Games with custom post materials must re-export again** (the post template changed).
 - **A sky material also lights the meshes (M72.3):** the sky that `SceneSettings.skyMaterial` draws is baked into two small
   cube images, so meshes now reflect it (a metal ball under a two-colour sky shows each colour on the side that faces it)
   and take its ambient light from it (`fa_ambient_light(n)`, which replaces `ambientLight` for those meshes), in `"pbr"`,

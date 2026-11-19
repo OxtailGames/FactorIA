@@ -395,7 +395,7 @@ void Editor::at_section_E(AtScript& at) {
     click("ai:input");
     step(4, [this] {
         chat_.current().input.clear();
-        sapp_set_clipboard_string(kPasted);
+        clipboard_set_text(kPasted);
         sapp_event ev{};
         ev.type = SAPP_EVENTTYPE_CLIPBOARD_PASTED;
         on_event(&ev);

@@ -62,7 +62,7 @@ TEST_CASE("postprocess and render.supports commands are documented and closed") 
     std::string err;
     REQUIRE_MESSAGE(e.init(cfg(p), nullptr, &err), err);
     for (const char* name : {"postprocess.get", "postprocess.set", "postprocess.presets", "postprocess.apply_preset",
-                             "render.supports", "render.debug_view"}) {
+                             "render.supports", "render.debug_view", "render.reset_post_history"}) {
         INFO(name);
         const CommandInfo* info = e.commands().info(name);
         REQUIRE(info != nullptr);
@@ -471,6 +471,26 @@ TEST_CASE("render.debug_view teaches an unknown view, and says there is no rende
         CHECK(r.result["previous"] == "none");
         CHECK(c.call("render.debug_view", Json::object()).result["view"] == "depth");
         CHECK(c.call("render.debug_view", Json::parse(R"({"view":"none"})")).result["view"] == "none");
+    }
+    e.shutdown();
+}
+
+TEST_CASE("render.reset_post_history names the camera it forgets, and says there is no renderer without graphics") {
+    TempProject p;
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(cfg(p), nullptr, &err), err);
+    auto& c = e.commands();
+    CHECK_FALSE(c.info("render.reset_post_history")->readOnly);
+    CHECK_FALSE(c.call("render.reset_post_history", Json::parse(R"({"entiti":"Camera"})")).ok);
+    auto r = c.call("render.reset_post_history", Json::parse(R"({"entity":"NoSuchCamera"})"));
+    REQUIRE_FALSE(r.ok);
+    CHECK(r.error["code"] == "not_found");
+    r = c.call("render.reset_post_history", Json::object());
+    if (!r.ok) {
+        CHECK(r.error["code"] == "unavailable");
+    } else {
+        CHECK(r.result["reset"] == "all");
     }
     e.shutdown();
 }

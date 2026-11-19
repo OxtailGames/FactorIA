@@ -482,6 +482,19 @@ display output.
   `post-part<k>` and the last keeps `post` (or `post-base`); a frame with no display-referred entry never cuts, so its graph is the
   one it always was (`post_material_tests.cpp` counts the passes). The auto exposure is read in the scene piece only, the outline's
   source in the outline piece only, the dither and the colour filter in the tail only.
+  *History (M72.16, `fa_history`).* A pass whose program declares view `kMaterialPostHistoryView` (the snippet calls `fa_history`:
+  `CustomPostEntry::usesHistory`) keeps a `HistorySlot` in `CustomPost::history_`: two `Target`s of the camera's rectangle size and the
+  picture's format, one slot per camera (`CustomHistoryFrame::camera`), job (two views of one camera), material path and ordinal (two entries
+  of one material). `plan_history` runs when the frame is built: it makes or re-makes the images (size or format change; a 1 GiB budget,
+  256 MiB on wasm32, or a refused image leaves the pass without history and logs once) and decides `valid`: the slot wrote in the frame
+  before (`serial + 1 == postSerial`, which a `capture_world` does not advance), the scene hash (path and `scene_generation`) is the
+  same and the camera was continuous (`PostPlan::prevValid`: drawn in the frame before, no world-clock jump). The pass draws into
+  `img[write]` and reads `img[read]`, both imported into the graph (`<prefix>-history<k>-in/-out`), so the order and liveness come from
+  the graph; the image it wrote is also the picture the next pass reads, so the only extra draw is the copy into the picture when it is the
+  last pass (a lone pass copies anyway). A slot nobody planned for `kHistoryIdleFrames` (120) frames is freed by `sweep_history`, called
+  once per frame from `begin_frame_graph` (a frame count, not time, as P7b's cut images). `Renderer::reset_post_history(camera)` and the
+  command `render.reset_post_history` only clear `wrote`. The history is read with `fa_flip_uv`, like the scratch images, so GL and the
+  top-down backends agree.
 - **The effects, one bullet each,** are on the page [rendering, the post-processing effects](ARCHITECTURE_RENDERING_POST.md): the grading and lens
 effects, the radial blur and the transient screen effects, the outline, pixelate and posterize, the ambient occlusion, the depth and
 normal prepass, and the depth of field and motion blur.

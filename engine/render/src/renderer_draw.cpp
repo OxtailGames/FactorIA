@@ -4,7 +4,9 @@
 
 #include <algorithm>
 #include <bit>
+#include <functional>
 #include <iterator>
+#include <string>
 
 #include "shaders/prepass_view.glsl.h"
 
@@ -375,6 +377,7 @@ void Renderer::Impl::begin_frame_graph(bool countPost) {
     frameJobs.clear();
     jobImages.clear();
     release_idle_ldr_targets();
+    customPost.sweep_history(frameSerial);
     ++frameSerial;
     framePost = countPost;
     if (countPost) ++postSerial;
@@ -493,6 +496,7 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
         // The camera's view-projection of the frame before, for the effects that reproject (motion blur); one entry per camera, and the
         // cameras that were not drawn last frame are forgotten.
         const std::uint64_t camKey = fr.cam.entity.bits();
+        int histJob = 0;  // which job of this camera in this frame (the custom passes' histories are one per job)
         // Counted in the frames of the game (postSerial): a capture_world between two of them neither reads nor writes the matrices,
         // so the next frame still reprojects from the one before the capture.
         // A second job of the same camera in the same frame (entry.frame == postSerial) takes what the first one took. A world frame
@@ -521,7 +525,11 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
                 now.viewProj = fr.cam.viewProj;
                 now.frame = postSerial;
                 now.worldFrame = world.frame();
+                now.jobs = 0;
+            } else {
+                ++now.jobs;
             }
+            histJob = now.jobs;
             for (auto it = prevViewProj.begin(); it != prevViewProj.end();)
                 it = it->second.frame + 1 < postSerial ? prevViewProj.erase(it) : std::next(it);
         }
@@ -533,6 +541,14 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
         // out here, named in stats.materialFallbacks and logged once.
         if (fr.cam.postStack && fr.cam.postStack->has_custom())
             pp.custom = make_custom_post_plan(*fr.cam.postStack, *assets, stats.materialFallbacks, warnedCustomPass);
+        // What the passes that read their own output of the frame before need to know (renderer_custom_post.h, CustomHistoryFrame).
+        pp.custom.history = {camKey,
+                             histJob,
+                             postSerial,
+                             frameSerial,
+                             std::hash<std::string>{}(world.scene_path()) * 1099511628211ull + world.scene_generation(),
+                             pp.prevValid,
+                             framePost};
         // The passes after the tonemap cut the final pass in pieces, which go through two images of their own; without those the passes
         // are not drawn (logged once) and the final pass stays whole.
         if (pp.custom.any()) pp.settle_custom();
@@ -1074,7 +1090,7 @@ static_assert(
 // job sample the cubes), ctx.envBake (this job declares the "sky-env" pass, which bakes them), ctx.envKey, ctx.envSky (what the pass
 // draws), the environment flags of ctx.fuScene (fa_env_sky.w, fa_env_horizon.w).
 // The cubes are baked again when their key changes: everything the sky depends on (the material and its build, its params and textures,
-// the colours, the sun, the colour space) and, for an animated sky (its snippet reads the time), the game time in steps of kEnvTimeStep
+// the colours, the sun when the snippet reads it, the colour space) and, for an animated sky (its snippet reads the time), the game time in steps of kEnvTimeStep
 // seconds (the sky is drawn at the step's start, so a run draws the same images at any frame rate). The first job of a frame that wants an
 // environment decides it for the frame; a later job whose sky differs draws its meshes with the gradient (they share the cubes).
 void Renderer::Impl::plan_env(DrawContext& ctx) {
@@ -1111,7 +1127,8 @@ void Renderer::Impl::plan_env(DrawContext& ctx) {
     for (const TextureAsset* t : sky.in.textures) mix(t ? t->gpu_view().id : 0);
     for (float c : sky.skyColor) mixf(c);
     for (float c : sky.horizonColor) mixf(c);
-    for (float c : sky.sun) mixf(c);
+    if (mat->usesSun)  // a sky that never reads the sun is not baked again when the sun turns
+        for (float c : sky.sun) mixf(c);
     mix(sky.linear ? 1 : 0);
     if (envFrame != frameSerial) {
         envFrame = frameSerial;
@@ -1915,7 +1932,8 @@ void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
         // clear of a camera that shares the target with others
         if (clearByQuad) draw_group(ctx, gClear.batches, Mat4::ortho(0, 1, 1, 0, -1.0f, 1.0f, z01), false, camPx);
 
-        // sky
+        // sky. Not for a studio camera (Camera.lighting = studio paints its clearColor). The editor's Viewport has no camera of
+        // its own: it shows what the scene's cameras draw, so it draws the sky exactly when the game does.
         if (fr.wantWorld && fr.cam.perspective && fr.cam.clear && !fr.cam.studio) {
             // SceneSettings.skyMaterial draws the sky through its own program (same vertex stage, same uniform blocks, plus the
             // material's block and textures); anything wrong with it keeps the gradient. The meshes' reflections and ambient light

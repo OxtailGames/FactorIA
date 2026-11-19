@@ -111,7 +111,7 @@ bool Environment::ready(Gpu&) {
         sd.mipmap_filter = SG_FILTER_LINEAR;
         sd.wrap_u = sd.wrap_v = sd.wrap_w = SG_WRAP_CLAMP_TO_EDGE;
         sd.label = "env-sampler";
-        sampler_ = sg_make_sampler(&sd);
+        if (!sampler_.id) sampler_ = sg_make_sampler(&sd);  // blank_view() may have made it already: never leak it
         for (int i = 0; i < kEnvPyramid; ++i) {
             const int size = kEnvSize >> i;
             const std::string name = "env-s" + std::to_string(i);

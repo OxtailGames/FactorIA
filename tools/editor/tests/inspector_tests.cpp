@@ -205,6 +205,17 @@ TEST_CASE("material inspector: params are typed by material.info") {
     CHECK(reset["merge"] == true);
 }
 
+TEST_CASE("material inspector: the keys of a params block start with the component") {
+    // Sprite and Text on one entity both have materialParams with a param of the same name: their edits must not coalesce
+    // into one undo step, nor share an error line or a widget name.
+    const std::string sprite = material_param_key("Sprite", "matparam", "glow");
+    const std::string text = material_param_key("Text", "matparam", "glow");
+    CHECK(sprite == "Sprite:matparam:glow");
+    CHECK(sprite != text);
+    CHECK(material_param_key("Sprite", "matreset", "glow") != sprite);
+    CHECK(material_param_key("SceneSettings", "matparam", "tint") == "SceneSettings:matparam:tint");
+}
+
 TEST_CASE("material inspector: the same model serves Sprite, the other renderers, widgets and the sky") {
     auto specs = material_params_from_info(Json::parse(kInfo));
     REQUIRE(specs.ok());

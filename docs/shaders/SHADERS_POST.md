@@ -35,6 +35,8 @@ and these helpers (every engine name starts with `fa_`, so a param may take any 
 | `vec4 fa_scene_color(vec2 uv)` | the picture at `uv` (0..1 over the rectangle, y down), bilinear, clamped to the rectangle: sample it around the pixel for a blur, a distortion or an outline |
 | `float fa_depth(vec2 uv)` | the linear view depth in world units (along the camera's forward axis); 60000 where no mesh was drawn (the sky, sprites) |
 | `vec3 fa_normal(vec2 uv)` | the view-space normal of the surface (x right, y up, z towards the camera); `vec3(0)` where no mesh was drawn |
+| `vec4 fa_history(vec2 uv)` | what **this pass** drew in the frame before, at `uv` (same `uv` as `fa_scene_color`, bilinear, clamped): a trail, a feedback, an accumulation. Calling it is what asks the renderer to keep the output; where there is none yet it returns the picture (see "History" below) |
+| `fa_history_valid` | a `bool` value (not a function): true when `fa_history(uv)` returns last frame's output, false on the first frame and after a reset |
 | `vec3 fa_scene_rgb(vec3 c)` | an sRGB colour you picked (a `color` param) in the colour space of the picture |
 | `fa_time` | `vec4`, `x` = seconds of game time (the engine clock, never the wall clock) |
 
@@ -116,8 +118,8 @@ and written in two images), plus the prepass when it is read. A display-referred
 is drawn in two pieces, so the picture is written and read once more per cut (places with no effect between them share one cut).
 The pieces go through images of the picture's size and the scene's format (a float format when the scene has one, so 8 bytes a
 pixel, about 66 MB at 4K): one image when the camera has one cut, two when it has two or more. They are made when a frame needs
-them and freed after 120 frames in which no camera has a cut. Start with one or two passes; sample the picture a few times
-per pixel, not dozens.
+them and freed after 120 frames in which no camera has a cut. A pass that calls `fa_history` keeps two images of its camera's rectangle in the picture's format (see "History").
+Start with one or two passes; sample the picture a few times per pixel, not dozens.
 
 **Editor.** View > Post-processing has a "Custom passes" section: add a material from the project, switch a pass on or off,
 move it up or down, change its position and material, edit its params with widgets, remove it. Each change is one
@@ -153,3 +155,54 @@ void post(in PostInput i, inout PostSurface s) {
 ```
 
 Because it calls `fa_normal`, the renderer draws the prepass for the camera; remove the call and the prepass goes away.
+
+### History
+
+A snippet that calls `fa_history(uv)` reads **its own output of the frame before**: the pass draws into one of two images
+while it reads the other, and the roles swap every frame. Nothing else is needed: calling the function is the request (there is
+no flag, no param and no texture to declare, and a material that never calls it keeps no image). It is for trails, feedback,
+motion smear, temporal accumulation and a screen that fades out slowly.
+
+```json
+{ "format": "factoria.material/1", "kind": "post", "shader": "shaders/trail.post.glsl",
+  "params": { "keep": { "type": "float", "default": 0.9, "min": 0, "max": 0.99, "doc": "How much of the trail survives a frame." } } }
+```
+
+```glsl
+void post(in PostInput i, inout PostSurface s) {
+    // The new picture, or what the trail left, whichever is brighter. Before the first frame of the trail
+    // fa_history gives the picture, so the pass starts without a flash.
+    vec3 trail = fa_history(i.uv).rgb * keep;
+    s.color.rgb = max(s.color.rgb, trail);
+}
+```
+
+Whatever the pass writes this frame (`s.color`) is what the next frame reads, so a trail that decays is `max(picture, last * keep)`, an
+accumulation `mix(last, picture, 0.1)`. `fa_history_valid` tells the two cases apart when they must differ:
+`if (fa_history_valid) { ... }` (it is a value, not a call; the compiler says so). The history has the same orientation as the picture
+on every backend (`uv` 0..1, origin top left), so a trail is never mirrored.
+
+**When the history starts again.** `fa_history_valid` is false, and `fa_history(uv)` returns the picture, in the first frame of a
+pass; when the camera's rectangle changes size (a resize, a split-screen layout, the render scale) or the picture's format changes;
+when the camera was not drawn in the frame before (a new camera, one switched off for a frame, a `primary` that was `false`); at a
+**cut** the renderer sees (another scene or a reload of it, the world's clock going back or jumping by more than 8 ticks); and after
+`render.reset_post_history` (`{"entity": "camera"}` for one camera, nothing for all), which you call at a cut it cannot see: a
+camera teleported inside one scene, or moved to another place by a script. A frame that is not one of the game's (a
+`capture_world` of another world, such as a thumbnail) neither reads nor writes any history, so it never disturbs a running trail.
+
+**What is kept apart.** Each camera has its own history for each pass: two cameras of a split screen never read each other's, and
+two entries of the same material in a list are two histories. A pass that is not the last of its chain hands its history image to the
+next pass as its picture, so a chain with a history pass costs no extra copy; the last pass of a chain draws once more into the
+picture, as a single pass always does. MSAA does not change anything: the passes work on the resolved picture. In a display-referred
+place (`after:tonemap` on) the history holds display-referred colour, the same encoding the pass reads.
+
+**Cost and limits.** Two images of the camera's rectangle in the picture's format (8 bytes a pixel for a float scene: about 66 MB each pair
+at 4K, per pass and camera) and one sample more per `fa_history` call. They are made in the first frame that needs them and freed 120 frames
+after the last frame that planned the pass (frames, not seconds: it does not depend on the speed of the machine). The histories of a
+renderer take at most 1 GiB (256 MiB on the web); a pass that does not fit, or whose images the GPU refuses, is **drawn without its
+history** (`fa_history_valid` stays false) and the log says why once, with the way out (a lower render scale, fewer passes that keep
+a history). Changing the size of the game target frees all of them.
+
+**Errors.** `fa_history` used as a texture, `fa_history_valid(...)` called as a function, or either in a material that is not
+`"kind": "post"` are refused by `factoria validate` and `shader.compile` before sokol-shdc runs, with the line and the fix. A mistyped
+name gets a "did you mean".

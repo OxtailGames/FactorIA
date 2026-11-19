@@ -96,13 +96,29 @@ TEST_CASE("material fields: a scene saves and loads them, and an old scene witho
         if (e["id"] == "old") CHECK_FALSE(e["components"]["Sprite"].contains("material"));
 }
 
-TEST_CASE("material fields: a prefab instance overrides material and merges its params") {
-    const std::filesystem::path oldRoot = fs::project_root();
-    const std::filesystem::path dir =
+namespace {
+// Puts the project root on a fresh temporary directory and puts everything back, also when a REQUIRE fails.
+struct TempProjectRoot {
+    std::filesystem::path oldRoot = fs::project_root();
+    std::filesystem::path dir =
         std::filesystem::temp_directory_path() /
         ("fa_test_material_fields_" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
-    std::filesystem::create_directories(dir);
-    fs::set_project_root(dir);
+    TempProjectRoot() {
+        std::filesystem::create_directories(dir);
+        fs::set_project_root(dir);
+    }
+    ~TempProjectRoot() {
+        fs::set_project_root(oldRoot);
+        std::error_code ec;
+        std::filesystem::remove_all(dir, ec);
+    }
+    TempProjectRoot(const TempProjectRoot&) = delete;
+    TempProjectRoot& operator=(const TempProjectRoot&) = delete;
+};
+}  // namespace
+
+TEST_CASE("material fields: a prefab instance overrides material and merges its params") {
+    const TempProjectRoot root;
     REQUIRE(fs::write_text("prefabs/fx.prefab.json", R"({"format":"factoria.prefab/1","entity":{"id":"fx","components":{
         "Sprite":{"material":"materials/a.material.json","materialParams":{"glow":0.5,"speed":2}}}}})")
                 .ok());
@@ -116,7 +132,4 @@ TEST_CASE("material fields: a prefab instance overrides material and merges its 
     CHECK(w.get<Sprite>(e)->material == "materials/b.material.json");
     CHECK(w.get<Sprite>(e)->materialParams["glow"] == 1);
     CHECK(w.get<Sprite>(e)->materialParams["speed"] == 2);  // the prefab's other param survives the deep merge
-    fs::set_project_root(oldRoot);
-    std::error_code ec;
-    std::filesystem::remove_all(dir, ec);
 }
