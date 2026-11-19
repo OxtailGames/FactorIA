@@ -176,8 +176,8 @@ void QuadList::flatten(std::vector<Vertex2D>& out, std::vector<QuadBatch>& batch
     }
 
     if (instOut) {
-        // One reserve for the whole list: a reserve per item is exact, does not grow geometrically, and would copy the whole
-        // vector again for every item.
+        // One reserve for the whole list: a reserve per item is exact, does not grow geometrically, and would copy the
+        // whole vector again for every item.
         std::size_t instFloats = 0;
         for (const QuadItem& it : items)
             if (it.use && !it.use->error && it.use->instVec4 > 0)
@@ -190,8 +190,8 @@ void QuadList::flatten(std::vector<Vertex2D>& out, std::vector<QuadBatch>& batch
         at += std::size_t(it.quadCount) * 4;
         const bool plain = it.plain && !it.lit && it.blend != BlendMode::Multiply;
         const bool opaque = it.opaque && it.blend == BlendMode::Alpha;
-        // The per-vertex copy of the instanced values of the item (four vertices per quad), appended in batch order: the items of
-        // one batch are adjacent, so the values of a batch are contiguous from the first item's.
+        // The per-vertex copy of the instanced values of the item (four vertices per quad), appended in batch order:
+        // the items of one batch are adjacent, so the values of a batch are contiguous from the first item's.
         const int instVec4 = it.use && !it.use->error && instOut ? it.use->instVec4 : 0;
         const std::size_t instStart = instOut ? instOut->size() : 0;
         if (instVec4 > 0) {
@@ -212,8 +212,8 @@ void QuadList::flatten(std::vector<Vertex2D>& out, std::vector<QuadBatch>& batch
             batches.back().quadCount += it.quadCount;
             batches.back().plain = batches.back().plain && plain;
         } else {
-            batches.push_back({firstQuad, it.quadCount, it.tex, it.smp, it.blend, it.clip, it.lit, it.normal, plain,
-                               opaque, it.use, instStart, it.instances});
+            batches.push_back({firstQuad, it.quadCount, it.tex, it.smp, it.blend, it.clip, it.lit, it.instances,
+                               it.normal, plain, opaque, it.use, instStart});
         }
     }
 }

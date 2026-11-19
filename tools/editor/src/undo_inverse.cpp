@@ -102,8 +102,8 @@ std::optional<Json> old_component_values(const World& world, const Target& t, co
 
 // scene.set_component {id, component, fields, merge?}: undo sets the old value of exactly the fields the call names (a
 // whole value, whatever `merge` was); a component the entity did not have is removed again.
-// scene.set_component {component: "SceneSettings", fields, merge?} with no id: the scene's own settings. Undo sets the old
-// value of exactly the fields the call names.
+// scene.set_component {component: "SceneSettings", fields, merge?} with no id: the scene's own settings. Undo sets the
+// old value of exactly the fields the call names.
 std::optional<UndoPlan> plan_set_settings(const World& world, const Json& a) {
     const TypeInfo* type = TypeRegistry::global().find("SceneSettings");
     const Json fields = a.contains("fields") ? a["fields"] : Json::object();

@@ -612,16 +612,17 @@ bool Renderer::Impl::ensure_hud_target() {
     return true;
 }
 
-// Makes (or keeps) the first `count` (0..2) of the images a final pass cut by custom passes goes through (ldrMid, in Gpu::ldr_cut_format): one cut needs one,
-// two or more need both. False (and one logged error) when the GPU cannot make them: the custom passes of the display-referred places
-// are then not drawn. An image nobody asked for for a while is freed (release_idle_ldr_targets).
+// Makes (or keeps) the first `count` (0..2) of the images a final pass cut by custom passes goes through (ldrMid, in
+// Gpu::ldr_cut_format): one cut needs one, two or more need both. False (and one logged error) when the GPU cannot make
+// them: the custom passes of the display-referred places are then not drawn. An image nobody asked for for a while is
+// freed (release_idle_ldr_targets).
 bool Renderer::Impl::ensure_ldr_targets(int count) {
     if (count <= 0) return true;
     ldrUsedFrame = frameSerial;
     count = std::min(count, 2);
     bool all = true;
-    // They hold display values: the display format, and a float one when the window is HDR (Gpu::ldr_cut_format). A change of the
-    // output makes them again.
+    // They hold display values: the display format, and a float one when the window is HDR (Gpu::ldr_cut_format). A
+    // change of the output makes them again.
     const sg_pixel_format format = gpu.ldr_cut_format(frameOutput.extended());
     for (int i = 0; i < count; ++i) {
         if (ldrMid[i].valid() && ldrMid[i].format.color == format) continue;
@@ -648,8 +649,8 @@ bool Renderer::Impl::ensure_ldr_targets(int count) {
     return false;
 }
 
-// Frees the images of the cut final pass (ldrMid) once no frame has used them for kLdrIdleFrames frames (a 4K image of a float format is
-// 130 MB); called once per frame, after its graph ran.
+// Frees the images of the cut final pass (ldrMid) once no frame has used them for kLdrIdleFrames frames (a 4K image of
+// a float format is 130 MB); called once per frame, after its graph ran.
 void Renderer::Impl::release_idle_ldr_targets() {
     if (!ldrMid[0].valid() && !ldrMid[1].valid()) return;
     if (ldrUsedFrame == frameSerial) {
@@ -671,8 +672,8 @@ void Renderer::Impl::post_pass(const PostPlan& pp, bool finalPass, int filter, b
     run_post_pass(gpu, pp, finalPass, filter, autoExposure, p, src, expo, assets->white()->view, aux, dst.w, dst.h,
                   frameOutput, rect, slice);
     ++stats.drawCalls;
-    // A colour filter clamps to paper white (also when it follows the HDR picture); the conversion alone goes above it. A piece that
-    // does not end the final pass leaves it to the last one.
+    // A colour filter clamps to paper white (also when it follows the HDR picture); the conversion alone goes above it.
+    // A piece that does not end the final pass leaves it to the last one.
     if (!slice.tail()) return;
     if (filter != 0)
         frameAboveWhite = false;

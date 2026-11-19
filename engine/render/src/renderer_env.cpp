@@ -13,10 +13,11 @@ namespace fa::render {
 
 namespace {
 
-// The cube map specification's faces (+X -X +Y -Y +Z -Z): the direction the face looks along and the directions of increasing column
-// (right) and of row 0 (up) as seen from inside the cube. Row 0 of the memory is the top of the face on every backend: the table of the
-// OpenGL specification (s = (sc/|ma| + 1)/2, t = (tc/|ma| + 1)/2, t grows downwards) read as: +X sc = -z, tc = -y; -X sc = +z, tc = -y;
-// +Y sc = +x, tc = +z; -Y sc = +x, tc = -z; +Z sc = +x, tc = -y; -Z sc = -x, tc = -y. Direct3D and Metal use the same layout.
+// The cube map specification's faces (+X -X +Y -Y +Z -Z): the direction the face looks along and the directions of
+// increasing column (right) and of row 0 (up) as seen from inside the cube. Row 0 of the memory is the top of the face
+// on every backend: the table of the OpenGL specification (s = (sc/|ma| + 1)/2, t = (tc/|ma| + 1)/2, t grows downwards)
+// read as: +X sc = -z, tc = -y; -X sc = +z, tc = -y; +Y sc = +x, tc = +z; -Y sc = +x, tc = -z; +Z sc = +x, tc = -y; -Z
+// sc = -x, tc = -y. Direct3D and Metal use the same layout.
 struct FaceBasis {
     float fwd[3], right[3], up[3];
 };
@@ -92,8 +93,8 @@ void env_face_matrix(const EnvFace& face, float out[16]) {
 
 bool Environment::ready(Gpu&) {
     if (state_ != 0) return state_ > 0;
-    // The cube needs a format the GPU renders to and filters: the half-float one keeps the sky's brightness (a sun, an HDR sky), RGBA8
-    // is the fallback (GLES 3 without the half-float render extension).
+    // The cube needs a format the GPU renders to and filters: the half-float one keeps the sky's brightness (a sun, an
+    // HDR sky), RGBA8 is the fallback (GLES 3 without the half-float render extension).
     format_ = usable(SG_PIXELFORMAT_RGBA16F)
                   ? SG_PIXELFORMAT_RGBA16F
                   : (usable(SG_PIXELFORMAT_RGBA8) ? SG_PIXELFORMAT_RGBA8 : SG_PIXELFORMAT_NONE);
@@ -258,8 +259,8 @@ void Environment::bake(Gpu& gpu, std::uint64_t key, const SkyDraw& sky, int* dra
     for (int s = 1; s < kEnvPyramid; ++s)
         for (int f = 0; f < 6; ++f)
             draw(gpu, Prog::Copy, pyramidAtt_[s][f], pyramidTex_[s - 1], f, 0.0f, 0.0f, "env-down", drawCalls);
-    // The prefiltered cube: mip 0 is the sky, mip k the GGX lobe of roughness k / (levels - 1) read from the pyramid image of about the
-    // size of the mip (it never reads the image it draws into).
+    // The prefiltered cube: mip 0 is the sky, mip k the GGX lobe of roughness k / (levels - 1) read from the pyramid
+    // image of about the size of the mip (it never reads the image it draws into).
     for (int f = 0; f < 6; ++f)
         draw(gpu, Prog::Copy, preAtt_[0][f], pyramidTex_[0], f, 0.0f, 0.0f, "env-level0", drawCalls);
     for (int m = 1; m < kEnvLevels; ++m) {

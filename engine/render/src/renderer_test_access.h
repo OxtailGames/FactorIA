@@ -5,6 +5,7 @@
 #pragma once
 
 #include <cstdint>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -42,6 +43,7 @@ struct RendererTestAccess {
     static void force_post_effects(Renderer& r, std::uint32_t effects);
     static void force_output(Renderer& r, const HdrOutputInfo* info);
     static bool read_floats(Renderer& r, bool present, std::vector<float>& out, std::string* error);
+    static void set_before_frame_graph(Renderer& r, std::function<void()> hook);
 };
 
 namespace render {
@@ -81,6 +83,11 @@ inline void renderer_force_output(Renderer& r, const HdrOutputInfo* info) { Rend
 // draw or read back an RGBA16F image.
 inline bool renderer_read_floats(Renderer& r, bool present, std::vector<float>& out, std::string* error) {
     return RendererTestAccess::read_floats(r, present, out, error);
+}
+// `hook` runs once per frame after everything is gathered and before the passes run (empty = none): the place to
+// destroy a resource the gathered frame refers to. Clear it before the Renderer is used by another test.
+inline void renderer_set_before_frame_graph(Renderer& r, std::function<void()> hook) {
+    RendererTestAccess::set_before_frame_graph(r, std::move(hook));
 }
 
 }  // namespace render

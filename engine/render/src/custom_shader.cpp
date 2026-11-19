@@ -79,7 +79,8 @@ const std::vector<const char*>& material_program_names(MaterialKind kind) {
     // The order of MaterialProgramId. Every kind has its programs.
     static const std::vector<const char*> mesh = {"mesh",        "mesh_skin", "shadow",
                                                   "shadow_skin", "prepass",   "prepass_skin"};
-    // Sprite: quad (every mode of quad_common.glsl) and quad_plain (a batch of plain textured quads); a material has both.
+    // Sprite: quad (every mode of quad_common.glsl) and quad_plain (a batch of plain textured quads); a material has
+    // both.
     static const std::vector<const char*> sprite = {"quad", "quad_plain"};
     // Sky: the one program of sky_common.glsl.
     static const std::vector<const char*> sky = {"sky"};
@@ -336,8 +337,9 @@ Result<MaterialProgram> make_material_program(const std::string& label, const Js
 }
 
 namespace {
-// The value of param `p` for an entity: the default overlaid by `overrides[p.name]`; a value of the wrong shape is warned about
-// once per material and keeps the default. `field` and `holder` name where `overrides` came from, for the warning.
+// The value of param `p` for an entity: the default overlaid by `overrides[p.name]`; a value of the wrong shape is
+// warned about once per material and keeps the default. `field` and `holder` name where `overrides` came from, for the
+// warning.
 void param_value(MaterialAsset& m, const MaterialParamDef& p, const Json& overrides, float out[4], const char* field,
                  const char* holder) {
     std::memcpy(out, p.def, sizeof(p.def));
@@ -420,8 +422,9 @@ SamplerKind sampler_kind(const std::string& name) {
 const char* kReexportHint = "Export the game again with this factoria version (or run it with `factoria run`, which "
                             "compiles the shaders itself).";
 
-// The compute part of a twin: "workgroupSize" [x, y, z] and "buffers" (tools/common/src/shaders_compute.cpp compute_twin_fields).
-// Every number is range-checked before it is narrowed: the file may come from an export made by another version.
+// The compute part of a twin: "workgroupSize" [x, y, z] and "buffers" (tools/common/src/shaders_compute.cpp
+// compute_twin_fields). Every number is range-checked before it is narrowed: the file may come from an export made by
+// another version.
 Result<void> read_compute_twin(const std::string& path, const Json& twin, std::size_t textureCount, int workgroup[3],
                                std::vector<MaterialBufferDef>& buffers, std::vector<MaterialImageDef>& images) {
     auto bad = [&](const std::string& what) {
@@ -550,7 +553,8 @@ Result<void> Assets::build_material_checked(MaterialAsset& m) {
                                              : "Use one of: " + join(material_kind_names(), ", ") + ".");
         kind = *parsed;
     }
-    // "mode": "full" = the file is the whole vertex and fragment shader of a mesh material (docs/shaders/SHADERS_FULL.md).
+    // "mode": "full" = the file is the whole vertex and fragment shader of a mesh material
+    // (docs/shaders/SHADERS_FULL.md).
     const bool full = str_of(*doc, "mode") && text_of(*doc, "mode") == "full";
     if (full && kind != MaterialKind::Mesh)
         return make_error("material '" + m.path + "' has mode \"full\" with kind \"" + material_kind_name(kind) +
@@ -573,8 +577,8 @@ Result<void> Assets::build_material_checked(MaterialAsset& m) {
     }
     if ((kind == MaterialKind::Mesh || kind == MaterialKind::Sprite) && doc->contains("buffers") &&
         !(*doc)["buffers"].empty()) {
-        // A mesh or sprite material that reads storage buffers (M72.4): refused at load on a backend that cannot, with the name of
-        // the backend and the CPU path, like a compute material.
+        // A mesh or sprite material that reads storage buffers (M72.4): refused at load on a backend that cannot, with
+        // the name of the backend and the CPU path, like a compute material.
         const bool spriteKind = kind == MaterialKind::Sprite;
         std::string backend, reason;
         if (!storage_buffers_available(&backend, &reason))
@@ -589,8 +593,9 @@ Result<void> Assets::build_material_checked(MaterialAsset& m) {
                     "as "
                     "entities (or as \"instanced\" params of a material without buffers) from a script "
                     "(docs/shaders/SHADERS_COMPUTE.md, \"Drawing from a compute buffer\").");
-        // OpenGL counts the bindings of a program from 0 (the glsl430 twin does): each buffer is declared in the vertex and in
-        // the fragment stage, so the program needs two bindings per buffer. GL 4.3 guarantees only 8 and many drivers give 16.
+        // OpenGL counts the bindings of a program from 0 (the glsl430 twin does): each buffer is declared in the vertex
+        // and in the fragment stage, so the program needs two bindings per buffer. GL 4.3 guarantees only 8 and many
+        // drivers give 16.
         const std::size_t buffers = std::min<std::size_t>((*doc)["buffers"].size(), kMaxMeshBuffers);
         bool limited = false;
         const int limit = storage_binding_limit(&limited);
@@ -774,8 +779,8 @@ Result<void> Assets::build_material_checked(MaterialAsset& m) {
     FullShadow shadowMode = FullShadow::Depth;
     bool prepassOn = true;
     if (full) {
-        // The passes in drawing order with their state; each names its programs in the twin. Every program is required (the
-        // tooling made them together), the shadow and prepass ones only when the twin says the material has them.
+        // The passes in drawing order with their state; each names its programs in the twin. Every program is required
+        // (the tooling made them together), the shadow and prepass ones only when the twin says the material has them.
         const std::string shadowName = text_of(twin, "shadow");
         shadowMode = shadowName == "custom" ? FullShadow::Custom
                      : shadowName == "none" ? FullShadow::None
@@ -972,19 +977,20 @@ MaterialRef Assets::post_material(const std::string& path, const Json& overrides
 
 MaterialRef Assets::kind_material(const std::string& path, const Json& overrides, MaterialKind want) {
     if (path.empty()) return {};
-    // The answers of this frame by path, then by values: a second ask about the same component, or about another one with equal
-    // values (the usual case: a thousand sprites with one material), costs one hash-map find and a comparison of the values in
-    // place (nothing is copied).
-    // The "sprite" and the "post" lookups of one path keep apart: the answer holds the kind's own check (a material of another kind
-    // is answered with its error), so one cannot serve the other.
+    // The answers of this frame by path, then by values: a second ask about the same component, or about another one
+    // with equal values (the usual case: a thousand sprites with one material), costs one hash-map find and a
+    // comparison of the values in place (nothing is copied).
+    // The "sprite" and the "post" lookups of one path keep apart: the answer holds the kind's own check (a material of
+    // another kind is answered with its error), so one cannot serve the other.
     PathVariants& perPath = materialVariants_[path];
     KindVariants& variants = want == MaterialKind::Post ? perPath.post : perPath.sprite;
-    // No params at all (the usual case: a thousand sprites with one material): one answer, nothing hashed, nothing inserted.
+    // No params at all (the usual case: a thousand sprites with one material): one answer, nothing hashed, nothing
+    // inserted.
     const bool noParams = params_empty(overrides);
     if (noParams && variants.hasEmpty) return variants.empty;
-    // The same component asked again: its address is the answer, while its values still hash as they did when it was resolved
-    // (comparing it with itself would prove nothing: the entry holds the component's address, not a copy). A component written
-    // to after that, in the same frame, is answered by its values below.
+    // The same component asked again: its address is the answer, while its values still hash as they did when it was
+    // resolved (comparing it with itself would prove nothing: the entry holds the component's address, not a copy). A
+    // component written to after that, in the same frame, is answered by its values below.
     const std::uint64_t h = noParams ? 0 : hash_params(overrides);
     if (!noParams) {
         if (auto it = variants.byPointer.find(&overrides); it != variants.byPointer.end()) {
@@ -1001,9 +1007,9 @@ MaterialRef Assets::kind_material(const std::string& path, const Json& overrides
             variants.byPointer.erase(it);
         }
     }
-    // Another component: found by the hash of its values (compared in place only on a hash match, so any number of distinct
-    // sets costs one hash, not a walk over the others). A hit is not entered by address: that would allocate a map node for every
-    // sprite of every frame, and the hash of a small set costs less.
+    // Another component: found by the hash of its values (compared in place only on a hash match, so any number of
+    // distinct sets costs one hash, not a walk over the others). A hit is not entered by address: that would allocate a
+    // map node for every sprite of every frame, and the hash of a small set costs less.
     if (!noParams) {
         auto [first, last] = variants.byValue.equal_range(h);
         for (auto it = first; it != last; ++it)
@@ -1058,8 +1064,9 @@ MaterialRef Assets::resolve_kind_material(const std::string& path, const Json& o
         for (std::size_t i = 0; i < nTextures; ++i) key.textures[i] = material_texture(*m, int(i), overrides, *this);
         mix(key.params, nParams * sizeof(key.params[0]));
         mix(key.textures, nTextures * sizeof(key.textures[0]));
-        // The compute buffers of a material with "buffers" are part of what a batch draws from: the id of each, -1 when the
-        // value is not an integer (the Sprite is refused when it is gathered, sprite_buffer_draw.cpp, which says why).
+        // The compute buffers of a material with "buffers" are part of what a batch draws from: the id of each, -1 when
+        // the value is not an integer (the Sprite is refused when it is gathered, sprite_buffer_draw.cpp, which says
+        // why).
         const std::size_t nBuffers = std::min<std::size_t>(m->buffers.size(), std::size_t(kMaxMeshBuffers));
         for (std::size_t i = 0; i < nBuffers; ++i) {
             const Json::const_iterator it =

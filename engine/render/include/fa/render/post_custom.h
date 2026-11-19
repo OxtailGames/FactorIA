@@ -1,13 +1,13 @@
 // Custom post-process passes (M72, "Post-process materials"): PostProcess.customPasses is a list of entries
-// {material, materialParams, enabled, position, name}, each one full-screen pass drawn by a kind "post" material. This header is
-// the CPU contract shared by the renderer, the postprocess.* commands and the editor: the entry format with its teaching errors,
-// and the ONE table of the positions an entry can ask for ("after:ssr", "before:tonemap", ...).
+// {material, materialParams, enabled, position, name}, each one full-screen pass drawn by a kind "post" material. This
+// header is the CPU contract shared by the renderer, the postprocess.* commands and the editor: the entry format with
+// its teaching errors, and the ONE table of the positions an entry can ask for ("after:ssr", "before:tonemap", ...).
 //
-// A position names a built-in effect and a side. The renderer has a few places ("slots") where a custom pass can be put in the
-// frame graph, each between two built-in passes; a position maps to the slot that has that effect on that side. Where the slot is
-// between two passes that do not fit a request (a pass cannot go between the SSAO and the scene it is part of), the position is
-// refused with the list of the ones that work. Adding a place is one new slot and the rows that map to it in
-// kCustomPostPositions: nothing else in the entry format changes.
+// A position names a built-in effect and a side. The renderer has a few places ("slots") where a custom pass can be put
+// in the frame graph, each between two built-in passes; a position maps to the slot that has that effect on that side.
+// Where the slot is between two passes that do not fit a request (a pass cannot go between the SSAO and the scene it is
+// part of), the position is refused with the list of the ones that work. Adding a place is one new slot and the rows
+// that map to it in kCustomPostPositions: nothing else in the entry format changes.
 #pragma once
 
 #include <cstdint>
@@ -20,16 +20,18 @@
 
 namespace fa::render {
 
-// The places of the frame graph a custom pass can be drawn at, in frame order. The first five work on scene-linear HDR colour (the
-// scene's own picture, before the exposure and the tonemap); the others (post_slot_is_ldr) work on the picture the tonemap made: the
-// display-referred, sRGB-encoded colour that the final pass goes on to grade, vignette, sharpen, outline, posterize and grain.
+// The places of the frame graph a custom pass can be drawn at, in frame order. The first five work on scene-linear HDR
+// colour (the scene's own picture, before the exposure and the tonemap); the others (post_slot_is_ldr) work on the
+// picture the tonemap made: the display-referred, sRGB-encoded colour that the final pass goes on to grade, vignette,
+// sharpen, outline, posterize and grain.
 enum class PostSlot : std::int32_t {
     Main,         // after the scene (its ambient occlusion and fog) is drawn, before the screen-space reflections
     AfterSsr,     // after the screen-space reflections, before the sun shafts
     AfterShafts,  // after the sun shafts, before the depth of field
     AfterDof,     // after the depth of field and the motion blur, before the bloom
     AfterBloom,  // after the bloom, before the final pass (exposure, lens effects, tonemap, grading and the display looks)
-    // Display-referred places. The final pass (post.glsl) is cut into pieces at every one of them that has a pass, and at no other.
+    // Display-referred places. The final pass (post.glsl) is cut into pieces at every one of them that has a pass, and
+    // at no other.
     AfterTonemap,  // after the exposure, the lens effects and the tonemap (with the sRGB encode), before the colour grading
     AfterGrading,    // after the colour grading and its LUT, before the vignette
     AfterVignette,   // after the vignette, before the sharpen
@@ -63,14 +65,15 @@ struct CustomPostPass {
     bool enabled = true;  // false: the entry stays in the list and draws nothing
     std::string position = std::string(kCustomPostDefaultPosition);
     PostSlot slot = PostSlot::AfterBloom;
-    // The entity of the PostProcess the entry came from (set by resolve_post_stack; null from parse_*), for log messages.
+    // The entity of the PostProcess the entry came from (set by resolve_post_stack; null from parse_*), for log
+    // messages.
     std::uint64_t source = 0;
 };
 
-// One entry. `pointer` is its JSON pointer ("/customPasses/2") and starts every error message, so a command can say which entry is
-// wrong. Errors teach: an unknown key lists the valid ones, an unknown position lists every position, and a position that exists
-// as a built-in effect but cannot take a custom pass says why. A material that does not exist or is not a post material is NOT
-// found here (this is pure data); the renderer and `shader.compile` report that.
+// One entry. `pointer` is its JSON pointer ("/customPasses/2") and starts every error message, so a command can say
+// which entry is wrong. Errors teach: an unknown key lists the valid ones, an unknown position lists every position,
+// and a position that exists as a built-in effect but cannot take a custom pass says why. A material that does not
+// exist or is not a post material is NOT found here (this is pure data); the renderer and `shader.compile` report that.
 Result<CustomPostPass> parse_custom_post_pass(const Json& entry, std::string_view pointer);
 
 // The whole array (`pointer` = "/customPasses"). Also refuses more than kMaxCustomPostPasses entries.

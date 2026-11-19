@@ -1,6 +1,7 @@
-// Sprite materials (M72.1, docs/SHADERS.md "Materials on sprites, shapes, tiles, text and particles"): a Sprite with `material` and
-// `materialParams` is drawn by the compiled quad programs of its material. The fixtures are tests/data/materials/*sprite_*: their
-// twins are committed for the backends the render tests run on (tools/common/tests/shaders_fixtures_test.cpp keeps them current).
+// Sprite materials (M72.1, docs/SHADERS.md "Materials on sprites, shapes, tiles, text and particles"): a Sprite with
+// `material` and `materialParams` is drawn by the compiled quad programs of its material. The fixtures are
+// tests/data/materials/*sprite_*: their twins are committed for the backends the render tests run on
+// (tools/common/tests/shaders_fixtures_test.cpp keeps them current).
 #include "fa/core/engine_version.h"
 #include "test_util.h"
 
@@ -26,8 +27,8 @@ namespace {
 
 constexpr float kTol = 0.04f;  // 4 % of a channel: 8-bit quantisation and the scene's filtering
 
-// The fixture materials are copied into the test project; every twin gets this build's engine version (its "template" stays,
-// so a template change without regenerating the twins fails loudly).
+// The fixture materials are copied into the test project; every twin gets this build's engine version (its "template"
+// stays, so a template change without regenerating the twins fails loudly).
 void install_materials() {
     namespace sfs = std::filesystem;
     const sfs::path src = sfs::path(FA_RENDER_DATA_DIR) / "materials";
@@ -127,8 +128,8 @@ TEST_CASE(
     Gfx& g = gfx();
     REQUIRE(g.ok);
     MaterialScope scope;
-    // The same sprites with and without the material. The first batch is `plain` (the lean quad_plain program); a lit sprite and
-    // a Multiply one are not (the full quad program).
+    // The same sprites with and without the material. The first batch is `plain` (the lean quad_plain program); a lit
+    // sprite and a Multiply one are not (the full quad program).
     auto frame = [&](const char* material, bool full) {
         World w;
         camera2d(w);
@@ -256,7 +257,8 @@ TEST_CASE("sprite materials: items with equal values share a batch, different va
     Gfx& g = gfx();
     REQUIRE(g.ok);
     MaterialScope scope;
-    // Four sprites in a row (the same layer and height: they draw in the order they were made), each with a material and params.
+    // Four sprites in a row (the same layer and height: they draw in the order they were made), each with a material
+    // and params.
     struct Item {
         const char* material;
         Json params;
@@ -343,7 +345,8 @@ TEST_CASE("sprite materials: hot reload swaps the shader, keeps the last good on
                            R"({"format": "factoria.material/1", "kind": "sprite", "shader": "shaders/hot.txt",
                                "params": {"tint": {"type": "color", "default": [1.0, 0.25, 0.25, 1.0], "doc": "Tint."}}})")
                 .ok());
-    // Stands in for the tooling: the snippet on disk names the fixture twin to use ("sprite_tint" or "sprite_empty"), or is broken.
+    // Stands in for the tooling: the snippet on disk names the fixture twin to use ("sprite_tint" or "sprite_empty"),
+    // or is broken.
     g.renderer.set_shader_compiler([dialect](const std::string&, const std::string&) -> Result<Json> {
         auto snippet = fs::read_text("shaders/hot.txt");
         if (!snippet.ok()) return snippet.error();
@@ -387,7 +390,8 @@ TEST_CASE("sprite materials: hot reload swaps the shader, keeps the last good on
 }
 
 // ---------------------------------------------------------------------------------------------------------------------------------
-// The other 2D emitters (M72.5): Shape2D, Tilemap, Text, ParticleEmitter and a UI widget's background take `material` too.
+// The other 2D emitters (M72.5): Shape2D, Tilemap, Text, ParticleEmitter and a UI widget's background take `material`
+// too.
 // ---------------------------------------------------------------------------------------------------------------------------------
 namespace {
 
@@ -405,8 +409,8 @@ const char* kind_name(Kind k) {
     return "";
 }
 
-// One visual of `kind` centred on design pixel (px, 90) of the 320 x 180 picture, with `material` (and `params`). Every one of
-// them is white and draws a block of at least 40 x 40 pixels (a glyph: the stem of a big letter).
+// One visual of `kind` centred on design pixel (px, 90) of the 320 x 180 picture, with `material` (and `params`). Every
+// one of them is white and draws a block of at least 40 x 40 pixels (a glyph: the stem of a big letter).
 Entity emitter(World& w, Kind kind, float px, const char* material, const Json& params = Json::object()) {
     const Vec3 pos{px - 160.0f, 0, 0};  // world units = design pixels at the default camera
     switch (kind) {
@@ -487,8 +491,8 @@ Color brightest(const Image& img, int x0, int x1) {
     return best;
 }
 
-// A world of a camera and two visuals of `kind` in a row: one with the material (left, or right with `materialSecond`), the other
-// without.
+// A world of a camera and two visuals of `kind` in a row: one with the material (left, or right with `materialSecond`),
+// the other without.
 Image two_visuals(Gfx& g, Kind kind, const char* material, bool materialSecond = false,
                   const Json& params = Json::object()) {
     World w;
@@ -516,7 +520,8 @@ TEST_CASE("emitter materials: a material changes the pixels of a Shape2D, a Tile
             const Image img = two_visuals(g, kind, kTint, second);
             const Color with = brightest(img, second ? 160 : 0, second ? 320 : 160);
             const Color without = brightest(img, second ? 0 : 160, second ? 160 : 320);
-            // The tint is (1, 0.25, 0.25): the colour keeps its red and loses three quarters of the others, whatever the coverage.
+            // The tint is (1, 0.25, 0.25): the colour keeps its red and loses three quarters of the others, whatever
+            // the coverage.
             CHECK(with.r > 0.3f);
             CHECK(with.g < with.r * 0.35f);
             CHECK(with.b < with.r * 0.35f);
@@ -569,7 +574,8 @@ TEST_CASE("emitter materials: a tilemap's material covers every tile and a parti
     Gfx& g = gfx();
     REQUIRE(g.ok);
     MaterialScope scope;
-    // A bigger map and a burst of particles are one material each: the calls are the same as for one tile or one particle.
+    // A bigger map and a burst of particles are one material each: the calls are the same as for one tile or one
+    // particle.
     auto calls = [&](int tiles, int particles) {
         World w;
         camera2d(w);
@@ -705,8 +711,8 @@ TEST_CASE("sprite materials: in a split-screen camera screen_uv and fa_target st
     Entity e = sprite(w, {0, 0, 0}, kCut, {300, 160});
     w.get<Sprite>(e)->color = Color{1, 1, 1, 1};
     const Image img = g.render(w);
-    // cut = 0.5 of the whole target is the camera's own left edge: nothing of the sprite is cut. Counted from the camera's
-    // rectangle, the left half of the sprite would be gone.
+    // cut = 0.5 of the whole target is the camera's own left edge: nothing of the sprite is cut. Counted from the
+    // camera's rectangle, the left half of the sprite would be gone.
     CHECK(img.pixel(180, 90).r > 0.2f);
     CHECK(img.pixel(300, 90).r > 0.2f);
     near(img.pixel(80, 90), 0, 0, 0);  // outside the camera's rectangle
@@ -778,8 +784,8 @@ TEST_CASE("emitter materials: a material whose params name the target a camera d
         c.clearColor = Color{0, 0, 1, 1};
     }
     const Json params = Json::object({{"mask", "target:X"}});
-    // The same material and params in the main camera's view and in X's own view: the main camera shows X's picture, X's camera
-    // gets the checker (it cannot sample the image it writes).
+    // The same material and params in the main camera's view and in X's own view: the main camera shows X's picture,
+    // X's camera gets the checker (it cannot sample the image it writes).
     Entity inMain = sprite(w, {-80, 0, 0}, kMask, {32, 32});
     w.get<Sprite>(inMain)->color = Color::white();
     w.get<Sprite>(inMain)->materialParams = params;
@@ -794,8 +800,8 @@ TEST_CASE("emitter materials: a material whose params name the target a camera d
     // The main camera: the corner of X's picture, its clear colour (blue).
     INFO("main camera");
     near(img.pixel(-80 + 160, 90), 0, 0, 1, 0.05f);
-    // X's camera: the missing-texture checker (its first texel is not blue), in the middle of X's picture, which the main camera
-    // shows at the centre of the sprite that shows X.
+    // X's camera: the missing-texture checker (its first texel is not blue), in the middle of X's picture, which the
+    // main camera shows at the centre of the sprite that shows X.
     INFO("X's camera");
     const Color mid = img.pixel(80 + 160, 90);
     near(mid, 1, 0, 1);  // the magenta of the checker's first texel
@@ -1026,7 +1032,8 @@ TEST_CASE(
     MaterialScope scope;
     render::Assets assets(*render::renderer_gpu(g.renderer));
     assets.begin_material_frame();
-    // Json keeps the order of its keys, and the per-frame answers compare and hash the values as written, so these differ.
+    // Json keeps the order of its keys, and the per-frame answers compare and hash the values as written, so these
+    // differ.
     const Json ab = Json::object({{"shift", 1.0}, {"boost", 2.0}});
     const Json ba = Json::object({{"boost", 2.0}, {"shift", 1.0}});
     const render::MaterialRef first = assets.sprite_material("materials/sprite_inst.material.json", ab);

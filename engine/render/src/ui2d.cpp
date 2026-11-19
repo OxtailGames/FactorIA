@@ -143,8 +143,8 @@ void background(const Ctx& c, const UiBox& b, const Rect& r, Color tint) {
     const float ys[4] = {snap(c, r.y), snap(c, r.y + border[1]), snap(c, r.y + r.h - border[3]), snap(c, r.y + r.h)};
     const float us[4] = {0, uvBorder[0], 1 - uvBorder[2], 1}, vs[4] = {0, uvBorder[1], 1 - uvBorder[3], 1};
     c.list().begin_item(b.layer, 0, tex, SamplerKind::Nearest, BlendMode::Alpha, c.clip);
-    // UiBox.material: only these quads (the image or solid rectangle, 9-sliced); labels, icons, knobs and the picture of a Chart,
-    // Video or CameraView are other items and keep the built-in programs.
+    // UiBox.material: only these quads (the image or solid rectangle, 9-sliced); labels, icons, knobs and the picture
+    // of a Chart, Video or CameraView are other items and keep the built-in programs.
     c.list().set_material(c.f.assets->sprite_material(b.material, b.materialParams));
     for (int j = 0; j < 3; ++j)
         for (int i = 0; i < 3; ++i) {

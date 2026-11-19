@@ -136,8 +136,8 @@ struct QuadEmitter {
 // `visible` >= 0 draws only the glyphs and pictures of the first `visible` grapheme clusters (Text.visibleCharacters): the layout
 // is the whole text's, so nothing moves while a line reveals. Returns the number of glyphs drawn (pictures not counted).
 // `tint` (Tint component): `color` already includes it; it is multiplied into the run colours and pictures of a rich text too.
-// `material` (Assets::sprite_material of Text.material; empty = the built-in look): only the glyph item gets it, the glyph atlas
-// stays the main texture; the pictures of a rich text keep the built-in programs.
+// `material` (Assets::sprite_material of Text.material; empty = the built-in look): only the glyph item gets it, the
+// glyph atlas stays the main texture; the pictures of a rich text keep the built-in programs.
 int emit_text(QuadList& list, const Mat4& m, bool screen, const TextLayout& lay, Color color, Fonts& fonts,
               Assets& assets, int layer, float secondary, const Rect& clip, int visible = -1,
               Color tint = Color{1, 1, 1, 1}, const MaterialRef& material = {});

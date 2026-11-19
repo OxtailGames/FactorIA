@@ -1,7 +1,7 @@
-// Post-process materials (M72.2, docs/shaders/SHADERS_POST.md): the entries of PostProcess.customPasses are drawn as full-screen
-// passes of the post stack by the compiled program of a kind "post" material (src/renderer_custom_post.cpp, shaders/post_common.glsl). The
-// fixtures are tests/data/materials/*post_*: their twins are committed for the backends the render tests run on
-// (tools/common/tests/shaders_fixtures_test.cpp keeps them current).
+// Post-process materials (M72.2, docs/shaders/SHADERS_POST.md): the entries of PostProcess.customPasses are drawn as
+// full-screen passes of the post stack by the compiled program of a kind "post" material (src/renderer_custom_post.cpp,
+// shaders/post_common.glsl). The fixtures are tests/data/materials/*post_*: their twins are committed for the backends
+// the render tests run on (tools/common/tests/shaders_fixtures_test.cpp keeps them current).
 #include "fa/core/engine_version.h"
 #include "test_util.h"
 
@@ -29,8 +29,8 @@ namespace {
 
 constexpr float kTol = 0.04f;  // 4 % of a channel: 8-bit quantisation and the scene's filtering
 
-// The fixture materials are copied into the test project; every twin gets this build's engine version (its "template" stays,
-// so a template change without regenerating the twins fails loudly).
+// The fixture materials are copied into the test project; every twin gets this build's engine version (its "template"
+// stays, so a template change without regenerating the twins fails loudly).
 void install_materials() {
     namespace sfs = std::filesystem;
     const sfs::path src = sfs::path(FA_RENDER_DATA_DIR) / "materials";
@@ -235,7 +235,8 @@ TEST_CASE("post materials: the depth and normals are made only when a material r
     s.post().customPasses = Json::array({entry(kDepth)});
     const Image img = g.render(s.w);
     CHECK(index_of(graph_order(g), "/prepass") >= 0);
-    // The cube's front face is 9 m from the camera and faces it; the sky has no depth (60000: clamped to 1) and no normal.
+    // The cube's front face is 9 m from the camera and faces it; the sky has no depth (60000: clamped to 1) and no
+    // normal.
     near(img.pixel(160, 90), 9.0f / 20.0f, 0.5f, 0.5f);
     near(img.pixel(10, 10), 1.0f, 0.5f, 0.5f);
     CHECK(log.messages().empty());
@@ -427,7 +428,8 @@ TEST_CASE("post materials: hot reload swaps the shader, keeps the last good one 
                            R"({"format": "factoria.material/1", "kind": "post", "shader": "shaders/hot.txt",
                                "params": {"tint": {"type": "color", "default": [1.0, 0.25, 0.25, 1.0], "doc": "Tint."}}})")
                 .ok());
-    // Stands in for the tooling: the snippet on disk names the fixture twin to use ("post_tint" or "post_empty"), or is broken.
+    // Stands in for the tooling: the snippet on disk names the fixture twin to use ("post_tint" or "post_empty"), or is
+    // broken.
     g.renderer.set_shader_compiler([dialect](const std::string&, const std::string&) -> Result<Json> {
         auto snippet = fs::read_text("shaders/hot.txt");
         if (!snippet.ok()) return snippet.error();
@@ -495,11 +497,13 @@ TEST_CASE("post materials: a camera of a split screen draws its pass over its ow
     CHECK(log.messages().empty());
 }
 
-// ---- the places between the screen effects (display-referred; the final pass is cut there) -------------------------------------
+// ---- the places between the screen effects (display-referred; the final pass is cut there)
+// -------------------------------------
 
 namespace {
 
-// How many passes of the frame draw the final pass of post.glsl, whole or in pieces: "post" and "post-part<k>" (job/ prefix kept).
+// How many passes of the frame draw the final pass of post.glsl, whole or in pieces: "post" and "post-part<k>" (job/
+// prefix kept).
 int final_pieces(const std::vector<std::string>& order) {
     int n = 0;
     for (const std::string& s : order) {
@@ -540,7 +544,8 @@ TEST_CASE("post materials: a frame with no custom pass keeps its one final pass,
     CHECK(count_of(order, "post-part") == 0);
     const std::size_t plain = order.size();
 
-    // A pass before the tonemap (scene-linear) does not cut it either: more passes for the custom pass, the same final pass.
+    // A pass before the tonemap (scene-linear) does not cut it either: more passes for the custom pass, the same final
+    // pass.
     s.passes({entry(kTint, "before:tonemap")});
     g.render(s.w);
     order = graph_order(g);
@@ -733,12 +738,13 @@ TEST_CASE("post plan: the cuts of the final pass, and an outline that cannot be 
         two.custom.entries.push_back(c);
     }
     two.settle_custom();
-    // AfterTonemap: the scene stage (converting) is active -> a cut; AfterVignette: the vignette -> a cut; AfterSharpen: nothing
-    // since the last cut -> none; AfterPosterize: the posterize -> a cut.
+    // AfterTonemap: the scene stage (converting) is active -> a cut; AfterVignette: the vignette -> a cut;
+    // AfterSharpen: nothing since the last cut -> none; AfterPosterize: the posterize -> a cut.
     CHECK(two.ldr_cuts() == ((1u << kStageScene) | (1u << kStageVignette) | (1u << kStagePosterize)));
 }
 
-// ---- history: a pass that reads its own output of the frame before (fa_history) --------------------------------------------------
+// ---- history: a pass that reads its own output of the frame before (fa_history)
+// --------------------------------------------------
 
 namespace {
 
@@ -746,8 +752,8 @@ constexpr const char* kHistory = "materials/post_history.material.json";
 // `mark`: the pass paints red where fa_history_valid is true.
 Json keep(double k, bool mark = false) { return Json::object({{"keep", k}, {"mark", mark ? 1.0 : 0.0}}); }
 
-// MaterialScope that also starts with no history image: the slots of the tests before are freed by drawing frames that ask for none
-// (kHistoryIdleFrames of them), so the counts of a test are its own.
+// MaterialScope that also starts with no history image: the slots of the tests before are freed by drawing frames that
+// ask for none (kHistoryIdleFrames of them), so the counts of a test are its own.
 struct HistoryScope {
     MaterialScope scope;
     HistoryScope() {
@@ -954,12 +960,13 @@ TEST_CASE("post history: the images are freed after kHistoryIdleFrames frames no
     CHECK(log.messages().empty());
 }
 
-// ---- the cut final pass: its images, a split screen, the multisampled HUD chain, a gamma scene ----------------------------------
+// ---- the cut final pass: its images, a split screen, the multisampled HUD chain, a gamma scene
+// ----------------------------------
 
 namespace {
 
-// A renderer of its own with a sample count (the shared one has the one of FA_TEST_SAMPLES), shut down when the object ends, even when
-// a REQUIRE fails in between.
+// A renderer of its own with a sample count (the shared one has the one of FA_TEST_SAMPLES), shut down when the object
+// ends, even when a REQUIRE fails in between.
 struct OwnRenderer {
     Gfx& g;
     Renderer r;
@@ -1022,8 +1029,8 @@ bool usable_format(sg_pixel_format f) {
 TEST_CASE(
     "post materials: the images of a cut final pass hold the display format, and a float one with an HDR window") {
     using render::pick_ldr_cut_format;
-    // The choice, whatever this GPU can do: an SDR window and a float display keep the display format; an HDR window over an 8-bit one
-    // takes the half float, else the full float, else stays.
+    // The choice, whatever this GPU can do: an SDR window and a float display keep the display format; an HDR window
+    // over an 8-bit one takes the half float, else the full float, else stays.
     CHECK(pick_ldr_cut_format(SG_PIXELFORMAT_RGBA8, false, true, true) == SG_PIXELFORMAT_RGBA8);
     CHECK(pick_ldr_cut_format(SG_PIXELFORMAT_RGBA8, true, true, true) == SG_PIXELFORMAT_RGBA16F);
     CHECK(pick_ldr_cut_format(SG_PIXELFORMAT_RGBA8, true, false, true) == SG_PIXELFORMAT_RGBA32F);
@@ -1105,8 +1112,8 @@ TEST_CASE("post materials: a multisampled frame with a HUD over the final pass k
     REQUIRE(g.ok);
     MaterialScope scope;
     ProblemLog log;
-    // The HUD is drawn after the final pass (hudAfterPost), and the game is multisampled: the custom passes read the resolved picture
-    // and write it back in place, the HUD is not tinted.
+    // The HUD is drawn after the final pass (hudAfterPost), and the game is multisampled: the custom passes read the
+    // resolved picture and write it back in place, the HUD is not tinted.
     for (const char* position : {static_cast<const char*>(nullptr), "after:tonemap"}) {
         INFO((position ? position : "default place"));
         OwnRenderer own(g, 4);
@@ -1165,7 +1172,8 @@ TEST_CASE("post materials: a cut final pass in a gamma scene changes no colour, 
     CHECK(log.messages().empty());
 }
 
-// ---- history: what a frame that is not the game's, a budget, a refusal, a second job and a reload do ----------------------------
+// ---- history: what a frame that is not the game's, a budget, a refusal, a second job and a reload do
+// ----------------------------
 
 namespace {
 
@@ -1349,7 +1357,8 @@ TEST_CASE("post history: a reload of the material and the end of the renderer le
             CHECK(render::renderer_post_history_images(g.renderer) == 2);
         }
     }
-    // A renderer that shuts down with history slots frees them: the same cycle without a history pass leaves the same count.
+    // A renderer that shuts down with history slots frees them: the same cycle without a history pass leaves the same
+    // count.
     auto cycle = [&](bool history) {
         OwnRenderer own(g, 1);
         REQUIRE_MESSAGE(own.ok, own.error);
@@ -1371,7 +1380,8 @@ TEST_CASE("post history: a reload of the material and the end of the renderer le
     CHECK(log.messages().empty());
 }
 
-// ---- Renderer::capture_camera: the custom passes of a camera over a picture made off screen (the editor's preview of a post material) ----
+// ---- Renderer::capture_camera: the custom passes of a camera over a picture made off screen (the editor's preview of
+// a post material) ----
 
 TEST_CASE("capture_camera: the custom passes of the camera run over the picture, the other effects do not") {
     Gfx& g = gfx();
@@ -1436,10 +1446,11 @@ TEST_CASE(
     near(three.pixel(5, 5), 1, 0, 0);  // the history is valid from the second frame
     near(three.pixel(40, 22), 1, 0, 0);
     REQUIRE_MESSAGE(g.renderer.capture_camera(s.w, spec, again, &err), err);
-    // The capture's slots are freed when it ends, not left to count against the game's budget for 120 frames: only the game's pair is held.
+    // The capture's slots are freed when it ends, not left to count against the game's budget for 120 frames: only the
+    // game's pair is held.
     CHECK(render::renderer_post_history_images(g.renderer) == 2);
-    CHECK(diff_images(three, again, 1.0f / 255.0f).maxError ==
-          0.0);  // the same world, the same picture: it started clean again
+    // The same world, the same picture: it started clean again (the tolerance only decides differingPixels).
+    CHECK(diff_images(three, again, 1.0f / 255.0f).differingPixels == 0);
     spec.frames = 1;
     REQUIRE_MESSAGE(g.renderer.capture_camera(s.w, spec, one, &err), err);
     near(one.pixel(5, 5), 0, 0, 0);  // and a single frame after them is clean too

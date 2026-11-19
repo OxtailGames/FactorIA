@@ -1,7 +1,8 @@
-// Autotest section Q3: the Scene settings panel (View > Scene settings, scene_settings_panel.cpp). It opens the panel from the menu, picks a
-// sky material (the panel's own scene.set_component path), sees the material's params typed by material.info, sets one, takes it back with
-// the param's Reset button and the material back with the field's Reset button (real clicks), undoes every step, and checks that a refused
-// value changes nothing and leaves no undo step. Every wait counts frames or state; the panel is made to fit a 1024 x 642 window.
+// Autotest section Q3: the Scene settings panel (View > Scene settings, scene_settings_panel.cpp). It opens the panel
+// from the menu, picks a sky material (the panel's own scene.set_component path), sees the material's params typed by
+// material.info, sets one, takes it back with the param's Reset button and the material back with the field's Reset
+// button (real clicks), undoes every step, and checks that a refused value changes nothing and leaves no undo step.
+// Every wait counts frames or state; the panel is made to fit a 1024 x 642 window.
 #include <memory>
 
 #include "autotest_common.h"

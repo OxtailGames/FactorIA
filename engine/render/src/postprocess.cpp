@@ -226,8 +226,8 @@ post_post_fx_params_t fx_uniforms(const PostFx& fx, const LutInfo& lut, bool gl,
 
 namespace {
 
-// The effects a piece of the final pass runs (PostSlice): the ones of its stages. The pixelate is in every piece (it moves the position
-// they all read).
+// The effects a piece of the final pass runs (PostSlice): the ones of its stages. The pixelate is in every piece (it
+// moves the position they all read).
 PostFx sliced_fx(const PostFx& in, const PostSlice& s) {
     PostFx fx = in;
     if (!s.has(kStageScene)) {
@@ -254,8 +254,8 @@ void run_post_pass(Gpu& gpu, const PostPlan& plan, bool finalPass, int filter, b
         partial ? rect.w
                 : picW;  // the pass's own area: the camera's rectangle (its pixels are the ones the effects count)
     const int h = partial ? rect.h : picH;
-    // finalPass: the pass that converts and draws the effects; the colour-filter-only pass has neither. A piece of it (`slice`) runs only
-    // the stages it holds; the conversion is the first stage's and the colour filter the tail's.
+    // finalPass: the pass that converts and draws the effects; the colour-filter-only pass has neither. A piece of it
+    // (`slice`) runs only the stages it holds; the conversion is the first stage's and the colour filter the tail's.
     const bool convertAll = finalPass && plan.convert();
     const bool convert = convertAll && slice.has(kStageScene);
     PostFx all = finalPass ? plan.fx : PostFx{};

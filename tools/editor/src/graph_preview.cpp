@@ -144,8 +144,9 @@ std::string name_real_files(std::string text, const std::string& projectDir, con
         for (std::size_t at = text.find(from); at != std::string::npos; at = text.find(from, at + to.size()))
             text.replace(at, from.size(), to);
     };
-    // The forms a compiler or the OS may print a stage file in: the absolute path with '/', with '\', and the mixed ones (the project
-    // folder written one way and the stage's relative path the other), then the relative one. The absolute forms go first (they contain it).
+    // The forms a compiler or the OS may print a stage file in: the absolute path with '/', with '\', and the mixed
+    // ones (the project folder written one way and the stage's relative path the other), then the relative one. The
+    // absolute forms go first (they contain it).
     auto back = [](std::string t) {
         std::replace(t.begin(), t.end(), '/', '\\');
         return t;
@@ -159,8 +160,8 @@ std::string name_real_files(std::string text, const std::string& projectDir, con
                                      back(projectDir) + "\\" + back(rel),
                                      rel,
                                      back(rel)};
-        // A drive letter is case-insensitive (`c:\` and `C:\` name the same folder, and a compiler may print either): each
-        // absolute form is also tried with the other case of its letter.
+        // A drive letter is case-insensitive (`c:\` and `C:\` name the same folder, and a compiler may print either):
+        // each absolute form is also tried with the other case of its letter.
         const std::size_t n = all.size();
         for (std::size_t i = 0; i < n; ++i) {
             const std::string& f = all[i];
@@ -216,7 +217,8 @@ int GraphPreview::remove_stale_stage_files(const std::string& projectDir, int ol
 
 GraphPreview::GraphPreview(std::string projectDir) : projectDir_(std::move(projectDir)) {
     remove_stale_stage_files(projectDir_);
-    // A token for this instance: a counter (two previews of one process) and the clock (another editor process on the same project).
+    // A token for this instance: a counter (two previews of one process) and the clock (another editor process on the
+    // same project).
     static std::atomic<unsigned> instances{0};
     const std::string token =
         std::to_string(instances.fetch_add(1)) + "-" +
@@ -236,9 +238,9 @@ GraphPreview::GraphPreview(std::string projectDir) : projectDir_(std::move(proje
 }
 
 GraphPreview::~GraphPreview() {
-    // Waits for a compile that is still running, but not for ever (sokol-shdc can take seconds and this runs on the UI thread): the worker only
-    // holds copies (the project directory and the shared job) and writes files that carry this instance's token, so one that outlasts the wait is
-    // let go and ends by itself.
+    // Waits for a compile that is still running, but not for ever (sokol-shdc can take seconds and this runs on the UI
+    // thread): the worker only holds copies (the project directory and the shared job) and writes files that carry this
+    // instance's token, so one that outlasts the wait is let go and ends by itself.
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(kCloseWaitMs);
     for (Slot* s : {&cur_, &saved_}) {
         if (!s->worker.joinable()) continue;
@@ -401,8 +403,9 @@ void GraphPreview::build_world(PreviewKind kind) {
     if (kind == PreviewKind::Post) build_post_scene();
 }
 
-// What a post pass is shown over: a floor and four lit shapes between 7 and 24 metres from the camera (so fa_depth and fa_normal have
-// something to tell apart), on a sky; nothing else of the PostProcess stack. The camera's own PostProcess holds the material only.
+// What a post pass is shown over: a floor and four lit shapes between 7 and 24 metres from the camera (so fa_depth and
+// fa_normal have something to tell apart), on a sky; nothing else of the PostProcess stack. The camera's own
+// PostProcess holds the material only.
 void GraphPreview::build_post_scene() {
     World& w = *world_;
     w.settings().skyColor = Color{0.32f, 0.52f, 0.86f, 1.0f};
@@ -448,7 +451,8 @@ void GraphPreview::tick(Renderer* renderer) {
     if (!renderer || !renderer->initialized() || renderer->shader_dialect().empty()) {
         for (Slot* s : {&cur_, &saved_}) {
             if (!s->haveDoc) continue;
-            // A kind this preview never draws (post, sky, compute) says why with or without a GPU: the reason does not depend on one.
+            // A kind this preview never draws (post, sky, compute) says why with or without a GPU: the reason does not
+            // depend on one.
             const PreviewPlan plan = preview_plan(kind_of(s->doc));
             if (plan.kind == PreviewKind::None) {
                 if (s->state != PreviewState::Unsupported || s->message != plan.reason)
@@ -460,7 +464,10 @@ void GraphPreview::tick(Renderer* renderer) {
         }
         return;
     }
-    if (animated_) ++animFrame_;
+    if (animated_) {
+        ++animFrame_;
+        if (animFrame_ % kAnimateEvery == 0) instantFrame_ = animFrame_;
+    }
     tick_slot(cur_, renderer);
     if (compare_ && saved_.haveDoc) tick_slot(saved_, renderer);
 }
@@ -473,8 +480,9 @@ void GraphPreview::tick_slot(Slot& s, Renderer* renderer) {
         finish(s, renderer);
     }
     if (s.job) return;  // one compile at a time: the newest document waits for it
-    // One compile at a time across both pictures too: the saved and the current document can give the same cache key, and two workers
-    // would write the same ".tmp" of the shader cache at once (a failed replace on Windows, a truncated file that is being read on POSIX).
+    // One compile at a time across both pictures too: the saved and the current document can give the same cache key,
+    // and two workers would write the same ".tmp" of the shader cache at once (a failed replace on Windows, a truncated
+    // file that is being read on POSIX).
     if (s.pending && (&s == &cur_ ? saved_.job : cur_.job)) return;
     if (s.pending) {
         ++s.quiet;
@@ -483,12 +491,13 @@ void GraphPreview::tick_slot(Slot& s, Renderer* renderer) {
     }
     if (s.redraw) {
         s.redraw = false;
-        // The last good picture again with the new shape or values: the state (an error that is still true) is not touched.
+        // The last good picture again with the new shape or values: the state (an error that is still true) is not
+        // touched.
         if (s.drawn) draw(s, renderer, false);
         return;
     }
-    // A post picture only changes with the clock, so one whose snippet never reads the time is not drawn again (the same picture, 4 frames
-    // of 256 x 256 each time).
+    // A post picture only changes with the clock, so one whose snippet never reads the time is not drawn again (the
+    // same picture, 4 frames of 256 x 256 each time).
     const bool changes = s.drawKind != PreviewKind::Post || s.readsTime;
     if (animated_ && changes && s.drawn && s.state == PreviewState::Ready && animFrame_ % kAnimateEvery == 0)
         draw(s, renderer, true);
@@ -531,13 +540,15 @@ void GraphPreview::start(Slot& s, Renderer* renderer) {
         return;
     }
     s.drawKind = plan.kind;
-    // The snippet's extension follows the kind, as the files of the project do (a post pass is shaders/<name>.post.glsl).
+    // The snippet's extension follows the kind, as the files of the project do (a post pass is
+    // shaders/<name>.post.glsl).
     const char* snippetExt = plan.kind == PreviewKind::Post ? ".post.glsl" : ".surface.glsl";
     s.stageSnippet = s.stageStem + snippetExt;
     s.liveSnippet = s.liveStem + snippetExt;
     s.spriteTexture.clear();
     if (plan.kind == PreviewKind::Sprite) {
-        // the quad shows the first texture the material declares a file for (they are alphabetical), else the grey checker
+        // the quad shows the first texture the material declares a file for (they are alphabetical), else the grey
+        // checker
         for (const MaterialTexture& t : report.material.textures)
             if (!t.defaultPath.empty()) {
                 s.spriteTexture = t.defaultPath;
@@ -577,8 +588,9 @@ void GraphPreview::start(Slot& s, Renderer* renderer) {
     s.message.clear();
     const std::string projectDir = projectDir_;
     auto run = [projectDir, job]() {
-        // The material file and the snippet it names, then the compile of that material for this backend: the result goes to the
-        // content-keyed cache (.factoria/shader-cache), so the renderer finds it when it loads the live copy.
+        // The material file and the snippet it names, then the compile of that material for this backend: the result
+        // goes to the content-keyed cache (.factoria/shader-cache), so the renderer finds it when it loads the live
+        // copy.
         try {
             auto w1 = fs::write_text(abs_path(projectDir, job->stageSnippet), job->snippet);
             auto w2 = fs::write_text(abs_path(projectDir, job->stageMaterial), job->stageText);
@@ -596,8 +608,9 @@ void GraphPreview::start(Slot& s, Renderer* renderer) {
                     for (const ShaderIssue& issue : r->errors) job->error += issue.to_string() + "\n";
                     if (job->error.empty()) job->error = "The shader did not compile.";
                 } else {
-                    // compile_material keeps a twin it could not write to .factoria/shader-cache in memory only. The renderer reads the
-                    // cache, so without the file it would run sokol-shdc itself on the editor's thread: report it here instead.
+                    // compile_material keeps a twin it could not write to .factoria/shader-cache in memory only. The
+                    // renderer reads the cache, so without the file it would run sokol-shdc itself on the editor's
+                    // thread: report it here instead.
                     std::error_code ec;
                     const std::string cache = shader_cache_path(projectDir, r->generated, job->snippet, job->dialect);
                     if (stdfs::exists(stdfs::path(cache), ec)) {
@@ -671,8 +684,10 @@ void GraphPreview::finish(Slot& s, Renderer* renderer) {
     renderer->reload_asset(s.liveMaterial);
     s.shownRevision = job->revision;
     s.nodeErrors.clear();
-    // fa_time (the graph's time node, post.time) or PostInput.time (a hand-written snippet).
-    s.readsTime = job->snippet.find("fa_time") != std::string::npos || job->snippet.find("i.time") != std::string::npos;
+    // fa_time (the graph's time node, post.time) or the time field of PostInput under whatever name the hand-written
+    // snippet gave the parameter (".time"): a snippet that merely has another ".time" is drawn again for nothing, which
+    // costs a few redraws, while a missed read would freeze a preview that moves.
+    s.readsTime = job->snippet.find("fa_time") != std::string::npos || job->snippet.find(".time") != std::string::npos;
     draw(s, renderer, true);
 }
 
@@ -683,17 +698,19 @@ void GraphPreview::draw(Slot& s, Renderer* renderer, bool markReady) {
     Image img;
     std::string err;
     if (s.drawKind == PreviewKind::Post) {
-        // The material is the only pass of the camera: the picture is the scene with it, and the same scene without it is what the
-        // material changed (a graph that outputs the scene unchanged gives the plain scene).
+        // The material is the only pass of the camera: the picture is the scene with it, and the same scene without it
+        // is what the material changed (a graph that outputs the scene unchanged gives the plain scene).
         PostProcess* pp = world_->get<PostProcess>(camera_);
         if (!pp) return;
         Json entry = Json::object({{"material", s.liveMaterial}});
         if (params.is_object() && !params.empty()) entry["materialParams"] = params;
         pp->customPasses = Json::array({entry});
-        // The scratch world's engine clock follows the animation (a step of 1/60 s per tick, never the wall clock), so a pass that reads
-        // the time moves, and both pictures of a comparison show the same instant.
-        if (animated_ && double(animFrame_) / 60.0 > world_->time())
-            world_->advance_clock(double(animFrame_) / 60.0 - world_->time());
+        // The scratch world's engine clock follows the animation (a step of 1/60 s per tick, never the wall clock), so
+        // a pass that reads the time moves. It stops at the instant of the last redraw (instantFrame_), not at the
+        // frame of this tick: a slot that finishes compiling between two redraws is drawn at the instant the other
+        // slot's picture shows, so both pictures of a comparison show the same instant right away.
+        if (animated_ && double(instantFrame_) / 60.0 > world_->time())
+            world_->advance_clock(double(instantFrame_) / 60.0 - world_->time());
         Renderer::CameraCapture spec;
         spec.camera = camera_;
         spec.width = spec.height = kPreviewSide;
@@ -708,7 +725,8 @@ void GraphPreview::draw(Slot& s, Renderer* renderer, bool markReady) {
     }
     Transform* t = world_->get<Transform>(subject_);
     if (!t) return;
-    // Animate: the shape turns (a quad sways so it never goes edge-on), so the lighting on it changes from picture to picture
+    // Animate: the shape turns (a quad sways so it never goes edge-on), so the lighting on it changes from picture to
+    // picture
     const float spin = animated_ ? std::fmod(float(animFrame_) * 1.5f, 360.0f) : 0.0f;
     if (s.drawKind == PreviewKind::Sprite) {
         Sprite* sp = world_->get<Sprite>(subject_);
