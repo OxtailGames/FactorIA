@@ -15,6 +15,7 @@
 
 #include "fa/core/json.h"
 #include "fa/scene/tilemap.h"
+#include "fa/scene/vfx.h"
 #include "render_internal.h"
 
 using namespace fa;
@@ -1048,4 +1049,42 @@ TEST_CASE(
     assets.sprite_material(kTint, params);
     CHECK(log.count("materialParams of a 2D item changed") == 1);
     assets.clear();
+}
+
+TEST_CASE("emitter materials: an emitter part of a *.vfx.json takes material and materialParams and draws with them") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    MaterialScope scope;
+    clear_vfx_cache();
+    const Json doc = Json::parse(R"({
+        "format": "factoria.vfx/1",
+        "parts": [{"type": "emitter", "name": "glow", "at": 0, "emitter": {
+            "burst": 1, "rate": 0, "lifetime": 20, "lifetimeVariance": 0, "speed": 0, "speedVariance": 0, "spread": 0,
+            "gravity": [0, 0, 0], "startSize": 80, "endSize": 80,
+            "startColor": [1, 1, 1, 1], "endColor": [1, 1, 1, 1],
+            "material": "materials/sprite_tint.material.json", "materialParams": {"tint": [0, 1, 0, 1]}}}]
+    })");
+    REQUIRE(fs::write_text("effects/glow.vfx.json", doc.dump(2)).ok());
+    ProblemLog log;
+    World w;
+    camera2d(w);
+    auto played = vfx_play(w, "effects/glow.vfx.json");
+    REQUIRE(played.ok());
+    update_vfx(w, 0.05f, VfxHost{});
+    Entity glow = kNullEntity;
+    for (Entity c : w.children(*played))
+        if (w.get<ParticleEmitter>(c)) glow = c;
+    REQUIRE_FALSE(glow.is_null());
+    const ParticleEmitter* pe = w.get<ParticleEmitter>(glow);
+    CHECK(pe->material == "materials/sprite_tint.material.json");
+    REQUIRE(pe->materialParams.is_object());
+    CHECK(pe->materialParams.contains("tint"));
+    const Image img = g.render(w, 0.05f);
+    const Color c = brightest(img, 0, 320);
+    CHECK(c.g > 0.3f);  // the green tint of the params, not the default (1, 0.25, 0.25) and not white
+    CHECK(c.r < c.g * 0.15f);
+    CHECK(c.b < c.g * 0.15f);
+    CHECK(g.renderer.stats().materials == 1);
+    CHECK(g.renderer.stats().materialFallbacks.empty());
+    CHECK(log.messages().empty());
 }

@@ -726,8 +726,8 @@ The user, 2026-11-06: FactorIA is for 2D and 3D, simple and ambitious, retro and
 phones and the web, so it gets everything a leading engine has, not only what a 2D game needs. Today: loading reads a
 little every frame on the main thread, the game loop is single-threaded, lighting is in gamma space with no HDR, the
 only screen effects are bloom and the colour filter, only the directional light casts shadows (one map, no cascades),
-IBL is a procedural sky, custom materials exist for `MeshRenderer` only, there is no LOD, occlusion culling, streaming,
-temporal antialiasing, upscaler or ray tracing, and the backends are sokol_gfx's (GL, GLES3, WebGL2, D3D11, Metal).
+IBL is a procedural sky, custom materials existed for `MeshRenderer` only (M72 added `Sprite`, `Shape2D`, `Tilemap`,
+`Text`, particles, UI and post passes), there is no LOD, occlusion culling, streaming, temporal antialiasing, upscaler or ray tracing, and the backends are sokol_gfx's (GL, GLES3, WebGL2, D3D11, Metal).
 
 Rules for all of them:
 - Off by default and free when off: a simple or retro game pays nothing (no extra pass, target or memory) for a feature
@@ -772,7 +772,7 @@ SHADERS.md "Not available yet" becomes empty.
   values through instance data.
 - M72.2 (M) Post-process materials: a custom pass in the M71 stack (reads colour, depth, normals, previous passes),
   ordered with the built-in effects. Built (M72-P7a, docs/shaders/SHADERS_POST.md): `PostProcess.customPasses`, positions around the
-  built-in effects before the tonemap; passes on the display picture and a previous-frame input are left.
+  built-in effects before the tonemap. Built (M72-P7b): passes on the display picture (positions after the tonemap). Built (M72-P16): a previous-frame input (`fa_history`).
 - M72.3 (L) Full shaders and custom lighting: own `main` and vertex layout, several passes, a custom light loop (toon
   ramps, cel bands, hatching), textures in `vertex()`, per-instance values in one instanced draw.
 - M72.4 (L) Compute shaders where the backend has them (D3D11, Metal, GL 4.3, Vulkan/D3D12 with M77): GPU particles,
