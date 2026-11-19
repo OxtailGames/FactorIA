@@ -1,0 +1,10 @@
+{
+  "format": "factoria.material/1",
+  "kind": "post",
+  "doc": "Test fixture: mixes the picture (read through fa_scene_color) with the corner of a texture.",
+  "shader": "shaders/post_tex.post.glsl",
+  "params": {
+    "amount": { "type": "float", "default": 1.0, "min": 0.0, "max": 1.0, "doc": "How much of the texture replaces the picture." }
+  },
+  "textures": { "mask": { "sampler": "nearest", "default": "textures/checker.png", "doc": "The picture shown." } }
+}

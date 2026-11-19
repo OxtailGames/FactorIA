@@ -1,0 +1,9 @@
+{
+  "format": "factoria.material/1",
+  "kind": "post",
+  "doc": "Test fixture: multiplies the picture by a colour.",
+  "shader": "shaders/post_tint.post.glsl",
+  "params": {
+    "tint": { "type": "color", "default": [1.0, 0.25, 0.25, 1.0], "doc": "Multiplied into the picture." }
+  }
+}

@@ -286,6 +286,13 @@ TEST_CASE("undo inverse: postprocess.set and postprocess.apply_preset are one un
     const Json reset =
         Json::object({{"id", "hero"}, {"fields", Json::object({{"bloomIntensity", nullptr}})}, {"merge", true}});
     s.round_trip("postprocess.set", reset);
+    // The custom passes are replaced as a whole and come back exactly (an add, a reorder or a removal is one such call).
+    s.round_trip(
+        "postprocess.set",
+        Json::object({{"id", "hero"},
+                      {"fields", Json::object({{"customPasses", Json::parse(R"([{"material":"materials/a.material.json",
+                                                             "materialParams":{"amount":0.5},"position":"after:bloom"},
+                                                             {"material":"materials/b.material.json","enabled":false}])")}})}}));
     // A preset writes every effect field (replace) or only its own (keep); both undo to the scene as it was.
     s.round_trip("postprocess.apply_preset", Json::object({{"id", "hero"}, {"preset", "noir"}}));
     s.round_trip("postprocess.apply_preset", Json::object({{"id", "hero"}, {"preset", "vivid"}, {"keep", true}}));

@@ -62,10 +62,13 @@ const std::vector<const char*>& material_program_names(MaterialKind kind) {
                                                   "shadow_skin", "prepass",   "prepass_skin"};
     // Sprite: quad (every mode of quad_common.glsl) and quad_plain (a batch of plain textured quads); a material has both.
     static const std::vector<const char*> sprite = {"quad", "quad_plain"};
+    // Post: one full-screen program (post_common.glsl).
+    static const std::vector<const char*> post = {"post"};
     static const std::vector<const char*> none;
     switch (kind) {
         case MaterialKind::Mesh: return mesh;
         case MaterialKind::Sprite: return sprite;
+        case MaterialKind::Post: return post;
         default: return none;
     }
 }
@@ -357,12 +360,13 @@ Result<void> Assets::build_material_checked(MaterialAsset& m) {
     }
     if (material_program_names(kind).empty()) {
         // The package of each kind is the one the tooling names (shaders_generate.cpp kind_refusal).
-        const char* package = kind == MaterialKind::Post ? "M72.2" : kind == MaterialKind::Compute ? "M72.4" : "M72.1";
-        return make_error("material '" + m.path + "' has kind \"" + material_kind_name(kind) +
-                              "\", which this factoria version cannot draw yet: " + material_kind_name(kind) +
-                              " materials arrive with " + package,
-                          "Only \"mesh\" and \"sprite\" materials are drawn so far (docs/design/CUSTOM_SHADERS.md, "
-                          "\"Kinds (M72)\").");
+        const char* package = kind == MaterialKind::Compute ? "M72.4" : "M72.1";
+        return make_error(
+            "material '" + m.path + "' has kind \"" + material_kind_name(kind) +
+                "\", which this factoria version cannot draw yet: " + material_kind_name(kind) +
+                " materials arrive with " + package,
+            "Only \"mesh\", \"sprite\" and \"post\" materials are drawn so far (docs/design/CUSTOM_SHADERS.md, "
+            "\"Kinds (M72)\").");
     }
 
     // The twin: from the compiler of the editor / `factoria`, else from the file an export wrote.
@@ -531,16 +535,30 @@ constexpr std::uint64_t kUseKeepFrames = 2;  // a use survives this many frames 
 }  // namespace
 
 MaterialRef Assets::sprite_material(const std::string& path, const Json& overrides) {
+    return kind_material(path, overrides, MaterialKind::Sprite);
+}
+
+MaterialRef Assets::post_material(const std::string& path, const Json& overrides) {
+    return kind_material(path, overrides, MaterialKind::Post);
+}
+
+MaterialRef Assets::kind_material(const std::string& path, const Json& overrides, MaterialKind want) {
     if (path.empty()) return {};
     MaterialAsset* m = material(path);
     const std::uint64_t tick = useTick_;
-    const bool wrongKind = m->ok && m->kind != MaterialKind::Sprite;
-    if (wrongKind && m->warned.insert("<kind>").second)
-        FA_WARN(
-            "render",
-            "the material '{}' has kind \"{}\", but a 2D item (Sprite, Shape2D, Tilemap, Text, ParticleEmitter, UiBox) "
-            "needs a \"sprite\" material: the item is drawn magenta",
-            m->path, material_kind_name(m->kind));
+    const bool wrongKind = m->ok && m->kind != want;
+    if (wrongKind && m->warned.insert("<kind>").second) {
+        if (want == MaterialKind::Post)
+            FA_WARN("render",
+                    "the material '{}' has kind \"{}\", but a custom post pass (PostProcess.customPasses) needs a "
+                    "\"post\" material: the pass is skipped",
+                    m->path, material_kind_name(m->kind));
+        else
+            FA_WARN("render",
+                    "the material '{}' has kind \"{}\", but a 2D item (Sprite, Shape2D, Tilemap, Text, "
+                    "ParticleEmitter, UiBox) needs a \"sprite\" material: the item is drawn magenta",
+                    m->path, material_kind_name(m->kind));
+    }
     const bool error = !m->ok || wrongKind;
 
     MaterialUse key;

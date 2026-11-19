@@ -382,11 +382,11 @@ material says what it is for with the optional key `"kind"` of its `*.material.j
 | `"mesh"` (default) | the surface of a `MeshRenderer`: everything in this document | `mesh_common.glsl` | built |
 | `"sprite"` | the 2D quad path: `Sprite`, `Shape2D`, `Tilemap`, `Text`, particles and trails, UI images | `quad_common.glsl` (+ `color_space.glsl`, `light_shadow.glsl`) | M72.1: template, tooling and the `Sprite` draw built (M72-P1, P3); the other 2D emitters follow |
 | `"sky"` | the sky the scene and its environment lighting use | `sky_common.glsl` | M72.1 |
-| `"post"` | one pass of a camera's post-processing stack | `post_common.glsl` | M72.2 |
+| `"post"` | one pass of a camera's post-processing stack | `post_common.glsl` | M72.2: template, tooling and the renderer (`PostProcess.customPasses`) built (M72-P7a) |
 | `"compute"` | compute shaders (storage buffers) | none yet | M72.4 |
 
-Built by M72.0 (the shared base): the key, its check, the per-kind template hash and the skeletons. `"mesh"` and
-`"sprite"` compile; `shader.compile` and `factoria validate` refuse the others with a message that names the package
+Built by M72.0 (the shared base): the key, its check, the per-kind template hash and the skeletons. `"mesh"`, `"sprite"` and
+`"post"` compile; `shader.compile` and `factoria validate` refuse the others with a message that names the package
 that brings them (`kind "sky" is not compiled yet: sky materials arrive with M72.1`, pointer `/kind`), and the renderer
 refuses to build such a material (the same message, with the file). A `kind` that is not one of the five is an error with "did you mean" and the
 pointer `/kind` (`parse_material`, `schemas/material.schema.json`).
@@ -404,8 +404,8 @@ pointer `/kind` (`parse_material`, `schemas/material.schema.json`).
   hint, then checks the `engine` and `template` fields against the hash of that kind.
 - **One contract per kind.** Each template declares its own structs, so a top file includes the template of one kind
   and the error hints read the fields from the right one: mesh `SurfaceInput`, `Surface`, `VertexData`; sprite
-  `QuadInput`, `QuadSurface`, `QuadVertex`; sky `SkyInput`, `SkySurface`; post `PostInput`, `PostSurface` (the last two
-  are the skeletons M72.1 and M72.2 fill in: today they only declare the structs, and nothing includes them).
+  `QuadInput`, `QuadSurface`, `QuadVertex`; sky `SkyInput`, `SkySurface` (a skeleton M72.1 fills in); post `PostInput`,
+  `PostSurface`.
 - **Programs per kind.** `MaterialAsset` stores its `kind` and `kMaxMaterialPrograms` (8) program slots; the programs a
   kind's twin carries are named by `material_program_names(kind)` (the six of a mesh material, `quad` and `quad_plain`
   of a sprite one), so a kind adds its own list when it becomes buildable.
@@ -473,6 +473,35 @@ gathers, on the calling thread, and the emit jobs only copy the result).
 - **Left for the next package:** `Shape2D`, `Tilemap`, `Text`, particles and UI call the same `QuadList::set_material`;
   `QuadInput.custom` stays zero.
 
+### Post materials (M72.2)
+
+`engine/render/shaders/post_common.glsl` is the one program of a post material (`material_program_names(Post)` = `{"post"}`): a
+full-screen triangle whose fragment shader reads the picture (`fa_scene_color`) and optionally the depth and normal prepass
+(`fa_depth`, `fa_normal`) and calls the snippet's `post(in PostInput, inout PostSurface)`. Bindings: uniform block 0 (vertex,
+the GL flip), 1 (fragment, `fa_a` = GL flip and linear scene, `fa_rc` = the camera's rectangle as fractions, `fa_size`,
+`fa_time`) and 5 (the material, `kMaterialUbFragment`); views 0 `fa_scene` and 1 `fa_prepass` with samplers 0 (linear, clamped)
+and 1 (nearest), a material's textures at views and samplers 2+ (`kMaterialPostFirstView`). The prepass is bound only when the
+program declares it (the snippet calls `fa_depth` or `fa_normal`), which is what makes the renderer draw it for the camera.
+`lighting`, `alphaMode` and `doubleSided` are refused for the kind; a graph is not generated for it.
+
+- **The entry.** `PostProcess.customPasses` (a flat `Json` field: the stack keeps its flat component) holds `{material,
+  materialParams, enabled, position, name}` entries; `fa/render/post_custom.h` is the one parser (`parse_custom_post_passes`, used by
+  `postprocess.set`, the resolve and the report) and the one position table. A position names a built-in effect and a side;
+  each row maps to a `PostSlot` (`Main`, `AfterSsr`, `AfterShafts`, `AfterDof`, `AfterBloom`), the places `build_graph` has. A later
+  package adds places (the display-referred ones) as new slots and new rows: no key of the entry changes.
+- **The frame graph.** `renderer_custom_post.cpp` (`CustomPost::add_passes`, called by `build_graph` at each slot) reads the
+  picture through the graph (`game` imported resource), runs the entries of the slot in array order over the camera's rectangle,
+  and ping-pongs between two transients of the picture's format (`custom-<slot>-pass<k>`); the last pass draws back into the
+  rectangle of the picture with the bloom's destination rules (MSAA, hud over bloom), and a lone pass is copied back
+  (`SceneFx::copy_into`). The depth and normals are requested (`needsDepth`, `needsNormals`) only when a planned pass reads them.
+- **Failures.** `make_custom_post_plan` asks `Assets::post_material` and a pass whose material did not build, is not a post
+  material, is missing or needs a prepass the GPU lacks is dropped from the plan: `materialFallbacks` gets its path and the log
+  one warning per `path|reason` (`warnedCustomPass`, cleared on a scene change). A hot reload swaps the material's programs as for
+  the other kinds.
+- **Reported.** `render.supports` has the Engine feature `postMaterials`; `postprocess.get {resolved: true}` has `customPasses`
+  and `customPassProblems`; the editor's Post-processing panel edits the list (`postfx_custom.h` makes each edit one whole-array
+  `postprocess.set`, one undo step).
+
 ## Node graphs
 
 A `*.material.json` may hold an optional `"graph"` (docs/SHADERS.md, "Node graphs"): nodes with typed inputs and outputs and the
@@ -503,9 +532,8 @@ cache, hot reload, export, the runtime) is unchanged: a graph material is a mate
 
 ## Out of scope (recorded so nobody assumes it)
 
-- Custom shaders for the sky and custom post-processing: M72.1 and M72.2 (see "Kinds (M72)"; the kinds, hashes and
-  skeletons exist, the programs do not). The 2D kind has its template and tooling; what draws with it is in
-  "Sprite materials" above.
+- Custom shaders for the sky: M72.1 (the kind, hash and skeleton exist, the program does not). The 2D kind has its template
+  and tooling; what draws with it is in "Sprite materials" above. Post passes after the tonemap (display-referred): M72.2b.
 - A full-GLSL escape hatch (D1).
 - Compute shaders, tessellation, geometry shaders (not in sokol_gfx's common subset for these backends anyway).
 - Per-instance material data inside one instanced draw.
