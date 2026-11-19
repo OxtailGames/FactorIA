@@ -145,7 +145,8 @@ struct Checker {
             return false;
         }
         if (is_reserved_word(name) || (out.material.lighting == "custom" && (name == "light" || name == "ambient")) ||
-            (kind == "sky" && name == "sky")) {  // sky(): the hook of a sky material, an ordinary name elsewhere
+            (kind == "sky" && name == "sky") ||    // sky(): the hook of a sky material, an ordinary name elsewhere
+            (kind == "post" && name == "post")) {  // post(): the hook of a post material
             error(pointer,
                   std::string(what) + " name \"" + name +
                       "\" is a GLSL keyword or a name of the snippet contract, so it cannot be a variable",
@@ -482,6 +483,7 @@ MaterialParse parse_material(const Json& doc, const std::string& projectDir, con
                             " (the engine already binds " +
                             (m.kind == "sprite" ? "4"
                              : m.kind == "sky"  ? "0"
+                             : m.kind == "post" ? "2"
                                                 : "6") +
                             " texture units of the 16 that GLES3 and WebGL2 guarantee, and materials get the next 4)",
                         "Pack masks into the channels of one texture (r = foam, g = height...) or remove a texture.");
@@ -509,6 +511,21 @@ MaterialParse parse_material(const Json& doc, const std::string& projectDir, con
             return c.check_name(pointer, name, what, m.kind);
         });
 
+    // A post pass reads the picture and writes a picture: none of the keys of a surface that is drawn into the scene applies.
+    if (m.kind == "post") {
+        auto refuse = [&](const char* key, const std::string& why) {
+            if (doc.contains(key))
+                c.error(std::string("/") + key,
+                        std::string("\"") + key + "\" does not apply to a post material: " + why,
+                        std::string("Remove \"") + key +
+                            "\" from the material. A post material is one full-screen pass of the post-processing "
+                            "stack (PostProcess.customPasses); write post(in PostInput i, inout PostSurface s) and "
+                            "read the picture with s.color or fa_scene_color(uv).");
+        };
+        refuse("lighting", "the pass is not lit, it reads the finished picture (use a mesh material for light())");
+        refuse("alphaMode", "the pass replaces the colour of the pixels it covers, it has no alpha test or blending");
+        refuse("doubleSided", "there is no geometry: the pass draws one full-screen triangle");
+    }
     // alphaMode "clip": the cutoff is a param of the material, implicit unless declared (see the header).
     if (m.lighting == "custom" && m.kind == "sprite")
         c.error("/lighting",
@@ -531,7 +548,7 @@ MaterialParse parse_material(const Json& doc, const std::string& projectDir, con
                 "Use \"blend\" (the default look of a sprite) and write `if (s.color.a < 0.5) discard;` in fragment() "
                 "where "
                 "you want a cut-out.");
-    } else if (m.alphaMode == "clip") {
+    } else if (m.alphaMode == "clip" && m.kind != "post") {
         auto declared = std::find_if(m.params.begin(), m.params.end(),
                                      [](const MaterialParam& p) { return p.name == kMaterialAlphaCutoff; });
         if (declared == m.params.end()) {

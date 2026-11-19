@@ -158,6 +158,60 @@ TEST_CASE("postprocess.set adds the component, sets fields and changes nothing o
     e.shutdown();
 }
 
+TEST_CASE("postprocess.set customPasses: accepted, shown by get and resolved, replaced as a whole, a bad entry changes "
+          "nothing") {
+    TempProject p;
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(cfg(p), nullptr, &err), err);
+    auto& c = e.commands();
+    auto r = c.call("postprocess.set", Json::parse(R"({"id":"cam","fields":{"customPasses":[
+        {"material":"materials/a.material.json","materialParams":{"amount":0.5},"position":"after:bloom"},
+        {"material":"materials/b.material.json","enabled":false,"name":"second"}]}})"));
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+    CHECK(r.result["customPasses"] == 2);
+    const PostProcess* pp = e.world().get<PostProcess>(e.world().find("cam"));
+    REQUIRE(pp);
+    REQUIRE(pp->customPasses.size() == 2);
+    CHECK(pp->bloomEnabled);  // the other fields keep their value
+
+    r = c.call("postprocess.get", Json::parse(R"({"id":"cam","fields":["customPasses"]})"));
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+    CHECK(r.result["value"]["customPasses"].size() == 2);
+
+    // The resolved stack lists them in order, with their position and where they come from.
+    r = c.call("postprocess.get", Json::parse(R"({"id":"cam","resolved":true})"));
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+    const Json& listed = r.result["resolved"]["customPasses"];
+    REQUIRE(listed.size() == 2);
+    CHECK(listed[0]["material"] == "materials/a.material.json");
+    CHECK(listed[0]["position"] == "after:bloom");
+    CHECK(listed[1]["name"] == "second");
+    CHECK(listed[1]["enabled"] == false);
+
+    // Reorder and remove: the array is sent whole.
+    r = c.call("postprocess.set", Json::parse(R"({"id":"cam","fields":{"customPasses":[
+        {"material":"materials/b.material.json"}]}})"));
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+    CHECK(e.world().get<PostProcess>(e.world().find("cam"))->customPasses.size() == 1);
+
+    // Bad entries: refused with the pointer, the valid values and a hint; nothing is written.
+    r = c.call("postprocess.set", Json::parse(R"({"id":"cam","fields":{"bloomIntensity":2,"customPasses":[
+        {"material":"materials/a.material.json","position":"after:bloon"}]}})"));
+    REQUIRE_FALSE(r.ok);
+    CHECK(r.error.dump().find("/fields/customPasses/0") != std::string::npos);
+    CHECK(r.error.dump().find("after:bloom") != std::string::npos);
+    r = c.call("postprocess.set", Json::parse(R"({"id":"cam","fields":{"customPasses":[{"materal":"x"}]}})"));
+    REQUIRE_FALSE(r.ok);
+    CHECK(r.error.dump().find("material") != std::string::npos);
+    r = c.call("postprocess.set", Json::parse(R"({"id":"cam","fields":{"customPasses":"nope"}})"));
+    CHECK_FALSE(r.ok);
+    const PostProcess* after = e.world().get<PostProcess>(e.world().find("cam"));
+    CHECK(after->customPasses.size() == 1);
+    CHECK(after->bloomIntensity == doctest::Approx(0.9f));
+    e.shutdown();
+}
+
 TEST_CASE("postprocess.presets lists the looks, and every field of every preset exists and is in range") {
     TempProject p;
     Engine e;
@@ -331,7 +385,7 @@ TEST_CASE("render.supports answers with a status, or says there is no renderer, 
     if (!r.ok) {
         CHECK(r.error["code"] == "unavailable");  // graphics=false: no GPU to ask
     } else {
-        CHECK(r.result["features"].size() == 6 + std::size_t(kPostEffectCount));
+        CHECK(r.result["features"].size() == 7 + std::size_t(kPostEffectCount));
         r = c.call("render.supports", Json::parse(R"({"feature":"bloom"})"));
         REQUIRE_MESSAGE(r.ok, r.error.dump());
         CHECK(r.result["feature"] == "bloom");

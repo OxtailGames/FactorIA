@@ -57,7 +57,7 @@ std::string backend_dialect(sg_backend backend) {
 }
 
 const std::vector<const char*>& material_program_names(MaterialKind kind) {
-    // The order of MaterialProgramId. The other kinds list theirs when their package makes them buildable.
+    // The order of MaterialProgramId. Every kind has its programs.
     static const std::vector<const char*> mesh = {"mesh",        "mesh_skin", "shadow",
                                                   "shadow_skin", "prepass",   "prepass_skin"};
     // Sprite: quad (every mode of quad_common.glsl) and quad_plain (a batch of plain textured quads); a material has both.
@@ -65,12 +65,15 @@ const std::vector<const char*>& material_program_names(MaterialKind kind) {
     // Sky: the one program of sky_common.glsl.
     static const std::vector<const char*> sky = {"sky"};
     static const std::vector<const char*> compute = {"compute"};
+    // Post: one full-screen program (post_common.glsl).
+    static const std::vector<const char*> post = {"post"};
     static const std::vector<const char*> none;
     switch (kind) {
         case MaterialKind::Mesh: return mesh;
         case MaterialKind::Sprite: return sprite;
         case MaterialKind::Sky: return sky;
         case MaterialKind::Compute: return compute;
+        case MaterialKind::Post: return post;
         default: return none;
     }
 }
@@ -478,18 +481,6 @@ Result<void> Assets::build_material_checked(MaterialAsset& m) {
         m.alphaMode = alphaMode;
         m.doubleSided = doubleSided;
     }
-    if (material_program_names(kind).empty()) {
-        // The package of each kind is the one the tooling names (shaders_generate.cpp kind_refusal).
-        const char* package = "M72.2";  // only post is left: compute has its program, sky and sprite are drawn
-        return make_error(
-            "material '" + m.path + "' has kind \"" + material_kind_name(kind) +
-                "\", which this factoria version cannot draw yet: " + material_kind_name(kind) +
-                " materials arrive with " + package,
-            "\"mesh\", \"sprite\" and \"sky\" materials are drawn, \"compute\" ones run with the compute.* commands "
-            "(docs/design/CUSTOM_SHADERS.md, "
-            "\"Kinds (M72)\").");
-    }
-
     // The twin: from the compiler of the editor / `factoria`, else from the file an export wrote.
     const std::string dialect = backend_dialect(sg_query_backend());
     Json twin;
@@ -687,13 +678,17 @@ void Assets::build_material(MaterialAsset& m) {
     if (r.ok()) {
         m.ok = true;
         m.error.clear();
+        m.warned.erase("<kind>");  // a material of the wrong kind that was fixed warns again if it is broken again
         ++m.generation;
         return;
     }
     m.error = r.error().message;
     note_failure("material", m.path,
                  r.error().message + (m.ok ? "\nThe previous version of the material stays in use."
-                                           : "\nThe meshes and sprites using it are drawn magenta."),
+                                      : m.kind == MaterialKind::Post ? "\nThe custom post passes using it are skipped."
+                                      : m.kind == MaterialKind::Sky
+                                          ? "\nThe sky using it is drawn as the built-in gradient."
+                                          : "\nThe meshes and sprites using it are drawn magenta."),
                  r.error().hint);
 }
 
@@ -718,6 +713,14 @@ constexpr std::uint64_t kUseKeepFrames = 2;  // a use survives this many frames 
 }  // namespace
 
 MaterialRef Assets::sprite_material(const std::string& path, const Json& overrides) {
+    return kind_material(path, overrides, MaterialKind::Sprite);
+}
+
+MaterialRef Assets::post_material(const std::string& path, const Json& overrides) {
+    return kind_material(path, overrides, MaterialKind::Post);
+}
+
+MaterialRef Assets::kind_material(const std::string& path, const Json& overrides, MaterialKind want) {
     if (path.empty()) return {};
     // The answers of this frame by path, then by values: a second ask about the same component, or about another one with equal
     // values (the usual case: a thousand sprites with one material), costs one hash-map find and a comparison of the values in
@@ -726,22 +729,28 @@ MaterialRef Assets::sprite_material(const std::string& path, const Json& overrid
     for (const MaterialVariant& v : variants)
         if (v.params == &overrides || (v.params->empty() && overrides.empty()) || *v.params == overrides) return v.ref;
     // A set of values not seen this frame: the whole lookup (path normalized, params packed, hashed, interned).
-    const MaterialRef ref = resolve_sprite_material(path, overrides);
+    const MaterialRef ref = resolve_kind_material(path, overrides, want);
     ++materialResolves_;
     if (variants.size() < kMaxMaterialVariants) variants.push_back({&overrides, ref});
     return ref;
 }
 
-MaterialRef Assets::resolve_sprite_material(const std::string& path, const Json& overrides) {
+MaterialRef Assets::resolve_kind_material(const std::string& path, const Json& overrides, MaterialKind want) {
     MaterialAsset* m = material(path);
     const std::uint64_t tick = useTick_;
-    const bool wrongKind = m->ok && m->kind != MaterialKind::Sprite;
-    if (wrongKind && m->warned.insert("<kind>").second)
-        FA_WARN(
-            "render",
-            "the material '{}' has kind \"{}\", but a 2D item (Sprite, Shape2D, Tilemap, Text, ParticleEmitter, UiBox) "
-            "needs a \"sprite\" material: the item is drawn magenta",
-            m->path, material_kind_name(m->kind));
+    const bool wrongKind = m->ok && m->kind != want;
+    if (wrongKind && m->warned.insert("<kind>").second) {
+        if (want == MaterialKind::Post)
+            FA_WARN("render",
+                    "the material '{}' has kind \"{}\", but a custom post pass (PostProcess.customPasses) needs a "
+                    "\"post\" material: the pass is skipped",
+                    m->path, material_kind_name(m->kind));
+        else
+            FA_WARN("render",
+                    "the material '{}' has kind \"{}\", but a 2D item (Sprite, Shape2D, Tilemap, Text, "
+                    "ParticleEmitter, UiBox) needs a \"sprite\" material: the item is drawn magenta",
+                    m->path, material_kind_name(m->kind));
+    }
     const bool error = !m->ok || wrongKind;
 
     MaterialUse key;

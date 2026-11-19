@@ -25,7 +25,8 @@ TEST_CASE("real sokol-shdc: the committed twins of the renderer's fixture materi
     for (const char* name : {"empty",        "glow",        "time",       "lift",        "cutout",      "vcut",
                              "toon",         "dark",        "ambient",    "bump",        "inst",        "chan",
                              "sprite_empty", "sprite_tint", "sprite_cut", "sprite_time", "sprite_mask", "sprite_inst",
-                             "sprite_vtex",  "sprite_life", "skyempty",   "skygrad",     "skytime",     "skytex"}) {
+                             "sprite_vtex",  "sprite_life", "skyempty",   "skygrad",     "skytime",     "skytex",
+                             "post_empty",   "post_tint",   "post_uv",    "post_depth",  "post_tex"}) {
         const std::string material = std::string("materials/") + name + ".material.json";
         ShaderCompileOptions options;
         options.setup = context;

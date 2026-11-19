@@ -1114,7 +1114,7 @@ TEST_CASE("materials: a twin from another factoria version is refused with the r
 }
 
 // The kind of a material (M72): the twin must carry the material's kind (a twin without one is a mesh twin), and a kind that
-// has no programs yet is refused with a message instead of being drawn.
+// is not a mesh one is not drawn by a MeshRenderer (the engine shader is used, with one warning).
 TEST_CASE("materials: a twin of another kind than its material is refused with the re-export hint") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
@@ -1153,16 +1153,21 @@ TEST_CASE("materials: a twin of another kind than its material is refused with t
         CHECK(log.messages().empty());
         CHECK(g.renderer.stats().materialFallbacks.empty());
     }
-    {  // a material of a kind that cannot be drawn yet
-        ErrorLog log;
-        const Image img =
-            draw("kindpost",
-                 R"({"format": "factoria.material/1", "kind": "post", "shader": "shaders/empty.surface.glsl"})", *twin);
-        CHECK(img.pixel(160, 90).g < 0.1f);
-        REQUIRE(log.messages().size() == 1);
-        CHECK(log.messages()[0].find("kind \"post\"") != std::string::npos);
-        CHECK(log.messages()[0].find("cannot draw yet") != std::string::npos);
-        CHECK(log.messages()[0].find("post materials arrive with M72.2") != std::string::npos);
+    {  // a post material on a MeshRenderer: only mesh materials draw one, so the engine's shader draws it, with one warning
+        std::vector<std::string> warnings;
+        const int sink = add_log_sink([&warnings](const LogEntry& e) {
+            if (e.level == LogLevel::Warn) warnings.push_back(e.message);
+        });
+        World w;
+        add_stage(w);
+        add_material_mesh(w, "cube", "materials/post_empty.material.json", {0, 0, 0});
+        const Image img = g.render(w);
+        g.render(w);  // the second frame says nothing more
+        remove_log_sink(sink);
+        CHECK(img.pixel(160, 90).g > 0.1f);  // not magenta
+        REQUIRE(warnings.size() == 1);
+        CHECK(warnings[0].find("is a \"post\" material") != std::string::npos);
+        CHECK(g.renderer.stats().materialFallbacks.empty());
     }
     {  // a kind that does not exist
         ErrorLog log;
