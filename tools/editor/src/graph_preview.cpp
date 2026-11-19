@@ -8,6 +8,7 @@
 #include <exception>
 #include <filesystem>
 #include <thread>
+#include <vector>
 
 #include "fa/core/fs.h"
 #include "fa/core/strings.h"
@@ -144,14 +145,28 @@ std::string name_real_files(std::string text, const std::string& projectDir, con
         for (std::size_t at = text.find(from); at != std::string::npos; at = text.find(from, at + to.size()))
             text.replace(at, from.size(), to);
     };
-    // the absolute form first (it contains the relative one)
-    replace_all(abs_path(projectDir, stageSnippet), snippet);
-    replace_all(abs_path(projectDir, stageMaterial), material);
-    replace_all(stageSnippet, snippet);
-    replace_all(stageMaterial, material);
+    // The forms a compiler or the OS may print a stage file in: the absolute path with '/', with '\', and the mixed ones (the project
+    // folder written one way and the stage's relative path the other), then the relative one. The absolute forms go first (they contain it).
+    auto back = [](std::string t) {
+        std::replace(t.begin(), t.end(), '/', '\\');
+        return t;
+    };
+    auto forms = [&](const std::string& rel) {
+        return std::vector<std::string>{abs_path(projectDir, rel),
+                                        back(abs_path(projectDir, rel)),
+                                        projectDir + "/" + rel,
+                                        back(projectDir) + "/" + rel,
+                                        projectDir + "\\" + back(rel),
+                                        back(projectDir) + "\\" + back(rel),
+                                        rel,
+                                        back(rel)};
+    };
+    for (const std::string& f : forms(stageSnippet)) replace_all(f, snippet);
+    for (const std::string& f : forms(stageMaterial)) replace_all(f, material);
     // a message may also name a file by its bare name (the stage files carry the instance's token, nothing else does)
     auto base = [](const std::string& p) {
-        return p.substr(p.find_last_of('/') == std::string::npos ? 0 : p.find_last_of('/') + 1);
+        const std::size_t cut = p.find_last_of("/\\");
+        return p.substr(cut == std::string::npos ? 0 : cut + 1);
     };
     replace_all(base(stageSnippet), snippet);
     replace_all(base(stageMaterial), material);

@@ -287,7 +287,7 @@ double-clicking a `.material.json` that has a `graph` in the Project panel, by *
 its toolbar. **New graph material** writes `assets/materials/graph.material.json` (or the next free `graphN`) with an empty graph (just the output node), and a material
 with no graph offers **Start a graph in this material**. The panel reads and writes the same JSON an AI writes, and **Save** runs the command an AI would call
 (`material.graph.generate`: it writes the graph and the shader snippet, with `graphHash`), so a person and an AI can take turns on one file. Nothing is written
-before Save; the toolbar's status line says when there are unsaved edits and what state the snippet is in (in sync, the graph changed, edited by hand, ...). Switching
+before Save; the toolbar's status line says when there are unsaved edits and what state the snippet is in (in sync, the graph changed, edited by hand, unreadable with the reason as its tooltip, ...). Switching
 to another material with unsaved edits asks first ("Discard the graph changes?"). A file that someone else changed on disk (an AI, a script, another editor) is looked at again
 when you press Save: the panel does not replace it but asks "The file changed on disk" with **Overwrite** (the graph as edited replaces the file), **Reload** (the file as it
 is, your edits gone) and **Cancel** (nothing is written, the unsaved graph stays). **New graph material** makes the material file whole or not at all: it is written under a

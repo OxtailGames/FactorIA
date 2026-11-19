@@ -213,9 +213,13 @@ public:
     void cancel_gesture();  // back to the graph at begin_gesture
 
     // ---- the file ---------------------------------------------------------------------------------------------------
-    // The state of the snippet on disk against the graph in the FILE ("in_sync", "graph_changed", "hand_edited", "unmanaged", "missing"...), read
-    // by material.graph.validate. Call it when a document is opened and after a save, never every frame.
+    // The state of the snippet on disk against the graph in the FILE ("in_sync", "graph_changed", "hand_edited", "unmanaged", "missing",
+    // "unreadable" (it is there and cannot be read: snippet_error() says why)...), read by material.graph.validate. Call it when a document is
+    // opened and after a save, never every frame.
     const std::string& snippet_state() const { return snippetState_; }
+    const std::string& snippet_error() const {
+        return snippetError_;
+    }  // why the snippet is "unreadable"; empty otherwise
     void refresh_snippet_state();
     // Saves: material.graph.generate {material, graph, force}. Refused (needsForce) when the snippet was edited by hand and `force` is false, and
     // (externalChange) when the file changed on disk behind the editor and `overwriteExternal` is false: the poll runs every 20 frames, so save looks
@@ -286,6 +290,7 @@ private:
     Json savedGraph_;  // the graph as in the file (null: a draft that was never saved)
     View view_;
     std::string snippetState_ = "unchecked";
+    std::string snippetError_;  // validate's snippet.error of an "unreadable" snippet
     std::set<std::string> selected_;
     std::uint64_t revision_ = 1;
     std::uint64_t savedRevision_ = 1;
