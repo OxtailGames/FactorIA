@@ -236,6 +236,11 @@ A post material may hold a `graph` (`"kind": "post"`, [SHADERS.md](../SHADERS.md
 `uv`, `time`, `param`, `texture`, the constants, the math nodes, noise, `flow` and `dissolve` work as in the other kinds. A colour
 (`const.color`, a `color` param) is converted with `fa_scene_rgb` where it is read, so a colour you picked looks as picked in
 a linear or a display picture; a number typed into an output input is written as it is. The nodes of a mesh or a sprite
-(`fresnel`, `position.world`, `sprite.color`...) are refused with what to use here instead. The Graph panel draws no
-preview of a post material (it has no camera picture to run over): put the material in a `PostProcess.customPasses` to see
-it. `material.graph.nodes {"kind": "post"}` returns the nodes and an example (a wobbling vignette).
+(`fresnel`, `position.world`, `sprite.color`...) are refused with what to use here instead. The Graph panel draws a live
+preview of a post material: a small scene (a floor and four lit shapes at different depths, over a sky) seen by a camera whose
+`PostProcess.customPasses` holds only the material, so the picture is the scene as your pass changes it, with none of the
+project's own post effects. The preview draws 4 frames in a row, so a graph that reads `post.history` has a frame before it
+(`valid` is true from the second one), and the prepass of `post.depth` and `post.normal` is the camera's own. The **Try on
+scene camera** button of the panel (enabled when the material has no unsaved edit) adds the saved material to the
+`customPasses` of the camera that draws the scene, as one undo step, to see it in the Viewport and the game.
+`material.graph.nodes {"kind": "post"}` returns the nodes and an example (a wobbling vignette).

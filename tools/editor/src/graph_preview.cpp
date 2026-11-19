@@ -15,6 +15,7 @@
 #include "fa/core/strings.h"
 #include "fa/render/renderer.h"
 #include "fa/scene/components.h"
+#include "fa/scene/postprocess.h"
 #include "fa/tooling/material_graph.h"
 #include "fa/tooling/shaders.h"
 
@@ -90,11 +91,7 @@ PreviewPlan preview_plan(const std::string& kind) {
                       "scene around it, "
                       "so this preview cannot draw it. Pick it in View > Scene settings and look at the Scene view.";
     } else if (kind == "post") {
-        plan.kind = PreviewKind::None;
-        plan.reason =
-            "No preview for post materials; add it to a PostProcess.customPasses to see it. A post pass runs over the "
-            "finished picture of a camera, and this preview renders its own small scene with its own camera, which "
-            "ignores the PostProcess of the project: Run the game or the Scene view.";
+        plan.kind = PreviewKind::Post;
     } else if (kind == "compute") {
         plan.kind = PreviewKind::None;
         plan.reason =
@@ -202,7 +199,9 @@ int GraphPreview::remove_stale_stage_files(const std::string& projectDir, int ol
         if (ec) break;
         const std::string name = fs::path_to_utf8(it->path().filename());
         const bool stage = name.rfind("stage-", 0) == 0 || name.rfind("saved-stage-", 0) == 0;
-        if (!stage || !(ends_with(name, ".material.json") || ends_with(name, ".surface.glsl"))) continue;
+        if (!stage ||
+            !(ends_with(name, ".material.json") || ends_with(name, ".surface.glsl") || ends_with(name, ".post.glsl")))
+            continue;
         std::error_code e;
         const auto time = stdfs::last_write_time(it->path(), e);
         if (!e && time <= limit) old.push_back(it->path());
@@ -223,13 +222,17 @@ GraphPreview::GraphPreview(std::string projectDir) : projectDir_(std::move(proje
         std::to_string(instances.fetch_add(1)) + "-" +
         std::to_string(std::uint64_t(std::chrono::steady_clock::now().time_since_epoch().count()) & 0xffffffULL);
     cur_.stageMaterial = std::string(kDir) + "stage-" + token + ".material.json";
-    cur_.stageSnippet = std::string(kDir) + "stage-" + token + ".surface.glsl";
+    cur_.stageStem = std::string(kDir) + "stage-" + token;
+    cur_.stageSnippet = cur_.stageStem + ".surface.glsl";
     cur_.liveMaterial = ".factoria/material-preview/preview.material.json";
-    cur_.liveSnippet = ".factoria/material-preview/preview.surface.glsl";
+    cur_.liveStem = ".factoria/material-preview/preview";
+    cur_.liveSnippet = cur_.liveStem + ".surface.glsl";
     saved_.stageMaterial = std::string(kDir) + "saved-stage-" + token + ".material.json";
-    saved_.stageSnippet = std::string(kDir) + "saved-stage-" + token + ".surface.glsl";
+    saved_.stageStem = std::string(kDir) + "saved-stage-" + token;
+    saved_.stageSnippet = saved_.stageStem + ".surface.glsl";
     saved_.liveMaterial = ".factoria/material-preview/saved.material.json";
-    saved_.liveSnippet = ".factoria/material-preview/saved.surface.glsl";
+    saved_.liveStem = ".factoria/material-preview/saved";
+    saved_.liveSnippet = saved_.liveStem + ".surface.glsl";
 }
 
 GraphPreview::~GraphPreview() {
@@ -387,7 +390,7 @@ void GraphPreview::build_world(PreviewKind kind) {
     world_->add<Transform>(subject_);
     if (kind == PreviewKind::Sprite)
         world_->add<Sprite>(subject_);
-    else
+    else if (kind != PreviewKind::Post)
         world_->add<MeshRenderer>(subject_);
     const Entity light = world_->create("preview-light");
     Transform& lt = world_->add<Transform>(light);
@@ -395,6 +398,49 @@ void GraphPreview::build_world(PreviewKind kind) {
     Light& l = world_->add<Light>(light);
     l.type = LightType::Directional;
     l.intensity = 1.6f;
+    if (kind == PreviewKind::Post) build_post_scene();
+}
+
+// What a post pass is shown over: a floor and four lit shapes between 7 and 24 metres from the camera (so fa_depth and fa_normal have
+// something to tell apart), on a sky; nothing else of the PostProcess stack. The camera's own PostProcess holds the material only.
+void GraphPreview::build_post_scene() {
+    World& w = *world_;
+    w.settings().skyColor = Color{0.32f, 0.52f, 0.86f, 1.0f};
+    w.settings().horizonColor = Color{0.80f, 0.86f, 0.95f, 1.0f};
+    camera_ = w.create("preview-camera");
+    Transform& ct = w.add<Transform>(camera_);
+    ct.position = Vec3{0.0f, 1.8f, 10.0f};
+    ct.rotation = Vec3{-8.0f, 0.0f, 0.0f};
+    Camera& cam = w.add<Camera>(camera_);
+    cam.projection = Projection::Perspective;
+    cam.fov = 50.0f;
+    cam.nearPlane = 0.5f;
+    cam.farPlane = 60.0f;
+    cam.clearColor = Color{0.80f, 0.86f, 0.95f, 1.0f};
+    w.add<PostProcess>(camera_);
+    struct Shape {
+        const char* name;
+        const char* mesh;
+        Vec3 position, scale, rotation;
+        Color color;
+    };
+    const Shape shapes[] = {
+        {"preview-floor", "cube", {0.0f, -1.0f, -22.0f}, {44.0f, 0.2f, 60.0f}, {0, 0, 0}, {0.55f, 0.56f, 0.58f, 1.0f}},
+        {"preview-near", "sphere", {-2.4f, 0.0f, 3.0f}, {1.8f, 1.8f, 1.8f}, {0, 0, 0}, {0.92f, 0.45f, 0.20f, 1.0f}},
+        {"preview-middle", "cube", {1.2f, 0.1f, -3.0f}, {2.0f, 2.0f, 2.0f}, {0, 30, 0}, {0.25f, 0.72f, 0.38f, 1.0f}},
+        {"preview-far", "sphere", {-1.0f, 1.2f, -12.0f}, {4.4f, 4.4f, 4.4f}, {0, 0, 0}, {0.85f, 0.85f, 0.90f, 1.0f}},
+        {"preview-tower", "cube", {6.0f, 2.0f, -14.0f}, {2.4f, 6.0f, 2.4f}, {0, 20, 0}, {0.55f, 0.35f, 0.80f, 1.0f}},
+    };
+    for (const Shape& s : shapes) {
+        const Entity e = w.create(s.name);
+        Transform& t = w.add<Transform>(e);
+        t.position = s.position;
+        t.scale = s.scale;
+        t.rotation = s.rotation;
+        MeshRenderer& mr = w.add<MeshRenderer>(e);
+        mr.mesh = s.mesh;
+        mr.color = s.color;
+    }
 }
 
 void GraphPreview::tick(Renderer* renderer) {
@@ -477,10 +523,15 @@ void GraphPreview::start(Slot& s, Renderer* renderer) {
     }
     if (plan.kind == PreviewKind::Unknown) {
         s.state = PreviewState::Error;
-        s.message = "The preview draws mesh and sprite materials; this one is a \"" + report.kind + "\" material.";
+        s.message =
+            "The preview draws mesh, sprite and post materials; this one is a \"" + report.kind + "\" material.";
         return;
     }
     s.drawKind = plan.kind;
+    // The snippet's extension follows the kind, as the files of the project do (a post pass is shaders/<name>.post.glsl).
+    const char* snippetExt = plan.kind == PreviewKind::Post ? ".post.glsl" : ".surface.glsl";
+    s.stageSnippet = s.stageStem + snippetExt;
+    s.liveSnippet = s.liveStem + snippetExt;
     s.spriteTexture.clear();
     if (plan.kind == PreviewKind::Sprite) {
         // the quad shows the first texture the material declares a file for (they are alphabetical), else the grey checker
@@ -622,12 +673,34 @@ void GraphPreview::finish(Slot& s, Renderer* renderer) {
 
 void GraphPreview::draw(Slot& s, Renderer* renderer, bool markReady) {
     if (!world_ || worldKind_ != s.drawKind) build_world(s.drawKind);
+    // the saved version of the graph may not have every param the current one has
+    const Json params = &s == &saved_ ? fitting_overrides(overrides_, s.doc) : overrides_;
+    Image img;
+    std::string err;
+    if (s.drawKind == PreviewKind::Post) {
+        // The material is the only pass of the camera: the picture is the scene with it, and the same scene without it is what the
+        // material changed (a graph that outputs the scene unchanged gives the plain scene).
+        PostProcess* pp = world_->get<PostProcess>(camera_);
+        if (!pp) return;
+        Json entry = Json::object({{"material", s.liveMaterial}});
+        if (params.is_object() && !params.empty()) entry["materialParams"] = params;
+        pp->customPasses = Json::array({entry});
+        Renderer::CameraCapture spec;
+        spec.camera = camera_;
+        spec.width = spec.height = kPreviewSide;
+        spec.frames = kPreviewPostFrames;
+        if (!renderer->capture_camera(*world_, spec, img, &err)) {
+            s.state = PreviewState::Error;
+            s.message = clip("The preview could not draw: " + err);
+            return;
+        }
+        finish_picture(s, renderer, std::move(img), markReady);
+        return;
+    }
     Transform* t = world_->get<Transform>(subject_);
     if (!t) return;
     // Animate: the shape turns (a quad sways so it never goes edge-on), so the lighting on it changes from picture to picture
     const float spin = animated_ ? std::fmod(float(animFrame_) * 1.5f, 360.0f) : 0.0f;
-    // the saved version of the graph may not have every param the current one has
-    const Json params = &s == &saved_ ? fitting_overrides(overrides_, s.doc) : overrides_;
     if (s.drawKind == PreviewKind::Sprite) {
         Sprite* sp = world_->get<Sprite>(subject_);
         if (!sp) return;
@@ -664,13 +737,15 @@ void GraphPreview::draw(Slot& s, Renderer* renderer, bool markReady) {
     Renderer::WorldCapture spec;
     spec.rect = Rect{-0.5f * kPreviewSide, -0.5f * kPreviewSide, float(kPreviewSide), float(kPreviewSide)};
     spec.scale = 1.0f;
-    Image img;
-    std::string err;
     if (!renderer->capture_world(*world_, spec, img, &err)) {
         s.state = PreviewState::Error;
         s.message = clip("The preview could not draw: " + err);
         return;
     }
+    finish_picture(s, renderer, std::move(img), markReady);
+}
+
+void GraphPreview::finish_picture(Slot& s, Renderer* renderer, Image img, bool markReady) {
     s.drawn = true;
     // a material the renderer could not build is drawn magenta: say why, from the renderer's own report
     const Json report = renderer->asset_report();

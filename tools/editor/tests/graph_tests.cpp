@@ -931,18 +931,20 @@ TEST_CASE("graph preview: stage files an editor left behind are removed once the
     p.write(".factoria/material-preview/stage-7-aa.material.json", "{}");
     p.write(".factoria/material-preview/stage-7-aa.surface.glsl", "x");
     p.write(".factoria/material-preview/saved-stage-7-aa.surface.glsl", "x");
+    p.write(".factoria/material-preview/stage-7-aa.post.glsl", "x");  // the snippet of a post material's compile
     p.write(".factoria/material-preview/stage-8-bb.surface.glsl",
             "x");                                                       // a recent one: another editor may be compiling
     p.write(".factoria/material-preview/preview.material.json", "{}");  // the live copies stay, old or not
     p.write(".factoria/material-preview/stage-notes.txt", "x");         // not a stage file
     const auto old = stdfs::file_time_type::clock::now() - std::chrono::hours(2);
     for (const char* f : {"stage-7-aa.material.json", "stage-7-aa.surface.glsl", "saved-stage-7-aa.surface.glsl",
-                          "preview.material.json", "stage-notes.txt"})
+                          "stage-7-aa.post.glsl", "preview.material.json", "stage-notes.txt"})
         stdfs::last_write_time(dir / f, old);
-    CHECK(GraphPreview::remove_stale_stage_files(p.dir.generic_string()) == 3);
+    CHECK(GraphPreview::remove_stale_stage_files(p.dir.generic_string()) == 4);
     CHECK_FALSE(stdfs::exists(dir / "stage-7-aa.material.json"));
     CHECK_FALSE(stdfs::exists(dir / "stage-7-aa.surface.glsl"));
     CHECK_FALSE(stdfs::exists(dir / "saved-stage-7-aa.surface.glsl"));
+    CHECK_FALSE(stdfs::exists(dir / "stage-7-aa.post.glsl"));
     CHECK(stdfs::exists(dir / "stage-8-bb.surface.glsl"));
     CHECK(stdfs::exists(dir / "preview.material.json"));
     CHECK(stdfs::exists(dir / "stage-notes.txt"));
@@ -992,13 +994,18 @@ TEST_CASE("graph model: undo of a delete puts the param back in its place; what 
 TEST_CASE("graph preview: a kind it never draws says why even with no GPU renderer, the others say there is none") {
     GraphProject p;
     GraphPreview pv(p.dir.generic_string());
-    pv.set_document(Json::parse(R"({"format":"factoria.material/1","kind":"post","shader":"shaders/a.post.glsl"})"), 1);
+    pv.set_document(Json::parse(R"({"format":"factoria.material/1","kind":"sky","shader":"shaders/a.sky.glsl"})"), 1);
     pv.tick(nullptr);
     CHECK(pv.state() == PreviewState::Unsupported);
-    CHECK(pv.message().find("PostProcess.customPasses") != std::string::npos);
+    CHECK(pv.message().find("skyMaterial") != std::string::npos);
     pv.set_document(Json::parse(R"({"format":"factoria.material/1","shader":"shaders/a.surface.glsl"})"), 2);
     pv.tick(nullptr);
     CHECK(pv.state() == PreviewState::NoRenderer);
+    // a post material is drawn like the others (a camera's pass over a small scene): with no GPU it says there is none
+    pv.set_document(Json::parse(R"({"format":"factoria.material/1","kind":"post","shader":"shaders/a.post.glsl"})"), 3);
+    pv.tick(nullptr);
+    CHECK(pv.state() == PreviewState::NoRenderer);
+    CHECK(pv.message().find("PostProcess.customPasses") == std::string::npos);
 }
 
 TEST_CASE("graph preview: every instance stages its compile in files of its own") {
@@ -1031,14 +1038,14 @@ TEST_CASE("graph model: the saved version is the graph as last read from the fil
 TEST_CASE("graph preview: which kinds it draws, which it says why not") {
     CHECK(preview_plan("mesh").kind == PreviewKind::Mesh);
     CHECK(preview_plan("sprite").kind == PreviewKind::Sprite);
-    for (const char* kind : {"sky", "post", "compute"}) {
+    CHECK(preview_plan("post").kind == PreviewKind::Post);
+    CHECK(preview_plan("post").reason.empty());
+    for (const char* kind : {"sky", "compute"}) {
         const PreviewPlan plan = preview_plan(kind);
         CHECK(plan.kind == PreviewKind::None);
         CHECK_FALSE(plan.reason.empty());
     }
     CHECK(preview_plan("sky").reason.find("skyMaterial") != std::string::npos);
-    CHECK(preview_plan("post").reason.find("No preview for post materials") != std::string::npos);
-    CHECK(preview_plan("post").reason.find("PostProcess.customPasses") != std::string::npos);
     CHECK(preview_plan("hologram").kind == PreviewKind::Unknown);
 }
 

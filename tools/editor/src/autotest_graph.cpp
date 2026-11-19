@@ -2,14 +2,18 @@
 // script, called by at_build_tools_script in the order of the full run (autotest_sections.h).
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
 #include <memory>
+#include <set>
 
 #include "autotest_common.h"
 #include "editor_internal.h"
+#include "fa/scene/camera_query.h"
+#include "fa/scene/postprocess.h"
 #include "sokol_app.h"
 
 namespace fa::editor {
@@ -676,6 +680,58 @@ void Editor::at_section_G3(AtScript& at) {
             const GraphEditOutcome refused = m.add_node("sprite.color", Vec2{0.0f, 0.0f});
             at_check(!refused.ok && refused.error.find("post") != std::string::npos && m.node_count() == 2,
                      "a sprite node cannot be added to a post graph: " + refused.error);
+        });
+        // The preview draws the default graph (the picture unchanged) over its small scene; then a noise node replaces the colour and the picture
+        // must move. The waits are on the preview's state, never on a time.
+        auto pv_settled = [this] {
+            if (!graph_.preview || !graph_.model) return false;
+            const PreviewState s = graph_.preview->state();
+            return (s == PreviewState::Ready && graph_.preview->shown_revision() == graph_.model->revision()) ||
+                   s == PreviewState::Error || s == PreviewState::NoRenderer;
+        };
+        // a preview that cannot run here (no GPU, no sokol-shdc) is a skip, a preview that fails otherwise a failure
+        auto pv_skips = [this](const char* what) {
+            const GraphPreview& pv = *graph_.preview;
+            if (pv.state() == PreviewState::NoRenderer) {
+                atLog_.push_back(std::string("SKIP ") + what + " (this window has no GPU renderer)");
+                return true;
+            }
+            if (pv.state() == PreviewState::Error) {
+                const std::string msg = pv.message();
+                const bool noShdc =
+                    msg.find("shdc") != std::string::npos || msg.find("shader compiler") != std::string::npos;
+                const char* required = std::getenv("FA_REQUIRE_SHDC");
+                if (noShdc && !(required && std::string(required) == "1")) {
+                    atLog_.push_back(std::string("SKIP ") + what + " (no sokol-shdc? set SOKOL_SHDC): " + msg);
+                    return true;
+                }
+                at_check(false, std::string(what) + ": " + msg);
+                return true;
+            }
+            return false;
+        };
+        auto plain = std::make_shared<Image>();
+        auto previewOn = std::make_shared<bool>(false);
+        wait_until(pv_settled, "the preview to draw the default post graph");
+        step(3, [this, plain, previewOn, pv_skips] {
+            if (pv_skips("Post graph preview")) return;
+            const GraphPreview& pv = *graph_.preview;
+            at_check(pv.drawing() == PreviewKind::Post && pv.state() == PreviewState::Ready && !pv.image().empty(),
+                     "the preview draws a post material over its scene (no 'no preview' message): " + pv.message());
+            at_check(at_visible("gr:preview") && at_visible("gr:tryscene"),
+                     "...the panel shows it, with the Try on scene camera button");
+            *plain = pv.image();
+            *previewOn = !plain->empty();
+            // the scene has a sky and shapes: the picture is not one colour
+            std::set<std::uint32_t> colours;
+            for (std::size_t i = 0; i + 3 < plain->rgba.size(); i += 4)
+                colours.insert(std::uint32_t(plain->rgba[i]) << 16 | std::uint32_t(plain->rgba[i + 1]) << 8 |
+                               plain->rgba[i + 2]);
+            at_check(colours.size() > 40, "...and the picture holds the scene (" + std::to_string(colours.size()) +
+                                              " colours), the default graph leaving it unchanged");
+        });
+        step(3, [this] {
+            GraphModel& m = *graph_.model;
             const GraphEditOutcome added = m.add_node("noise.fbm", Vec2{0.0f, 0.0f});
             graph_edited(added);
             const GraphEditOutcome linked = added.ok ? m.connect(added.id + ".value", "out.rgb") : added;
@@ -683,13 +739,26 @@ void Editor::at_section_G3(AtScript& at) {
             at_check(added.ok && linked.ok && !m.has_errors() && m.node_count() == 3,
                      "a noise node is added and linked into the rgb of the output: " + linked.error);
         });
-        wait_until([this] { return graph_.preview && graph_.preview->state() == PreviewState::Unsupported; },
-                   "the preview to say it has no picture for a post material");
-        step(3, [this] {
-            at_check(graph_.preview->state() == PreviewState::Unsupported &&
-                         graph_.preview->message().find("PostProcess.customPasses") != std::string::npos,
-                     "the preview says why there is no picture and where to see the material: " +
-                         graph_.preview->message());
+        wait_until(
+            [this, previewOn, pv_settled] { return !*previewOn || (pv_settled() && graph_.model->node_count() == 3); },
+            "the preview to draw the post graph with the noise node");
+        step(3, [this, plain, previewOn, pv_skips] {
+            if (!*previewOn || pv_skips("Post graph preview with a node")) return;
+            const GraphPreview& pv = *graph_.preview;
+            at_check(pv.state() == PreviewState::Ready && pv.image().width == plain->width &&
+                         pv.image().height == plain->height,
+                     "the preview draws the edited post graph: " + pv.message());
+            std::size_t changed = 0, total = 0;
+            for (std::size_t i = 0; i + 3 < plain->rgba.size() && i + 3 < pv.image().rgba.size(); i += 4, ++total) {
+                int most = 0;
+                for (int c = 0; c < 3; ++c)
+                    most = std::max(most, std::abs(int(plain->rgba[i + std::size_t(c)]) -
+                                                   int(pv.image().rgba[i + std::size_t(c)])));
+                if (most > 12) ++changed;
+            }
+            at_check(total > 0 && changed * 4 > total, "the pass moved the picture: " + std::to_string(changed) +
+                                                           " of " + std::to_string(total) +
+                                                           " pixels differ from the same scene with the default graph");
         });
         click_widget("gr:save");  // Save generates the snippet again, now with the noise node in it
         step(4, [this, postRel, postSnippet, read_text] {
@@ -699,6 +768,27 @@ void Editor::at_section_G3(AtScript& at) {
             at_check(read_text(postSnippet).find("(noise.fbm)") != std::string::npos &&
                          graph_.model->snippet_state() == "in_sync",
                      "...and generated its post() with the noise node in it");
+        });
+        // Try on scene camera: the saved material becomes a pass of the camera that draws the scene, as one undo step
+        step(4, [this, postRel] {
+            const std::vector<Entity> cams = rendering_cameras(world());
+            if (cams.empty()) {
+                atLog_.push_back("SKIP Try on scene camera (the scene has no camera)");
+                return;
+            }
+            auto has_pass = [&]() {
+                const PostProcess* p = world().get<PostProcess>(cams.front());
+                if (!p || !p->customPasses.is_array()) return false;
+                for (const Json& e : p->customPasses)
+                    if (e.is_object() && e.value("material", std::string()) == postRel) return true;
+                return false;
+            };
+            const std::size_t depth = undo_depth();
+            at_check(!has_pass() && graph_try_on_camera(postRel) && has_pass() && undo_depth() == depth + 1,
+                     "Try on scene camera adds the material to the camera's customPasses as one undo step");
+            at_check(!graph_try_on_camera(postRel), "...a second click says it is already there and adds nothing");
+            undo();
+            at_check(!has_pass(), "...and Undo takes it off again");
         });
 
         // the preview compiles on a worker thread: its files go only after it has finished

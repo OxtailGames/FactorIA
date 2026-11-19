@@ -1,6 +1,8 @@
 // The Graph panel's live preview: the material as it is being edited (not as saved) drawn on a sphere, a cube or a flat quad by the engine's own
 // renderer (Renderer::capture_world on a scratch World that holds one mesh and one light), so what the preview shows is what the game shows. A
-// sprite material is drawn on a 2D quad (a Sprite with the material) instead of on a mesh.
+// sprite material is drawn on a 2D quad (a Sprite with the material) instead of on a mesh. A post material is drawn as a pass of a camera: a small
+// scratch scene (lit shapes at several depths over a sky) seen by a Camera whose PostProcess.customPasses holds only the material, captured with
+// Renderer::capture_camera over kPreviewPostFrames frames (so fa_history has a frame before it, and fa_depth / fa_normal have their prepass).
 //
 // Every edit changes the document; the preview waits for the edits to stop (kDebounceFrames frames without one), then
 //   1. generates the snippet in memory (check_material_document, the code of material.graph.generate): an error there is shown and nothing else runs;
@@ -50,11 +52,11 @@ enum class PreviewState {
     Ready,      // the picture is the latest document
     Error,  // the latest document does not check or does not compile: message() says why; the last good picture stays
     NoRenderer,  // the editor has no GPU renderer (a headless run): nothing to draw with
-    Unsupported  // the kind of the material is one the preview cannot draw (sky, post, compute): message() says why; no picture
+    Unsupported  // the kind of the material is one the preview cannot draw (sky, compute): message() says why; no picture
 };
 
 // What the preview draws a material of a given kind with.
-enum class PreviewKind { Mesh, Sprite, None, Unknown };
+enum class PreviewKind { Mesh, Sprite, Post, None, Unknown };
 struct PreviewPlan {
     PreviewKind kind = PreviewKind::Unknown;
     std::string reason;  // None: why the preview cannot show this kind
@@ -82,6 +84,8 @@ std::string name_real_files(std::string text, const std::string& projectDir, con
 // Frames without an edit before the preview starts (a frame is ~16 ms: the user has stopped typing or dragging).
 inline constexpr int kPreviewDebounceFrames = 18;
 inline constexpr int kPreviewSide = 256;  // pixels of the picture
+inline constexpr int kPreviewPostFrames =
+    4;  // frames of a post material's capture: the passes that read their history see three before the last
 inline constexpr int kPreviewMaxMessage = 4000;
 
 class GraphPreview {
@@ -138,7 +142,9 @@ public:
     std::uint64_t shown_revision() const { return cur_.shownRevision; }  // the revision the picture shows
     // The nodes whose generated lines the compiler refused (empty after the next edit, and when the error is not on a node's line).
     const std::vector<PreviewNodeError>& node_errors() const { return cur_.nodeErrors; }
-    PreviewKind drawing() const { return cur_.drawKind; }  // what the current picture is drawn on (Mesh or Sprite)
+    PreviewKind drawing() const {
+        return cur_.drawKind;
+    }  // what the current picture is drawn on (Mesh, Sprite or Post)
     // The saved version's picture (compare on).
     PreviewState saved_state() const { return saved_.state; }
     const std::string& saved_message() const { return saved_.message; }
@@ -180,12 +186,17 @@ private:
         std::string stageSnippet;
         std::string liveMaterial;
         std::string liveSnippet;
+        std::string
+            stageStem;  // the snippet's names without the extension, which depends on the kind (.surface.glsl, .post.glsl)
+        std::string liveStem;
     };
     void tick_slot(Slot& s, Renderer* renderer);
     void start(Slot& s, Renderer* renderer);
     void finish(Slot& s, Renderer* renderer);
     void draw(Slot& s, Renderer* renderer, bool markReady);
     void build_world(PreviewKind kind);
+    void build_post_scene();
+    void finish_picture(Slot& s, Renderer* renderer, Image img, bool markReady);
     void drop_pictures();
     void note_unsupported(Slot& s, const std::string& why);
 
@@ -201,6 +212,7 @@ private:
     std::unique_ptr<World> world_;
     PreviewKind worldKind_ = PreviewKind::Unknown;
     Entity subject_ = kNullEntity;
+    Entity camera_ = kNullEntity;  // a post material: the camera whose PostProcess holds the pass
     bool checkerWritten_ = false;
 };
 

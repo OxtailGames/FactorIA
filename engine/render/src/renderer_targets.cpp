@@ -300,6 +300,8 @@ TextureAsset* Renderer::Impl::view_image(std::uint64_t key, int w, int h, bool r
     d.height = h;
     d.colorFormat = gpu.scene_format();
     d.samples = gpu.sample_count();
+    d.resolveAsColor =
+        true;  // capture_camera's custom passes draw into the resolved image, as the bloom does in the game's
     d.depthFormat = kSceneDepthFormat;
     t.main = make_target(d);
     if (!t.main.valid()) {
