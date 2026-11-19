@@ -614,3 +614,75 @@ TEST_CASE(
     g.render(w);
     CHECK(g.renderer.stats().materials == 2);
 }
+
+TEST_CASE("emitter materials: the fading trail of an emitter with no live particle keeps the emitter's material") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    MaterialScope scope;
+    World w;
+    camera2d(w);
+    Entity e = emitter(w, Kind::Particles, 0, kTint);  // moved below
+    {
+        auto& p = *w.get<ParticleEmitter>(e);
+        p.emitting = true;
+        p.burst = 0;
+        p.rate = 0;  // no particle is ever born: only the emitter's own path is drawn
+        p.worldSpace = true;
+        p.trail = ParticleTrail::Emitter;
+        p.trailTime = 2.0f;
+        p.trailWidth = 24.0f;
+    }
+    Image img;
+    for (int i = 0; i < 40; ++i) {
+        w.get<Transform>(e)->position = Vec3{-60.0f + float(i) * 3.0f, 0, 0};
+        img = g.render(w, 1.0f / 60.0f);
+    }
+    w.get<ParticleEmitter>(e)->emitting = false;  // the trail alone is left and fades
+    for (int i = 0; i < 3; ++i) img = g.render(w, 1.0f / 60.0f);
+    const Color c = brightest(img, 0, 320);
+    // The tint is (1, 0.25, 0.25): without the material the ribbon would be white.
+    CHECK(c.r > 0.3f);
+    CHECK(c.g < c.r * 0.35f);
+    CHECK(c.b < c.r * 0.35f);
+    CHECK(g.renderer.stats().materials == 1);
+}
+
+TEST_CASE("emitter materials: a material whose params name the target a camera draws into samples the checker for that "
+          "camera "
+          "only") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    MaterialScope scope;
+    World w;
+    camera2d(w);
+    {
+        Entity cam = make(w, "cam-X", {1000, 0, 0});
+        auto& c = w.add<Camera>(cam);
+        c.renderTarget = "X";
+        c.renderTargetSize = Vec2{64, 32};
+        c.orthoSize = 16;
+        c.clearColor = Color{0, 0, 1, 1};
+    }
+    const Json params = Json::object({{"mask", "target:X"}});
+    // The same material and params in the main camera's view and in X's own view: the main camera shows X's picture, X's camera
+    // gets the checker (it cannot sample the image it writes).
+    Entity inMain = sprite(w, {-80, 0, 0}, kMask, {32, 32});
+    w.get<Sprite>(inMain)->color = Color::white();
+    w.get<Sprite>(inMain)->materialParams = params;
+    Entity inX = sprite(w, {1000, 0, 0}, kMask, {16, 16});
+    w.get<Sprite>(inX)->color = Color::white();
+    w.get<Sprite>(inX)->materialParams = params;
+    Entity shows = sprite(w, {80, 0, 0}, "", {64, 32});  // X's picture, whole
+    w.get<Sprite>(shows)->texture = "target:X";
+    w.get<Sprite>(shows)->color = Color::white();
+    Image img;
+    for (int i = 0; i < 2; ++i) img = g.render(w, 1.0f / 60.0f);
+    // The main camera: the corner of X's picture, its clear colour (blue).
+    INFO("main camera");
+    near(img.pixel(-80 + 160, 90), 0, 0, 1, 0.05f);
+    // X's camera: the missing-texture checker (its first texel is not blue), in the middle of X's picture, which the main camera
+    // shows at the centre of the sprite that shows X.
+    INFO("X's camera");
+    const Color mid = img.pixel(80 + 160, 90);
+    near(mid, 1, 0, 1);  // the magenta of the checker's first texel
+}
