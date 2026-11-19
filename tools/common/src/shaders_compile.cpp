@@ -5,6 +5,7 @@
 #include <cctype>
 #include <filesystem>
 #include <map>
+#include <random>
 #include <regex>
 #include <set>
 
@@ -88,7 +89,8 @@ std::optional<Json> read_cached_twin(const std::string& path, const std::string&
 }
 
 void write_cached_twin(const std::string& path, const Json& twin) {
-    const std::string tmp = path + ".tmp";
+    // A name of its own per writer: two processes compiling the same material must not write one .tmp file.
+    const std::string tmp = path + "." + std::to_string(std::random_device{}()) + ".tmp";
     if (!tooling_detail::write_file(tmp, twin.dump() + "\n")) return;  // a cache that cannot be written only costs time
     std::error_code ec;
     fs::replace_file(tmp, path, ec);
