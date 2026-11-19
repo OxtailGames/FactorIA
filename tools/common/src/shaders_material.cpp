@@ -148,19 +148,6 @@ struct Checker {
                   "Name it for what it holds, e.g. \"noiseMap\" or \"mask\".");
             return false;
         }
-        // The vertex stage reads a mesh or sprite texture through `#define <name> fa_vs_<name>` (shaders_generate.cpp), which would
-        // also rewrite a field of the contract that is called the same: `s.normal` would become `s.fa_vs_normal`.
-        if (std::string(what) == "texture" && !out.material.full && (kind == "mesh" || kind == "sprite"))
-            for (const auto& [structName, fields] : shaders_detail::contract_structs(kind))
-                if (std::find(fields.begin(), fields.end(), name) != fields.end()) {
-                    error(pointer,
-                          "texture name \"" + name + "\" is also a field of " + structName +
-                              " in the snippet contract, and the vertex stage renames every texture with a #define, so "
-                              "`" +
-                              name + "` inside the snippet would stop meaning that field",
-                          "Rename it, e.g. \"" + name + "Map\".");
-                    return false;
-                }
         if (is_reserved_word(name) ||
             (out.material.lighting == "custom" && (name == "light" || name == "ambient" || name == "lighting")) ||
             (kind == "sky" && name == "sky") ||    // sky(): the hook of a sky material, an ordinary name elsewhere
