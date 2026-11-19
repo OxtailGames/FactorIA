@@ -346,6 +346,159 @@ GraphEditOutcome GraphModel::set_param_default(const std::string& name, const Js
     return out;
 }
 
+// ------------------------------------------------------------------------------------------ params and textures --
+std::vector<std::string> GraphModel::entry_readers(bool texture, const std::string& name) const {
+    std::vector<std::string> ids;
+    const char* key = texture ? "texture" : "param";
+    if (!graph_.is_object() || !nodes().is_array()) return ids;
+    for (const Json& n : nodes()) {
+        if (!n.is_object()) continue;
+        const GraphNodeType* t = find_graph_node_type(n.value("type", std::string()));
+        if (t && t->ref == key && n.value(key, std::string()) == name) ids.push_back(n.value("id", std::string()));
+    }
+    return ids;
+}
+
+// The file was changed by one of the material.param.* / material.texture.* commands: take its params, textures and what they changed in the
+// graph (`newGraph`, the in-memory graph the command followed) as the editor's own document.
+void GraphModel::take_entries_from_file(const Json* newGraph) {
+    auto abs = resolve_project_path(projectDir_, rel_);
+    if (abs.ok()) {
+        auto text = fs::read_text(abs->generic_string());
+        const Json parsed = text.ok() ? Json::parse(*text, nullptr, false) : Json();
+        if (parsed.is_object()) {
+            for (const char* key : {"params", "textures", "graphHash"}) {
+                auto it = parsed.find(key);
+                if (it != parsed.end())
+                    doc_[key] = *it;
+                else
+                    doc_.erase(key);
+            }
+            auto g = parsed.find("graph");
+            if (g != parsed.end() && g->is_object() && !savedGraph_.is_null()) savedGraph_ = *g;
+        }
+    }
+    if (newGraph) graph_ = *newGraph;
+    stamp_ = stamp();  // the file changed by our own hand: not an external edit
+    ++savedRevision_;
+    touch();
+    refresh_snippet_state();
+}
+
+std::string GraphModel::run_entry_command(const std::string& op, bool texture, const Json& args, Json* result,
+                                          std::vector<std::string>* readers) {
+    if (!call_) return "The Graph panel has no command line to write through.";
+    Json a = args;
+    a["material"] = rel_;
+    if (op != "create" && graph_.is_object()) a["graph"] = graph_;
+    const CommandResult r = call_(std::string("material.") + (texture ? "texture." : "param.") + op, a);
+    if (!r.ok) {
+        if (readers && r.error.is_object() && r.error.contains("data") && r.error["data"].is_object() &&
+            r.error["data"].contains("nodes") && r.error["data"]["nodes"].is_array())
+            for (const Json& id : r.error["data"]["nodes"])
+                if (id.is_string()) readers->push_back(id.get<std::string>());
+        return command_error_text(r.error);
+    }
+    if (result) *result = r.result;
+    const Json* newGraph = r.result.is_object() && r.result.contains("graph") && r.result["graph"].is_object()
+                               ? &r.result["graph"]
+                               : nullptr;
+    take_entries_from_file(newGraph);
+    return "";
+}
+
+GraphEditOutcome GraphModel::add_entry(bool texture, const std::string& name, const Json& spec) {
+    if (!is_open()) return fail("No material is open in the Graph panel.");
+    if (gesture_) return fail("Finish the drag first.");
+    Json args = spec.is_object() ? spec : Json::object();
+    args["name"] = name;
+    Json result;
+    const std::string err = run_entry_command("create", texture, args, &result, nullptr);
+    if (!err.empty()) return fail(err);
+    GraphStep s;
+    s.id = nextStep_++;
+    s.rel = rel_;
+    s.label = std::string("Add ") + (texture ? "texture " : "param ") + name;
+    s.op = "create";
+    s.texture = texture;
+    s.name = name;
+    s.entry = result.is_object() ? result.value("entry", Json()) : Json();
+    GraphEditOutcome out;
+    out.step = s.id;
+    steps_[s.id] = std::move(s);
+    status_.clear();
+    return out;
+}
+
+GraphEditOutcome GraphModel::rename_entry(bool texture, const std::string& name, const std::string& newName) {
+    if (!is_open()) return fail("No material is open in the Graph panel.");
+    if (gesture_) return fail("Finish the drag first.");
+    if (name == newName) return GraphEditOutcome{};
+    const std::string err =
+        run_entry_command("rename", texture, Json::object({{"name", name}, {"newName", newName}}), nullptr, nullptr);
+    if (!err.empty()) return fail(err);
+    GraphStep s;
+    s.id = nextStep_++;
+    s.rel = rel_;
+    s.label = std::string("Rename ") + (texture ? "texture " : "param ") + name + " to " + newName;
+    s.op = "rename";
+    s.texture = texture;
+    s.name = name;
+    s.newName = newName;
+    GraphEditOutcome out;
+    out.step = s.id;
+    steps_[s.id] = std::move(s);
+    status_.clear();
+    return out;
+}
+
+GraphEditOutcome GraphModel::delete_entry(bool texture, const std::string& name) {
+    if (!is_open()) return fail("No material is open in the Graph panel.");
+    if (gesture_) return fail("Finish the drag first.");
+    Json result;
+    std::vector<std::string> readers;
+    const std::string err = run_entry_command("delete", texture, Json::object({{"name", name}}), &result, &readers);
+    if (!err.empty()) {
+        GraphEditOutcome out = fail(err);
+        out.nodes = readers;
+        return out;
+    }
+    GraphStep s;
+    s.id = nextStep_++;
+    s.rel = rel_;
+    s.label = std::string("Delete ") + (texture ? "texture " : "param ") + name;
+    s.op = "delete";
+    s.texture = texture;
+    s.name = name;
+    s.entry = result.is_object() ? result.value("entry", Json()) : Json();
+    GraphEditOutcome out;
+    out.step = s.id;
+    steps_[s.id] = std::move(s);
+    status_.clear();
+    return out;
+}
+
+std::string GraphModel::apply_entry_step(const GraphStep& s, bool forward) {
+    const std::string what = std::string(s.texture ? "texture " : "param ") + s.name;
+    // a create is a delete backwards, a delete a create backwards, a rename swaps its names
+    std::string op = s.op;
+    if (!forward) op = s.op == "create" ? "delete" : s.op == "delete" ? "create" : "rename";
+    Json args = Json::object();
+    if (op == "create") {
+        args = s.entry.is_object() ? s.entry : Json::object();
+        args["name"] = s.name;
+    } else if (op == "delete") {
+        args["name"] = s.name;
+    } else {
+        args["name"] = forward ? s.name : s.newName;
+        args["newName"] = forward ? s.newName : s.name;
+    }
+    const std::string err = run_entry_command(op, s.texture, args, nullptr, nullptr);
+    if (!err.empty())
+        return "The edit of " + what + " cannot be applied now (the file or the graph changed since): " + err;
+    return "";
+}
+
 void GraphModel::touch() {
     doc_["graph"] = graph_;
     ++revision_;
@@ -354,8 +507,11 @@ void GraphModel::touch() {
 }
 
 const MaterialGraphReport& GraphModel::report() const {
+    // A drag changes the document every frame: the check waits for the gesture to end (begin_gesture made the report current first).
+    if (gesture_ && is_open() && reportRevision_ != 0) return report_;
     if (reportRevision_ != revision_) {
         reportRevision_ = revision_;
+        ++reportRuns_;
         report_ = is_open() ? check_material_document(doc_, projectDir_, rel_) : MaterialGraphReport{};
     }
     return report_;
@@ -634,6 +790,9 @@ GraphEditOutcome GraphModel::connect(const std::string& from, const std::string&
         if (p.name == tp) in = &p;
     if (!out) return fail("Node \"" + fn + "\" (" + ft->type + ") has no output \"" + fp + "\".");
     if (!in) return fail("Node \"" + tn + "\" (" + tt->type + ") has no input \"" + tp + "\".");
+    // The same link again (a drag that ends on the input it came from) changes nothing: no undo step.
+    if (const int li = link_index_into(tn, tp); li >= 0 && graph_["links"][li].value("from", std::string()) == from)
+        return GraphEditOutcome{};
     Json next = graph_;
     Json links = Json::array();
     if (next.contains("links") && next["links"].is_array())
@@ -798,6 +957,7 @@ GraphEditOutcome GraphModel::duplicate(const std::set<std::string>& ids) {
 
 void GraphModel::begin_gesture() {
     if (gesture_) return;
+    if (is_open()) (void)report();  // what the drag shows is the report of the graph as it was when the drag began
     gesture_ = true;
     gestureBefore_ = graph_;
 }
@@ -902,7 +1062,17 @@ bool GraphModel::poll_external() {
         return true;
     }
     const Json before = graph_;
-    if (!load_from_disk(false)) return false;
+    if (!load_from_disk(false)) {
+        // The file lost its "graph" (or cannot be read as a material any more). It is said once: the stamp is now the file as it is, so the
+        // next polls find nothing new. The graph held here stays and counts as never saved, so Save writes it back into the file.
+        stamp_ = s;
+        status_ = error_ + " The graph shown here is the editor's copy: Save writes it back to the file.";
+        error_.clear();
+        savedGraph_ = Json();
+        ++savedRevision_;
+        snippetState_ = "draft";
+        return true;
+    }
     if (graph_ != before) {
         selected_.clear();
         touch();
@@ -910,6 +1080,7 @@ bool GraphModel::poll_external() {
         ++revision_;
     }
     refresh_snippet_state();
+    status_ = "The file changed on disk and was read again.";
     return true;
 }
 
@@ -947,6 +1118,15 @@ bool GraphModel::apply_step(int id, bool forward) {
         return false;
     }
     if (gesture_) cancel_gesture();
+    if (!s->op.empty()) {  // a param or a texture of the file, made, renamed or deleted
+        const std::string err = apply_entry_step(*s, forward);
+        if (!err.empty()) {
+            status_ = err;
+            return false;
+        }
+        status_.clear();
+        return true;
+    }
     if (!s->param.empty()) {  // a param default: the file's value must be the one the step expects
         const Json& expectsValue = forward ? s->beforeValue : s->afterValue;
         const Json& target = forward ? s->afterValue : s->beforeValue;
