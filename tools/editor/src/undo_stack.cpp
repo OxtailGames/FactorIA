@@ -24,9 +24,10 @@ size_t commands_bytes(const std::vector<UndoCommand>& v) {
 
 const Json kNull;
 
-// `base` followed by `patch`, as ONE RFC 7386 merge patch (nulls stay: they are the "delete this key" of the patch). A value
-// replaces what is there; two objects compose key by key. False when one patch cannot stand for both: an object after a
-// null or a plain value would merge into the current value instead of replacing what the first patch set or deleted.
+// `base` followed by `patch`, as ONE RFC 7386 merge patch (nulls stay: they are the "delete this key" of the patch). A
+// value replaces what is there; two objects compose key by key. False when one patch cannot stand for both: an object
+// after a null or a plain value would merge into the current value instead of replacing what the first patch set or
+// deleted.
 bool compose_patch(Json& base, const Json& patch) {
     if (!patch.is_object()) {
         base = patch;
@@ -54,9 +55,9 @@ const Json* merge_patch_of(const UndoCommand& c) {
     return fields != c.args.end() && fields->is_object() ? &*fields : nullptr;
 }
 
-// Whether two argument objects name the same target: every argument but "fields" equal (the entity, the component, "merge"...). Both have
-// "fields" (merge_patch_of found it), so equal sizes and every other key of `a` equal in `b` make the key sets equal too. A drag runs this
-// once per frame, so nothing is copied.
+// Whether two argument objects name the same target: every argument but "fields" equal (the entity, the component,
+// "merge"...). Both have "fields" (merge_patch_of found it), so equal sizes and every other key of `a` equal in `b`
+// make the key sets equal too. A drag runs this once per frame, so nothing is copied.
 bool same_target(const Json& a, const Json& b) {
     if (!a.is_object() || !b.is_object() || a.size() != b.size()) return false;
     for (auto it = a.begin(); it != a.end(); ++it) {
@@ -67,8 +68,9 @@ bool same_target(const Json& a, const Json& b) {
     return true;
 }
 
-// `older` then `newer` (same target: the same fields of the same component) as ONE call whose patches are composed, in `newer`.
-// False when they are not two merge patches of one entity and component, or do not compose: the caller keeps both.
+// `older` then `newer` (same target: the same fields of the same component) as ONE call whose patches are composed, in
+// `newer`. False when they are not two merge patches of one entity and component, or do not compose: the caller keeps
+// both.
 bool compose_merge_calls(const UndoCommand& older, UndoCommand& newer) {
     const Json* first = merge_patch_of(older);
     const Json* second = merge_patch_of(newer);
@@ -175,8 +177,9 @@ bool UndoStack::push_command(std::vector<UndoCommand> forward, std::vector<UndoC
         } else if (mode == CoalesceMode::Merge) {
             auto same = [&](const UndoCommand& c) { return c.target == forward[0].target; };
             auto at = std::find_if(last.forward.rbegin(), last.forward.rend(), same);
-            // Two merge patches of one target are one patch (a drag of one colour of skyMaterialParams, then of another): the
-            // newest alone would leave the first out of redo. Patches that do not compose are both kept, in order.
+            // Two merge patches of one target are one patch (a drag of one colour of skyMaterialParams, then of
+            // another): the newest alone would leave the first out of redo. Patches that do not compose are both kept,
+            // in order.
             const bool isMergeCall = merge_patch_of(forward[0]) != nullptr;
             if (at != last.forward.rend() && isMergeCall && !compose_merge_calls(*at, forward[0])) {
                 last.forward.push_back(std::move(forward[0]));

@@ -286,7 +286,8 @@ TEST_CASE("undo inverse: postprocess.set and postprocess.apply_preset are one un
     const Json reset =
         Json::object({{"id", "hero"}, {"fields", Json::object({{"bloomIntensity", nullptr}})}, {"merge", true}});
     s.round_trip("postprocess.set", reset);
-    // The custom passes are replaced as a whole and come back exactly (an add, a reorder or a removal is one such call).
+    // The custom passes are replaced as a whole and come back exactly (an add, a reorder or a removal is one such
+    // call).
     s.round_trip(
         "postprocess.set",
         Json::object({{"id", "hero"},

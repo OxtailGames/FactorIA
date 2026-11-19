@@ -1,7 +1,8 @@
-// The editor's text clipboard. Normally it is the system clipboard (sokol_app). The editor autotest gets a private one that
-// lives in this process: the autotest copies and pastes text and checks what it finds, and another program writing to the
-// system clipboard in between (a chat window, a clipboard manager, a second editor running its own autotest) failed the
-// Ctrl+V and Paste checks at random. The private clipboard works the same on every OS and leaves the user's clipboard alone.
+// The editor's text clipboard. Normally it is the system clipboard (sokol_app). The editor autotest gets a private one
+// that lives in this process: the autotest copies and pastes text and checks what it finds, and another program writing
+// to the system clipboard in between (a chat window, a clipboard manager, a second editor running its own autotest)
+// failed the Ctrl+V and Paste checks at random. The private clipboard works the same on every OS and leaves the user's
+// clipboard alone.
 #include <cstdint>
 #include <string>
 #include <vector>

@@ -12,14 +12,16 @@ namespace fa::render {
 namespace {
 
 // Reports a failure once per entity and material (Assets::note_failure keys on the path), and marks the use as skipped.
+// `key` (when not empty) replaces the message in that key: a message with a count that changes every frame (instances,
+// the buffer's size) would otherwise log one line per value.
 MeshBufferUse& fail(MeshBufferUse& use, Assets& assets, const MeshItem& mi, const std::string& pointer,
-                    std::string message, const std::string& hint) {
+                    std::string message, const std::string& hint, const std::string& key = std::string()) {
     use.skip = true;
     const std::string entity = std::to_string(mi.entity.bits());
-    // What Assets::build_material forgets when the material builds again: its path, " on ", then what is wrong. The message is part
-    // of the key, so another problem of the same entity is reported too, and the same one only once.
-    const std::string path =
-        (mi.material ? mi.material->path : std::string("MeshRenderer")) + " on entity " + entity + ": " + message;
+    // What Assets::build_material forgets when the material builds again: its path, " on ", then what is wrong. The
+    // message is part of the key, so another problem of the same entity is reported too, and the same one only once.
+    const std::string path = (mi.material ? mi.material->path : std::string("MeshRenderer")) + " on entity " + entity +
+                             ": " + (key.empty() ? message : key);
     const bool pointed = message.compare(0, pointer.size(), pointer) == 0;  // ComputeDrawAccess::bind names it already
     assets.note_failure("material-mesh", path,
                         "entity " + entity + ", MeshRenderer" + (pointed ? "" : pointer + ": ") + message, hint);
@@ -40,7 +42,8 @@ MeshBufferUse resolve_mesh_buffers(Assets& assets, Compute* compute, const MeshI
                      (mi.material ? "'" + mi.material->path + "' declares no \"buffers\"" : std::string("is not set")),
                  "Set MeshRenderer.material to a mesh material that declares \"buffers\" "
                  "(docs/shaders/SHADERS_COMPUTE.md, "
-                 "\"Drawing from a compute buffer\"), or set instances to 0.");
+                 "\"Drawing from a compute buffer\"), or set instances to 0.",
+                 mi.material ? "instances with a material without buffers" : "instances without a material");
         return use;
     }
     use.active = true;
@@ -53,11 +56,12 @@ MeshBufferUse resolve_mesh_buffers(Assets& assets, Compute* compute, const MeshI
             "Use a material without \"buffers\" (docs/shaders/SHADERS_COMPUTE.md, \"Drawing from a compute buffer\").");
         return use;
     }
-    // The instance count: 0 draws once (the entity as a normal mesh); N draws N instances, each reading its own element.
+    // The instance count: 0 draws once (the entity as a normal mesh); N draws N instances, each reading its own
+    // element.
     if (mr.instances < 0 || mr.instances > kMaxMeshInstances) {
         fail(use, assets, mi, "/instances",
              "instances is " + std::to_string(mr.instances) + ", outside 0.." + std::to_string(kMaxMeshInstances),
-             "Set instances to 0 (one normal draw) or the number of elements to draw.");
+             "Set instances to 0 (one normal draw) or the number of elements to draw.", "instances out of range");
         return use;
     }
     const std::uint64_t need = std::uint64_t(std::max<std::int32_t>(mr.instances, 1));
@@ -98,7 +102,8 @@ MeshBufferUse resolve_mesh_buffers(Assets& assets, Compute* compute, const MeshI
                      std::to_string(id) + ") holds " + std::to_string(bound->count) + " elements",
                  "Make every buffer of the material for at least " + std::to_string(need) +
                      " elements (compute.create_buffer count) or lower instances; a buffer smaller than instances is "
-                     "read past its end.");
+                     "read past its end.",
+                 "the buffer '" + def.name + "' holds fewer elements than instances");
             return use;
         }
         use.views[i] = bound->view;

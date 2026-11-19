@@ -1,26 +1,35 @@
-// The Graph panel's live preview: the material as it is being edited (not as saved) drawn on a sphere, a cube or a flat quad by the engine's own
-// renderer (Renderer::capture_world on a scratch World that holds one mesh and one light), so what the preview shows is what the game shows. A
-// sprite material is drawn on a 2D quad (a Sprite with the material) instead of on a mesh. A post material is drawn as a pass of a camera: a small
-// scratch scene (lit shapes at several depths over a sky) seen by a Camera whose PostProcess.customPasses holds only the material, captured with
-// Renderer::capture_camera over kPreviewPostFrames frames (so fa_history has a frame before it, and fa_depth / fa_normal have their prepass).
+// The Graph panel's live preview: the material as it is being edited (not as saved) drawn on a sphere, a cube or a flat
+// quad by the engine's own renderer (Renderer::capture_world on a scratch World that holds one mesh and one light), so
+// what the preview shows is what the game shows. A sprite material is drawn on a 2D quad (a Sprite with the material)
+// instead of on a mesh. A post material is drawn as a pass of a camera: a small scratch scene (lit shapes at several
+// depths over a sky) seen by a Camera whose PostProcess.customPasses holds only the material, captured with
+// Renderer::capture_camera over kPreviewPostFrames frames (so fa_history has a frame before it, and fa_depth /
+// fa_normal have their prepass).
 //
 // Every edit changes the document; the preview waits for the edits to stop (kDebounceFrames frames without one), then
-//   1. generates the snippet in memory (check_material_document, the code of material.graph.generate): an error there is shown and nothing else runs;
-//   2. compiles the material on a WORKER thread with the engine's shader compiler (compile_material, sokol-shdc, for the dialect of the renderer's
+//   1. generates the snippet in memory (check_material_document, the code of material.graph.generate): an error there
+//   is shown and nothing else runs;
+//   2. compiles the material on a WORKER thread with the engine's shader compiler (compile_material, sokol-shdc, for
+//   the dialect of the renderer's
 //      backend), which fills the content-keyed shader cache; the UI thread never waits for it (poll only);
-//   3. when the compile is done and still current, writes the material and snippet to .factoria/material-preview/ (the files the renderer reads),
+//   3. when the compile is done and still current, writes the material and snippet to .factoria/material-preview/ (the
+//   files the renderer reads),
 //      tells the renderer to reload them (a cache hit now: no process) and draws.
-// A compile error is shown with its line and the quoted snippet line, and the last good picture stays. When the line belongs to a node (the generator
-// keeps the map, GeneratedGraph::lineNodes) the node is named in node_errors(), and the panel paints it red with the message.
+// A compile error is shown with its line and the quoted snippet line, and the last good picture stays. When the line
+// belongs to a node (the generator keeps the map, GeneratedGraph::lineNodes) the node is named in node_errors(), and
+// the panel paints it red with the message.
 //
-// Params: the preview can show the material with other values than the ones in the file. set_param() overrides one param of the PREVIEW only (it becomes
-// MeshRenderer.materialParams or Sprite.materialParams of the scratch entity, so no file is touched and nothing compiles again); the overrides go away when
-// the document is another material. The panel's "Set as default" button writes a value into the file through the model (material.param.set_default).
+// Params: the preview can show the material with other values than the ones in the file. set_param() overrides one
+// param of the PREVIEW only (it becomes MeshRenderer.materialParams or Sprite.materialParams of the scratch entity, so
+// no file is touched and nothing compiles again); the overrides go away when the document is another material. The
+// panel's "Set as default" button writes a value into the file through the model (material.param.set_default).
 //
-// Compare: with set_compare(true) and a saved document (set_saved_document) the preview also draws the last SAVED version of the graph, next to the
-// current one, with the same shape and the same param values; it compiles on its own worker, in its own files.
+// Compare: with set_compare(true) and a saved document (set_saved_document) the preview also draws the last SAVED
+// version of the graph, next to the current one, with the same shape and the same param values; it compiles on its own
+// worker, in its own files.
 //
-// tick() must run OUTSIDE the editor's UI build (capture_world commits the GPU frame): the editor calls it before ui::new_frame.
+// tick() must run OUTSIDE the editor's UI build (capture_world commits the GPU frame): the editor calls it before
+// ui::new_frame.
 #pragma once
 
 #include <atomic>
@@ -69,15 +78,16 @@ struct PreviewNodeError {
     int line = 0;      // the line of the generated snippet
     std::string message;
 };
-// Maps the issues of a failed compile to the nodes that wrote their lines (`lineNodes` is GeneratedGraph::lineNodes). An issue on a line no node wrote
-// (a helper function, a brace, a JSON error of the material) is left out: the panel keeps showing the whole message for those. One entry per
-// node and line, in order.
+// Maps the issues of a failed compile to the nodes that wrote their lines (`lineNodes` is GeneratedGraph::lineNodes).
+// An issue on a line no node wrote (a helper function, a brace, a JSON error of the material) is left out: the panel
+// keeps showing the whole message for those. One entry per node and line, in order.
 std::vector<PreviewNodeError> map_compile_errors(const std::vector<ShaderIssue>& issues,
                                                  const std::vector<std::string>& lineNodes);
 
-// A compile error says where: the preview compiles a copy under a stage name ("stage-<n>-<hex>.surface.glsl") that the worker has deleted by the time the
-// message is read. This puts the file the user knows in its place: `stageSnippet` and `stageMaterial` (project-relative, or under `projectDir`) become
-// `snippet` and `material` (the project-relative paths of the real snippet and material).
+// A compile error says where: the preview compiles a copy under a stage name ("stage-<n>-<hex>.surface.glsl") that the
+// worker has deleted by the time the message is read. This puts the file the user knows in its place: `stageSnippet`
+// and `stageMaterial` (project-relative, or under `projectDir`) become `snippet` and `material` (the project-relative
+// paths of the real snippet and material).
 std::string name_real_files(std::string text, const std::string& projectDir, const std::string& stageMaterial,
                             const std::string& stageSnippet, const std::string& material, const std::string& snippet);
 
@@ -91,19 +101,22 @@ inline constexpr int kPreviewMaxMessage = 4000;
 class GraphPreview {
 public:
     explicit GraphPreview(std::string projectDir);
-    // A compile that is running (at most one per picture, sokol-shdc takes about a second) is waited for up to kCloseWaitMs in all, so changing the project
-    // or quitting the editor (the only times a GraphPreview is destroyed) normally leaves no thread behind; one that is still running after that is let go (it only holds copies and its own
-    // stage files) and ends by itself.
+    // A compile that is running (at most one per picture, sokol-shdc takes about a second) is waited for up to
+    // kCloseWaitMs in all, so changing the project or quitting the editor (the only times a GraphPreview is destroyed)
+    // normally leaves no thread behind; one that is still running after that is let go (it only holds copies and its
+    // own stage files) and ends by itself.
     ~GraphPreview();
     static constexpr int kCloseWaitMs = 2000;
-    // Files `stage-*` and `saved-stage-*` in .factoria/material-preview/ that are older than `olderThanSeconds`: what an editor that quit with a compile
-    // still running left behind (the worker removes its own files when it ends). The constructor removes them. A file that cannot be removed (open
-    // elsewhere on Windows) is left for the next time, with no error. Looks at the first few thousand entries only. Returns how many it removed.
+    // Files `stage-*` and `saved-stage-*` in .factoria/material-preview/ that are older than `olderThanSeconds`: what
+    // an editor that quit with a compile still running left behind (the worker removes its own files when it ends). The
+    // constructor removes them. A file that cannot be removed (open elsewhere on Windows) is left for the next time,
+    // with no error. Looks at the first few thousand entries only. Returns how many it removed.
     static int remove_stale_stage_files(const std::string& projectDir, int olderThanSeconds = kStaleStageSeconds);
     static constexpr int kStaleStageSeconds = 600;
 
-    // The material to show (the file's JSON with the graph as edited) and the model's revision, which tells a new edit from the same document.
-    // `path` names the material: when it changes the param overrides, the pictures and the saved document are dropped (a new material starts clean).
+    // The material to show (the file's JSON with the graph as edited) and the model's revision, which tells a new edit
+    // from the same document. `path` names the material: when it changes the param overrides, the pictures and the
+    // saved document are dropped (a new material starts clean).
     void set_document(const Json& material, std::uint64_t revision, const std::string& path = {});
     void clear();
     void set_shape(PreviewShape newShape);
@@ -115,17 +128,20 @@ public:
     void set_immediate(bool on) { immediate_ = on; }
 
     // ---- params of the preview (never written to the file)
-    // Overrides param `name` with `value` (a number, or an array of numbers of the param's size) and draws again. Null removes the override.
+    // Overrides param `name` with `value` (a number, or an array of numbers of the param's size) and draws again. Null
+    // removes the override.
     void set_param(const std::string& name, const Json& value);
     void reset_params();
     const Json& param_overrides() const { return overrides_; }  // {name: value}
-    // The overrides that still fit the material (a param that was removed, or whose type changed, loses its override): called by set_document.
+    // The overrides that still fit the material (a param that was removed, or whose type changed, loses its override):
+    // called by set_document.
     static Json fitting_overrides(const Json& overrides, const Json& material);
 
     // ---- compare with the saved version
     void set_compare(bool on);
     bool compare() const { return compare_; }
-    // The material as it is in the file (its graph as last saved); nullptr when the graph was never saved. The revision tells a new version from the same one.
+    // The material as it is in the file (its graph as last saved); nullptr when the graph was never saved. The revision
+    // tells a new version from the same one.
     void set_saved_document(const Json* material, std::uint64_t revision);
     bool has_saved() const { return saved_.haveDoc; }
 
@@ -140,7 +156,8 @@ public:
     int compiles() const { return compiles_; }                  // how many compiles finished (the autotest waits on it)
     bool busy() const { return cur_.state == PreviewState::Waiting || cur_.state == PreviewState::Compiling; }
     std::uint64_t shown_revision() const { return cur_.shownRevision; }  // the revision the picture shows
-    // The nodes whose generated lines the compiler refused (empty after the next edit, and when the error is not on a node's line).
+    // The nodes whose generated lines the compiler refused (empty after the next edit, and when the error is not on a
+    // node's line).
     const std::vector<PreviewNodeError>& node_errors() const { return cur_.nodeErrors; }
     PreviewKind drawing() const {
         return cur_.drawKind;
@@ -154,9 +171,10 @@ public:
 
     // The material the renderer was last asked to draw (project-relative), for the autotest and the docs.
     static const char* material_path() { return ".factoria/material-preview/preview.material.json"; }
-    // The files a compile of this instance writes before it reads them: "stage-<token>.material.json" and its snippet, the token being different for every
-    // GraphPreview of this process and unlikely to repeat in another, so a compile that outlives its instance (see the destructor) never writes
-    // the files the next one is compiling from. The worker removes them when it is done.
+    // The files a compile of this instance writes before it reads them: "stage-<token>.material.json" and its snippet,
+    // the token being different for every GraphPreview of this process and unlikely to repeat in another, so a compile
+    // that outlives its instance (see the destructor) never writes the files the next one is compiling from. The worker
+    // removes them when it is done.
     const std::string& stage_material_path() const { return cur_.stageMaterial; }
     static const char* saved_material_path() { return ".factoria/material-preview/saved.material.json"; }
 
@@ -211,6 +229,10 @@ private:
     PreviewShape shape_ = PreviewShape::Sphere;
     int compiles_ = 0;
     int animFrame_ = 0;
+    // The animation frame of the last tick that redraws the animated pictures (a multiple of kAnimateEvery): every post
+    // picture is drawn at this instant, so a slot that finishes compiling between two redraws shows the instant the
+    // other one shows.
+    int instantFrame_ = 0;
     std::unique_ptr<World> world_;
     PreviewKind worldKind_ = PreviewKind::Unknown;
     Entity subject_ = kNullEntity;

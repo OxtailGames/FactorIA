@@ -93,8 +93,8 @@ void set_skin_layout(sg_pipeline_desc& d, int jointsAttr, int weightsAttr) {
     d.layout.attrs[weightsAttr].buffer_index = 2;
     d.layout.attrs[weightsAttr].offset = 4;
 }
-// Vertex buffers 3, 4 and 5 of a custom material's program (MeshExtras): the per-instance params, then uv1 and color1, at the
-// attributes from `firstAttr` in that order (mesh_common.glsl fa_extra_attrs).
+// Vertex buffers 3, 4 and 5 of a custom material's program (MeshExtras): the per-instance params, then uv1 and color1,
+// at the attributes from `firstAttr` in that order (mesh_common.glsl fa_extra_attrs).
 void set_extra_layout(sg_pipeline_desc& d, int firstAttr, const MeshExtras& e) {
     int at = firstAttr;
     if (e.instanceVec4 > 0) {
@@ -488,7 +488,8 @@ sg_pipeline Gpu::quad_pipeline(const TargetFormat& format, bool depthTest, bool 
     d.layout.attrs[ATTR_quad_quad_shape_half0].format = SG_VERTEXFORMAT_FLOAT2;
     d.layout.attrs[ATTR_quad_quad_shape_rs0].format = SG_VERTEXFORMAT_HALF2;
     if (instanceVec4 > 0) {
-        // sokol computes the offsets of every attribute or of none: with the second buffer they are given, as Vertex2D has them.
+        // sokol computes the offsets of every attribute or of none: with the second buffer they are given, as Vertex2D
+        // has them.
         static_assert(sizeof(Vertex2D) == 48, "the offsets below are those of Vertex2D");
         d.layout.attrs[ATTR_quad_quad_position].offset = 0;
         d.layout.attrs[ATTR_quad_quad_texcoord0].offset = 12;

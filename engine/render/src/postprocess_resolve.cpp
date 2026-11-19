@@ -163,8 +163,8 @@ float strength_of(const PostProcess& c) {
     return w;
 }
 
-// Adds the customPasses of `c` to the stack when it applies with a strength of at least 0.5 (a list cannot be blended: it switches
-// like a string does). An entry that does not parse goes to `customErrors` with its JSON pointer.
+// Adds the customPasses of `c` to the stack when it applies with a strength of at least 0.5 (a list cannot be blended:
+// it switches like a string does). An entry that does not parse goes to `customErrors` with its JSON pointer.
 void add_custom_passes(PostStack& out, const World& world, const PostProcess& c, float s, Entity entity,
                        PostTrace* trace, int layer) {
     if (s < 0.5f || !c.customPasses.is_array() || c.customPasses.empty()) return;
@@ -180,8 +180,8 @@ void add_custom_passes(PostStack& out, const World& world, const PostProcess& c,
             continue;
         }
         if (out.custom.size() >= std::size_t(4 * kMaxCustomPostPasses)) {  // the volumes together stay bounded
-            // Name the entries that are dropped: the first one with its material (or why it does not parse either), and every
-            // other one of this component that does not parse with its own pointer and reason.
+            // Name the entries that are dropped: the first one with its material (or why it does not parse either), and
+            // every other one of this component that does not parse with its own pointer and reason.
             const std::string prefix = "The custom passes of the camera and its volumes together are limited to " +
                                        std::to_string(4 * kMaxCustomPostPasses) + "; ";
             const std::size_t dropped = c.customPasses.size() - i;

@@ -180,8 +180,9 @@ bool Renderer::capture_world(World& world, const WorldCapture& spec, Image& out,
     return im.capture_view(world, std::move(ci), w, h, spec.scale, spec.subject, 1, false, 0, true, out, error);
 }
 
-// The histories of a capture are kept under the camera's bits with this bit set: the game's cameras (their bits alone, and bit 0 would be "every
-// history" to reset_history) never share a history with a capture of a camera of another world, or of the same one.
+// The histories of a capture are kept under the camera's bits with this bit set: the game's cameras (their bits alone,
+// and bit 0 would be "every history" to reset_history) never share a history with a capture of a camera of another
+// world, or of the same one.
 static constexpr std::uint64_t kCaptureHistoryBit = 1ull << 62;
 
 bool Renderer::capture_camera(World& world, const CameraCapture& spec, Image& out, std::string* error) {
@@ -199,8 +200,8 @@ bool Renderer::capture_camera(World& world, const CameraCapture& spec, Image& ou
     if (spec.frames < 1 || spec.frames > kMaxCaptureFrames)
         return fail("frames must be between 1 and " + std::to_string(kMaxCaptureFrames) + ", but got " +
                     std::to_string(spec.frames));
-    // The camera as a render target draws it (it fills the image whatever its viewport says), with its stack even when the editor's A/B
-    // switch (set_post_bypass) has the game's off: this picture is what the stack does.
+    // The camera as a render target draws it (it fills the image whatever its viewport says), with its stack even when
+    // the editor's A/B switch (set_post_bypass) has the game's off: this picture is what the stack does.
     const Vec2 size{float(spec.width), float(spec.height)};
     const bool bypass = im.postBypass;
     im.postBypass = false;
@@ -235,6 +236,13 @@ bool Renderer::Impl::capture_view(World& world, CameraInfo ci, int w, int h, flo
     if (withCustom) customPost.reset_history(historyCamera);
     constexpr std::uint64_t kKey =
         1ull << 62;  // not a CameraView widget (entity bits) and not a render target (bit 63)
+    // The one way out of the capture, whether it failed or finished: the stats are put back, the capture's image is
+    // dropped, and its history slots are freed by key now (they are not the game's to pay for until they idle out).
+    auto cleanup = [&]() {
+        restore();
+        viewTargets.erase(kKey);
+        if (withCustom) customPost.release_history_of(historyCamera);
+    };
     for (int frame = 0; frame < frames; ++frame) {
         ramps.begin_frame();
         Frame fr;
@@ -255,8 +263,9 @@ bool Renderer::Impl::capture_view(World& world, CameraInfo ci, int w, int h, flo
             gather_particles(world, fr);
             if (fonts->atlas_epoch() == atlasEpoch) break;  // else the atlas was remade halfway: gather again
         }
-        // gather_2d shifted the layers for the capture's own camera: put back the shift for the scene's first camera (its real pose). A
-        // renderer that has not drawn or updated yet has no cameras collected, so look them up (collect_cameras always returns at least one).
+        // gather_2d shifted the layers for the capture's own camera: put back the shift for the scene's first camera
+        // (its real pose). A renderer that has not drawn or updated yet has no cameras collected, so look them up
+        // (collect_cameras always returns at least one).
         if (lastCams.empty())
             update_parallax(world, collect_cameras(world, false).front().position.xy());
         else
@@ -266,8 +275,7 @@ bool Renderer::Impl::capture_view(World& world, CameraInfo ci, int w, int h, flo
 
         TextureAsset* tex = view_image(kKey, w, h);
         if (!tex) {
-            restore();
-            viewTargets.erase(kKey);
+            cleanup();
             return fail("the " + std::to_string(w) + " x " + std::to_string(h) +
                         " image could not be created (out of GPU memory?)");
         }
@@ -279,8 +287,8 @@ bool Renderer::Impl::capture_view(World& world, CameraInfo ci, int w, int h, flo
         plan.name = "capture";
         plan.customPost = withCustom;
         if (plan.customPost) {
-            // A history is valid when the frame before it was drawn right before, by this capture: the serial counts every frame of every
-            // capture, the first frame of a capture has none before it.
+            // A history is valid when the frame before it was drawn right before, by this capture: the serial counts
+            // every frame of every capture, the first frame of a capture has none before it.
             plan.history.camera = historyCamera;
             plan.history.serial = ++captureSerial;
             plan.history.frame = frameSerial;
@@ -300,15 +308,13 @@ bool Renderer::Impl::capture_view(World& world, CameraInfo ci, int w, int h, flo
     std::string readError;
     const bool ok = read_rgba8(vt.asset.image, vt.asset.view, w, h, px, &readError, true);
     release_view(*viewTargets[kKey]);
-    viewTargets.erase(kKey);
     // The RGBA8 copy of a big picture (a 4K capture is 64 MB) is not worth keeping: only the game target's size is asked for again.
     if (readW != physW || readH != physH) free_read_image();
-    restore();
-    // The capture's history slots are not the game's to pay for until they idle out: freed by key now.
-    if (withCustom) customPost.release_history_of(historyCamera);
+    cleanup();
     if (!ok) return fail("reading the picture back from the GPU failed: " + readError);
-    // capture_world blended onto a transparent background, so the colour is premultiplied by alpha; texture fields expect straight alpha.
-    // capture_camera's picture is not (the camera's clear has alpha 1 and a custom pass writes the alpha it means): left as drawn.
+    // capture_world blended onto a transparent background, so the colour is premultiplied by alpha; texture fields
+    // expect straight alpha. capture_camera's picture is not (the camera's clear has alpha 1 and a custom pass writes
+    // the alpha it means): left as drawn.
     for (std::size_t i = 0; premultiplied && i + 3 < px.size(); i += 4) {
         const unsigned a = px[i + 3];
         if (a == 0 || a == 255) continue;

@@ -133,9 +133,9 @@ bool readback_storage_image(sg_image image, sg_pixel_format format, int x, int y
     const std::size_t row = std::size_t(width) * pixel;
     out.resize(row * std::size_t(height));
     glPixelStorei(GL_PACK_ALIGNMENT, 1);
-    // The rectangle through a temporary framebuffer and glReadPixels: it copies only the rectangle (glGetTexImage, the only
-    // other read of OpenGL 4.3, copies the whole level). The images are colour-renderable (make_image_gpu checks it) and the
-    // framebuffer's row 0 is the texture's row 0, the one an imageStore at y = 0 writes: no flip.
+    // The rectangle through a temporary framebuffer and glReadPixels: it copies only the rectangle (glGetTexImage, the
+    // only other read of OpenGL 4.3, copies the whole level). The images are colour-renderable (make_image_gpu checks
+    // it) and the framebuffer's row 0 is the texture's row 0, the one an imageStore at y = 0 writes: no flip.
     bool done = false;
     GLint prevFbo = 0;
     glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &prevFbo);

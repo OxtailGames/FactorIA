@@ -1,8 +1,9 @@
-// Sprites drawn from compute buffers (M72.4, docs/shaders/SHADERS_COMPUTE.md "Sprites from a compute buffer"): a compute material writes
-// the instances, a sprite material with "buffers" reads them in vertex() and fragment(), Sprite.instances is the count. The fixtures
-// are tests/data/materials/materials/spritebuf*.material.json (twins made by tools/common/tests/shaders_fixtures_test.cpp); the compute
-// material that fills them is meshbuf_fill, shared with the mesh tests. What needs storage buffers in a vertex shader (Metal, D3D11,
-// GL 4.3+) says "SKIPPED, no compute here" elsewhere (FA_REQUIRE_COMPUTE=1 turns that into a failure on a runner that must have it).
+// Sprites drawn from compute buffers (M72.4, docs/shaders/SHADERS_COMPUTE.md "Sprites from a compute buffer"): a
+// compute material writes the instances, a sprite material with "buffers" reads them in vertex() and fragment(),
+// Sprite.instances is the count. The fixtures are tests/data/materials/materials/spritebuf*.material.json (twins made
+// by tools/common/tests/shaders_fixtures_test.cpp); the compute material that fills them is meshbuf_fill, shared with
+// the mesh tests. What needs storage buffers in a vertex shader (Metal, D3D11, GL 4.3+) says "SKIPPED, no compute here"
+// elsewhere (FA_REQUIRE_COMPUTE=1 turns that into a failure on a runner that must have it).
 #include "fa/core/engine_version.h"
 #include "fa/render/compute.h"
 #include "test_util.h"
@@ -18,6 +19,7 @@
 
 #include "compute_internal.h"
 #include "render_features.h"
+#include "renderer_test_access.h"
 
 using namespace fa;
 using namespace fa::test;
@@ -353,7 +355,8 @@ TEST_CASE("sprite buffers: instances on a material without buffers draws nothing
         skip_without_compute("the Shape2D with a buffers material is not run", why);
         return;
     }
-    // A Shape2D (or any 2D item that is not a Sprite) cannot give a material its buffers: it is not drawn, the log says why once.
+    // A Shape2D (or any 2D item that is not a Sprite) cannot give a material its buffers: it is not drawn, the log says
+    // why once.
     World w;
     camera2d(w);
     Entity e = make(w, "shape", {0, 0, 0});
@@ -425,4 +428,161 @@ TEST_CASE("sprite buffers: a driver with too few storage buffer bindings refuses
     }
     ComputeTestAccess::set_binding_limit(s.compute(), -1);
     s.g.renderer.clear_asset_cache();
+}
+
+namespace {
+
+// Whether any pixel of the picture is lit: the clear colour is black, and the magenta of a failed material counts as
+// lit.
+bool any_lit(const Image& img) {
+    for (int y = 0; y < img.height; ++y)
+        for (int x = 0; x < img.width; ++x) {
+            const Color c = img.pixel(x, y);
+            if (std::max({c.r, c.g, c.b}) > 0.3f) return true;
+        }
+    return false;
+}
+
+// Puts one white item of kind `kind` in the world (the 2D items that are not a Sprite or a Shape2D) with `material`.
+void add_other_item(World& w, const std::string& kind, const char* material) {
+    if (kind == "Text") {
+        Entity e = make(w, "text", {0, 0, 0});
+        auto& t = w.add<Text>(e);
+        t.text = "MMMM";
+        t.fontSize = 48;
+        t.color = Color::white();
+        t.material = material;
+    } else if (kind == "Tilemap") {
+        Entity e = make(w, "tiles", {0, 0, 0});
+        auto& tm = w.add<Tilemap>(e);
+        tm.tileset = "assets/sprite_buffer_tiles.png";
+        tm.tileSize = {16, 16};
+        tm.columns = 2;
+        tm.width = 2;
+        tm.height = 1;
+        set_tilemap_tiles(tm, Json::array({0, 1}));
+        tm.material = material;
+    } else if (kind == "ParticleEmitter") {
+        Entity e = make(w, "fx", {0, 0, 0});
+        auto& p = w.add<ParticleEmitter>(e);
+        p.rate = 0;
+        p.burst = 20;
+        p.lifetime = 5.0f;
+        p.speed = 0;
+        p.gravity = {0, 0, 0};
+        p.startSize = p.endSize = 20;
+        p.startColor = p.endColor = Color::white();
+        p.material = material;
+    } else {  // Panel: a UiBox widget
+        Entity e = make(w, "panel", {160, 90, 0});
+        auto& pn = w.add<Panel>(e);
+        pn.size = {60, 30};
+        pn.color = Color::white();
+        pn.material = material;
+    }
+}
+
+// Clears the renderer's hook when the test leaves, whichever way.
+struct HookScope {
+    HookScope(Gfx& g, std::function<void()> hook) : g_(g) {
+        render::renderer_set_before_frame_graph(g_.renderer, std::move(hook));
+    }
+    ~HookScope() { render::renderer_set_before_frame_graph(g_.renderer, {}); }
+    HookScope(const HookScope&) = delete;
+    HookScope& operator=(const HookScope&) = delete;
+    Gfx& g_;
+};
+
+}  // namespace
+
+TEST_CASE(
+    "sprite buffers: Text, Tilemap, ParticleEmitter and UiBox with a buffers material are not drawn and say why") {
+    Scope s;
+    std::string why;
+    if (!s.compute().available(&why)) {
+        skip_without_compute("the items that are not a Sprite are not run", why);
+        return;
+    }
+    Image sheet;
+    sheet.width = 32;
+    sheet.height = 16;
+    sheet.rgba.resize(32 * 16 * 4);
+    for (int y = 0; y < 16; ++y)
+        for (int x = 0; x < 32; ++x) sheet.set_pixel(x, y, Color::white());
+    REQUIRE(save_png(sheet, "assets/sprite_buffer_tiles.png").ok());
+    const int id = make_buffer(s.compute(), 4);
+    fill(s.compute(), id, 4);
+    for (const std::string kind : {"Text", "Tilemap", "ParticleEmitter", "Panel"}) {
+        CAPTURE(kind);
+        s.g.renderer.clear_asset_cache();
+        install_materials();
+        // The same item with no material is visible, so a dark picture below is the material's doing.
+        {
+            World w;
+            camera2d(w);
+            add_other_item(w, kind, "");
+            Image img;
+            for (int i = 0; i < 3; ++i) img = s.g.render(w, 1.0f / 60.0f);
+            REQUIRE(any_lit(img));
+        }
+        ErrorLog log;
+        World w;
+        camera2d(w);
+        add_other_item(w, kind, kSprite);
+        Image img;
+        for (int i = 0; i < 3; ++i) img = s.g.render(w, 1.0f / 60.0f);
+        CHECK(!any_lit(img));  // nothing drawn, not even the magenta of the error material
+        CHECK(log.count("only a Sprite can draw from buffers") == 1);  // once, not every frame
+        CHECK(s.g.renderer.stats().materialFallbacks.empty());
+    }
+}
+
+TEST_CASE("sprite buffers: a buffer destroyed between the gather and the draw skips the batch with a warning") {
+    Scope s;
+    std::string why;
+    if (!s.compute().available(&why)) {
+        skip_without_compute("the buffer destroyed at draw time is not run", why);
+        return;
+    }
+    const int id = make_buffer(s.compute(), 8);
+    fill(s.compute(), id, 5);
+    World w;
+    camera2d(w);
+    add_instanced(w, kSprite, Json::object({{"points", id}}), 5);
+    CHECK(count_runs(s.g.render(w)) == 5);  // drawn normally first
+    ErrorLog log;
+    {
+        // The gather finds the buffer (it is alive when the frame is gathered); the hook destroys it before the passes
+        // run.
+        Compute& compute = s.compute();
+        HookScope hook(s.g, [&compute, id] { (void)compute.destroy_buffer(id); });
+        const Image img = s.g.render(w);
+        CHECK(count_runs(img) == 0);  // the batch is skipped: nothing is read from a buffer that is gone
+        CHECK(s.g.renderer.stats().drawCalls == 0);
+    }
+    CHECK(log.count("Sprite drawn with") == 1);
+    // The next frames fail at the gather, with the message of a missing buffer, and do not crash either.
+    CHECK(count_runs(s.g.render(w)) == 0);
+    CHECK(count_runs(s.g.render(w)) == 0);
+    CHECK(log.count("Sprite drawn with") == 1);
+}
+
+TEST_CASE("sprite buffers: instances that change every frame log the buffer-too-small error once, not once per value") {
+    Scope s;
+    std::string why;
+    if (!s.compute().available(&why)) {
+        skip_without_compute("the changing instances are not run", why);
+        return;
+    }
+    const int id = make_buffer(s.compute(), 8);
+    fill(s.compute(), id, 5);
+    ErrorLog log;
+    for (int instances : {20, 21, 22, 23}) {
+        World w;
+        camera2d(w);
+        add_instanced(w, kSprite, Json::object({{"points", id}}), instances);
+        CHECK(count_runs(s.g.render(w)) == 0);
+    }
+    CHECK(log.count("holds 8 elements") == 1);  // the first value is logged, the next ones share its key
+    CHECK(log.count("the buffer 'points'") == 1);
 }

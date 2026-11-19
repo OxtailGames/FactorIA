@@ -134,8 +134,8 @@ TEST_CASE("A shape with rounded corners (mode 7) is not a plain quad and keeps i
 }
 
 // ---------------------------------------------------------------------------------------------------------------------------------
-// Per-quad instanced values of a sprite material (M72.1): QuadList::inst, remapped by append and append_items, and copied four
-// times per quad into the stream flatten() is given.
+// Per-quad instanced values of a sprite material (M72.1): QuadList::inst, remapped by append and append_items, and
+// copied four times per quad into the stream flatten() is given.
 // ---------------------------------------------------------------------------------------------------------------------------------
 namespace {
 
