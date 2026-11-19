@@ -363,7 +363,34 @@ std::string prefix_rule(const MaterialDef& material) {
 constexpr const char* kLightSignatures =
     "void surface(in SurfaceInput i, inout Surface s) { ... }  (required),  void vertex(inout VertexData v) { ... }  "
     "(optional),  vec3 light(in SurfaceInput i, in Surface s, in LightSample l) { ... }  (required with \"lighting\": "
-    "\"custom\")  and  vec3 ambient(in SurfaceInput i, in Surface s, vec3 ambientColor) { ... }  (optional)";
+    "\"custom\" unless lighting() is defined)  and  vec3 ambient(in SurfaceInput i, in Surface s, vec3 ambientColor) "
+    "{ ... }  (optional); or, instead of light() and ambient(), your own light loop: vec3 lighting(in SurfaceInput i, "
+    "in Surface s) { ... }  (docs/shaders/SHADERS_LIGHTING.md)";
+
+// The functions of the lighting API of a "custom" mesh material (mesh_common.glsl, fa_fs_light): they work in light(),
+// ambient(), lighting() and the helpers those call, not in surface() or vertex().
+const std::vector<std::string>& lighting_api() {
+    static const std::vector<std::string> names = {"fa_light_count",  "fa_light",     "fa_light_unshadowed",
+                                                   "fa_light_shadow", "fa_sky_light", "fa_sky_reflection",
+                                                   "fa_environment",  "fa_env_brdf"};
+    return names;
+}
+
+// The [begin, end) of the body of `<returnType> <name>(...) { ... }` in the comment-blanked snippet, or {0, 0}.
+std::pair<std::size_t, std::size_t> body_of(const std::string& stripped, const std::string& returnType,
+                                            const std::string& name) {
+    const std::regex re("\\b" + returnType + "\\s+" + name + "\\s*\\(");
+    std::smatch m;
+    if (!std::regex_search(stripped, m, re)) return {0, 0};
+    std::size_t p = stripped.find('{', std::size_t(m.position(0)));
+    if (p == std::string::npos) return {0, 0};
+    const std::size_t begin = p;
+    for (int depth = 0; p < stripped.size(); ++p) {
+        depth += stripped[p] == '{' ? 1 : stripped[p] == '}' ? -1 : 0;
+        if (depth == 0) return {begin, p + 1};
+    }
+    return {0, 0};
+}
 
 std::string signatures(const MaterialDef& material) {
     if (is_post(material))
@@ -394,6 +421,12 @@ std::string undeclared_hint(const std::string& token, const MapContext& ctx) {
                                                            : fragment_entry(ctx.material)) +
                    "().";
     if (token.rfind("fa_", 0) == 0) {
+        // A custom mesh material: the documented lighting functions come first (the template has helpers of its own).
+        if (!ctx.material.full && ctx.material.kind == "mesh" && ctx.material.lighting == "custom") {
+            const std::string api = closest_match(token, lighting_api());
+            if (!api.empty())
+                return "did you mean " + api + "? The lighting functions are " + join(lighting_api(), ", ") + ".";
+        }
         const std::string best = closest_match(token, engine_names(ctx.material));
         return best.empty()
                    ? std::string("No engine value is called ") + token +
@@ -477,6 +510,9 @@ std::string hint_for(const std::string& message, const std::string& token, const
         return "Texture lookups take a combined sampler built from the texture and its sampler: " + token +
                "(sampler2D(name, name_smp), uv), with a vec2 uv.";
     }
+    // A function of the engine that is spelled wrong (glslang says "no matching overloaded function" for an unknown name).
+    if (message.find("no matching overloaded function found") != std::string::npos && token.rfind("fa_", 0) == 0)
+        return undeclared_hint(token, ctx);
     if (message.find("redefinition") != std::string::npos && token.rfind("fa_", 0) == 0)
         return prefix_rule(ctx.material);
     if (message.find("redefinition") != std::string::npos) {
@@ -523,7 +559,7 @@ void outside_snippet(ShaderIssue& issue, const std::string& where, const std::st
             "docs/shaders/SHADERS_FULL.md lists what a full shader may use.";
     else if (token == "surface" || token == "fragment" || token == "vertex" ||
              (token == "sky" && is_sky(ctx.material)) || (token == "post" && is_post(ctx.material)) ||
-             (ctx.material.lighting == "custom" && (token == "light" || token == "ambient")))
+             (ctx.material.lighting == "custom" && (token == "light" || token == "ambient" || token == "lighting")))
         issue.hint = std::string("The engine calls ") + token +
                      "() from its template, so the snippet must define it with exactly this signature: " +
                      signatures(ctx.material) + ".";
@@ -682,7 +718,7 @@ std::vector<ShaderIssue> precheck_snippet(const MaterialDef& material, const Gen
             signatures(material) + ".";
         out.push_back(std::move(i));
     }
-    if (material.kind == "mesh" && material.lighting == "custom" && !g.hasLight) {
+    if (material.kind == "mesh" && material.lighting == "custom" && !g.hasLight && !g.hasLighting) {
         ShaderIssue i;
         i.file = material.shader;
         i.message = "the material " + (material.path.empty() ? std::string("file") : material.path) +
@@ -692,11 +728,88 @@ std::vector<ShaderIssue> precheck_snippet(const MaterialDef& material, const Gen
                  "l.color "
                  "already has the light's attenuation and shadow in it. (Optional: `vec3 ambient(in SurfaceInput i, in "
                  "Surface s, "
-                 "vec3 ambientColor)` for the ambient term.) Or set \"lighting\" to \"pbr\" (the engine's lighting) or "
+                 "vec3 ambientColor)` for the ambient term. To choose the lights yourself, define `vec3 lighting(in "
+                 "SurfaceInput i, in Surface s)` instead of both.) Or set \"lighting\" to \"pbr\" (the engine's "
+                 "lighting) or "
                  "\"unlit\" in " +
                  (material.path.empty() ? std::string("the material file") : material.path) +
                  " (pointer /lighting). Signatures: " + kLightSignatures + ".";
         out.push_back(std::move(i));
+    }
+    if (material.kind == "mesh") {
+        const std::string where = material.path.empty() ? std::string("the material file") : material.path;
+        auto issue_at = [&](std::size_t offset, std::string message, std::string hint) {
+            ShaderIssue i;
+            i.file = material.shader;
+            i.line = line_of(stripped, offset);
+            i.source = line_text(snippet, i.line);
+            i.column = column_of(stripped, offset) + 1;
+            i.message = std::move(message);
+            i.hint = std::move(hint);
+            return i;
+        };
+        // Where `vec3 <name>(` is defined.
+        auto definition = [&](const std::string& name) {
+            std::smatch m;
+            const std::regex re("\\bvec3\\s+" + name + "\\s*\\(");
+            return std::regex_search(stripped, m, re) ? std::size_t(m.position(0)) : std::size_t(0);
+        };
+        if (g.lightingWithoutCustom)
+            out.push_back(
+                issue_at(definition("lighting"),
+                         "the snippet defines lighting() but the material does not have \"lighting\": \"custom\"",
+                         "lighting() is your own light loop: the engine calls it instead of its own lighting only "
+                         "in a material with \"lighting\": \"custom\". Set \"lighting\": \"custom\" in " +
+                             where +
+                             " (pointer /lighting), or rename the function if it is a helper (a helper called "
+                             "lighting must not take a SurfaceInput as its first parameter). Signatures: " +
+                             kLightSignatures + "."));
+        if (material.lighting == "custom" && g.hasLighting && (g.hasLight || g.hasAmbient)) {
+            const std::string other = g.hasLight ? "light" : "ambient";
+            out.push_back(issue_at(
+                definition(other), "the snippet defines both lighting() and " + other + "()",
+                "lighting() is the whole light loop and the ambient and sky terms: the engine does not call " + other +
+                    "() when lighting() is defined, so it would never run. Remove " + other +
+                    "() and do its work in lighting() (light n is fa_light(n, i); the scene's ambient light is "
+                    "fa_ambient.rgb), or remove lighting() to keep the per-light hooks. "
+                    "docs/shaders/SHADERS_LIGHTING.md has an example."));
+        }
+        if (material.lighting != "custom") {
+            // A pbr or unlit material has no lighting functions.
+            for (const std::string& name : lighting_api()) {
+                const std::size_t at = find_word(stripped, name);
+                if (at == std::string::npos) continue;
+                out.push_back(issue_at(
+                    at, "'" + name + "' : the lighting functions belong to a material with \"lighting\": \"custom\"",
+                    "fa_light_count(), fa_light(n, i), fa_light_unshadowed(), fa_light_shadow(), fa_sky_light(), "
+                    "fa_sky_reflection(), fa_environment() and fa_env_brdf() are for the snippet of a \"custom\" "
+                    "material (in light(), ambient() or lighting()). Set \"lighting\": \"custom\" in " +
+                        where + " (pointer /lighting) and define light() or lighting()."));
+                break;
+            }
+        } else {
+            // surface() and vertex() run before the lights are known, and in the shadow and depth passes.
+            for (const char* fn : {"surface", "vertex"}) {
+                const auto [b, e] = body_of(stripped, "void", fn);
+                if (e == 0) continue;
+                const std::string body = stripped.substr(b, e - b);
+                for (const std::string& name : lighting_api()) {
+                    const std::size_t at = find_word(body, name);
+                    if (at == std::string::npos) continue;
+                    out.push_back(issue_at(
+                        b + at, "'" + name + "' : the lighting functions cannot be called from " + fn + "()",
+                        std::string(fn) +
+                            "() runs before the lights are known (and in the shadow and depth passes, which have "
+                            "none). "
+                            "Call " +
+                            name +
+                            "() in light(), ambient() or lighting(); to hand a value over, write it into a Surface "
+                            "field (s.emission, s.occlusion...) in " +
+                            fn + "()."));
+                    break;
+                }
+            }
+        }
     }
     // A declaration with an fa_ name: `<type> fa_x ;|=|[|(|,|)` or #define fa_x.
     static const std::regex decl(R"(\b([A-Za-z_]\w*)\s+(fa_\w*)\s*(?=[;=\[(,)]))");

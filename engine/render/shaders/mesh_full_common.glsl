@@ -12,7 +12,8 @@
 // The declarations of the fragment resources (views 0 and 1, samplers 0 and 1, fa_mesh_fs_params, fa_lights) and the helper
 // functions copied from mesh_common.glsl (fa_shadow, the light sample, the fog, the colour space fixes) are copies, not includes:
 // mesh_common.glsl's fa_fs_surface also declares the engine's own varyings, which a full shader does not have. A test
-// (shader_template_test.cpp) compares the uniform blocks with mesh_common.glsl's, so they cannot drift apart.
+// (shader_template_test.cpp) compares the uniform blocks with mesh_common.glsl's, so they cannot drift apart. The sky functions
+// (fa_environment, fa_env_brdf, fa_sky_reflection) are the exception: they are mesh_common.glsl's block fa_env_funcs, included.
 
 // ---- vertex stage ----
 
@@ -143,6 +144,9 @@ layout(binding=2) uniform fa_lights {
 @include_block fa_inst_in
 @include_block fa_types
 @include_block fa_user
+
+// The sky the surface reflects (fa_environment, fa_env_brdf, fa_sky_reflection): the same code as the engine's own meshes.
+@include_block fa_env_funcs
 
 layout(location=0) out vec4 fa_frag_color;
 

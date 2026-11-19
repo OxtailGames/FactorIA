@@ -170,7 +170,7 @@ void register_shader_commands(CommandRegistry& registry, const std::string& proj
             "A material file with errors returns them (JSON pointer, message, fix). Example: "
             "{\"material\": \"materials/water.material.json\"}" FA_COMMAND_DETAILS
             "`lighting` is \"pbr\", \"unlit\" or \"custom\" (the snippet defines light(), the engine's light loop "
-            "calls it once per light). "
+            "calls it once per light, or lighting(), your own loop). "
             "`programs` are the shader programs the material makes: mesh, mesh_skin, prepass and prepass_skin, plus "
             "shadow and shadow_skin when the snippet defines vertex() or the alpha mode is clip; a sprite "
             "material makes quad and quad_plain, a sky material one program, sky, a post material one, post. "

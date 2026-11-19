@@ -167,7 +167,10 @@ decides, and the game event `ui.viewPointer` goes out like the other ui.* events
   `surface(i, s)` in the fragment `main` after `fa_standard_surface`, before lighting. `FA_ALPHA_CLIP` makes the
   fragment `discard` below `alphaCutoff` and makes `shadow_fs` run `surface()` too. Uniform bindings: vertex 0 params,
   3 skin, 4 the material's vertex-stage block; fragment 1 params, 2 lights, 5 the material block; material textures use
-  views 6-9 and samplers 2-5.
+  views 6-9 and samplers 2-5. With `"lighting": "custom"` the snippet may define `lighting(i, s)` (`FA_HAS_LIGHTING`), the
+  whole light loop: the template declares `fa_light_count()`, `fa_light(n, i)`, `fa_light_unshadowed()`, `fa_light_shadow()`
+  and `fa_sky_light()` before the snippet (stubs in the shadow and prepass programs); the cap of 32 lights and their order
+  are `select_lights`' (CUSTOM_SHADERS.md, P14).
 - *Generator* (`tools/common/src/shaders_generate.cpp`). `generate_material_shader` writes the sokol-shdc top file: the
   params as one alphabetical block (each padded to a `vec4`), the textures, the snippet verbatim with a line table, then
   `@include mesh_common.glsl` and the programs (`mesh`, `mesh_skin`, `prepass`, `prepass_skin`, plus `shadow`, `shadow_skin`

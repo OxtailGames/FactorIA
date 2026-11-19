@@ -345,14 +345,17 @@ using shaders_detail::normalize_snippet;
 struct Function {
     std::size_t begin = 0, end = 0;  // [begin, end) of `name(...) { ... }` in the snippet
     bool isVertex = false;           // vertex stage; else the fragment stage
-    bool isSurface = false, isLight = false,
-         isAmbient = false;  // isSurface: surface() or, in a sprite material, fragment()
+    bool isSurface = false, isLight = false, isAmbient = false,
+         isLighting = false;  // isSurface: surface() or, in a sprite material, fragment()
 };
 
 // The definitions of void <fragmentName>(...) (surface, or fragment in a sprite material), void vertex(...) and, with lighting
 // "custom", vec3 light(...) and vec3 ambient(...) at the top level of the (comment-blanked) snippet. In a pbr or unlit
-// material `light` and `ambient` are ordinary names (a helper may be called that and run in both stages).
-std::vector<Function> find_entry_points(const std::string& s, const std::string& fragmentName, bool customLighting) {
+// material `light` and `ambient` are ordinary names (a helper may be called that and run in both stages). vec3 lighting(in
+// SurfaceInput i, ...) (the whole light loop) is an entry point in a mesh material of any lighting (a pbr one is refused by the
+// compiler, with the reason); a function called lighting with other parameters is an ordinary name.
+std::vector<Function> find_entry_points(const std::string& s, const std::string& fragmentName, bool customLighting,
+                                        bool mesh) {
     std::vector<Function> out;
     int depth = 0;
     std::size_t i = 0;
@@ -374,16 +377,18 @@ std::vector<Function> find_entry_points(const std::string& s, const std::string&
         }
         const bool isVoid = s.compare(i, 4, "void") == 0 && !(i + 4 < s.size() && ident_char(s[i + 4]));
         const bool isVec3 =
-            customLighting && s.compare(i, 4, "vec3") == 0 && !(i + 4 < s.size() && ident_char(s[i + 4]));
+            (customLighting || mesh) && s.compare(i, 4, "vec3") == 0 && !(i + 4 < s.size() && ident_char(s[i + 4]));
         if (depth == 0 && (i == 0 || !ident_char(s[i - 1])) && (isVoid || isVec3)) {
             std::size_t p = skip_ws(i + 4);
             std::size_t nameStart = p;
             while (p < s.size() && ident_char(s[p])) ++p;
             const std::string name = s.substr(nameStart, p - nameStart);
             if ((isVoid && (name == fragmentName || name == "vertex")) ||
-                (isVec3 && (name == "light" || name == "ambient"))) {
+                (isVec3 && customLighting && (name == "light" || name == "ambient")) ||
+                (isVec3 && name == "lighting")) {
                 p = skip_ws(p);
                 if (p < s.size() && s[p] == '(') {
+                    const std::size_t paramsBegin = p;
                     int paren = 0;
                     while (p < s.size()) {
                         if (s[p] == '(')
@@ -391,6 +396,12 @@ std::vector<Function> find_entry_points(const std::string& s, const std::string&
                         else if (s[p] == ')' && --paren == 0)
                             break;
                         ++p;
+                    }
+                    // lighting() is the hook only with the contract's first parameter: another `lighting` is a helper.
+                    if (name == "lighting" &&
+                        s.substr(paramsBegin, p - paramsBegin).find("SurfaceInput") == std::string::npos) {
+                        ++i;
+                        continue;
                     }
                     p = skip_ws(p + 1);
                     if (p < s.size() && s[p] == '{') {
@@ -410,6 +421,7 @@ std::vector<Function> find_entry_points(const std::string& s, const std::string&
                             f.isSurface = name == fragmentName;
                             f.isLight = name == "light";
                             f.isAmbient = name == "ambient";
+                            f.isLighting = name == "lighting";
                             out.push_back(f);
                             i = p + 1;
                             continue;
@@ -562,12 +574,14 @@ GeneratedShader generate_material_shader(const MaterialDef& material, std::strin
                                                         : sky  ? "sky"
                                                         : post ? "post"
                                                                : "surface",
-                                                        custom);
+                                                        custom, material.kind == "mesh");
     for (const Function& f : fns) {
         g.hasVertex = g.hasVertex || f.isVertex;
         g.hasSurface = g.hasSurface || f.isSurface;
         g.hasLight = g.hasLight || f.isLight;
         g.hasAmbient = g.hasAmbient || f.isAmbient;
+        g.hasLighting = g.hasLighting || (f.isLighting && custom);
+        g.lightingWithoutCustom = g.lightingWithoutCustom || (f.isLighting && !custom);
     }
 
     const InstanceLayout instLayout = instance_layout(material.params);
@@ -621,6 +635,7 @@ GeneratedShader generate_material_shader(const MaterialDef& material, std::strin
         g.defines.push_back("FA_HAS_VERTEX");  // a sky and a post pass have no vertex(): the precheck refuses one
     if (custom) g.defines.push_back("FA_CUSTOM_LIGHT");
     if (custom && g.hasAmbient) g.defines.push_back("FA_HAS_AMBIENT");
+    if (custom && g.hasLighting) g.defines.push_back("FA_HAS_LIGHTING");
     // A sprite is blended by the engine: alphaMode "clip" (the mesh template's alpha test) adds nothing to it.
     if (clip && material.kind == "mesh") g.defines.push_back("FA_ALPHA_CLIP");
     // The instance data and the declared mesh channels (the template declares the matching vertex attributes after the

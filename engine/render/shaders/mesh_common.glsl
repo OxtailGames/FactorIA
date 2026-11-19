@@ -36,7 +36,11 @@
 // Lighting "custom" defines FA_CUSTOM_LIGHT: the light loop below keeps choosing the lights, their attenuation and the shadow
 // and calls the snippet's `vec3 light(in SurfaceInput i, in Surface s, in LightSample l)` once per light instead of
 // Cook-Torrance; the ambient term is the snippet's `vec3 ambient(in SurfaceInput i, in Surface s, vec3 ambientColor)` when
-// FA_HAS_AMBIENT is defined, else ambientColor * albedo * occlusion; the sky reflection is off. Emission and fog stay.
+// FA_HAS_AMBIENT is defined, else ambientColor * albedo * occlusion; the sky reflection is off unless the snippet adds it with
+// fa_sky_light(). With FA_HAS_LIGHTING (the snippet defines `vec3 lighting(in SurfaceInput i, in Surface s)`) the loop and the
+// ambient term are the snippet's too: it picks the lights with fa_light_count() and fa_light(n, i) and may add the sky.
+// Emission and fog stay. The functions of the contract are declared before the snippet (the block fa_fs_light of the main
+// fragment shader; the shadow and prepass fragment shaders get stubs, fa_fs_nolight).
 
 // The snippet contract (docs/SHADERS.md).
 @block fa_types
@@ -303,9 +307,12 @@ void main() {
 }
 @end
 
-// The fragment resources and the standard surface: the main fragment shader includes this, and so does the shadow
-// fragment shader of an alphaMode "clip" material (it must run surface() to know what to discard).
-@block fa_fs_surface
+// The fragment resources, up to the types of the contract (fa_fs_head), then the snippet and the standard surface
+// (fa_fs_rest). Blocks must be defined before they are included, so the order below is the order of use: the shadow and prepass
+// fragment shaders of an alphaMode "clip" material include fa_fs_surface = head + fa_fs_nolight + snippet + rest (they must run
+// surface() to know what to discard); the main fragment shader includes fa_fs_head, fa_fs_light (the lights, the shadow and
+// the sky), the snippet and fa_fs_rest, so the snippet's light(), ambient() and lighting() see the lights.
+@block fa_fs_head
 layout(binding=0) uniform texture2D fa_tex;             // base color
 layout(binding=1) uniform texture2D fa_shadow_tex;
 layout(binding=2) uniform texture2D fa_normal_tex;      // tangent-space normal map
@@ -348,8 +355,9 @@ in vec2 fa_uv;
 in vec4 fa_vertex_color;
 
 @include_block fa_types
-@include_block fa_user
+@end
 
+@block fa_fs_rest
 // Loads the instanced params the vertex stage passed on into the globals the generator declared (surface() reads them).
 void fa_inst_load() {
 #if FA_NINST == 1
@@ -408,9 +416,70 @@ Surface fa_standard_surface(in SurfaceInput i) {
 }
 @end
 
-@fs fs
-@include_block fa_fs_surface
+// The sky the surface reflects, shared with the full-shader template (mesh_full_common.glsl includes this block after it has
+// declared fa_env_sky and fa_env_horizon).
+@block fa_env_funcs
+// The environment the surface reflects: the same gradient as the sky, the horizon color (darker) below the horizon,
+// and rougher surfaces see a blurrier, flatter version of it (a cheap stand-in for a prefiltered cubemap).
+vec3 fa_environment(vec3 d, float rough) {
+    float blur = rough * rough;
+    float h = clamp(d.y * (1.0 - 0.7 * blur), 0.0, 1.0);
+    vec3 up = mix(fa_env_horizon.rgb, fa_env_sky.rgb, pow(h, 0.55));
+    vec3 down = fa_env_horizon.rgb * 0.55;
+    float k = smoothstep(-0.05 - 0.6 * blur, 0.05 + 0.6 * blur, d.y);
+    vec3 e = mix(down, up, k);
+    return mix(e, 0.5 * (fa_env_sky.rgb + fa_env_horizon.rgb) * 0.8, blur * 0.6);
+}
 
+// Analytic split-sum environment BRDF (Karis, "Physically Based Shading on Mobile"): scale and bias of F0.
+vec2 fa_env_brdf(float rough, float ndv) {
+    vec4 c0 = vec4(-1.0, -0.0275, -0.572, 0.022);
+    vec4 c1 = vec4(1.0, 0.0425, 1.04, -0.04);
+    vec4 r = rough * c0 + c1;
+    float a004 = min(r.x * r.x, exp2(-9.28 * ndv)) * r.x + r.y;
+    return vec2(-1.04, 1.04) * a004 + r.zw;
+}
+
+// Image-based lighting: the sky reflected in a surface with normal n seen from direction v (surface -> eye), weighted by the
+// environment BRDF. f0 is the reflectance at normal incidence (0.04 for a dielectric, the albedo for a metal).
+vec3 fa_sky_reflection(vec3 n, vec3 v, vec3 f0, float roughness) {
+    float ndv = max(dot(n, v), 1e-4);
+    vec3 r = reflect(-v, n);
+    vec2 ab = fa_env_brdf(roughness, ndv);
+    return fa_environment(r, roughness) * (f0 * ab.x + ab.y);
+}
+@end
+
+// What a "custom" material's helpers may call in every fragment program, not only the main one: the shadow and prepass fragment
+// shaders (fa_fs_surface) also compile the snippet, whose light(), ambient(), lighting() and helpers are never run there. The sky
+// functions are real, the light functions answer "no lights" so the snippet compiles.
+@block fa_light_shared
+#ifdef FA_CUSTOM_LIGHT
+// A sample that lights nothing (what a light number outside the range gives).
+LightSample fa_no_light() {
+    LightSample none;
+    none.direction = vec3(0.0, 1.0, 0.0);
+    none.color = vec3(0.0);
+    none.attenuation = 0.0;
+    none.shadow = 1.0;
+    none.distance = 0.0;
+    none.type = 0;
+    return none;
+}
+// What the engine's own lighting adds for the sky: its reflection weighted by the environment BRDF of this surface (s.metallic,
+// s.roughness, s.albedo, s.normal) times s.occlusion.
+vec3 fa_sky_light(in SurfaceInput i, in Surface s) {
+    float metallic = clamp(s.metallic, 0.0, 1.0);
+    float roughness = clamp(s.roughness, 0.05, 1.0);
+    vec3 f0 = mix(vec3(0.04), s.albedo, metallic);
+    return fa_sky_reflection(normalize(s.normal), i.view_dir, f0, roughness) * s.occlusion;
+}
+#endif
+@end
+
+// What only the main fragment shader has (the snippet's light(), ambient() and lighting() call these, so the block comes before
+// the snippet): the light array, the shadow coordinate and map, the sky, and the light samples.
+@block fa_fs_light
 layout(binding=2) uniform fa_lights {
     vec4 fa_light_pos[32];      // xyz position (point/spot) or direction TO the light (directional); w range
     vec4 fa_light_color[32];    // rgb color * intensity; w type (0 directional, 1 point, 2 spot)
@@ -418,7 +487,6 @@ layout(binding=2) uniform fa_lights {
 };
 
 in vec4 fa_shadow_pos;
-out vec4 fa_frag_color;
 
 const float FA_PI = 3.14159265;
 
@@ -441,26 +509,101 @@ float fa_shadow_factor(vec3 n, vec3 l) {
     return lit / 9.0;
 }
 
-// The environment the surface reflects: the same gradient as the sky, the horizon color (darker) below the horizon,
-// and rougher surfaces see a blurrier, flatter version of it (a cheap stand-in for a prefiltered cubemap).
-vec3 fa_environment(vec3 d, float rough) {
-    float blur = rough * rough;
-    float h = clamp(d.y * (1.0 - 0.7 * blur), 0.0, 1.0);
-    vec3 up = mix(fa_env_horizon.rgb, fa_env_sky.rgb, pow(h, 0.55));
-    vec3 down = fa_env_horizon.rgb * 0.55;
-    float k = smoothstep(-0.05 - 0.6 * blur, 0.05 + 0.6 * blur, d.y);
-    vec3 e = mix(down, up, k);
-    return mix(e, 0.5 * (fa_env_sky.rgb + fa_env_horizon.rgb) * 0.8, blur * 0.6);
+@include_block fa_env_funcs
+@include_block fa_light_shared
+
+// Light li of the array as seen from a world position, without its shadow: the direction to it, its color times intensity times
+// attenuation, the attenuation, the distance and the type. shadow is 1.
+LightSample fa_light_sample(int li, vec3 world_pos) {
+    float type = fa_light_color[li].w;
+    vec3 l;
+    float atten = 1.0;
+    float dist = 0.0;
+    if (type < 0.5) {
+        l = normalize(fa_light_pos[li].xyz);
+    } else {
+        vec3 to_light = fa_light_pos[li].xyz - world_pos;
+        dist = length(to_light);
+        l = to_light / max(dist, 1e-4);
+        float range = max(fa_light_pos[li].w, 1e-3);
+        float x = clamp(1.0 - (dist / range) * (dist / range), 0.0, 1.0);
+        atten = x * x;
+        if (type > 1.5) {
+            float cos_angle = dot(-l, normalize(fa_light_dir[li].xyz));
+            float cos_outer = fa_light_dir[li].w;
+            atten *= smoothstep(cos_outer, mix(cos_outer, 1.0, 0.25), cos_angle);
+        }
+    }
+    LightSample ls;
+    ls.direction = l;
+    ls.color = fa_light_color[li].rgb * atten;
+    ls.attenuation = atten;
+    ls.shadow = 1.0;
+    ls.distance = dist;
+    ls.type = type < 0.5 ? 0 : (type > 1.5 ? 2 : 1);
+    return ls;
 }
 
-// Analytic split-sum environment BRDF (Karis, "Physically Based Shading on Mobile"): scale and bias of F0.
-vec2 fa_env_brdf(float rough, float ndv) {
-    vec4 c0 = vec4(-1.0, -0.0275, -0.572, 0.022);
-    vec4 c1 = vec4(1.0, 0.0425, 1.04, -0.04);
-    vec4 r = rough * c0 + c1;
-    float a004 = min(r.x * r.x, exp2(-9.28 * ndv)) * r.x + r.y;
-    return vec2(-1.04, 1.04) * a004 + r.zw;
+// The same with the shadow of the directional shadow map applied (only the first light, and only when it is directional, is
+// shadowed): what the engine's light loop hands to light(). gn is the geometric normal.
+LightSample fa_light_shadowed(int li, vec3 world_pos, vec3 gn) {
+    LightSample ls = fa_light_sample(li, world_pos);
+    if (ls.type == 0 && li == 0) {
+        ls.shadow = fa_shadow_factor(gn, ls.direction);
+        ls.color = fa_light_color[li].rgb * (ls.attenuation * ls.shadow);
+    }
+    return ls;
 }
+
+#ifdef FA_CUSTOM_LIGHT
+// The lighting API of a "custom" material (docs/shaders/SHADERS_LIGHTING.md): usable from light(), ambient() and lighting().
+// How many lights the engine hands over (at most 32): the ones that matter most for this frame, directional first.
+int fa_light_count() { return min(int(fa_counts.x), 32); }
+// Light n (0 .. fa_light_count() - 1) with the shadow applied, as light() receives it. A number outside the range gives a sample
+// that lights nothing (color and attenuation 0, shadow 1).
+LightSample fa_light(int n, in SurfaceInput i) {
+    if (n < 0 || n >= fa_light_count()) { return fa_no_light(); }
+    return fa_light_shadowed(n, i.world_pos, i.world_normal);
+}
+// Light n without the shadow map read: color has no shadow in it and shadow is 1; the way to treat the shadow apart.
+LightSample fa_light_unshadowed(int n, in SurfaceInput i) {
+    if (n < 0 || n >= fa_light_count()) { return fa_no_light(); }
+    return fa_light_sample(n, i.world_pos);
+}
+// The shadow of light n at this fragment: 1 lit, 0 in shadow (a value between at the edge of the shadow). Only the first light
+// (n = 0) when it is directional has a shadow; every other light gives 1.
+float fa_light_shadow(int n, in SurfaceInput i) {
+    if (n != 0 || fa_light_count() < 1 || fa_light_color[0].w > 0.5) { return 1.0; }
+    return fa_shadow_factor(i.world_normal, normalize(fa_light_pos[0].xyz));
+}
+#endif
+@end
+
+@block fa_fs_nolight
+#ifdef FA_CUSTOM_LIGHT
+@include_block fa_env_funcs
+@include_block fa_light_shared
+int fa_light_count() { return 0; }
+LightSample fa_light(int n, in SurfaceInput i) { return fa_no_light(); }
+LightSample fa_light_unshadowed(int n, in SurfaceInput i) { return fa_no_light(); }
+float fa_light_shadow(int n, in SurfaceInput i) { return 1.0; }
+#endif
+@end
+
+@block fa_fs_surface
+@include_block fa_fs_head
+@include_block fa_fs_nolight
+@include_block fa_user
+@include_block fa_fs_rest
+@end
+
+@fs fs
+@include_block fa_fs_head
+@include_block fa_fs_light
+@include_block fa_user
+@include_block fa_fs_rest
+
+out vec4 fa_frag_color;
 
 void main() {
     fa_inst_load();
@@ -486,6 +629,11 @@ void main() {
         vec3 gn = i.world_normal;
         vec3 n = normalize(s.normal);
         vec3 v = i.view_dir;
+#ifdef FA_HAS_LIGHTING
+        // lighting "custom" with the snippet's lighting(): it writes the light loop and the ambient and sky terms itself.
+        s.normal = n;
+        vec3 lit = lighting(i, s);
+#else
 #ifdef FA_CUSTOM_LIGHT
         s.normal = n;
 #ifdef FA_HAS_AMBIENT
@@ -506,40 +654,14 @@ void main() {
         int count = int(fa_counts.x);
         for (int li = 0; li < 32; li++) {
             if (li >= count) { break; }
-            float type = fa_light_color[li].w;
-            vec3 l;
-            float atten = 1.0;
-            float dist = 0.0;
-            if (type < 0.5) {
-                l = normalize(fa_light_pos[li].xyz);
-            } else {
-                vec3 to_light = fa_light_pos[li].xyz - i.world_pos;
-                dist = length(to_light);
-                l = to_light / max(dist, 1e-4);
-                float range = max(fa_light_pos[li].w, 1e-3);
-                float x = clamp(1.0 - (dist / range) * (dist / range), 0.0, 1.0);
-                atten = x * x;
-                if (type > 1.5) {
-                    float cos_angle = dot(-l, normalize(fa_light_dir[li].xyz));
-                    float cos_outer = fa_light_dir[li].w;
-                    atten *= smoothstep(cos_outer, mix(cos_outer, 1.0, 0.25), cos_angle);
-                }
-            }
-            float shadow = 1.0;
-            if (type < 0.5 && li == 0) { shadow = fa_shadow_factor(gn, l); }
+            LightSample ls = fa_light_shadowed(li, i.world_pos, gn);
 #ifdef FA_CUSTOM_LIGHT
             // lighting "custom": the snippet's light() takes the place of the Cook-Torrance term below.
-            LightSample ls;
-            ls.direction = l;
-            ls.color = fa_light_color[li].rgb * (atten * shadow);
-            ls.attenuation = atten;
-            ls.shadow = shadow;
-            ls.distance = dist;
-            ls.type = type < 0.5 ? 0 : (type > 1.5 ? 2 : 1);
             lit += light(i, s, ls);
 #else
+            vec3 l = ls.direction;
             float ndl = max(dot(n, l), 0.0);
-            atten *= shadow;
+            float atten = ls.attenuation * ls.shadow;
             vec3 h = normalize(l + v);
             float ndh = max(dot(n, h), 0.0);
             float vdh = max(dot(v, h), 0.0);
@@ -556,9 +678,8 @@ void main() {
         }
 #ifndef FA_CUSTOM_LIGHT
         // Image-based lighting: the sky reflected, weighted by the environment BRDF.
-        vec3 r = reflect(-v, n);
-        vec2 ab = fa_env_brdf(roughness, ndv);
-        lit += fa_environment(r, roughness) * (f0 * ab.x + ab.y) * s.occlusion;
+        lit += fa_sky_reflection(n, v, f0, roughness) * s.occlusion;
+#endif
 #endif
         result = lit;
     }

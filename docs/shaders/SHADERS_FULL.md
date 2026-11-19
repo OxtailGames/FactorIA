@@ -84,12 +84,13 @@ other `fa_` name is an error with a "did you mean" hint. Your own names must not
 | `fa_camera_pos`, `fa_ambient`, `fa_env_sky`, `fa_env_horizon` | `vec4`s: camera position, the ambient light, the sky and horizon colours (`.rgb` or `.xyz`). |
 | `fa_light_count()` | How many lights the engine selected for this mesh (at most 32), in its own order. |
 | `fa_light(i, world_pos, geometric_normal, shadow_coord)` | A `LightSample` for light `i` seen from that point: `direction` (to the light), `color` (colour times intensity times attenuation times shadow), `attenuation`, `shadow`, `distance` and `type` (0 directional, 1 point, 2 spot). Only the first directional light has a shadow; it is `1.0` when the mesh does not receive shadows. |
+| `fa_environment(dir, roughness)`, `fa_env_brdf(roughness, ndv)`, `fa_sky_reflection(n, v, f0, roughness)` | The sky light of the engine's own meshes: the sky colour in a direction (from `fa_env_sky` and `fa_env_horizon`), the environment BRDF `vec2`, and the reflection of the sky in a surface with normal `n` seen from direction `v` (to the eye), `f0` its reflectance at normal incidence. [Your own light loop and the sky light](SHADERS_LIGHTING.md) explains them. |
 | `fa_shadow(coord, n, l)` | The fraction of light that reaches a point from the directional shadow map (1 = lit), for your own use. |
 | `fa_apply_fog(color, world_pos)` | The scene's fog applied to a colour. A full shader is **not fogged** unless it calls this. |
 | `fa_srgb_to_linear(c)`, `fa_linear_to_srgb(c)` | The colour space conversions of the engine. |
 
-The glTF's other textures (normal, metallic-roughness, occlusion, emissive) and the sky reflection are not available: a
-full shader that wants them declares its own `textures`. Macros: `FA_PASS` (the index of the pass being compiled, `0..3`),
+The glTF's other textures (normal, metallic-roughness, occlusion, emissive) are not available: a
+full shader that wants them declares its own `textures`. The sky reflection is the `fa_sky_reflection()` above. Macros: `FA_PASS` (the index of the pass being compiled, `0..3`),
 `FA_PASS_<NAME>` (defined, as `1`, only in the pass called `name`, upper case), `FA_SKIN` (defined in the programs for
 skinned meshes) and `FA_SHADOW_PASS` (see "Shadows"). You never branch on `FA_SKIN`: `fa_world_position()` and
 `fa_world_direction()` already include the skin.
