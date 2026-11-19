@@ -50,9 +50,43 @@ const SurfaceValue kSurfaceValues[] = {
     {"time", 1, "fa_time.x", "fa_time.x"},
 };
 
-const SurfaceValue* surface_value(std::string_view name) {
-    for (const SurfaceValue& s : kSurfaceValues)
-        if (name == s.name) return &s;
+// The same for a sprite material (QuadInput, QuadSurface and QuadVertex of the sprite template). "sprite_color" is what the engine drew
+// before fragment() ran (QuadSurface.color on arrival); the output node writes it last, so a node reads it before it is replaced.
+const SurfaceValue kSpriteSurfaceValues[] = {
+    {"uv", 2, "i.uv", "v.uv"},
+    {"time", 1, "fa_time.x", "fa_time.x"},
+    {"tint", 4, "i.color", "v.color"},
+    {"sprite_color", 4, "s.color", nullptr},
+    {"life", 1, "i.life", nullptr},
+    {"custom", 4, "i.custom", nullptr},
+    {"sprite_pos", 2, "i.world_pos", nullptr},
+    {"screen_uv", 2, "i.screen_uv", nullptr},
+};
+
+// How the generator writes the snippet of one material kind: the entry points of its template and the surface values its nodes read.
+struct KindProfile {
+    const char* kind;
+    const char* fragmentHeader;  // the line that opens fragment() (surface() in a mesh material)
+    const char* vertexHeader;
+    const SurfaceValue* values;
+    std::size_t valueCount;
+};
+const KindProfile kProfiles[] = {
+    {"mesh", "void surface(in SurfaceInput i, inout Surface s) {\n", "void vertex(inout VertexData v) {\n",
+     kSurfaceValues, std::size(kSurfaceValues)},
+    {"sprite", "void fragment(in QuadInput i, inout QuadSurface s) {\n", "void vertex(inout QuadVertex v) {\n",
+     kSpriteSurfaceValues, std::size(kSpriteSurfaceValues)},
+};
+
+const KindProfile& profile_of(const std::string& kind) {
+    for (const KindProfile& p : kProfiles)
+        if (kind == p.kind) return p;
+    return kProfiles[0];  // only reached for a kind the graph check refused already
+}
+
+const SurfaceValue* surface_value(const KindProfile& profile, std::string_view name) {
+    for (std::size_t i = 0; i < profile.valueCount; ++i)
+        if (name == profile.values[i].name) return &profile.values[i];
     return nullptr;
 }
 
@@ -284,7 +318,9 @@ struct Analyser {
             return;
         }
         const std::string typeName = tIt->get<std::string>();
-        n.type = find_graph_node_type(typeName);
+        n.type = find_graph_node_type(typeName, kind);
+        if (!n.type)
+            n.type = find_graph_node_type(typeName);  // a node of another kind: refused below, with what to use instead
         if (!n.type) {
             std::vector<std::string> names;
             for (const GraphNodeType& t : graph_node_library()) names.push_back(t.type);
@@ -292,11 +328,17 @@ struct Analyser {
                   did_you_mean(typeName, names) + " `material.graph.nodes` lists every type.");
             return;
         }
-        if (std::find(n.type->kinds.begin(), n.type->kinds.end(), kind) == n.type->kinds.end())
+        if (std::find(n.type->kinds.begin(), n.type->kinds.end(), kind) == n.type->kinds.end()) {
+            std::string hint = "Use another node (`material.graph.nodes` with kind \"" + kind +
+                               "\" lists the ones that work here), or move the material to a kind the node supports.";
+            for (const auto& [k, text] : n.type->instead)
+                if (k == kind)
+                    hint = text + " `material.graph.nodes` with kind \"" + kind + "\" lists every node of the kind.";
             error(base + "/type",
                   "node type \"" + typeName + "\" does not work in a material of kind \"" + kind + "\" (it works in " +
                       join(n.type->kinds, ", ") + ")",
-                  "Use another node, or move the material to a kind the node supports.");
+                  hint);
+        }
         n.inLink.assign(n.type->inputs.size(), -1);
         n.constComps.assign(n.type->inputs.size(), 0);
         n.outComps.assign(n.type->outputs.size(), 0);
@@ -590,7 +632,7 @@ struct Analyser {
             return -1;
         };
         const int normal = port_of("normal"), tangent = port_of("tangentNormal");
-        if (o.set(normal) && o.set(tangent))
+        if (normal >= 0 && tangent >= 0 && o.set(normal) && o.set(tangent))
             error(node_pointer(o.index) + "/inputs/tangentNormal",
                   "\"normal\" and \"tangentNormal\" of the output are both set: they both write Surface.normal",
                   "Keep one: tangentNormal for a normal map (texture.normal), normal for a world-space vector.");
@@ -599,10 +641,12 @@ struct Analyser {
         if (!any)
             warn(node_pointer(o.index),
                  "nothing is linked into the output node or set in its \"inputs\": the material looks like a "
-                 "plain MeshRenderer",
-                 "Link a node into albedo, emission, roughness...");
+                 "plain " +
+                     std::string(kind == "sprite" ? "sprite" : "MeshRenderer"),
+                 kind == "sprite" ? "Link a node into color, rgb or alpha..."
+                                  : "Link a node into albedo, emission, roughness...");
         const int alpha = port_of("alpha");
-        if (o.set(alpha) && material.alphaMode == "opaque")
+        if (kind == "mesh" && alpha >= 0 && o.set(alpha) && material.alphaMode == "opaque")
             warn(node_pointer(o.index) + "/inputs/alpha",
                  "alphaMode is \"opaque\", so the alpha of the graph is ignored",
                  "Set \"alphaMode\" to \"clip\" (holes, also in the shadow) or \"blend\" (translucent) in the material "
@@ -672,13 +716,16 @@ struct Analyser {
         for (int ni : a.vertexOrder) {
             const Node& n = a.nodes[ni];
             if (!n.type->fragmentOnly) continue;
-            error(node_pointer(ni) + "/type",
-                  "node \"" + n.id + "\" (" + n.type->type +
-                      ") feeds vertexOffset, but it needs the fragment stage (it samples a "
-                      "texture or reads the view direction), which vertex() has not",
-                  "vertexOffset can use math, noise, time, param, uv, position.world, normal.world and vertex.color "
-                  "nodes; sample "
-                  "textures in the surface fields only (docs/SHADERS.md).");
+            error(
+                node_pointer(ni) + "/type",
+                "node \"" + n.id + "\" (" + n.type->type +
+                    ") feeds vertexOffset, but it needs the fragment stage (it samples a "
+                    "texture or reads the view direction), which vertex() has not",
+                std::string(kind == "sprite"
+                                ? "vertexOffset can use math, noise, time, param, uv and sprite.tint nodes; sample "
+                                  "textures in the colour fields only (docs/SHADERS.md)."
+                                : "vertexOffset can use math, noise, time, param, uv, position.world, normal.world and "
+                                  "vertex.color nodes; sample textures in the surface fields only (docs/SHADERS.md)."));
         }
         for (const Node& n : a.nodes) {
             if (!n.type || n.index == a.output || seenF.count(n.index) || seenV.count(n.index)) continue;
@@ -695,6 +742,7 @@ struct Analyser {
 
 struct Writer {
     const Analysis& a;
+    const KindProfile& profile;
 
     static std::string var(const Node& n, std::size_t out) { return "n_" + n.id + "_" + n.type->outputs[out].name; }
 
@@ -716,7 +764,7 @@ struct Writer {
             return widen(glsl_literal(v, 1), n.constComps[port], want);
         }
         if (p.defaultValue.is_string()) {
-            const SurfaceValue* s = surface_value(p.defaultValue.get<std::string>().substr(1));
+            const SurfaceValue* s = surface_value(profile, p.defaultValue.get<std::string>().substr(1));
             return widen(vertex ? s->vertex : s->fragment, s->comps, want);
         }
         return widen(glsl_literal(p.defaultValue, 1), p.defaultValue.is_array() ? int(p.defaultValue.size()) : 1, want);
@@ -742,7 +790,7 @@ struct Writer {
                 std::size_t end = i + 1;
                 while (end < tpl.size() && (std::islower(static_cast<unsigned char>(tpl[end])) || tpl[end] == '_'))
                     ++end;
-                const SurfaceValue* s = surface_value(std::string_view(tpl).substr(i + 1, end - i - 1));
+                const SurfaceValue* s = surface_value(profile, std::string_view(tpl).substr(i + 1, end - i - 1));
                 out += vertex ? s->vertex : s->fragment;
                 i = end;
             } else {
@@ -775,7 +823,10 @@ struct Writer {
             if (!o.set(p) || (name == "vertexOffset") != vertex) continue;
             const std::string value = input(o, p, vertex);
             std::string stmt;
-            if (name == "vertexOffset")
+            if (const std::string& assign = o.type->inputs[p].assign; !assign.empty()) {
+                stmt = assign;
+                stmt.replace(stmt.find("{}"), 2, value);
+            } else if (name == "vertexOffset")
                 stmt = "v.world_pos += " + value + ";";
             else if (name == "tangentNormal")
                 stmt = "s.normal = fa_tangent_normal(i, " + value + ");";
@@ -791,8 +842,7 @@ struct Writer {
         auto own = [&](const std::string& text, const std::string& id) {
             if (owners) owners->insert(owners->end(), std::size_t(std::count(text.begin(), text.end(), '\n')), id);
         };
-        std::string out =
-            vertex ? "void vertex(inout VertexData v) {\n" : "void surface(in SurfaceInput i, inout Surface s) {\n";
+        std::string out = vertex ? profile.vertexHeader : profile.fragmentHeader;
         own(out, "");
         for (int ni : vertex ? a.vertexOrder : a.fragmentOrder) {
             const std::string line = node_line(a.nodes[ni], vertex);
@@ -863,7 +913,7 @@ GeneratedGraph generate_graph_snippet(const Json& graph, const MaterialDef& mate
     Analyser an{graph, material, kind, out.check, {}, {}, {}};
     if (!an.run()) return out;
     const Analysis& a = an.a;
-    const Writer w{a};
+    const Writer w{a, profile_of(kind)};
     out.snippet =
         "// GENERATED by material.graph.generate from the \"graph\" of this material's .material.json. Do not edit "
         "this file:\n"

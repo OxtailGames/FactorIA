@@ -6,6 +6,16 @@ Older versions, one file per minor version with its patch releases: [0.30](chang
 
 ## Unreleased
 
+- **Node graphs for sprite materials (M72.5):** a material with `"kind": "sprite"` can hold a `"graph"`:
+  `material.graph.generate` writes the sprite snippet (`fragment(in QuadInput i, inout QuadSurface s)` and, when
+  `vertexOffset` is linked, `vertex(inout QuadVertex v)`), with the same `graphHash` and hand-edit rule as a mesh graph. The
+  sprite `output` node has `color`, `rgb`, `alpha` and `vertexOffset`; new nodes `sprite.color`, `sprite.tint`,
+  `sprite.texture`, `sprite.life`, `sprite.custom` and `sprite.position` read what a sprite shader gets. Noise, dissolve,
+  flow, `uv`, `time` and math work in both kinds; `fresnel`, `triplanar`, `parallax` and the other 3D nodes are refused in a
+  sprite graph with the node's pointer, why and what to use instead, and `material.graph.nodes {kind}` lists each node with the
+  kinds it works in. Graph panel: a box next to New graph material picks `mesh` or `sprite`, a sprite graph's palette leaves out the
+  3D nodes (a search that matches one says what to use), and its preview draws the 2D quad.
+
 - **Material editor and material commands polish (M72, POL-LAST-A):** Graph panel: answering Overwrite for a file that changed on
   disk is no longer followed by a second question about the file when the snippet was hand-edited; Overwrite also writes a
   deleted material again, and a Reload that fails says why. New graph material picks a name that is free for the material and
@@ -21,8 +31,8 @@ Older versions, one file per minor version with its patch releases: [0.30](chang
   reports a missing or unreadable snippet as an error with the regenerate hint instead of counting it as "not compiled". Graph
   panel: Overwrite on a deleted file no longer makes the poll ask again "The file changed on disk"; the preview names the real
   files also when the compiler prints the stage paths with `\` or a mix; an unreadable snippet shows in amber with the reason
-  as tooltip; a New material that cannot remove its temporary file says so on every failure, not only on success; reopening
-  the same material keeps the New param form but drops a rename of an entry that is gone.
+  as tooltip; a New material that cannot remove its temporary file says so on every failure, not only on success; a rename
+  in progress of a param or texture that a reload or an outside change of the file took away is dropped.
 
 - **Graph panel polish (M72):** Save looks at the file first: when it changed on disk since the editor read it, a window asks
   Overwrite, Reload or Cancel instead of replacing it. New graph material publishes the file whole and removes it again if the

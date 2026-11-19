@@ -31,6 +31,9 @@ struct GraphPort {
     // the node reads it when nothing is linked), or null (an output node field left alone, the standard surface stays).
     Json defaultValue;
     std::string doc;
+    // Output node ports only: the statement the generator writes for the port, `{}` standing for the value ("s.color = {};"). Empty: the
+    // mesh output's own rule (`s.<port> = value;`, vertexOffset into vertex(), tangentNormal through fa_tangent_normal).
+    std::string assign;
 };
 
 // One kind of node of the library.
@@ -40,7 +43,9 @@ struct GraphNodeType {
     std::string doc;
     std::vector<GraphPort> inputs;
     std::vector<GraphPort> outputs;  // an output of type "param" has the type of the param the node names
-    std::vector<std::string> kinds;  // the material kinds the node works in ("mesh", later "sprite", "sky", "post")
+    std::vector<std::string> kinds;  // the material kinds the node works in ("mesh", "sprite"; later "sky", "post")
+    // Per material kind the node does not work in: why not and what to use there instead (the hint of the error; may be missing).
+    std::vector<std::pair<std::string, std::string>> instead;
     bool fragmentOnly =
         false;        // runs in surface() only (samples a texture, reads the view direction...), not in vertex()
     std::string ref;  // "param" or "texture": the node names one of the material's params or textures
@@ -51,10 +56,12 @@ struct GraphNodeType {
     std::vector<std::string> helpers;  // functions of the library the expressions call; pasted once, only when used
 };
 
-// Every node type, in the order the docs list them (categories together).
+// Every node type, in the order the docs list them (categories together). The output node has one entry per kind (same `type`, other
+// ports): find_graph_node_type with a kind returns the one of that kind.
 const std::vector<GraphNodeType>& graph_node_library();
-const GraphNodeType* find_graph_node_type(std::string_view type);
-// The material kinds a graph can be generated for today ("mesh").
+// The node type named `type`; with `kind`, the one that works in that kind (null when none does). Without, the first of that name.
+const GraphNodeType* find_graph_node_type(std::string_view type, std::string_view kind = {});
+// The material kinds a graph can be generated for today ("mesh", "sprite").
 const std::vector<std::string>& graph_supported_kinds();
 // The name of every helper function of the library and its GLSL (for the tests and the docs).
 std::vector<std::pair<std::string, std::string>> graph_helper_functions();

@@ -323,6 +323,71 @@ TEST_CASE("graph model: a new graph material is a valid one-node graph, never ov
     CHECK_FALSE(m.create("materials/fresh.json").ok);
 }
 
+TEST_CASE("graph model: a new sprite graph material has the output of a sprite, its nodes and none of the 3D ones") {
+    GraphProject p;
+    GraphModel& m = *p.model;
+    CHECK(m.new_material_name("sprite") == "assets/materials/sprite_graph.material.json");
+    p.write("shaders/sprite_graph.fragment.glsl",
+            "// mine\n");  // the snippet of the first name is somebody's: the next one
+    CHECK(m.new_material_name("sprite") == "assets/materials/sprite_graph2.material.json");
+    CHECK_FALSE(m.create("materials/sky.material.json", "sky").ok);  // no graph for that kind yet
+    CHECK_FALSE(stdfs::exists(p.dir / "materials/sky.material.json"));
+
+    const GraphEditOutcome made = m.create("materials/glow.material.json", "sprite");
+    REQUIRE_MESSAGE(made.ok, made.error);
+    CHECK(m.path() == "materials/glow.material.json");
+    CHECK(m.report().kind == "sprite");
+    CHECK(m.report().ok());
+    CHECK_FALSE(m.dirty());
+    const Json file = Json::parse(p.read("materials/glow.material.json"));
+    CHECK(file["kind"] == "sprite");
+    CHECK(file["shader"] == "shaders/glow.fragment.glsl");
+    CHECK(file.contains("graphHash"));
+    CHECK(p.read("shaders/glow.fragment.glsl").find("void fragment(in QuadInput i, inout QuadSurface s)") !=
+          std::string::npos);
+    const GraphNodeType* out = m.node_type("out");
+    REQUIRE(out);
+    REQUIRE_FALSE(out->inputs.empty());
+    CHECK(out->inputs[0].name == "color");  // the output of a sprite, not the mesh's albedo
+
+    // the palette offers the 2D nodes and the shared ones, never the 3D ones
+    bool spriteColor = false, noise = false, fresnel = false, meshOutput = false;
+    for (const GraphNodeType* t : m.palette("")) {
+        spriteColor = spriteColor || t->type == "sprite.color";
+        noise = noise || t->type == "noise.fbm";
+        fresnel = fresnel || t->type == "fresnel" || t->type == "triplanar" || t->type == "position.world";
+        meshOutput = meshOutput || (t->type == "output" && t->inputs[0].name == "albedo");
+    }
+    CHECK(spriteColor);
+    CHECK(noise);
+    CHECK_FALSE(fresnel);
+    CHECK_FALSE(meshOutput);
+    const GraphEditOutcome refused = m.add_node("fresnel", Vec2{0, 0});
+    CHECK_FALSE(refused.ok);
+    CHECK(refused.error.find("\"sprite\"") != std::string::npos);
+    CHECK(refused.error.find("math.smoothstep") != std::string::npos);  // what to use instead
+    CHECK(m.node_count() == 1);
+
+    // a noise node into the alpha: the graph checks, saves, and the snippet follows
+    const GraphEditOutcome added = m.add_node("noise.fbm", Vec2{0, 0});
+    REQUIRE_MESSAGE(added.ok, added.error);
+    const GraphEditOutcome linked = m.connect(added.id + ".value", "out.alpha");
+    REQUIRE_MESSAGE(linked.ok, linked.error);
+    CHECK(m.report().ok());
+    CHECK(m.dirty());
+    const GraphSaveOutcome saved = m.save(false);
+    REQUIRE_MESSAGE(saved.ok, saved.error);
+    CHECK(m.snippet_state() == "in_sync");
+    CHECK(p.read("shaders/glow.fragment.glsl").find("s.color.a = n_noise_fbm_value;") != std::string::npos);
+
+    // the mesh button is unchanged: a material with no kind is a mesh one
+    const GraphEditOutcome mesh = m.create("materials/solid.material.json");
+    REQUIRE_MESSAGE(mesh.ok, mesh.error);
+    CHECK(m.report().kind == "mesh");
+    CHECK_FALSE(Json::parse(p.read("materials/solid.material.json")).contains("kind"));
+    CHECK(m.node_type("out")->inputs[0].name == "albedo");
+}
+
 TEST_CASE("graph model: the file changing on disk is found; unsaved edits are not overwritten") {
     GraphProject p;
     p.open();
@@ -755,6 +820,8 @@ TEST_CASE(
     const GraphSaveOutcome forced = m.save(true, true);
     REQUIRE_MESSAGE(forced.ok, forced.error);
     CHECK(p.read("shaders/dissolve.surface.glsl").find("my tweak") == std::string::npos);
+    CHECK_FALSE(m.poll_external());  // a successful save leaves nothing for the poll to ask about
+    CHECK_FALSE(m.external_conflict());
 
     // the file was deleted: Overwrite writes it again from the document that was read
     stdfs::remove(p.dir / kMat);

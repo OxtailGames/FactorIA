@@ -3,6 +3,8 @@
 // would break the graph is refused with the nodes' ids, and a snippet the graph generated stays in step.
 #include <doctest.h>
 
+#include <algorithm>
+
 #include "fa/core/command.h"
 #include "fa/tooling/material_graph.h"
 #include "fa/tooling/shaders.h"
@@ -536,6 +538,8 @@ TEST_CASE("validate without sokol-shdc still warns of a changed graph and report
     noTool.env = [](const std::string&) { return std::string(); };
     noTool.home = p.dir.str();
     noTool.host = "linux";
+    noTool.executableDir =
+        (p.dir.path / "no-exe").string();  // a sokol-shdc next to the test binary is not found either
 
     ValidationReport missing;
     validate_materials(p.dir.str(), noTool, missing);
@@ -552,5 +556,6 @@ TEST_CASE("validate without sokol-shdc still warns of a changed graph and report
                                 [](const ValidationIssue& i) { return i.pointer == "/graph"; });
     REQUIRE(w != changed.warnings.end());
     CHECK(w->hint.find("material.graph.generate") != std::string::npos);
-    // (an unreadable snippet takes the same branch as a missing one; whether a folder in its place fails to read is up to the OS, so it has no case here)
+    // (an unreadable snippet takes the same branch as a missing one; whether a folder in its place fails to read is up
+    // to the OS, so it has no case here)
 }

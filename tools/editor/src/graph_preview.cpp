@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cctype>
 #include <chrono>
 #include <cmath>
 #include <exception>
@@ -152,14 +153,28 @@ std::string name_real_files(std::string text, const std::string& projectDir, con
         return t;
     };
     auto forms = [&](const std::string& rel) {
-        return std::vector<std::string>{abs_path(projectDir, rel),
-                                        back(abs_path(projectDir, rel)),
-                                        projectDir + "/" + rel,
-                                        back(projectDir) + "/" + rel,
-                                        projectDir + "\\" + back(rel),
-                                        back(projectDir) + "\\" + back(rel),
-                                        rel,
-                                        back(rel)};
+        std::vector<std::string> all{abs_path(projectDir, rel),
+                                     back(abs_path(projectDir, rel)),
+                                     projectDir + "/" + rel,
+                                     back(projectDir) + "/" + rel,
+                                     projectDir + "\\" + back(rel),
+                                     back(projectDir) + "\\" + back(rel),
+                                     rel,
+                                     back(rel)};
+        // A drive letter is case-insensitive (`c:\` and `C:\` name the same folder, and a compiler may print either): each
+        // absolute form is also tried with the other case of its letter.
+        const std::size_t n = all.size();
+        for (std::size_t i = 0; i < n; ++i) {
+            const std::string& f = all[i];
+            if (f.size() > 2 && f[1] == ':' && std::isalpha(static_cast<unsigned char>(f[0]))) {
+                std::string other = f;
+                other[0] = static_cast<char>(std::isupper(static_cast<unsigned char>(f[0]))
+                                                 ? std::tolower(static_cast<unsigned char>(f[0]))
+                                                 : std::toupper(static_cast<unsigned char>(f[0])));
+                all.push_back(std::move(other));
+            }
+        }
+        return all;
     };
     for (const std::string& f : forms(stageSnippet)) replace_all(f, snippet);
     for (const std::string& f : forms(stageMaterial)) replace_all(f, material);
