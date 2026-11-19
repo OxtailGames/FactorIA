@@ -229,7 +229,7 @@ std::shared_ptr<CustomPost::HistorySlot> CustomPost::plan_history(const CustomHi
     // The GPU refused the images of this pass in this shape before: not asked again every frame (a resize or a format change, or
     // forget_targets, lets it try again). The budget is not remembered: it is a sum of what the other slots hold now.
     if (const auto it = historyRefused_.find(key); it != historyRefused_.end()) {
-        if (it->second == std::make_tuple(w, h, format)) return nullptr;
+        if (it->second.w == w && it->second.h == h && it->second.format == format) return nullptr;
         historyRefused_.erase(it);
     }
     std::shared_ptr<HistorySlot> slot;
@@ -255,15 +255,25 @@ std::shared_ptr<CustomPost::HistorySlot> CustomPost::plan_history(const CustomHi
             d.width = w;
             d.height = h;
             d.colorFormat = format;
+            if (refuseHistory_) {  // a GPU that says no (tests): checked before a target is allocated
+                ok = false;
+                break;
+            }
             slot->img[i] = make_target(d);
-            ok = slot->img[i].valid() && !refuseHistory_;
+            ok = slot->img[i].valid();
         }
         if (!ok) {
             for (Target& t : slot->img) destroy_target(t);
             history_.erase(key);
             if (inBudget) {  // the GPU said no
-                if (historyRefused_.size() >= kMaxProbed) historyRefused_.erase(historyRefused_.begin());
-                historyRefused_[key] = std::make_tuple(w, h, format);
+                if (historyRefused_.size() >= kMaxProbed && !historyRefused_.contains(key)) {
+                    // The oldest refusal goes (the smallest sequence number), not whichever key sorts first.
+                    auto oldest = historyRefused_.begin();
+                    for (auto it = historyRefused_.begin(); it != historyRefused_.end(); ++it)
+                        if (it->second.seq < oldest->second.seq) oldest = it;
+                    historyRefused_.erase(oldest);
+                }
+                historyRefused_[key] = RefusedShape{w, h, format, ++refusedSeq_};
             }
             if (!warnedHistory_) {
                 warnedHistory_ = true;

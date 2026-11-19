@@ -1,4 +1,5 @@
 #include "renderer_impl.h"
+#include "renderer_test_access.h"
 #include "fa/render/compute.h"
 #include "scene2d.h"
 #include "render_features.h"
@@ -771,9 +772,9 @@ Vec2 Renderer::design_to_framebuffer(Vec2 d, int fbW, int fbH, ScaleMode mode) c
 // ---------------------------------------------------------------------------
 // render_world
 // ---------------------------------------------------------------------------
-render::Gpu* render::renderer_gpu(Renderer& r) { return r.impl_ ? &r.impl_->gpu : nullptr; }
-const render::FrameGraph* render::renderer_frame_graph(Renderer& r) { return r.impl_ ? &r.impl_->graph : nullptr; }
-render::TransientPoolStats render::renderer_transient_stats(Renderer& r) {
+render::Gpu* RendererTestAccess::gpu(Renderer& r) { return r.impl_ ? &r.impl_->gpu : nullptr; }
+const render::FrameGraph* RendererTestAccess::frame_graph(Renderer& r) { return r.impl_ ? &r.impl_->graph : nullptr; }
+render::TransientPoolStats RendererTestAccess::transient_stats(Renderer& r) {
     render::TransientPoolStats out;
     if (r.impl_ && r.impl_->transients) {
         const TargetPoolStats s = r.impl_->transients->pool.stats();
@@ -782,13 +783,13 @@ render::TransientPoolStats render::renderer_transient_stats(Renderer& r) {
     return out;
 }
 
-void render::renderer_force_output(Renderer& r, const HdrOutputInfo* info) {
+void RendererTestAccess::force_output(Renderer& r, const HdrOutputInfo* info) {
     if (!r.impl_) return;
     r.impl_->outputForced = info != nullptr;
     r.impl_->forcedOutput = info ? *info : HdrOutputInfo{};
 }
 
-bool render::renderer_read_floats(Renderer& r, bool present, std::vector<float>& out, std::string* error) {
+bool RendererTestAccess::read_floats(Renderer& r, bool present, std::vector<float>& out, std::string* error) {
     if (!r.initialized()) {
         if (error) *error = "Renderer is not initialized";
         return false;
@@ -796,13 +797,13 @@ bool render::renderer_read_floats(Renderer& r, bool present, std::vector<float>&
     return r.impl_->read_floats(present, out, error);
 }
 
-render::ShadowRowsStats render::renderer_shadow_rows_stats(Renderer& r) {
+render::ShadowRowsStats RendererTestAccess::shadow_rows_stats(Renderer& r) {
     render::ShadowRowsStats out;
     if (r.impl_) out = {int(r.impl_->shadowRowsRing.size()), int(r.impl_->shadowRowUploads)};
     return out;
 }
 
-void render::renderer_force_post_effects(Renderer& r, std::uint32_t effects) {
+void RendererTestAccess::force_post_effects(Renderer& r, std::uint32_t effects) {
     if (r.impl_) r.impl_->forceEffects = effects;
 }
 
@@ -816,19 +817,21 @@ void Renderer::reset_post_history(std::uint64_t camera) {
     if (impl_) impl_->customPost.reset_history(camera);
 }
 
-int render::renderer_post_history_images(Renderer& r) {
+int RendererTestAccess::post_history_images(Renderer& r) {
     return r.impl_ ? r.impl_->customPost.history_image_count() : 0;
 }
 
-void render::renderer_set_post_history_budget(Renderer& r, std::uint64_t bytes) {
+void RendererTestAccess::set_post_history_budget(Renderer& r, std::uint64_t bytes) {
     if (r.impl_) r.impl_->customPost.set_history_budget(bytes);
 }
-void render::renderer_refuse_post_history(Renderer& r, bool refuse) {
+void RendererTestAccess::refuse_post_history(Renderer& r, bool refuse) {
     if (r.impl_) r.impl_->customPost.set_history_refused(refuse);
 }
-int render::renderer_post_history_attempts(Renderer& r) { return r.impl_ ? r.impl_->customPost.history_attempts() : 0; }
+int RendererTestAccess::post_history_attempts(Renderer& r) {
+    return r.impl_ ? r.impl_->customPost.history_attempts() : 0;
+}
 
-int render::renderer_ldr_cut_format(Renderer& r) {
+int RendererTestAccess::ldr_cut_format(Renderer& r) {
     return r.impl_ && r.impl_->ldrMid[0].valid() ? int(r.impl_->ldrMid[0].format.color) : 0;
 }
 
