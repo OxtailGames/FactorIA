@@ -164,6 +164,40 @@ a call and either in another kind. Which image is bound, and when it is valid, i
   and `customPassProblems`; the editor's Post-processing panel edits the list (`postfx_custom.h` makes each edit one whole-array
   `postprocess.set`, one undo step).
 
+## Meshes drawn from a compute buffer (M72.4, P18a)
+
+A mesh material may declare read-only `buffers` (`parse_mesh_buffers` in `tools/common/src/shaders_compute.cpp`: the shapes of a
+compute material, access forced to `read`, sorted by name, at most `kMaxMeshBuffers` = 4). `MeshRenderer.instances` = N draws the
+entity as one `sg_draw` of N instances; sokol_gfx has no indirect draw, so the CPU sets N and a compute pass can only make an
+instance cost nothing (the recipe is in docs/shaders/SHADERS_COMPUTE.md, "Drawing from a compute buffer").
+
+- **Slots.** The sokol view slots of a mesh program are: engine 0-5, material textures 6-9 (fragment), their vertex copies 10-13,
+  environment cubes 14 and 15, and from `kMeshBufferFirstView` = 16 the buffers: buffer `i` of `count` is at view `16 + i` in the
+  vertex stage and `16 + count + i` in the fragment stage (the generator declares each buffer once per stage; sokol-shdc numbers
+  them as written). `custom_shader.cpp` builds `MaterialProgram.viewMask` from the reflection. The glsl430 binding of a storage
+  buffer equals its slot, 16 to 23: a driver with fewer than 24 shader-storage bindings fails there (not tested; Metal only).
+- **Base model.** The entity's matrix is not an instance attribute for these materials: `mesh_common.glsl` /
+  `mesh_full_common.glsl` define `FA_BUFFER_INST` and read `fa_base_model` from the vertex uniform block 6
+  (`kMeshInstanceBaseUniform`, `apply_mesh_base_model`) as `FA_INST_MODEL`, so `fa_instance_index` (`gl_InstanceIndex`) is free to
+  mean the buffer element. The unused instance attributes of the pipeline are tolerated.
+- **Draw hooks.** `mesh_buffer_draw.{h,cpp}`: `resolve_mesh_buffers` (once per batch in the shadow pass, the prepass and the main
+  pass) reads the ids from `materialParams[<buffer>]`, lets `ComputeDrawAccess::bind` check id, stride and fields, and checks
+  `instances` against the largest buffer. A failure marks the use `skip` (the entity is not drawn) and reports once through
+  `Assets::note_failure` (the key holds the message, so another problem of the same entity is reported too; `build_material`
+  forgets them when the material builds again). `bind_mesh_buffers` fills the views after `bind_textures`.
+- **A draw of its own.** `render_scene.cpp` mixes the entity into `paramsHash` of such a material, so no other entity shares its
+  batch, and ignores `lods` (a P9 automatic instance never merges it). Culling uses a box of `instanceBounds` (half-extent, local
+  metres); `instanceBounds` <= 0 sets `noCull` on the item (visible and casting whatever the camera sees).
+- **Shadow and prepass.** A snippet material's `vertex()` is in the shadow and depth programs, so instances are there. A full
+  material has no such program of the engine's: it writes `"shadow": "custom"` (the first pass is compiled again) or `"none"`, and
+  `"prepass": false` (default); `"depth"` and `"prepass": true` are errors at `/shadow` and `/prepass`.
+- **Backends.** `Assets::storage_buffers_available` (the compute gate: Metal, D3D11, GL 4.3) decides at load. GLES3, WebGL2 and GL
+  4.1 refuse the material (error material, one log line with the backend, the rule and the CPU path) and the compiler writes no
+  glsl300es twin for it. `ComputeTestAccess::set_backend` lets the tests run the refusal.
+
+Verified: Metal (tests in `engine/render/tests/mesh_buffer_tests.cpp`) and the real sokol-shdc for hlsl5, glsl430 and metal_macos
+(`tools/common/tests`). Read only: the GL 4.3 and D3D11 draws, a skinned mesh with buffers.
+
 ## The sky material lights the meshes (M72 P15)
 
 `engine/render/src/renderer_env.{h,cpp}` (`Environment`) bakes the sky program of the scene's sky material into a prefiltered cube

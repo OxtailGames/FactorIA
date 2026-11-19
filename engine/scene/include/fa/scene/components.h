@@ -1058,7 +1058,13 @@ struct MeshRenderer {
         Json::object();  // glTF material name -> [r,g,b,a] replacing that material's base color factor
     Json lods = Json::
         array();  // lower-detail meshes, nearest first: [{"mesh": "assets/lamp.lod1.glb", "distance": 12}, ...] (lod_mesh, fa/scene/lod.h)
+    std::int32_t instances =
+        0;  // 0 = one normal draw; N > 0 = N GPU instances read from the material's compute buffers
+    float instanceBounds =
+        0.0f;  // instances > 0: half-extent (local metres) of the box around the entity; 0 = never culled
 };
+// The most GPU instances one MeshRenderer draws (MeshRenderer.instances).
+inline constexpr std::int32_t kMaxMeshInstances = 1 << 24;
 
 enum class LightType : std::int32_t { Directional, Point, Spot };
 struct Light {

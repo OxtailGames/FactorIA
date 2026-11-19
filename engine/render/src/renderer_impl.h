@@ -79,6 +79,8 @@ struct Renderer::Impl {
     double warmMs = 0;
     bool adopted = false;  // the graphics context was opened by open_context: this renderer closes it
     std::unique_ptr<Assets> assets;
+    Compute* compute =
+        nullptr;  // the renderer's Compute (set at init): the buffers a mesh material with "buffers" reads
     std::unique_ptr<Fonts> fonts;
     GradientRamps ramps;     // the baked colour rows of Shape2D gradients with stops or an easing (gradient_ramp.h)
     float textScale = 1.0f;  // Renderer::set_text_scale

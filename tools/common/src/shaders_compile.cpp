@@ -322,21 +322,21 @@ std::string declared_by_other_material(const std::string& name, const MapContext
 // full-shader pages): the "did you mean" of an unknown fa_ name suggests these, never an internal name of the templates (fa_in,
 // fa_quad_types...) that the author may not use.
 const std::vector<std::string>& engine_names(const MaterialDef& material) {
-    static const std::vector<std::string> mesh = {"fa_time", "fa_camera_pos", "fa_tangent_normal"},
+    static const std::vector<std::string> mesh = {"fa_time", "fa_camera_pos", "fa_tangent_normal", "fa_instance_index"},
                                           sprite = {"fa_time", "fa_target", "fa_sample_main", "fa_scene_rgb"},
                                           sky = {"fa_time", "fa_scene_rgb", "fa_sun", "fa_cspace"},
                                           post = {"fa_scene_color",   "fa_depth",     "fa_normal", "fa_history",
                                                   "fa_history_valid", "fa_scene_rgb", "fa_time"},
-                                          full = {"fa_ambient",         "fa_apply_fog",      "fa_base_color",
-                                                  "fa_base_sample",     "fa_camera_pos",     "fa_color",
-                                                  "fa_emissive",        "fa_env_brdf",       "fa_env_horizon",
-                                                  "fa_env_sky",         "fa_environment",    "fa_frag_color",
-                                                  "fa_light",           "fa_light_count",    "fa_light_vp",
-                                                  "fa_linear_to_srgb",  "fa_model",          "fa_normal",
-                                                  "fa_position",        "fa_shadow",         "fa_shadow_coord",
-                                                  "fa_sky_reflection",  "fa_srgb_to_linear", "fa_tangent",
-                                                  "fa_texcoord0",       "fa_uv_scale",       "fa_view_proj",
-                                                  "fa_world_direction", "fa_world_position"};
+                                          full = {"fa_ambient",        "fa_apply_fog",       "fa_base_color",
+                                                  "fa_base_sample",    "fa_camera_pos",      "fa_color",
+                                                  "fa_emissive",       "fa_env_brdf",        "fa_env_horizon",
+                                                  "fa_env_sky",        "fa_environment",     "fa_frag_color",
+                                                  "fa_instance_index", "fa_light",           "fa_light_count",
+                                                  "fa_light_vp",       "fa_linear_to_srgb",  "fa_model",
+                                                  "fa_normal",         "fa_position",        "fa_shadow",
+                                                  "fa_shadow_coord",   "fa_sky_reflection",  "fa_srgb_to_linear",
+                                                  "fa_tangent",        "fa_texcoord0",       "fa_uv_scale",
+                                                  "fa_view_proj",      "fa_world_direction", "fa_world_position"};
     return material.full         ? full
            : is_post(material)   ? post
            : is_sprite(material) ? sprite
@@ -1051,6 +1051,8 @@ Result<std::map<std::string, Json>> build_twins(const stdfs::path& work, const s
             twin["buffers"] = computeFields["buffers"];
             if (computeFields.contains("images")) twin["images"] = computeFields["images"];
         }
+        if (material.kind == "mesh" && !material.buffers.empty())  // a mesh twin without buffers has no such key
+            twin["buffers"] = shaders_detail::compute_twin_fields(material)["buffers"];
         Json programs = Json::object();
         for (const Json& prog : shader.value("programs", Json::array())) {
             const std::string name = prog.value("name", std::string());
@@ -1160,8 +1162,9 @@ Result<ShaderCompileResult> compile_material(const std::string& projectDir, cons
         res.errors.push_back(std::move(i));
     }
     if (!mp.ok()) return res;
-    if (res.material.kind == "compute") {  // no glsl300es twin: GLES3 and WebGL2 have no compute shaders
-        const std::vector<std::string> has = shader_dialects_of_kind("compute");
+    if (res.material.kind == "compute" || !res.material.buffers.empty()) {
+        // No glsl300es twin: GLES3 and WebGL2 have no compute shaders and no storage buffers in the vertex stage.
+        const std::vector<std::string> has = shader_dialects_of_kind(res.material.kind, !res.material.buffers.empty());
         if (options.dialects.empty()) {  // "every dialect" means every dialect the kind has
             res.dialects = has;
         } else {

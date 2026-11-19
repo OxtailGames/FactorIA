@@ -735,7 +735,7 @@ TEST_CASE("compute material: errors name the JSON pointer, the problem and the f
     // compute keys on another kind, mesh keys on a compute material
     bad = parse(R"({"format":"factoria.material/1","shader":"s.glsl","workgroupSize":[8]})");
     CHECK(has_error(bad, "/workgroupSize", "\"kind\": \"compute\""));
-    bad = parse(R"({"format":"factoria.material/1","shader":"s.glsl","buffers":{}})");
+    bad = parse(R"({"format":"factoria.material/1","kind":"post","shader":"s.glsl","buffers":{}})");
     CHECK(has_error(bad, "/buffers", "belongs to compute materials"));
     bad = parse((head + R"("lighting":"lit","alphaMode":"clip","doubleSided":true})").c_str());
     CHECK(has_error(bad, "/lighting", "does not apply"));
@@ -3556,4 +3556,81 @@ TEST_CASE("real sokol-shdc: an error of a full shader is mapped to the line of t
     CHECK(e.file == "shaders/ring.full.glsl");
     CHECK(e.line == 17);
     CHECK(e.to_string().find("shaders/ring.full.glsl:17:") != std::string::npos);
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Mesh materials with buffers (M72.4)
+// ---------------------------------------------------------------------------------------------------------------
+
+namespace {
+const char* const kMeshBuffersHead = R"({"format":"factoria.material/1","shader":"shaders/m.surface.glsl",)";
+const char* const kMeshBuffersTail = R"("buffers":{"points":{"fields":[{"name":"pos","type":"vec4"}]}}})";
+const char* const kMeshBuffersSnippet = R"(void vertex(inout VertexData v) {
+    v.world_pos += points.data[fa_instance_index].pos.xyz;
+}
+void surface(in SurfaceInput i, inout Surface s) {
+    s.emission = vec3(points.data[0].pos.w);
+}
+)";
+}  // namespace
+
+TEST_CASE("mesh buffers: read-only buffers are read, and the rules that cannot hold are errors at their pointer") {
+    const auto ok = parse((std::string(kMeshBuffersHead) + kMeshBuffersTail).c_str());
+    REQUIRE(ok.ok());
+    REQUIRE(ok.material.buffers.size() == 1);
+    CHECK(ok.material.buffers[0].access == "read");
+    CHECK(ok.material.buffers[0].stride == 16);
+
+    auto bad = parse((std::string(kMeshBuffersHead) +
+                      R"("buffers":{"points":{"access":"readWrite","fields":[{"name":"pos","type":"vec4"}]}}})")
+                         .c_str());
+    CHECK(has_error(bad, "/buffers/points/access", "reads its buffers only"));
+
+    bad = parse((std::string(kMeshBuffersHead) + R"("params":{"k":{"type":"float","instanced":true,"default":1.0}},)" +
+                 kMeshBuffersTail)
+                    .c_str());
+    CHECK(has_error(bad, "/params/k/instanced", "cannot be in one material"));
+
+    bad = parse(R"({"format":"factoria.material/1","kind":"sky","shader":"s.glsl",
+        "buffers":{"points":{"fields":[{"name":"pos","type":"vec4"}]}}})");
+    CHECK(has_error(bad, "/buffers", "compute materials and to mesh materials"));
+
+    const std::string full = R"({"format":"factoria.material/1","mode":"full","shader":"shaders/m.full.glsl",)";
+    bad = parse((full + kMeshBuffersTail).c_str());  // the default shadow is "depth"
+    CHECK(has_error(bad, "/shadow", "\"custom\""));
+    bad = parse((full + R"("shadow":"custom","prepass":true,)" + kMeshBuffersTail).c_str());
+    CHECK(has_error(bad, "/prepass", "\"prepass\": false"));
+    const auto fullOk = parse((full + R"("shadow":"custom",)" + kMeshBuffersTail).c_str());
+    CHECK(fullOk.ok());
+    CHECK_FALSE(fullOk.material.prepass);
+}
+
+TEST_CASE(
+    "real sokol-shdc: a mesh material with buffers compiles to the dialects that have storage buffers in the vertex "
+    "stage") {
+    SetupContext context;
+    if (!real_tool(context)) return;
+    Project p;
+    p.write("materials/m.material.json", std::string(kMeshBuffersHead) + kMeshBuffersTail);
+    p.write("shaders/m.surface.glsl", kMeshBuffersSnippet);
+    ShaderCompileOptions options;
+    options.setup = context;
+    options.useCache = false;
+    options.dialects = {"hlsl5", "glsl430", "glsl300es", "metal_macos"};
+    auto r = compile_material(p.str(), "materials/m.material.json", options);
+    REQUIRE(r.ok());
+    const std::string why = r->errors.empty() ? std::string() : r->errors[0].to_string();
+    INFO(why);
+    REQUIRE(r->ok);
+    CHECK(r->twins.count("glsl300es") == 0);  // GLES3 and WebGL2 have no storage buffers in the vertex stage
+    REQUIRE(r->skippedDialects.size() == 1);
+    CHECK(r->skippedDialects[0] == "glsl300es");
+    for (const std::string slang : {"hlsl5", "glsl430", "metal_macos"}) {
+        CAPTURE(slang);
+        REQUIRE(r->twins.count(slang) == 1);
+        const Json& twin = r->twins.at(slang);
+        CHECK(twin.contains("buffers"));
+        CHECK(twin["programs"].contains("mesh"));
+        CHECK(twin["programs"].contains("shadow"));  // vertex() draws the shadow too
+    }
 }
