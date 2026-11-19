@@ -448,9 +448,16 @@ public:
     // calls through edit_command (one undo step each) on the camera's own PostProcess or on a volume; the A/B checkbox switches
     // the renderer's stack off without touching the data (Renderer::set_post_bypass). The autotest drives postfx_edit / postfx_preset.
     void draw_postfx_panel();
-    void postfx_release();                 // the panel closed: the A/B switch goes back to "stack on"
-    bool postfx_edit(const Json& fields);  // postprocess.set on the edit target; false (and postFx_.error) when refused
+    void postfx_release();  // the panel closed: the A/B switch goes back to "stack on"
+    // postprocess.set on the edit target; false (and postFx_.error) when refused; ownStep: never merged with the edit before
+    // (a click, not a drag); entry: the customPasses index being edited, part of the undo key (a drag on one pass never merges
+    // into another's)
+    bool postfx_edit(const Json& fields, bool ownStep = false, int entry = -1);
     bool postfx_preset(const std::string& name);  // postprocess.apply_preset on the edit target
+    // The "Custom passes" section of the panel: the edit target's PostProcess.customPasses (`list`) with add, enable, reorder, remove,
+    // position, material and param edits; each one is a postprocess.set of the whole array (postfx_custom.h), one undo step.
+    // `resolved`: the stack the camera draws (how many passes volumes add, what the renderer could not parse).
+    void draw_postfx_custom(const Json& list, const Json& resolved);
     std::string
     postfx_target_id();  // the entity an edit goes to: the chosen volume, else the camera (the main one when none chosen)
     PostFxUi postFx_;

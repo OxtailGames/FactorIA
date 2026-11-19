@@ -561,7 +561,24 @@ void register_postprocess_component(TypeRegistry& r) {
             "top-left corner and (0.5, 0.5) the middle.")
         .field("radialBlurSamples", &PostProcess::radialBlurSamples,
                "Only used when radialBlurEnabled. 4..32 taps; more is smoother and costs more.")
-        .range(4, 32);
+        .range(4, 32)
+
+        // customPasses
+        .field(
+            "customPasses", static_cast<Json PostProcess::*>(&PostProcess::customPasses),
+            "Your own full-screen passes, drawn by kind \"post\" materials (docs/SHADERS.md, \"Post-process "
+            "materials\"). An array (at most 8) of {material, materialParams, enabled, position, name}: `material` "
+            "is the project path of a post *.material.json; `materialParams` overrides its params by name "
+            "(`material.info` lists them); `enabled` (default true) false keeps the entry in the list but draws "
+            "nothing; `position` (default \"before:tonemap\") puts the pass before or after a built-in effect: "
+            "\"after:ssao\", \"after:fog\", \"before:ssr\", \"after:ssr\", \"before:sunShafts\", \"after:sunShafts\", "
+            "\"before:depthOfField\", \"after:motionBlur\", \"before:bloom\", \"after:bloom\" or \"before:\" "
+            "exposure, radialBlur, lensDistortion, chromaticAberration, tonemap, colorGrading (the last ones are "
+            "the same place: scene-linear colour after the bloom). Entries at the same position run in array "
+            "order, and each reads the picture the one before wrote. A pass whose material is missing, broken "
+            "or not a post material is skipped (the log says why once, and `render.stats.materialFallbacks` "
+            "counts it). A volume adds its entries to the camera's when its weight times its influence is at "
+            "least 0.5. Edit it with postprocess.set (the whole array) or the editor's Post-processing panel.");
 }
 
 }  // namespace fa

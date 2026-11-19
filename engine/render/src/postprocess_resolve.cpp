@@ -163,6 +163,28 @@ float strength_of(const PostProcess& c) {
     return w;
 }
 
+// Adds the customPasses of `c` to the stack when it applies with a strength of at least 0.5 (a list cannot be blended: it switches
+// like a string does). An entry that does not parse goes to `customErrors` with its JSON pointer.
+void add_custom_passes(PostStack& out, const PostProcess& c, float s, Entity entity, PostTrace* trace, int layer) {
+    if (s < 0.5f || !c.customPasses.is_array() || c.customPasses.empty()) return;
+    if (c.customPasses.size() > std::size_t(kMaxCustomPostPasses)) {
+        auto all = parse_custom_post_passes(c.customPasses, "/customPasses");  // the error that says "too many"
+        if (!all.ok()) out.customErrors.push_back(all.error());
+        return;
+    }
+    for (std::size_t i = 0; i < c.customPasses.size(); ++i) {
+        auto r = parse_custom_post_pass(c.customPasses[i], "/customPasses/" + std::to_string(i));
+        if (!r.ok()) {
+            out.customErrors.push_back(r.error());
+            continue;
+        }
+        if (out.custom.size() >= std::size_t(4 * kMaxCustomPostPasses)) return;  // the volumes together stay bounded
+        r->source = entity.bits();
+        out.custom.push_back(std::move(*r));
+        if (trace) trace->customLayers.push_back(layer);
+    }
+}
+
 }  // namespace
 
 int PostStack::effect_count() const {
@@ -271,6 +293,7 @@ PostStack resolve_post_stack(World& world, const CameraGeometry& cam, const Post
                 trace->layers.push_back({legacy ? PostLayer::Kind::Legacy : PostLayer::Kind::Own, cam.entity, s, 1.0f});
             }
             apply_component(out.fx, *own, s, trace, layer);
+            add_custom_passes(out, *own, s, cam.entity, trace, layer);
             ++out.sources;
         }
     }
@@ -290,6 +313,7 @@ PostStack resolve_post_stack(World& world, const CameraGeometry& cam, const Post
             trace->layers.push_back({PostLayer::Kind::Volume, v.entity, strength_of(*v.component), v.influence});
         }
         apply_component(out.fx, *v.component, v.strength, trace, layer);
+        add_custom_passes(out, *v.component, v.strength, v.entity, trace, layer);
         ++out.sources;
     }
     for (int e = 0; e < kPostEffectCount; ++e)

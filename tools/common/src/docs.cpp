@@ -325,6 +325,8 @@ const std::vector<DocManifestEntry>& manifest() {
         {"shaders-compute",
          "Custom shaders, part: compute materials, their storage buffers and the compute.* commands.",
          aud({kGameAi, kEngineDev})},
+        {"shaders-post", "Custom shaders, part: post-process materials, the custom passes of a camera's post stack.",
+         aud({kGameAi, kEngineDev})},
         {"skills", "Agent Skills: topic guides an AI loads when the work needs them.", aud({kGameAi, kUser})},
         {"sound", "Sound patches (*.sfx.json) and audio documents (*.audio.json).", aud({kGameAi})},
         {"sound-patches",

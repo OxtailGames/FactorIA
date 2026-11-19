@@ -543,6 +543,7 @@
     "PostProcess.colorGradingSaturation": "0.31.0",
     "PostProcess.colorGradingTemperature": "0.31.0",
     "PostProcess.colorGradingTint": "0.31.0",
+    "PostProcess.customPasses": "unreleased",
     "PostProcess.depthOfFieldBokeh": "0.31.0",
     "PostProcess.depthOfFieldEnabled": "0.31.0",
     "PostProcess.depthOfFieldFarBlur": "0.31.0",
