@@ -148,14 +148,16 @@ struct Checker {
                   "Name it for what it holds, e.g. \"noiseMap\" or \"mask\".");
             return false;
         }
-        if (is_reserved_word(name) || (out.material.lighting == "custom" && (name == "light" || name == "ambient"))) {
+        if (is_reserved_word(name) || (out.material.lighting == "custom" && (name == "light" || name == "ambient")) ||
+            (kind == "sky" && name == "sky") ||    // sky(): the hook of a sky material, an ordinary name elsewhere
+            (kind == "post" && name == "post")) {  // post(): the hook of a post material
             error(pointer,
                   std::string(what) + " name \"" + name +
                       "\" is a GLSL keyword or a name of the snippet contract, so it cannot be a variable",
                   "Rename it, e.g. \"" + name + "Value\".");
             return false;
         }
-        // The unprefixed names of the kind's own program (sprite: its vertex inputs, varyings, textures, uniform blocks and
+        // The unprefixed names of the kind's own program (sprite, sky: its vertex inputs, varyings, textures, uniform blocks and
         // helpers) share one flat namespace with the snippet and the params: taking one redefines it.
         const auto& globals = template_globals(kind);
         const std::string sampler = std::string(what) == "texture" ? name + "_smp" : std::string();
@@ -165,12 +167,19 @@ struct Checker {
             error(pointer,
                   std::string(what) + " name \"" + name + "\" is " +
                       (takesName ? "a name" : "the base of the name \"" + sampler + "\"") +
-                      " of the engine's 2D program (quad_common.glsl: its vertex inputs, varyings, textures, "
-                      "uniform blocks and helper functions are not prefixed), and a " +
-                      what + " becomes a global variable next to them, so " + kind + " materials cannot take it",
+                      (kind == "sky"
+                           ? " of the engine's sky program (sky_common.glsl: its vertex input, varying, uniform "
+                             "blocks and helper functions are not prefixed)"
+                           : " of the engine's 2D program (quad_common.glsl: its vertex inputs, varyings, textures, "
+                             "uniform blocks and helper functions are not prefixed)") +
+                      ", and a " + what + " becomes a global variable next to them, so " + kind +
+                      " materials cannot take it",
                   "Rename it, e.g. \"" + name + suffix +
-                      "\". The names of the 2D program are listed in "
-                      "engine/render/shaders/quad_common.glsl and color_space.glsl / light_shadow.glsl.");
+                      (kind == "sky"
+                           ? "\". The names of the sky program are listed in "
+                             "engine/render/shaders/sky_common.glsl and color_space.glsl."
+                           : "\". The names of the 2D program are listed in "
+                             "engine/render/shaders/quad_common.glsl and color_space.glsl / light_shadow.glsl."));
             return false;
         }
         return true;
@@ -371,7 +380,7 @@ struct Checker {
         for (MaterialIssue& e : check_material_graph(*g, m, kind).errors) out.errors.push_back(std::move(e));
     }
 
-    // "mode": "full" and what goes with it: "passes", "shadow", "prepass" (docs/SHADERS_FULL.md). Each of them is an error in a
+    // "mode": "full" and what goes with it: "passes", "shadow", "prepass" (docs/shaders/SHADERS_FULL.md). Each of them is an error in a
     // snippet material (the default mode), where the engine's own shader decides all of it.
     void read_full(const Json& doc, MaterialDef& m) {
         std::string mode = "snippet";
@@ -523,17 +532,17 @@ struct Checker {
         if (projectDir.empty() || doc.contains("graph")) return;
         std::error_code ec;
         if (!stdfs::is_regular_file(stdfs::path(projectDir) / m.shader, ec)) {
-            error(
-                "/shader", "snippet '" + m.shader + "' does not exist",
-                sibling_hint(
-                    projectDir, m.shader,
-                    m.kind == "compute"
-                        ? "Create the file (a snippet defining void compute(in ComputeInput i)) or fix the path."
-                    : (doc.contains("mode") && doc["mode"].is_string() && doc["mode"].get<std::string>() == "full")
-                        ? "Create the file (the sections @common, @vertex and @fragment, docs/SHADERS_FULL.md) or fix "
-                          "the path."
-                        : "Create the file (a snippet defining void surface(in SurfaceInput i, inout Surface "
-                          "s)) or fix the path."));
+            error("/shader", "snippet '" + m.shader + "' does not exist",
+                  sibling_hint(
+                      projectDir, m.shader,
+                      m.kind == "compute"
+                          ? "Create the file (a snippet defining void compute(in ComputeInput i)) or fix the path."
+                      : (doc.contains("mode") && doc["mode"].is_string() && doc["mode"].get<std::string>() == "full")
+                          ? "Create the file (the sections @common, @vertex and @fragment, "
+                            "docs/shaders/SHADERS_FULL.md) or fix "
+                            "the path."
+                          : "Create the file (a snippet defining void surface(in SurfaceInput i, inout Surface "
+                            "s)) or fix the path."));
         }
     }
 };
@@ -607,7 +616,11 @@ MaterialParse parse_material(const Json& doc, const std::string& projectDir, con
             if (int(t->size()) > kMaterialMaxTextures)
                 c.error("/textures",
                         std::to_string(t->size()) + " textures, at most " + std::to_string(kMaterialMaxTextures) +
-                            " (the engine already binds " + (m.kind == "sprite" ? "4" : "6") +
+                            " (the engine already binds " +
+                            (m.kind == "sprite" ? "4"
+                             : m.kind == "sky"  ? "0"
+                             : m.kind == "post" ? "2"
+                                                : "6") +
                             " texture units of the 16 that GLES3 and WebGL2 guarantee, and materials get the next 4)",
                         "Pack masks into the channels of one texture (r = foam, g = height...) or remove a texture.");
             for (auto it = t->begin(); it != t->end(); ++it) {
@@ -634,6 +647,21 @@ MaterialParse parse_material(const Json& doc, const std::string& projectDir, con
             return c.check_name(pointer, name, what, m.kind);
         });
 
+    // A post pass reads the picture and writes a picture: none of the keys of a surface that is drawn into the scene applies.
+    if (m.kind == "post") {
+        auto refuse = [&](const char* key, const std::string& why) {
+            if (doc.contains(key))
+                c.error(std::string("/") + key,
+                        std::string("\"") + key + "\" does not apply to a post material: " + why,
+                        std::string("Remove \"") + key +
+                            "\" from the material. A post material is one full-screen pass of the post-processing "
+                            "stack (PostProcess.customPasses); write post(in PostInput i, inout PostSurface s) and "
+                            "read the picture with s.color or fa_scene_color(uv).");
+        };
+        refuse("lighting", "the pass is not lit, it reads the finished picture (use a mesh material for light())");
+        refuse("alphaMode", "the pass replaces the colour of the pixels it covers, it has no alpha test or blending");
+        refuse("doubleSided", "there is no geometry: the pass draws one full-screen triangle");
+    }
     // alphaMode "clip": the cutoff is a param of the material, implicit unless declared (see the header).
     if (m.lighting == "custom" && m.kind == "sprite")
         c.error("/lighting",
@@ -641,12 +669,22 @@ MaterialParse parse_material(const Json& doc, const std::string& projectDir, con
                 "Remove \"lighting\" (a sprite ignores \"pbr\" and \"unlit\") and change what the lights give in "
                 "fragment(), "
                 "or use a mesh material (kind \"mesh\") for a custom light loop.");
-    if (m.alphaMode == "clip" && m.kind == "sprite") {
+    if (m.lighting == "custom" && m.kind == "sky")
+        c.error(
+            "/lighting", "lighting \"custom\" (the light() hook) is for mesh materials; a sky is not lit",
+            "Remove \"lighting\" (a sky ignores \"pbr\" and \"unlit\"): sky() computes the colour of the background "
+            "itself, from the view direction.");
+    if ((m.alphaMode == "clip" || m.alphaMode == "blend") && m.kind == "sky")
+        c.error(
+            "/alphaMode",
+            "alphaMode \"" + m.alphaMode + "\" means nothing for a sky material: the sky is the opaque background",
+            "Remove \"alphaMode\" (a sky is always opaque; its sky() returns an RGB colour). doubleSided is ignored.");
+    else if (m.alphaMode == "clip" && m.kind == "sprite") {
         c.error("/alphaMode", "alphaMode \"clip\" is the mesh template's alpha test; a sprite material has none",
                 "Use \"blend\" (the default look of a sprite) and write `if (s.color.a < 0.5) discard;` in fragment() "
                 "where "
                 "you want a cut-out.");
-    } else if (m.alphaMode == "clip") {
+    } else if (m.alphaMode == "clip" && m.kind != "post") {
         auto declared = std::find_if(m.params.begin(), m.params.end(),
                                      [](const MaterialParam& p) { return p.name == kMaterialAlphaCutoff; });
         if (declared == m.params.end()) {
@@ -681,32 +719,34 @@ MaterialParse parse_material(const Json& doc, const std::string& projectDir, con
               [](const MaterialParam& a, const MaterialParam& b) { return a.name < b.name; });
     std::sort(m.textures.begin(), m.textures.end(),
               [](const MaterialTexture& a, const MaterialTexture& b) { return a.name < b.name; });
-    if (m.kind != "mesh") {
-        // The instance buffer and the extra mesh channels exist only in the mesh pipeline: in any other kind the snippet
-        // would silently read 0, so the file is refused.
+    // The instance buffer exists in the mesh pipeline (a value per entity) and the 2D quad pipeline (a value per quad); the extra
+    // mesh channels only in the mesh pipeline. In any other kind the snippet would silently read 0, so the file is refused.
+    const bool instancing = m.kind == "mesh" || m.kind == "sprite";
+    if (!instancing) {
         for (const MaterialParam& p : m.params)
             if (p.instanced)
                 c.error("/params/" + escape_token(p.name) + "/instanced",
-                        "only mesh materials support instanced params, and this material is kind \"" + m.kind + "\"",
+                        "only mesh and sprite materials support instanced params, and this material is kind \"" +
+                            m.kind + "\"",
                         "Remove \"instanced\" from this param (a " + m.kind +
-                            " material gets one value per draw from materialParams), or change \"kind\" to \"mesh\".");
-        if (doc.contains("vertexAttributes"))
-            c.error("/vertexAttributes",
-                    "only mesh materials support vertexAttributes, and this material is kind \"" + m.kind + "\"",
-                    "Remove \"vertexAttributes\": only a mesh has the uv1 and color1 channels a material can read.");
+                            " material gets one value per draw from its params), or change \"kind\" to \"mesh\" or "
+                            "\"sprite\".");
     }
+    if (m.kind != "mesh" && doc.contains("vertexAttributes"))
+        c.error("/vertexAttributes",
+                "only mesh materials support vertexAttributes, and this material is kind \"" + m.kind + "\"",
+                "Remove \"vertexAttributes\": only a mesh has the uv1 and color1 channels a material can read.");
     if (const InstanceLayout layout = instance_layout(m.params);
-        m.kind == "mesh" && layout.vec4Count > kMaterialMaxInstanceVec4) {
+        instancing && layout.vec4Count > kMaterialMaxInstanceVec4) {
         std::string names;
         for (const MaterialParam& p : m.params)
             if (p.instanced) names += (names.empty() ? "" : ", ") + p.name + " (" + p.type + ")";
-        c.error(
-            "/params",
-            "the instanced params need " + std::to_string(layout.vec4Count) + " vec4 per instance, at most " +
-                std::to_string(kMaterialMaxInstanceVec4) + " (12 floats): " + names,
-            "Make some of them not instanced (entities with different values then split the batch), or use fewer "
-            "components: floats and small vectors share a vec4 (a vec3 and a float fit in one), a vec4 takes a whole "
-            "one.");
+        c.error("/params",
+                "the instanced params need " + std::to_string(layout.vec4Count) + " vec4 per instance, at most " +
+                    std::to_string(kMaterialMaxInstanceVec4) + " (12 floats): " + names,
+                std::string("Make some of them not instanced (") + (m.kind == "sprite" ? "sprites" : "entities") +
+                    " with different values then split the batch), or use fewer components: floats and small vectors "
+                    "share a vec4 (a vec3 and a float fit in one), a vec4 takes a whole one.");
     }
     if (auto v = doc.find("vertexAttributes"); v != doc.end() && m.kind == "mesh") {
         const auto& names = material_vertex_attribute_names();

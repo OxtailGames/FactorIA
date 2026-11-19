@@ -66,7 +66,9 @@ const char* const kSnippetContract =
     "The snippet is GLSL 450 (Vulkan style) with no @ tags and no main: for a mesh material `void surface(in "
     "SurfaceInput i, inout Surface s)` is required and `void vertex(inout VertexData v)` optional; for a \"sprite\" "
     "material `void fragment(in QuadInput i, inout QuadSurface s)` is required and `void vertex(inout QuadVertex v)` "
-    "optional. Params are globals named like the JSON keys; textures are sampled with "
+    "optional; for a \"sky\" material `void sky(in SkyInput i, inout SkySurface s)` is required (no vertex()); for a "
+    "\"post\" material `void post(in PostInput i, inout PostSurface s)` is required (no vertex()). Params are "
+    "globals named like the JSON keys; textures are sampled with "
     "texture(sampler2D(name, name_smp), uv); names starting with fa_ are the engine's.";
 
 }  // namespace
@@ -81,15 +83,16 @@ void register_shader_commands(CommandRegistry& registry, const std::string& proj
                        "with file, line and fixes.";
         info.description =
             "Checks the material file (*.material.json, schemas/material.schema.json) and compiles its "
-            "snippet with sokol-shdc, injected into the engine's mesh or 2D (sprite) shader, for every shader dialect "
+            "snippet with sokol-shdc, injected into the engine's mesh, 2D (sprite), sky, post-process or compute "
+            "shader, for every shader dialect "
             "of "
             "the platforms asked (default: all six: hlsl5 for Windows, glsl430 for Linux, metal_macos, "
             "metal_ios and metal_sim for macOS and iOS, glsl300es for Android and web). Some errors exist in "
             "one dialect only (a gradient inside a loop is fine in GLSL and refused by HLSL), so compile for "
             "the platforms you ship. Returns {ok, material, dialects, errors: [{file, line, column, message, "
-            "hint, source}], cached, kind, runsOn, notOn, skippedDialects}: `kind` is \"mesh\" (default), \"sprite\" "
-            "or \"compute\" (docs/SHADERS.md, \"Compute materials\"); the other kinds are refused at /kind. A snippet "
-            "error is mapped to the line of your snippet, with the "
+            "hint, source}], cached, kind, runsOn, notOn, skippedDialects}: `kind` is \"mesh\" (default), \"sprite\", "
+            "\"sky\", \"post\" or \"compute\". A "
+            "snippet error is mapped to the line of your snippet, with the "
             "offending line in `source` and a fix in `hint` (an unknown field of Surface gets \"did you mean "
             "albedo?\", texture(waves, uv) gets the separate-sampler form); a mistake in the material file "
             "has a JSON `pointer` instead of a line. Fix the file and call again until ok, then look at the "
@@ -153,13 +156,13 @@ void register_shader_commands(CommandRegistry& registry, const std::string& proj
         info.summary = "Describe a custom material: lighting, alpha mode, params with types, defaults, ranges and "
                        "docs, textures, programs and compile state.";
         info.description =
-            "Reads a *.material.json (schemas/material.schema.json) and returns {material, doc, kind, shader, "
+            "Reads a *.material.json (schemas/material.schema.json) and returns {material, doc, kind, mode, shader, "
             "lighting, alphaMode, doubleSided, params: [{name, type, default, min?, max?, doc, implicit?, "
             "instanced?}], "
-            "textures: [{name, default, sampler, doc}], vertexAttributes?, programs, compile: {state, dialect, "
+            "textures: [{name, default, sampler, doc}], vertexAttributes?, instanceLayout?, programs, compile: {state, "
+            "dialect, "
             "toolFound, hint?}}. "
-            "`kind` is \"mesh\" (default), \"sprite\", \"sky\", \"post\" or \"compute\"; sky and post report "
-            "programs [] and compile.state \"unsupported\" with the package that brings them in compile.hint. "
+            "`kind` is \"mesh\" (default), \"sprite\", \"sky\", \"post\" or \"compute\". "
             "params are listed in the order of the uniform block (alphabetical); `implicit` marks "
             "alphaCutoff, which alphaMode \"clip\" adds by itself. "
             "compile.state is \"compiled\" when the cache holds this exact material for this machine's "
@@ -170,17 +173,19 @@ void register_shader_commands(CommandRegistry& registry, const std::string& proj
             "calls it once per light). "
             "`programs` are the shader programs the material makes: mesh, mesh_skin, prepass and prepass_skin, plus "
             "shadow and shadow_skin when the snippet defines vertex() or the alpha mode is clip; a sprite "
-            "material makes quad and quad_plain. "
+            "material makes quad and quad_plain, a sky material one program, sky, a post material one, post. "
             "`mode` is \"snippet\" or \"full\". A full-shader material (the file holds your own vertex and fragment "
-            "stages, docs/SHADERS_FULL.md) has no lighting, alphaMode or doubleSided; it returns shadow (\"depth\", "
+            "stages, docs/shaders/SHADERS_FULL.md) has no lighting, alphaMode or doubleSided; it returns shadow "
+            "(\"depth\", "
             "\"custom\" or \"none\"), prepass and passes [{name, cull, depthTest, depthWrite, blend, program, "
             "programSkin}], and its `programs` list one program and one skinned program per pass (mesh, mesh_skin, "
             "pass1, pass1_skin, ...), then shadow and shadow_skin for \"custom\", then prepass and prepass_skin. "
             "A compute material also returns workgroupSize [x, y, z] and buffers [{name, binding, access, stride, "
             "doc, fields: [{name, type, offset, doc}]}] (std430 layout); `runsOn` and `notOn` list the platforms the "
             "kind has shaders for (compute: not android or web). "
-            "`instanced` marks a mesh param whose value every entity gives itself inside ONE instanced draw (it "
-            "travels in the instance buffer instead of the uniform block); `vertexAttributes` lists the extra mesh "
+            "`instanced` marks a mesh or sprite param whose value every entity (sprite: every quad) gives itself "
+            "inside ONE draw (it travels in the instance data instead of the uniform block); `instanceLayout` "
+            "{vec4, slots: [{name, vec4, offset, components}]} says where; `vertexAttributes` lists the extra mesh "
             "channels (uv1, color1) vertex() reads as vertex_uv1 and vertex_color1 (docs/SHADERS.md, \"The material "
             "file\").";
         info.inputSchema = Json::parse(R"({
@@ -209,11 +214,9 @@ void register_shader_commands(CommandRegistry& registry, const std::string& proj
             std::string snippet;
             if (auto raw = tooling_detail::read_file(stdfs::path(dir) / m.shader))
                 snippet = shaders_detail::normalize_snippet(*raw);
-            const bool supported =
-                shaders_detail::kind_is_compiled(m.kind);  // the others compile when their package lands
-            const GeneratedShader g = supported ? generate_material_shader(m, snippet) : GeneratedShader{};
+            const GeneratedShader g = generate_material_shader(m, snippet);
             const std::string dialect = host_shader_dialect(context);
-            const bool compiled = supported && !shader_template_hash(m.full ? "mesh-full" : m.kind).empty() &&
+            const bool compiled = !shader_template_hash(m.full ? "mesh-full" : m.kind).empty() &&
                                   stdfs::exists(shader_cache_path(dir, g, snippet, dialect));
             Json out = Json::object({{"material", path},
                                      {"doc", m.doc},
@@ -247,7 +250,14 @@ void register_shader_commands(CommandRegistry& registry, const std::string& proj
                 }
                 out["passes"] = passes;
             }
-            if (supported) add_platforms(out, m.kind);
+            if (const InstanceLayout layout = instance_layout(m.params); layout.vec4Count > 0) {
+                Json slots = Json::array();
+                for (const InstanceSlot& s : layout.slots)
+                    slots.push_back(Json::object(
+                        {{"name", s.name}, {"vec4", s.vec4}, {"offset", s.offset}, {"components", s.components}}));
+                out["instanceLayout"] = Json::object({{"vec4", layout.vec4Count}, {"slots", slots}});
+            }
+            add_platforms(out, m.kind);
             if (m.kind == "compute") {
                 const Json fields = shaders_detail::compute_twin_fields(m);
                 out["workgroupSize"] = fields["workgroupSize"];
@@ -266,12 +276,9 @@ void register_shader_commands(CommandRegistry& registry, const std::string& proj
                 }
                 out["buffers"] = buffers;
             }
-            out["compile"] = Json::object({{"state", !supported ? "unsupported"
-                                                     : compiled ? "compiled"
-                                                                : "not_compiled"},
+            out["compile"] = Json::object({{"state", compiled ? "compiled" : "not_compiled"},
                                            {"dialect", dialect},
                                            {"toolFound", !find_sokol_shdc(context).empty()}});
-            if (!supported) out["compile"]["hint"] = shaders_detail::kind_refusal(m.kind);
             if (!out["compile"]["toolFound"].get<bool>()) out["compile"]["toolHint"] = sokol_shdc_missing_hint(context);
             return out;
         });

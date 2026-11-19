@@ -1,6 +1,9 @@
+Part of [SHADERS.md](../SHADERS.md): full shaders and passes for mesh materials (`"mode": "full"`). The material file, the
+params, the compiler and the cache are the ones that page describes.
+
 # Full shaders and passes
 
-A mesh material normally gives the engine a small `surface()` snippet ([SHADERS.md](SHADERS.md)). A **full shader** is the
+A mesh material normally gives the engine a small `surface()` snippet ([SHADERS.md](../SHADERS.md)). A **full shader** is the
 escape hatch for what a snippet cannot say: your own `main` for the vertex stage and for the fragment stage, your own
 light loop, your own vertex displacement for every pass, and **several passes** per draw (an inked outline, an x-ray,
 a shell). You pay for it: you write the shading yourself, so you get none of the engine's PBR, image-based lighting or
@@ -13,7 +16,7 @@ params, hot reload, `shader.compile`, `material.info`, `factoria validate` and e
 ## The material file
 
 A full material is a mesh material with `"mode": "full"` (the default mode is `"snippet"`). Besides `format`, `doc`,
-`shader`, `params`, `textures` and `vertexAttributes` (all as in [SHADERS.md](SHADERS.md)) it takes:
+`shader`, `params`, `textures` and `vertexAttributes` (all as in [SHADERS.md](../SHADERS.md)) it takes:
 
 | Key | Meaning |
 |---|---|
@@ -49,7 +52,8 @@ A **varying** carries a value from the vertex stage to the fragment stage: write
 `flat`, `smooth` or `noperspective` first) in `@common`; it is an `out` in the vertex stage and an `in` in the fragment
 stage. The two stages must declare the same list, in the same order, with the same types (declaring each once in
 `@common` makes it true by construction); a mismatch is an error naming both lines. At most **12 vec4 slots** of
-varyings (a `mat4` takes four), because OpenGL ES 3 and WebGL 2 guarantee 16 and the engine keeps some.
+varyings (a `mat4` takes four): OpenGL ES 3 and WebGL 2 guarantee only 15, and the engine's three flat instance varyings
+take the other three, so 12 + 3 fits exactly.
 
 ### What the engine gives you
 
@@ -96,6 +100,9 @@ Each pass is compiled to its own program (the same source with that pass's `FA_P
 The engine draws, for every part of the mesh, **pass 0, then pass 1, and so on, in array order**, before the next part. There
 is no per-pass sort key: the order of the array is the order of the draws.
 
+Culling is the pass's own `cull`: a glTF material's `doubleSided` is ignored in a full material, so a pass that must show
+both faces says `"cull": "none"`.
+
 A material with at least one `blend` pass is drawn with the other blended meshes, far to near by the entity's distance to
 the camera, and all its passes draw there, in array order. A material whose passes do not blend is opaque: it is batched
 and instanced like any opaque mesh of the same material (see "Skinning and instancing").
@@ -109,8 +116,10 @@ and instanced like any opaque mesh of the same material (see "Skinning and insta
   holes. Use it when the shader does not change the silhouette.
 - `"custom"`: the first pass is compiled again with `FA_SHADOW_PASS` defined, and `fa_view_proj` is the light's matrix in it.
   So `gl_Position = fa_view_proj * ...` is the position in the shadow map, your vertex displacement shapes the shadow, and a
-  `discard` in `@fragment` cuts holes in it. Whatever the fragment stage writes, the program stores the depth. Guard code
-  that must not run there with `#ifdef FA_SHADOW_PASS`. Skinned and instanced meshes work.
+  `discard` in `@fragment` cuts holes in it. Your whole fragment `main` runs in that program (the colour you write is
+  thrown away and the program stores the depth), so wrap what is useless or costly there, such as light loops and texture
+  reads that only feed `fa_frag_color`, in `#ifndef FA_SHADOW_PASS`, and keep the `discard` outside it. Skinned and instanced
+  meshes work.
 - `"none"`: the material casts no shadow.
 
 A mesh with a full material **receives** shadows only as far as your fragment stage reads `fa_shadow()` or `fa_light()`.
@@ -252,4 +261,68 @@ void main() {
 }
 ```
 
-The inked outline with two passes is the worked example 11 in [SHADERS.md](SHADERS.md#11-an-inked-outline-a-full-shader-with-two-passes).
+An inked outline: a two-band toon body over the scene's lights, and a second pass that draws the back faces pushed out
+along their normals, in the ink colour.
+
+File `materials/ink_outline.material.json`:
+
+```json
+{
+  "format": "factoria.material/1",
+  "doc": "A two-band toon body with an ink outline made of the inflated back faces.",
+  "mode": "full",
+  "shader": "shaders/ink_outline.full.glsl",
+  "passes": [
+    { "name": "body", "cull": "back" },
+    { "name": "outline", "cull": "front" }
+  ],
+  "params": {
+    "bodyColor": { "type": "color", "default": [0.3, 0.7, 0.4, 1.0], "doc": "The colour of the lit band of the body." },
+    "inkColor": { "type": "color", "default": [0.05, 0.05, 0.08, 1.0], "doc": "The colour of the outline." },
+    "inkWidth": { "type": "float", "default": 0.03, "min": 0.0, "max": 0.5, "doc": "How far the outline pass pushes each vertex along its normal, in model units." }
+  }
+}
+```
+
+File `shaders/ink_outline.full.glsl`:
+
+```glsl
+@common
+varying vec3 v_pos;
+varying vec3 v_normal;
+varying vec4 v_shadow;
+
+@vertex
+void main() {
+    vec3 p = fa_position;
+#ifdef FA_PASS_OUTLINE
+    p += normalize(fa_normal) * inkWidth;  // the back faces, a little bigger than the body
+#endif
+    vec3 world = fa_world_position(p);
+    v_pos = world;
+    v_normal = fa_world_direction(fa_normal);
+    v_shadow = fa_shadow_coord(world);
+    gl_Position = fa_view_proj * vec4(world, 1.0);
+}
+
+@fragment
+void main() {
+#ifdef FA_PASS_OUTLINE
+    fa_frag_color = vec4(inkColor.rgb, 1.0);
+#else
+    vec3 n = normalize(v_normal);
+    float light = 0.0;
+    for (int i = 0; i < fa_light_count(); ++i) {
+        LightSample l = fa_light(i, v_pos, n, v_shadow);
+        light += max(dot(n, l.direction), 0.0) * dot(l.color, vec3(0.3333));
+    }
+    float band = light > 0.5 ? 1.0 : 0.45;
+    fa_frag_color = vec4(fa_apply_fog(bodyColor.rgb * (fa_ambient.rgb + vec3(band)), v_pos), 1.0);
+#endif
+}
+```
+
+Pass 0 (`body`) draws the front faces, pass 1 (`outline`) the back faces of the same mesh; the back faces pushed out show as a
+rim around the silhouette. Both write depth, so the outline never covers the body. The material casts the shadow of the
+original mesh (`"shadow": "depth"`, the default), and the engine's prepass sees the original mesh too. A skinned mesh draws
+both passes with its skin.

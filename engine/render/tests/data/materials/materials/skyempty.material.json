@@ -1,0 +1,6 @@
+{
+  "format": "factoria.material/1",
+  "kind": "sky",
+  "doc": "Test fixture: a sky material whose sky() is empty, so it draws the engine's own gradient.",
+  "shader": "shaders/skyempty.sky.glsl"
+}

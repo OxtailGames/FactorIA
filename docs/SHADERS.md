@@ -27,7 +27,7 @@ The loop for an AI (or a person):
 | `format` | Always `"factoria.material/1"`. Required. |
 | `shader` | Project-relative path of the snippet, e.g. `"shaders/pulse.surface.glsl"`. Required. |
 | `doc` | What the material looks like and is for. Shown by `material.info`. |
-| `kind` | What the material is for: `"mesh"` (default; the surface of a `MeshRenderer`, what this page describes), or `"sprite"` (a 2D item: `Sprite`, `Shape2D`, `Tilemap`, `Text`, particles; [below](#materials-on-sprites-shapes-tiles-text-and-particles)), `"compute"` (a program that runs on the GPU over storage buffers; [Compute materials](#compute-materials)), or the reserved `"sky"` and `"post"`. `"mesh"`, `"sprite"` and `"compute"` compile: `shader.compile` refuses the others with an error on `/kind` that names the engine milestone package that will bring them (sky: M72.1, post: M72.2). |
+| `kind` | What the material is for: `"mesh"` (default; the surface of a `MeshRenderer`, what this page describes), or `"sprite"` (a 2D item: `Sprite`, `Shape2D`, `Tilemap`, `Text`, particles; [below](#materials-on-sprites-shapes-tiles-text-and-particles)), or `"sky"` (the background of a 3D scene; [below](#sky-materials)), or `"compute"` (a program that runs on the GPU over storage buffers; [Compute materials](#compute-materials)), or `"post"` (one full-screen pass of the post-processing stack; [below](#post-process-materials)). Every kind compiles. |
 | `lighting` | `"pbr"` (default): the engine's lighting, fog and sky reflection. `"unlit"`: the surface albedo is drawn as it is, plus emission and fog. `"custom"` (mesh materials only): your snippet defines `light()` (and optionally `ambient()`), which the engine's light loop calls once per light instead of its own shading (see "Custom lighting" below); shadows, attenuation, emission and fog stay the engine's. |
 | `alphaMode` | `"opaque"` (default): alpha is ignored. `"clip"`: fragments with `alpha` below `alphaCutoff` are discarded, also in the shadow pass. `"blend"`: drawn with the blended meshes, far to near. |
 | `doubleSided` | `true` draws back faces too. Default `false`. |
@@ -153,9 +153,10 @@ even when both stages read it. Example 9 below displaces a plane with a height m
 ## Per-instance params and vertex channels
 
 **A value per entity in one draw.** Mark a param `"instanced": true` and entities that differ only in that param still
-share one instanced draw call: a thousand grass blades each with their own tint, a crowd with a color each. Both this and
-`vertexAttributes` are for **mesh** materials only: a sprite, sky or compute material with an `instanced` param or a
-`vertexAttributes` is refused (`/params/<name>/instanced`, `/vertexAttributes`) rather than reading 0.
+share one instanced draw call: a thousand grass blades each with their own tint, a crowd with a color each. `instanced`
+works in **mesh** and **sprite** materials (a sprite's values are per quad, see "Materials on sprites, shapes, tiles, text
+and particles"); `vertexAttributes` is for mesh materials only. A sky or compute material with an `instanced` param, or a
+sprite with `vertexAttributes`, is refused (`/params/<name>/instanced`, `/vertexAttributes`) rather than reading 0.
 
 ```json
 "params": {
@@ -738,8 +739,10 @@ UI text is drawn through the same glyph quads as `Text`, but only the `Text` com
 Check a material on any of these with `shader.compile` and `factoria validate`; `material.info` lists its params.
 
 **What the renderer does with a sprite material.** Sprites with the same material and equal param values share a draw call;
-a different value, another material or a sprite without one starts a new batch (the draw order is the same as without
-materials). `fa_time` is the engine clock and `fa_target` the size of the render target (the image the pass draws into, which is the
+a different value of a param that is not `"instanced"`, another material or a sprite without one starts a new batch (the
+draw order is the same as without materials). Params marked `"instanced": true` ("Per-instance params and vertex
+channels") travel with each quad instead, so sprites, shapes, tiles, glyphs and particles of one material with a hundred
+different instanced values are still one batch. `fa_time` is the engine clock and `fa_target` the size of the render target (the image the pass draws into, which is the
 camera's rectangle, not the whole screen, in the coverage pass of the sprite outline effect), in both programs. The 2D quads of a frame look their material up once
 per distinct material and set of `materialParams` values, not once per component, quad or particle (`materialResolves` in the render stats and in `game.render_stats` counts the lookups). A material whose params name a render target (`"mask": "target:page"`) is looked up again for the camera that renders into that target, which gets the missing-texture checker instead of the image it is writing, and its items are not copied between cameras. A material that
 did not build, or that is not of kind `"sprite"`, draws the sprite in magenta (its alpha stays) with the engine's own shader
@@ -759,7 +762,8 @@ struct QuadInput {              // read-only, per fragment
     vec2 screen_uv;             // position in the render target, 0..1, y running DOWN on every backend
     float time;                 // seconds of game time (the same as fa_time.x)
     float mode;                 // what is drawn: 0 texture, 1 circle, 2 ring, 3 soft particle, 4 glyph, 5/6 lit, 7 SDF shape
-    vec4 custom;                // reserved: zero for now
+    vec4 custom;                // reserved: zero (per-sprite values are the material's instanced params, read by name)
+    float life;                 // particles: 0 at birth to 1 at the end of the life; 0 for everything else
 };
 struct QuadSurface { vec4 color; };                      // straight (not premultiplied) RGBA
 struct QuadVertex { vec3 world_pos; vec2 uv; vec4 color; };
@@ -795,7 +799,8 @@ not depend on anything the lean program has not: `i.mode` is 0 in it.
 
 **Slots.** The engine's own bindings come first, so a material's textures start after them: sampler and texture views
 0 to 3 (`tex`, `normal_tex`, `light_tex`, `shadow_tex`) and samplers 0 to 2 are the engine's; your textures are views 4
-to 7 and samplers 3 to 6 (at most 4 textures, as for a mesh), the params block is binding 5 (4 in the vertex stage). A
+to 7 and samplers 3 to 6 (at most 4 textures, as for a mesh; the vertex stage reads them at views 8 to 11 and samplers 7
+to 10), the params block is binding 5 (4 in the vertex stage). A
 mesh material starts at view 6 and sampler 2: the numbers are not interchangeable, but `kind` decides them and you never
 write them. The slots are listed in `engine/render/src/render_internal.h` (`kMaterialSpriteFirstView`).
 
@@ -804,8 +809,10 @@ write them. The slots are listed in `engine/render/src/render_internal.h` (`kMat
 - `alphaMode: "clip"` is an error: a sprite is always blended by the engine. Write `if (s.color.a < 0.5) discard;` where
   you want a cut-out. `lighting` `"pbr"` and `"unlit"` and `doubleSided` mean nothing here and are ignored; `"custom"` is an
   error (there is no `light()` hook in the 2D pipeline).
-- `vertex()` cannot sample a texture of the material (a mesh material's can, see "Textures in `vertex()`"): the 2D pipeline
-  binds a material's textures to the fragment stage only, and the compiler says so.
+- `vertex()` samples the material's textures as a mesh material's does ("Textures in `vertex()`": mip 0, the same names).
+- An `instanced` param is a per-quad value (at most 3 vec4, same rules as a mesh); the snippet reads it by name in
+  `fragment()` and `vertex()`. A particle's instanced values are its emitter's `materialParams`, and `i.life` is the
+  particle's age over its lifetime (0 in a trail). Each quad carries its own copy (up to 192 bytes at 3 vec4) in a second vertex buffer.
 - The compiled twin carries `programs.quad` and `programs.quad_plain` and the key `"kind": "sprite"`; its `template` is
   the hash of the sprite template (a change of the template recompiles sprite materials only).
 - Errors name `fragment()` and `QuadInput`: `i.colour` says `did you mean color?` and lists the fields.
@@ -861,155 +868,129 @@ void fragment(in QuadInput i, inout QuadSurface s) {
 A texture works as for a mesh material, sampled with `texture(sampler2D(mask, mask_smp), i.uv)`; name it anything but
 a name of the engine's program (`tex`, `smp`, `normal_tex`... are refused).
 
-## Compute materials
+## Sky materials
 
-A material with `"kind": "compute"` is a program that runs on the GPU over **storage buffers** and draws nothing: particle
-simulations, flocking, flow fields, anything that updates many elements at once. Its snippet defines one function, called
-once per thread:
+`"kind": "sky"` makes a material that draws the background of a 3D scene instead of the engine's two-colour gradient.
+You name it in the scene's settings, not on an entity: `SceneSettings.skyMaterial` is the path of a `*.material.json`
+and `SceneSettings.skyMaterialParams` holds its param overrides (the same `{ "name": value }` object as
+`MeshRenderer.materialParams`). The file, the params, the textures, the compiler, the cache, `factoria validate` and
+`factoria export` are the ones on that page.
 
-```glsl
-void compute(in ComputeInput i) {
-    uint k = i.global_id.x;
-    items.data[k].value = items.data[k].value * factor;
-}
+```
+scene.set_component {"component": "SceneSettings", "fields": {"skyMaterial": "materials/sky-dusk.material.json"}}
+scene.set_component {"component": "SceneSettings", "fields": {"skyMaterialParams": {"sunGlow": 0.6}}, "merge": true}
 ```
 
-`ComputeInput` is read-only: `global_id` (the thread's index over the whole dispatch), `local_id` (inside its workgroup),
-`group_id` (the workgroup's index) and `local_index` (`local_id` flattened). All but the last are `uvec3`.
+`SceneSettings` has no entity, so the command takes no `id`. In the editor, View > Scene settings does the same: it lists
+the settings, a sky material's params appear typed by `material.info` with a Reset each, and every change is one undo
+step.
 
-The file (`materials/<name>.material.json`) takes these keys besides `format`, `kind`, `doc` and `shader` (which names the
-snippet, e.g. `shaders/boids.compute.glsl`); `lighting`, `alphaMode` and `doubleSided` do not apply to a compute material (it draws nothing) and are refused with an error:
+**The snippet** defines one entry point, `void sky(in SkyInput i, inout SkySurface s)` (**required**), run for every
+pixel of the sky. There is no `vertex()`: the sky is one full-screen triangle.
 
-| Key | Meaning |
-|---|---|
-| `workgroupSize` | The threads of one workgroup, `[x, y, z]` (y and z default to 1; default `[64, 1, 1]`). The product must be a multiple of 32 and at most 256: `[64]`, `[128]`, `[8, 8]`, `[16, 16]`; z is at most 64 (Direct3D 11 and OpenGL limit it). A dispatch counts workgroups, not threads. |
-| `buffers` | The storage buffers: `{"name": {"doc": "...", "access": "readWrite" or "read", "fields": [{"name": "pos", "type": "vec2", "doc": "..."}]}}`. At most 4 buffers of at most 16 fields each. A field is `float`, `vec2`, `vec3`, `vec4`, `int` or `uint`. The buffer is an array of elements made of the fields, laid out as std430 (a `vec3` takes 12 bytes but aligns to 16: prefer `vec4`); the snippet reads and writes `<name>.data[index].<field>`. |
-| `params` | As for a mesh material (at most 16, each a variable of the snippet). A dispatch gives their values. |
-| `textures` | As for a mesh material: read in the snippet like in a mesh snippet. A dispatch gives the path of each texture in `params`. |
+```glsl
+struct SkyInput {               // read-only, per sky fragment
+    vec3 dir;                   // view direction in world space, normalized (y = up)
+    vec3 sun_dir;               // direction towards the sun, normalized: the directional light of slot 0, (0, 1, 0) with none
+    float time;                 // seconds of game time since the scene started (the same as fa_time.x)
+};
+struct SkySurface { vec3 color; };   // linear RGB radiance in the scene's colour space
+```
 
-A buffer in the file only describes the element; the buffer itself is created at run time with `compute.create_buffer`.
-**Storage images** (a compute shader that writes a texture) are not available yet: write the result to a buffer.
+`sky()` arrives with `s.color` holding the engine's gradient (`SceneSettings.skyColor` at the top, `horizonColor` at the
+horizon), so an empty `sky()` draws exactly the built-in sky and a snippet changes only what it needs. The result is
+drawn opaque. `fa_scene_rgb(c)` takes an sRGB colour of yours (a param of type `color`, or a constant) to the scene's
+colour space, `fa_time` is the game clock. The names of the engine's own sky program (`pos`, `ray_dir`, `frag_color`,
+`sky_color`, `horizon_color`, `fa_sun`, `fa_cspace`...) are the engine's: a param or texture that takes one is refused with
+a rename suggestion (error at `/params/<name>` or `/textures/<name>`), and your snippet's own globals must avoid them too.
 
-Errors point at the place: `/workgroupSize: 8 threads (8 x 1 x 1), which is not a multiple of 32`, `/buffers/items/fields/0/type:
-unknown field type "flaot" (did you mean "float"?)`, a snippet without `compute(in ComputeInput i)` says so with the file and
-line.
+**What the material changes.** Only the background that is painted behind the scene. The ambient and reflection light of
+the meshes (image based lighting) still follows `skyColor` and `horizonColor`: a sunset painted by a material does not
+light the meshes, so set those two colours near it. A scene with no sky material draws exactly what it drew before.
 
-### Running one
+**Textures** work as for a mesh material (`texture(sampler2D(map, map_smp), uv)`, at most 4); the sky program binds no
+texture of its own, so a sky material's textures are views and samplers 0 and up (you never write the numbers).
+`alphaMode` (`"clip"`, `"blend"`) and `"lighting": "custom"` are errors on a sky (a sky is opaque and not lit);
+`"pbr"`, `"unlit"` and `doubleSided` are ignored.
 
-The `compute.*` commands (also `fa.call("compute.dispatch", ...)` in a script, and MCP/CLI) work on buffers by id:
+**What the renderer does.** A material that is not of kind `"sky"`, does not exist or did not build draws the built-in
+sky: the reason is logged once, the build error with the file when it did not build, and the editor shows it under the
+`skyMaterial` field. A sky material is drawn where the gradient is: by a perspective camera that clears the target (not by an orthographic
+camera). The compiled twin carries
+`programs.sky` and `"kind": "sky"`; its `template` is the hash of the sky template, so a change of it recompiles sky
+materials only.
 
-| Command | What it does |
-|---|---|
-| `compute.create_buffer` | `{material, buffer, count, initial?}`: a buffer of `count` elements shaped like the material's `buffer`; `initial` is an array of `{field: value}` objects for the first elements, the rest is zero. Returns `{id, count, stride, bytes}`. |
-| `compute.write_buffer` | `{buffer, elements, first?}`: overwrites elements from `first` with `{field: value}` objects (a field left out is written as 0). |
-| `compute.dispatch` | `{material, buffers, params?, groups?}`: runs the material once. `buffers` maps each buffer name of the material to an id; `params` gives values and texture paths; `groups` is `[x, y, z]` workgroups (default `[1, 1, 1]`). Dispatches run in the order they are made. |
-| `compute.read_buffer` | `{buffer, first?, count?}`: the current contents as `{field: value}` objects (a `vecN` is an array, floats have 7 significant digits, a NaN or infinity is `null`). It waits for the GPU, so use it to check a result, not every frame. |
-| `compute.destroy_buffer` | `{buffer}`: frees it. |
-| `compute.list_buffers` | The live buffers, and `available` / `status`. |
+### 11. A dusk sky with a sun
 
-From C++ the same is `Renderer::compute()` (`fa/render/compute.h`: `create_buffer`, `write_buffer`, `dispatch`, `read_buffer`).
+A gradient from a warm horizon to a deep zenith, and a glow around the sun that follows the scene's directional light
+(`i.sun_dir`), so turning that light turns the sunset. `sunGlow` 0 leaves just the gradient.
 
-Limits, all counts and never time: 64 buffers, 256 MiB each and 1 GiB in all, at most 65535 workgroups per dimension and
-1048576 elements converted per write or read call. A request over one is refused with the number it hit.
-
-### Where it runs
-
-Compute needs a graphics API with compute shaders: **Windows** (D3D11), **Linux** (OpenGL 4.3 or newer), **macOS**
-(Metal) and **iOS** (Metal). It does not exist on **Android** (OpenGL ES 3.0) or the **web** (WebGL2), nor on a macOS
-that falls back to OpenGL 4.1. `render.supports computeShaders` says it for the running computer; there, every
-`compute.*` command that needs the GPU fails with the code `unavailable`, naming the backend, so a game can check first and
-use a CPU path instead. Nothing crashes and nothing is skipped silently. A compute material put on a `MeshRenderer` is
-drawn with the error material and the log says why.
-
-`factoria export` writes a twin for each platform that runs compute (`*.material.json.hlsl5.shader`, `.glsl430.shader`,
-`.metal_macos.shader`, `.metal_ios.shader`) and a warning for each platform that does not, which the Android and Web
-exports show. `material.info` lists `runsOn`.
-
-## Full shaders and passes
-
-When a snippet cannot say it (a second pass, your own `main`, your own light loop), a mesh material can be a **full
-shader**: `"mode": "full"`, and the file holds a `@vertex` and a `@fragment` section, each with its own `main`.
-`"passes"` lists up to four passes, each with its own `cull`, depth test and write, and `blend`, drawn in array order for
-every part of the mesh. The engine provides the transforms, camera, time, params, textures, instanced params and light
-helpers (`fa_light_count()`, `fa_light(i, ...)`, `fa_shadow(...)`) as documented globals; skinning and instancing keep
-working. The page [SHADERS_FULL.md](SHADERS_FULL.md) (`factoria docs read shaders_full`) list every name and what the
-shadow and the prepass (SSAO) do with a full material.
-
-### 11. An inked outline (a full shader with two passes)
-
-The body is a two-band toon over the scene's lights; the second pass draws the back faces pushed out along their normals,
-in the ink colour.
-
-File `materials/ink_outline.material.json`:
+File `materials/sky-dusk.material.json`:
 
 ```json
 {
   "format": "factoria.material/1",
-  "doc": "A two-band toon body with an ink outline made of the inflated back faces.",
-  "mode": "full",
-  "shader": "shaders/ink_outline.full.glsl",
-  "passes": [
-    { "name": "body", "cull": "back" },
-    { "name": "outline", "cull": "front" }
-  ],
+  "kind": "sky",
+  "doc": "A dusk sky: warm horizon, deep zenith and a glow around the sun (the directional light of slot 0).",
+  "shader": "shaders/sky-dusk.sky.glsl",
   "params": {
-    "bodyColor": { "type": "color", "default": [0.3, 0.7, 0.4, 1.0], "doc": "The colour of the lit band of the body." },
-    "inkColor": { "type": "color", "default": [0.05, 0.05, 0.08, 1.0], "doc": "The colour of the outline." },
-    "inkWidth": { "type": "float", "default": 0.03, "min": 0.0, "max": 0.5, "doc": "How far the outline pass pushes each vertex along its normal, in model units." }
+    "horizon": { "type": "color", "default": [0.95, 0.55, 0.35, 1.0], "doc": "Color at the horizon." },
+    "zenith": { "type": "color", "default": [0.08, 0.1, 0.3, 1.0], "doc": "Color straight up." },
+    "sunGlow": { "type": "float", "default": 1.0, "min": 0.0, "max": 3.0, "doc": "Strength of the glow around the sun: 0 none." }
   }
 }
 ```
 
-File `shaders/ink_outline.full.glsl`:
+File `shaders/sky-dusk.sky.glsl`:
 
 ```glsl
-@common
-varying vec3 v_pos;
-varying vec3 v_normal;
-varying vec4 v_shadow;
-
-@vertex
-void main() {
-    vec3 p = fa_position;
-#ifdef FA_PASS_OUTLINE
-    p += normalize(fa_normal) * inkWidth;  // the back faces, a little bigger than the body
-#endif
-    vec3 world = fa_world_position(p);
-    v_pos = world;
-    v_normal = fa_world_direction(fa_normal);
-    v_shadow = fa_shadow_coord(world);
-    gl_Position = fa_view_proj * vec4(world, 1.0);
-}
-
-@fragment
-void main() {
-#ifdef FA_PASS_OUTLINE
-    fa_frag_color = vec4(inkColor.rgb, 1.0);
-#else
-    vec3 n = normalize(v_normal);
-    float light = 0.0;
-    for (int i = 0; i < fa_light_count(); ++i) {
-        LightSample l = fa_light(i, v_pos, n, v_shadow);
-        light += max(dot(n, l.direction), 0.0) * dot(l.color, vec3(0.3333));
-    }
-    float band = light > 0.5 ? 1.0 : 0.45;
-    fa_frag_color = vec4(fa_apply_fog(bodyColor.rgb * (fa_ambient.rgb + vec3(band)), v_pos), 1.0);
-#endif
+void sky(in SkyInput i, inout SkySurface s) {
+    float up = clamp(i.dir.y, 0.0, 1.0);
+    vec3 col = mix(fa_scene_rgb(horizon.rgb), fa_scene_rgb(zenith.rgb), pow(up, 0.5));
+    float toward = max(dot(i.dir, i.sun_dir), 0.0);
+    float glow = pow(toward, 64.0) + 0.25 * pow(toward, 6.0);
+    s.color = col + fa_scene_rgb(vec3(1.0, 0.7, 0.4)) * glow * sunGlow;
 }
 ```
 
-Pass 0 (`body`) draws the front faces, pass 1 (`outline`) the back faces of the same mesh; the back faces pushed out show as a
-rim around the silhouette. Both write depth, so the outline never covers the body. The material casts the shadow of
-the original mesh (`"shadow": "depth"`, the default), and the engine's prepass sees the original mesh too. A skinned mesh
-draws both passes with its skin.
+Put `"skyMaterial": "materials/sky-dusk.material.json"` in the scene's settings (the command above, or View > Scene
+settings in the editor) and look with `factoria run --headless --frames 60 --screenshot-at 59` (the camera must be a
+perspective one).
+
+## Post-process materials
+
+`"kind": "post"` makes a material that is one full-screen pass of a camera's post-processing stack (a vignette of your
+own, an underwater tint, a heat haze, a depth-based fog, an outline from the normals). It is listed in
+`PostProcess.customPasses` next to the built-in effects, at a position you name (`"before:tonemap"` by default). Its
+snippet defines `void post(in PostInput i, inout PostSurface s)` and reads the picture, optionally the depth and the
+normals. The snippet contract, the helpers, the positions, the commands and what happens when a pass cannot be drawn are
+on the page [Post-process materials](shaders/SHADERS_POST.md).
+
+## Compute materials
+
+`"kind": "compute"` makes a program that runs on the GPU over storage buffers and draws nothing (particle simulations, flocking,
+flow fields). You run it with the `compute.*` commands. The snippet contract, the buffers and their std430 layout, the commands
+and where it runs (not Android or the web) are on the page [Compute materials](shaders/SHADERS_COMPUTE.md).
+
+## Full shaders and passes
+
+When a snippet cannot say it (a second pass, your own `main`, your own light loop), a mesh material can be a **full
+shader**: `"mode": "full"`, a file with a `@vertex` and a `@fragment` section, and `"passes"` (up to four, each with its
+own `cull`, depth test and write, and `blend`, drawn in array order). Skinning and instancing keep working. The names the
+engine gives you, the shadow and SSAO rules and worked examples (an inked outline, an x-ray, a custom light loop) are on
+the page [Full shaders and passes](shaders/SHADERS_FULL.md) (`factoria docs read shaders-full`).
 
 ## Not available yet
 
 - **Your own light loop** (which lights are chosen, how many, their order, the shadow map): `"custom"` lighting only
   shades each light the engine hands over. Image-based lighting (the sky reflection) is off in a custom material and
   cannot be called from `light()`.
-- Materials for the sky and post-processing; compute storage images and compute on Android and the web; textures sampled in the `vertex()` of a sprite material (a mesh
-  material can); per-instance params and vertex channels in a sprite, sky or compute material (mesh only).
+- Compute storage images and compute on Android and the web; a sky material that also
+  drives the ambient and reflection light of the meshes (they follow `skyColor` and `horizonColor`); per-instance params
+  in a sky or compute material and vertex channels (`vertexAttributes`) in a sprite, sky or compute material (a mesh
+  has them).
+- **Post passes** after the tonemap (on the display picture) and a post pass that needs the previous frame (a feedback or
+  trail effect); a pass sees the depth and normals of mesh geometry only (not of sprites).
 
 If a game needs one of these, write it in the game's `ENGINE_FEEDBACK.json` (see [ENGINE_FEEDBACK.md](ENGINE_FEEDBACK.md)):
 that is how it gets built.

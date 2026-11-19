@@ -419,7 +419,7 @@ sg_pipeline Gpu::find_or_make(PipelineKey key, const TargetFormat& format, const
 }
 
 sg_pipeline Gpu::quad_pipeline(const TargetFormat& format, bool depthTest, bool lines, BlendMode blend, bool plain,
-                               bool opaque, sg_shader shader) {
+                               bool opaque, sg_shader shader, int instanceVec4) {
     PipelineKey key{0x100u | (depthTest ? 1u : 0u) | (lines ? 2u : 0u) | (std::uint32_t(blend) << 2) |
                         (plain ? 0x10u : 0u) | (opaque ? 0x20u : 0u),
                     shader.id};
@@ -432,6 +432,25 @@ sg_pipeline Gpu::quad_pipeline(const TargetFormat& format, bool depthTest, bool 
     d.layout.attrs[ATTR_quad_quad_color2_0].format = SG_VERTEXFORMAT_UBYTE4N;
     d.layout.attrs[ATTR_quad_quad_shape_half0].format = SG_VERTEXFORMAT_FLOAT2;
     d.layout.attrs[ATTR_quad_quad_shape_rs0].format = SG_VERTEXFORMAT_HALF2;
+    if (instanceVec4 > 0) {
+        // sokol computes the offsets of every attribute or of none: with the second buffer they are given, as Vertex2D has them.
+        static_assert(sizeof(Vertex2D) == 48, "the offsets below are those of Vertex2D");
+        d.layout.attrs[ATTR_quad_quad_position].offset = 0;
+        d.layout.attrs[ATTR_quad_quad_texcoord0].offset = 12;
+        d.layout.attrs[ATTR_quad_quad_color0].offset = 20;
+        d.layout.attrs[ATTR_quad_quad_params0].offset = 24;
+        d.layout.attrs[ATTR_quad_quad_color2_0].offset = 32;
+        d.layout.attrs[ATTR_quad_quad_shape_half0].offset = 36;
+        d.layout.attrs[ATTR_quad_quad_shape_rs0].offset = 44;
+        d.layout.buffers[0].stride = int(sizeof(Vertex2D));
+        const int n = std::min(instanceVec4, kMaxInstanceVec4);
+        d.layout.buffers[kQuadInstBuffer].stride = n * 16;
+        for (int i = 0; i < n; ++i) {
+            d.layout.attrs[kQuadInstAttr + i].format = SG_VERTEXFORMAT_FLOAT4;
+            d.layout.attrs[kQuadInstAttr + i].buffer_index = kQuadInstBuffer;
+            d.layout.attrs[kQuadInstAttr + i].offset = i * 16;
+        }
+    }
     d.primitive_type = lines ? SG_PRIMITIVETYPE_LINES : SG_PRIMITIVETYPE_TRIANGLES;
     d.index_type = lines ? SG_INDEXTYPE_NONE : SG_INDEXTYPE_UINT16;
     d.depth.compare = depthTest ? SG_COMPAREFUNC_LESS_EQUAL : SG_COMPAREFUNC_ALWAYS;
@@ -543,10 +562,10 @@ sg_pipeline Gpu::full_pipeline(const TargetFormat& format, const MaterialPassSta
     return find_or_make(key, format, d);
 }
 
-sg_pipeline Gpu::sky_pipeline(const TargetFormat& format) {
-    PipelineKey key{0x300u};
+sg_pipeline Gpu::sky_pipeline(const TargetFormat& format, sg_shader shader) {
+    PipelineKey key{0x300u, shader.id};
     sg_pipeline_desc d{};
-    d.shader = sky_shader_;
+    d.shader = shader.id ? shader : sky_shader_;
     d.layout.attrs[ATTR_sky_sky_pos].format = SG_VERTEXFORMAT_FLOAT2;
     d.depth.compare = SG_COMPAREFUNC_ALWAYS;
     d.depth.write_enabled = false;
@@ -820,6 +839,19 @@ sg_pipeline Gpu::prepass_view_pipeline(const TargetFormat& format) {
     d.depth.write_enabled = false;
     d.face_winding = SG_FACEWINDING_CCW;
     d.label = "prepass-view";
+    return find_or_make(key, format, d);
+}
+
+sg_pipeline Gpu::post_material_pipeline(const TargetFormat& format, sg_shader shader) {
+    if (!shader.id) return {};
+    PipelineKey key{0xF00u, shader.id};
+    sg_pipeline_desc d{};
+    d.shader = shader;
+    d.layout.attrs[0].format = SG_VERTEXFORMAT_FLOAT2;  // `pos` of post_common.glsl, location 0
+    d.depth.compare = SG_COMPAREFUNC_ALWAYS;
+    d.depth.write_enabled = false;
+    d.face_winding = SG_FACEWINDING_CCW;
+    d.label = "post-material";
     return find_or_make(key, format, d);
 }
 

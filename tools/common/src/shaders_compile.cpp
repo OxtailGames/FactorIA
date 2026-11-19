@@ -160,6 +160,8 @@ std::string struct_var(const std::string& typeName) {
 }
 
 bool is_sprite(const MaterialDef& material) { return material.kind == "sprite"; }
+bool is_sky(const MaterialDef& material) { return material.kind == "sky"; }
+bool is_post(const MaterialDef& material) { return material.kind == "post"; }
 
 // The structs of the contract this material uses: LightSample only with lighting "custom" (a pbr material has no light()).
 std::vector<std::pair<std::string, std::vector<std::string>>> contract_of(const MaterialDef& material) {
@@ -200,10 +202,27 @@ std::string field_hint(const std::string& token, const std::string& source, cons
                 if ((*it)[2] == var) typeName = (*it)[1];
         }
     }
+    if (is_post(ctx.material)) {
+        // The depth and the normals are not fields of PostInput: reading them is what asks the renderer for the prepass.
+        std::string flat;
+        for (char c : to_lower(token))
+            if (c != '_') flat += c;
+        if (flat == "depth" || flat == "lineardepth" || flat == "zdepth" || flat == "viewdepth")
+            return "PostInput has no depth: read it with fa_depth(i.uv), the linear view depth in world units (the "
+                   "renderer then draws the depth and normal prepass for the camera).";
+        if (flat == "normal" || flat == "normals" || flat == "viewnormal" || flat == "worldnormal")
+            return "PostInput has no normal: read it with fa_normal(i.uv), the view-space normal (the renderer then "
+                   "draws the depth and normal prepass for the camera).";
+        if (flat == "color" || flat == "colour" || flat == "scene" || flat == "rgba")
+            return "PostInput has no colour: the picture at this pixel arrives in s.color (inout PostSurface s), and "
+                   "fa_scene_color(uv) reads it at any other uv.";
+    }
     std::vector<std::string> fields;
     const auto structs = contract_of(ctx.material);
     std::string where = ctx.material.full                   ? "LightSample"
+                        : is_post(ctx.material)             ? "PostSurface and PostInput"
                         : is_sprite(ctx.material)           ? "QuadSurface, QuadInput and QuadVertex"
+                        : is_sky(ctx.material)              ? "SkySurface and SkyInput"
                         : ctx.material.lighting == "custom" ? "Surface, SurfaceInput, VertexData and LightSample"
                                                             : "Surface, SurfaceInput and VertexData";
     if (const auto* f = struct_fields(typeName, structs)) {
@@ -249,9 +268,27 @@ std::string field_hint(const std::string& token, const std::string& source, cons
                                                                              {"rgba", "color"},
                                                                              {"tint", "color"},
                                                                              {"screenuv", "screen_uv"},
+                                                                             {"screenuv", "uv"},
+                                                                             {"coord", "uv"},
+                                                                             {"fragcoord", "uv"},
+                                                                             {"resolution", "size"},
+                                                                             {"res", "size"},
+                                                                             {"screensize", "size"},
+                                                                             {"pixelsize", "texel"},
+                                                                             {"texelsize", "texel"},
+                                                                             {"invsize", "texel"},
                                                                              {"screenpos", "screen_uv"},
                                                                              {"screenposition", "screen_uv"},
-                                                                             {"seconds", "time"}};
+                                                                             {"seconds", "time"},
+                                                                             {"direction", "dir"},
+                                                                             {"raydir", "dir"},
+                                                                             {"viewdir", "dir"},
+                                                                             {"viewdirection", "dir"},
+                                                                             {"sun", "sun_dir"},
+                                                                             {"sundir", "sun_dir"},
+                                                                             {"sundirection", "sun_dir"},
+                                                                             {"sunlight", "sun_dir"},
+                                                                             {"lightdir", "sun_dir"}};
     std::string lower = to_lower(token), flat;
     for (char c : lower)
         if (c != '_') flat += c;
@@ -294,16 +331,28 @@ std::vector<std::string> engine_names_of(const std::string& kind) {
 
 const std::vector<std::string>& engine_names(const MaterialDef& material) {
     static const std::vector<std::string> mesh = engine_names_of("mesh"), sprite = engine_names_of("sprite"),
+                                          sky = engine_names_of("sky"), post = engine_names_of("post"),
                                           full = engine_names_of("mesh-full");
-    return material.full ? full : is_sprite(material) ? sprite : mesh;
+    return material.full         ? full
+           : is_post(material)   ? post
+           : is_sprite(material) ? sprite
+           : is_sky(material)    ? sky
+                                 : mesh;
 }
 
 std::string prefix_rule(const MaterialDef& material) {
     if (material.full)
         return "Names starting with fa_ or FA_ belong to the engine: a full shader may use the ones "
-               "docs/SHADERS_FULL.md lists "
+               "docs/shaders/SHADERS_FULL.md lists "
                "(fa_view_proj, fa_world_position(), fa_light(), FA_TIME...) but not declare any. Rename it without the "
                "prefix.";
+    if (is_post(material))
+        return "Names starting with fa_ belong to the engine: the snippet may use the ones the contract lists "
+               "(fa_scene_color(), fa_depth(), fa_normal(), fa_time) but not declare any. Rename it without the "
+               "prefix.";
+    if (is_sky(material))
+        return "Names starting with fa_ belong to the engine: the snippet may use the ones the contract lists "
+               "(fa_time, fa_scene_rgb()) but not declare any. Rename it without the prefix.";
     return is_sprite(material)
                ? "Names starting with fa_ belong to the engine: the snippet may use the ones the contract lists "
                  "(fa_time, fa_sample_main(), fa_scene_rgb()) but not declare any. Rename it without the prefix."
@@ -317,6 +366,10 @@ constexpr const char* kLightSignatures =
     "\"custom\")  and  vec3 ambient(in SurfaceInput i, in Surface s, vec3 ambientColor) { ... }  (optional)";
 
 std::string signatures(const MaterialDef& material) {
+    if (is_post(material))
+        return "void post(in PostInput i, inout PostSurface s) { ... }  (required; a post material has no vertex())";
+    if (is_sky(material))
+        return "void sky(in SkyInput i, inout SkySurface s) { ... }  (required; a sky has no vertex())";
     if (is_sprite(material))
         return "void fragment(in QuadInput i, inout QuadSurface s) { ... }  (required)  and  void "
                "vertex(inout QuadVertex v) { ... }  (optional)";
@@ -326,7 +379,9 @@ std::string signatures(const MaterialDef& material) {
 }
 
 // The entry point of the fragment stage the kind's contract names.
-const char* fragment_entry(const MaterialDef& material) { return is_sprite(material) ? "fragment" : "surface"; }
+const char* fragment_entry(const MaterialDef& material) {
+    return is_post(material) ? "post" : is_sprite(material) ? "fragment" : is_sky(material) ? "sky" : "surface";
+}
 
 std::string undeclared_hint(const std::string& token, const MapContext& ctx) {
     // A field written without its struct (a full shader has no snippet functions to put it in).
@@ -343,12 +398,54 @@ std::string undeclared_hint(const std::string& token, const MapContext& ctx) {
         return best.empty()
                    ? std::string("No engine value is called ") + token +
                          (ctx.material.full
-                              ? "; docs/SHADERS_FULL.md lists the ones a full shader may use (fa_view_proj, "
+                              ? "; docs/shaders/SHADERS_FULL.md lists the ones a full shader may use (fa_view_proj, "
                                 "fa_world_position(), fa_light(), fa_frag_color, FA_TIME...)."
+                          : is_post(ctx.material)
+                              ? "; the ones a snippet may use are fa_scene_color(uv), fa_depth(uv), fa_normal(uv) and "
+                                "fa_time."
                           : is_sprite(ctx.material)
                               ? "; the ones a snippet may use are fa_time, fa_sample_main() and fa_scene_rgb()."
+                          : is_sky(ctx.material)
+                              ? "; the ones a snippet may use are fa_time and fa_scene_rgb()."
                               : "; the ones a snippet may read are fa_time, fa_camera_pos and fa_tangent_normal().")
                    : "did you mean " + best + "?";
+    }
+    if (is_post(ctx.material)) {
+        // What authors bring from other engines' post-process shaders.
+        std::string flat;
+        for (char c : to_lower(token))
+            if (c != '_') flat += c;
+        auto is_one = [&](std::initializer_list<const char*> names) {
+            return std::any_of(names.begin(), names.end(), [&](const char* n) { return flat == n; });
+        };
+        if (is_one({"scenecolor", "screentexture", "scenetexture", "maintex", "source", "inputtexture", "rendertexture",
+                    "colortexture", "screencolor", "framebuffer", "scene", "sceneimage", "image", "ichannel0"}))
+            return "`" + token +
+                   "` is not declared: the picture is not a texture of the snippet. Read it with fa_scene_color(uv) "
+                   "(linear colour, uv 0..1 with the origin top left); at the pixel being drawn it already is s.color.";
+        if (is_one({"depthtexture", "depthmap", "zbuffer", "depthbuffer", "scenedepth", "cameradepthtexture",
+                    "depthsample"}))
+            return "`" + token +
+                   "` is not declared: read the linear view depth in world units with fa_depth(uv); using it makes the "
+                   "renderer draw the depth and normal prepass for the camera.";
+        if (is_one({"normaltexture", "normalmap", "gbuffer", "scenenormal", "viewnormal", "normalbuffer"}))
+            return "`" + token +
+                   "` is not declared: read the view-space normal with fa_normal(uv); using it makes the renderer draw "
+                   "the depth and normal prepass for the camera.";
+        if (is_one(
+                {"resolution", "screensize", "iresolution", "viewportsize", "texturesize", "screenres", "uresolution"}))
+            return "`" + token +
+                   "` is not declared: the size of the picture in pixels is i.size (and i.texel is one pixel in uv "
+                   "units).";
+        if (is_one({"itime", "utime", "time", "gametime", "globaltime", "elapsed"}))
+            return "`" + token + "` is not declared: the seconds of game time are i.time (inside post()) or fa_time.x.";
+        if (is_one({"fragcoord", "glfragcoord", "screenuv", "screenpos", "uv", "texcoord", "vuv"}))
+            return "`" + token +
+                   "` is not declared: the pixel is i.uv (0..1 over the picture, origin top left, y down on every "
+                   "backend); in pixels it is i.uv * i.size.";
+        if (is_one({"fragcolor", "glfragcolor", "outcolor", "outputcolor", "result", "fragment"}))
+            return "`" + token +
+                   "` is not declared: write the result into s.color (inout PostSurface s); the pass outputs it.";
     }
     std::vector<std::string> names;
     for (const MaterialParam& p : ctx.material.params) names.push_back(p.name);
@@ -393,10 +490,13 @@ std::string hint_for(const std::string& message, const std::string& token, const
                        "\" of this material. Rename the local variable.";
         if (template_globals(ctx.material.kind).count(token) > 0)
             return "`" + token +
-                   "` is a name taken by the engine's 2D program (quad_common.glsl and the files it includes: "
-                   "its vertex inputs, varyings, textures, uniform blocks and helper functions are not prefixed). "
-                   "Rename "
-                   "your variable or function.";
+                   (is_sky(ctx.material)
+                        ? "` is a name taken by the engine's sky program (sky_common.glsl and the files it includes: "
+                          "its vertex input, varying, uniform blocks and helper functions are not prefixed). "
+                        : "` is a name taken by the engine's 2D program (quad_common.glsl and the files it includes: "
+                          "its vertex inputs, varyings, textures, uniform blocks and helper functions are not "
+                          "prefixed). ") +
+                   "Rename your variable or function.";
     }
     if (message.find("syntax error") != std::string::npos)
         return "A syntax error is often reported on the line after the real mistake: look for a missing ';', ')' or "
@@ -420,8 +520,9 @@ void outside_snippet(ShaderIssue& issue, const std::string& where, const std::st
             "with its own `void main()`: the problem is in how the stages fit together, such as varyings that differ "
             "between "
             "the stages, a name starting with fa_ or FA_, or a resource the template does not declare in that stage. "
-            "docs/SHADERS_FULL.md lists what a full shader may use.";
+            "docs/shaders/SHADERS_FULL.md lists what a full shader may use.";
     else if (token == "surface" || token == "fragment" || token == "vertex" ||
+             (token == "sky" && is_sky(ctx.material)) || (token == "post" && is_post(ctx.material)) ||
              (ctx.material.lighting == "custom" && (token == "light" || token == "ambient")))
         issue.hint = std::string("The engine calls ") + token +
                      "() from its template, so the snippet must define it with exactly this signature: " +
@@ -518,7 +619,21 @@ std::vector<ShaderIssue> precheck_snippet(const MaterialDef& material, const Gen
         ShaderIssue i;
         i.file = material.shader;
         i.message = std::string("the snippet defines no ") + fragment_entry(material) + "() function";
-        if (is_sprite(material))
+        if (is_post(material))
+            i.hint =
+                "Define it as `void post(in PostInput i, inout PostSurface s) { s.color.rgb = 1.0 - s.color.rgb; }`. "
+                "s.color arrives holding the picture at this pixel (linear, as the passes before this one left it), so "
+                "change only what you need; fa_scene_color(uv), fa_depth(uv) and fa_normal(uv) read other pixels. "
+                "Signatures: " +
+                signatures(material) + ".";
+        else if (is_sky(material))
+            i.hint = "Define it as `void sky(in SkyInput i, inout SkySurface s) { s.color = mix(s.color, vec3(1.0, "
+                     "0.5, 0.2), "
+                     "pow(max(dot(i.dir, i.sun_dir), 0.0), 8.0)); }`. s.color arrives holding the engine's sky (the "
+                     "gradient of "
+                     "SceneSettings.skyColor and horizonColor), so change only what you need. Signatures: " +
+                     signatures(material) + ".";
+        else if (is_sprite(material))
             i.hint =
                 "Define it as `void fragment(in QuadInput i, inout QuadSurface s) { s.color.rgb *= vec3(1.0, 0.5, "
                 "0.5); }`. s.color arrives holding what the engine would draw for the sprite, shape, tile, glyph or "
@@ -531,41 +646,43 @@ std::vector<ShaderIssue> precheck_snippet(const MaterialDef& material, const Gen
                 signatures(material) + ".";
         out.push_back(std::move(i));
     }
-    // A sprite's vertex() cannot sample a material texture: the 2D pipeline binds the textures to the fragment stage only
-    // (a mesh material has a second set of slots for the vertex stage).
-    if (is_sprite(material) && g.hasVertex && !material.textures.empty()) {
+    // A post pass is one full-screen triangle drawn by the engine: there is no vertex stage to hook.
+    if (is_post(material)) {
         static const std::regex entry(R"(\bvoid\s+vertex\s*\()");
         std::smatch m;
         if (std::regex_search(stripped, m, entry)) {
-            const std::size_t open = stripped.find('{', std::size_t(m.position(0)));
-            std::size_t close = open;
-            for (int depth = 0; open != std::string::npos && close < stripped.size(); ++close) {
-                depth += stripped[close] == '{' ? 1 : stripped[close] == '}' ? -1 : 0;
-                if (depth == 0) break;
-            }
-            for (const MaterialTexture& t : material.textures) {
-                std::size_t use = std::string::npos;  // the first use of the name inside the body of vertex()
-                for (std::size_t p = open == std::string::npos ? open : stripped.find(t.name, open);
-                     p != std::string::npos && p < close; p = stripped.find(t.name, p + 1))
-                    if (word_at(stripped, p, t.name)) {
-                        use = p;
-                        break;
-                    }
-                if (use == std::string::npos) continue;
-                ShaderIssue i;
-                i.file = material.shader;
-                i.line = line_of(stripped, use);
-                i.source = line_text(snippet, i.line);
-                i.column = column_of(stripped, use) + 1;
-                i.message = "vertex() of a sprite material cannot sample the texture \"" + t.name + "\"";
-                i.hint = "The 2D pipeline binds a material's textures to the fragment stage only. Sample \"" + t.name +
-                         "\" in fragment(), or move the effect there; a mesh material (kind \"mesh\") may sample "
-                         "textures in vertex().";
-                out.push_back(std::move(i));
-            }
+            const std::size_t at = std::size_t(m.position(0));
+            ShaderIssue i;
+            i.file = material.shader;
+            i.line = line_of(stripped, at);
+            i.source = line_text(snippet, i.line);
+            i.column = column_of(stripped, at) + 1;
+            i.message = "a post material has no vertex() hook";
+            i.hint =
+                "The pass draws one full-screen triangle, so there is no geometry to move. Remove vertex() and do the "
+                "work in post(), per pixel (i.uv is the pixel, fa_scene_color(uv) reads the picture anywhere); "
+                "a mesh material (kind \"mesh\") has vertex().";
+            out.push_back(std::move(i));
         }
     }
-    if (!is_sprite(material) && material.lighting == "custom" && !g.hasLight) {
+    if (is_sky(material) && g.hasVertex) {
+        static const std::regex entry(R"(\bvoid\s+vertex\s*\()");
+        std::smatch m;
+        ShaderIssue i;
+        i.file = material.shader;
+        if (std::regex_search(stripped, m, entry)) {
+            i.line = line_of(stripped, std::size_t(m.position(0)));
+            i.source = line_text(snippet, i.line);
+            i.column = column_of(stripped, std::size_t(m.position(0))) + 1;
+        }
+        i.message = "a sky material has no vertex(): the sky is one full-screen triangle";
+        i.hint =
+            "Remove vertex() and compute the colour of each pixel in sky() from i.dir (the view direction), i.sun_dir "
+            "and i.time. Signatures: " +
+            signatures(material) + ".";
+        out.push_back(std::move(i));
+    }
+    if (material.kind == "mesh" && material.lighting == "custom" && !g.hasLight) {
         ShaderIssue i;
         i.file = material.shader;
         i.message = "the material " + (material.path.empty() ? std::string("file") : material.path) +
@@ -787,18 +904,6 @@ Result<ShaderCompileResult> compile_material(const std::string& projectDir, cons
             res.dialects = std::move(kept);
         }
     }
-    if (!kind_is_compiled(res.material.kind)) {  // the other kinds are filled in by their M72 packages
-        ShaderIssue i;
-        i.file = materialPath;
-        i.pointer = "/kind";
-        i.message = kind_refusal(res.material.kind);
-        i.hint = "Only \"mesh\" (the default kind), \"sprite\" and \"compute\" materials compile now. Remove \"kind\" "
-                 "to use the "
-                 "material on a MeshRenderer, or set it to \"sprite\" for Sprite, Shape2D, Tilemap, Text or particles.";
-        res.errors.push_back(std::move(i));
-        return res;
-    }
-
     auto raw = tooling_detail::read_file(stdfs::path(projectDir) / res.material.shader);
     if (!raw)
         return make_error("cannot read the snippet '" + res.material.shader + "' of " + materialPath,

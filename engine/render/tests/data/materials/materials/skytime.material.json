@@ -1,0 +1,6 @@
+{
+  "format": "factoria.material/1",
+  "kind": "sky",
+  "doc": "Test fixture: a sky color that follows the engine clock (SkyInput.time).",
+  "shader": "shaders/skytime.sky.glsl"
+}

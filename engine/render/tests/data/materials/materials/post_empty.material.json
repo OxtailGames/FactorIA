@@ -1,0 +1,6 @@
+{
+  "format": "factoria.material/1",
+  "kind": "post",
+  "doc": "Test fixture: leaves the picture as the passes before it left it.",
+  "shader": "shaders/post_empty.post.glsl"
+}

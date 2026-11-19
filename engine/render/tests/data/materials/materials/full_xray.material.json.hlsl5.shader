@@ -1,7 +1,7 @@
 {
   "format": "factoria.shader/1",
   "engine": "0.31.0",
-  "template": "b8596c587ede368c012b25e36b2d19d0b67999791105a28ba8c1923787c46ca0",
+  "template": "56b07894815ef241b9f5d23208db440879861a7f060f129663565cfac135b7c5",
   "slang": "hlsl5",
   "params": [],
   "textures": [],

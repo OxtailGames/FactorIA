@@ -2,7 +2,7 @@
 
 Status: **built** (M72, package P10). Continues [CUSTOM_SHADERS.md](CUSTOM_SHADERS.md), whose decision D1 chose the surface
 snippet and left a full-GLSL escape hatch "if `ENGINE_FEEDBACK.json` asks for it". The author-facing page is
-[docs/SHADERS_FULL.md](../SHADERS_FULL.md); this one records how it is built and why, for engine developers.
+[docs/shaders/SHADERS_FULL.md](../shaders/SHADERS_FULL.md); this one records how it is built and why, for engine developers.
 
 ## What it is
 
@@ -21,7 +21,7 @@ twin has no `kind` key and a twin made before M72 still loads. The full mode is 
 |---|---|---|---|
 | F1 | Kind or mode | A **mode** of `mesh`, not a kind. Twins add `"full": true`. | It shares the component, the draw lists, the editor and the batching; a kind would copy them. |
 | F2 | What the author writes | One file with `@common`, `@vertex`, `@fragment`; each stage defines `void main()`. The engine renames it (`#define main fa_user_main`) and calls it from its own `main`, after the model matrix (instancing, skinning), the instanced params and the declared channels are set up. | The hard parts of the mesh shader (instance matrix, joint palette, extra attributes) stay the engine's even in a full shader, so an engine change does not break a game. The author gets **globals**, not a contract to re-implement. |
-| F3 | Varyings | A `varying` keyword in the file, `out` in the vertex stage and `in` in the fragment stage (`#define varying out/in`). Both stages must declare the same list; the tooling checks it before the compiler. | sokol-shdc links the stages by order and name; a mismatch otherwise gives a driver or compiler error far from the cause. The limit is 12 vec4 slots (`kMaterialMaxVaryings`): GL 4.1/GLES3/WebGL2 guarantee 16 and the engine keeps four for the instance data and the shadow coordinate. |
+| F3 | Varyings | A `varying` keyword in the file, `out` in the vertex stage and `in` in the fragment stage (`#define varying out/in`). Both stages must declare the same list; the tooling checks it before the compiler. | sokol-shdc links the stages by order and name; a mismatch otherwise gives a driver or compiler error far from the cause. The limit is 12 vec4 slots (`kMaterialMaxVaryings`): GLES3 and WebGL2 guarantee only 15 varying vectors and the engine's three flat instance varyings take the other three, so 12 + 3 fits exactly (desktop GL and D3D11 give more, the limit is the same everywhere). |
 | F4 | Passes and queue | Up to 4 passes, **drawn in array order for every part**, each with its own pipeline (cull, depth test, depth write, blend). No per-pass queue key. | A queue key per pass (an outline after the whole opaque queue, a glow after the transparent one) needs a draw list per key and a second sort. Array order covers the effects asked for (outline, x-ray, shell, decal) and keeps one draw record per part. |
 | F5 | Opaque or blended | A material is **blended** (drawn in the far-to-near list with the other blended meshes) if **any** of its passes blends; all its passes draw there, in array order. | One draw list per material keeps the order of its own passes; splitting them would let another transparent mesh draw between two passes of one mesh. The renderer sets `alphaMode "blend"` for it. |
 | F6 | Lights and shadows | The engine's light selection and the directional shadow map stay engine-owned. The template exposes them as helpers (`fa_light_count()`, `fa_light(i, ...)` returning the same `LightSample` as `light()`, `fa_shadow(...)`, `fa_apply_fog(...)`). | The author writes the loop and the shading; the engine still chooses which lights reach the mesh and keeps the shadow map, so the light budget, culling and the shadow cascade are not part of the contract. Choosing the lights is "Not available yet" in SHADERS.md. |
@@ -104,7 +104,7 @@ keeps the last good one.
 - `engine/render/tests/render3d_tests.cpp`, "full shaders: ...": headless readback of an unlit colour, a two-pass outline,
   per-pass cull and depth state, an own light loop over two lights, a missing channel falling back, instanced params and a
   texture in both stages with a custom shadow, a skinned glTF, and hot reload.
-- `shaders_docs_test.cpp` compiles every example of SHADERS.md and SHADERS_FULL.md.
+- `shaders_docs_test.cpp` compiles every example of SHADERS.md and shaders/SHADERS_FULL.md.
 
 ## Not done
 

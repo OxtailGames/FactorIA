@@ -1,4 +1,4 @@
-// docs/SHADERS.md and docs/SHADERS_FULL.md: every worked example is a real material. A fenced block that follows a line "File `path`:" is written to
+// docs/SHADERS.md and docs/shaders/SHADERS_FULL.md: every worked example is a real material. A fenced block that follows a line "File `path`:" is written to
 // that path in a scratch project; the blocks that hold a material (`"format": "factoria.material/1"`) must pass the schema
 // and the material checks, and compile for every dialect with the real sokol-shdc (SOKOL_SHDC or `factoria setup shaders`;
 // skipped with a message where it is not installed, failed instead with FA_REQUIRE_SHDC=1 as in CI).
@@ -18,6 +18,9 @@ using namespace fa;
 namespace stdfs = std::filesystem;
 
 namespace {
+
+// The pages whose worked examples are built here, relative to docs/.
+constexpr const char* kPages[] = {"SHADERS.md", "shaders/SHADERS_FULL.md"};
 
 struct DocFile {
     std::string path, lang, text;
@@ -57,7 +60,7 @@ std::vector<DocFile> docs_files(const char* page) {
 // Writes the labelled blocks into `root` (and an empty file for every default texture); returns the material files.
 std::vector<std::string> write_doc_project(const stdfs::path& root) {
     std::vector<std::string> materials;
-    for (const char* page : {"SHADERS.md", "SHADERS_FULL.md"})
+    for (const char* page : kPages)
         for (const DocFile& f : docs_files(page)) {
             testing::write_all(root / f.path, f.text);
             if (f.lang != "json") continue;
@@ -70,6 +73,18 @@ std::vector<std::string> write_doc_project(const stdfs::path& root) {
     return materials;
 }
 
+// How many materials the pages say they hold, counted from their text (a block that names the material format), so that
+// adding an example needs no edit here and a block that lost its "File `path`:" label is not dropped without a word.
+size_t material_blocks_in_pages() {
+    size_t n = 0;
+    for (const char* page : kPages) {
+        const std::string text = testing::read_all(stdfs::path(FA_REPO_ROOT) / "docs" / page);
+        static const std::string needle = "\"format\": \"factoria.material/1\"";
+        for (size_t at = text.find(needle); at != std::string::npos; at = text.find(needle, at + 1)) ++n;
+    }
+    return n;
+}
+
 }  // namespace
 
 TEST_CASE("docs/SHADERS.md and SHADERS_FULL.md: the worked examples pass the schema and the material checks") {
@@ -77,9 +92,7 @@ TEST_CASE("docs/SHADERS.md and SHADERS_FULL.md: the worked examples pass the sch
     REQUIRE(schema.has_value());
     testing::TempDir dir;
     const std::vector<std::string> materials = write_doc_project(dir.path);
-    // SHADERS.md: pulse, dissolve, water, grass, rim, sprite-dissolve, toon, ramp, hatch, relief, ink outline;
-    // SHADERS_FULL.md: lamp_lit, see_through
-    REQUIRE(materials.size() == 13);
+    REQUIRE(materials.size() == material_blocks_in_pages());
     for (const std::string& m : materials) {
         CAPTURE(m);
         CHECK(validate_json(Json::parse(*schema), Json::parse(testing::read_all(dir.path / m))).empty());
@@ -98,7 +111,7 @@ TEST_CASE(
     options.useCache = false;
     testing::TempDir dir;
     const std::vector<std::string> materials = write_doc_project(dir.path);
-    REQUIRE(materials.size() == 13);
+    REQUIRE(materials.size() == material_blocks_in_pages());
     for (const std::string& m : materials) {
         CAPTURE(m);
         auto result = compile_material(dir.str(), m, options);

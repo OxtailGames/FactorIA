@@ -83,6 +83,8 @@ struct Renderer::Impl::DrawContext {
     Group gClear, gWorld, gDebugWorld, gScreen, gDebugScreen;
     std::size_t lineFirst = 0;
     sg_buffer vbuf{};
+    sg_buffer
+        vinst{};  // the instanced params of the sprite-material batches, per vertex (vertex buffer 1 of their pipelines)
     Mat4 screenProj;
     // upload_instances
     sg_buffer mainInst{}, shadowInst{};
@@ -438,6 +440,10 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
         if (fr.cam.postStack)
             pp.sceneFx = sceneFx.plan(world, fr.cam, *fr.cam.postStack, camKey, postSerial, fr.dt, renderScale,
                                       pp.prevViewProj, pp.prevValid);
+        // The custom post passes (renderer_custom_post.h): the materials of PostProcess.customPasses that built. One that did not is left
+        // out here, named in stats.materialFallbacks and logged once.
+        if (fr.cam.postStack && fr.cam.postStack->has_custom())
+            pp.custom = make_custom_post_plan(*fr.cam.postStack, *assets, stats.materialFallbacks, warnedCustomPass);
         // A depth of field with no blur, and a motion blur with nothing to smear (the first frame, a cut, a still camera's null
         // intensity), draw nothing: they must not ask for a prepass. A forced effect (tests) and the AO debug view keep theirs.
         if (debugView != DebugView::Ao) {
@@ -499,6 +505,8 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
             pp.needsNormals = post_mask_needs_normals(pp.readMask);
         }
     }
+    // A custom post pass whose snippet calls fa_depth or fa_normal asks for the prepass; one that does not never makes it.
+    if (draws && ctx.postPlan.custom.reads_prepass()) ctx.postPlan.needsDepth = ctx.postPlan.needsNormals = true;
     plan_prepass(ctx);
     plan_outline(ctx);
     // The passes need the prepass and their shaders: a camera that cannot draw them keeps the scene's own fog (ss.fogDensity, below).
@@ -518,7 +526,8 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
         for (const DrawContext* c : postCams)
             sceneColorFx =
                 sceneColorFx ||
-                ((c->postPlan.ssr.any() || c->postPlan.fogFx.shafts || c->postPlan.sceneFx.any()) && c->doPrepass);
+                ((c->postPlan.ssr.any() || c->postPlan.fogFx.shafts || c->postPlan.sceneFx.any()) && c->doPrepass) ||
+                c->postPlan.custom.any();
         if (sceneColorFx) {
             ctx.hudAfterBloom = true;
             ctx.doMainPass = fr.wantWorld || !ctx.hudAfterBloom;
@@ -798,7 +807,7 @@ void Renderer::Impl::cull_and_batch(DrawContext& ctx) {
 
 // ---- flatten quads into one vertex stream ----
 // Reads: fr (world, debugWorld, screen, debugScreen quad lists, debugLines, camera clear colour), ctx.clearByQuad, targetW/H.
-// Writes: `stream`, ctx.gClear / gWorld / gDebugWorld / gScreen / gDebugScreen, ctx.lineFirst, ctx.vbuf (transient buffer),
+// Writes: `stream`, `instStream`, ctx.gClear / gWorld / gDebugWorld / gScreen / gDebugScreen, ctx.lineFirst, ctx.vbuf, ctx.vinst (transient buffers),
 // ctx.screenProj.
 void Renderer::Impl::build_quad_stream(DrawContext& ctx) {
     Frame& fr = ctx.fr;
@@ -812,6 +821,7 @@ void Renderer::Impl::build_quad_stream(DrawContext& ctx) {
     auto& lineFirst = ctx.lineFirst;
     auto& vbuf = ctx.vbuf;
     stream.clear();
+    instStream.clear();
     if (clearByQuad) {
         // The camera's clear colour over its viewport: one opaque quad over the unit square, which the viewport maps to the
         // camera's rectangle (see main_pass).
@@ -821,12 +831,12 @@ void Renderer::Impl::build_quad_stream(DrawContext& ctx) {
         QuadEmitter em{clearList, Mat4::identity(), false, pack_color(fr.cam.clearColor), kModeTextured, 0};
         em.rect(0, 0, 1, 1, 0, 0, 1, 1);
         clearList.end_item();
-        clearList.flatten(stream, gClear.batches);
+        clearList.flatten(stream, gClear.batches, &instStream);
     }
-    fr.world.flatten(stream, gWorld.batches);
-    fr.debugWorld.flatten(stream, gDebugWorld.batches);
-    fr.screen.flatten(stream, gScreen.batches);
-    fr.debugScreen.flatten(stream, gDebugScreen.batches);
+    fr.world.flatten(stream, gWorld.batches, &instStream);
+    fr.debugWorld.flatten(stream, gDebugWorld.batches, &instStream);
+    fr.screen.flatten(stream, gScreen.batches, &instStream);
+    fr.debugScreen.flatten(stream, gDebugScreen.batches, &instStream);
     lineFirst = stream.size();
     stream.insert(stream.end(), fr.debugLines.begin(), fr.debugLines.end());
 
@@ -835,6 +845,13 @@ void Renderer::Impl::build_quad_stream(DrawContext& ctx) {
         sg_write_buffer_desc wd{};
         wd.src.data = {stream.data(), stream.size() * sizeof(Vertex2D)};
         wd.dst.buffer = vbuf;
+        sg_write_buffer_transient(&wd);
+    }
+    if (!instStream.empty()) {
+        ctx.vinst = gpu.acquire_transient(instStream.size() * sizeof(float));
+        sg_write_buffer_desc wd{};
+        wd.src.data = {instStream.data(), instStream.size() * sizeof(float)};
+        wd.dst.buffer = ctx.vinst;
         sg_write_buffer_transient(&wd);
     }
 
@@ -1063,6 +1080,43 @@ mesh_fa_mesh_fs_params_t Renderer::Impl::fill_fs(DrawContext& ctx, const MeshIte
     return fu;
 }
 
+// The material that draws the sky (SceneSettings.skyMaterial), or nullptr: the engine's gradient. A material that did not build (its
+// own error was logged when it failed, and the previous good build, when there is one, stays in use) or that is not of kind "sky" draws
+// the gradient, and the frame's materialFallbacks names it; a material of the wrong kind is reported once.
+MaterialAsset* Renderer::Impl::sky_material(const SceneSettings& ss) {
+    if (ss.skyMaterial.empty()) {
+        warnedSkyMaterial.clear();
+        return nullptr;
+    }
+    MaterialAsset* m = assets->material(ss.skyMaterial);
+    const bool sky = m && m->ok && m->kind == MaterialKind::Sky;
+    const bool hasProgram = sky && m->programs[0].shader.id != 0;
+    if (hasProgram) {
+        warnedSkyMaterial.clear();  // a good one is back: the next bad one is reported again
+        return m;
+    }
+    if (std::find(stats.materialFallbacks.begin(), stats.materialFallbacks.end(), ss.skyMaterial) ==
+        stats.materialFallbacks.end())
+        stats.materialFallbacks.push_back(ss.skyMaterial);
+    // Built but unusable: another kind, or a sky with no GPU program (the build error of a broken one is logged by Assets).
+    if (m && m->ok && warnedSkyMaterial != m->path) {
+        warnedSkyMaterial = m->path;
+        if (sky)
+            FA_ERROR("render",
+                     "SceneSettings.skyMaterial '{}' built but has no GPU program, so the built-in sky is drawn. Hint: "
+                     "run `factoria validate` and check the graphics driver log lines above.",
+                     m->path);
+        else
+            FA_ERROR(
+                "render",
+                "SceneSettings.skyMaterial '{}' is a \"{}\" material, not a \"sky\" one, so the built-in sky is "
+                "drawn. Hint: set \"kind\": \"sky\" in the material (docs/SHADERS.md, \"Sky materials\"), or point "
+                "skyMaterial at a sky material.",
+                m->path, material_kind_name(m->kind));
+    }
+    return nullptr;
+}
+
 void Renderer::Impl::material_inputs(const MeshItem& mi, MaterialAsset* mat, MaterialInputs& in) {
     pack_material_params(*mat, mi.mr->materialParams, in.params);
     for (std::size_t i = 0; i < mat->textures.size(); ++i)
@@ -1239,7 +1293,7 @@ void Renderer::Impl::shadow_pass(DrawContext& ctx) {
                 b.index_buffer_offset = p.ibOffset;
                 if (prog) bind_textures(ctx, b, pd, prog, inputs, true);
                 sg_apply_bindings(&b);
-                apply_uniforms(UB_mesh_fa_mesh_vs_params, u);
+                if (declares(prog, UB_mesh_fa_mesh_vs_params)) apply_uniforms(UB_mesh_fa_mesh_vs_params, u);
                 if (skinned && declares(prog, UB_mesh_fa_skin))
                     apply_uniforms(UB_mesh_fa_skin, pack_palette(palette_of(*rep.anim, p.skin)));
                 if (prog) {
@@ -1276,7 +1330,9 @@ bool Renderer::Impl::plan_prepass(DrawContext& ctx) {
     if (!(pp.needsDepth || pp.needsNormals || debugView != DebugView::None)) return false;
     bool anyMesh = false;
     for (const MeshBatch& b : ctx.opaqueBatches) anyMesh = anyMesh || b.mainCount > 0;
-    if (!anyMesh || !gpu.prepass_ready()) return false;  // prepass_ready logs once why it is not
+    // A custom post pass that reads the depth gets the prepass of a camera with no opaque mesh too: it is cleared to "nothing drawn".
+    if (!(anyMesh || pp.custom.reads_prepass()) || !gpu.prepass_ready())
+        return false;  // prepass_ready logs once why it is not
     // Made now (and given back to the pool) so that a GPU that refuses the image is one warning here, not a failed pass.
     TransientDesc d;
     d.width = ctx.camPx.w;
@@ -1527,6 +1583,20 @@ void Renderer::Impl::draw_group(DrawContext& ctx, const std::vector<QuadBatch>& 
         const MaterialUse* use = qb.use && !qb.use->error ? qb.use : nullptr;
         // A material that built has both programs (the build fails otherwise): quad_plain for a plain batch.
         const MaterialProgram* prog = use ? &use->material->programs[plain ? 1 : 0] : nullptr;
+        // The instanced params of the material travel in vertex buffer 1, one value per vertex, written by flatten() for exactly the
+        // batches of such a use. A use made before a hot reload that changed them has no matching data: skipped for this frame
+        // (before it is counted as drawn), and reported once.
+        const int instVec4 = prog ? use->instVec4 : 0;
+        if (prog && instVec4 != use->material->instanceVec4) {
+            if (warnedSpriteInstLayout.insert(use->material->path).second)
+                FA_WARN("render",
+                        "The sprite material {} is not drawn: its instanced params changed after it was reloaded, so "
+                        "the batch built "
+                        "before no longer matches. Hint: recompile the material (shader.compile) and reopen the scene.",
+                        use->material->path);
+            continue;
+        }
+        if (instVec4 > 0 && !ctx.vinst.id) continue;
         if (qb.use && !prog) {
             const std::string& path = qb.use->material->path;
             if (std::find(stats.materialFallbacks.begin(), stats.materialFallbacks.end(), path) ==
@@ -1536,9 +1606,9 @@ void Renderer::Impl::draw_group(DrawContext& ctx, const std::vector<QuadBatch>& 
             count_material(use->material);
         }
         const sg_shader programShader = prog ? prog->shader : sg_shader{};
-        sg_apply_pipeline(format
-                              ? gpu.quad_pipeline(*format, depthTest, false, qb.blend, plain, qb.opaque, programShader)
-                              : gpu.quad_pipeline(depthTest, false, qb.blend, plain, qb.opaque, programShader));
+        sg_apply_pipeline(
+            format ? gpu.quad_pipeline(*format, depthTest, false, qb.blend, plain, qb.opaque, programShader, instVec4)
+                   : gpu.quad_pipeline(depthTest, false, qb.blend, plain, qb.opaque, programShader, instVec4));
         if (fogOn) {
             const float to = qb.blend == BlendMode::Multiply ? 1.0f : qb.blend == BlendMode::Additive ? 0.0f : -1.0f;
             for (int c = 0; c < 3; ++c) {
@@ -1577,6 +1647,11 @@ void Renderer::Impl::draw_group(DrawContext& ctx, const std::vector<QuadBatch>& 
             sg_bindings b{};
             b.vertex_buffers[0] = vbuf;
             b.vertex_buffer_offsets[0] = int((qb.firstQuad + done) * 4 * sizeof(Vertex2D));
+            if (instVec4 > 0) {
+                b.vertex_buffers[kQuadInstBuffer] = ctx.vinst;
+                b.vertex_buffer_offsets[kQuadInstBuffer] =
+                    int((qb.instFirst + std::size_t(done) * 4 * std::size_t(instVec4) * 4) * sizeof(float));
+            }
             b.index_buffer = gpu.quad_index_buffer();
             b.views[VIEW_quad_tex] = qb.tex->gpu_view();
             b.views[VIEW_quad_normal_tex] = (qb.lit && qb.normal ? qb.normal : assets->white())->gpu_view();
@@ -1588,8 +1663,11 @@ void Renderer::Impl::draw_group(DrawContext& ctx, const std::vector<QuadBatch>& 
             if (prog) {  // the material's textures follow the engine's views and samplers; only what the program declares
                 const MaterialAsset& mat = *use->material;
                 for (std::size_t i = 0; i < mat.textures.size() && i < std::size_t(kMaxMaterialTextures); ++i) {
+                    // Bound for both stages; the program takes the slots it declares (vertex() may sample the texture too).
                     b.views[kMaterialSpriteFirstView + int(i)] = use->textures[i]->gpu_view();
                     b.samplers[kMaterialSpriteFirstSampler + int(i)] = gpu.sampler(mat.textures[i].sampler);
+                    b.views[kMaterialSpriteVsFirstView + int(i)] = use->textures[i]->gpu_view();
+                    b.samplers[kMaterialSpriteVsFirstSampler + int(i)] = gpu.sampler(mat.textures[i].sampler);
                 }
                 for (int i = 0; i < SG_MAX_VIEW_BINDSLOTS; ++i)
                     if (!((prog->viewMask >> i) & 1u)) b.views[i] = {};
@@ -1662,9 +1740,27 @@ void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
 
         // sky
         if (fr.wantWorld && fr.cam.perspective && fr.cam.clear && !fr.cam.studio) {
-            sg_apply_pipeline(gpu.sky_pipeline());
+            // SceneSettings.skyMaterial draws the sky through its own program (same vertex stage, same uniform blocks, plus the
+            // material's block and textures); anything wrong with it keeps the gradient. Reflections and the ambient light of the
+            // meshes (fa_env_sky / fa_env_horizon) always follow skyColor and horizonColor.
+            MaterialAsset* skyMat = sky_material(ss);
+            const MaterialProgram* skyProg =
+                skyMat ? &skyMat->programs[0] : nullptr;  // sky_material checked it has a shader
+            MaterialInputs skyIn{};
+            sg_apply_pipeline(gpu.sky_pipeline(skyProg ? skyProg->shader : sg_shader{}));
             sg_bindings b{};
             b.vertex_buffers[0] = gpu.fullscreen_triangle();
+            if (skyProg) {
+                pack_material_params(*skyMat, ss.skyMaterialParams, skyIn.params, "skyMaterialParams", "SceneSettings");
+                for (std::size_t i = 0; i < skyMat->textures.size(); ++i) {
+                    const int view = kMaterialSkyFirstView + int(i), smp = kMaterialSkyFirstSampler + int(i);
+                    if (!((skyProg->viewMask >> view) & 1u) || !((skyProg->samplerMask >> smp) & 1u)) continue;
+                    skyIn.textures[i] = material_texture(*skyMat, int(i), ss.skyMaterialParams, *assets,
+                                                         "skyMaterialParams", "SceneSettings");
+                    b.views[view] = skyIn.textures[i]->gpu_view();
+                    b.samplers[smp] = gpu.sampler(skyMat->textures[i].sampler);
+                }
+            }
             sg_apply_bindings(&b);
             sky_sky_vs_params_t vu{};
             copy_mat(vu.inv_view_proj, fr.cam.invViewProj);
@@ -1681,7 +1777,20 @@ void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
             fu.horizon_color[1] = ss.horizonColor.g;
             fu.horizon_color[2] = ss.horizonColor.b;
             fu.horizon_color[3] = 1;
+            // The sun of a sky material: the directional light of slot 0 (the one that casts shadows, else the brightest), up
+            // when the scene has none. The built-in program does not read these.
+            Vec3 sun{0.0f, 1.0f, 0.0f};
+            if (!fr.cam.studio && !ctx.lights.empty()) {
+                const LightData& l = ctx.lights[0];
+                if (l.color.w == 0.0f && l.pos.w == 0.0f) sun = Vec3{l.pos.x, l.pos.y, l.pos.z};
+            }
+            fu.fa_sun[0] = sun.x;
+            fu.fa_sun[1] = sun.y;
+            fu.fa_sun[2] = sun.z;
+            fu.fa_time[0] = skyProg ? ctx.fuScene.fa_time[0] : 0.0f;
+            fu.fa_cspace[0] = fr.linear ? 1.0f : 0.0f;
             apply_uniforms(UB_sky_sky_fs_params, fu);
+            if (skyProg) apply_material_params(*skyProg, skyIn);
             sg_draw(0, 3, 1);
             ++stats.drawCalls;
         }
@@ -1998,6 +2107,22 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
             use.skip_outline();  // the pass did not get the image: drawn without
         return t && use.fx.outline ? t->texView : sg_view{};
     };
+    // The custom post passes of PostProcess.customPasses (renderer_custom_post.h) at one place of the stack: every camera's own, over its
+    // rectangle of the picture, where the built-in passes of the camera before and after leave it.
+    auto custom_slot = [&](PostSlot slot) {
+        for (DrawContext* c : postCams) {
+            if (!c->postPlan.custom.any_in(slot)) continue;
+            const BloomTarget customDst =
+                ctx.hudAfterBloom && ctx.msaa
+                    ? BloomTarget{gameTarget.colorAtt, gameTarget.resolveAtt, gpu.sample_count()}
+                    : BloomTarget{ctx.msaa ? gameTarget.resolveColorAtt : gameTarget.colorAtt, sg_view{}, 1};
+            customPost.add_passes(graph, transient_targets(), gpu, sceneFx, c->postPlan.custom, slot, c->postPlan.rect,
+                                  physW, physH, game, gameTarget.texView, customDst, c->postPlan.prepass,
+                                  c->postPlan.sceneLinear, fr.time, &stats.drawCalls, stats.materialFallbacks,
+                                  c->plan.name);
+        }
+    };
+    custom_slot(PostSlot::Main);
     // Screen-space reflections of every camera (renderer_ssr.h), over its rectangle of the scene colour, on the picture the main pass drew (the ambient occlusion
     // and the fog are already in it), before the sun shafts, the depth of field and the rest of the stack.
     for (DrawContext* c : postCams) {
@@ -2009,6 +2134,7 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
         ssr.add_passes(graph, transient_targets(), gpu, c->postPlan.ssr, c->postPlan.rect, physW, physH, game,
                        gameTarget.texView, ssrDst, c->postPlan.prepass, &stats.drawCalls, c->plan.name);
     }
+    custom_slot(PostSlot::AfterSsr);
     // The sun shafts of every camera (renderer_fog.h), over its rectangle of the scene colour, before the depth of field. (The fog is
     // drawn in the main pass.)
     for (DrawContext* c : postCams) {
@@ -2020,6 +2146,7 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
         fogFx.add_passes(graph, transient_targets(), gpu, c->postPlan.fogFx, c->postPlan.rect, physW, physH, game,
                          gameTarget.texView, fogDst, c->postPlan.prepass, &stats.drawCalls, c->plan.name);
     }
+    custom_slot(PostSlot::AfterShafts);
     // Depth of field and motion blur of every camera (renderer_dof.h), over its rectangle of the scene colour and before the bloom.
     for (DrawContext* c : postCams) {
         if (!c->postPlan.sceneFx.any() || !c->postPlan.prepass.valid()) continue;
@@ -2030,6 +2157,7 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
         sceneFx.add_passes(graph, transient_targets(), gpu, c->postPlan.sceneFx, c->postPlan.rect, physW, physH, game,
                            gameTarget.texView, fxDst, c->postPlan.prepass, &stats.drawCalls, c->plan.name);
     }
+    custom_slot(PostSlot::AfterDof);
     if (pp.bloom.enabled) {
         BloomTarget dst;
         if (ctx.hudAfterBloom && ctx.msaa) {
@@ -2045,6 +2173,7 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
         bloom.add_passes(graph, transient_targets(), gpu, pp.bloom, physW, physH, game, gameTarget.texView, dst, dirt,
                          &stats.drawCalls, plan.name);
     }
+    custom_slot(PostSlot::AfterBloom);
     const bool hudItems = fr.wantScreen && (!ctx.gScreen.batches.empty() || !ctx.gDebugScreen.batches.empty());
     if (ctx.hudAfterBloom && hudItems) {
         std::vector<ResourceId> reads{game};

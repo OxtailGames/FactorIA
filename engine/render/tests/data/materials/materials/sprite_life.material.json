@@ -1,0 +1,6 @@
+{
+  "format": "factoria.material/1",
+  "kind": "sprite",
+  "doc": "Test fixture: shows QuadInput.life (how far a particle is through its life) as a grey level.",
+  "shader": "shaders/sprite_life.fragment.glsl"
+}

@@ -1,0 +1,152 @@
+shaders:
+  -
+    slang: glsl430
+    programs:
+      -
+        name: sky
+        vertex_func:
+          path: out/m_fa_mat_sky_glsl430_vertex.glsl
+          is_binary: false
+          entry_point: main
+        fragment_func:
+          path: out/m_fa_mat_sky_glsl430_fragment.glsl
+          is_binary: false
+          entry_point: main
+        attrs:
+          -
+            slot: 0
+            type: vec2
+            base_type: Float
+            glsl_name: pos
+        uniform_blocks:
+          -
+            slot: 0
+            stage: vertex
+            size: 80
+            struct_name: sky_vs_params
+            inst_name: _31
+            glsl_uniforms:
+              -
+                type: vec4
+                array_count: 5
+                offset: 0
+                glsl_name: sky_vs_params
+          -
+            slot: 5
+            stage: fragment
+            size: 32
+            struct_name: fa_material
+            inst_name: _45
+            glsl_uniforms:
+              -
+                type: vec4
+                array_count: 2
+                offset: 0
+                glsl_name: fa_material
+          -
+            slot: 1
+            stage: fragment
+            size: 80
+            struct_name: sky_fs_params
+            inst_name: _93
+            glsl_uniforms:
+              -
+                type: vec4
+                array_count: 5
+                offset: 0
+                glsl_name: sky_fs_params
+        views:
+          -
+            texture:
+              slot: 0
+              stage: fragment
+              name: stars
+              multisampled: false
+              type: 2d
+              sample_type: float
+        samplers:
+          -
+            slot: 0
+            stage: fragment
+            name: stars_smp
+            sampler_type: filtering
+        texture_sampler_pairs:
+          -
+            slot: 0
+            stage: fragment
+            name: stars_stars_smp
+            view_name: stars
+            sampler_name: stars_smp
+            view_slot: 0
+            sampler_slot: 0
+            glsl_name: stars_stars_smp
+  -
+    slang: hlsl5
+    programs:
+      -
+        name: sky
+        vertex_func:
+          path: out/m_fa_mat_sky_hlsl5_vertex.hlsl
+          is_binary: false
+          entry_point: main
+          d3d11_target: vs_5_0
+        fragment_func:
+          path: out/m_fa_mat_sky_hlsl5_fragment.hlsl
+          is_binary: false
+          entry_point: main
+          d3d11_target: ps_5_0
+        attrs:
+          -
+            slot: 0
+            type: vec2
+            base_type: Float
+            hlsl_sem_name: TEXCOORD
+            hlsl_sem_index: 0
+        uniform_blocks:
+          -
+            slot: 0
+            stage: vertex
+            size: 80
+            struct_name: sky_vs_params
+            inst_name: _31
+            hlsl_register_b_n: 0
+          -
+            slot: 5
+            stage: fragment
+            size: 32
+            struct_name: fa_material
+            inst_name: _45
+            hlsl_register_b_n: 5
+          -
+            slot: 1
+            stage: fragment
+            size: 80
+            struct_name: sky_fs_params
+            inst_name: _93
+            hlsl_register_b_n: 1
+        views:
+          -
+            texture:
+              slot: 0
+              stage: fragment
+              name: stars
+              multisampled: false
+              type: 2d
+              sample_type: float
+              hlsl_register_t_n: 0
+        samplers:
+          -
+            slot: 0
+            stage: fragment
+            name: stars_smp
+            sampler_type: filtering
+            hlsl_register_s_n: 0
+        texture_sampler_pairs:
+          -
+            slot: 0
+            stage: fragment
+            name: stars_stars_smp
+            view_name: stars
+            sampler_name: stars_smp
+            view_slot: 0
+            sampler_slot: 0

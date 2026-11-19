@@ -1,4 +1,4 @@
-// FactorIA full-shader template (docs/SHADERS_FULL.md, docs/design/CUSTOM_SHADERS_FULL.md): the engine side of a mesh material
+// FactorIA full-shader template (docs/shaders/SHADERS_FULL.md, docs/design/CUSTOM_SHADERS_FULL.md): the engine side of a mesh material
 // whose "mode" is "full", i.e. whose author writes the vertex and the fragment stage (and their `main`) instead of a surface()
 // snippet. Not compiled on its own: the generated top file defines the @block fa_user (the material's params, textures and
 // instanced-param globals; no snippet), `@include mesh_common.glsl` (the blocks below build on its fa_vs_common, fa_skin_common,
