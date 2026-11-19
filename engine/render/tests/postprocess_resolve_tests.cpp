@@ -470,6 +470,35 @@ TEST_CASE(
     CHECK_FALSE(st.customErrors[0].hint.empty());
 }
 
+TEST_CASE("resolve_post_stack: the entries past the cap of 32 are named, and one that does not parse says why") {
+    Scene s;
+    s.world.add<PostProcess>(s.cam);
+    Json eight = Json::array();
+    for (int i = 0; i < kMaxCustomPostPasses; ++i)
+        eight.push_back(Json::object({{"material", "m" + std::to_string(i)}}));
+    s.world.get<PostProcess>(s.cam)->customPasses = eight;
+    for (const char* id : {"v0", "v1", "v2"}) s.pp(s.volume(id)).customPasses = eight;
+    Json last =
+        Json::array();  // the 33rd entry is fine, the 34th names no material and the 35th has a position nobody knows
+    last.push_back(Json::object({{"material", "late"}}));
+    last.push_back(Json::object({{"position", "after:bloom"}}));
+    last.push_back(Json::object({{"material", "later"}, {"position", "after:nowhere"}}));
+    s.pp(s.volume("v3")).customPasses = last;
+    const PostStack st = s.resolve();
+    CHECK(st.custom.size() == std::size_t(4 * kMaxCustomPostPasses));
+    REQUIRE(st.customErrors.size() == 3);
+    const std::string& cap = st.customErrors[0].message;
+    CHECK(cap.find("32") != std::string::npos);
+    CHECK(cap.find("3 entries") != std::string::npos);
+    CHECK(cap.find("/customPasses/0") != std::string::npos);
+    CHECK(cap.find("'late'") != std::string::npos);
+    // The two that do not parse say which they are and why, as an entry of the camera would.
+    CHECK(st.customErrors[1].message.find("/customPasses/1") != std::string::npos);
+    CHECK(st.customErrors[1].message.find("material") != std::string::npos);
+    CHECK(st.customErrors[2].message.find("/customPasses/2") != std::string::npos);
+    CHECK(st.customErrors[2].message.find("after:nowhere") != std::string::npos);
+}
+
 TEST_CASE("resolve_post_stack: the camera's own stack goes first, volumes are applied over it") {
     Scene s;
     s.world.add<PostProcess>(s.cam);

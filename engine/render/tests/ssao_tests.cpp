@@ -186,7 +186,10 @@ TEST_CASE("ssao: a stronger intensity and a wider radius darken more; intensity 
     const int strong = grey(g.draw(w), 160, 117);
     CHECK(strong < base - 5);
     p.ssaoIntensity = 2.2f;
-    p.ssaoRadius = 0.1f;  // only the floor within 0.1 m of the wall: the pixel at 0.5 m is out
+    // Row 118 is the floor 1.4 m in front of the wall (the crease is on row 115: 90 + 156 * 2 / 12.5; the floor at row 118 is 11.1 m from
+    // the camera, 1.4 m short of the wall). It is outside a radius of 0.1 m (no darkening, as far from the crease as the open floor) and
+    // inside one of 2.0 m, which darkens it: the two radii are told apart on this row.
+    p.ssaoRadius = 0.1f;
     const int narrow = grey(g.draw(w), 160, 118);
     p.ssaoRadius = 2.0f;
     const int wide = grey(g.draw(w), 160, 118);
@@ -283,10 +286,10 @@ struct Own {
     Renderer r;
     bool ok = false;
     std::string error;
-    explicit Own(Gfx& gx, int samples) : g(gx) {
+    explicit Own(Gfx& gx, int samples, int width = 320, int height = 180) : g(gx) {
         RendererDesc d;
-        d.designWidth = 320;
-        d.designHeight = 180;
+        d.designWidth = width;
+        d.designHeight = height;
         d.sampleCount = samples;
         d.headless = true;
         d.adoptContext = true;
@@ -346,8 +349,9 @@ TEST_CASE(
             CHECK(max_diff(a, b, 130, 100, 190, 135) <= 2);
             CHECK(grey(b, 160, 117) >= 200);
             // Outside the glass the crease is still darkened.
-            CHECK(darkest(b, 285, 112, 122) <
-                  grey(a, 285, 117) - 20);  // the crease is a few rows wide: where it is depends on the resolution
+            // The crease is on row 115, but it is a few rows wide and the darkest row depends on the resolution (the occlusion is made at
+            // half size and its texels are blurred), so the darkest of rows 112 .. 122 (3 above to 7 below it) is compared with the picture without the effect, not one fixed row.
+            CHECK(darkest(b, 285, 112, 122) < grey(a, 285, 117) - 20);
         }
     }
 }
@@ -394,27 +398,10 @@ TEST_CASE("ssao: a picture of odd size (321 x 181) darkens the crease and leaves
           "resolutions") {
     Gfx& base = gfx();
     REQUIRE(base.ok);
-    Renderer r;
-    RendererDesc d;
-    d.designWidth = 321;
-    d.designHeight = 181;
-    d.sampleCount = 1;
-    d.headless = true;
-    d.adoptContext = true;
-    std::string error;
-    REQUIRE_MESSAGE(r.init(d, base.gpu.environment(), &error), error);
-    auto draw = [&](World& w) {
-        r.begin_frame();
-        r.render_world(w, 0.0f);
-        r.end_frame();
-        base.gpu.end_frame();
-        Image img;
-        std::string err;
-        const bool captured = r.capture(img, &err);
-        INFO("capture error: " << err);
-        REQUIRE(captured);
-        return img;
-    };
+    Own own(base, 1, 321, 181);  // shut down at the end of the scope, also when a REQUIRE below fails
+    REQUIRE_MESSAGE(own.ok, own.error);
+    Renderer& r = own.r;
+    auto draw = [&](World& w) { return own.draw(w); };
     World w;
     floor_and_wall(w);
     const Image plain = draw(w);
@@ -430,17 +417,18 @@ TEST_CASE("ssao: a picture of odd size (321 x 181) darkens the crease and leaves
         p.ssaoQuality = row.q;
         const Image img = draw(w);
         int rw = 0, rh = 0;
-        REQUIRE(resource_size(r, "camera:0/ssao-a", rw, rh));
+        REQUIRE(resource_size(r, "camera:0/ssao-a", rw, rh));  // of the frame just drawn: before the second draw
+        const Image again = draw(w);                           // the same picture again
         INFO("quality " << int(row.q));
         CHECK(rw == row.w);
         CHECK(rh == row.h);
-        CHECK(darkest(img, 160, 108, 123) < 238);                         // the crease (row 116 of 181)
+        // The crease: 90.5 + 156 * 2 / 12.5 = 115.4, so row 115, a few rows wide (rows 108 .. 123 hold its darkest, as in the 320 x 180 case).
+        CHECK(darkest(img, 160, 108, 123) < 238);
         CHECK(grey(img, 160, 153) >= 243);                                // the open floor
         CHECK(std::abs(grey(img, 160, 55) - grey(plain, 160, 55)) <= 2);  // the high wall
         // The last row and the last column of the odd picture (a texel that covers one pixel) are as bright as the open floor.
         CHECK(grey(img, 160, 180) >= 243);
         CHECK(grey(img, 320, 153) >= 243);
-        CHECK(max_diff(img, draw(w), 0, 0, 321, 181) == 0);  // the same picture again
+        CHECK(max_diff(img, again, 0, 0, 321, 181) == 0);
     }
-    r.shutdown();
 }

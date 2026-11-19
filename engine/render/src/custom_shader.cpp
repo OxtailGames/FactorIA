@@ -829,11 +829,12 @@ void Assets::build_material(MaterialAsset& m) {
     }
     m.error = r.error().message;
     note_failure("material", m.path,
-                 r.error().message + (m.ok ? "\nThe previous version of the material stays in use."
-                                      : m.kind == MaterialKind::Post ? "\nThe custom post passes using it are skipped."
-                                      : m.kind == MaterialKind::Sky
-                                          ? "\nThe sky using it is drawn as the built-in gradient."
-                                          : "\nThe meshes and sprites using it are drawn magenta."),
+                 r.error().message +
+                     (m.ok                              ? "\nThe previous version of the material stays in use."
+                      : m.kind == MaterialKind::Post    ? "\nThe custom post passes using it are skipped."
+                      : m.kind == MaterialKind::Sky     ? "\nThe sky using it is drawn as the built-in gradient."
+                      : m.kind == MaterialKind::Compute ? "\nThe compute.* commands that name it fail with this error."
+                                                        : "\nThe meshes and sprites using it are drawn magenta."),
                  r.error().hint);
 }
 

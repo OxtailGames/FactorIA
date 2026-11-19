@@ -88,6 +88,12 @@ struct CustomPostPlan {
     std::vector<CustomPostEntry> entries;
     CustomHistoryFrame history;
     bool any() const { return !entries.empty(); }
+    // Some pass keeps a history (its snippet calls fa_history).
+    bool any_history() const {
+        for (const CustomPostEntry& e : entries)
+            if (e.usesHistory) return true;
+        return false;
+    }
     bool any_in(PostSlot slot) const {
         for (const CustomPostEntry& e : entries)
             if (e.slot == slot) return true;
@@ -160,6 +166,11 @@ public:
     void reset_history(std::uint64_t camera);
     // The images the histories hold now (a test).
     int history_image_count() const;
+    // Tests: the budget of the history images in bytes (0 = the default), whether the GPU refuses them, and how many times a slot was
+    // asked of the GPU (a slot over the budget is not asked).
+    void set_history_budget(std::uint64_t bytes) { historyBudget_ = bytes; }
+    void set_history_refused(bool refuse) { refuseHistory_ = refuse; }
+    int history_attempts() const { return historyAttempts_; }
 
     static constexpr std::uint64_t kHistoryIdleFrames =
         120;  // frames, not seconds: the result does not depend on the CPU
@@ -184,7 +195,14 @@ private:
     std::shared_ptr<HistorySlot> plan_history(const CustomHistoryFrame& hf, const HistoryKey& key, int w, int h,
                                               sg_pixel_format format, const std::string& label);
     std::map<HistoryKey, std::shared_ptr<HistorySlot>> history_;
+    // The slots whose images the GPU refused, with the shape (w, h, format) it refused: plan_history does not try them again until the
+    // shape changes or forget_targets.
+    std::map<HistoryKey, std::tuple<int, int, sg_pixel_format>> historyRefused_;
     bool warnedHistory_ = false;
+    std::uint64_t historyBudget_ = 0;
+    bool refuseHistory_ = false;
+    int historyAttempts_ = 0;
+    std::uint64_t history_budget() const;
 
     std::vector<std::uint64_t> failed_;  // shapes whose images could not be made
     std::vector<std::uint64_t> probed_;  // shapes whose images were made once

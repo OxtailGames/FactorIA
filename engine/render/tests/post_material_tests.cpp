@@ -15,6 +15,7 @@
 #include <vector>
 
 #include "fa/core/json.h"
+#include "fa/render/compute.h"
 #include "fa/scene/postprocess.h"
 #include "frame_graph.h"
 #include "postprocess.h"
@@ -382,6 +383,38 @@ TEST_CASE("post materials: a material that does not build, or is not a post mate
     s.passes({entry("materials/post_broken.material.json"), entry("materials/glow.material.json")});
     img = g.render(s.w);
     CHECK(diff_images(without, img, 2.0f / 255.0f).maxError <= 2.0 / 255.0);
+}
+
+TEST_CASE(
+    "materials: the error of a material that does not build says what happens to its kind, not 'magenta' for all") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    MaterialScope scope;
+    g.renderer.set_shader_compiler([](const std::string& path, const std::string&) -> Result<Json> {
+        return make_error("shaders/broken.glsl:3:5: error: nothing compiles in " + path, "fix the shader");
+    });
+    for (const char* kind : {"post", "sky", "compute", "mesh"}) {
+        const std::string path = std::string("materials/broken_") + kind + ".material.json";
+        REQUIRE(fs::write_text(path, std::string(R"({"format": "factoria.material/1", "kind": ")") + kind +
+                                         R"(", "shader": "shaders/broken.glsl"})")
+                    .ok());
+    }
+    ProblemLog log;
+    {
+        Scene2d s;
+        s.passes({entry("materials/broken_post.material.json")});
+        g.render(s.w);
+        World sky;
+        sky.add<Camera>(make(sky, "cam"));
+        sky.settings().skyMaterial = "materials/broken_sky.material.json";
+        g.render(sky);
+    }
+    if (g.renderer.compute().available())
+        (void)g.renderer.compute().create_buffer("materials/broken_compute.material.json", "buf", 1);
+    CHECK(log.count("The custom post passes using it are skipped.") == 1);
+    CHECK(log.count("The sky using it is drawn as the built-in gradient.") == 1);
+    if (g.renderer.compute().available()) CHECK(log.count("The compute.* commands that name it fail") == 1);
+    CHECK(log.count("drawn magenta") == 0);
 }
 
 TEST_CASE("post materials: hot reload swaps the shader, keeps the last good one on a broken edit and recovers") {
@@ -917,5 +950,390 @@ TEST_CASE("post history: the images are freed after kHistoryIdleFrames frames no
     img = g.render(s.w);
     near(img.pixel(20, 20), 1, 0, 0);
     CHECK(render::renderer_post_history_images(g.renderer) == 2);
+    CHECK(log.messages().empty());
+}
+
+// ---- the cut final pass: its images, a split screen, the multisampled HUD chain, a gamma scene ----------------------------------
+
+namespace {
+
+// A renderer of its own with a sample count (the shared one has the one of FA_TEST_SAMPLES), shut down when the object ends, even when
+// a REQUIRE fails in between.
+struct OwnRenderer {
+    Gfx& g;
+    Renderer r;
+    bool ok = false;
+    std::string error;
+    explicit OwnRenderer(Gfx& gx, int samples) : g(gx) {
+        RendererDesc d;
+        d.designWidth = 320;
+        d.designHeight = 180;
+        d.sampleCount = samples;
+        d.headless = true;
+        d.adoptContext = true;
+        ok = r.init(d, g.gpu.environment(), &error);
+    }
+    ~OwnRenderer() { r.shutdown(); }
+    OwnRenderer(const OwnRenderer&) = delete;
+    OwnRenderer& operator=(const OwnRenderer&) = delete;
+    Image draw(World& w) {
+        r.begin_frame();
+        r.render_world(w, 1.0f / 60.0f);
+        r.end_frame();
+        g.gpu.end_frame();
+        Image img;
+        std::string err;
+        const bool captured = r.capture(img, &err);
+        INFO("capture error: " << err);
+        REQUIRE(captured);
+        return img;
+    }
+    std::vector<std::string> order() {
+        const render::FrameGraph* graph = render::renderer_frame_graph(r);
+        REQUIRE(graph != nullptr);
+        return graph->order_names();
+    }
+};
+
+// The output of a renderer forced for the life of the object.
+struct ForcedOutput {
+    Renderer& r;
+    ForcedOutput(Renderer& rr, HdrEncoding e, float headroom) : r(rr) {
+        HdrOutputInfo i;
+        i.requested = true;
+        i.active = e != HdrEncoding::Sdr;
+        i.encoding = e;
+        i.headroom = headroom;
+        render::renderer_force_output(r, &i);
+    }
+    ~ForcedOutput() { render::renderer_force_output(r, nullptr); }
+    ForcedOutput(const ForcedOutput&) = delete;
+    ForcedOutput& operator=(const ForcedOutput&) = delete;
+};
+
+bool usable_format(sg_pixel_format f) {
+    const sg_pixelformat_info i = sg_query_pixelformat(f);
+    return i.render && i.sample && i.filter;
+}
+
+}  // namespace
+
+TEST_CASE(
+    "post materials: the images of a cut final pass hold the display format, and a float one with an HDR window") {
+    using render::pick_ldr_cut_format;
+    // The choice, whatever this GPU can do: an SDR window and a float display keep the display format; an HDR window over an 8-bit one
+    // takes the half float, else the full float, else stays.
+    CHECK(pick_ldr_cut_format(SG_PIXELFORMAT_RGBA8, false, true, true) == SG_PIXELFORMAT_RGBA8);
+    CHECK(pick_ldr_cut_format(SG_PIXELFORMAT_RGBA8, true, true, true) == SG_PIXELFORMAT_RGBA16F);
+    CHECK(pick_ldr_cut_format(SG_PIXELFORMAT_RGBA8, true, false, true) == SG_PIXELFORMAT_RGBA32F);
+    CHECK(pick_ldr_cut_format(SG_PIXELFORMAT_RGBA8, true, false, false) == SG_PIXELFORMAT_RGBA8);
+    CHECK(pick_ldr_cut_format(SG_PIXELFORMAT_RGBA16F, true, true, true) == SG_PIXELFORMAT_RGBA16F);
+    CHECK(pick_ldr_cut_format(SG_PIXELFORMAT_RGBA16F, false, false, false) == SG_PIXELFORMAT_RGBA16F);
+
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    MaterialScope scope;
+    ProblemLog log;
+    render::Gpu* gpu = render::renderer_gpu(g.renderer);
+    REQUIRE(gpu != nullptr);
+    auto cut_picture = [&] {
+        Scene2d s;
+        PostProcess& p = s.post();
+        p.posterizeEnabled = true;
+        p.posterizeLevels = 64;
+        s.passes({entry(kTint, "after:posterize")});
+        g.render(s.w);
+        CHECK(final_pieces(graph_order(g)) == 2);
+    };
+    cut_picture();
+    CHECK(render::renderer_ldr_cut_format(g.renderer) == int(gpu->display_format()));
+    {
+        ForcedOutput hdr(g.renderer, HdrEncoding::ScRgb, 4.0f);
+        cut_picture();
+        const int format = render::renderer_ldr_cut_format(g.renderer);
+        if (usable_format(SG_PIXELFORMAT_RGBA16F) || usable_format(SG_PIXELFORMAT_RGBA32F))
+            CHECK((format == int(SG_PIXELFORMAT_RGBA16F) || format == int(SG_PIXELFORMAT_RGBA32F)));
+        else
+            CHECK(format == int(gpu->display_format()));
+        CHECK(format == int(gpu->ldr_cut_format(true)));
+    }
+    cut_picture();  // the window went back to SDR: the images are made again in the display format
+    CHECK(render::renderer_ldr_cut_format(g.renderer) == int(gpu->display_format()));
+    CHECK(log.messages().empty());
+}
+
+TEST_CASE("post materials: a cut final pass in a split screen tints its own camera's rectangle only") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    MaterialScope scope;
+    ProblemLog log;
+    World w;
+    auto camera = [&](const char* name, Vec3 pos, Rect viewport, int depth) {
+        Entity e = make(w, name, pos);
+        auto& c = w.add<Camera>(e);
+        c.viewport = viewport;
+        c.clearColor = Color::black();
+        c.depth = depth;
+        return e;
+    };
+    Entity left = camera("left", {0, 0, 0}, {0, 0, 0.5f, 1}, 0);
+    camera("right", {500, 0, 0}, {0.5f, 0, 0.5f, 1}, 1);
+    for (const float x : {0.0f, 500.0f}) {
+        Entity e = make(w, "square", {x, 0, 0});
+        auto& sh = w.add<Shape2D>(e);
+        sh.shape = ShapeType::Rectangle;
+        sh.size = {40, 40};
+        sh.color = Color{1, 1, 1, 1};
+    }
+    PostProcess& p = w.add<PostProcess>(left);
+    p.posterizeEnabled = true;
+    p.posterizeLevels = 64;
+    p.customPasses = Json::array({entry(kTint, "after:posterize")});
+    const Image img = g.render(w);
+    CHECK(index_of(graph_order(g), "post-part") >= 0);  // the final pass was cut for the left camera
+    near(img.pixel(80, 90), 1.0f, 0.25f, 0.25f);        // the left square, tinted after the posterize
+    near(img.pixel(240, 90), 1.0f, 1.0f, 1.0f);         // the right one is not
+    near(img.pixel(10, 10), 0, 0, 0);
+    near(img.pixel(310, 170), 0, 0, 0);
+    CHECK(log.messages().empty());
+}
+
+TEST_CASE("post materials: a multisampled frame with a HUD over the final pass keeps the chain of custom passes and "
+          "the HUD") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    MaterialScope scope;
+    ProblemLog log;
+    // The HUD is drawn after the final pass (hudAfterPost), and the game is multisampled: the custom passes read the resolved picture
+    // and write it back in place, the HUD is not tinted.
+    for (const char* position : {static_cast<const char*>(nullptr), "after:tonemap"}) {
+        INFO((position ? position : "default place"));
+        OwnRenderer own(g, 4);
+        REQUIRE_MESSAGE(own.ok, own.error);
+        Scene2d s;
+        PostProcess& p = s.post();
+        p.exposureEnabled = true;
+        p.tonemapEnabled = true;
+        s.passes({entry(kTint, position), entry(kTint, position)});
+        Entity box = make(s.w, "hud-box", {20, 10, 0});
+        auto& b = s.w.add<Shape2D>(box);
+        b.shape = ShapeType::Rectangle;
+        b.size = {40, 20};
+        b.color = Color::white();
+        b.space = RenderSpace::Screen;
+        b.pivot = {0, 1};
+        const Image img = own.draw(s.w);
+        const Color sprite = img.pixel(160, 90);
+        CHECK(sprite.r > sprite.g + 0.3f);  // tinted twice
+        CHECK(sprite.g < 0.2f);
+        const Color hud = img.pixel(40, 20);
+        CHECK(hud.r > 0.9f);  // the HUD is over the passes, white
+        CHECK(hud.g > 0.9f);
+        CHECK(hud.b > 0.9f);
+        near(img.pixel(300, 170), 0, 0, 0);
+        if (position) CHECK(index_of(own.order(), "post-part") >= 0);
+    }
+    CHECK(log.messages().empty());
+}
+
+TEST_CASE("post materials: a cut final pass in a gamma scene changes no colour, and a tint after it multiplies the "
+          "shown one") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    MaterialScope scope;
+    ProblemLog log;
+    auto picture = [&](const char* material, double k) {
+        Scene2d s;
+        REQUIRE(s.w.settings().colorSpace == ColorSpace::Gamma);
+        s.w.get<Sprite>(s.sprite)->color = Color{0.5f, 0.5f, 0.5f, 1};
+        PostProcess& p = s.post();
+        p.posterizeEnabled = true;
+        p.posterizeLevels = 64;
+        if (material)
+            s.passes(
+                {entry(material, "after:posterize", std::string(material) == kTint ? tint(k, k, k) : Json::object())});
+        return g.render(s.w);
+    };
+    const Image plain = picture(nullptr, 1.0);
+    const Image cut = picture(kEmpty, 1.0);
+    CHECK(diff_images(plain, cut, 2.0f / 255.0f).maxError <=
+          2.0 / 255.0);  // the cut is invisible: no second encode, no lost range
+    const Color shown = plain.pixel(160, 90);
+    near(picture(kTint, 0.5).pixel(160, 90), shown.r * 0.5f, shown.g * 0.5f,
+         shown.b * 0.5f);  // display values, not linear light
+    CHECK(log.messages().empty());
+}
+
+// ---- history: what a frame that is not the game's, a budget, a refusal, a second job and a reload do ----------------------------
+
+namespace {
+
+int live_images() {
+    const sg_total_resource_stats t = sg_query_stats().total.images;
+    return int(std::int64_t(t.inited) - std::int64_t(t.uninited));
+}
+
+// The game with a HUD box (screen space) over the final pass: hudAfterPost.
+void add_hud_box(World& w) {
+    Entity box = make(w, "hud-box", {20, 10, 0});
+    auto& b = w.add<Shape2D>(box);
+    b.shape = ShapeType::Rectangle;
+    b.size = {40, 20};
+    b.color = Color::white();
+    b.space = RenderSpace::Screen;
+    b.pivot = {0, 1};
+}
+
+}  // namespace
+
+TEST_CASE("post history: a capture_world between two frames of the game keeps the trail") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    HistoryScope scope;
+    ProblemLog log;
+    Scene2d s;
+    s.passes({entry(kHistory, nullptr, keep(1.0, true))});
+    g.render(s.w);
+    Image img = g.render(s.w);
+    near(img.pixel(20, 20), 1, 0, 0);
+    CHECK(render::renderer_post_history_images(g.renderer) == 2);
+    Renderer::WorldCapture spec;
+    spec.rect = Rect{-50, -30, 100, 60};
+    Image shot;
+    std::string err;
+    REQUIRE_MESSAGE(g.renderer.capture_world(s.w, spec, shot, &err), err);
+    CHECK(render::renderer_post_history_images(g.renderer) == 2);  // the capture neither made nor freed an image
+    img = g.render(s.w);
+    near(img.pixel(20, 20), 1, 0, 0);  // the history of the frame before the capture is still valid
+    CHECK(render::renderer_post_history_images(g.renderer) == 2);
+    CHECK(log.messages().empty());
+}
+
+TEST_CASE(
+    "post history: going over the budget warns once, draws without history and starts when the budget allows it") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    MaterialScope scope;
+    ProblemLog log;
+    OwnRenderer own(g, 1);
+    REQUIRE_MESSAGE(own.ok, own.error);
+    Scene2d s;
+    s.passes({entry(kHistory, nullptr, keep(1.0, true))});
+    render::renderer_set_post_history_budget(own.r, 1);  // one byte: no pair of images fits
+    for (int i = 0; i < 5; ++i) {
+        const Image img = own.draw(s.w);
+        near(img.pixel(20, 20), 0, 0, 0);  // never red: the pass is drawn without its history
+        near(img.pixel(160, 90), 1, 1, 1);
+    }
+    CHECK(log.count("keeps a history") == 1);
+    CHECK(render::renderer_post_history_images(own.r) == 0);
+    CHECK(render::renderer_post_history_attempts(own.r) == 0);  // the GPU was never asked
+    CHECK(own.r.stats().materialFallbacks.empty());
+    render::renderer_set_post_history_budget(own.r, 0);  // the default again
+    own.draw(s.w);
+    const Image img = own.draw(s.w);
+    near(img.pixel(20, 20), 1, 0, 0);
+    CHECK(render::renderer_post_history_images(own.r) == 2);
+    CHECK(log.count("keeps a history") == 1);
+}
+
+TEST_CASE("post history: a GPU that refuses the images is asked once for a shape, again when the shape changes") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    MaterialScope scope;
+    ProblemLog log;
+    OwnRenderer own(g, 1);
+    REQUIRE_MESSAGE(own.ok, own.error);
+    Scene2d s;
+    s.passes({entry(kHistory, nullptr, keep(1.0, true))});
+    render::renderer_refuse_post_history(own.r, true);
+    for (int i = 0; i < 6; ++i) {
+        const Image img = own.draw(s.w);
+        near(img.pixel(20, 20), 0, 0, 0);
+        near(img.pixel(160, 90), 1, 1, 1);  // the picture, drawn without its history
+    }
+    CHECK(render::renderer_post_history_attempts(own.r) == 1);  // one ask, not one per frame
+    CHECK(render::renderer_post_history_images(own.r) == 0);
+    CHECK(log.count("keeps a history") == 1);
+    // The GPU would take them now, but the shape that failed is remembered.
+    render::renderer_refuse_post_history(own.r, false);
+    for (int i = 0; i < 3; ++i) own.draw(s.w);
+    CHECK(render::renderer_post_history_attempts(own.r) == 1);
+    CHECK(render::renderer_post_history_images(own.r) == 0);
+    // Another size of the camera's rectangle is another shape: it is asked again.
+    s.w.get<Camera>(s.cam)->viewport = Rect{0, 0, 0.75f, 1};
+    own.draw(s.w);
+    CHECK(render::renderer_post_history_attempts(own.r) == 2);
+    CHECK(render::renderer_post_history_images(own.r) == 2);
+    const Image img = own.draw(s.w);
+    near(img.pixel(20, 20), 1, 0, 0);
+    CHECK(render::renderer_post_history_attempts(own.r) == 2);
+}
+
+TEST_CASE(
+    "post history: a multisampled frame with a HUD over the final pass keeps the history of the resolved picture") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    MaterialScope scope;
+    ProblemLog log;
+    OwnRenderer own(g, 4);
+    REQUIRE_MESSAGE(own.ok, own.error);
+    Scene2d s;
+    s.post().exposureEnabled = true;  // a final pass: the HUD is drawn after it
+    s.passes({entry(kHistory, nullptr, keep(1.0, true))});
+    add_hud_box(s.w);
+    Image img = own.draw(s.w);
+    near(img.pixel(160, 90), 1, 1, 1);
+    img = own.draw(s.w);
+    near(img.pixel(100, 150), 1, 0, 0);  // the history is valid
+    near(img.pixel(40, 20), 1, 1, 1);    // the HUD is over it
+    CHECK(render::renderer_post_history_images(own.r) == 2);
+    img = own.draw(s.w);
+    near(img.pixel(100, 150), 1, 0, 0);
+    CHECK(render::renderer_post_history_images(own.r) == 2);
+    CHECK(log.messages().empty());
+}
+
+TEST_CASE("post history: a reload of the material and the end of the renderer leave no image behind") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    HistoryScope scope;
+    ProblemLog log;
+    const bool wasEnabled = sg_stats_enabled();
+    sg_enable_stats();
+    {
+        Scene2d s;
+        s.passes({entry(kHistory, nullptr, keep(1.0, true))});
+        g.render(s.w);
+        g.render(s.w);
+        const int images = live_images();
+        for (int i = 0; i < 4; ++i) {
+            g.renderer.reload_asset(kHistory);
+            g.render(s.w);
+            const Image img = g.render(s.w);
+            near(img.pixel(20, 20), 1, 0, 0);
+            CHECK(live_images() == images);  // the slot's two images stay, nothing is made twice
+            CHECK(render::renderer_post_history_images(g.renderer) == 2);
+        }
+    }
+    // A renderer that shuts down with history slots frees them: the same cycle without a history pass leaves the same count.
+    auto cycle = [&](bool history) {
+        OwnRenderer own(g, 1);
+        REQUIRE_MESSAGE(own.ok, own.error);
+        Scene2d s;
+        if (history)
+            s.passes({entry(kHistory, nullptr, keep(1.0, true))});
+        else
+            s.passes({entry(kTint)});
+        for (int i = 0; i < 3; ++i) own.draw(s.w);
+        CHECK(render::renderer_post_history_images(own.r) == (history ? 2 : 0));
+    };
+    cycle(false);
+    const int without = live_images();
+    cycle(true);
+    CHECK(live_images() == without);
+    cycle(true);
+    CHECK(live_images() == without);
+    if (!wasEnabled) sg_disable_stats();
     CHECK(log.messages().empty());
 }

@@ -113,6 +113,22 @@ void Gpu::set_scene_pick(int pick) {
     refresh_scene_format();
 }
 
+sg_pixel_format pick_ldr_cut_format(sg_pixel_format display, bool hdrOutput, bool half, bool full) {
+    const bool isFloat = display == SG_PIXELFORMAT_RGBA16F || display == SG_PIXELFORMAT_RGBA32F;
+    if (!hdrOutput || isFloat) return display;
+    return half ? SG_PIXELFORMAT_RGBA16F : full ? SG_PIXELFORMAT_RGBA32F : display;
+}
+
+sg_pixel_format Gpu::ldr_cut_format(bool hdrOutput) const {
+    const sg_pixel_format display = display_format();
+    if (!hdrOutput) return display;
+    auto usable = [](sg_pixel_format f) {
+        const sg_pixelformat_info i = sg_query_pixelformat(f);
+        return i.render && i.sample && i.filter;
+    };
+    return pick_ldr_cut_format(display, hdrOutput, usable(SG_PIXELFORMAT_RGBA16F), usable(SG_PIXELFORMAT_RGBA32F));
+}
+
 bool Gpu::scene_has_alpha() const { return sceneFormat_ != SG_PIXELFORMAT_RG11B10F; }
 bool Gpu::scene_is_float() const {
     return sceneFormat_ == SG_PIXELFORMAT_RGBA16F || sceneFormat_ == SG_PIXELFORMAT_RG11B10F;
