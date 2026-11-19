@@ -494,7 +494,7 @@ cache, hot reload, export, the runtime) is unchanged: a graph material is a mate
 
 ## Out of scope (recorded so nobody assumes it)
 
-- A post pass that needs the previous frame. A sky material does not
+- A sky material does not
   drive the meshes' ambient and reflection light.
 - ~~A full-GLSL escape hatch (D1)~~: built in M72.3 for mesh materials, see [CUSTOM_SHADERS_FULL.md](CUSTOM_SHADERS_FULL.md).
 - Compute storage images, compute on GLES3/WebGL2, tessellation, geometry shaders (not in sokol_gfx's common subset for these backends anyway).

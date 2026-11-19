@@ -6,6 +6,15 @@ Older versions, one file per minor version with its patch releases: [0.30](chang
 
 ## Unreleased
 
+- **Post history (M72.16):** a post material that calls `fa_history(uv)` reads its own output of the frame before (trails,
+  feedback, accumulation), with `fa_history_valid` for the frames where there is none (the first one, after a resize or a
+  change of render scale or format, when the camera was not drawn the frame before, at a scene or clock cut, and after the
+  new command `render.reset_post_history`, which takes an optional camera). Each camera and pass keeps two images that swap
+  every frame, freed 120 frames after the last frame that used them; a history that does not fit the 1 GiB budget (256 MiB on
+  the web) leaves the pass drawn without it. Using `fa_history` as a texture, `fa_history_valid` as a call, or either outside a
+  post material is refused with the fix before sokol-shdc runs. See `factoria docs read shaders-post`, "History".
+  **Games with custom post materials must re-export again** (the post template changed).
+
 - **Compute buffers (polish):** `compute.read_buffer` and `compute.write_buffer` also refuse a call of more than 4194304
   numbers (elements times the components of their fields) and say how many elements fit and to go on in chunks with
   `first`/`count`; floats read back are the same in every C locale.
