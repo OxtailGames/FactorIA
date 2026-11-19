@@ -143,6 +143,40 @@ Json example_material() {
     })");
 }
 
+// The same dissolve for a sprite material (what the nodes call with kind "sprite").
+Json example_sprite_material() {
+    return Json::parse(R"({
+      "format": "factoria.material/1",
+      "kind": "sprite",
+      "doc": "Dissolve: noise burns the sprite away with a glowing edge.",
+      "shader": "shaders/sprite-dissolve.fragment.glsl",
+      "params": {
+        "dissolve": { "type": "float", "default": 0.0, "min": 0.0, "max": 1.0, "doc": "0 shows the sprite, 1 dissolves it all." }
+      },
+      "graph": {
+        "nodes": [
+          { "id": "noise", "type": "noise.fbm", "pos": [0, 0], "inputs": { "scale": 6.0 } },
+          { "id": "amount", "type": "param", "pos": [0, 120], "param": "dissolve" },
+          { "id": "burn", "type": "dissolve", "pos": [220, 60], "inputs": { "edgeWidth": 0.06, "edgeColor": [1.0, 0.4, 0.1] } },
+          { "id": "pic", "type": "sprite.color", "pos": [220, 240] },
+          { "id": "glow", "type": "math.add", "pos": [440, 120] },
+          { "id": "fade", "type": "math.mul", "pos": [440, 240] },
+          { "id": "out", "type": "output", "pos": [660, 120] }
+        ],
+        "links": [
+          { "from": "noise.value", "to": "burn.noise" },
+          { "from": "amount.value", "to": "burn.threshold" },
+          { "from": "pic.rgb", "to": "glow.a" },
+          { "from": "burn.emission", "to": "glow.b" },
+          { "from": "pic.a", "to": "fade.a" },
+          { "from": "burn.alpha", "to": "fade.b" },
+          { "from": "glow.result", "to": "out.rgb" },
+          { "from": "fade.result", "to": "out.alpha" }
+        ]
+      }
+    })");
+}
+
 const char* const kFormatText =
     "A *.material.json may hold \"graph\": {\"nodes\": [{\"id\", \"type\", \"pos\": [x, y], \"inputs\": {input: "
     "constant}, "
@@ -693,21 +727,25 @@ void register_material_graph_commands(CommandRegistry& registry, const std::stri
         info.readOnly = true;
         info.summary =
             "List the node types of the material graph library, with their inputs, outputs and the kinds they work in.";
-        info.description = "Returns {format, kinds, categories, nodes: [{type, category, doc, kinds, stage, needs?, "
-                           "inputs: [{name, type, "
-                           "default?, doc}], outputs: [{name, type, doc}]}], example}. `format` says how the \"graph\" "
-                           "of a *.material.json is "
-                           "written; `example` is a complete material (a dissolve) whose graph passes "
-                           "material.graph.validate. An input "
-                           "type \"gen\" is a float or a vector; a float widens by itself. `stage` is \"fragment\" for "
-                           "nodes that sample "
-                           "textures or read the view direction (not allowed in the path of the output's "
-                           "vertexOffset). Filters: `kind` "
-                           "(\"mesh\"), `category`, `type`. Example: {\"category\":\"noise\"}";
+        info.description =
+            "Returns {format, kinds, categories, nodes: [{type, category, doc, kinds, stage, needs?, "
+            "inputs: [{name, type, "
+            "default?, doc}], outputs: [{name, type, doc}]}], example}. `format` says how the \"graph\" "
+            "of a *.material.json is "
+            "written; `example` is a complete material (a dissolve) whose graph passes "
+            "material.graph.validate. An input "
+            "type \"gen\" is a float or a vector; a float widens by itself. `stage` is \"fragment\" for "
+            "nodes that sample "
+            "textures or read the view direction (not allowed in the path of the output's "
+            "vertexOffset). `kinds` of a node are the material kinds it works in (\"mesh\", \"sprite\"; the "
+            "output node has one entry per kind, with that kind's fields); a node used in another kind "
+            "is an error that says what to use. Filters: `kind` "
+            "(\"mesh\" or \"sprite\"; \"sprite\" also returns a sprite `example`), `category`, `type`. "
+            "Example: {\"kind\":\"sprite\",\"category\":\"noise\"}";
         info.inputSchema = Json::parse(R"({
           "type":"object","additionalProperties":false,
           "properties":{
-            "kind":{"type":"string","description":"Only nodes that work in this material kind (\"mesh\")."},
+            "kind":{"type":"string","description":"Only nodes that work in this material kind (\"mesh\" or \"sprite\")."},
             "category":{"type":"string","description":"Only this category: constant, input, texture, math, noise, effect or output."},
             "type":{"type":"string","description":"Only this node type, e.g. \"noise.fbm\"."}}})");
         registry.add(info, [](const Json& args) {
@@ -730,7 +768,7 @@ void register_material_graph_commands(CommandRegistry& registry, const std::stri
             }
             Json result = Json::object({{"format", kFormatText}, {"kinds", Json(graph_supported_kinds())}});
             for (auto it = out.begin(); it != out.end(); ++it) result[it.key()] = it.value();
-            result["example"] = example_material();
+            result["example"] = kind == "sprite" ? example_sprite_material() : example_material();
             return result;
         });
     }

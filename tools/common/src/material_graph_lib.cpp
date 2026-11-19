@@ -20,9 +20,16 @@ const std::vector<std::string> kAllKinds = {"mesh", "sprite", "sky", "post"};
 // Nodes that read a uv: every kind that has one.
 const std::vector<std::string> kUvKinds = {"mesh", "sprite", "post"};
 const std::vector<std::string> kMeshOnly = {"mesh"};
+const std::vector<std::string> kSpriteOnly = {"sprite"};
 
 GraphPort in(const char* name, const char* type, Json def, const char* doc) {
     return GraphPort{name, type, std::move(def), doc};
+}
+// An input of an output node that is optional (null default) and written by `assign` ({} is the value).
+GraphPort in_as(const char* name, const char* type, const char* doc, const char* assign) {
+    GraphPort p{name, type, Json(), doc};
+    p.assign = assign;
+    return p;
 }
 GraphPort out(const char* name, const char* type, const char* doc) { return GraphPort{name, type, Json(), doc}; }
 
@@ -49,6 +56,11 @@ GraphNodeType node(const char* type, const char* category, const char* doc, std:
 
 GraphNodeType fragment_only(GraphNodeType n) {
     n.fragmentOnly = true;
+    return n;
+}
+// Why a node is not in material kind `kind` and what to use there (the hint of the error that names the node).
+GraphNodeType with_instead(GraphNodeType n, const char* kind, const char* text) {
+    n.instead.emplace_back(kind, text);
     return n;
 }
 GraphNodeType with_ref(GraphNodeType n, const char* ref) {
@@ -106,22 +118,76 @@ std::vector<GraphNodeType> build_library() {
              {out("time", "float", "Seconds times speed."), out("sin", "float", "sin(time), -1..1."),
               out("cos", "float", "cos(time), -1..1.")},
              {"$time * {speed}", "sin({self}time)", "cos({self}time)"}));
-    lib.push_back(node("vertex.color", "input", "The vertex colour of the mesh (white without).", {},
-                       {out("rgba", "vec4", "The colour with alpha."), out("rgb", "vec3", "The colour."),
-                        out("a", "float", "The alpha.")},
-                       {"$vertex_color", "{self}rgba.rgb", "{self}rgba.a"}, kMeshOnly));
-    lib.push_back(node("position.world", "input", "The world-space position of the point.", {},
-                       {out("position", "vec3", "World position.")}, {"$world_pos"}, kMeshOnly));
-    lib.push_back(fragment_only(
+    lib.push_back(with_instead(
+        node("vertex.color", "input", "The vertex colour of the mesh (white without).", {},
+             {out("rgba", "vec4", "The colour with alpha."), out("rgb", "vec3", "The colour."),
+              out("a", "float", "The alpha.")},
+             {"$vertex_color", "{self}rgba.rgb", "{self}rgba.a"}, kMeshOnly),
+        "sprite",
+        "A sprite has no mesh vertex colours: `sprite.tint` is the tint of the item (its colour, a particle's fade)."));
+    lib.push_back(with_instead(node("position.world", "input", "The world-space position of the point.", {},
+                                    {out("position", "vec3", "World position.")}, {"$world_pos"}, kMeshOnly),
+                               "sprite",
+                               "A sprite lives in 2D: `sprite.position` gives its 2D world position (a vec2) and the "
+                               "`uv` node the coordinates on the item."));
+    lib.push_back(fragment_only(with_instead(
         node("position.view", "input",
              "The position of the point relative to the camera (world axes): world position minus "
              "camera position. Its length is the distance to the camera.",
-             {}, {out("position", "vec3", "Camera-relative position.")}, {"$world_pos - $camera_pos"}, kMeshOnly)));
-    lib.push_back(node("normal.world", "input",
-                       "The geometric normal in world space (normalized, flipped on back faces); not the normal map.",
-                       {}, {out("normal", "vec3", "World normal.")}, {"$world_normal"}, kMeshOnly));
-    lib.push_back(fragment_only(node("view.dir", "input", "The direction from the surface to the camera (normalized).",
-                                     {}, {out("direction", "vec3", "Surface to camera.")}, {"$view_dir"}, kMeshOnly)));
+             {}, {out("position", "vec3", "Camera-relative position.")}, {"$world_pos - $camera_pos"}, kMeshOnly),
+        "sprite",
+        "A 2D item has no distance to the camera: `sprite.position` gives its 2D world position and, in its `screen` "
+        "output, the place on the render target.")));
+    lib.push_back(with_instead(
+        node("normal.world", "input",
+             "The geometric normal in world space (normalized, flipped on back faces); not the normal map.", {},
+             {out("normal", "vec3", "World normal.")}, {"$world_normal"}, kMeshOnly),
+        "sprite",
+        "A sprite is a flat quad with no surface normal; the engine applies the 2D lights before fragment() runs, so "
+        "`sprite.color` already holds the lit picture."));
+    lib.push_back(fragment_only(with_instead(
+        node("view.dir", "input", "The direction from the surface to the camera (normalized).", {},
+             {out("direction", "vec3", "Surface to camera.")}, {"$view_dir"}, kMeshOnly),
+        "sprite", "A 2D item has no view direction: it always faces the camera. Use `uv` or `sprite.position`.")));
+    // ---- inputs of a 2D item (QuadInput and QuadSurface of the sprite template; docs/SHADERS.md, "Materials on sprites...") ----
+    lib.push_back(fragment_only(node(
+        "sprite.color", "input",
+        "What the engine would draw for the item at this point: the picture times the tint, the circle of a shape, the "
+        "glyph, already lit by the 2D lights (QuadSurface.color on arrival). Mix it with your own colours to change a "
+        "sprite and keep the rest of it.",
+        {},
+        {out("rgba", "vec4", "The colour with alpha."), out("rgb", "vec3", "The colour."),
+         out("a", "float", "The alpha.")},
+        {"$sprite_color", "{self}rgba.rgb", "{self}rgba.a"}, kSpriteOnly)));
+    lib.push_back(node(
+        "sprite.tint", "input",
+        "The tint of the item (QuadInput.color: Sprite.color, a particle's colour over its life, the "
+        "colour of a shape), linear in a linear scene. Works in the vertex stage too.",
+        {},
+        {out("rgba", "vec4", "The tint with alpha."), out("rgb", "vec3", "The tint."), out("a", "float", "The alpha.")},
+        {"$tint", "{self}rgba.rgb", "{self}rgba.a"}, kSpriteOnly));
+    lib.push_back(fragment_only(
+        node("sprite.texture", "texture",
+             "The item's main texture (the Sprite's picture, the glyph atlas of a Text) at `uv`, in the colour space "
+             "of the scene, without the tint. For the material's own textures use the `texture` node.",
+             {in("uv", "vec2", "$uv", "Coordinates (default: the item's uv).")},
+             {out("rgba", "vec4", "The texel."), out("rgb", "vec3", "Colour."), out("a", "float", "Alpha.")},
+             {"fa_sample_main({uv})", "{self}rgba.rgb", "{self}rgba.a"}, kSpriteOnly)));
+    lib.push_back(fragment_only(
+        node("sprite.life", "input",
+             "Particles: how far the particle is through its life, 0 at birth to 1 at the end. 0 for everything else "
+             "(sprites, shapes, tiles, text, trails).",
+             {}, {out("life", "float", "0..1.")}, {"$life"}, kSpriteOnly)));
+    lib.push_back(fragment_only(
+        node("sprite.custom", "input",
+             "QuadInput.custom: reserved, zero today (per-sprite values are the material's instanced params).", {},
+             {out("custom", "vec4", "Zero.")}, {"$custom"}, kSpriteOnly)));
+    lib.push_back(fragment_only(
+        node("sprite.position", "input",
+             "Where the fragment is: its world position (x, y) and its place on the render target.", {},
+             {out("world", "vec2", "World position (x, y)."),
+              out("screen", "vec2", "Position in the render target, 0..1, y running down on every backend.")},
+             {"$sprite_pos", "$screen_uv"}, kSpriteOnly)));
     lib.push_back(fragment_only(with_ref(
         node("texture", "texture",
              "Samples one of the material's textures (set \"texture\" to its name; declare it in the material's "
@@ -134,7 +200,7 @@ std::vector<GraphNodeType> build_library() {
               "{self}rgba.b", "{self}rgba.a"},
              kUvKinds),
         "texture")));
-    lib.push_back(fragment_only(
+    lib.push_back(fragment_only(with_instead(
         with_ref(node("texture.normal", "texture",
                       "Samples a tangent-space normal map (set \"texture\" to its name) and unpacks it to a vector of "
                       "length 1 for "
@@ -142,29 +208,41 @@ std::vector<GraphNodeType> build_library() {
                       {in("uv", "vec2", "$uv", "Coordinates (default: the mesh's uv)."),
                        in("strength", "float", 1.0, "Scales the bumps: 0 is flat, 1 as painted, 2 twice as steep.")},
                       {out("normal", "vec3", "Tangent-space normal (x right, y up the uv, z out of the surface).")},
-                      {"gn_unpack_normal(texture(sampler2D({ref}, {ref}_smp), {uv}), {strength})"}, kUvKinds,
+                      {"gn_unpack_normal(texture(sampler2D({ref}, {ref}_smp), {uv}), {strength})"}, kMeshOnly,
                       {"gn_unpack_normal"}),
-                 "texture")));
-    lib.push_back(fragment_only(with_ref(
-        node("triplanar", "texture",
-             "Samples a texture projected along the three world axes and blended by the normal: no uv needed, no "
-             "stretching on "
-             "rocks and terrain (set \"texture\" to its name, use a texture with a Repeat sampler).",
-             {in("position", "vec3", "$world_pos", "World position to project (default: the point's)."),
-              in("normal", "vec3", "$world_normal",
-                 "Normal that weights the three projections (default: the geometric normal)."),
-              in("scale", "float", 1.0, "Repeats per world unit."),
-              in("sharpness", "float", 4.0, "How hard the projections separate: 1 is soft, 8 is nearly a hard edge.")},
-             {out("rgba", "vec4", "The blended texel."), out("rgb", "vec3", "Its colour.")},
-             {"texture(sampler2D({ref}, {ref}_smp), {position}.zy * {scale}) * gn_tri_weights({normal}, {sharpness}).x "
-              "+ "
-              "texture(sampler2D({ref}, {ref}_smp), {position}.xz * {scale}) * gn_tri_weights({normal}, {sharpness}).y "
-              "+ "
-              "texture(sampler2D({ref}, {ref}_smp), {position}.xy * {scale}) * gn_tri_weights({normal}, {sharpness}).z",
-              "{self}rgba.rgb"},
-             kMeshOnly, {"gn_tri_weights"}),
-        "texture")));
-    lib.push_back(fragment_only(
+                 "texture"),
+        "sprite",
+        "The output of a sprite graph has no normal: the engine's 2D lights use the sprite's own normal map. Use a "
+        "`texture` node to read a texture.")));
+    lib.push_back(fragment_only(with_instead(
+        with_ref(
+            node("triplanar", "texture",
+                 "Samples a texture projected along the three world axes and blended by the normal: no uv needed, no "
+                 "stretching on "
+                 "rocks and terrain (set \"texture\" to its name, use a texture with a Repeat sampler).",
+                 {in("position", "vec3", "$world_pos", "World position to project (default: the point's)."),
+                  in("normal", "vec3", "$world_normal",
+                     "Normal that weights the three projections (default: the geometric normal)."),
+                  in("scale", "float", 1.0, "Repeats per world unit."),
+                  in("sharpness", "float", 4.0,
+                     "How hard the projections separate: 1 is soft, 8 is nearly a hard edge.")},
+                 {out("rgba", "vec4", "The blended texel."), out("rgb", "vec3", "Its colour.")},
+                 {"texture(sampler2D({ref}, {ref}_smp), {position}.zy * {scale}) * gn_tri_weights({normal}, "
+                  "{sharpness}).x "
+                  "+ "
+                  "texture(sampler2D({ref}, {ref}_smp), {position}.xz * {scale}) * gn_tri_weights({normal}, "
+                  "{sharpness}).y "
+                  "+ "
+                  "texture(sampler2D({ref}, {ref}_smp), {position}.xy * {scale}) * gn_tri_weights({normal}, "
+                  "{sharpness}).z",
+                  "{self}rgba.rgb"},
+                 kMeshOnly, {"gn_tri_weights"}),
+            "texture"),
+        "sprite",
+        "Projecting along three world axes needs a 3D surface; a sprite is flat. Sample the picture with a `texture` "
+        "node "
+        "(or `sprite.texture`) and move its uv with the `uv` node (tiling, offset) or `flow`.")));
+    lib.push_back(fragment_only(with_instead(
         with_ref(node("parallax", "texture",
                       "Parallax occlusion mapping: moves the uv along the view ray until it meets the height map (set "
                       "\"texture\" to "
@@ -181,7 +259,11 @@ std::vector<GraphNodeType> build_library() {
                        "gn_parallax({ref}, {ref}_smp, {uv}, gn_tangent_view($view_dir, $world_normal, $world_tangent), "
                        "{scale}, {steps}).z"},
                       kMeshOnly, {"gn_parallax", "gn_tangent_view"}),
-                 "texture")));
+                 "texture"),
+        "sprite",
+        "Parallax moves the uv along the view ray over a 3D surface; a sprite has no view ray. For depth in 2D shift "
+        "the "
+        "uv of a `texture` node by an amount that depends on a height (math.mul, `uv`).")));
     // ---- math ----
     lib.push_back(math2("math.add", "a + b, per component.", "{a} + {b}", 0.0));
     lib.push_back(math2("math.sub", "a - b, per component.", "{a} - {b}", 0.0));
@@ -297,14 +379,18 @@ std::vector<GraphNodeType> build_library() {
              {"{uv} - {flow} * {strength} * fract({time} * {speed})",
               "{uv} - {flow} * {strength} * fract({time} * {speed} + 0.5)", "abs(2.0 * fract({time} * {speed}) - 1.0)"},
              kUvKinds));
-    lib.push_back(fragment_only(node(
-        "fresnel", "effect",
-        "Rim factor: 0 where the surface faces the camera, 1 at the silhouette (rim light, glass, shields).",
-        {in("normal", "vec3", "$world_normal", "Surface normal (default: the geometric normal)."),
-         in("view", "vec3", "$view_dir", "Direction to the camera (default: the view direction)."),
-         in("power", "float", 5.0, "Sharpness of the rim: 1 is wide, 8 is a thin line.")},
-        {out("value", "float", "0..1.")},
-        {"pow(1.0 - clamp(dot(normalize({normal}), normalize({view})), 0.0, 1.0), max({power}, 0.0001))"}, kMeshOnly)));
+    lib.push_back(fragment_only(with_instead(
+        node("fresnel", "effect",
+             "Rim factor: 0 where the surface faces the camera, 1 at the silhouette (rim light, glass, shields).",
+             {in("normal", "vec3", "$world_normal", "Surface normal (default: the geometric normal)."),
+              in("view", "vec3", "$view_dir", "Direction to the camera (default: the view direction)."),
+              in("power", "float", 5.0, "Sharpness of the rim: 1 is wide, 8 is a thin line.")},
+             {out("value", "float", "0..1.")},
+             {"pow(1.0 - clamp(dot(normalize({normal}), normalize({view})), 0.0, 1.0), max({power}, 0.0001))"},
+             kMeshOnly),
+        "sprite",
+        "A sprite has no 3D normal or view direction, so there is no silhouette angle. For a glowing rim feed "
+        "math.length of (`uv` - 0.5) into math.smoothstep: it is 0 in the middle and 1 at the edge of the quad.")));
     // ---- the output ----
     lib.push_back(node(
         kGraphOutputNode, "output",
@@ -325,6 +411,24 @@ std::vector<GraphNodeType> build_library() {
          in("vertexOffset", "vec3", Json(),
             "World-space offset added to every vertex (waves, wind): written into vertex().")},
         {}, {}, kMeshOnly));
+    // The output of a sprite graph: what fragment() leaves in QuadSurface.color, and vertex()'s offset. Same type name as the mesh one (a
+    // graph has one output node whatever its kind); find_graph_node_type(type, kind) picks the one of the kind.
+    lib.push_back(node(
+        kGraphOutputNode, "output",
+        "The end of the graph (exactly one): the fields linked or set in \"inputs\" replace what fragment() received "
+        "in "
+        "QuadSurface.color (the engine's own picture: texture * tint, lit); the others keep it. `color` is written "
+        "first, then `rgb` and `alpha` over it. `vertexOffset` moves the quad's vertices in vertex() (world space): "
+        "only nodes that do not sample textures may feed it. The engine blends a sprite: alphaMode clip is not "
+        "available, use `alpha` 0 where it must vanish.",
+        {in_as("color", "vec4", "The whole colour with alpha (straight, not premultiplied): replaces s.color.",
+               "s.color = {};"),
+         in_as("rgb", "vec3", "The colour without alpha: replaces s.color.rgb (the alpha stays).", "s.color.rgb = {};"),
+         in_as("alpha", "float", "Opacity: replaces s.color.a (a node's alpha, a dissolve cut...).", "s.color.a = {};"),
+         in_as("vertexOffset", "vec3",
+               "World-space offset added to every vertex of the quad (wobble, wind): written into vertex().",
+               "v.world_pos += {};")},
+        {}, {}, kSpriteOnly));
     return lib;
 }
 
@@ -339,14 +443,16 @@ const std::vector<GraphNodeType>& library() {
 
 const std::vector<GraphNodeType>& graph_node_library() { return graph_detail::library(); }
 
-const GraphNodeType* find_graph_node_type(std::string_view type) {
-    for (const GraphNodeType& n : graph_detail::library())
-        if (n.type == type) return &n;
+const GraphNodeType* find_graph_node_type(std::string_view type, std::string_view kind) {
+    for (const GraphNodeType& n : graph_detail::library()) {
+        if (n.type != type) continue;
+        if (kind.empty() || std::find(n.kinds.begin(), n.kinds.end(), kind) != n.kinds.end()) return &n;
+    }
     return nullptr;
 }
 
 const std::vector<std::string>& graph_supported_kinds() {
-    static const std::vector<std::string> kinds = {"mesh"};
+    static const std::vector<std::string> kinds = {"mesh", "sprite"};
     return kinds;
 }
 

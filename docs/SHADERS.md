@@ -290,7 +290,7 @@ A material can be built from nodes instead of GLSL. Add a `"graph"` to the `.mat
 writes the snippet named by `shader` from it, so a graph and the code stay one document: the generated GLSL is plain, readable
 text (one line per node, with a comment naming the node id) that compiles through the same path as a hand-written snippet
 (`shader.compile`, `factoria validate`, hot reload, export). A graph needs no editor: an AI or a person writes the JSON, and
-the editor's Graph panel (View > Graph, [EDITOR.md](EDITOR.md)) edits the same JSON and runs the same commands, so both can take turns on one file.
+the editor's Graph panel (View > Graph, [EDITOR.md](EDITOR.md)) edits the same JSON with the same commands.
 
 ```json
 "graph": {
@@ -309,7 +309,7 @@ the editor's Graph panel (View > Graph, [EDITOR.md](EDITOR.md)) edits the same J
 }
 ```
 
-(with `"alphaMode": "clip"` and a float param `dissolve` in the same material; `material.graph.nodes` returns a complete example.)
+(in a material with `"alphaMode": "clip"` and a float param `dissolve`; `material.graph.nodes` has a full example.)
 
 - **Nodes.** `id` (unique; a letter, then letters, digits and single `_`), `type`, `pos` (`[x, y]`, where the editor draws
   it; the snippet does not depend on it), `inputs` (constants for inputs without a link: a number, or an array of 2 to 4
@@ -324,8 +324,8 @@ the editor's Graph panel (View > Graph, [EDITOR.md](EDITOR.md)) edits the same J
   a vector (the size their linked inputs agree on).
 - **`editor` and `version`.** The graph takes an optional `"version"` (the format; 1 today, anything else is refused) and the
   graph and each node an optional `"editor"` object, where the Graph panel keeps what only it needs (the view's zoom and
-  pan, comments), which only has to be an object. The generator never reads `editor`, so it does not change the snippet or the
-  hash, and the commands keep it as written.
+  pan, comments), which only has to be an object. The generator never reads `editor` (the snippet and hash do not change) and
+  the commands keep it as written.
 - **Library** (`material.graph.nodes` has every input, output and doc): constants (`const.float`, `const.vec2`, `const.vec3`,
   `const.vec4`, `const.color`), `param`, `uv`, `time`, `vertex.color`, `position.world`, `position.view`, `normal.world`,
   `view.dir`, `texture`, `texture.normal`, `triplanar`, `parallax` (occlusion mapping), math (`add`, `sub`, `mul`, `div`, `min`,
@@ -334,17 +334,17 @@ the editor's Graph panel (View > Graph, [EDITOR.md](EDITOR.md)) edits the same J
   `flow`, `fresnel`) and `output`. Noise helpers are plain GLSL functions named `gn_...`, pasted into the snippet only when a
   node uses them.
 - **Where a node can go.** Nodes that sample a texture or read the view direction (`texture`, `texture.normal`, `triplanar`,
-  `parallax`, `view.dir`, `position.view`, `fresnel`) run in `surface()` only: they may not feed `vertexOffset` (the vertex
-  stage has no textures; see "Not available yet"). Each node lists the material kinds it works in; graphs are generated for
-  materials of kind `mesh` (today's only kind).
+  `parallax`, `view.dir`, `position.view`, `fresnel`) run in the fragment function only: they may not feed `vertexOffset`
+  (no textures in the vertex stage). Each node lists the kinds it works in (`mesh`, `sprite`); a sprite graph (`"kind":
+  "sprite"`, output `color`, `rgb`, `alpha`, `vertexOffset`) refuses the 3D nodes and says what to use instead.
 - **Commands.** `material.graph.nodes` (the library), `material.graph.validate {material}` (every problem with its JSON
   pointer, what is wrong and the fix: unknown node type with a "did you mean", a link to a node or port that does not exist,
   a type mismatch, a cycle, a missing output, a node used in the vertex path that needs the fragment stage), and
   `material.graph.generate {material, force?, dryRun?}`, which writes the snippet and `graphHash`. Run `shader.compile`
-  afterwards. Both also take `graph` (a graph object) in place of the one the file holds, to check a graph that is not saved yet, or to
-  store it in the material and generate from it in one call (the Graph panel's problems list and Save work this way). A param or texture name that starts with `gn_`
-  is refused: the generator keeps that prefix for its GLSL helper functions. The generator keeps the id of the node that wrote each
-  line of the snippet (the C++ `GeneratedGraph::lineNodes`), which the editor uses to paint a compiler error on its node.
+  afterwards. Both also take `graph` in place of the file's, to check a graph not saved yet or to store and generate it in one
+  call (the Graph panel's problems list and Save). A param or texture name that starts with `gn_`
+  is refused: the generator keeps that prefix for its GLSL helper functions. The editor paints a compiler error on the node
+  that wrote the line (the generator keeps each line's node id).
   `material.param.set_default {material, param, value}` writes one param's `default`
   (checked like the file; nothing else changes, no snippet is generated).
 
@@ -380,7 +380,8 @@ Every error says where, what is wrong and how to fix it.
   `factoria` is gone; `factoria setup` says which one is used. On Windows, Windows Defender may quarantine
   `sokol-shdc.exe` as a false positive (`Trojan:Win32/Bearfoos.B!ml`): restore it from Windows Security > Protection
   history, run `factoria setup shaders`, or point `SOKOL_SHDC` at a copy you trust ([EXPORTING.md](exporting/EXPORTING_SETUP.md#setting-up-this-computer)).
-  Without it, `factoria validate` checks the material files and warns that snippets were not compiled.
+  Without it, `factoria validate` checks the files (a missing or unreadable snippet is an error), warns of a graph changed
+  since its snippet and that snippets were not compiled.
 - **Running** (`factoria run`, MCP sessions) compiles the material for this computer's graphics API the first time it is
   drawn and caches the result in `.factoria/shader-cache`, so an unchanged material starts no process.
 - **Hot reload:** saving the material, its snippet or a texture gives the new look in a moment, in `factoria run`, MCP
