@@ -30,7 +30,7 @@ constexpr const char* kChecker = ".factoria/material-preview/checker.png";
 constexpr int kAnimateEvery = 6;  // frames between two pictures of an animated preview
 
 std::string abs_path(const std::string& projectDir, const std::string& rel) {
-    return (stdfs::path(projectDir) / rel).generic_string();
+    return fs::path_to_utf8(fs::path_from_utf8(projectDir) / fs::path_from_utf8(rel));  // UTF-8 both ways (Windows)
 }
 
 std::string clip(std::string s) {

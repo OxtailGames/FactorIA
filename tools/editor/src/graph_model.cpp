@@ -152,7 +152,7 @@ bool graph_file_has_graph(const std::string& projectDir, const std::string& rel)
     std::error_code ec;
     const auto size = stdfs::file_size(*abs, ec);
     if (ec || size > (std::uintmax_t(8) << 20)) return false;
-    auto text = fs::read_text(abs->generic_string());
+    auto text = fs::read_text(fs::path_to_utf8(*abs));
     if (!text.ok()) return false;
     const Json parsed = Json::parse(*text, nullptr, false);
     return !parsed.is_discarded() && parsed.is_object() && parsed.contains("graph") && parsed["graph"].is_object();
@@ -199,7 +199,7 @@ bool GraphModel::load_from_disk(bool startGraph) {
         error_ = abs.error().message;
         return false;
     }
-    auto text = fs::read_text(abs->generic_string());
+    auto text = fs::read_text(fs::path_to_utf8(*abs));
     if (!text.ok()) {
         error_ = "Cannot read " + rel_ + ": " + text.error().message;
         return false;
@@ -506,7 +506,7 @@ void GraphModel::take_entries_from_file(const Json* newGraph, bool externalPendi
     auto abs = resolve_project_path(projectDir_, rel_);
     const Stamp before = stamp();
     if (abs.ok()) {
-        auto text = fs::read_text(abs->generic_string());
+        auto text = fs::read_text(fs::path_to_utf8(*abs));
         const Json parsed = text.ok() ? Json::parse(*text, nullptr, false) : Json();
         if (parsed.is_object()) {
             for (const char* key : {"params", "textures", "graphHash"}) {
