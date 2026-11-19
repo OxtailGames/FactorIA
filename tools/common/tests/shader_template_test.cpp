@@ -78,7 +78,8 @@ TEST_CASE(
     CHECK(shader_template_hash("mesh") != shader_template_hash("sprite"));
     CHECK(shader_template_hash("sprite") != shader_template_hash("sky"));
     CHECK(shader_template_hash("sky") != shader_template_hash("post"));
-    CHECK(shader_template_hash("compute").empty());  // no template until M72.4
+    CHECK(shader_template_hash("post") != shader_template_hash("compute"));
+    CHECK_FALSE(shader_template_hash("compute").empty());
     CHECK(shader_template_hash("nonsense").empty());
 }
 
@@ -88,7 +89,7 @@ TEST_CASE("shader template: every kind's contract structs are read from its own 
         {"sprite", {"QuadInput", "QuadSurface", "QuadVertex"}},
         {"sky", {"SkyInput", "SkySurface"}},
         {"post", {"PostInput", "PostSurface"}},
-        {"compute", {}}};
+        {"compute", {"ComputeInput"}}};
     for (const auto& [kind, structs] : expected) {
         CAPTURE(kind);
         const auto& found = shaders_detail::contract_structs(kind);

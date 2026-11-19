@@ -390,6 +390,12 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 
 ### [game](commands/game.md)
 
+- [`compute.create_buffer`](commands/game.md#computecreate_buffer-modifies-state): Makes a GPU storage buffer shaped like one buffer of a compute material; returns its id. _Not released yet._
+- [`compute.destroy_buffer`](commands/game.md#computedestroy_buffer-modifies-state): Frees a compute storage buffer. _Not released yet._
+- [`compute.dispatch`](commands/game.md#computedispatch-modifies-state): Runs a compute material once over its storage buffers. _Not released yet._
+- [`compute.list_buffers`](commands/game.md#computelist_buffers): Lists the live compute storage buffers and whether this backend runs compute. _Not released yet._
+- [`compute.read_buffer`](commands/game.md#computeread_buffer): Reads elements of a compute storage buffer back to the game (waits for the GPU). _Not released yet._
+- [`compute.write_buffer`](commands/game.md#computewrite_buffer-modifies-state): Overwrites elements of a compute storage buffer with values from the game. _Not released yet._
 - [`game.click`](commands/game.md#gameclick-modifies-state): Click the game like a player: move the mouse, press, release; scripts see pressed/released and UI widgets get the click. _Since 0.4.0._
 - [`game.input`](commands/game.md#gameinput-modifies-state): Inject input: press/release actions or keys, or set an action state, mouse position/buttons, gamepad buttons/sticks, touches.
 - [`game.logs`](commands/game.md#gamelogs): Read recent log lines (engine, scripts, assets...).

@@ -113,12 +113,14 @@ void RenderScene::build(World& world, Assets& assets, Entity scopeRoot, bool wan
         sm.material = mr.material.empty() ? nullptr : assets.material(mr.material);
         if (sm.material && sm.material->ok && sm.material->kind != MaterialKind::Mesh) {
             // A mesh is drawn with the programs of a mesh material only: a sprite material (quad programs) would be bound to a
-            // vertex layout it was not made for. The mesh is drawn with the engine's own shader.
+            // vertex layout it was not made for, and a compute material has no draw program. The mesh is drawn with the
+            // engine's own shader.
             if (sm.material->warned.insert("\x01kind").second)
                 FA_WARN(
                     "render",
                     "MeshRenderer.material '{}' is a \"{}\" material: only \"mesh\" materials draw a MeshRenderer, so "
-                    "the engine's own shader is used (a \"sprite\" material is for the 2D quad pipeline)",
+                    "the engine's own shader is used (a \"sprite\" material is for the 2D quad pipeline, a \"compute\" "
+                    "one for the compute.* commands)",
                     mr.material, material_kind_name(sm.material->kind));
             sm.material = nullptr;
         }
