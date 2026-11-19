@@ -6,6 +6,18 @@ Older versions, one file per minor version with its patch releases: [0.30](chang
 
 ## Unreleased
 
+- **Per-instance params and vertex channels for mesh materials (M72.3):** a material param marked `"instanced": true`
+  takes a value per entity inside one instanced draw call: 100 entities with 100 different `tint` values are one draw, and
+  the snippet reads `tint` by its name in `vertex()` and `surface()` (also in the shadow and depth prepass programs, so a
+  vertex moved by an instanced value casts its moved shadow). The values travel in the instance buffer, at most 3 vec4
+  (12 floats) per material; more is an error on `/params` that lists them. A param that is not instanced still splits the
+  batch. `"vertexAttributes": ["uv1", "color1"]` lets `vertex()` read a glTF mesh's second UV set and second vertex-color
+  set (`vertex_uv1`, `vertex_color1`); a mesh part without a declared channel (any procedural mesh or built-in primitive)
+  is drawn magenta and logged once with the material, the mesh and the glTF attribute. A material that uses neither gets
+  the attributes it had. `material.info` and the twins list `instanced`, `instanceVec4` and `vertexAttributes`.
+  **Games with custom materials must re-export again:** the mesh template changed (no built-in mesh looks different), so
+  the compiled shader files an older export shipped are refused, with the re-export hint, until the game is exported
+  again.
 - **Compute materials (M72.4):** `"kind": "compute"` makes a `*.material.json` a GPU program over storage buffers: its snippet
   defines `void compute(in ComputeInput i)`, and the file declares `workgroupSize` (a multiple of 32, at most 256) and
   `buffers` (arrays of `float`, `vecN`, `int` and `uint` fields, std430), plus `params` and `textures` as for meshes.

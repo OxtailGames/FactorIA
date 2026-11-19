@@ -48,6 +48,7 @@ Json param_json(const MaterialParam& p) {
     if (p.max) j["max"] = *p.max;
     j["doc"] = p.doc;
     if (p.implicit) j["implicit"] = true;
+    if (p.instanced) j["instanced"] = true;
     return j;
 }
 
@@ -153,8 +154,10 @@ void register_shader_commands(CommandRegistry& registry, const std::string& proj
                        "docs, textures, programs and compile state.";
         info.description =
             "Reads a *.material.json (schemas/material.schema.json) and returns {material, doc, kind, shader, "
-            "lighting, alphaMode, doubleSided, params: [{name, type, default, min?, max?, doc, implicit?}], "
-            "textures: [{name, default, sampler, doc}], programs, compile: {state, dialect, toolFound, hint?}}. "
+            "lighting, alphaMode, doubleSided, params: [{name, type, default, min?, max?, doc, implicit?, "
+            "instanced?}], "
+            "textures: [{name, default, sampler, doc}], vertexAttributes?, programs, compile: {state, dialect, "
+            "toolFound, hint?}}. "
             "`kind` is \"mesh\" (default), \"sprite\", \"sky\", \"post\" or \"compute\"; sky and post report "
             "programs [] and compile.state \"unsupported\" with the package that brings them in compile.hint. "
             "params are listed in the order of the uniform block (alphabetical); `implicit` marks "
@@ -170,7 +173,11 @@ void register_shader_commands(CommandRegistry& registry, const std::string& proj
             "material makes quad and quad_plain. "
             "A compute material also returns workgroupSize [x, y, z] and buffers [{name, binding, access, stride, "
             "doc, fields: [{name, type, offset, doc}]}] (std430 layout); `runsOn` and `notOn` list the platforms the "
-            "kind has shaders for (compute: not android or web).";
+            "kind has shaders for (compute: not android or web). "
+            "`instanced` marks a mesh param whose value every entity gives itself inside ONE instanced draw (it "
+            "travels in the instance buffer instead of the uniform block); `vertexAttributes` lists the extra mesh "
+            "channels (uv1, color1) vertex() reads as vertex_uv1 and vertex_color1 (docs/SHADERS.md, \"The material "
+            "file\").";
         info.inputSchema = Json::parse(R"({
           "type":"object","required":["material"],
           "properties":{"material":{"type":"string","description":"Project-relative path of the material, e.g. materials/water.material.json."}}})");
@@ -213,6 +220,7 @@ void register_shader_commands(CommandRegistry& registry, const std::string& proj
                                      {"params", params},
                                      {"textures", textures},
                                      {"programs", Json(g.programs)}});
+            if (!m.vertexAttributes.empty()) out["vertexAttributes"] = Json(m.vertexAttributes);
             if (supported) add_platforms(out, m.kind);
             if (m.kind == "compute") {
                 const Json fields = shaders_detail::compute_twin_fields(m);

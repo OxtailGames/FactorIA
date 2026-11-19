@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "fa/core/jobs.h"
+#include "render_internal.h"
 #include "render_scene.h"
 
 using namespace fa;
@@ -262,6 +263,28 @@ TEST_CASE("material hash: an entity asked for twice in one frame does not keep a
     cache.hashes(a, &params, nullptr, p, c);
     cache.end_frame();
     CHECK(cache.size() == 1);  // b's entry went
+}
+
+TEST_CASE("material hash: the instanced params of the material are left out, as in the real path") {
+    World w;
+    Entity a = make(w, "a"), b = make(w, "b");
+    render::MaterialAsset material;
+    material.instancedNames = {"tint"};
+    material.instancedKey = 7;
+    const Json pa{{"tint", 1}, {"size", 2}}, pb{{"tint", 5}, {"size", 2}};
+    render::MaterialHashCache cache;
+    std::size_t ha = 0, hb = 0, c = 0;
+    cache.begin_frame();
+    cache.hashes(a, &pa, nullptr, ha, c, &material);
+    cache.hashes(b, &pb, nullptr, hb, c, &material);
+    cache.end_frame();
+    CHECK(ha != 0);
+    CHECK(ha == hb);  // they differ only in the instanced param: one batch
+    cache.begin_frame();
+    cache.hashes(a, &pa, nullptr, ha, c);
+    cache.hashes(b, &pb, nullptr, hb, c);
+    cache.end_frame();
+    CHECK(ha != hb);  // without the material the values count
 }
 
 TEST_CASE("material hash: computed when the overrides change, never again while they stay") {

@@ -3,6 +3,8 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
+#include <cstring>
 #include <fstream>
 #include <iterator>
 #include <limits>
@@ -1210,4 +1212,214 @@ TEST_CASE("3D mesh template: a material's emission driven by fa_time is the same
     CHECK(c.r > 0.85f);
     CHECK(c.g > 0.15f);
     expect_golden(a, "3d_fa_time_emission");
+}
+
+// ---- per-instance params and declared vertex channels (materials/inst and materials/chan) ----
+
+namespace {
+Json tint_params(double r, double g, double b) { return Json::object({{"tint", Json::array({r, g, b, 1.0})}}); }
+
+// Per channel: |pixel - (r, g, b)| <= tol.
+bool near_color(const Color& c, float r, float g, float b, float tol = 0.2f) {
+    return std::abs(c.r - r) <= tol && std::abs(c.g - g) <= tol && std::abs(c.b - b) <= tol;
+}
+
+// A quad facing +Z (x -1.5..1.5) with a second UV set and a second colour set (red on the left, blue on the right);
+// `withChannels` false leaves them out.
+void write_channel_quad(const char* name, bool withChannels) {
+    const float pos[12] = {-1.5f, -1.5f, 0, 1.5f, -1.5f, 0, 1.5f, 1.5f, 0, -1.5f, 1.5f, 0};
+    const float uv1[8] = {0.5f, 0, 0.5f, 0, 0.5f, 1, 0.5f, 1};
+    const std::uint8_t cols[16] = {255, 0, 0, 255, 0, 0, 255, 255, 0, 0, 255, 255, 255, 0, 0, 255};
+    const std::uint16_t ix[6] = {0, 1, 2, 0, 2, 3};
+    std::vector<std::uint8_t> bytes(48 + 12 + 32 + 16);
+    std::memcpy(bytes.data(), pos, 48);
+    std::memcpy(bytes.data() + 48, ix, 12);
+    std::memcpy(bytes.data() + 60, uv1, 32);
+    std::memcpy(bytes.data() + 92, cols, 16);
+    static const char* t = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    std::string b64;
+    for (std::size_t i = 0; i < bytes.size(); i += 3) {
+        const std::uint32_t n = (bytes[i] << 16) | (i + 1 < bytes.size() ? bytes[i + 1] << 8 : 0) |
+                                (i + 2 < bytes.size() ? bytes[i + 2] : 0);
+        b64 += t[(n >> 18) & 63];
+        b64 += t[(n >> 12) & 63];
+        b64 += i + 1 < bytes.size() ? t[(n >> 6) & 63] : '=';
+        b64 += i + 2 < bytes.size() ? t[n & 63] : '=';
+    }
+    const std::string attrs = withChannels ? R"("POSITION":0,"TEXCOORD_1":2,"COLOR_1":3)" : R"("POSITION":0)";
+    const Json gltf = Json::parse(
+        R"({"asset":{"version":"2.0"},"scene":0,"scenes":[{"nodes":[0]}],"nodes":[{"mesh":0}],
+        "meshes":[{"primitives":[{"attributes":{)" +
+        attrs + R"(},"indices":1}]}],
+        "buffers":[{"byteLength":)" +
+        std::to_string(bytes.size()) + R"(,"uri":"data:application/octet-stream;base64,)" + b64 + R"("}],
+        "bufferViews":[{"buffer":0,"byteOffset":0,"byteLength":48},{"buffer":0,"byteOffset":48,"byteLength":12},
+                       {"buffer":0,"byteOffset":60,"byteLength":32},{"buffer":0,"byteOffset":92,"byteLength":16}],
+        "accessors":[{"bufferView":0,"componentType":5126,"count":4,"type":"VEC3","min":[-1.5,-1.5,0],"max":[1.5,1.5,0]},
+                     {"bufferView":1,"componentType":5123,"count":6,"type":"SCALAR"},
+                     {"bufferView":2,"componentType":5126,"count":4,"type":"VEC2"},
+                     {"bufferView":3,"componentType":5121,"normalized":true,"count":4,"type":"VEC4"}]})");
+    REQUIRE(fs::write_text(name, gltf.dump()).ok());
+}
+}  // namespace
+
+TEST_CASE("materials: 100 cubes with different instanced values are one batch and one draw, a per-draw param splits") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    MaterialScope scope;
+    // mode 0: every cube the same; 1: a different tint per cube; 2: a different tint and `raise`; 3: two `boost` values.
+    auto frame = [&](int mode) {
+        World w;
+        add_camera(w, {0, 9, 14}, {0, 0, 0});
+        add_light(w, LightType::Directional, {0, 5, 0}, {-50, 30, 0}, 0.8f);
+        for (int i = 0; i < 100; ++i) {
+            Entity e = add_material_mesh(w, "cube", "materials/inst.material.json",
+                                         {float(i % 10) - 4.5f, 0, float(i / 10) - 4.5f}, Color::hex(0x404040),
+                                         {0.7f, 0.7f, 0.7f});
+            Json params = Json::object();
+            if (mode == 1 || mode == 2) params = tint_params(i % 3 == 0, i % 3 == 1, i % 3 == 2);
+            if (mode == 2) params["raise"] = double(i % 4) * 0.3;
+            if (mode == 3) params["boost"] = i % 2 ? 2.0 : 1.0;
+            w.get<MeshRenderer>(e)->materialParams = params;
+        }
+        g.render(w);
+        return g.renderer.stats();
+    };
+    ErrorLog log;
+    const RenderStats same = frame(0);
+    CHECK(same.meshes == 100);
+    CHECK(same.meshBatches == 1);
+    for (int mode : {1, 2}) {
+        const RenderStats s = frame(mode);
+        CAPTURE(mode);
+        CHECK(s.meshBatches == 1);
+        CHECK(s.drawCalls == same.drawCalls);
+        CHECK(s.materialFallbacks.empty());
+    }
+    CHECK(frame(3).meshBatches == 2);
+    CHECK(log.messages().empty());
+}
+
+TEST_CASE("materials: instanced values reach surface() per entity, in one draw") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    MaterialScope scope;
+    World w;
+    add_stage(w);
+    const double col[3][3] = {{1, 0, 0}, {0, 1, 0}, {0, 0, 1}};
+    for (int i = 0; i < 3; ++i) {
+        Entity e = add_material_mesh(w, "cube", "materials/inst.material.json", {(i - 1) * 2.2f, 0, 0},
+                                     Color::hex(0x202020), {1, 1, 1});
+        w.get<MeshRenderer>(e)->materialParams = tint_params(col[i][0], col[i][1], col[i][2]);
+    }
+    ErrorLog log;
+    const Image img = g.render(w);
+    CHECK(log.messages().empty());
+    CHECK(g.renderer.stats().meshBatches == 2);  // the three cubes, and the ground plane of the stage
+    CHECK(near_color(img.pixel(80, 90), 1, 0, 0, 0.25f));
+    CHECK(near_color(img.pixel(160, 90), 0, 1, 0, 0.25f));
+    CHECK(near_color(img.pixel(240, 90), 0, 0, 1, 0.25f));
+}
+
+TEST_CASE("materials: a per-instance value read in vertex() moves the mesh and its shadow, and still batches") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    MaterialScope scope;
+    auto frame = [&](bool instanced) {
+        World w;
+        add_stage(w);
+        if (instanced) {
+            // Two entities with different `raise`: one batch; the one at 1.2 must equal a plain cube placed there.
+            Entity a = add_material_mesh(w, "cube", "materials/inst.material.json", {-1.5f, 0, 0}, Color::hex(0xc08040),
+                                         {1, 1, 1});
+            Entity b = add_material_mesh(w, "cube", "materials/inst.material.json", {1.5f, 0, 0}, Color::hex(0xc08040),
+                                         {1, 1, 1});
+            auto set = [&](Entity e, double raise) {
+                w.get<MeshRenderer>(e)->materialParams =
+                    Json::object({{"raise", raise}, {"tint", Json::array({0.0, 0.0, 0.0, 1.0})}});
+            };
+            set(a, 1.2);
+            set(b, 0.0);
+        } else {
+            add_mesh(w, "cube", {-1.5f, 1.2f, 0}, Color::hex(0xc08040));
+            add_mesh(w, "cube", {1.5f, 0.0f, 0}, Color::hex(0xc08040));
+        }
+        return g.render(w);
+    };
+    ErrorLog log;
+    const Image lifted = frame(true);
+    CHECK(g.renderer.stats().meshBatches == 2);  // the two cubes, and the ground plane of the stage
+    const Image placed = frame(false);
+    CHECK(log.messages().empty());
+    // The ground shadow of both cubes is part of the picture: the shadow pass saw the same per-instance values.
+    CHECK(diff_images(lifted, placed, 2.0f / 255.0f).meanError < 0.001);
+}
+
+TEST_CASE("materials: instanced params on a skinned glTF draw, with the per-instance data after the joints") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    MaterialScope scope;
+    std::ifstream in(std::string(FA_REPO_ROOT) + "/engine/render/tests/data/skinned_two_bone.gltf", std::ios::binary);
+    std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    REQUIRE(fs::write_text("assets/rig_instanced.gltf", text).ok());
+    auto frame = [&](double r, double gr) {
+        World w;
+        add_camera(w, {0.5f, 1.2f, 4}, {0.5f, 1.0f, 0});
+        w.get<Light>(add_light(w, LightType::Directional, {0, 5, 0}, {-40, 25, 0}, 1.0f))->castShadows = true;
+        add_mesh(w, "plane", {0, -0.01f, 0}, Color::hex(0x909090), {8, 1, 8});
+        Entity rig = make(w, "rig");
+        auto& mr = w.add<MeshRenderer>(rig);
+        mr.mesh = "assets/rig_instanced.gltf";
+        mr.material = "materials/inst.material.json";
+        mr.materialParams = tint_params(r, gr, 0.0);
+        w.add<Animator>(rig).clip = "Bend";
+        update_animators(w, 0.0f);
+        update_animators(w, 0.5f);
+        return g.render(w);
+    };
+    ErrorLog log;
+    const Image red = frame(1, 0);
+    const Image green = frame(0, 1);
+    CHECK(log.messages().empty());
+    CHECK(g.renderer.stats().materialFallbacks.empty());
+    CHECK(diff_images(red, green, 4.0f / 255.0f).meanError > 0.002);
+}
+
+TEST_CASE("materials: vertexAttributes reads the second UV set and colour set of a glTF mesh") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    MaterialScope scope;
+    write_channel_quad("assets/chan_quad.gltf", true);
+    World w;
+    add_camera(w, {0, 0, 4}, {0, 0, 0});
+    add_material_mesh(w, "assets/chan_quad.gltf", "materials/chan.material.json", {0, 0, 0}, Color::white(), {1, 1, 1});
+    ErrorLog log;
+    const Image img = g.render(w);
+    CHECK(log.messages().empty());
+    CHECK(g.renderer.stats().materialFallbacks.empty());
+    // Red on the left, blue on the right: the emission is color1 * (uv1.x * 2) = color1.
+    CHECK(near_color(img.pixel(160 - 40, 90), 1, 0, 0, 0.3f));
+    CHECK(near_color(img.pixel(160 + 40, 90), 0, 0, 1, 0.3f));
+}
+
+TEST_CASE("materials: a mesh without a declared channel is drawn magenta and reported once, naming material, mesh and "
+          "channel") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    MaterialScope scope;
+    write_channel_quad("assets/plain_quad.gltf", false);
+    World w;
+    add_camera(w, {0, 0, 4}, {0, 0, 0});
+    add_material_mesh(w, "assets/plain_quad.gltf", "materials/chan.material.json", {-2, 0, 0}, Color::white(),
+                      {1, 1, 1});
+    add_material_mesh(w, "cube", "materials/chan.material.json", {2, 0, 0}, Color::white(), {1, 1, 1});
+    ErrorLog log;
+    const Image img = g.render(w);
+    g.render(w);
+    CHECK(log.count("materials/chan.material.json") == 2);  // one per mesh, not one per frame
+    CHECK(log.count("TEXCOORD_1") == 2);
+    CHECK(log.count("assets/plain_quad.gltf") == 1);
+    REQUIRE(g.renderer.stats().materialFallbacks.size() == 1);
+    CHECK(g.renderer.stats().materialFallbacks[0] == "materials/chan.material.json");
+    CHECK(near_color(img.pixel(160 - 78, 90), 1, 0, 1, 0.3f));  // the quad's centre, magenta
 }
