@@ -891,14 +891,18 @@ private:
     std::uint64_t meshStoreSerial_ = 0;
     std::unordered_map<std::string, std::unique_ptr<MaterialAsset>> materials_;
     std::uint64_t useTick_ = 0;  // drawn frames counted by begin_material_frame (MaterialUse::tick)
-    // sprite_material()'s answers of this frame: by material path, then by the values (a pointer to the first component's params
-    // with them: nothing is copied; at most kMaxMaterialVariants distinct sets per path).
+    // sprite_material()'s answers of this frame, by material path: by the component's params address (the usual repeat) and by
+    // the hash of the values (a pointer to the first component's params with them: nothing is copied; equal values are compared
+    // only on a hash match, so the number of distinct sets is not capped).
     struct MaterialVariant {
         const Json* params;
         MaterialRef ref;
     };
-    static constexpr std::size_t kMaxMaterialVariants = 16;
-    std::unordered_map<std::string, std::vector<MaterialVariant>> materialVariants_;
+    struct PathVariants {
+        std::unordered_map<const Json*, MaterialVariant> byPointer;
+        std::unordered_multimap<std::uint64_t, MaterialVariant> byValue;
+    };
+    std::unordered_map<std::string, PathVariants> materialVariants_;
     std::uint32_t materialResolves_ = 0;
     MaterialRef resolve_kind_material(const std::string& path, const Json& overrides, MaterialKind want);
     ShaderCompiler shaderCompiler_;

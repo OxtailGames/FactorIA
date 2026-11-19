@@ -710,6 +710,43 @@ namespace fa::render {
 
 namespace {
 constexpr std::uint64_t kUseKeepFrames = 2;  // a use survives this many frames without an item asking for it
+
+// Params with no entries are the same set whether they are null or {}.
+bool params_empty(const Json& j) { return j.is_null() || ((j.is_object() || j.is_array()) && j.empty()); }
+bool values_equal(const Json& a, const Json& b) {
+    if (&a == &b) return true;
+    if (params_empty(a) && params_empty(b)) return true;
+    return a == b;
+}
+std::uint64_t hash_json(const Json& j, std::uint64_t h) {
+    auto mix = [&](std::uint64_t x) { h = (h ^ x) * 1099511628211ull; };
+    if (j.is_object()) {
+        mix(1);
+        for (auto it = j.begin(); it != j.end(); ++it) {
+            for (unsigned char c : it.key()) mix(c);
+            h = hash_json(it.value(), h);
+        }
+    } else if (j.is_array()) {
+        mix(2);
+        for (const Json& e : j) h = hash_json(e, h);
+    } else if (j.is_string()) {
+        mix(3);
+        for (unsigned char c : j.get_ref<const std::string&>()) mix(c);
+    } else if (j.is_number()) {
+        mix(4);  // 1 and 1.0 compare equal, so numbers hash as doubles
+        double d = j.get<double>();
+        if (d == 0.0) d = 0.0;  // -0 == 0
+        std::uint64_t bits = 0;
+        std::memcpy(&bits, &d, sizeof bits);
+        mix(bits);
+    } else if (j.is_boolean()) {
+        mix(j.get<bool>() ? 5 : 6);
+    } else {
+        mix(7);
+    }
+    return h;
+}
+std::uint64_t hash_params(const Json& j) { return params_empty(j) ? 0 : hash_json(j, 1469598103934665603ull); }
 }  // namespace
 
 MaterialRef Assets::sprite_material(const std::string& path, const Json& overrides) {
@@ -725,13 +762,29 @@ MaterialRef Assets::kind_material(const std::string& path, const Json& overrides
     // The answers of this frame by path, then by values: a second ask about the same component, or about another one with equal
     // values (the usual case: a thousand sprites with one material), costs one hash-map find and a comparison of the values in
     // place (nothing is copied).
-    std::vector<MaterialVariant>& variants = materialVariants_[path];
-    for (const MaterialVariant& v : variants)
-        if (v.params == &overrides || (v.params->empty() && overrides.empty()) || *v.params == overrides) return v.ref;
+    PathVariants& variants = materialVariants_[path];
+    // The same component asked again: its address is the answer. Sound because `overrides` is a component's own field that keeps
+    // its values until the cache is dropped (the contract in render_internal.h); the assert holds that invariant.
+    if (auto it = variants.byPointer.find(&overrides); it != variants.byPointer.end()) {
+        FA_ASSERT(values_equal(*it->second.params, overrides), "a material's params changed during the frame");
+        return it->second.ref;
+    }
+    // Another component: found by the hash of its values (compared in place only on a hash match, so any number of distinct
+    // sets costs one hash, not a walk over the others).
+    const std::uint64_t h = hash_params(overrides);
+    auto [first, last] = variants.byValue.equal_range(h);
+    for (auto it = first; it != last; ++it)
+        if (values_equal(*it->second.params, overrides)) {
+            const MaterialVariant found = it->second;
+            variants.byPointer.emplace(&overrides, found);
+            return found.ref;
+        }
     // A set of values not seen this frame: the whole lookup (path normalized, params packed, hashed, interned).
     const MaterialRef ref = resolve_kind_material(path, overrides, want);
     ++materialResolves_;
-    if (variants.size() < kMaxMaterialVariants) variants.push_back({&overrides, ref});
+    const MaterialVariant v{&overrides, ref};
+    variants.byValue.emplace(h, v);
+    variants.byPointer.emplace(&overrides, v);
     return ref;
 }
 
