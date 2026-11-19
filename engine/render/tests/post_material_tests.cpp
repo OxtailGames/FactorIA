@@ -1337,3 +1337,111 @@ TEST_CASE("post history: a reload of the material and the end of the renderer le
     if (!wasEnabled) sg_disable_stats();
     CHECK(log.messages().empty());
 }
+
+// ---- Renderer::capture_camera: the custom passes of a camera over a picture made off screen (the editor's preview of a post material) ----
+
+TEST_CASE("capture_camera: the custom passes of the camera run over the picture, the other effects do not") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    HistoryScope scope;
+    ProblemLog log;
+    Scene3d s;
+    Renderer::CameraCapture spec;
+    spec.camera = s.cam;
+    spec.width = 160;
+    spec.height = 90;
+    std::string err;
+    Image plain;
+    REQUIRE_MESSAGE(g.renderer.capture_camera(s.w, spec, plain, &err), err);
+    REQUIRE(plain.width == 160);
+    REQUIRE(plain.height == 90);
+    near(plain.pixel(80, 45), 1, 1, 1);  // the cube
+    near(plain.pixel(5, 5), 0, 0, 0);    // the clear colour
+    CHECK(plain.pixel(5, 5).a >
+          0.99f);  // the camera's own clear colour, not the transparent background of capture_world
+    // A tint: the same default as in the game (post_tint), and the black stays black.
+    s.post().customPasses = Json::array({entry(kTint)});
+    s.post().bloomEnabled = true;  // not drawn here: the stack's own effects are the game's
+    s.post().bloomIntensity = 4.0f;
+    Image tinted;
+    REQUIRE_MESSAGE(g.renderer.capture_camera(s.w, spec, tinted, &err), err);
+    near(tinted.pixel(80, 45), 1.0f, 0.25f, 0.25f);
+    near(tinted.pixel(5, 5), 0, 0, 0);
+    CHECK(diff_images(plain, tinted, 2.0f / 255.0f).maxError > 0.25);
+    // The prepass is the camera's own: the depth of the cube's face (9 m of 20) and the normal that faces the camera.
+    s.post().customPasses = Json::array({entry(kDepth)});
+    Image depth;
+    REQUIRE_MESSAGE(g.renderer.capture_camera(s.w, spec, depth, &err), err);
+    near(depth.pixel(80, 45), 9.0f / 20.0f, 0.5f, 0.5f);
+    near(depth.pixel(5, 5), 1.0f, 0.5f, 0.5f);
+    CHECK(log.messages().empty());
+}
+
+TEST_CASE(
+    "capture_camera: the frames build a history, every call starts it clean, and the game's frame is not touched") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    HistoryScope scope;
+    ProblemLog log;
+    Scene2d s;  // an orthographic 2D camera: the capture draws it as a render target would
+    s.passes({entry(kHistory, nullptr, keep(1.0, true))});
+    g.render(s.w);
+    Image game = g.render(s.w);
+    near(game.pixel(20, 20), 1, 0, 0);
+    const RenderStats stats = g.renderer.stats();
+    Renderer::CameraCapture spec;
+    spec.camera = s.cam;
+    spec.width = 80;
+    spec.height = 45;
+    std::string err;
+    Image one, three, again;
+    REQUIRE_MESSAGE(g.renderer.capture_camera(s.w, spec, one, &err), err);
+    near(one.pixel(5, 5), 0, 0, 0);  // the first frame has no history: the picture
+    near(one.pixel(40, 22), 1, 1, 1);
+    spec.frames = 3;
+    REQUIRE_MESSAGE(g.renderer.capture_camera(s.w, spec, three, &err), err);
+    near(three.pixel(5, 5), 1, 0, 0);  // the history is valid from the second frame
+    near(three.pixel(40, 22), 1, 0, 0);
+    REQUIRE_MESSAGE(g.renderer.capture_camera(s.w, spec, again, &err), err);
+    CHECK(diff_images(three, again, 0.0f).maxError == 0.0);  // the same world, the same picture: it started clean again
+    spec.frames = 1;
+    REQUIRE_MESSAGE(g.renderer.capture_camera(s.w, spec, one, &err), err);
+    near(one.pixel(5, 5), 0, 0, 0);  // and a single frame after them is clean too
+    // The game's own numbers are what they were, and the history of its frame before the captures is still valid.
+    CHECK(g.renderer.stats().drawCalls == stats.drawCalls);
+    CHECK(g.renderer.stats().materialFallbacks == stats.materialFallbacks);
+    game = g.render(s.w);
+    near(game.pixel(20, 20), 1, 0, 0);
+    CHECK(log.messages().empty());
+}
+
+TEST_CASE("capture_camera: a camera with no custom pass is one plain frame, and the arguments are checked") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    MaterialScope scope;
+    ProblemLog log;
+    Scene2d s;
+    Renderer::CameraCapture spec;
+    spec.camera = s.cam;
+    spec.width = 64;
+    spec.height = 36;
+    spec.frames = 8;
+    Image img;
+    std::string err;
+    REQUIRE_MESSAGE(g.renderer.capture_camera(s.w, spec, img, &err), err);
+    near(img.pixel(32, 18), 1, 1, 1);
+    near(img.pixel(0, 0), 0, 0, 0);
+    Renderer::CameraCapture bad = spec;
+    bad.camera = s.sprite;  // not a camera
+    CHECK_FALSE(g.renderer.capture_camera(s.w, bad, img, &err));
+    CHECK(err.find("Camera") != std::string::npos);
+    bad = spec;
+    bad.width = 0;
+    CHECK_FALSE(g.renderer.capture_camera(s.w, bad, img, &err));
+    CHECK(err.find("between 1 and") != std::string::npos);
+    bad = spec;
+    bad.frames = Renderer::kMaxCaptureFrames + 1;
+    CHECK_FALSE(g.renderer.capture_camera(s.w, bad, img, &err));
+    CHECK(err.find("frames") != std::string::npos);
+    CHECK(log.messages().empty());
+}

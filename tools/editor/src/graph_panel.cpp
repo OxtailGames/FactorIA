@@ -13,8 +13,11 @@
 
 #include "editor_internal.h"
 #include "fa/core/strings.h"
+#include "fa/scene/camera_query.h"
+#include "fa/scene/postprocess.h"
 #include "imgui_internal.h"
 #include "imgui_stdlib.h"
+#include "postfx_custom.h"
 #include "ui_backend.h"
 
 namespace fa::editor {
@@ -1245,6 +1248,37 @@ void Editor::draw_graph_palette(GraphModel& m) {
     ImGui::EndPopup();
 }
 
+bool Editor::graph_try_on_camera(const std::string& material) {
+    World& w = world();
+    const std::vector<Entity> cameras = rendering_cameras(w);
+    if (cameras.empty()) {
+        notify("The scene has no active camera to try the pass on. Add a Camera entity (Hierarchy panel) first.", 1);
+        return false;
+    }
+    const Entity camera = cameras.front();
+    Json list = Json::array();
+    const PostProcess* own = w.get<PostProcess>(camera);
+    if (own && own->customPasses.is_array()) list = own->customPasses;
+    for (const Json& e : list)
+        if (e.is_object() && e.value("material", std::string()) == material) {
+            notify("The camera '" + w.id_of(camera) + "' already runs " + material + ".", 0);
+            return false;
+        }
+    std::string err;
+    const CommandResult r =
+        edit_command("graph:try:" + std::to_string(uiFrame_), "postprocess.set",
+                     Json::object({{"id", w.id_of(camera)},
+                                   {"fields", Json::object({{"customPasses", custom_pass_add(list, material)}})}}),
+                     &err);
+    if (!r.ok) {
+        notify("Cannot add " + material + " to the camera: " + err, 1);
+        return false;
+    }
+    notify("Added " + material + " to the PostProcess of camera '" + w.id_of(camera) + "' (Edit > Undo takes it off).",
+           0);
+    return true;
+}
+
 // ------------------------------------------------------------------------------------------------------------- side --
 void Editor::draw_graph_side(GraphModel& m) {
     GraphUi& u = graph_;
@@ -1314,8 +1348,17 @@ void Editor::draw_graph_side(GraphModel& m) {
                (pv.saved_state() == PreviewState::Waiting || pv.saved_state() == PreviewState::Compiling)) {
         ImGui::TextDisabled("the saved version is compiling...");
     }
-    // a sprite material is drawn on a flat quad of its own: the mesh shapes do not apply
-    if (pv.drawing() == PreviewKind::Sprite) {
+    // a sprite material is drawn on a flat quad of its own, a post material over a small scene: the mesh shapes do not apply
+    if (m.is_open() && m.report().kind == "post") {
+        ImGui::TextDisabled("A post material is drawn as the only pass of a camera over a small 3D scene.");
+        ImGui::BeginDisabled(m.dirty());
+        if (ImGui::Button("Try on scene camera")) graph_try_on_camera(m.path());
+        ImGui::EndDisabled();
+        at_track("gr:tryscene");
+        hint("Adds this material to the PostProcess.customPasses of the camera that draws the scene (one undo step), "
+             "to see it in the Viewport "
+             "and in the game. Save the material first: the game reads the file, not the draft.");
+    } else if (pv.drawing() == PreviewKind::Sprite) {
         ImGui::TextDisabled("A sprite material is drawn on a 2D quad (its texture, or a grey checker).");
     } else {
         PreviewShape shape = pv.shape();

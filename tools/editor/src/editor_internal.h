@@ -683,6 +683,9 @@ public:
     // *.material.json; false and a toast on failure (or when it asked about unsaved changes first). `discard`: do not ask.
     bool open_graph_document(const std::string& rel, bool startGraph = false, bool discard = false);
     void graph_edited(const GraphEditOutcome& out);  // after an edit: the undo entry, a toast for an error
+    // "Try on scene camera" of a post material: adds `material` (project-relative) to the PostProcess.customPasses of the camera that draws the
+    // scene (the first of rendering_cameras) with postprocess.set, as one undo step; a toast says what happened. True when it was added.
+    bool graph_try_on_camera(const std::string& material);
     void graph_apply_undo(const Json& entry, bool forward);
     void graph_collect_steps();  // drops the undo steps no stack entry points to
     void graph_save(bool force, bool overwriteExternal = false);

@@ -413,6 +413,25 @@ public:
     // stats() or the picture of the frame.
     bool capture_world(World& world, const WorldCapture& spec, Image& out, std::string* error = nullptr);
 
+    // ---- Off-screen capture through a camera, with its custom post passes (the editor's preview of a post material) -------------
+    struct CameraCapture {
+        Entity camera = kNullEntity;  // a Camera entity of the world (primary or not: it is the one asked for)
+        int width = 0, height = 0;    // pixels, 1 .. kMaxWorldCaptureSide
+        // How many frames are drawn, 1 .. kMaxCaptureFrames; only the last is read back. A frame matters when a pass of the camera's stack
+        // calls fa_history: it reads what the frame before drew (the first one starts clean, fa_history_valid false), so a trail or a
+        // feedback has built up in the picture that comes back. A camera whose stack has no custom pass draws one frame whatever this says.
+        int frames = 1;
+    };
+    static constexpr int kMaxCaptureFrames = 8;
+    // Draws what `spec.camera` sees (its 3D and 2D world, its clear colour, showTags and hideTags) into a width x height image and
+    // answers its pixels (row 0 = top, straight alpha), with the custom passes of the camera's PostProcess (PostProcess.customPasses of
+    // the camera and of the volumes it is in, each at its `position`; fa_depth and fa_normal get the camera's prepass) run over it. No
+    // other effect of the stack is drawn (no bloom, tonemap, ...): the picture is the scene as the camera draws it plus those passes.
+    // Like capture_world it needs no frame drawn first and changes neither stats() nor the picture of the frame; the histories of the
+    // camera's passes (fa_history) belong to the capture and start clean at every call, so the same world gives the same picture. False
+    // + *error when the entity is not a Camera of the world, the size is not 1 .. kMaxWorldCaptureSide, or frames is outside its range.
+    bool capture_camera(World& world, const CameraCapture& spec, Image& out, std::string* error = nullptr);
+
     // ---- Run-time textures ------------------------------------------------------------------------------------------
     // A texture made from pixels at run time (render.captureTexture, render.textureFromPNG in scripts). Returns its id,
     // "runtime:N" (N counts from 1, never reused): put it in Sprite.texture (or any other texture field) like an asset
