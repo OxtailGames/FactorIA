@@ -43,7 +43,7 @@ struct GraphNodeType {
     std::string doc;
     std::vector<GraphPort> inputs;
     std::vector<GraphPort> outputs;  // an output of type "param" has the type of the param the node names
-    std::vector<std::string> kinds;  // the material kinds the node works in ("mesh", "sprite"; later "sky", "post")
+    std::vector<std::string> kinds;  // the material kinds the node works in ("mesh", "sprite", "post"; later "sky")
     // Per material kind the node does not work in: why not and what to use there instead (the hint of the error; may be missing).
     std::vector<std::pair<std::string, std::string>> instead;
     bool fragmentOnly =
@@ -61,7 +61,7 @@ struct GraphNodeType {
 const std::vector<GraphNodeType>& graph_node_library();
 // The node type named `type`; with `kind`, the one that works in that kind (null when none does). Without, the first of that name.
 const GraphNodeType* find_graph_node_type(std::string_view type, std::string_view kind = {});
-// The material kinds a graph can be generated for today ("mesh", "sprite").
+// The material kinds a graph can be generated for today ("mesh", "sprite", "post").
 const std::vector<std::string>& graph_supported_kinds();
 // The name of every helper function of the library and its GLSL (for the tests and the docs).
 std::vector<std::pair<std::string, std::string>> graph_helper_functions();

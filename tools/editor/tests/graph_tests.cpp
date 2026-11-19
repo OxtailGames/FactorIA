@@ -388,6 +388,59 @@ TEST_CASE("graph model: a new sprite graph material has the output of a sprite, 
     CHECK(m.node_type("out")->inputs[0].name == "albedo");
 }
 
+TEST_CASE("graph model: a new post graph material starts as the picture unchanged, has the post nodes and none of the "
+          "other kinds'") {
+    GraphProject p;
+    GraphModel& m = *p.model;
+    CHECK(m.new_material_name("post") == "assets/materials/post_graph.material.json");
+    p.write("shaders/post_graph.post.glsl", "// mine\n");  // the snippet of the first name is somebody's: the next one
+    CHECK(m.new_material_name("post") == "assets/materials/post_graph2.material.json");
+
+    const GraphEditOutcome made = m.create("materials/look.material.json", "post");
+    REQUIRE_MESSAGE(made.ok, made.error);
+    CHECK(m.report().kind == "post");
+    CHECK(m.report().ok());
+    CHECK_FALSE(m.dirty());
+    CHECK(m.node_count() == 2);
+    CHECK(m.link_count() == 1);
+    const Json file = Json::parse(p.read("materials/look.material.json"));
+    CHECK(file["kind"] == "post");
+    CHECK(file["shader"] == "shaders/look.post.glsl");
+    CHECK(file.contains("graphHash"));
+    const std::string snippet = p.read("shaders/look.post.glsl");
+    CHECK(snippet.find("void post(in PostInput i, inout PostSurface s)") != std::string::npos);
+    CHECK(snippet.find("s.color.rgb = n_scene_rgb;") != std::string::npos);
+    const GraphNodeType* out = m.node_type("out");
+    REQUIRE(out);
+    CHECK(out->inputs[0].name == "color");  // the output of a post pass, not the mesh's albedo
+
+    bool history = false, other = false;
+    for (const GraphNodeType* t : m.palette(""))
+        if (t->type == "post.history") {
+            history = true;
+        } else if (t->type == "fresnel" || t->type == "sprite.color" || t->type == "position.world") {
+            other = true;
+        }
+    CHECK(history);
+    CHECK_FALSE(other);
+    const GraphEditOutcome refused = m.add_node("sprite.color", Vec2{0, 0});
+    CHECK_FALSE(refused.ok);
+    CHECK(refused.error.find("\"post\"") != std::string::npos);
+    CHECK(refused.error.find("post.scene") != std::string::npos);  // what to use instead
+    CHECK(m.node_count() == 2);
+
+    // a history node: the generated snippet asks for the history, and the save keeps the graph in step with it
+    const GraphEditOutcome added = m.add_node("post.history", Vec2{0, 0});
+    REQUIRE_MESSAGE(added.ok, added.error);
+    const GraphEditOutcome linked = m.connect(added.id + ".rgb", "out.rgb");
+    REQUIRE_MESSAGE(linked.ok, linked.error);
+    CHECK(m.report().ok());
+    const GraphSaveOutcome saved = m.save(false);
+    REQUIRE_MESSAGE(saved.ok, saved.error);
+    CHECK(m.snippet_state() == "in_sync");
+    CHECK(p.read("shaders/look.post.glsl").find("fa_history(") != std::string::npos);
+}
+
 TEST_CASE("graph model: the file changing on disk is found; unsaved edits are not overwritten") {
     GraphProject p;
     p.open();
@@ -936,6 +989,18 @@ TEST_CASE("graph model: undo of a delete puts the param back in its place; what 
     CHECK(m.status().empty());
 }
 
+TEST_CASE("graph preview: a kind it never draws says why even with no GPU renderer, the others say there is none") {
+    GraphProject p;
+    GraphPreview pv(p.dir.generic_string());
+    pv.set_document(Json::parse(R"({"format":"factoria.material/1","kind":"post","shader":"shaders/a.post.glsl"})"), 1);
+    pv.tick(nullptr);
+    CHECK(pv.state() == PreviewState::Unsupported);
+    CHECK(pv.message().find("PostProcess.customPasses") != std::string::npos);
+    pv.set_document(Json::parse(R"({"format":"factoria.material/1","shader":"shaders/a.surface.glsl"})"), 2);
+    pv.tick(nullptr);
+    CHECK(pv.state() == PreviewState::NoRenderer);
+}
+
 TEST_CASE("graph preview: every instance stages its compile in files of its own") {
     GraphProject p;
     GraphPreview a(p.dir.generic_string());
@@ -972,6 +1037,8 @@ TEST_CASE("graph preview: which kinds it draws, which it says why not") {
         CHECK_FALSE(plan.reason.empty());
     }
     CHECK(preview_plan("sky").reason.find("skyMaterial") != std::string::npos);
+    CHECK(preview_plan("post").reason.find("No preview for post materials") != std::string::npos);
+    CHECK(preview_plan("post").reason.find("PostProcess.customPasses") != std::string::npos);
     CHECK(preview_plan("hologram").kind == PreviewKind::Unknown);
 }
 

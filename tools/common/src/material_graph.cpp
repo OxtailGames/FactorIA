@@ -4,6 +4,7 @@
 #include <cctype>
 #include <cmath>
 #include <functional>
+#include <iterator>
 #include <map>
 #include <set>
 
@@ -63,6 +64,14 @@ const SurfaceValue kSpriteSurfaceValues[] = {
     {"screen_uv", 2, "i.screen_uv", nullptr},
 };
 
+// The same for a post material (PostInput of the post template; post() has no vertex stage, so nothing is read there).
+const SurfaceValue kPostSurfaceValues[] = {
+    {"uv", 2, "i.uv", nullptr},
+    {"time", 1, "fa_time.x", nullptr},
+    {"texel", 2, "i.texel", nullptr},
+    {"size", 2, "i.size", nullptr},
+};
+
 // How the generator writes the snippet of one material kind: the entry points of its template and the surface values its nodes read.
 struct KindProfile {
     const char* kind;
@@ -76,6 +85,8 @@ const KindProfile kProfiles[] = {
      kSurfaceValues, std::size(kSurfaceValues)},
     {"sprite", "void fragment(in QuadInput i, inout QuadSurface s) {\n", "void vertex(inout QuadVertex v) {\n",
      kSpriteSurfaceValues, std::size(kSpriteSurfaceValues)},
+    {"post", "void post(in PostInput i, inout PostSurface s) {\n", "", kPostSurfaceValues,
+     std::size(kPostSurfaceValues)},
 };
 
 const KindProfile& profile_of(const std::string& kind) {
@@ -125,6 +136,7 @@ struct Node {
     const Json* json = nullptr;
     std::string ref;  // the param or texture the node names
     int refComps = 0;
+    bool refColor = false;        // the param is a color: sprite and post graphs convert it with fa_scene_rgb
     std::vector<int> inLink;      // per input: index into the links, or -1
     std::vector<int> constComps;  // per input: size of the constant written in "inputs", 0 = none
     int genN = 1;
@@ -203,7 +215,7 @@ struct Analyser {
             error("/kind",
                   "node graphs are generated for materials of kind " + join(supported, ", ") + " only, this one is \"" +
                       kind + "\"",
-                  "Remove \"graph\" and write the snippet by hand, or wait for graph support of this kind.");
+                  "Remove \"graph\" and write the snippet by hand (sky and compute materials have no graph yet).");
         read_nodes();
         read_links();
         for (std::size_t i = 0; i < a.nodes.size(); ++i) resolve(int(i));
@@ -408,7 +420,10 @@ struct Analyser {
         n.ref = name;
         if (isParam) {
             for (const MaterialParam& p : material.params)
-                if (p.name == name) n.refComps = p.type == "color" ? 4 : p.components();
+                if (p.name == name) {
+                    n.refComps = p.type == "color" ? 4 : p.components();
+                    n.refColor = p.type == "color";
+                }
         }
     }
 
@@ -620,9 +635,15 @@ struct Analyser {
         if (a.output < 0) {
             if (!a.nodes.empty())
                 error("/graph/nodes", "the graph has no output node",
-                      "Add {\"id\": \"out\", \"type\": \"output\", \"inputs\": {\"albedo\": [1, 0.4, 0.1]}}: it says "
-                      "which fields of "
-                      "the surface the graph sets.");
+                      std::string("Add {\"id\": \"out\", \"type\": \"output\", \"inputs\": {") +
+                          (kind == "sprite" ? "\"color\": [1, 0.4, 0.1, 1]"
+                           : kind == "post" ? "\"rgb\": [1, 0.4, 0.1]"
+                                            : "\"albedo\": [1, 0.4, 0.1]") +
+                          "}}: it says which fields of the " +
+                          (kind == "sprite" ? "sprite's colour"
+                           : kind == "post" ? "picture's colour"
+                                            : "surface") +
+                          " the graph sets.");
             return;
         }
         const Node& o = a.nodes[a.output];
@@ -640,10 +661,12 @@ struct Analyser {
         for (std::size_t p = 0; p < o.type->inputs.size(); ++p) any = any || o.set(p);
         if (!any)
             warn(node_pointer(o.index),
-                 "nothing is linked into the output node or set in its \"inputs\": the material looks like a "
-                 "plain " +
-                     std::string(kind == "sprite" ? "sprite" : "MeshRenderer"),
+                 "nothing is linked into the output node or set in its \"inputs\": " +
+                     std::string(kind == "post" ? "the pass leaves the picture as it is"
+                                                : "the material looks like a plain " +
+                                                      std::string(kind == "sprite" ? "sprite" : "MeshRenderer")),
                  kind == "sprite" ? "Link a node into color, rgb or alpha..."
+                 : kind == "post" ? "Link a node into color or rgb (post.scene gives the picture to change)."
                                   : "Link a node into albedo, emission, roughness...");
         const int alpha = port_of("alpha");
         if (kind == "mesh" && alpha >= 0 && o.set(alpha) && material.alphaMode == "opaque")
@@ -807,6 +830,14 @@ struct Writer {
             if (n.type->type == "math.split") {
                 if (int(k) >= n.genN) continue;  // the vector has no such component (the checks refuse a link from it)
                 if (n.genN == 1) tpl = "{value}";  // a float has no swizzle
+            }
+            // A colour of the author is sRGB; a sprite or post snippet gets it in the colour space of the scene or of
+            // the picture (fa_scene_rgb, which exists in the fragment function only). A mesh graph writes it as typed.
+            if (!vertex && k == 0 && std::string_view(profile.kind) != "mesh") {
+                if (n.type->type == "param" && n.refColor)
+                    tpl = "vec4(fa_scene_rgb({ref}.rgb), {ref}.a)";
+                else if (n.type->type == "const.color" && n.inLink[0] < 0)
+                    tpl = "vec4(fa_scene_rgb({rgba}.rgb), {rgba}.a)";
             }
             line += vec_type(n.outComps[k]) + " " + var(n, k) + " = " + expression(n, tpl, vertex) + "; ";
         }

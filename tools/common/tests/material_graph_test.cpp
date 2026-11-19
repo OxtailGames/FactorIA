@@ -158,13 +158,23 @@ TEST_CASE("graph library: every node type and port is documented and the table i
             if (p.defaultValue.is_string()) CHECK(p.defaultValue.get<std::string>()[0] == '$');
     CHECK(find_graph_node_type("noise.fbm") != nullptr);
     CHECK(find_graph_node_type("noise.fbn") == nullptr);
-    CHECK(graph_supported_kinds() == std::vector<std::string>{"mesh", "sprite"});
+    CHECK(graph_supported_kinds() == std::vector<std::string>{"mesh", "sprite", "post"});
     // the output node has one entry per kind with that kind's fields; the lookup by kind picks it
     const GraphNodeType* meshOut = find_graph_node_type("output", "mesh");
     const GraphNodeType* spriteOut = find_graph_node_type("output", "sprite");
     REQUIRE(meshOut);
     REQUIRE(spriteOut);
     CHECK(meshOut != spriteOut);
+    const GraphNodeType* postOut = find_graph_node_type("output", "post");
+    REQUIRE(postOut);
+    CHECK(postOut != meshOut);
+    CHECK(postOut != spriteOut);
+    std::vector<std::string> postFields;
+    for (const GraphPort& p : postOut->inputs) {
+        postFields.push_back(p.name);
+        CHECK_MESSAGE(p.assign.find("{}") != std::string::npos, "post output field " << p.name << " has no statement");
+    }
+    CHECK(postFields == std::vector<std::string>{"color", "rgb"});  // no vertex stage, so no vertexOffset
     CHECK(find_graph_node_type("output", "sky") == nullptr);
     CHECK(find_graph_node_type("output") == meshOut);
     std::vector<std::string> spriteFields;
@@ -180,6 +190,13 @@ TEST_CASE("graph library: every node type and port is documented and the table i
         bool hint = false;
         for (const auto& [kind, text] : t.instead) hint = hint || (kind == "sprite" && text.size() > 20);
         CHECK_MESSAGE((hint || t.type == kGraphOutputNode), t.type << " has no hint for a sprite graph");
+    }
+    // ...and the same for a post graph
+    for (const GraphNodeType& t : graph_node_library()) {
+        if (std::find(t.kinds.begin(), t.kinds.end(), "post") != t.kinds.end()) continue;
+        bool hint = false;
+        for (const auto& [kind, text] : t.instead) hint = hint || (kind == "post" && text.size() > 20);
+        CHECK_MESSAGE((hint || t.type == kGraphOutputNode), t.type << " has no hint for a post graph");
     }
 }
 
@@ -447,7 +464,7 @@ TEST_CASE("graph check: cycles, vertex offsets and the output node") {
 TEST_CASE("graph check: a node used in a kind it does not support, and a kind with no graphs") {
     // an unknown or not yet supported kind is refused with the pointer of the kind
     auto c = check_of(R"({"nodes":[{"id":"out","type":"output"}]})", "sky");
-    CHECK(has_error(c, "/kind", "node graphs are generated for materials of kind mesh, sprite only"));
+    CHECK(has_error(c, "/kind", "node graphs are generated for materials of kind mesh, sprite, post only"));
     c = check_of(R"({"nodes":[{"id":"out","type":"output"}]})", "sprite");
     CHECK(c.ok());
     // a node that does not list the kind (position.world works in meshes only)
@@ -1320,6 +1337,365 @@ TEST_CASE("material.graph.nodes: the kind sprite lists its nodes, its output and
     auto one = p.call("material.graph.nodes", R"({"type":"sprite.life"})");
     REQUIRE(one.ok);
     CHECK(one.result["nodes"][0]["kinds"] == Json::parse(R"(["sprite"])"));
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Post materials: the same graph, the entry point post() of the post template
+// ---------------------------------------------------------------------------------------------------------------
+
+namespace {
+
+// A material of kind post with a param, a colour param and a texture, for the graphs below.
+Json post_doc(const std::string& name) {
+    Json doc = Json::parse(R"({
+      "format": "factoria.material/1",
+      "kind": "post",
+      "doc": "A post pass made of nodes.",
+      "params": {
+        "amount": { "type": "float", "default": 0.3, "min": 0, "max": 1, "doc": "A float." },
+        "tint": { "type": "color", "default": [1, 0.5, 0.2, 1], "doc": "A color." }
+      },
+      "textures": { "albedoTex": { "sampler": "linearRepeat", "doc": "A texture." } }
+    })");
+    doc["shader"] = "shaders/" + name + ".post.glsl";
+    return doc;
+}
+
+// A trail: the picture, or what the pass drew last frame faded by a param, whichever is brighter. The material asks for the history by
+// using the node: the file has nothing to declare.
+Json post_trail_material() {
+    Json doc = post_doc("trail");
+    doc["graph"] = Json::parse(R"({
+      "nodes": [
+        { "id": "pic", "type": "post.scene" },
+        { "id": "last", "type": "post.history" },
+        { "id": "keep", "type": "param", "param": "amount" },
+        { "id": "fade", "type": "math.mul" },
+        { "id": "bright", "type": "math.max" },
+        { "id": "out", "type": "output" }
+      ],
+      "links": [
+        { "from": "last.rgb", "to": "fade.a" },
+        { "from": "keep.value", "to": "fade.b" },
+        { "from": "pic.rgb", "to": "bright.a" },
+        { "from": "fade.result", "to": "bright.b" },
+        { "from": "bright.result", "to": "out.rgb" }
+      ]})");
+    return doc;
+}
+
+// Every node type that works in a post pass, with its defaults; every output goes through a math.length into one sum that the output
+// node writes, so every node is reachable.
+Json post_all_nodes_material() {
+    GraphBuilder g;
+    std::vector<std::string> floats;
+    auto reduce = [&](const std::string& id, const std::string& from) {
+        g.node("len_" + id, "math.length");
+        g.link(from, "len_" + id + ".x");
+        floats.push_back("len_" + id + ".result");
+    };
+    int k = 0;
+    for (const GraphNodeType& t : graph_node_library()) {
+        if (t.type == kGraphOutputNode || std::find(t.kinds.begin(), t.kinds.end(), "post") == t.kinds.end()) continue;
+        const std::string id = "n" + std::to_string(k++);
+        if (t.ref == "param") {
+            g.node(id, t.type, {}, "param", "amount");
+            reduce(id + "_value", id + ".value");
+            const std::string c = id + "c";
+            g.node(c, t.type, {}, "param", "tint");
+            reduce(c + "_value", c + ".value");
+            continue;
+        }
+        if (t.ref == "texture")
+            g.node(id, t.type, {}, "texture", "albedoTex");
+        else
+            g.node(id, t.type);
+        for (std::size_t o = 0; o < t.outputs.size(); ++o) {
+            if (t.type == "math.split" && o > 0) continue;  // a float has no y, z or w
+            reduce(id + "_" + t.outputs[o].name, id + "." + t.outputs[o].name);
+        }
+    }
+    const std::string total = g.sum("sum", floats);
+    g.node("out", "output");
+    g.link(total, "out.rgb");
+    Json doc = post_doc("postall");
+    doc["doc"] = "Every node type of the graph library that works in a post pass, in one material.";
+    doc["graph"] = Json::object({{"nodes", g.nodes}, {"links", g.links}});
+    return doc;
+}
+
+}  // namespace
+
+TEST_CASE("graph post: the example of material.graph.nodes writes post() of the post template and nothing else") {
+    Project p;
+    auto s = p.call("material.graph.nodes", R"({"kind":"post"})");
+    REQUIRE_MESSAGE(s.ok, failure(s));
+    const Json example = s.result["example"];
+    CHECK(example["kind"] == "post");
+    MaterialParse mp = parse_material(example, "");
+    REQUIRE_MESSAGE(mp.ok(), (mp.errors.empty() ? "" : mp.errors[0].to_string()));
+    const GeneratedGraph g = generate_graph_snippet(mp.material.graph, mp.material, "post");
+    REQUIRE_MESSAGE(g.check.ok(), all_errors(g.check));
+    CHECK(g.check.warnings.empty());
+    CHECK_FALSE(g.hasVertex);
+    CHECK(g.snippet.find("void post(in PostInput i, inout PostSurface s) {\n") != std::string::npos);
+    CHECK(g.snippet.find("surface(") == std::string::npos);
+    CHECK(g.snippet.find("fragment(") == std::string::npos);
+    CHECK(g.snippet.find("vertex(") == std::string::npos);
+    CHECK(g.snippet.find("fa_scene_color(n_moved_result)") != std::string::npos);  // the picture, read at the moved uv
+    CHECK(g.snippet.find("    s.color.rgb = n_lit_result;  // out (output)\n") != std::string::npos);
+    CHECK(g.snippet.find("fa_history") == std::string::npos);  // the pass keeps no history: it never asked for one
+    const GeneratedGraph again = generate_graph_snippet(mp.material.graph, mp.material, "post");
+    CHECK(again.snippet == g.snippet);
+    CHECK(again.hash == graph_snippet_hash(g.snippet));
+    // the list of the kind has the post nodes and the post output, and none of the other kinds' nodes
+    std::set<std::string> types;
+    const Json* output = nullptr;
+    for (const Json& n : s.result["nodes"]) {
+        types.insert(n["type"].get<std::string>());
+        if (n["type"] == "output") output = &n;
+    }
+    for (const char* t :
+         {"post.scene", "post.depth", "post.normal", "post.history", "post.screen", "noise.fbm", "flow", "uv", "time"})
+        CHECK_MESSAGE(types.count(t) == 1, t);
+    for (const char* t : {"sprite.color", "fresnel", "position.world", "triplanar"})
+        CHECK_MESSAGE(types.count(t) == 0, t);
+    REQUIRE(output);
+    std::vector<std::string> fields;
+    for (const Json& in : (*output)["inputs"]) fields.push_back(in["name"].get<std::string>());
+    CHECK(fields == std::vector<std::string>{"color", "rgb"});
+    // a post node is in neither the mesh nor the sprite list
+    CHECK_FALSE(p.call("material.graph.nodes", R"({"kind":"mesh","type":"post.scene"})").ok);
+    CHECK_FALSE(p.call("material.graph.nodes", R"({"kind":"sprite","type":"post.depth"})").ok);
+}
+
+TEST_CASE("graph post: one graph uses every node type that works in a post pass and generates") {
+    const Json doc = post_all_nodes_material();
+    std::set<std::string> used;
+    for (const Json& n : doc["graph"]["nodes"]) used.insert(n["type"].get<std::string>());
+    for (const GraphNodeType& t : graph_node_library())
+        if (std::find(t.kinds.begin(), t.kinds.end(), "post") != t.kinds.end())
+            CHECK_MESSAGE(used.count(t.type) == 1, "the post all-nodes graph lacks " << t.type);
+    MaterialParse mp = parse_material(doc, "");
+    REQUIRE_MESSAGE(mp.ok(), (mp.errors.empty() ? "" : mp.errors[0].to_string()));
+    const GeneratedGraph g = generate_graph_snippet(doc["graph"], mp.material, "post");
+    REQUIRE_MESSAGE(g.check.ok(), all_errors(g.check));
+    CHECK(g.check.warnings.empty());
+    CHECK_FALSE(g.hasVertex);
+    CHECK(g.usedNodes.size() + 1 == doc["graph"]["nodes"].size());
+    for (const char* call :
+         {"fa_scene_color(", "fa_depth(", "fa_normal(", "fa_history(", "i.texel", "i.size", "fa_time.x"})
+        CHECK_MESSAGE(g.snippet.find(call) != std::string::npos, call);
+}
+
+TEST_CASE("graph post: the history is asked for by the node alone, with nothing to declare in the material file") {
+    const Json doc = post_trail_material();
+    MaterialParse mp = parse_material(doc, "");
+    REQUIRE_MESSAGE(mp.ok(), (mp.errors.empty() ? "" : mp.errors[0].to_string()));
+    const GeneratedGraph g = generate_graph_snippet(doc["graph"], mp.material, "post");
+    REQUIRE_MESSAGE(g.check.ok(), all_errors(g.check));
+    CHECK(g.check.warnings.empty());
+    // what makes the renderer keep the output is the call the snippet makes (docs/shaders/SHADERS_POST.md, "History")
+    CHECK(g.snippet.find("vec4 n_last_rgba = fa_history(i.uv);") != std::string::npos);
+    CHECK(g.snippet.find("float n_last_valid = (fa_history_valid ? 1.0 : 0.0);") != std::string::npos);
+    // the same graph without the history node calls nothing of the kind, and the material file has the same keys
+    Json without = doc;
+    without["graph"] = Json::parse(R"({"nodes":[{"id":"pic","type":"post.scene"},{"id":"out","type":"output"}],
+                                       "links":[{"from":"pic.rgb","to":"out.rgb"}]})");
+    CHECK(without.size() == doc.size());
+    const GeneratedGraph none = generate_graph_snippet(without["graph"], material_with(without), "post");
+    REQUIRE_MESSAGE(none.check.ok(), all_errors(none.check));
+    CHECK(none.snippet.find("fa_history") == std::string::npos);
+    // the history node does not exist in the other kinds: there it is refused with its place and the kinds it works in
+    for (const char* kind : {"mesh", "sprite"}) {
+        CAPTURE(kind);
+        const GraphCheck c =
+            check_of(R"({"nodes":[{"id":"h","type":"post.history"},{"id":"out","type":"output"}]})", kind);
+        CHECK(has_error(c, "/graph/nodes/0/type",
+                        std::string("does not work in a material of kind \"") + kind + "\" (it works in post)"));
+    }
+}
+
+TEST_CASE("graph colours: a sprite or post graph converts const.color and colour params with fa_scene_rgb, a mesh "
+          "graph does not") {
+    const Json doc = post_doc("tinted");
+    const MaterialDef def = material_with(doc);
+    const Json graph = Json::parse(R"({
+      "nodes": [
+        { "id": "c", "type": "const.color", "inputs": { "rgba": [0.2, 0.4, 0.6, 1] } },
+        { "id": "t", "type": "param", "param": "tint" },
+        { "id": "amt", "type": "param", "param": "amount" },
+        { "id": "mix", "type": "math.lerp" },
+        { "id": "out", "type": "output" }
+      ],
+      "links": [
+        { "from": "c.rgba", "to": "mix.a" },
+        { "from": "t.value", "to": "mix.b" },
+        { "from": "amt.value", "to": "mix.t" },
+        { "from": "mix.result", "to": "out.color" }
+      ]
+    })");
+    const char* kinds[] = {"mesh", "sprite", "post"};
+    for (const char* kind : kinds) {
+        CAPTURE(kind);
+        Json g = graph;
+        if (std::string(kind) ==
+            "mesh") {  // the mesh output has no color and takes three components: the same colours, as albedo
+            g = Json::parse(R"({
+              "nodes": [
+                { "id": "c", "type": "const.color", "inputs": { "rgba": [0.2, 0.4, 0.6, 1] } },
+                { "id": "out", "type": "output" }
+              ],
+              "links": [ { "from": "c.rgb", "to": "out.albedo" } ]
+            })");
+        }
+        const GeneratedGraph gen = generate_graph_snippet(g, def, kind);
+        REQUIRE_MESSAGE(gen.check.ok(), all_errors(gen.check));
+        const bool converts = std::string(kind) != "mesh";
+        CHECK((gen.snippet.find("fa_scene_rgb(vec4(0.2, 0.4, 0.6, 1.0).rgb)") != std::string::npos) == converts);
+        if (converts)
+            CHECK(gen.snippet.find("fa_scene_rgb(tint.rgb)") != std::string::npos);
+        else
+            CHECK(gen.snippet.find("fa_scene_rgb") == std::string::npos);
+        CHECK(gen.snippet.find("fa_scene_rgb(amount") == std::string::npos);  // only colours
+    }
+}
+
+TEST_CASE("graph check: the message of a graph with no output node suggests a field of its own kind") {
+    const char* graph = R"({"nodes":[{"id":"t","type":"time"}]})";
+    const struct {
+        const char* kind;
+        const char* field;
+    } cases[] = {{"mesh", "\"albedo\""}, {"sprite", "\"color\""}, {"post", "\"rgb\""}};
+    for (const auto& c : cases) {
+        CAPTURE(c.kind);
+        const GraphCheck check = check_of(graph, c.kind);
+        bool found = false;
+        for (const MaterialIssue& e : check.errors)
+            if (e.message.find("no output node") != std::string::npos)
+                found = found || e.hint.find(c.field) != std::string::npos;
+        CHECK(found);
+    }
+}
+
+TEST_CASE("graph post: a node of the 3D or sprite kinds is refused with its place, why and what to use instead") {
+    std::size_t refused = 0;
+    for (const GraphNodeType& t : graph_node_library()) {
+        if (std::find(t.kinds.begin(), t.kinds.end(), "post") != t.kinds.end() || t.type == kGraphOutputNode) continue;
+        CAPTURE(t.type);
+        Json node = Json::object({{"id", "n"}, {"type", t.type}});
+        if (t.ref == "texture") node["texture"] = "albedoTex";
+        Json doc = post_doc("bad");
+        doc["graph"] = Json::object({{"nodes", Json::array({node, Json::parse(R"({"id":"out","type":"output"})")})}});
+        const MaterialDef def = material_with(doc);
+        const GraphCheck c = check_material_graph(doc["graph"], def, "post");
+        REQUIRE_FALSE(c.ok());
+        bool teaches = false;
+        for (const MaterialIssue& e : c.errors)
+            if (e.pointer == "/graph/nodes/0/type" && e.message.find("\"post\"") != std::string::npos &&
+                e.hint.find("`material.graph.nodes` with kind \"post\"") != std::string::npos && e.hint.size() > 80)
+                teaches = true;
+        CHECK_MESSAGE(teaches, all_errors(c));
+        ++refused;
+    }
+    CHECK(refused >= 14);  // the nine of the 3D kinds and the six of the sprite
+    // the hints name the post alternative
+    const Json doc = post_doc("bad");
+    const MaterialDef def = material_with(doc);
+    auto normal = check_material_graph(
+        Json::parse(R"({"nodes":[{"id":"n","type":"normal.world"},{"id":"out","type":"output"}]})"), def, "post");
+    REQUIRE_FALSE(normal.errors.empty());
+    CHECK(normal.errors[0].hint.find("post.normal") != std::string::npos);
+    auto sc = check_material_graph(
+        Json::parse(R"({"nodes":[{"id":"n","type":"sprite.color"},{"id":"out","type":"output"}]})"), def, "post");
+    REQUIRE_FALSE(sc.errors.empty());
+    CHECK(sc.errors[0].hint.find("post.scene") != std::string::npos);
+    // a field of the mesh output, or a vertex offset, is not one of the post output: the error lists the fields of the kind
+    for (const char* wrong : {R"({"nodes":[{"id":"out","type":"output","inputs":{"albedo":[1,0,0]}}]})",
+                              R"({"nodes":[{"id":"out","type":"output","inputs":{"vertexOffset":[1,0,0]}}]})"}) {
+        const GraphCheck c = check_material_graph(Json::parse(wrong), def, "post");
+        bool lists = false;
+        for (const MaterialIssue& e : c.errors)
+            lists =
+                lists || (e.pointer.rfind("/graph/nodes/0/inputs/", 0) == 0 && e.hint.find("rgb") != std::string::npos);
+        CHECK_MESSAGE(lists, all_errors(c));
+    }
+    // an output that writes nothing is a warning that says the picture stays as it is
+    const GraphCheck empty =
+        check_material_graph(Json::parse(R"({"nodes":[{"id":"out","type":"output"}]})"), def, "post");
+    CHECK(empty.ok());
+    REQUIRE_FALSE(empty.warnings.empty());
+    CHECK(empty.warnings[0].message.find("picture as it is") != std::string::npos);
+}
+
+TEST_CASE("graph post: the generated snippet compiles with the real sokol-shdc for every dialect") {
+    SetupContext context;
+    FA_SKIP_WITHOUT_SHDC(
+        context, "sokol-shdc is not installed (SOKOL_SHDC, or `factoria setup shaders`): the post graph is generated "
+                 "but not compiled here; CI compiles it");
+    testing::TempDir dir;
+    Project helper;
+    auto nodes = helper.call("material.graph.nodes", R"({"kind":"post"})");
+    REQUIRE(nodes.ok);
+    testing::write_all(dir.path / "materials/pall.material.json", post_all_nodes_material().dump(2));
+    testing::write_all(dir.path / "materials/ptrail.material.json", post_trail_material().dump(2));
+    testing::write_all(dir.path / "materials/pwobble.material.json", nodes.result["example"].dump(2));
+    CommandRegistry registry;
+    register_material_graph_commands(registry, dir.str());
+    ShaderCompileOptions options;
+    options.setup = context;
+    options.useCache = false;
+    for (const char* name : {"pall", "ptrail", "pwobble"}) {
+        CAPTURE(name);
+        const std::string rel = std::string("materials/") + name + ".material.json";
+        auto gen = registry.call("material.graph.generate", Json::object({{"material", rel}}));
+        REQUIRE_MESSAGE(gen.ok, failure(gen));
+        CHECK(gen.result["warnings"].empty());
+        auto r = compile_material(dir.str(), rel, options);
+        REQUIRE(r.ok());
+        std::string why;
+        for (const ShaderIssue& e : r->errors) why += e.to_string() + "\n";
+        INFO(why);
+        REQUIRE(r->ok);
+        CHECK(r->twins.size() == 6);
+        for (const std::string slang : {"hlsl5", "glsl430", "glsl300es", "metal_macos", "metal_ios", "metal_sim"}) {
+            CAPTURE(slang);
+            REQUIRE(r->twins.count(slang) == 1);
+            CHECK_FALSE(r->twins.at(slang)["programs"]["post"]["fs"].get<std::string>().empty());
+        }
+    }
+}
+
+TEST_CASE("material.graph commands: a post material is generated, hand edits are protected like in a mesh") {
+    Project p;
+    auto nodes = p.call("material.graph.nodes", R"({"kind":"post"})");
+    REQUIRE(nodes.ok);
+    p.write("materials/wobble.material.json", nodes.result["example"].dump(2));
+    const char* args = R"({"material":"materials/wobble.material.json"})";
+    auto v = p.call("material.graph.validate", args);
+    REQUIRE_MESSAGE(v.ok, failure(v));
+    CHECK(v.result["ok"] == true);
+    CHECK(v.result["snippet"]["state"] == "missing");
+    auto gen = p.call("material.graph.generate", args);
+    REQUIRE_MESSAGE(gen.ok, failure(gen));
+    CHECK(gen.result["written"] == true);
+    const std::string generated = p.read("shaders/wobble-vignette.post.glsl");
+    CHECK(generated.find("void post(in PostInput i, inout PostSurface s)") != std::string::npos);
+    const Json written = p.doc("materials/wobble.material.json");
+    CHECK(written["graphHash"] == graph_snippet_hash(generated));
+    CHECK(written["kind"] == "post");
+    // a second run changes nothing; a hand edit is never overwritten without force
+    CHECK(p.call("material.graph.generate", args).result["written"] == false);
+    const std::string edited = generated + "// a hand-written tweak\n";
+    p.write("shaders/wobble-vignette.post.glsl", edited);
+    CHECK(p.call("material.graph.validate", args).result["snippet"]["state"] == "hand_edited");
+    auto refused = p.call("material.graph.generate", args);
+    REQUIRE_FALSE(refused.ok);
+    CHECK(refused.error["code"].get<std::string>() == "hand_edited");
+    CHECK(p.read("shaders/wobble-vignette.post.glsl") == edited);
+    auto forced = p.call("material.graph.generate", R"({"material":"materials/wobble.material.json","force":true})");
+    REQUIRE_MESSAGE(forced.ok, failure(forced));
+    CHECK(p.read("shaders/wobble-vignette.post.glsl") == generated);
 }
 
 // ---------------------------------------------------------------------------------------------------------------
