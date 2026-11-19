@@ -81,7 +81,11 @@ inline constexpr int kPreviewMaxMessage = 4000;
 class GraphPreview {
 public:
     explicit GraphPreview(std::string projectDir);
-    ~GraphPreview();  // lets a compile that is running (at most one per picture) end by itself: never waits for it
+    // A compile that is running (at most one per picture, sokol-shdc takes about a second) is waited for up to kCloseWaitMs in all, so closing the panel
+    // or changing the project normally leaves no thread behind; one that is still running after that is let go (it only holds copies and its own
+    // stage files) and ends by itself.
+    ~GraphPreview();
+    static constexpr int kCloseWaitMs = 2000;
 
     // The material to show (the file's JSON with the graph as edited) and the model's revision, which tells a new edit from the same document.
     // `path` names the material: when it changes the param overrides, the pictures and the saved document are dropped (a new material starts clean).
@@ -133,6 +137,10 @@ public:
 
     // The material the renderer was last asked to draw (project-relative), for the autotest and the docs.
     static const char* material_path() { return ".factoria/material-preview/preview.material.json"; }
+    // The files a compile of this instance writes before it reads them: "stage-<token>.material.json" and its snippet, the token being different for every
+    // GraphPreview of this process and unlikely to repeat in another, so a compile that outlives its instance (see the destructor) never writes
+    // the files the next one is compiling from. The worker removes them when it is done.
+    const std::string& stage_material_path() const { return cur_.stageMaterial; }
     static const char* saved_material_path() { return ".factoria/material-preview/saved.material.json"; }
 
 private:
@@ -156,10 +164,11 @@ private:
         bool redraw = false;  // the shape or a param value changed: draw the last compiled material again
         std::thread worker;
         std::shared_ptr<Job> job;
-        const char* stageMaterial = nullptr;  // the files of this picture (project-relative)
-        const char* stageSnippet = nullptr;
-        const char* liveMaterial = nullptr;
-        const char* liveSnippet = nullptr;
+        std::string
+            stageMaterial;  // the files of this picture (project-relative); the stage ones carry the instance's token
+        std::string stageSnippet;
+        std::string liveMaterial;
+        std::string liveSnippet;
     };
     void tick_slot(Slot& s, Renderer* renderer);
     void start(Slot& s, Renderer* renderer);

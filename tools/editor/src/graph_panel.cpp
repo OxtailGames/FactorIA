@@ -232,6 +232,7 @@ bool Editor::open_graph_document(const std::string& rel, bool startGraph, bool d
         u.selectedLink = -1;
         u.drag = GraphUi::Drag::None;
         u.viewApplied = false;
+        graph_reset_entry_ui();  // the New param form and a rename in progress belong to the material that was open
         if (u.preview) u.preview->set_document(m.material_json(), m.revision(), m.path());
     } else {
         // a failed open changes nothing: the document that was open stays, with its edits
@@ -248,6 +249,20 @@ void Editor::graph_close_document() {
     graph_.pendingOpen.clear();
     graph_.selectedLink = -1;
     graph_.drag = GraphUi::Drag::None;
+    graph_.askConflict = false;
+    graph_reset_entry_ui();
+}
+
+// The params and textures forms hold a name for the material that was open: Create would write it into another one.
+void Editor::graph_reset_entry_ui() {
+    GraphUi& u = graph_;
+    u.entryForm = GraphUi::EntryForm();
+    u.renaming.clear();
+    u.renamingTexture = false;
+    u.renameBuf[0] = 0;
+    u.renameFocus = false;
+    u.entryMessage.clear();
+    u.entryMessageIsNote = false;
 }
 
 void Editor::graph_edited(const GraphEditOutcome& out) {
@@ -400,10 +415,15 @@ void Editor::draw_graph_panel() {
     ImGui::End();
 }
 
-void Editor::graph_save(bool force) {
+void Editor::graph_save(bool force, bool overwriteExternal) {
     GraphUi& u = graph_;
     if (!u.model || !u.model->is_open()) return;
-    const GraphSaveOutcome out = u.model->save(force);
+    const GraphSaveOutcome out = u.model->save(force, overwriteExternal);
+    if (out.externalChange) {  // the file is not ours to replace unasked
+        u.askConflict = true;
+        u.conflictForce = force;
+        return;
+    }
     if (out.needsForce) {
         u.askForce = true;
         return;
@@ -518,6 +538,34 @@ void Editor::draw_graph_questions(GraphModel& m) {
     if (u.askDiscard) {
         ImGui::OpenPopup("Discard the graph changes?");
         u.askDiscard = false;
+    }
+    if (u.askConflict) {
+        ImGui::OpenPopup("The file changed on disk");
+        u.askConflict = false;
+    }
+    if (ImGui::BeginPopupModal("The file changed on disk", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::PushTextWrapPos(ImGui::GetFontSize() * 30.0f);
+        ImGui::Text("%s was changed outside the editor (or deleted) since this graph was read. Saving now replaces "
+                    "that change with this graph.",
+                    m.title().c_str());
+        ImGui::PopTextWrapPos();
+        if (ImGui::Button("Overwrite")) {
+            ImGui::CloseCurrentPopup();
+            graph_save(u.conflictForce, true);
+        }
+        at_track("gr:conflict:overwrite");
+        hint("Writes this graph over the file as it is now.");
+        ImGui::SameLine();
+        if (ImGui::Button("Reload##conflict")) {
+            ImGui::CloseCurrentPopup();
+            m.reload();
+        }
+        at_track("gr:conflict:reload");
+        hint("Takes the file as it is on disk; the edits not saved yet are lost.");
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel##conflict")) ImGui::CloseCurrentPopup();
+        at_track("gr:conflict:cancel");
+        ImGui::EndPopup();
     }
     if (ImGui::BeginPopupModal("Overwrite the shader snippet?", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
         ImGui::PushTextWrapPos(ImGui::GetFontSize() * 30.0f);
@@ -1385,6 +1433,8 @@ static bool draw_entry_form(GraphModel& m, GraphUi& u, const std::function<void(
         if (out.ok) {
             edited(out);
             f = GraphUi::EntryForm();
+            u.entryMessage = out.note;
+            u.entryMessageIsNote = !out.note.empty();
             created = true;
         } else {
             f.error = out.error;
@@ -1607,10 +1657,12 @@ void Editor::draw_graph_params(GraphModel& m) {
                                    : m.delete_entry(pending.texture, pending.name);
         if (out.ok) {
             graph_edited(out);
-            u.entryMessage.clear();
+            u.entryMessage = out.note;  // the snippet could not be written again, or still names the old identifier
+            u.entryMessageIsNote = !out.note.empty();
             u.renaming.clear();
         } else {
             u.entryMessage = out.error;
+            u.entryMessageIsNote = false;
             if (!out.nodes.empty()) {  // the nodes that still read it: selected, to point them elsewhere or delete them
                 u.selectedLink = -1;
                 m.select_only(std::set<std::string>(out.nodes.begin(), out.nodes.end()));
@@ -1618,7 +1670,7 @@ void Editor::draw_graph_params(GraphModel& m) {
         }
     }
     if (!u.entryMessage.empty()) {
-        ImGui::PushStyleColor(ImGuiCol_Text, kBad);
+        ImGui::PushStyleColor(ImGuiCol_Text, u.entryMessageIsNote ? kWarn : kBad);
         ImGui::PushTextWrapPos(0.0f);
         ImGui::TextUnformatted(u.entryMessage.c_str());
         ImGui::PopTextWrapPos();
