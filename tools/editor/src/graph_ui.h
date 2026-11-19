@@ -46,9 +46,12 @@ struct GraphUi {
     bool conflictForce = false;  // ...and the Save that asked had force set (a hand-edited snippet was confirmed)
     bool forceOverwritesExternal =
         false;  // the hand-edited snippet question follows an Overwrite already answered: do not ask about the file again
-    std::string pendingOpen;     // ...the one the user asked for
-    bool pendingStart = false;   // ...and whether it starts a graph
-    bool pendingCreate = false;  // ...which is a new material to make, not an existing one
+    std::string pendingOpen;           // ...the one the user asked for
+    bool pendingStart = false;         // ...and whether it starts a graph
+    bool pendingCreate = false;        // ...which is a new material to make, not an existing one
+    std::string pendingKind = "mesh";  // ...and the kind of that new material
+    std::string newKind =
+        "mesh";  // the kind the New graph material button makes ("mesh" or "sprite", the combo next to it)
 
     // ---- the preview's picture
     struct Texture {

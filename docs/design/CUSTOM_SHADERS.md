@@ -496,10 +496,25 @@ cache, hot reload, export, the runtime) is unchanged: a graph material is a mate
   `// <id> (<type>)`; the output node's fields become assignments to `s.` in `surface()` and the vertex offset an addition to
   `v.world_pos` in `vertex()`. Nodes the output does not reach are left out with a warning.
 - **Kinds.** The checker reads the material's `kind` when the file has one (the rest of the pipeline adds it separately) and
-  refuses a kind it cannot generate; every node type lists its kinds. Only `mesh` is generated today; a new kind adds its
-  node rows and its output node, not a new generator.
-- **Cost of the canvas.** The editor's graph canvas (a later package) edits the same JSON and calls the same generator, so a
-  graph made by an AI opens in the editor and the reverse.
+  refuses a kind it cannot generate (`graph_supported_kinds()`: `mesh` and `sprite`); every node type lists its kinds. A kind
+  is a `KindProfile` row in `material_graph.cpp` (the function headers and what `uv`, `time`, `tint`, ... read there) plus an
+  `output` node of its own in the library (same type name, one entry per kind, chosen by the material's kind; its ports carry
+  the statement each one writes, `assign`). A node that does not work in the kind carries an `instead` text per kind, and
+  the error for it names the node's JSON pointer, why and what to use (`fresnel` in a sprite: `math.smoothstep` of a
+  distance). Mesh output is unchanged byte for byte.
+- **Sprite graphs** (`"kind": "sprite"`, snippet `shaders/<name>.fragment.glsl`) write the sprite snippet contract:
+  `fragment(in QuadInput i, inout QuadSurface s)` and, when `vertexOffset` is linked, `vertex(inout QuadVertex v)`. The output
+  has `color` (vec4, assigned to `s.color`), `rgb`, `alpha` and `vertexOffset` (`v.world_pos`); the sprite nodes
+  (`sprite.color`, `sprite.tint`, `sprite.texture`, `sprite.life`, `sprite.custom`, `sprite.position`) read what the engine
+  drew so far (`s.color`), the tint, the item's main texture, a particle's life, `QuadInput.custom` (zero today) and the
+  position; `uv`, `time`, noise, `dissolve`, `flow` and math work as in a mesh. `fresnel`, `triplanar`, `parallax`,
+  `normal.world`, `view.dir`, `position.view`, `texture.normal`, `vertex.color` and `position.world` are refused. A sprite is always blended (the material file
+  refuses `alphaMode: clip` on its own).
+- **Post graphs** are not built. A post graph needs a `KindProfile` row (the `fragment(in PostInput ...)` header and what its
+  inputs read), an `output` entry with `kinds` = post and its `assign` statements, the `instead` texts of the nodes that do not
+  fit, the kind in `graph_supported_kinds()`, and the editor's preview, which already treats post as not drawn.
+- **Cost of the canvas.** The editor's graph canvas edits the same JSON and calls the same generator, so a graph made by an AI
+  opens in the editor and the reverse; its New graph material takes a kind (mesh or sprite) from the combo next to it.
 
 ## Out of scope (recorded so nobody assumes it)
 

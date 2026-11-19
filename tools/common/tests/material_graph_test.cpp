@@ -118,7 +118,11 @@ TEST_CASE("graph library: every node type and port is documented and the table i
     CHECK(graph_node_library().size() >= 45);
     for (const GraphNodeType& t : graph_node_library()) {
         CAPTURE(t.type);
-        CHECK(seen.insert(t.type).second);
+        // a type is listed once; only the output node has one entry per kind (same name, the fields of its kind)
+        std::string key = t.type;
+        if (t.type == kGraphOutputNode)
+            for (const std::string& k : t.kinds) key += "/" + k;
+        CHECK(seen.insert(key).second);
         CHECK_FALSE(t.doc.empty());
         CHECK_FALSE(t.category.empty());
         CHECK_FALSE(t.kinds.empty());
@@ -147,14 +151,36 @@ TEST_CASE("graph library: every node type and port is documented and the table i
                              "math.split",     "math.combine",    "noise.value", "noise.gradient", "noise.voronoi",
                              "noise.fbm",      "dissolve",        "flow",        "fresnel",        "triplanar",
                              "parallax",       "output"})
-        CHECK_MESSAGE(seen.count(type) == 1, "missing node type " << type);
+        CHECK_MESSAGE(find_graph_node_type(type) != nullptr, "missing node type " << type);
     // the surface-value defaults of the ports name values that exist
     for (const GraphNodeType& t : graph_node_library())
         for (const GraphPort& p : t.inputs)
             if (p.defaultValue.is_string()) CHECK(p.defaultValue.get<std::string>()[0] == '$');
     CHECK(find_graph_node_type("noise.fbm") != nullptr);
     CHECK(find_graph_node_type("noise.fbn") == nullptr);
-    CHECK(graph_supported_kinds() == std::vector<std::string>{"mesh"});
+    CHECK(graph_supported_kinds() == std::vector<std::string>{"mesh", "sprite"});
+    // the output node has one entry per kind with that kind's fields; the lookup by kind picks it
+    const GraphNodeType* meshOut = find_graph_node_type("output", "mesh");
+    const GraphNodeType* spriteOut = find_graph_node_type("output", "sprite");
+    REQUIRE(meshOut);
+    REQUIRE(spriteOut);
+    CHECK(meshOut != spriteOut);
+    CHECK(find_graph_node_type("output", "sky") == nullptr);
+    CHECK(find_graph_node_type("output") == meshOut);
+    std::vector<std::string> spriteFields;
+    for (const GraphPort& p : spriteOut->inputs) {
+        spriteFields.push_back(p.name);
+        CHECK_MESSAGE(p.assign.find("{}") != std::string::npos,
+                      "sprite output field " << p.name << " has no statement");
+    }
+    CHECK(spriteFields == std::vector<std::string>{"color", "rgb", "alpha", "vertexOffset"});
+    // every node that does not serve sprites says what to use there instead: the error teaches
+    for (const GraphNodeType& t : graph_node_library()) {
+        if (std::find(t.kinds.begin(), t.kinds.end(), "sprite") != t.kinds.end()) continue;
+        bool hint = false;
+        for (const auto& [kind, text] : t.instead) hint = hint || (kind == "sprite" && text.size() > 20);
+        CHECK_MESSAGE((hint || t.type == kGraphOutputNode), t.type << " has no hint for a sprite graph");
+    }
 }
 
 TEST_CASE("graph library: material.graph.nodes filters and its example is a valid material") {
@@ -420,8 +446,10 @@ TEST_CASE("graph check: cycles, vertex offsets and the output node") {
 
 TEST_CASE("graph check: a node used in a kind it does not support, and a kind with no graphs") {
     // an unknown or not yet supported kind is refused with the pointer of the kind
-    auto c = check_of(R"({"nodes":[{"id":"out","type":"output"}]})", "sprite");
-    CHECK(has_error(c, "/kind", "node graphs are generated for materials of kind mesh only"));
+    auto c = check_of(R"({"nodes":[{"id":"out","type":"output"}]})", "sky");
+    CHECK(has_error(c, "/kind", "node graphs are generated for materials of kind mesh, sprite only"));
+    c = check_of(R"({"nodes":[{"id":"out","type":"output"}]})", "sprite");
+    CHECK(c.ok());
     // a node that does not list the kind (position.world works in meshes only)
     const GraphNodeType* pos = find_graph_node_type("position.world");
     REQUIRE(pos);
@@ -800,7 +828,8 @@ TEST_CASE("graph all nodes: one graph uses every node type of the library and ge
     std::set<std::string> used;
     for (const Json& n : doc["graph"]["nodes"]) used.insert(n["type"].get<std::string>());
     for (const GraphNodeType& t : graph_node_library())
-        CHECK_MESSAGE(used.count(t.type) == 1, "the all-nodes graph lacks " << t.type);
+        if (std::find(t.kinds.begin(), t.kinds.end(), "mesh") != t.kinds.end())
+            CHECK_MESSAGE(used.count(t.type) == 1, "the all-nodes graph lacks " << t.type);
     MaterialParse mp = parse_material(doc, "");
     REQUIRE_MESSAGE(mp.ok(), (mp.errors.empty() ? "" : mp.errors[0].to_string()));
     const GeneratedGraph g = generate_graph_snippet(doc["graph"], mp.material);
@@ -861,6 +890,436 @@ TEST_CASE("graph all nodes: the generated snippet compiles with the real sokol-s
     for (const ShaderIssue& e : dr->errors) dwhy += e.to_string() + "\n";
     INFO(dwhy);
     CHECK(dr->ok);
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Sprite materials: the same graph, the entry points fragment() and vertex() of the sprite template
+// ---------------------------------------------------------------------------------------------------------------
+
+namespace {
+
+// The dissolve of the docs, on a sprite: the sprite's own colour burns away.
+const char* kSpriteDissolveMaterial = R"({
+  "format": "factoria.material/1",
+  "kind": "sprite",
+  "doc": "Sprite dissolve: noise burns the sprite away with a glowing edge.",
+  "shader": "shaders/sdissolve.fragment.glsl",
+  "params": {
+    "dissolve": { "type": "float", "default": 0.0, "min": 0.0, "max": 1.0, "doc": "0 shows the sprite, 1 dissolves it all." }
+  },
+  "graph": {
+    "nodes": [
+      { "id": "noise", "type": "noise.fbm", "pos": [0, 0], "inputs": { "scale": 6.0 } },
+      { "id": "amount", "type": "param", "pos": [0, 120], "param": "dissolve" },
+      { "id": "burn", "type": "dissolve", "pos": [220, 60], "inputs": { "edgeWidth": 0.06, "edgeColor": [1.0, 0.4, 0.1] } },
+      { "id": "pic", "type": "sprite.color", "pos": [0, 240] },
+      { "id": "lit", "type": "math.add", "pos": [440, 60] },
+      { "id": "out", "type": "output", "pos": [660, 60] }
+    ],
+    "links": [
+      { "from": "noise.value", "to": "burn.noise" },
+      { "from": "amount.value", "to": "burn.threshold" },
+      { "from": "pic.rgb", "to": "lit.a" },
+      { "from": "burn.emission", "to": "lit.b" },
+      { "from": "lit.result", "to": "out.rgb" },
+      { "from": "burn.alpha", "to": "out.alpha" }
+    ]
+  }
+})";
+
+// Every node type that works in a sprite, every node reachable from the output.
+Json sprite_all_nodes_material() {
+    GraphBuilder g;
+    g.node("cf", "const.float", Json::object({{"value", 0.5}}));
+    g.node("c2", "const.vec2", Json::object({{"value", Json::array({0.3, 0.7})}}));
+    g.node("c3", "const.vec3", Json::object({{"value", Json::array({0.2, 0.4, 0.6})}}));
+    g.node("c4", "const.vec4", Json::object({{"value", Json::array({1, 1, 1, 1})}}));
+    g.node("cc", "const.color", Json::object({{"rgba", Json::array({0.8, 0.2, 0.1, 1.0})}}));
+    g.node("pf", "param", {}, "param", "amount");
+    g.node("p2", "param", {}, "param", "offset2");
+    g.node("p3", "param", {}, "param", "dir3");
+    g.node("p4", "param", {}, "param", "vec4p");
+    g.node("pc", "param", {}, "param", "tint");
+    g.node("uv1", "uv", Json::object({{"tiling", Json::array({2.0, 2.0})}}));
+    g.node("tm", "time", Json::object({{"speed", 0.5}}));
+    // what a 2D item gives
+    g.node("sc", "sprite.color");
+    g.node("st", "sprite.tint");
+    g.node("sl", "sprite.life");
+    g.node("scu", "sprite.custom");
+    g.node("sp", "sprite.position");
+    g.node("fl", "flow", Json::object({{"flow", Json::array({0.2, 0.1})}}));
+    g.link("uv1.uv", "fl.uv");
+    g.node("stx", "sprite.texture");
+    g.link("fl.uv0", "stx.uv");
+    g.node("tx", "texture", {}, "texture", "albedoTex");
+    g.link("uv1.uv", "tx.uv");
+    // a vec3 chain through every math node
+    g.node("add1", "math.add");
+    g.link("tx.rgb", "add1.a");
+    g.link("c3.value", "add1.b");
+    g.node("sub1", "math.sub", Json::object({{"b", 0.1}}));
+    g.link("add1.result", "sub1.a");
+    g.node("mul1", "math.mul");
+    g.link("sub1.result", "mul1.a");
+    g.link("cc.rgb", "mul1.b");
+    g.node("div1", "math.div", Json::object({{"b", 2.0}}));
+    g.link("mul1.result", "div1.a");
+    g.node("min1", "math.min");
+    g.link("div1.result", "min1.a");
+    g.link("stx.rgb", "min1.b");
+    g.node("max1", "math.max");
+    g.link("min1.result", "max1.a");
+    g.link("c3.value", "max1.b");
+    g.node("pow1", "math.pow", Json::object({{"b", 1.2}}));
+    g.link("max1.result", "pow1.a");
+    g.node("lerp1", "math.lerp");
+    g.link("pow1.result", "lerp1.a");
+    g.link("p3.value", "lerp1.b");
+    g.link("tx.a", "lerp1.t");
+    g.node("clamp1", "math.clamp", Json::object({{"min", 0.1}, {"max", 0.9}}));
+    g.link("lerp1.result", "clamp1.x");
+    g.node("sat1", "math.saturate");
+    g.link("clamp1.result", "sat1.x");
+    g.node("smooth1", "math.smoothstep", Json::object({{"edge0", 0.1}, {"edge1", 0.9}}));
+    g.link("sat1.result", "smooth1.x");
+    g.node("step1", "math.step", Json::object({{"edge", 0.3}}));
+    g.link("smooth1.result", "step1.x");
+    g.node("abs1", "math.abs");
+    g.link("step1.result", "abs1.x");
+    g.node("fract1", "math.fract");
+    g.link("abs1.result", "fract1.x");
+    g.node("sin1", "math.sin");
+    g.link("fract1.result", "sin1.x");
+    g.node("one1", "math.oneminus");
+    g.link("sin1.result", "one1.x");
+    g.node("dot1", "math.dot");
+    g.link("one1.result", "dot1.a");
+    g.link("sc.rgb", "dot1.b");
+    g.node("len1", "math.length");
+    g.link("sp.world", "len1.x");
+    g.node("norm1", "math.normalize");
+    g.link("st.rgb", "norm1.x");
+    g.node("split1", "math.split");
+    g.link("sc.rgb", "split1.value");
+    g.node("comb1", "math.combine");
+    g.link("split1.x", "comb1.x");
+    g.link("split1.y", "comb1.y");
+    g.link("split1.z", "comb1.z");
+    // noise and effects
+    g.node("nv", "noise.value", Json::object({{"scale", 5.0}}));
+    g.node("ng", "noise.gradient");
+    g.node("nvo", "noise.voronoi");
+    g.node("nf", "noise.fbm", Json::object({{"octaves", 5.0}}));
+    g.node("ds", "dissolve");
+    g.link("nf.value", "ds.noise");
+    g.link("pf.value", "ds.threshold");
+    const std::string v2 = g.sum("v2_", {"c2.value", "p2.value", "fl.uv0", "fl.uv1", "sp.world", "sp.screen"});
+    g.link(v2, "ng.p");
+    const std::string v4 = g.sum("v4_", {"p4.value", "c4.value", "tx.rgba", "stx.rgba", "st.rgba", "sc.rgba", "cc.rgba",
+                                         "pc.value", "scu.custom"});
+    g.node("split4", "math.split");
+    g.link(v4, "split4.value");
+    const std::string f = g.sum("f_", {"dot1.result", "len1.result", "tm.time", "tm.sin", "tm.cos", "nvo.distance",
+                                       "nvo.cell", "nvo.edge", "nv.value", "ng.value", "fl.blend", "st.a", "sc.a",
+                                       "stx.a", "ds.edge", "sl.life", "split4.x", "cf.value"});
+    g.node("rough", "math.saturate");
+    g.link(f, "rough.x");
+    const std::string v3 = g.sum("v3_", {"norm1.result", "comb1.vec3", "st.rgb", "sc.rgb", "ds.emission"});
+    g.node("mix3", "math.mul");
+    g.link(v3, "mix3.a");
+    g.link("one1.result", "mix3.b");
+    g.node("al", "math.mul");
+    g.link("rough.result", "al.a");
+    g.link("ds.alpha", "al.b");
+    // the vertex offset path: nodes that do not sample textures
+    g.node("vn", "noise.fbm");
+    g.node("vm", "math.mul", Json::object({{"b", 0.1}}));
+    g.link("vn.value", "vm.a");
+    g.node("vo", "math.mul");
+    g.link("st.rgb", "vo.a");
+    g.link("vm.result", "vo.b");
+    g.node("out", "output");
+    g.link(v4, "out.color");
+    g.link("mix3.result", "out.rgb");
+    g.link("al.result", "out.alpha");
+    g.link("vo.result", "out.vertexOffset");
+
+    Json doc = Json::parse(R"({
+      "format": "factoria.material/1",
+      "kind": "sprite",
+      "doc": "Every node type of the graph library that works in a sprite, in one material.",
+      "shader": "shaders/sprite_all.fragment.glsl",
+      "params": {
+        "amount": { "type": "float", "default": 0.3, "min": 0, "max": 1, "doc": "A float." },
+        "offset2": { "type": "vec2", "default": [0.1, 0.2], "doc": "A vec2." },
+        "dir3": { "type": "vec3", "default": [0, 1, 0], "doc": "A vec3." },
+        "vec4p": { "type": "vec4", "default": [1, 1, 1, 1], "doc": "A vec4." },
+        "tint": { "type": "color", "default": [1, 0.5, 0.2, 1], "doc": "A color." }
+      },
+      "textures": {
+        "albedoTex": { "sampler": "linearRepeat", "doc": "Albedo." }
+      }
+    })");
+    doc["graph"] = Json::object({{"nodes", g.nodes}, {"links", g.links}});
+    return doc;
+}
+
+}  // namespace
+
+TEST_CASE("graph sprite: a dissolve graph writes fragment() of the sprite template") {
+    MaterialParse mp = parse_material(Json::parse(kSpriteDissolveMaterial), "");
+    REQUIRE_MESSAGE(mp.ok(), (mp.errors.empty() ? "" : mp.errors[0].to_string()));
+    CHECK(mp.material.kind == "sprite");
+    const GeneratedGraph g = generate_graph_snippet(mp.material.graph, mp.material, "sprite");
+    REQUIRE_MESSAGE(g.check.ok(), all_errors(g.check));
+    CHECK(g.check.warnings.empty());
+    CHECK_FALSE(g.hasVertex);
+    CHECK(g.snippet.find("void fragment(in QuadInput i, inout QuadSurface s) {\n") != std::string::npos);
+    CHECK(g.snippet.find("surface(") == std::string::npos);
+    CHECK(g.snippet.find("vertex(") == std::string::npos);
+    // the sprite's own colour is read where the node is, and written back by the output at the end
+    CHECK(g.snippet.find("// pic (sprite.color)") != std::string::npos);
+    CHECK(g.snippet.find("= s.color;") != std::string::npos);
+    CHECK(g.snippet.find("    s.color.rgb = n_lit_result;  // out (output)\n") != std::string::npos);
+    CHECK(g.snippet.find("    s.color.a = n_burn_alpha;  // out (output)\n") != std::string::npos);
+    // the same graph gives the same bytes, and the mesh generator does not write what the sprite one does
+    const GeneratedGraph again = generate_graph_snippet(mp.material.graph, mp.material, "sprite");
+    CHECK(again.snippet == g.snippet);
+    CHECK(again.hash == graph_snippet_hash(g.snippet));
+    // the line map names the node of a line, the output's lines name the output node
+    for (std::size_t n = 0; n < g.lineNodes.size(); ++n)
+        if (g.snippet.find("s.color.a = ") != std::string::npos && g.lineNodes[n] == "out") {
+            CHECK(graph_node_at_line(g.lineNodes, int(n) + 1) == "out");
+            break;
+        }
+}
+
+TEST_CASE("graph sprite: a vertex offset writes vertex() of the sprite template, and a node that reads the fragment "
+          "may not feed it") {
+    Json doc = Json::parse(kSpriteDissolveMaterial);
+    doc["graph"]["nodes"].push_back(Json::parse(R"({"id":"wob","type":"sprite.tint"})"));
+    doc["graph"]["nodes"].push_back(Json::parse(R"({"id":"amp","type":"math.mul","inputs":{"b":0.1}})"));
+    doc["graph"]["links"].push_back(Json::parse(R"({"from":"wob.rgb","to":"amp.a"})"));
+    doc["graph"]["links"].push_back(Json::parse(R"({"from":"amp.result","to":"out.vertexOffset"})"));
+    MaterialParse mp = parse_material(doc, "");
+    REQUIRE_MESSAGE(mp.ok(), (mp.errors.empty() ? "" : mp.errors[0].to_string()));
+    const GeneratedGraph g = generate_graph_snippet(mp.material.graph, mp.material, "sprite");
+    REQUIRE_MESSAGE(g.check.ok(), all_errors(g.check));
+    CHECK(g.hasVertex);
+    const std::size_t v = g.snippet.find("void vertex(inout QuadVertex v) {\n");
+    const std::size_t f = g.snippet.find("void fragment(in QuadInput i, inout QuadSurface s) {\n");
+    REQUIRE(v != std::string::npos);
+    REQUIRE(f != std::string::npos);
+    CHECK(v < f);
+    // the tint is read from the vertex in vertex() and from the fragment input in fragment()
+    CHECK(g.snippet.find("v.color", v) != std::string::npos);
+    CHECK(g.snippet.find("    v.world_pos += n_amp_result;  // out (output)\n") != std::string::npos);
+
+    // sprite.color (the lit picture) exists in the fragment stage only
+    Json bad = doc;
+    bad["graph"]["links"][bad["graph"]["links"].size() - 2]["from"] = "pic.rgb";
+    const MaterialDef def = material_with(bad);
+    const GraphCheck c = check_material_graph(bad["graph"], def, "sprite");
+    bool found = false;
+    for (const MaterialIssue& e : c.errors)
+        found = found || (e.message.find("fragment") != std::string::npos && !e.hint.empty());
+    CHECK_MESSAGE(found, all_errors(c));
+}
+
+TEST_CASE("graph sprite: one graph uses every node type that works in a sprite and generates") {
+    const Json doc = sprite_all_nodes_material();
+    std::set<std::string> used;
+    for (const Json& n : doc["graph"]["nodes"]) used.insert(n["type"].get<std::string>());
+    for (const GraphNodeType& t : graph_node_library())
+        if (std::find(t.kinds.begin(), t.kinds.end(), "sprite") != t.kinds.end())
+            CHECK_MESSAGE(used.count(t.type) == 1, "the sprite all-nodes graph lacks " << t.type);
+    MaterialParse mp = parse_material(doc, "");
+    REQUIRE_MESSAGE(mp.ok(), (mp.errors.empty() ? "" : mp.errors[0].to_string()));
+    const GeneratedGraph g = generate_graph_snippet(doc["graph"], mp.material, "sprite");
+    REQUIRE_MESSAGE(g.check.ok(), all_errors(g.check));
+    CHECK(g.check.warnings.empty());
+    CHECK(g.hasVertex);
+    CHECK(g.usedNodes.size() + 1 == doc["graph"]["nodes"].size());
+}
+
+TEST_CASE("graph sprite: the generated snippet compiles with the real sokol-shdc for every dialect") {
+    SetupContext context;
+    FA_SKIP_WITHOUT_SHDC(
+        context, "sokol-shdc is not installed (SOKOL_SHDC, or `factoria setup shaders`): the sprite graph is generated "
+                 "but not compiled here; CI compiles it");
+    testing::TempDir dir;
+    testing::write_all(dir.path / "materials/sall.material.json", sprite_all_nodes_material().dump(2));
+    testing::write_all(dir.path / "materials/sdissolve.material.json", kSpriteDissolveMaterial);
+    CommandRegistry registry;
+    register_material_graph_commands(registry, dir.str());
+    ShaderCompileOptions options;
+    options.setup = context;
+    options.useCache = false;
+    for (const char* name : {"sall", "sdissolve"}) {
+        CAPTURE(name);
+        const std::string rel = std::string("materials/") + name + ".material.json";
+        auto gen = registry.call("material.graph.generate", Json::object({{"material", rel}}));
+        REQUIRE_MESSAGE(gen.ok, failure(gen));
+        CHECK(gen.result["warnings"].empty());
+        auto r = compile_material(dir.str(), rel, options);
+        REQUIRE(r.ok());
+        std::string why;
+        for (const ShaderIssue& e : r->errors) why += e.to_string() + "\n";
+        INFO(why);
+        REQUIRE(r->ok);
+        CHECK(r->twins.size() == 6);
+        for (const std::string slang : {"hlsl5", "glsl430", "glsl300es", "metal_macos", "metal_ios", "metal_sim"}) {
+            CAPTURE(slang);
+            REQUIRE(r->twins.count(slang) == 1);
+            const Json& twin = r->twins.at(slang);
+            CHECK_FALSE(twin["programs"]["quad"]["fs"].get<std::string>().empty());
+            CHECK_FALSE(twin["programs"]["quad_plain"]["fs"].get<std::string>().empty());
+        }
+    }
+}
+
+TEST_CASE("graph sprite: a node of the 3D kinds is refused with its place, why and what to use instead") {
+    std::size_t refused = 0;
+    for (const GraphNodeType& t : graph_node_library()) {
+        if (std::find(t.kinds.begin(), t.kinds.end(), "sprite") != t.kinds.end() || t.type == kGraphOutputNode)
+            continue;
+        CAPTURE(t.type);
+        Json node = Json::object({{"id", "n"}, {"type", t.type}});
+        if (t.ref == "texture") node["texture"] = "albedoTex";
+        const Json graph =
+            Json::object({{"nodes", Json::array({node, Json::parse(R"({"id":"out","type":"output"})")})}});
+        const MaterialDef def = material_with(base_doc());
+        const GraphCheck c = check_material_graph(graph, def, "sprite");
+        REQUIRE_FALSE(c.ok());
+        bool teaches = false;
+        for (const MaterialIssue& e : c.errors)
+            if (e.pointer == "/graph/nodes/0/type" && e.message.find("\"sprite\"") != std::string::npos &&
+                e.hint.find("`material.graph.nodes` with kind \"sprite\"") != std::string::npos && e.hint.size() > 80)
+                teaches = true;
+        CHECK_MESSAGE(teaches, all_errors(c));
+        ++refused;
+    }
+    CHECK(
+        refused >=
+        9);  // vertex.color, position.world/view, normal.world, view.dir, texture.normal, triplanar, parallax, fresnel
+    // the hints name the sprite alternative
+    const MaterialDef def = material_with(base_doc());
+    auto fresnel = check_material_graph(
+        Json::parse(R"({"nodes":[{"id":"f","type":"fresnel"},{"id":"out","type":"output"}]})"), def, "sprite");
+    REQUIRE_FALSE(fresnel.errors.empty());
+    CHECK(fresnel.errors[0].hint.find("math.smoothstep") != std::string::npos);
+    // a field of the mesh output is not one of the sprite output: the error lists the fields of the kind
+    const GraphCheck wrong =
+        check_of(R"({"nodes":[{"id":"out","type":"output","inputs":{"albedo":[1,0,0]}}]})", "sprite");
+    bool lists = false;
+    for (const MaterialIssue& e : wrong.errors)
+        lists = lists || (e.pointer == "/graph/nodes/0/inputs/albedo" && e.hint.find("rgb") != std::string::npos);
+    CHECK_MESSAGE(lists, all_errors(wrong));
+    // a sprite graph with an output that writes nothing is a warning, not an error
+    const GraphCheck empty = check_of(R"({"nodes":[{"id":"out","type":"output"}]})", "sprite");
+    CHECK(empty.ok());
+    CHECK_FALSE(empty.warnings.empty());
+}
+
+TEST_CASE("material.graph commands: a sprite material is generated, hand edits are protected like in a mesh") {
+    Project p;
+    p.write("materials/sdissolve.material.json", kSpriteDissolveMaterial);
+    const char* args = R"({"material":"materials/sdissolve.material.json"})";
+    auto v = p.call("material.graph.validate", args);
+    REQUIRE_MESSAGE(v.ok, failure(v));
+    CHECK(v.result["ok"] == true);
+    CHECK(v.result["snippet"]["state"] == "missing");
+
+    auto gen = p.call("material.graph.generate", args);
+    REQUIRE_MESSAGE(gen.ok, failure(gen));
+    CHECK(gen.result["written"] == true);
+    const std::string generated = p.read("shaders/sdissolve.fragment.glsl");
+    CHECK(generated.find("void fragment(in QuadInput i, inout QuadSurface s)") != std::string::npos);
+    const Json written = p.doc("materials/sdissolve.material.json");
+    CHECK(written["graphHash"] == graph_snippet_hash(generated));
+    CHECK(written["kind"] == "sprite");
+
+    // a second run changes nothing
+    auto second = p.call("material.graph.generate", args);
+    REQUIRE(second.ok);
+    CHECK(second.result["written"] == false);
+    CHECK(second.result["state"] == "in_sync");
+
+    // the same hash rule as a mesh: CRLF is not an edit, a hand-written line is
+    std::string crlf;
+    for (char c : generated) crlf += c == '\n' ? std::string("\r\n") : std::string(1, c);
+    p.write("shaders/sdissolve.fragment.glsl", crlf);
+    CHECK(p.call("material.graph.validate", args).result["snippet"]["state"] == "in_sync");
+    const std::string edited = generated + "// a hand-written tweak\n";
+    p.write("shaders/sdissolve.fragment.glsl", edited);
+    CHECK(p.call("material.graph.validate", args).result["snippet"]["state"] == "hand_edited");
+    auto refused = p.call("material.graph.generate", args);
+    REQUIRE_FALSE(refused.ok);
+    CHECK(refused.error["code"].get<std::string>() == "hand_edited");
+    CHECK(p.read("shaders/sdissolve.fragment.glsl") == edited);
+    // a hand-touched graphHash: the code the graph makes with a hash that does not say so is "hash_missing" (generate refreshes
+    // it), the same code edited by hand is a hand edit, never silently overwritten
+    Json touched = p.doc("materials/sdissolve.material.json");
+    touched["graphHash"] = std::string(64, 'c');
+    p.write("materials/sdissolve.material.json", touched.dump(2));
+    p.write("shaders/sdissolve.fragment.glsl", generated);
+    CHECK(p.call("material.graph.validate", args).result["snippet"]["state"] == "hash_missing");
+    p.write("shaders/sdissolve.fragment.glsl", edited);
+    CHECK(p.call("material.graph.validate", args).result["snippet"]["state"] == "hand_edited");
+    CHECK_FALSE(p.call("material.graph.generate", args).ok);
+    auto forced = p.call("material.graph.generate", R"({"material":"materials/sdissolve.material.json","force":true})");
+    REQUIRE_MESSAGE(forced.ok, failure(forced));
+    CHECK(p.read("shaders/sdissolve.fragment.glsl") == generated);
+
+    // a sprite is always blended: a graph material with alphaMode clip is an error that names the field
+    Json clip = p.doc("materials/sdissolve.material.json");
+    clip["alphaMode"] = "clip";
+    p.write("materials/clip.material.json", clip.dump(2));
+    auto cv = p.call("material.graph.validate", R"({"material":"materials/clip.material.json"})");
+    REQUIRE(cv.ok);
+    CHECK(cv.result["ok"] == false);
+    CHECK(cv.result["errors"][0]["pointer"] == "/alphaMode");
+}
+
+TEST_CASE("material.graph.nodes: the kind sprite lists its nodes, its output and a sprite example that generates") {
+    Project p;
+    auto s = p.call("material.graph.nodes", R"({"kind":"sprite"})");
+    REQUIRE_MESSAGE(s.ok, failure(s));
+    std::set<std::string> types;
+    const Json* output = nullptr;
+    for (const Json& n : s.result["nodes"]) {
+        types.insert(n["type"].get<std::string>());
+        if (n["type"] == "output") output = &n;
+    }
+    CHECK(types.count("sprite.color") == 1);
+    CHECK(types.count("noise.fbm") == 1);
+    CHECK(types.count("fresnel") == 0);
+    CHECK(types.count("position.world") == 0);
+    CHECK(types.count("triplanar") == 0);
+    REQUIRE(output);
+    std::vector<std::string> fields;
+    for (const Json& in : (*output)["inputs"]) fields.push_back(in["name"].get<std::string>());
+    CHECK(fields == std::vector<std::string>{"color", "rgb", "alpha", "vertexOffset"});
+    // the mesh list has the mesh output and the 3D nodes, and no sprite node
+    auto m = p.call("material.graph.nodes", R"({"kind":"mesh"})");
+    REQUIRE(m.ok);
+    std::set<std::string> meshTypes;
+    for (const Json& n : m.result["nodes"]) meshTypes.insert(n["type"].get<std::string>());
+    CHECK(meshTypes.count("fresnel") == 1);
+    CHECK(meshTypes.count("sprite.color") == 0);
+    // the example is a sprite material that passes the checks and generates the template of a sprite
+    const Json example = s.result["example"];
+    CHECK(example["kind"] == "sprite");
+    MaterialParse mp = parse_material(example, "");
+    REQUIRE_MESSAGE(mp.ok(), (mp.errors.empty() ? "" : mp.errors[0].to_string()));
+    const GeneratedGraph g = generate_graph_snippet(mp.material.graph, mp.material, "sprite");
+    REQUIRE_MESSAGE(g.check.ok(), all_errors(g.check));
+    CHECK(g.snippet.find("void fragment(in QuadInput i, inout QuadSurface s)") != std::string::npos);
+    // a sprite node with no kind given is listed with its kinds
+    auto one = p.call("material.graph.nodes", R"({"type":"sprite.life"})");
+    REQUIRE(one.ok);
+    CHECK(one.result["nodes"][0]["kinds"] == Json::parse(R"(["sprite"])"));
 }
 
 // ---------------------------------------------------------------------------------------------------------------

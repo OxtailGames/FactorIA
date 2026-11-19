@@ -235,15 +235,6 @@ bool Editor::open_graph_document(const std::string& rel, bool startGraph, bool d
         u.viewApplied = false;
         if (m.path() != before)
             graph_reset_entry_ui();  // the New param form and a rename in progress belong to the material that was open
-        else if (const char* section = u.renamingTexture ? "textures" : "params";
-                 !u.renaming.empty() &&
-                 !(m.material_json().contains(section) && m.material_json()[section].is_object() &&
-                   m.material_json()[section].contains(u.renaming))) {
-            // the same material read again: the New param form stays, a rename of an entry that is gone does not
-            u.renaming.clear();
-            u.renameBuf[0] = 0;
-            u.renameFocus = false;
-        }
         if (u.preview) u.preview->set_document(m.material_json(), m.revision(), m.path());
     } else {
         // a failed open changes nothing: the document that was open stays, with its edits
@@ -470,18 +461,21 @@ void Editor::draw_graph_toolbar(GraphModel& m) {
     FitRow row;
     row.next("New graph material");
     if (ImGui::Button("New graph material")) {
-        const std::string rel = m.new_material_name();  // free for the material and for its shaders/<name>.surface.glsl
+        const std::string rel =
+            m.new_material_name(u.newKind);  // free for the material and for its shaders/<name>.*.glsl
         if (rel.empty()) {
-            notify("Cannot name a new graph material: assets/materials already holds graph.material.json to graph999 "
-                   "(or a shader snippet of those names). Rename or delete some.",
+            notify("Cannot name a new graph material: assets/materials already holds " +
+                       std::string(u.newKind == "mesh" ? "graph" : u.newKind + "_graph") +
+                       ".material.json to 999 (or a shader snippet of those names). Rename or delete some.",
                    1);
         } else if (m.is_open() && m.dirty()) {
             u.askDiscard = true;
             u.pendingOpen = rel;
             u.pendingStart = true;
             u.pendingCreate = true;
+            u.pendingKind = u.newKind;
         } else {
-            const GraphEditOutcome out = m.create(rel);
+            const GraphEditOutcome out = m.create(rel, u.newKind);
             if (!out.ok) {
                 notify(out.error, 1);
             } else {
@@ -491,8 +485,25 @@ void Editor::draw_graph_toolbar(GraphModel& m) {
         }
     }
     at_track("gr:new");
-    hint("material.graph.generate: writes assets/materials/graph.material.json with a graph of one output node, and "
-         "opens it.");
+    hint("material.graph.generate: writes assets/materials/graph.material.json (sprite_graph.material.json for a "
+         "sprite) with a graph of "
+         "one output node, and opens it.");
+    row.next("Sprite ");
+    ImGui::SetNextItemWidth(ImGui::CalcTextSize("Sprite").x + ImGui::GetFrameHeight() +
+                            ImGui::GetStyle().FramePadding.x * 2.0f);
+    if (ImGui::BeginCombo("##gnewkind", u.newKind == "sprite" ? "Sprite" : "Mesh")) {
+        for (const char* k : {"mesh", "sprite"}) {
+            if (ImGui::Selectable(k[0] == 'm' ? "Mesh" : "Sprite", u.newKind == k)) u.newKind = k;
+            at_track(std::string("gr:newkind:") + k);
+        }
+        ImGui::EndCombo();
+    }
+    at_track("gr:newkind");
+    hint("The kind of material New graph material makes. Mesh: a 3D surface (surface() and vertex()). Sprite: a 2D "
+         "item, a sprite, "
+         "shape, particle or text (fragment() and vertex()); it has its own nodes (sprite.color, sprite.life...) and "
+         "no 3D ones "
+         "(normals, fresnel...).");
     if (!m.is_open()) return;
 
     row.next("Add node");
@@ -609,7 +620,7 @@ void Editor::draw_graph_questions(GraphModel& m) {
             u.pendingCreate = false;
             ImGui::CloseCurrentPopup();
             if (create) {
-                const GraphEditOutcome out = m.create(rel);
+                const GraphEditOutcome out = m.create(rel, u.pendingKind);
                 if (!out.ok) {
                     notify(out.error, 1);
                 } else {
@@ -1193,6 +1204,26 @@ void Editor::draw_graph_palette(GraphModel& m) {
         hint(t->doc);
     }
     if (list.empty()) ImGui::TextDisabled("No node matches \"%s\".", u.filter.c_str());
+    // A node that only works in other kinds is not listed (a sprite has no normal or view direction): when what was searched for is one of
+    // those, say what to use instead, the text the checker's error gives.
+    if (m.is_open() && !u.filter.empty()) {
+        const std::string kind = m.report().kind;
+        const std::string needle = to_lower(u.filter);
+        std::size_t shown = 0;
+        for (const GraphNodeType& t : graph_node_library()) {
+            if (std::find(t.kinds.begin(), t.kinds.end(), kind) != t.kinds.end() ||
+                to_lower(t.type).find(needle) == std::string::npos)
+                continue;
+            for (const auto& [k, text] : t.instead)
+                if (k == kind && shown++ < 2) {
+                    ImGui::Separator();
+                    ImGui::PushTextWrapPos(ImGui::GetFontSize() * 24.0f);
+                    ImGui::TextDisabled("%s does not work in a %s material.", t.type.c_str(), kind.c_str());
+                    ImGui::TextWrapped("%s", text.c_str());
+                    ImGui::PopTextWrapPos();
+                }
+        }
+    }
     ImGui::EndChild();
     if (enter && add.empty() && !list.empty()) add = list.front()->type;
     if (!add.empty()) {
@@ -1476,6 +1507,17 @@ void Editor::draw_graph_params(GraphModel& m) {
     GraphPreview& pv = *u.preview;
     const std::function<void(const GraphEditOutcome&)> edited = [this](const GraphEditOutcome& o) { graph_edited(o); };
     const std::function<void(const std::string&)> track = [this](const std::string& n) { at_track(n); };
+    // A rename in progress of an entry that is gone (a reload or an outside change of the file took it away) has nothing to rename any more.
+    if (!u.renaming.empty()) {
+        const Json& doc = m.material_json();
+        const char* section = u.renamingTexture ? "textures" : "params";
+        if (!(doc.is_object() && doc.contains(section) && doc[section].is_object() &&
+              doc[section].contains(u.renaming))) {
+            u.renaming.clear();
+            u.renameBuf[0] = 0;
+            u.renameFocus = false;
+        }
+    }
     // An edit of the list (a new entry, a rename, a delete) changes the report the rows read from, so the rows only note what was asked
     // and it is done after them.
     struct Pending {

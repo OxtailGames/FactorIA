@@ -106,11 +106,14 @@ public:
     // A new material `rel` with a one-node graph (the output), written through material.graph.generate; opens it. Never overwrites (the file is
     // published with a hard link, which fails when the name exists, even when another process made it a moment ago), and when the write of the
     // snippet fails the files it made are removed and the document that was open stays.
-    // Refused (nothing is written) when the snippet it would write (shaders/<name>.surface.glsl) is already a file: that one is somebody's.
-    GraphEditOutcome create(const std::string& rel);
-    // The first free `assets/materials/graph[N].material.json` whose snippet `shaders/graph[N].surface.glsl` is free too (a hand-written snippet of
-    // that name is never taken over), for the New graph material button. Empty when a thousand names are taken.
-    std::string new_material_name() const;
+    // Refused (nothing is written) when the snippet it would write (shaders/<name>.surface.glsl, .fragment.glsl for a sprite) is already a
+    // file: that one is somebody's. `kind` is the material kind of the graph (graph_supported_kinds(): "mesh" or "sprite"); a sprite
+    // material is written with "kind": "sprite" and the output node of a sprite.
+    GraphEditOutcome create(const std::string& rel, const std::string& kind = "mesh");
+    // The first free `assets/materials/graph[N].material.json` (`sprite_graph[N]` for a sprite) whose snippet `shaders/<name>.surface.glsl`
+    // (`.fragment.glsl`) is free too (a hand-written snippet of that name is never taken over), for the New graph material button. Empty
+    // when a thousand names are taken.
+    std::string new_material_name(const std::string& kind = "mesh") const;
     void close();
     bool is_open() const { return !rel_.empty(); }
     const std::string& path() const { return rel_; }
