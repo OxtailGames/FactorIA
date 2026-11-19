@@ -408,6 +408,7 @@ void Renderer::shutdown() {
         }
         im.fonts.reset();
         im.ssr.release();
+        im.skyEnv.release();
         im.sceneFx.release();
         im.fogFx.release();
         im.ramps.destroy();

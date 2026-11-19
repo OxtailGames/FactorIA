@@ -34,10 +34,18 @@ Rules of the hook:
 
 ## The functions
 
-Every function below can be called from `light()`, `ambient()` and `lighting()` of a `"custom"` material, and from nowhere
-else: `surface()` and `vertex()` run before the lights are known (and in the shadow and depth passes), so calling one there
-is an error that says where to call it. `lighting()` and its helpers are also compiled in the shadow and depth programs,
-where the functions answer "no lights", so the snippet compiles; they never run there.
+Every function below can be called from `light()`, `ambient()` and `lighting()` of a `"custom"` material. `surface()` and
+`vertex()` run before the lights are known (and in the shadow and depth passes), so calling one there is an error that says
+where to call it, except the four that only read the sky (`fa_environment`, `fa_env_brdf`, `fa_sky_reflection`,
+`fa_ambient_light`): `surface()` may call those (an `emission` that shows the sky, a clip mask). In the shadow and depth
+passes they read the sky of the previous frame (black in the first one), see "The sky material lights the meshes". `lighting()` and its helpers
+are also compiled in the shadow and depth programs, where the functions answer "no lights", so the snippet compiles; they
+never run there.
+
+A helper function of your own (one that is not `light()`, `ambient()`, `lighting()`, `surface()` or `vertex()`) is compiled
+into the vertex stage too, and the vertex stage has none of these functions. If the helper calls `fa_light`, `fa_light_count`,
+`fa_sky_light` or another one from the table, the compiler says the function is declared in the fragment stage only. Wrap
+the helper in `#ifdef GL_FRAGMENT_SHADER ... #endif` (the hooks need no wrapper), or call it from a hook only.
 
 | Function | What it gives |
 |---|---|
@@ -47,13 +55,14 @@ where the functions answer "no lights", so the snippet compiles; they never run 
 | `fa_light_shadow(n, i)` | The shadow of light `n` at this fragment: `1` lit, `0` in shadow, a value between at the edge. Only light `0`, when it is the directional light that casts shadows and the mesh receives them, has a shadow map; every other light answers `1`. |
 | `fa_sky_light(i, s)` | The sky reflection (image-based lighting) the engine adds to a `"pbr"` material, for this surface: from `s.albedo`, `s.metallic`, `s.roughness`, `s.normal` and `s.occlusion` and the direction to the camera. Add it to what you return, scaled or tinted as you like. |
 | `fa_sky_reflection(n, v, f0, roughness)` | The same term from the parts: normal `n`, direction to the camera `v`, reflectance at normal incidence `f0` (`vec3`: `0.04` for a dielectric, the albedo for a metal) and `roughness`. |
-| `fa_environment(direction, roughness)` | The color of the sky in a world direction, blurrier and flatter when `roughness` grows. |
+| `fa_environment(direction, roughness)` | The color of the sky in a world direction, blurrier and flatter when `roughness` grows. With a sky material (below) it reads the sky that is seen. |
+| `fa_ambient_light(n)` | The ambient light a diffuse surface facing the world direction `n` receives: `ambientLight`, or, with a sky material, the light of that sky from every direction (the cosine-weighted average). A `vec3`. |
 | `fa_env_brdf(roughness, ndv)` | The scale and bias (a `vec2`) of `f0` of the split-sum environment BRDF, `ndv` being `dot(n, v)`. `fa_sky_reflection` is `fa_environment(reflect(-v, n), roughness) * (f0 * ab.x + ab.y)`. |
 
-`fa_ambient` (a `vec4`, `.rgb` is `SceneSettings.ambientLight`) and `fa_camera_pos` are in scope too. The sky is not a
-cubemap: it is the gradient of `SceneSettings.skyColor` (top) and `horizonColor` (the horizon, and a darker copy below it),
-which the engine's own meshes reflect too, so a custom material that adds `fa_sky_light(i, s)` reflects the same sky as a
-`"pbr"` one. In a `"custom"` material that has no `lighting()` the sky reflection is off, as before; call `fa_sky_light()` from
+`fa_ambient` (a `vec4`, `.rgb` is `SceneSettings.ambientLight`) and `fa_camera_pos` are in scope too. Without a sky
+material the sky is the gradient of `SceneSettings.skyColor` (top) and `horizonColor` (the horizon, and a darker copy below
+it), which the engine's own meshes reflect too, so a custom material that adds `fa_sky_light(i, s)` reflects the same sky as
+a `"pbr"` one; with one it is the sky of the material (next section). In a `"custom"` material that has no `lighting()` the sky reflection is off, as before; call `fa_sky_light()` from
 `ambient()` (return it, or add it to the ambient colour) or from `light()` to turn it on, or from `lighting()`.
 
 ## Which lights, how many, in what order
@@ -130,10 +139,66 @@ signature: a full shader has no `SurfaceInput`), and now also `fa_environment(di
 ndv)` and `fa_sky_reflection(n, v, f0, roughness)`, the same three as above, with `fa_env_sky` and `fa_env_horizon` as the
 sky they read. The order and the cap of the lights are the ones of the section above.
 
+## The sky material lights the meshes
+
+A scene with a sky material (`SceneSettings.skyMaterial`, [sky materials](../SHADERS.md)) shows that sky and is also lit by
+it: the engine bakes the sky the material draws into two small cube images, and every mesh of the camera reads them.
+
+- **Reflection.** `fa_environment(direction, roughness)`, `fa_sky_reflection` and `fa_sky_light` (so every `"pbr"` mesh and
+  every custom mesh that calls them) read a cube prefiltered per roughness (128 x 128 per face, 5 mips from mirror to rough).
+  A metallic mirror ball under a sky of two colours shows each colour on the side that faces it.
+- **Ambient.** `fa_ambient_light(n)`, which the engine adds as the ambient term of every `"pbr"` mesh and which a custom
+  material reads in `ambient()` or `lighting()`, is the irradiance of that sky (an 8 x 8 cube, cosine-weighted and divided by
+  pi, so a sky of one colour gives that colour). It **replaces** `SceneSettings.ambientLight` for the meshes the sky lights:
+  the scene's own ambient is not added to it. `fa_ambient.rgb` keeps being `ambientLight`; write `fa_ambient_light(s.normal)`
+  to use the sky's.
+- **What is not changed.** Without a sky material the pixels and the draw calls are the same: no pass bakes anything and no
+  environment image is made. A black 1 x 1 cube and its sampler are made at the first mesh draw (it fills the slot the mesh
+  shaders declare), and every mesh draw binds them and every fragment tests one uniform: a bit more work, not none. A failed
+  sky material (drawn as the built-in gradient) lights nothing either. Sprites, the
+  `studio` lighting of a camera and the picture of a post material are not lit by it.
+
+**When it is baked again.** The bake is one set of 60 small draws (6 of the sky itself, the rest the filtering). It runs at the
+start of a frame in which any of these changed since the last bake: the material file or its shader (also on hot reload), a
+param or a texture of it, `skyColor`, `horizonColor`, the sun **when `sky()` reads it** (`i.sun_dir` or `fa_sun`), or the
+linear-colour setting. A sky that never changes is baked once. A sun that turns (a day cycle) bakes again in every frame in
+which it moved, 60 passes each time, but only for a sky that reads it: a sky that does not is not baked again, so write a
+sky that follows the sun only when you want its light to follow too.
+A sky whose `sky()` reads `SkyInput.time` (or `fa_time`) is **animated**: it is baked again every `0.1` s of game time (the
+engine clock, so a replay or a fixed step gives the same pictures, and a paused game does not bake), and the bake shows the sky
+as it is at the start of that step, not at the current frame. The meshes follow it with a step of at most `0.1` s, the sky
+you see follows it every frame.
+
+The meshes that read the cubes in the frame in which they are baked see the new sky. The shadow and depth passes (and with them
+the `surface()` of an `alphaMode` `"clip"` material that runs there) come before the bake: a `fa_environment()` or `fa_ambient_light()`
+in `surface()` reads the cubes of the previous frame there, and black in the first frame of a sky. Use them in `light()`,
+`ambient()` or `lighting()` for a result that is always current.
+
+**What it costs.** Measured on Metal (Apple M-series, a small scene; the test "what one bake of the environment costs" in
+`engine/render/tests/render3d_tests.cpp` prints the numbers): a frame that bakes takes about 2 to 3.5 ms longer than one that does
+not (it varies with what else the machine does), of which about 0.3 to 0.6 ms is CPU time recording the 60 passes; a frame with a sky material that does not bake costs the same as
+one without (0.3 to 0.6 ms for both there; the little work every mesh draw does without a sky is below what that
+measures). A still sky pays the bake once; an animated one pays it every 6 frames at 60 fps (0.3 to 0.6 ms per frame on average),
+as a spike of one frame. Metal has no GPU timer here, so these are frame times, not pass
+times. The Direct3D 11 and OpenGL numbers are not measured yet. Your `sky()` runs on 6 x 128 x 128 pixels in a bake, on top of
+the frame's own sky. The images (the two cubes and the four steps that filter them) take about 2 MB in half floats.
+
+**One sky per frame.** There is one environment, shared by every camera and render target of the frame: the first job that
+needs it decides which sky it holds, and a job whose sky inputs differ from that one (for example a render target with its own
+`skyColor`) is lit by the built-in analytic sky, as it was before this existed.
+
+**Other backends.** The faces are drawn with the cube map layout of the specification on every backend; OpenGL stores a render
+target bottom-up, so its faces are drawn with the up axis negated. That is checked by reading the code and the specification
+only: the test runs on Metal here, and the OpenGL, Direct3D 11 and WebGL 2 layouts have not been seen on a real device. The
+images are RGBA16F where the GPU can draw to it and filter it (every desktop GPU, GLES 3 with `EXT_color_buffer_half_float`, WebGL 2
+with `EXT_color_buffer_float` or `_half_float`), else RGBA8: the sky is then clamped to 0..1 (a sky brighter than white, or a
+sun, loses its brightness in the reflection) and very dark gradients show bands. The sky you see is drawn directly, not from the
+cubes, so it is the same on both.
+
 ## Errors
 
-Every one is found before sokol-shdc starts (the message names the material file and the JSON pointer, or the line of the
-snippet) and teaches the fix:
+Every one is found before sokol-shdc starts, except a misspelled function name, which comes out of sokol-shdc (the message
+names the material file and the JSON pointer, or the line of the snippet) and teaches the fix:
 
 | Mistake | What the error says |
 |---|---|
@@ -141,4 +206,5 @@ snippet) and teaches the fix:
 | `lighting()` and `light()` (or `ambient()`) in one snippet | Remove the second: `lighting()` is the whole loop; where each part of the old one goes. |
 | One of the functions above in a `"pbr"` or `"unlit"` material, or in `surface()` or `vertex()` | Set `"lighting": "custom"`, or call it in `light()`, `ambient()` or `lighting()`. |
 | A misspelled name (`fa_sky_ligth`) | `did you mean fa_sky_light?` and the list of the functions. |
+| A helper that calls one of the functions, compiled into the vertex stage | The function is declared in the fragment stage only: its signature, and `#ifdef GL_FRAGMENT_SHADER`. |
 | Neither `light()` nor `lighting()` in a custom material | The signatures of both, and how to go back to `"pbr"`. |

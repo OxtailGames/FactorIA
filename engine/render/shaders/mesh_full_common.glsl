@@ -13,7 +13,7 @@
 // functions copied from mesh_common.glsl (fa_shadow, the light sample, the fog, the colour space fixes) are copies, not includes:
 // mesh_common.glsl's fa_fs_surface also declares the engine's own varyings, which a full shader does not have. A test
 // (shader_template_test.cpp) compares the uniform blocks with mesh_common.glsl's, so they cannot drift apart. The sky functions
-// (fa_environment, fa_env_brdf, fa_sky_reflection) are the exception: they are mesh_common.glsl's block fa_env_funcs, included.
+// (fa_environment, fa_env_brdf, fa_sky_reflection, fa_ambient_light) are the exception: they are mesh_common.glsl's block fa_env_funcs, included.
 
 // ---- vertex stage ----
 
@@ -112,6 +112,10 @@ layout(binding=0) uniform sampler fa_smp;
 layout(binding=1) uniform sampler fa_full_shadow_smp;
 @image_sample_type fa_full_shadow_tex unfilterable_float
 @sampler_type fa_full_shadow_smp nonfiltering
+// The baked sky of a sky material (as mesh_common.glsl's fa_fs_head: views 14 and 15, sampler 10; used while fa_env_sky.w is 1).
+layout(binding=14) uniform textureCube fa_env_tex;
+layout(binding=15) uniform textureCube fa_irr_tex;
+layout(binding=10) uniform sampler fa_env_smp;
 
 // A copy of mesh_common.glsl's fa_mesh_fs_params (a test compares them): the same CPU struct fills both.
 layout(binding=1) uniform fa_mesh_fs_params {
@@ -129,8 +133,8 @@ layout(binding=1) uniform fa_mesh_fs_params {
                                 // z = height base (world y), w = height falloff; all 0 for the scene's own fog
     vec4 fa_fog_c;              // xyz = the camera's forward axis in the world, w = 1 for an orthographic camera (0 otherwise)
     vec4 fa_counts;             // x = light count, y = shadow texel size, z = 1 on OpenGL backends
-    vec4 fa_env_sky;            // rgb sky color (top of the environment)
-    vec4 fa_env_horizon;        // rgb horizon color
+    vec4 fa_env_sky;            // rgb sky color (top of the environment); w = 1 when the baked environment of a sky material is bound
+    vec4 fa_env_horizon;        // rgb horizon color; w = the highest mip of fa_env_tex (what roughness 1 reads)
     vec4 fa_time;               // x = seconds of game time since the scene started
 };
 
@@ -145,7 +149,8 @@ layout(binding=2) uniform fa_lights {
 @include_block fa_types
 @include_block fa_user
 
-// The sky the surface reflects (fa_environment, fa_env_brdf, fa_sky_reflection): the same code as the engine's own meshes.
+// The sky the surface reflects and the ambient light (fa_environment, fa_env_brdf, fa_sky_reflection, fa_ambient_light): the same code as
+// the engine's own meshes.
 @include_block fa_env_funcs
 
 layout(location=0) out vec4 fa_frag_color;
