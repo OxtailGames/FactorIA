@@ -292,7 +292,7 @@ to another material with unsaved edits asks first ("Discard the graph changes?")
 when you press Save: the panel does not replace it but asks "The file changed on disk" with **Overwrite** (the graph as edited replaces the file), **Reload** (the file as it
 is, your edits gone) and **Cancel** (nothing is written, the unsaved graph stays). **New graph material** makes the material file whole or not at all: it is written under a
 temporary name and published only if the name is still free, and when the snippet cannot be written the material file it made is removed again, so a failed New leaves nothing behind
-and never replaces a file made meanwhile. Closing the panel or opening another material clears the Params and Textures forms and their messages.
+and never replaces a file made meanwhile (on a volume with hard links; on one without, a look and a rename leave a very small window). If the name of the snippet the material would get (`shaders/<name>.surface.glsl`) is already taken by a hand-written file, the next free name is used for both. Closing the material (or opening another) clears the Params and Textures forms and their messages.
 
 - **Canvas.** Nodes are boxes with their input ports on the left and output ports on the right, coloured by type (float, vec2, vec3, vec4). Drag a node to move it
   (all the selected ones move together; the position is saved as the node's `pos`). Press on a port and drag to another port to link them; dragging from an input
@@ -313,7 +313,7 @@ and never replaces a file made meanwhile. Closing the panel or opening another m
   `time` change. The preview compiles through sokol-shdc ([SHADERS.md](../SHADERS.md), "Compiler"): without it the panel says so and the rest still works. The files it writes (the
   material and snippet it compiles and the copies the renderer loads) are in `.factoria/material-preview/`, which a new project's `.gitignore` leaves out with the rest of `.factoria/`;
   deleting the folder is safe, the next edit makes it again. Each preview (the one on the canvas and the saved copy for Compare) stages its compile in files of its own
-  (`stage-<id>.*`), and closing the panel or changing project waits at most two seconds for a compile in flight before it lets the worker finish alone. The shader compile is cached in `.factoria/shader-cache`; when that result cannot be saved (a full disk, a read-only
+  (`stage-<id>.*`), and changing project or quitting the editor waits at most two seconds for a compile in flight before it lets the worker finish alone (closing the panel does not destroy the preview). Files a worker left behind when the editor quit (`stage-*`, `saved-stage-*`) are deleted by the next preview once they are a few minutes old, and the errors of a compile name the material or the snippet, not the stage file. The shader compile is cached in `.factoria/shader-cache`; when that result cannot be saved (a full disk, a read-only
   folder) the preview shows an error and does not compile on the editor's thread.
   - **Params.** Each param of the material (`params`; the ones the generator adds itself are left out) has a slider, a drag box or a colour editor under the preview. Moving one
     changes the PREVIEW only (`MeshRenderer.materialParams` of the scratch entity): the file is not touched, nothing compiles again, the name turns amber with "(preview only)", and
