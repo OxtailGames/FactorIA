@@ -1,7 +1,8 @@
-// The Graph panel (View > Graph): the node-graph editor of a material (*.material.json with a "graph", docs/SHADERS.md "Node graphs"). A canvas with
-// pan and zoom, typed coloured ports and links dragged between them, a searchable palette of the node library, an inspector for the constants of
-// the selected node, the checker's problems pinned on the node or link their JSON pointer names, and a live preview on a sphere, a cube or a quad.
-// The rules are in graph_model.h (every edit is one undo step, the file is saved by material.graph.generate), the preview in graph_preview.h.
+// The Graph panel (View > Graph): the node-graph editor of a material (*.material.json with a "graph", docs/SHADERS.md
+// "Node graphs"). A canvas with pan and zoom, typed coloured ports and links dragged between them, a searchable palette
+// of the node library, an inspector for the constants of the selected node, the checker's problems pinned on the node
+// or link their JSON pointer names, and a live preview on a sphere, a cube or a quad. The rules are in graph_model.h
+// (every edit is one undo step, the file is saved by material.graph.generate), the preview in graph_preview.h.
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -39,7 +40,8 @@ void hint(const std::string& text) {
     ImGui::EndTooltip();
 }
 
-// Buttons that wrap: the next one goes on the same line when it fits (a narrow window must not push a button out of reach).
+// Buttons that wrap: the next one goes on the same line when it fits (a narrow window must not push a button out of
+// reach).
 struct FitRow {
     float right;
     FitRow() { right = ImGui::GetCursorScreenPos().x + ImGui::GetContentRegionAvail().x; }
@@ -185,7 +187,8 @@ bool put_texture(GraphUi::Texture& slot, std::vector<GraphUi::Dead>& graveyard, 
 
 }  // namespace
 
-// ----------------------------------------------------------------------------------------------------------- document --
+// ----------------------------------------------------------------------------------------------------------- document
+// --
 GraphModel& Editor::graph_ensure_model() {
     GraphUi& u = graph_;
     if (u.model && u.projectDir != projectDir_) {  // another project was opened
@@ -1213,8 +1216,8 @@ void Editor::draw_graph_palette(GraphModel& m) {
         hint(t->doc);
     }
     if (list.empty()) ImGui::TextDisabled("No node matches \"%s\".", u.filter.c_str());
-    // A node that only works in other kinds is not listed (a sprite has no normal or view direction): when what was searched for is one of
-    // those, say what to use instead, the text the checker's error gives.
+    // A node that only works in other kinds is not listed (a sprite has no normal or view direction): when what was
+    // searched for is one of those, say what to use instead, the text the checker's error gives.
     if (m.is_open() && !u.filter.empty()) {
         const std::string kind = m.report().kind;
         const std::string needle = to_lower(u.filter);
@@ -1299,7 +1302,8 @@ void Editor::draw_graph_side(GraphModel& m) {
     const bool comparing = pv.compare() && pv.has_saved();
     const float full = std::clamp(ImGui::GetContentRegionAvail().x - 4.0f, 96.0f, 300.0f);
     const float w = comparing ? std::max(64.0f, (full - ImGui::GetStyle().ItemSpacing.x) * 0.5f) : full;
-    // one picture of the preview into its own texture and onto the panel (a texture is made again only when the picture changed)
+    // one picture of the preview into its own texture and onto the panel (a texture is made again only when the picture
+    // changed)
     auto picture = [&](const char* id, GraphUi::Texture& tex, const Image& img, std::uint64_t serial) {
         if (serial != tex.serial && !img.empty()) {
             if (put_texture(tex, u.graveyard, img, uiFrame_)) tex.serial = serial;
@@ -1358,7 +1362,8 @@ void Editor::draw_graph_side(GraphModel& m) {
                (pv.saved_state() == PreviewState::Waiting || pv.saved_state() == PreviewState::Compiling)) {
         ImGui::TextDisabled("the saved version is compiling...");
     }
-    // a sprite material is drawn on a flat quad of its own, a post material over a small scene: the mesh shapes do not apply
+    // a sprite material is drawn on a flat quad of its own, a post material over a small scene: the mesh shapes do not
+    // apply
     if (m.is_open() && m.report().kind == "post") {
         ImGui::TextDisabled("A post material is drawn as the only pass of a camera over a small 3D scene.");
         ImGui::BeginDisabled(m.dirty());
@@ -1453,8 +1458,8 @@ void Editor::draw_graph_side(GraphModel& m) {
     list(rep.warnings, true);
 }
 
-// The form that makes a param or a texture of the material (Create is material.param.create / material.texture.create: one undo step).
-// The entry is in the file when it returns true; an error stays in the form.
+// The form that makes a param or a texture of the material (Create is material.param.create / material.texture.create:
+// one undo step). The entry is in the file when it returns true; an error stays in the form.
 static bool draw_entry_form(GraphModel& m, GraphUi& u, const std::function<void(const GraphEditOutcome&)>& edited,
                             const std::function<void(const std::string&)>& track) {
     GraphUi::EntryForm& f = u.entryForm;
@@ -1569,7 +1574,8 @@ void Editor::draw_graph_params(GraphModel& m) {
     GraphPreview& pv = *u.preview;
     const std::function<void(const GraphEditOutcome&)> edited = [this](const GraphEditOutcome& o) { graph_edited(o); };
     const std::function<void(const std::string&)> track = [this](const std::string& n) { at_track(n); };
-    // A rename in progress of an entry that is gone (a reload or an outside change of the file took it away) has nothing to rename any more.
+    // A rename in progress of an entry that is gone (a reload or an outside change of the file took it away) has
+    // nothing to rename any more.
     if (!u.renaming.empty()) {
         const Json& doc = m.material_json();
         const char* section = u.renamingTexture ? "textures" : "params";
@@ -1580,8 +1586,8 @@ void Editor::draw_graph_params(GraphModel& m) {
             u.renameFocus = false;
         }
     }
-    // An edit of the list (a new entry, a rename, a delete) changes the report the rows read from, so the rows only note what was asked
-    // and it is done after them.
+    // An edit of the list (a new entry, a rename, a delete) changes the report the rows read from, so the rows only
+    // note what was asked and it is done after them.
     struct Pending {
         enum { None, Rename, Delete } what = None;
         bool texture = false;

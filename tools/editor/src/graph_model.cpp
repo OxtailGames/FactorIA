@@ -1,4 +1,5 @@
-// The Graph panel's model (graph_model.h): the open material, the graph as edited, what the checker says, the edits and their undo steps.
+// The Graph panel's model (graph_model.h): the open material, the graph as edited, what the checker says, the edits and
+// their undo steps.
 #include "graph_model.h"
 
 #include <algorithm>
@@ -77,15 +78,16 @@ std::string doc_kind(const Json& doc) {
     return it != doc.end() && it->is_string() ? it->get<std::string>() : std::string("mesh");
 }
 
-// The node type a graph of `kind` means by `type`: the one of the kind (the output node has one per kind), else any of that name (a
-// node of another kind that a file holds: the checks report it, the canvas still draws it).
+// The node type a graph of `kind` means by `type`: the one of the kind (the output node has one per kind), else any of
+// that name (a node of another kind that a file holds: the checks report it, the canvas still draws it).
 const GraphNodeType* node_type_of(const std::string& kind, const std::string& type) {
     if (const GraphNodeType* t = find_graph_node_type(type, kind)) return t;
     return find_graph_node_type(type);
 }
 
-// The graph a new material starts with: the output node with a few of the fields its kind has, set to a flat colour so the canvas and the
-// preview show something at once (a sprite's `color` replaces the colour the engine drew); a post pass starts as the picture unchanged.
+// The graph a new material starts with: the output node with a few of the fields its kind has, set to a flat colour so
+// the canvas and the preview show something at once (a sprite's `color` replaces the colour the engine drew); a post
+// pass starts as the picture unchanged.
 Json starter_graph(const std::string& kind) {
     if (kind == "sprite")
         return Json::parse(R"({
@@ -115,13 +117,14 @@ Json starter_graph(const std::string& kind) {
 })");
 }
 
-// The shader snippet a new material of `kind` writes: sprite templates name theirs *.fragment.glsl, post ones *.post.glsl, mesh ones
-// *.surface.glsl.
+// The shader snippet a new material of `kind` writes: sprite templates name theirs *.fragment.glsl, post ones
+// *.post.glsl, mesh ones *.surface.glsl.
 std::string snippet_path_for(const std::string& stem, const std::string& kind) {
     return "shaders/" + stem + (kind == "sprite" ? ".fragment.glsl" : kind == "post" ? ".post.glsl" : ".surface.glsl");
 }
 
-// Where the command put (create) or found (delete) the entry in the file's order; -1 when it said nothing (an older command).
+// Where the command put (create) or found (delete) the entry in the file's order; -1 when it said nothing (an older
+// command).
 int entry_index(const Json& result) {
     if (!result.is_object()) return -1;
     auto it = result.find("index");
@@ -131,7 +134,8 @@ int entry_index(const Json& result) {
 
 }  // namespace
 
-// The graph without what the generator ignores and a save adds ("version", "editor"): two graphs that differ only there are one graph.
+// The graph without what the generator ignores and a save adds ("version", "editor"): two graphs that differ only there
+// are one graph.
 bool GraphModel::same_graph(const Json& a, const Json& b) {
     if (!a.is_object() || !b.is_object()) return a == b;
     Json x = a, y = b;
@@ -315,8 +319,9 @@ GraphEditOutcome GraphModel::create(const std::string& rel, const std::string& k
     doc["shader"] = snippet_path_for(stem, kind);
     Json graph = starter_graph(kind);
     graph["version"] = kGraphVersion;
-    // The snippet the generator will write: noted before, so a failure removes only what this call made. A file of that name is somebody's (a
-    // hand-written snippet): the generator would refuse to replace it, so say so before anything is written.
+    // The snippet the generator will write: noted before, so a failure removes only what this call made. A file of that
+    // name is somebody's (a hand-written snippet): the generator would refuse to replace it, so say so before anything
+    // is written.
     bool snippetExisted = true;
     stdfs::path snippetFile;
     if (auto sn = resolve_project_path(projectDir_, doc["shader"].get<std::string>()); sn.ok()) {
@@ -327,8 +332,9 @@ GraphEditOutcome GraphModel::create(const std::string& rel, const std::string& k
                         "' already exists (a shader snippet written by hand?) and the new material would "
                         "use that name. Pick another name for the material; nothing was written.");
     }
-    // Published whole and never over a file: the text goes to a sibling first, then a hard link gives it its name, which fails when the name is taken
-    // (even by a file another process made since the check above). A volume without hard links falls back to a look and a rename.
+    // Published whole and never over a file: the text goes to a sibling first, then a hard link gives it its name,
+    // which fails when the name is taken (even by a file another process made since the check above). A volume without
+    // hard links falls back to a look and a rename.
     stdfs::path tmp = file;
     tmp += ".new.tmp";
     if (auto w = fs::write_text(fs::path_to_utf8(tmp), doc.dump(2) + "\n"); !w.ok())
@@ -346,8 +352,8 @@ GraphEditOutcome GraphModel::create(const std::string& rel, const std::string& k
     stdfs::remove(tmp, rm);
     std::string strayNote;  // said on every way out from here: the file stays until it is removed by hand
     if (rm && stdfs::exists(tmp, ec)) {
-        // a file open elsewhere (a virus scanner on Windows): the retry is real at the next create(), which removes what is in strayTmp_ first;
-        // this one only says so
+        // a file open elsewhere (a virus scanner on Windows): the retry is real at the next create(), which removes
+        // what is in strayTmp_ first; this one only says so
         strayTmp_.push_back(fs::path_to_utf8(tmp));
         strayNote = " The temporary file " + fs::path_to_utf8(tmp) + " could not be removed (" + rm.message() +
                     "): delete it by hand.";
@@ -494,8 +500,8 @@ std::vector<std::string> GraphModel::entry_readers(bool texture, const std::stri
     return ids;
 }
 
-// The file was changed by one of the material.param.* / material.texture.* commands: take its params, textures and what they changed in the
-// graph (`newGraph`, the in-memory graph the command followed) as the editor's own document.
+// The file was changed by one of the material.param.* / material.texture.* commands: take its params, textures and what
+// they changed in the graph (`newGraph`, the in-memory graph the command followed) as the editor's own document.
 void GraphModel::take_entries_from_file(const Json* newGraph, bool externalPending) {
     auto abs = resolve_project_path(projectDir_, rel_);
     const Stamp before = stamp();
@@ -515,8 +521,9 @@ void GraphModel::take_entries_from_file(const Json* newGraph, bool externalPendi
         }
     }
     if (newGraph) graph_ = *newGraph;
-    // The file changed by our own hand: not an external edit. The stamp is the one of the file as it was when it was read here (the same before and
-    // after the read); a file written by someone else in between, or before our command, keeps its old stamp and the next poll reports it.
+    // The file changed by our own hand: not an external edit. The stamp is the one of the file as it was when it was
+    // read here (the same before and after the read); a file written by someone else in between, or before our command,
+    // keeps its old stamp and the next poll reports it.
     const Stamp after = stamp();
     if (!externalPending && before == after) stamp_ = after;
     ++savedRevision_;
@@ -545,7 +552,8 @@ std::string GraphModel::run_entry_command(const std::string& op, bool texture, c
                                ? &r.result["graph"]
                                : nullptr;
     take_entries_from_file(newGraph, externalPending);
-    // What the command says besides "done": the snippet it had to write again and could not, and the snippets that still use the old name.
+    // What the command says besides "done": the snippet it had to write again and could not, and the snippets that
+    // still use the old name.
     if (r.result.is_object()) {
         std::string note;
         auto add = [&](const std::string& text) {
@@ -678,7 +686,8 @@ void GraphModel::touch() {
 }
 
 const MaterialGraphReport& GraphModel::report() const {
-    // A drag changes the document every frame: the check waits for the gesture to end (begin_gesture made the report current first).
+    // A drag changes the document every frame: the check waits for the gesture to end (begin_gesture made the report
+    // current first).
     if (gesture_ && is_open() && reportRevision_ != 0) return report_;
     if (reportRevision_ != revision_) {
         reportRevision_ = revision_;
@@ -1226,8 +1235,9 @@ GraphSaveOutcome GraphModel::save(bool force, bool overwriteExternal) {
         }
     }
     if (overwriteExternal) {
-        // Overwrite on a file that was deleted: material.graph.generate needs the file to exist, so it is written again from the document as it was
-        // read (its own graph replaced by the edited one, which is what Overwrite means). Never when the file is there: that one is replaced by the command.
+        // Overwrite on a file that was deleted: material.graph.generate needs the file to exist, so it is written again
+        // from the document as it was read (its own graph replaced by the edited one, which is what Overwrite means).
+        // Never when the file is there: that one is replaced by the command.
         auto abs = resolve_project_path(projectDir_, rel_);
         std::error_code ec;
         if (abs.ok() && !stdfs::exists(*abs, ec)) {
@@ -1258,8 +1268,8 @@ GraphSaveOutcome GraphModel::save(bool force, bool overwriteExternal) {
     out.ok = true;
     out.state = r.result.is_object() ? r.result.value("state", std::string()) : std::string();
     out.written = r.result.is_object() && r.result.value("written", false);
-    // the file now holds the graph with its version and editor keys: that is the graph the editor holds from here on (same_graph ignores them,
-    // so the undo steps made before the save still apply)
+    // the file now holds the graph with its version and editor keys: that is the graph the editor holds from here on
+    // (same_graph ignores them, so the undo steps made before the save still apply)
     load_from_disk(true);
     snippetState_ = "in_sync";
     ++revision_;
@@ -1278,8 +1288,9 @@ bool GraphModel::poll_external() {
     }
     const Json before = graph_;
     if (!load_from_disk(false)) {
-        // The file lost its "graph" (or cannot be read as a material any more). It is said once: the stamp is now the file as it is, so the
-        // next polls find nothing new. The graph held here stays and counts as never saved, so Save writes it back into the file.
+        // The file lost its "graph" (or cannot be read as a material any more). It is said once: the stamp is now the
+        // file as it is, so the next polls find nothing new. The graph held here stays and counts as never saved, so
+        // Save writes it back into the file.
         stamp_ = s;
         status_ = error_ + " The graph shown here is the editor's copy: Save writes it back to the file.";
         error_.clear();

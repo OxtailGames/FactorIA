@@ -156,7 +156,8 @@ bool storage_image_loadable(sg_pixel_format format, std::string* why) {
         case SG_PIXELFORMAT_RGBA32F: dxgi = DXGI_FORMAT_R32G32B32A32_FLOAT; break;
         default: break;
     }
-    // D3D11.0 hardware guarantees a typed load only for R32_FLOAT/UINT/SINT; the others are a capability bit of the device.
+    // D3D11.0 hardware guarantees a typed load only for R32_FLOAT/UINT/SINT; the others are a capability bit of the
+    // device.
     D3D11_FEATURE_DATA_FORMAT_SUPPORT2 support{};
     support.InFormat = dxgi;
     const bool known = device && dxgi != DXGI_FORMAT_UNKNOWN &&

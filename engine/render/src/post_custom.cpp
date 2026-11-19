@@ -23,8 +23,9 @@ std::string pointer_of(std::string_view base, std::string_view key) {
 
 }  // namespace
 
-// The one table. Several positions can name the same slot: a pass cannot be between two things that run fused, so "before the
-// tonemap" and "after the bloom" are the same place. A built-in effect missing from the table is refused with the reason below.
+// The one table. Several positions can name the same slot: a pass cannot be between two things that run fused, so
+// "before the tonemap" and "after the bloom" are the same place. A built-in effect missing from the table is refused
+// with the reason below.
 const CustomPostPosition kCustomPostPositions[] = {
     {"after:ssao", PostSlot::Main},
     {"after:fog", PostSlot::Main},

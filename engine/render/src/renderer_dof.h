@@ -87,9 +87,10 @@ public:
                    const PostRect& rect, int picW, int picH, ResourceId game, sg_view srcTex, const BloomTarget& dst,
                    const PrepassRef& prepass, int* drawCalls, const std::string& job);
 
-    // One full-screen copy of `src` (a texture view of the picture's format) into the pass `pd`; when `part` is not null only into that
-    // rectangle (x, y, w, h in pixels of the destination: a camera's rectangle of the picture). The copy of a custom post chain
-    // (renderer_custom_post.h) uses it. False (nothing drawn) when the target of the pass is gone or the copy program is not ready.
+    // One full-screen copy of `src` (a texture view of the picture's format) into the pass `pd`; when `part` is not
+    // null only into that rectangle (x, y, w, h in pixels of the destination: a camera's rectangle of the picture). The
+    // copy of a custom post chain (renderer_custom_post.h) uses it. False (nothing drawn) when the target of the pass
+    // is gone or the copy program is not ready.
     bool copy_into(Gpu& gpu, const PassDesc& pd, sg_view src, const int* part);
 
     // The focus distance the camera `camKey` has now (a NaN when it has none): what the tests and the debug output read.

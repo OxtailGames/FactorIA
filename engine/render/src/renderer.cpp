@@ -399,10 +399,10 @@ void Renderer::shutdown() {
     Impl& im = *impl_;
     if (im.initialized) {
         compute_->detach();  // its storage buffers and views, while the context is open
-        // Work recorded since the last frame (a dispatch, the clearing pass of a new storage image) that no frame ever submitted: Metal
-        // waits for the completion of every frame it began at sg_shutdown, so an uncommitted one would wait forever.
-        // Precondition: no pass is open (shutdown is never called between begin_frame and the frame's end): sg_commit
-        // inside a pass is invalid in sokol.
+        // Work recorded since the last frame (a dispatch, the clearing pass of a new storage image) that no frame ever
+        // submitted: Metal waits for the completion of every frame it began at sg_shutdown, so an uncommitted one would
+        // wait forever. Precondition: no pass is open (shutdown is never called between begin_frame and the frame's
+        // end): sg_commit inside a pass is invalid in sokol.
         FA_ASSERT(!Gpu::in_pass(), "Renderer::shutdown while a pass is open");
         if (!im.gpu.committed()) {
             sg_commit();
@@ -829,6 +829,10 @@ void RendererTestAccess::refuse_post_history(Renderer& r, bool refuse) {
 }
 int RendererTestAccess::post_history_attempts(Renderer& r) {
     return r.impl_ ? r.impl_->customPost.history_attempts() : 0;
+}
+
+void RendererTestAccess::set_before_frame_graph(Renderer& r, std::function<void()> hook) {
+    if (r.impl_) r.impl_->beforeFrameGraph = std::move(hook);
 }
 
 int RendererTestAccess::ldr_cut_format(Renderer& r) {

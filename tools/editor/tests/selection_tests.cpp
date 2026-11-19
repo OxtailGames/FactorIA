@@ -364,7 +364,8 @@ TEST_CASE("UndoStack: Merge of two merge patches with one target redoes both (a 
                     CoalesceMode::Merge);
     REQUIRE(st.back().forward.size() == 1);  // one patch of one target, not a growing list
     CHECK(redo(st) == Json::parse(R"({"skyMaterialParams":{"tint":[0,1,0,1],"strength":2}})"));
-    // a key deleted by the first patch and set by the second: the null goes (the second value wins), nested objects compose
+    // a key deleted by the first patch and set by the second: the null goes (the second value wins), nested objects
+    // compose
     UndoStack st2;
     st2.push_command(patch(R"({"skyMaterialParams":{"a":null,"deep":{"x":1}}})"), patch(R"({"skyMaterialParams":{}})"),
                      false, CoalesceMode::Merge);
@@ -372,7 +373,8 @@ TEST_CASE("UndoStack: Merge of two merge patches with one target redoes both (a 
                      true, CoalesceMode::Merge);
     CHECK(st2.back().forward.size() == 1);
     CHECK(redo(st2) == Json::parse(R"({"skyMaterialParams":{"a":5,"deep":{"x":1,"y":2}}})"));
-    // an object after a null cannot be one patch (it would merge into the value instead of replacing the deleted one): both stay
+    // an object after a null cannot be one patch (it would merge into the value instead of replacing the deleted one):
+    // both stay
     UndoStack st3;
     st3.push_command(patch(R"({"skyMaterialParams":{"a":null}})"), patch(R"({"skyMaterialParams":{}})"), false,
                      CoalesceMode::Merge);
@@ -390,7 +392,8 @@ TEST_CASE("UndoStack: Merge of two merge patches with one target redoes both (a 
     st4.push_command(other, patch(R"({"skyMaterialParams":{}})"), true, CoalesceMode::Merge);
     CHECK(st4.back().forward.size() == 2);
     CHECK(st4.bytes() == st4.back().bytes);
-    // two composed patches keep the OLDEST inverse: undo gives back the value from before the whole drag, not the one the first frame left
+    // two composed patches keep the OLDEST inverse: undo gives back the value from before the whole drag, not the one
+    // the first frame left
     UndoStack st5;
     st5.push_command(patch(R"({"skyMaterialParams":{"tint":[1,0,0,1]}})"),
                      patch(R"({"skyMaterialParams":{"tint":[9,9,9,1]}})"), false, CoalesceMode::Merge);

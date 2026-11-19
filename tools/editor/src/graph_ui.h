@@ -1,5 +1,6 @@
-// The state of the Graph panel (graph_panel.cpp): the view of the canvas, what is being dragged, the preview's texture. The rules that need no
-// window (the graph, its edits, the undo steps) are in graph_model.h and the live preview in graph_preview.h.
+// The state of the Graph panel (graph_panel.cpp): the view of the canvas, what is being dragged, the preview's texture.
+// The rules that need no window (the graph, its edits, the undo steps) are in graph_model.h and the live preview in
+// graph_preview.h.
 #pragma once
 
 #include <cstdint>
@@ -60,7 +61,8 @@ struct GraphUi {
         std::uint64_t serial = ~0ULL;
     } picture;
     Texture savedPicture;  // the last saved version of the graph (Compare)
-    // The saved document the preview was last given (the material's path and the model's saved_revision()): a new one is pushed when either changes.
+    // The saved document the preview was last given (the material's path and the model's saved_revision()): a new one
+    // is pushed when either changes.
     std::string savedPushedPath;
     std::uint64_t savedPushedRevision = 0;
     struct Dead {

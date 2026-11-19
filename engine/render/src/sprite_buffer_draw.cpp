@@ -13,12 +13,15 @@ namespace {
 constexpr const char* kDocs = "docs/shaders/SHADERS_COMPUTE.md, \"Sprites from a compute buffer\"";
 
 // Reports a failure once per entity and message (Assets::note_failure keys on the path) and marks the use as skipped.
+// `key` (when not empty) replaces the message in that key: a message with a count that changes every frame (instances,
+// the buffer's size) would otherwise log one line per value.
 MeshBufferUse& fail(MeshBufferUse& use, Assets& assets, const MaterialUse* material, Entity e,
-                    const std::string& pointer, std::string message, const std::string& hint) {
+                    const std::string& pointer, std::string message, const std::string& hint,
+                    const std::string& key = std::string()) {
     use.skip = true;
     const std::string entity = std::to_string(e.bits());
     const std::string path = (material && material->material ? material->material->path : std::string("Sprite")) +
-                             " on entity " + entity + ": " + message;
+                             " on entity " + entity + ": " + (key.empty() ? message : key);
     const bool pointed = message.compare(0, pointer.size(), pointer) == 0;  // ComputeDrawAccess::bind names it already
     assets.note_failure("material-sprite", path,
                         "entity " + entity + ", Sprite" + (pointed ? "" : pointer + ": ") + message, hint);
@@ -33,14 +36,15 @@ MeshBufferUse resolve_sprite_buffers(Assets& assets, Compute* compute, Entity e,
     use.instances = 1;
     const MaterialAsset* mat = material && !material->error ? material->material : nullptr;
     if (!mat || mat->kind != MaterialKind::Sprite || mat->buffers.empty()) {
-        // instances > 0 asks for a draw from buffers: without a material that reads some there is nothing to place the instances
-        // (a material that failed to build already reports its own error and draws with the error material).
+        // instances > 0 asks for a draw from buffers: without a material that reads some there is nothing to place the
+        // instances (a material that failed to build already reports its own error and draws with the error material).
         if (s.instances > 0 && !(material && material->error))
             fail(use, assets, material, e, "/instances",
                  "instances is " + std::to_string(s.instances) + " but the material " +
                      (mat ? "'" + mat->path + "' declares no \"buffers\"" : std::string("is not set")),
                  std::string("Set Sprite.material to a sprite material that declares \"buffers\" (") + kDocs +
-                     "), or set instances to 0.");
+                     "), or set instances to 0.",
+                 mat ? "instances with a material without buffers" : "instances without a material");
         return use;
     }
     use.active = true;
@@ -54,7 +58,7 @@ MeshBufferUse resolve_sprite_buffers(Assets& assets, Compute* compute, Entity e,
     if (s.instances < 0 || s.instances > kMaxMeshInstances) {
         fail(use, assets, material, e, "/instances",
              "instances is " + std::to_string(s.instances) + ", outside 0.." + std::to_string(kMaxMeshInstances),
-             "Set instances to 0 (one normal quad) or the number of elements to draw.");
+             "Set instances to 0 (one normal quad) or the number of elements to draw.", "instances out of range");
         return use;
     }
     const std::uint64_t need = std::uint64_t(std::max<std::int32_t>(s.instances, 1));
@@ -95,7 +99,8 @@ MeshBufferUse resolve_sprite_buffers(Assets& assets, Compute* compute, Entity e,
                      std::to_string(id) + ") holds " + std::to_string(bound->count) + " elements",
                  "Make every buffer of the material for at least " + std::to_string(need) +
                      " elements (compute.create_buffer count) or lower instances; a buffer smaller than instances is "
-                     "read past its end.");
+                     "read past its end.",
+                 "the buffer '" + def.name + "' holds fewer elements than instances");
             return use;
         }
         use.views[i] = bound->view;
@@ -110,8 +115,9 @@ bool bind_sprite_buffer_views(Assets& assets, Compute* compute, const MaterialUs
     out = MeshBufferUse{};
     out.instances = instances;
     out.count = int(std::min<std::size_t>(mat->buffers.size(), kMaxMeshBuffers));
-    auto gone = [&](const std::string& message, const std::string& hint) {
-        assets.note_failure("material-sprite", mat->path + " at draw: " + message,
+    // `key` (when not empty) stands for the message in the once-only key: a count in it would log a line per value.
+    auto gone = [&](const std::string& message, const std::string& hint, const std::string& key = std::string()) {
+        assets.note_failure("material-sprite", mat->path + " at draw: " + (key.empty() ? message : key),
                             "Sprite drawn with '" + mat->path + "': " + message, hint);
         return false;
     };
@@ -128,7 +134,8 @@ bool bind_sprite_buffer_views(Assets& assets, Compute* compute, const MaterialUs
             return gone("the buffer '" + def.name + "' (id " + std::to_string(id) + ") holds " +
                             std::to_string(bound->count) + " elements, fewer than the " + std::to_string(instances) +
                             " instances drawn",
-                        "Make the buffer for at least " + std::to_string(instances) + " elements.");
+                        "Make the buffer for at least " + std::to_string(instances) + " elements.",
+                        "the buffer '" + def.name + "' holds fewer elements than the instances drawn");
         out.views[i] = bound->view;
     }
     out.active = true;

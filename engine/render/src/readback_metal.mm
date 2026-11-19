@@ -88,7 +88,8 @@ bool readback_storage_image(sg_image image, sg_pixel_format format, int x, int y
         return false;
     }
     const NSUInteger bytesPerRow = NSUInteger(width) * pixel, bytes = bytesPerRow * NSUInteger(height);
-    // The caller committed the sokol command buffer that holds the dispatches; this blit goes after it on the same queue.
+    // The caller committed the sokol command buffer that holds the dispatches; this blit goes after it on the same
+    // queue.
     id<MTLBuffer> buf = [device newBufferWithLength:bytes options:MTLResourceStorageModeShared];
     if (!buf) {
         if (error) *error = "readback: Metal could not allocate " + std::to_string(bytes) + " bytes to read into";
@@ -111,8 +112,8 @@ bool readback_storage_image(sg_image image, sg_pixel_format format, int x, int y
 bool storage_image_loadable(sg_pixel_format format, std::string* why) {
     id<MTLDevice> device = (__bridge id<MTLDevice>)sg_mtl_device();
     const MTLReadWriteTextureTier tier = [device readWriteTextureSupport];
-    // Tier 1 (older Intel Macs, iOS A9-A10) reads and writes only the single-channel 32-bit formats in one texture; Tier 2
-    // adds the 8-bit, 16-bit float and 32-bit float RGBA ones.
+    // Tier 1 (older Intel Macs, iOS A9-A10) reads and writes only the single-channel 32-bit formats in one texture;
+    // Tier 2 adds the 8-bit, 16-bit float and 32-bit float RGBA ones.
     if (tier == MTLReadWriteTextureTier2) return true;
     if (tier == MTLReadWriteTextureTier1 && format == SG_PIXELFORMAT_R32F) return true;
     if (why)

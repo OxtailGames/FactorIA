@@ -434,8 +434,9 @@ void emit_sprite(const World& world, const Frame& f, const SpritePrep& prep, boo
                     s.blend, prep.clip);
     if (lit) list.set_lit(prep.normal);
     list.set_material(prep.material);
-    // A draw from buffers (Sprite.instances, or a material with buffers): the sprite is its one plain quad, the template the
-    // material's vertex() moves for each instance; the mesh grid, the skin, the 9-slice and a repeat do not apply.
+    // A draw from buffers (Sprite.instances, or a material with buffers): the sprite is its one plain quad, the
+    // template the material's vertex() moves for each instance; the mesh grid, the skin, the 9-slice and a repeat do
+    // not apply.
     const bool buffered = prep.instances > 0;
     if (buffered) list.set_buffer_draw(prep.instances);
     if (const auto flash = inherited_flash(world, f, e)) list.set_flash(pack_color(*flash));
@@ -1013,8 +1014,8 @@ namespace {
 
 // Whether what an entity draws can be copied from the quads another camera made: not when it follows a Parallax layer (its matrix
 // holds the shift of the camera that drew it, and its repeat the camera's rectangle) or shows a render target's texture (the
-// target's own camera sees the checker where the others see the target), nor when a texture of its material's params does (the
-// same rule: the material's use holds the texture that the camera which resolved it was shown).
+// target's own camera sees the checker where the others see the target), nor when a texture of its material's params
+// does (the same rule: the material's use holds the texture that the camera which resolved it was shown).
 bool camera_independent(const World& world, Entity e, bool screen, const std::string& tex, const std::string& tex2,
                         const Json& materialParams) {
     return !screen && !world.has<Parallax>(e) && !Assets::is_target_id(tex) && !Assets::is_target_id(tex2) &&
@@ -1061,8 +1062,9 @@ void Scene2D::gather_sprites(World& world, Frame& f) {
         p.screen = screen;
         if (p.screen && !screen_clip(world, e, f, p.clip)) return;
         p.material = assets.sprite_material(s.material, s.materialParams);  // may load it: here, not in the jobs
-        // A material with "buffers" draws the sprite's quad Sprite.instances times; one that does not fit its buffers draws nothing
-        // (said once, with the entity). Checked here, on the main thread: the buffers are looked up in the renderer's Compute.
+        // A material with "buffers" draws the sprite's quad Sprite.instances times; one that does not fit its buffers
+        // draws nothing (said once, with the entity). Checked here, on the main thread: the buffers are looked up in
+        // the renderer's Compute.
         if (s.instances > 0 ||
             (p.material.use && !p.material.use->error && !p.material.use->material->buffers.empty())) {
             const MeshBufferUse bu = resolve_sprite_buffers(assets, f.compute, e, s, p.material.use);

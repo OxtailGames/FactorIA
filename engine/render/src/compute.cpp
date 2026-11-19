@@ -1,5 +1,6 @@
-// Compute materials at run time (fa/render/compute.h): storage buffers, a dispatch and the read back. The material's twin
-// (custom_shader.cpp) carries the std430 layout the tooling made; this file only packs JSON into it and runs the program.
+// Compute materials at run time (fa/render/compute.h): storage buffers, a dispatch and the read back. The material's
+// twin (custom_shader.cpp) carries the std430 layout the tooling made; this file only packs JSON into it and runs the
+// program.
 #include "fa/render/compute.h"
 
 #include <algorithm>
@@ -32,8 +33,8 @@ struct Compute::State {
         sg_buffer buffer{};
         sg_view view{};
     };
-    // The GPU objects of one storage image: the image, the view a compute shader writes and reads it through, and the view a
-    // material samples it through (empty when the GPU cannot sample the format).
+    // The GPU objects of one storage image: the image, the view a compute shader writes and reads it through, and the
+    // view a material samples it through (empty when the GPU cannot sample the format).
     struct ImgGpu {
         sg_image image{};
         sg_view storage{}, sampled{};
@@ -46,16 +47,16 @@ struct Compute::State {
         int width = 0, height = 0;
         std::uint64_t bytes = 0;
         ImgGpu gpu;
-        // What a material's texture value "compute:<id>" resolves to: one object for the life of the image (a resize remakes the
-        // GPU image under it), so a pointer taken for a frame stays valid for the frame.
+        // What a material's texture value "compute:<id>" resolves to: one object for the life of the image (a resize
+        // remakes the GPU image under it), so a pointer taken for a frame stays valid for the frame.
         std::unique_ptr<render::TextureAsset> tex;
     };
     render::Gpu* gpu = nullptr;
     render::Assets* assets = nullptr;
     std::map<int, Buf> bufs;
     std::map<int, Img> imgs;
-    // The texture objects of destroyed images, pointed at the white texture: a pointer an older frame kept never dangles. The
-    // oldest go first once there are more than kMaxRetiredImageTextures.
+    // The texture objects of destroyed images, pointed at the white texture: a pointer an older frame kept never
+    // dangles. The oldest go first once there are more than kMaxRetiredImageTextures.
     std::vector<std::unique_ptr<render::TextureAsset>> retired;
     int nextId = 1;
     int nextImageId = 1;
@@ -162,7 +163,8 @@ Result<void> pack_field(const MaterialBufferFieldDef& f, const Json& v, std::uin
     return {};
 }
 
-// `elements` (an array of {field: value}) packed from index 0 of `out` (which holds at least elements.size() * stride bytes).
+// `elements` (an array of {field: value}) packed from index 0 of `out` (which holds at least elements.size() * stride
+// bytes).
 Result<void> pack_elements(const State::Buf& b, const Json& elements, const std::string& pointer, std::uint8_t* out) {
     std::vector<std::string> names;
     for (const MaterialBufferFieldDef& f : b.fields) names.push_back(f.name);
@@ -212,8 +214,9 @@ Json unpack_element(const State::Buf& b, const std::uint8_t* src) {
     return e;
 }
 
-// The JSON numbers of `count` elements of `b` (every component of every field): the JSON of a call weighs about that many
-// values, whatever the stride. Refused over kMaxComputeJsonValues, with the largest count that fits and how to go on.
+// The JSON numbers of `count` elements of `b` (every component of every field): the JSON of a call weighs about that
+// many values, whatever the stride. Refused over kMaxComputeJsonValues, with the largest count that fits and how to go
+// on.
 Result<void> check_json_values(const State::Buf& b, std::uint64_t count, const char* what, const char* chunk) {
     std::uint64_t perElement = 0;
     for (const MaterialBufferFieldDef& f : b.fields) perElement += std::uint64_t(f.components);
@@ -254,8 +257,8 @@ Result<MaterialAsset*> compute_material(State& s, const std::string& path) {
     return m;
 }
 
-// Copies `data` into `dst` at `offset` through a staging buffer made for the purpose (an immutable buffer cannot be written from
-// the CPU), so the rest of the storage buffer keeps what the GPU wrote there.
+// Copies `data` into `dst` at `offset` through a staging buffer made for the purpose (an immutable buffer cannot be
+// written from the CPU), so the rest of the storage buffer keeps what the GPU wrote there.
 Result<void> upload(render::Gpu& gpu, sg_buffer dst, std::size_t offset, const std::vector<std::uint8_t>& data) {
     sg_buffer_desc sd{};
     sd.size = data.size();
@@ -294,7 +297,8 @@ const char* image_format_name(sg_pixel_format f) {
 
 int image_channels(sg_pixel_format f) { return f == SG_PIXELFORMAT_R32F ? 1 : 4; }
 
-// The storage formats this GPU can write from a shader (and read, when `readWrite`) and clear: the ones a material may declare.
+// The storage formats this GPU can write from a shader (and read, when `readWrite`) and clear: the ones a material may
+// declare.
 std::string usable_image_formats(bool readWrite) {
     std::vector<std::string> ok;
     for (sg_pixel_format f :
@@ -307,8 +311,8 @@ std::string usable_image_formats(bool readWrite) {
     return ok.empty() ? std::string("none") : join(ok, ", ");
 }
 
-// The size a request asks (0 = the material's own), refused with the number it hit: the file's own size when none is given, the
-// engine's cap and the GPU's largest 2D image.
+// The size a request asks (0 = the material's own), refused with the number it hit: the file's own size when none is
+// given, the engine's cap and the GPU's largest 2D image.
 Result<std::uint64_t> check_image_size(const std::string& what, sg_pixel_format format, int width, int height,
                                        std::uint64_t otherBytes) {
     if (width < 1 || height < 1)
@@ -340,8 +344,8 @@ Result<std::uint64_t> check_image_size(const std::string& what, sg_pixel_format 
     return bytes;
 }
 
-// The image, its two views and a zero fill (a new GPU image holds undefined pixels; sokol cannot copy into a storage image, so
-// the image is also a colour attachment and one clearing pass fills it). Nothing is left behind on an error.
+// The image, its two views and a zero fill (a new GPU image holds undefined pixels; sokol cannot copy into a storage
+// image, so the image is also a colour attachment and one clearing pass fills it). Nothing is left behind on an error.
 Result<State::ImgGpu> make_image_gpu(render::Gpu& gpu, sg_pixel_format format, bool readWrite, int width, int height) {
     const sg_pixelformat_info pf = sg_query_pixelformat(format);
     if (!pf.write || (readWrite && !pf.read) || !pf.render)
@@ -413,8 +417,8 @@ Result<State::ImgGpu> make_image_gpu(render::Gpu& gpu, sg_pixel_format format, b
 void describe_image_texture(render::TextureAsset& t, const std::string& path, sg_pixel_format format, int width,
                             int height, std::uint64_t bytes, const State::ImgGpu& g) {
     t.path = path;
-    // The pixels are what a shader wrote: not an sRGB-encoded file. rgba8 is shown as written (Raw, like any rgba8 file); the float
-    // formats hold scene values that nothing converts (Scene).
+    // The pixels are what a shader wrote: not an sRGB-encoded file. rgba8 is shown as written (Raw, like any rgba8
+    // file); the float formats hold scene values that nothing converts (Scene).
     t.enc = format == SG_PIXELFORMAT_RGBA8 ? render::TexEncoding::Raw : render::TexEncoding::Scene;
     t.image = g.image;
     t.view = g.sampled;
@@ -731,10 +735,11 @@ Result<Json> Compute::read_buffer(int id, std::uint64_t first, std::uint64_t cou
                               " are outside the buffer of " + std::to_string(b.count),
                           "Keep first + count within " + std::to_string(b.count) + ".");
     if (count == 0) return Json::array();
-    // A read back waits for the GPU, and on Metal the recorded work is only submitted by sg_commit (Renderer::capture does the
-    // same). sg_commit is legal anywhere outside a pass, also between begin_frame and end_frame (the editor commits once per UI
-    // frame); a call inside a pass was refused by in_pass() above, so no "inFrame" error exists. After the commit the draws of
-    // the rest of the frame go on as usual: note_commit() only tells the renderer its transient buffers may restart.
+    // A read back waits for the GPU, and on Metal the recorded work is only submitted by sg_commit (Renderer::capture
+    // does the same). sg_commit is legal anywhere outside a pass, also between begin_frame and end_frame (the editor
+    // commits once per UI frame); a call inside a pass was refused by in_pass() above, so no "inFrame" error exists.
+    // After the commit the draws of the rest of the frame go on as usual: note_commit() only tells the renderer its
+    // transient buffers may restart.
     if (!s.gpu->committed()) {
         sg_commit();
         s.gpu->note_commit();
@@ -814,7 +819,8 @@ Result<void> Compute::dispatch(const ComputeDispatch& d) {
         bound.push_back(&it->second);
     }
 
-    // The storage images: the same rule (every one of the material, no other, each made with the format the material declares now).
+    // The storage images: the same rule (every one of the material, no other, each made with the format the material
+    // declares now).
     std::vector<std::string> declaredImages;
     for (const render::MaterialImageDef& def : m.images) declaredImages.push_back(def.name);
     for (const auto& [name, id] : d.images)
@@ -1098,7 +1104,8 @@ Result<Json> Compute::read_image(int id, int x, int y, int width, int height) {
         sg_commit();
         s.gpu->note_commit();
     }
-    // Only the rectangle comes off the GPU (a region copy on every backend): reading a corner of a large image holds a corner.
+    // Only the rectangle comes off the GPU (a region copy on every backend): reading a corner of a large image holds a
+    // corner.
     std::vector<std::uint8_t> raw;
     std::string error;
     if (!render::readback_storage_image(im.gpu.image, im.format, x, y, width, height, raw, &error))

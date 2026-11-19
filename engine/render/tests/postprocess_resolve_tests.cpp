@@ -433,7 +433,8 @@ TEST_CASE("resolve_post_stack: custom passes of the camera and of volumes, in or
     CHECK(st.customErrors[0].message.find("/customPasses/2") != std::string::npos);
     CHECK(st.has_custom());
 
-    // A volume that is weaker than one half adds nothing (a list cannot be blended); a custom pass is no effect of the order.
+    // A volume that is weaker than one half adds nothing (a list cannot be blended); a custom pass is no effect of the
+    // order.
     s.pp(v).weight = 0.4f;
     st = s.resolve();
     CHECK(st.custom.size() == 2);

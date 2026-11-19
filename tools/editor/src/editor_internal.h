@@ -449,14 +449,15 @@ public:
     // the renderer's stack off without touching the data (Renderer::set_post_bypass). The autotest drives postfx_edit / postfx_preset.
     void draw_postfx_panel();
     void postfx_release();  // the panel closed: the A/B switch goes back to "stack on"
-    // postprocess.set on the edit target; false (and postFx_.error) when refused; ownStep: never merged with the edit before
-    // (a click, not a drag); entry: the customPasses index being edited, part of the undo key (a drag on one pass never merges
-    // into another's)
+    // postprocess.set on the edit target; false (and postFx_.error) when refused; ownStep: never merged with the edit
+    // before (a click, not a drag); entry: the customPasses index being edited, part of the undo key (a drag on one
+    // pass never merges into another's)
     bool postfx_edit(const Json& fields, bool ownStep = false, int entry = -1);
     bool postfx_preset(const std::string& name);  // postprocess.apply_preset on the edit target
-    // The "Custom passes" section of the panel: the edit target's PostProcess.customPasses (`list`) with add, enable, reorder, remove,
-    // position, material and param edits; each one is a postprocess.set of the whole array (postfx_custom.h), one undo step.
-    // `resolved`: the stack the camera draws (how many passes volumes add, what the renderer could not parse).
+    // The "Custom passes" section of the panel: the edit target's PostProcess.customPasses (`list`) with add, enable,
+    // reorder, remove, position, material and param edits; each one is a postprocess.set of the whole array
+    // (postfx_custom.h), one undo step. `resolved`: the stack the camera draws (how many passes volumes add, what the
+    // renderer could not parse).
     void draw_postfx_custom(const Json& list, const Json& resolved);
     std::string
     postfx_target_id();  // the entity an edit goes to: the chosen volume, else the camera (the main one when none chosen)
@@ -665,9 +666,10 @@ public:
     ParticleUi particle_;
     bool showParticle_ = false;
 
-    // Graph panel (graph_panel.cpp; View > Graph, or a double click on a *.material.json with a graph in the Project panel): the node-graph editor
-    // of a material, with a canvas, a node palette, an inspector for the constants, the checker's problems and a live preview. The rules are in
-    // graph_model.h: every edit is one undo step ({"$graph": {"step": id}} entries), and Save is material.graph.generate.
+    // Graph panel (graph_panel.cpp; View > Graph, or a double click on a *.material.json with a graph in the Project
+    // panel): the node-graph editor of a material, with a canvas, a node palette, an inspector for the constants, the
+    // checker's problems and a live preview. The rules are in graph_model.h: every edit is one undo step ({"$graph":
+    // {"step": id}} entries), and Save is material.graph.generate.
     GraphModel&
     graph_ensure_model();  // makes the panel's model and preview on first use (and again for another project)
     void draw_graph_panel();
@@ -680,11 +682,13 @@ public:
     void draw_graph_params(
         GraphModel& m);  // the params of the material: sliders that change the preview only, and "Set as default"
     void draw_graph_node_inspector(GraphModel& m, const std::string& id);
-    // *.material.json; false and a toast on failure (or when it asked about unsaved changes first). `discard`: do not ask.
+    // *.material.json; false and a toast on failure (or when it asked about unsaved changes first). `discard`: do not
+    // ask.
     bool open_graph_document(const std::string& rel, bool startGraph = false, bool discard = false);
     void graph_edited(const GraphEditOutcome& out);  // after an edit: the undo entry, a toast for an error
-    // "Try on scene camera" of a post material: adds `material` (project-relative) to the PostProcess.customPasses of the camera that draws the
-    // scene (the first of rendering_cameras) with postprocess.set, as one undo step; a toast says what happened. True when it was added.
+    // "Try on scene camera" of a post material: adds `material` (project-relative) to the PostProcess.customPasses of
+    // the camera that draws the scene (the first of rendering_cameras) with postprocess.set, as one undo step; a toast
+    // says what happened. True when it was added.
     bool graph_try_on_camera(const std::string& material);
     void graph_apply_undo(const Json& entry, bool forward);
     void graph_collect_steps();  // drops the undo steps no stack entry points to
@@ -699,10 +703,11 @@ public:
     GraphUi graph_;
     bool showGraph_ = false;
 
-    // Scene settings panel (scene_settings_panel.cpp; View > Scene settings): the SceneSettings of the open scene (sky, fog, ambient light,
-    // gravity, music, colour space) drawn from the reflection, a sky material's params typed by material.info (draw_material_params).
-    // Every edit is scene.set_component {component: "SceneSettings"} with no id through edit_command (one undo step); the rules are in
-    // scene_settings_model.h. The autotest drives scene_settings_edit / scene_settings_reset, the panel's own paths.
+    // Scene settings panel (scene_settings_panel.cpp; View > Scene settings): the SceneSettings of the open scene (sky,
+    // fog, ambient light, gravity, music, colour space) drawn from the reflection, a sky material's params typed by
+    // material.info (draw_material_params). Every edit is scene.set_component {component: "SceneSettings"} with no id
+    // through edit_command (one undo step); the rules are in scene_settings_model.h. The autotest drives
+    // scene_settings_edit / scene_settings_reset, the panel's own paths.
     void draw_scene_settings_panel();
     bool scene_settings_edit(const std::string& field, const Json& value, bool merge = false,
                              std::string* error = nullptr);
@@ -1928,9 +1933,9 @@ std::vector<std::uint8_t> system_clipboard_image_png();
 // Whether the system clipboard holds text (what Ctrl+V pastes into a text box); always true for the private clipboard.
 bool clipboard_has_text();
 bool system_clipboard_has_text();
-// The editor's text clipboard (clipboard.cpp): the system clipboard, except under the editor autotest, which switches to a
-// clipboard that lives in this process (clipboard_use_private) so that other programs cannot change what it copies and
-// pastes. Every copy and paste of the editor, ImGui's included, goes through these two.
+// The editor's text clipboard (clipboard.cpp): the system clipboard, except under the editor autotest, which switches
+// to a clipboard that lives in this process (clipboard_use_private) so that other programs cannot change what it copies
+// and pastes. Every copy and paste of the editor, ImGui's included, goes through these two.
 // clipboard_get_text returns a pointer valid until the next clipboard call; never null.
 void clipboard_use_private(bool on);
 bool clipboard_is_private();

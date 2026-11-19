@@ -1,5 +1,5 @@
-// The Graph panel's logic with no window: the model whose edits are one undo step each, whose connects are type-checked by the same checker
-// as material.graph.validate and whose save is material.graph.generate (graph_model.h).
+// The Graph panel's logic with no window: the model whose edits are one undo step each, whose connects are type-checked
+// by the same checker as material.graph.validate and whose save is material.graph.generate (graph_model.h).
 #include <chrono>
 #include <filesystem>
 #include <fstream>
@@ -784,7 +784,8 @@ TEST_CASE("graph model: our own writes do not hide an outside change the poll ha
     Json outside = Json::parse(kDissolve);
     outside["doc"] = "Changed by someone else, with a longer text so the size differs.";
     p.write(kMat, outside.dump(2));
-    // a default written through the panel (the file is read-modified-written by the command) must not take the outside change for ours
+    // a default written through the panel (the file is read-modified-written by the command) must not take the outside
+    // change for ours
     REQUIRE(m.set_param_default("dissolve", Json(0.4)).ok);
     CHECK(m.poll_external());
     CHECK(m.material_json().value("doc", std::string()).find("someone else") != std::string::npos);
@@ -811,7 +812,8 @@ TEST_CASE(
     CHECK(p.read(kMat) == before);
     CHECK(m.path() == kMat);
     CHECK_FALSE(stdfs::exists(p.dir / "materials/dissolve.material.json.new.tmp"));
-    // the snippet cannot be written (its name is a folder): the material file it made is removed again, the open document stays
+    // the snippet cannot be written (its name is a folder): the material file it made is removed again, the open
+    // document stays
     stdfs::create_directories(p.dir / "shaders/broken.surface.glsl");
     const GraphEditOutcome broken = m.create("materials/broken.material.json");
     CHECK_FALSE(broken.ok);
@@ -888,8 +890,9 @@ TEST_CASE(
     CHECK(back["shader"] == "shaders/dissolve.surface.glsl");
     CHECK(m.snippet_state() == "in_sync");
 
-    // a hand-edited snippet and a deleted file: Overwrite writes the file, the generator then asks about the snippet. The editor's own write is
-    // not an external change, so no conflict is left and the poll does not ask "The file changed on disk" again
+    // a hand-edited snippet and a deleted file: Overwrite writes the file, the generator then asks about the snippet.
+    // The editor's own write is not an external change, so no conflict is left and the poll does not ask "The file
+    // changed on disk" again
     p.write("shaders/dissolve.surface.glsl", p.read("shaders/dissolve.surface.glsl") + "// my tweak\n");
     stdfs::remove(p.dir / kMat);
     REQUIRE(m.add_node("math.add", Vec2{10, 110}).ok);

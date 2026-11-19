@@ -22,7 +22,8 @@ void note_fallback(std::vector<std::string>& fallbacks, const std::string& path)
 
 // The fragment block of post_common.glsl (fa_post_params, binding 1).
 struct PostParamsBlock {
-    // x = 1 on OpenGL (render targets are bottom-up), y = 1 in a linear scene, z = 1 when the history holds the frame before
+    // x = 1 on OpenGL (render targets are bottom-up), y = 1 in a linear scene, z = 1 when the history holds the frame
+    // before
     float a[4];
     float rc[4];    // the rectangle of the source image the pass reads, as fractions: xy corner, zw size
     float size[4];  // xy = the camera's rectangle in pixels, zw = 1 / that
@@ -45,10 +46,11 @@ struct PixelRect {
     bool whole = true;
 };
 
-// One full-screen triangle with the material's program into `pd`. `src`: the picture so far; `prepass`: bound only when the program
-// declares it. `history`: the pass's own output of the frame before (bound only when the program declares it; when there is none, the
-// picture stands in: fa_history_valid is false then and the shader does not read it). `part`: the rectangle of the destination the
-// pass covers (null: all of it). False (nothing drawn) when the target is gone or the program has no pipeline for this format.
+// One full-screen triangle with the material's program into `pd`. `src`: the picture so far; `prepass`: bound only when
+// the program declares it. `history`: the pass's own output of the frame before (bound only when the program declares
+// it; when there is none, the picture stands in: fa_history_valid is false then and the shader does not read it).
+// `part`: the rectangle of the destination the pass covers (null: all of it). False (nothing drawn) when the target is
+// gone or the program has no pipeline for this format.
 bool draw_post(Gpu& gpu, const PassDesc& pd, const PassData& d, sg_view src, sg_view prepass, sg_view history,
                const PixelRect* part) {
     if (!pd.color.id || !src.id) return false;
@@ -180,7 +182,8 @@ void CustomPost::forget_targets() {
 
 namespace {
 
-// What the history images of all the slots may take (an estimate: a float format is eight bytes a pixel). A wasm32 build has a quarter.
+// What the history images of all the slots may take (an estimate: a float format is eight bytes a pixel). A wasm32
+// build has a quarter.
 constexpr std::uint64_t kHistoryBudgetBytes =
     sizeof(void*) >= 8 ? (std::uint64_t(1) << 30) : (std::uint64_t(256) << 20);
 
@@ -237,8 +240,9 @@ int CustomPost::history_image_count() const {
 std::shared_ptr<CustomPost::HistorySlot> CustomPost::plan_history(const CustomHistoryFrame& hf, const HistoryKey& key,
                                                                   int w, int h, sg_pixel_format format,
                                                                   const std::string& label) {
-    // The GPU refused the images of this pass in this shape before: not asked again every frame (a resize or a format change, or
-    // forget_targets, lets it try again). The budget is not remembered: it is a sum of what the other slots hold now.
+    // The GPU refused the images of this pass in this shape before: not asked again every frame (a resize or a format
+    // change, or forget_targets, lets it try again). The budget is not remembered: it is a sum of what the other slots
+    // hold now.
     if (const auto it = historyRefused_.find(key); it != historyRefused_.end()) {
         if (it->second.w == w && it->second.h == h && it->second.format == format) return nullptr;
         historyRefused_.erase(it);
@@ -327,8 +331,8 @@ int CustomPost::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gp
     rect.w = rect.whole ? picW : rectIn.w;
     rect.h = rect.whole ? picH : rectIn.h;
 
-    // The passes that can be drawn: one that reads the prepass of a camera without one, or that has no pipeline for the format of
-    // the picture, is left out (the picture stays as the pass before left it).
+    // The passes that can be drawn: one that reads the prepass of a camera without one, or that has no pipeline for the
+    // format of the picture, is left out (the picture stays as the pass before left it).
     const TargetFormat scratchFormat{fmt, SG_PIXELFORMAT_NONE, 1};
     const TargetFormat dstFormat{fmt, SG_PIXELFORMAT_NONE, dst.samples};
     std::vector<const CustomPostEntry*> chain;
@@ -362,10 +366,10 @@ int CustomPost::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gp
     if (chain.empty()) return 0;
     const int n = int(chain.size());
 
-    // The passes that keep a history draw into an image of their slot (ping-pong: they read the one they wrote the frame before); the
-    // others into a scratch image, and the last of a chain with several passes straight into the picture. A slot that cannot be made
-    // leaves its pass without history (drawn as any other, fa_history_valid false). A frame that is not one of the game's (a
-    // capture_world) reads and writes no history either.
+    // The passes that keep a history draw into an image of their slot (ping-pong: they read the one they wrote the
+    // frame before); the others into a scratch image, and the last of a chain with several passes straight into the
+    // picture. A slot that cannot be made leaves its pass without history (drawn as any other, fa_history_valid false).
+    // A frame that is not one of the game's (a capture_world) reads and writes no history either.
     std::vector<std::shared_ptr<HistorySlot>> hist(static_cast<std::size_t>(n));
     if (plan.history.game) {
         for (int k = 0; k < n; ++k) {
@@ -376,15 +380,16 @@ int CustomPost::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gp
                                  rect.w, rect.h, fmt, e.name);
         }
     }
-    // The number of the scratch image each pass writes; -1 for the pass that writes the picture or an image of its history.
+    // The number of the scratch image each pass writes; -1 for the pass that writes the picture or an image of its
+    // history.
     std::vector<int> scratchOf(static_cast<std::size_t>(n), -1);
     int results = 0;
     for (int k = 0; k < n; ++k)
         if (!hist[std::size_t(k)] && !(k == n - 1 && n > 1)) scratchOf[std::size_t(k)] = results++;
 
-    // The intermediate images: one for every result but the last (one more than that for a single pass, whose result is copied back).
-    // The graph aliases the ones whose lifetimes do not overlap, so a long chain needs two. Make sure the GPU can have them, so a
-    // failure is one warning here and not a pass that cannot run halfway through the frame.
+    // The intermediate images: one for every result but the last (one more than that for a single pass, whose result is
+    // copied back). The graph aliases the ones whose lifetimes do not overlap, so a long chain needs two. Make sure the
+    // GPU can have them, so a failure is one warning here and not a pass that cannot run halfway through the frame.
     const int need = std::min(results, 2);
     TransientDesc sd;
     sd.width = rect.w;
@@ -428,8 +433,8 @@ int CustomPost::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gp
         probed_.push_back(shapeKey);
     }
 
-    // What every pass of the chain writes: a scratch image of the frame, or an image of its history slot (imported: the renderer owns
-    // it). The pass that draws into the picture has no `res`.
+    // What every pass of the chain writes: a scratch image of the frame, or an image of its history slot (imported: the
+    // renderer owns it). The pass that draws into the picture has no `res`.
     struct Out {
         ResourceId res;
         std::shared_ptr<HistorySlot> hs;  // set: the image img[writeIdx] of the slot

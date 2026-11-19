@@ -1,6 +1,7 @@
-// Compute materials (fa/render/compute.h): storage buffers, a dispatch and the read back on the GPU of this machine (Metal, D3D11,
-// GL 4.3+), and the refusal on a backend without compute. The fixture is tests/data/materials/materials/scale.material.json, whose
-// twins were made by `factoria call shader.compile` (hlsl5, glsl430, metal_macos).
+// Compute materials (fa/render/compute.h): storage buffers, a dispatch and the read back on the GPU of this machine
+// (Metal, D3D11, GL 4.3+), and the refusal on a backend without compute. The fixture is
+// tests/data/materials/materials/scale.material.json, whose twins were made by `factoria call shader.compile` (hlsl5,
+// glsl430, metal_macos).
 #include "fa/core/engine_version.h"
 #include "fa/core/perf.h"
 #include "fa/render/compute.h"
@@ -27,11 +28,12 @@ using namespace fa::test;
 namespace {
 
 const char* const kScale = "materials/scale.material.json";
-// Two storage images: `field` (rgba8, written: red 16 * x, green 16 * y, blue = the param) and `count` (r32f, read-write: + 1 a dispatch).
+// Two storage images: `field` (rgba8, written: red 16 * x, green 16 * y, blue = the param) and `count` (r32f,
+// read-write: + 1 a dispatch).
 const char* const kField = "materials/field.material.json";
 
-// Copies the fixture materials into the test project; every twin gets this build's engine version (its "template" stays, so a
-// template change without regenerating the twins fails loudly).
+// Copies the fixture materials into the test project; every twin gets this build's engine version (its "template"
+// stays, so a template change without regenerating the twins fails loudly).
 void install_materials() {
     namespace sfs = std::filesystem;
     const sfs::path src = fs::path_from_utf8(FA_RENDER_DATA_DIR) / "materials";
@@ -48,7 +50,8 @@ void install_materials() {
     }
 }
 
-// A test starts with an empty asset cache and no buffers, the fixtures installed, and leaves the real backend answering.
+// A test starts with an empty asset cache and no buffers, the fixtures installed, and leaves the real backend
+// answering.
 struct ComputeScope {
     Gfx& g = gfx();
     ComputeScope() {
@@ -99,7 +102,8 @@ Json element(double value, double x, double y, int steps = 0) {
 }
 
 // No compute on this machine's backend (WARP, llvmpipe, GL 4.1): one line says why the test does not run, and
-// FA_REQUIRE_COMPUTE=1 (set it on a runner that must have compute) turns that into a failure so it can never become a silent pass.
+// FA_REQUIRE_COMPUTE=1 (set it on a runner that must have compute) turns that into a failure so it can never become a
+// silent pass.
 void skip_without_compute(const char* what, const std::string& why) {
     const char* v = std::getenv("FA_REQUIRE_COMPUTE");
     if (v && *v && std::string(v) != "0")
@@ -327,15 +331,16 @@ TEST_CASE("compute: a float leaves with 7 digits whatever the C locale, and a ca
     }
     auto id = s.compute().create_buffer(kScale, "items", std::uint64_t(1) << 20);
     REQUIRE_MESSAGE(id.ok(), id.error().to_string());
-    // An element of the fixture has more than 4 numbers (value, pos x2, steps, id), so 1M elements are within the element cap
-    // but over the 4M-number cap.
+    // An element of the fixture has more than 4 numbers (value, pos x2, steps, id), so 1M elements are within the
+    // element cap but over the 4M-number cap.
     auto r = s.compute().read_buffer(*id, 0, std::uint64_t(1) << 20);
     REQUIRE_FALSE(r.ok());
     CHECK(contains(r.error().to_string(), "numbers one call converts"));
     CHECK(contains(r.error().to_string(), "in chunks of at most"));
     CHECK(contains(r.error().to_string(), "`first`"));
     CHECK(s.compute().read_buffer(*id, 0, 1000).ok());
-    // Without `count` the command stops at the largest count that fits: the default never errs on a count nobody passed.
+    // Without `count` the command stops at the largest count that fits: the default never errs on a count nobody
+    // passed.
     CHECK(s.compute().max_json_elements(*id) < (std::uint64_t(1) << 20));
     CHECK(s.compute().max_json_elements(*id) >= 1000);
 }
@@ -352,8 +357,9 @@ Json pixel_of(const Json& data, int x, int y, int channels, int width = 16) {
     return out;
 }
 
-// A 2D camera and a sprite of `size` x `size` at the origin that shows `texture`; texel (i, j) of an `n` x `n` image is then at the
-// screen pixel (160 - size / 2 + (i + 0.5) * size / n, 90 - size / 2 + (j + 0.5) * size / n) of the 320 x 180 target.
+// A 2D camera and a sprite of `size` x `size` at the origin that shows `texture`; texel (i, j) of an `n` x `n` image is
+// then at the screen pixel (160 - size / 2 + (i + 0.5) * size / n, 90 - size / 2 + (j + 0.5) * size / n) of the 320 x
+// 180 target.
 void shown(World& w, const std::string& texture, float size = 160.0f) {
     Entity cam = make(w, "cam");
     w.add<Camera>(cam).clearColor = Color::black();
@@ -585,7 +591,8 @@ TEST_CASE("compute images: every wrong request is refused with its place and a w
     d.images["field"] = *count;
     CHECK(contains(err(s.compute().dispatch(d)), "images/field"));
     d.images["field"] = *field;
-    // The image the dispatch writes cannot also be its texture (one image as a storage image and a texture in one pass).
+    // The image the dispatch writes cannot also be its texture (one image as a storage image and a texture in one
+    // pass).
     d.params = Json::object({{"src", Compute::image_texture_id(*field)}});
     CHECK(contains(err(s.compute().dispatch(d)), "writes as a storage image"));
     d.params = Json();
@@ -638,7 +645,8 @@ TEST_CASE(
     auto write = s.compute().create_image(kField, "field");  // a write-only image never needs a load
     CHECK(write.ok());
 
-    // A GPU that loads nothing: the readWrite image is refused with its JSON pointer, what the GPU does and the way out.
+    // A GPU that loads nothing: the readWrite image is refused with its JSON pointer, what the GPU does and the way
+    // out.
     ComputeTestAccess::set_load_override(s.compute(), 2);
     auto refused = s.compute().create_image(kField, "count");
     REQUIRE_FALSE(refused.ok());
@@ -671,8 +679,9 @@ TEST_CASE("compute images: read_image takes only the rectangle off the GPU, a co
     d.groups[1] = side / 8;
     REQUIRE_MESSAGE(s.compute().dispatch(d).ok(), "dispatch");
 
-    // The process peak only ever grows and the suite has run other tests before this one, so it is reported, not asserted: what the
-    // test asserts is the number of bytes each read took from the GPU, which is the rectangle's and nothing more.
+    // The process peak only ever grows and the suite has run other tests before this one, so it is reported, not
+    // asserted: what the test asserts is the number of bytes each read took from the GPU, which is the rectangle's and
+    // nothing more.
     const std::uint64_t peakBefore = peak_memory_bytes();
     auto corner = s.compute().read_image(*field, side - 2, side - 3, 2, 3);
     REQUIRE_MESSAGE(corner.ok(), corner.error().to_string());
@@ -716,7 +725,8 @@ TEST_CASE("compute images: readWrite of a format other than r32f works where the
     const bool loadable = render::storage_image_loadable(SG_PIXELFORMAT_RGBA16F, &loadWhy);
     auto acc = s.compute().create_image("materials/rwhalf.material.json", "acc");
     if (!loadable) {
-        // Metal Tier 1, D3D11.0 hardware: only r32f is loaded. The image is refused with the way out, never made half working.
+        // Metal Tier 1, D3D11.0 hardware: only r32f is loaded. The image is refused with the way out, never made half
+        // working.
         MESSAGE("SKIPPED, this GPU cannot imageLoad an rgba16f image ("
                 << loadWhy << "): the dispatch of a readWrite rgba16f image is not run");
         REQUIRE_FALSE(acc.ok());
