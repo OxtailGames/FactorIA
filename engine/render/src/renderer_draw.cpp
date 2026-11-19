@@ -35,6 +35,17 @@ struct Renderer::Impl::MaterialInputs {
     TextureAsset* textures[kMaxMaterialTextures]{};
 };
 
+// What draws the sky: the engine's own program (mat null) or a sky material (SceneSettings.skyMaterial) with its params, textures and the
+// numbers of its uniform block. The main pass draws it into the picture and the environment bake (renderer_env.h) into the faces of a cube.
+struct SkyDraw {
+    MaterialAsset* mat = nullptr;
+    const MaterialProgram* prog = nullptr;  // mat's program (null for the engine's)
+    Renderer::Impl::MaterialInputs in{};
+    float skyColor[3]{}, horizonColor[3]{}, sun[3]{0.0f, 1.0f, 0.0f};
+    float time = 0.0f;
+    bool linear = false;
+};
+
 // Holds references to the job's world and frame and a copy of its plan. It lives (Impl::jobContexts) from plan_job until the
 // frame graph has run, because the callbacks of the job's passes use it; the world, the frame and the camera `plan.post`
 // points to belong to the caller of plan_job, which keeps them until run_frame_graph().
@@ -100,6 +111,11 @@ struct Renderer::Impl::DrawContext {
     // fuScene with the camera's stack fog (PostProcess.fog*): the blended meshes fog themselves with it, while the opaque meshes and the sky
     // are fogged by the full-screen draw (fuScene has no fog then). Equal to fuScene when the camera has no stack fog.
     mesh_fa_mesh_fs_params_t fuBlend{};
+    // plan_env: the meshes of this job take the baked sky (SceneSettings.skyMaterial): the "sky-env" pass is declared when envBake, and
+    // envSky is what it draws (the time quantized, see plan_env).
+    bool envActive = false, envBake = false;
+    std::uint64_t envKey = 0;
+    SkyDraw envSky;
     // build_graph: the occlusion image the main pass applies after the opaque meshes (valid when the "ssao-*" passes were declared).
     SsaoApply ssaoApply;
     // light_pass
@@ -190,6 +206,77 @@ void apply_material_params(const MaterialProgram& prog, const MaterialInputs& in
         sg_apply_uniforms(slot, &r);
     }
 }
+// What draws the sky of the job (its ss is in scene space): `mat` is the sky material sky_material accepted, or nullptr for the engine's
+// gradient. The sun is the directional light of slot 0, up when the scene has none; the time is the job's (fuScene.fa_time).
+void fill_sky(Renderer::Impl& im, const Renderer::Impl::DrawContext& ctx, MaterialAsset* mat, SkyDraw& d) {
+    const SceneSettings& ss = ctx.ss;
+    d = SkyDraw{};
+    d.mat = mat;
+    d.prog = mat ? &mat->programs[0] : nullptr;  // sky_material checked it has a shader
+    if (d.prog) {
+        pack_material_params(*mat, ss.skyMaterialParams, d.in.params, "skyMaterialParams", "SceneSettings");
+        for (std::size_t i = 0; i < mat->textures.size(); ++i) {
+            const int view = kMaterialSkyFirstView + int(i), smp = kMaterialSkyFirstSampler + int(i);
+            if (!((d.prog->viewMask >> view) & 1u) || !((d.prog->samplerMask >> smp) & 1u)) continue;
+            d.in.textures[i] =
+                material_texture(*mat, int(i), ss.skyMaterialParams, *im.assets, "skyMaterialParams", "SceneSettings");
+        }
+    }
+    d.skyColor[0] = ss.skyColor.r;
+    d.skyColor[1] = ss.skyColor.g;
+    d.skyColor[2] = ss.skyColor.b;
+    d.horizonColor[0] = ss.horizonColor.r;
+    d.horizonColor[1] = ss.horizonColor.g;
+    d.horizonColor[2] = ss.horizonColor.b;
+    if (!ctx.fr.cam.studio && !ctx.lights.empty()) {
+        const LightData& l = ctx.lights[0];
+        if (l.color.w == 0.0f && l.pos.w == 0.0f) {
+            d.sun[0] = l.pos.x;
+            d.sun[1] = l.pos.y;
+            d.sun[2] = l.pos.z;
+        }
+    }
+    d.time = d.prog ? ctx.fuScene.fa_time[0] : 0.0f;
+    d.linear = ctx.fr.linear;
+}
+
+// Draws the sky as a full-screen triangle into the open pass: `invViewProj` (column-major) and `camPos` place the rays; `format`, when
+// given, is the format of the pass's colour image (the environment bake's cube faces), else the scene's.
+void draw_sky(Renderer::Impl& im, const SkyDraw& d, const float* invViewProj, const Vec3& camPos,
+              const TargetFormat* format) {
+    Gpu& gpu = im.gpu;
+    const sg_shader shader = d.prog ? d.prog->shader : sg_shader{};
+    sg_apply_pipeline(format ? gpu.sky_pipeline(*format, shader) : gpu.sky_pipeline(shader));
+    sg_bindings b{};
+    b.vertex_buffers[0] = gpu.fullscreen_triangle();
+    if (d.prog)
+        for (std::size_t i = 0; i < d.mat->textures.size(); ++i) {
+            if (!d.in.textures[i]) continue;
+            b.views[kMaterialSkyFirstView + int(i)] = d.in.textures[i]->gpu_view();
+            b.samplers[kMaterialSkyFirstSampler + int(i)] = gpu.sampler(d.mat->textures[i].sampler);
+        }
+    sg_apply_bindings(&b);
+    sky_sky_vs_params_t vu{};
+    std::memcpy(vu.inv_view_proj, invViewProj, sizeof(float) * 16);
+    vu.cam_pos[0] = camPos.x;
+    vu.cam_pos[1] = camPos.y;
+    vu.cam_pos[2] = camPos.z;
+    apply_uniforms(UB_sky_sky_vs_params, vu);
+    sky_sky_fs_params_t fu{};
+    for (int c = 0; c < 3; ++c) {
+        fu.sky_color[c] = d.skyColor[c];
+        fu.horizon_color[c] = d.horizonColor[c];
+        fu.fa_sun[c] = d.sun[c];
+    }
+    fu.sky_color[3] = 1;
+    fu.horizon_color[3] = 1;
+    fu.fa_time[0] = d.time;
+    fu.fa_cspace[0] = d.linear ? 1.0f : 0.0f;
+    apply_uniforms(UB_sky_sky_fs_params, fu);
+    if (d.prog) apply_material_params(*d.prog, d.in);
+    sg_draw(0, 3, 1);
+}
+
 // The same for the block a 2D item's MaterialUse holds.
 void apply_use_params(const MaterialProgram& prog, const MaterialUse& use) {
     for (int slot : {kMaterialUbVertex, kMaterialUbFragment}) {
@@ -292,7 +379,7 @@ void Renderer::Impl::begin_frame_graph(bool countPost) {
     framePost = countPost;
     if (countPost) ++postSerial;
     trim_shadow_rows();
-    sharedGame = sharedLight = sharedShadow = ResourceId{};
+    sharedGame = sharedLight = sharedShadow = sharedEnv = ResourceId{};
 }
 
 // Orders, culls and runs every pass of the frame (frame_graph.h), then drops what the pass callbacks captured: the job contexts
@@ -955,6 +1042,7 @@ void Renderer::Impl::scene_uniforms(DrawContext& ctx) {
     fuScene.fa_env_horizon[2] = ss.horizonColor.b;
     fuScene.fa_pbr[3] = 0.0015f;
     fuScene.fa_time[0] = float(world.time());
+    plan_env(ctx);  // before fuBlend is copied: it sets the environment flag of fuScene
     // The blended meshes fog themselves with the stack's fog (the same numbers as the full-screen draw, the same formula): by their own
     // distance, not by the opaque mesh behind them, and over the sky too.
     ctx.fuBlend = fuScene;
@@ -974,6 +1062,71 @@ void Renderer::Impl::scene_uniforms(DrawContext& ctx) {
         fb.fa_fog_c[2] = ff.forward.z;
         fb.fa_fog_c[3] = ff.ortho ? 1.0f : 0.0f;
     }
+}
+
+static_assert(
+    kMaterialEnvView == VIEW_mesh_fa_env_tex && kMaterialEnvIrrView == VIEW_mesh_fa_irr_tex &&
+        kMaterialEnvSampler == SMP_mesh_fa_env_smp,
+    "the environment slots of mesh_common.glsl and render_internal.h (and tools/common/shaders.h) must agree");
+
+// The sky environment (renderer_env.h) of a job: with SceneSettings.skyMaterial, the meshes light and reflect the sky that is seen, baked
+// into two cubes. Reads: ctx.ss, ctx.lights, ctx.fuScene.fa_time (all set), the job's frame. Writes: ctx.envActive (the meshes of this
+// job sample the cubes), ctx.envBake (this job declares the "sky-env" pass, which bakes them), ctx.envKey, ctx.envSky (what the pass
+// draws), the environment flags of ctx.fuScene (fa_env_sky.w, fa_env_horizon.w).
+// The cubes are baked again when their key changes: everything the sky depends on (the material and its build, its params and textures,
+// the colours, the sun, the colour space) and, for an animated sky (its snippet reads the time), the game time in steps of kEnvTimeStep
+// seconds (the sky is drawn at the step's start, so a run draws the same images at any frame rate). The first job of a frame that wants an
+// environment decides it for the frame; a later job whose sky differs draws its meshes with the gradient (they share the cubes).
+void Renderer::Impl::plan_env(DrawContext& ctx) {
+    ctx.envActive = ctx.envBake = false;
+    const Frame& fr = ctx.fr;
+    if (!ctx.doMainPass || !fr.wantWorld || fr.cam.studio) return;
+    MaterialAsset* mat = sky_material(ctx.ss);
+    if (!mat) return;
+    SkyDraw sky;
+    fill_sky(*this, ctx, mat, sky);
+    sky.time = 0.0f;  // only an animated sky sees the time, quantized below
+    std::int64_t step = 0;
+    if (mat->animated) {
+        const double t = ctx.world.time();
+        step = std::isfinite(t) && t > 0.0 ? std::int64_t(std::min(t, 1.0e9) / kEnvTimeStep) : 0;
+        sky.time = float(double(step) * kEnvTimeStep);
+    }
+    std::uint64_t h = 0xcbf29ce484222325ull;
+    auto mix = [&h](std::uint64_t v) {
+        h = (h ^ v) * 0x100000001b3ull;
+        h ^= h >> 29;
+    };
+    auto mixf = [&mix](float f) {
+        std::uint32_t u;
+        std::memcpy(&u, &f, sizeof(u));
+        mix(u);
+    };
+    mix(std::hash<std::string>{}(mat->path));
+    mix(std::uint64_t(mat->generation));
+    mix(mat->programs[0].shader.id);
+    mix(std::uint64_t(step));
+    for (const auto& p : sky.in.params)
+        for (float c : p) mixf(c);
+    for (const TextureAsset* t : sky.in.textures) mix(t ? t->gpu_view().id : 0);
+    for (float c : sky.skyColor) mixf(c);
+    for (float c : sky.horizonColor) mixf(c);
+    for (float c : sky.sun) mixf(c);
+    mix(sky.linear ? 1 : 0);
+    if (envFrame != frameSerial) {
+        envFrame = frameSerial;
+        envFrameOk = skyEnv.ready(gpu);
+        envFrameKey = h;
+        if (envFrameOk) ctx.envBake = !skyEnv.baked() || skyEnv.key() != h;
+    } else if (envFrameKey != h) {
+        return;
+    }
+    if (!envFrameOk) return;
+    ctx.envActive = true;
+    ctx.envKey = h;
+    ctx.envSky = sky;
+    ctx.fuScene.fa_env_sky[3] = 1.0f;
+    ctx.fuScene.fa_env_horizon[3] = float(kEnvLevels - 1);
 }
 
 // Binds the vertex buffers of a custom material's extras (MeshExtras): its per-instance params from `data` (the floats of this
@@ -1150,6 +1303,12 @@ void Renderer::Impl::bind_textures(DrawContext& ctx, sg_bindings& b, const PartD
     b.views[VIEW_mesh_fa_emissive_tex] = d.emissive->gpu_view();
     b.samplers[SMP_mesh_fa_smp] = gpu.sampler(SamplerKind::LinearRepeat);
     b.samplers[SMP_mesh_fa_shadow_smp] = gpu.sampler(SamplerKind::Nearest);
+    // The sky environment (renderer_env.h): the baked cubes, or a black one while the meshes use the gradient (every mesh program of the
+    // main pass declares the slots; a custom program that does not has them dropped below).
+    const bool env = ctx.envActive && skyEnv.baked();
+    b.views[kMaterialEnvView] = env ? skyEnv.prefiltered_view() : skyEnv.blank_view(gpu);
+    b.views[kMaterialEnvIrrView] = env ? skyEnv.irradiance_view() : skyEnv.blank_view(gpu);
+    b.samplers[kMaterialEnvSampler] = skyEnv.sampler();
     if (!prog) return;
     if (d.mat)
         for (std::size_t i = 0; i < d.mat->textures.size(); ++i) {
@@ -1733,6 +1892,11 @@ void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
     const mesh_fa_mesh_vs_params_t& vuScene = ctx.vuScene;
     const mesh_fa_lights_t& lightUniforms = ctx.lightUniforms;
     const bool drawHudInPass = fr.wantScreen && !hudAfterBloom && !ctx.hudAfterPost;
+    if (ctx.envActive && !skyEnv.baked()) {  // the bake did not complete: the meshes keep the gradient
+        ctx.envActive = false;
+        ctx.fuScene.fa_env_sky[3] = 0.0f;
+        ctx.fuBlend.fa_env_sky[3] = 0.0f;
+    }
     if (ctx.doMainPass) {
         PassDesc mp = pass_into(gameTarget, plan.view ? "view" : fr.wantWorld ? "game" : "game-hud");
         mp.colorLoad = clearByLoad ? SG_LOADACTION_CLEAR : SG_LOADACTION_LOAD;
@@ -1754,57 +1918,11 @@ void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
         // sky
         if (fr.wantWorld && fr.cam.perspective && fr.cam.clear && !fr.cam.studio) {
             // SceneSettings.skyMaterial draws the sky through its own program (same vertex stage, same uniform blocks, plus the
-            // material's block and textures); anything wrong with it keeps the gradient. Reflections and the ambient light of the
-            // meshes (fa_env_sky / fa_env_horizon) always follow skyColor and horizonColor.
-            MaterialAsset* skyMat = sky_material(ss);
-            const MaterialProgram* skyProg =
-                skyMat ? &skyMat->programs[0] : nullptr;  // sky_material checked it has a shader
-            MaterialInputs skyIn{};
-            sg_apply_pipeline(gpu.sky_pipeline(skyProg ? skyProg->shader : sg_shader{}));
-            sg_bindings b{};
-            b.vertex_buffers[0] = gpu.fullscreen_triangle();
-            if (skyProg) {
-                pack_material_params(*skyMat, ss.skyMaterialParams, skyIn.params, "skyMaterialParams", "SceneSettings");
-                for (std::size_t i = 0; i < skyMat->textures.size(); ++i) {
-                    const int view = kMaterialSkyFirstView + int(i), smp = kMaterialSkyFirstSampler + int(i);
-                    if (!((skyProg->viewMask >> view) & 1u) || !((skyProg->samplerMask >> smp) & 1u)) continue;
-                    skyIn.textures[i] = material_texture(*skyMat, int(i), ss.skyMaterialParams, *assets,
-                                                         "skyMaterialParams", "SceneSettings");
-                    b.views[view] = skyIn.textures[i]->gpu_view();
-                    b.samplers[smp] = gpu.sampler(skyMat->textures[i].sampler);
-                }
-            }
-            sg_apply_bindings(&b);
-            sky_sky_vs_params_t vu{};
-            copy_mat(vu.inv_view_proj, fr.cam.invViewProj);
-            vu.cam_pos[0] = fr.cam.position.x;
-            vu.cam_pos[1] = fr.cam.position.y;
-            vu.cam_pos[2] = fr.cam.position.z;
-            apply_uniforms(UB_sky_sky_vs_params, vu);
-            sky_sky_fs_params_t fu{};
-            fu.sky_color[0] = ss.skyColor.r;
-            fu.sky_color[1] = ss.skyColor.g;
-            fu.sky_color[2] = ss.skyColor.b;
-            fu.sky_color[3] = 1;
-            fu.horizon_color[0] = ss.horizonColor.r;
-            fu.horizon_color[1] = ss.horizonColor.g;
-            fu.horizon_color[2] = ss.horizonColor.b;
-            fu.horizon_color[3] = 1;
-            // The sun of a sky material: the directional light of slot 0 (the one that casts shadows, else the brightest), up
-            // when the scene has none. The built-in program does not read these.
-            Vec3 sun{0.0f, 1.0f, 0.0f};
-            if (!fr.cam.studio && !ctx.lights.empty()) {
-                const LightData& l = ctx.lights[0];
-                if (l.color.w == 0.0f && l.pos.w == 0.0f) sun = Vec3{l.pos.x, l.pos.y, l.pos.z};
-            }
-            fu.fa_sun[0] = sun.x;
-            fu.fa_sun[1] = sun.y;
-            fu.fa_sun[2] = sun.z;
-            fu.fa_time[0] = skyProg ? ctx.fuScene.fa_time[0] : 0.0f;
-            fu.fa_cspace[0] = fr.linear ? 1.0f : 0.0f;
-            apply_uniforms(UB_sky_sky_fs_params, fu);
-            if (skyProg) apply_material_params(*skyProg, skyIn);
-            sg_draw(0, 3, 1);
+            // material's block and textures); anything wrong with it keeps the gradient. The meshes' reflections and ambient light
+            // follow the sky that is drawn here when it is a material (plan_env bakes it), else skyColor and horizonColor.
+            SkyDraw sky;
+            fill_sky(*this, ctx, sky_material(ss), sky);
+            draw_sky(*this, sky, fr.cam.invViewProj.m, fr.cam.position, nullptr);
             ++stats.drawCalls;
         }
 
@@ -2035,6 +2153,24 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
                            import_desc(shadowTarget.w, shadowTarget.h, shadowTarget.format, "shadow-map"));
         add("shadow", {}, {shadowRes}, [this, &ctx](const PassContext&) { shadow_pass(ctx); });
     }
+    // The sky environment (plan_env): the first job that wants it declares the bake, every job that uses it reads it before its main pass.
+    ResourceId envRes;
+    if (ctx.envActive) {
+        TransientDesc envDesc =
+            import_desc(kEnvSize, kEnvSize, TargetFormat{skyEnv.format(), SG_PIXELFORMAT_NONE, 1}, "sky-env");
+        envRes = shared(sharedEnv, "sky-env", skyEnv.image_id(), envDesc);
+        if (ctx.envBake)
+            add("sky-env", {}, {envRes}, [this, &ctx](const PassContext&) {
+                const std::uint64_t key = ctx.envKey;
+                const SkyDraw& sky = ctx.envSky;
+                skyEnv.bake(
+                    gpu, key,
+                    [this, &sky](const float* invViewProj, const TargetFormat& format) {
+                        draw_sky(*this, sky, invViewProj, Vec3{0.0f, 0.0f, 0.0f}, &format);
+                    },
+                    &stats.drawCalls);
+            });
+    }
     ResourceId prepassRes;
     if (ctx.doPrepass) {  // the image is a transient: the effects that read it list it in their reads
         TransientDesc pdsc;
@@ -2066,6 +2202,7 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
         if (ctx.ssaoApply.valid) reads.push_back(ctx.ssaoApply.ao);
         if (ctx.litMode == 1) reads.push_back(lightRes);
         if (ctx.doShadows) reads.push_back(shadowRes);
+        if (ctx.envActive) reads.push_back(envRes);
         if (!ctx.clearByLoad) reads.push_back(game);  // LOAD: a second camera or the HUD job continues the picture
         reads.insert(reads.end(), shown.begin(), shown.end());
         add(plan.view      ? "view"

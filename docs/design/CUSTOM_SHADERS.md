@@ -423,7 +423,7 @@ material says what it is for with the optional key `"kind"` of its `*.material.j
 |---|---|---|---|
 | `"mesh"` (default) | the surface of a `MeshRenderer`: everything in this document | `mesh_common.glsl` | built |
 | `"sprite"` | the 2D quad path: `Sprite`, `Shape2D`, `Tilemap`, `Text`, particles and trails, UI images | `quad_common.glsl` (+ `color_space.glsl`, `light_shadow.glsl`) | M72.1: template, tooling and the `Sprite` draw built (M72-P1, P3); the other 2D emitters follow |
-| `"sky"` | the background of a 3D scene (`SceneSettings.skyMaterial`); the lighting still follows the two sky colours | `sky_common.glsl` (+ `color_space.glsl`) | M72.1: built (M72-P6) |
+| `"sky"` | the background of a 3D scene (`SceneSettings.skyMaterial`), also baked into the cubes that light the meshes (P15 below) | `sky_common.glsl` (+ `color_space.glsl`) | M72.1: built (M72-P6) |
 | `"post"` | one pass of a camera's post-processing stack (`PostProcess.customPasses`) | `post_common.glsl` | M72.2: built (M72-P7a) |
 | `"compute"` | compute shaders (storage buffers) | `compute_common.glsl` | built (M72.4) |
 
@@ -494,8 +494,7 @@ cache, hot reload, export, the runtime) is unchanged: a graph material is a mate
 
 ## Out of scope (recorded so nobody assumes it)
 
-- A post pass that needs the previous frame. A sky material does not
-  drive the meshes' ambient and reflection light.
+- A post pass that needs the previous frame.
 - ~~A full-GLSL escape hatch (D1)~~: built in M72.3 for mesh materials, see [CUSTOM_SHADERS_FULL.md](CUSTOM_SHADERS_FULL.md).
 - Compute storage images, compute on GLES3/WebGL2, tessellation, geometry shaders (not in sokol_gfx's common subset for these backends anyway).
 - Per-instance material data inside one instanced draw.
@@ -715,10 +714,38 @@ and its shadow like a mesh standing there).
   new fixtures: `lightloop` (a toon from the brightest light only, plus the sky), `skylit` (`ambient()` returns
   `fa_sky_light`) and `full_sky` (a full shader that reflects the sky).
 
+- **Hook detection and the hints (P15 POLISH).** `lighting()` is the hook only with `SurfaceInput` and `Surface` as its first
+  two parameters, and the errors that point at it (`definition`) use the same pattern, so an overload of the name is never
+  the line they report. A name of the API that fails in the vertex stage (a helper compiled into both stages) gets the stage
+  hint (fragment stage only, `#ifdef GL_FRAGMENT_SHADER`) with its signature, never "did you mean" itself.
+  `fa_environment`, `fa_env_brdf`, `fa_sky_reflection` and `fa_ambient_light` may be called from `surface()`: they only read
+  the sky images, which the shadow and depth programs of an `alphaMode` `"clip"` material (they run `surface()`) have too.
+
 Tests: tooling (the generator, the errors with their pointers, the did-you-mean, the fixture twins with the real
 sokol-shdc, the doc example), renderer (two lights give the frame of the brightest alone, unlike the per-light toon; the
 sphere reflects blue sky on one end and the orange horizon on the other through `lighting()`, `ambient()` and a full
 shader, and shows no sky with `skyAmount` 0).
+
+### P15. The sky material lights the meshes (M72, built)
+
+`engine/render/src/renderer_env.{h,cpp}` (`Environment`) bakes the sky program of the scene's sky material into a prefiltered cube
+(128 x 128, 5 mips, GGX per mip) and an irradiance cube (8 x 8); the design, the pass count (60) and the format fallback are in
+the header comment. `mesh_common.glsl` and `mesh_full_common.glsl` declare them (views 14 and 15, sampler 10; `fa_env_sky.w` is 1
+when they are bound, `fa_env_horizon.w` the top mip) and `fa_environment()` and the new `fa_ambient_light(n)` read them, else
+the analytic gradient and `fa_ambient.rgb` as before, so a scene without a sky material has the same pixels and the same draw
+calls. The renderer (`plan_env`, `renderer_draw.cpp`) plans a "sky-env" pass of the frame graph when a camera draws the world
+with a valid sky material; its key hashes the material, its generation, params, textures, the scene's sky colours, the sun and
+the colour space, plus the step `floor(time / kEnvTimeStep)` of an **animated** material (the twin's `animated` field, set by
+`compile_material` when the sky snippet reads `.time` or `fa_time`), baked at `step * kEnvTimeStep`: no wall clock, a replay
+gives the same frames. One environment per frame: the first job that wants it fixes the key, a job with another key uses the
+analytic path. Face orientation is a table from the cube map specification (`env_face`); OpenGL renders bottom-up, so `up` is
+negated there. A mip is never rendered while it is sampled: S0..S3 are separate images, because GLES 3 and WebGL 2 cannot
+restrict a texture view to a mip.
+
+Verified: Metal only (a mirror ball shows each side of a two-colour sky; a diffuse ball takes the ambient of the sky above and
+below; no sky material: the same frame and draw calls; the bake runs again exactly when the key changes; the animated step). Read
+only: the GL face orientation, D3D11, the RGBA8 fallback and WebGL 2. Cost on Metal: about 3.4 ms on a frame that bakes (60
+passes), 0.6 ms of it CPU (the test "what one bake of the environment costs" reports it).
 
 ## Risks
 

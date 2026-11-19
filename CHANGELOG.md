@@ -6,6 +6,16 @@ Older versions, one file per minor version with its patch releases: [0.30](chang
 
 ## Unreleased
 
+- **A sky material also lights the meshes (M72.3):** the sky that `SceneSettings.skyMaterial` draws is baked into two small
+  cube images, so meshes now reflect it (a metal ball under a two-colour sky shows each colour on the side that faces it)
+  and take its ambient light from it (`fa_ambient_light(n)`, which replaces `ambientLight` for those meshes), in `"pbr"`,
+  custom and full materials. It is baked again when the material, its params or textures, the scene's sky colours or the sun
+  change, and every 0.1 s of game time for a sky that reads `SkyInput.time` (no wall clock: a replay is the same). On Metal a
+  frame that bakes takes about 3.4 ms longer (60 small passes); a scene without a sky material has the same pixels and costs the
+  same. GL, D3D11 and WebGL 2 (RGBA8 when the GPU cannot render to half floats) are not seen on a device yet. A helper of your own
+  that calls a lighting function now gets a hint about the vertex stage and `#ifdef GL_FRAGMENT_SHADER`, `fa_environment`,
+  `fa_env_brdf`, `fa_sky_reflection` and `fa_ambient_light` may be called from `surface()`, and a name of the API is never
+  suggested for itself. **Games with custom mesh materials must re-export** (the mesh template changed).
 - **Compute buffers (polish):** `compute.read_buffer` and `compute.write_buffer` also refuse a call of more than 4194304
   numbers (elements times the components of their fields) and say how many elements fit and to go on in chunks with
   `first`/`count`; floats read back are the same in every C locale.

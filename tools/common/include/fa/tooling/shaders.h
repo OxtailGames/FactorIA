@@ -46,6 +46,11 @@ inline constexpr int kMaterialMaxTextures =
 inline constexpr int kMaterialFsFirstView = 6, kMaterialFsFirstSampler = 2;
 inline constexpr int kMaterialVsFirstView = kMaterialFsFirstView + kMaterialMaxTextures,
                      kMaterialVsFirstSampler = kMaterialFsFirstSampler + kMaterialMaxTextures;
+// The baked sky of a sky material is fragment views kMaterialEnvView (prefiltered cube) and kMaterialEnvIrrView (irradiance) and sampler
+// kMaterialEnvSampler of every mesh program (the engine's own slots, after the vertex stage's copies: a material cannot take them).
+inline constexpr int kMaterialEnvView = kMaterialVsFirstView + kMaterialMaxTextures,
+                     kMaterialEnvIrrView = kMaterialEnvView + 1,
+                     kMaterialEnvSampler = kMaterialVsFirstSampler + kMaterialMaxTextures;
 // Per-instance params ("instanced": true) travel in a second per-instance vertex buffer next to the model matrices: at most
 // this many vec4 (12 floats) per instance, so the main program of a skinned mesh (11 attributes + 3 + 2 declared channels)
 // stays within the 16 vertex attributes sokol and every backend allow.

@@ -399,6 +399,7 @@ void Renderer::shutdown() {
         compute_->detach();  // its storage buffers and views, while the context is open
         im.fonts.reset();
         im.ssr.release();
+        im.skyEnv.release();
         im.sceneFx.release();
         im.fogFx.release();
         im.ramps.destroy();
