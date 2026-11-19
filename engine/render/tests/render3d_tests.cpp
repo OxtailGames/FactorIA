@@ -1178,7 +1178,8 @@ TEST_CASE("materials: the template hash is per kind and the mesh one is unchange
     CHECK(material_template_hash(MaterialKind::Sprite).size() == 64);
     CHECK(material_template_hash(MaterialKind::Sprite) != mesh_template_hash());
     CHECK(material_template_hash(MaterialKind::Sky) != material_template_hash(MaterialKind::Post));
-    CHECK(material_template_hash(MaterialKind::Compute).empty());
+    CHECK(material_template_hash(MaterialKind::Compute).size() == 64);  // compute_common.glsl (M72.4)
+    CHECK(material_template_hash(MaterialKind::Compute) != mesh_template_hash());
     CHECK(material_kind_names().size() == 5);
     CHECK(std::string(material_kind_name(MaterialKind::Post)) == "post");
     CHECK(material_kind_from_name("sky") == MaterialKind::Sky);
