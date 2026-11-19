@@ -1543,8 +1543,8 @@ TEST_CASE("sky materials: a diffuse mesh takes the ambient light of the sky that
     const Image lit = g.render(w);
     const int cx = lit.width / 2, cy = lit.height / 2;
     const Color top = lit.pixel(cx, cy - 34), bottom = lit.pixel(cx, cy + 34);
-    // What the sky lights is a ratio, not an absolute brightness (the irradiance and the filtering differ per driver): the green
-    // side is lit and its green is well above its red, the red side the other way round.
+    // What the sky lights is a ratio, not an absolute brightness (the irradiance and the filtering differ per driver):
+    // the green side is lit and its green is well above its red, the red side the other way round.
     INFO("top " << top.r << " " << top.g << " " << top.b << ", bottom " << bottom.r << " " << bottom.g << " "
                 << bottom.b);
     CHECK(top.g > 0.02f);

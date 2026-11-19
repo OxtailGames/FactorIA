@@ -466,8 +466,8 @@ TEST_CASE("mesh buffers: a backend that cannot read storage buffers in a vertex 
 TEST_CASE("mesh buffers: OpenGL 4.1 (macOS: no storage buffers, no compute) refuses the material at load and says what "
           "to do") {
     Scope s;
-    // The GL backend of a Linux or Windows machine has compute; the one of macOS stops at 4.1 and has none: the same backend,
-    // answered as a GPU without compute (the gate of the load reads what Compute answers, ComputeTestAccess).
+    // The GL backend of a Linux or Windows machine has compute; the one of macOS stops at 4.1 and has none: the same
+    // backend, answered as a GPU without compute (the gate of the load reads what Compute answers, ComputeTestAccess).
     ComputeTestAccess::set_backend(s.compute(), int(render::FeatureBackend::Gl));
     ComputeTestAccess::set_compute_capable(s.compute(), 0);
     s.g.renderer.clear_asset_cache();
@@ -501,10 +501,11 @@ TEST_CASE(
         skip_without_compute("the large instance count is not drawn", why);
         return;
     }
-    // 1 << 20 instances: with a per-instance step the attributes fa_inst_m0..3 would read 64 MB past the one matrix the draw binds.
-    // The model is a uniform and the attributes read the first 16 bytes of each vertex (Gpu set_instance_layout), so only the first
-    // five elements, the ones the compute pass wrote, show; the rest are zero and collapse.
-    const int big = 1 << 20;
+    // 1 << 14 instances: with a per-instance step the attributes fa_inst_m0..3 would read 1 MB past the one matrix the
+    // draw binds (any count above one already reads past it). The model is a uniform and the attributes read the first
+    // 16 bytes of each vertex (Gpu set_instance_layout), so only the first five elements, the ones the compute pass
+    // wrote, show; the rest are zero and collapse.
+    const int big = 1 << 14;
     const int id = make_buffer(s.compute(), big);
     fill(s.compute(), id, 5);
     ErrorLog log;
@@ -587,6 +588,11 @@ TEST_CASE("mesh buffers: a skinned mesh (Animator) with a buffers material draws
     m.materialParams = Json::object({{"points", id}});
     m.instances = 3;
     w.add<Animator>(rig).clip = "Bend";
+    Entity light = make(w, "light", {0, 5, 0});  // the skinned instances are also drawn in the shadow pass
+    w.get<Transform>(light)->rotation = {-50, 30, 0};
+    auto& l = w.add<Light>(light);
+    l.type = LightType::Directional;
+    l.castShadows = true;
     update_animators(w, 0.0f);
     update_animators(w, 0.5f);
     const Image img = s.g.render(w);
@@ -597,4 +603,65 @@ TEST_CASE("mesh buffers: a skinned mesh (Animator) with a buffers material draws
     CHECK(s.g.renderer.stats().meshes == 1);
     CHECK(log.total() == 0);
     CHECK(s.g.renderer.stats().materialFallbacks.empty());
+}
+
+// The layout of the pipelines of a buffers material, with no draw: the instance attributes read the mesh's own vertex
+// buffer, so buffer 0 must be laid out as a MeshVertex (stride 52: position 0, normal 12, texcoord0 24, tangent 32,
+// color 48) and the four attributes must stay inside it, in the shadow, prepass and main pipelines, skinned or not.
+TEST_CASE("mesh buffers: the pipelines of a buffers material lay out the mesh vertex buffer as a MeshVertex") {
+    Scope s;
+    render::Gpu& gpu = *render::renderer_gpu(s.g.renderer);
+    render::TargetFormat format;
+    format.color = SG_PIXELFORMAT_RGBA8;
+    format.depth = SG_PIXELFORMAT_DEPTH;
+    sg_shader custom{};
+    custom.id = 1;  // any program: the probe makes no pipeline
+    render::MeshExtras extras;
+    extras.bufferInst = true;
+    struct Probe {
+        render::Gpu& g;
+        explicit Probe(render::Gpu& gg) : g(gg) { g.set_layout_probe(true); }
+        ~Probe() { g.set_layout_probe(false); }
+    } probe(gpu);
+    // `vertex` = the attributes of buffer 0 that are not the instance matrix, in location order (MeshVertex order).
+    auto check = [&](const char* what, int firstInst, const std::vector<int>& vertex) {
+        INFO(what);
+        const sg_vertex_layout_state& lay = gpu.probed_layout();
+        CHECK(lay.buffers[0].stride == 52);
+        const int expected[5] = {0, 12, 24, 32, 48};
+        for (std::size_t i = 0; i < vertex.size(); ++i) {
+            CHECK(lay.attrs[vertex[i]].buffer_index == 0);
+            CHECK(lay.attrs[vertex[i]].offset == expected[i]);
+        }
+        bool anyOffset = false;
+        for (int i = 0; i < 4; ++i) {
+            const sg_vertex_attr_state& a = lay.attrs[firstInst + i];
+            CHECK(a.format == SG_VERTEXFORMAT_FLOAT4);
+            CHECK(a.buffer_index == 0);
+            CHECK(a.offset + 16 <= lay.buffers[0].stride);  // inside the vertex, so inside the buffer
+            anyOffset = anyOffset || a.offset != 0;
+        }
+        CHECK(anyOffset);  // all zero would make sokol_gfx pack the buffer itself
+        CHECK(lay.buffers[1].stride == 0);
+    };
+    for (bool skinned : {false, true}) {
+        INFO((skinned ? "skinned" : "static"));
+        (void)gpu.mesh_pipeline(format, false, false, skinned, custom, extras);
+        check("main", 5, {0, 1, 2, 3, 4});
+        render::MaterialPassState state;
+        (void)gpu.full_pipeline(format, state, skinned, custom, extras);
+        check("full", 5, {0, 1, 2, 3, 4});
+        (void)gpu.prepass_pipeline(format, false, skinned, custom, extras);
+        check("prepass", 5, {0, 1, 2, 3, 4});
+        // Shadow: position, the matrix at 1..4, then (skinned) joints and weights at 5 and 6, then the rest of the
+        // vertex.
+        (void)gpu.shadow_pipeline(format, skinned, custom, true, extras);
+        check("shadow, full vertex", 1, skinned ? std::vector<int>{0, 7, 8, 9, 10} : std::vector<int>{0, 5, 6, 7, 8});
+        (void)gpu.shadow_pipeline(format, skinned, custom, false, extras);
+        check("shadow, position only", 1, {0});
+    }
+    // Without "buffers" the matrix comes from vertex buffer 1, one per instance.
+    (void)gpu.mesh_pipeline(format, false, false, false, custom, render::MeshExtras{});
+    CHECK(gpu.probed_layout().buffers[1].stride == 64);
+    CHECK(gpu.probed_layout().attrs[5].buffer_index == 1);
 }
