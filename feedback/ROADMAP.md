@@ -727,7 +727,8 @@ phones and the web, so it gets everything a leading engine has, not only what a 
 little every frame on the main thread, the game loop is single-threaded, lighting is in gamma space with no HDR, the
 only screen effects are bloom and the colour filter, only the directional light casts shadows (one map, no cascades),
 IBL is a procedural sky, custom materials existed for `MeshRenderer` only (M72 added `Sprite`, `Shape2D`, `Tilemap`,
-`Text`, particles, UI and post passes), there is no LOD, occlusion culling, streaming, temporal antialiasing, upscaler or ray tracing, and the backends are sokol_gfx's (GL, GLES3, WebGL2, D3D11, Metal).
+`Text`, particles, UI and post passes), there is no LOD, occlusion culling, streaming, temporal antialiasing, upscaler
+or ray tracing, and the backends are sokol_gfx's (GL, GLES3, WebGL2, D3D11, Metal).
 
 Rules for all of them:
 - Off by default and free when off: a simple or retro game pays nothing (no extra pass, target or memory) for a feature
