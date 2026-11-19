@@ -20,6 +20,11 @@
 //   vec3  fa_scene_rgb(vec3 c)      an sRGB colour of the author (a param of type color) in the colour space of the picture (linear
 //                                   light in a linear scene, as is in a gamma one)
 //   fa_time                         vec4: x = seconds of game time since the scene started
+//   vec4  fa_history(vec2 uv)       what THIS pass wrote last frame at uv (same uv rules as fa_scene_color; the output of the pass, after its
+//                                   sanitising). Calling it makes the renderer keep that output in two images of the camera's size, one
+//                                   pair per pass and camera. While there is no history (the first frame, a resize, a cut) it returns
+//                                   fa_scene_color(uv) instead, so a trail or an echo starts from the picture, never from garbage
+//   fa_history_valid                true when fa_history returns what the pass wrote last frame, false when it returns the picture
 //
 // Bindings. Uniform blocks: vertex 0 fa_post_vs_params, fragment 1 fa_post_params and 5 the material's (fa_material). Views 0
 // (fa_scene) and 1 (fa_prepass) and samplers 0 (linear, clamped) and 1 (nearest) are the engine's: a material's textures are views
@@ -58,13 +63,15 @@ void main() {
 @fs fs
 layout(binding=0) uniform texture2D fa_scene;       // the picture so far (the camera's rectangle of it)
 layout(binding=1) uniform texture2D fa_prepass;     // r = linear view depth, gb = octahedral view normal, a = 1 where a mesh was drawn
+layout(binding=6) uniform texture2D fa_history_tex;  // the output of this pass in the previous frame (the camera's rectangle size)
 layout(binding=0) uniform sampler fa_scene_smp;
 layout(binding=1) uniform sampler fa_prepass_smp;
 @image_sample_type fa_prepass unfilterable_float
 @sampler_type fa_prepass_smp nonfiltering
 
 layout(binding=1) uniform fa_post_params {
-    vec4 fa_a;                  // x = 1 when render targets are bottom-up (OpenGL), y = 1 in a linear scene (the picture is linear light), zw = 0
+    vec4 fa_a;                  // x = 1 when render targets are bottom-up (OpenGL), y = 1 in a linear scene (the picture is linear light),
+                                // z = 1 when the history holds the pass's output of the frame before, w = 0
     vec4 fa_rc;                 // the camera's rectangle of the picture, fractions of it: xy corner, zw size (0 0 1 1 = all of it)
     vec4 fa_size;               // xy = the rectangle in pixels, zw = 1 / that
     vec4 fa_time;               // x = seconds of game time since the scene started
@@ -96,6 +103,15 @@ vec3 fa_normal(vec2 uv) {
     vec3 n = vec3(p.gb, 1.0 - abs(p.g) - abs(p.b));
     if (n.z < 0.0) n.xy = (1.0 - abs(n.yx)) * vec2(n.x >= 0.0 ? 1.0 : -1.0, n.y >= 0.0 ? 1.0 : -1.0);
     return normalize(n);
+}
+// The pass's own output of the frame before, read like the picture (uv over the camera's rectangle, y down, clamped to the pixel
+// centres, bilinear). The history image has the rectangle's size, so a pixel is read back exactly. Without a history it is the picture.
+#define fa_history_valid (fa_a.z > 0.5)
+vec4 fa_history(vec2 uv) {
+    if (!fa_history_valid) return fa_scene_color(uv);
+    vec2 h = 0.5 * fa_size.zw;
+    vec2 s = clamp(uv, h, 1.0 - h);
+    return textureLod(sampler2D(fa_history_tex, fa_scene_smp), fa_flip_uv(s), 0.0);
 }
 // An sRGB colour of the author (a param of type color) in the colour space of the picture: decoded to linear light in a linear
 // scene before the tonemap, as it is in a gamma scene and at the display-referred places (the picture is sRGB-encoded there).

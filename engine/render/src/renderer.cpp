@@ -800,6 +800,14 @@ void Renderer::set_debug_view(DebugView view) {
 
 DebugView Renderer::debug_view() const { return impl_ ? impl_->debugView : DebugView::None; }
 
+void Renderer::reset_post_history(std::uint64_t camera) {
+    if (impl_) impl_->customPost.reset_history(camera);
+}
+
+int render::renderer_post_history_images(Renderer& r) {
+    return r.impl_ ? r.impl_->customPost.history_image_count() : 0;
+}
+
 void Renderer::update(World& world) {
     if (!initialized()) return;
     Impl& im = *impl_;

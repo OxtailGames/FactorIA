@@ -348,8 +348,9 @@ std::string prefix_rule(const MaterialDef& material) {
                "prefix.";
     if (is_post(material))
         return "Names starting with fa_ belong to the engine: the snippet may use the ones the contract lists "
-               "(fa_scene_color(), fa_depth(), fa_normal(), fa_time) but not declare any. Rename it without the "
-               "prefix.";
+               "(fa_scene_color(), fa_depth(), fa_normal(), fa_history(), fa_history_valid, fa_time) but not declare "
+               "any. "
+               "Rename it without the prefix.";
     if (is_sky(material))
         return "Names starting with fa_ belong to the engine: the snippet may use the ones the contract lists "
                "(fa_time, fa_scene_rgb()) but not declare any. Rename it without the prefix.";
@@ -420,6 +421,11 @@ std::string undeclared_hint(const std::string& token, const MapContext& ctx) {
                     : n == "LightSample"                   ? "light"
                                                            : fragment_entry(ctx.material)) +
                    "().";
+    if ((token == "fa_history" || token == "fa_history_valid") && !is_post(ctx.material))
+        return "`" + token +
+               "` is only for a post material (\"kind\": \"post\"): the history is what a post pass wrote in the frame "
+               "before, and no other kind has a previous frame to read. Move the effect to a post material "
+               "(docs/shaders/SHADERS_POST.md, \"History\").";
     if (token.rfind("fa_", 0) == 0) {
         // A custom mesh material: the documented lighting functions come first (the template has helpers of its own).
         if (!ctx.material.full && ctx.material.kind == "mesh" && ctx.material.lighting == "custom") {
@@ -434,8 +440,8 @@ std::string undeclared_hint(const std::string& token, const MapContext& ctx) {
                               ? "; docs/shaders/SHADERS_FULL.md lists the ones a full shader may use (fa_view_proj, "
                                 "fa_world_position(), fa_light(), fa_frag_color, FA_TIME...)."
                           : is_post(ctx.material)
-                              ? "; the ones a snippet may use are fa_scene_color(uv), fa_depth(uv), fa_normal(uv) and "
-                                "fa_time."
+                              ? "; the ones a snippet may use are fa_scene_color(uv), fa_depth(uv), fa_normal(uv), "
+                                "fa_history(uv), fa_history_valid and fa_time."
                           : is_sprite(ctx.material)
                               ? "; the ones a snippet may use are fa_time, fa_sample_main() and fa_scene_rgb()."
                           : is_sky(ctx.material)
@@ -461,6 +467,15 @@ std::string undeclared_hint(const std::string& token, const MapContext& ctx) {
             return "`" + token +
                    "` is not declared: read the linear view depth in world units with fa_depth(uv); using it makes the "
                    "renderer draw the depth and normal prepass for the camera.";
+        if (is_one({"history", "historytexture", "historytex", "prevframe", "previousframe", "lastframe", "prevtexture",
+                    "previoustexture", "prevcolor", "previouscolor", "prevscene", "feedback", "feedbacktexture",
+                    "accumulation", "accumtexture", "trailtexture", "lasttexture", "framebufferprev", "oldframe"}))
+            return "`" + token +
+                   "` is not declared: the output of this pass in the frame before is not a texture of the snippet. "
+                   "Read it with fa_history(uv) (uv 0..1, origin top left); calling it is what asks the renderer to "
+                   "keep "
+                   "the output, and fa_history_valid says whether there is one yet (not on the first frame, after a "
+                   "resize or a camera cut: fa_history then gives the picture).";
         if (is_one({"normaltexture", "normalmap", "gbuffer", "scenenormal", "viewnormal", "normalbuffer"}))
             return "`" + token +
                    "` is not declared: read the view-space normal with fa_normal(uv); using it makes the renderer draw "
@@ -809,6 +824,47 @@ std::vector<ShaderIssue> precheck_snippet(const MaterialDef& material, const Gen
                     break;
                 }
             }
+        }
+    }
+    // The history (fa_history(uv), fa_history_valid) is the previous frame of a post pass: no other kind has one, and the texture is
+    // not a name to sample (calling the function is what asks the engine to keep the output).
+    {
+        static const std::regex history(R"(\bfa_history(_valid)?\b)");
+        for (auto it = std::sregex_iterator(stripped.begin(), stripped.end(), history); it != std::sregex_iterator();
+             ++it) {
+            const std::smatch& m = *it;
+            const std::size_t offset = std::size_t(m.position(0));
+            std::size_t after = offset + m.length(0);
+            while (after < stripped.size() && std::isspace(static_cast<unsigned char>(stripped[after]))) ++after;
+            const bool call = after < stripped.size() && stripped[after] == '(';
+            std::string message, hint;
+            if (!is_post(material)) {
+                message = "'" + m[0].str() + "' : only a post material has a history";
+                hint = "The history is what a post pass wrote in the frame before; a \"" + material.kind +
+                       "\" material has no previous frame to read. Move the effect to a post material (\"kind\": "
+                       "\"post\", docs/shaders/SHADERS_POST.md, \"History\").";
+            } else if (m[1].matched ? call : !call) {
+                message = m[1].matched ? "'fa_history_valid' : it is a value, not a function"
+                                       : "'fa_history' : it is a function, not a texture";
+                hint = m[1].matched
+                           ? "Write `if (fa_history_valid) { ... }`: it is true when fa_history(uv) returns what "
+                             "this pass wrote last frame."
+                           : "Read the output of this pass in the frame before with `vec4 last = fa_history(i.uv);` "
+                             "(uv 0..1 over the camera's rectangle, origin top left, as fa_scene_color(uv)); "
+                             "calling it is what asks the renderer to keep the output. There is no texture to "
+                             "sample by hand.";
+            } else {
+                continue;
+            }
+            ShaderIssue i;
+            i.file = material.shader;
+            i.line = line_of(stripped, offset);
+            i.source = line_text(snippet, i.line);
+            i.column = column_of(stripped, offset) + 1;
+            i.message = std::move(message);
+            i.hint = std::move(hint);
+            out.push_back(std::move(i));
+            if (!is_post(material)) break;  // one is enough
         }
     }
     // A declaration with an fa_ name: `<type> fa_x ;|=|[|(|,|)` or #define fa_x.
