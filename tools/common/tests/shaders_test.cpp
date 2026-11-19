@@ -1398,6 +1398,79 @@ TEST_CASE("post material: errors name post() and the post contract; the frequent
     CHECK(r->errors[0].hint.find("PostInput has the fields") != std::string::npos);
 }
 
+TEST_CASE("post material: fa_history is a function of a post material; the mistakes are refused before sokol-shdc with "
+          "a hint") {
+    Project p;
+    p.add_post();
+    FakeShdc shdc;
+    shdc.reflection = fixture("shdc_post_hlsl5_glsl430.yaml");
+    ShaderCompileOptions options;
+    options.setup = shdc.context(p.str());
+    options.dialects = {"hlsl5"};
+
+    // used as a texture
+    p.write("shaders/tint.post.glsl", "void post(in PostInput i, inout PostSurface s) {\n    s.color = "
+                                      "texture(sampler2D(fa_history, x), i.uv);\n}\n");
+    auto r = compile_material(p.str(), "materials/tint.material.json", options);
+    REQUIRE(r.ok());
+    CHECK_FALSE(r->ok);
+    REQUIRE_FALSE(r->errors.empty());
+    CHECK(r->errors[0].message.find("it is a function, not a texture") != std::string::npos);
+    CHECK(r->errors[0].line == 2);
+    CHECK(r->errors[0].hint.find("fa_history(i.uv)") != std::string::npos);
+
+    // the flag called as a function
+    p.write("shaders/tint.post.glsl", "void post(in PostInput i, inout PostSurface s) {\n    if (fa_history_valid()) "
+                                      "s.color = fa_history(i.uv);\n}\n");
+    r = compile_material(p.str(), "materials/tint.material.json", options);
+    REQUIRE(r.ok());
+    CHECK_FALSE(r->ok);
+    REQUIRE_FALSE(r->errors.empty());
+    CHECK(r->errors[0].message.find("it is a value, not a function") != std::string::npos);
+    CHECK(r->errors[0].hint.find("if (fa_history_valid)") != std::string::npos);
+    CHECK(shdc.calls == 0);
+
+    // the names other engines use for the previous frame point at fa_history
+    const std::string guess = "void post(in PostInput i, inout PostSurface s) {\n    s.color = prevFrame;\n}\n";
+    p.write("shaders/tint.post.glsl", guess);
+    const GeneratedShader g =
+        generate_material_shader(read_material(p.str(), "materials/tint.material.json").material, guess);
+    shdc.stderrText =
+        "top.glsl:" + std::to_string(top_line_of(g, 2)) + ":0: error: 'prevFrame' : undeclared identifier\n";
+    r = compile_material(p.str(), "materials/tint.material.json", options);
+    REQUIRE(r.ok());
+    REQUIRE_FALSE(r->errors.empty());
+    CHECK(r->errors[0].hint.find("fa_history(uv)") != std::string::npos);
+    shdc.stderrText.clear();
+
+    // a misspelt helper gets a did-you-mean among the post's engine names
+    const std::string typo = "void post(in PostInput i, inout PostSurface s) {\n    s.color = vec4(fa_histroy);\n}\n";
+    p.write("shaders/tint.post.glsl", typo);
+    const GeneratedShader t =
+        generate_material_shader(read_material(p.str(), "materials/tint.material.json").material, typo);
+    shdc.stderrText =
+        "top.glsl:" + std::to_string(top_line_of(t, 2)) + ":0: error: 'fa_histroy' : undeclared identifier\n";
+    r = compile_material(p.str(), "materials/tint.material.json", options);
+    REQUIRE(r.ok());
+    REQUIRE_FALSE(r->errors.empty());
+    CHECK(r->errors[0].hint.find("fa_history") != std::string::npos);
+    shdc.stderrText.clear();
+
+    // a good call reaches sokol-shdc
+    const int before = shdc.calls;
+    p.write(
+        "shaders/tint.post.glsl",
+        "void post(in PostInput i, inout PostSurface s) {\n    if (fa_history_valid) s.color = fa_history(i.uv);\n}\n");
+    r = compile_material(p.str(), "materials/tint.material.json", options);
+    REQUIRE(r.ok());
+    CHECK(shdc.calls == before + 1);
+}
+
+TEST_CASE("post material: the history view is the one after the material's textures") {
+    CHECK(kMaterialPostHistoryView == kMaterialPostFirstView + kMaterialMaxTextures);
+    CHECK(kMaterialPostHistoryView > kMaterialPostFirstView + 3);
+}
+
 TEST_CASE("post material: compile writes a twin with the post template hash and the program post") {
     Project p;
     p.add_post();
@@ -1803,7 +1876,7 @@ TEST_CASE("compile: errors outside the snippet say so and name the rule; a missi
 
     // the template cannot find a matching surface(): reported at the template, with the signature
     p.write("shaders/gem.surface.glsl", "void surface(in SurfaceInput i) {}\n");
-    shdc.stderrText = "mesh_common.glsl:289:0: error: 'surface' : no matching overloaded function found\n";
+    shdc.stderrText = "mesh_common.glsl:289:0: error: 'surface' : undeclared identifier\n";
     auto r = compile_material(p.str(), "materials/gem.material.json", options);
     REQUIRE(r.ok());
     REQUIRE(r->errors.size() == 1);
@@ -1868,7 +1941,7 @@ TEST_CASE("compile: lighting custom needs light(): the error names the material 
     // a light() with the wrong signature: the template cannot find it, and the error says which signature it wants
     p.write("shaders/toon.surface.glsl", "void surface(in SurfaceInput i, inout Surface s) {}\n"
                                          "vec3 light(in Surface s) { return s.albedo; }\n");
-    shdc.stderrText = "mesh_common.glsl:424:0: error: 'light' : no matching overloaded function found\n";
+    shdc.stderrText = "mesh_common.glsl:424:0: error: 'light' : undeclared identifier\n";
     r = compile_material(p.str(), "materials/toon.material.json", options);
     REQUIRE(r.ok());
     REQUIRE(r->errors.size() == 1);
