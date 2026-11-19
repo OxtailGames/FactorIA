@@ -115,7 +115,7 @@ std::string graph_snippet_hash(std::string_view snippet);
 Json graph_library_json(const std::string& kind, const std::string& category, const std::string& type);
 
 // How the snippet file of the material at `path` (project-relative) stands against its graph: "in_sync", "graph_changed" (the snippet is what the
-// previous graph made), "hand_edited", "unmanaged", "hash_missing" or "missing" (the file does not exist yet): the states of
+// previous graph made), "hand_edited", "unmanaged", "hash_missing", "missing" (the file does not exist yet) or "unreadable" (something is there and cannot be read): the states of
 // material.graph.validate. "" when the material has no graph, cannot be read, or its graph has errors (nothing to compare with).
 std::string material_snippet_state(const std::string& projectDir, const std::string& path);
 

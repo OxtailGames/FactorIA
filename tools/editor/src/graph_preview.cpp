@@ -10,6 +10,7 @@
 #include <thread>
 
 #include "fa/core/fs.h"
+#include "fa/core/strings.h"
 #include "fa/render/renderer.h"
 #include "fa/scene/components.h"
 #include "fa/tooling/material_graph.h"
@@ -129,13 +130,62 @@ struct GraphPreview::Job {
     std::string stageText;  // the material the compile reads
     std::string liveText;   // the material the renderer reads
     std::string stageMaterial, stageSnippet;
+    std::string realMaterial, realSnippet;  // what an error names instead of the stage files
     std::vector<std::string> lineNodes;
     bool ok = false;
     std::string error;
     std::vector<ShaderIssue> issues;
 };
 
+std::string name_real_files(std::string text, const std::string& projectDir, const std::string& stageMaterial,
+                            const std::string& stageSnippet, const std::string& material, const std::string& snippet) {
+    auto replace_all = [&text](const std::string& from, const std::string& to) {
+        if (from.empty()) return;
+        for (std::size_t at = text.find(from); at != std::string::npos; at = text.find(from, at + to.size()))
+            text.replace(at, from.size(), to);
+    };
+    // the absolute form first (it contains the relative one)
+    replace_all(abs_path(projectDir, stageSnippet), snippet);
+    replace_all(abs_path(projectDir, stageMaterial), material);
+    replace_all(stageSnippet, snippet);
+    replace_all(stageMaterial, material);
+    // a message may also name a file by its bare name (the stage files carry the instance's token, nothing else does)
+    auto base = [](const std::string& p) {
+        return p.substr(p.find_last_of('/') == std::string::npos ? 0 : p.find_last_of('/') + 1);
+    };
+    replace_all(base(stageSnippet), snippet);
+    replace_all(base(stageMaterial), material);
+    return text;
+}
+
+int GraphPreview::remove_stale_stage_files(const std::string& projectDir, int olderThanSeconds) {
+    constexpr int kLookAt = 5000;  // entries; a work count, not a time
+    const stdfs::path dir = fs::path_from_utf8(projectDir) / fs::path_from_utf8(kDir);
+    std::error_code ec;
+    stdfs::directory_iterator it(dir, ec);
+    if (ec) return 0;
+    const auto limit = stdfs::file_time_type::clock::now() - std::chrono::seconds(olderThanSeconds);
+    std::vector<stdfs::path> old;  // collected first: the listing is not changed while it is read
+    int seen = 0;
+    for (const stdfs::directory_iterator end; it != end && seen < kLookAt; it.increment(ec), ++seen) {
+        if (ec) break;
+        const std::string name = fs::path_to_utf8(it->path().filename());
+        const bool stage = name.rfind("stage-", 0) == 0 || name.rfind("saved-stage-", 0) == 0;
+        if (!stage || !(ends_with(name, ".material.json") || ends_with(name, ".surface.glsl"))) continue;
+        std::error_code e;
+        const auto time = stdfs::last_write_time(it->path(), e);
+        if (!e && time <= limit) old.push_back(it->path());
+    }
+    int removed = 0;
+    for (const stdfs::path& p : old) {
+        std::error_code e;
+        if (stdfs::remove(p, e) && !e) ++removed;  // open elsewhere: left, the next editor tries again
+    }
+    return removed;
+}
+
 GraphPreview::GraphPreview(std::string projectDir) : projectDir_(std::move(projectDir)) {
+    remove_stale_stage_files(projectDir_);
     // A token for this instance: a counter (two previews of one process) and the clock (another editor process on the same project).
     static std::atomic<unsigned> instances{0};
     const std::string token =
@@ -424,6 +474,10 @@ void GraphPreview::start(Slot& s, Renderer* renderer) {
     job->lineNodes = report.lineNodes;
     job->stageMaterial = s.stageMaterial;
     job->stageSnippet = s.stageSnippet;
+    job->realMaterial = path_.empty() ? std::string("the material") : path_;
+    job->realSnippet = s.doc.is_object() && s.doc.contains("shader") && s.doc["shader"].is_string()
+                           ? s.doc["shader"].get<std::string>()
+                           : std::string("the shader snippet");
     job->stageText = preview_material(s.doc, s.stageSnippet).dump(2) + "\n";
     job->liveText = preview_material(s.doc, s.liveSnippet).dump(2) + "\n";
     s.job = job;
@@ -471,6 +525,13 @@ void GraphPreview::start(Slot& s, Renderer* renderer) {
         } catch (...) {
             job->ok = false;
             job->error = "The preview compile failed with an unknown error.";
+        }
+        if (!job->ok) {  // the stage files are gone when this is read: the message names the files the user has
+            job->error = name_real_files(job->error, projectDir, job->stageMaterial, job->stageSnippet,
+                                         job->realMaterial, job->realSnippet);
+            for (ShaderIssue& issue : job->issues)
+                issue.file = name_real_files(issue.file, projectDir, job->stageMaterial, job->stageSnippet,
+                                             job->realMaterial, job->realSnippet);
         }
         // the stage files are this compile's own (their names carry the instance's token): nothing reads them again
         std::error_code rm;
