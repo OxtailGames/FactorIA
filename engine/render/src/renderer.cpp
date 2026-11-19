@@ -115,6 +115,8 @@ CameraInfo Renderer::Impl::build_camera(World& world, Entity best, const Vec2* v
     // The editor's A/B switch (set_post_bypass): the picture as the scene draws it, with no stack, to compare it with the stack on.
     if (!postBypass && (useLegacy || world.any<PostProcess>())) {
         auto stack = std::make_shared<PostStack>(resolve_post_stack(world, ci, useLegacy ? &legacy : nullptr));
+        for (const Error& err : stack->customErrors)
+            if (warnedCustomPass.insert(err.message).second) FA_WARN("render", "{} Hint: {}", err.message, err.hint);
         ci.bloom = bloom_from_stack(*stack);
         ci.colorFilter = stack->has(PostEffect::ColorFilter) ? std::clamp(int(stack->fx.colorFilterMode), 0, 5) : 0;
         if (stack->any()) ci.postStack = std::move(stack);
@@ -928,6 +930,7 @@ void Renderer::Impl::render(World& world, float dt) {
         warnedGradientStops = false;
         warnedCameras = false;
         warnedLegacyIgnored.clear();
+        warnedCustomPass.clear();
     }
 
     struct JobSpec {

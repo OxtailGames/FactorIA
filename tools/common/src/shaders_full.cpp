@@ -1,4 +1,4 @@
-// A mesh material in "full" mode (docs/SHADERS_FULL.md, docs/design/CUSTOM_SHADERS_FULL.md): the shader file holds the vertex and the
+// A mesh material in "full" mode (docs/shaders/SHADERS_FULL.md, docs/design/CUSTOM_SHADERS_FULL.md): the shader file holds the vertex and the
 // fragment stage, each with its own main(), instead of a surface() snippet. This file builds its top file (the same prologue as a
 // snippet material, then one vertex and one fragment program per pass) and checks the file without a compiler.
 #include <algorithm>
@@ -75,28 +75,31 @@ Sections split_sections(const MaterialDef& m, const std::string& src, const std:
             const std::string name = text.substr(first + 1, e - first - 1);
             seen = true;
             const bool tail = text.find_first_not_of(" \t", e) != std::string::npos;
-            Section* s = name == "common" ? &out.common : name == "vertex" ? &out.vertex : name == "fragment" ? &out.fragment : nullptr;
+            Section* s = name == "common"     ? &out.common
+                         : name == "vertex"   ? &out.vertex
+                         : name == "fragment" ? &out.fragment
+                                              : nullptr;
             if (!s) {
                 if (issues)
                     issues->push_back(issue_at(
                         m, src, line, "unknown section `@" + name + "`",
-                        name.empty()
-                            ? "A section starts with a line `@common`, `@vertex` or `@fragment`."
-                            : "A section starts with a line `@common`, `@vertex` or `@fragment`." +
-                                  [&] {
-                                      const std::string best = closest_match(name, section_names());
-                                      return best.empty() ? std::string() : " Did you mean `@" + best + "`?";
-                                  }(),
+                        name.empty() ? "A section starts with a line `@common`, `@vertex` or `@fragment`."
+                                     : "A section starts with a line `@common`, `@vertex` or `@fragment`." +
+                                           [&] {
+                                               const std::string best = closest_match(name, section_names());
+                                               return best.empty() ? std::string() : " Did you mean `@" + best + "`?";
+                                           }(),
                         int(first) + 1));
             } else {
                 if (tail && issues)
                     issues->push_back(issue_at(m, src, line, "`@" + name + "` must be alone on its line",
                                                "Put the code of the section on the lines after it.", int(first) + 1));
                 if (s->present && issues)
-                    issues->push_back(issue_at(m, src, line, "the section `@" + name + "` appears twice",
-                                               "Merge the two into one: a section is the whole code of its stage (line " +
-                                                   std::to_string(s->line) + " is the first).",
-                                               int(first) + 1));
+                    issues->push_back(
+                        issue_at(m, src, line, "the section `@" + name + "` appears twice",
+                                 "Merge the two into one: a section is the whole code of its stage (line " +
+                                     std::to_string(s->line) + " is the first).",
+                                 int(first) + 1));
                 if (open) open->end = pos;
                 if (!s->present) {
                     s->present = true;
@@ -111,10 +114,11 @@ Sections split_sections(const MaterialDef& m, const std::string& src, const std:
         } else if (first != std::string::npos && !open && !seen) {
             seen = true;
             if (issues)
-                issues->push_back(issue_at(m, src, line, "code before the first section",
-                                           "Everything of a full shader lives in a section: write `@common` (shared by both "
-                                           "stages), `@vertex` and `@fragment` on their own lines first.",
-                                           int(first) + 1));
+                issues->push_back(
+                    issue_at(m, src, line, "code before the first section",
+                             "Everything of a full shader lives in a section: write `@common` (shared by both "
+                             "stages), `@vertex` and `@fragment` on their own lines first.",
+                             int(first) + 1));
         }
         pos = nl + 1;
     }
@@ -126,7 +130,7 @@ Sections split_sections(const MaterialDef& m, const std::string& src, const std:
 struct Varying {
     std::string decl;  // "flat vec3 v_n" (the text that must match in both stages)
     std::string type, name;
-    int slots = 1;     // vec4 slots
+    int slots = 1;  // vec4 slots
     std::size_t offset = 0;
 };
 
@@ -140,7 +144,8 @@ int type_slots(const std::string& type) {
 // The `varying` declarations of a piece of the file (comments already blanked), in order. `base` is the offset of the piece in
 // the file, for the line of a report.
 void collect_varyings(const std::string& text, std::size_t base, std::vector<Varying>& out) {
-    static const std::regex re(R"(\b((?:flat|smooth|noperspective)\s+)?varying\s+(\w+)\s+(\w+)\s*(?:\[\s*(\d+)\s*\])?\s*;)");
+    static const std::regex re(
+        R"(\b((?:flat|smooth|noperspective)\s+)?varying\s+(\w+)\s+(\w+)\s*(?:\[\s*(\d+)\s*\])?\s*;)");
     for (auto it = std::sregex_iterator(text.begin(), text.end(), re); it != std::sregex_iterator(); ++it) {
         Varying v;
         std::string qualifier = (*it)[1].str();
@@ -169,9 +174,9 @@ const std::vector<std::string>& provided_names() {
         "fa_position", "fa_normal", "fa_texcoord0", "fa_tangent", "fa_color", "fa_model", "fa_view_proj", "fa_light_vp",
         "fa_uv_scale", "fa_world_position", "fa_world_direction", "fa_shadow_coord",
         // fragment stage
-        "fa_frag_color", "fa_tex", "fa_smp", "fa_base_sample", "fa_base_color", "fa_camera_pos", "fa_ambient", "fa_emissive",
-        "fa_env_sky", "fa_env_horizon", "fa_shadow", "fa_light_count", "fa_light", "fa_apply_fog", "fa_srgb_to_linear",
-        "fa_linear_to_srgb",
+        "fa_frag_color", "fa_tex", "fa_smp", "fa_base_sample", "fa_base_color", "fa_camera_pos", "fa_ambient",
+        "fa_emissive", "fa_env_sky", "fa_env_horizon", "fa_shadow", "fa_light_count", "fa_light", "fa_apply_fog",
+        "fa_srgb_to_linear", "fa_linear_to_srgb",
         // macros
         "FA_TIME", "FA_CAMERA", "FA_PASS", "FA_SKIN", "FA_SHADOW_PASS"};
     return names;
@@ -206,13 +211,16 @@ std::vector<ShaderIssue> precheck_full(const MaterialDef& m, const std::string& 
     const Sections sec = split_sections(m, source, stripped, &out);
     auto add = [&](ShaderIssue i) { out.push_back(std::move(i)); };
     if (!sec.vertex.present)
-        add(issue_at(m, source, 0, "the file has no `@vertex` section",
-                     "Add a line `@vertex` followed by the code of the vertex stage: `void main() { gl_Position = fa_view_proj * "
-                     "vec4(fa_world_position(fa_position), 1.0); }`. Both stages are needed, docs/SHADERS_FULL.md."));
+        add(issue_at(
+            m, source, 0, "the file has no `@vertex` section",
+            "Add a line `@vertex` followed by the code of the vertex stage: `void main() { gl_Position = fa_view_proj "
+            "* "
+            "vec4(fa_world_position(fa_position), 1.0); }`. Both stages are needed, docs/shaders/SHADERS_FULL.md."));
     if (!sec.fragment.present)
-        add(issue_at(m, source, 0, "the file has no `@fragment` section",
-                     "Add a line `@fragment` followed by the code of the fragment stage: `void main() { fa_frag_color = "
-                     "vec4(1.0); }`."));
+        add(issue_at(
+            m, source, 0, "the file has no `@fragment` section",
+            "Add a line `@fragment` followed by the code of the fragment stage: `void main() { fa_frag_color = "
+            "vec4(1.0); }`."));
     static const std::regex mainRe(R"(\bvoid\s+main\s*\()");
     auto check_main = [&](const Section& s, const char* what, const char* example) {
         if (!s.present) return;
@@ -227,15 +235,18 @@ std::vector<ShaderIssue> precheck_full(const MaterialDef& m, const std::string& 
     check_main(sec.fragment, "fragment", "fa_frag_color = vec4(1.0);");
     // A main() in @common would be defined twice, once per stage, and the engine's own main would clash with it.
     if (sec.common.present && std::regex_search(piece(stripped, sec.common), mainRe))
-        add(issue_at(m, source, sec.common.line, "the `@common` section defines `main()`",
-                     "Each stage has its own main(): move it to `@vertex` or `@fragment`. `@common` holds what both share "
-                     "(constants, structs, helper functions, `varying` declarations)."));
+        add(issue_at(
+            m, source, sec.common.line, "the `@common` section defines `main()`",
+            "Each stage has its own main(): move it to `@vertex` or `@fragment`. `@common` holds what both share "
+            "(constants, structs, helper functions, `varying` declarations)."));
     if (sec.vertex.present && stripped.find("gl_Position") == std::string::npos)
         add(issue_at(m, source, sec.vertex.line, "the vertex stage never writes gl_Position",
-                     "Write the clip-space position: `gl_Position = fa_view_proj * vec4(fa_world_position(fa_position), 1.0);`."));
+                     "Write the clip-space position: `gl_Position = fa_view_proj * "
+                     "vec4(fa_world_position(fa_position), 1.0);`."));
     if (sec.fragment.present && stripped.find("fa_frag_color") == std::string::npos)
         add(issue_at(m, source, sec.fragment.line, "the fragment stage never writes fa_frag_color",
-                     "Write the colour of the fragment (linear, premultiplied by nothing): `fa_frag_color = vec4(color, 1.0);`."));
+                     "Write the colour of the fragment (linear, premultiplied by nothing): `fa_frag_color = "
+                     "vec4(color, 1.0);`."));
 
     // The varyings: sokol-shdc links the stages by position, so both must declare the same list.
     std::vector<Varying> vs, fs;
@@ -248,32 +259,36 @@ std::vector<ShaderIssue> precheck_full(const MaterialDef& m, const std::string& 
     for (std::size_t i = 0; i < common && !mismatch; ++i) {
         if (vs[i].decl == fs[i].decl) continue;
         mismatch = true;
-        add(issue_at(m, source, line_of(source, fs[i].offset),
-                     "the fragment stage declares `varying " + fs[i].decl + "` as varying " + std::to_string(i + 1) +
-                         ", but the vertex stage declares `varying " + vs[i].decl + "` there (line " +
-                         std::to_string(line_of(source, vs[i].offset)) + ")",
-                     "A varying links the stages by its position in the list: declare the same varyings, with the same types, "
-                     "in the same order in `@vertex` and `@fragment`, or declare each once in `@common` (both stages include it)."));
+        add(issue_at(
+            m, source, line_of(source, fs[i].offset),
+            "the fragment stage declares `varying " + fs[i].decl + "` as varying " + std::to_string(i + 1) +
+                ", but the vertex stage declares `varying " + vs[i].decl + "` there (line " +
+                std::to_string(line_of(source, vs[i].offset)) + ")",
+            "A varying links the stages by its position in the list: declare the same varyings, with the same types, "
+            "in the same order in `@vertex` and `@fragment`, or declare each once in `@common` (both stages include "
+            "it)."));
     }
     if (!mismatch && vs.size() != fs.size()) {
         const bool fragMore = fs.size() > vs.size();
         const Varying& extra = fragMore ? fs[vs.size()] : vs[fs.size()];
-        add(issue_at(m, source, line_of(source, extra.offset),
-                     std::string("the ") + (fragMore ? "fragment" : "vertex") + " stage declares `varying " + extra.decl +
-                         "`, which the " + (fragMore ? "vertex" : "fragment") + " stage does not (" + std::to_string(vs.size()) +
-                         " varyings in the vertex stage, " + std::to_string(fs.size()) + " in the fragment stage)",
-                     "Both stages must declare the same varyings in the same order, even one the fragment stage does not read: "
-                     "declare each once in `@common` and both agree."));
+        add(issue_at(
+            m, source, line_of(source, extra.offset),
+            std::string("the ") + (fragMore ? "fragment" : "vertex") + " stage declares `varying " + extra.decl +
+                "`, which the " + (fragMore ? "vertex" : "fragment") + " stage does not (" + std::to_string(vs.size()) +
+                " varyings in the vertex stage, " + std::to_string(fs.size()) + " in the fragment stage)",
+            "Both stages must declare the same varyings in the same order, even one the fragment stage does not read: "
+            "declare each once in `@common` and both agree."));
     }
     int slots = 0;
     for (const Varying& v : vs) slots += v.slots;
     if (slots > kMaterialMaxVaryings)
-        add(issue_at(m, source, vs.empty() ? 0 : line_of(source, vs.back().offset),
-                     "the stages declare " + std::to_string(slots) + " varying vec4 slots, at most " +
-                         std::to_string(kMaterialMaxVaryings) + " fit",
-                     "OpenGL ES 3 and WebGL 2 guarantee 16 vec4 varyings and the engine keeps some for the instance data and the "
-                     "shadow coordinate. Pack values into fewer varyings (two vec2 into one vec4), or compute them in the "
-                     "fragment stage. A matrix takes one slot per column."));
+        add(issue_at(
+            m, source, vs.empty() ? 0 : line_of(source, vs.back().offset),
+            "the stages declare " + std::to_string(slots) + " varying vec4 slots, at most " +
+                std::to_string(kMaterialMaxVaryings) + " fit",
+            "OpenGL ES 3 and WebGL 2 guarantee 15 vec4 varyings and the engine's three flat instance varyings take "
+            "the other three. Pack values into fewer varyings (two vec2 into one vec4), or compute them in the "
+            "fragment stage. A matrix takes one slot per column."));
 
     // Reserved names: anything starting with fa_ or FA_ that the template does not document is the engine's.
     {
@@ -281,19 +296,20 @@ std::vector<ShaderIssue> precheck_full(const MaterialDef& m, const std::string& 
         std::set<std::string> passMacros;
         for (std::size_t i = 0; i < m.passes.size(); ++i) passMacros.insert("FA_PASS_" + upper(m.passes[i].name));
         std::set<std::string> reported;
-        for (auto it = std::sregex_iterator(stripped.begin(), stripped.end(), nameRe); it != std::sregex_iterator(); ++it) {
+        for (auto it = std::sregex_iterator(stripped.begin(), stripped.end(), nameRe); it != std::sregex_iterator();
+             ++it) {
             const std::string name = it->str();
             if (reported.count(name) || passMacros.count(name)) continue;
             if (std::find(provided_names().begin(), provided_names().end(), name) != provided_names().end()) continue;
             reported.insert(name);
             const int line = line_of(source, std::size_t(it->position(0)));
             const std::string best = closest_match(name, provided_names());
-            add(issue_at(m, source, line,
-                         "`" + name + "` is not a name a full shader may use",
+            add(issue_at(m, source, line, "`" + name + "` is not a name a full shader may use",
                          "Names starting with fa_ or FA_ belong to the engine: a full shader may use only the ones "
-                         "docs/SHADERS_FULL.md lists" +
+                         "docs/shaders/SHADERS_FULL.md lists" +
                              (best.empty() ? std::string(". Rename it without the prefix.")
-                                           : std::string(" (did you mean `") + best + "`?). Rename your own names without the prefix."),
+                                           : std::string(" (did you mean `") + best +
+                                                 "`?). Rename your own names without the prefix."),
                          column_of(source, std::size_t(it->position(0))) + 1));
         }
     }
@@ -346,7 +362,8 @@ GeneratedShader generate_full_shader(const MaterialDef& material, std::string_vi
     std::string programs;
     auto stage_head = [&](int pass, bool skinned, bool shadow) {
         std::string d = "#define FA_PASS " + std::to_string(pass) + "\n";
-        if (pass < int(material.passes.size())) d += "#define FA_PASS_" + upper(material.passes[std::size_t(pass)].name) + " 1\n";
+        if (pass < int(material.passes.size()))
+            d += "#define FA_PASS_" + upper(material.passes[std::size_t(pass)].name) + " 1\n";
         if (skinned) d += "#define FA_SKIN\n";
         if (shadow) d += "#define FA_SHADOW_PASS\n";
         return d;
@@ -373,8 +390,8 @@ GeneratedShader generate_full_shader(const MaterialDef& material, std::string_vi
         vertex_program("fvs_" + plain, p, false, false);
         vertex_program("fvs_" + skin, p, true, false);
         fragment_program("ffs_" + plain, p, false);
-        programs += "@program " + plain + " fvs_" + plain + " ffs_" + plain + "\n@program " + skin + " fvs_" + skin + " ffs_" +
-                    plain + "\n";
+        programs += "@program " + plain + " fvs_" + plain + " ffs_" + plain + "\n@program " + skin + " fvs_" + skin +
+                    " ffs_" + plain + "\n";
         g.programs.push_back(plain);
         g.programs.push_back(skin);
     }
@@ -397,7 +414,8 @@ GeneratedShader generate_full_shader(const MaterialDef& material, std::string_vi
     g.stateKey = full_twin_fields(material).dump();
     const InstanceLayout instLayout = instance_layout(material.params);
     if (instLayout.vec4Count > 0) g.defines.push_back("FA_INST_" + std::to_string(std::min(instLayout.vec4Count, 3)));
-    for (const std::string& a : material.vertexAttributes) g.defines.push_back(a == "uv1" ? "FA_CH_UV1" : "FA_CH_COLOR1");
+    for (const std::string& a : material.vertexAttributes)
+        g.defines.push_back(a == "uv1" ? "FA_CH_UV1" : "FA_CH_COLOR1");
     return g;
 }
 

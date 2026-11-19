@@ -31,6 +31,7 @@
 #include "renderer_ssr.h"
 #include "renderer_dof.h"
 #include "renderer_fog.h"
+#include "renderer_custom_post.h"
 #include "hdr_encode.h"
 #include "postprocess.h"
 #include "render_features.h"
@@ -91,7 +92,9 @@ struct Renderer::Impl {
     SceneFx
         sceneFx;  // depth of field and motion blur (renderer_dof.h): its shaders, pipelines and the autofocus of each camera
     FogFx fogFx;  // distance and height fog and sun shafts (renderer_fog.h): its shaders and pipelines
-    Bloom bloom;  // Camera.bloom post-process (its levels are transients of the frame graph, see bloom.h)
+    CustomPost
+        customPost;  // the passes of PostProcess.customPasses (renderer_custom_post.h): the intermediate images it probed
+    Bloom bloom;     // Camera.bloom post-process (its levels are transients of the frame graph, see bloom.h)
     // Camera.colorFilter: the filtered copy of the finished frame. A pass cannot read what it writes, so the filter
     // draws into this second image (made on first use) and present(), capture() and the editor viewport show it
     // while `filterActive` (the last frame was filtered).
@@ -179,10 +182,17 @@ struct Renderer::Impl {
     // hit tests ask these (camera_for), so an answer never depends on alpha. Empty = lastCams.
     std::vector<CameraInfo> logicCams;
     bool warnedNoLight = false;
+    // SceneSettings.skyMaterial: the last material that could not draw the sky and was reported (one log line per material).
+    std::string warnedSkyMaterial;
+    // The sprite materials whose batches were skipped because their instanced layout changed after a hot reload (one log line each).
+    std::unordered_set<std::string> warnedSpriteInstLayout;
+    MaterialAsset* sky_material(const SceneSettings& ss);
     std::string
         warnedViewport;  // the last "bad Camera.viewport" problem logged (a viewport a script sets live is clamped)
     std::unordered_set<std::uint64_t>
-        warnedLegacyIgnored;     // cameras whose Camera.bloom/colorFilter a PostProcess of their own hides
+        warnedLegacyIgnored;  // cameras whose Camera.bloom/colorFilter a PostProcess of their own hides
+    std::unordered_set<std::string>
+        warnedCustomPass;        // the problems of PostProcess.customPasses entries already logged (once per scene)
     bool postBypass = false;     // Renderer::set_post_bypass: draw without any post-processing stack (the editor's A/B)
     bool warnedCameras = false;  // the "more cameras than the limit" warning, once per scene
     bool warnedLights2d = false;       // the "more Light2D in view than the budget" warning, once per scene
@@ -229,6 +239,8 @@ struct Renderer::Impl {
     bool updated = false;  // update() ran since the last draw
     ScaleMode scaleMode = ScaleMode::Fit;
     std::vector<Vertex2D> stream;
+    std::vector<float>
+        instStream;  // the instanced values of the sprite-material batches of `stream`, per vertex (QuadBatch::instFirst)
 
     // The image a CameraView shows (ui2d.cpp, draw_camera_view): the camera is drawn into it before the frame's own jobs. One per
     // widget, made when a gather asks for it with a size and kept while the widget keeps asking; the ones nobody asked for in a

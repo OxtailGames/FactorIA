@@ -1547,10 +1547,10 @@ void Editor::open_screenshots_folder() {
 // Layout and top-level UI
 // The panels that can be closed, in the order of the saved mask. The dock layout itself is saved by ImGui in the same ini file.
 int Editor::panels_mask() const {
-    const bool flags[] = {showViewport_,  showHierarchy_, showInspector_, showConsole_,  showProject_,
-                          showAi_,        showFeedback_,  showAudio_,     showProfiler_, showAnimation_,
-                          showBoneTools_, showImage_,     showVector_,    showSound_,    showMusic_,
-                          showModeler_,   showParticle_,  showLevelGen_,  showPostFx_,   showGraph_};
+    const bool flags[] = {
+        showViewport_, showHierarchy_, showInspector_, showConsole_,   showProject_, showAi_,     showFeedback_,
+        showAudio_,    showProfiler_,  showAnimation_, showBoneTools_, showImage_,   showVector_, showSound_,
+        showMusic_,    showModeler_,   showParticle_,  showLevelGen_,  showPostFx_,  showGraph_,  showSceneSettings_};
     int mask = 0;
     for (std::size_t i = 0; i < std::size(flags); ++i)
         if (flags[i]) mask |= 1 << i;
@@ -1558,10 +1558,11 @@ int Editor::panels_mask() const {
 }
 
 void Editor::set_panels_mask(int mask) {
-    bool* flags[] = {&showViewport_,  &showHierarchy_, &showInspector_, &showConsole_,  &showProject_,
-                     &showAi_,        &showFeedback_,  &showAudio_,     &showProfiler_, &showAnimation_,
-                     &showBoneTools_, &showImage_,     &showVector_,    &showSound_,    &showMusic_,
-                     &showModeler_,   &showParticle_,  &showLevelGen_,  &showPostFx_,   &showGraph_};
+    bool* flags[] = {&showViewport_,     &showHierarchy_, &showInspector_, &showConsole_,  &showProject_,
+                     &showAi_,           &showFeedback_,  &showAudio_,     &showProfiler_, &showAnimation_,
+                     &showBoneTools_,    &showImage_,     &showVector_,    &showSound_,    &showMusic_,
+                     &showModeler_,      &showParticle_,  &showLevelGen_,  &showPostFx_,   &showGraph_,
+                     &showSceneSettings_};
     for (std::size_t i = 0; i < std::size(flags); ++i) *flags[i] = (mask >> i) & 1;
 }
 
@@ -1761,6 +1762,7 @@ void Editor::build_ui() {
             sound_.player->stop();
         if (showParticle_) draw_particle_panel();
         if (showGraph_) draw_graph_panel();
+        if (showSceneSettings_) draw_scene_settings_panel();
         if (showMusic_)
             draw_music_panel();
         else if (music_.preview && music_.preview->playing())

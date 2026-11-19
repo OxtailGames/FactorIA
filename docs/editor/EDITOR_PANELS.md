@@ -259,6 +259,27 @@ number (volume, pan, a repeat) is one edit when the mouse is released, not one p
 Undo and Redo through the editor's stack, clicks a snare into the drum grid, raises a section's repeat and mutes a track in the mixer (each one undo step), plays and
 checks that the playhead moves, fades the top layer in and out with the Intense and Calm buttons, loops a section, and saves (the mix and the stems exist).
 
+## Scene settings panel
+
+View > Scene settings opens a window with the settings of the open scene, the ones the file keeps under `settings` and the
+Inspector never shows because they belong to no entity (`SceneSettings`, listed by `docs.components`). The fields come from the
+component's reflection, in groups (Sky, Fog, Lighting, Physics, Music, Output; a field added to `SceneSettings` later lands in
+"Other" and is never hidden), each with its doc as a tooltip, drawn by the same widgets as the Inspector.
+
+- **Sky material.** `skyMaterial` is a picker of the project's `*.material.json` files. Under it the panel says what the material is
+  (a sky one, another kind that cannot draw the sky, a file that cannot be read, a build error the renderer reported) and, for a sky
+  material, shows one control per param typed by `material.info`, each with a Reset that removes its override
+  ([SHADERS.md](../SHADERS.md), "Sky materials"). The reflections and the ambient light of the meshes keep following `skyColor` and `horizonColor`.
+- **Reset.** A field that differs from its default shows a **Reset** next to it; one click writes the default back.
+- **Undo.** Every edit is `scene.set_component` on `SceneSettings` (no `id`; `skyMaterialParams` merges), so it is ONE step of the
+  editor's Undo and Redo in order with the other panels' edits (a drag of a colour or a number is one step), and a refused value
+  (a wrong type, an unknown setting) changes nothing and leaves no step. An AI or a script calls the same command.
+
+**Autotest.** Section Q3 of `fa_editor_autotest` (at 1024x642 too) opens the panel from the menu, picks a sky material, sees its params
+typed, sets one and takes it back with the param's Reset, takes the material back with the field's Reset, walks the four steps back
+with Undo and forward with Redo, and checks that a refused value leaves no step. The panel's rules (`scene_settings_model.*`) have
+unit tests in `scene_settings_tests.cpp`.
+
 ## Graph panel
 
 View > Graph opens the Graph panel, which edits the node graph of ONE `*.material.json` ([SHADERS.md](../SHADERS.md), "Node graphs"). Open a material in it by

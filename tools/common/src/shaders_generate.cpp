@@ -109,7 +109,7 @@ const std::vector<std::string>& template_file_names(const std::string& kind) {
         // FA_TEMPLATE_FILES_MESH_FULL); mesh_common.glsl is in both lists, so a change to it makes both hashes change.
         {"mesh-full", {"mesh_common.glsl", "mesh_full_common.glsl"}},
         {"sprite", {"color_space.glsl", "light_shadow.glsl", "quad_common.glsl"}},
-        {"sky", {"sky_common.glsl"}},
+        {"sky", {"color_space.glsl", "sky_common.glsl"}},
         {"post", {"post_common.glsl"}},
         {"compute", {"compute_common.glsl"}}};
     static const std::vector<std::string> none;
@@ -317,26 +317,20 @@ void scan_globals(const std::string& text, NameSet& out) {
 const std::set<std::string, std::less<>>& template_globals(const std::string& kind) {
     // The names the template of a kind declares at the top level of its program, unprefixed (the prefixed ones are covered
     // by the fa_ rule): a param or texture with one of them would redefine it. Derived from the bundled template so the
-    // list cannot drift. Only the sprite template has any: its snippet is spliced into a program whose inputs, varyings and
+    // list cannot drift. Only the sprite, sky and post templates have any: their snippet is spliced into a program whose inputs, varyings and
     // helpers are not prefixed (the mesh template keeps its own names out of the snippet's way by other means).
     static const std::map<std::string, NameSet> byKind = [] {
         std::map<std::string, NameSet> result;
-        NameSet sprite;
-        for (const auto& [name, content] : template_files("sprite")) scan_globals(blank_comments(content), sprite);
-        result["sprite"] = std::move(sprite);
+        for (const char* kind : {"sprite", "sky", "post"}) {
+            NameSet names;
+            for (const auto& [name, content] : template_files(kind)) scan_globals(blank_comments(content), names);
+            result[kind] = std::move(names);
+        }
         return result;
     }();
     static const NameSet none;
     auto it = byKind.find(kind);
     return it == byKind.end() ? none : it->second;
-}
-
-bool kind_is_compiled(const std::string& kind) { return kind == "mesh" || kind == "sprite" || kind == "compute"; }
-
-std::string kind_refusal(const std::string& kind) {
-    // Sprite is compiled (M72.1); sky is the other half of M72.1.
-    const char* package = kind == "post" ? "M72.2" : "M72.1";
-    return "kind \"" + kind + "\" is not compiled yet: " + kind + " materials arrive with " + package;
 }
 
 }  // namespace shaders_detail
@@ -475,7 +469,7 @@ std::string block_members(const std::vector<MaterialParam>& params) {
 namespace shaders_detail {
 
 std::string material_prologue(const MaterialDef& material, std::string& vsUndefs) {
-    const bool sprite = material.kind == "sprite";
+    const bool sprite = material.kind == "sprite", sky = material.kind == "sky", post = material.kind == "post";
     std::string text;
     auto gen = [&text](const std::string& piece) { text += piece; };
     // The params of the uniform block (one value per draw) and the instanced ones (a value per instance, read from the instance
@@ -516,21 +510,26 @@ std::string material_prologue(const MaterialDef& material, std::string& vsUndefs
         material.vertexAttributes.end())
         gen("#ifdef GL_VERTEX_SHADER\nvec4 vertex_color1;\n#endif\n");
     std::string vsDefines, vsDecls, fsDecls;
-    if (sprite) {
-        // A sprite material's textures are declared once, in the fragment stage (views 4.., samplers 3..): the 2D pipeline binds
-        // no vertex-stage views, so vertex() cannot sample one (the compiler's precheck says so).
-        int view = kMaterialSpriteFirstView, sampler = kMaterialSpriteFirstSampler;
+    if (sky || post) {
+        // A sky material has no vertex() and no engine texture: its textures are declared once, in the fragment stage, at views 0..
+        // and samplers 0... A post material's are views 2.. and samplers 2..: its pass is a full-screen triangle whose vertex stage has
+        // no material.
+        int view = sky ? kMaterialSkyFirstView : kMaterialPostFirstView;
+        int sampler = sky ? kMaterialSkyFirstSampler : kMaterialPostFirstSampler;
         for (const MaterialTexture& tex : material.textures)
             gen("layout(binding=" + std::to_string(view++) + ") uniform texture2D " + tex.name +
                 ";\nlayout(binding=" + std::to_string(sampler++) + ") uniform sampler " + tex.name + "_smp;\n");
     } else {
-        // A mesh material's texture is declared once per stage: a sokol view or sampler slot belongs to one stage, and sokol-shdc refuses one name
-        // in both. The fragment stage reads it at view 6.. and sampler 2.., the vertex stage (where the #define renames it for the
-        // snippet, so the author writes `height` in both) at view 10.. and sampler 6... A declaration the stage does not use is not
-        // part of its program, so the runtime binds both slots (renderer_draw.cpp bind_textures) and each program takes what it
-        // declares.
-        int view = kMaterialFsFirstView, sampler = kMaterialFsFirstSampler;
-        int vsView = kMaterialVsFirstView, vsSampler = kMaterialVsFirstSampler;
+        // A mesh or sprite material's texture is declared once per stage: a sokol view or sampler slot belongs to one stage, and sokol-shdc
+        // refuses one name in both. A mesh's fragment stage reads it at view 6.. and sampler 2.., a sprite's at view 4.. and sampler 3..
+        // (after the engine's own); the vertex stage (where the #define renames it for the snippet, so the author writes `height` in both)
+        // reads it at the slots after those (mesh: view 10.., sampler 6..; sprite: view 8.., sampler 7..). A declaration the stage does
+        // not use is not part of its program, so the runtime binds both slots (renderer_draw.cpp bind_textures, draw_group) and each
+        // program takes what it declares.
+        int view = sprite ? kMaterialSpriteFirstView : kMaterialFsFirstView;
+        int sampler = sprite ? kMaterialSpriteFirstSampler : kMaterialFsFirstSampler;
+        int vsView = sprite ? kMaterialSpriteVsFirstView : kMaterialVsFirstView;
+        int vsSampler = sprite ? kMaterialSpriteVsFirstSampler : kMaterialVsFirstSampler;
         for (const MaterialTexture& tex : material.textures) {
             vsDefines += "#define " + tex.name + " fa_vs_" + tex.name + "\n#define " + tex.name + "_smp fa_vs_" +
                          tex.name + "_smp\n";
@@ -552,12 +551,18 @@ GeneratedShader generate_material_shader(const MaterialDef& material, std::strin
     if (material.full) return generate_full_shader(material, snippetText);
     GeneratedShader g;
     g.kind = material.kind;
-    const bool sprite = material.kind == "sprite";
-    const bool clip = material.alphaMode == "clip";
+    const bool sprite = material.kind == "sprite", sky = material.kind == "sky", post = material.kind == "post";
+    // A post material has no alpha test and no light(): parse_material refuses the keys that ask for them.
+    const bool clip = material.alphaMode == "clip" && !post;
     const std::string src = normalize_snippet(snippetText);
-    const bool custom =
-        !sprite && material.lighting == "custom";  // a sprite has no light(): it is lit by the 2D pipeline
-    const std::vector<Function> fns = find_entry_points(blank_comments(src), sprite ? "fragment" : "surface", custom);
+    // Only a mesh has light(): a sprite is lit by the 2D pipeline, a sky and a post pass are not lit.
+    const bool custom = material.kind == "mesh" && material.lighting == "custom";
+    const std::vector<Function> fns = find_entry_points(blank_comments(src),
+                                                        sprite ? "fragment"
+                                                        : sky  ? "sky"
+                                                        : post ? "post"
+                                                               : "surface",
+                                                        custom);
     for (const Function& f : fns) {
         g.hasVertex = g.hasVertex || f.isVertex;
         g.hasSurface = g.hasSurface || f.isSurface;
@@ -583,9 +588,18 @@ GeneratedShader generate_material_shader(const MaterialDef& material, std::strin
     t.snippet(src, pos, src.size());
     // The shims stop at the snippet: the engine's own vertex code below sees the real texture() and discard.
     t.generated("#ifdef GL_VERTEX_SHADER\n#undef texture\n#undef discard\n" + vsUndefs + "#endif\n");
-    t.generated(sprite ? "@end\n@include quad_common.glsl\n" : "@end\n@include mesh_common.glsl\n");
+    t.generated(post     ? "@end\n@include post_common.glsl\n"
+                : sky    ? "@end\n@include sky_common.glsl\n"
+                : sprite ? "@end\n@include quad_common.glsl\n"
+                         : "@end\n@include mesh_common.glsl\n");
 
-    if (sprite) {
+    if (post) {
+        g.programs = {"post"};
+        t.generated("@program post vs fs\n");
+    } else if (sky) {
+        g.programs = {"sky"};
+        t.generated("@program sky vs fs\n");
+    } else if (sprite) {
         // quad: every mode; quad_plain: the lean program of a batch of plain textured quads (the renderer picks one per batch).
         g.programs = {"quad", "quad_plain"};
         t.generated("@program quad vs fs\n@program quad_plain vs fs_plain\n");
@@ -603,11 +617,12 @@ GeneratedShader generate_material_shader(const MaterialDef& material, std::strin
         g.programs.push_back("prepass_skin");
         t.generated("@program prepass prepass_vs prepass_fs\n@program prepass_skin prepass_vs_skin prepass_fs\n");
     }
-    if (g.hasVertex) g.defines.push_back("FA_HAS_VERTEX");
+    if (g.hasVertex && !sky && !post)
+        g.defines.push_back("FA_HAS_VERTEX");  // a sky and a post pass have no vertex(): the precheck refuses one
     if (custom) g.defines.push_back("FA_CUSTOM_LIGHT");
     if (custom && g.hasAmbient) g.defines.push_back("FA_HAS_AMBIENT");
     // A sprite is blended by the engine: alphaMode "clip" (the mesh template's alpha test) adds nothing to it.
-    if (clip && !sprite) g.defines.push_back("FA_ALPHA_CLIP");
+    if (clip && material.kind == "mesh") g.defines.push_back("FA_ALPHA_CLIP");
     // The instance data and the declared mesh channels (the template declares the matching vertex attributes after the
     // instance matrix, see mesh_common.glsl): flags, since a #define inside fa_user would come after the declarations.
     if (instLayout.vec4Count > 0) g.defines.push_back("FA_INST_" + std::to_string(std::min(instLayout.vec4Count, 3)));

@@ -10,6 +10,7 @@
 #include "fa/render/renderer.h"
 #include "fa/scene/camera_query.h"
 #include "fa/scene/postprocess.h"
+#include "postfx_custom.h"
 
 namespace fa::editor {
 
@@ -134,6 +135,54 @@ void Editor::at_section_G2(AtScript& at) {
         at_check(undo_depth() == *depth0, "three undos take the three steps back");
         at_check((p != nullptr) == *hadPost && (!p || (!p->bloomEnabled && !p->tonemapEnabled)),
                  "...and the camera is as it was before the panel: no stack");
+        pendingFocus_ = "Post-processing";
+    });
+
+    // Custom passes (post materials): add through the panel's edit path, open the section, reorder and remove with its buttons,
+    // undo every one. The materials need not exist: the panel lists the entry and says it is skipped.
+    step(3, [this, depth0] {
+        const Json two = custom_pass_add(custom_pass_add(Json::array(), "materials/one.material.json"),
+                                         "materials/two.material.json");
+        at_check(postfx_edit(Json::object({{"customPasses", two}})),
+                 "adding two custom passes from the panel (postprocess.set) is accepted: " + postFx_.error);
+        at_check(undo_depth() == *depth0 + 1, "...as one undo step");
+        pendingFocus_ = "Post-processing";
+    });
+    click("postfx:custom");
+    step(4, [this] {
+        at_check(at_visible("postfx:custom:down:0") && at_visible("postfx:custom:remove:1"),
+                 "the Custom passes section lists both passes with their buttons");
+        at_check(!at_enabled("postfx:custom:up:0") && at_enabled("postfx:custom:down:0"),
+                 "...the first one cannot move up, and can move down");
+        pendingFocus_ = "Post-processing";
+    });
+    click("postfx:custom:down:0");
+    step(4, [this, depth0] {
+        const Entity cam = main_camera(world());
+        const PostProcess* p = cam.is_null() ? nullptr : world().get<PostProcess>(cam);
+        at_check(p && p->customPasses.is_array() && p->customPasses.size() == 2 &&
+                     p->customPasses[0].value("material", std::string()) == "materials/two.material.json",
+                 "Down swaps the two passes");
+        at_check(undo_depth() == *depth0 + 2, "...as one undo step");
+        pendingFocus_ = "Post-processing";
+    });
+    click("postfx:custom:remove:0");
+    step(4, [this, depth0] {
+        const Entity cam = main_camera(world());
+        const PostProcess* p = cam.is_null() ? nullptr : world().get<PostProcess>(cam);
+        at_check(p && p->customPasses.size() == 1 &&
+                     p->customPasses[0].value("material", std::string()) == "materials/one.material.json",
+                 "Remove takes the first pass out of the list");
+        at_check(undo_depth() == *depth0 + 3, "...as one undo step");
+        undo();
+        undo();
+        undo();
+    });
+    step(3, [this, depth0, hadPost] {
+        const Entity cam = main_camera(world());
+        const PostProcess* p = cam.is_null() ? nullptr : world().get<PostProcess>(cam);
+        at_check(undo_depth() == *depth0, "three undos take the custom passes back");
+        at_check((p != nullptr) == *hadPost && (!p || p->customPasses.empty()), "...and the camera has none again");
         pendingFocus_ = "Post-processing";
     });
 
