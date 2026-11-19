@@ -37,7 +37,8 @@ Rules of the hook:
 Every function below can be called from `light()`, `ambient()` and `lighting()` of a `"custom"` material. `surface()` and
 `vertex()` run before the lights are known (and in the shadow and depth passes), so calling one there is an error that says
 where to call it, except the four that only read the sky (`fa_environment`, `fa_env_brdf`, `fa_sky_reflection`,
-`fa_ambient_light`): `surface()` may call those (an `emission` that shows the sky, a clip mask). `lighting()` and its helpers
+`fa_ambient_light`): `surface()` may call those (an `emission` that shows the sky, a clip mask). In the shadow and depth
+passes they read the sky of the previous frame (black in the first one), see "The sky material lights the meshes". `lighting()` and its helpers
 are also compiled in the shadow and depth programs, where the functions answer "no lights", so the snippet compiles; they
 never run there.
 
@@ -151,23 +152,34 @@ it: the engine bakes the sky the material draws into two small cube images, and 
   pi, so a sky of one colour gives that colour). It **replaces** `SceneSettings.ambientLight` for the meshes the sky lights:
   the scene's own ambient is not added to it. `fa_ambient.rgb` keeps being `ambientLight`; write `fa_ambient_light(s.normal)`
   to use the sky's.
-- **What is not changed.** Without a sky material, or for the built-in gradient, nothing changes: the same pixels, the same
-  draw calls, no image made. A failed sky material (drawn as the built-in gradient) lights nothing either. Sprites, the
+- **What is not changed.** Without a sky material the pixels and the draw calls are the same: no pass bakes anything and no
+  environment image is made. A black 1 x 1 cube and its sampler are made at the first mesh draw (it fills the slot the mesh
+  shaders declare), and every mesh draw binds them and every fragment tests one uniform: a bit more work, not none. A failed
+  sky material (drawn as the built-in gradient) lights nothing either. Sprites, the
   `studio` lighting of a camera and the picture of a post material are not lit by it.
 
 **When it is baked again.** The bake is one set of 60 small draws (6 of the sky itself, the rest the filtering). It runs at the
 start of a frame in which any of these changed since the last bake: the material file or its shader (also on hot reload), a
-param or a texture of it, `skyColor`, `horizonColor`, the sun, or the linear-colour setting. A sky that never changes is baked once.
+param or a texture of it, `skyColor`, `horizonColor`, the sun **when `sky()` reads it** (`i.sun_dir` or `fa_sun`), or the
+linear-colour setting. A sky that never changes is baked once. A sun that turns (a day cycle) bakes again in every frame in
+which it moved, 60 passes each time, but only for a sky that reads it: a sky that does not is not baked again, so write a
+sky that follows the sun only when you want its light to follow too.
 A sky whose `sky()` reads `SkyInput.time` (or `fa_time`) is **animated**: it is baked again every `0.1` s of game time (the
 engine clock, so a replay or a fixed step gives the same pictures, and a paused game does not bake), and the bake shows the sky
 as it is at the start of that step, not at the current frame. The meshes follow it with a step of at most `0.1` s, the sky
 you see follows it every frame.
 
+The meshes that read the cubes in the frame in which they are baked see the new sky. The shadow and depth passes (and with them
+the `surface()` of an `alphaMode` `"clip"` material that runs there) come before the bake: a `fa_environment()` or `fa_ambient_light()`
+in `surface()` reads the cubes of the previous frame there, and black in the first frame of a sky. Use them in `light()`,
+`ambient()` or `lighting()` for a result that is always current.
+
 **What it costs.** Measured on Metal (Apple M-series, a small scene; the test "what one bake of the environment costs" in
-`engine/render/tests/render3d_tests.cpp` prints the numbers): a frame that bakes takes about 3.4 ms longer than one that does
-not, of which about 0.6 ms is CPU time recording the 60 passes; a frame with a sky material that does not bake costs the same as
-one without (0.58 ms for both there). A still sky pays it once; an animated one pays about 3.4 ms every 6 frames at 60 fps
-(about 0.6 ms per frame on average), as a spike of one frame. Metal has no GPU timer here, so these are frame times, not pass
+`engine/render/tests/render3d_tests.cpp` prints the numbers): a frame that bakes takes about 2 to 3.5 ms longer than one that does
+not (it varies with what else the machine does), of which about 0.3 to 0.6 ms is CPU time recording the 60 passes; a frame with a sky material that does not bake costs the same as
+one without (0.3 to 0.6 ms for both there; the little work every mesh draw does without a sky is below what that
+measures). A still sky pays the bake once; an animated one pays it every 6 frames at 60 fps (0.3 to 0.6 ms per frame on average),
+as a spike of one frame. Metal has no GPU timer here, so these are frame times, not pass
 times. The Direct3D 11 and OpenGL numbers are not measured yet. Your `sky()` runs on 6 x 128 x 128 pixels in a bake, on top of
 the frame's own sky. The images (the two cubes and the four steps that filter them) take about 2 MB in half floats.
 
