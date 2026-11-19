@@ -610,7 +610,7 @@ bool Renderer::Impl::ensure_hud_target() {
     return true;
 }
 
-// Makes (or keeps) the first `count` (0..2) of the images a final pass cut by custom passes goes through (ldrMid): one cut needs one,
+// Makes (or keeps) the first `count` (0..2) of the images a final pass cut by custom passes goes through (ldrMid, in Gpu::ldr_cut_format): one cut needs one,
 // two or more need both. False (and one logged error) when the GPU cannot make them: the custom passes of the display-referred places
 // are then not drawn. An image nobody asked for for a while is freed (release_idle_ldr_targets).
 bool Renderer::Impl::ensure_ldr_targets(int count) {
@@ -618,13 +618,18 @@ bool Renderer::Impl::ensure_ldr_targets(int count) {
     ldrUsedFrame = frameSerial;
     count = std::min(count, 2);
     bool all = true;
+    // They hold display values: the display format, and a float one when the window is HDR (Gpu::ldr_cut_format). A change of the
+    // output makes them again.
+    const HdrOutputInfo& out = output();
+    const sg_pixel_format format = gpu.ldr_cut_format(out.active && out.encoding != HdrEncoding::Sdr);
     for (int i = 0; i < count; ++i) {
-        if (ldrMid[i].valid()) continue;
+        if (ldrMid[i].valid() && ldrMid[i].format.color == format) continue;
+        destroy_target(ldrMid[i]);
         TargetDesc d;
         d.label = i == 0 ? "post-mid-0" : "post-mid-1";
         d.width = physW;
         d.height = physH;
-        d.colorFormat = gpu.scene_format();
+        d.colorFormat = format;
         ldrMid[i] = make_target(d);
         all = all && ldrMid[i].valid();
     }

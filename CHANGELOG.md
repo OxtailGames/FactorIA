@@ -6,6 +6,17 @@ Older versions, one file per minor version with its patch releases: [0.30](chang
 
 ## Unreleased
 
+- **Post-process materials polish (M72, round 2a):** the images between the pieces of a final pass cut by custom passes
+  are made in the display format, not the scene's (no second sRGB encode, no lost alpha), and in a float format when the
+  window is HDR and the GPU can render it. The cap of 32 custom passes names the first entry left out and says why one that
+  does not parse is not drawn. A material that does not build says what happens to its kind (a post pass is skipped, the sky
+  is drawn as the gradient, `compute.*` commands that name it fail), not "drawn magenta". A history pass the GPU refused is
+  not asked again every frame (it is asked again when the camera's rectangle or the picture format changes), the docs say
+  that a game under about 7.5 fps at 60 Hz starts the history every frame, and `render.reset_post_history` answers an
+  `entity` that is not a string with `invalid_argument` and a hint. New tests: the cut in a split screen, a multisampled
+  frame with a HUD over the final pass, a gamma scene, the trail across a `capture_world`, the budget warning, the refusal,
+  a reload and a shutdown without leaked images. The SSAO 321x181 test shuts its renderer down when a check fails.
+
 - **Graph panel polish (M72):** Save looks at the file first: when it changed on disk since the editor read it, a window asks
   Overwrite, Reload or Cancel instead of replacing it. New graph material publishes the file whole and removes it again if the
   snippet cannot be written. The editor's own writes (a param default, a new param) no longer hide an outside change from the

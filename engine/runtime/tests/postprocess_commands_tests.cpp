@@ -486,6 +486,20 @@ TEST_CASE("render.reset_post_history names the camera it forgets, and says there
     auto r = c.call("render.reset_post_history", Json::parse(R"({"entity":"NoSuchCamera"})"));
     REQUIRE_FALSE(r.ok);
     CHECK(r.error["code"] == "not_found");
+    // An `entity` of another type is an error that says what to pass, not an exception out of the handler.
+    for (const char* bad :
+         {R"({"entity":5})", R"({"entity":["Camera"]})", R"({"entity":{"id":"Camera"}})", R"({"entity":true})"}) {
+        r = c.call("render.reset_post_history", Json::parse(bad));
+        INFO(bad);
+        REQUIRE_FALSE(r.ok);
+        CHECK(r.error["code"] == "invalid_arguments");
+        CHECK(r.error["message"].get<std::string>().find("entity") != std::string::npos);
+        CHECK_FALSE(r.error["hint"].get<std::string>().empty());
+    }
+    r = c.call("render.reset_post_history",
+               Json::parse(R"({"entity":null})"));  // the schema wants a string, or no `entity`
+    REQUIRE_FALSE(r.ok);
+    CHECK(r.error["code"] == "invalid_arguments");
     r = c.call("render.reset_post_history", Json::object());
     if (!r.ok) {
         CHECK(r.error["code"] == "unavailable");

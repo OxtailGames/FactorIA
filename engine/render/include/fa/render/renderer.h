@@ -70,6 +70,14 @@ struct ShadowRowsStats {
 };
 // The images the post passes that read their own output of the frame before (fa_history) hold now, for the render tests.
 int renderer_post_history_images(Renderer& r);
+// The pixel format (sg_pixel_format as an int) of the images the final pass goes through when display-referred custom passes cut it,
+// or 0 while none exists, for the render tests.
+int renderer_ldr_cut_format(Renderer& r);
+// Tests of the history images (renderer_custom_post.h): the budget in bytes (0 = the default); the GPU refusing them (a slot it
+// refused is not asked again every frame); and how many slots were asked of the GPU since the renderer was made.
+void renderer_set_post_history_budget(Renderer& r, std::uint64_t bytes);
+void renderer_refuse_post_history(Renderer& r, bool refuse);
+int renderer_post_history_attempts(Renderer& r);
 ShadowRowsStats renderer_shadow_rows_stats(Renderer& r);
 // Draws the depth and normal prepass as if the camera's stack switched on the effects of `effects` (a mask like PostStack::mask, bit i =
 // PostEffect(i); 0 = as the stack says), for the tests of the prepass: no effect that reads it is drawn yet.
@@ -566,6 +574,10 @@ private:
     friend render::TransientPoolStats render::renderer_transient_stats(Renderer& r);
     friend render::ShadowRowsStats render::renderer_shadow_rows_stats(Renderer& r);
     friend int render::renderer_post_history_images(Renderer& r);
+    friend int render::renderer_ldr_cut_format(Renderer& r);
+    friend void render::renderer_set_post_history_budget(Renderer& r, std::uint64_t bytes);
+    friend void render::renderer_refuse_post_history(Renderer& r, bool refuse);
+    friend int render::renderer_post_history_attempts(Renderer& r);
     friend void render::renderer_force_output(Renderer& r, const HdrOutputInfo* info);
     friend bool render::renderer_read_floats(Renderer& r, bool present, std::vector<float>& out, std::string* error);
     std::unique_ptr<Impl> impl_;

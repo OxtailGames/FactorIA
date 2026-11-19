@@ -179,15 +179,34 @@ void add_custom_passes(PostStack& out, const PostProcess& c, float s, Entity ent
             continue;
         }
         if (out.custom.size() >= std::size_t(4 * kMaxCustomPostPasses)) {  // the volumes together stay bounded
-            const std::string msg = "The custom passes of the camera and its volumes together are limited to " +
-                                    std::to_string(4 * kMaxCustomPostPasses) +
-                                    "; the entries after those are not drawn.";
+            // Name the entries that are dropped: the first one with its material (or why it does not parse either), and every
+            // other one of this component that does not parse with its own pointer and reason.
+            const std::string prefix = "The custom passes of the camera and its volumes together are limited to " +
+                                       std::to_string(4 * kMaxCustomPostPasses) + "; ";
+            const std::size_t dropped = c.customPasses.size() - i;
+            std::string first;
+            std::vector<Error> unparsable;
+            for (std::size_t j = i; j < c.customPasses.size(); ++j) {
+                auto rest = parse_custom_post_pass(c.customPasses[j], "/customPasses/" + std::to_string(j));
+                if (rest.ok()) {
+                    if (j == i) first = " (material '" + rest->material + "')";
+                } else {
+                    if (j == i)
+                        first = " (it does not parse either: " + rest.error().message + ")";
+                    else
+                        unparsable.push_back(rest.error());
+                }
+            }
             const bool said = std::any_of(out.customErrors.begin(), out.customErrors.end(),
-                                          [&](const Error& e) { return e.message == msg; });
-            if (!said)
-                out.customErrors.push_back(
-                    Error{msg, "Remove entries from PostProcess.customPasses of the camera or the volumes, or merge "
-                               "passes into one material."});
+                                          [&](const Error& e) { return e.message.rfind(prefix, 0) == 0; });
+            if (!said) {
+                out.customErrors.push_back(Error{
+                    prefix + "the " + std::to_string(dropped) + (dropped == 1 ? " entry" : " entries") +
+                        " of one PostProcess from /customPasses/" + std::to_string(i) + first + " on are not drawn.",
+                    "Remove entries from PostProcess.customPasses of the camera or the volumes, or merge "
+                    "passes into one material."});
+                for (Error& e : unparsable) out.customErrors.push_back(std::move(e));
+            }
             return;
         }
         r->source = entity.bits();
