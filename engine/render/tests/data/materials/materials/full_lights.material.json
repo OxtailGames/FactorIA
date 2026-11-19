@@ -1,0 +1,11 @@
+{
+  "format": "factoria.material/1",
+  "doc": "Test fixture: a full shader with its own loop over the scene's lights (a diffuse term and nothing else).",
+  "mode": "full",
+  "shader": "shaders/full_lights.full.glsl",
+  "prepass": false,
+  "shadow": "none",
+  "params": {
+    "base": {"type": "color", "default": [1.0, 1.0, 1.0, 1.0], "doc": "The surface colour the lights are multiplied with."}
+  }
+}

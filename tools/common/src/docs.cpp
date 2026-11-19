@@ -322,6 +322,8 @@ const std::vector<DocManifestEntry>& manifest() {
         {"scripting-tests-tools", "Scripting pages: script tests, tools, hook modules and runtime notes.",
          aud({kGameAi})},
         {"shaders", "Custom shaders and materials: the template, uniforms and limits.", aud({kGameAi, kEngineDev})},
+        {"shaders-full", "Full shaders for mesh materials: your own vertex and fragment stages and several passes.",
+         aud({kGameAi, kEngineDev})},
         {"skills", "Agent Skills: topic guides an AI loads when the work needs them.", aud({kGameAi, kUser})},
         {"sound", "Sound patches (*.sfx.json) and audio documents (*.audio.json).", aud({kGameAi})},
         {"sound-patches",

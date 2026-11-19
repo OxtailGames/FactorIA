@@ -171,6 +171,11 @@ void register_shader_commands(CommandRegistry& registry, const std::string& proj
             "`programs` are the shader programs the material makes: mesh, mesh_skin, prepass and prepass_skin, plus "
             "shadow and shadow_skin when the snippet defines vertex() or the alpha mode is clip; a sprite "
             "material makes quad and quad_plain. "
+            "`mode` is \"snippet\" or \"full\". A full-shader material (the file holds your own vertex and fragment "
+            "stages, docs/SHADERS_FULL.md) has no lighting, alphaMode or doubleSided; it returns shadow (\"depth\", "
+            "\"custom\" or \"none\"), prepass and passes [{name, cull, depthTest, depthWrite, blend, program, "
+            "programSkin}], and its `programs` list one program and one skinned program per pass (mesh, mesh_skin, "
+            "pass1, pass1_skin, ...), then shadow and shadow_skin for \"custom\", then prepass and prepass_skin. "
             "A compute material also returns workgroupSize [x, y, z] and buffers [{name, binding, access, stride, "
             "doc, fields: [{name, type, offset, doc}]}] (std430 layout); `runsOn` and `notOn` list the platforms the "
             "kind has shaders for (compute: not android or web). "
@@ -208,7 +213,7 @@ void register_shader_commands(CommandRegistry& registry, const std::string& proj
                 shaders_detail::kind_is_compiled(m.kind);  // the others compile when their package lands
             const GeneratedShader g = supported ? generate_material_shader(m, snippet) : GeneratedShader{};
             const std::string dialect = host_shader_dialect(context);
-            const bool compiled = supported && !shader_template_hash(m.kind).empty() &&
+            const bool compiled = supported && !shader_template_hash(m.full ? "mesh-full" : m.kind).empty() &&
                                   stdfs::exists(shader_cache_path(dir, g, snippet, dialect));
             Json out = Json::object({{"material", path},
                                      {"doc", m.doc},
@@ -221,6 +226,27 @@ void register_shader_commands(CommandRegistry& registry, const std::string& proj
                                      {"textures", textures},
                                      {"programs", Json(g.programs)}});
             if (!m.vertexAttributes.empty()) out["vertexAttributes"] = Json(m.vertexAttributes);
+            out["mode"] = m.full ? "full" : "snippet";
+            if (m.full) {
+                // lighting, alphaMode and doubleSided are the engine's shader's: a full material has none of them.
+                out.erase("lighting");
+                out.erase("alphaMode");
+                out.erase("doubleSided");
+                out["shadow"] = m.shadow;
+                out["prepass"] = m.prepass;
+                Json passes = Json::array();
+                for (std::size_t i = 0; i < m.passes.size(); ++i) {
+                    const MaterialPass& p = m.passes[i];
+                    passes.push_back(Json::object({{"name", p.name},
+                                                   {"cull", p.cull},
+                                                   {"depthTest", p.depthTest},
+                                                   {"depthWrite", p.depthWrite},
+                                                   {"blend", p.blend},
+                                                   {"program", shaders_detail::full_program_name(int(i), false)},
+                                                   {"programSkin", shaders_detail::full_program_name(int(i), true)}}));
+                }
+                out["passes"] = passes;
+            }
             if (supported) add_platforms(out, m.kind);
             if (m.kind == "compute") {
                 const Json fields = shaders_detail::compute_twin_fields(m);

@@ -52,6 +52,7 @@ std::string ShaderIssue::to_string() const {
 // ---------------------------------------------------------------------------------------------------------------
 
 std::string shader_template_hash(const std::string& kind) {
+    if (kind == "mesh-full") return template_files(kind).empty() ? std::string() : mesh_full_template_hash();
     // The renderer's own value (computed by CMake from the template files of the kind, embedded here), so a twin's "template"
     // is what the player that loads it checks.
     const auto parsed = material_kind_from_name(kind);
@@ -68,6 +69,7 @@ std::string shader_cache_path(const std::string& projectDir, const GeneratedShad
         key += part;
     }
     for (const std::string& d : generated.defines) key += '\x01' + d;
+    key += '\x01' + generated.stateKey;  // the twin fields that are not in the top file (a full material's passes)
     return (stdfs::path(projectDir) / ".factoria" / "shader-cache" / (sha256_hex(key) + "." + slang + ".shader"))
         .string();
 }
@@ -162,7 +164,11 @@ bool is_sprite(const MaterialDef& material) { return material.kind == "sprite"; 
 // The structs of the contract this material uses: LightSample only with lighting "custom" (a pbr material has no light()).
 std::vector<std::pair<std::string, std::vector<std::string>>> contract_of(const MaterialDef& material) {
     auto out = contract_structs(material.kind);
-    if (material.lighting != "custom")
+    // A full shader has no surface contract: the one struct it meets is the LightSample fa_light() returns.
+    if (material.full)
+        out.erase(std::remove_if(out.begin(), out.end(), [](const auto& e) { return e.first != "LightSample"; }),
+                  out.end());
+    else if (material.lighting != "custom")
         out.erase(std::remove_if(out.begin(), out.end(), [](const auto& e) { return e.first == "LightSample"; }),
                   out.end());
     return out;
@@ -196,7 +202,8 @@ std::string field_hint(const std::string& token, const std::string& source, cons
     }
     std::vector<std::string> fields;
     const auto structs = contract_of(ctx.material);
-    std::string where = is_sprite(ctx.material)             ? "QuadSurface, QuadInput and QuadVertex"
+    std::string where = ctx.material.full                   ? "LightSample"
+                        : is_sprite(ctx.material)           ? "QuadSurface, QuadInput and QuadVertex"
                         : ctx.material.lighting == "custom" ? "Surface, SurfaceInput, VertexData and LightSample"
                                                             : "Surface, SurfaceInput and VertexData";
     if (const auto* f = struct_fields(typeName, structs)) {
@@ -286,11 +293,17 @@ std::vector<std::string> engine_names_of(const std::string& kind) {
 }
 
 const std::vector<std::string>& engine_names(const MaterialDef& material) {
-    static const std::vector<std::string> mesh = engine_names_of("mesh"), sprite = engine_names_of("sprite");
-    return is_sprite(material) ? sprite : mesh;
+    static const std::vector<std::string> mesh = engine_names_of("mesh"), sprite = engine_names_of("sprite"),
+                                          full = engine_names_of("mesh-full");
+    return material.full ? full : is_sprite(material) ? sprite : mesh;
 }
 
 std::string prefix_rule(const MaterialDef& material) {
+    if (material.full)
+        return "Names starting with fa_ or FA_ belong to the engine: a full shader may use the ones "
+               "docs/SHADERS_FULL.md lists "
+               "(fa_view_proj, fa_world_position(), fa_light(), FA_TIME...) but not declare any. Rename it without the "
+               "prefix.";
     return is_sprite(material)
                ? "Names starting with fa_ belong to the engine: the snippet may use the ones the contract lists "
                  "(fa_time, fa_sample_main(), fa_scene_rgb()) but not declare any. Rename it without the prefix."
@@ -316,8 +329,9 @@ std::string signatures(const MaterialDef& material) {
 const char* fragment_entry(const MaterialDef& material) { return is_sprite(material) ? "fragment" : "surface"; }
 
 std::string undeclared_hint(const std::string& token, const MapContext& ctx) {
-    // A field written without its struct.
-    for (const auto& [n, fields] : contract_of(ctx.material))
+    // A field written without its struct (a full shader has no snippet functions to put it in).
+    const auto contract = ctx.material.full ? decltype(contract_of(ctx.material)){} : contract_of(ctx.material);
+    for (const auto& [n, fields] : contract)
         if (std::find(fields.begin(), fields.end(), token) != fields.end())
             return "`" + token + "` is a field of " + n + ": write " + struct_var(n) + "." + token + " inside " +
                    (n == "VertexData" || n == "QuadVertex" ? "vertex"
@@ -328,7 +342,10 @@ std::string undeclared_hint(const std::string& token, const MapContext& ctx) {
         const std::string best = closest_match(token, engine_names(ctx.material));
         return best.empty()
                    ? std::string("No engine value is called ") + token +
-                         (is_sprite(ctx.material)
+                         (ctx.material.full
+                              ? "; docs/SHADERS_FULL.md lists the ones a full shader may use (fa_view_proj, "
+                                "fa_world_position(), fa_light(), fa_frag_color, FA_TIME...)."
+                          : is_sprite(ctx.material)
                               ? "; the ones a snippet may use are fa_time, fa_sample_main() and fa_scene_rgb()."
                               : "; the ones a snippet may read are fa_time, fa_camera_pos and fa_tangent_normal().")
                    : "did you mean " + best + "?";
@@ -396,8 +413,16 @@ void outside_snippet(ShaderIssue& issue, const std::string& where, const std::st
     issue.line = 0;
     issue.source.clear();
     issue.file = ctx.material.shader.empty() ? ctx.material.path : ctx.material.shader;
-    if (token == "surface" || token == "fragment" || token == "vertex" ||
-        (ctx.material.lighting == "custom" && (token == "light" || token == "ambient")))
+    if (ctx.material.full)
+        issue.hint =
+            "The engine builds the programs from the sections of the file (`@common`, `@vertex`, `@fragment`), each "
+            "stage "
+            "with its own `void main()`: the problem is in how the stages fit together, such as varyings that differ "
+            "between "
+            "the stages, a name starting with fa_ or FA_, or a resource the template does not declare in that stage. "
+            "docs/SHADERS_FULL.md lists what a full shader may use.";
+    else if (token == "surface" || token == "fragment" || token == "vertex" ||
+             (ctx.material.lighting == "custom" && (token == "light" || token == "ambient")))
         issue.hint = std::string("The engine calls ") + token +
                      "() from its template, so the snippet must define it with exactly this signature: " +
                      signatures(ctx.material) + ".";
@@ -621,7 +646,7 @@ Result<std::map<std::string, Json>> build_twins(const stdfs::path& work, const s
         if (std::find(slangs.begin(), slangs.end(), slang) == slangs.end()) continue;
         Json twin = Json::object({{"format", kShaderTwinFormat},
                                   {"engine", FA_ENGINE_VERSION},
-                                  {"template", shader_template_hash(material.kind)},
+                                  {"template", shader_template_hash(material.full ? "mesh-full" : material.kind)},
                                   {"slang", slang},
                                   {"params", paramNames},
                                   {"textures", textureNames}});
@@ -633,6 +658,10 @@ Result<std::map<std::string, Json>> build_twins(const stdfs::path& work, const s
             twin["instanceVec4"] = instLayout.vec4Count;
         }
         if (!vertexAttributes.empty()) twin["vertexAttributes"] = vertexAttributes;
+        if (material.full) {
+            const Json fullFields = full_twin_fields(material);  // a named value: items() of a temporary dangles
+            for (const auto& [key, value] : fullFields.items()) twin[key] = value;
+        }
         if (material.kind == "compute") {
             const Json computeFields = shaders_detail::compute_twin_fields(material);
             twin["workgroupSize"] = computeFields["workgroupSize"];
@@ -777,7 +806,8 @@ Result<ShaderCompileResult> compile_material(const std::string& projectDir, cons
     const std::string snippet = normalize_snippet(*raw);
     const std::string stripped = blank_comments(snippet);
     res.generated = generate_material_shader(res.material, snippet);
-    res.errors = precheck_snippet(res.material, res.generated, snippet, stripped);
+    res.errors = res.material.full ? precheck_full(res.material, snippet, stripped)
+                                   : precheck_snippet(res.material, res.generated, snippet, stripped);
     if (!res.errors.empty()) return res;
     if (shader_template_hash(res.generated.kind).empty())
         return make_error("this factoria build has no " + res.generated.kind +

@@ -57,6 +57,10 @@ const std::vector<std::string> kLightings = {"pbr", "unlit", "custom"};
 const std::vector<std::string> kAlphaModes = {"opaque", "clip", "blend"};
 const std::vector<std::string> kParamTypes = {"float", "vec2", "vec3", "vec4", "color"};
 const std::vector<std::string> kSamplers = {"linear", "linearRepeat", "nearest", "nearestRepeat"};
+const std::vector<std::string> kModes = {"snippet", "full"};
+const std::vector<std::string> kCulls = {"back", "front", "none"};
+const std::vector<std::string> kBlends = {"none", "alpha", "additive", "multiply"};
+const std::vector<std::string> kShadows = {"depth", "custom", "none"};
 
 // "Did you mean 'folder/x.png'?" for a project-relative file that is missing: the closest name in its folder, else `fallback`.
 std::string sibling_hint(const std::string& projectDir, const std::string& rel, const std::string& fallback) {
@@ -367,6 +371,133 @@ struct Checker {
         for (MaterialIssue& e : check_material_graph(*g, m, kind).errors) out.errors.push_back(std::move(e));
     }
 
+    // "mode": "full" and what goes with it: "passes", "shadow", "prepass" (docs/SHADERS_FULL.md). Each of them is an error in a
+    // snippet material (the default mode), where the engine's own shader decides all of it.
+    void read_full(const Json& doc, MaterialDef& m) {
+        std::string mode = "snippet";
+        read_enum(doc, "", "mode", kModes, mode);
+        m.full = mode == "full";
+        if (!m.full) {
+            for (const char* key : {"passes", "shadow", "prepass"})
+                if (doc.contains(key))
+                    error(std::string("/") + key,
+                          std::string("\"") + key + "\" belongs to a full-shader material, and this one's mode is \"" +
+                              mode + "\"",
+                          std::string(
+                              "Add \"mode\": \"full\" (the file then holds your own vertex and fragment stages), or "
+                              "remove \"") +
+                              key + "\".");
+            return;
+        }
+        if (m.kind != "mesh") {
+            error("/mode", "\"mode\": \"full\" is for mesh materials, and this material is kind \"" + m.kind + "\"",
+                  "Remove \"mode\" (a " + m.kind +
+                      " material runs inside the engine's own shader), or set \"kind\" to \"mesh\".");
+            return;
+        }
+        // Keys that describe the engine's shader: a full material owns its state per pass.
+        struct Overridden {
+            const char* key;
+            const char* instead;
+        };
+        for (const Overridden& o :
+             {Overridden{"lighting", "write the lights yourself with fa_light_count() and fa_light(i, ...)"},
+              Overridden{"alphaMode", "set \"blend\" (and \"depthWrite\") on the pass"},
+              Overridden{"doubleSided", "set \"cull\": \"none\" on the pass"},
+              Overridden{"graph", "write the file by hand: the node graph generates a surface() snippet"}})
+            if (doc.contains(o.key))
+                error(std::string("/") + o.key,
+                      std::string("\"") + o.key + "\" has no effect in a full-shader material (\"mode\": \"full\")",
+                      std::string("Remove it: in a full shader you ") + o.instead + ".");
+        read_enum(doc, "", "shadow", kShadows, m.shadow);
+        if (auto p = doc.find("prepass"); p != doc.end()) {
+            if (!p->is_boolean())
+                error("/prepass", "expected true or false, got " + describe_json_value(*p),
+                      "Write \"prepass\": false to keep the material out of the depth and normal prepass (SSAO then "
+                      "ignores "
+                      "it).");
+            else
+                m.prepass = p->get<bool>();
+        }
+        auto it = doc.find("passes");
+        if (it == doc.end()) {
+            MaterialPass main;
+            main.name = "main";
+            m.passes.push_back(main);
+            return;
+        }
+        if (!it->is_array() || it->empty()) {
+            error("/passes", "expected a non-empty array of passes, got " + describe_json_value(*it),
+                  "Write \"passes\": [{\"name\": \"main\"}]; each pass is drawn after the one before it, for every "
+                  "part of the "
+                  "mesh.");
+            return;
+        }
+        if (int(it->size()) > kMaterialMaxPasses)
+            error("/passes",
+                  std::to_string(it->size()) + " passes, at most " + std::to_string(kMaterialMaxPasses) +
+                      " (each pass adds two programs, one of them for skinned meshes)",
+                  "Merge passes that differ only in a colour into one with a param, or split the effect over two "
+                  "materials.");
+        static const std::vector<std::string> known = {"name", "cull", "depthTest", "depthWrite", "blend"};
+        std::set<std::string> seen;
+        for (std::size_t i = 0; i < it->size() && int(i) < kMaterialMaxPasses; ++i) {
+            const std::string base = "/passes/" + std::to_string(i);
+            const Json& e = (*it)[i];
+            if (!e.is_object()) {
+                error(base, "expected an object, got " + describe_json_value(e),
+                      "Write {\"name\": \"outline\", \"cull\": \"front\", \"depthWrite\": true}.");
+                continue;
+            }
+            for (auto k = e.begin(); k != e.end(); ++k)
+                if (std::find(known.begin(), known.end(), k.key()) == known.end())
+                    error(base + "/" + escape_token(k.key()), "unknown key \"" + k.key() + "\"",
+                          did_you_mean(k.key(), known));
+            MaterialPass pass;
+            auto n = e.find("name");
+            if (n == e.end() || !n->is_string() || !is_identifier(n->get<std::string>()) ||
+                is_reserved_word(n->get<std::string>())) {
+                error(base + "/name",
+                      n == e.end()
+                          ? std::string("missing \"name\"")
+                          : "\"name\" must be an identifier (letters, digits and _, not starting with a digit, not a "
+                            "GLSL word), got " +
+                                describe_json_value(*n),
+                      "Name the pass: it defines `FA_PASS_<NAME>` (upper case) and `FA_PASS` (its index) for your "
+                      "code, e.g. "
+                      "\"outline\".");
+            } else {
+                pass.name = n->get<std::string>();
+                std::string up = pass.name;
+                for (char& ch : up) ch = char(std::toupper(static_cast<unsigned char>(ch)));
+                if (!seen.insert(up).second)
+                    error(base + "/name",
+                          "pass name \"" + pass.name + "\" is used twice (names are compared in upper case)",
+                          "Give every pass its own name.");
+            }
+            read_enum(e, base, "cull", kCulls, pass.cull);
+            read_enum(e, base, "blend", kBlends, pass.blend);
+            pass.depthWrite = pass.blend == "none";
+            if (auto d = e.find("depthTest"); d != e.end()) {
+                if (!d->is_boolean())
+                    error(base + "/depthTest", "expected true or false, got " + describe_json_value(*d),
+                          "Write \"depthTest\": false to draw over what is already there (an overlay).");
+                else
+                    pass.depthTest = d->get<bool>();
+            }
+            if (auto d = e.find("depthWrite"); d != e.end()) {
+                if (!d->is_boolean())
+                    error(base + "/depthWrite", "expected true or false, got " + describe_json_value(*d),
+                          "Write \"depthWrite\": true for a pass that hides what is behind it (the default when it "
+                          "does not "
+                          "blend).");
+                else
+                    pass.depthWrite = d->get<bool>();
+            }
+            m.passes.push_back(std::move(pass));
+        }
+    }
+
     void check_shader_path(const Json& doc, MaterialDef& m) {
         auto it = doc.find("shader");
         if (it == doc.end()) {
@@ -392,13 +523,17 @@ struct Checker {
         if (projectDir.empty() || doc.contains("graph")) return;
         std::error_code ec;
         if (!stdfs::is_regular_file(stdfs::path(projectDir) / m.shader, ec)) {
-            error("/shader", "snippet '" + m.shader + "' does not exist",
-                  sibling_hint(
-                      projectDir, m.shader,
-                      m.kind == "compute"
-                          ? "Create the file (a snippet defining void compute(in ComputeInput i)) or fix the path."
-                          : "Create the file (a snippet defining void surface(in SurfaceInput i, inout Surface "
-                            "s)) or fix the path."));
+            error(
+                "/shader", "snippet '" + m.shader + "' does not exist",
+                sibling_hint(
+                    projectDir, m.shader,
+                    m.kind == "compute"
+                        ? "Create the file (a snippet defining void compute(in ComputeInput i)) or fix the path."
+                    : (doc.contains("mode") && doc["mode"].is_string() && doc["mode"].get<std::string>() == "full")
+                        ? "Create the file (the sections @common, @vertex and @fragment, docs/SHADERS_FULL.md) or fix "
+                          "the path."
+                        : "Create the file (a snippet defining void surface(in SurfaceInput i, inout Surface "
+                          "s)) or fix the path."));
         }
     }
 };
@@ -416,8 +551,9 @@ MaterialParse parse_material(const Json& doc, const std::string& projectDir, con
         return std::move(c.out);
     }
     static const std::vector<std::string> topKeys = {
-        "$schema", "format",   "doc",   "kind",      "shader",        "lighting", "alphaMode",       "doubleSided",
-        "params",  "textures", "graph", "graphHash", "workgroupSize", "buffers",  "vertexAttributes"};
+        "$schema",          "format", "doc",      "kind",   "shader",    "lighting",      "alphaMode",
+        "doubleSided",      "params", "textures", "graph",  "graphHash", "workgroupSize", "buffers",
+        "vertexAttributes", "mode",   "passes",   "shadow", "prepass"};
     for (auto it = doc.begin(); it != doc.end(); ++it)
         if (std::find(topKeys.begin(), topKeys.end(), it.key()) == topKeys.end())
             c.error("/" + escape_token(it.key()), "unknown key \"" + it.key() + "\"", did_you_mean(it.key(), topKeys));
@@ -601,6 +737,7 @@ MaterialParse parse_material(const Json& doc, const std::string& projectDir, con
         }
         std::sort(m.vertexAttributes.begin(), m.vertexAttributes.end());
     }
+    c.read_full(doc, m);
     c.read_graph(doc, m);
     return std::move(c.out);
 }

@@ -421,13 +421,29 @@ enum MaterialProgramId : int {
     kProgPrepassSkin,
     kProgCount  // the programs of a mesh material; the other kinds name theirs in material_program_names()
 };
+// A full-shader mesh material (mode "full") keeps the programs of pass p >= 1 after kProgCount: pass p is
+// kProgCount + 2 * (p - 1), and + 1 for the skinned one. Pass 0 is kProgMesh / kProgMeshSkin.
+constexpr int kMaxMaterialPasses = 4;
+inline int pass_program_slot(int pass, bool skinned) {
+    return pass == 0 ? (skinned ? kProgMeshSkin : kProgMesh) : kProgCount + 2 * (pass - 1) + (skinned ? 1 : 0);
+}
 constexpr int kProgCompute = 0;  // the one program of a compute material (MaterialAsset::programs[0])
 // Room for the programs of every kind of material (a mesh material has kProgCount of them).
-constexpr int kMaxMaterialPrograms = 8;
+constexpr int kMaxMaterialPrograms = kProgCount + 2 * (kMaxMaterialPasses - 1);
 static_assert(kProgCount <= kMaxMaterialPrograms);
 // The programs a twin of `kind` carries, in MaterialAsset::programs order (the "programs" keys of the twin). Empty for a kind
 // that cannot be built yet.
 const std::vector<const char*>& material_program_names(MaterialKind kind);
+
+// The fixed state of one pass of a full-shader material (the twin's "passes"; the tooling validated the words).
+struct MaterialPassState {
+    std::string name;
+    int cull = 1;  // 0 none, 1 back, 2 front
+    bool depthTest = true, depthWrite = true;
+    int blend = 0;  // 0 none, 1 alpha, 2 additive, 3 multiply
+};
+// Where a full-shader material's shadow caster comes from (the twin's "shadow").
+enum class FullShadow : int { Depth, Custom, None };
 
 struct MaterialParamDef {
     std::string name;
@@ -486,6 +502,10 @@ struct MaterialAsset {
     int workgroup[3]{64, 1, 1};              // Compute: the threads of one workgroup
     std::string lighting = "pbr", alphaMode = "opaque";
     bool doubleSided = false;
+    bool full = false;    // mode "full": the file is the whole shader; `passes` say how it is drawn
+    bool prepass = true;  // full: the engine's prepass program draws it (SSAO, fog, depth effects see it)
+    FullShadow shadow = FullShadow::Depth;    // full: the shadow caster
+    std::vector<MaterialPassState> passes;    // full: in drawing order; a plain material has none
     std::vector<MaterialParamDef> params;     // in the order of the twin's "params" (the packing order)
     std::vector<MaterialParamDef> instanced;  // the "instanced" params of the twin: they travel in the instance buffer
     int instanceVec4 = 0;                     // vec4 of per-instance data they take (0 = none)
@@ -954,6 +974,12 @@ public:
     sg_pipeline mesh_pipeline(bool blended, bool doubleSided, bool skinned = false, sg_shader shader = {},
                               MeshExtras extras = {}) {
         return mesh_pipeline(scene_target_format(), blended, doubleSided, skinned, shader, extras);
+    }
+    // One pass of a full-shader material: the vertex layout of mesh_pipeline with the pass's own cull, depth and blend state.
+    sg_pipeline full_pipeline(const TargetFormat& format, const MaterialPassState& state, bool skinned,
+                              sg_shader shader, MeshExtras extras);
+    sg_pipeline full_pipeline(const MaterialPassState& state, bool skinned, sg_shader shader, MeshExtras extras) {
+        return full_pipeline(scene_target_format(), state, skinned, shader, extras);
     }
     sg_pipeline sky_pipeline(const TargetFormat& format);
     sg_pipeline sky_pipeline() { return sky_pipeline(scene_target_format()); }

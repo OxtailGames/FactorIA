@@ -3,7 +3,8 @@
 A **material** gives some meshes their own look: a pulsing gem, dissolving armor, water, grass in the wind, a rim glow.
 You write a small GLSL **snippet** and a **material file** that names it and declares its parameters. The engine injects
 the snippet into its own mesh shader, so instancing, skinning, lights, shadows, fog and sky reflections keep working.
-You never write a vertex shader, a fragment shader or a `main`.
+You never write a vertex shader, a fragment shader or a `main`, unless you ask for it with a
+[full shader](#full-shaders-and-passes).
 
 The loop for an AI (or a person):
 
@@ -33,6 +34,7 @@ The loop for an AI (or a person):
 | `params` | Typed parameters the snippet reads (below). |
 | `textures` | Textures the snippet samples (below). |
 | `vertexAttributes` | Extra mesh channels `vertex()` reads: `["uv1"]` (glTF `TEXCOORD_1`), `["color1"]` (glTF `COLOR_1`) or both (see "Per-instance params and vertex channels" below). Default none. |
+| `mode` | `"snippet"` (default) or `"full"`: the file holds your own vertex and fragment stages and `passes`, `shadow` and `prepass` apply ([Full shaders and passes](#full-shaders-and-passes)). |
 | `graph` | Optional [node graph](#node-graphs) the snippet is generated from. |
 | `graphHash` | Written by `material.graph.generate`: the hash of the snippet it generated. Do not write it by hand. |
 
@@ -923,11 +925,86 @@ drawn with the error material and the log says why.
 `.metal_macos.shader`, `.metal_ios.shader`) and a warning for each platform that does not, which the Android and Web
 exports show. `material.info` lists `runsOn`.
 
+## Full shaders and passes
+
+When a snippet cannot say it (a second pass, your own `main`, your own light loop), a mesh material can be a **full
+shader**: `"mode": "full"`, and the file holds a `@vertex` and a `@fragment` section, each with its own `main`.
+`"passes"` lists up to four passes, each with its own `cull`, depth test and write, and `blend`, drawn in array order for
+every part of the mesh. The engine provides the transforms, camera, time, params, textures, instanced params and light
+helpers (`fa_light_count()`, `fa_light(i, ...)`, `fa_shadow(...)`) as documented globals; skinning and instancing keep
+working. The page [SHADERS_FULL.md](SHADERS_FULL.md) (`factoria docs read shaders_full`) list every name and what the
+shadow and the prepass (SSAO) do with a full material.
+
+### 11. An inked outline (a full shader with two passes)
+
+The body is a two-band toon over the scene's lights; the second pass draws the back faces pushed out along their normals,
+in the ink colour.
+
+File `materials/ink_outline.material.json`:
+
+```json
+{
+  "format": "factoria.material/1",
+  "doc": "A two-band toon body with an ink outline made of the inflated back faces.",
+  "mode": "full",
+  "shader": "shaders/ink_outline.full.glsl",
+  "passes": [
+    { "name": "body", "cull": "back" },
+    { "name": "outline", "cull": "front" }
+  ],
+  "params": {
+    "bodyColor": { "type": "color", "default": [0.3, 0.7, 0.4, 1.0], "doc": "The colour of the lit band of the body." },
+    "inkColor": { "type": "color", "default": [0.05, 0.05, 0.08, 1.0], "doc": "The colour of the outline." },
+    "inkWidth": { "type": "float", "default": 0.03, "min": 0.0, "max": 0.5, "doc": "How far the outline pass pushes each vertex along its normal, in model units." }
+  }
+}
+```
+
+File `shaders/ink_outline.full.glsl`:
+
+```glsl
+@common
+varying vec3 v_pos;
+varying vec3 v_normal;
+varying vec4 v_shadow;
+
+@vertex
+void main() {
+    vec3 p = fa_position;
+#ifdef FA_PASS_OUTLINE
+    p += normalize(fa_normal) * inkWidth;  // the back faces, a little bigger than the body
+#endif
+    vec3 world = fa_world_position(p);
+    v_pos = world;
+    v_normal = fa_world_direction(fa_normal);
+    v_shadow = fa_shadow_coord(world);
+    gl_Position = fa_view_proj * vec4(world, 1.0);
+}
+
+@fragment
+void main() {
+#ifdef FA_PASS_OUTLINE
+    fa_frag_color = vec4(inkColor.rgb, 1.0);
+#else
+    vec3 n = normalize(v_normal);
+    float light = 0.0;
+    for (int i = 0; i < fa_light_count(); ++i) {
+        LightSample l = fa_light(i, v_pos, n, v_shadow);
+        light += max(dot(n, l.direction), 0.0) * dot(l.color, vec3(0.3333));
+    }
+    float band = light > 0.5 ? 1.0 : 0.45;
+    fa_frag_color = vec4(fa_apply_fog(bodyColor.rgb * (fa_ambient.rgb + vec3(band)), v_pos), 1.0);
+#endif
+}
+```
+
+Pass 0 (`body`) draws the front faces, pass 1 (`outline`) the back faces of the same mesh; the back faces pushed out show as a
+rim around the silhouette. Both write depth, so the outline never covers the body. The material casts the shadow of
+the original mesh (`"shadow": "depth"`, the default), and the engine's prepass sees the original mesh too. A skinned mesh
+draws both passes with its skin.
+
 ## Not available yet
 
-- **Full vertex and fragment shaders** (your own `main`, several passes): the snippet always runs inside the engine's
-  mesh or quad shader. Of a mesh material's vertex layout only `uv1` and `color1` can be added (`vertexAttributes`), and
-  only glTF meshes have them.
 - **Your own light loop** (which lights are chosen, how many, their order, the shadow map): `"custom"` lighting only
   shades each light the engine hands over. Image-based lighting (the sky reflection) is off in a custom material and
   cannot be called from `light()`.

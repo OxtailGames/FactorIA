@@ -16,6 +16,10 @@ fa_embed_files(fa_render fa_render_fonts embedded_fonts
 # test compares both). The mesh list is the file set the hash was computed from before kinds existed, so its value did not
 # change.
 set(FA_TEMPLATE_FILES_MESH mesh_common.glsl)
+# A mesh material in "full" mode (its own vertex and fragment stage, docs/SHADERS_FULL.md) is built from mesh_common.glsl's blocks plus
+# mesh_full_common.glsl; its twin carries this hash (the mesh hash above stays what it was: no snippet twin is made stale by the
+# full-shader template).
+set(FA_TEMPLATE_FILES_MESH_FULL mesh_common.glsl mesh_full_common.glsl)
 # The sprite template @includes color_space.glsl and light_shadow.glsl (the other programs that use them include them too), so a
 # change to either one changes the sprite hash.
 set(FA_TEMPLATE_FILES_SPRITE color_space.glsl light_shadow.glsl quad_common.glsl)
@@ -23,7 +27,7 @@ set(FA_TEMPLATE_FILES_SKY sky_common.glsl)
 set(FA_TEMPLATE_FILES_POST post_common.glsl)
 set(FA_TEMPLATE_FILES_COMPUTE compute_common.glsl)
 set(FA_TEMPLATE_DEFINITIONS "")
-foreach(kind MESH SPRITE SKY POST COMPUTE)
+foreach(kind MESH MESH_FULL SPRITE SKY POST COMPUTE)
     set(list "")
     foreach(n ${FA_TEMPLATE_FILES_${kind}})
         set(f ${CMAKE_CURRENT_SOURCE_DIR}/shaders/${n})
