@@ -1,0 +1,6 @@
+{
+  "format": "factoria.material/1",
+  "kind": "sky",
+  "doc": "Test fixture: four hard-edged colors by the signs of the view direction (x: red on +x, blue on -x; y: green above the horizon, none below), so a reflection shows which way each face of the baked sky points.",
+  "shader": "shaders/skyquad.sky.glsl"
+}

@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cctype>
 #include <map>
+#include <regex>
 #include <set>
 
 #include "fa/tooling/bundle.h"
@@ -397,9 +398,12 @@ std::vector<Function> find_entry_points(const std::string& s, const std::string&
                             break;
                         ++p;
                     }
-                    // lighting() is the hook only with the contract's first parameter: another `lighting` is a helper.
+                    // lighting() is the hook only with the contract's parameters, (in SurfaceInput i, in Surface s): another
+                    // `lighting` (other types, another order, another count) is a helper.
+                    static const std::regex lightingParams(
+                        R"(^\(\s*(?:in\s+)?SurfaceInput\s+\w+\s*,\s*(?:in\s+)?Surface\s+\w+\s*$)");
                     if (name == "lighting" &&
-                        s.substr(paramsBegin, p - paramsBegin).find("SurfaceInput") == std::string::npos) {
+                        !std::regex_match(s.substr(paramsBegin, p - paramsBegin), lightingParams)) {
                         ++i;
                         continue;
                     }

@@ -28,6 +28,7 @@
 #include "fa/scene/text_fit.h"
 #include "fa/scene/ui_rect.h"
 #include "bloom.h"
+#include "renderer_env.h"
 #include "renderer_ssr.h"
 #include "renderer_dof.h"
 #include "renderer_fog.h"
@@ -87,8 +88,10 @@ struct Renderer::Impl {
     // bloom, the colour filter and present() sample; gameTarget.resolveColorAtt (MSAA) is the resolved image as a colour
     // attachment, which bloom composites into.
     Target gameTarget;
-    Ssr ssr;    // screen-space reflections (renderer_ssr.h): its shaders and pipelines
-    Ssao ssao;  // PostProcess.ssao*: the ambient occlusion passes of each camera (renderer_ssao.h)
+    Environment
+        skyEnv;  // the baked sky that lights the meshes (renderer_env.h; used only with SceneSettings.skyMaterial)
+    Ssr ssr;     // screen-space reflections (renderer_ssr.h): its shaders and pipelines
+    Ssao ssao;   // PostProcess.ssao*: the ambient occlusion passes of each camera (renderer_ssao.h)
     SceneFx
         sceneFx;  // depth of field and motion blur (renderer_dof.h): its shaders, pipelines and the autofocus of each camera
     FogFx fogFx;  // distance and height fog and sun shafts (renderer_fog.h): its shaders and pipelines
@@ -413,7 +416,12 @@ struct Renderer::Impl {
     bool graphFromCapture = false;  // the graph holds the last capture_world's frame, not the last render()'s
     std::unordered_map<std::uint64_t, JobImage> jobImages;
     // The targets the jobs of the frame share, one resource each (imported when the first job that uses it is declared).
-    ResourceId sharedGame, sharedLight, sharedShadow;
+    ResourceId sharedGame, sharedLight, sharedShadow, sharedEnv;
+    // The sky environment of the frame (plan_env): the first job that wants one decides which sky is baked (envFrameKey) and whether
+    // the "sky-env" pass is declared; a later job of the frame with another key falls back to the analytic gradient.
+    std::uint64_t envFrame = 0;  // the frameSerial it was decided for
+    std::uint64_t envFrameKey = 0;
+    bool envFrameOk = false;
     std::vector<std::shared_ptr<void>> jobContexts;  // the DrawContext of every job, alive until run_frame_graph() ends
     // What a job's passes read from the renderer when they run: the swapped-in image of a view job (plan_view_job).
     struct JobEnv {
@@ -435,6 +443,8 @@ struct Renderer::Impl {
     void build_quad_stream(DrawContext& ctx);
     void upload_instances(DrawContext& ctx);
     void scene_uniforms(DrawContext& ctx);
+    // The sky environment of the job (SceneSettings.skyMaterial): sets ctx.envActive / envBake / envKey and the flag of fuScene.
+    void plan_env(DrawContext& ctx);
     PartDraw part_draw(DrawContext& ctx, const MeshItem& mi, const SubMesh& part);
     // Reports once per material and mesh that `part` lacks the channel `what` ("uv1" / "color1") the material declares.
     void note_missing_channel(const MeshItem& mi, const SubMesh& part, const char* what);

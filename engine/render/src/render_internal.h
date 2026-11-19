@@ -410,6 +410,11 @@ constexpr int kMaterialPostFirstView = 2, kMaterialPostFirstSampler = 2;
 // file). Each program declares only the slots its stages use, and a draw binds only those.
 constexpr int kMaterialVsFirstView = kMaterialFirstView + kMaxMaterialTextures,
               kMaterialVsFirstSampler = kMaterialFirstSampler + kMaxMaterialTextures;
+// The baked sky of a sky material (renderer_env.h, mesh_common.glsl fa_fs_head): the prefiltered cube is fragment view 14, the irradiance
+// cube view 15 and their sampler sampler 10, after the vertex-stage copies. A draw binds them (a blank cube when there is no sky material).
+constexpr int kMaterialEnvView = kMaterialVsFirstView + kMaxMaterialTextures,
+              kMaterialEnvIrrView = kMaterialEnvView + 1,
+              kMaterialEnvSampler = kMaterialVsFirstSampler + kMaxMaterialTextures;
 // A sprite material's textures are bound twice as well: the fragment stage reads texture i at kMaterialSpriteFirstView + i, the vertex
 // stage (vertex() may sample it, as fa_vs_<name>) at kMaterialSpriteVsFirstView + i, the samplers likewise.
 constexpr int kMaterialSpriteVsFirstView = kMaterialSpriteFirstView + kMaxMaterialTextures,
@@ -519,6 +524,8 @@ struct MaterialAsset {
     bool doubleSided = false;
     bool full = false;    // mode "full": the file is the whole shader; `passes` say how it is drawn
     bool prepass = true;  // full: the engine's prepass program draws it (SSAO, fog, depth effects see it)
+    bool animated =
+        false;  // sky: the snippet reads the time (the twin's "animated"): the environment it lights the meshes with is re-baked as time passes
     FullShadow shadow = FullShadow::Depth;    // full: the shadow caster
     std::vector<MaterialPassState> passes;    // full: in drawing order; a plain material has none
     std::vector<MaterialParamDef> params;     // in the order of the twin's "params" (the packing order)
@@ -1313,6 +1320,8 @@ private:
 
 // sg_make_image plus per-backend fixes (see image_gl.cpp). Every 2D image of the renderer is created through it.
 sg_image make_image(const sg_image_desc& desc);
+// The same for a cube image (SG_IMAGETYPE_CUBE): the OpenGL ES fix goes through the cube target.
+sg_image make_cube_image(const sg_image_desc& desc);
 
 // One render target as the renderer makes them (renderer_targets.cpp): the colour image, the single-sample image an
 // MSAA colour image resolves into, an optional depth image, and the views a pass and a later sampler need. The game

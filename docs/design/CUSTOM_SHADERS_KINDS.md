@@ -67,8 +67,9 @@ covers `color_space.glsl` and `sky_common.glsl`; the sky defines no preprocessor
   draws the sky through the material's program (`Gpu::sky_pipeline(format, shader)`, a pipeline per shader, the same uniforms
   as the built-in one plus the material's block and textures). A path that is not a built sky material (missing, another
   kind, a build error) draws the built-in gradient, with the reason logged once and the path listed in
-  `RenderStats.materialFallbacks`. The meshes' ambient and reflection light (`fa_env_sky`, `fa_env_horizon`) and the
-  reflection probes keep following `skyColor` and `horizonColor`: a sky material only paints the background.
+  `RenderStats.materialFallbacks`. The sky is also baked into the cubes that light the meshes (`renderer_env.cpp`,
+  CUSTOM_SHADERS.md "P15"); without a sky material `fa_env_sky` and `fa_env_horizon` (the gradient) light them as before. The reflection
+  probes keep following `skyColor` and `horizonColor`.
 - **Editor.** View > Scene settings (`scene_settings_model.*`, `scene_settings_panel.cpp`) edits the settings through
   `scene.set_component` on `SceneSettings` with no `id` (`patch_settings` in `fa::scene` applies the fields all or nothing,
   `skyMaterialParams` merges); the editor's undo plan for it (`plan_set_settings`) puts back exactly the fields of the call.

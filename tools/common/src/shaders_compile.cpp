@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cctype>
 #include <filesystem>
+#include <map>
 #include <regex>
 #include <set>
 
@@ -372,8 +373,32 @@ constexpr const char* kLightSignatures =
 const std::vector<std::string>& lighting_api() {
     static const std::vector<std::string> names = {"fa_light_count",  "fa_light",     "fa_light_unshadowed",
                                                    "fa_light_shadow", "fa_sky_light", "fa_sky_reflection",
-                                                   "fa_environment",  "fa_env_brdf"};
+                                                   "fa_environment",  "fa_env_brdf",  "fa_ambient_light"};
     return names;
+}
+
+// The declaration of a function of the lighting API, for the hints that name one.
+std::string lighting_signature(const std::string& name) {
+    static const std::map<std::string, std::string> sigs = {
+        {"fa_light_count", "int fa_light_count()"},
+        {"fa_light", "LightSample fa_light(int n, in SurfaceInput i)"},
+        {"fa_light_unshadowed", "LightSample fa_light_unshadowed(int n, in SurfaceInput i)"},
+        {"fa_light_shadow", "float fa_light_shadow(int n, in SurfaceInput i)"},
+        {"fa_sky_light", "vec3 fa_sky_light(in SurfaceInput i, in Surface s)"},
+        {"fa_sky_reflection", "vec3 fa_sky_reflection(vec3 n, vec3 v, vec3 f0, float roughness)"},
+        {"fa_environment", "vec3 fa_environment(vec3 d, float rough)"},
+        {"fa_env_brdf", "vec2 fa_env_brdf(float rough, float ndv)"},
+        {"fa_ambient_light", "vec3 fa_ambient_light(vec3 n)"}};
+    const auto it = sigs.find(name);
+    return it == sigs.end() ? std::string() : it->second;
+}
+
+// The functions of the lighting API that surface() may call: they read the sky environment, which the shadow and depth passes of an
+// alphaMode "clip" material (they run surface() to know what to discard) have bound too. The functions that need the lights, or
+// the whole Surface, are declared in the main fragment stage only.
+bool lighting_api_in_surface(const std::string& name) {
+    return name == "fa_environment" || name == "fa_env_brdf" || name == "fa_sky_reflection" ||
+           name == "fa_ambient_light";
 }
 
 // The [begin, end) of the body of `<returnType> <name>(...) { ... }` in the comment-blanked snippet, or {0, 0}.
@@ -423,6 +448,18 @@ std::string undeclared_hint(const std::string& token, const MapContext& ctx) {
     if (token.rfind("fa_", 0) == 0) {
         // A custom mesh material: the documented lighting functions come first (the template has helpers of its own).
         if (!ctx.material.full && ctx.material.kind == "mesh" && ctx.material.lighting == "custom") {
+            const auto& names = lighting_api();
+            if (std::find(names.begin(), names.end(), token) != names.end())
+                // The name exists: the stage that failed does not have it (a helper of the snippet is compiled into both stages).
+                return "`" + token +
+                       "` is declared in the fragment stage only, and a function of the snippet that is not light(), "
+                       "ambient(), "
+                       "lighting(), surface() or vertex() is compiled into the vertex stage too, where this error "
+                       "comes from. Call "
+                       "it from light(), ambient(), lighting() or a helper they call, or wrap the call in #ifdef "
+                       "GL_FRAGMENT_SHADER "
+                       "... #endif. Its signature: " +
+                       lighting_signature(token) + ".";
             const std::string api = closest_match(token, lighting_api());
             if (!api.empty())
                 return "did you mean " + api + "? The lighting functions are " + join(lighting_api(), ", ") + ".";
@@ -751,7 +788,10 @@ std::vector<ShaderIssue> precheck_snippet(const MaterialDef& material, const Gen
         // Where `vec3 <name>(` is defined.
         auto definition = [&](const std::string& name) {
             std::smatch m;
-            const std::regex re("\\bvec3\\s+" + name + "\\s*\\(");
+            // lighting(): the one the hook detection took, (in SurfaceInput i, in Surface s), not a helper of the same name.
+            const std::string params =
+                name == "lighting" ? R"(\(\s*(?:in\s+)?SurfaceInput\s+\w+\s*,\s*(?:in\s+)?Surface\b)" : R"(\()";
+            const std::regex re("\\bvec3\\s+" + name + "\\s*" + params);
             return std::regex_search(stripped, m, re) ? std::size_t(m.position(0)) : std::size_t(0);
         };
         if (g.lightingWithoutCustom)
@@ -782,7 +822,8 @@ std::vector<ShaderIssue> precheck_snippet(const MaterialDef& material, const Gen
                 out.push_back(issue_at(
                     at, "'" + name + "' : the lighting functions belong to a material with \"lighting\": \"custom\"",
                     "fa_light_count(), fa_light(n, i), fa_light_unshadowed(), fa_light_shadow(), fa_sky_light(), "
-                    "fa_sky_reflection(), fa_environment() and fa_env_brdf() are for the snippet of a \"custom\" "
+                    "fa_sky_reflection(), fa_environment(), fa_env_brdf() and fa_ambient_light() are for the snippet "
+                    "of a \"custom\" "
                     "material (in light(), ambient() or lighting()). Set \"lighting\": \"custom\" in " +
                         where + " (pointer /lighting) and define light() or lighting()."));
                 break;
@@ -794,6 +835,7 @@ std::vector<ShaderIssue> precheck_snippet(const MaterialDef& material, const Gen
                 if (e == 0) continue;
                 const std::string body = stripped.substr(b, e - b);
                 for (const std::string& name : lighting_api()) {
+                    if (std::string(fn) == "surface" && lighting_api_in_surface(name)) continue;
                     const std::size_t at = find_word(body, name);
                     if (at == std::string::npos) continue;
                     out.push_back(issue_at(
@@ -983,6 +1025,16 @@ std::string sokol_shdc_missing_hint(const SetupContext& context) {
     return hint;
 }
 
+// A sky material whose snippet reads the game time (SkyInput.time, or fa_time) is "animated" in its twins: the renderer bakes the environment it lights the
+// meshes with again as time passes (docs/shaders/SHADERS_LIGHTING.md, "The sky material lights the meshes"). Set on cached twins too: it depends on
+// the snippet text, which the cache key hashes, but not on anything sokol-shdc produces.
+static void mark_animated(ShaderCompileResult& res, const std::string& stripped) {
+    if (res.generated.kind != "sky") return;
+    static const std::regex timeUse(R"(\bfa_time\b|\.time\b)");
+    if (!std::regex_search(stripped, timeUse)) return;
+    for (auto& [slang, twin] : res.twins) twin["animated"] = true;
+}
+
 Result<ShaderCompileResult> compile_material(const std::string& projectDir, const std::string& materialPath,
                                              const ShaderCompileOptions& options) {
     ShaderCompileResult res;
@@ -1044,6 +1096,7 @@ Result<ShaderCompileResult> compile_material(const std::string& projectDir, cons
         missing.push_back(slang);
     }
     if (missing.empty()) {
+        mark_animated(res, stripped);
         res.ok = true;
         return res;
     }
@@ -1116,6 +1169,7 @@ Result<ShaderCompileResult> compile_material(const std::string& projectDir, cons
         write_cached_twin(shader_cache_path(projectDir, res.generated, snippet, slang), twin);
         res.twins[slang] = std::move(twin);
     }
+    mark_animated(res, stripped);
     res.ok = true;
     return res;
 }

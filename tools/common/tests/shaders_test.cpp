@@ -1980,6 +1980,12 @@ TEST_CASE(
     CHECK(r->errors[0].message.find("does not have \"lighting\": \"custom\"") != std::string::npos);
     CHECK(r->errors[0].hint.find("/lighting") != std::string::npos);
     CHECK(shdc.calls == 0);
+    // the error points at the hook, not at an overload of the same name that comes first
+    r = errors_of(pbr, surface + "vec3 lighting(vec3 a) { return a; }\n" + loop);
+    REQUIRE(r.ok());
+    REQUIRE_FALSE(r->errors.empty());
+    CHECK(r->errors[0].message.find("does not have \"lighting\": \"custom\"") != std::string::npos);
+    CHECK(r->errors[0].line == 3);
     // ... and so does a pbr material that calls one of the lighting functions from its own helper
     r = errors_of(pbr, surface + "vec3 sky(in SurfaceInput i, in Surface s) { return fa_sky_light(i, s); }\n");
     REQUIRE(r.ok());
@@ -1990,16 +1996,22 @@ TEST_CASE(
     p.write("materials/toon.material.json", kToonMaterial);
 
     // surface() runs before the lights are known: calling the functions there is refused, light() may call them
-    r = errors_of(
-        custom,
-        "void surface(in SurfaceInput i, inout Surface s) {\n    s.emission = fa_environment(i.world_normal, 0.5);\n}\n"
-        "vec3 light(in SurfaceInput i, in Surface s, in LightSample l) { return fa_sky_light(i, s); }\n");
+    r = errors_of(custom,
+                  "void surface(in SurfaceInput i, inout Surface s) {\n    s.emission = fa_sky_light(i, s);\n}\n"
+                  "vec3 light(in SurfaceInput i, in Surface s, in LightSample l) { return fa_sky_light(i, s); }\n");
     REQUIRE(r.ok());
     REQUIRE(r->errors.size() == 1);
-    CHECK(r->errors[0].message.find("'fa_environment' : the lighting functions cannot be called from surface()") !=
+    CHECK(r->errors[0].message.find("'fa_sky_light' : the lighting functions cannot be called from surface()") !=
           std::string::npos);
     CHECK(r->errors[0].line == 2);
     CHECK(r->errors[0].hint.find("light(), ambient() or lighting()") != std::string::npos);
+    // ... except the four that only read the sky environment (an alphaMode "clip" surface() runs in the shadow and depth programs too)
+    r = errors_of(custom, "void surface(in SurfaceInput i, inout Surface s) {\n"
+                          "    s.emission = fa_environment(i.world_normal, 0.5) * fa_ambient_light(i.world_normal);\n"
+                          "    s.emission += fa_sky_reflection(s.normal, i.view_dir, vec3(0.04), 0.5);\n"
+                          "    s.alpha = fa_env_brdf(0.5, 0.5).x;\n}\n"
+                          "vec3 light(in SurfaceInput i, in Surface s, in LightSample l) { return vec3(0.0); }\n");
+    CHECK(shdc.calls == 1);  // the checks before sokol-shdc refused nothing (the fake one writes no reflection file)
 
     // a misspelled function: did you mean, with the list of the functions
     const std::string misspelled = surface + "vec3 lighting(in SurfaceInput i, in Surface s) {\n"
@@ -2012,9 +2024,22 @@ TEST_CASE(
     r = compile_material(p.str(), "materials/toon.material.json", options);
     REQUIRE(r.ok());
     REQUIRE(r->errors.size() == 1);
-    INFO(r->errors[0].hint);
     CHECK(r->errors[0].hint.find("did you mean fa_sky_light?") != std::string::npos);
     CHECK(r->errors[0].hint.find("fa_light_unshadowed") != std::string::npos);
+    // a name that exists but fails to compile in the vertex stage (a helper compiled into both stages): the stage hint, with the signature
+    const std::string helperUse =
+        surface + "vec3 sky_helper(in SurfaceInput i, in Surface s) { return fa_sky_light(i, s); }\n"
+                  "vec3 light(in SurfaceInput i, in Surface s, in LightSample l) { return sky_helper(i, s); }\n";
+    const GeneratedShader gh = generate_material_shader(custom, helperUse);
+    p.write(custom.shader, helperUse);
+    shdc.stderrText = "top.glsl:" + std::to_string(top_line_of(gh, 2)) +
+                      ":0: error: 'fa_sky_light' : no matching overloaded function found\n";
+    r = compile_material(p.str(), "materials/toon.material.json", options);
+    REQUIRE(r.ok());
+    REQUIRE(r->errors.size() == 1);
+    CHECK(r->errors[0].hint.find("did you mean fa_sky_light") == std::string::npos);
+    CHECK(r->errors[0].hint.find("GL_FRAGMENT_SHADER") != std::string::npos);
+    CHECK(r->errors[0].hint.find("vec3 fa_sky_light(in SurfaceInput i, in Surface s)") != std::string::npos);
     shdc.stderrText.clear();
 
     // the name `lighting` is reserved for the hook only in a custom material, like light and ambient

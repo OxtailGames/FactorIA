@@ -176,7 +176,8 @@ const std::vector<std::string>& provided_names() {
         // fragment stage
         "fa_frag_color", "fa_tex", "fa_smp", "fa_base_sample", "fa_base_color", "fa_camera_pos", "fa_ambient",
         "fa_emissive", "fa_env_sky", "fa_env_horizon", "fa_shadow", "fa_light_count", "fa_light", "fa_apply_fog",
-        "fa_environment", "fa_env_brdf", "fa_sky_reflection", "fa_srgb_to_linear", "fa_linear_to_srgb",
+        "fa_environment", "fa_env_brdf", "fa_sky_reflection", "fa_ambient_light", "fa_srgb_to_linear",
+        "fa_linear_to_srgb",
         // macros
         "FA_TIME", "FA_CAMERA", "FA_PASS", "FA_SKIN", "FA_SHADOW_PASS"};
     return names;
