@@ -425,6 +425,19 @@ void describe_image_texture(render::TextureAsset& t, const std::string& path, sg
 
 }  // namespace
 
+namespace {
+// What the GPU can do, or what a test's set_backend says another backend could.
+render::FeatureEnv backend_env(const State& s) {
+    render::FeatureEnv env = render::feature_env_from_sokol();
+    if (s.backendOverride >= 0) {  // a test answers as another backend would
+        env.backend = render::FeatureBackend(s.backendOverride);
+        env.compute = env.backend == render::FeatureBackend::Gl || env.backend == render::FeatureBackend::D3d11 ||
+                      env.backend == render::FeatureBackend::Metal;
+    }
+    return env;
+}
+}  // namespace
+
 Compute::Compute() : s_(std::make_unique<State>()) {}
 Compute::~Compute() { detach(); }
 
@@ -433,6 +446,12 @@ void Compute::attach(render::Gpu* gpu, render::Assets* assets) {
     s_->assets = assets;
     if (assets) {
         State* st = s_.get();
+        // The buffers of a mesh material (M72.4) need what compute needs; a test's set_backend answers for both.
+        assets->set_storage_buffer_gate([st](std::string* backend, std::string* reason) {
+            const render::FeatureEnv env = backend_env(*st);
+            if (backend) *backend = render::feature_backend_label(env.backend);
+            return render::feature_supported(env, render::find_feature("computeShaders"), reason);
+        });
         assets->set_compute_image_resolver([st](const std::string& id, std::string* why) -> render::TextureAsset* {
             const std::string digits = id.substr(8);  // after "compute:"
             int n = 0;
@@ -459,7 +478,30 @@ void Compute::attach(render::Gpu* gpu, render::Assets* assets) {
     }
 }
 
+Result<ComputeDrawAccess::Bound> ComputeDrawAccess::bind(Compute& c, int id, const MaterialBufferDef& def,
+                                                         const std::string& material, const std::string& pointer) {
+    const State& s = *c.s_;
+    auto it = s.bufs.find(id);
+    if (it == s.bufs.end())
+        return make_error(
+            pointer + ": no compute buffer " + std::to_string(id) + " (it was destroyed, or never made), so '" +
+                material + "' cannot read '" + def.name + "'",
+            "Give the id of a live buffer (compute.list_buffers lists them; compute.create_buffer makes one).");
+    if (!same_layout(it->second, def))
+        return make_error(pointer + ": buffer " + std::to_string(id) + " was made for '" + it->second.name + "' of '" +
+                              it->second.material + "' with another layout (stride " +
+                              std::to_string(it->second.stride) + ") than '" + def.name + "' of '" + material +
+                              "' (stride " + std::to_string(def.stride) + ")",
+                          "Make the buffer from a compute material that declares '" + def.name +
+                              "' with the same fields in the same order "
+                              "(compute.create_buffer), or make the fields of the mesh material match the buffer.");
+    return Bound{it->second.view, it->second.count};
+}
+
 void ComputeTestAccess::set_backend(Compute& c, int backend) { c.s_->backendOverride = backend; }
+void ComputeTestAccess::set_binding_limit(Compute& c, int limit) {
+    if (c.s_->assets) c.s_->assets->set_storage_binding_limit_override(limit);
+}
 void ComputeTestAccess::set_load_override(Compute& c, int mode) { c.s_->loadOverride = mode; }
 
 Json compute_json_float(float v) {
@@ -477,7 +519,10 @@ void Compute::detach() {
     const bool alive = s_->gpu && sg_isvalid();
     if (alive)
         for (auto& [id, b] : s_->bufs) s_->destroy(b);
-    if (s_->assets) s_->assets->set_compute_image_resolver(nullptr);
+    if (s_->assets) {
+        s_->assets->set_compute_image_resolver(nullptr);
+        s_->assets->set_storage_buffer_gate(nullptr);
+    }
     for (auto& [id, im] : s_->imgs) s_->destroy(im, alive);
     s_->bufs.clear();
     s_->imgs.clear();
@@ -494,12 +539,7 @@ bool Compute::available(std::string* why) const {
         if (why) *why = "compute: the renderer is not running (no graphics: graphics=false, or before init)";
         return false;
     }
-    render::FeatureEnv env = render::feature_env_from_sokol();
-    if (s.backendOverride >= 0) {  // a test answers as another backend would
-        env.backend = render::FeatureBackend(s.backendOverride);
-        env.compute = env.backend == render::FeatureBackend::Gl || env.backend == render::FeatureBackend::D3d11 ||
-                      env.backend == render::FeatureBackend::Metal;
-    }
+    const render::FeatureEnv env = backend_env(s);
     std::string reason;
     if (render::feature_supported(env, render::find_feature("computeShaders"), &reason)) return true;
     if (why)

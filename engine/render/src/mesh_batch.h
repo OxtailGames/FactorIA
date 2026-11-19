@@ -35,6 +35,7 @@ struct MeshItem {
     bool casts = false;                 // inside the light frustum and castShadows: drawn in the shadow pass
     std::uint64_t sortKey = 0;  // SortKeyTable: the order of the material fields as one integer (valid when `keyed`)
     bool keyed = false;         // sortKey is set; an unkeyed item is ordered by the comparator (build_batches)
+    bool noCull = false;        // never frustum-culled: a mesh material with buffers and no MeshRenderer.instanceBounds
 };
 
 // What the sort of the opaque meshes reads of an item (a MeshItem, or a SceneMesh before a camera makes its item).

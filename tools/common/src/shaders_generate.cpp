@@ -555,6 +555,26 @@ std::string material_prologue(const MaterialDef& material, std::string& vsUndefs
             fsDecls += "layout(binding=" + std::to_string(view++) + ") uniform texture2D " + tex.name +
                        ";\nlayout(binding=" + std::to_string(sampler++) + ") uniform sampler " + tex.name + "_smp;\n";
         }
+        // The read-only storage buffers of a mesh material (M72.4), declared like the textures once per stage: the element struct
+        // `<name>_item` once, the vertex stage's copy as fa_vs_<name> (renamed for the snippet) at view 16.., the fragment stage's
+        // after those. The snippet reads `<name>.data[i].<field>`, as a compute material does.
+        if (!material.buffers.empty()) {
+            const int count = int(material.buffers.size());
+            std::string structs;
+            for (const MaterialBuffer& b : material.buffers) {
+                structs += "struct " + b.name + "_item {";
+                for (const MaterialBufferField& f : b.fields) structs += " " + f.type + " " + f.name + ";";
+                structs += " };\n";
+                vsDefines += "#define " + b.name + " fa_vs_" + b.name + "\n";
+                vsUndefs += "#undef " + b.name + "\n";
+                vsDecls += "layout(binding=" + std::to_string(kMeshBufferFirstView + b.binding) +
+                           ") readonly buffer fa_vs_" + b.name + "_buf { " + b.name + "_item data[]; } " + b.name +
+                           ";\n";
+                fsDecls += "layout(binding=" + std::to_string(kMeshBufferFirstView + count + b.binding) +
+                           ") readonly buffer fa_" + b.name + "_buf { " + b.name + "_item data[]; } " + b.name + ";\n";
+            }
+            gen(structs);
+        }
         if (!vsDecls.empty()) gen("#ifdef GL_VERTEX_SHADER\n" + vsDefines + vsDecls + "#else\n" + fsDecls + "#endif\n");
     }
     return text;
@@ -625,7 +645,8 @@ GeneratedShader generate_material_shader(const MaterialDef& material, std::strin
     } else {
         g.programs = {"mesh", "mesh_skin"};
         t.generated("@program mesh vs fs\n@program mesh_skin vs_skin fs\n");
-        if (g.hasVertex || clip) {
+        // A material with buffers always has its own shadow program: the engine's would draw the one base mesh, not the instances.
+        if (g.hasVertex || clip || !material.buffers.empty()) {
             g.programs.push_back("shadow");
             g.programs.push_back("shadow_skin");
             t.generated("@program shadow shadow_vs shadow_fs\n@program shadow_skin shadow_vs_skin shadow_fs\n");
@@ -647,6 +668,8 @@ GeneratedShader generate_material_shader(const MaterialDef& material, std::strin
     if (instLayout.vec4Count > 0) g.defines.push_back("FA_INST_" + std::to_string(std::min(instLayout.vec4Count, 3)));
     for (const std::string& a : material.vertexAttributes)
         g.defines.push_back(a == "uv1" ? "FA_CH_UV1" : "FA_CH_COLOR1");
+    // The model matrix comes from a uniform block (one entity, MeshRenderer.instances GPU instances), see mesh_common.glsl.
+    if (!material.buffers.empty()) g.defines.push_back("FA_BUFFER_INST");
     return g;
 }
 

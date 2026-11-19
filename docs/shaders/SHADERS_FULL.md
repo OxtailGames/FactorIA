@@ -78,6 +78,7 @@ other `fa_` name is an error with a "did you mean" hint. Your own names must not
 | `fa_view_proj` | The `mat4` from world to clip space of the camera. |
 | `fa_light_vp`, `fa_shadow_coord(world)` | The directional light's matrix, and `fa_light_vp * vec4(world, 1)`: pass the second in a varying to `fa_shadow()` and `fa_light()`. |
 | `fa_uv_scale` | `vec4`, `xy` is `MeshRenderer.uvScale`. |
+| `fa_instance_index` | `int`, 0 to `MeshRenderer.instances` - 1: the instance of a material with `buffers`, which also reads them in both stages as `<name>.data[i].<field>` and needs `"shadow": "custom"` (or `"none"`); [Drawing from a compute buffer](SHADERS_COMPUTE.md#drawing-from-a-compute-buffer). |
 | `FA_TIME`, `FA_CAMERA` | Seconds of game time (`float`) and the camera's world position (`vec3`); also in the fragment stage. |
 
 **Fragment stage**

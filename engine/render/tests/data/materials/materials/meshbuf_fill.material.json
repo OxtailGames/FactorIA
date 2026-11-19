@@ -1,0 +1,21 @@
+{
+  "format": "factoria.material/1",
+  "kind": "compute",
+  "doc": "Test fixture: writes N instance positions in a row, with a visible flag, into the buffer that meshbuf.material.json draws from.",
+  "shader": "shaders/meshbuf_fill.compute.glsl",
+  "workgroupSize": [64],
+  "params": {
+    "count": { "type": "float", "default": 1.0, "doc": "How many elements to write." },
+    "spacing": { "type": "float", "default": 1.0, "doc": "Distance between two neighbours on X." },
+    "hide": { "type": "float", "default": -1.0, "doc": "The element whose visible flag is cleared (-1 = none)." }
+  },
+  "buffers": {
+    "points": {
+      "doc": "One element per instance.",
+      "fields": [
+        { "name": "pos", "type": "vec4", "doc": "xyz = the offset from the entity; w = 1 visible, 0 hidden." },
+        { "name": "tint", "type": "vec4", "doc": "The colour of the instance." }
+      ]
+    }
+  }
+}

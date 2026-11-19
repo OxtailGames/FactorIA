@@ -190,6 +190,19 @@ layout(binding=0) uniform fa_mesh_vs_params {
     vec4 fa_time;               // x = seconds of game time since the scene started
 };
 
+// Drawing from a storage buffer (M72.4): a material with "buffers" defines FA_BUFFER_INST. Its entity is drawn as
+// MeshRenderer.instances GPU instances, so the model matrix is one value per draw, a uniform block (binding 6,
+// kMeshInstanceBaseUniform in fa/tooling/shaders.h), not the per-instance vertex buffer (which holds one matrix and would be
+// read past its end); vertex() finds its instance in fa_instance_index (0 .. instances - 1).
+#define fa_instance_index gl_InstanceIndex
+#ifdef FA_BUFFER_INST
+layout(binding=6) uniform fa_inst_base {
+    mat4 fa_base_model;
+};
+#define FA_INST_MODEL fa_base_model
+#else
+#define FA_INST_MODEL mat4(fa_inst_m0, fa_inst_m1, fa_inst_m2, fa_inst_m3)
+#endif
 @include_block fa_inst_flags
 @include_block fa_types
 @include_block fa_user
@@ -277,7 +290,7 @@ layout(location=8) in vec4 fa_inst_m3;
 
 void main() {
     fa_inst_begin();
-    fa_shade_vertex(mat4(fa_inst_m0, fa_inst_m1, fa_inst_m2, fa_inst_m3), fa_position, fa_normal, fa_tangent, fa_texcoord0, fa_color);
+    fa_shade_vertex(FA_INST_MODEL, fa_position, fa_normal, fa_tangent, fa_texcoord0, fa_color);
 }
 @end
 
@@ -303,7 +316,7 @@ layout(location=10) in vec4 fa_weights;
 
 void main() {
     fa_inst_begin();
-    fa_shade_vertex(mat4(fa_inst_m0, fa_inst_m1, fa_inst_m2, fa_inst_m3) * fa_skin_matrix(fa_joints, fa_weights),
+    fa_shade_vertex(FA_INST_MODEL * fa_skin_matrix(fa_joints, fa_weights),
                     fa_position, fa_normal, fa_tangent, fa_texcoord0, fa_color);
 }
 @end
@@ -764,7 +777,7 @@ out vec2 fa_uv;
 out vec4 fa_vertex_color;
 #endif
 void main() {
-    mat4 model = mat4(fa_inst_m0, fa_inst_m1, fa_inst_m2, fa_inst_m3);
+    mat4 model = FA_INST_MODEL;
 #if defined(FA_HAS_VERTEX) || defined(FA_ALPHA_CLIP)
     fa_inst_begin();
     VertexData v = fa_vertex_data(model, fa_position, fa_normal, fa_tangent, fa_texcoord0, fa_color);
@@ -814,7 +827,7 @@ out vec2 fa_uv;
 out vec4 fa_vertex_color;
 #endif
 void main() {
-    mat4 model = mat4(fa_inst_m0, fa_inst_m1, fa_inst_m2, fa_inst_m3) * fa_skin_matrix(fa_joints, fa_weights);
+    mat4 model = FA_INST_MODEL * fa_skin_matrix(fa_joints, fa_weights);
 #if defined(FA_HAS_VERTEX) || defined(FA_ALPHA_CLIP)
     fa_inst_begin();
     VertexData v = fa_vertex_data(model, fa_position, fa_normal, fa_tangent, fa_texcoord0, fa_color);
@@ -916,7 +929,7 @@ layout(location=8) in vec4 fa_inst_m3;
 @include_block fa_extra_attrs
 void main() {
     fa_inst_begin();
-    fa_prepass_vertex(mat4(fa_inst_m0, fa_inst_m1, fa_inst_m2, fa_inst_m3), fa_position, fa_normal, fa_tangent, fa_texcoord0, fa_color);
+    fa_prepass_vertex(FA_INST_MODEL, fa_position, fa_normal, fa_tangent, fa_texcoord0, fa_color);
 }
 @end
 
@@ -939,7 +952,7 @@ layout(location=10) in vec4 fa_weights;
 @include_block fa_extra_attrs
 void main() {
     fa_inst_begin();
-    fa_prepass_vertex(mat4(fa_inst_m0, fa_inst_m1, fa_inst_m2, fa_inst_m3) * fa_skin_matrix(fa_joints, fa_weights), fa_position,
+    fa_prepass_vertex(FA_INST_MODEL * fa_skin_matrix(fa_joints, fa_weights), fa_position,
                       fa_normal, fa_tangent, fa_texcoord0, fa_color);
 }
 @end

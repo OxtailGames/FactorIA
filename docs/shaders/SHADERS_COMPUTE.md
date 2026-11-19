@@ -145,6 +145,95 @@ script. `render.textureFromPNG` makes a texture at run time and returns its `id`
 or compute the same effect per pixel in a mesh, sprite or post material, which runs everywhere a material does. A game
 decides with `render.supports computeShaders`.
 
+### Drawing from a compute buffer
+
+A **mesh** material can read the buffers a compute material writes, and one entity then draws that mesh many times, once per
+element, with no copy to the CPU. Declare `buffers` in the mesh material exactly as above, with `"access": "read"` (the default
+here; `readWrite` is refused at `/buffers/<name>/access`), and read `<name>.data[i].<field>` in `vertex()`, in a helper and in
+`surface()` (a `mode: "full"` shader reads it in `@vertex` and `@fragment`). `vertex()` gets the instance number as
+`fa_instance_index` (an `int`, 0 to `instances` - 1; in a mesh material without buffers it is only the position of the entity in
+its automatic batch, which is no stable id) and moves each instance itself; `v.world_pos` starts as the mesh vertex
+placed by the entity's Transform, which is the base all instances share.
+
+On the entity: `MeshRenderer.instances` = N (0 is a normal draw of one mesh; vertex() still runs once, with index 0), and
+`materialParams` gives the id of a compute buffer for each declared buffer: `{"particles": 3}`. The buffer must come from a
+compute material that declares the same buffer (same field names, types and order, so the same stride) and every one
+of the buffers it reads must hold at least N elements (a smaller one would be read past its end: the entity is not drawn and
+the log names `/instances` and the short buffer). A missing, destroyed or differently shaped buffer is reported once with the JSON pointer (`/materialParams/particles`) and the
+entity is not drawn; nothing crashes. `instanceBounds` is the half-extent in the entity's local metres of the box holding every
+instance: the camera culls the entity (and its shadow) by it, and 0 never culls. The CPU cannot know where the GPU put the
+instances, so there is no per-instance culling there.
+
+Limits and rules: at most 4 buffers; N up to 16777216; an entity with buffers is a draw of its own (never batched, no `lods`,
+and `"instanced": true` params are refused with `buffers`, as they would be a second source of per-instance data). In a snippet
+material the instances cast shadows and enter the depth prepass like the mesh. A full shader must write `"shadow": "custom"`
+(its first pass is compiled again for the shadow map, so its `@vertex` places the instances there too) or `"shadow": "none"`;
+the prepass is left out for it (`"prepass": false`, which is then the default). A skinned mesh (an `Animator`) with buffers is not covered by the tests.
+
+**Particles on the GPU.** A compute material moves them, a mesh material draws them as quads. Both declare the same buffer
+(`"buffers": {"sparks": {"fields": [{"name": "pos", "type": "vec4"}]}}`, xyz = position, w = life left); the compute material has
+`"workgroupSize": [64]` and the float params `count` and `dt`; the mesh material has `"shader": "shaders/sparks.surface.glsl"`.
+
+```glsl
+// shaders/sparks_sim.compute.glsl
+void compute(in ComputeInput i) {
+    uint k = i.global_id.x;
+    if (float(k) >= count) return;
+    vec4 p = sparks.data[k].pos;
+    sparks.data[k].pos = vec4(p.xyz + vec3(0.0, dt, 0.0), p.w - dt);
+}
+// shaders/sparks.surface.glsl: a quad per spark, facing +Z, the entity at the origin with no scale
+void vertex(inout VertexData v) {
+    vec4 p = sparks.data[fa_instance_index].pos;
+    v.world_pos = p.xyz + v.object_pos * 0.2;
+}
+void surface(in SurfaceInput i, inout Surface s) { s.emission = vec3(1.0, 0.6, 0.2); }
+```
+
+```js
+// scripts/sparks.js, on an entity whose MeshRenderer mesh is "quad"
+import { Behaviour } from "factoria";
+
+export default class Sparks extends Behaviour {
+  onStart() {
+    const buf = fa.call("compute.create_buffer", { material: "materials/sparks_sim.material.json", buffer: "sparks", count: 1000 });
+    this.buf = buf.id;
+    this.entity.set("MeshRenderer", { material: "materials/sparks.material.json", instances: 1000, instanceBounds: 20,
+                                      materialParams: { sparks: buf.id } });
+  }
+  onUpdate(dt) {  // the dispatch is queued before the frame that draws
+    fa.call("compute.dispatch", { material: "materials/sparks_sim.material.json", buffers: { sparks: this.buf },
+                                  params: { count: 1000, dt }, groups: [16, 1, 1] });
+  }
+}
+```
+
+**GPU culling without an indirect draw.** The engine sets the instance count on the CPU (sokol_gfx has no indirect draw), so a
+compute pass cannot shorten the draw; it makes the extra instances cost nothing to look at instead. Write a flag or a size per
+element, and let `vertex()` collapse an instance by putting it outside the clip volume (or scaling it to 0):
+
+```glsl
+// compute: p.w = 1 when the point is within `radius` of `center`, else 0
+points.data[k].pos.w = distance(points.data[k].pos.xyz, center) < radius ? 1.0 : 0.0;
+// vertex(): a hidden instance is placed far outside the view, so nothing of it is rasterized
+vec4 p = points.data[fa_instance_index].pos;
+if (p.w < 0.5) { v.world_pos = vec3(1.0e9); return; }
+v.world_pos += p.xyz;
+```
+
+A collapsed instance still costs its vertex stage; keep `instances` as small as the buffer's live part when you can. Tests
+`mesh buffers: ... (GPU culling by a flag)` run exactly this.
+
+**Where it runs.** Metal, Direct3D 11 and OpenGL 4.3 or newer (a storage buffer in the vertex stage). On Android (GLES3), the web
+(WebGL2) and macOS OpenGL 4.1 the material is refused when it loads: the entities draw magenta and the log names the backend,
+the rule and the CPU path (write the instances as entities, or as `"instanced"` params of a material without buffers, from a
+script). Ask `render.supports computeShaders` first. A dispatch made before a frame is drawn is finished when that frame reads
+it (commands run in order). Each buffer is declared once in the vertex and once in the fragment stage, so a program takes two
+storage-buffer bindings per buffer (at most 8 with 4 buffers, which every OpenGL 4.3 driver has: GL guarantees 8). A driver
+that reports fewer (`GL_MAX_SHADER_STORAGE_BUFFER_BINDINGS`) refuses a material with more buffers when it loads, naming the
+number it offers and how many buffers fit; pack several arrays into the fields of one buffer then. The tests here ran on
+Metal only; the OpenGL and Direct3D 11 draws were not run.
+
 ### Where it runs
 
 Compute needs a graphics API with compute shaders: **Windows** (D3D11), **Linux** (OpenGL 4.3 or newer), **macOS**
