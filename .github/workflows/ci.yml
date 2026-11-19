@@ -161,6 +161,7 @@ jobs:
       - name: Test under Xvfb (Mesa llvmpipe)
         env:
           FA_REQUIRE_SHDC: '1'
+          FA_REQUIRE_COMPUTE: '1'  # llvmpipe offers GL 4.5: a runner without compute must fail, not skip the compute tests
         run: xvfb-run -a -s "-screen 0 1280x720x24" ctest --preset linux-release --parallel 4  # the runner's 4 vCPUs
 
       # A `_perf` test inside the warning band passes and ctest prints nothing: list those in the log and the job summary

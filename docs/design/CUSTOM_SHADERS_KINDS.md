@@ -89,8 +89,8 @@ gathers, on the calling thread, and the emit jobs only copy the result).
 - **Error material.** A material that did not build, or whose kind is not `"sprite"`, makes the use an error use: flatten
   replaces the vertex colours by magenta (the alpha stays), the batch draws with the built-in program, and
   `RenderStats::materialFallbacks` names the material. The build error is logged once (`note_failure`); a wrong kind warns once.
-- **Left for the next package:** `Shape2D`, `Tilemap`, `Text`, particles and UI call the same `QuadList::set_material`;
-  `QuadInput.custom` stays zero.
+- **Built (M72-P5):** `Shape2D`, `Tilemap`, `Text`, particles and UI call the same `QuadList::set_material`.
+  `QuadInput.custom` is still reserved and zero: per-item values are the material's instanced params (below), read by name.
 
 Built (M72-P4, per-sprite values): `"instanced": true` params of a sprite material travel with each quad.
 
