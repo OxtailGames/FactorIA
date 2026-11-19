@@ -234,6 +234,70 @@ that reports fewer (`GL_MAX_SHADER_STORAGE_BUFFER_BINDINGS`) refuses a material 
 number it offers and how many buffers fit; pack several arrays into the fields of one buffer then. The tests here ran on
 Metal only; the OpenGL and Direct3D 11 draws were not run.
 
+### Sprites from a compute buffer
+
+The 2D side of the same idea: a **sprite** material (`"kind": "sprite"`) declares read-only `buffers` exactly as a mesh material
+does (`"access": "read"` is the default, `readWrite` is refused at `/buffers/<name>/access`), and reads `<name>.data[i].<field>`
+in `vertex()`, in a helper and in `fragment()`. Both stages get the instance number as `fa_instance_index` (an `int`, 0 to
+`instances` - 1; in a sprite material without buffers it is 0). `v.world_pos` in `vertex()` starts as the corner of the sprite's
+own quad, placed by its Transform and `size`: that quad is the template every instance starts from, and `vertex()` moves each
+instance itself.
+
+On the entity: `Sprite.instances` = N (0 is a normal sprite: one quad, and `vertex()` still runs once with index 0), and
+`materialParams` gives the id of a compute buffer for each declared buffer: `{"particles": 3}`. The buffers must come from a
+compute material that declares the same buffer (same field names, types and order) and every one of them must hold at least N
+elements. Anything else (a missing, non-integer or destroyed id, another stride, a buffer shorter than N, N outside 0 to
+16777216, `instances` on a material without buffers) is reported once with the JSON pointer (`/materialParams/particles`,
+`/instances`) and the sprite is not drawn; nothing crashes. There is no `instanceBounds`: the CPU culls no sprite, so nothing
+needs a box that the GPU data would not keep.
+
+Rules: at most 4 buffers; `"instanced": true` params are refused together with `buffers` (error at `/params/<name>/instanced`);
+the sprite is **one draw** (`stats.drawCalls` 1, `stats.sprites` 1, however many instances) and one item of its layer, ordered
+by `layer` and `orderInLayer` like any sprite; a sprite whose material has buffers is never batched with another sprite, not even
+one with the same material and buffers. `meshColumns`, `slice`, `SpriteSkin` and a Parallax repeat are ignored for it. Only a
+`Sprite` can draw from buffers: a Shape2D, Tilemap, Text, ParticleEmitter or UiBox that uses such a material is not drawn, and the
+log says so once.
+
+**Particles on the GPU in 2D.** A compute material moves them, a sprite material draws them. Both declare the same buffer; the
+compute material has `"workgroupSize": [64]` and the float params `count` and `dt`.
+
+```json
+{ "format": "factoria.material/1", "kind": "sprite", "shader": "shaders/sparks2d.fragment.glsl",
+  "buffers": { "sparks": { "fields": [ { "name": "pos", "type": "vec4" }, { "name": "tint", "type": "vec4" } ] } } }
+```
+
+```glsl
+// shaders/sparks2d_sim.compute.glsl: pos.xy = the offset from the sprite, pos.w = 1 visible, 0 hidden
+void compute(in ComputeInput i) {
+    uint k = i.global_id.x;
+    if (float(k) >= count) return;
+    vec4 p = sparks.data[k].pos;
+    sparks.data[k].pos = vec4(p.x, p.y + 30.0 * dt, p.z, p.w);
+}
+// shaders/sparks2d.fragment.glsl: the sprite's own quad (all four corners), moved per instance
+void vertex(inout QuadVertex v) {
+    vec4 p = sparks.data[fa_instance_index].pos;
+    v.world_pos.xy = p.w < 0.5 ? vec2(1.0e9) : v.world_pos.xy + p.xy;
+}
+void fragment(in QuadInput i, inout QuadSurface s) {
+    s.color.rgb *= sparks.data[fa_instance_index].tint.rgb;
+}
+```
+
+A hidden instance is put far outside the view, so nothing of it is rasterized (the same GPU culling by a flag as for meshes: the
+CPU still draws N instances, so keep `instances` as small as the live part of the buffer). To scale an instance too, multiply
+the corner's distance from the sprite's centre. The script is the one of the mesh example with `Sprite` in place of
+`MeshRenderer`:
+`this.entity.set("Sprite", { material: "materials/sparks2d.material.json", size: [8, 8], instances: 1000, materialParams: { sparks: buf.id } })`.
+The tests `sprite buffers: ...` (`engine/render/tests/sprite_buffer_tests.cpp`) run the placement, the hiding flag and every
+error above.
+
+**Where it runs** is the same as for meshes: Metal, Direct3D 11 and OpenGL 4.3 or newer. On Android (GLES3), the web (WebGL2) and
+macOS OpenGL 4.1 the material is refused when it loads (error material, one log line naming the backend and the CPU path: write
+the quads as entities, or as `"instanced"` params of a material without buffers). A driver with fewer than 2 storage-buffer
+bindings per buffer refuses it too, naming the number it offers. The tests here ran on Metal only; the OpenGL and Direct3D 11
+draws were not run.
+
 ### Where it runs
 
 Compute needs a graphics API with compute shaders: **Windows** (D3D11), **Linux** (OpenGL 4.3 or newer), **macOS**

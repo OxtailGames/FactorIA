@@ -488,13 +488,13 @@ Result<ComputeDrawAccess::Bound> ComputeDrawAccess::bind(Compute& c, int id, con
                 material + "' cannot read '" + def.name + "'",
             "Give the id of a live buffer (compute.list_buffers lists them; compute.create_buffer makes one).");
     if (!same_layout(it->second, def))
-        return make_error(pointer + ": buffer " + std::to_string(id) + " was made for '" + it->second.name + "' of '" +
-                              it->second.material + "' with another layout (stride " +
-                              std::to_string(it->second.stride) + ") than '" + def.name + "' of '" + material +
-                              "' (stride " + std::to_string(def.stride) + ")",
-                          "Make the buffer from a compute material that declares '" + def.name +
-                              "' with the same fields in the same order "
-                              "(compute.create_buffer), or make the fields of the mesh material match the buffer.");
+        return make_error(
+            pointer + ": buffer " + std::to_string(id) + " was made for '" + it->second.name + "' of '" +
+                it->second.material + "' with another layout (stride " + std::to_string(it->second.stride) +
+                ") than '" + def.name + "' of '" + material + "' (stride " + std::to_string(def.stride) + ")",
+            "Make the buffer from a compute material that declares '" + def.name +
+                "' with the same fields in the same order "
+                "(compute.create_buffer), or make the fields of the mesh or sprite material match the buffer.");
     return Bound{it->second.view, it->second.count};
 }
 

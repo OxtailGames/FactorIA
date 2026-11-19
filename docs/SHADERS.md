@@ -988,7 +988,7 @@ helpers, the positions, the commands and what happens when a pass cannot be draw
 `"kind": "compute"` makes a program that runs on the GPU over storage buffers and draws nothing (particle simulations, flocking,
 flow fields). You run it with the `compute.*` commands. The snippet contract, the buffers and their std430 layout, the commands
 and where it runs (not Android or the web, whose GPU API has no compute; the page gives the CPU path) are on the page
-[Compute materials](shaders/SHADERS_COMPUTE.md).
+[Compute materials](shaders/SHADERS_COMPUTE.md), which also shows meshes and sprites drawn from them.
 
 ## Full shaders and passes
 

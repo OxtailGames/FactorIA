@@ -14,6 +14,10 @@
 #include "gradient_ramp.h"
 #include "render_internal.h"
 
+namespace fa {
+class Compute;
+}
+
 namespace fa::render {
 
 // The shadow rows computed for lights, kept while a light, its radius and the solid tiles around it stay the same: a light
@@ -51,6 +55,8 @@ struct Frame {
     std::vector<Vertex2D> debugLines;  // GL line list (perspective cameras)
     RenderStats* stats = nullptr;
     Assets* assets = nullptr;
+    Compute* compute =
+        nullptr;  // the renderer's: the buffers a Sprite whose material has "buffers" is drawn from (null: none)
     Fonts* fonts = nullptr;
     bool linear =
         false;  // SceneSettings.colorSpace linear: the colours of the gather (lights, ambient) are linear light

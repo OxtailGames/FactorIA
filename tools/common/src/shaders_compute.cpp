@@ -345,8 +345,8 @@ void parse_images(const Json& doc, MaterialDef& m, std::vector<MaterialIssue>& e
 
 namespace {
 
-// The storage buffers of a "mesh" material (M72.4): the same shapes as a compute material's, but read-only (the draw reads
-// them; a compute material writes them) and bound by the MeshRenderer, not by a dispatch.
+// The storage buffers of a "mesh" or "sprite" material (M72.4): the same shapes as a compute material's, but read-only (the draw
+// reads them; a compute material writes them) and bound by the MeshRenderer or Sprite that draws, not by a dispatch.
 void parse_mesh_buffers(const Json& doc, MaterialDef& m, std::vector<MaterialIssue>& errors,
                         std::set<std::string>& taken, const CheckName& checkName) {
     parse_buffers(doc, m, errors, taken, checkName);
@@ -356,7 +356,7 @@ void parse_mesh_buffers(const Json& doc, MaterialDef& m, std::vector<MaterialIss
             const auto a = it.value().find("access");
             if (a != it.value().end() && a->is_string() && a->get<std::string>() == "readWrite")
                 error(errors, "/buffers/" + escape_token(it.key()) + "/access",
-                      "a mesh material reads its buffers only: \"readWrite\" belongs to compute materials",
+                      "a " + m.kind + " material reads its buffers only: \"readWrite\" belongs to compute materials",
                       "Remove \"access\" or write \"read\"; the buffer is written by a compute material "
                       "(`compute.dispatch`) and this material reads it in vertex() and surface().");
         }
@@ -371,7 +371,9 @@ void parse_mesh_buffers(const Json& doc, MaterialDef& m, std::vector<MaterialIss
             if (p.instanced) {
                 error(errors, "/params/" + escape_token(p.name) + "/instanced",
                       "\"instanced\" params and \"buffers\" cannot be in one material: a material with buffers draws "
-                      "one entity as MeshRenderer.instances GPU instances, whose own data is in the buffers",
+                      "one entity as " +
+                          std::string(m.kind == "sprite" ? "Sprite" : "MeshRenderer") +
+                          ".instances GPU instances, whose own data is in the buffers",
                       "Remove \"instanced\": true (the param is then one value for the whole entity), or move the "
                       "per-instance value into a buffer field.");
                 break;
@@ -388,10 +390,11 @@ void parse_compute_fields(const Json& doc, MaterialDef& m, std::vector<MaterialI
                 error(errors, std::string("/") + key, std::string("\"") + key + "\" belongs to compute materials",
                       "Add \"kind\": \"compute\", or remove \"" + std::string(key) + "\".");
         if (!doc.contains("buffers")) return;
-        if (m.kind != "mesh") {
-            error(errors, "/buffers", "\"buffers\" belongs to compute materials and to mesh materials",
-                  "Add \"kind\": \"compute\" (a buffer the compute.dispatch command fills) or \"kind\": \"mesh\" (a "
-                  "read-only buffer a MeshRenderer draws from), or remove \"buffers\".");
+        if (m.kind != "mesh" && m.kind != "sprite") {
+            error(errors, "/buffers", "\"buffers\" belongs to compute, mesh and sprite materials",
+                  "Add \"kind\": \"compute\" (a buffer the compute.dispatch command fills), \"kind\": \"mesh\" or "
+                  "\"kind\": \"sprite\" (a read-only buffer a MeshRenderer or a Sprite draws from), or remove "
+                  "\"buffers\".");
             return;
         }
         parse_mesh_buffers(doc, m, errors, taken, checkName);
