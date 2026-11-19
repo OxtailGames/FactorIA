@@ -28,9 +28,11 @@
 #include "fa/scene/text_fit.h"
 #include "fa/scene/ui_rect.h"
 #include "bloom.h"
+#include "renderer_env.h"
 #include "renderer_ssr.h"
 #include "renderer_dof.h"
 #include "renderer_fog.h"
+#include "renderer_custom_post.h"
 #include "hdr_encode.h"
 #include "postprocess.h"
 #include "render_features.h"
@@ -77,6 +79,8 @@ struct Renderer::Impl {
     double warmMs = 0;
     bool adopted = false;  // the graphics context was opened by open_context: this renderer closes it
     std::unique_ptr<Assets> assets;
+    Compute* compute =
+        nullptr;  // the renderer's Compute (set at init): the buffers a mesh material with "buffers" reads
     std::unique_ptr<Fonts> fonts;
     GradientRamps ramps;     // the baked colour rows of Shape2D gradients with stops or an easing (gradient_ramp.h)
     float textScale = 1.0f;  // Renderer::set_text_scale
@@ -86,17 +90,33 @@ struct Renderer::Impl {
     // bloom, the colour filter and present() sample; gameTarget.resolveColorAtt (MSAA) is the resolved image as a colour
     // attachment, which bloom composites into.
     Target gameTarget;
-    Ssr ssr;    // screen-space reflections (renderer_ssr.h): its shaders and pipelines
-    Ssao ssao;  // PostProcess.ssao*: the ambient occlusion passes of each camera (renderer_ssao.h)
+    Environment
+        skyEnv;  // the baked sky that lights the meshes (renderer_env.h; used only with SceneSettings.skyMaterial)
+    Ssr ssr;     // screen-space reflections (renderer_ssr.h): its shaders and pipelines
+    Ssao ssao;   // PostProcess.ssao*: the ambient occlusion passes of each camera (renderer_ssao.h)
     SceneFx
         sceneFx;  // depth of field and motion blur (renderer_dof.h): its shaders, pipelines and the autofocus of each camera
     FogFx fogFx;  // distance and height fog and sun shafts (renderer_fog.h): its shaders and pipelines
-    Bloom bloom;  // Camera.bloom post-process (its levels are transients of the frame graph, see bloom.h)
+    CustomPost
+        customPost;  // the passes of PostProcess.customPasses (renderer_custom_post.h): the intermediate images it probed
+    Bloom bloom;     // Camera.bloom post-process (its levels are transients of the frame graph, see bloom.h)
     // Camera.colorFilter: the filtered copy of the finished frame. A pass cannot read what it writes, so the filter
     // draws into this second image (made on first use) and present(), capture() and the editor viewport show it
     // while `filterActive` (the last frame was filtered).
     Target filterTarget;
     bool filterActive = false;
+    // The two images the final pass goes through when a custom pass sits between its stages (PostSlice, post_custom.h's
+    // display-referred places): the piece before a cut writes one, the passes of the cut work on it, the piece after
+    // reads it and writes the other one (or the destination). Made on first use at the size of the picture, in
+    // Gpu::ldr_cut_format (the display format; a float one with an HDR output, which keeps what is above white); a
+    // frame without such a pass never makes them.
+    Target ldrMid[2];
+    bool ldrWarned = false;  // making them failed: said once
+    // They are made when a frame needs them (one for a single cut, two for more) and freed after kLdrIdleFrames frames
+    // without use.
+    static constexpr int kLdrIdleFrames = 120;
+    std::uint64_t ldrUsedFrame = ~std::uint64_t(0);  // the frameSerial of the last frame that asked for them
+    int ldrIdle = 0;                                 // frames since
     // The post-processing stack (postprocess.h). hudTarget is the game-like image the final pass writes when screen-space items are drawn
     // over it in display space (made on first use: a frame without exposure, tonemap or linear colour never makes it); the HUD draws into
     // it with the game target's formats and sample count, so the pipelines of the game fit. hudActive: the last frame's picture is in it
@@ -121,6 +141,9 @@ struct Renderer::Impl {
     // with, for the effects that reproject (PostPlan::prevViewProj); an entry the camera did not refresh in the frame before is dropped.
     DebugView debugView = DebugView::None;
     std::uint32_t forceEffects = 0;
+    // Tests (renderer_test_access.h): called once per frame when everything is gathered and the passes are about to
+    // run, so a test can change the world's resources (destroy a compute buffer) between the gather and the draw.
+    std::function<void()> beforeFrameGraph;
     struct PrevCamera {
         Mat4 viewProj;
         std::uint64_t frame = 0;  // the postSerial it was drawn in
@@ -128,6 +151,7 @@ struct Renderer::Impl {
             0;        // world.frame() when it was drawn: a jump back or far ahead is a cut (a scene load, a seek)
         Mat4 before;  // what a second job of the same camera in the same frame reprojects from (`hadBefore`)
         bool hadBefore = false;
+        int jobs = 0;  // how many jobs of this camera came before in the frame (the custom passes' histories)
     };
     std::unordered_map<std::uint64_t, PrevCamera> prevViewProj;  // by Entity::bits() of the camera
     bool fogMissingWarned = false;                               // one warning when a planned fog could not be drawn
@@ -165,6 +189,14 @@ struct Renderer::Impl {
 
     DebugDraw debug;
     RenderStats stats;
+    // The custom materials already counted in stats.materials this frame (a material drawn by two cameras or two passes
+    // counts once).
+    std::vector<const MaterialAsset*> materialsCounted;
+    void count_material(const MaterialAsset* m) {
+        if (std::find(materialsCounted.begin(), materialsCounted.end(), m) != materialsCounted.end()) return;
+        materialsCounted.push_back(m);
+        ++stats.materials;
+    }
     // The rendering cameras of the last update()/draw in draw order (never empty after the first one: a world without a camera
     // gets one default camera). [0] is "the" camera: the lowest depth.
     std::vector<CameraInfo> lastCams;
@@ -172,10 +204,19 @@ struct Renderer::Impl {
     // hit tests ask these (camera_for), so an answer never depends on alpha. Empty = lastCams.
     std::vector<CameraInfo> logicCams;
     bool warnedNoLight = false;
+    // SceneSettings.skyMaterial: the last material that could not draw the sky and was reported (one log line per
+    // material).
+    std::string warnedSkyMaterial;
+    // The sprite materials whose batches were skipped because their instanced layout changed after a hot reload (one
+    // log line each).
+    std::unordered_set<std::string> warnedSpriteInstLayout;
+    MaterialAsset* sky_material(const SceneSettings& ss);
     std::string
         warnedViewport;  // the last "bad Camera.viewport" problem logged (a viewport a script sets live is clamped)
     std::unordered_set<std::uint64_t>
-        warnedLegacyIgnored;     // cameras whose Camera.bloom/colorFilter a PostProcess of their own hides
+        warnedLegacyIgnored;  // cameras whose Camera.bloom/colorFilter a PostProcess of their own hides
+    std::unordered_set<std::string>
+        warnedCustomPass;        // the problems of PostProcess.customPasses entries already logged (once per scene)
     bool postBypass = false;     // Renderer::set_post_bypass: draw without any post-processing stack (the editor's A/B)
     bool warnedCameras = false;  // the "more cameras than the limit" warning, once per scene
     bool warnedLights2d = false;       // the "more Light2D in view than the budget" warning, once per scene
@@ -222,6 +263,8 @@ struct Renderer::Impl {
     bool updated = false;  // update() ran since the last draw
     ScaleMode scaleMode = ScaleMode::Fit;
     std::vector<Vertex2D> stream;
+    std::vector<float>
+        instStream;  // the instanced values of the sprite-material batches of `stream`, per vertex (QuadBatch::instFirst)
 
     // The image a CameraView shows (ui2d.cpp, draw_camera_view): the camera is drawn into it before the frame's own jobs. One per
     // widget, made when a gather asks for it with a size and kept while the widget keeps asking; the ones nobody asked for in a
@@ -257,6 +300,9 @@ struct Renderer::Impl {
     std::unordered_map<const TextureAsset*, int> targetByAsset;
     std::string
         targetSelf;  // the name of the target being gathered or drawn: its own texture is the checker (sentinel)
+    // Sets (or, with an empty name, clears) targetSelf. The per-frame material cache holds textures resolved under the
+    // old value (a material whose params name "target:X" gets the checker only for X's own camera), so it is dropped.
+    void set_target_self(const std::string& name);
     TextureAsset selfSentinel;  // what texture("target:<self>") answers meanwhile: the checker, its handles are shared
     std::set<std::string> targetWarned;
     void collect_targets(World& world);
@@ -275,6 +321,8 @@ struct Renderer::Impl {
     // frame is then drawn without the stack.
     bool ensure_filter_target();
     bool ensure_hud_target();
+    bool ensure_ldr_targets(int count);  // the first `count` of ldrMid
+    void release_idle_ldr_targets();
     // One full-screen pass of post.glsl: `src` (a texture view of the finished picture) through the plan's final pass (`finalPass`: conversion and effects) and the
     // colour filter `filter` into `dst`; `expo` is the adapted exposure or a dummy image. `keepMsaa`: an MSAA destination keeps its
     // multisampled image (a pass that draws over it follows). `rect`: the camera's rectangle of `dst` (whole by default; see
@@ -282,7 +330,7 @@ struct Renderer::Impl {
     // `aux`: the image the outline reads (PostPlan::outline_source of the frame), or a null view when there is none.
     void post_pass(const PostPlan& pp, bool finalPass, int filter, bool autoExposure, sg_view src, sg_view expo,
                    sg_view aux, Target& dst, const char* label, bool keepMsaa, const PostRect& rect = {},
-                   bool load = false);
+                   bool load = false, const PostSlice& slice = {});
     // The 8-bit picture of a game or view image (top row first). In a float scene format the image is first drawn into an
     // RGBA8 copy (clamped at white, as the screen shows it), because the per-backend readbacks read RGBA8 only.
     bool read_rgba8(sg_image image, sg_view view, int w, int h, std::vector<std::uint8_t>& out, std::string* error,
@@ -325,6 +373,7 @@ struct Renderer::Impl {
     // The 3D world of the frame, gathered once by render() (capture_world: scoped to its subject) before any job and read by the
     // gather_meshes of every camera, render target and CameraView.
     RenderScene renderScene;
+    InstanceParamCache instanceParams;  // the packed per-instance material params of each entity (mesh_batch.h)
     struct JobPlan {
         // The job's name in the frame graph: its passes are "<name>/<pass>" ("camera:0", "screen" for the screen-space job of a
         // split frame, "target:<name>", "view:<n>", "capture").
@@ -340,6 +389,12 @@ struct Renderer::Impl {
             false;  // a CameraView's image: no post effects, never partial, resolved at once, 2D lights read per pixel
         const CameraInfo* post =
             nullptr;  // the camera whose bloom, bloomScreenSpace and colorFilter the frame gets (the first)
+        // A view job of Renderer::capture_camera: the custom passes of the camera's PostProcess (fr.cam.postStack) run
+        // over its picture, and no other effect of the stack. `target` is the view's own target (its resolved image is
+        // read and written); `history` tells the passes that keep a history which frame of the capture this is.
+        bool customPost = false;
+        const Target* target = nullptr;
+        CustomHistoryFrame history;
     };
     void render(World& world, float dt);
     void setup_frame(Frame& fr, World& world, float dt);
@@ -350,6 +405,16 @@ struct Renderer::Impl {
     // view's image: plan_job with the image in the place of the game target. `key` is the view's key (view_image). Call
     // between begin_frame_graph() and run_frame_graph().
     void plan_view_job(World& world, Frame& fr, ViewTarget& target, std::uint64_t key, JobPlan plan);
+    // The drawing of Renderer::capture_world and capture_camera: `frames` frames (the passes that keep a history see
+    // the frame before it) of the world seen by `ci` into an image of w x h pixels, read back into `out` (straight
+    // alpha). `withCustom`: the camera's custom passes are drawn, over `historyCamera`'s history, which the frames
+    // start again and which is freed at the end. `premultiplied`: the colour in the picture is premultiplied by its
+    // alpha and is made straight (capture_world); false leaves it as drawn. `scale`, `subject`: see
+    // Renderer::WorldCapture.
+    bool capture_view(World& world, CameraInfo ci, int w, int h, float scale, Entity subject, int frames,
+                      bool withCustom, std::uint64_t historyCamera, bool premultiplied, Image& out, std::string* error);
+    std::uint64_t captureSerial =
+        0;  // the frames of captures that keep a history: a history is valid when its frame came right before
 
     // ---- The frame graph: one per render() (and per capture_world) ----
     // begin_frame_graph() empties it, every job adds its passes (plan_job, plan_view_job) in the order the jobs must
@@ -379,7 +444,18 @@ struct Renderer::Impl {
     bool graphFromCapture = false;  // the graph holds the last capture_world's frame, not the last render()'s
     std::unordered_map<std::uint64_t, JobImage> jobImages;
     // The targets the jobs of the frame share, one resource each (imported when the first job that uses it is declared).
-    ResourceId sharedGame, sharedLight, sharedShadow;
+    ResourceId sharedGame, sharedLight, sharedShadow, sharedEnv;
+    // The sky environment of the frame (plan_env): the first job that wants one decides which sky is baked
+    // (envFrameKey) and whether the "sky-env" pass is declared; a later job of the frame with another key falls back to
+    // the analytic gradient.
+    std::uint64_t envFrame = 0;  // the frameSerial it was decided for
+    std::uint64_t envFrameKey = 0;
+    bool envFrameOk = false;
+    // The first job decided the key above from a render target, CameraView or capture (JobPlan::view), not from a
+    // camera of the picture: the first such camera of the picture takes the decision over (plan_env), and the jobs that
+    // used the first key (envJobs) go back to the gradient.
+    bool envFrameView = false;
+    std::vector<DrawContext*> envJobs;               // the jobs of this frame that sample the baked environment
     std::vector<std::shared_ptr<void>> jobContexts;  // the DrawContext of every job, alive until run_frame_graph() ends
     // What a job's passes read from the renderer when they run: the swapped-in image of a view job (plan_view_job).
     struct JobEnv {
@@ -401,7 +477,12 @@ struct Renderer::Impl {
     void build_quad_stream(DrawContext& ctx);
     void upload_instances(DrawContext& ctx);
     void scene_uniforms(DrawContext& ctx);
+    // The sky environment of the job (SceneSettings.skyMaterial): sets ctx.envActive / envBake / envKey and the flag of
+    // fuScene.
+    void plan_env(DrawContext& ctx);
     PartDraw part_draw(DrawContext& ctx, const MeshItem& mi, const SubMesh& part);
+    // Reports once per material and mesh that `part` lacks the channel `what` ("uv1" / "color1") the material declares.
+    void note_missing_channel(const MeshItem& mi, const SubMesh& part, const char* what);
     // `blended`: a part of the blended meshes, which fog themselves with the camera's stack fog (DrawContext::fuBlend).
     mesh_fa_mesh_fs_params_t fill_fs(DrawContext& ctx, const MeshItem& mi, const SubMesh& part, const PartDraw& d,
                                      bool blended = false);
@@ -422,7 +503,7 @@ struct Renderer::Impl {
     void prepass_view_pass(DrawContext& ctx, const Target& t);
     void draw_group(DrawContext& ctx, const std::vector<QuadBatch>& batches, const Mat4& vp, bool depthTest,
                     const Px& base, int flatMode = 0, const TargetFormat* format = nullptr,
-                    const FogFxPlan* fog = nullptr);
+                    const FogFxPlan* fog = nullptr, int passW = 0, int passH = 0);
     void main_pass(DrawContext& ctx, const PassContext& pc);
     void hud_pass(DrawContext& ctx, const Target& into, const char* label);
     // Declares the job's passes in `graph` (plan_job).

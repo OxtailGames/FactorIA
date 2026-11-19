@@ -2,6 +2,194 @@
 
 # Commands: game
 
+## `compute.create_buffer` (modifies state)
+
+Since 0.32.0.
+
+Makes a GPU storage buffer shaped like one buffer of a compute material; returns its id.
+
+Capabilities: read, state
+
+A zero-filled buffer of `count` elements, each laid out like the element of the material's buffer `buffer` (its "buffers" entry: fields of float, vec2, vec3, vec4, int, uint). `initial` fills the first elements. The buffer lives until compute.destroy_buffer or the end of the game, whatever the scene (it is not part of one). Returns {id, count, stride, bytes}. Example: compute.create_buffer {"material":"materials/boids.material.json","buffer":"boids","count":1000,"initial":[{"pos":[0,0],"vel":[1,0]}]}
+
+Limits: 64 live buffers, 256 MiB each, 1 GiB in all; over one is `invalid_argument` with the number it hit. Errors: `unavailable` on a backend without compute shaders (GLES3, WebGL2, macOS OpenGL 4.1: the message names the backend and what to do; ask render.supports computeShaders first) or without graphics; `invalid_argument` for a material that is not a compute material or does not build, an unknown buffer name (did you mean), and an `initial` value that does not fit a field (the message has its JSON pointer).
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `material` | string | yes | Project-relative path of the compute material, e.g. materials/boids.material.json. |
+| `buffer` | string | yes | Name of one of the material's buffers (its "buffers" entry). |
+| `count` | integer | yes | Number of elements (at most 256 MiB / the element stride). |
+| `initial` | array | no | Optional {field: value} objects for the first elements (a vecN field is an array); fields left out are 0. |
+
+## `compute.create_image` (modifies state)
+
+Since 0.32.0.
+
+Makes a GPU storage image a compute material writes and a material shows; returns its id.
+
+Capabilities: read, state
+
+A zero-filled 2D image shaped like one image of a compute material (its "images" entry: format rgba8, rgba16f, r32f or rgba32f). `width` and `height` default to the size the material declares. The image lives until compute.destroy_image or the end of the game, whatever the scene. Returns {id, material, image, format, access, width, height, bytes, textureId}: put `textureId` ("compute:<id>") in a Sprite.texture, MeshRenderer.texture or the texture param of a mesh, sprite or post material to show it (rgba8 and rgba16f filter everywhere; r32f and rgba32f may not on this GPU, then the checker shows and the log says why). Example: compute.create_image {"material":"materials/noise.material.json","image":"field","width":512,"height":512}
+
+Limits: 32 live images, 8192 pixels a side (or what the GPU allows), 256 MiB each, 512 MiB in all; over one is `invalid_argument` with the number it hit. A format the backend cannot write as a storage image is refused with the formats that work. Errors: `unavailable` on a backend without compute shaders (GLES3, WebGL2, macOS OpenGL 4.1: the message names the backend and the CPU path) or without graphics.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `material` | string | yes | Project-relative path of the compute material, e.g. materials/noise.material.json. |
+| `image` | string | yes | Name of one of the material's images (its "images" entry). |
+| `width` | integer | no | Width in pixels. Default: the material's size. |
+| `height` | integer | no | Height in pixels. Default: the material's size. |
+
+## `compute.destroy_buffer` (modifies state)
+
+Since 0.32.0.
+
+Frees a compute storage buffer.
+
+Capabilities: read, state
+
+Destroys the GPU buffer; its id is not used again. Returns {destroyed: id}. Example: compute.destroy_buffer {"buffer":1}
+
+Errors: `invalid_argument` for an id that is not alive (compute.list_buffers lists the live ones).
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `buffer` | integer | yes | Buffer id from compute.create_buffer. |
+
+## `compute.destroy_image` (modifies state)
+
+Since 0.32.0.
+
+Frees a compute storage image.
+
+Capabilities: read, state
+
+Destroys the GPU image; its id is not used again and a material that still shows its textureId gets the checker (the log says why). Returns {destroyed: id}. Example: compute.destroy_image {"image":1}
+
+Errors: `invalid_argument` for an id that is not alive (compute.list_images lists the live ones).
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `image` | integer | yes | Image id from compute.create_image. |
+
+## `compute.dispatch` (modifies state)
+
+Since 0.32.0.
+
+Runs a compute material once over its storage buffers.
+
+Capabilities: read, state
+
+`groups` counts WORKGROUPS of the material's workgroupSize threads each, not threads: ceil(work / workgroupSize.x) for a one-dimensional job. `buffers` gives a buffer id for every buffer of the material and `images` an image id for every storage image of it; `params` its param values and texture paths (like MeshRenderer.materialParams; what is left out keeps the material's default). The call returns when the work is recorded; compute.read_buffer and compute.read_image wait for it, and a draw of the same frame sees the image the dispatch wrote. Returns {dispatched: [x, y, z]}. Example: compute.dispatch {"material":"materials/boids.material.json","buffers":{"boids":1},"params":{"speed":2},"groups":[16,1,1]}
+
+Each dimension of `groups` is 1 to 65535. A buffer or image must have been made for the same buffer or image of the same material (same layout or format), and one buffer or image cannot be bound twice. An image cannot also be one of the dispatch's texture params. Errors: `unavailable` without compute (see compute.create_buffer); `invalid_argument` for a missing or unknown buffer, image or param (did you mean), a value of the wrong type, or groups out of range.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `material` | string | yes | Project-relative path of the compute material. |
+| `buffers` | object | no | The material's buffer name -> buffer id from compute.create_buffer; every buffer of the material (omit it for a material with none). |
+| `images` | object | no | The material's storage image name -> image id from compute.create_image; every image of the material (omit it for a material with none). |
+| `params` | object | no | {param: number or array} and {texture: path}; left out keeps the material's default. |
+| `groups` | array | no | Workgroups in x, y, z; a missing dimension is 1. Default [1,1,1]. |
+
+## `compute.list_buffers`
+
+Since 0.32.0.
+
+Lists the live compute storage buffers and whether this backend runs compute.
+
+Capabilities: read
+
+Returns {available, status, buffers: [{id, material, buffer, count, stride, bytes}]}. `available` is the answer of render.supports computeShaders; when it is false `status` says which backend cannot and what to do, and `buffers` is empty. Example: compute.list_buffers {}
+
+Without graphics (graphics=false) `available` is false too.
+
+## `compute.list_images`
+
+Since 0.32.0.
+
+Lists the live compute storage images and whether this backend runs compute.
+
+Capabilities: read
+
+Returns {available, status, images: [{id, material, image, format, access, width, height, bytes, textureId}]}. `available` is the answer of render.supports computeShaders; when it is false `status` says which backend cannot and the CPU path to use instead, and `images` is empty. Example: compute.list_images {}
+
+Without graphics (graphics=false) `available` is false too.
+
+## `compute.read_buffer`
+
+Since 0.32.0.
+
+Reads elements of a compute storage buffer back to the game (waits for the GPU).
+
+Capabilities: read
+
+Submits the recorded GPU work, waits for it and returns `count` elements from `first` as an array of {field: value} objects: a vecN field is an array, floats have 7 significant digits, a NaN or infinity is null. A read back stalls the frame: do it for a result you need, not every frame. Example: compute.read_buffer {"buffer":1,"first":0,"count":10}
+
+At most 1048576 elements in one call (read a large buffer in parts). Errors: `unavailable` without compute (see compute.create_buffer); `invalid_argument` for an unknown buffer id or a range outside the buffer.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `buffer` | integer | yes | Buffer id from compute.create_buffer. |
+| `first` | integer | no | Index of the first element to read. Default 0. |
+| `count` | integer | no | Number of elements to read. Default: from `first` to the end (at most 1048576 elements and 4194304 numbers per call: read bigger buffers in chunks with first/count). |
+
+## `compute.read_image`
+
+Since 0.32.0.
+
+Reads pixels of a compute storage image back to the game (waits for the GPU).
+
+Capabilities: read
+
+Submits the recorded GPU work, waits for it and returns {x, y, width, height, format, channels, data}: `data` is a flat array, row by row from the top, pixel by pixel, `channels` numbers each (rgba8: integers 0..255; rgba16f and rgba32f: r, g, b, a floats; r32f: one float), floats with 7 significant digits, a NaN or infinity is null. A read back stalls the frame: do it for a result you need, not every frame. Example: compute.read_image {"image":1,"x":0,"y":0,"width":4,"height":4}
+
+x and y default to 0, and width and height to the right and bottom edge; when both are left out of an image too large for one call, you get the top rows that fit (width from x to the right edge). At most 4194304 numbers in one call (read a large image in rectangles). Errors: `unavailable` without compute; `invalid_argument` for an id that is not alive or a rectangle outside the image.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `image` | integer | yes | Image id from compute.create_image. |
+| `x` | integer | no | Left pixel of the rectangle. Default 0. |
+| `y` | integer | no | Top pixel of the rectangle. Default 0. |
+| `width` | integer | no | Width of the rectangle; 0 or left out = to the right edge. |
+| `height` | integer | no | Height of the rectangle; 0 or left out = to the bottom edge. |
+
+## `compute.resize_image` (modifies state)
+
+Since 0.32.0.
+
+Gives a compute storage image another size (its pixels are lost, its texture id stays).
+
+Capabilities: read, state
+
+Makes the image `width` x `height` and zero-fills it; `textureId` stays valid, so a Sprite or material that shows it follows the new size. Run the dispatch again to fill it. Returns the image as compute.list_images lists it. Example: compute.resize_image {"image":1,"width":1024,"height":1024}
+
+Same limits as compute.create_image. Errors: `unavailable` without compute; `invalid_argument` for an id that is not alive or a size over a limit.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `image` | integer | yes | Image id from compute.create_image. |
+| `width` | integer | yes | New width in pixels. |
+| `height` | integer | yes | New height in pixels. |
+
+## `compute.write_buffer` (modifies state)
+
+Since 0.32.0.
+
+Overwrites elements of a compute storage buffer with values from the game.
+
+Capabilities: read, state
+
+Writes `elements` ({field: value} objects) from element `first` on; a field left out is written as 0, the other elements stay as the GPU left them. Returns {written}. Example: compute.write_buffer {"buffer":1,"first":0,"elements":[{"pos":[0,0],"vel":[1,0]}]}
+
+At most 1048576 elements in one call. Errors: `unavailable` without compute (see compute.create_buffer); `invalid_argument` for an unknown buffer id (compute.list_buffers), a range outside the buffer, or a value that does not fit its field (the message has its JSON pointer).
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `buffer` | integer | yes | Buffer id from compute.create_buffer. |
+| `first` | integer | no | Index of the first element to overwrite. Default 0. |
+| `elements` | array | yes | {field: value} objects, one per element. |
+
 ## `game.click` (modifies state)
 
 Since 0.4.0.
@@ -75,7 +263,7 @@ What the renderer drew in the picture now: draw calls, triangles, lights, shadow
 
 Capabilities: read
 
-Draws a frame first when none was drawn since the last change (a headless run or an on-demand render may not have drawn one yet), then returns {drawCalls, sprites, shapes, textGlyphs, particles, meshes, meshesCulled, meshBatches, triangles, views, shadowCasters, lights, lightsDropped, lights2d, lights2dDropped, lights2dShadowed, materials, materialFallbacks, sortKeyFallbacks, textureMB, width, height, renderScale}. sortKeyFallbacks counts, since the renderer started, the times the 3D scene of a frame (or of a capture of one entity) had more distinct meshes, textures or materials than a sort key holds, so its opaque meshes were sorted by the slower comparator (the picture is the same; 0 is normal; it is not reset each frame, it only grows). For the time of each pass see render.frame_graph. lights and lightsDropped count the 3D lights of the main pass (at most 32); lights2d and lights2dDropped count the Light2D lights (at most 256: the ones that reach the camera view are kept first), lights2dShadowed those with a shadow (castShadows, at most 32). views counts the CameraViews drawn. width and height are the size of the picture in pixels (design size * window.renderScale). Same as game.renderStats() in tests. Needs graphics. Example: game.render_stats {}
+Draws a frame first when none was drawn since the last change (a headless run or an on-demand render may not have drawn one yet), then returns {drawCalls, sprites, shapes, textGlyphs, particles, meshes, meshesCulled, meshBatches, triangles, views, shadowCasters, lights, lightsDropped, lights2d, lights2dDropped, lights2dShadowed, materials, materialResolves, materialFallbacks, sortKeyFallbacks, textureMB, width, height, renderScale}. materialResolves is the 2D material lookups (one per material and params). sortKeyFallbacks counts, since the renderer started, the times the 3D scene of a frame (or of a capture of one entity) had more distinct meshes, textures or materials than a sort key holds, so its opaque meshes were sorted by the slower comparator (the picture is the same; 0 is normal; it is not reset each frame, it only grows). For the time of each pass see render.frame_graph. lights and lightsDropped count the 3D lights of the main pass (at most 32); lights2d and lights2dDropped count the Light2D lights (at most 256: the ones that reach the camera view are kept first), lights2dShadowed those with a shadow (castShadows, at most 32). views counts the CameraViews drawn. width and height are the size of the picture in pixels (design size * window.renderScale). Same as game.renderStats() in tests. Needs graphics. Example: game.render_stats {}
 
 ## `game.resume` (modifies state)
 
@@ -275,6 +463,22 @@ Lists the 2D visuals (Sprite, Shape2D, Text, Tilemap, UI widgets) whose drawn bo
 |---|---|---|---|
 | `position` | array | yes | [x, y] in design pixels (origin top-left). |
 | `max` | integer | no | At most this many hits. Default 20. |
+
+## `render.reset_post_history` (modifies state)
+
+Since 0.32.0.
+
+Start again the history of the custom post passes that read their own output of the frame before (fa_history).
+
+Capabilities: read, state
+
+A custom post material whose snippet calls fa_history(uv) (trails, feedback, accumulation; docs/shaders/SHADERS_POST.md, "History") keeps its output of the frame before. This forgets it for one camera (`entity`) or every camera: from the next frame fa_history_valid is false and fa_history(uv) gives the picture, so the effect starts clean. The renderer already does it by itself in the first frame, after a resize or a change of render scale, when a camera was not drawn in the frame before, and when the scene or the world's clock jumps; call it at a cut the renderer cannot see (a camera switch inside one scene). Nothing is freed: the images stay for the next frame. Result: {reset: "all" or the camera}. Example: render.reset_post_history {}
+
+A camera without such passes is accepted and nothing changes. Errors: `invalid_arguments` for an `entity` that is not a string; `not_found` for an `entity` that does not exist; `unavailable` without graphics (graphics=false). The same is Renderer::reset_post_history in C++.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `entity` | string | no | The camera (id or name). Default: every camera. |
 
 ## `render.supports`
 

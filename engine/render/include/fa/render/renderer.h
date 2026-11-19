@@ -45,40 +45,11 @@
 namespace fa {
 
 class Renderer;
-namespace render {
-class Gpu;
-class FrameGraph;
-// Test accessors. A test that has to look inside the renderer (its GPU objects, the frame graph of the last frame, the
-// counts of its pools) does it through a free function declared here and made a friend of Renderer, not by opening
-// Impl up: the tests of a game's code see nothing of the renderer's private headers, and the accessors are not part of
-// the API reference. A new one is for a test only; engine code never calls one.
-Gpu* renderer_gpu(
-    Renderer& r);  // the renderer's GPU objects, for the render tests (engine/render/src/render_internal.h)
-// The frame graph of the last frame the renderer drew (engine/render/src/frame_graph.h; every job of the frame is in
-// it, its passes named "<job>/<pass>"), for the render tests; null before init.
-const FrameGraph* renderer_frame_graph(Renderer& r);
-// The targets the frame graph's transients are made of (target_pool.h's TargetPoolStats), for the render tests.
-struct TransientPoolStats {
-    int live = 0, inUse = 0, created = 0, reused = 0, destroyed = 0;
-};
-TransientPoolStats renderer_transient_stats(Renderer& r);
-// The ring of images that hold the shadow rows of the 2D lights: how many it holds now and how many images were made
-// since the renderer was, for the render tests.
-struct ShadowRowsStats {
-    int slots = 0, uploads = 0;
-};
-ShadowRowsStats renderer_shadow_rows_stats(Renderer& r);
-// Draws the depth and normal prepass as if the camera's stack switched on the effects of `effects` (a mask like PostStack::mask, bit i =
-// PostEffect(i); 0 = as the stack says), for the tests of the prepass: no effect that reads it is drawn yet.
-void renderer_force_post_effects(Renderer& r, std::uint32_t effects);
-// The HDR output: the next frames are drawn and presented as if update_output() had answered `info` (null: back to what it
-// answers), for the render tests of the encodes without an HDR display.
-void renderer_force_output(Renderer& r, const HdrOutputInfo* info);
-// The last frame's finished picture as floats (RGBA, top row first): as the final target holds it (`present` false), or
-// through present()'s encode for the output (scRGB, PQ, EDR or sRGB values). False with `error` where the GPU cannot draw or
-// read back an RGBA16F image.
-bool renderer_read_floats(Renderer& r, bool present, std::vector<float>& out, std::string* error);
-}  // namespace render
+class Compute;
+// Test accessors (GPU objects, the frame graph, pool counts, history images) live in
+// engine/render/src/renderer_test_access.h: the one friend below opens Impl for the render tests; the public API has no
+// test hooks.
+struct RendererTestAccess;
 
 // What the renderer shows instead of the game picture, to check the depth and normal prepass and the ambient occlusion
 // (Renderer::set_debug_view). Ao paints the occlusion as a grey over the picture, drawn with the camera's own settings or the defaults.
@@ -102,9 +73,25 @@ inline constexpr float kMaxTextScale = 3.0f;
 // On failure the error message lists every compile error ("shaders/x.surface.glsl:7:5: error: ...").
 using ShaderCompiler = std::function<Result<Json>(const std::string& materialPath, const std::string& slang)>;
 
-// SHA-256 of the mesh template files (engine/render/shaders/*_common.glsl) this renderer was built with: a material twin
-// made from another template is refused. The tooling writes the same value into every twin.
+// What a custom material is for (the "kind" of *.material.json, docs/design/CUSTOM_SHADERS.md "Kinds (M72)"): Mesh = a
+// MeshRenderer's surface (the default), Sprite = the 2D quad path (Sprite, Shape2D, Tilemap, Text, particles, UI
+// images), Sky, Post = a pass of the post-processing stack, Compute. Each kind has its own template files and its own
+// template hash.
+enum class MaterialKind { Mesh, Sprite, Sky, Post, Compute };
+// "mesh", "sprite", "sky", "post", "compute", in the order of MaterialKind.
+const std::vector<std::string>& material_kind_names();
+const char* material_kind_name(MaterialKind kind);
+std::optional<MaterialKind> material_kind_from_name(std::string_view name);
+
+// SHA-256 of the template files of `kind` (engine/render/shaders/*_common.glsl, one list per kind in
+// engine/render/CMakeLists.txt) this renderer was built with: a material twin made from another template is refused.
+// The tooling writes the same value into every twin of that kind. "" for a kind without a template yet (Compute).
+std::string material_template_hash(MaterialKind kind);
+// material_template_hash(MaterialKind::Mesh).
 std::string mesh_template_hash();
+// The template hash of a mesh material in "full" mode (mesh_common.glsl and mesh_full_common.glsl): the value of its
+// twins' "template".
+std::string mesh_full_template_hash();
 
 struct RendererDesc {
     int designWidth = 1280;
@@ -133,7 +120,8 @@ struct RenderStats {
     int meshes = 0;        // MeshRenderer entities drawn in the main pass (instances)
     int meshesCulled = 0;  // MeshRenderer entities outside the camera frustum: not drawn in the main pass
     int meshBatches = 0;  // instanced batches drawn (meshes with the same mesh, textures and material values share one)
-    int triangles = 0;
+    int triangles =
+        0;  // triangles of the main pass draw calls, per pass drawn: a part a full-shader material draws in 3 passes counts 3 times
     int shadowCasters =
         0;          // MeshRenderer entities drawn into the shadow map (castShadows, inside the shadow light's volume)
     int views = 0;  // CameraViews drawn this frame (each one renders its camera into an image first)
@@ -145,9 +133,20 @@ struct RenderStats {
     int lights2dDropped = 0;  // Light2D lights left out: off-view ones, then the ones over the 256 of the budget
     int lights2dShadowed =
         0;  // of lights2d, the point lights whose castShadows is in effect (a Tilemap with occludesLight; at most 32)
-    int materials = 0;  // distinct custom materials (MeshRenderer.material) drawn with their own shaders
-    std::vector<std::string>
-        materialFallbacks;  // materials drawn with the unlit magenta error material because they failed to build (see asset_report)
+    int materials = 0;  // distinct custom materials (MeshRenderer or Sprite material) drawn with their own shaders
+    // How many times a 2D item's material was looked up in full this frame (path normalized, params packed and hashed):
+    // once per distinct material and set of materialParams values, however many components, quads or particles use it;
+    // the other asks are answered from a per-frame cache and not counted (a set of values counts as distinct when its
+    // keys come in another order too: {"a":1,"b":2} and {"b":2,"a":1} are looked up once each). The cache is also
+    // dropped when the camera being gathered changes (a material texture "target:<own>" is the checker for the camera
+    // that renders into it), so a frame with render targets counts the lookup once for each camera. Also in
+    // game.render_stats.
+    int materialResolves = 0;
+    // Materials drawn as the magenta error material (mesh) or magenta quads (sprite) because they failed to build (see
+    // asset_report). A sky material that failed (or is not a sky one) draws the built-in sky gradient instead, not
+    // magenta. A post material of PostProcess.customPasses that did not build, is not a "post" material or cannot be
+    // drawn is here too, and its pass is skipped (the picture is drawn without it).
+    std::vector<std::string> materialFallbacks;
     // How many times, since the renderer was made, the 3D scene it builds (one per frame, and one per capture_world of an
     // entity's subtree) had more distinct meshes, textures, materials or pipelines than a sort key holds, so its opaque meshes
     // were sorted by the slower comparator instead. The picture is the same; 0 is normal. Unlike the other counters this one is
@@ -273,6 +272,9 @@ public:
     // The graphics backend in use: "metal", "d3d11", "glcore", "gles3", "dummy", or "unknown" for a sokol backend the
     // engine never builds (what game.device.gpuBackend reports).
     static const char* backend_name();
+    // The compute side of the renderer (storage buffers, dispatches of "kind": "compute" materials; available() says
+    // whether this backend can). Usable once init() succeeded; its buffers end with shutdown().
+    Compute& compute() { return *compute_; }
     int target_width() const;
     int target_height() const;
 
@@ -373,6 +375,30 @@ public:
     // to change) when the rect is empty, the scale is not positive or the image would pass kMaxWorldCaptureSide. Does not change
     // stats() or the picture of the frame.
     bool capture_world(World& world, const WorldCapture& spec, Image& out, std::string* error = nullptr);
+
+    // ---- Off-screen capture through a camera, with its custom post passes (the editor's preview of a post material)
+    // -------------
+    struct CameraCapture {
+        Entity camera = kNullEntity;  // a Camera entity of the world (primary or not: it is the one asked for)
+        int width = 0, height = 0;    // pixels, 1 .. kMaxWorldCaptureSide
+        // How many frames are drawn, 1 .. kMaxCaptureFrames; only the last is read back. A frame matters when a pass of
+        // the camera's stack calls fa_history: it reads what the frame before drew (the first one starts clean,
+        // fa_history_valid false), so a trail or a feedback has built up in the picture that comes back. A camera whose
+        // stack has no custom pass draws one frame whatever this says.
+        int frames = 1;
+    };
+    static constexpr int kMaxCaptureFrames = 8;
+    // Draws what `spec.camera` sees (its 3D and 2D world, its clear colour, showTags and hideTags) into a width x
+    // height image and answers its pixels (row 0 = top, straight alpha), with the custom passes of the camera's
+    // PostProcess (PostProcess.customPasses of the camera and of the volumes it is in, each at its `position`; fa_depth
+    // and fa_normal get the camera's prepass) run over it. No other effect of the stack is drawn (no bloom, tonemap,
+    // ...): the picture is the scene as the camera draws it plus those passes. Like capture_world it needs no frame
+    // drawn first and changes neither stats() nor the picture of the frame; the histories of the camera's passes
+    // (fa_history) belong to the capture, start clean at every call and are freed when it ends, so the same world gives
+    // the same picture. The alpha is what the picture holds (the camera's clear has alpha 1, a pass writes its own):
+    // straight, never un-premultiplied. False and *error when the entity is not a Camera of the world, the size is not
+    // 1 .. kMaxWorldCaptureSide, or frames is outside its range.
+    bool capture_camera(World& world, const CameraCapture& spec, Image& out, std::string* error = nullptr);
 
     // ---- Run-time textures ------------------------------------------------------------------------------------------
     // A texture made from pixels at run time (render.captureTexture, render.textureFromPNG in scripts). Returns its id,
@@ -522,17 +548,19 @@ public:
     void set_debug_view(DebugView view);
     DebugView debug_view() const;
 
+    // Forgets what the custom post passes that read their own output of the frame before (fa_history,
+    // docs/shaders/SHADERS_POST.md, "History") kept: from the next frame their history is not valid (fa_history_valid
+    // is false, fa_history(uv) gives the picture), so a trail or an echo starts again. `camera`: the Entity::bits() of
+    // one camera; 0 = every camera. A game calls it at a camera cut or a scene change the renderer cannot see. Main
+    // thread; nothing happens without a renderer.
+    void reset_post_history(std::uint64_t camera = 0);
+
     struct Impl;
 
 private:
-    friend render::Gpu* render::renderer_gpu(Renderer& r);
-    friend void render::renderer_force_post_effects(Renderer& r, std::uint32_t effects);
-    friend const render::FrameGraph* render::renderer_frame_graph(Renderer& r);
-    friend render::TransientPoolStats render::renderer_transient_stats(Renderer& r);
-    friend render::ShadowRowsStats render::renderer_shadow_rows_stats(Renderer& r);
-    friend void render::renderer_force_output(Renderer& r, const HdrOutputInfo* info);
-    friend bool render::renderer_read_floats(Renderer& r, bool present, std::vector<float>& out, std::string* error);
+    friend struct RendererTestAccess;  // tests (src/renderer_test_access.h)
     std::unique_ptr<Impl> impl_;
+    std::unique_ptr<Compute> compute_;  // storage buffers and dispatches of compute materials (fa/render/compute.h)
     std::vector<std::string> fallbackFonts_;
     RichTextStyle richStyle_;
     float textScale_ = 1.0f;

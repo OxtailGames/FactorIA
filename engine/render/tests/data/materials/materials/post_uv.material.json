@@ -1,0 +1,6 @@
+{
+  "format": "factoria.material/1",
+  "kind": "post",
+  "doc": "Test fixture: shows the position of the pixel (red = left to right, green = top to bottom, blue = the time).",
+  "shader": "shaders/post_uv.post.glsl"
+}

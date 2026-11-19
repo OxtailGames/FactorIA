@@ -49,6 +49,58 @@ constexpr const char* kDraggableDoc =
     "ancestor. "
     "Slider and TextField keep their own pointer handling and ignore it. docs/MENUS.md, \"Drag and drop\".";
 
+// Custom materials on the renderers that are not meshes (MeshRenderer has its own, longer text): `material` names a
+// *.material.json and `materialParams` overrides its params, with the same meaning as MeshRenderer.materialParams.
+std::string material_params_doc(const char* sharing) {
+    return std::string(
+               "Per-entity overrides of the material's params and textures, an object keyed by the name declared in "
+               "the material file: numbers for float params, arrays for vectors and colors ([r, g, b, a]), "
+               "project-relative paths for textures. Example: {\"glow\": [1, 0.2, 0, 1], \"mask\": "
+               "\"textures/leaf.png\"}. Unnamed params keep the material's defaults. Same meaning as "
+               "MeshRenderer.materialParams. ") +
+           sharing;
+}
+
+std::string material_params_doc_2d(const char* extra = "") {
+    return material_params_doc(
+        (std::string("Entities that share the same material and the same params are still drawn in one batch. A param "
+                     "the material declares with \"instanced\": true is sent with each quad, so entities that differ "
+                     "only in it stay in one batch; any other param that differs draws in a separate batch. ") +
+         extra)
+            .c_str());
+}
+
+std::string material_doc_2d(const char* type, const char* what) {
+    return std::string("Project-relative path of a custom material, a *.material.json file of kind \"sprite\" (e.g. "
+                       "\"materials/wave.material.json\"), or \"\" (default) for the built-in look. The material's "
+                       "fragment() snippet replaces the fragment colour of ") +
+           what + " (it receives the colour the " + type +
+           " would have drawn, texture times `color`, so it can tint, dissolve, outline or distort it) and its "
+           "optional vertex() snippet moves the vertices. The material declares its params, textures and blend. "
+           "`material.info` lists them and `shader.compile` compiles the snippets and reports errors with "
+           "file:line; a material that does not compile draws magenta and logs why. Guide with worked examples: "
+           "docs/SHADERS.md (`factoria docs read shaders`).";
+}
+
+std::string sky_material_doc() {
+    return "Project-relative path of a custom material of kind \"sky\" (a *.material.json), or \"\" (default) for the "
+           "skyColor / horizonColor gradient. The material's sky() snippet receives the view direction, the direction "
+           "of the sun (the scene's directional light of slot 0), the time and the colour the gradient would have "
+           "drawn, so it can replace or tint it; it draws the background of a perspective camera, opaque. The "
+           "reflections and the ambient light of the meshes keep following skyColor and horizonColor. `material.info` "
+           "lists the material's params and `shader.compile` compiles it and reports errors with file:line; a "
+           "material that does not compile (or is not of kind \"sky\") shows the gradient and logs why. Guide: "
+           "docs/SHADERS.md (`factoria docs read shaders`, \"Sky materials\").";
+}
+
+std::string sky_material_params_doc() {
+    return "Values for the params and textures of skyMaterial, an object keyed by the name declared in the material "
+           "file: numbers for float params, arrays for vectors and colors ([r, g, b, a]), project-relative paths for "
+           "textures. Example: {\"horizonGlow\": [1, 0.4, 0.1, 1], \"stars\": \"textures/stars.png\"}. Unnamed params "
+           "keep the material's defaults. Ignored while skyMaterial is empty. The editor's Scene settings panel shows "
+           "one control per param of the material.";
+}
+
 // The fields every UI widget shares (UiBox), registered once for each kind so their documentation exists in one place.
 template <class T>
 TypeBuilder<T>& ui_box_fields(TypeBuilder<T>& b) {
@@ -112,6 +164,21 @@ TypeBuilder<T>& ui_box_fields(TypeBuilder<T>& b) {
                "image gives "
                "panels of any size. [0, 0, 0, 0] (default) stretches the whole image. When the widget is smaller than "
                "left + right (or top + bottom) the borders shrink proportionally.")
+        .asset_field(
+            "material", static_cast<std::string T::*>(&UiBox::material), "material",
+            material_doc_2d("widget",
+                            "the widget's background quads and nothing else: its `texture` drawn as a 9-slice, or the "
+                            "solid `color` rectangle. The label of a Button, Toggle or TextField, the Button icon, "
+                            "the Slider knob and fill, the Toggle mark, the TextField caret, the focus ring, the "
+                            "bars and lines of a Chart, the picture of a Video or CameraView, the Captions text, "
+                            "and the disc or knob of a TouchStick or TouchButton (its background only when it has "
+                            "a `texture`) stay on the built-in shader, and so does a tooltip")
+                .c_str())
+        .field("materialParams", static_cast<Json T::*>(&UiBox::materialParams),
+               material_params_doc_2d("They apply to the widget's background only (its 9-slice texture or solid color "
+                                      "rectangle, the same quads as `material`), not to its text, icons or the "
+                                      "picture of a Chart, Video or CameraView.")
+                   .c_str())
         .field("tooltip", static_cast<Json T::*>(&UiBox::tooltip), kTooltipDoc)
         .field("draggable", static_cast<Json T::*>(&UiBox::draggable), kDraggableDoc)
         .field("mirror", static_cast<bool T::*>(&UiBox::mirror),
@@ -672,7 +739,26 @@ void register_builtin_components(TypeRegistry& r) {
                "its light and dark along the curve with [0.6,0.6,0.6,1] at the vertices in shade and [1,1,1,1] in "
                "light. Write the "
                "whole array to change it (like vertexOffsets). [] (default) = every vertex white. Not used with "
-               "SpriteSkin.");
+               "SpriteSkin.")
+        .asset_field("material", &Sprite::material, "material", material_doc_2d("Sprite", "the sprite's quad").c_str())
+        .field("materialParams", &Sprite::materialParams, material_params_doc_2d().c_str())
+        .field(
+            "instances", &Sprite::instances,
+            "0 (default) = the sprite draws its one quad. N > 0 = ONE draw of N quads (GPU particles, 2D crowds), "
+            "whose "
+            "data the material reads from compute buffers (the sprite material declares \"buffers\", and "
+            "materialParams gives the id of a compute buffer for each: {\"particles\": 3}; "
+            "docs/shaders/SHADERS_COMPUTE.md, \"Sprites from a compute buffer\"). The sprite's own quad (its "
+            "Transform, size, pivot, texture, region and colour) is the template every instance starts from: the "
+            "material's vertex() gets the instance number as fa_instance_index (0..N-1) (fragment() gets it too) and "
+            "moves the corners of the quad to where that instance is (QuadVertex.world_pos, uv, color). Every buffer "
+            "the material reads must hold at least N elements (otherwise the sprite is not drawn and the log says "
+            "why), and N is at most 16777216: size the buffers for it. The instances are one item of the sprite's "
+            "layer, drawn on top of the sprites below it and under those above, and never batched with other "
+            "sprites. A sprite with instances ignores meshColumns, slice, SpriteSkin and a Parallax repeat (it is "
+            "its one plain quad). Needs a sprite material with buffers, on Metal, D3D11 or OpenGL 4.3 (not GLES3, "
+            "WebGL2 or macOS OpenGL); with another material, or none, instances > 0 draws nothing and logs why.")
+        .range(0, kMaxMeshInstances);
 
     r.add<Tint>(
          "Tint",
@@ -1214,7 +1300,9 @@ void register_builtin_components(TypeRegistry& r) {
             "end); quadIn/cubicIn hold the start colour longer. It applies to the two-colour gradient and to "
             "gradientStops alike (stop positions are on the curve's input side: a stop at 0.5 is where the eased "
             "position "
-            "is 0.5). The shape costs the same as a linear gradient.");
+            "is 0.5). The shape costs the same as a linear gradient.")
+        .asset_field("material", &Shape2D::material, "material", material_doc_2d("Shape2D", "the shape").c_str())
+        .field("materialParams", &Shape2D::materialParams, material_params_doc_2d().c_str());
 
     r.add<Text>("Text", "Draws a string with a TrueType font (or the built-in font). Works in world and screen space.",
                 "2D")
@@ -1325,7 +1413,16 @@ void register_builtin_components(TypeRegistry& r) {
                "rounded corners and system bars of a phone (screen.safeArea in scripts), instead of the whole "
                "screen: anchor [0, 0] is the top-left corner of the safe area, [1, 1] its bottom-right. Keeps "
                "HUD and buttons out of the notch. On a screen without cutouts (desktop, most tablets) it changes "
-               "nothing. Default false.");
+               "nothing. Default false.")
+        .asset_field(
+            "material", &Text::material, "material",
+            material_doc_2d(
+                "Text",
+                "the glyph quads (the glyph coverage is part of the alpha it receives; the glyph atlas is the "
+                "main texture, so `fa_sample_main(uv)` reads the glyph coverage, not a picture of the text). The "
+                "pictures of a rich text (`[icon:name]`) keep the built-in shader")
+                .c_str())
+        .field("materialParams", &Text::materialParams, material_params_doc_2d().c_str());
 
     r.add<Tilemap>("Tilemap",
                    "A grid of tiles drawn from a tileset texture; tile index -1 is empty. Row 0 is the TOP row. "
@@ -1452,7 +1549,14 @@ void register_builtin_components(TypeRegistry& r) {
                "same "
                "solidTiles. Editing a tile at run time (set_tile) moves the shadows on the next frame. The tilemap "
                "needs no "
-               "`lit` itself to cast. Default false.");
+               "`lit` itself to cast. Default false.")
+        .asset_field(
+            "material", &Tilemap::material, "material",
+            material_doc_2d("Tilemap",
+                            "every tile (one material for the whole Tilemap: all its tiles draw as one batch; give "
+                            "another layer its own Tilemap to give it another material)")
+                .c_str())
+        .field("materialParams", &Tilemap::materialParams, material_params_doc_2d().c_str());
 
     r.add<ParticleEmitter>(
          "ParticleEmitter",
@@ -1733,7 +1837,13 @@ void register_builtin_components(TypeRegistry& r) {
         .field("seed", &ParticleEmitter::seed,
                "0 (default): the random run is derived from the entity's stable id. Another number gives another run, "
                "and the same number "
-               "always the same one, on every platform. Read when the emitter first appears.");
+               "always the same one, on every platform. Read when the emitter first appears.")
+        .asset_field("material", &ParticleEmitter::material, "material",
+                     material_doc_2d("ParticleEmitter",
+                                     "every particle and its trail (one material per emitter: all its particles batch "
+                                     "together, whatever their colour, size or age)")
+                         .c_str())
+        .field("materialParams", &ParticleEmitter::materialParams, material_params_doc_2d().c_str());
 
     // --------------------------------------------------------------- 3D ---
     r.add<MeshRenderer>("MeshRenderer",
@@ -1791,8 +1901,8 @@ void register_builtin_components(TypeRegistry& r) {
             "or \"\" (default) for the standard PBR material. The material file names a GLSL snippet whose surface() "
             "changes what the standard material computed (albedo, alpha, normal, emission...) and whose optional "
             "vertex() "
-            "moves the vertices, and declares its params, textures, lighting (pbr or unlit) and alphaMode (opaque, "
-            "clip "
+            "moves the vertices (it can sample the material's textures), and declares its params, textures, lighting "
+            "(pbr, unlit, or custom: the snippet's light() shades each light) and alphaMode (opaque, clip "
             "or blend). The `material.info` command lists a material's params and textures; `shader.compile` compiles "
             "it "
             "and reports errors with file:line. The material's alphaMode wins over color.a < 1; `unlit` true forces "
@@ -1805,7 +1915,11 @@ void register_builtin_components(TypeRegistry& r) {
                "project-relative paths "
                "for textures (a path, or \"target:<name>\" for the live picture of a render-target camera). Example: "
                "{\"glow\": [1, 0.2, 0, 1], \"mask\": \"textures/leaf.png\"}. Unnamed params keep the "
-               "material's defaults. An entity without overrides batches with the others that share the material.")
+               "material's defaults. A material that declares \"buffers\" takes the id of a compute buffer for each, "
+               "as an "
+               "integer: {\"particles\": 3} (see instances). An entity without overrides batches with the others that "
+               "share the "
+               "material.")
         .field(
             "materialColors", &MeshRenderer::materialColors,
             "Per-material colours of a glTF model, an object keyed by glTF material name: {\"Body\": [0.2, 0.8, 0.7, "
@@ -1829,7 +1943,31 @@ void register_builtin_components(TypeRegistry& r) {
                "model document has gameReady.lods (docs/MODELING.md). An entry that is not an object with a `mesh` "
                "string and a `distance` number is "
                "ignored. Colliders and picking keep using `mesh`. Entities that differ only in their LOD are drawn in "
-               "the batch of the mesh they show.");
+               "the batch of the mesh they show.")
+        .field(
+            "instances", &MeshRenderer::instances,
+            "0 (default) = a normal draw of the mesh. N > 0 = ONE draw of N instances of the mesh, whose data the "
+            "material reads from compute buffers (the material declares \"buffers\", and materialParams gives the id "
+            "of a compute buffer for each: {\"particles\": 3}; docs/shaders/SHADERS_COMPUTE.md, \"Drawing from a "
+            "compute buffer\"). The material's vertex() gets the instance number as fa_instance_index (0..N-1) and "
+            "places each instance; the entity's Transform is the base every instance is placed relative to (fa_model "
+            "in a full shader). Every buffer the material reads must hold at least N elements (otherwise the entity "
+            "is not "
+            "drawn and the log says why), and N is at most 16777216: size the buffers for it. The instances cast "
+            "shadows and enter the depth "
+            "prepass like the mesh does; an entity with instances is drawn on its own and never batched with others. "
+            "Needs a material with buffers, on Metal, D3D11 or OpenGL 4.3 (not GLES3, WebGL2 or macOS OpenGL); "
+            "with another material, or none, instances > 0 draws nothing and logs why.")
+        .range(0, kMaxMeshInstances)
+        .field(
+            "instanceBounds", &MeshRenderer::instanceBounds,
+            "For a material with buffers only: the half-extent, in the entity's local metres, of the box around the "
+            "entity that "
+            "holds every instance (the instances are placed by the GPU, so the CPU cannot know where they are). The "
+            "entity is skipped, with its shadows, when that box (scaled by the Transform) is outside the camera's "
+            "view. 0 (default) = never culled by the camera, always drawn: safe, but it costs GPU time for an entity "
+            "that is off screen.")
+        .range(0, 1000000);
 
     r.add<Light>("Light",
                  "A light source for 3D meshes. A directional light shines along the entity's forward direction (-Z "
@@ -3762,7 +3900,9 @@ void register_builtin_components(TypeRegistry& r) {
                "Only used with hdrOutput auto on an HDR display: the brightness of white (1.0) in nits (cd/m2), "
                "80..1000. 200 is "
                "comfortable indoors, 400 and more suits a bright room; the display shows brighter highlights above it.")
-        .range(80, 1000);
+        .range(80, 1000)
+        .asset_field("skyMaterial", &SceneSettings::skyMaterial, "material", sky_material_doc().c_str())
+        .field("skyMaterialParams", &SceneSettings::skyMaterialParams, sky_material_params_doc().c_str());
 }
 
 void ensure_builtin_components() {

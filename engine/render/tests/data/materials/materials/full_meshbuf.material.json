@@ -1,0 +1,17 @@
+{
+  "format": "factoria.material/1",
+  "doc": "Test fixture: a full shader that draws a mesh once per element of the `points` buffer, in the colour of element 0.",
+  "mode": "full",
+  "shader": "shaders/full_meshbuf.full.glsl",
+  "shadow": "custom",
+  "prepass": false,
+  "buffers": {
+    "points": {
+      "doc": "The instances, as meshbuf_fill.material.json writes them.",
+      "fields": [
+        { "name": "pos", "type": "vec4", "doc": "xyz = the offset from the entity; w = 1 visible, 0 hidden." },
+        { "name": "tint", "type": "vec4", "doc": "The colour of the instance." }
+      ]
+    }
+  }
+}

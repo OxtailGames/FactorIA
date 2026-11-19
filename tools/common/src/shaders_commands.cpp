@@ -1,8 +1,10 @@
 // "shader.compile", "material.info" and the material step of `factoria validate`.
 #include <algorithm>
+#include <cctype>
 #include <filesystem>
 
 #include "fa/core/strings.h"
+#include "fa/tooling/material_graph.h"
 #include "fa/tooling/shaders.h"
 #include "fa/tooling/validate.h"
 #include "shaders_internal.h"
@@ -13,28 +15,6 @@ namespace fa {
 namespace stdfs = std::filesystem;
 
 namespace {
-
-// The project-relative path a command argument names: as written, or with ".material.json" added.
-std::string resolve_material(const std::string& projectDir, const std::string& arg) {
-    if (arg.empty())
-        throw CommandError(
-            "invalid_argument", "material is empty",
-            "Pass the project-relative path of a *.material.json, e.g. \"materials/water.material.json\".");
-    const stdfs::path p = stdfs::path(arg).lexically_normal();
-    if (p.is_absolute() || p.generic_string().rfind("..", 0) == 0)
-        throw CommandError("invalid_argument", "material '" + arg + "' is not inside the project",
-                           "Pass a path relative to the project root, e.g. \"materials/water.material.json\".");
-    std::error_code ec;
-    for (const std::string& candidate : {p.generic_string(), p.generic_string() + ".material.json"})
-        if (stdfs::is_regular_file(stdfs::path(projectDir) / candidate, ec)) return candidate;
-    const std::vector<std::string> all = find_material_files(projectDir);
-    throw CommandError("not_found", "no material '" + arg + "' in the project",
-                       all.empty()
-                           ? "The project has no *.material.json yet: create one (schema schemas/material.schema.json, "
-                             "`docs.read` it) next to a snippet shaders/<name>.surface.glsl."
-                           : did_you_mean(arg, all),
-                       Json::object({{"materials", Json(all)}}));
-}
 
 Json issues_json(const std::vector<ShaderIssue>& issues) {
     Json arr = Json::array();
@@ -48,17 +28,104 @@ Json param_json(const MaterialParam& p) {
     if (p.max) j["max"] = *p.max;
     j["doc"] = p.doc;
     if (p.implicit) j["implicit"] = true;
+    if (p.instanced) j["instanced"] = true;
     return j;
 }
 
+// runsOn / notOn: the platforms a material of `kind` has shaders for (shader_platforms_of_kind) and the ones it has none for.
+void add_platforms(Json& out, const std::string& kind, bool storageBuffers = false) {
+    const std::vector<std::string> runsOn = shader_platforms_of_kind(kind, storageBuffers);
+    std::vector<std::string> notOn;
+    for (const std::string& p : shader_platforms())
+        if (std::find(runsOn.begin(), runsOn.end(), p) == runsOn.end()) notOn.push_back(p);
+    out["runsOn"] = Json(runsOn);
+    out["notOn"] = Json(notOn);
+}
+
 const char* const kSnippetContract =
-    "The snippet is GLSL 450 (Vulkan style) with no @ tags and no main: `void surface(in SurfaceInput i, inout Surface "
-    "s)` is required, "
-    "`void vertex(inout VertexData v)` optional. Params are globals named like the JSON keys; textures are sampled "
-    "with "
+    "The snippet is GLSL 450 (Vulkan style) with no @ tags and no main: for a mesh material `void surface(in "
+    "SurfaceInput i, inout Surface s)` is required and `void vertex(inout VertexData v)` optional; for a \"sprite\" "
+    "material `void fragment(in QuadInput i, inout QuadSurface s)` is required and `void vertex(inout QuadVertex v)` "
+    "optional; for a \"sky\" material `void sky(in SkyInput i, inout SkySurface s)` is required (no vertex()); for a "
+    "\"post\" material `void post(in PostInput i, inout PostSurface s)` is required (no vertex()). Params are "
+    "globals named like the JSON keys; textures are sampled with "
     "texture(sampler2D(name, name_smp), uv); names starting with fa_ are the engine's.";
 
+// The fix of a snippet that the material's graph makes and the project does not have (yet or any more): "" when the material has no
+// graph or the snippet is current.
+std::string regenerate_hint(const std::string& state, const std::string& material) {
+    if (state == "missing")
+        return "The snippet is generated from the \"graph\" of " + material +
+               " and does not exist yet: run material.graph.generate for it, then shader.compile again.";
+    if (state == "graph_changed")
+        return "The graph of " + material +
+               " changed since its snippet was generated: run material.graph.generate for it, then shader.compile "
+               "again.";
+    if (state == "unreadable")
+        return "The snippet of " + material +
+               " exists but cannot be read (a folder with that name, a permission, or a program that holds it open): "
+               "make it readable, then run shader.compile again. `material.graph.validate` says why.";
+    return {};
+}
+
+// The error hint of a material that cannot be compiled: the original one (what the compiler or the setup says, e.g. that sokol-shdc is missing)
+// stays, and the fix for a snippet the graph makes is added to it. It replaces the original only when that one is the generic "check the shader
+// path" of a snippet that cannot be read, which the fix answers better.
+std::string compile_error_hint(const std::string& original, const std::string& fix, const std::string& message) {
+    if (fix.empty()) return original;
+    if (original.empty() || message.rfind("cannot read the snippet", 0) == 0) return fix;
+    return original + " " + fix;
+}
+
 }  // namespace
+
+namespace shaders_detail {
+
+std::string material_path_shape_problem(const std::string& path) {
+    if (path.empty()) return {};
+    if (path.find('\\') != std::string::npos) return "uses a backslash";
+    const bool drive = path.size() >= 2 && path[1] == ':' && std::isalpha(static_cast<unsigned char>(path[0]));
+    // "~" and "~/..." are the home folder; a file whose name merely starts with a tilde ("~tmp.material.json") is a relative path.
+    const bool home = path[0] == '~' && (path.size() == 1 || path[1] == '/');
+    if (path[0] == '/' || home || drive) return "is an absolute path";
+    for (std::size_t start = 0; start <= path.size();) {
+        std::size_t end = path.find('/', start);
+        if (end == std::string::npos) end = path.size();
+        if (path.compare(start, end - start, "..") == 0) return "leaves the project with '..'";
+        start = end + 1;
+    }
+    return {};
+}
+
+std::string resolve_material(const std::string& projectDir, const std::string& arg) {
+    if (arg.empty())
+        throw CommandError(
+            "invalid_argument", "material is empty",
+            "Pass the project-relative path of a *.material.json, e.g. \"materials/water.material.json\".");
+    // The same answer on every OS as `factoria validate` gives for a material path ("c:x" is a drive path on POSIX too).
+    if (const std::string shape = material_path_shape_problem(arg); !shape.empty())
+        throw CommandError(
+            "invalid_argument", "material '" + arg + "' " + shape,
+            "Pass a path relative to the project root with forward slashes, e.g. \"materials/water.material.json\".");
+    const stdfs::path p = stdfs::path(arg).lexically_normal();
+    // Whole path components: a file called "..x" is inside the project, "../x" is not.
+    if (p.is_absolute() || p.has_root_name() || p.has_root_directory() || (!p.empty() && *p.begin() == ".."))
+        throw CommandError("invalid_argument", "material '" + arg + "' is not inside the project",
+                           "Pass a path relative to the project root, e.g. \"materials/water.material.json\".");
+    std::error_code ec;
+    for (const std::string& candidate : {p.generic_string(), p.generic_string() + ".material.json"})
+        if (stdfs::is_regular_file(stdfs::path(projectDir) / candidate, ec)) return candidate;
+    const std::vector<std::string> all = find_material_files(projectDir);
+    throw CommandError("not_found", "no material '" + arg + "' in the project",
+                       all.empty()
+                           ? "The project has no *.material.json yet: create one (schema "
+                             "schemas/material.schema.json, `docs.read` it) with a \"graph\" (`material.graph.nodes` "
+                             "lists the nodes) or next to a snippet shaders/<name>.surface.glsl."
+                           : did_you_mean(arg, all),
+                       Json::object({{"materials", Json(all)}}));
+}
+
+}  // namespace shaders_detail
 
 void register_shader_commands(CommandRegistry& registry, const std::string& projectDir, const SetupContext& context) {
     {
@@ -70,17 +137,29 @@ void register_shader_commands(CommandRegistry& registry, const std::string& proj
                        "with file, line and fixes.";
         info.description =
             "Checks the material file (*.material.json, schemas/material.schema.json) and compiles its "
-            "snippet with sokol-shdc, injected into the engine's mesh shader, for every shader dialect of "
+            "snippet with sokol-shdc, injected into the engine's mesh, 2D (sprite), sky, post-process or compute "
+            "shader, for every shader dialect "
+            "of "
             "the platforms asked (default: all six: hlsl5 for Windows, glsl430 for Linux, metal_macos, "
             "metal_ios and metal_sim for macOS and iOS, glsl300es for Android and web). Some errors exist in "
             "one dialect only (a gradient inside a loop is fine in GLSL and refused by HLSL), so compile for "
             "the platforms you ship. Returns {ok, material, dialects, errors: [{file, line, column, message, "
-            "hint, source}], cached}: a snippet error is mapped to the line of your snippet, with the "
+            "hint, source}], cached, kind, runsOn, notOn, skippedDialects}: `kind` is \"mesh\" (default), \"sprite\", "
+            "\"sky\", \"post\" or \"compute\". A "
+            "snippet error is mapped to the line of your snippet, with the "
             "offending line in `source` and a fix in `hint` (an unknown field of Surface gets \"did you mean "
             "albedo?\", texture(waves, uv) gets the separate-sampler form); a mistake in the material file "
             "has a JSON `pointer` instead of a line. Fix the file and call again until ok, then look at the "
             "result with game.screenshot. Results are cached in .factoria/shader-cache by content, so an "
             "unchanged material compiles instantly." FA_COMMAND_DETAILS
+            "`graph` {state, hint} is returned only when the material has a \"graph\" whose snippet is missing (state "
+            "\"missing\"), older than the graph (\"graph_changed\") or unreadable (\"unreadable\"); `hint` says what "
+            "to run, "
+            "then compile again. "
+            "A compute material (a snippet defining void compute(in ComputeInput i) over storage buffers, run by "
+            "compute.dispatch) has no shader for android and web (GLES3 and WebGL2 have no compute shaders): `runsOn` "
+            "and `notOn` list the platforms the kind has shaders for, asking for those platforms compiles nothing and "
+            "lists glsl300es in `skippedDialects`. "
             "Needs sokol-shdc: the factoria downloads carry it next to factoria; otherwise `factoria setup "
             "shaders` installs it, or set SOKOL_SHDC." +
             std::string(kSnippetContract) +
@@ -94,7 +173,8 @@ void register_shader_commands(CommandRegistry& registry, const std::string& proj
           }})");
         const std::string dir = projectDir;
         registry.add(info, [dir, context](const Json& args) {
-            const std::string material = resolve_material(dir, tooling_detail::arg_string(args, "material", true));
+            const std::string material =
+                shaders_detail::resolve_material(dir, tooling_detail::arg_string(args, "material", true));
             std::vector<std::string> platforms;
             if (args.contains("platforms") && args["platforms"].is_array())
                 for (const Json& p : args["platforms"])
@@ -105,12 +185,29 @@ void register_shader_commands(CommandRegistry& registry, const std::string& proj
             options.setup = context;
             options.dialects = *dialects;
             auto result = compile_material(dir, material, options);
-            if (!result.ok()) throw CommandError("unavailable", result.error().message, result.error().hint);
+            const std::string graphState = material_snippet_state(dir, material);
+            if (!result.ok()) {
+                const std::string fix = regenerate_hint(graphState, material);
+                throw CommandError("unavailable", result.error().message,
+                                   compile_error_hint(result.error().hint, fix, result.error().message));
+            }
             Json out = Json::object({{"ok", result->ok},
                                      {"material", material},
                                      {"dialects", Json(result->dialects)},
                                      {"errors", issues_json(result->errors)},
-                                     {"cached", result->cacheHits}});
+                                     {"cached", result->cacheHits},
+                                     {"kind", result->material.kind}});
+            add_platforms(out, result->material.kind, !result->material.buffers.empty());
+            out["skippedDialects"] = Json(result->skippedDialects);
+            if (!result->skippedDialects.empty())
+                out["note"] =
+                    "The " + result->material.kind + " material has no shader for " +
+                    join(result->skippedDialects, ", ") + ": it runs on " +
+                    join(shader_platforms_of_kind(result->material.kind, !result->material.buffers.empty()), ", ") +
+                    " only (GLES3 and WebGL2 have no compute shaders and no storage buffers in the vertex "
+                    "stage).";
+            if (const std::string fix = regenerate_hint(graphState, material); !fix.empty())
+                out["graph"] = Json::object({{"state", graphState}, {"hint", fix}});
             if (!result->errors.empty()) {
                 std::string text;
                 for (const ShaderIssue& i : result->errors) text += (text.empty() ? "" : "\n") + i.to_string();
@@ -127,25 +224,46 @@ void register_shader_commands(CommandRegistry& registry, const std::string& proj
         info.summary = "Describe a custom material: lighting, alpha mode, params with types, defaults, ranges and "
                        "docs, textures, programs and compile state.";
         info.description =
-            "Reads a *.material.json (schemas/material.schema.json) and returns {material, doc, shader, "
-            "lighting, alphaMode, doubleSided, "
-            "params: [{name, type, default, min?, max?, doc, implicit?}], textures: [{name, default, "
-            "sampler, doc}], programs, compile: {state, dialect, toolFound}}. "
+            "Reads a *.material.json (schemas/material.schema.json) and returns {material, doc, kind, mode, shader, "
+            "lighting, alphaMode, doubleSided, params: [{name, type, default, min?, max?, doc, implicit?, "
+            "instanced?}], "
+            "textures: [{name, default, sampler, doc}], vertexAttributes?, instanceLayout?, programs, compile: {state, "
+            "dialect, "
+            "toolFound, hint?}}. "
+            "`kind` is \"mesh\" (default), \"sprite\", \"sky\", \"post\" or \"compute\". "
             "params are listed in the order of the uniform block (alphabetical); `implicit` marks "
             "alphaCutoff, which alphaMode \"clip\" adds by itself. "
-            "`programs` are the shader programs the material makes: mesh and mesh_skin, plus shadow and "
-            "shadow_skin when the snippet defines vertex() or the alpha mode is clip, and prepass and prepass_skin "
-            "(the depth and normal prepass of the post effects that read the depth). "
             "compile.state is \"compiled\" when the cache holds this exact material for this machine's "
             "dialect, else \"not_compiled\" (run shader.compile); nothing is compiled by this command. "
             "A material file with errors returns them (JSON pointer, message, fix). Example: "
-            "{\"material\": \"materials/water.material.json\"}";
+            "{\"material\": \"materials/water.material.json\"}" FA_COMMAND_DETAILS
+            "`lighting` is \"pbr\", \"unlit\" or \"custom\" (the snippet defines light(), the engine's light loop "
+            "calls it once per light, or lighting(), your own loop). "
+            "`programs` are the shader programs the material makes: mesh, mesh_skin, prepass and prepass_skin, plus "
+            "shadow and shadow_skin when the snippet defines vertex() or the alpha mode is clip; a sprite "
+            "material makes quad and quad_plain, a sky material one program, sky, a post material one, post. "
+            "`mode` is \"snippet\" or \"full\". A full-shader material (the file holds your own vertex and fragment "
+            "stages, docs/shaders/SHADERS_FULL.md) has no lighting, alphaMode or doubleSided; it returns shadow "
+            "(\"depth\", "
+            "\"custom\" or \"none\"), prepass and passes [{name, cull, depthTest, depthWrite, blend, program, "
+            "programSkin}], and its `programs` list one program and one skinned program per pass (mesh, mesh_skin, "
+            "pass1, pass1_skin, ...), then shadow and shadow_skin for \"custom\", then prepass and prepass_skin. "
+            "A compute material also returns workgroupSize [x, y, z] and buffers [{name, binding, access, stride, "
+            "doc, fields: [{name, type, offset, doc}]}] (std430 layout) and images [{name, binding, format, access, "
+            "width, height, doc}]; `runsOn` and `notOn` list the platforms the "
+            "kind has shaders for (compute: not android or web). "
+            "`instanced` marks a mesh or sprite param whose value every entity (sprite: every quad) gives itself "
+            "inside ONE draw (it travels in the instance data instead of the uniform block); `instanceLayout` "
+            "{vec4, slots: [{name, vec4, offset, components}]} says where; `vertexAttributes` lists the extra mesh "
+            "channels (uv1, color1) vertex() reads as vertex_uv1 and vertex_color1 (docs/SHADERS.md, \"The material "
+            "file\").";
         info.inputSchema = Json::parse(R"({
           "type":"object","required":["material"],
           "properties":{"material":{"type":"string","description":"Project-relative path of the material, e.g. materials/water.material.json."}}})");
         const std::string dir = projectDir;
         registry.add(info, [dir, context](const Json& args) {
-            const std::string path = resolve_material(dir, tooling_detail::arg_string(args, "material", true));
+            const std::string path =
+                shaders_detail::resolve_material(dir, tooling_detail::arg_string(args, "material", true));
             MaterialParse mp = read_material(dir, path);
             if (!mp.ok()) {
                 Json errors = Json::array();
@@ -168,10 +286,11 @@ void register_shader_commands(CommandRegistry& registry, const std::string& proj
                 snippet = shaders_detail::normalize_snippet(*raw);
             const GeneratedShader g = generate_material_shader(m, snippet);
             const std::string dialect = host_shader_dialect(context);
-            const bool compiled =
-                !shader_template_hash().empty() && stdfs::exists(shader_cache_path(dir, g, snippet, dialect));
+            const bool compiled = !shader_template_hash(m.full ? "mesh-full" : m.kind).empty() &&
+                                  stdfs::exists(shader_cache_path(dir, g, snippet, dialect));
             Json out = Json::object({{"material", path},
                                      {"doc", m.doc},
+                                     {"kind", m.kind},
                                      {"shader", m.shader},
                                      {"lighting", m.lighting},
                                      {"alphaMode", m.alphaMode},
@@ -179,6 +298,66 @@ void register_shader_commands(CommandRegistry& registry, const std::string& proj
                                      {"params", params},
                                      {"textures", textures},
                                      {"programs", Json(g.programs)}});
+            if (!m.vertexAttributes.empty()) out["vertexAttributes"] = Json(m.vertexAttributes);
+            out["mode"] = m.full ? "full" : "snippet";
+            if (m.full) {
+                // lighting, alphaMode and doubleSided are the engine's shader's: a full material has none of them.
+                out.erase("lighting");
+                out.erase("alphaMode");
+                out.erase("doubleSided");
+                out["shadow"] = m.shadow;
+                out["prepass"] = m.prepass;
+                Json passes = Json::array();
+                for (std::size_t i = 0; i < m.passes.size(); ++i) {
+                    const MaterialPass& p = m.passes[i];
+                    passes.push_back(Json::object({{"name", p.name},
+                                                   {"cull", p.cull},
+                                                   {"depthTest", p.depthTest},
+                                                   {"depthWrite", p.depthWrite},
+                                                   {"blend", p.blend},
+                                                   {"program", shaders_detail::full_program_name(int(i), false)},
+                                                   {"programSkin", shaders_detail::full_program_name(int(i), true)}}));
+                }
+                out["passes"] = passes;
+            }
+            if (const InstanceLayout layout = instance_layout(m.params); layout.vec4Count > 0) {
+                Json slots = Json::array();
+                for (const InstanceSlot& s : layout.slots)
+                    slots.push_back(Json::object(
+                        {{"name", s.name}, {"vec4", s.vec4}, {"offset", s.offset}, {"components", s.components}}));
+                out["instanceLayout"] = Json::object({{"vec4", layout.vec4Count}, {"slots", slots}});
+            }
+            add_platforms(out, m.kind, !m.buffers.empty());
+            if (m.kind == "compute" || !m.buffers.empty()) {  // a mesh material's buffers are read-only
+                const Json fields = shaders_detail::compute_twin_fields(m);
+                if (m.kind == "compute") out["workgroupSize"] = fields["workgroupSize"];
+                Json buffers = Json::array();
+                for (const MaterialBuffer& b : m.buffers) {
+                    Json bf = Json::array();
+                    for (const MaterialBufferField& f : b.fields)
+                        bf.push_back(
+                            Json::object({{"name", f.name}, {"type", f.type}, {"offset", f.offset}, {"doc", f.doc}}));
+                    buffers.push_back(Json::object({{"name", b.name},
+                                                    {"binding", b.binding},
+                                                    {"access", b.access},
+                                                    {"stride", b.stride},
+                                                    {"doc", b.doc},
+                                                    {"fields", bf}}));
+                }
+                out["buffers"] = buffers;
+            }
+            if (m.kind == "compute") {
+                Json images = Json::array();
+                for (const MaterialImage& im : m.images)
+                    images.push_back(Json::object({{"name", im.name},
+                                                   {"binding", im.binding},
+                                                   {"format", im.format},
+                                                   {"access", im.access},
+                                                   {"width", im.width},
+                                                   {"height", im.height},
+                                                   {"doc", im.doc}}));
+                out["images"] = images;
+            }
             out["compile"] = Json::object({{"state", compiled ? "compiled" : "not_compiled"},
                                            {"dialect", dialect},
                                            {"toolFound", !find_sokol_shdc(context).empty()}});
@@ -214,13 +393,28 @@ void validate_materials(const std::string& projectDir, const SetupContext& conte
         ++report.materialsChecked;
         auto result = compile_material(projectDir, path, options);
         if (!result.ok()) {
-            if (!toolFound) {
+            const std::string state = material_snippet_state(projectDir, path);
+            // A snippet the graph makes that is missing or unreadable is an error with or without the compiler: the
+            // compiler is never reached for it. Only a failure that needs the compiler is counted as "not compiled".
+            const bool snippetProblem = state == "missing" || state == "unreadable";
+            if (!toolFound && !snippetProblem) {
+                if (state == "graph_changed")
+                    report.warnings.push_back(
+                        {path, "/graph",
+                         "the graph changed since the snippet was generated: the snippet is out of date",
+                         regenerate_hint(state, path)});
                 ++notCompiled;
                 continue;
             }
-            report.errors.push_back({path, "", result.error().message, result.error().hint});
+            const std::string fix = regenerate_hint(state, path);
+            report.errors.push_back({path, "", result.error().message,
+                                     compile_error_hint(result.error().hint, fix, result.error().message)});
             continue;
         }
+        if (const std::string state = material_snippet_state(projectDir, path); state == "graph_changed")
+            report.warnings.push_back({path, "/graph",
+                                       "the graph changed since the snippet was generated: the snippet is out of date",
+                                       regenerate_hint(state, path)});
         for (ValidationIssue& i : shader_validation_issues(*result)) report.errors.push_back(std::move(i));
     }
     if (notCompiled > 0)

@@ -10,6 +10,8 @@
 #include <unordered_map>
 #include <vector>
 
+#include "fa/core/types.h"
+#include "fa/render/post_custom.h"
 #include "fa/scene/camera_geometry.h"
 #include "fa/scene/postprocess.h"
 #include "fa/scene/world.h"
@@ -24,9 +26,20 @@ struct PostStack {
     std::uint32_t mask = 0;  // bit i is set when the effect PostEffect(i) runs (the same as fx.<effect>Enabled)
     int sources =
         0;  // how many components contributed: the camera's own (if any) plus the volumes with an influence above 0
+    // The custom passes (PostProcess.customPasses) of the camera's own component and the volumes that apply with a
+    // strength of at least 0.5, in the order they are drawn within a slot: own first, then ascending priority. Disabled
+    // entries are kept (the report shows them); the passes skip them. `customErrors`: the entries that did not parse,
+    // which the renderer logs once.
+    std::vector<CustomPostPass> custom;
+    std::vector<Error> customErrors;
 
     bool has(PostEffect e) const { return (mask >> int(e)) & 1u; }
-    bool any() const { return mask != 0; }
+    bool any() const { return mask != 0 || has_custom(); }
+    bool has_custom() const {
+        for (const CustomPostPass& c : custom)
+            if (c.enabled) return true;
+        return false;
+    }
     int effect_count() const;  // how many effects run
 };
 
@@ -52,6 +65,7 @@ struct PostTrace {
     // number blended by several, the last of them), -1 for the neutral default (no layer switched its effect on, or a switch
     // such as a mode that the layers were too weak to change).
     std::unordered_map<std::string, int> fieldLayer;
+    std::vector<int> customLayers;  // the indices into `layers` whose customPasses were added (one per added entry)
 };
 
 // The PostProcess standing in for the deprecated Camera.bloom* and Camera.colorFilter fields of `cam` (hard knee, the same picture as

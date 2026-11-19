@@ -41,13 +41,16 @@ void QuadList::end_item() {
 
 void QuadList::append(QuadList& part) {
     const std::uint32_t base = std::uint32_t(raw.size());
+    const std::uint32_t instBase = std::uint32_t(inst.size());
     items.reserve(items.size() + part.items.size());
     for (QuadItem it : part.items) {
         it.firstVert += base;
+        it.instFirst += instBase;
         it.seq = seq_++;  // the part's items keep their order among themselves and come after this list's
         items.push_back(it);
     }
     raw.insert(raw.end(), part.raw.begin(), part.raw.end());
+    inst.insert(inst.end(), part.inst.begin(), part.inst.end());
     part.clear();
 }
 
@@ -65,6 +68,11 @@ std::size_t QuadList::append_items(const QuadList& src, std::size_t firstItem, s
         it.firstVert = base + (it.firstVert - srcFirst);  // the items of a range are contiguous in src.raw
         it.seq = seq_++;
         if (secondary) it.secondary = *secondary;
+        if (it.use && it.use->instVec4 > 0) {  // the item's instanced values are copied along
+            const float* values = src.inst.data() + it.instFirst;
+            it.instFirst = std::uint32_t(inst.size());
+            inst.insert(inst.end(), values, values + it.use->instVec4 * 4);
+        }
         items.push_back(it);
     }
     raw.insert(raw.end(), src.raw.begin() + srcFirst, src.raw.begin() + srcEnd);
@@ -90,7 +98,15 @@ constexpr std::size_t kCopyGrain = 8192;
 // A vertex of `it` as the stream holds it: lit items shade every textured / circle / ring / shape quad (shader mode
 // + 16), Multiply items use the shader's multiply variant (+ 8), flashing items the flash variant (+ 32, colour in color2;
 // shapes and glyphs keep theirs). The steps run in that order, as the flags are the higher bits of the mode.
+// The error material (a sprite material that did not build): the tint turns magenta, the alpha stays.
+constexpr std::uint32_t kErrorRgb = 0x00FF00FFu;  // 0xAABBGGRR: red and blue
+
+inline bool needs_restream(const QuadItem& it) {
+    return it.lit || it.blend == BlendMode::Multiply || it.flash != 0 || (it.use && it.use->error);
+}
+
 inline Vertex2D stream_vertex(const QuadItem& it, Vertex2D v) {
+    if (it.use && it.use->error) v.color = (v.color & 0xFF000000u) | kErrorRgb;
     if (it.lit && (v.mode < float(kModeLit) || v.mode == float(kModeShape))) v.mode += 16.0f;
     if (it.blend == BlendMode::Multiply) v.mode += 8.0f;
     if (it.flash != 0) {
@@ -105,7 +121,7 @@ inline Vertex2D stream_vertex(const QuadItem& it, Vertex2D v) {
 
 }  // namespace
 
-void QuadList::flatten(std::vector<Vertex2D>& out, std::vector<QuadBatch>& batches) {
+void QuadList::flatten(std::vector<Vertex2D>& out, std::vector<QuadBatch>& batches, std::vector<float>* instOut) {
     // seq is unique within a list and a NaN secondary key counts as +infinity (order_float), so the order is total:
     // any correct sort gives this one.
     rjobs::stable_sort(
@@ -127,7 +143,7 @@ void QuadList::flatten(std::vector<Vertex2D>& out, std::vector<QuadBatch>& batch
         for (const QuadItem& it : items) {
             const Vertex2D* src = raw.data() + it.firstVert;
             const std::size_t n = std::size_t(it.quadCount) * 4;
-            if (it.lit || it.blend == BlendMode::Multiply || it.flash != 0) {
+            if (needs_restream(it)) {
                 for (std::size_t k = 0; k < n; ++k) out.push_back(stream_vertex(it, src[k]));
             } else {
                 out.insert(out.end(), src, src + n);
@@ -149,7 +165,7 @@ void QuadList::flatten(std::vector<Vertex2D>& out, std::vector<QuadBatch>& batch
                 const std::size_t stop = std::min(c.end, offsets_[i + 1]);
                 const Vertex2D* src = raw.data() + it.firstVert + (v - offsets_[i]);
                 Vertex2D* dst = out.data() + base + v;
-                if (it.lit || it.blend == BlendMode::Multiply || it.flash != 0) {
+                if (needs_restream(it)) {
                     for (std::size_t k = 0, n = stop - v; k < n; ++k) dst[k] = stream_vertex(it, src[k]);
                 } else {
                     std::copy(src, src + (stop - v), dst);
@@ -159,24 +175,45 @@ void QuadList::flatten(std::vector<Vertex2D>& out, std::vector<QuadBatch>& batch
         });
     }
 
+    if (instOut) {
+        // One reserve for the whole list: a reserve per item is exact, does not grow geometrically, and would copy the
+        // whole vector again for every item.
+        std::size_t instFloats = 0;
+        for (const QuadItem& it : items)
+            if (it.use && !it.use->error && it.use->instVec4 > 0)
+                instFloats += std::size_t(it.quadCount) * 4 * std::size_t(it.use->instVec4) * 4;
+        if (instFloats > 0) instOut->reserve(instOut->size() + instFloats);
+    }
     std::size_t at = base;  // the first vertex of the item in `out`
     for (const QuadItem& it : items) {
         const std::uint32_t firstQuad = std::uint32_t(at / 4);
         at += std::size_t(it.quadCount) * 4;
         const bool plain = it.plain && !it.lit && it.blend != BlendMode::Multiply;
         const bool opaque = it.opaque && it.blend == BlendMode::Alpha;
+        // The per-vertex copy of the instanced values of the item (four vertices per quad), appended in batch order:
+        // the items of one batch are adjacent, so the values of a batch are contiguous from the first item's.
+        const int instVec4 = it.use && !it.use->error && instOut ? it.use->instVec4 : 0;
+        const std::size_t instStart = instOut ? instOut->size() : 0;
+        if (instVec4 > 0) {
+            const std::size_t floats = std::size_t(instVec4) * 4;
+            const float* values = inst.data() + it.instFirst;
+            for (std::size_t v = 0, n = std::size_t(it.quadCount) * 4; v < n; ++v)
+                instOut->insert(instOut->end(), values, values + floats);
+        }
         // Textures packed into one atlas share its GPU image, so their quads batch together.
         // Lit quads also need the same normal map, and (their uv transform depends on it) the same texture object.
         if (!batches.empty() && batches.back().tex->gpu_view().id == it.tex->gpu_view().id &&
             batches.back().smp == it.smp && batches.back().blend == it.blend && batches.back().clip == it.clip &&
             batches.back().lit == it.lit &&
             (!it.lit || (batches.back().tex == it.tex && batches.back().normal == it.normal)) &&
-            batches.back().opaque == opaque && batches.back().firstQuad + batches.back().quadCount == firstQuad) {
+            batches.back().opaque == opaque && batches.back().use == it.use && batches.back().instances == 0 &&
+            it.instances == 0 &&  // a draw from buffers is one quad drawn N times: alone
+            batches.back().firstQuad + batches.back().quadCount == firstQuad) {
             batches.back().quadCount += it.quadCount;
             batches.back().plain = batches.back().plain && plain;
         } else {
-            batches.push_back(
-                {firstQuad, it.quadCount, it.tex, it.smp, it.blend, it.clip, it.lit, it.normal, plain, opaque});
+            batches.push_back({firstQuad, it.quadCount, it.tex, it.smp, it.blend, it.clip, it.lit, it.instances,
+                               it.normal, plain, opaque, it.use, instStart});
         }
     }
 }

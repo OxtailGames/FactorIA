@@ -11,7 +11,8 @@
 //
 // Metallic-roughness PBR (Cook-Torrance GGX) with normal, metallic-roughness, occlusion and emissive maps, up to 32
 // directional/point/spot lights, sky image-based lighting (a procedural environment built from the scene's sky and
-// horizon colors), fog and an optional directional shadow map.
+// horizon colors, or the sky a sky material draws: its ambient light and reflection come from a baked cube), fog and an optional
+// directional shadow map.
 // Instanced: the model matrix of every instance comes from vertex buffer 1 (four vec4 columns, locations 5..8; 1..4 in
 // the shadow pass, whose attributes must be contiguous). Skinned meshes use the _skin programs: joints and weights come
 // from vertex buffer 2 (locations 9, 10; 5, 6 in the shadow pass).
@@ -29,7 +30,18 @@
 // Every engine identifier starts with fa_ (FA_ for constants), so "names starting with fa_ are the engine's" is the one
 // rule a snippet follows. Uniform block bindings: vertex 0 fa_mesh_vs_params, 3 fa_skin (4 is left for the material's
 // vertex-stage block); fragment 1 fa_mesh_fs_params, 2 fa_lights (5 for the material). Views 0-5 and samplers 0-1 are
-// the engine's.
+// the engine's, and so are views 14-15 and sampler 10 (the baked sky, fa_fs_head). A material texture is bound twice, so both stages can sample it (a sokol view slot belongs to one stage and
+// sokol-shdc refuses one name in both): the fragment stage reads it at view 6.. and sampler 2.., the vertex stage at view 10..
+// and sampler 6.. under the name fa_vs_<name> (the generator's #define makes the snippet write the plain name in both).
+//
+// Lighting "custom" defines FA_CUSTOM_LIGHT: the light loop below keeps choosing the lights, their attenuation and the shadow
+// and calls the snippet's `vec3 light(in SurfaceInput i, in Surface s, in LightSample l)` once per light instead of
+// Cook-Torrance; the ambient term is the snippet's `vec3 ambient(in SurfaceInput i, in Surface s, vec3 ambientColor)` when
+// FA_HAS_AMBIENT is defined, else ambientColor * albedo * occlusion; the sky reflection is off unless the snippet adds it with
+// fa_sky_light(). With FA_HAS_LIGHTING (the snippet defines `vec3 lighting(in SurfaceInput i, in Surface s)`) the loop and the
+// ambient term are the snippet's too: it picks the lights with fa_light_count() and fa_light(n, i) and may add the sky.
+// Emission and fog stay. The functions of the contract are declared before the snippet (the block fa_fs_light of the main
+// fragment shader; the shadow and prepass fragment shaders get stubs, fa_fs_nolight).
 
 // The snippet contract (docs/SHADERS.md).
 @block fa_types
@@ -51,6 +63,14 @@ struct Surface {                // what the lighting reads
     float occlusion;
     vec3 emission;
 };
+struct LightSample {            // light(): one light as the engine's light loop selected it (lighting "custom")
+    vec3 direction;             // surface -> light, normalized (a directional light: the direction its light comes from)
+    vec3 color;                 // the light's color times intensity times attenuation times shadow: what reaches the surface
+    float attenuation;          // 1 for a directional light; for a point or spot light the range falloff (times the spot cone)
+    float shadow;               // 1 = lit, 0 = in shadow (the shadow map of the first directional light; 1 for every other light)
+    float distance;             // surface -> light distance in world units; 0 for a directional light
+    int type;                   // 0 directional, 1 point, 2 spot
+};
 struct VertexData {             // vertex(): world space, after instancing and skinning
     vec3 world_pos;
     vec3 world_normal;
@@ -71,6 +91,97 @@ vec3 fa_tangent_normal(in SurfaceInput i, vec3 m) {
 }
 @end
 
+// Per-instance params and declared mesh channels. The generator defines FA_INST_1..3 (the vec4 of per-instance data the
+// material's instanced params need) and FA_CH_UV1 / FA_CH_COLOR1 (the "vertexAttributes" it declares); a material with none
+// of them gets exactly the attributes it always had. The extra vertex attributes follow the matrix (and the joints) of every
+// program that runs vertex() or surface(): FA_X_BASE (9, 11 in the skinned programs) is the first, then the instance data
+// (vertex buffer 3, one per instance), then uv1 and color1 (vertex buffers 4 and 5, per vertex). The varyings are `flat`: one
+// value per instance reaches surface() unchanged, which loads it into the globals the generator declared (fa_instance_unpack).
+@block fa_inst_flags
+#if defined(FA_INST_3)
+#define FA_NINST 3
+#elif defined(FA_INST_2)
+#define FA_NINST 2
+#elif defined(FA_INST_1)
+#define FA_NINST 1
+#else
+#define FA_NINST 0
+#endif
+@end
+
+@block fa_inst_out
+#if FA_NINST > 0
+#define FA_INST_OUT
+flat out vec4 fa_inst_v0;
+#if FA_NINST > 1
+flat out vec4 fa_inst_v1;
+#endif
+#if FA_NINST > 2
+flat out vec4 fa_inst_v2;
+#endif
+#endif
+@end
+
+@block fa_inst_in
+#if FA_NINST > 0
+flat in vec4 fa_inst_v0;
+#if FA_NINST > 1
+flat in vec4 fa_inst_v1;
+#endif
+#if FA_NINST > 2
+flat in vec4 fa_inst_v2;
+#endif
+#endif
+@end
+
+// The vertex attributes of the instance data and the declared channels; the vertex shader defines FA_X_BASE first and calls
+// fa_inst_begin() before anything reads the params, vertex_uv1 or vertex_color1.
+@block fa_extra_attrs
+#if FA_NINST > 0
+layout(location=FA_X_BASE) in vec4 fa_inst_d0;
+#endif
+#if FA_NINST > 1
+layout(location=FA_X_BASE+1) in vec4 fa_inst_d1;
+#endif
+#if FA_NINST > 2
+layout(location=FA_X_BASE+2) in vec4 fa_inst_d2;
+#endif
+#ifdef FA_CH_UV1
+layout(location=FA_X_BASE+FA_NINST) in vec2 fa_attr_uv1;
+#define FA_NUV1 1
+#else
+#define FA_NUV1 0
+#endif
+#ifdef FA_CH_COLOR1
+layout(location=FA_X_BASE+FA_NINST+FA_NUV1) in vec4 fa_attr_color1;
+#endif
+
+void fa_inst_begin() {
+#if FA_NINST == 1
+    fa_instance_unpack(fa_inst_d0, vec4(0.0), vec4(0.0));
+#elif FA_NINST == 2
+    fa_instance_unpack(fa_inst_d0, fa_inst_d1, vec4(0.0));
+#elif FA_NINST == 3
+    fa_instance_unpack(fa_inst_d0, fa_inst_d1, fa_inst_d2);
+#endif
+#ifdef FA_INST_OUT
+    fa_inst_v0 = fa_inst_d0;
+#if FA_NINST > 1
+    fa_inst_v1 = fa_inst_d1;
+#endif
+#if FA_NINST > 2
+    fa_inst_v2 = fa_inst_d2;
+#endif
+#endif
+#ifdef FA_CH_UV1
+    vertex_uv1 = fa_attr_uv1;
+#endif
+#ifdef FA_CH_COLOR1
+    vertex_color1 = fa_attr_color1;
+#endif
+}
+@end
+
 @block fa_vs_common
 layout(binding=0) uniform fa_mesh_vs_params {
     mat4 fa_view_proj;
@@ -79,6 +190,20 @@ layout(binding=0) uniform fa_mesh_vs_params {
     vec4 fa_time;               // x = seconds of game time since the scene started
 };
 
+// Drawing from a storage buffer (M72.4): a material with "buffers" defines FA_BUFFER_INST. Its entity is drawn as
+// MeshRenderer.instances GPU instances, so the model matrix is one value per draw, a uniform block (binding 6,
+// kMeshInstanceBaseUniform in fa/tooling/shaders.h), not the per-instance vertex buffer (which holds one matrix and would be
+// read past its end); vertex() finds its instance in fa_instance_index (0 .. instances - 1).
+#define fa_instance_index gl_InstanceIndex
+#ifdef FA_BUFFER_INST
+layout(binding=6) uniform fa_inst_base {
+    mat4 fa_base_model;
+};
+#define FA_INST_MODEL fa_base_model
+#else
+#define FA_INST_MODEL mat4(fa_inst_m0, fa_inst_m1, fa_inst_m2, fa_inst_m3)
+#endif
+@include_block fa_inst_flags
 @include_block fa_types
 @include_block fa_user
 
@@ -123,6 +248,7 @@ mat4 fa_skin_matrix(vec4 joints, vec4 weights) {
 @end
 
 @block fa_mesh_vs
+@include_block fa_inst_out
 out vec3 fa_world_pos;
 out vec3 fa_world_normal;
 out vec4 fa_world_tangent;
@@ -159,9 +285,12 @@ layout(location=5) in vec4 fa_inst_m0;     // per-instance model matrix, one col
 layout(location=6) in vec4 fa_inst_m1;
 layout(location=7) in vec4 fa_inst_m2;
 layout(location=8) in vec4 fa_inst_m3;
+#define FA_X_BASE 9
+@include_block fa_extra_attrs
 
 void main() {
-    fa_shade_vertex(mat4(fa_inst_m0, fa_inst_m1, fa_inst_m2, fa_inst_m3), fa_position, fa_normal, fa_tangent, fa_texcoord0, fa_color);
+    fa_inst_begin();
+    fa_shade_vertex(FA_INST_MODEL, fa_position, fa_normal, fa_tangent, fa_texcoord0, fa_color);
 }
 @end
 
@@ -182,16 +311,22 @@ layout(location=7) in vec4 fa_inst_m2;
 layout(location=8) in vec4 fa_inst_m3;
 layout(location=9) in vec4 fa_joints;
 layout(location=10) in vec4 fa_weights;
+#define FA_X_BASE 11
+@include_block fa_extra_attrs
 
 void main() {
-    fa_shade_vertex(mat4(fa_inst_m0, fa_inst_m1, fa_inst_m2, fa_inst_m3) * fa_skin_matrix(fa_joints, fa_weights),
+    fa_inst_begin();
+    fa_shade_vertex(FA_INST_MODEL * fa_skin_matrix(fa_joints, fa_weights),
                     fa_position, fa_normal, fa_tangent, fa_texcoord0, fa_color);
 }
 @end
 
-// The fragment resources and the standard surface: the main fragment shader includes this, and so does the shadow
-// fragment shader of an alphaMode "clip" material (it must run surface() to know what to discard).
-@block fa_fs_surface
+// The fragment resources, up to the types of the contract (fa_fs_head), then the snippet and the standard surface
+// (fa_fs_rest). Blocks must be defined before they are included, so the order below is the order of use: the shadow and prepass
+// fragment shaders of an alphaMode "clip" material include fa_fs_surface = head + fa_fs_nolight + snippet + rest (they must run
+// surface() to know what to discard); the main fragment shader includes fa_fs_head, fa_fs_light (the lights, the shadow and
+// the sky), the snippet and fa_fs_rest, so the snippet's light(), ambient() and lighting() see the lights.
+@block fa_fs_head
 layout(binding=0) uniform texture2D fa_tex;             // base color
 layout(binding=1) uniform texture2D fa_shadow_tex;
 layout(binding=2) uniform texture2D fa_normal_tex;      // tangent-space normal map
@@ -202,6 +337,12 @@ layout(binding=0) uniform sampler fa_smp;
 layout(binding=1) uniform sampler fa_shadow_smp;
 @image_sample_type fa_shadow_tex unfilterable_float
 @sampler_type fa_shadow_smp nonfiltering
+// The sky of a sky material (SceneSettings.skyMaterial), baked by the renderer (renderer_env.h): the sky prefiltered by roughness (the
+// mips) and its irradiance. Both are views 14 and 15, the sampler 10 (after the material's textures and their vertex-stage copies);
+// bound and used only while fa_env_sky.w is 1.
+layout(binding=14) uniform textureCube fa_env_tex;
+layout(binding=15) uniform textureCube fa_irr_tex;
+layout(binding=10) uniform sampler fa_env_smp;
 
 layout(binding=1) uniform fa_mesh_fs_params {
     vec4 fa_camera_pos;         // xyz
@@ -218,11 +359,15 @@ layout(binding=1) uniform fa_mesh_fs_params {
                                 // z = height base (world y), w = height falloff; all 0 for the scene's own fog
     vec4 fa_fog_c;              // xyz = the camera's forward axis in the world, w = 1 for an orthographic camera (0 otherwise)
     vec4 fa_counts;             // x = light count, y = shadow texel size, z = 1 on OpenGL backends
-    vec4 fa_env_sky;            // rgb sky color (top of the environment)
-    vec4 fa_env_horizon;        // rgb horizon color
+    vec4 fa_env_sky;            // rgb sky color (top of the environment); w = 1 when the baked environment of a sky material is bound
+    vec4 fa_env_horizon;        // rgb horizon color; w = the highest mip of fa_env_tex (what roughness 1 reads)
     vec4 fa_time;               // x = seconds of game time since the scene started
 };
 
+// The varyings are declared in the order of the vertex stage's outputs (the instance values first): sokol-shdc matches them
+// by that order.
+@include_block fa_inst_flags
+@include_block fa_inst_in
 in vec3 fa_world_pos;
 in vec3 fa_world_normal;
 in vec4 fa_world_tangent;
@@ -230,7 +375,19 @@ in vec2 fa_uv;
 in vec4 fa_vertex_color;
 
 @include_block fa_types
-@include_block fa_user
+@end
+
+@block fa_fs_rest
+// Loads the instanced params the vertex stage passed on into the globals the generator declared (surface() reads them).
+void fa_inst_load() {
+#if FA_NINST == 1
+    fa_instance_unpack(fa_inst_v0, vec4(0.0), vec4(0.0));
+#elif FA_NINST == 2
+    fa_instance_unpack(fa_inst_v0, fa_inst_v1, vec4(0.0));
+#elif FA_NINST == 3
+    fa_instance_unpack(fa_inst_v0, fa_inst_v1, fa_inst_v2);
+#endif
+}
 
 // The sRGB transfer functions (the CPU side is engine/render/src/color_space.h) and the fix of one texture sample: 0 = as
 // sampled, 1 = sRGB-encoded values -> linear (a colour texture the GPU did not decode), 2 = linear -> sRGB-encoded (a data
@@ -279,9 +436,84 @@ Surface fa_standard_surface(in SurfaceInput i) {
 }
 @end
 
-@fs fs
-@include_block fa_fs_surface
+// The sky the surface reflects, shared with the full-shader template (mesh_full_common.glsl includes this block after it has
+// declared fa_env_sky and fa_env_horizon).
+@block fa_env_funcs
+// The environment the surface reflects. With a sky material (fa_env_sky.w = 1) it is the sky the material draws, baked into a cube whose
+// mips are prefiltered by roughness: roughness 0 reads mip 0, roughness 1 the last. Without one it is the gradient of skyColor and
+// horizonColor (the horizon color, darker, below the horizon), rougher surfaces seeing a blurrier, flatter version of it (a cheap
+// stand-in for a prefiltered cubemap).
+vec3 fa_environment(vec3 d, float rough) {
+    if (fa_env_sky.w > 0.5) {
+        return textureLod(samplerCube(fa_env_tex, fa_env_smp), d, clamp(rough, 0.0, 1.0) * fa_env_horizon.w).rgb;
+    }
+    float blur = rough * rough;
+    float h = clamp(d.y * (1.0 - 0.7 * blur), 0.0, 1.0);
+    vec3 up = mix(fa_env_horizon.rgb, fa_env_sky.rgb, pow(h, 0.55));
+    vec3 down = fa_env_horizon.rgb * 0.55;
+    float k = smoothstep(-0.05 - 0.6 * blur, 0.05 + 0.6 * blur, d.y);
+    vec3 e = mix(down, up, k);
+    return mix(e, 0.5 * (fa_env_sky.rgb + fa_env_horizon.rgb) * 0.8, blur * 0.6);
+}
 
+// The ambient light a surface facing n receives: SceneSettings.ambientLight, or with a sky material the sky's irradiance toward n (what a
+// diffuse surface sees of the sky, divided by pi: a sky of one color gives that color), which replaces ambientLight.
+vec3 fa_ambient_light(vec3 n) {
+    if (fa_env_sky.w > 0.5) {
+        return textureLod(samplerCube(fa_irr_tex, fa_env_smp), n, 0.0).rgb;
+    }
+    return fa_ambient.rgb;
+}
+
+// Analytic split-sum environment BRDF (Karis, "Physically Based Shading on Mobile"): scale and bias of F0.
+vec2 fa_env_brdf(float rough, float ndv) {
+    vec4 c0 = vec4(-1.0, -0.0275, -0.572, 0.022);
+    vec4 c1 = vec4(1.0, 0.0425, 1.04, -0.04);
+    vec4 r = rough * c0 + c1;
+    float a004 = min(r.x * r.x, exp2(-9.28 * ndv)) * r.x + r.y;
+    return vec2(-1.04, 1.04) * a004 + r.zw;
+}
+
+// Image-based lighting: the sky reflected in a surface with normal n seen from direction v (surface -> eye), weighted by the
+// environment BRDF. f0 is the reflectance at normal incidence (0.04 for a dielectric, the albedo for a metal).
+vec3 fa_sky_reflection(vec3 n, vec3 v, vec3 f0, float roughness) {
+    float ndv = max(dot(n, v), 1e-4);
+    vec3 r = reflect(-v, n);
+    vec2 ab = fa_env_brdf(roughness, ndv);
+    return fa_environment(r, roughness) * (f0 * ab.x + ab.y);
+}
+@end
+
+// What a "custom" material's helpers may call in every fragment program, not only the main one: the shadow and prepass fragment
+// shaders (fa_fs_surface) also compile the snippet, whose light(), ambient(), lighting() and helpers are never run there. The sky
+// functions are real, the light functions answer "no lights" so the snippet compiles.
+@block fa_light_shared
+#ifdef FA_CUSTOM_LIGHT
+// A sample that lights nothing (what a light number outside the range gives).
+LightSample fa_no_light() {
+    LightSample none;
+    none.direction = vec3(0.0, 1.0, 0.0);
+    none.color = vec3(0.0);
+    none.attenuation = 0.0;
+    none.shadow = 1.0;
+    none.distance = 0.0;
+    none.type = 0;
+    return none;
+}
+// What the engine's own lighting adds for the sky: its reflection weighted by the environment BRDF of this surface (s.metallic,
+// s.roughness, s.albedo, s.normal) times s.occlusion.
+vec3 fa_sky_light(in SurfaceInput i, in Surface s) {
+    float metallic = clamp(s.metallic, 0.0, 1.0);
+    float roughness = clamp(s.roughness, 0.05, 1.0);
+    vec3 f0 = mix(vec3(0.04), s.albedo, metallic);
+    return fa_sky_reflection(normalize(s.normal), i.view_dir, f0, roughness) * s.occlusion;
+}
+#endif
+@end
+
+// What only the main fragment shader has (the snippet's light(), ambient() and lighting() call these, so the block comes before
+// the snippet): the light array, the shadow coordinate and map, the sky, and the light samples.
+@block fa_fs_light
 layout(binding=2) uniform fa_lights {
     vec4 fa_light_pos[32];      // xyz position (point/spot) or direction TO the light (directional); w range
     vec4 fa_light_color[32];    // rgb color * intensity; w type (0 directional, 1 point, 2 spot)
@@ -289,7 +521,6 @@ layout(binding=2) uniform fa_lights {
 };
 
 in vec4 fa_shadow_pos;
-out vec4 fa_frag_color;
 
 const float FA_PI = 3.14159265;
 
@@ -312,28 +543,104 @@ float fa_shadow_factor(vec3 n, vec3 l) {
     return lit / 9.0;
 }
 
-// The environment the surface reflects: the same gradient as the sky, the horizon color (darker) below the horizon,
-// and rougher surfaces see a blurrier, flatter version of it (a cheap stand-in for a prefiltered cubemap).
-vec3 fa_environment(vec3 d, float rough) {
-    float blur = rough * rough;
-    float h = clamp(d.y * (1.0 - 0.7 * blur), 0.0, 1.0);
-    vec3 up = mix(fa_env_horizon.rgb, fa_env_sky.rgb, pow(h, 0.55));
-    vec3 down = fa_env_horizon.rgb * 0.55;
-    float k = smoothstep(-0.05 - 0.6 * blur, 0.05 + 0.6 * blur, d.y);
-    vec3 e = mix(down, up, k);
-    return mix(e, 0.5 * (fa_env_sky.rgb + fa_env_horizon.rgb) * 0.8, blur * 0.6);
+@include_block fa_env_funcs
+@include_block fa_light_shared
+
+// Light li of the array as seen from a world position, without its shadow: the direction to it, its color times intensity times
+// attenuation, the attenuation, the distance and the type. shadow is 1.
+LightSample fa_light_sample(int li, vec3 world_pos) {
+    float type = fa_light_color[li].w;
+    vec3 l;
+    float atten = 1.0;
+    float dist = 0.0;
+    if (type < 0.5) {
+        l = normalize(fa_light_pos[li].xyz);
+    } else {
+        vec3 to_light = fa_light_pos[li].xyz - world_pos;
+        dist = length(to_light);
+        l = to_light / max(dist, 1e-4);
+        float range = max(fa_light_pos[li].w, 1e-3);
+        float x = clamp(1.0 - (dist / range) * (dist / range), 0.0, 1.0);
+        atten = x * x;
+        if (type > 1.5) {
+            float cos_angle = dot(-l, normalize(fa_light_dir[li].xyz));
+            float cos_outer = fa_light_dir[li].w;
+            atten *= smoothstep(cos_outer, mix(cos_outer, 1.0, 0.25), cos_angle);
+        }
+    }
+    LightSample ls;
+    ls.direction = l;
+    ls.color = fa_light_color[li].rgb * atten;
+    ls.attenuation = atten;
+    ls.shadow = 1.0;
+    ls.distance = dist;
+    ls.type = type < 0.5 ? 0 : (type > 1.5 ? 2 : 1);
+    return ls;
 }
 
-// Analytic split-sum environment BRDF (Karis, "Physically Based Shading on Mobile"): scale and bias of F0.
-vec2 fa_env_brdf(float rough, float ndv) {
-    vec4 c0 = vec4(-1.0, -0.0275, -0.572, 0.022);
-    vec4 c1 = vec4(1.0, 0.0425, 1.04, -0.04);
-    vec4 r = rough * c0 + c1;
-    float a004 = min(r.x * r.x, exp2(-9.28 * ndv)) * r.x + r.y;
-    return vec2(-1.04, 1.04) * a004 + r.zw;
+// The same with the shadow of the directional shadow map applied (only the first light, and only when it is directional, is
+// shadowed): what the engine's light loop hands to light(). gn is the geometric normal.
+LightSample fa_light_shadowed(int li, vec3 world_pos, vec3 gn) {
+    LightSample ls = fa_light_sample(li, world_pos);
+    if (ls.type == 0 && li == 0) {
+        ls.shadow = fa_shadow_factor(gn, ls.direction);
+        ls.color = fa_light_color[li].rgb * (ls.attenuation * ls.shadow);
+    }
+    return ls;
 }
+
+#ifdef FA_CUSTOM_LIGHT
+// The lighting API of a "custom" material (docs/shaders/SHADERS_LIGHTING.md): usable from light(), ambient() and lighting().
+// How many lights the engine hands over (at most 32): the ones that matter most for this frame, directional first.
+int fa_light_count() { return min(int(fa_counts.x), 32); }
+// Light n (0 .. fa_light_count() - 1) with the shadow applied, as light() receives it. A number outside the range gives a sample
+// that lights nothing (color and attenuation 0, shadow 1).
+LightSample fa_light(int n, in SurfaceInput i) {
+    if (n < 0 || n >= fa_light_count()) { return fa_no_light(); }
+    return fa_light_shadowed(n, i.world_pos, i.world_normal);
+}
+// Light n without the shadow map read: color has no shadow in it and shadow is 1; the way to treat the shadow apart.
+LightSample fa_light_unshadowed(int n, in SurfaceInput i) {
+    if (n < 0 || n >= fa_light_count()) { return fa_no_light(); }
+    return fa_light_sample(n, i.world_pos);
+}
+// The shadow of light n at this fragment: 1 lit, 0 in shadow (a value between at the edge of the shadow). Only the first light
+// (n = 0) when it is directional has a shadow; every other light gives 1.
+float fa_light_shadow(int n, in SurfaceInput i) {
+    if (n != 0 || fa_light_count() < 1 || fa_light_color[0].w > 0.5) { return 1.0; }
+    return fa_shadow_factor(i.world_normal, normalize(fa_light_pos[0].xyz));
+}
+#endif
+@end
+
+@block fa_fs_nolight
+#ifdef FA_CUSTOM_LIGHT
+@include_block fa_env_funcs
+@include_block fa_light_shared
+int fa_light_count() { return 0; }
+LightSample fa_light(int n, in SurfaceInput i) { return fa_no_light(); }
+LightSample fa_light_unshadowed(int n, in SurfaceInput i) { return fa_no_light(); }
+float fa_light_shadow(int n, in SurfaceInput i) { return 1.0; }
+#endif
+@end
+
+@block fa_fs_surface
+@include_block fa_fs_head
+@include_block fa_fs_nolight
+@include_block fa_user
+@include_block fa_fs_rest
+@end
+
+@fs fs
+@include_block fa_fs_head
+@include_block fa_fs_light
+@include_block fa_user
+@include_block fa_fs_rest
+
+out vec4 fa_frag_color;
 
 void main() {
+    fa_inst_load();
     SurfaceInput i;
     i.world_pos = fa_world_pos;
     i.front_facing = gl_FrontFacing;
@@ -356,6 +663,19 @@ void main() {
         vec3 gn = i.world_normal;
         vec3 n = normalize(s.normal);
         vec3 v = i.view_dir;
+#ifdef FA_HAS_LIGHTING
+        // lighting "custom" with the snippet's lighting(): it writes the light loop and the ambient and sky terms itself.
+        s.normal = n;
+        vec3 lit = lighting(i, s);
+#else
+#ifdef FA_CUSTOM_LIGHT
+        s.normal = n;
+#ifdef FA_HAS_AMBIENT
+        vec3 lit = ambient(i, s, fa_ambient_light(n));
+#else
+        vec3 lit = fa_ambient_light(n) * s.albedo * s.occlusion;
+#endif
+#else
         float metallic = clamp(s.metallic, 0.0, 1.0);
         float roughness = clamp(s.roughness, 0.05, 1.0);
         float alpha = roughness * roughness;
@@ -363,30 +683,19 @@ void main() {
         float ndv = max(dot(n, v), 1e-4);
         vec3 diffuse_color = s.albedo * (1.0 - metallic);
         vec3 f0 = mix(vec3(0.04), s.albedo, metallic);
-        vec3 lit = fa_ambient.rgb * diffuse_color * s.occlusion;
+        vec3 lit = fa_ambient_light(n) * diffuse_color * s.occlusion;
+#endif
         int count = int(fa_counts.x);
         for (int li = 0; li < 32; li++) {
             if (li >= count) { break; }
-            float type = fa_light_color[li].w;
-            vec3 l;
-            float atten = 1.0;
-            if (type < 0.5) {
-                l = normalize(fa_light_pos[li].xyz);
-            } else {
-                vec3 to_light = fa_light_pos[li].xyz - i.world_pos;
-                float dist = length(to_light);
-                l = to_light / max(dist, 1e-4);
-                float range = max(fa_light_pos[li].w, 1e-3);
-                float x = clamp(1.0 - (dist / range) * (dist / range), 0.0, 1.0);
-                atten = x * x;
-                if (type > 1.5) {
-                    float cos_angle = dot(-l, normalize(fa_light_dir[li].xyz));
-                    float cos_outer = fa_light_dir[li].w;
-                    atten *= smoothstep(cos_outer, mix(cos_outer, 1.0, 0.25), cos_angle);
-                }
-            }
+            LightSample ls = fa_light_shadowed(li, i.world_pos, gn);
+#ifdef FA_CUSTOM_LIGHT
+            // lighting "custom": the snippet's light() takes the place of the Cook-Torrance term below.
+            lit += light(i, s, ls);
+#else
+            vec3 l = ls.direction;
             float ndl = max(dot(n, l), 0.0);
-            if (type < 0.5 && li == 0) { atten *= fa_shadow_factor(gn, l); }
+            float atten = ls.attenuation * ls.shadow;
             vec3 h = normalize(l + v);
             float ndh = max(dot(n, h), 0.0);
             float vdh = max(dot(v, h), 0.0);
@@ -399,11 +708,13 @@ void main() {
             // so the specular term carries the matching factor pi.
             vec3 spec = fres * (d_ggx * vis * FA_PI) * step(0.0001, ndl);
             lit += (diffuse_color + spec) * fa_light_color[li].rgb * (ndl * atten);
+#endif
         }
+#ifndef FA_CUSTOM_LIGHT
         // Image-based lighting: the sky reflected, weighted by the environment BRDF.
-        vec3 r = reflect(-v, n);
-        vec2 ab = fa_env_brdf(roughness, ndv);
-        lit += fa_environment(r, roughness) * (f0 * ab.x + ab.y) * s.occlusion;
+        lit += fa_sky_reflection(n, v, f0, roughness) * s.occlusion;
+#endif
+#endif
         result = lit;
     }
     result += s.emission;
@@ -452,6 +763,11 @@ layout(location=5) in vec3 fa_normal;
 layout(location=6) in vec2 fa_texcoord0;
 layout(location=7) in vec4 fa_tangent;
 layout(location=8) in vec4 fa_color;
+#ifdef FA_ALPHA_CLIP
+@include_block fa_inst_out
+#endif
+#define FA_X_BASE 9
+@include_block fa_extra_attrs
 #endif
 #ifdef FA_ALPHA_CLIP
 out vec3 fa_world_pos;
@@ -461,8 +777,9 @@ out vec2 fa_uv;
 out vec4 fa_vertex_color;
 #endif
 void main() {
-    mat4 model = mat4(fa_inst_m0, fa_inst_m1, fa_inst_m2, fa_inst_m3);
+    mat4 model = FA_INST_MODEL;
 #if defined(FA_HAS_VERTEX) || defined(FA_ALPHA_CLIP)
+    fa_inst_begin();
     VertexData v = fa_vertex_data(model, fa_position, fa_normal, fa_tangent, fa_texcoord0, fa_color);
 #ifdef FA_HAS_VERTEX
     vertex(v);
@@ -496,6 +813,11 @@ layout(location=7) in vec3 fa_normal;
 layout(location=8) in vec2 fa_texcoord0;
 layout(location=9) in vec4 fa_tangent;
 layout(location=10) in vec4 fa_color;
+#ifdef FA_ALPHA_CLIP
+@include_block fa_inst_out
+#endif
+#define FA_X_BASE 11
+@include_block fa_extra_attrs
 #endif
 #ifdef FA_ALPHA_CLIP
 out vec3 fa_world_pos;
@@ -505,8 +827,9 @@ out vec2 fa_uv;
 out vec4 fa_vertex_color;
 #endif
 void main() {
-    mat4 model = mat4(fa_inst_m0, fa_inst_m1, fa_inst_m2, fa_inst_m3) * fa_skin_matrix(fa_joints, fa_weights);
+    mat4 model = FA_INST_MODEL * fa_skin_matrix(fa_joints, fa_weights);
 #if defined(FA_HAS_VERTEX) || defined(FA_ALPHA_CLIP)
+    fa_inst_begin();
     VertexData v = fa_vertex_data(model, fa_position, fa_normal, fa_tangent, fa_texcoord0, fa_color);
 #ifdef FA_HAS_VERTEX
     vertex(v);
@@ -534,6 +857,7 @@ void main() {
 out vec4 fa_frag_color;
 void main() {
 #ifdef FA_ALPHA_CLIP
+    fa_inst_load();
     SurfaceInput i;
     i.world_pos = fa_world_pos;
     i.front_facing = gl_FrontFacing;
@@ -557,6 +881,7 @@ void main() {
 // depth, and the rotation of the view matrix as three rows (the fragment shader turns the surface normal, which surface() may have
 // changed, into view space; a varying that is the same at every vertex is exact after interpolation).
 @block fa_prepass_vs
+@include_block fa_inst_out
 out vec3 fa_world_pos;
 out vec3 fa_world_normal;
 out vec4 fa_world_tangent;
@@ -600,8 +925,11 @@ layout(location=5) in vec4 fa_inst_m0;
 layout(location=6) in vec4 fa_inst_m1;
 layout(location=7) in vec4 fa_inst_m2;
 layout(location=8) in vec4 fa_inst_m3;
+#define FA_X_BASE 9
+@include_block fa_extra_attrs
 void main() {
-    fa_prepass_vertex(mat4(fa_inst_m0, fa_inst_m1, fa_inst_m2, fa_inst_m3), fa_position, fa_normal, fa_tangent, fa_texcoord0, fa_color);
+    fa_inst_begin();
+    fa_prepass_vertex(FA_INST_MODEL, fa_position, fa_normal, fa_tangent, fa_texcoord0, fa_color);
 }
 @end
 
@@ -620,8 +948,11 @@ layout(location=7) in vec4 fa_inst_m2;
 layout(location=8) in vec4 fa_inst_m3;
 layout(location=9) in vec4 fa_joints;
 layout(location=10) in vec4 fa_weights;
+#define FA_X_BASE 11
+@include_block fa_extra_attrs
 void main() {
-    fa_prepass_vertex(mat4(fa_inst_m0, fa_inst_m1, fa_inst_m2, fa_inst_m3) * fa_skin_matrix(fa_joints, fa_weights), fa_position,
+    fa_inst_begin();
+    fa_prepass_vertex(FA_INST_MODEL * fa_skin_matrix(fa_joints, fa_weights), fa_position,
                       fa_normal, fa_tangent, fa_texcoord0, fa_color);
 }
 @end
@@ -642,6 +973,7 @@ in vec3 fa_pre_r1;
 in vec3 fa_pre_r2;
 out vec4 fa_frag_color;
 void main() {
+    fa_inst_load();
     SurfaceInput i;
     i.world_pos = fa_world_pos;
     i.front_facing = gl_FrontFacing;

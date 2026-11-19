@@ -246,6 +246,11 @@ struct PostProcess {
     float radialBlurIntensity = 0.3f;   // 0..1
     Vec2 radialBlurCenter{0.5f, 0.5f};  // [x, y] of the centre as fractions of the picture, (0, 0) the top-left corner
     std::int32_t radialBlurSamples = 12;  // 4 .. 32 taps
+
+    // --- customPasses: full-screen passes drawn by kind "post" materials (M72). Not an effect of the canonical order: it belongs
+    // to no effect (post_field_effect gives -1) and the renderer places each entry by its own `position`
+    // (fa/render/post_custom.h). A volume adds its entries to the camera's own when its strength is at least 0.5.
+    Json customPasses = Json::array();
 };
 
 // The PostProcess a volume blends FROM when the stack it blends into has an effect off: every effect off, and the strength of each

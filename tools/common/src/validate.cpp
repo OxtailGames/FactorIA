@@ -51,6 +51,7 @@
 #include "localization_check.h"
 #include "fa/audio/snapshots.h"
 #include "js_scan.h"
+#include "shaders_internal.h"
 #include "player_commands.h"
 #include "script_lint.h"
 #include "util.h"
@@ -113,6 +114,17 @@ struct RootGuard {
     ~RootGuard() { fs::set_project_root(saved); }
 };
 
+// The "kind" of a *.material.json ("mesh" when it names none); "" when the file cannot be read as a JSON object.
+std::string material_kind_of_file(const std::string& dir, const std::string& rel) {
+    auto text = tooling_detail::read_file(stdfs::path(dir) / rel);
+    if (!text) return {};
+    auto parsed = parse_json(*text, rel);
+    if (!parsed.ok() || !parsed->is_object()) return {};
+    const auto kind = parsed->find("kind");
+    if (kind == parsed->end()) return "mesh";
+    return kind->is_string() ? kind->get<std::string>() : std::string();
+}
+
 void check_asset_value(Ctx& c, const std::string& file, const std::string& pointer, const FieldInfo& f,
                        const Json& value) {
     if (!value.is_string()) return;
@@ -129,6 +141,21 @@ void check_asset_value(Ctx& c, const std::string& file, const std::string& point
             c.error(file, pointer, "The texture '" + path + "' names a render target, but " + problem + ".",
                     "Write \"target:\" and the name of a Camera.renderTarget: letters, digits, '_', '-' and '.', up to "
                     "64 characters, e.g. \"target:book\".");
+        return;
+    }
+    // "compute:<n>" is compute image n (compute.create_image), made while the game runs: not a file, so it is never "missing".
+    if (f.assetType == "texture" && path.rfind("compute:", 0) == 0) {
+        const std::string number = path.substr(8);
+        const bool digits = !number.empty() && number.size() <= 9 &&
+                            std::all_of(number.begin(), number.end(), [](char ch) { return ch >= '0' && ch <= '9'; });
+        if (!digits || std::stoi(number) < 1)
+            c.error(file, pointer,
+                    "The texture '" + path + "' names a compute image, but " +
+                        (number.empty() ? std::string("it has no number after \"compute:\"")
+                                        : "'" + number + "' is not an image number") +
+                        ".",
+                    "Write \"compute:\" and the textureId compute.create_image returned, e.g. \"compute:1\"; the image "
+                    "exists only while the game runs, so set it from a script.");
         return;
     }
     if (f.assetType == "mesh" && MeshStore::is_id(path)) {
@@ -151,6 +178,60 @@ void check_asset_value(Ctx& c, const std::string& file, const std::string& point
                 (m.empty() ? std::string() : "Did you mean '" + m + "'? ") + "The built-in fonts are " +
                     builtin_font_list() + "; or use a .ttf path inside the project, e.g. assets/fonts/MyFont.ttf.");
         return;
+    }
+    if (f.assetType == "material") {
+        if (const std::string shape = shaders_detail::material_path_shape_problem(path); !shape.empty()) {
+            std::string fixed = path;
+            std::replace(fixed.begin(), fixed.end(), '\\', '/');
+            const std::string m = closest_match(fixed, find_material_files(c.dir));
+            c.error(file, pointer, "The material path '" + path + "' " + shape + ".",
+                    "Write the path relative to the project, with forward slashes, inside the project: " +
+                        (m.empty() ? std::string("\"materials/wave.material.json\"") : "'" + m + "'") + ".");
+            return;
+        }
+    }
+    // A material field (MeshRenderer.material, Sprite.material, SceneSettings.skyMaterial...) names a *.material.json:
+    // anything else, or a file that is not there, is answered with the project's materials.
+    if (f.assetType == "material" && (!path.ends_with(".material.json") || !stdfs::exists(stdfs::path(c.dir) / path))) {
+        const std::vector<std::string> materials = find_material_files(c.dir);
+        const std::string m = closest_match(path, materials);
+        std::string hint = m.empty() ? std::string() : "Did you mean '" + m + "'? ";
+        if (materials.empty())
+            hint += "The project has no materials yet: create one (docs/SHADERS.md) or leave this empty.";
+        else
+            hint += "The project's materials are " +
+                    join(std::vector<std::string>(materials.begin(),
+                                                  materials.begin() + std::min<std::size_t>(materials.size(), 6)),
+                         ", ") +
+                    (materials.size() > 6 ? ", ..." : "") + ".";
+        c.error(file, pointer,
+                !path.ends_with(".material.json")
+                    ? "'" + path + "' is not a material: a material path ends in .material.json."
+                    : "Material '" + path + "' does not exist.",
+                hint);
+        return;
+    }
+    // The sky of a scene is drawn by a material of kind "sky": any other kind is ignored at run time (the gradient is
+    // drawn), which looks like a bug in the shader. A material that cannot be read is validate_materials' to report.
+    if (f.assetType == "material" && f.name == "skyMaterial") {
+        const std::string kind = material_kind_of_file(c.dir, path);
+        if (!kind.empty() && kind != "sky") {
+            std::vector<std::string> skies;
+            for (const std::string& m : find_material_files(c.dir))
+                if (material_kind_of_file(c.dir, m) == "sky") skies.push_back(m);
+            c.error(file, pointer,
+                    "Material '" + path + "' is of kind \"" + kind +
+                        "\", but SceneSettings.skyMaterial needs kind \"sky\": the built-in sky gradient is drawn "
+                        "instead.",
+                    (skies.empty()
+                         ? std::string("The project has no sky material yet: ")
+                         : "The project's sky materials are " +
+                               join(std::vector<std::string>(skies.begin(),
+                                                             skies.begin() + std::min<std::size_t>(skies.size(), 6)),
+                                    ", ") +
+                               (skies.size() > 6 ? ", ..." : "") + ". Or ") +
+                        "set \"kind\": \"sky\" in " + path + " (docs/SHADERS.md, \"Sky materials\").");
+        }
     }
     if (!stdfs::exists(stdfs::path(c.dir) / path)) {
         // Suggest a similar file in the same folder.

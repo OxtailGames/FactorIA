@@ -390,6 +390,17 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 
 ### [game](commands/game.md)
 
+- [`compute.create_buffer`](commands/game.md#computecreate_buffer-modifies-state): Makes a GPU storage buffer shaped like one buffer of a compute material; returns its id. _Since 0.32.0._
+- [`compute.create_image`](commands/game.md#computecreate_image-modifies-state): Makes a GPU storage image a compute material writes and a material shows; returns its id. _Since 0.32.0._
+- [`compute.destroy_buffer`](commands/game.md#computedestroy_buffer-modifies-state): Frees a compute storage buffer. _Since 0.32.0._
+- [`compute.destroy_image`](commands/game.md#computedestroy_image-modifies-state): Frees a compute storage image. _Since 0.32.0._
+- [`compute.dispatch`](commands/game.md#computedispatch-modifies-state): Runs a compute material once over its storage buffers. _Since 0.32.0._
+- [`compute.list_buffers`](commands/game.md#computelist_buffers): Lists the live compute storage buffers and whether this backend runs compute. _Since 0.32.0._
+- [`compute.list_images`](commands/game.md#computelist_images): Lists the live compute storage images and whether this backend runs compute. _Since 0.32.0._
+- [`compute.read_buffer`](commands/game.md#computeread_buffer): Reads elements of a compute storage buffer back to the game (waits for the GPU). _Since 0.32.0._
+- [`compute.read_image`](commands/game.md#computeread_image): Reads pixels of a compute storage image back to the game (waits for the GPU). _Since 0.32.0._
+- [`compute.resize_image`](commands/game.md#computeresize_image-modifies-state): Gives a compute storage image another size (its pixels are lost, its texture id stays). _Since 0.32.0._
+- [`compute.write_buffer`](commands/game.md#computewrite_buffer-modifies-state): Overwrites elements of a compute storage buffer with values from the game. _Since 0.32.0._
 - [`game.click`](commands/game.md#gameclick-modifies-state): Click the game like a player: move the mouse, press, release; scripts see pressed/released and UI widgets get the click. _Since 0.4.0._
 - [`game.input`](commands/game.md#gameinput-modifies-state): Inject input: press/release actions or keys, or set an action state, mouse position/buttons, gamepad buttons/sticks, touches.
 - [`game.logs`](commands/game.md#gamelogs): Read recent log lines (engine, scripts, assets...).
@@ -407,6 +418,7 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`render.inspect`](commands/game.md#renderinspect): Luminance profile of the current picture along a line, with the hard steps (seams, bands) in it. _Since 0.4.0._
 - [`render.output`](commands/game.md#renderoutput): What the game window shows: the standard range or HDR, in which encoding, and what the display can do. _Since 0.31.0._
 - [`render.pick`](commands/game.md#renderpick): Which entities draw a design-space pixel of the picture, topmost first. _Since 0.4.0._
+- [`render.reset_post_history`](commands/game.md#renderreset_post_history-modifies-state): Start again the history of the custom post passes that read their own output of the frame before (fa_history). _Since 0.32.0._
 - [`render.supports`](commands/game.md#rendersupports): What this renderer can do on this graphics backend and GPU: float targets, linear colour, HDR output, post effects. _Since 0.31.0._
 - [`vfx.budget`](commands/game.md#vfxbudget): What an effect document costs on a phone: live particles and the screen they cover, with the fixes. _Since 0.17.0._
 - [`vfx.check`](commands/game.md#vfxcheck): Read an effect document (*.vfx.json) and list every problem, with its JSON pointer and the fix. _Since 0.17.0._
@@ -429,7 +441,17 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 
 ### [material](commands/material.md)
 
+- [`material.graph.generate`](commands/material.md#materialgraphgenerate-modifies-state): Generate the GLSL snippet of a material from its node graph and record its hash in the material file. _Since 0.32.0._
+- [`material.graph.nodes`](commands/material.md#materialgraphnodes): List the node types of the material graph library, with their inputs, outputs and the kinds they work in. _Since 0.32.0._
+- [`material.graph.validate`](commands/material.md#materialgraphvalidate): Check the node graph of a material and say whether its snippet is in sync with it. _Since 0.32.0._
 - [`material.info`](commands/material.md#materialinfo): Describe a custom material: lighting, alpha mode, params with types, defaults, ranges and docs, textures, programs and compile state. _Since 0.2.0._
+- [`material.param.create`](commands/material.md#materialparamcreate-modifies-state): Add a param to a material file (the Graph panel's "+"). _Since 0.32.0._
+- [`material.param.delete`](commands/material.md#materialparamdelete-modifies-state): Remove a param from a material file; refused while graph nodes read it unless forced. _Since 0.32.0._
+- [`material.param.rename`](commands/material.md#materialparamrename-modifies-state): Rename a param of a material file and the graph nodes that read it. _Since 0.32.0._
+- [`material.param.set_default`](commands/material.md#materialparamset_default-modifies-state): Set the default value of one param of a material file (the Graph panel's "Set as default"). _Since 0.32.0._
+- [`material.texture.create`](commands/material.md#materialtexturecreate-modifies-state): Add a texture to a material file (the Graph panel's "+"). _Since 0.32.0._
+- [`material.texture.delete`](commands/material.md#materialtexturedelete-modifies-state): Remove a texture from a material file; refused while graph nodes read it unless forced. _Since 0.32.0._
+- [`material.texture.rename`](commands/material.md#materialtexturerename-modifies-state): Rename a texture of a material file and the graph nodes that read it. _Since 0.32.0._
 
 ### [physics](commands/physics.md)
 

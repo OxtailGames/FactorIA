@@ -1,4 +1,6 @@
 #include "renderer_impl.h"
+#include "renderer_test_access.h"
+#include "fa/render/compute.h"
 #include "scene2d.h"
 #include "render_features.h"
 
@@ -31,6 +33,7 @@ Json RenderStats::to_json() const {
                 {"lights2dShadowed", lights2dShadowed},
                 {"materials", materials},
                 {"materialFallbacks", materialFallbacks},
+                {"materialResolves", materialResolves},
                 {"sortKeyFallbacks", sortKeyFallbacks},
                 {"cpuMs", std::round(cpuMs * 1000.0) / 1000.0}};
 }
@@ -113,6 +116,8 @@ CameraInfo Renderer::Impl::build_camera(World& world, Entity best, const Vec2* v
     // The editor's A/B switch (set_post_bypass): the picture as the scene draws it, with no stack, to compare it with the stack on.
     if (!postBypass && (useLegacy || world.any<PostProcess>())) {
         auto stack = std::make_shared<PostStack>(resolve_post_stack(world, ci, useLegacy ? &legacy : nullptr));
+        for (const Error& err : stack->customErrors)
+            if (warnedCustomPass.insert(err.message).second) FA_WARN("render", "{} Hint: {}", err.message, err.hint);
         ci.bloom = bloom_from_stack(*stack);
         ci.colorFilter = stack->has(PostEffect::ColorFilter) ? std::clamp(int(stack->fx.colorFilterMode), 0, 5) : 0;
         if (stack->any()) ci.postStack = std::move(stack);
@@ -189,13 +194,13 @@ sg_desc make_sg_desc(const GfxEnvironment& env) {
     sd.image_pool_size = 1024;
     sd.view_pool_size = 4096;
     sd.sampler_pool_size = 64;
-    sd.shader_pool_size = 384;  // about 15 built-in shaders, up to 6 per custom material
+    sd.shader_pool_size = 384;  // about 15 built-in shaders, up to 12 per custom material
     sd.pipeline_pool_size = 256;
     sd.uniform_buffer_size = 16 * 1024 * 1024;
     return sd;
 }
 
-Renderer::Renderer() = default;
+Renderer::Renderer() : compute_(std::make_unique<Compute>()) {}
 Renderer::~Renderer() { shutdown(); }
 
 bool Renderer::initialized() const { return impl_ && impl_->initialized; }
@@ -374,6 +379,8 @@ bool Renderer::init(const RendererDesc& desc, const GfxEnvironment& env, std::st
         return false;
     }
     im.assets = std::make_unique<Assets>(im.gpu);
+    compute_->attach(&im.gpu, im.assets.get());
+    im.compute = compute_.get();
     im.assets->set_shader_compiler(shaderCompiler_);
     Impl* impl = &im;
     im.assets->set_target_resolver([impl](const std::string& name) { return impl->resolve_target(name); });
@@ -391,8 +398,19 @@ void Renderer::shutdown() {
     if (!impl_) return;
     Impl& im = *impl_;
     if (im.initialized) {
+        compute_->detach();  // its storage buffers and views, while the context is open
+        // Work recorded since the last frame (a dispatch, the clearing pass of a new storage image) that no frame ever
+        // submitted: Metal waits for the completion of every frame it began at sg_shutdown, so an uncommitted one would
+        // wait forever. Precondition: no pass is open (shutdown is never called between begin_frame and the frame's
+        // end): sg_commit inside a pass is invalid in sokol.
+        FA_ASSERT(!Gpu::in_pass(), "Renderer::shutdown while a pass is open");
+        if (!im.gpu.committed()) {
+            sg_commit();
+            im.gpu.note_commit();
+        }
         im.fonts.reset();
         im.ssr.release();
+        im.skyEnv.release();
         im.sceneFx.release();
         im.fogFx.release();
         im.ramps.destroy();
@@ -455,11 +473,11 @@ DebugDraw& Renderer::debug() {
 bool is_post_pass(std::string_view passName) {
     const std::size_t slash = passName.rfind('/');
     const std::string_view n = slash == std::string_view::npos ? passName : passName.substr(slash + 1);
-    if (n == "post" || n == "post-base")
-        return true;  // a camera's final pass, and the pass under the cameras' rectangles
+    if (n == "post" || n == "post-base" || n.substr(0, 9) == "post-part")
+        return true;  // a camera's final pass (or a piece of it, cut by a custom pass), and the pass under the cameras' rectangles
     // A pass is an effect's when its name is the effect's or `<effect>-<what>`; "fogbank" or "taaa" are not.
-    for (std::string_view effect :
-         {"bloom", "exposure", "ssao", "dof", "ssr", "motion", "fog", "shafts", "radial", "taa", "color-filter"})
+    for (std::string_view effect : {"bloom", "exposure", "ssao", "dof", "ssr", "motion", "fog", "shafts", "radial",
+                                    "taa", "color-filter", "custom"})
         if (n == effect ||
             (n.size() > effect.size() && n.substr(0, effect.size()) == effect && n[effect.size()] == '-'))
             return true;
@@ -480,6 +498,7 @@ PostPassTimes post_pass_times(const RenderStats& st) {
 RenderStats Renderer::stats(bool passTimes) const {
     if (!impl_) return RenderStats{};
     RenderStats s = impl_->stats;
+    if (impl_->assets) s.materialResolves = int(impl_->assets->material_resolves());
     if (passTimes && impl_->passTimesPending) impl_->pass_times(s.passes, s.jobs);
     return s;
 }
@@ -506,6 +525,7 @@ std::string Renderer::shader_dialect() const {
 void Renderer::clear_asset_cache() {
     if (!impl_ || !impl_->assets) return;
     impl_->fonts->clear();
+    impl_->instanceParams.clear();  // it points at materials the cache below frees
     impl_->assets->clear();
 }
 std::uint64_t Renderer::texture_bytes() const {
@@ -752,9 +772,9 @@ Vec2 Renderer::design_to_framebuffer(Vec2 d, int fbW, int fbH, ScaleMode mode) c
 // ---------------------------------------------------------------------------
 // render_world
 // ---------------------------------------------------------------------------
-render::Gpu* render::renderer_gpu(Renderer& r) { return r.impl_ ? &r.impl_->gpu : nullptr; }
-const render::FrameGraph* render::renderer_frame_graph(Renderer& r) { return r.impl_ ? &r.impl_->graph : nullptr; }
-render::TransientPoolStats render::renderer_transient_stats(Renderer& r) {
+render::Gpu* RendererTestAccess::gpu(Renderer& r) { return r.impl_ ? &r.impl_->gpu : nullptr; }
+const render::FrameGraph* RendererTestAccess::frame_graph(Renderer& r) { return r.impl_ ? &r.impl_->graph : nullptr; }
+render::TransientPoolStats RendererTestAccess::transient_stats(Renderer& r) {
     render::TransientPoolStats out;
     if (r.impl_ && r.impl_->transients) {
         const TargetPoolStats s = r.impl_->transients->pool.stats();
@@ -763,13 +783,13 @@ render::TransientPoolStats render::renderer_transient_stats(Renderer& r) {
     return out;
 }
 
-void render::renderer_force_output(Renderer& r, const HdrOutputInfo* info) {
+void RendererTestAccess::force_output(Renderer& r, const HdrOutputInfo* info) {
     if (!r.impl_) return;
     r.impl_->outputForced = info != nullptr;
     r.impl_->forcedOutput = info ? *info : HdrOutputInfo{};
 }
 
-bool render::renderer_read_floats(Renderer& r, bool present, std::vector<float>& out, std::string* error) {
+bool RendererTestAccess::read_floats(Renderer& r, bool present, std::vector<float>& out, std::string* error) {
     if (!r.initialized()) {
         if (error) *error = "Renderer is not initialized";
         return false;
@@ -777,13 +797,13 @@ bool render::renderer_read_floats(Renderer& r, bool present, std::vector<float>&
     return r.impl_->read_floats(present, out, error);
 }
 
-render::ShadowRowsStats render::renderer_shadow_rows_stats(Renderer& r) {
+render::ShadowRowsStats RendererTestAccess::shadow_rows_stats(Renderer& r) {
     render::ShadowRowsStats out;
     if (r.impl_) out = {int(r.impl_->shadowRowsRing.size()), int(r.impl_->shadowRowUploads)};
     return out;
 }
 
-void render::renderer_force_post_effects(Renderer& r, std::uint32_t effects) {
+void RendererTestAccess::force_post_effects(Renderer& r, std::uint32_t effects) {
     if (r.impl_) r.impl_->forceEffects = effects;
 }
 
@@ -792,6 +812,32 @@ void Renderer::set_debug_view(DebugView view) {
 }
 
 DebugView Renderer::debug_view() const { return impl_ ? impl_->debugView : DebugView::None; }
+
+void Renderer::reset_post_history(std::uint64_t camera) {
+    if (impl_) impl_->customPost.reset_history(camera);
+}
+
+int RendererTestAccess::post_history_images(Renderer& r) {
+    return r.impl_ ? r.impl_->customPost.history_image_count() : 0;
+}
+
+void RendererTestAccess::set_post_history_budget(Renderer& r, std::uint64_t bytes) {
+    if (r.impl_) r.impl_->customPost.set_history_budget(bytes);
+}
+void RendererTestAccess::refuse_post_history(Renderer& r, bool refuse) {
+    if (r.impl_) r.impl_->customPost.set_history_refused(refuse);
+}
+int RendererTestAccess::post_history_attempts(Renderer& r) {
+    return r.impl_ ? r.impl_->customPost.history_attempts() : 0;
+}
+
+void RendererTestAccess::set_before_frame_graph(Renderer& r, std::function<void()> hook) {
+    if (r.impl_) r.impl_->beforeFrameGraph = std::move(hook);
+}
+
+int RendererTestAccess::ldr_cut_format(Renderer& r) {
+    return r.impl_ && r.impl_->ldrMid[0].valid() ? int(r.impl_->ldrMid[0].format.color) : 0;
+}
 
 void Renderer::update(World& world) {
     if (!initialized()) return;
@@ -856,8 +902,10 @@ void Renderer::Impl::setup_frame(Frame& fr, World& world, float dt) {
     fr.targetW = targetW;
     fr.targetH = targetH;
     fr.dt = dt;
+    fr.time = float(world.time());
     fr.stats = &stats;
     fr.assets = assets.get();
+    fr.compute = compute;
     fr.fonts = fonts.get();
     fr.textScale = textScale;
     fr.uiScale = ui_scale_clamped(world.ui_scale());
@@ -900,6 +948,7 @@ void Renderer::Impl::render(World& world, float dt) {
         gpuFrames.clear();
     }
     stats = RenderStats{};
+    materialsCounted.clear();
     anyFrameRendered = true;
     transient_targets().pool.begin_frame();  // the bloom levels of the frame graphs below come from this pool
 
@@ -907,10 +956,11 @@ void Renderer::Impl::render(World& world, float dt) {
     lastCams = collect_cameras(world);
     refresh_logic_cameras(world);
     assets->set_drawing(true);
-    targetSelf.clear();
+    set_target_self({});
     collect_targets(
         world);          // before any gather: the textures "target:<name>" exist when a Sprite or a mesh asks for them
     ++shadowCache.tick;  // one per drawn frame, not per camera: every camera of this frame keeps the rows it reads
+    assets->begin_material_frame();  // the sets of values 2D items use with a material (Assets::sprite_material)
     ramps.begin_frame();
     if (world.scene_path() != lights2dScene) {
         lights2dScene = world.scene_path();
@@ -920,6 +970,7 @@ void Renderer::Impl::render(World& world, float dt) {
         warnedGradientStops = false;
         warnedCameras = false;
         warnedLegacyIgnored.clear();
+        warnedCustomPass.clear();
     }
 
     struct JobSpec {
@@ -974,7 +1025,7 @@ void Renderer::Impl::render(World& world, float dt) {
             FA_ASSERT(targetFrames.size() < targetFrames.capacity(),
                       "targetFrames would reallocate under Scene2D's donors");
             Frame& fr = targetFrames.emplace_back();
-            targetSelf = tc.name;
+            set_target_self(tc.name);
             const Vec2 size{float(tc.w), float(tc.h)};
             fr.cam = build_camera(world, tc.entity, &size, true);
             fr.wantWorld = true;
@@ -992,7 +1043,7 @@ void Renderer::Impl::render(World& world, float dt) {
                 fr.shadowKey = 0;
             }
             scene2d.gather_particles(world, fr);
-            targetSelf.clear();
+            set_target_self({});
         }
         viewFrames.clear();
         std::size_t viewCount = 0;
@@ -1217,9 +1268,9 @@ void Renderer::Impl::render(World& world, float dt) {
         JobPlan plan;
         plan.name = "target:" + tc.name;
         plan.shows = keys_of(targetDeps[std::size_t(i)]);
-        targetSelf = tc.name;
+        set_target_self(tc.name);
         plan_view_job(world, targetFrames[std::size_t(i)], *it->second, tc.key, plan);
-        targetSelf.clear();
+        set_target_self({});
         ++stats.renderTargets;
     }
 

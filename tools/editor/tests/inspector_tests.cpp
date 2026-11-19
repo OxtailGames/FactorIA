@@ -205,6 +205,59 @@ TEST_CASE("material inspector: params are typed by material.info") {
     CHECK(reset["merge"] == true);
 }
 
+TEST_CASE("material inspector: the keys of a params block start with the component") {
+    // Sprite and Text on one entity both have materialParams with a param of the same name: their edits must not
+    // coalesce into one undo step, nor share an error line or a widget name.
+    const std::string sprite = material_param_key("Sprite", "matparam", "glow");
+    const std::string text = material_param_key("Text", "matparam", "glow");
+    CHECK(sprite == "Sprite:matparam:glow");
+    CHECK(sprite != text);
+    CHECK(material_param_key("Sprite", "matreset", "glow") != sprite);
+    CHECK(material_param_key("SceneSettings", "matparam", "tint") == "SceneSettings:matparam:tint");
+}
+
+TEST_CASE("material inspector: the same model serves Sprite, the other renderers, widgets and the sky") {
+    auto specs = material_params_from_info(Json::parse(kInfo));
+    REQUIRE(specs.ok());
+    const MaterialParamSpec& speed = (*specs)[1];
+    // The params field and the material field that goes with it, on any component.
+    CHECK(material_field_of_params("materialParams") == "material");
+    CHECK(material_field_of_params("skyMaterialParams") == "skyMaterial");
+    CHECK(material_field_of_params("color").empty());
+    CHECK(is_material_field("material"));
+    CHECK(is_material_field("skyMaterial"));
+    CHECK_FALSE(is_material_field("texture"));
+
+    const Json sprite = material_param_edit_args("hero", speed, 6.0, "Sprite");
+    CHECK(sprite ==
+          Json::parse(R"({"id":"hero","component":"Sprite","fields":{"materialParams":{"speed":6.0}},"merge":true})"));
+    const Json reset = material_param_reset_args("hero", speed, "Panel", "materialParams");
+    CHECK(reset["component"] == "Panel");
+    CHECK(reset["fields"]["materialParams"]["speed"].is_null());
+    const Json sky = material_param_edit_args("", speed, 1.5, "SceneSettings", "skyMaterialParams");
+    CHECK(sky["component"] == "SceneSettings");
+    CHECK(sky["fields"]["skyMaterialParams"]["speed"] == 1.5);
+    CHECK(sky["merge"] == true);
+
+    // The registered fields are what the picker and the typed params draw: an asset of type "material" and a Json
+    // object.
+    for (const char* type :
+         {"Sprite", "Shape2D", "Tilemap", "Text", "ParticleEmitter", "Panel", "Button", "SceneSettings"}) {
+        const bool settings = std::string(type) == "SceneSettings";
+        const TypeInfo* t = TypeRegistry::global().find(type);
+        REQUIRE(t != nullptr);
+        bool picker = false, params = false;
+        for (const FieldInfo& f : t->fields) {
+            if (f.name == (settings ? "skyMaterial" : "material"))
+                picker = widget_for(f) == FieldWidget::AssetPicker && f.assetType == "material";
+            if (f.name == (settings ? "skyMaterialParams" : "materialParams"))
+                params = !material_field_of_params(f.name).empty();
+        }
+        CHECK_MESSAGE(picker, type);
+        CHECK_MESSAGE(params, type);
+    }
+}
+
 TEST_CASE("material inspector: the build error comes from the renderer's asset report, and clears when it builds") {
     const Json broken = Json::parse(R"({"materials":[
       {"material":"materials/a.material.json","ok":true,"generation":1},

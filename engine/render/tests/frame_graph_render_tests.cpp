@@ -10,6 +10,7 @@
 #include "fa/scene/tilemap.h"
 #include "frame_graph.h"
 #include "render_internal.h"
+#include "renderer_test_access.h"
 
 using namespace fa;
 using namespace fa::test;

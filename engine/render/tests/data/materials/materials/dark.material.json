@@ -1,0 +1,6 @@
+{
+  "format": "factoria.material/1",
+  "doc": "Test fixture: custom lighting whose light() adds nothing, so only the engine's default ambient term is left.",
+  "shader": "shaders/dark.surface.glsl",
+  "lighting": "custom"
+}

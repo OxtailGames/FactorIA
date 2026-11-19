@@ -14,6 +14,10 @@
 #include "gradient_ramp.h"
 #include "render_internal.h"
 
+namespace fa {
+class Compute;
+}
+
 namespace fa::render {
 
 // The shadow rows computed for lights, kept while a light, its radius and the solid tiles around it stay the same: a light
@@ -44,12 +48,15 @@ struct Frame {
     bool wantWorld = true, wantScreen = true;
     int targetW = 0, targetH = 0;
     float dt = 0;
+    float time = 0;  // World::time(): what a material's fa_time reads in its 2D draws
     std::unordered_map<std::string, std::shared_ptr<const assets::Sheet>>
         sheets;  // this frame's lookups of the sheet entries (SpriteAnimator)
     QuadList world, screen, debugWorld, debugScreen;
     std::vector<Vertex2D> debugLines;  // GL line list (perspective cameras)
     RenderStats* stats = nullptr;
     Assets* assets = nullptr;
+    Compute* compute =
+        nullptr;  // the renderer's: the buffers a Sprite whose material has "buffers" is drawn from (null: none)
     Fonts* fonts = nullptr;
     bool linear =
         false;  // SceneSettings.colorSpace linear: the colours of the gather (lights, ambient) are linear light
@@ -129,9 +136,11 @@ struct QuadEmitter {
 // `visible` >= 0 draws only the glyphs and pictures of the first `visible` grapheme clusters (Text.visibleCharacters): the layout
 // is the whole text's, so nothing moves while a line reveals. Returns the number of glyphs drawn (pictures not counted).
 // `tint` (Tint component): `color` already includes it; it is multiplied into the run colours and pictures of a rich text too.
+// `material` (Assets::sprite_material of Text.material; empty = the built-in look): only the glyph item gets it, the
+// glyph atlas stays the main texture; the pictures of a rich text keep the built-in programs.
 int emit_text(QuadList& list, const Mat4& m, bool screen, const TextLayout& lay, Color color, Fonts& fonts,
               Assets& assets, int layer, float secondary, const Rect& clip, int visible = -1,
-              Color tint = Color{1, 1, 1, 1});
+              Color tint = Color{1, 1, 1, 1}, const MaterialRef& material = {});
 
 // Writes Sprite.region of every SpriteAnimator from the frame it is on (`frame`, chosen by the simulation:
 // fa::update_sprite_animators), with the size of the GPU texture. The simulation already wrote the same rectangle from the size of the

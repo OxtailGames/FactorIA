@@ -38,7 +38,42 @@ sg_sampler make_sampler(sg_filter minmag, sg_filter mip, sg_wrap wrap, const cha
 }
 
 // Vertex buffer 1: a 4x4 model matrix per instance in four consecutive attributes starting at `firstAttr`.
-void set_instance_layout(sg_pipeline_desc& d, int firstAttr) {
+//
+// `bufferInst` (a mesh material with "buffers", MeshExtras::bufferInst) draws the entity as N instances that read
+// storage buffers, and its model matrix is a uniform (FA_BUFFER_INST). Instance vertex buffer 1 would hold one matrix,
+// so a per-instance step would read past its end from the second instance on. So the four attributes stay in the layout
+// (the generated program still declares them, and the attribute slots must be contiguous) but read the first 16 bytes
+// of each vertex of the mesh's own buffer 0, which is always in range: any N, any backend. A step rate cannot do this,
+// because sokol_gfx narrows it to an int8 on OpenGL. The shader never uses the values. Buffer 1 is not part of this
+// layout at all (a draw that still binds it is fine: sokol_gfx ignores a slot the layout does not use).
+//
+// Buffer 0 then needs explicit offsets: sokol_gfx packs them itself only while every one of them is 0, and it would
+// pack the four instance attributes into the vertex too. So the other attributes of buffer 0 get the offsets of a
+// packed MeshVertex, in location order, whatever is still unset when this runs (a shadow pipeline sets its skin
+// attributes after it: they are skipped here, they live in buffer 2). The instance attributes get the offsets 0, 4, 8
+// and 12: the last one ends at byte 28, inside the smallest vertex, and the offset 4 keeps sokol_gfx from packing a
+// pipeline whose buffer 0 holds nothing but the position.
+void set_instance_layout(sg_pipeline_desc& d, int firstAttr, bool bufferInst = false) {
+    if (bufferInst) {
+        for (int i = 0; i < 4; ++i) {
+            d.layout.attrs[firstAttr + i].format = SG_VERTEXFORMAT_FLOAT4;
+            d.layout.attrs[firstAttr + i].buffer_index = 0;
+            d.layout.attrs[firstAttr + i].offset = i * 4;
+        }
+        int offset = 0;
+        for (int i = 0; i < SG_MAX_VERTEX_ATTRIBUTES; ++i) {
+            sg_vertex_attr_state& a = d.layout.attrs[i];
+            if (a.format == SG_VERTEXFORMAT_INVALID) continue;  // not set yet (see above)
+            if (a.buffer_index != 0 || (i >= firstAttr && i < firstAttr + 4)) continue;
+            a.offset = offset;
+            offset += a.format == SG_VERTEXFORMAT_FLOAT4   ? 16
+                      : a.format == SG_VERTEXFORMAT_FLOAT3 ? 12
+                      : a.format == SG_VERTEXFORMAT_FLOAT2 ? 8
+                                                           : 4;  // UBYTE4N, the vertex color
+        }
+        if (d.layout.buffers[0].stride == 0) d.layout.buffers[0].stride = offset;
+        return;
+    }
     d.layout.buffers[1].stride = kMeshInstanceBytes;
     d.layout.buffers[1].step_func = SG_VERTEXSTEP_PER_INSTANCE;
     for (int i = 0; i < 4; ++i) {
@@ -57,6 +92,31 @@ void set_skin_layout(sg_pipeline_desc& d, int jointsAttr, int weightsAttr) {
     d.layout.attrs[weightsAttr].format = SG_VERTEXFORMAT_FLOAT4;
     d.layout.attrs[weightsAttr].buffer_index = 2;
     d.layout.attrs[weightsAttr].offset = 4;
+}
+// Vertex buffers 3, 4 and 5 of a custom material's program (MeshExtras): the per-instance params, then uv1 and color1,
+// at the attributes from `firstAttr` in that order (mesh_common.glsl fa_extra_attrs).
+void set_extra_layout(sg_pipeline_desc& d, int firstAttr, const MeshExtras& e) {
+    int at = firstAttr;
+    if (e.instanceVec4 > 0) {
+        d.layout.buffers[kInstanceDataBuffer].stride = e.instanceVec4 * 16;
+        d.layout.buffers[kInstanceDataBuffer].step_func = SG_VERTEXSTEP_PER_INSTANCE;
+        for (int i = 0; i < e.instanceVec4; ++i, ++at) {
+            d.layout.attrs[at].format = SG_VERTEXFORMAT_FLOAT4;
+            d.layout.attrs[at].buffer_index = kInstanceDataBuffer;
+            d.layout.attrs[at].offset = i * 16;
+        }
+    }
+    if (e.uv1) {
+        d.layout.buffers[kUv1Buffer].stride = 8;
+        d.layout.attrs[at].format = SG_VERTEXFORMAT_FLOAT2;
+        d.layout.attrs[at].buffer_index = kUv1Buffer;
+        ++at;
+    }
+    if (e.color1) {
+        d.layout.buffers[kColor1Buffer].stride = 4;
+        d.layout.attrs[at].format = SG_VERTEXFORMAT_UBYTE4N;
+        d.layout.attrs[at].buffer_index = kColor1Buffer;
+    }
 }
 }  // namespace
 
@@ -86,6 +146,22 @@ void Gpu::set_scene_pick(int pick) {
     SceneChain& c = sceneChain_[linear_ ? 1 : 0];
     c.at = std::clamp(pick, 0, std::max(0, c.count - 1));
     refresh_scene_format();
+}
+
+sg_pixel_format pick_ldr_cut_format(sg_pixel_format display, bool hdrOutput, bool half, bool full) {
+    const bool isFloat = display == SG_PIXELFORMAT_RGBA16F || display == SG_PIXELFORMAT_RGBA32F;
+    if (!hdrOutput || isFloat) return display;
+    return half ? SG_PIXELFORMAT_RGBA16F : full ? SG_PIXELFORMAT_RGBA32F : display;
+}
+
+sg_pixel_format Gpu::ldr_cut_format(bool hdrOutput) const {
+    const sg_pixel_format display = display_format();
+    if (!hdrOutput) return display;
+    auto usable = [](sg_pixel_format f) {
+        const sg_pixelformat_info i = sg_query_pixelformat(f);
+        return i.render && i.sample && i.filter;
+    };
+    return pick_ldr_cut_format(display, hdrOutput, usable(SG_PIXELFORMAT_RGBA16F), usable(SG_PIXELFORMAT_RGBA32F));
 }
 
 bool Gpu::scene_has_alpha() const { return sceneFormat_ != SG_PIXELFORMAT_RG11B10F; }
@@ -297,6 +373,7 @@ void Gpu::destroy_shader(sg_shader shader) {
             ++it;
         }
     }
+    failedComputePipelines_.erase(shader.id);
     sg_destroy_shader(shader);
 }
 
@@ -315,6 +392,48 @@ void Gpu::end_pass() {
     inPass_ = false;
 }
 
+void Gpu::begin_compute_pass() {
+#ifndef NDEBUG
+    FA_ASSERT(!inPass_, "Gpu::begin_compute_pass: a pass is already open (end_pass it first)");
+#endif
+    sg_pass p{};
+    p.compute = true;
+    p.label = "compute";
+    sg_begin_pass(&p);
+    inPass_ = true;
+    passFormat_ = TargetFormat{};
+}
+
+void Gpu::end_compute_pass() {
+    sg_end_pass();
+    inPass_ = false;
+}
+
+sg_pipeline Gpu::compute_pipeline(sg_shader shader) {
+    PipelineKey key{0xF00u, shader.id};
+    auto it = pipelines_.find(key);
+    if (it != pipelines_.end()) {
+        it->second.lastUsed = pipelineTick_;
+        ++pipelineHits_;
+        return it->second.pipeline;
+    }
+    if (failedComputePipelines_.count(shader.id)) return {};  // the driver refused this program already (logged once)
+    sg_pipeline_desc d{};
+    d.compute = true;
+    d.shader = shader;
+    d.label = "compute";
+    sg_pipeline p = sg_make_pipeline(&d);
+    if (sg_query_pipeline_state(p) != SG_RESOURCESTATE_VALID) {
+        FA_ERROR("render", "failed to create a compute pipeline (the sokol log lines above have the reason)");
+        sg_destroy_pipeline(p);
+        failedComputePipelines_.insert(shader.id);
+        return {};
+    }
+    ++pipelinesMade_;
+    pipelines_[key] = {p, pipelineTick_, warming_};
+    return p;
+}
+
 sg_pipeline Gpu::find_or_make(PipelineKey key, const TargetFormat& format, const sg_pipeline_desc& request) {
 #ifndef NDEBUG
     // A pipeline applied in a pass must have the pass's colour format, depth format and sample count. GL and D3D11
@@ -322,6 +441,10 @@ sg_pipeline Gpu::find_or_make(PipelineKey key, const TargetFormat& format, const
     FA_ASSERT(!inPass_ || format == passFormat_,
               "a pipeline was fetched for another target format than the pass being drawn (PassDesc::format)");
 #endif
+    if (layoutProbe_) {  // a test reads the layout a getter built; nothing is made or cached
+        probedLayout_ = request.layout;
+        return {};
+    }
     key.format = format;
     auto it = pipelines_.find(key);
     if (it != pipelines_.end()) {
@@ -351,11 +474,12 @@ sg_pipeline Gpu::find_or_make(PipelineKey key, const TargetFormat& format, const
 }
 
 sg_pipeline Gpu::quad_pipeline(const TargetFormat& format, bool depthTest, bool lines, BlendMode blend, bool plain,
-                               bool opaque) {
+                               bool opaque, sg_shader shader, int instanceVec4) {
     PipelineKey key{0x100u | (depthTest ? 1u : 0u) | (lines ? 2u : 0u) | (std::uint32_t(blend) << 2) |
-                    (plain ? 0x10u : 0u) | (opaque ? 0x20u : 0u)};
+                        (plain ? 0x10u : 0u) | (opaque ? 0x20u : 0u),
+                    shader.id};
     sg_pipeline_desc d{};
-    d.shader = plain ? quadPlainShader_ : quad_shader_;
+    d.shader = shader.id ? shader : (plain ? quadPlainShader_ : quad_shader_);
     d.layout.attrs[ATTR_quad_quad_position].format = SG_VERTEXFORMAT_FLOAT3;
     d.layout.attrs[ATTR_quad_quad_texcoord0].format = SG_VERTEXFORMAT_FLOAT2;
     d.layout.attrs[ATTR_quad_quad_color0].format = SG_VERTEXFORMAT_UBYTE4N;
@@ -363,6 +487,26 @@ sg_pipeline Gpu::quad_pipeline(const TargetFormat& format, bool depthTest, bool 
     d.layout.attrs[ATTR_quad_quad_color2_0].format = SG_VERTEXFORMAT_UBYTE4N;
     d.layout.attrs[ATTR_quad_quad_shape_half0].format = SG_VERTEXFORMAT_FLOAT2;
     d.layout.attrs[ATTR_quad_quad_shape_rs0].format = SG_VERTEXFORMAT_HALF2;
+    if (instanceVec4 > 0) {
+        // sokol computes the offsets of every attribute or of none: with the second buffer they are given, as Vertex2D
+        // has them.
+        static_assert(sizeof(Vertex2D) == 48, "the offsets below are those of Vertex2D");
+        d.layout.attrs[ATTR_quad_quad_position].offset = 0;
+        d.layout.attrs[ATTR_quad_quad_texcoord0].offset = 12;
+        d.layout.attrs[ATTR_quad_quad_color0].offset = 20;
+        d.layout.attrs[ATTR_quad_quad_params0].offset = 24;
+        d.layout.attrs[ATTR_quad_quad_color2_0].offset = 32;
+        d.layout.attrs[ATTR_quad_quad_shape_half0].offset = 36;
+        d.layout.attrs[ATTR_quad_quad_shape_rs0].offset = 44;
+        d.layout.buffers[0].stride = int(sizeof(Vertex2D));
+        const int n = std::min(instanceVec4, kMaxInstanceVec4);
+        d.layout.buffers[kQuadInstBuffer].stride = n * 16;
+        for (int i = 0; i < n; ++i) {
+            d.layout.attrs[kQuadInstAttr + i].format = SG_VERTEXFORMAT_FLOAT4;
+            d.layout.attrs[kQuadInstAttr + i].buffer_index = kQuadInstBuffer;
+            d.layout.attrs[kQuadInstAttr + i].offset = i * 16;
+        }
+    }
     d.primitive_type = lines ? SG_PRIMITIVETYPE_LINES : SG_PRIMITIVETYPE_TRIANGLES;
     d.index_type = lines ? SG_INDEXTYPE_NONE : SG_INDEXTYPE_UINT16;
     d.depth.compare = depthTest ? SG_COMPAREFUNC_LESS_EQUAL : SG_COMPAREFUNC_ALWAYS;
@@ -398,7 +542,7 @@ sg_pipeline Gpu::quad_pipeline(const TargetFormat& format, bool depthTest, bool 
 }
 
 sg_pipeline Gpu::mesh_pipeline(const TargetFormat& format, bool blended, bool doubleSided, bool skinned,
-                               sg_shader shader) {
+                               sg_shader shader, MeshExtras extras) {
     PipelineKey key{0x200u | (blended ? 1u : 0u) | (doubleSided ? 2u : 0u) | (skinned ? 4u : 0u), shader.id};
     sg_pipeline_desc d{};
     d.shader = shader.id ? shader : (skinned ? meshSkinShader_ : mesh_shader_);
@@ -408,8 +552,9 @@ sg_pipeline Gpu::mesh_pipeline(const TargetFormat& format, bool blended, bool do
     d.layout.attrs[ATTR_mesh_mesh_fa_tangent].format = SG_VERTEXFORMAT_FLOAT4;
     d.layout.attrs[ATTR_mesh_mesh_fa_color].format =
         SG_VERTEXFORMAT_UBYTE4N;  // vertex color, white without (MeshVertex::color)
-    set_instance_layout(d, ATTR_mesh_mesh_fa_inst_m0);
+    set_instance_layout(d, ATTR_mesh_mesh_fa_inst_m0, shader.id && extras.bufferInst);
     if (skinned) set_skin_layout(d, ATTR_mesh_mesh_skin_fa_joints, ATTR_mesh_mesh_skin_fa_weights);
+    if (shader.id) set_extra_layout(d, skinned ? kExtraAttrBaseSkinned : kExtraAttrBase, extras);
     d.index_type = SG_INDEXTYPE_UINT32;
     d.depth.compare = SG_COMPAREFUNC_LESS_EQUAL;
     d.depth.write_enabled = !blended;
@@ -426,10 +571,57 @@ sg_pipeline Gpu::mesh_pipeline(const TargetFormat& format, bool blended, bool do
     return find_or_make(key, format, d);
 }
 
-sg_pipeline Gpu::sky_pipeline(const TargetFormat& format) {
-    PipelineKey key{0x300u};
+sg_pipeline Gpu::full_pipeline(const TargetFormat& format, const MaterialPassState& state, bool skinned,
+                               sg_shader shader, MeshExtras extras) {
+    PipelineKey key{0x1000u | (skinned ? 1u : 0u) | (unsigned(state.cull) << 1) | (state.depthTest ? 8u : 0u) |
+                        (state.depthWrite ? 16u : 0u) | (unsigned(state.blend) << 5),
+                    shader.id};
     sg_pipeline_desc d{};
-    d.shader = sky_shader_;
+    d.shader = shader;
+    d.layout.attrs[ATTR_mesh_mesh_fa_position].format = SG_VERTEXFORMAT_FLOAT3;
+    d.layout.attrs[ATTR_mesh_mesh_fa_normal].format = SG_VERTEXFORMAT_FLOAT3;
+    d.layout.attrs[ATTR_mesh_mesh_fa_texcoord0].format = SG_VERTEXFORMAT_FLOAT2;
+    d.layout.attrs[ATTR_mesh_mesh_fa_tangent].format = SG_VERTEXFORMAT_FLOAT4;
+    d.layout.attrs[ATTR_mesh_mesh_fa_color].format = SG_VERTEXFORMAT_UBYTE4N;
+    set_instance_layout(d, ATTR_mesh_mesh_fa_inst_m0, shader.id && extras.bufferInst);
+    if (skinned) set_skin_layout(d, ATTR_mesh_mesh_skin_fa_joints, ATTR_mesh_mesh_skin_fa_weights);
+    set_extra_layout(d, skinned ? kExtraAttrBaseSkinned : kExtraAttrBase, extras);
+    d.index_type = SG_INDEXTYPE_UINT32;
+    d.depth.compare = state.depthTest ? SG_COMPAREFUNC_LESS_EQUAL : SG_COMPAREFUNC_ALWAYS;
+    d.depth.write_enabled = state.depthWrite;
+    if (state.blend != 0) {
+        d.colors[0].blend.enabled = true;
+        switch (state.blend) {
+            case 2:  // additive: dst + src.rgb * src.a
+                d.colors[0].blend.src_factor_rgb = SG_BLENDFACTOR_SRC_ALPHA;
+                d.colors[0].blend.dst_factor_rgb = SG_BLENDFACTOR_ONE;
+                d.colors[0].blend.src_factor_alpha = SG_BLENDFACTOR_ZERO;
+                d.colors[0].blend.dst_factor_alpha = SG_BLENDFACTOR_ONE;
+                break;
+            case 3:  // multiply: dst * src.rgb
+                d.colors[0].blend.src_factor_rgb = SG_BLENDFACTOR_DST_COLOR;
+                d.colors[0].blend.dst_factor_rgb = SG_BLENDFACTOR_ZERO;
+                d.colors[0].blend.src_factor_alpha = SG_BLENDFACTOR_ZERO;
+                d.colors[0].blend.dst_factor_alpha = SG_BLENDFACTOR_ONE;
+                break;
+            default:  // alpha
+                d.colors[0].blend.src_factor_rgb = SG_BLENDFACTOR_SRC_ALPHA;
+                d.colors[0].blend.dst_factor_rgb = SG_BLENDFACTOR_ONE_MINUS_SRC_ALPHA;
+                d.colors[0].blend.src_factor_alpha = SG_BLENDFACTOR_ONE;
+                d.colors[0].blend.dst_factor_alpha = SG_BLENDFACTOR_ONE_MINUS_SRC_ALPHA;
+                break;
+        }
+    }
+    d.cull_mode = state.cull == 0 ? SG_CULLMODE_NONE : state.cull == 2 ? SG_CULLMODE_FRONT : SG_CULLMODE_BACK;
+    d.face_winding = SG_FACEWINDING_CCW;
+    d.label = "mesh-full";
+    return find_or_make(key, format, d);
+}
+
+sg_pipeline Gpu::sky_pipeline(const TargetFormat& format, sg_shader shader) {
+    PipelineKey key{0x300u, shader.id};
+    sg_pipeline_desc d{};
+    d.shader = shader.id ? shader : sky_shader_;
     d.layout.attrs[ATTR_sky_sky_pos].format = SG_VERTEXFORMAT_FLOAT2;
     d.depth.compare = SG_COMPAREFUNC_ALWAYS;
     d.depth.write_enabled = false;
@@ -438,7 +630,8 @@ sg_pipeline Gpu::sky_pipeline(const TargetFormat& format) {
     return find_or_make(key, format, d);
 }
 
-sg_pipeline Gpu::shadow_pipeline(const TargetFormat& format, bool skinned, sg_shader shader, bool fullVertex) {
+sg_pipeline Gpu::shadow_pipeline(const TargetFormat& format, bool skinned, sg_shader shader, bool fullVertex,
+                                 MeshExtras extras) {
     PipelineKey key{0x400u | (skinned ? 1u : 0u) | (fullVertex ? 2u : 0u), shader.id};
     sg_pipeline_desc d{};
     d.shader = shader.id ? shader : (skinned ? shadowSkinShader_ : shadow_shader_);
@@ -451,8 +644,9 @@ sg_pipeline Gpu::shadow_pipeline(const TargetFormat& format, bool skinned, sg_sh
         d.layout.attrs[first + 2].format = SG_VERTEXFORMAT_FLOAT4;   // tangent
         d.layout.attrs[first + 3].format = SG_VERTEXFORMAT_UBYTE4N;  // vertex color
     }
-    set_instance_layout(d, ATTR_mesh_shadow_fa_inst_m0);
+    set_instance_layout(d, ATTR_mesh_shadow_fa_inst_m0, shader.id && extras.bufferInst);
     if (skinned) set_skin_layout(d, ATTR_mesh_shadow_skin_fa_joints, ATTR_mesh_shadow_skin_fa_weights);
+    if (shader.id && fullVertex) set_extra_layout(d, skinned ? kExtraAttrBaseSkinned : kExtraAttrBase, extras);
     d.index_type = SG_INDEXTYPE_UINT32;
     d.depth.compare = SG_COMPAREFUNC_LESS_EQUAL;
     d.depth.write_enabled = true;
@@ -653,7 +847,8 @@ bool Gpu::prepass_ready() {
     return true;
 }
 
-sg_pipeline Gpu::prepass_pipeline(const TargetFormat& format, bool doubleSided, bool skinned, sg_shader shader) {
+sg_pipeline Gpu::prepass_pipeline(const TargetFormat& format, bool doubleSided, bool skinned, sg_shader shader,
+                                  MeshExtras extras) {
     if (!shader.id && !prepass_ready()) return {};
     PipelineKey key{0xC00u | (doubleSided ? 2u : 0u) | (skinned ? 4u : 0u), shader.id};
     sg_pipeline_desc d{};
@@ -663,8 +858,9 @@ sg_pipeline Gpu::prepass_pipeline(const TargetFormat& format, bool doubleSided, 
     d.layout.attrs[ATTR_mesh_prepass_fa_texcoord0].format = SG_VERTEXFORMAT_FLOAT2;
     d.layout.attrs[ATTR_mesh_prepass_fa_tangent].format = SG_VERTEXFORMAT_FLOAT4;
     d.layout.attrs[ATTR_mesh_prepass_fa_color].format = SG_VERTEXFORMAT_UBYTE4N;
-    set_instance_layout(d, ATTR_mesh_prepass_fa_inst_m0);
+    set_instance_layout(d, ATTR_mesh_prepass_fa_inst_m0, shader.id && extras.bufferInst);
     if (skinned) set_skin_layout(d, ATTR_mesh_prepass_skin_fa_joints, ATTR_mesh_prepass_skin_fa_weights);
+    if (shader.id) set_extra_layout(d, skinned ? kExtraAttrBaseSkinned : kExtraAttrBase, extras);
     d.index_type = SG_INDEXTYPE_UINT32;
     d.depth.compare = SG_COMPAREFUNC_LESS_EQUAL;
     d.depth.write_enabled = true;
@@ -699,6 +895,19 @@ sg_pipeline Gpu::prepass_view_pipeline(const TargetFormat& format) {
     d.depth.write_enabled = false;
     d.face_winding = SG_FACEWINDING_CCW;
     d.label = "prepass-view";
+    return find_or_make(key, format, d);
+}
+
+sg_pipeline Gpu::post_material_pipeline(const TargetFormat& format, sg_shader shader) {
+    if (!shader.id) return {};
+    PipelineKey key{0xF00u, shader.id};
+    sg_pipeline_desc d{};
+    d.shader = shader;
+    d.layout.attrs[0].format = SG_VERTEXFORMAT_FLOAT2;  // `pos` of post_common.glsl, location 0
+    d.depth.compare = SG_COMPAREFUNC_ALWAYS;
+    d.depth.write_enabled = false;
+    d.face_winding = SG_FACEWINDING_CCW;
+    d.label = "post-material";
     return find_or_make(key, format, d);
 }
 

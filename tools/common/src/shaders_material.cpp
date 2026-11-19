@@ -4,6 +4,7 @@
 #include <set>
 
 #include "fa/core/strings.h"
+#include "fa/tooling/material_graph.h"
 #include "fa/tooling/shaders.h"
 #include "shaders_internal.h"
 #include "util.h"
@@ -13,6 +14,7 @@ namespace fa {
 namespace stdfs = std::filesystem;
 using shaders_detail::is_identifier;
 using shaders_detail::is_reserved_word;
+using shaders_detail::template_globals;
 using tooling_detail::escape_token;
 
 int MaterialParam::components() const {
@@ -20,6 +22,27 @@ int MaterialParam::components() const {
     if (type == "vec2") return 2;
     if (type == "vec3") return 3;
     return 4;
+}
+
+InstanceLayout instance_layout(const std::vector<MaterialParam>& params) {
+    InstanceLayout out;
+    std::vector<int> used;  // floats taken in each vec4
+    for (const MaterialParam& p : params) {
+        if (!p.instanced) continue;
+        const int n = p.components();
+        size_t v = 0;
+        while (v < used.size() && used[v] + n > 4) ++v;
+        if (v == used.size()) used.push_back(0);
+        out.slots.push_back({p.name, int(v), used[v], n});
+        used[v] += n;
+    }
+    out.vec4Count = int(used.size());
+    return out;
+}
+
+const std::vector<std::string>& material_vertex_attribute_names() {
+    static const std::vector<std::string> names = {"color1", "uv1"};
+    return names;
 }
 
 std::string MaterialIssue::to_string() const {
@@ -30,10 +53,14 @@ std::string MaterialIssue::to_string() const {
 
 namespace {
 
-const std::vector<std::string> kLightings = {"pbr", "unlit"};
+const std::vector<std::string> kLightings = {"pbr", "unlit", "custom"};
 const std::vector<std::string> kAlphaModes = {"opaque", "clip", "blend"};
 const std::vector<std::string> kParamTypes = {"float", "vec2", "vec3", "vec4", "color"};
 const std::vector<std::string> kSamplers = {"linear", "linearRepeat", "nearest", "nearestRepeat"};
+const std::vector<std::string> kModes = {"snippet", "full"};
+const std::vector<std::string> kCulls = {"back", "front", "none"};
+const std::vector<std::string> kBlends = {"none", "alpha", "additive", "multiply"};
+const std::vector<std::string> kShadows = {"depth", "custom", "none"};
 
 // "Did you mean 'folder/x.png'?" for a project-relative file that is missing: the closest name in its folder, else `fallback`.
 std::string sibling_hint(const std::string& projectDir, const std::string& rel, const std::string& fallback) {
@@ -90,7 +117,7 @@ struct Checker {
     }
 
     // The rule for names of params and textures; true when `name` is fine.
-    bool check_name(const std::string& pointer, const std::string& name, const char* what) {
+    bool check_name(const std::string& pointer, const std::string& name, const char* what, const std::string& kind) {
         if (!is_identifier(name)) {
             error(pointer,
                   std::string(what) + " name \"" + name +
@@ -113,11 +140,47 @@ struct Checker {
                   "Rename it, e.g. \"waveHeight\".");
             return false;
         }
-        if (is_reserved_word(name)) {
+        if (name == "noise") {
+            error(pointer,
+                  std::string(what) +
+                      " name \"noise\" breaks sokol-shdc (it reports \"no binding found for texture ''\"), "
+                      "so no material can use it",
+                  "Name it for what it holds, e.g. \"noiseMap\" or \"mask\".");
+            return false;
+        }
+        if (is_reserved_word(name) ||
+            (out.material.lighting == "custom" && (name == "light" || name == "ambient" || name == "lighting")) ||
+            (kind == "sky" && name == "sky") ||    // sky(): the hook of a sky material, an ordinary name elsewhere
+            (kind == "post" && name == "post")) {  // post(): the hook of a post material
             error(pointer,
                   std::string(what) + " name \"" + name +
                       "\" is a GLSL keyword or a name of the snippet contract, so it cannot be a variable",
                   "Rename it, e.g. \"" + name + "Value\".");
+            return false;
+        }
+        // The unprefixed names of the kind's own program (sprite, sky: its vertex inputs, varyings, textures, uniform blocks and
+        // helpers) share one flat namespace with the snippet and the params: taking one redefines it.
+        const auto& globals = template_globals(kind);
+        const std::string sampler = std::string(what) == "texture" ? name + "_smp" : std::string();
+        const bool takesName = globals.count(name) > 0, takesSampler = !sampler.empty() && globals.count(sampler) > 0;
+        if (takesName || takesSampler) {
+            const std::string suffix = std::string(what) == "texture" ? "Map" : "Value";
+            error(pointer,
+                  std::string(what) + " name \"" + name + "\" is " +
+                      (takesName ? "a name" : "the base of the name \"" + sampler + "\"") +
+                      (kind == "sky"
+                           ? " of the engine's sky program (sky_common.glsl: its vertex input, varying, uniform "
+                             "blocks and helper functions are not prefixed)"
+                           : " of the engine's 2D program (quad_common.glsl: its vertex inputs, varyings, textures, "
+                             "uniform blocks and helper functions are not prefixed)") +
+                      ", and a " + what + " becomes a global variable next to them, so " + kind +
+                      " materials cannot take it",
+                  "Rename it, e.g. \"" + name + suffix +
+                      (kind == "sky"
+                           ? "\". The names of the sky program are listed in "
+                             "engine/render/shaders/sky_common.glsl and color_space.glsl."
+                           : "\". The names of the 2D program are listed in "
+                             "engine/render/shaders/quad_common.glsl and color_space.glsl / light_shadow.glsl."));
             return false;
         }
         return true;
@@ -132,10 +195,18 @@ struct Checker {
             return;
         }
         for (auto it = p.begin(); it != p.end(); ++it) {
-            static const std::vector<std::string> known = {"type", "default", "min", "max", "doc"};
+            static const std::vector<std::string> known = {"type", "default", "min", "max", "doc", "instanced"};
             if (std::find(known.begin(), known.end(), it.key()) == known.end())
                 error(base + "/" + escape_token(it.key()), "unknown key \"" + it.key() + "\"",
                       did_you_mean(it.key(), known));
+        }
+        if (auto in = p.find("instanced"); in != p.end()) {
+            if (!in->is_boolean())
+                error(base + "/instanced", "expected true or false, got " + describe_json_value(*in),
+                      "Write \"instanced\": true to give every entity its own value inside one instanced draw, or "
+                      "leave the key out.");
+            else
+                param.instanced = in->get<bool>();
         }
         // doc
         if (auto d = p.find("doc"); d == p.end())
@@ -288,6 +359,155 @@ struct Checker {
         }
     }
 
+    // "graph" (the node graph the snippet is generated from, fa/tooling/material_graph.h) and "graphHash" (SHA-256 of the
+    // snippet that was generated). The graph is checked after the params and textures it names are known.
+    void read_graph(const Json& doc, MaterialDef& m) {
+        if (auto h = doc.find("graphHash"); h != doc.end()) {
+            if (!h->is_string() || h->get<std::string>().size() != 64)
+                error("/graphHash",
+                      "expected the 64 hex digits material.graph.generate wrote, got " + describe_json_value(*h),
+                      "Do not write graphHash by hand: run material.graph.generate (or delete the key).");
+            else
+                m.graphHash = h->get<std::string>();
+            if (!doc.contains("graph"))
+                error("/graphHash", "\"graphHash\" without a \"graph\"",
+                      "graphHash belongs to a generated snippet: delete it, or add the graph back.");
+        }
+        auto g = doc.find("graph");
+        if (g == doc.end()) return;
+        m.graph = *g;
+        std::string kind = "mesh";
+        if (auto k = doc.find("kind"); k != doc.end() && k->is_string()) kind = k->get<std::string>();
+        for (MaterialIssue& e : check_material_graph(*g, m, kind).errors) out.errors.push_back(std::move(e));
+    }
+
+    // "mode": "full" and what goes with it: "passes", "shadow", "prepass" (docs/shaders/SHADERS_FULL.md). Each of them is an error in a
+    // snippet material (the default mode), where the engine's own shader decides all of it.
+    void read_full(const Json& doc, MaterialDef& m) {
+        std::string mode = "snippet";
+        read_enum(doc, "", "mode", kModes, mode);
+        m.full = mode == "full";
+        if (!m.full) {
+            for (const char* key : {"passes", "shadow", "prepass"})
+                if (doc.contains(key))
+                    error(std::string("/") + key,
+                          std::string("\"") + key + "\" belongs to a full-shader material, and this one's mode is \"" +
+                              mode + "\"",
+                          std::string(
+                              "Add \"mode\": \"full\" (the file then holds your own vertex and fragment stages), or "
+                              "remove \"") +
+                              key + "\".");
+            return;
+        }
+        if (m.kind != "mesh") {
+            error("/mode", "\"mode\": \"full\" is for mesh materials, and this material is kind \"" + m.kind + "\"",
+                  "Remove \"mode\" (a " + m.kind +
+                      " material runs inside the engine's own shader), or set \"kind\" to \"mesh\".");
+            return;
+        }
+        // Keys that describe the engine's shader: a full material owns its state per pass.
+        struct Overridden {
+            const char* key;
+            const char* instead;
+        };
+        for (const Overridden& o :
+             {Overridden{"lighting", "write the lights yourself with fa_light_count() and fa_light(i, ...)"},
+              Overridden{"alphaMode", "set \"blend\" (and \"depthWrite\") on the pass"},
+              Overridden{"doubleSided", "set \"cull\": \"none\" on the pass"},
+              Overridden{"graph", "write the file by hand: the node graph generates a surface() snippet"}})
+            if (doc.contains(o.key))
+                error(std::string("/") + o.key,
+                      std::string("\"") + o.key + "\" has no effect in a full-shader material (\"mode\": \"full\")",
+                      std::string("Remove it: in a full shader you ") + o.instead + ".");
+        read_enum(doc, "", "shadow", kShadows, m.shadow);
+        if (auto p = doc.find("prepass"); p != doc.end()) {
+            if (!p->is_boolean())
+                error("/prepass", "expected true or false, got " + describe_json_value(*p),
+                      "Write \"prepass\": false to keep the material out of the depth and normal prepass (SSAO then "
+                      "ignores "
+                      "it).");
+            else
+                m.prepass = p->get<bool>();
+        }
+        auto it = doc.find("passes");
+        if (it == doc.end()) {
+            MaterialPass main;
+            main.name = "main";
+            m.passes.push_back(main);
+            return;
+        }
+        if (!it->is_array() || it->empty()) {
+            error("/passes", "expected a non-empty array of passes, got " + describe_json_value(*it),
+                  "Write \"passes\": [{\"name\": \"main\"}]; each pass is drawn after the one before it, for every "
+                  "part of the "
+                  "mesh.");
+            return;
+        }
+        if (int(it->size()) > kMaterialMaxPasses)
+            error("/passes",
+                  std::to_string(it->size()) + " passes, at most " + std::to_string(kMaterialMaxPasses) +
+                      " (each pass adds two programs, one of them for skinned meshes)",
+                  "Merge passes that differ only in a colour into one with a param, or split the effect over two "
+                  "materials.");
+        static const std::vector<std::string> known = {"name", "cull", "depthTest", "depthWrite", "blend"};
+        std::set<std::string> seen;
+        for (std::size_t i = 0; i < it->size() && int(i) < kMaterialMaxPasses; ++i) {
+            const std::string base = "/passes/" + std::to_string(i);
+            const Json& e = (*it)[i];
+            if (!e.is_object()) {
+                error(base, "expected an object, got " + describe_json_value(e),
+                      "Write {\"name\": \"outline\", \"cull\": \"front\", \"depthWrite\": true}.");
+                continue;
+            }
+            for (auto k = e.begin(); k != e.end(); ++k)
+                if (std::find(known.begin(), known.end(), k.key()) == known.end())
+                    error(base + "/" + escape_token(k.key()), "unknown key \"" + k.key() + "\"",
+                          did_you_mean(k.key(), known));
+            MaterialPass pass;
+            auto n = e.find("name");
+            if (n == e.end() || !n->is_string() || !is_identifier(n->get<std::string>()) ||
+                is_reserved_word(n->get<std::string>())) {
+                error(base + "/name",
+                      n == e.end()
+                          ? std::string("missing \"name\"")
+                          : "\"name\" must be an identifier (letters, digits and _, not starting with a digit, not a "
+                            "GLSL word), got " +
+                                describe_json_value(*n),
+                      "Name the pass: it defines `FA_PASS_<NAME>` (upper case) and `FA_PASS` (its index) for your "
+                      "code, e.g. "
+                      "\"outline\".");
+            } else {
+                pass.name = n->get<std::string>();
+                std::string up = pass.name;
+                for (char& ch : up) ch = char(std::toupper(static_cast<unsigned char>(ch)));
+                if (!seen.insert(up).second)
+                    error(base + "/name",
+                          "pass name \"" + pass.name + "\" is used twice (names are compared in upper case)",
+                          "Give every pass its own name.");
+            }
+            read_enum(e, base, "cull", kCulls, pass.cull);
+            read_enum(e, base, "blend", kBlends, pass.blend);
+            pass.depthWrite = pass.blend == "none";
+            if (auto d = e.find("depthTest"); d != e.end()) {
+                if (!d->is_boolean())
+                    error(base + "/depthTest", "expected true or false, got " + describe_json_value(*d),
+                          "Write \"depthTest\": false to draw over what is already there (an overlay).");
+                else
+                    pass.depthTest = d->get<bool>();
+            }
+            if (auto d = e.find("depthWrite"); d != e.end()) {
+                if (!d->is_boolean())
+                    error(base + "/depthWrite", "expected true or false, got " + describe_json_value(*d),
+                          "Write \"depthWrite\": true for a pass that hides what is behind it (the default when it "
+                          "does not "
+                          "blend).");
+                else
+                    pass.depthWrite = d->get<bool>();
+            }
+            m.passes.push_back(std::move(pass));
+        }
+    }
+
     void check_shader_path(const Json& doc, MaterialDef& m) {
         auto it = doc.find("shader");
         if (it == doc.end()) {
@@ -309,13 +529,21 @@ struct Checker {
                   "Write it from the project root, e.g. \"shaders/water.surface.glsl\".");
             return;
         }
-        if (projectDir.empty()) return;
+        // A material with a node graph has its snippet generated (material.graph.generate): it may not exist yet.
+        if (projectDir.empty() || doc.contains("graph")) return;
         std::error_code ec;
         if (!stdfs::is_regular_file(stdfs::path(projectDir) / m.shader, ec)) {
             error("/shader", "snippet '" + m.shader + "' does not exist",
-                  sibling_hint(projectDir, m.shader,
-                               "Create the file (a snippet defining void surface(in SurfaceInput i, inout Surface s)) "
-                               "or fix the path."));
+                  sibling_hint(
+                      projectDir, m.shader,
+                      m.kind == "compute"
+                          ? "Create the file (a snippet defining void compute(in ComputeInput i)) or fix the path."
+                      : (doc.contains("mode") && doc["mode"].is_string() && doc["mode"].get<std::string>() == "full")
+                          ? "Create the file (the sections @common, @vertex and @fragment, "
+                            "docs/shaders/SHADERS_FULL.md) or fix "
+                            "the path."
+                          : "Create the file (a snippet defining void surface(in SurfaceInput i, inout Surface "
+                            "s)) or fix the path."));
         }
     }
 };
@@ -332,8 +560,10 @@ MaterialParse parse_material(const Json& doc, const std::string& projectDir, con
                 "\"shaders/x.surface.glsl\", ...}.");
         return std::move(c.out);
     }
-    static const std::vector<std::string> topKeys = {"$schema",   "format",      "doc",    "shader",  "lighting",
-                                                     "alphaMode", "doubleSided", "params", "textures"};
+    static const std::vector<std::string> topKeys = {
+        "$schema",     "format",           "doc",      "kind",   "shader",    "lighting",      "alphaMode",
+        "doubleSided", "params",           "textures", "graph",  "graphHash", "workgroupSize", "buffers",
+        "images",      "vertexAttributes", "mode",     "passes", "shadow",    "prepass"};
     for (auto it = doc.begin(); it != doc.end(); ++it)
         if (std::find(topKeys.begin(), topKeys.end(), it.key()) == topKeys.end())
             c.error("/" + escape_token(it.key()), "unknown key \"" + it.key() + "\"", did_you_mean(it.key(), topKeys));
@@ -347,6 +577,7 @@ MaterialParse parse_material(const Json& doc, const std::string& projectDir, con
                 std::string("Use \"") + kMaterialFormat + "\".");
 
     c.read_string(doc, "", "doc", m.doc);
+    c.read_enum(doc, "", "kind", material_kind_names(), m.kind);
     c.check_shader_path(doc, m);
     c.read_enum(doc, "", "lighting", kLightings, m.lighting);
     c.read_enum(doc, "", "alphaMode", kAlphaModes, m.alphaMode);
@@ -367,7 +598,7 @@ MaterialParse parse_material(const Json& doc, const std::string& projectDir, con
             for (auto it = p->begin(); it != p->end(); ++it) {
                 MaterialParam param;
                 const std::string ptr = "/params/" + escape_token(it.key());
-                const bool nameOk = c.check_name(ptr, it.key(), "param");
+                const bool nameOk = c.check_name(ptr, it.key(), "param", m.kind);
                 c.check_param(it.key(), it.value(), param);
                 if (nameOk) {
                     if (!taken.insert(it.key()).second)
@@ -386,13 +617,17 @@ MaterialParse parse_material(const Json& doc, const std::string& projectDir, con
             if (int(t->size()) > kMaterialMaxTextures)
                 c.error("/textures",
                         std::to_string(t->size()) + " textures, at most " + std::to_string(kMaterialMaxTextures) +
-                            " (the engine already binds 6 texture units of the 16 that GLES3 and WebGL2 guarantee, and "
-                            "materials get the next 4)",
+                            " (the engine already binds " +
+                            (m.kind == "sprite" ? "4"
+                             : m.kind == "sky"  ? "0"
+                             : m.kind == "post" ? "2"
+                                                : "6") +
+                            " texture units of the 16 that GLES3 and WebGL2 guarantee, and materials get the next 4)",
                         "Pack masks into the channels of one texture (r = foam, g = height...) or remove a texture.");
             for (auto it = t->begin(); it != t->end(); ++it) {
                 MaterialTexture tex;
                 const std::string ptr = "/textures/" + escape_token(it.key());
-                const bool nameOk = c.check_name(ptr, it.key(), "texture");
+                const bool nameOk = c.check_name(ptr, it.key(), "texture", m.kind);
                 c.check_texture(it.key(), it.value(), tex);
                 if (nameOk) {
                     if (!taken.insert(it.key()).second)
@@ -407,8 +642,49 @@ MaterialParse parse_material(const Json& doc, const std::string& projectDir, con
         }
     }
 
+    // Kind "compute": workgroupSize and buffers (shaders_compute.cpp); on another kind they are errors.
+    shaders_detail::parse_compute_fields(
+        doc, m, c.out.errors, taken, [&c, &m](const std::string& pointer, const std::string& name, const char* what) {
+            return c.check_name(pointer, name, what, m.kind);
+        });
+
+    // A post pass reads the picture and writes a picture: none of the keys of a surface that is drawn into the scene applies.
+    if (m.kind == "post") {
+        auto refuse = [&](const char* key, const std::string& why) {
+            if (doc.contains(key))
+                c.error(std::string("/") + key,
+                        std::string("\"") + key + "\" does not apply to a post material: " + why,
+                        std::string("Remove \"") + key +
+                            "\" from the material. A post material is one full-screen pass of the post-processing "
+                            "stack (PostProcess.customPasses); write post(in PostInput i, inout PostSurface s) and "
+                            "read the picture with s.color or fa_scene_color(uv).");
+        };
+        refuse("lighting", "the pass is not lit, it reads the finished picture (use a mesh material for light())");
+        refuse("alphaMode", "the pass replaces the colour of the pixels it covers, it has no alpha test or blending");
+        refuse("doubleSided", "there is no geometry: the pass draws one full-screen triangle");
+    }
     // alphaMode "clip": the cutoff is a param of the material, implicit unless declared (see the header).
-    if (m.alphaMode == "clip") {
+    if (m.lighting == "custom" && m.kind == "sprite")
+        c.error("/lighting",
+                "lighting \"custom\" (the light() hook) is for mesh materials; the 2D pipeline lights sprites itself",
+                "Remove \"lighting\" (a sprite ignores \"pbr\" and \"unlit\") and change what the lights give in "
+                "fragment(), "
+                "or use a mesh material (kind \"mesh\") for a custom light loop.");
+    if (m.lighting == "custom" && m.kind == "sky")
+        c.error(
+            "/lighting", "lighting \"custom\" (the light() hook) is for mesh materials; a sky is not lit",
+            "Remove \"lighting\" (a sky ignores \"pbr\" and \"unlit\"): sky() computes the colour of the background "
+            "itself, from the view direction.");
+    if ((m.alphaMode == "clip" || m.alphaMode == "blend") && m.kind == "sky")
+        c.error(
+            "/alphaMode",
+            "alphaMode \"" + m.alphaMode + "\" means nothing for a sky material: the sky is the opaque background",
+            "Remove \"alphaMode\" (a sky is always opaque; its sky() returns an RGB colour). doubleSided is ignored.");
+    else if (m.alphaMode == "clip" && m.kind == "sprite") {
+        c.error("/alphaMode", "alphaMode \"clip\" is the mesh template's alpha test; a sprite material has none",
+                "Remove alphaMode (a sprite is always blended) and write `if (s.color.a < 0.5) discard;` in "
+                "fragment() where you want a cut-out.");
+    } else if (m.alphaMode == "clip" && m.kind != "post") {
         auto declared = std::find_if(m.params.begin(), m.params.end(),
                                      [](const MaterialParam& p) { return p.name == kMaterialAlphaCutoff; });
         if (declared == m.params.end()) {
@@ -428,11 +704,13 @@ MaterialParse parse_material(const Json& doc, const std::string& projectDir, con
                     "Declare it as \"type\": \"float\", or remove it to get the default (0.5, range 0..1).");
         }
     }
-    if (int(m.params.size()) > kMaterialMaxParams) {
+    const int blockParams =
+        int(std::count_if(m.params.begin(), m.params.end(), [](const MaterialParam& p) { return !p.instanced; }));
+    if (blockParams > kMaterialMaxParams) {
         bool implicit =
             std::any_of(m.params.begin(), m.params.end(), [](const MaterialParam& p) { return p.implicit; });
         c.error("/params",
-                std::to_string(m.params.size()) + " params" +
+                std::to_string(blockParams) + " params" +
                     (implicit ? " (including the implicit alphaCutoff of alphaMode \"clip\")" : "") + ", at most " +
                     std::to_string(kMaterialMaxParams) + " (each is padded to a vec4 of the 256-byte uniform block)",
                 "Merge related floats into vec2, vec3 or vec4 params, or drop the ones the snippet does not need.");
@@ -441,6 +719,89 @@ MaterialParse parse_material(const Json& doc, const std::string& projectDir, con
               [](const MaterialParam& a, const MaterialParam& b) { return a.name < b.name; });
     std::sort(m.textures.begin(), m.textures.end(),
               [](const MaterialTexture& a, const MaterialTexture& b) { return a.name < b.name; });
+    // The instance buffer exists in the mesh pipeline (a value per entity) and the 2D quad pipeline (a value per quad); the extra
+    // mesh channels only in the mesh pipeline. In any other kind the snippet would silently read 0, so the file is refused.
+    const bool instancing = m.kind == "mesh" || m.kind == "sprite";
+    if (!instancing) {
+        for (const MaterialParam& p : m.params)
+            if (p.instanced)
+                c.error("/params/" + escape_token(p.name) + "/instanced",
+                        "only mesh and sprite materials support instanced params, and this material is kind \"" +
+                            m.kind + "\"",
+                        "Remove \"instanced\" from this param (a " + m.kind +
+                            " material gets one value per draw from its params), or change \"kind\" to \"mesh\" or "
+                            "\"sprite\".");
+    }
+    if (m.kind != "mesh" && doc.contains("vertexAttributes"))
+        c.error("/vertexAttributes",
+                "only mesh materials support vertexAttributes, and this material is kind \"" + m.kind + "\"",
+                "Remove \"vertexAttributes\": only a mesh has the uv1 and color1 channels a material can read.");
+    if (const InstanceLayout layout = instance_layout(m.params);
+        instancing && layout.vec4Count > kMaterialMaxInstanceVec4) {
+        std::string names;
+        for (const MaterialParam& p : m.params)
+            if (p.instanced) names += (names.empty() ? "" : ", ") + p.name + " (" + p.type + ")";
+        c.error("/params",
+                "the instanced params need " + std::to_string(layout.vec4Count) + " vec4 per instance, at most " +
+                    std::to_string(kMaterialMaxInstanceVec4) + " (12 floats): " + names,
+                std::string("Make some of them not instanced (") + (m.kind == "sprite" ? "sprites" : "entities") +
+                    " with different values then split the batch), or use fewer components: floats and small vectors "
+                    "share a vec4 (a vec3 and a float fit in one), a vec4 takes a whole one.");
+    }
+    if (auto v = doc.find("vertexAttributes"); v != doc.end() && m.kind == "mesh") {
+        const auto& names = material_vertex_attribute_names();
+        if (!v->is_array()) {
+            c.error("/vertexAttributes", "expected an array of names, got " + describe_json_value(*v),
+                    "Write \"vertexAttributes\": [\"uv1\"]; the names are " + join(names, ", ") + ".");
+        } else {
+            for (size_t i = 0; i < v->size(); ++i) {
+                const std::string ptr = "/vertexAttributes/" + std::to_string(i);
+                const Json& e = (*v)[i];
+                if (!e.is_string()) {
+                    c.error(ptr, "expected a name, got " + describe_json_value(e),
+                            "Use one of: " + join(names, ", ") + ".");
+                    continue;
+                }
+                const std::string name = e.get<std::string>();
+                if (std::find(names.begin(), names.end(), name) == names.end())
+                    c.error(ptr, "unknown vertex attribute \"" + name + "\"",
+                            did_you_mean(name, names) +
+                                " The mesh channels beyond position, normal, uv, tangent and color a material can read "
+                                "are uv1 (glTF TEXCOORD_1) and color1 (glTF COLOR_1).");
+                else if (std::find(m.vertexAttributes.begin(), m.vertexAttributes.end(), name) !=
+                         m.vertexAttributes.end())
+                    c.error(ptr, "\"" + name + "\" is listed twice", "Remove the duplicate.");
+                else
+                    m.vertexAttributes.push_back(name);
+            }
+        }
+        std::sort(m.vertexAttributes.begin(), m.vertexAttributes.end());
+    }
+    c.read_full(doc, m);
+    if (m.full && !m.buffers.empty()) {
+        // The engine's own depth programs (the shadow "depth" and the prepass) draw the one base mesh, not the instances a
+        // buffer describes, so a full material with buffers draws its own shadow or none, and stays out of the prepass.
+        if (m.shadow == "depth")
+            c.error("/shadow",
+                    "a full-shader material with \"buffers\" cannot use the engine's depth shadow (\"depth\", the "
+                    "default): it "
+                    "would draw one mesh, not MeshRenderer.instances of them",
+                    "Write \"shadow\": \"custom\" (the first pass is compiled again for the shadow map, so its vertex "
+                    "stage draws the instances there too) or "
+                    "\"shadow\": \"none\".");
+        auto p = doc.find("prepass");
+        if (p == doc.end())
+            m.prepass = false;
+        else if (p->is_boolean() && p->get<bool>())
+            c.error(
+                "/prepass",
+                "a full-shader material with \"buffers\" cannot enter the engine's depth and normal prepass: that "
+                "program "
+                "draws one mesh, not MeshRenderer.instances of them",
+                "Write \"prepass\": false (post effects that read the depth then do not see this material), or remove "
+                "the key.");
+    }
+    c.read_graph(doc, m);
     return std::move(c.out);
 }
 

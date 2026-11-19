@@ -101,6 +101,15 @@ std::vector<std::string> list_asset_files(const std::string& projectDir, std::st
                                           std::size_t limit = 2000);
 
 // ---------------------------------------------------------------------------------------------- material params
+// The material fields of any component: `material` + `materialParams` (MeshRenderer, Sprite, Shape2D, Tilemap, Text,
+// ParticleEmitter, every UI widget) and `skyMaterial` + `skyMaterialParams` (SceneSettings). The material field that
+// goes with a params field ("" when `field` is not a params field), and whether a field is a material path.
+std::string material_field_of_params(std::string_view paramsField);
+bool is_material_field(std::string_view field);
+// The name of one control of a params block ("matparam" for the value, "matreset" for its Reset button) of `param` on
+// `component`: the coalescing key of its edits, its error slot and its autotest widget ("insp:" + this) all start with
+// the component, so two components of one entity that both have material params (Sprite and Text) never share them.
+std::string material_param_key(std::string_view component, std::string_view kind, std::string_view param);
 // One entry of material.info's `params`.
 struct MaterialParamSpec {
     std::string name;
@@ -117,8 +126,12 @@ Result<std::vector<MaterialParamSpec>> material_params_from_info(const Json& inf
 Json material_param_value(const MaterialParamSpec& p, const Json& overrides);
 bool material_param_overridden(const MaterialParamSpec& p, const Json& overrides);
 // scene.set_component arguments that set / reset (null = back to the default) one param, with merge: true.
-Json material_param_edit_args(const std::string& entityId, const MaterialParamSpec& p, const Json& value);
-Json material_param_reset_args(const std::string& entityId, const MaterialParamSpec& p);
+Json material_param_edit_args(const std::string& entityId, const MaterialParamSpec& p, const Json& value,
+                              const std::string& component = "MeshRenderer",
+                              const std::string& paramsField = "materialParams");
+Json material_param_reset_args(const std::string& entityId, const MaterialParamSpec& p,
+                               const std::string& component = "MeshRenderer",
+                               const std::string& paramsField = "materialParams");
 // The build error of `materialPath` in Renderer::asset_report() ("" when it builds or is not loaded yet).
 std::string material_build_error(const Json& assetReport, const std::string& materialPath);
 
