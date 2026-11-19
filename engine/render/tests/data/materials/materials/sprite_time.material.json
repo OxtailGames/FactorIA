@@ -1,0 +1,6 @@
+{
+  "format": "factoria.material/1",
+  "kind": "sprite",
+  "doc": "Test fixture: red that follows the engine clock (QuadInput.time).",
+  "shader": "shaders/sprite_time.fragment.glsl"
+}

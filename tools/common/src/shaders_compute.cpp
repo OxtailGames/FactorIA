@@ -56,8 +56,9 @@ void error(std::vector<MaterialIssue>& errors, std::string pointer, std::string 
 void parse_workgroup(const Json& doc, MaterialDef& m, std::vector<MaterialIssue>& errors) {
     auto it = doc.find("workgroupSize");
     if (it == doc.end()) return;
-    const char* hint = "Write \"workgroupSize\": [64, 1, 1] (x, y, z; z and y may be left out). 64 threads in x is a good "
-                       "start for a 1D job, [8, 8, 1] for an image.";
+    const char* hint =
+        "Write \"workgroupSize\": [64, 1, 1] (x, y, z; z and y may be left out). 64 threads in x is a good "
+        "start for a 1D job, [8, 8, 1] for an image.";
     if (!it->is_array() || it->empty() || it->size() > 3) {
         error(errors, "/workgroupSize", "expected an array of 1 to 3 integers, got " + describe_json_value(*it), hint);
         return;
@@ -79,15 +80,24 @@ void parse_workgroup(const Json& doc, MaterialDef& m, std::vector<MaterialIssue>
         }
     }
     if (!good) return;
+    if (size[2] > kComputeMaxWorkgroupZ) {  // D3D11's numthreads and the GL minimum limit z (but not x or y) to 64
+        error(errors, "/workgroupSize/2",
+              "z is " + std::to_string(size[2]) + ", at most " + std::to_string(kComputeMaxWorkgroupZ) +
+                  " (the limit of Direct3D 11 and the minimum every OpenGL driver guarantees)",
+              "Use a smaller z, or spread the threads over x and y: [8, 8, 1] or [4, 4, 4].");
+        return;
+    }
     if (size[0] * size[1] * size[2] > kComputeMaxWorkgroupInvocations) {
         error(errors, "/workgroupSize",
               "the workgroup has " + std::to_string(size[0] * size[1] * size[2]) + " threads (" +
                   std::to_string(size[0]) + " x " + std::to_string(size[1]) + " x " + std::to_string(size[2]) +
                   "), at most " + std::to_string(kComputeMaxWorkgroupInvocations),
-              "Use a smaller workgroup; dispatch more workgroups to cover the work (the dispatch counts groups, not threads).");
+              "Use a smaller workgroup; dispatch more workgroups to cover the work (the dispatch counts groups, not "
+              "threads).");
         return;
     }
-    if ((size[0] * size[1] * size[2]) % 32 != 0) {  // sokol-shdc refuses any other product (a hardware wave is 32 threads)
+    if ((size[0] * size[1] * size[2]) % 32 !=
+        0) {  // sokol-shdc refuses any other product (a hardware wave is 32 threads)
         error(errors, "/workgroupSize",
               "the workgroup has " + std::to_string(size[0] * size[1] * size[2]) + " threads (" +
                   std::to_string(size[0]) + " x " + std::to_string(size[1]) + " x " + std::to_string(size[2]) +
@@ -114,7 +124,8 @@ void parse_field(const Json& f, const std::string& ptr, MaterialBuffer& buffer, 
     MaterialBufferField field;
     bool ok = true;
     if (auto n = f.find("name"); n == f.end() || !n->is_string()) {
-        error(errors, ptr + "/name", n == f.end() ? "missing \"name\"" : "expected a string, got " + describe_json_value(*n),
+        error(errors, ptr + "/name",
+              n == f.end() ? "missing \"name\"" : "expected a string, got " + describe_json_value(*n),
               "Name the field like a GLSL variable, e.g. \"pos\"; the snippet reads it as <buffer>.data[i].pos.");
         ok = false;
     } else {
@@ -130,8 +141,8 @@ void parse_field(const Json& f, const std::string& ptr, MaterialBuffer& buffer, 
     if (auto t = f.find("type"); t == f.end()) {
         error(errors, ptr + "/type", "missing \"type\"", "Use one of: " + join(kFieldTypes, ", ") + ".");
         ok = false;
-    } else if (!t->is_string() || std::find(kFieldTypes.begin(), kFieldTypes.end(), t->get<std::string>()) ==
-                                      kFieldTypes.end()) {
+    } else if (!t->is_string() ||
+               std::find(kFieldTypes.begin(), kFieldTypes.end(), t->get<std::string>()) == kFieldTypes.end()) {
         error(errors, ptr + "/type",
               std::string("unknown field type ") +
                   (t->is_string() ? "\"" + t->get<std::string>() + "\"" : describe_json_value(*t)),
@@ -162,7 +173,8 @@ void parse_buffers(const Json& doc, MaterialDef& m, std::vector<MaterialIssue>& 
     if (int(bs->size()) > kComputeMaxBuffers)
         error(errors, "/buffers",
               std::to_string(bs->size()) + " buffers, at most " + std::to_string(kComputeMaxBuffers) +
-                  " (the uniform block, the textures and the buffers share the binding slots of every GPU the shader runs on)",
+                  " (the uniform block, the textures and the buffers share the binding slots of every GPU the shader "
+                  "runs on)",
               "Put the arrays that are always read together into one buffer with more fields.");
     static const std::vector<std::string> keys = {"doc", "access", "fields"};
     for (auto it = bs->begin(); it != bs->end(); ++it) {
@@ -173,7 +185,8 @@ void parse_buffers(const Json& doc, MaterialDef& m, std::vector<MaterialIssue>& 
         const Json& b = it.value();
         if (!b.is_object()) {
             error(errors, ptr, "expected an object, got " + describe_json_value(b),
-                  "Write \"" + it.key() + "\": {\"access\": \"readWrite\", \"fields\": [{\"name\": \"pos\", \"type\": \"vec3\"}]}.");
+                  "Write \"" + it.key() +
+                      "\": {\"access\": \"readWrite\", \"fields\": [{\"name\": \"pos\", \"type\": \"vec3\"}]}.");
             continue;
         }
         for (auto k = b.begin(); k != b.end(); ++k)
@@ -184,7 +197,8 @@ void parse_buffers(const Json& doc, MaterialDef& m, std::vector<MaterialIssue>& 
             if (d->is_string())
                 buffer.doc = d->get<std::string>();
             else
-                error(errors, ptr + "/doc", "expected a string, got " + describe_json_value(*d), "Write \"doc\": \"...\".");
+                error(errors, ptr + "/doc", "expected a string, got " + describe_json_value(*d),
+                      "Write \"doc\": \"...\".");
         }
         if (auto a = b.find("access"); a != b.end()) {
             if (!a->is_string() ||
@@ -201,7 +215,8 @@ void parse_buffers(const Json& doc, MaterialDef& m, std::vector<MaterialIssue>& 
         if (fs == b.end() || !fs->is_array() || fs->empty()) {
             error(errors, ptr + "/fields",
                   fs == b.end() ? "missing \"fields\"" : "expected a non-empty array, got " + describe_json_value(*fs),
-                  "List what one element holds: \"fields\": [{\"name\": \"pos\", \"type\": \"vec3\"}, {\"name\": \"life\", "
+                  "List what one element holds: \"fields\": [{\"name\": \"pos\", \"type\": \"vec3\"}, {\"name\": "
+                  "\"life\", "
                   "\"type\": \"float\"}]. The buffer is an array of these.");
         } else {
             if (int(fs->size()) > kComputeMaxBufferFields)
@@ -215,9 +230,10 @@ void parse_buffers(const Json& doc, MaterialDef& m, std::vector<MaterialIssue>& 
         // The generated GLSL names the element struct `<name>_item`: it shares the namespace of params and textures.
         for (const std::string& taker : {it.key(), it.key() + "_item"})
             if (!taken.insert(taker).second)
-                error(errors, ptr, "name \"" + taker + "\" is used twice",
-                      "Buffer, param and texture names share one namespace (a buffer also takes <name>_item, the type of "
-                      "its elements).");
+                error(
+                    errors, ptr, "name \"" + taker + "\" is used twice",
+                    "Buffer, param and texture names share one namespace (a buffer also takes <name>_item, the type of "
+                    "its elements).");
         layout_buffer(buffer);
         m.buffers.push_back(std::move(buffer));
     }

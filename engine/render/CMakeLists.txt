@@ -16,7 +16,9 @@ fa_embed_files(fa_render fa_render_fonts embedded_fonts
 # test compares both). The mesh list is the file set the hash was computed from before kinds existed, so its value did not
 # change.
 set(FA_TEMPLATE_FILES_MESH mesh_common.glsl)
-set(FA_TEMPLATE_FILES_SPRITE quad_common.glsl)
+# The sprite template @includes color_space.glsl and light_shadow.glsl (the other programs that use them include them too), so a
+# change to either one changes the sprite hash.
+set(FA_TEMPLATE_FILES_SPRITE color_space.glsl light_shadow.glsl quad_common.glsl)
 set(FA_TEMPLATE_FILES_SKY sky_common.glsl)
 set(FA_TEMPLATE_FILES_POST post_common.glsl)
 set(FA_TEMPLATE_FILES_COMPUTE compute_common.glsl)
@@ -36,7 +38,10 @@ foreach(kind MESH SPRITE SKY POST COMPUTE)
     else()
         string(SHA256 FA_TEMPLATE_HASH_${kind} "${list}")
     endif()
-    list(APPEND FA_TEMPLATE_DEFINITIONS "FA_TEMPLATE_HASH_${kind}=\"${FA_TEMPLATE_HASH_${kind}}\"")
+    # A kind without a template (compute) defines nothing: an empty quoted define is not portable (material_template_hash returns {}).
+    if(NOT list STREQUAL "")
+        list(APPEND FA_TEMPLATE_DEFINITIONS "FA_TEMPLATE_HASH_${kind}=\"${FA_TEMPLATE_HASH_${kind}}\"")
+    endif()
 endforeach()
 set_source_files_properties(src/custom_shader.cpp PROPERTIES COMPILE_DEFINITIONS "${FA_TEMPLATE_DEFINITIONS}")
 

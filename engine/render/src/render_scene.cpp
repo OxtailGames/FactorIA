@@ -110,7 +110,20 @@ void RenderScene::build(World& world, Assets& assets, Entity scopeRoot, bool wan
         const MeshRenderer& mr = *sm.mr;
         sm.mesh = assets.mesh(mr.mesh);
         sm.tex = mr.texture.empty() ? nullptr : assets.texture(mr.texture);
-        sm.material = mr.material.empty() ? nullptr : assets.mesh_material(mr.material);
+        sm.material = mr.material.empty() ? nullptr : assets.material(mr.material);
+        if (sm.material && sm.material->ok && sm.material->kind != MaterialKind::Mesh) {
+            // A mesh is drawn with the programs of a mesh material only: a sprite material (quad programs) would be bound to a
+            // vertex layout it was not made for, and a compute material has no draw program. The mesh is drawn with the
+            // engine's own shader.
+            if (sm.material->warned.insert("\x01kind").second)
+                FA_WARN(
+                    "render",
+                    "MeshRenderer.material '{}' is a \"{}\" material: only \"mesh\" materials draw a MeshRenderer, so "
+                    "the engine's own shader is used (a \"sprite\" material is for the 2D quad pipeline, a \"compute\" "
+                    "one for the compute.* commands)",
+                    mr.material, material_kind_name(sm.material->kind));
+            sm.material = nullptr;
+        }
         sm.normalTex = mr.normalMap.empty() ? nullptr : assets.texture(mr.normalMap);
         sm.hasLods = !mr.lods.empty();
         sm.liveTextures = Assets::is_target_id(mr.texture) || Assets::is_target_id(mr.normalMap);

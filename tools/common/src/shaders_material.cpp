@@ -14,6 +14,7 @@ namespace fa {
 namespace stdfs = std::filesystem;
 using shaders_detail::is_identifier;
 using shaders_detail::is_reserved_word;
+using shaders_detail::template_globals;
 using tooling_detail::escape_token;
 
 int MaterialParam::components() const {
@@ -31,7 +32,7 @@ std::string MaterialIssue::to_string() const {
 
 namespace {
 
-const std::vector<std::string> kLightings = {"pbr", "unlit"};
+const std::vector<std::string> kLightings = {"pbr", "unlit", "custom"};
 const std::vector<std::string> kAlphaModes = {"opaque", "clip", "blend"};
 const std::vector<std::string> kParamTypes = {"float", "vec2", "vec3", "vec4", "color"};
 const std::vector<std::string> kSamplers = {"linear", "linearRepeat", "nearest", "nearestRepeat"};
@@ -91,7 +92,7 @@ struct Checker {
     }
 
     // The rule for names of params and textures; true when `name` is fine.
-    bool check_name(const std::string& pointer, const std::string& name, const char* what) {
+    bool check_name(const std::string& pointer, const std::string& name, const char* what, const std::string& kind) {
         if (!is_identifier(name)) {
             error(pointer,
                   std::string(what) + " name \"" + name +
@@ -114,11 +115,37 @@ struct Checker {
                   "Rename it, e.g. \"waveHeight\".");
             return false;
         }
-        if (is_reserved_word(name)) {
+        if (name == "noise") {
+            error(pointer,
+                  std::string(what) +
+                      " name \"noise\" breaks sokol-shdc (it reports \"no binding found for texture ''\"), "
+                      "so no material can use it",
+                  "Name it for what it holds, e.g. \"noiseMap\" or \"mask\".");
+            return false;
+        }
+        if (is_reserved_word(name) || (out.material.lighting == "custom" && (name == "light" || name == "ambient"))) {
             error(pointer,
                   std::string(what) + " name \"" + name +
                       "\" is a GLSL keyword or a name of the snippet contract, so it cannot be a variable",
                   "Rename it, e.g. \"" + name + "Value\".");
+            return false;
+        }
+        // The unprefixed names of the kind's own program (sprite: its vertex inputs, varyings, textures, uniform blocks and
+        // helpers) share one flat namespace with the snippet and the params: taking one redefines it.
+        const auto& globals = template_globals(kind);
+        const std::string sampler = std::string(what) == "texture" ? name + "_smp" : std::string();
+        const bool takesName = globals.count(name) > 0, takesSampler = !sampler.empty() && globals.count(sampler) > 0;
+        if (takesName || takesSampler) {
+            const std::string suffix = std::string(what) == "texture" ? "Map" : "Value";
+            error(pointer,
+                  std::string(what) + " name \"" + name + "\" is " +
+                      (takesName ? "a name" : "the base of the name \"" + sampler + "\"") +
+                      " of the engine's 2D program (quad_common.glsl: its vertex inputs, varyings, textures, "
+                      "uniform blocks and helper functions are not prefixed), and a " +
+                      what + " becomes a global variable next to them, so " + kind + " materials cannot take it",
+                  "Rename it, e.g. \"" + name + suffix +
+                      "\". The names of the 2D program are listed in "
+                      "engine/render/shaders/quad_common.glsl and color_space.glsl / light_shadow.glsl.");
             return false;
         }
         return true;
@@ -396,7 +423,7 @@ MaterialParse parse_material(const Json& doc, const std::string& projectDir, con
             for (auto it = p->begin(); it != p->end(); ++it) {
                 MaterialParam param;
                 const std::string ptr = "/params/" + escape_token(it.key());
-                const bool nameOk = c.check_name(ptr, it.key(), "param");
+                const bool nameOk = c.check_name(ptr, it.key(), "param", m.kind);
                 c.check_param(it.key(), it.value(), param);
                 if (nameOk) {
                     if (!taken.insert(it.key()).second)
@@ -415,13 +442,13 @@ MaterialParse parse_material(const Json& doc, const std::string& projectDir, con
             if (int(t->size()) > kMaterialMaxTextures)
                 c.error("/textures",
                         std::to_string(t->size()) + " textures, at most " + std::to_string(kMaterialMaxTextures) +
-                            " (the engine already binds 6 texture units of the 16 that GLES3 and WebGL2 guarantee, and "
-                            "materials get the next 4)",
+                            " (the engine already binds " + (m.kind == "sprite" ? "4" : "6") +
+                            " texture units of the 16 that GLES3 and WebGL2 guarantee, and materials get the next 4)",
                         "Pack masks into the channels of one texture (r = foam, g = height...) or remove a texture.");
             for (auto it = t->begin(); it != t->end(); ++it) {
                 MaterialTexture tex;
                 const std::string ptr = "/textures/" + escape_token(it.key());
-                const bool nameOk = c.check_name(ptr, it.key(), "texture");
+                const bool nameOk = c.check_name(ptr, it.key(), "texture", m.kind);
                 c.check_texture(it.key(), it.value(), tex);
                 if (nameOk) {
                     if (!taken.insert(it.key()).second)
@@ -437,13 +464,24 @@ MaterialParse parse_material(const Json& doc, const std::string& projectDir, con
     }
 
     // Kind "compute": workgroupSize and buffers (shaders_compute.cpp); on another kind they are errors.
-    shaders_detail::parse_compute_fields(doc, m, c.out.errors, taken,
-                                         [&c](const std::string& pointer, const std::string& name, const char* what) {
-                                             return c.check_name(pointer, name, what);
-                                         });
+    shaders_detail::parse_compute_fields(
+        doc, m, c.out.errors, taken, [&c, &m](const std::string& pointer, const std::string& name, const char* what) {
+            return c.check_name(pointer, name, what, m.kind);
+        });
 
     // alphaMode "clip": the cutoff is a param of the material, implicit unless declared (see the header).
-    if (m.alphaMode == "clip") {
+    if (m.lighting == "custom" && m.kind == "sprite")
+        c.error("/lighting",
+                "lighting \"custom\" (the light() hook) is for mesh materials; the 2D pipeline lights sprites itself",
+                "Remove \"lighting\" (a sprite ignores \"pbr\" and \"unlit\") and change what the lights give in "
+                "fragment(), "
+                "or use a mesh material (kind \"mesh\") for a custom light loop.");
+    if (m.alphaMode == "clip" && m.kind == "sprite") {
+        c.error("/alphaMode", "alphaMode \"clip\" is the mesh template's alpha test; a sprite material has none",
+                "Use \"blend\" (the default look of a sprite) and write `if (s.color.a < 0.5) discard;` in fragment() "
+                "where "
+                "you want a cut-out.");
+    } else if (m.alphaMode == "clip") {
         auto declared = std::find_if(m.params.begin(), m.params.end(),
                                      [](const MaterialParam& p) { return p.name == kMaterialAlphaCutoff; });
         if (declared == m.params.end()) {

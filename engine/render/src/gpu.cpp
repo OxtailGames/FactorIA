@@ -297,6 +297,7 @@ void Gpu::destroy_shader(sg_shader shader) {
             ++it;
         }
     }
+    failedComputePipelines_.erase(shader.id);
     sg_destroy_shader(shader);
 }
 
@@ -340,6 +341,7 @@ sg_pipeline Gpu::compute_pipeline(sg_shader shader) {
         ++pipelineHits_;
         return it->second.pipeline;
     }
+    if (failedComputePipelines_.count(shader.id)) return {};  // the driver refused this program already (logged once)
     sg_pipeline_desc d{};
     d.compute = true;
     d.shader = shader;
@@ -348,6 +350,7 @@ sg_pipeline Gpu::compute_pipeline(sg_shader shader) {
     if (sg_query_pipeline_state(p) != SG_RESOURCESTATE_VALID) {
         FA_ERROR("render", "failed to create a compute pipeline (the sokol log lines above have the reason)");
         sg_destroy_pipeline(p);
+        failedComputePipelines_.insert(shader.id);
         return {};
     }
     ++pipelinesMade_;
@@ -391,11 +394,12 @@ sg_pipeline Gpu::find_or_make(PipelineKey key, const TargetFormat& format, const
 }
 
 sg_pipeline Gpu::quad_pipeline(const TargetFormat& format, bool depthTest, bool lines, BlendMode blend, bool plain,
-                               bool opaque) {
+                               bool opaque, sg_shader shader) {
     PipelineKey key{0x100u | (depthTest ? 1u : 0u) | (lines ? 2u : 0u) | (std::uint32_t(blend) << 2) |
-                    (plain ? 0x10u : 0u) | (opaque ? 0x20u : 0u)};
+                        (plain ? 0x10u : 0u) | (opaque ? 0x20u : 0u),
+                    shader.id};
     sg_pipeline_desc d{};
-    d.shader = plain ? quadPlainShader_ : quad_shader_;
+    d.shader = shader.id ? shader : (plain ? quadPlainShader_ : quad_shader_);
     d.layout.attrs[ATTR_quad_quad_position].format = SG_VERTEXFORMAT_FLOAT3;
     d.layout.attrs[ATTR_quad_quad_texcoord0].format = SG_VERTEXFORMAT_FLOAT2;
     d.layout.attrs[ATTR_quad_quad_color0].format = SG_VERTEXFORMAT_UBYTE4N;

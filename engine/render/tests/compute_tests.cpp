@@ -63,9 +63,9 @@ struct ErrorLog {
     };
     std::shared_ptr<Lines> shared = std::make_shared<Lines>();
     int id;
-    ErrorLog()
-        : id(add_log_sink([l = shared](const LogEntry& e) {
-              if (e.level != LogLevel::Error) return;
+    explicit ErrorLog(LogLevel lowest = LogLevel::Error)
+        : id(add_log_sink([l = shared, lowest](const LogEntry& e) {
+              if (e.level < lowest) return;
               std::lock_guard<std::mutex> lk(l->mu);
               l->lines.push_back(e.message);
           })) {}
@@ -158,7 +158,7 @@ TEST_CASE("compute: every wrong request is refused with its place and a way out"
     }
     auto err = [](const auto& result) { return result.ok() ? std::string("<ok>") : result.error().to_string(); };
 
-    CHECK(contains(err(s.compute().create_buffer(kScale, "item", 4)), "Did you mean 'items'") );
+    CHECK(contains(err(s.compute().create_buffer(kScale, "item", 4)), "Did you mean 'items'"));
     CHECK(contains(err(s.compute().create_buffer(kScale, "items", 0)), "count: a buffer holds at least 1"));
     CHECK(contains(err(s.compute().create_buffer(kScale, "items", std::uint64_t(1) << 40)), "at most"));
     CHECK(contains(err(s.compute().create_buffer("materials/glow.material.json", "items", 4)), "not \"compute\""));
@@ -169,9 +169,20 @@ TEST_CASE("compute: every wrong request is refused with its place and a way out"
                    "/initial/0/pos: number 1 is not an array of 2 numbers"));
     CHECK(contains(err(s.compute().create_buffer(kScale, "items", 4, Json::array({Json::object({{"steps", 1.5}})}))),
                    "an integer from -2147483648"));
-    CHECK(contains(err(s.compute().create_buffer(kScale, "items", 1, Json::array({element(0, 0, 0), element(0, 0, 0)}))),
-                   "do not fit"));
+    CHECK(
+        contains(err(s.compute().create_buffer(kScale, "items", 1, Json::array({element(0, 0, 0), element(0, 0, 0)}))),
+                 "do not fit"));
     CHECK(s.compute().list().empty());  // none of the refused requests left a buffer behind
+
+    // A float with no fraction is a whole number (a script's 3 may arrive as 3.0); 1.5 stays refused (above).
+    auto whole =
+        s.compute().create_buffer(kScale, "items", 2, Json::array({Json::object({{"steps", 3.0}, {"id", 7.0}})}));
+    REQUIRE(whole.ok());
+    auto back = s.compute().read_buffer(*whole, 0, 1);
+    REQUIRE(back.ok());
+    CHECK((*back)[0]["steps"] == 3);
+    CHECK((*back)[0]["id"] == 7);
+    CHECK(s.compute().destroy_buffer(*whole).ok());
 
     auto id = s.compute().create_buffer(kScale, "items", 64);
     REQUIRE(id.ok());
@@ -204,7 +215,8 @@ TEST_CASE("compute: every wrong request is refused with its place and a way out"
     CHECK(contains(err(s.compute().read_buffer(*id, 60, 5)), "outside the buffer of 64"));
     CHECK(contains(err(s.compute().read_buffer(*id, 0, std::uint64_t(1) << 30)), "at most"));
     CHECK(contains(err(s.compute().read_buffer(77, 0, 1)), "no compute buffer 77"));
-    CHECK(contains(err(s.compute().write_buffer(*id, 63, Json::array({element(0, 0, 0), element(0, 0, 0)}))), "outside"));
+    CHECK(
+        contains(err(s.compute().write_buffer(*id, 63, Json::array({element(0, 0, 0), element(0, 0, 0)}))), "outside"));
     CHECK(contains(err(s.compute().write_buffer(*id, 0, Json::object())), "not an array"));
     CHECK(s.compute().read_buffer(*id, 64, 0)->empty());
 
@@ -234,12 +246,13 @@ TEST_CASE("compute: a backend without compute shaders is refused with its name a
         CHECK(s.compute().list().empty());
     }
     s.compute().set_backend_for_test(int(FB::Metal));
-    CHECK(s.compute().available());  // a backend with compute passes the capability check (the GPU may still say no below)
+    CHECK(s.compute()
+              .available());  // a backend with compute passes the capability check (the GPU may still say no below)
 }
 
-TEST_CASE("compute: a MeshRenderer that names a compute material is drawn as the error material and logged once") {
+TEST_CASE("compute: a MeshRenderer that names a compute material is drawn with the engine's shader and warned once") {
     ComputeScope s;
-    ErrorLog log;
+    ErrorLog log(LogLevel::Warn);
     World w;
     Entity cam = make(w, "cam", {0, 0, 4});
     auto& c = w.add<Camera>(cam);
@@ -252,10 +265,8 @@ TEST_CASE("compute: a MeshRenderer that names a compute material is drawn as the
     Image img;
     for (int i = 0; i < 3; ++i) img = s.g.render(w);
     const Color px = img.pixel(160, 90);
-    CHECK(px.r > 0.9f);  // magenta, like a material that does not build
-    CHECK(px.g < 0.1f);
-    CHECK(px.b > 0.9f);
+    CHECK_FALSE(
+        (px.r > 0.9f && px.g < 0.1f && px.b > 0.9f));  // not the magenta of a failed material: the cube is drawn
     CHECK(log.count("compute") >= 1);
-    CHECK(log.count("scale.material.json") == 1);
-    CHECK(s.g.renderer.stats().materialFallbacks.size() == 1);
+    CHECK(log.count("scale.material.json") == 1);  // once, not once per frame
 }

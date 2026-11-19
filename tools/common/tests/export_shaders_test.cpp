@@ -33,6 +33,16 @@ const char* kSnippet = R"(void surface(in SurfaceInput i, inout Surface s) {
     s.albedo = tint.rgb;
 }
 )";
+const char* kSpriteMaterial = R"({
+  "format": "factoria.material/1",
+  "kind": "sprite",
+  "shader": "shaders/flash.fragment.glsl",
+  "params": { "flash": { "type": "float", "default": 0.0, "doc": "Hit flash, 0..1." } }
+})";
+const char* kSpriteSnippet = R"(void fragment(in QuadInput i, inout QuadSurface s) {
+    s.color.rgb = mix(s.color.rgb, vec3(1.0), flash);
+}
+)";
 // Line 2 uses a name that does not exist.
 const char* kBrokenSnippet = R"(void surface(in SurfaceInput i, inout Surface s) {
     s.albedo = tnt.rgb;
@@ -81,10 +91,15 @@ struct FakeShdc {
             const auto at = std::find(o.argv.begin(), o.argv.end(), "--slang");
             if (at == o.argv.end() || at + 1 == o.argv.end()) return Error{"no --slang", ""};
             const stdfs::path work(o.workingDir);
+            // a sprite material's top file includes quad_common.glsl and declares the programs quad and quad_plain
+            const bool sprite =
+                testing::read_all(work / "top.glsl").find("@include quad_common.glsl") != std::string::npos;
+            const std::vector<const char*> programs =
+                sprite ? std::vector<const char*>{"quad", "quad_plain"} : std::vector<const char*>{"mesh", "mesh_skin"};
             std::string yaml = "shaders:\n";
             for (const std::string& slang : split(*(at + 1), ':')) {
                 yaml += "  -\n    slang: " + slang + "\n    programs:\n";
-                for (const char* program : {"mesh", "mesh_skin"}) {
+                for (const char* program : programs) {
                     yaml += std::string("      -\n        name: ") + program + "\n";
                     for (const char* stage : {"vertex", "fragment"}) {
                         const std::string file = "out/" + slang + "_" + program + "_" + stage + ".src";
@@ -169,6 +184,30 @@ TEST_CASE("export shaders: a folder holds the twins of the platform's dialects a
     CHECK(f.shdc.calls == 1);
     REQUIRE(export_project(f.options("linux")).ok());
     CHECK(f.shdc.calls == 1);
+}
+
+TEST_CASE("export shaders: a sprite material ships its twin like a mesh one, with the programs quad and quad_plain") {
+    Fixture f;
+    testing::write_all(stdfs::path(f.proj) / "materials/flash.material.json", kSpriteMaterial);
+    testing::write_all(stdfs::path(f.proj) / "shaders/flash.fragment.glsl", kSpriteSnippet);
+    auto r = export_project(f.options("linux"));
+    REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
+    const stdfs::path game = f.tmp.sub("out/shader-test-linux/game");
+    CHECK(shader_files(files_below(game)) ==
+          std::vector<std::string>{"flash.material.json.glsl430.shader", "gem.material.json.glsl430.shader"});
+    CHECK_FALSE(stdfs::exists(game / "shaders"));
+    auto twin = parse_json(testing::read_all(game / "materials/flash.material.json.glsl430.shader"));
+    REQUIRE(twin.ok());
+    CHECK((*twin)["kind"] == "sprite");
+    CHECK((*twin)["template"] == shader_template_hash("sprite"));
+    CHECK((*twin)["programs"].contains("quad"));
+    CHECK((*twin)["programs"].contains("quad_plain"));
+    CHECK((*twin)["programs"]["quad_plain"]["vs"] == "// glsl430 quad_plain vertex\n");
+    // the mesh material next to it keeps its own
+    auto gem = parse_json(testing::read_all(game / "materials/gem.material.json.glsl430.shader"));
+    REQUIRE(gem.ok());
+    CHECK_FALSE(gem->contains("kind"));
+    CHECK((*gem)["template"] == shader_template_hash("mesh"));
 }
 
 TEST_CASE("export shaders: game.pak of a release, the APK assets and the web pack hold exactly their dialects") {

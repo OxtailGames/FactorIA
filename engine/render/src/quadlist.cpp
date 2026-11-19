@@ -90,7 +90,15 @@ constexpr std::size_t kCopyGrain = 8192;
 // A vertex of `it` as the stream holds it: lit items shade every textured / circle / ring / shape quad (shader mode
 // + 16), Multiply items use the shader's multiply variant (+ 8), flashing items the flash variant (+ 32, colour in color2;
 // shapes and glyphs keep theirs). The steps run in that order, as the flags are the higher bits of the mode.
+// The error material (a sprite material that did not build): the tint turns magenta, the alpha stays.
+constexpr std::uint32_t kErrorRgb = 0x00FF00FFu;  // 0xAABBGGRR: red and blue
+
+inline bool needs_restream(const QuadItem& it) {
+    return it.lit || it.blend == BlendMode::Multiply || it.flash != 0 || (it.use && it.use->error);
+}
+
 inline Vertex2D stream_vertex(const QuadItem& it, Vertex2D v) {
+    if (it.use && it.use->error) v.color = (v.color & 0xFF000000u) | kErrorRgb;
     if (it.lit && (v.mode < float(kModeLit) || v.mode == float(kModeShape))) v.mode += 16.0f;
     if (it.blend == BlendMode::Multiply) v.mode += 8.0f;
     if (it.flash != 0) {
@@ -127,7 +135,7 @@ void QuadList::flatten(std::vector<Vertex2D>& out, std::vector<QuadBatch>& batch
         for (const QuadItem& it : items) {
             const Vertex2D* src = raw.data() + it.firstVert;
             const std::size_t n = std::size_t(it.quadCount) * 4;
-            if (it.lit || it.blend == BlendMode::Multiply || it.flash != 0) {
+            if (needs_restream(it)) {
                 for (std::size_t k = 0; k < n; ++k) out.push_back(stream_vertex(it, src[k]));
             } else {
                 out.insert(out.end(), src, src + n);
@@ -149,7 +157,7 @@ void QuadList::flatten(std::vector<Vertex2D>& out, std::vector<QuadBatch>& batch
                 const std::size_t stop = std::min(c.end, offsets_[i + 1]);
                 const Vertex2D* src = raw.data() + it.firstVert + (v - offsets_[i]);
                 Vertex2D* dst = out.data() + base + v;
-                if (it.lit || it.blend == BlendMode::Multiply || it.flash != 0) {
+                if (needs_restream(it)) {
                     for (std::size_t k = 0, n = stop - v; k < n; ++k) dst[k] = stream_vertex(it, src[k]);
                 } else {
                     std::copy(src, src + (stop - v), dst);
@@ -171,12 +179,13 @@ void QuadList::flatten(std::vector<Vertex2D>& out, std::vector<QuadBatch>& batch
             batches.back().smp == it.smp && batches.back().blend == it.blend && batches.back().clip == it.clip &&
             batches.back().lit == it.lit &&
             (!it.lit || (batches.back().tex == it.tex && batches.back().normal == it.normal)) &&
-            batches.back().opaque == opaque && batches.back().firstQuad + batches.back().quadCount == firstQuad) {
+            batches.back().opaque == opaque && batches.back().use == it.use &&
+            batches.back().firstQuad + batches.back().quadCount == firstQuad) {
             batches.back().quadCount += it.quadCount;
             batches.back().plain = batches.back().plain && plain;
         } else {
             batches.push_back(
-                {firstQuad, it.quadCount, it.tex, it.smp, it.blend, it.clip, it.lit, it.normal, plain, opaque});
+                {firstQuad, it.quadCount, it.tex, it.smp, it.blend, it.clip, it.lit, it.normal, plain, opaque, it.use});
         }
     }
 }
