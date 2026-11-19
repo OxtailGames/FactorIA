@@ -479,7 +479,7 @@ cache, hot reload, export, the runtime) is unchanged: a graph material is a mate
   changes; a node names one (`"param": "dissolve"`), the checker reports a name the material lacks with the names it has.
 - **The file is rewritten.** `material.graph.generate`, `material.param.set_default` and `material.param|texture.create|rename|delete`
   write the whole `*.material.json` again as 2-space JSON: the keys keep their order, hand formatting (alignment, blank lines) is
-  lost. Not reasonable to keep with the JSON writer, so the command descriptions say it. `create` takes an optional `index` (the
+  lost (the JSON writer keeps the key order only), and the command descriptions say so. `create` takes an optional `index` (the
   position in `params` or `textures`; the order of textures decides the slots) and `delete` returns the `index` it had, so undo
   is `create` with the returned `entry` and `index`. `create`, `rename` and `delete` load a file whose graph reads an undeclared
   param (the very error `create` fixes) and check the patched file instead; `rename` and `delete` return `warnings` when the

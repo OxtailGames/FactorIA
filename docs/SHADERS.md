@@ -199,7 +199,7 @@ complete examples.
 
 `"lighting": "custom"` hands the shading of every light to your snippet. The engine still chooses the lights, applies
 their attenuation and the shadow (the shadow map of the first directional light), adds `s.emission` and the fog; it
-calls your function once for each light that reaches the fragment and adds the results:
+calls your function once per light of its list (a point light beyond its radius too, `l.color` 0) and adds the results:
 
 ```glsl
 vec3 light(in SurfaceInput i, in Surface s, in LightSample l);        // required: the light that reaches the surface
@@ -335,7 +335,7 @@ the editor's Graph panel (View > Graph, [EDITOR.md](EDITOR.md)) edits the same J
   node uses them.
 - **Where a node can go.** Nodes that sample a texture or read the view direction (`texture`, `texture.normal`, `triplanar`,
   `parallax`, `view.dir`, `position.view`, `fresnel`) run in `surface()` only: they may not feed `vertexOffset` (the vertex
-  stage has no textures; see "Not available yet"). Each node lists the material kinds it works in; graphs are generated for
+  stage has no textures). Each node lists the material kinds it works in; graphs are generated for
   materials of kind `mesh` (today's only kind).
 - **Commands.** `material.graph.nodes` (the library), `material.graph.validate {material}` (every problem with its JSON
   pointer, what is wrong and the fix: unknown node type with a "did you mean", a link to a node or port that does not exist,
@@ -792,8 +792,8 @@ so an empty `fragment()` draws exactly the engine's own pixels, and a snippet ch
 
 What `fragment()` leaves in `s.color` goes through the engine's last steps: the `flash` of [GAME_FEEL.md](GAME_FEEL.md),
 the conversion of a `multiply` blend and the fog. `fa_sample_main(uv)` samples the item's main texture in the colour space
-of the scene (for a snippet that wants to look the picture up somewhere else); `fa_scene_rgb(c)` takes an sRGB colour of
-yours (a param of type `color`) to the scene's colour space. `fa_time` and the names of the engine's own 2D program are the
+of the scene (fragment stage only: not in `vertex()`; to look the picture up somewhere else); `fa_scene_rgb(c)` takes an
+sRGB colour of yours (a param of type `color`) to the scene's colour space, in both stages. `fa_time` and the names of the engine's own 2D program are the
 engine's: a sprite material is refused (error at `/params/<name>` or `/textures/<name>`, with a rename suggestion) when a
 param or texture takes one of them. That is every unprefixed name of `quad_common.glsl`, `color_space.glsl` and
 `light_shadow.glsl`: the vertex inputs and varyings (`position`, `color`, `uv`, `params`, `xform`...), the textures and
@@ -819,6 +819,7 @@ write them. The slots are listed in `engine/render/src/render_internal.h` (`kMat
 - `alphaMode: "clip"` is an error: a sprite is always blended by the engine. Write `if (s.color.a < 0.5) discard;` where
   you want a cut-out. `lighting` `"pbr"` and `"unlit"` and `doubleSided` mean nothing here and are ignored; `"custom"` is an
   error (there is no `light()` hook in the 2D pipeline).
+- `vertexAttributes` does not apply (a quad has no second UV or colour set): refused.
 - `vertex()` samples the material's textures as a mesh material's does ("Textures in `vertex()`": mip 0, the same names).
 - An `instanced` param is a per-quad value (at most 3 vec4, same rules as a mesh); the snippet reads it by name in
   `fragment()` and `vertex()`. A particle's instanced values are its emitter's `materialParams`, and `i.life` is the
@@ -922,7 +923,8 @@ draws exactly what it drew before.
 **Textures** work as for a mesh material (`texture(sampler2D(map, map_smp), uv)`, at most 4); the sky program binds no
 texture of its own, so a sky material's textures are views and samplers 0 and up (you never write the numbers).
 `alphaMode` (`"clip"`, `"blend"`) and `"lighting": "custom"` are errors on a sky (a sky is opaque and not lit);
-`"pbr"`, `"unlit"` and `doubleSided` are ignored.
+`"pbr"`, `"unlit"` and `doubleSided` are ignored. A sky has no instances and no vertices of its own, so `instanced` params
+and `vertexAttributes` do not apply (refused).
 
 **What the renderer does.** A material that is not of kind `"sky"`, does not exist or did not build draws the built-in
 sky: the reason is logged once, the build error with the file when it did not build, and the editor shows it under the
@@ -974,14 +976,15 @@ perspective one).
 own, an underwater tint, a heat haze, a depth-based fog, an outline from the normals). It is listed in
 `PostProcess.customPasses` next to the built-in effects, at a position you name (`"before:tonemap"` by default). Its
 snippet defines `void post(in PostInput i, inout PostSurface s)` and reads the picture, optionally the depth and the
-normals. The snippet contract, the helpers, the positions, the commands and what happens when a pass cannot be drawn are
-on the page [Post-process materials](shaders/SHADERS_POST.md).
+normals (of mesh geometry only: a sprite writes neither, it has no depth or normal to give). The snippet contract, the
+helpers, the positions, the commands and what happens when a pass cannot be drawn are on the page [Post-process materials](shaders/SHADERS_POST.md).
 
 ## Compute materials
 
 `"kind": "compute"` makes a program that runs on the GPU over storage buffers and draws nothing (particle simulations, flocking,
 flow fields). You run it with the `compute.*` commands. The snippet contract, the buffers and their std430 layout, the commands
-and where it runs (not Android or the web) are on the page [Compute materials](shaders/SHADERS_COMPUTE.md).
+and where it runs (not Android or the web, whose GPU API has no compute; the page gives the CPU path) are on the page
+[Compute materials](shaders/SHADERS_COMPUTE.md).
 
 ## Full shaders and passes
 
@@ -990,13 +993,3 @@ shader**: `"mode": "full"`, a file with a `@vertex` and a `@fragment` section, a
 own `cull`, depth test and write, and `blend`, drawn in array order). Skinning and instancing keep working. The names the
 engine gives you, the shadow and SSAO rules and worked examples (an inked outline, an x-ray, a custom light loop) are on
 the page [Full shaders and passes](shaders/SHADERS_FULL.md) (`factoria docs read shaders-full`).
-
-## Not available yet
-
-- Compute on Android and the web; per-instance params
-  in a sky or compute material and vertex channels (`vertexAttributes`) in a sprite, sky or compute material (a mesh
-  has them).
-- **Post passes** see the depth and normals of mesh geometry only (not of sprites).
-
-If a game needs one of these, write it in the game's `ENGINE_FEEDBACK.json` (see [ENGINE_FEEDBACK.md](ENGINE_FEEDBACK.md)):
-that is how it gets built.
