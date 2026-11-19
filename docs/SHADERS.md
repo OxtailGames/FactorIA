@@ -338,7 +338,10 @@ the editor's Graph panel (View > Graph, [EDITOR.md](EDITOR.md)) edits the same J
   `material.graph.generate {material, force?, dryRun?}`, which writes the snippet and `graphHash`. Run `shader.compile`
   afterwards. Both also take `graph` (a graph object) in place of the one the file holds, to check a graph that is not saved yet, or to
   store it in the material and generate from it in one call (the Graph panel's problems list and Save work this way). A param or texture name that starts with `gn_`
-  is refused: the generator keeps that prefix for its GLSL helper functions.
+  is refused: the generator keeps that prefix for its GLSL helper functions. The generator keeps the id of the node that wrote each
+  line of the snippet (the C++ `GeneratedGraph::lineNodes`), which the editor uses to paint a compiler error on its node.
+  `material.param.set_default {material, param, value}` writes one param's `default`
+  (checked like the file; nothing else changes, no snippet is generated).
 
 **The hand-edit rule.** `graphHash` is the SHA-256 of the snippet the generator wrote (line endings ignored). When you
 generate again, the command first compares the snippet on disk with it: if they differ, someone edited the generated code

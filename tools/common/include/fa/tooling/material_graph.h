@@ -76,6 +76,9 @@ struct GeneratedGraph {
     GraphCheck check;
     std::vector<std::string> usedNodes;  // ids of the nodes the snippet draws (reachable from the output), sorted
     bool hasVertex = false;              // the snippet defines vertex()
+    // Which node wrote each line of the snippet: lineNodes[n - 1] is the id of the node whose code is line n ("" for the header, the
+    // helper functions and the braces). The output node's lines name the output node. A compiler error on line n belongs to that node.
+    std::vector<std::string> lineNodes;
 };
 
 // The snippet of a graph: deterministic (the same graph gives the same bytes; positions in the editor and the order of the arrays
@@ -96,10 +99,14 @@ struct MaterialGraphReport {
     std::string hash;                    // graph_snippet_hash(snippet)
     std::vector<std::string> usedNodes;  // ids of the nodes the snippet draws, sorted
     bool hasVertex = false;
+    std::vector<std::string> lineNodes;  // as GeneratedGraph::lineNodes
     bool ok() const { return errors.empty() && hasGraph; }
 };
 MaterialGraphReport check_material_document(const Json& doc, const std::string& projectDir = {},
                                             const std::string& path = {});
+
+// The id of the node that wrote line `line` (1-based) of a generated snippet; "" when none did or the line is out of range.
+std::string graph_node_at_line(const std::vector<std::string>& lineNodes, int line);
 
 // SHA-256 (hex) of a snippet's text with the CRs removed, so a file saved with CRLF on Windows hashes like the text generated.
 std::string graph_snippet_hash(std::string_view snippet);

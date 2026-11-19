@@ -304,11 +304,27 @@ to another material with unsaved edits asks first ("Discard the graph changes?")
   and textures (they are not created here: add them to the material file or ask the AI), the constant of each unlinked input (a number, a vector or a colour), shown
   dimmed with the default when the node does not set it, **Cut** for a linked input, and **Delete node** and **Duplicate**. A selected link shows its ends and **Cut link**. A drag on a number is one undo step.
 - **Problems.** The list `material.graph.validate` gives for the document as it is now, each with its JSON pointer and the fix; a click selects the node or link it names.
-- **Preview.** A lit sphere, cube or quad drawn with the material the graph would generate, using the engine's renderer. After an edit it waits a fraction of a second, then compiles
-  on a worker thread and shows the picture, so dragging a slider never freezes the editor; a graph with problems, or a compiler error, keeps the last picture and shows the
-  message (the compiler's message names the line of the generated snippet, whose comments name the node ids). **Animate** turns the shape so the lighting and `time` change. The preview compiles through sokol-shdc
-  ([SHADERS.md](../SHADERS.md), "Compiler"): without it the panel says so and the rest still works. It shows a mesh material only (no sprite kind yet), with the
-  params at their defaults.
+- **Preview.** A lit sphere, cube or quad drawn with the material the graph would generate (what is being edited, not what is saved), using the engine's renderer. After an edit it
+  waits a fraction of a second, then compiles on a worker thread and shows the picture, so dragging a slider never freezes the editor. **Animate** turns the shape so the lighting and
+  `time` change. The preview compiles through sokol-shdc ([SHADERS.md](../SHADERS.md), "Compiler"): without it the panel says so and the rest still works. The files it writes (the
+  material and snippet it compiles and the copies the renderer loads) are in `.factoria/material-preview/`, which a new project's `.gitignore` leaves out with the rest of `.factoria/`;
+  deleting the folder is safe, the next edit makes it again. The shader compile is cached in `.factoria/shader-cache`; when that result cannot be saved (a full disk, a read-only
+  folder) the preview shows an error and does not compile on the editor's thread.
+  - **Params.** Each param of the material (`params`; the ones the generator adds itself are left out) has a slider, a drag box or a colour editor under the preview. Moving one
+    changes the PREVIEW only (`MeshRenderer.materialParams` of the scratch entity): the file is not touched, nothing compiles again, the name turns amber with "(preview only)", and
+    **Reset** puts that one back. **Reset values** resets all. The values go away when another material is opened or the param is removed. **Set as default** writes the value as
+    the param's `default` in the material file (`material.param.set_default`, one set of code with the Console and an AI) at once, without saving the graph's other unsaved edits,
+    and is one undo step (Undo writes the old default back; it refuses when the file's default is not the one the step expects).
+  - **Kinds.** A `mesh` material is drawn on the sphere, cube or quad. A `sprite` material is drawn on a 200x200 2D quad (a `Sprite` with the material and its params): it shows the
+    first texture the material declares a `default` file for, else a grey checker (written to `.factoria/material-preview/checker.png`); the shape buttons do not apply. A `sky`,
+    `post` or `compute` material is not drawn: the panel says why (a sky needs the scene around it, a post pass needs a camera's picture, a compute material draws nothing) instead of
+    drawing something wrong. (The generator writes graphs for the `mesh` kind today, so the sprite path is checked by unit tests and the others cannot reach the panel yet.)
+  - **Compare.** The **Compare** check box draws the last SAVED version of the graph (the file as it was read or saved) next to the current one, with the same shape and the same param
+    values, so you see what the edits changed. The saved version compiles on its own worker. A graph that was never saved (a draft) says so. A save, a reload and a new default make a
+    new saved version.
+  - **Errors.** A graph with problems, or a compiler error, keeps the last picture and shows the message. The generator keeps a map from every line of the snippet to the node that
+    wrote it, so when the compiler complains about such a line (its message names the line of the generated snippet) that node is painted red on the canvas with the message under it
+    (and in its tooltip); a line no node wrote (a helper, a brace) or an error of the material file stays only in the panel, whole.
 - **Save and the hand-edit rule.** If the snippet on disk is not what the graph last wrote (edited by hand, or never generated), Save asks "Overwrite the shader snippet?":
   **Overwrite** passes `force`, **Cancel** changes nothing. If the file changed on disk after the panel read it, Save says so before it overwrites it.
 - **Undo.** Every edit that is kept (a node added, moved or removed, a link, a constant, a paste) is ONE step of the editor's Undo and Redo, in order with the other panels' edits.
@@ -316,5 +332,7 @@ to another material with unsaved edits asks first ("Discard the graph changes?")
 
 **Autotest.** Section G3 of `fa_editor_autotest` (at 1024x642 too) writes a dissolve material with a one-node graph, opens it, adds three nodes from the palette (a right click
 and the search box), drags four links with the mouse, sets two constants, waits for the preview and checks that it drew pixels (a skip when there is no renderer or no
-sokol-shdc, unless `FA_REQUIRE_SHDC=1`), checks that a link the checker refuses gives its sentence, saves (the material and the snippet exist), edits the snippet by hand and checks
+sokol-shdc, unless `FA_REQUIRE_SHDC=1`), checks that a sky material is not drawn (the reason is shown), that a param override redraws the preview without touching the file or
+compiling again, that **Set as default** writes the file as one undo step (and Undo and Redo write it back and forth) and that **Compare** draws the saved version beside the current one,
+checks that a link the checker refuses gives its sentence, saves (the material and the snippet exist), edits the snippet by hand and checks
 that Save asks, that Cancel changes nothing and that Overwrite writes it, then undoes and redoes every step. The model (`graph_model.*`) has its own unit tests (`graph_tests.cpp`).

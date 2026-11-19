@@ -121,7 +121,7 @@ Profiler stay closed). Two editors open at once share the file: the last one to 
 | Animation | (View > Animation, a tab next to Console) the clips of the selected entity's Animator as a dopesheet or curves, with record mode ([Animation panel](editor/EDITOR_ANIMATION.md#animation-panel)). |
 | Bone tools | (View > Bone tools, a tab next to Inspector) draw a bone chain, bind a sprite, paint weights, drag IK targets ([Bone tools](editor/EDITOR_ANIMATION.md#bone-tools)). |
 | Scene settings | (View > Scene settings, a window) the scene's own settings (`SceneSettings`: sky colours, the sky material and its params, fog, ambient light, gravity, music, colour space) in groups, every change one undo step ([Scene settings panel](editor/EDITOR_PANELS.md#scene-settings-panel)). |
-| Graph | (View > Graph, a window) the node graph of a material: nodes and links on a canvas, a searchable palette, a live lit preview, the problems list, Save runs `material.graph.generate` ([Graph panel](editor/EDITOR_PANELS.md#graph-panel)). |
+| Graph | (View > Graph, a window) the node graph of a material: nodes and links on a canvas, a searchable palette, a live lit preview (param sliders that change only the preview with Set as default, a sprite quad, a Compare with the saved version, a compiler error painted on its node), the problems list, Save runs `material.graph.generate` ([Graph panel](editor/EDITOR_PANELS.md#graph-panel)). |
 
 Play snapshots the scene and runs the game; Stop restores the snapshot, so edits made while playing are temporary. For that
 reason the AI works in edit mode only: while the game runs (Play or Pause) its Run button is disabled ("game running: Stop it

@@ -6,6 +6,17 @@ Older versions, one file per minor version with its patch releases: [0.30](chang
 
 ## Unreleased
 
+- **Graph panel preview, complete (M72 P13b-1):** the live preview of a material graph now has param sliders (float, vec2, vec3,
+  vec4 and color: they change the PREVIEW only, nothing is written and nothing compiles again; **Reset** puts them back and
+  **Set as default** writes the value as the param's `default` in the file, as one undo step), a **Compare** check box that
+  draws the last saved version of the graph next to the current one, and a compiler error painted on the node whose generated
+  line it names (the generator keeps the id of the node that wrote each line of the snippet). A `sprite` material is drawn on a
+  2D quad (its texture, or a grey checker); `sky`, `post` and `compute` materials say why they have no preview instead of
+  drawing wrongly. New command `material.param.set_default {material, param, value, dryRun?}` writes one param's default
+  (checked like the file; it returns the `previous` value). Two fixes: a preview that was redrawn after a shape change no longer
+  turned an error back into "up to date", and a shader compile whose result could not be saved in `.factoria/shader-cache` is
+  now an error in the panel instead of running sokol-shdc on the editor's thread. `.factoria/material-preview/` (the files the
+  preview writes) is documented in the Graph panel section.
 - **Per-instance params and vertex channels for mesh materials (M72.3):** a material param marked `"instanced": true`
   takes a value per entity inside one instanced draw call: 100 entities with 100 different `tint` values are one draw, and
   the snippet reads `tint` by its name in `vertex()` and `surface()` (also in the shadow and depth prepass programs, so a
