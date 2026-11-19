@@ -145,7 +145,8 @@ struct Checker {
             return false;
         }
         if (is_reserved_word(name) || (out.material.lighting == "custom" && (name == "light" || name == "ambient")) ||
-            (kind == "sky" && name == "sky")) {  // sky(): the hook of a sky material, an ordinary name elsewhere
+            (kind == "sky" && name == "sky") ||    // sky(): the hook of a sky material, an ordinary name elsewhere
+            (kind == "post" && name == "post")) {  // post(): the hook of a post material
             error(pointer,
                   std::string(what) + " name \"" + name +
                       "\" is a GLSL keyword or a name of the snippet contract, so it cannot be a variable",
@@ -482,6 +483,7 @@ MaterialParse parse_material(const Json& doc, const std::string& projectDir, con
                             " (the engine already binds " +
                             (m.kind == "sprite" ? "4"
                              : m.kind == "sky"  ? "0"
+                             : m.kind == "post" ? "2"
                                                 : "6") +
                             " texture units of the 16 that GLES3 and WebGL2 guarantee, and materials get the next 4)",
                         "Pack masks into the channels of one texture (r = foam, g = height...) or remove a texture.");
@@ -509,6 +511,21 @@ MaterialParse parse_material(const Json& doc, const std::string& projectDir, con
             return c.check_name(pointer, name, what, m.kind);
         });
 
+    // A post pass reads the picture and writes a picture: none of the keys of a surface that is drawn into the scene applies.
+    if (m.kind == "post") {
+        auto refuse = [&](const char* key, const std::string& why) {
+            if (doc.contains(key))
+                c.error(std::string("/") + key,
+                        std::string("\"") + key + "\" does not apply to a post material: " + why,
+                        std::string("Remove \"") + key +
+                            "\" from the material. A post material is one full-screen pass of the post-processing "
+                            "stack (PostProcess.customPasses); write post(in PostInput i, inout PostSurface s) and "
+                            "read the picture with s.color or fa_scene_color(uv).");
+        };
+        refuse("lighting", "the pass is not lit, it reads the finished picture (use a mesh material for light())");
+        refuse("alphaMode", "the pass replaces the colour of the pixels it covers, it has no alpha test or blending");
+        refuse("doubleSided", "there is no geometry: the pass draws one full-screen triangle");
+    }
     // alphaMode "clip": the cutoff is a param of the material, implicit unless declared (see the header).
     if (m.lighting == "custom" && m.kind == "sprite")
         c.error("/lighting",
@@ -531,7 +548,7 @@ MaterialParse parse_material(const Json& doc, const std::string& projectDir, con
                 "Use \"blend\" (the default look of a sprite) and write `if (s.color.a < 0.5) discard;` in fragment() "
                 "where "
                 "you want a cut-out.");
-    } else if (m.alphaMode == "clip") {
+    } else if (m.alphaMode == "clip" && m.kind != "post") {
         auto declared = std::find_if(m.params.begin(), m.params.end(),
                                      [](const MaterialParam& p) { return p.name == kMaterialAlphaCutoff; });
         if (declared == m.params.end()) {
@@ -566,32 +583,34 @@ MaterialParse parse_material(const Json& doc, const std::string& projectDir, con
               [](const MaterialParam& a, const MaterialParam& b) { return a.name < b.name; });
     std::sort(m.textures.begin(), m.textures.end(),
               [](const MaterialTexture& a, const MaterialTexture& b) { return a.name < b.name; });
-    if (m.kind != "mesh") {
-        // The instance buffer and the extra mesh channels exist only in the mesh pipeline: in any other kind the snippet
-        // would silently read 0, so the file is refused.
+    // The instance buffer exists in the mesh pipeline (a value per entity) and the 2D quad pipeline (a value per quad); the extra
+    // mesh channels only in the mesh pipeline. In any other kind the snippet would silently read 0, so the file is refused.
+    const bool instancing = m.kind == "mesh" || m.kind == "sprite";
+    if (!instancing) {
         for (const MaterialParam& p : m.params)
             if (p.instanced)
                 c.error("/params/" + escape_token(p.name) + "/instanced",
-                        "only mesh materials support instanced params, and this material is kind \"" + m.kind + "\"",
+                        "only mesh and sprite materials support instanced params, and this material is kind \"" +
+                            m.kind + "\"",
                         "Remove \"instanced\" from this param (a " + m.kind +
-                            " material gets one value per draw from materialParams), or change \"kind\" to \"mesh\".");
-        if (doc.contains("vertexAttributes"))
-            c.error("/vertexAttributes",
-                    "only mesh materials support vertexAttributes, and this material is kind \"" + m.kind + "\"",
-                    "Remove \"vertexAttributes\": only a mesh has the uv1 and color1 channels a material can read.");
+                            " material gets one value per draw from its params), or change \"kind\" to \"mesh\" or "
+                            "\"sprite\".");
     }
+    if (m.kind != "mesh" && doc.contains("vertexAttributes"))
+        c.error("/vertexAttributes",
+                "only mesh materials support vertexAttributes, and this material is kind \"" + m.kind + "\"",
+                "Remove \"vertexAttributes\": only a mesh has the uv1 and color1 channels a material can read.");
     if (const InstanceLayout layout = instance_layout(m.params);
-        m.kind == "mesh" && layout.vec4Count > kMaterialMaxInstanceVec4) {
+        instancing && layout.vec4Count > kMaterialMaxInstanceVec4) {
         std::string names;
         for (const MaterialParam& p : m.params)
             if (p.instanced) names += (names.empty() ? "" : ", ") + p.name + " (" + p.type + ")";
-        c.error(
-            "/params",
-            "the instanced params need " + std::to_string(layout.vec4Count) + " vec4 per instance, at most " +
-                std::to_string(kMaterialMaxInstanceVec4) + " (12 floats): " + names,
-            "Make some of them not instanced (entities with different values then split the batch), or use fewer "
-            "components: floats and small vectors share a vec4 (a vec3 and a float fit in one), a vec4 takes a whole "
-            "one.");
+        c.error("/params",
+                "the instanced params need " + std::to_string(layout.vec4Count) + " vec4 per instance, at most " +
+                    std::to_string(kMaterialMaxInstanceVec4) + " (12 floats): " + names,
+                std::string("Make some of them not instanced (") + (m.kind == "sprite" ? "sprites" : "entities") +
+                    " with different values then split the batch), or use fewer components: floats and small vectors "
+                    "share a vec4 (a vec3 and a float fit in one), a vec4 takes a whole one.");
     }
     if (auto v = doc.find("vertexAttributes"); v != doc.end() && m.kind == "mesh") {
         const auto& names = material_vertex_attribute_names();

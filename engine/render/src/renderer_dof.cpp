@@ -220,6 +220,19 @@ sg_pipeline SceneFx::pipeline(Prog prog, const TargetFormat& format) {
     return p;
 }
 
+bool SceneFx::copy_into(Gpu& gpu, const PassDesc& pd, sg_view src, const int* part) {
+    if (!ready() || !src.id) return false;
+    Rect r;
+    if (part) {
+        r.x = part[0];
+        r.y = part[1];
+        r.w = part[2];
+        r.h = part[3];
+        r.whole = false;
+    }
+    return draw_fullscreen(*this, gpu, Prog::Copy, pd, src, sg_view{}, sg_view{}, nullptr, 0, part ? &r : nullptr);
+}
+
 void SceneFx::forget_targets() {
     failed_.clear();
     probed_.clear();

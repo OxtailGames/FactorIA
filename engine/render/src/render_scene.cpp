@@ -154,7 +154,8 @@ void RenderScene::build(World& world, Assets& assets, Entity scopeRoot, bool wan
                     "render",
                     "MeshRenderer.material '{}' is a \"{}\" material: only \"mesh\" materials draw a MeshRenderer, so "
                     "the engine's own shader is used (a \"sprite\" material is for the 2D quad pipeline, a \"compute\" "
-                    "one for the compute.* commands)",
+                    "one for the compute.* commands, a \"sky\" one for the sky and a \"post\" one for "
+                    "PostProcess.customPasses)",
                     mr.material, material_kind_name(sm.material->kind));
             sm.material = nullptr;
         }

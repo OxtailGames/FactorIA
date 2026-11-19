@@ -255,6 +255,7 @@ void Renderer::Impl::destroy_targets() {
     ssao.release();
     sceneFx.forget_targets();
     fogFx.forget_targets();
+    customPost.forget_targets();
     if (transients) transients->pool.clear_free();  // the bloom levels are made again, at the new size
     destroy_target(lightTarget);
     lightW = lightH = 0;

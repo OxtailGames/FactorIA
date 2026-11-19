@@ -102,7 +102,7 @@ TEST_CASE("shader template: every kind's contract structs are read from its own 
         }
     }
     CHECK(shaders_detail::contract_structs("mesh")[0].second.size() == 7);  // SurfaceInput is what it was
-    // QuadInput: uv, color, world_pos, screen_uv, time, mode, custom
-    CHECK(shaders_detail::contract_structs("sprite")[0].second.size() == 7);
+    // QuadInput: uv, color, world_pos, screen_uv, time, mode, custom, life
+    CHECK(shaders_detail::contract_structs("sprite")[0].second.size() == 8);
     CHECK(shaders_detail::contract_structs("sprite")[2].second.size() == 3);  // QuadVertex: world_pos, uv, color
 }

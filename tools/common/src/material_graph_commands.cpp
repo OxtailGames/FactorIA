@@ -408,7 +408,15 @@ void register_material_graph_commands(CommandRegistry& registry, const std::stri
                 throw CommandError("not_found", m.path + " has no param \"" + param + "\" in its \"params\"",
                                    names.empty() ? "The material declares no params." : did_you_mean(param, names),
                                    Json::object({{"params", Json(names)}}));
-            Json previous = (*params)[param].value("default", Json());
+            const Json& entry = (*params)[param];
+            if (!entry.is_object())
+                throw CommandError("invalid_value",
+                                   m.path + "/params/" + tooling_detail::escape_token(param) +
+                                       ": a param is an object ({\"type\": ..., \"default\": ...}), not " +
+                                       std::string(entry.type_name()),
+                                   "Write the param as {\"type\":\"float\",\"default\":0.5}, then set its default.",
+                                   Json::object({{"pointer", "/params/" + tooling_detail::escape_token(param)}}));
+            Json previous = entry.value("default", Json());
             Json patched = m.doc;
             patched["params"][param]["default"] = *value;
             const MaterialParse mp = parse_material(patched, projectDir, m.path);

@@ -142,6 +142,8 @@ private:
         std::uint64_t revision = 0, shownRevision = 0;
         bool haveDoc = false;
         bool pending = false;  // the document is newer than the last compile: waits for the debounce, then starts one
+        std::uint64_t generation =
+            1;  // bumped when this slot's document is closed or replaced: a compile of an older one is dropped
         int quiet = 0;
         PreviewState state = PreviewState::Empty;
         std::string message;
@@ -176,8 +178,6 @@ private:
     PreviewShape shape_ = PreviewShape::Sphere;
     int compiles_ = 0;
     int animFrame_ = 0;
-    std::uint64_t generation_ =
-        1;  // bumped when the document is closed or replaced: a compile of an older one is dropped
     std::unique_ptr<World> world_;
     PreviewKind worldKind_ = PreviewKind::Unknown;
     Entity subject_ = kNullEntity;

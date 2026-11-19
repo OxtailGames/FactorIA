@@ -110,6 +110,20 @@ const char* kSpriteSnippet = R"(void fragment(in QuadInput i, inout QuadSurface 
 }
 )";
 
+// A post material: a tint (the reflection fixture shdc_post_hlsl5_glsl430.yaml is its compile).
+const char* kPostMaterial = R"({
+  "format": "factoria.material/1",
+  "kind": "post",
+  "doc": "Multiplies the picture by a colour.",
+  "shader": "shaders/tint.post.glsl",
+  "params": { "tint": { "type": "color", "default": [1.0, 0.25, 0.25, 1.0], "doc": "Multiplied into the picture." } }
+})";
+
+const char* kPostSnippet = R"(void post(in PostInput i, inout PostSurface s) {
+    s.color.rgb *= fa_scene_rgb(tint.rgb);
+}
+)";
+
 // A sky material: a starfield (the reflection fixture shdc_sky_hlsl5_glsl430.yaml is its compile).
 const char* kSkyMaterial = R"({
   "format": "factoria.material/1",
@@ -149,6 +163,10 @@ struct Project {
     void add_sprite() {
         write("materials/dissolve2d.material.json", kSpriteMaterial);
         write("shaders/dissolve2d.fragment.glsl", kSpriteSnippet);
+    }
+    void add_post() {
+        write("materials/tint.material.json", kPostMaterial);
+        write("shaders/tint.post.glsl", kPostSnippet);
     }
     void add_sky() {
         write("materials/stars.material.json", kSkyMaterial);
@@ -552,52 +570,31 @@ TEST_CASE("material kind: absent means mesh, every kind is read, and a wrong one
               .empty());
 }
 
-TEST_CASE("material kind: mesh, sprite, sky and compute compile, post is refused with the package that brings it") {
+TEST_CASE("material kind: every kind has programs and compiles, none is refused as unsupported") {
     Project p;
+    p.add_sprite();
+    p.add_sky();
+    p.add_post();
     FakeShdc shdc;
-    ShaderCompileOptions options;
-    options.setup = shdc.context(p.str());
-    const std::vector<std::pair<std::string, std::string>> kinds = {{"post", "post materials arrive with M72.2"}};
     CommandRegistry registry;
     register_shader_commands(registry, p.str(), shdc.context(p.str()));
-    for (const auto& [kind, text] : kinds) {
+    const std::vector<std::pair<std::string, std::string>> kinds = {
+        {"sprite", "dissolve2d"}, {"sky", "stars"}, {"post", "tint"}};
+    for (const auto& [kind, name] : kinds) {
         CAPTURE(kind);
-        p.write("materials/" + kind + ".material.json",
-                R"({"format":"factoria.material/1","kind":")" + kind + R"(","shader":"shaders/gem.surface.glsl"})");
-        auto r = compile_material(p.str(), "materials/" + kind + ".material.json", options);
-        REQUIRE(r.ok());
-        CHECK_FALSE(r->ok);
-        CHECK(r->material.kind == kind);
-        REQUIRE(r->errors.size() == 1);
-        CHECK(r->errors[0].pointer == "/kind");
-        CHECK(r->errors[0].message.find(text) != std::string::npos);
-        CHECK(r->errors[0].hint.find("\"mesh\"") != std::string::npos);
-        CHECK(shdc.calls == 0);
-
-        auto c =
-            registry.call("shader.compile", Json::parse(R"({"material":"materials/)" + kind + R"(.material.json"})"));
-        REQUIRE(c.ok);
-        CHECK(c.result["ok"] == false);
-        CHECK(c.result["kind"] == kind);
-        CHECK(c.result["errors"][0]["pointer"] == "/kind");
         auto info =
-            registry.call("material.info", Json::parse(R"({"material":"materials/)" + kind + R"(.material.json"})"));
+            registry.call("material.info", Json::parse(R"({"material":"materials/)" + name + R"(.material.json"})"));
         REQUIRE(info.ok);
         CHECK(info.result["kind"] == kind);
-        CHECK(info.result["programs"].empty());
-        CHECK(info.result["compile"]["state"] == "unsupported");
-        CHECK(info.result["compile"]["hint"].get<std::string>().find(text) != std::string::npos);
+        CHECK_FALSE(info.result["programs"].empty());
+        CHECK(info.result["compile"]["state"] == "not_compiled");  // nothing in the cache yet; never "unsupported"
+        CHECK_FALSE(info.result["compile"].contains("hint"));
     }
-    // `factoria validate` lists the refusal as an error of the material
-    // (the project's three mesh materials do compile, one run each; the refused kind never reaches the compiler)
+    // `factoria validate` compiles every kind: the project's three mesh materials and the three others, one run each
     ValidationReport report;
     validate_materials(p.str(), shdc.context(p.str()), report);
-    CHECK_FALSE(report.ok);
-    CHECK(shdc.calls == 3);
-    int kindErrors = 0;
-    for (const auto& e : report.errors)
-        if (e.message.find("is not compiled yet") != std::string::npos) ++kindErrors;
-    CHECK(kindErrors == 1);
+    CHECK(shdc.calls == 6);
+    for (const auto& e : report.errors) CHECK(e.message.find("is not compiled yet") == std::string::npos);
 }
 
 TEST_CASE("material kind: a mesh twin has no kind key (the format of every twin made before M72), info and compile say "
@@ -994,20 +991,20 @@ TEST_CASE("sprite material: errors name fragment() and the sprite contract; alph
     auto light = parse(R"({"format":"factoria.material/1","kind":"sprite","shader":"s.glsl","lighting":"custom"})");
     CHECK(has_error(light, "/lighting"));
 
-    // a sprite's vertex() cannot sample a material texture (no vertex-stage views in the 2D pipeline): refused
-    // before sokol-shdc runs, with the texture named
+    // a sprite's vertex() samples a material texture through its own vertex-stage view and sampler (slots 8.. and 7..,
+    // after the fragment stage's 4.. and 3..), the same way a mesh material does
     const std::string sampling =
         std::string(kSpriteSnippet) +
         "void vertex(inout QuadVertex v) { v.world_pos.y += texture(sampler2D(mask, mask_smp), vec2(0.5)).r; }\n";
-    p.write("shaders/dissolve2d.fragment.glsl", sampling);
-    shdc.calls = 0;
-    r = compile_material(p.str(), "materials/dissolve2d.material.json", options);
-    REQUIRE(r.ok());
-    CHECK_FALSE(r->ok);
-    REQUIRE_FALSE(r->errors.empty());
-    CHECK(r->errors[0].message.find("vertex() of a sprite material cannot sample the texture \"mask\"") !=
-          std::string::npos);
-    CHECK(shdc.calls == 0);
+    const MaterialParse vsParse = read_material(p.str(), "materials/dissolve2d.material.json");
+    REQUIRE(vsParse.ok());
+    const GeneratedShader gv = generate_material_shader(vsParse.material, sampling);
+    CHECK(gv.hasVertex);
+    CHECK(gv.top.find("#define mask fa_vs_mask") != std::string::npos);
+    CHECK(gv.top.find("layout(binding=8) uniform texture2D mask;") != std::string::npos);
+    CHECK(gv.top.find("layout(binding=7) uniform sampler mask_smp;") != std::string::npos);
+    CHECK(gv.top.find("layout(binding=4) uniform texture2D mask;") != std::string::npos);
+    CHECK(gv.top.find("layout(binding=3) uniform sampler mask_smp;") != std::string::npos);
 }
 
 TEST_CASE("sprite material: compile writes a twin with the sprite template hash and the programs quad and quad_plain") {
@@ -1297,6 +1294,179 @@ TEST_CASE("sky material: validate compiles it next to the mesh materials") {
     CHECK_FALSE(failing.ok);
     const auto err = std::find_if(failing.errors.begin(), failing.errors.end(),
                                   [](const ValidationIssue& e) { return e.file == "shaders/stars.sky.glsl"; });
+    REQUIRE(err != failing.errors.end());
+    CHECK(err->message.find("line 2") != std::string::npos);
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Post-process materials (M72.2)
+// ---------------------------------------------------------------------------------------------------------------
+
+TEST_CASE("post material: the generator includes post_common.glsl, takes the post slots and lists the one program") {
+    Project p;
+    p.add_post();
+    const MaterialParse parsed = read_material(p.str(), "materials/tint.material.json");
+    REQUIRE(parsed.ok());
+    CHECK(parsed.material.kind == "post");
+    const GeneratedShader g = generate_material_shader(parsed.material, kPostSnippet);
+    CHECK(g.kind == "post");
+    CHECK(g.hasSurface);  // the post() entry point
+    CHECK_FALSE(g.hasVertex);
+    CHECK(g.programs == std::vector<std::string>{"post"});
+    CHECK(g.defines.empty());  // the template has no variants: one program, one build
+    CHECK(g.top.find("@include post_common.glsl") != std::string::npos);
+    CHECK(g.top.find("@include mesh_common.glsl") == std::string::npos);
+    CHECK(g.top.find("@program post vs fs\n") != std::string::npos);
+    CHECK(g.top.find("layout(binding=5) uniform fa_material {") != std::string::npos);
+    CHECK(g.top.find("#ifdef GL_FRAGMENT_SHADER\nvoid post(in PostInput i, inout PostSurface s) {") !=
+          std::string::npos);
+    // views 0 and 1 and samplers 0 and 1 are the engine's (the picture and the prepass): a material's first texture is 2
+    const MaterialParse withTexture = parse(R"({"format":"factoria.material/1","kind":"post","shader":"s.glsl",
+        "textures":{"mask":{"sampler":"linear","doc":"d"}}})");
+    REQUIRE(withTexture.ok());
+    const GeneratedShader t =
+        generate_material_shader(withTexture.material, "void post(in PostInput i, inout PostSurface s) {}\n");
+    CHECK(t.top.find("layout(binding=2) uniform texture2D mask;") != std::string::npos);
+    CHECK(t.top.find("layout(binding=2) uniform sampler mask_smp;") != std::string::npos);
+    // the names of the contract are not available as params
+    CHECK(has_error(parse(R"({"format":"factoria.material/1","kind":"post","shader":"s.glsl","params":{
+        "post":{"type":"float","default":1,"doc":"d"}}})"),
+                    "/params/post"));
+}
+
+TEST_CASE("post material: keys of a surface drawn into the scene are refused with the reason") {
+    for (const char* key : {R"("lighting":"unlit")", R"("alphaMode":"blend")", R"("doubleSided":true)"}) {
+        CAPTURE(key);
+        const auto m = parse(
+            (std::string(R"({"format":"factoria.material/1","kind":"post","shader":"s.glsl",)") + key + "}").c_str());
+        CHECK_FALSE(m.ok());
+        REQUIRE_FALSE(m.errors.empty());
+        CHECK(m.errors[0].message.find("does not apply to a post material") != std::string::npos);
+        CHECK(m.errors[0].hint.find("customPasses") != std::string::npos);
+    }
+    // a mesh material still takes them
+    CHECK(parse(R"({"format":"factoria.material/1","shader":"s.glsl","lighting":"unlit","alphaMode":"blend"})").ok());
+}
+
+TEST_CASE("post material: errors name post() and the post contract; the frequent mistakes get a hint") {
+    Project p;
+    p.add_post();
+    FakeShdc shdc;
+    shdc.reflection = fixture("shdc_post_hlsl5_glsl430.yaml");
+    ShaderCompileOptions options;
+    options.setup = shdc.context(p.str());
+    options.dialects = {"hlsl5"};
+
+    // no post(): the message and the hint are the post's
+    p.write("shaders/tint.post.glsl", "void fragment(in QuadInput i, inout QuadSurface s) {}\n");
+    auto r = compile_material(p.str(), "materials/tint.material.json", options);
+    REQUIRE(r.ok());
+    CHECK_FALSE(r->ok);
+    REQUIRE_FALSE(r->errors.empty());
+    CHECK(r->errors[0].message.find("defines no post() function") != std::string::npos);
+    CHECK(r->errors[0].hint.find("void post(in PostInput i, inout PostSurface s)") != std::string::npos);
+    CHECK(shdc.calls == 0);
+
+    // a vertex() is refused before sokol-shdc runs, with its line
+    p.write("shaders/tint.post.glsl", std::string(kPostSnippet) + "void vertex(inout QuadVertex v) { }\n");
+    r = compile_material(p.str(), "materials/tint.material.json", options);
+    REQUIRE(r.ok());
+    CHECK_FALSE(r->ok);
+    REQUIRE_FALSE(r->errors.empty());
+    CHECK(r->errors[0].message.find("a post material has no vertex() hook") != std::string::npos);
+    CHECK(r->errors[0].line == 4);
+    CHECK(shdc.calls == 0);
+
+    // the names other engines use for the picture and the depth are explained
+    const std::string bad = "void post(in PostInput i, inout PostSurface s) {\n    s.color = "
+                            "texture(sampler2D(screenTexture, x), i.uv);\n}\n";
+    p.write("shaders/tint.post.glsl", bad);
+    const GeneratedShader g =
+        generate_material_shader(read_material(p.str(), "materials/tint.material.json").material, bad);
+    shdc.stderrText =
+        "top.glsl:" + std::to_string(top_line_of(g, 2)) + ":0: error: 'screenTexture' : undeclared identifier\n";
+    r = compile_material(p.str(), "materials/tint.material.json", options);
+    REQUIRE(r.ok());
+    REQUIRE_FALSE(r->errors.empty());
+    CHECK(r->errors[0].line == 2);
+    CHECK(r->errors[0].hint.find("fa_scene_color(uv)") != std::string::npos);
+    shdc.stderrText =
+        "top.glsl:" + std::to_string(top_line_of(g, 2)) + ":0: error: 'uv' : no such field in structure 'i'\n";
+    r = compile_material(p.str(), "materials/tint.material.json", options);
+    REQUIRE(r.ok());
+    REQUIRE_FALSE(r->errors.empty());
+    CHECK(r->errors[0].hint.find("PostInput has the fields") != std::string::npos);
+}
+
+TEST_CASE("post material: compile writes a twin with the post template hash and the program post") {
+    Project p;
+    p.add_post();
+    FakeShdc shdc;
+    shdc.reflection = fixture("shdc_post_hlsl5_glsl430.yaml");
+    ShaderCompileOptions options;
+    options.setup = shdc.context(p.str());
+    options.dialects = {"hlsl5", "glsl430"};
+
+    auto first = compile_material(p.str(), "materials/tint.material.json", options);
+    REQUIRE(first.ok());
+    const std::string why = first->errors.empty() ? std::string() : first->errors[0].to_string();
+    INFO(why);
+    REQUIRE(first->ok);
+    CHECK(shdc.calls == 1);
+    CHECK(first->generated.kind == "post");
+    const auto& argv = shdc.argvs[0];
+    CHECK(std::find(argv.begin(), argv.end(), "--defines") == argv.end());
+    REQUIRE(first->twins.size() == 2);
+    const Json& twin = first->twins.at("hlsl5");
+    CHECK(twin["format"] == "factoria.shader/1");
+    CHECK(twin["kind"] == "post");
+    CHECK(twin["template"] == shader_template_hash("post"));
+    CHECK(twin["template"] != shader_template_hash("sprite"));
+    CHECK(twin["params"] == Json::parse(R"(["tint"])"));
+    REQUIRE(twin["programs"].contains("post"));
+    CHECK(twin["programs"].size() == 1);
+    CHECK(twin["programs"]["post"]["reflection"]["fragment_func"]["d3d11_target"] == "ps_5_0");
+    auto second = compile_material(p.str(), "materials/tint.material.json", options);
+    REQUIRE(second.ok());
+    CHECK(second->cacheHits == 2);
+    CHECK(shdc.calls == 1);
+
+    CommandRegistry registry;
+    register_shader_commands(registry, p.str(), shdc.context(p.str()));
+    auto c = registry.call("shader.compile",
+                           Json::parse(R"({"material":"materials/tint.material.json","platforms":["linux"]})"));
+    REQUIRE(c.ok);
+    CHECK(c.result["ok"] == true);
+    CHECK(c.result["kind"] == "post");
+    auto info = registry.call("material.info", Json::parse(R"({"material":"materials/tint.material.json"})"));
+    REQUIRE(info.ok);
+    CHECK(info.result["kind"] == "post");
+    CHECK(info.result["programs"] == Json::parse(R"(["post"])"));
+}
+
+TEST_CASE("post material: validate compiles it next to the other kinds") {
+    Project p;
+    p.add_post();
+    FakeShdc shdc;
+    shdc.reflection = fixture("shdc_post_hlsl5_glsl430.yaml");
+    for (const char* name : {"gem", "wave", "bad"})
+        stdfs::remove(p.dir.path / "materials" / (std::string(name) + ".material.json"));
+    ValidationReport report;
+    validate_materials(p.str(), shdc.context(p.str()), report);
+    CHECK(report.materialsChecked == 1);
+    CHECK(shdc.calls == 1);
+    for (const auto& e : report.errors) CHECK(e.message.find("is not compiled yet") == std::string::npos);
+
+    const std::string bad = "void post(in PostInput i, inout PostSurface s) {\n    s.color = tnt;\n}\n";
+    p.write("shaders/tint.post.glsl", bad);
+    const GeneratedShader g =
+        generate_material_shader(read_material(p.str(), "materials/tint.material.json").material, bad);
+    shdc.stderrText = "top.glsl:" + std::to_string(top_line_of(g, 2)) + ":0: error: 'tnt' : undeclared identifier\n";
+    ValidationReport failing;
+    validate_materials(p.str(), shdc.context(p.str()), failing);
+    CHECK_FALSE(failing.ok);
+    const auto err = std::find_if(failing.errors.begin(), failing.errors.end(),
+                                  [](const ValidationIssue& e) { return e.file == "shaders/tint.post.glsl"; });
     REQUIRE(err != failing.errors.end());
     CHECK(err->message.find("line 2") != std::string::npos);
 }
@@ -2342,15 +2512,68 @@ TEST_CASE("vertexAttributes: the names are checked with their pointer, did you m
                     "/vertexAttributes", "expected an array"));
 }
 
-TEST_CASE("instanced params and vertexAttributes are refused in every kind but mesh, with the pointer and the fix") {
-    for (const char* kind : {"sprite", "compute", "sky"}) {
+TEST_CASE("instanced params: a sprite material takes them with the mesh limits, and the error names the pointer") {
+    const std::string head = R"({"format":"factoria.material/1","shader":"s.glsl","kind":"sprite")";
+    const auto ok = parse(
+        (head + R"(,"params":{"tint":{"type":"color","default":[1,1,1,1],"instanced":true,"doc":"d"}}})").c_str());
+    CHECK(ok.ok());
+    const InstanceLayout layout = instance_layout(ok.material.params);
+    CHECK(layout.vec4Count == 1);
+    // four vec4 per sprite are too many, as for a mesh
+    const auto four = parse((head + R"(,"params":{
+        "a":{"type":"color","default":[1,1,1,1],"instanced":true,"doc":"d"},
+        "b":{"type":"color","default":[1,1,1,1],"instanced":true,"doc":"d"},
+        "c":{"type":"color","default":[1,1,1,1],"instanced":true,"doc":"d"},
+        "d":{"type":"color","default":[1,1,1,1],"instanced":true,"doc":"d"}}})")
+                                .c_str());
+    CHECK_FALSE(four.ok());
+    CHECK(has_error(four, "/params", "4 vec4"));
+    CHECK(has_error(four, "/params", "Make some of them not instanced"));
+    // vertexAttributes are the mesh's: a sprite has no channels to read
+    const auto chan = parse((head + R"(,"vertexAttributes":["uv1"]})").c_str());
+    CHECK(has_error(chan, "/vertexAttributes", "only mesh materials"));
+    // the generator gives the sprite programs the per-quad stream, and a material without instanced params none of it
+    Project p;
+    p.add_sprite();
+    const std::string src = std::string(kSpriteSnippet);
+    const GeneratedShader plain =
+        generate_material_shader(read_material(p.str(), "materials/dissolve2d.material.json").material, src);
+    for (const std::string& d : plain.defines) CHECK(d.rfind("FA_INST_", 0) != 0);
+    CHECK(plain.top.find("fa_instance_unpack") == std::string::npos);
+    const GeneratedShader inst = generate_material_shader(
+        ok.material, "void fragment(in QuadInput i, inout QuadSurface s) { s.color.rgb = tint.rgb; }\n");
+    CHECK(std::find(inst.defines.begin(), inst.defines.end(), "FA_INST_1") != inst.defines.end());
+    CHECK(inst.top.find("fa_instance_unpack(vec4 fa_d0, vec4 fa_d1, vec4 fa_d2)") != std::string::npos);
+    CHECK(inst.top.find("tint = fa_d0;") != std::string::npos);
+    // material.info reports the layout for a sprite as for a mesh
+    p.write("materials/quads.material.json",
+            R"({"format":"factoria.material/1","kind":"sprite","shader":"shaders/quads.fragment.glsl","params":{
+        "tint":{"type":"color","default":[1,1,1,1],"instanced":true,"doc":"d"},
+        "wave":{"type":"float","default":0,"instanced":true,"doc":"d"}}})");
+    p.write("shaders/quads.fragment.glsl",
+            "void fragment(in QuadInput i, inout QuadSurface s) { s.color.rgb *= tint.rgb * wave; }\n");
+    FakeShdc shdc;
+    CommandRegistry registry;
+    register_shader_commands(registry, p.str(), shdc.context(p.str()));
+    auto info = registry.call("material.info", Json::parse(R"({"material":"materials/quads.material.json"})"));
+    REQUIRE(info.ok);
+    CHECK(info.result["kind"] == "sprite");
+    REQUIRE(info.result.contains("instanceLayout"));
+    CHECK(info.result["instanceLayout"]["vec4"] == 2);
+    CHECK(info.result["instanceLayout"]["slots"].size() == 2);
+}
+
+TEST_CASE(
+    "instanced params and vertexAttributes are refused in every kind but mesh and sprite, with the pointer and the "
+    "fix") {
+    for (const char* kind : {"compute", "sky"}) {
         CAPTURE(kind);
         const std::string head =
             std::string(R"({"format":"factoria.material/1","shader":"s.glsl","kind":")") + kind + "\"";
         const auto inst = parse(
             (head + R"(,"params":{"tint":{"type":"color","default":[1,1,1,1],"instanced":true,"doc":"d"}}})").c_str());
         CHECK_FALSE(inst.ok());
-        CHECK(has_error(inst, "/params/tint/instanced", "only mesh materials"));
+        CHECK(has_error(inst, "/params/tint/instanced", "only mesh and sprite materials"));
         CHECK(has_error(inst, "/params/tint/instanced", "Remove \"instanced\""));
         const auto chan = parse((head + R"(,"vertexAttributes":["uv1"]})").c_str());
         CHECK_FALSE(chan.ok());
