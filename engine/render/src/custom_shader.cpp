@@ -54,6 +54,15 @@ bool Assets::storage_buffers_available(std::string* backend, std::string* reason
     return feature_supported(env, find_feature("computeShaders"), reason);
 }
 
+int Assets::storage_binding_limit(bool* limited) const {
+    if (storageBindingLimit_ >= 0) {
+        *limited = true;
+        return storageBindingLimit_;
+    }
+    *limited = sg_query_backend() == SG_BACKEND_GLCORE;
+    return sg_query_limits().max_storage_buffer_bindings_per_stage;
+}
+
 std::string backend_dialect(sg_backend backend) {
     switch (backend) {
         case SG_BACKEND_D3D11: return "hlsl5";
@@ -576,6 +585,22 @@ Result<void> Assets::build_material_checked(MaterialAsset& m) {
                 "{\"feature\":\"computeShaders\"} first, and on this backend use the CPU path: write the instances as "
                 "entities (or as \"instanced\" params of a material without buffers) from a script "
                 "(docs/shaders/SHADERS_COMPUTE.md, \"Drawing from a compute buffer\").");
+        // OpenGL counts the bindings of a program from 0 (the glsl430 twin does): each buffer is declared in the vertex and in
+        // the fragment stage, so the program needs two bindings per buffer. GL 4.3 guarantees only 8 and many drivers give 16.
+        const std::size_t buffers = std::min<std::size_t>((*doc)["buffers"].size(), kMaxMeshBuffers);
+        bool limited = false;
+        const int limit = storage_binding_limit(&limited);
+        if (limited && int(buffers) * 2 > limit)
+            return make_error(
+                "the material '" + m.path + "' reads " + std::to_string(buffers) + " storage buffer" +
+                    (buffers == 1 ? "" : "s") + " (\"buffers\", /buffers in the material), which takes " +
+                    std::to_string(buffers * 2) + " storage buffer bindings (one per stage for each buffer), but the " +
+                    backend + " graphics driver offers " + std::to_string(limit) +
+                    " (GL_MAX_SHADER_STORAGE_BUFFER_BINDINGS)",
+                "Declare at most " + std::to_string(limit / 2) +
+                    " buffers in this material (pack several arrays into one buffer's fields), or use the CPU path on "
+                    "this computer: write the instances as entities (or as \"instanced\" params of a material without "
+                    "buffers) from a script (docs/shaders/SHADERS_COMPUTE.md, \"Drawing from a compute buffer\").");
     }
     // The twin: from the compiler of the editor / `factoria`, else from the file an export wrote.
     const std::string dialect = backend_dialect(sg_query_backend());

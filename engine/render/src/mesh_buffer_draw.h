@@ -16,10 +16,11 @@ class Compute;
 namespace fa::render {
 
 struct MeshBufferUse {
-    bool active = false;  // the material declares buffers: its model matrix is the uniform block kMeshInstanceBaseUniform
-    bool skip = false;    // draw nothing: a buffer is missing or does not fit, or the backend cannot (logged once)
-    int instances = 1;    // the instance count of every draw call (1 = MeshRenderer.instances 0)
-    int count = 0;        // the material's buffers
+    bool active =
+        false;          // the material declares buffers: its model matrix is the uniform block kMeshInstanceBaseUniform
+    bool skip = false;  // draw nothing: a buffer is missing or does not fit, or the backend cannot (logged once)
+    int instances = 1;  // the instance count of every draw call (1 = MeshRenderer.instances 0)
+    int count = 0;      // the material's buffers
     sg_view views[kMaxMeshBuffers]{};
 };
 

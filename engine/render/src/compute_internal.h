@@ -11,6 +11,8 @@ namespace fa {
 // the refusal path of a backend without compute on a GPU that has it.
 struct ComputeTestAccess {
     static void set_backend(Compute& c, int backend);
+    // Make the material loader answer as an OpenGL driver with `limit` storage buffer bindings per stage would (-1 = the real one).
+    static void set_binding_limit(Compute& c, int limit);
     // Make create_image answer as a GPU that can imageLoad an r32f storage image only (mode 1: a Metal Tier 1 or D3D11.0 GPU), or
     // none (mode 2); 0 = the real GPU.
     static void set_load_override(Compute& c, int mode);

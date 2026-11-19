@@ -174,15 +174,21 @@ instance cost nothing (the recipe is in docs/shaders/SHADERS_COMPUTE.md, "Drawin
 - **Slots.** The sokol view slots of a mesh program are: engine 0-5, material textures 6-9 (fragment), their vertex copies 10-13,
   environment cubes 14 and 15, and from `kMeshBufferFirstView` = 16 the buffers: buffer `i` of `count` is at view `16 + i` in the
   vertex stage and `16 + count + i` in the fragment stage (the generator declares each buffer once per stage; sokol-shdc numbers
-  them as written). `custom_shader.cpp` builds `MaterialProgram.viewMask` from the reflection. The glsl430 binding of a storage
-  buffer equals its slot, 16 to 23: a driver with fewer than 24 shader-storage bindings fails there (not tested; Metal only).
+  them as written). `custom_shader.cpp` builds `MaterialProgram.viewMask` from the reflection. sokol-shdc keeps the slot as the
+  GLSL binding of a storage buffer, but sokol_gfx refuses a shader whose `glsl_binding_n` is not below
+  `max_storage_buffer_bindings_per_stage` (GL 4.3 guarantees 8, many drivers give 16), so `build_twins`
+  (`shaders_compile.cpp`) rebases the glsl430 twin of a mesh material with buffers: `layout(binding = N, std430)` and the
+  reflection's `glsl_binding_n` become N - 16 (vertex copies 0..count-1, fragment copies count..2*count-1, unique across
+  stages as sokol_gfx requires; the view slots stay, they are what Metal and D3D11 use). `Assets::build_material_checked` still
+  compares 2 * count with `Assets::storage_binding_limit` (the real limit on OpenGL) and refuses a material that needs more, naming
+  the driver's number and the buffers that fit; `ComputeTestAccess::set_binding_limit` lets a test lower it.
 - **Base model.** The entity's matrix is not an instance attribute for these materials: `mesh_common.glsl` /
   `mesh_full_common.glsl` define `FA_BUFFER_INST` and read `fa_base_model` from the vertex uniform block 6
   (`kMeshInstanceBaseUniform`, `apply_mesh_base_model`) as `FA_INST_MODEL`, so `fa_instance_index` (`gl_InstanceIndex`) is free to
   mean the buffer element. The unused instance attributes of the pipeline are tolerated.
 - **Draw hooks.** `mesh_buffer_draw.{h,cpp}`: `resolve_mesh_buffers` (once per batch in the shadow pass, the prepass and the main
   pass) reads the ids from `materialParams[<buffer>]`, lets `ComputeDrawAccess::bind` check id, stride and fields, and checks
-  `instances` against the largest buffer. A failure marks the use `skip` (the entity is not drawn) and reports once through
+  `instances` against every buffer (each must hold N elements; the error names the short one). A failure marks the use `skip` (the entity is not drawn) and reports once through
   `Assets::note_failure` (the key holds the message, so another problem of the same entity is reported too; `build_material`
   forgets them when the material builds again). `bind_mesh_buffers` fills the views after `bind_textures`.
 - **A draw of its own.** `render_scene.cpp` mixes the entity into `paramsHash` of such a material, so no other entity shares its

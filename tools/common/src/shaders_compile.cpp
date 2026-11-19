@@ -1002,6 +1002,42 @@ std::string read_output_file(const stdfs::path& work, const std::string& rel) {
     return tooling_detail::read_file(p).value_or(std::string());
 }
 
+// OpenGL numbers a storage buffer binding point for the whole program and refuses a shader whose binding is not below
+// GL_MAX_SHADER_STORAGE_BUFFER_BINDINGS (8 is all GL 4.3 guarantees), while sokol-shdc keeps the view slot as the GLSL binding.
+// A mesh material's buffers sit at view slots 16 and up, so its glsl430 twin counts them from 0: the vertex stage's copies
+// 0..count-1 and the fragment stage's count..2*count-1 (the same order as the slots, so they stay unique across stages).
+std::string rebase_gl_storage_bindings(std::string text) {
+    const std::string head = "layout(binding = ", tail = ", std430)";
+    std::size_t at = 0;
+    while ((at = text.find(head, at)) != std::string::npos) {
+        std::size_t digits = at + head.size(), end = digits;
+        while (end < text.size() && text[end] >= '0' && text[end] <= '9') ++end;
+        if (end > digits && end - digits <= 3 && text.compare(end, tail.size(), tail) == 0) {
+            const int n = std::stoi(text.substr(digits, end - digits));
+            if (n >= kMeshBufferFirstView) {
+                const std::string moved = std::to_string(n - kMeshBufferFirstView);
+                text.replace(digits, end - digits, moved);
+                end = digits + moved.size();
+            }
+        }
+        at = end;
+    }
+    return text;
+}
+
+void rebase_gl_reflection(Json& j) {
+    if (j.is_object()) {
+        for (auto& [key, value] : j.items()) {
+            if (key == "glsl_binding_n" && value.is_number_integer() && value.get<int>() >= kMeshBufferFirstView)
+                value = value.get<int>() - kMeshBufferFirstView;
+            else
+                rebase_gl_reflection(value);
+        }
+    } else if (j.is_array()) {
+        for (Json& v : j) rebase_gl_reflection(v);
+    }
+}
+
 // The twins of the requested slangs from sokol-shdc's reflection YAML and the source files it points to.
 Result<std::map<std::string, Json>> build_twins(const stdfs::path& work, const std::string& yamlText,
                                                 const MaterialDef& material, const std::vector<std::string>& slangs) {
@@ -1073,8 +1109,13 @@ Result<std::map<std::string, Json>> build_twins(const stdfs::path& work, const s
             const Json vf = prog.value("vertex_func", Json::object()), ff = prog.value("fragment_func", Json::object());
             reflection["vertex_func"] = func_reflection(vf);
             reflection["fragment_func"] = func_reflection(ff);
-            const std::string vsText = read_output_file(work, vf.value("path", std::string())),
-                              fsText = read_output_file(work, ff.value("path", std::string()));
+            std::string vsText = read_output_file(work, vf.value("path", std::string())),
+                        fsText = read_output_file(work, ff.value("path", std::string()));
+            if (slang == "glsl430" && material.kind == "mesh" && !material.buffers.empty()) {
+                vsText = rebase_gl_storage_bindings(std::move(vsText));
+                fsText = rebase_gl_storage_bindings(std::move(fsText));
+                rebase_gl_reflection(reflection);
+            }
             if (vsText.empty() || fsText.empty())
                 return make_error("sokol-shdc did not write the " + slang + " source of program '" + name + "'",
                                   "Run sokol-shdc by hand on the generated top file (`factoria call shader.compile` "

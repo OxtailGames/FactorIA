@@ -497,6 +497,9 @@ Result<ComputeDrawAccess::Bound> ComputeDrawAccess::bind(Compute& c, int id, con
 }
 
 void ComputeTestAccess::set_backend(Compute& c, int backend) { c.s_->backendOverride = backend; }
+void ComputeTestAccess::set_binding_limit(Compute& c, int limit) {
+    if (c.s_->assets) c.s_->assets->set_storage_binding_limit_override(limit);
+}
 void ComputeTestAccess::set_load_override(Compute& c, int mode) { c.s_->loadOverride = mode; }
 
 Json compute_json_float(float v) {

@@ -3633,4 +3633,18 @@ TEST_CASE(
         CHECK(twin["programs"].contains("mesh"));
         CHECK(twin["programs"].contains("shadow"));  // vertex() draws the shadow too
     }
+    // OpenGL counts storage buffer bindings from 0 (GL 4.3 guarantees only 8 of them): the vertex copy is 0, the fragment copy 1,
+    // in the source and in the reflection, while the view slots (16 and 17) stay for Metal and D3D11.
+    const Json& gl = r->twins.at("glsl430")["programs"]["mesh"];
+    CHECK(gl["vs"].get<std::string>().find("layout(binding = 0, std430) readonly buffer fa_vs_points_buf") !=
+          std::string::npos);
+    CHECK(gl["fs"].get<std::string>().find("layout(binding = 1, std430) readonly buffer fa_points_buf") !=
+          std::string::npos);
+    const std::string reflection = gl["reflection"].dump();
+    CHECK(reflection.find("\"glsl_binding_n\":0") != std::string::npos);
+    CHECK(reflection.find("\"glsl_binding_n\":1") != std::string::npos);
+    CHECK(reflection.find("\"glsl_binding_n\":16") == std::string::npos);
+    CHECK(reflection.find("\"slot\":16") != std::string::npos);
+    const std::string metal = r->twins.at("metal_macos")["programs"]["mesh"]["reflection"].dump();
+    CHECK(metal.find("\"slot\":16") != std::string::npos);
 }

@@ -151,15 +151,15 @@ A **mesh** material can read the buffers a compute material writes, and one enti
 element, with no copy to the CPU. Declare `buffers` in the mesh material exactly as above, with `"access": "read"` (the default
 here; `readWrite` is refused at `/buffers/<name>/access`), and read `<name>.data[i].<field>` in `vertex()`, in a helper and in
 `surface()` (a `mode: "full"` shader reads it in `@vertex` and `@fragment`). `vertex()` gets the instance number as
-`fa_instance_index` (an `int`, 0 to `instances` - 1) and moves each instance itself; `v.world_pos` starts as the mesh vertex
+`fa_instance_index` (an `int`, 0 to `instances` - 1; in a mesh material without buffers it is only the position of the entity in
+its automatic batch, which is no stable id) and moves each instance itself; `v.world_pos` starts as the mesh vertex
 placed by the entity's Transform, which is the base all instances share.
 
 On the entity: `MeshRenderer.instances` = N (0 is a normal draw of one mesh; vertex() still runs once, with index 0), and
 `materialParams` gives the id of a compute buffer for each declared buffer: `{"particles": 3}`. The buffer must come from a
-compute material that declares the same buffer (same field names, types and order, so the same stride) and at least one of
-the buffers it reads must hold N elements (a buffer smaller than that would be read past its end: the entity is not drawn and
-the log names `/instances`). A
-missing, destroyed or differently shaped buffer is reported once with the JSON pointer (`/materialParams/particles`) and the
+compute material that declares the same buffer (same field names, types and order, so the same stride) and every one
+of the buffers it reads must hold at least N elements (a smaller one would be read past its end: the entity is not drawn and
+the log names `/instances` and the short buffer). A missing, destroyed or differently shaped buffer is reported once with the JSON pointer (`/materialParams/particles`) and the
 entity is not drawn; nothing crashes. `instanceBounds` is the half-extent in the entity's local metres of the box holding every
 instance: the camera culls the entity (and its shadow) by it, and 0 never culls. The CPU cannot know where the GPU put the
 instances, so there is no per-instance culling there.
@@ -228,8 +228,11 @@ A collapsed instance still costs its vertex stage; keep `instances` as small as 
 (WebGL2) and macOS OpenGL 4.1 the material is refused when it loads: the entities draw magenta and the log names the backend,
 the rule and the CPU path (write the instances as entities, or as `"instanced"` params of a material without buffers, from a
 script). Ask `render.supports computeShaders` first. A dispatch made before a frame is drawn is finished when that frame reads
-it (commands run in order). Each buffer takes a view slot of the program from 16 on (vertex stage 16 ..., fragment stage after
-those): drivers that offer fewer storage-buffer bindings than that are not covered; the tests here ran on Metal.
+it (commands run in order). Each buffer is declared once in the vertex and once in the fragment stage, so a program takes two
+storage-buffer bindings per buffer (at most 8 with 4 buffers, which every OpenGL 4.3 driver has: GL guarantees 8). A driver
+that reports fewer (`GL_MAX_SHADER_STORAGE_BUFFER_BINDINGS`) refuses a material with more buffers when it loads, naming the
+number it offers and how many buffers fit; pack several arrays into the fields of one buffer then. The tests here ran on
+Metal only; the OpenGL and Direct3D 11 draws were not run.
 
 ### Where it runs
 
