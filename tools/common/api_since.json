@@ -755,6 +755,7 @@
     "Sprite.color": "0.1.0",
     "Sprite.flipX": "0.1.0",
     "Sprite.flipY": "0.1.0",
+    "Sprite.instances": "unreleased",
     "Sprite.layer": "0.1.0",
     "Sprite.lit": "0.2.0",
     "Sprite.material": "unreleased",

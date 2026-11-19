@@ -518,6 +518,9 @@ struct MaterialUse {
     TextureAsset* textures[kMaxMaterialTextures]{};
     int instVec4 =
         0;  // vec4 of per-instance data per quad the material's instanced params take (0 = none; 0 when `error`)
+    // A material with "buffers" (M72.4): the compute buffer id of each, read from materialParams (-1 = not an integer id: the
+    // Sprite is refused, scene2d.cpp). Part of the key, so two Sprites that read other buffers never share a use or a batch.
+    std::int64_t bufferIds[kMaxMeshBuffers]{-1, -1, -1, -1};
     std::uint64_t tick = 0;  // the frame (Assets::begin_material_frame) that last asked for it
 };
 // What a 2D emitter gets from Assets::sprite_material and hands to QuadList::set_material: nothing (`use` null) for an item
@@ -623,6 +626,7 @@ struct QuadItem {
         0;  // QuadList::set_flash(): packed colour whose alpha is how much of it replaces the picture; 0 = none
     const MaterialUse* use = nullptr;  // QuadList::set_material(): the item's material (null = the built-in programs)
     std::uint32_t instFirst = 0;       // use->instVec4 > 0: where the item's instanced values start in QuadList::inst
+    int instances = 0;                 // QuadList::set_buffer_draw(): > 0 draws the item's one quad this many times
 };
 
 struct QuadBatch {
@@ -646,6 +650,9 @@ struct QuadBatch {
     // use->instVec4 > 0: where the per-vertex instance data of the batch starts in the stream flatten() was given (in floats):
     // use->instVec4 * 4 floats for each of the batch's vertices, so the quads of one batch may all differ in those values.
     std::size_t instFirst = 0;
+    // > 0: the batch is ONE quad (an item of a material with buffers, QuadList::set_buffer_draw) drawn this many times in one
+    // call, fa_instance_index running 0 .. instances - 1. Such a batch never merges with another.
+    int instances = 0;
 };
 
 // Collects quads for one render space, then sorts and flattens them.
@@ -684,6 +691,9 @@ public:
             inst.insert(inst.end(), ref.inst, ref.inst + ref.use->instVec4 * 4);
         }
     }
+    // Makes the item opened by begin_item() a draw from buffers (M72.4): its (one) quad is the template the material's vertex() moves,
+    // drawn `instances` times in one call. Call it after set_material, with the item's one quad still to come or done.
+    void set_buffer_draw(int instances) { cur_.instances = instances; }
     void end_item();
     bool empty() const { return items.empty(); }
     // Sorts items (layer asc, secondary desc, seq asc) and appends the vertices in

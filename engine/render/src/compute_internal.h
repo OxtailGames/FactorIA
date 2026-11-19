@@ -18,15 +18,15 @@ struct ComputeTestAccess {
     static void set_load_override(Compute& c, int mode);
 };
 
-// The mesh draw of a material with "buffers" (M72.4) reads compute buffers: what it needs of one, checked against the layout the
+// The mesh or sprite draw of a material with "buffers" (M72.4) reads compute buffers: what it needs of one, checked against the layout the
 // material declares. Only the renderer's draw calls this, never a game.
 struct ComputeDrawAccess {
     struct Bound {
         sg_view view{};
         std::uint64_t count = 0;  // elements
     };
-    // The live compute buffer `id` for the buffer `def` of mesh material `material`; an Error that names `pointer` (a JSON pointer
-    // into MeshRenderer, e.g. "/materialParams/positions") and says what to change when the id is not a live buffer or was made
+    // The live compute buffer `id` for the buffer `def` of mesh or sprite material `material`; an Error that names `pointer` (a JSON pointer
+    // into MeshRenderer or Sprite, e.g. "/materialParams/positions") and says what to change when the id is not a live buffer or was made
     // with another layout (stride and fields) than `def`.
     static Result<Bound> bind(Compute& c, int id, const render::MaterialBufferDef& def, const std::string& material,
                               const std::string& pointer);

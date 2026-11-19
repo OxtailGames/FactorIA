@@ -898,6 +898,7 @@ void Renderer::Impl::setup_frame(Frame& fr, World& world, float dt) {
     fr.time = float(world.time());
     fr.stats = &stats;
     fr.assets = assets.get();
+    fr.compute = compute;
     fr.fonts = fonts.get();
     fr.textScale = textScale;
     fr.uiScale = ui_scale_clamped(world.ui_scale());

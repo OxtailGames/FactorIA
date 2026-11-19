@@ -741,7 +741,24 @@ void register_builtin_components(TypeRegistry& r) {
                "whole array to change it (like vertexOffsets). [] (default) = every vertex white. Not used with "
                "SpriteSkin.")
         .asset_field("material", &Sprite::material, "material", material_doc_2d("Sprite", "the sprite's quad").c_str())
-        .field("materialParams", &Sprite::materialParams, material_params_doc_2d().c_str());
+        .field("materialParams", &Sprite::materialParams, material_params_doc_2d().c_str())
+        .field(
+            "instances", &Sprite::instances,
+            "0 (default) = the sprite draws its one quad. N > 0 = ONE draw of N quads (GPU particles, 2D crowds), "
+            "whose "
+            "data the material reads from compute buffers (the sprite material declares \"buffers\", and "
+            "materialParams gives the id of a compute buffer for each: {\"particles\": 3}; "
+            "docs/shaders/SHADERS_COMPUTE.md, \"Sprites from a compute buffer\"). The sprite's own quad (its "
+            "Transform, size, pivot, texture, region and colour) is the template every instance starts from: the "
+            "material's vertex() gets the instance number as fa_instance_index (0..N-1) (fragment() gets it too) and "
+            "moves the corners of the quad to where that instance is (QuadVertex.world_pos, uv, color). Every buffer "
+            "the material reads must hold at least N elements (otherwise the sprite is not drawn and the log says "
+            "why), and N is at most 16777216: size the buffers for it. The instances are one item of the sprite's "
+            "layer, drawn on top of the sprites below it and under those above, and never batched with other "
+            "sprites. A sprite with instances ignores meshColumns, slice, SpriteSkin and a Parallax repeat (it is "
+            "its one plain quad). Needs a sprite material with buffers, on Metal, D3D11 or OpenGL 4.3 (not GLES3, "
+            "WebGL2 or macOS OpenGL); with another material, or none, instances > 0 draws nothing and logs why.")
+        .range(0, kMaxMeshInstances);
 
     r.add<Tint>(
          "Tint",
