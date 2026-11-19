@@ -992,7 +992,10 @@ the page [Full shaders and passes](shaders/SHADERS_FULL.md) (`factoria docs read
 
 ## Not available yet
 
-- Compute storage images and compute on Android and the web; a sky material that also
+- **Your own light loop** (which lights are chosen, how many, their order, the shadow map): `"custom"` lighting only
+  shades each light the engine hands over. Image-based lighting (the sky reflection) is off in a custom material and
+  cannot be called from `light()`.
+- Compute on Android and the web; a sky material that also
   drives the ambient and reflection light of the meshes (they follow `skyColor` and `horizonColor`); per-instance params
   in a sky or compute material and vertex channels (`vertexAttributes`) in a sprite, sky or compute material (a mesh
   has them).

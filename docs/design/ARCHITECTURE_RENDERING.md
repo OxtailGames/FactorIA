@@ -395,6 +395,20 @@ display output.
   `static_assert` checks it against `kPostEffectOrder`. The editor's post panel calls `Renderer::supports_report()` directly (the same
   table `render.supports` answers), not the command. Compute shaders exist on GL, D3D11 and Metal, never on GLES3 or WebGL2; `hdrOutput` only on D3D11 and Metal.
   The decision is a pure function of a `FeatureEnv` (backend + what the GPU reported), so a test asks what D3D11 would say.
+- **Compute storage images (`engine/render/src/compute.cpp`, `fa/render/compute.h`, M72.17).** `Compute::create_image` makes an
+  immutable sokol image with `usage.storage_image` AND `usage.color_attachment`: sokol cannot copy into a storage image (`copy_dst`
+  excludes `immutable`), so a clearing pass over the attachment view zero-fills it (the GPU's memory is undefined). The image has a
+  storage view (the dispatch binds it after the buffers' view slots, sorted by name) and, when `sg_query_pixelformat` says the format
+  filters, a sampled view for the draws. A sampled view and a storage view of one image are never bound in one pass (sokol refuses
+  it), so a dispatch whose texture param is an image it writes is an error. The texture id `compute:<id>` is resolved by
+  `Assets::texture` through `ComputeImageResolver` to one stable `TextureAsset` per image (`describe_image_texture` refills it when
+  `resize_image` remakes the GPU image, so a sprite keeps working); a destroyed image points its texture object at the white
+  texture and keeps the object (up to 256) so a draw already recorded never reads a freed pointer, and the id answers
+  "no live compute image" with the checker. Order inside a frame is the order of the calls: `Gpu::begin_compute_pass` and
+  `end_compute_pass` close the pass, Metal and D3D11 track the hazard, sokol inserts the GL barriers. `read_image` commits, reads the
+  WHOLE image through `readback_storage_image` (one implementation per backend: Metal blit, D3D11 staging copy, GL
+  `glGetTexImage`) and crops on the CPU under the 4M-number cap. Caps are counts (32 images, 8192 a side or the GPU's
+  `max_image_size_2d`, 256 MiB each, 512 MiB in all), checked in 64-bit before the GPU allocates.
 - **Commands.** `postprocess.get`, `postprocess.set` (thin wrappers of `scene.set_component` for `PostProcess`), `postprocess.presets` and
   `postprocess.apply_preset` are in `engine/runtime/src/postprocess_commands.cpp`. The looks are data
   (`engine/runtime/data/postprocess_presets.json`, `fa/runtime/postprocess_presets.h`; `postprocess_preset_fields` gives the fields a
