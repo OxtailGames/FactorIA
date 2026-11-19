@@ -477,6 +477,15 @@ cache, hot reload, export, the runtime) is unchanged: a graph material is a mate
   (snippet, then material) are undone if the second fails, so the two files never disagree about a hash.
 - **Params and textures** a node uses are the material's own, so nothing about packing, `materialParams` or the inspector
   changes; a node names one (`"param": "dissolve"`), the checker reports a name the material lacks with the names it has.
+- **The file is rewritten.** `material.graph.generate`, `material.param.set_default` and `material.param|texture.create|rename|delete`
+  write the whole `*.material.json` again as 2-space JSON: the keys keep their order, hand formatting (alignment, blank lines) is
+  lost. Not reasonable to keep with the JSON writer, so the command descriptions say it. `create` takes an optional `index` (the
+  position in `params` or `textures`; the order of textures decides the slots) and `delete` returns the `index` it had, so undo
+  is `create` with the returned `entry` and `index`. `create`, `rename` and `delete` load a file whose graph reads an undeclared
+  param (the very error `create` fixes) and check the patched file instead; `rename` and `delete` return `warnings` when the
+  snippet is not the generated one (hand-written or edited) and still uses the name. A constant on a `vecN` input is an array of N
+  numbers, like a param's default; a bare number is accepted by `float` and `gen` inputs only (it widens).
+  `shader.compile` and `factoria validate` say "run material.graph.generate" when the graph's snippet is missing or out of date.
 - **Library in code, not data.** `tools/common/src/material_graph_lib.cpp` holds one table row per node type: ports (type,
   default, doc), the material kinds it works in, whether it needs the fragment stage and the GLSL expression of each output;
   the noise and parallax functions are helpers (`gn_` prefix, `fa_` is reserved for the engine) pasted only when used. Ports are
@@ -494,7 +503,7 @@ cache, hot reload, export, the runtime) is unchanged: a graph material is a mate
 
 ## Out of scope (recorded so nobody assumes it)
 
-- A post pass that needs the previous frame. A sky material does not
+- A sky material does not
   drive the meshes' ambient and reflection light.
 - ~~A full-GLSL escape hatch (D1)~~: built in M72.3 for mesh materials, see [CUSTOM_SHADERS_FULL.md](CUSTOM_SHADERS_FULL.md).
 - Compute on GLES3/WebGL2 (refused with the CPU path named), tessellation, geometry shaders (not in sokol_gfx's common subset for these backends anyway).
@@ -660,8 +669,8 @@ D3 built (2026-10-19): the factoria downloads carry sokol-shdc next to `factoria
 `"lighting": "custom"`: the snippet adds `vec3 light(in SurfaceInput i, in Surface s, in LightSample l)`, called by the
 engine's light loop once per light instead of Cook-Torrance, and optionally `vec3 ambient(in SurfaceInput i, in Surface s,
 vec3 ambientColor)`. The engine keeps choosing the lights, their attenuation and the shadow, and adds emission and fog;
-the sky reflection (IBL) is off for custom lighting (a toon look does not want it; a snippet can add its own term to
-`s.emission`). `LightSample` holds `direction`, `color` (the light's color times intensity times attenuation times
+the sky reflection (IBL) is off for custom lighting (a toon look does not want it; a snippet adds it with
+`fa_sky_light()`, M72 P14 below). `LightSample` holds `direction`, `color` (the light's color times intensity times attenuation times
 shadow: what reaches the surface), `attenuation`, `shadow`, `distance` and `type`. What was built:
 
 - **Template.** `mesh_common.glsl` has the `LightSample` struct in the contract block and, under `FA_CUSTOM_LIGHT`, the
@@ -687,6 +696,38 @@ Tests: tooling (the generated top file, the missing-`light()` error, reserved na
 the real sokol-shdc, the doc examples), renderer ("materials: ..." cases: a toon shows two bands with the lit side
 brighter, a `light()` returning 0 leaves the ambient term, `ambient()` replaces it, a texture in `vertex()` lifts the mesh
 and its shadow like a mesh standing there).
+
+### P14. The whole light loop and the sky light (M72, built)
+
+`vec3 lighting(in SurfaceInput i, in Surface s)` in a `"custom"` material replaces the engine's loop, `light()` and
+`ambient()` (user guide: docs/shaders/SHADERS_LIGHTING.md). What was built:
+
+- **Template.** `mesh_common.glsl` was reordered so the snippet can call the engine's lights: the blocks `fa_env_funcs`
+  (`fa_environment`, `fa_env_brdf`, new `fa_sky_reflection`: the one copy of the IBL, also included by
+  `mesh_full_common.glsl`) and `fa_light_shared` (`fa_sky_light`, `fa_no_light`) come first, then `fa_fs_light` (the
+  light uniform block, the shadow, `fa_light_count`, `fa_light`, `fa_light_unshadowed`, `fa_light_shadow`, all under
+  `FA_CUSTOM_LIGHT`), then the snippet, then the rest. sokol-shdc needs a block defined before it is included, which fixes
+  the order. `fa_fs_surface`, the head of the shadow and prepass fragment programs (which also compile the snippet), gets
+  `fa_fs_nolight`: the same names with `fa_light_count() = 0`, so a helper that calls them compiles there and never runs.
+- **`main()`.** With `FA_HAS_LIGHTING` the light loop, the ambient term and the sky term are replaced by
+  `lit = lighting(i, s)`; `s.emission` and the fog come after, as before. Without it the loop is the old code over the
+  new `fa_light_shadowed()` (the same arithmetic as before, so a custom material that does not use the hook renders
+  the same pixels). The sky reflection is added only when `FA_CUSTOM_LIGHT` is not defined.
+- **Generator and checks.** `lighting` is an entry point when its first parameter list names `SurfaceInput` (a helper
+  with another signature is not the hook); `GeneratedShader::hasLighting` / `lightingWithoutCustom`. Before sokol-shdc
+  starts, `precheck_snippet` refuses: the hook without `"lighting": "custom"` (pointer `/lighting`), the hook together with
+  `light()` or `ambient()`, the functions in a `"pbr"` or `"unlit"` material and in `surface()` or `vertex()`; a misspelled
+  `fa_` function after the compile gets a did-you-mean over the documented functions first.
+- **Lights.** The cap is the shader's 32 (`kMaxLights`), ordered by `select_lights`: the shadow caster, the other
+  directional lights, then point and spot by relevance to the camera. Only light 0 has a shadow map.
+- **Template hash.** The template text changed, so every committed twin was regenerated (`FA_UPDATE_FIXTURES=1`), with three
+  new fixtures: `lightloop` (a toon from the brightest light only, plus the sky), `skylit` (`ambient()` returns
+  `fa_sky_light`) and `full_sky` (a full shader that reflects the sky).
+
+Tests: tooling (the generator, the errors with their pointers, the did-you-mean, the fixture twins with the real
+sokol-shdc, the doc example), renderer (two lights give the frame of the brightest alone, unlike the per-light toon; the
+sphere reflects blue sky on one end and the orange horizon on the other through `lighting()`, `ambient()` and a full
+shader, and shows no sky with `skyAmount` 0).
 
 ## Risks
 

@@ -403,8 +403,11 @@ constexpr int kMaterialSpriteFirstView = 4, kMaterialSpriteFirstSampler = 3;
 constexpr int kQuadInstBuffer = 1, kQuadInstAttr = 7;
 constexpr int kMaterialSkyFirstView = 0, kMaterialSkyFirstSampler = 0;
 // post (post_common.glsl): uniform blocks vertex 0 fa_post_vs_params, fragment 1 fa_post_params; views 0 (fa_scene) and 1 (fa_prepass),
-// samplers 0 (linear clamp) and 1 (nearest) are the engine's, so a material's textures are views and samplers 2..5.
+// samplers 0 (linear clamp) and 1 (nearest) are the engine's, so a material's textures are views and samplers 2..5; view 6 is the history.
 constexpr int kMaterialPostFirstView = 2, kMaterialPostFirstSampler = 2;
+// The history of a post pass (fa_history(), the pass's own output of the frame before) is the view after the material's textures, read
+// through sampler 0; the program declares it only when the snippet calls fa_history (tools/common/include/fa/tooling/shaders.h).
+constexpr int kMaterialPostHistoryView = kMaterialPostFirstView + kMaxMaterialTextures;
 // A mesh material texture is bound twice: the fragment stage reads it at kMaterialFirstView + i, the vertex stage (vertex() may sample
 // it) at kMaterialVsFirstView + i, with the samplers likewise (fa/tooling/shaders.h kMaterialVsFirstView, the generator's top
 // file). Each program declares only the slots its stages use, and a draw binds only those.
@@ -1424,6 +1427,12 @@ bool readback_buffer(sg_buffer buffer, std::size_t offset, std::size_t bytes, st
 // RGBA32F). False + `error` on a backend without storage images.
 bool readback_storage_image(sg_image image, sg_pixel_format format, int width, int height,
                             std::vector<std::uint8_t>& out, std::string* error);
+// Whether a compute shader can imageLoad (not only imageStore) a storage image of `format` (RGBA8, RGBA16F, R32F, RGBA32F) on
+// this GPU, the question behind `"access": "readWrite"`. sokol's `read` flag does not answer it: on Direct3D 11 it means a
+// typed UAV exists, not a typed load (D3D11.0 hardware loads only R32_FLOAT/UINT/SINT), and on Metal the read-write texture
+// tier decides (Tier 1: the 32-bit single-channel formats only). OpenGL 4.3 loads every format its shader declares with a
+// layout qualifier. False + `why` (a sentence about this GPU) when it cannot.
+bool storage_image_loadable(sg_pixel_format format, std::string* why);
 // The same for an RGBA16F image, as floats (4 per pixel, top row first): what the HDR tests read (Renderer::Impl::read_floats).
 bool readback_rgba16f(sg_image image, int width, int height, std::vector<float>& out, std::string* error);
 

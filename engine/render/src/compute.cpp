@@ -62,6 +62,8 @@ struct Compute::State {
     std::uint64_t totalBytes = 0;
     std::uint64_t imageBytes = 0;
     int backendOverride = -1;  // tests: a render::FeatureBackend to answer as
+    int loadOverride =
+        0;  // tests: 1 = answer as a GPU that can imageLoad an r32f image only, 2 = one that cannot imageLoad any
 
     void destroy(Buf& b) {
         if (b.view.id) sg_destroy_view(b.view);
@@ -294,7 +296,9 @@ std::string usable_image_formats(bool readWrite) {
     for (sg_pixel_format f :
          {SG_PIXELFORMAT_RGBA8, SG_PIXELFORMAT_RGBA16F, SG_PIXELFORMAT_R32F, SG_PIXELFORMAT_RGBA32F}) {
         const sg_pixelformat_info pf = sg_query_pixelformat(f);
-        if (pf.write && (pf.read || !readWrite) && pf.render) ok.push_back(image_format_name(f));
+        if (pf.write && (pf.read || !readWrite) && pf.render &&
+            (!readWrite || render::storage_image_loadable(f, nullptr)))
+            ok.push_back(image_format_name(f));
     }
     return ok.empty() ? std::string("none") : join(ok, ", ");
 }
@@ -454,6 +458,7 @@ void Compute::attach(render::Gpu* gpu, render::Assets* assets) {
 }
 
 void ComputeTestAccess::set_backend(Compute& c, int backend) { c.s_->backendOverride = backend; }
+void ComputeTestAccess::set_load_override(Compute& c, int mode) { c.s_->loadOverride = mode; }
 
 Json compute_json_float(float v) {
     if (!std::isfinite(v)) return Json(nullptr);
@@ -917,6 +922,29 @@ Result<int> Compute::create_image(const std::string& material, const std::string
                               ? std::string("The material declares no images: add an \"images\" entry to its file "
                                             "(docs/shaders/SHADERS_COMPUTE.md, \"Storage images\").")
                               : did_you_mean(image, names));
+    if (def->readWrite) {  // imageLoad of this format is a capability of the GPU, not of the format alone
+        std::string limit;
+        bool loadable = true;
+        if (s.loadOverride == 1) {
+            loadable = def->format == SG_PIXELFORMAT_R32F;
+            limit = "this GPU can read and write one image only in r32f (simulated by a test)";
+        } else if (s.loadOverride == 2) {
+            loadable = false;
+            limit = "this GPU cannot read an image in a shader (simulated by a test)";
+        } else {
+            loadable = render::storage_image_loadable(def->format, &limit);
+        }
+        if (!loadable)
+            return make_error(
+                "image: " + m.path + " /images/" + def->name +
+                    "/access: \"readWrite\" (imageLoad and imageStore) of the format " +
+                    image_format_name(def->format) + " does not work on this GPU: " + limit,
+                std::string(def->format == SG_PIXELFORMAT_R32F ? ""
+                                                               : "Use the format r32f for an image the shader reads "
+                                                                 "and writes, or ") +
+                    "split it into two images: write one and read the other as a texture, swapping them each frame "
+                    "(docs/shaders/SHADERS_COMPUTE.md, \"Storage images\").");
+    }
     if (width == 0) width = def->width;
     if (height == 0) height = def->height;
     if (int(s.imgs.size()) >= kMaxLiveComputeImages)

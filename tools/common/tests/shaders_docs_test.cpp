@@ -20,7 +20,7 @@ namespace stdfs = std::filesystem;
 namespace {
 
 // The pages whose worked examples are built here, relative to docs/.
-constexpr const char* kPages[] = {"SHADERS.md", "shaders/SHADERS_FULL.md"};
+constexpr const char* kPages[] = {"SHADERS.md", "shaders/SHADERS_FULL.md", "shaders/SHADERS_LIGHTING.md"};
 
 struct DocFile {
     std::string path, lang, text;

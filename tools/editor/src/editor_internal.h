@@ -1917,10 +1917,21 @@ std::string pick_file(const std::string& title, const std::string& start, const 
 // The size of the system clipboard the editor asks sokol_app for: a longer text is cut by sokol, so a copy of entities that
 // does not fit is refused (entity_copy).
 inline constexpr std::size_t kClipboardBytes = std::size_t(1) << 20;
-// The picture on the system clipboard as PNG bytes; empty when there is none (or no tool to read it on Linux).
+// The picture on the system clipboard as PNG bytes; empty when there is none (or no tool to read it on Linux, or the
+// private clipboard is on). folder_picker.cpp reads the system one.
 std::vector<std::uint8_t> clipboard_image_png();
-// Whether the system clipboard holds text (what Ctrl+V pastes into a text box).
+std::vector<std::uint8_t> system_clipboard_image_png();
+// Whether the system clipboard holds text (what Ctrl+V pastes into a text box); always true for the private clipboard.
 bool clipboard_has_text();
+bool system_clipboard_has_text();
+// The editor's text clipboard (clipboard.cpp): the system clipboard, except under the editor autotest, which switches to a
+// clipboard that lives in this process (clipboard_use_private) so that other programs cannot change what it copies and
+// pastes. Every copy and paste of the editor, ImGui's included, goes through these two.
+// clipboard_get_text returns a pointer valid until the next clipboard call; never null.
+void clipboard_use_private(bool on);
+bool clipboard_is_private();
+void clipboard_set_text(const char* text);
+const char* clipboard_get_text();
 void maximize_window();
 // Opens `dir` in the system's file manager (Finder, Explorer, xdg-open on Linux) without waiting for it. Returns "" or
 // what went wrong. file_manager_name() is what the button says: "Finder", "Explorer" or "file manager".

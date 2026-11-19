@@ -13,14 +13,52 @@ Older versions, one file per minor version with its patch releases: [0.30](chang
   `buffers`. The image is a texture for any material: put its `textureId` (`"compute:<id>"`) in `Sprite.texture`,
   `MeshRenderer.texture` or a texture param of a mesh, sprite or post material, and a dispatch made before a draw is
   finished when the draw reads it. A new image is zero; limits are counts (32 images, 8192 pixels a side, 256 MiB each,
-  512 MiB in all) and a format the GPU cannot write is refused with the ones that work. `material.info` lists `images`.
+  512 MiB in all) and a format the GPU cannot write is refused with the ones that work. `"readWrite"` (`imageLoad` and `imageStore`) is guaranteed for `r32f` only: `compute.create_image` asks the GPU (Direct3D 11 typed UAV loads, the Metal read-write texture tier) and refuses another format where it cannot load it, with `/images/<name>/access` and the way out (`r32f`, or two images). `factoria validate` accepts `compute:<n>` in a texture field. `material.info` lists `images`.
   Where there is no compute (Android, the web, macOS OpenGL 4.1) the refusal names the backend and the CPU path.
   Compute materials with no images keep the twins they had: **nothing needs to be exported again** unless it declares images.
   The page `factoria docs read shaders-compute` has the rules, a complete example and the table per backend.
+
+- **Material tools polish (M72):** `shader.compile` and `factoria validate` tell you to run `material.graph.generate` when the
+  snippet of a graph material is missing or older than its graph. `material.param.create` and `material.texture.create` take
+  an optional `index` (where in `params`/`textures` to insert; the order of textures decides the slots) and the matching
+  `delete` returns the `index` it had, so an undo puts the entry back in place. `create`, `rename` and `delete` work on a file
+  whose graph reads a param that is not declared yet (create fixes it), and `rename`/`delete` return `warnings` when a
+  hand-written snippet still uses the name. `"graph": null` is an error with a pointer instead of a hand-written snippet; a
+  material called `..x.material.json` or `~tmp.material.json` is no longer refused as outside the project or absolute; the
+  command descriptions say the material file is rewritten (2-space JSON) by every command that writes it.
+
+- **Scene, Inspector and validation polish (M72):** `factoria validate` refuses a material path with a backslash, an absolute
+  path or `..` the same way on every OS (the error names the JSON pointer and the form to write), and checks that
+  `SceneSettings.skyMaterial` is a material of kind `sky` (the error names the kind it found and lists the project's sky
+  materials). The Inspector's material params keep one edit and one error per component, so two components of one entity with
+  a param of the same name no longer share them. Undo of two edits of one block of material params made within a moment redoes
+  both. The editor's Viewport draws the sky as the game does (docs/EDITOR.md says so). The editor autotest copies and pastes
+  through a clipboard of its own, so other programs using the system clipboard cannot fail it.
+- **Post history (M72.16):** a post material that calls `fa_history(uv)` reads its own output of the frame before (trails,
+  feedback, accumulation), with `fa_history_valid` for the frames where there is none (the first one, after a resize or a
+  change of render scale or format, when the camera was not drawn the frame before, at a scene or clock cut, and after the
+  new command `render.reset_post_history`, which takes an optional camera). Each camera and pass keeps two images that swap
+  every frame, freed 120 frames after the last frame that used them; a history that does not fit the 1 GiB budget (256 MiB on
+  the web) leaves the pass drawn without it. Using `fa_history` as a texture, `fa_history_valid` as a call, or either outside a
+  post material is refused with the fix before sokol-shdc runs. See `factoria docs read shaders-post`, "History".
+  **Games with custom post materials must re-export again** (the post template changed).
+
 - **Compute buffers (polish):** `compute.read_buffer` and `compute.write_buffer` also refuse a call of more than 4194304
   numbers (elements times the components of their fields) and say how many elements fit and to go on in chunks with
   `first`/`count`; floats read back are the same in every C locale.
 
+- **Your own light loop and the sky light for custom lighting (M72.3):** a mesh material with `"lighting": "custom"` can
+  define `vec3 lighting(in SurfaceInput i, in Surface s)` instead of `light()`: the engine calls it once per fragment in
+  place of its loop and its ambient term, and you pick the lights with `fa_light_count()` (at most 32, the shadow caster
+  first, then the other directional lights, then point and spot lights by relevance to the camera), `fa_light(n, i)`,
+  `fa_light_unshadowed(n, i)` and `fa_light_shadow(n, i)`. The sky reflection (image-based lighting), off in a custom
+  material until now, is one call away from `light()`, `ambient()` and `lighting()`: `fa_sky_light(i, s)`, or
+  `fa_sky_reflection(n, v, f0, roughness)`, `fa_environment(direction, roughness)` and `fa_env_brdf(roughness, ndv)` in
+  pieces; full shaders get the last three. Mistakes are found before the compiler runs (the hook without custom lighting,
+  `lighting()` together with `light()`, the functions in a `"pbr"` material or in `surface()`) and a misspelled name gets
+  a "did you mean". A custom material without the hook renders the same pixels. The page `factoria docs read
+  shaders-lighting` has the functions, the order of the lights and a complete example. **Games with custom mesh materials
+  must re-export** if they have not since the previous entry (the mesh template changed).
 - **Full shaders and passes for mesh materials (M72.3):** `"mode": "full"` on a `"kind": "mesh"` material names a file
   with the vertex and the fragment stage (`@common`, `@vertex`, `@fragment`, each with its own `main`) instead of the
   `vertex()`/`surface()` snippet, and `"passes": [...]` draws the mesh up to four times in array order, each pass with its
@@ -46,6 +84,18 @@ Older versions, one file per minor version with its patch releases: [0.30](chang
   turned an error back into "up to date", and a shader compile whose result could not be saved in `.factoria/shader-cache` is
   now an error in the panel instead of running sokol-shdc on the editor's thread. `.factoria/material-preview/` (the files the
   preview writes) is documented in the Graph panel section.
+- **Params and textures from the Graph panel (M72 P13b-2):** the Graph panel makes, renames and deletes the params and
+  textures of the material without leaving it (**+ Param**, **+ Texture**, **Rename**, **Delete** in the side list): the new
+  entry is in the file at once, a `param` or `texture` node offers it immediately, a rename points the nodes that read it at the
+  new name, a delete is refused while nodes read it (the panel names and selects them), and each is one undo step. Six new
+  commands do the work, so an AI and the panel share the checks: `material.param.create`, `material.param.rename`,
+  `material.param.delete`, `material.texture.create`, `material.texture.rename` and `material.texture.delete`
+  (`{material, name, ...}`, all with `dryRun`; a name the material has, a GLSL word, `fa_` or the graph's `gn_` prefix is
+  refused with the fix; `delete` refuses a used entry with error code `in_use` and the node ids, or removes those nodes and their
+  links with `force: true`; rename and delete also take the editor's in-memory graph as `graph`; a shader snippet that was in
+  sync is generated again). Three smaller fixes in the same panel: a link dropped on the input it already feeds is no longer an
+  empty undo step, the checker does not run at every mouse move of a drag (the report is the one of the graph when the drag
+  began), and a material file that lost its `graph` is reported once instead of being read again at every look.
 - **Per-sprite values and vertex textures in sprite materials (M72.1):** a sprite material's param marked
   `"instanced": true` takes its value per quad: 100 sprites, shapes, tiles, glyphs or particles of one material with 100
   different `tint` values are one batch and one draw call, and the snippet reads `tint` by its name in `fragment()` and

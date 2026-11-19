@@ -107,6 +107,19 @@ bool readback_storage_image(sg_image image, sg_pixel_format format, int width, i
     }
 }
 
+bool storage_image_loadable(sg_pixel_format format, std::string* why) {
+    id<MTLDevice> device = (__bridge id<MTLDevice>)sg_mtl_device();
+    const MTLReadWriteTextureTier tier = [device readWriteTextureSupport];
+    // Tier 1 (older Intel Macs, iOS A9-A10) reads and writes only the single-channel 32-bit formats in one texture; Tier 2
+    // adds the 8-bit, 16-bit float and 32-bit float RGBA ones.
+    if (tier == MTLReadWriteTextureTier2) return true;
+    if (tier == MTLReadWriteTextureTier1 && format == SG_PIXELFORMAT_R32F) return true;
+    if (why)
+        *why = std::string("this Metal GPU supports reading and writing one texture only for r32f (read-write texture tier ") +
+               (tier == MTLReadWriteTextureTier1 ? "1" : "none") + ")";
+    return false;
+}
+
 bool readback_buffer(sg_buffer buffer, std::size_t offset, std::size_t bytes, std::vector<std::uint8_t>& out,
                      std::string* error) {
     @autoreleasepool {

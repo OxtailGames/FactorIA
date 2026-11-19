@@ -140,6 +140,28 @@ bool readback_storage_image(sg_image image, sg_pixel_format format, int width, i
     return true;
 }
 
+bool storage_image_loadable(sg_pixel_format format, std::string* why) {
+    auto* device = static_cast<ID3D11Device*>(const_cast<void*>(sg_d3d11_device()));
+    DXGI_FORMAT dxgi = DXGI_FORMAT_UNKNOWN;
+    switch (format) {
+        case SG_PIXELFORMAT_RGBA8: dxgi = DXGI_FORMAT_R8G8B8A8_UNORM; break;
+        case SG_PIXELFORMAT_RGBA16F: dxgi = DXGI_FORMAT_R16G16B16A16_FLOAT; break;
+        case SG_PIXELFORMAT_R32F: dxgi = DXGI_FORMAT_R32_FLOAT; break;
+        case SG_PIXELFORMAT_RGBA32F: dxgi = DXGI_FORMAT_R32G32B32A32_FLOAT; break;
+        default: break;
+    }
+    // D3D11.0 hardware guarantees a typed load only for R32_FLOAT/UINT/SINT; the others are a capability bit of the device.
+    D3D11_FEATURE_DATA_FORMAT_SUPPORT2 support{};
+    support.InFormat = dxgi;
+    const bool known = device && dxgi != DXGI_FORMAT_UNKNOWN &&
+                       SUCCEEDED(device->CheckFeatureSupport(D3D11_FEATURE_FORMAT_SUPPORT2, &support, sizeof(support)));
+    if (known && (support.OutFormatSupport2 & D3D11_FORMAT_SUPPORT2_UAV_TYPED_LOAD) != 0) return true;
+    if (why)
+        *why = "this Direct3D 11 device has no typed UAV load for that format (only r32f is guaranteed on every D3D11 "
+               "GPU)";
+    return false;
+}
+
 bool readback_buffer(sg_buffer buffer, std::size_t offset, std::size_t bytes, std::vector<std::uint8_t>& out,
                      std::string* error) {
     auto* device = static_cast<ID3D11Device*>(const_cast<void*>(sg_d3d11_device()));
