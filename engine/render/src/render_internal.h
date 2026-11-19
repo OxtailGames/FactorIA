@@ -390,6 +390,7 @@ constexpr int kMaxMaterialParams = 16,
 // (fa_material_vs in the vertex stage, fa_material in the fragment stage); the generator writes these numbers into the top file
 // (tools/common/src/shaders_generate.cpp, generate_material_shader).
 //   mesh   (mesh_common.glsl): views 0-5 and samplers 0-1 are the engine's (albedo, normal, shadow, IBL...), uniform blocks 0-3.
+//   post   (post_common.glsl): see kMaterialPost* below.
 //   sprite (quad_common.glsl): uniform blocks vertex 0 quad_vs_params and fragment 1 quad_fs_params; views 0-3 (tex, normal_tex,
 //          light_tex, shadow_tex) and samplers 0-2 (smp, light_smp, shadow_smp) are the engine's, so a material's textures are
 //          views 4..7 and samplers 3..6 (kMaterialSprite*): none collides with the 2D slots, and 4 + 4 views stay far below
@@ -401,6 +402,9 @@ constexpr int kMaterialSpriteFirstView = 4, kMaterialSpriteFirstSampler = 3;
 // The 2D vertex stream is vertex buffer 0; the instanced params of a sprite material are buffer 1 at the attributes from 7.
 constexpr int kQuadInstBuffer = 1, kQuadInstAttr = 7;
 constexpr int kMaterialSkyFirstView = 0, kMaterialSkyFirstSampler = 0;
+// post (post_common.glsl): uniform blocks vertex 0 fa_post_vs_params, fragment 1 fa_post_params; views 0 (fa_scene) and 1 (fa_prepass),
+// samplers 0 (linear clamp) and 1 (nearest) are the engine's, so a material's textures are views and samplers 2..5.
+constexpr int kMaterialPostFirstView = 2, kMaterialPostFirstSampler = 2;
 // A mesh material texture is bound twice: the fragment stage reads it at kMaterialFirstView + i, the vertex stage (vertex() may sample
 // it) at kMaterialVsFirstView + i, with the samplers likewise (fa/tooling/shaders.h kMaterialVsFirstView, the generator's top
 // file). Each program declares only the slots its stages use, and a draw binds only those.
@@ -432,8 +436,7 @@ constexpr int kProgCompute = 0;  // the one program of a compute material (Mater
 // Room for the programs of every kind of material (a mesh material has kProgCount of them).
 constexpr int kMaxMaterialPrograms = 8;
 static_assert(kProgCount <= kMaxMaterialPrograms);
-// The programs a twin of `kind` carries, in MaterialAsset::programs order (the "programs" keys of the twin). Empty for a kind
-// that cannot be built yet.
+// The programs a twin of `kind` carries, in MaterialAsset::programs order (the "programs" keys of the twin).
 const std::vector<const char*>& material_program_names(MaterialKind kind);
 
 struct MaterialParamDef {
@@ -490,9 +493,10 @@ struct MaterialRef {
 };
 
 struct MaterialAsset {
-    std::string path;                        // the .material.json
-    std::string snippet;                     // its `shader` file (a change of it reloads the material)
-    MaterialKind kind = MaterialKind::Mesh;  // its "kind": Mesh, Sprite and Sky (drawn) or Compute (Compute::dispatch)
+    std::string path;     // the .material.json
+    std::string snippet;  // its `shader` file (a change of it reloads the material)
+    MaterialKind kind =
+        MaterialKind::Mesh;  // its "kind": Mesh, Sprite, Sky and Post (drawn) or Compute (Compute::dispatch)
     std::vector<MaterialBufferDef> buffers;  // Compute: the storage buffers, in binding order
     int workgroup[3]{64, 1, 1};              // Compute: the threads of one workgroup
     std::string lighting = "pbr", alphaMode = "opaque";
@@ -508,10 +512,10 @@ struct MaterialAsset {
     MeshExtras extras() const { return {instanceVec4, uv1, color1}; }
     std::vector<MaterialTextureDef> textures;  // in the order of the twin's "textures" (views 6+i, samplers 2+i)
     MaterialProgram programs
-        [kMaxMaterialPrograms];  // by MaterialProgramId for a mesh material; a sprite one: quad, quad_plain; a sky one: sky
-    bool ok = false;             // false = drawn with the error material
-    std::string error;           // the last build error (kept while an older good build still draws)
-    int generation = 0;          // counts successful builds
+        [kMaxMaterialPrograms];  // by MaterialProgramId for a mesh material; a sprite one: quad, quad_plain; a sky one: sky; a post one: post
+    bool ok = false;                         // false = drawn with the error material
+    std::string error;                       // the last build error (kept while an older good build still draws)
+    int generation = 0;                      // counts successful builds
     std::unordered_set<std::string> warned;  // params already complained about
     // (mesh, part, channel) triples already logged as lacking a declared vertex channel: checked before the message is built,
     // as the draw asks once per part, batch and pass of every frame. Cleared when the material builds again.
@@ -771,6 +775,10 @@ public:
     // hash-map find and a comparison, not the path normalization, the packing and the hash. `overrides` must live (and keep its
     // values) until the next begin_material_frame()/drop_material_cache(): it is a component's own field, never a temporary.
     MaterialRef sprite_material(const std::string& path, const Json& overrides);
+    // The same for a custom post pass (PostProcess.customPasses, renderer_custom_post.h): a "post" material and the entry's
+    // materialParams. `use->error` is set when the material did not build or is not of kind "post" (one warning); the pass is
+    // then skipped, not drawn magenta. Call it on the render thread while the frame is planned.
+    MaterialRef post_material(const std::string& path, const Json& overrides);
     // Once per drawn frame, before the first gather: uses no item asked for during the last two frames are dropped, and the
     // per-frame answers of sprite_material() are forgotten.
     void begin_material_frame();
@@ -852,6 +860,8 @@ private:
     void destroy_procedural(ProceduralMesh& pm);
     void build_material(MaterialAsset& m);
     Result<void> build_material_checked(MaterialAsset& m);
+    MaterialRef kind_material(const std::string& path, const Json& overrides,
+                              MaterialKind want);  // sprite_material, post_material
     std::string missing_hint(const std::string& path, std::string_view ext) const;
 
     Gpu& gpu_;
@@ -890,7 +900,7 @@ private:
     static constexpr std::size_t kMaxMaterialVariants = 16;
     std::unordered_map<std::string, std::vector<MaterialVariant>> materialVariants_;
     std::uint32_t materialResolves_ = 0;
-    MaterialRef resolve_sprite_material(const std::string& path, const Json& overrides);
+    MaterialRef resolve_kind_material(const std::string& path, const Json& overrides, MaterialKind want);
     ShaderCompiler shaderCompiler_;
 };
 
@@ -1020,6 +1030,9 @@ public:
     // The debug view of the prepass (prepass_view.glsl): a full-screen triangle that draws it as a picture into `format` (the game target's).
     bool prepass_view_ready();
     sg_pipeline prepass_view_pipeline(const TargetFormat& format);
+    // The full-screen triangle of a post material's program (post_common.glsl) into `format`, no blending (the pass writes every pixel
+    // of its rectangle) and no depth; keyed by the program, so a reload that destroys it (destroy_shader) drops the pipeline too.
+    sg_pipeline post_material_pipeline(const TargetFormat& format, sg_shader shader);
 
     // The pipeline cache. Entries are keyed by what they draw (PipelineKey: the getter's flags, a custom program, the
     // TargetFormat of the pass). It is bounded: begin_frame() counts a use-tick, and once the cache holds more than

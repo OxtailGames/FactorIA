@@ -424,13 +424,11 @@ material says what it is for with the optional key `"kind"` of its `*.material.j
 | `"mesh"` (default) | the surface of a `MeshRenderer`: everything in this document | `mesh_common.glsl` | built |
 | `"sprite"` | the 2D quad path: `Sprite`, `Shape2D`, `Tilemap`, `Text`, particles and trails, UI images | `quad_common.glsl` (+ `color_space.glsl`, `light_shadow.glsl`) | M72.1: template, tooling and the `Sprite` draw built (M72-P1, P3); the other 2D emitters follow |
 | `"sky"` | the background of a 3D scene (`SceneSettings.skyMaterial`); the lighting still follows the two sky colours | `sky_common.glsl` (+ `color_space.glsl`) | M72.1: built (M72-P6) |
-| `"post"` | one pass of a camera's post-processing stack | `post_common.glsl` | M72.2 |
+| `"post"` | one pass of a camera's post-processing stack (`PostProcess.customPasses`) | `post_common.glsl` | M72.2: built (M72-P7a) |
 | `"compute"` | compute shaders (storage buffers) | `compute_common.glsl` | built (M72.4) |
 
-Built by M72.0 (the shared base): the key, its check, the per-kind template hash and the skeletons. `"mesh"`, `"sprite"`,
-`"sky"` and `"compute"` compile; `shader.compile` and `factoria validate` refuse the others with a message that names the package
-that brings them (`kind "post" is not compiled yet: post materials arrive with M72.2`, pointer `/kind`), and the renderer
-refuses to build such a material (the same message, with the file). A `kind` that is not one of the five is an error with "did you mean" and the
+Built by M72.0 (the shared base): the key, its check, the per-kind template hash and the skeletons. Every kind compiles now.
+A `kind` that is not one of the five is an error with "did you mean" and the
 pointer `/kind` (`parse_material`, `schemas/material.schema.json`).
 
 - **One template hash per kind.** `fa::material_template_hash(kind)` (the tooling's `shader_template_hash(kind)` returns
@@ -446,20 +444,25 @@ pointer `/kind` (`parse_material`, `schemas/material.schema.json`).
   hint, then checks the `engine` and `template` fields against the hash of that kind.
 - **One contract per kind.** Each template declares its own structs, so a top file includes the template of one kind
   and the error hints read the fields from the right one: mesh `SurfaceInput`, `Surface`, `VertexData`; sprite
-  `QuadInput`, `QuadSurface`, `QuadVertex`; sky `SkyInput`, `SkySurface`; post `PostInput`, `PostSurface` (the last two
-  are the skeletons M72.1 and M72.2 fill in: today they only declare the structs, and nothing includes them).
+  `QuadInput`, `QuadSurface`, `QuadVertex`; sky `SkyInput`, `SkySurface`; post `PostInput`,
+  `PostSurface`.
 - **Programs per kind.** `MaterialAsset` stores its `kind` and `kMaxMaterialPrograms` (8) program slots; the programs a
   kind's twin carries are named by `material_program_names(kind)` (the six of a mesh material, `quad` and `quad_plain`
-  of a sprite one), so a kind adds its own list when it becomes buildable.
-- **Commands.** `shader.compile` and `material.info` return `kind`; `material.info` of a kind that does not compile yet
-  reports `programs: []` and `compile.state: "unsupported"` with the package in `compile.hint`.
+  of a sprite one, `sky`, `post`, `compute`).
+- **Commands.** `shader.compile` and `material.info` return `kind`; `material.info` lists the programs of the kind
+  and `compile.state` (`compiled` or `not_compiled`).
 
 ### Sprite and sky materials (M72.1)
 
 The template, the tooling and the draw of the `"sprite"` and `"sky"` kinds are on the page
-[custom shaders: the sprite and sky kinds](CUSTOM_SHADERS_KINDS.md): the template files and the generated top file, the slots of
+[custom shaders: the sprite, sky and post kinds](CUSTOM_SHADERS_KINDS.md): the template files and the generated top file, the slots of
 textures and params, what the tooling refuses, the `Sprite` draw (`MaterialUse`, the error material) and the sky draw
 (`Renderer::Impl::sky_material`, the editor's Scene settings panel).
+
+### Post materials (M72.2)
+
+The template, the tooling, the custom-pass entry (`PostProcess.customPasses`), the render pass and the editor panel of the
+"post" kind are in [custom shaders: the sprite, sky and post kinds](CUSTOM_SHADERS_KINDS.md), "Post materials (M72.2)".
 
 ## Node graphs
 
@@ -491,8 +494,7 @@ cache, hot reload, export, the runtime) is unchanged: a graph material is a mate
 
 ## Out of scope (recorded so nobody assumes it)
 
-- Custom post-processing: M72.2 (see "Kinds (M72)"; the kind, hash and skeleton exist, the program does not). The 2D and
-  sky kinds have their template, tooling and draw: "Sprite and sky materials (M72.1)" above. A sky material does not
+- Post passes after the tonemap (display-referred) and a post pass that needs the previous frame. A sky material does not
   drive the meshes' ambient and reflection light.
 - A full-GLSL escape hatch (D1).
 - Compute storage images, compute on GLES3/WebGL2, tessellation, geometry shaders (not in sokol_gfx's common subset for these backends anyway).

@@ -1,7 +1,7 @@
-Part of [custom shaders](CUSTOM_SHADERS.md), "Kinds (M72)": the two kinds built on the mesh design, sprite and sky, with their
+Part of [custom shaders](CUSTOM_SHADERS.md), "Kinds (M72)": the three kinds built on the mesh design, sprite, sky and post, with their
 template, tooling and draw. The shared base (the `kind` key, the per-kind template hash, the skeletons) is on that page.
 
-# Custom shaders: the sprite and sky kinds
+# Custom shaders: the sprite, sky and post kinds
 
 ## Sprite materials (M72.1, the template and the tooling)
 
@@ -96,7 +96,7 @@ Built (M72-P4, per-sprite values): `"instanced": true` params of a sprite materi
 - **Layout.** `instance_layout` is the mesh's (first fit, at most `kMaterialMaxInstanceVec4` = 3 vec4). `MaterialUse.instVec4`
   is the material's `instanceVec4`; the instanced values are NOT part of the use's key, so the batch key (the use pointer) is
   unchanged: sprites that differ only in instanced values share a use and a batch. The values are packed in
-  `MaterialRef::inst` by `resolve_sprite_material` (`pack_instance_params`) and copied by `QuadList::set_material` into
+  `MaterialRef::inst` by `resolve_kind_material` (`pack_instance_params`) and copied by `QuadList::set_material` into
   `QuadItem::instFirst` of `QuadList::inst`; `append` and `append_items` remap `instFirst`, so items copied between cameras or
   built by jobs keep their values.
 - **Stream.** `flatten(out, batches, &instOut)` writes the values of every quad four times (once per corner) in vertex order,
@@ -111,7 +111,36 @@ Built (M72-P4, per-sprite values): `"instanced": true` params of a sprite materi
   `fragment()`. The memory cost is 4 copies of the values per quad (48 bytes per vec4 of a quad): 192 bytes at 3 vec4, against
   the 192 bytes of the quad's four `Vertex2D`.
 - **Particles.** The instanced values of a particle are its emitter's `materialParams`. `QuadInput.life` (new) is the particle's
-  age over its lifetime (the vertex's `shape_half.x` of modes 0 and 3, which no other mode uses there); it is 0 for every other item. `custom`
+  age over its lifetime (the vertex's `shape_half.x` of modes 0 and 3, which no other mode uses there); it is 0 for every other item, a particle's trail ribbon included. `custom`
   stays reserved.
 - **Vertex textures.** A sprite's vertex-stage views and samplers are 8.. and 7.. (after the fragment stage's 4.. and 3..), bound
   by `draw_group` next to the fragment ones; a mesh's are at 10.. and 6... The count of views stays at most 4 textures x 2 stages.
+
+## Post materials (M72.2)
+
+`engine/render/shaders/post_common.glsl` is the one program of a post material (`material_program_names(Post)` = `{"post"}`): a
+full-screen triangle whose fragment shader reads the picture (`fa_scene_color`) and optionally the depth and normal prepass
+(`fa_depth`, `fa_normal`) and calls the snippet's `post(in PostInput, inout PostSurface)`. Bindings: uniform block 0 (vertex,
+the GL flip), 1 (fragment, `fa_a` = GL flip and linear scene, `fa_rc` = the camera's rectangle as fractions, `fa_size`,
+`fa_time`) and 5 (the material, `kMaterialUbFragment`); views 0 `fa_scene` and 1 `fa_prepass` with samplers 0 (linear, clamped)
+and 1 (nearest), a material's textures at views and samplers 2+ (`kMaterialPostFirstView`). The prepass is bound only when the
+program declares it (the snippet calls `fa_depth` or `fa_normal`), which is what makes the renderer draw it for the camera.
+`lighting`, `alphaMode` and `doubleSided` are refused for the kind; a graph is not generated for it.
+
+- **The entry.** `PostProcess.customPasses` (a flat `Json` field: the stack keeps its flat component) holds `{material,
+  materialParams, enabled, position, name}` entries; `fa/render/post_custom.h` is the one parser (`parse_custom_post_passes`, used by
+  `postprocess.set`, the resolve and the report) and the one position table. A position names a built-in effect and a side;
+  each row maps to a `PostSlot` (`Main`, `AfterSsr`, `AfterShafts`, `AfterDof`, `AfterBloom`), the places `build_graph` has. A later
+  package adds places (the display-referred ones) as new slots and new rows: no key of the entry changes.
+- **The frame graph.** `renderer_custom_post.cpp` (`CustomPost::add_passes`, called by `build_graph` at each slot) reads the
+  picture through the graph (`game` imported resource), runs the entries of the slot in array order over the camera's rectangle,
+  and ping-pongs between two transients of the picture's format (`custom-<slot>-pass<k>`); the last pass draws back into the
+  rectangle of the picture with the bloom's destination rules (MSAA, hud over bloom), and a lone pass is copied back
+  (`SceneFx::copy_into`). The depth and normals are requested (`needsDepth`, `needsNormals`) only when a planned pass reads them.
+- **Failures.** `make_custom_post_plan` asks `Assets::post_material` and a pass whose material did not build, is not a post
+  material, is missing or needs a prepass the GPU lacks is dropped from the plan: `materialFallbacks` gets its path and the log
+  one warning per `path|reason` (`warnedCustomPass`, cleared on a scene change). A hot reload swaps the material's programs as for
+  the other kinds.
+- **Reported.** `render.supports` has the Engine feature `postMaterials`; `postprocess.get {resolved: true}` has `customPasses`
+  and `customPassProblems`; the editor's Post-processing panel edits the list (`postfx_custom.h` makes each edit one whole-array
+  `postprocess.set`, one undo step).

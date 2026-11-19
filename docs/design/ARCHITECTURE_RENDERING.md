@@ -446,6 +446,23 @@ display output.
   clamped to the frame's headroom only when its final pass went above white (`frameAboveWhite`). The CPU functions mirror
   the shaders; `renderer_force_output` and `renderer_read_floats` let the tests check them without an HDR display. Screen-space items are drawn after the final pass, so exposure and tonemap
   never touch them; in a linear scene their quad and text pipelines must write display-space values into `hudTarget`.
+- **Custom post passes (M72.2, `PostProcess.customPasses`).** Full-screen passes drawn by kind `"post"` materials, between the built-in
+  effects. Data: `fa/render/post_custom.h` (the entry parser `parse_custom_post_passes`, the position table `kCustomPostPositions`
+  and the `PostSlot` places: `Main`, `AfterSsr`, `AfterShafts`, `AfterDof`, `AfterBloom`; a later package adds places as new slots and
+  rows only). `resolve_post_stack` collects the entries (own, then volumes with strength >= 0.5) into `PostStack::custom`, with the
+  entries it could not read in `customErrors` (logged once per scene, shown by `postprocess.get {resolved}`). `plan_job`
+  (`renderer_draw.cpp`) turns them into a `CustomPostPlan` (`make_custom_post_plan`, `renderer_custom_post.{h,cpp}`): one entry per
+  material that built as a post material, with its params packed for UB5 and its textures; a material that did not build, is not a post
+  material, is missing or needs the prepass on a GPU without it is left out, listed in `RenderStats::materialFallbacks` and logged once
+  (`warnedCustomPass`). `needsDepth` and `needsNormals` become true only when a planned pass reads the prepass (`fa_depth`/`fa_normal`
+  make the program declare it), and `plan_prepass` draws it even for a camera with no mesh then. `build_graph` calls `custom_slot(slot)`
+  at each place: `CustomPost::add_passes` declares one pass per entry reading the picture (the first) or the transient before it,
+  ping-ponging between two transients of the picture's format (a pass cannot read what it writes) and drawing the last one into the
+  camera's rectangle of the picture (viewport and scissor on a split screen, the bloom's MSAA and hud-over-bloom destination rules; a
+  lone pass is copied back with `SceneFx::copy_into`). The pipeline is `Gpu::post_material_pipeline(format, shader)` (cache key 0xF00),
+  the program `programs[0]` of the material, bound like the other kinds (`kMaterialPost*` in `render_internal.h`). The y-flip of a GL
+  render target is in `fa_post_vs_params.fa_flip` and `fa_post_params.fa_a.x`, so a snippet always sees y running down. The feature
+  `postMaterials` of `render.supports` is the Engine capability; the editor's panel edits the list (`tools/editor/src/postfx_custom.h`).
 - **The effects, one bullet each,** are on the page [rendering, the post-processing effects](ARCHITECTURE_RENDERING_POST.md): the grading and lens
 effects, the radial blur and the transient screen effects, the outline, pixelate and posterize, the ambient occlusion, the depth and
 normal prepass, and the depth of field and motion blur.

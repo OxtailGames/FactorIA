@@ -314,11 +314,11 @@ void scan_globals(const std::string& text, NameSet& out) {
 const std::set<std::string, std::less<>>& template_globals(const std::string& kind) {
     // The names the template of a kind declares at the top level of its program, unprefixed (the prefixed ones are covered
     // by the fa_ rule): a param or texture with one of them would redefine it. Derived from the bundled template so the
-    // list cannot drift. Only the sprite and sky templates have any: their snippet is spliced into a program whose inputs, varyings and
+    // list cannot drift. Only the sprite, sky and post templates have any: their snippet is spliced into a program whose inputs, varyings and
     // helpers are not prefixed (the mesh template keeps its own names out of the snippet's way by other means).
     static const std::map<std::string, NameSet> byKind = [] {
         std::map<std::string, NameSet> result;
-        for (const char* kind : {"sprite", "sky"}) {
+        for (const char* kind : {"sprite", "sky", "post"}) {
             NameSet names;
             for (const auto& [name, content] : template_files(kind)) scan_globals(blank_comments(content), names);
             result[kind] = std::move(names);
@@ -328,16 +328,6 @@ const std::set<std::string, std::less<>>& template_globals(const std::string& ki
     static const NameSet none;
     auto it = byKind.find(kind);
     return it == byKind.end() ? none : it->second;
-}
-
-bool kind_is_compiled(const std::string& kind) {
-    return kind == "mesh" || kind == "sprite" || kind == "sky" || kind == "compute";
-}
-
-std::string kind_refusal(const std::string& kind) {
-    // Mesh, sprite, sky and compute are compiled; post arrives with M72.2.
-    const char* package = "M72.2";
-    return "kind \"" + kind + "\" is not compiled yet: " + kind + " materials arrive with " + package;
 }
 
 }  // namespace shaders_detail
@@ -477,14 +467,16 @@ GeneratedShader generate_material_shader(const MaterialDef& material, std::strin
     if (material.kind == "compute") return generate_compute_shader(material, snippetText);
     GeneratedShader g;
     g.kind = material.kind;
-    const bool sprite = material.kind == "sprite", sky = material.kind == "sky";
-    const bool clip = material.alphaMode == "clip";
+    const bool sprite = material.kind == "sprite", sky = material.kind == "sky", post = material.kind == "post";
+    // A post material has no alpha test and no light(): parse_material refuses the keys that ask for them.
+    const bool clip = material.alphaMode == "clip" && !post;
     const std::string src = normalize_snippet(snippetText);
-    // Only a mesh has light(): a sprite is lit by the 2D pipeline, a sky is not lit.
+    // Only a mesh has light(): a sprite is lit by the 2D pipeline, a sky and a post pass are not lit.
     const bool custom = material.kind == "mesh" && material.lighting == "custom";
     const std::vector<Function> fns = find_entry_points(blank_comments(src),
                                                         sprite ? "fragment"
                                                         : sky  ? "sky"
+                                                        : post ? "post"
                                                                : "surface",
                                                         custom);
     for (const Function& f : fns) {
@@ -537,10 +529,12 @@ GeneratedShader generate_material_shader(const MaterialDef& material, std::strin
         material.vertexAttributes.end())
         t.generated("#ifdef GL_VERTEX_SHADER\nvec4 vertex_color1;\n#endif\n");
     std::string vsDefines, vsUndefs, vsDecls, fsDecls;
-    if (sky) {
+    if (sky || post) {
         // A sky material has no vertex() and no engine texture: its textures are declared once, in the fragment stage, at views 0..
-        // and samplers 0...
-        int view = kMaterialSkyFirstView, sampler = kMaterialSkyFirstSampler;
+        // and samplers 0... A post material's are views 2.. and samplers 2..: its pass is a full-screen triangle whose vertex stage has
+        // no material.
+        int view = sky ? kMaterialSkyFirstView : kMaterialPostFirstView;
+        int sampler = sky ? kMaterialSkyFirstSampler : kMaterialPostFirstSampler;
         for (const MaterialTexture& tex : material.textures)
             t.generated("layout(binding=" + std::to_string(view++) + ") uniform texture2D " + tex.name +
                         ";\nlayout(binding=" + std::to_string(sampler++) + ") uniform sampler " + tex.name + "_smp;\n");
@@ -579,11 +573,15 @@ GeneratedShader generate_material_shader(const MaterialDef& material, std::strin
     t.snippet(src, pos, src.size());
     // The shims stop at the snippet: the engine's own vertex code below sees the real texture() and discard.
     t.generated("#ifdef GL_VERTEX_SHADER\n#undef texture\n#undef discard\n" + vsUndefs + "#endif\n");
-    t.generated(sprite ? "@end\n@include quad_common.glsl\n"
-                : sky  ? "@end\n@include sky_common.glsl\n"
-                       : "@end\n@include mesh_common.glsl\n");
+    t.generated(post     ? "@end\n@include post_common.glsl\n"
+                : sky    ? "@end\n@include sky_common.glsl\n"
+                : sprite ? "@end\n@include quad_common.glsl\n"
+                         : "@end\n@include mesh_common.glsl\n");
 
-    if (sky) {
+    if (post) {
+        g.programs = {"post"};
+        t.generated("@program post vs fs\n");
+    } else if (sky) {
         g.programs = {"sky"};
         t.generated("@program sky vs fs\n");
     } else if (sprite) {
@@ -604,7 +602,8 @@ GeneratedShader generate_material_shader(const MaterialDef& material, std::strin
         g.programs.push_back("prepass_skin");
         t.generated("@program prepass prepass_vs prepass_fs\n@program prepass_skin prepass_vs_skin prepass_fs\n");
     }
-    if (g.hasVertex && !sky) g.defines.push_back("FA_HAS_VERTEX");  // a sky has no vertex(): the precheck refuses one
+    if (g.hasVertex && !sky && !post)
+        g.defines.push_back("FA_HAS_VERTEX");  // a sky and a post pass have no vertex(): the precheck refuses one
     if (custom) g.defines.push_back("FA_CUSTOM_LIGHT");
     if (custom && g.hasAmbient) g.defines.push_back("FA_HAS_AMBIENT");
     // A sprite is blended by the engine: alphaMode "clip" (the mesh template's alpha test) adds nothing to it.

@@ -175,6 +175,15 @@ void QuadList::flatten(std::vector<Vertex2D>& out, std::vector<QuadBatch>& batch
         });
     }
 
+    if (instOut) {
+        // One reserve for the whole list: a reserve per item is exact, does not grow geometrically, and would copy the whole
+        // vector again for every item.
+        std::size_t instFloats = 0;
+        for (const QuadItem& it : items)
+            if (it.use && !it.use->error && it.use->instVec4 > 0)
+                instFloats += std::size_t(it.quadCount) * 4 * std::size_t(it.use->instVec4) * 4;
+        if (instFloats > 0) instOut->reserve(instOut->size() + instFloats);
+    }
     std::size_t at = base;  // the first vertex of the item in `out`
     for (const QuadItem& it : items) {
         const std::uint32_t firstQuad = std::uint32_t(at / 4);
@@ -188,7 +197,6 @@ void QuadList::flatten(std::vector<Vertex2D>& out, std::vector<QuadBatch>& batch
         if (instVec4 > 0) {
             const std::size_t floats = std::size_t(instVec4) * 4;
             const float* values = inst.data() + it.instFirst;
-            instOut->reserve(instOut->size() + std::size_t(it.quadCount) * 4 * floats);
             for (std::size_t v = 0, n = std::size_t(it.quadCount) * 4; v < n; ++v)
                 instOut->insert(instOut->end(), values, values + floats);
         }
