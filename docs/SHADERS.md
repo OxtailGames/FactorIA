@@ -741,6 +741,8 @@ have the fields `material` and `materialParams`. What each one covers:
 
 UI text is drawn through the same glyph quads as `Text`, but only the `Text` component has `material` for them.
 
+An emitter of a `*.vfx.json` accepts `material` and `materialParams` like any `ParticleEmitter`.
+
 Check a material on any of these with `shader.compile` and `factoria validate`; `material.info` lists its params.
 
 **What the renderer does with a sprite material.** Sprites with the same material and equal param values share a draw call;
