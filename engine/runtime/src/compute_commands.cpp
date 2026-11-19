@@ -62,8 +62,8 @@ std::uint64_t whole_arg(const Json& a, const char* key, std::uint64_t lo, std::u
     const bool whole = v.is_number() && std::isfinite(d) && std::floor(d) == d && d >= 0 && d < 9007199254740992.0;
     if (!whole || std::uint64_t(d) < lo || std::uint64_t(d) > hi)
         throw CommandError("invalid_argument",
-                           std::string(command) + ": " + key + ": " + describe_json_value(v) + " is not a whole number from " +
-                               std::to_string(lo) + " to " + std::to_string(hi) + ".",
+                           std::string(command) + ": " + key + ": " + describe_json_value(v) +
+                               " is not a whole number from " + std::to_string(lo) + " to " + std::to_string(hi) + ".",
                            std::string("Pass \"") + key + "\" as a whole number in that range.");
     return std::uint64_t(d);
 }
@@ -72,7 +72,8 @@ std::string string_arg(const Json& a, const char* key, const char* command) {
     if (!a.is_object() || !a.contains(key) || !a[key].is_string() || a[key].get<std::string>().empty())
         throw CommandError("invalid_argument",
                            std::string(command) + ": " + key + " is required, a non-empty string" +
-                               (a.is_object() && a.contains(key) ? " (got " + describe_json_value(a[key]) + ")" : "") + ".",
+                               (a.is_object() && a.contains(key) ? " (got " + describe_json_value(a[key]) + ")" : "") +
+                               ".",
                            std::string("Pass \"") + key + "\" as text, e.g. \"materials/boids.material.json\".");
     return a[key].get<std::string>();
 }
@@ -87,9 +88,12 @@ void register_compute_commands(Engine& engine, Engine::Impl& I) {
         {"compute.create_buffer",
          "Makes a GPU storage buffer shaped like one buffer of a compute material; returns its id.",
          "A zero-filled buffer of `count` elements, each laid out like the element of the material's buffer `buffer` "
-         "(its \"buffers\" entry: fields of float, vec2, vec3, vec4, int, uint). `initial` fills the first elements. The "
-         "buffer lives until compute.destroy_buffer or the end of the game, whatever the scene (it is not part of one). "
-         "Returns {id, count, stride, bytes}. Example: compute.create_buffer {\"material\":\"materials/boids.material.json\","
+         "(its \"buffers\" entry: fields of float, vec2, vec3, vec4, int, uint). `initial` fills the first elements. "
+         "The "
+         "buffer lives until compute.destroy_buffer or the end of the game, whatever the scene (it is not part of "
+         "one). "
+         "Returns {id, count, stride, bytes}. Example: compute.create_buffer "
+         "{\"material\":\"materials/boids.material.json\","
          "\"buffer\":\"boids\",\"count\":1000,\"initial\":[{\"pos\":[0,0],\"vel\":[1,0]}]}" FA_COMMAND_DETAILS
          "Limits: 64 live buffers, 256 MiB each, 1 GiB in all; over one is `invalid_argument` with the number it hit. "
          "Errors: `unavailable` on a backend without compute shaders (GLES3, WebGL2, macOS OpenGL 4.1: the message "
@@ -122,7 +126,8 @@ void register_compute_commands(Engine& engine, Engine::Impl& I) {
          "other elements stay as the GPU left them. Returns {written}. Example: compute.write_buffer {\"buffer\":1,"
          "\"first\":0,\"elements\":[{\"pos\":[0,0],\"vel\":[1,0]}]}" FA_COMMAND_DETAILS
          "At most 1048576 elements in one call. Errors: `unavailable` without compute (see compute.create_buffer); "
-         "`invalid_argument` for an unknown buffer id (compute.list_buffers), a range outside the buffer, or a value that "
+         "`invalid_argument` for an unknown buffer id (compute.list_buffers), a range outside the buffer, or a value "
+         "that "
          "does not fit its field (the message has its JSON pointer).",
          parse_schema(R"({"type":"object","properties":{
                "buffer":{"type":"integer","description":"Buffer id from compute.create_buffer."},
@@ -145,11 +150,12 @@ void register_compute_commands(Engine& engine, Engine::Impl& I) {
 
     I.commands.add(
         {"compute.read_buffer", "Reads elements of a compute storage buffer back to the game (waits for the GPU).",
-         "Submits the recorded GPU work, waits for it and returns `count` elements from `first` as an array of {field: value} "
+         "Submits the recorded GPU work, waits for it and returns `count` elements from `first` as an array of {field: "
+         "value} "
          "objects: a vecN field is an array, floats have 7 significant digits, a NaN or infinity is null. A read back "
          "stalls the frame: do it for a result you need, not every frame. Example: compute.read_buffer {\"buffer\":1,"
-         "\"first\":0,\"count\":10}" FA_COMMAND_DETAILS
-         "At most 1048576 elements in one call (read a large buffer in parts). Errors: `unavailable` without compute (see "
+         "\"first\":0,\"count\":10}" FA_COMMAND_DETAILS "At most 1048576 elements in one call (read a large buffer in "
+         "parts). Errors: `unavailable` without compute (see "
          "compute.create_buffer); `invalid_argument` for an unknown buffer id or a range outside the buffer.",
          parse_schema(R"({"type":"object","properties":{
                "buffer":{"type":"integer","description":"Buffer id from compute.create_buffer."},
@@ -183,14 +189,18 @@ void register_compute_commands(Engine& engine, Engine::Impl& I) {
     I.commands.add(
         {"compute.dispatch", "Runs a compute material once over its storage buffers.",
          "`groups` counts WORKGROUPS of the material's workgroupSize threads each, not threads: ceil(work / "
-         "workgroupSize.x) for a one-dimensional job. `buffers` gives a buffer id for every buffer of the material; `params` "
+         "workgroupSize.x) for a one-dimensional job. `buffers` gives a buffer id for every buffer of the material; "
+         "`params` "
          "its param values and texture paths (like MeshRenderer.materialParams; what is left out keeps the material's "
          "default). The call returns when the work is recorded; compute.read_buffer waits for it. Returns {dispatched: "
-         "[x, y, z]}. Example: compute.dispatch {\"material\":\"materials/boids.material.json\",\"buffers\":{\"boids\":1},"
+         "[x, y, z]}. Example: compute.dispatch "
+         "{\"material\":\"materials/boids.material.json\",\"buffers\":{\"boids\":1},"
          "\"params\":{\"speed\":2},\"groups\":[16,1,1]}" FA_COMMAND_DETAILS
-         "Each dimension of `groups` is 1 to 65535. A buffer must have been made for the same buffer of the same material "
+         "Each dimension of `groups` is 1 to 65535. A buffer must have been made for the same buffer of the same "
+         "material "
          "(same layout), and one buffer cannot be bound twice. Errors: `unavailable` without compute (see "
-         "compute.create_buffer); `invalid_argument` for a missing or unknown buffer or param (did you mean), a value of "
+         "compute.create_buffer); `invalid_argument` for a missing or unknown buffer or param (did you mean), a value "
+         "of "
          "the wrong type, or groups out of range.",
          parse_schema(R"({"type":"object","properties":{
                "material":{"type":"string","description":"Project-relative path of the compute material."},
@@ -205,21 +215,24 @@ void register_compute_commands(Engine& engine, Engine::Impl& I) {
             ComputeDispatch d;
             d.material = string_arg(a, "material", "compute.dispatch");
             if (!a.contains("buffers") || !a["buffers"].is_object())
-                throw CommandError("invalid_argument",
-                                   "compute.dispatch: buffers: " +
-                                       (a.contains("buffers") ? describe_json_value(a["buffers"]) : std::string("missing")) +
-                                       " is not an object of {bufferName: id}.",
-                                   "Pass \"buffers\": {\"boids\": 1}, one id from compute.create_buffer per buffer.");
+                throw CommandError(
+                    "invalid_argument",
+                    "compute.dispatch: buffers: " +
+                        (a.contains("buffers") ? describe_json_value(a["buffers"]) : std::string("missing")) +
+                        " is not an object of {bufferName: id}.",
+                    "Pass \"buffers\": {\"boids\": 1}, one id from compute.create_buffer per buffer.");
             for (auto it = a["buffers"].begin(); it != a["buffers"].end(); ++it) {
                 Json one = Json::object({{"id", it.value()}});
-                d.buffers[it.key()] = int(whole_arg(one, "id", 0, 0x7fffffff, ("compute.dispatch buffers/" + it.key()).c_str()));
+                d.buffers[it.key()] =
+                    int(whole_arg(one, "id", 0, 0x7fffffff, ("compute.dispatch buffers/" + it.key()).c_str()));
             }
             if (a.contains("params")) d.params = a["params"];
             if (a.contains("groups")) {
                 const Json& g = a["groups"];
                 if (!g.is_array() || g.empty() || g.size() > 3)
-                    throw CommandError("invalid_argument", "compute.dispatch: groups: " + describe_json_value(g) +
-                                                               " is not an array of 1 to 3 whole numbers.",
+                    throw CommandError("invalid_argument",
+                                       "compute.dispatch: groups: " + describe_json_value(g) +
+                                           " is not an array of 1 to 3 whole numbers.",
                                        "Pass \"groups\": [16] or [16, 16, 1].");
                 for (std::size_t i = 0; i < g.size(); ++i) {
                     Json one = Json::object({{"n", g[i]}});
@@ -232,40 +245,43 @@ void register_compute_commands(Engine& engine, Engine::Impl& I) {
             return Json::object({{"dispatched", Json::array({d.groups[0], d.groups[1], d.groups[2]})}});
         });
 
-    I.commands.add({"compute.destroy_buffer", "Frees a compute storage buffer.",
-                    "Destroys the GPU buffer; its id is not used again. Returns {destroyed: id}. Example: "
-                    "compute.destroy_buffer {\"buffer\":1}" FA_COMMAND_DETAILS
-                    "Errors: `invalid_argument` for an id that is not alive (compute.list_buffers lists the live ones).",
-                    parse_schema(R"({"type":"object","properties":{
+    I.commands.add(
+        {"compute.destroy_buffer", "Frees a compute storage buffer.",
+         "Destroys the GPU buffer; its id is not used again. Returns {destroyed: id}. Example: "
+         "compute.destroy_buffer {\"buffer\":1}" FA_COMMAND_DETAILS
+         "Errors: `invalid_argument` for an id that is not alive (compute.list_buffers lists the live ones).",
+         parse_schema(R"({"type":"object","properties":{
                "buffer":{"type":"integer","description":"Buffer id from compute.create_buffer."}},"required":["buffer"]})"),
-                    true, "game"},
-                   [&I](const Json& a) {
-                       check_args_known(a, {"buffer"}, "compute.destroy_buffer");
-                       if (!I.renderer || !I.renderer->initialized())
-                           throw CommandError("unavailable", "compute.destroy_buffer: no renderer, so no compute buffers.");
-                       const int id = int(whole_arg(a, "buffer", 0, 0x7fffffff, "compute.destroy_buffer"));
-                       auto done = I.renderer->compute().destroy_buffer(id);
-                       if (!done.ok()) rethrow(done.error());
-                       return Json::object({{"destroyed", id}});
-                   });
+         true, "game"},
+        [&I](const Json& a) {
+            check_args_known(a, {"buffer"}, "compute.destroy_buffer");
+            if (!I.renderer || !I.renderer->initialized())
+                throw CommandError("unavailable", "compute.destroy_buffer: no renderer, so no compute buffers.");
+            const int id = int(whole_arg(a, "buffer", 0, 0x7fffffff, "compute.destroy_buffer"));
+            auto done = I.renderer->compute().destroy_buffer(id);
+            if (!done.ok()) rethrow(done.error());
+            return Json::object({{"destroyed", id}});
+        });
 
-    I.commands.add({"compute.list_buffers", "Lists the live compute storage buffers and whether this backend runs compute.",
-                    "Returns {available, status, buffers: [{id, material, buffer, count, stride, bytes}]}. `available` is "
-                    "the answer of render.supports computeShaders; when it is false `status` says which backend cannot and "
-                    "what to do, and `buffers` is empty. Example: compute.list_buffers {}" FA_COMMAND_DETAILS
-                    "Without graphics (graphics=false) `available` is false too.",
-                    parse_schema(R"({"type":"object","properties":{}})"), true, "game"},
-                   [&I](const Json& a) {
-                       check_args_known(a, {}, "compute.list_buffers");
-                       std::string why = "no renderer: the engine runs with graphics=false";
-                       bool ok = false;
-                       Json buffers = Json::array();
-                       if (I.renderer && I.renderer->initialized()) {
-                           ok = I.renderer->compute().available(&why);
-                           if (ok) buffers = I.renderer->compute().list();
-                       }
-                       return Json::object({{"available", ok}, {"status", ok ? std::string("available") : why}, {"buffers", buffers}});
-                   });
+    I.commands.add(
+        {"compute.list_buffers", "Lists the live compute storage buffers and whether this backend runs compute.",
+         "Returns {available, status, buffers: [{id, material, buffer, count, stride, bytes}]}. `available` is "
+         "the answer of render.supports computeShaders; when it is false `status` says which backend cannot and "
+         "what to do, and `buffers` is empty. Example: compute.list_buffers {}" FA_COMMAND_DETAILS
+         "Without graphics (graphics=false) `available` is false too.",
+         parse_schema(R"({"type":"object","properties":{}})"), true, "game"},
+        [&I](const Json& a) {
+            check_args_known(a, {}, "compute.list_buffers");
+            std::string why = "no renderer: the engine runs with graphics=false";
+            bool ok = false;
+            Json buffers = Json::array();
+            if (I.renderer && I.renderer->initialized()) {
+                ok = I.renderer->compute().available(&why);
+                if (ok) buffers = I.renderer->compute().list();
+            }
+            return Json::object(
+                {{"available", ok}, {"status", ok ? std::string("available") : why}, {"buffers", buffers}});
+        });
 
     declare_command_capabilities(I.commands, {
                                                  {"compute.create_buffer", capability_sets::changes_state()},

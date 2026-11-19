@@ -24,7 +24,8 @@ const char* kProject = R"({
   "physics": { "fixedHz": 60, "pixelsPerMeter": 100 }
 })";
 
-const char* kScene = R"({"format": "factoria.scene/1", "entities": [ { "id": "cam", "components": { "Camera": {} } } ]})";
+const char* kScene =
+    R"({"format": "factoria.scene/1", "entities": [ { "id": "cam", "components": { "Camera": {} } } ]})";
 
 // A project with the compute fixture of the render tests (its twins get this build's engine version).
 struct TempProject {
@@ -110,7 +111,8 @@ TEST_CASE("compute commands: buffers, a dispatch and a read back, or `unavailabl
         CHECK(r.error["code"] == "unavailable");
         CHECK(r.error["message"].get<std::string>().find("compute") != std::string::npos);
         CHECK(r.error["hint"].get<std::string>().find("render.supports") != std::string::npos);
-        r = c.call("compute.dispatch", Json::parse(R"({"material":"materials/scale.material.json","buffers":{"items":1}})"));
+        r = c.call("compute.dispatch",
+                   Json::parse(R"({"material":"materials/scale.material.json","buffers":{"items":1}})"));
         REQUIRE_FALSE(r.ok);
         CHECK(r.error["code"] == "unavailable");
         e.shutdown();
@@ -121,8 +123,9 @@ TEST_CASE("compute commands: buffers, a dispatch and a read back, or `unavailabl
     CHECK(r.result["count"] == 64);
     CHECK(r.result["stride"] == 24);
 
-    r = c.call("compute.dispatch", Json::parse(R"({"material":"materials/scale.material.json","buffers":{"items":)" +
-                                               std::to_string(id) + R"(},"params":{"factor":2,"offset":[1,1]},"groups":[1]})"));
+    r = c.call("compute.dispatch",
+               Json::parse(R"({"material":"materials/scale.material.json","buffers":{"items":)" + std::to_string(id) +
+                           R"(},"params":{"factor":2,"offset":[1,1]},"groups":[1]})"));
     REQUIRE_MESSAGE(r.ok, r.error.dump());
     CHECK(r.result["dispatched"] == Json::parse("[1,1,1]"));
     r = c.call("compute.read_buffer", Json::parse(R"({"buffer":)" + std::to_string(id) + R"(,"count":2})"));
@@ -139,16 +142,18 @@ TEST_CASE("compute commands: buffers, a dispatch and a read back, or `unavailabl
     REQUIRE_FALSE(r.ok);
     CHECK(r.error["code"].get<std::string>().rfind("invalid_argument", 0) == 0);  // the schema's minimum 1 refuses it
     CHECK(r.error["message"].get<std::string>().find("groups") != std::string::npos);
-    r = c.call("compute.dispatch",Json::parse(R"({"material":"materials/scale.material.json","buffers":{"items":)" +
+    r = c.call("compute.dispatch", Json::parse(R"({"material":"materials/scale.material.json","buffers":{"items":)" +
                                                std::to_string(id) + R"(},"groups":[1.5]})"));
     CHECK_FALSE(r.ok);
     r = c.call("compute.read_buffer", Json::parse(R"({"buffer":)" + std::to_string(id) + R"(,"first":60,"count":9})"));
     REQUIRE_FALSE(r.ok);
     CHECK(r.error["message"].get<std::string>().find("outside the buffer of 64") != std::string::npos);
-    r = c.call("compute.create_buffer", Json::parse(R"({"material":"materials/scale.material.json","buffer":"item","count":4})"));
+    r = c.call("compute.create_buffer",
+               Json::parse(R"({"material":"materials/scale.material.json","buffer":"item","count":4})"));
     REQUIRE_FALSE(r.ok);
     CHECK(r.error["hint"].get<std::string>().find("items") != std::string::npos);
-    r = c.call("compute.write_buffer", Json::parse(R"({"buffer":)" + std::to_string(id) + R"(,"elements":[{"vlue":1}]})"));
+    r = c.call("compute.write_buffer",
+               Json::parse(R"({"buffer":)" + std::to_string(id) + R"(,"elements":[{"vlue":1}]})"));
     REQUIRE_FALSE(r.ok);
     CHECK(r.error["message"].get<std::string>().find("/elements/0/vlue") != std::string::npos);
 

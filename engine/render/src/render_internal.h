@@ -363,7 +363,24 @@ class Assets;
 constexpr int kMaxMaterialParams = 16,
               kMaxMaterialTextures =
                   4;  // each a vec4 of the fa_material block (fa/tooling/shaders.h kMaterialMaxParams)
+// Where a material's uniform blocks and textures sit. The engine's own programs use the slots below the first one; the twin's
+// reflection says what a program declares, and a draw binds only that. The uniform block slots are the same for both kinds
+// (fa_material_vs in the vertex stage, fa_material in the fragment stage); the generator writes these numbers into the top file
+// (tools/common/src/shaders_generate.cpp, generate_material_shader).
+//   mesh   (mesh_common.glsl): views 0-5 and samplers 0-1 are the engine's (albedo, normal, shadow, IBL...), uniform blocks 0-3.
+//   sprite (quad_common.glsl): uniform blocks vertex 0 quad_vs_params and fragment 1 quad_fs_params; views 0-3 (tex, normal_tex,
+//          light_tex, shadow_tex) and samplers 0-2 (smp, light_smp, shadow_smp) are the engine's, so a material's textures are
+//          views 4..7 and samplers 3..6 (kMaterialSprite*): none collides with the 2D slots, and 4 + 4 views stay far below
+//          the 16 texture units GLES3 and WebGL2 guarantee.
 constexpr int kMaterialFirstView = 6, kMaterialFirstSampler = 2, kMaterialUbVertex = 4, kMaterialUbFragment = 5;
+constexpr int kMaterialSpriteFirstView = 4, kMaterialSpriteFirstSampler = 3;
+// A mesh material texture is bound twice: the fragment stage reads it at kMaterialFirstView + i, the vertex stage (vertex() may sample
+// it) at kMaterialVsFirstView + i, with the samplers likewise (fa/tooling/shaders.h kMaterialVsFirstView, the generator's top
+// file). Each program declares only the slots its stages use, and a draw binds only those.
+constexpr int kMaterialVsFirstView = kMaterialFirstView + kMaxMaterialTextures,
+              kMaterialVsFirstSampler = kMaterialFirstSampler + kMaxMaterialTextures;
+// A sprite material's vertex() cannot sample textures (the generator refuses it with a teaching error), so a sprite program has no
+// vertex-stage views: the sprite slots above are the fragment stage's only.
 
 // One program of a twin (mesh, mesh_skin, shadow, shadow_skin, prepass, prepass_skin) and what its reflection declares: a draw binds and applies
 // only those slots (sokol rejects a binding the shader does not declare, and a declared uniform block left unapplied).
@@ -418,21 +435,43 @@ struct MaterialBufferDef {
     std::vector<MaterialBufferFieldDef> fields;
 };
 
+// What one sprite-kind material draws with in a batch: the packed params and the textures of a 2D item, found once per
+// distinct set of values (Assets::sprite_material) so that two items with the same values share one pointer: QuadList
+// merges batches on that pointer and the draw reads the block from it, so nothing of `materialParams` is copied or
+// compared per item. `error`: the material did not build (or is not a sprite material): the item is drawn with the
+// built-in program, tinted magenta. Owned by the MaterialAsset, kept for two frames after the last item that asked for it.
+struct MaterialAsset;
+struct MaterialUse {
+    MaterialAsset* material = nullptr;
+    bool error = false;
+    float params[kMaxMaterialParams][4]{};
+    TextureAsset* textures[kMaxMaterialTextures]{};
+    std::uint64_t tick = 0;  // the frame (Assets::begin_material_frame) that last asked for it
+};
+// What a 2D emitter gets from Assets::sprite_material and hands to QuadList::set_material: nothing (`use` null) for an item
+// without a material.
+struct MaterialRef {
+    const MaterialUse* use = nullptr;
+};
+
 struct MaterialAsset {
     std::string path;                        // the .material.json
     std::string snippet;                     // its `shader` file (a change of it reloads the material)
-    MaterialKind kind = MaterialKind::Mesh;  // its "kind": Mesh (MeshRenderer.material) or Compute (Compute::dispatch)
+    MaterialKind kind = MaterialKind::Mesh;  // its "kind": Mesh, Sprite (built) or Compute (Compute::dispatch)
     std::vector<MaterialBufferDef> buffers;  // Compute: the storage buffers, in binding order
     int workgroup[3]{64, 1, 1};              // Compute: the threads of one workgroup
     std::string lighting = "pbr", alphaMode = "opaque";
     bool doubleSided = false;
-    std::vector<MaterialParamDef> params;            // in the order of the twin's "params" (the packing order)
-    std::vector<MaterialTextureDef> textures;        // in the order of the twin's "textures" (views 6+i, samplers 2+i)
-    MaterialProgram programs[kMaxMaterialPrograms];  // by MaterialProgramId for a mesh material
-    bool ok = false;                                 // false = drawn with the error material
+    std::vector<MaterialParamDef> params;      // in the order of the twin's "params" (the packing order)
+    std::vector<MaterialTextureDef> textures;  // in the order of the twin's "textures" (views 6+i, samplers 2+i)
+    MaterialProgram
+        programs[kMaxMaterialPrograms];      // by MaterialProgramId for a mesh material; a sprite one: quad, quad_plain
+    bool ok = false;                         // false = drawn with the error material
     std::string error;                       // the last build error (kept while an older good build still draws)
     int generation = 0;                      // counts successful builds
     std::unordered_set<std::string> warned;  // params already complained about
+    // The sets of values 2D items use (MaterialUse), by a hash of the values and the generation.
+    std::unordered_multimap<std::uint64_t, std::unique_ptr<MaterialUse>> uses;
 };
 
 // The dialect name of a sokol backend ("hlsl5", "glsl430"...); "" for an unsupported one.
@@ -472,6 +511,7 @@ struct QuadItem {
     bool opaque = false;             // QuadList::set_opaque(): the quads hide what is under them
     std::uint32_t flash =
         0;  // QuadList::set_flash(): packed colour whose alpha is how much of it replaces the picture; 0 = none
+    const MaterialUse* use = nullptr;  // QuadList::set_material(): the item's material (null = the built-in programs)
 };
 
 struct QuadBatch {
@@ -489,6 +529,9 @@ struct QuadBatch {
     // Only opaque BlendMode::Alpha items (QuadList::set_opaque): drawn without blending, the same pixels for less work on
     // software rasterizers. Batches only merge with an equal `opaque`.
     bool opaque = false;
+    // The material of the items of the batch (null = the built-in programs). Batches only merge with an equal pointer;
+    // an `error` use draws with the built-in programs but stays a batch of its own, so the draw can count it.
+    const MaterialUse* use = nullptr;
 };
 
 // Collects quads for one render space, then sorts and flattens them.
@@ -516,6 +559,10 @@ public:
         cur_.flash = packedColor;
         cur_.plain = false;
     }
+    // Gives the item opened by begin_item() a material (Assets::sprite_material, asked on the thread that gathers): its quads
+    // are drawn by the material's programs with its params, and batches split where the material or its values differ. A
+    // material that did not build tints the quads magenta in flatten() (the error material). A null `ref` changes nothing.
+    void set_material(const MaterialRef& ref) { cur_.use = ref.use; }
     void end_item();
     bool empty() const { return items.empty(); }
     // Sorts items (layer asc, secondary desc, seq asc) and appends the vertices in
@@ -633,9 +680,14 @@ public:
     // A custom material (a *.material.json), built on first use; never null. A material that failed to build has ok == false
     // (the failure is in report() and logged once) and is drawn with the error material.
     MaterialAsset* material(const std::string& path);
-    // The material of a MeshRenderer: material(), except that a material of another kind (a compute material) is answered by a
-    // stand-in that has ok == false, so the mesh is drawn with the error material and one failure says why.
-    MaterialAsset* mesh_material(const std::string& path);
+    // The material a 2D item (Sprite.material and the other components with `material`) draws with, for the params in
+    // `overrides` (the component's materialParams): the use shared by every item with the same values, or an error use when the
+    // material did not build or is not of kind "sprite" (one warning). An empty path gives an empty ref. Call it on the
+    // thread that gathers (it may load the material and its textures), never from the jobs that emit quads: hand the ref to
+    // them and let them call QuadList::set_material.
+    MaterialRef sprite_material(const std::string& path, const Json& overrides);
+    // Once per drawn frame, before the first gather: uses no item asked for during the last two frames are dropped.
+    void begin_material_frame();
     // How a material gets its twin (empty = read `<path>.<dialect>.shader` through fa::fs). Kept across clear().
     void set_shader_compiler(ShaderCompiler compiler) { shaderCompiler_ = std::move(compiler); }
     bool has_loaded(const std::string& path) const;
@@ -734,7 +786,7 @@ private:
     const MeshStore* meshStore_ = nullptr;
     std::uint64_t meshStoreSerial_ = 0;
     std::unordered_map<std::string, std::unique_ptr<MaterialAsset>> materials_;
-    std::unordered_map<std::string, std::unique_ptr<MaterialAsset>> wrongKind_;  // mesh_material's stand-ins, by path
+    std::uint64_t useTick_ = 0;  // drawn frames counted by begin_material_frame (MaterialUse::tick)
     ShaderCompiler shaderCompiler_;
 };
 
@@ -808,11 +860,13 @@ public:
     // (PassDesc::format). The one without it is a wrapper for the usual target of that pipeline: the game/scene target
     // (scene_target_format()) for quads, meshes and the sky, the bloom/colour-filter/blit-keep/light/shadow target of
     // that stage for the others.
+    // `shader` = a program of a sprite material (quad or quad_plain; the pipeline is keyed by it); default = the built-in one.
     sg_pipeline quad_pipeline(const TargetFormat& format, bool depthTest, bool lines,
-                              BlendMode blend = BlendMode::Alpha, bool plain = false, bool opaque = false);
+                              BlendMode blend = BlendMode::Alpha, bool plain = false, bool opaque = false,
+                              sg_shader shader = {});
     sg_pipeline quad_pipeline(bool depthTest, bool lines, BlendMode blend = BlendMode::Alpha, bool plain = false,
-                              bool opaque = false) {
-        return quad_pipeline(scene_target_format(), depthTest, lines, blend, plain, opaque);
+                              bool opaque = false, sg_shader shader = {}) {
+        return quad_pipeline(scene_target_format(), depthTest, lines, blend, plain, opaque, shader);
     }
     // Vertex buffer 0 = MeshVertex, buffer 1 = one model matrix per instance. A skinned variant adds a `skinned` argument,
     // a PipelineKey bit and a second per-vertex buffer for joints and weights.
@@ -1080,6 +1134,8 @@ private:
         bool warmed = false;         // made or asked for by the warm-up: never evicted
     };
     std::map<PipelineKey, PipelineEntry> pipelines_;
+    std::unordered_set<std::uint32_t>
+        failedComputePipelines_;      // shader ids whose compute pipeline the driver refused (one log)
     std::uint64_t pipelineTick_ = 0;  // begin_frame() calls (see "The pipeline cache")
     std::uint64_t pipelineHits_ = 0, pipelinesMade_ = 0, pipelinesEvicted_ = 0;
     bool warming_ = false;

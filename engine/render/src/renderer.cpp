@@ -859,6 +859,7 @@ void Renderer::Impl::setup_frame(Frame& fr, World& world, float dt) {
     fr.targetW = targetW;
     fr.targetH = targetH;
     fr.dt = dt;
+    fr.time = float(world.time());
     fr.stats = &stats;
     fr.assets = assets.get();
     fr.fonts = fonts.get();
@@ -914,6 +915,7 @@ void Renderer::Impl::render(World& world, float dt) {
     collect_targets(
         world);          // before any gather: the textures "target:<name>" exist when a Sprite or a mesh asks for them
     ++shadowCache.tick;  // one per drawn frame, not per camera: every camera of this frame keeps the rows it reads
+    assets->begin_material_frame();  // the sets of values 2D items use with a material (Assets::sprite_material)
     ramps.begin_frame();
     if (world.scene_path() != lights2dScene) {
         lights2dScene = world.scene_path();

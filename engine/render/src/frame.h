@@ -44,6 +44,7 @@ struct Frame {
     bool wantWorld = true, wantScreen = true;
     int targetW = 0, targetH = 0;
     float dt = 0;
+    float time = 0;  // World::time(): what a material's fa_time reads in its 2D draws
     std::unordered_map<std::string, std::shared_ptr<const assets::Sheet>>
         sheets;  // this frame's lookups of the sheet entries (SpriteAnimator)
     QuadList world, screen, debugWorld, debugScreen;

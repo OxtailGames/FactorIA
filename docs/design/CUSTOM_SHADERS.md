@@ -63,8 +63,10 @@ The user's choices on the open points are at the end ([Decisions taken](#decisio
   types, so that sokol-shdc can flatten the block for GL (it flattens uniform blocks of floats into `vec4` arrays; ints
   would need per-uniform reflection on GL). At most 16 parameters (each padded to a `vec4`: 256 bytes); they are laid out
   in **alphabetical order** so the C++ packer and the generated block agree without depending on JSON key order.
-- At most 4 textures (fragment stage). The engine binds 6 already; 10 stays under the 16 texture units GLES3 and WebGL2
-  guarantee. `sampler`: `linear`, `linearRepeat`, `nearest`, `nearestRepeat` (the engine's `SamplerKind`s).
+- At most 4 textures, readable in both stages (M72.3: a texture is declared once per stage, see "Textures in `vertex()`").
+  The fragment stage binds 6 engine textures already, so the material's go to view 6.. (10 in all, under the 16 texture
+  units GLES3 and WebGL2 guarantee); the vertex stage adds 4 more at view 10.. (and 4 samplers at 6.., 10 samplers in all,
+  under sokol's 12). `sampler`: `linear`, `linearRepeat`, `nearest`, `nearestRepeat` (the engine's `SamplerKind`s).
 - Every param and texture needs `doc` (the docs rule: the doc strings ARE what AIs read; `material.info` returns them).
 - Names: GLSL identifiers, not starting with `fa_` and not a GLSL keyword; the error states the rule with a valid
   example.
@@ -378,15 +380,15 @@ material says what it is for with the optional key `"kind"` of its `*.material.j
 | `kind` | What it will be | Template file | Package |
 |---|---|---|---|
 | `"mesh"` (default) | the surface of a `MeshRenderer`: everything in this document | `mesh_common.glsl` | built |
-| `"sprite"` | the 2D quad path: `Sprite`, `Shape2D`, `Tilemap`, `Text`, particles and trails, UI images | `quad_common.glsl` | M72.1 |
+| `"sprite"` | the 2D quad path: `Sprite`, `Shape2D`, `Tilemap`, `Text`, particles and trails, UI images | `quad_common.glsl` (+ `color_space.glsl`, `light_shadow.glsl`) | M72.1: template, tooling and the `Sprite` draw built (M72-P1, P3); the other 2D emitters follow |
 | `"sky"` | the sky the scene and its environment lighting use | `sky_common.glsl` | M72.1 |
 | `"post"` | one pass of a camera's post-processing stack | `post_common.glsl` | M72.2 |
 | `"compute"` | compute shaders (storage buffers) | `compute_common.glsl` | built (M72.4) |
 
-Built by M72.0 (the shared base): the key, its check, the per-kind template hash and the skeletons. Only `"mesh"`
-compiles and draws; `shader.compile` and `factoria validate` refuse the others with a message that names the package
-that brings them (`kind "sprite" is not compiled yet: sprite materials arrive with M72.1`, pointer `/kind`), and the
-renderer refuses to build such a material. A `kind` that is not one of the five is an error with "did you mean" and the
+Built by M72.0 (the shared base): the key, its check, the per-kind template hash and the skeletons. `"mesh"`, `"sprite"` and
+`"compute"` compile; `shader.compile` and `factoria validate` refuse the others with a message that names the package
+that brings them (`kind "sky" is not compiled yet: sky materials arrive with M72.1`, pointer `/kind`), and the renderer
+refuses to build such a material (the same message, with the file). A `kind` that is not one of the five is an error with "did you mean" and the
 pointer `/kind` (`parse_material`, `schemas/material.schema.json`).
 
 - **One template hash per kind.** `fa::material_template_hash(kind)` (the tooling's `shader_template_hash(kind)` returns
@@ -402,13 +404,74 @@ pointer `/kind` (`parse_material`, `schemas/material.schema.json`).
   hint, then checks the `engine` and `template` fields against the hash of that kind.
 - **One contract per kind.** Each template declares its own structs, so a top file includes the template of one kind
   and the error hints read the fields from the right one: mesh `SurfaceInput`, `Surface`, `VertexData`; sprite
-  `QuadInput`, `QuadSurface`; sky `SkyInput`, `SkySurface`; post `PostInput`, `PostSurface` (the last three are the
-  skeletons M72.1 and M72.2 fill in: today they only declare the structs, and nothing includes them).
+  `QuadInput`, `QuadSurface`, `QuadVertex`; sky `SkyInput`, `SkySurface`; post `PostInput`, `PostSurface` (the last two
+  are the skeletons M72.1 and M72.2 fill in: today they only declare the structs, and nothing includes them).
 - **Programs per kind.** `MaterialAsset` stores its `kind` and `kMaxMaterialPrograms` (8) program slots; the programs a
-  kind's twin carries are named by `material_program_names(kind)` (the six of a mesh material today), so a kind adds its
-  own list when it becomes buildable.
+  kind's twin carries are named by `material_program_names(kind)` (the six of a mesh material, `quad` and `quad_plain`
+  of a sprite one), so a kind adds its own list when it becomes buildable.
 - **Commands.** `shader.compile` and `material.info` return `kind`; `material.info` of a kind that does not compile yet
   reports `programs: []` and `compile.state: "unsupported"` with the package in `compile.hint`.
+
+### Sprite materials (M72.1, the template and the tooling)
+
+`engine/render/shaders/quad_common.glsl` is the source of every 2D quad program, as `mesh_common.glsl` is for meshes.
+`quad.glsl` is the template with the default snippet, an empty `fragment()`: it declares `@block fa_user` with
+`void fragment(in QuadInput i, inout QuadSurface s) {}`, includes the template and declares the two programs the renderer
+binds by generated names (`quad`, `quad_plain`; so every name `quad.glsl` already had is unchanged and a material must
+not take it). A sprite material's generated top file has that very shape with its own `fa_user` block, so a material
+whose `fragment()` is empty draws the pixels of the engine's own program (the tooling test "sprite template" compares the
+generated top file with the built-in source modulo the user block; the render tests "sprite materials" compare the pixels of the two, in the lean and the full program).
+
+- **Contract.** `void fragment(in QuadInput i, inout QuadSurface s)` (required) and `void vertex(inout QuadVertex v)`
+  (optional, defines `FA_HAS_VERTEX`). `s.color` arrives holding what the engine would draw for the mode (the textured,
+  lit, glyph, circle, ring, soft or SDF-shape result, alpha already including the coverage); the engine applies the flash,
+  the multiply conversion and the fog to what the snippet leaves in it. `QuadInput` carries `uv`, `color` (the tint),
+  `world_pos`, `screen_uv` (y down on every backend), `time`, `mode` and `custom` (zero for now). `fa_sample_main(uv)` samples the main texture in the colour space of the scene,
+  `fa_scene_rgb(c)` takes an sRGB colour of the author to the scene's.
+- **One program per variant.** `quad` has every mode; `quad_plain` is the lean program the renderer picks for a batch of
+  plain textured quads (no lights, no multiply). The snippet runs in both, so it must not depend on anything the plain
+  program does not have: `i.mode` is 0 in it. The twin carries both (`programs.quad`, `programs.quad_plain`).
+- **Slots.** Uniform blocks: vertex 0 `quad_vs_params`, fragment 1 `quad_fs_params` (the engine's), 4 `fa_material_vs`
+  (vertex stage) and 5 `fa_material` (fragment stage) are the material's, as for a mesh. Views 0-3 (`tex`, `normal_tex`,
+  `light_tex`, `shadow_tex`) and samplers 0-2 are the engine's, so a material's textures take views 4..7 and samplers 3..6
+  (`kMaterialSpriteFirstView`, `kMaterialSpriteFirstSampler` in `fa/tooling/shaders.h` and `engine/render/src/render_internal.h`;
+  a mesh material uses views from 6 and samplers from 2, and a second set at 10.. and 6.. for the textures of its `vertex()`: a
+  sprite has no vertex-stage views, so the compiler refuses a sprite `vertex()` that samples a material texture). `fa_time` and
+  `fa_target` are members of the fragment block `quad_fs_params`, and `fa_time` of the vertex block `vs_params`: the renderer
+  fills them for a material's draws, and in the engine's own programs they stay zero and unread (the lean program has no
+  uniform block at all). A material's `quad_plain` does get the fragment block (`fa_time`, `fa_target`: the lean built-in has
+  none), so its draw binds UB1 too.
+- **Not a material key.** `alphaMode: "clip"` (the mesh template's alpha test and implicit `alphaCutoff`) is an error for a
+  sprite: write `discard` in `fragment()`. `lighting: "custom"` (the `light()` hook of a mesh material) is an error for a
+  sprite; `"pbr"`/`"unlit"` and `doubleSided` mean nothing to a sprite and are ignored.
+- **Tooling.** `generate_material_shader` sets `GeneratedShader::kind`, includes `quad_common.glsl`, defines
+  `FA_MATERIAL` (and `FA_HAS_VERTEX`) and lists the programs `quad`, `quad_plain`; the cache key, the twin's `template`
+  and the compile all use the hash of the kind (the sprite one covers `color_space.glsl`, `light_shadow.glsl` and
+  `quad_common.glsl`). The error hints name `fragment()`, `QuadInput` and its fields. Export writes
+  `<name>.material.json.<dialect>.shader` as for any kind.
+- **Names.** The unprefixed names of the 2D program (vertex inputs, varyings, textures, samplers, uniform blocks and their
+  members, helper functions) share one flat namespace with the params, so `parse_material` refuses a sprite param or texture
+  that takes one (error at `/params/<name>` or `/textures/<name>`, with a rename); the list is derived from the bundled
+  template files (`template_globals`, `tools/common/src/shaders_generate.cpp`), so it cannot drift. `noise` is refused for
+  every kind (sokol-shdc cannot compile a texture called that).
+
+Built (M72-P3, the `Sprite` draw): `Sprite` draws with its material (`scene2d.cpp` asks `Assets::sprite_material` while it
+gathers, on the calling thread, and the emit jobs only copy the result).
+
+- **`MaterialUse`.** The material, its packed params (UB5 layout) and its textures are one interned record per distinct
+  (material, generation, values, textures), pooled in the `MaterialAsset` and swept after two frames without use. A
+  `QuadItem` and a `QuadBatch` hold a `const MaterialUse*`, so flatten splits batches on pointer equality (never copies
+  `materialParams` per frame), keeps the draw-order rules, and a donor Frame's items stay valid in another camera's Frame.
+  The reload of a snippet or material bumps `generation`, which makes the next frame take a new use with the new programs.
+- **Draw.** `draw_group` picks the material's `quad` or `quad_plain` program (the same blend and depth state as the built-in:
+  `Gpu::quad_pipeline` takes the shader and keys its cache on it), writes UB0 (`fa_time`), UB1 (`fa_time`, `fa_target`: 1 / the
+  target size in pixels and z = 1 on GL, where `screen_uv.y` is flipped to run down), UB4/UB5 and binds the textures at views
+  4+ and samplers 3+. Views and samplers the program does not declare are cleared.
+- **Error material.** A material that did not build, or whose kind is not `"sprite"`, makes the use an error use: flatten
+  replaces the vertex colours by magenta (the alpha stays), the batch draws with the built-in program, and
+  `RenderStats::materialFallbacks` names the material. The build error is logged once (`note_failure`); a wrong kind warns once.
+- **Left for the next package:** `Shape2D`, `Tilemap`, `Text`, particles and UI call the same `QuadList::set_material`;
+  `QuadInput.custom` stays zero.
 
 ## Node graphs
 
@@ -440,11 +503,11 @@ cache, hot reload, export, the runtime) is unchanged: a graph material is a mate
 
 ## Out of scope (recorded so nobody assumes it)
 
-- Custom shaders for `Sprite`/`Shape2D` (quad.glsl), the sky, particles, and custom post-processing: M72.1 and M72.2
-  (see "Kinds (M72)"; the kinds, hashes and skeletons exist, the programs do not).
+- Custom shaders for the sky and custom post-processing: M72.1 and M72.2 (see "Kinds (M72)"; the kinds, hashes and
+  skeletons exist, the programs do not). The 2D kind has its template and tooling; what draws with it is in
+  "Sprite materials" above.
 - A full-GLSL escape hatch (D1).
 - Compute storage images, compute on GLES3/WebGL2, tessellation, geometry shaders (not in sokol_gfx's common subset for these backends anyway).
-- Vertex-stage textures (heightmaps sampled in `vertex()`): a texture in both stages needs a second binding; later.
 - Per-instance material data inside one instanced draw.
 - The node-graph editor canvas (the graph document, its generator and the node library exist: "Node graphs").
 
@@ -490,7 +553,7 @@ Built (2026-10-18), with what the real tool showed:
 - `fa_user` is included by both `@vs` and `@fs`, so the generated block is split with `GL_VERTEX_SHADER` /
   `GL_FRAGMENT_SHADER` (glslang defines one per stage): `fa_material_vs` (binding 4) and `vertex()` in the vertex stage,
   `fa_material` (binding 5) and `surface()` in the fragment stage, helpers in both (with `texture()`/`discard` shims in
-  the vertex stage, undefined again after the snippet). A texture sampled in `vertex()` is an error (out of scope).
+  the vertex stage, undefined again after the snippet). A texture sampled in `vertex()` was an error at this point; M72.3 (P6 below) built it.
 - `alphaCutoff` is implicit for `"clip"` (float, default 0.5, 0..1, counts toward the 16); a material may declare it to
   change default, range or doc. The generator defines `FA_ALPHA_CLIP`. **P3 must make the template read it**: `discard`
   below `alphaCutoff` after `surface()` in `fs`, and `shadow_fs` running `surface()` for clip materials (today the
@@ -602,16 +665,38 @@ D3 built (2026-10-19): the factoria downloads carry sokol-shdc next to `factoria
   check, where to report a false positive) and nothing changes antivirus settings. `sokol-shdc.exe` stays unsigned even
   once the Windows certificate exists: a signature would change the SHA-256 makers can check.
 
-### P6. Custom lighting (M, when a game asks)
+### P6. Custom lighting and textures in `vertex()` (M72.3, built)
 
-`"lighting": "custom"`: the snippet adds `vec3 light(in SurfaceInput i, in Surface s, in LightSample l)` (direction to
-the light, color times intensity, attenuation, shadow factor), called by the engine's light loop instead of
-Cook-Torrance; ambient, emission and fog stay the engine's, and the sky reflection (IBL) is off for custom lighting
-(a toon look does not want it; a snippet can add its own term to `s.emission`). Like the full-GLSL escape hatch, it
-waits for an `ENGINE_FEEDBACK.json` entry; the template's light loop is written so that the hook fits later. This is what toon and stylised
-games ask for first.
+`"lighting": "custom"`: the snippet adds `vec3 light(in SurfaceInput i, in Surface s, in LightSample l)`, called by the
+engine's light loop once per light instead of Cook-Torrance, and optionally `vec3 ambient(in SurfaceInput i, in Surface s,
+vec3 ambientColor)`. The engine keeps choosing the lights, their attenuation and the shadow, and adds emission and fog;
+the sky reflection (IBL) is off for custom lighting (a toon look does not want it; a snippet can add its own term to
+`s.emission`). `LightSample` holds `direction`, `color` (the light's color times intensity times attenuation times
+shadow: what reaches the surface), `attenuation`, `shadow`, `distance` and `type`. What was built:
 
-Acceptance: a two-band toon material renders its golden with a directional and a point light, and its shadow.
+- **Template.** `mesh_common.glsl` has the `LightSample` struct in the contract block and, under `FA_CUSTOM_LIGHT`, the
+  light loop calls `light()` and sums; `FA_HAS_AMBIENT` makes the ambient term the snippet's. In `"pbr"` the loop is
+  the old code (`atten *= shadow` instead of a later multiplication: identical result, so the built-in meshes and every
+  existing golden did not change), but the template text changed, so the mesh template hash did, and every committed
+  twin (the renderer's test fixtures; a game's exports) must be rebuilt: games with custom materials re-export.
+- **Generator.** `light` and `ambient` are entry points (and reserved names) only when `lighting` is `"custom"`; they are
+  wrapped in the fragment stage like `surface()`. The defines are `FA_CUSTOM_LIGHT` and `FA_HAS_AMBIENT`. A material
+  without `light()` stops with an error that names the material file and shows the signature, before the compiler runs.
+- **HLSL gradients.** The loop forbids gradients (`texture()`) in HLSL (X3570), so the docs tell `light()` to use
+  `textureLod`.
+- **Textures in `vertex()`** (decision): sokol-shdc refuses one name in both stages ("conflicting texture definitions")
+  and a view or sampler slot belongs to one stage. So each material texture `t` is declared twice: in the fragment stage
+  as `t` at view 6.. and sampler 2.. (what it always was), in the vertex stage as `fa_vs_t` at view 10.. and sampler 6..,
+  with `#define t fa_vs_t` (and `t_smp`) only while the vertex stage compiles the snippet, so the author writes one name.
+  The renderer binds both slots from the same image; each program's `viewMask` / `samplerMask` keeps only what its stage
+  declares, so a material with no `vertex()` pays nothing. The shadow and prepass programs run the same `vertex()` with
+  the same bindings, so the displacement is identical in the three. The `texture()` shim of the vertex stage reads mip 0.
+  The normal is not recomputed (documented).
+
+Tests: tooling (the generated top file, the missing-`light()` error, reserved names, the twins' per-stage bindings with
+the real sokol-shdc, the doc examples), renderer ("materials: ..." cases: a toon shows two bands with the lit side
+brighter, a `light()` returning 0 leaves the ambient term, `ambient()` replaces it, a texture in `vertex()` lifts the mesh
+and its shadow like a mesh standing there).
 
 ## Risks
 
@@ -633,5 +718,5 @@ The user took the five recommendations on 2026-10-18:
 3. **Material = a `*.material.json` file + per-entity `materialParams`** (D4), no shader/material split; a second
    material reusing a snippet repeats its param declarations.
 4. **Custom lighting (P6, toon) waits for a game that asks** (an `ENGINE_FEEDBACK.json` entry); the template leaves
-   room for the hook.
+   room for the hook. (Built in M72.3 together with textures in `vertex()`, see P6.)
 5. **Error material = unlit magenta**, never a silent fallback to the standard material.

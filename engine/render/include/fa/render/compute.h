@@ -31,18 +31,20 @@ class Assets;
 // What one dispatch runs: the material, the buffers it reads and writes and its values. `groups` counts WORKGROUPS (the
 // material's workgroupSize threads each), not threads: ceil(work / workgroupSize.x) for a one-dimensional job.
 struct ComputeDispatch {
-    std::string material;                // project-relative path of the compute material, e.g. "materials/boids.material.json"
-    std::map<std::string, int> buffers;  // the material's buffer name -> an id from Compute::create_buffer (every buffer of the material)
-    Json params;                         // {param: value}: its params (numbers, arrays) and textures (a texture path), like MeshRenderer.materialParams
+    std::string material;  // project-relative path of the compute material, e.g. "materials/boids.material.json"
+    std::map<std::string, int>
+        buffers;  // the material's buffer name -> an id from Compute::create_buffer (every buffer of the material)
+    Json
+        params;  // {param: value}: its params (numbers, arrays) and textures (a texture path), like MeshRenderer.materialParams
     std::uint32_t groups[3] = {1, 1, 1};  // workgroups in x, y, z
 };
 
 // Deterministic limits (a result never depends on CPU speed): a request over one is refused with the number it hit.
-constexpr int kMaxComputeBuffers = 64;                                // live buffers
-constexpr std::uint64_t kMaxComputeBufferBytes = 256ull << 20;        // one buffer: 256 MiB
-constexpr std::uint64_t kMaxComputeTotalBytes = 1024ull << 20;        // all live buffers: 1 GiB
-constexpr std::uint32_t kMaxComputeGroups = 65535;                    // workgroups per dimension (the D3D11 limit)
-constexpr std::uint64_t kMaxComputeJsonElements = 1ull << 20;         // elements one write_buffer / read_buffer call converts
+constexpr int kMaxComputeBuffers = 64;                          // live buffers
+constexpr std::uint64_t kMaxComputeBufferBytes = 256ull << 20;  // one buffer: 256 MiB
+constexpr std::uint64_t kMaxComputeTotalBytes = 1024ull << 20;  // all live buffers: 1 GiB
+constexpr std::uint32_t kMaxComputeGroups = 65535;              // workgroups per dimension (the D3D11 limit)
+constexpr std::uint64_t kMaxComputeJsonElements = 1ull << 20;   // elements one write_buffer / read_buffer call converts
 
 class Compute {
 public:

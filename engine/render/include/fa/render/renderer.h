@@ -158,9 +158,9 @@ struct RenderStats {
     int lights2dDropped = 0;  // Light2D lights left out: off-view ones, then the ones over the 256 of the budget
     int lights2dShadowed =
         0;  // of lights2d, the point lights whose castShadows is in effect (a Tilemap with occludesLight; at most 32)
-    int materials = 0;  // distinct custom materials (MeshRenderer.material) drawn with their own shaders
+    int materials = 0;  // distinct custom materials (MeshRenderer or Sprite material) drawn with their own shaders
     std::vector<std::string>
-        materialFallbacks;  // materials drawn with the unlit magenta error material because they failed to build (see asset_report)
+        materialFallbacks;  // materials drawn as the magenta error material (mesh) or magenta quads (sprite) because they failed to build (see asset_report)
     // How many times, since the renderer was made, the 3D scene it builds (one per frame, and one per capture_world of an
     // entity's subtree) had more distinct meshes, textures, materials or pipelines than a sort key holds, so its opaque meshes
     // were sorted by the slower comparator instead. The picture is the same; 0 is normal. Unlike the other counters this one is

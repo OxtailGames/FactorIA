@@ -258,3 +258,42 @@ number (volume, pan, a repeat) is one edit when the mouse is released, not one p
 **Autotest.** Section M3 of `fa_editor_autotest` opens a layered song, draws a note by dragging on the roll, moves it, deletes it with a right click and walks
 Undo and Redo through the editor's stack, clicks a snare into the drum grid, raises a section's repeat and mutes a track in the mixer (each one undo step), plays and
 checks that the playhead moves, fades the top layer in and out with the Intense and Calm buttons, loops a section, and saves (the mix and the stems exist).
+
+## Graph panel
+
+View > Graph opens the Graph panel, which edits the node graph of ONE `*.material.json` ([SHADERS.md](../SHADERS.md), "Node graphs"). Open a material in it by
+double-clicking a `.material.json` that has a `graph` in the Project panel, by **Edit graph** under a material field of the Inspector, or with the file menu in
+its toolbar. **New graph material** writes `assets/materials/graph.material.json` (or the next free `graphN`) with an empty graph (just the output node), and a material
+with no graph offers **Start a graph in this material**. The panel reads and writes the same JSON an AI writes, and **Save** runs the command an AI would call
+(`material.graph.generate`: it writes the graph and the shader snippet, with `graphHash`), so a person and an AI can take turns on one file. Nothing is written
+before Save; the toolbar's status line says when there are unsaved edits and what state the snippet is in (in sync, the graph changed, edited by hand, ...). Switching
+to another material with unsaved edits asks first ("Discard the graph changes?").
+
+- **Canvas.** Nodes are boxes with their input ports on the left and output ports on the right, coloured by type (float, vec2, vec3, vec4). Drag a node to move it
+  (all the selected ones move together; the position is saved as the node's `pos`). Press on a port and drag to another port to link them; dragging from an input
+  that is already linked picks that link up and moves it, and dropping on empty canvas removes it. A link that would add a problem `material.graph.validate` reports (a cycle, a type that does not fit) is not made and the
+  checker's sentence is shown. Click a link to select it (Delete
+  removes it). Drag on empty canvas to select with a rectangle, Shift or Ctrl/Cmd click to add to the selection. The mouse wheel zooms around the pointer (30 % to 250 %);
+  right-drag or middle-drag pans. **Fit** (or F) frames the graph.
+- **Add nodes.** A right click on empty canvas opens the **palette**: every node of the library (`material.graph.nodes`) with a search box (it has the keyboard when it opens;
+  type and press Enter) and each node's doc as a tooltip. The node appears where you clicked. **Add node** in the toolbar does the same at the centre of the view.
+- **Keys** (while the canvas is hovered): Delete or Backspace removes the selection (the output node cannot be removed), Ctrl/Cmd+A selects all, C, X and V copy, cut and paste
+  nodes with the links between them (the text goes on the system clipboard, so it pastes into another material), D duplicates, S saves.
+- **Inspector** (the right side, under the preview). For the selected node: its type and doc, a combo for `param` and `texture` nodes that lists the material's own params
+  and textures (they are not created here: add them to the material file or ask the AI), the constant of each unlinked input (a number, a vector or a colour), shown
+  dimmed with the default when the node does not set it, **Cut** for a linked input, and **Delete node** and **Duplicate**. A selected link shows its ends and **Cut link**. A drag on a number is one undo step.
+- **Problems.** The list `material.graph.validate` gives for the document as it is now, each with its JSON pointer and the fix; a click selects the node or link it names.
+- **Preview.** A lit sphere, cube or quad drawn with the material the graph would generate, using the engine's renderer. After an edit it waits a fraction of a second, then compiles
+  on a worker thread and shows the picture, so dragging a slider never freezes the editor; a graph with problems, or a compiler error, keeps the last picture and shows the
+  message (the compiler's message names the line of the generated snippet, whose comments name the node ids). **Animate** turns the shape so the lighting and `time` change. The preview compiles through sokol-shdc
+  ([SHADERS.md](../SHADERS.md), "Compiler"): without it the panel says so and the rest still works. It shows a mesh material only (no sprite kind yet), with the
+  params at their defaults.
+- **Save and the hand-edit rule.** If the snippet on disk is not what the graph last wrote (edited by hand, or never generated), Save asks "Overwrite the shader snippet?":
+  **Overwrite** passes `force`, **Cancel** changes nothing. If the file changed on disk after the panel read it, Save says so before it overwrites it.
+- **Undo.** Every edit that is kept (a node added, moved or removed, a link, a constant, a paste) is ONE step of the editor's Undo and Redo, in order with the other panels' edits.
+  Undo changes the open graph, not the file: Save writes it.
+
+**Autotest.** Section G3 of `fa_editor_autotest` (at 1024x642 too) writes a dissolve material with a one-node graph, opens it, adds three nodes from the palette (a right click
+and the search box), drags four links with the mouse, sets two constants, waits for the preview and checks that it drew pixels (a skip when there is no renderer or no
+sokol-shdc, unless `FA_REQUIRE_SHDC=1`), checks that a link the checker refuses gives its sentence, saves (the material and the snippet exist), edits the snippet by hand and checks
+that Save asks, that Cancel changes nothing and that Overwrite writes it, then undoes and redoes every step. The model (`graph_model.*`) has its own unit tests (`graph_tests.cpp`).

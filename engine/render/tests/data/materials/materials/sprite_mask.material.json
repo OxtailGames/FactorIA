@@ -1,0 +1,7 @@
+{
+  "format": "factoria.material/1",
+  "kind": "sprite",
+  "doc": "Test fixture: shows the corner of a texture.",
+  "shader": "shaders/sprite_mask.fragment.glsl",
+  "textures": { "mask": { "sampler": "nearest", "default": "textures/checker.png", "doc": "The picture shown." } }
+}

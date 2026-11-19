@@ -64,6 +64,10 @@ bool whole_number(const Json& n, std::int64_t lo, std::int64_t hi, std::int64_t&
         out = std::int64_t(u);
     } else if (n.is_number_integer()) {
         out = n.get<std::int64_t>();
+    } else if (n.is_number_float()) {  // a script's 3 may arrive as 3.0: a float with no fraction is a whole number too
+        const double d = n.get<double>();
+        if (!std::isfinite(d) || std::floor(d) != d || d < double(lo) || d > double(hi)) return false;
+        out = std::int64_t(d);
     } else {
         return false;
     }
@@ -79,13 +83,14 @@ std::string example_of(const MaterialBufferFieldDef& f) {
 
 // Writes one field value (a number, or an array of `components` numbers) into the element at `dst`.
 Result<void> pack_field(const MaterialBufferFieldDef& f, const Json& v, std::uint8_t* dst, const std::string& pointer) {
-    const std::string kind = f.isInt ? "an integer from -2147483648 to 2147483647"
+    const std::string kind = f.isInt    ? "an integer from -2147483648 to 2147483647"
                              : f.isUint ? "an integer from 0 to 4294967295"
                                         : "a number";
-    const std::string want = f.components == 1 ? kind
-                                               : "an array of " + std::to_string(f.components) + " numbers like " + example_of(f);
+    const std::string want =
+        f.components == 1 ? kind : "an array of " + std::to_string(f.components) + " numbers like " + example_of(f);
     auto bad = [&] {
-        return make_error(pointer + ": " + describe_json_value(v) + " is not " + want + " (the field is a " + f.type + ")",
+        return make_error(pointer + ": " + describe_json_value(v) + " is not " + want + " (the field is a " + f.type +
+                              ")",
                           "Write the field as " + example_of(f) + ".");
     };
     if (f.components > 1 && (!v.is_array() || int(v.size()) != f.components)) return bad();
@@ -199,8 +204,8 @@ Result<void> upload(render::Gpu& gpu, sg_buffer dst, std::size_t offset, const s
     const sg_buffer staging = sg_make_buffer(&sd);
     if (sg_query_buffer_state(staging) != SG_RESOURCESTATE_VALID) {
         if (staging.id) sg_destroy_buffer(staging);
-        return make_error("compute: the graphics driver could not make the upload buffer of " + std::to_string(data.size()) +
-                              " bytes (the sokol log lines above have the reason)",
+        return make_error("compute: the graphics driver could not make the upload buffer of " +
+                              std::to_string(data.size()) + " bytes (the sokol log lines above have the reason)",
                           "Write fewer elements at a time, or free GPU memory.");
     }
     sg_copy_buffer_to_buffer_desc cd{};
@@ -251,16 +256,19 @@ bool Compute::available(std::string* why) const {
     std::string reason;
     if (render::feature_supported(env, render::find_feature("computeShaders"), &reason)) return true;
     if (why)
-        *why = std::string("compute shaders are not available on the ") + render::feature_backend_label(env.backend) +
-               " graphics backend: " + reason +
-               ". Compute materials run on Windows (D3D11), macOS and iOS (Metal) and Linux (OpenGL 4.3 or newer), not "
-               "on Android, the web or macOS OpenGL (4.1). Ask `render.supports` {\"feature\":\"computeShaders\"} first, "
-               "and on this backend do the work in a script or in a mesh or sprite material";
+        *why =
+            std::string("compute shaders are not available on the ") + render::feature_backend_label(env.backend) +
+            " graphics backend: " + reason +
+            ". Compute materials run on Windows (D3D11), macOS and iOS (Metal) and Linux (OpenGL 4.3 or newer), not "
+            "on Android, the web or macOS OpenGL (4.1). Ask `render.supports` {\"feature\":\"computeShaders\"} first, "
+            "and on this backend do the work in a script or in a mesh or sprite material";
     return false;
 }
 
 namespace {
-Error refused(const std::string& why) { return make_error(why, "Check render.supports computeShaders before using compute.*."); }
+Error refused(const std::string& why) {
+    return make_error(why, "Check render.supports computeShaders before using compute.*.");
+}
 }  // namespace
 
 Result<int> Compute::create_buffer(const std::string& material, const std::string& buffer, std::uint64_t count,
@@ -269,7 +277,8 @@ Result<int> Compute::create_buffer(const std::string& material, const std::strin
     std::string why;
     if (!available(&why)) return refused(why);
     if (render::Gpu::in_pass())
-        return make_error("compute.create_buffer: a frame is being drawn", "Call it from a script's update, not while rendering.");
+        return make_error("compute.create_buffer: a frame is being drawn",
+                          "Call it from a script's update, not while rendering.");
     auto made = compute_material(s, material);
     if (!made.ok()) return made.error();
     const MaterialAsset& m = **made;
@@ -285,7 +294,8 @@ Result<int> Compute::create_buffer(const std::string& material, const std::strin
                           names.empty() ? std::string("The material declares no buffers.")
                                         : did_you_mean(buffer, names));
     if (count < 1)
-        return make_error("count: a buffer holds at least 1 element", "Pass the number of elements the snippet indexes.");
+        return make_error("count: a buffer holds at least 1 element",
+                          "Pass the number of elements the snippet indexes.");
     const std::uint64_t maxElements = kMaxComputeBufferBytes / def->stride;
     if (count > maxElements)
         return make_error("count: " + std::to_string(count) + " elements of " + std::to_string(def->stride) +
@@ -294,8 +304,9 @@ Result<int> Compute::create_buffer(const std::string& material, const std::strin
                           "Split the data into several buffers, or make the element smaller.");
     const std::uint64_t bytes = count * def->stride;  // <= kMaxComputeBufferBytes: no overflow
     if (int(s.bufs.size()) >= kMaxComputeBuffers)
-        return make_error("compute: " + std::to_string(kMaxComputeBuffers) + " buffers are alive already",
-                          "Destroy the ones you no longer use (compute.destroy_buffer); compute.list_buffers names them.");
+        return make_error(
+            "compute: " + std::to_string(kMaxComputeBuffers) + " buffers are alive already",
+            "Destroy the ones you no longer use (compute.destroy_buffer); compute.list_buffers names them.");
     if (bytes > kMaxComputeTotalBytes - std::min(s.totalBytes, kMaxComputeTotalBytes))
         return make_error("compute: this buffer would bring the live buffers to more than " +
                               std::to_string(kMaxComputeTotalBytes >> 20) + " MiB",
@@ -335,7 +346,8 @@ Result<int> Compute::create_buffer(const std::string& material, const std::strin
                               " bytes (the sokol log lines above have the reason)",
                           "Use a smaller buffer, or free GPU memory.");
     }
-    auto filled = upload(*s.gpu, b.buffer, 0, data);  // zeros and `initial`: a new GPU buffer is not zeroed on every backend
+    auto filled =
+        upload(*s.gpu, b.buffer, 0, data);  // zeros and `initial`: a new GPU buffer is not zeroed on every backend
     if (!filled.ok()) {
         sg_destroy_buffer(b.buffer);
         return filled.error();
@@ -347,8 +359,9 @@ Result<int> Compute::create_buffer(const std::string& material, const std::strin
     if (sg_query_view_state(b.view) != SG_RESOURCESTATE_VALID) {
         if (b.view.id) sg_destroy_view(b.view);
         sg_destroy_buffer(b.buffer);
-        return make_error("compute: the graphics driver could not make a view of the storage buffer",
-                          "This is a driver problem: update the graphics driver and report it with the sokol log lines above.");
+        return make_error(
+            "compute: the graphics driver could not make a view of the storage buffer",
+            "This is a driver problem: update the graphics driver and report it with the sokol log lines above.");
     }
     b.id = s.nextId++;
     s.totalBytes += bytes;
@@ -363,10 +376,12 @@ Result<void> Compute::write_buffer(int id, std::uint64_t first, const Json& elem
     if (!available(&why)) return refused(why);
     auto it = s.bufs.find(id);
     if (it == s.bufs.end())
-        return make_error("buffer: no compute buffer " + std::to_string(id), "compute.list_buffers lists the live buffers.");
+        return make_error("buffer: no compute buffer " + std::to_string(id),
+                          "compute.list_buffers lists the live buffers.");
     State::Buf& b = it->second;
     if (render::Gpu::in_pass())
-        return make_error("compute.write_buffer: a frame is being drawn", "Call it from a script's update, not while rendering.");
+        return make_error("compute.write_buffer: a frame is being drawn",
+                          "Call it from a script's update, not while rendering.");
     if (!elements.is_array())
         return make_error("elements: " + describe_json_value(elements) + " is not an array",
                           "Pass an array of {field: value} objects.");
@@ -377,7 +392,8 @@ Result<void> Compute::write_buffer(int id, std::uint64_t first, const Json& elem
                           "Write the buffer in several calls.");
     if (first >= b.count || elements.size() > b.count - first)
         return make_error("first/elements: elements " + std::to_string(first) + ".." +
-                              std::to_string(first + elements.size()) + " are outside the buffer of " + std::to_string(b.count),
+                              std::to_string(first + elements.size()) + " are outside the buffer of " +
+                              std::to_string(b.count),
                           "Keep first + elements.size() within " + std::to_string(b.count) + ".");
     const std::uint64_t bytes = std::uint64_t(elements.size()) * b.stride;
     std::vector<std::uint8_t> data(std::size_t(bytes), 0);
@@ -395,10 +411,12 @@ Result<Json> Compute::read_buffer(int id, std::uint64_t first, std::uint64_t cou
     if (!available(&why)) return refused(why);
     auto it = s.bufs.find(id);
     if (it == s.bufs.end())
-        return make_error("buffer: no compute buffer " + std::to_string(id), "compute.list_buffers lists the live buffers.");
+        return make_error("buffer: no compute buffer " + std::to_string(id),
+                          "compute.list_buffers lists the live buffers.");
     const State::Buf& b = it->second;
     if (render::Gpu::in_pass())
-        return make_error("compute.read_buffer: a frame is being drawn", "Call it from a script's update, not while rendering.");
+        return make_error("compute.read_buffer: a frame is being drawn",
+                          "Call it from a script's update, not while rendering.");
     if (count > kMaxComputeJsonElements)
         return make_error("count: " + std::to_string(count) + " elements in one call; at most " +
                               std::to_string(kMaxComputeJsonElements),
@@ -416,7 +434,8 @@ Result<Json> Compute::read_buffer(int id, std::uint64_t first, std::uint64_t cou
     std::vector<std::uint8_t> raw;
     std::string error;
     if (!render::readback_buffer(b.buffer, std::size_t(first * b.stride), std::size_t(count * b.stride), raw, &error))
-        return make_error("compute.read_buffer: " + error, "This is a graphics driver problem on this backend; report it.");
+        return make_error("compute.read_buffer: " + error,
+                          "This is a graphics driver problem on this backend; report it.");
     Json out = Json::array();
     for (std::uint64_t i = 0; i < count; ++i) out.push_back(unpack_element(b, raw.data() + std::size_t(i) * b.stride));
     return out;
@@ -426,7 +445,8 @@ Result<void> Compute::destroy_buffer(int id) {
     State& s = *s_;
     auto it = s.bufs.find(id);
     if (it == s.bufs.end())
-        return make_error("buffer: no compute buffer " + std::to_string(id), "compute.list_buffers lists the live buffers.");
+        return make_error("buffer: no compute buffer " + std::to_string(id),
+                          "compute.list_buffers lists the live buffers.");
     if (sg_isvalid()) s.destroy(it->second);
     s.bufs.erase(it);
     return {};
@@ -437,7 +457,8 @@ Result<void> Compute::dispatch(const ComputeDispatch& d) {
     std::string why;
     if (!available(&why)) return refused(why);
     if (render::Gpu::in_pass())
-        return make_error("compute.dispatch: a frame is being drawn", "Call it from a script's update, not while rendering.");
+        return make_error("compute.dispatch: a frame is being drawn",
+                          "Call it from a script's update, not while rendering.");
     auto made = compute_material(s, d.material);
     if (!made.ok()) return made.error();
     MaterialAsset& m = **made;
@@ -446,9 +467,10 @@ Result<void> Compute::dispatch(const ComputeDispatch& d) {
         if (d.groups[i] < 1 || d.groups[i] > kMaxComputeGroups)
             return make_error("groups/" + std::to_string(i) + ": " + std::to_string(d.groups[i]) +
                                   " workgroups; each dimension takes 1 to " + std::to_string(kMaxComputeGroups),
-                              "groups counts workgroups of " + std::to_string(m.workgroup[0]) + "x" + std::to_string(m.workgroup[1]) +
-                                  "x" + std::to_string(m.workgroup[2]) + " threads: dispatch ceil(work / " +
-                                  std::to_string(m.workgroup[0]) + ") for a one-dimensional job.");
+                              "groups counts workgroups of " + std::to_string(m.workgroup[0]) + "x" +
+                                  std::to_string(m.workgroup[1]) + "x" + std::to_string(m.workgroup[2]) +
+                                  " threads: dispatch ceil(work / " + std::to_string(m.workgroup[0]) +
+                                  ") for a one-dimensional job.");
 
     // The buffers: every one of the material, no other, each made for a buffer with the same layout.
     std::vector<std::string> declared;
@@ -456,7 +478,8 @@ Result<void> Compute::dispatch(const ComputeDispatch& d) {
     for (const auto& [name, id] : d.buffers)
         if (std::find(declared.begin(), declared.end(), name) == declared.end())
             return make_error("buffers/" + name + ": the material '" + m.path + "' has no buffer '" + name + "'",
-                              declared.empty() ? std::string("The material declares no buffers.") : did_you_mean(name, declared));
+                              declared.empty() ? std::string("The material declares no buffers.")
+                                               : did_you_mean(name, declared));
     std::vector<const State::Buf*> bound;
     for (const MaterialBufferDef& def : m.buffers) {
         auto given = d.buffers.find(def.name);
@@ -468,16 +491,18 @@ Result<void> Compute::dispatch(const ComputeDispatch& d) {
             return make_error("buffers/" + def.name + ": no compute buffer " + std::to_string(given->second),
                               "compute.list_buffers lists the live buffers; compute.create_buffer makes one.");
         if (!same_layout(it->second, def))
-            return make_error("buffers/" + def.name + ": buffer " + std::to_string(given->second) + " was made for '" +
-                                  it->second.name + "' of '" + it->second.material + "', with another layout than '" +
-                                  def.name + "' of '" + m.path + "' has now",
-                              "Make the buffer for this material (compute.create_buffer), or destroy and make it again if the "
-                              "material's fields changed.");
+            return make_error(
+                "buffers/" + def.name + ": buffer " + std::to_string(given->second) + " was made for '" +
+                    it->second.name + "' of '" + it->second.material + "', with another layout than '" + def.name +
+                    "' of '" + m.path + "' has now",
+                "Make the buffer for this material (compute.create_buffer), or destroy and make it again if the "
+                "material's fields changed.");
         for (const State::Buf* other : bound)
             if (other == &it->second)
-                return make_error("buffers/" + def.name + ": buffer " + std::to_string(given->second) +
-                                      " is bound to two buffers of the material",
-                                  "A storage buffer cannot be read and written through two bindings at once: use two buffers.");
+                return make_error(
+                    "buffers/" + def.name + ": buffer " + std::to_string(given->second) +
+                        " is bound to two buffers of the material",
+                    "A storage buffer cannot be read and written through two bindings at once: use two buffers.");
         bound.push_back(&it->second);
     }
 
@@ -510,8 +535,9 @@ Result<void> Compute::dispatch(const ComputeDispatch& d) {
                 for (const Json& c : it.value()) good = good && c.is_number();
             if (!good)
                 return make_error(at + ": " + describe_json_value(it.value()) + " is not " +
-                                      (p->components == 1 ? std::string("a number")
-                                                          : "an array of " + std::to_string(p->components) + " numbers"),
+                                      (p->components == 1
+                                           ? std::string("a number")
+                                           : "an array of " + std::to_string(p->components) + " numbers"),
                                   "Give the param the type its material declares.");
         }
     }
