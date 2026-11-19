@@ -59,7 +59,8 @@ struct QuadInput {              // read-only, per fragment
     vec2 screen_uv;             // position in the render target, 0..1, y running DOWN on every backend
     float time;                 // seconds of game time since the scene started (the same as fa_time.x)
     float mode;                 // what is drawn: 0 texture, 1 circle, 2 ring, 3 soft particle, 4 glyph, 5/6 lit, 7 SDF shape
-    vec4 custom;                // per-sprite values (reserved: zero until Sprite.materialParams reaches the vertex)
+    vec4 custom;                // reserved: zero (per-sprite values are the material's instanced params, read by name)
+    float life;                 // particles: how far the particle is through its life, 0 at birth to 1 at its end; 0 for everything else
 };
 struct QuadSurface {            // what the quad pipeline draws
     vec4 color;                 // straight (non-premultiplied) RGBA; arrives holding the engine's result for the mode
@@ -69,6 +70,46 @@ struct QuadVertex {             // vertex(): world space
     vec2 uv;                    // texture coordinates (see QuadInput.uv)
     vec4 color;                 // the tint of the corner (linear in a linear scene)
 };
+@end
+
+// Per-instance params of a sprite material (docs/SHADERS.md, "Per-instance params and vertex channels"). The generator defines FA_INST_1..3, the vec4
+// of per-instance data the material's instanced params need; the engine's own programs have none and keep their attributes. The
+// data is vertex buffer 1, attributes 7.. of the vertex shader: one value per quad, written to its four corners, so quads with
+// different values still share one draw. The varyings are `flat`: the value of the first corner reaches fragment() unchanged.
+@block fa_inst_flags
+#if defined(FA_INST_3)
+#define FA_NINST 3
+#elif defined(FA_INST_2)
+#define FA_NINST 2
+#elif defined(FA_INST_1)
+#define FA_NINST 1
+#else
+#define FA_NINST 0
+#endif
+@end
+
+@block fa_inst_out
+#if FA_NINST > 0
+flat out vec4 fa_inst_v0;
+#if FA_NINST > 1
+flat out vec4 fa_inst_v1;
+#endif
+#if FA_NINST > 2
+flat out vec4 fa_inst_v2;
+#endif
+#endif
+@end
+
+@block fa_inst_in
+#if FA_NINST > 0
+flat in vec4 fa_inst_v0;
+#if FA_NINST > 1
+flat in vec4 fa_inst_v1;
+#endif
+#if FA_NINST > 2
+flat in vec4 fa_inst_v2;
+#endif
+#endif
 @end
 
 @include light_shadow.glsl
@@ -84,6 +125,7 @@ layout(binding=0) uniform vs_params {
     vec4 fa_time;           // x = seconds of game time since the scene started (a snippet reads it; 0 for the engine's own programs)
 };
 @include_block color_space
+@include_block fa_inst_flags
 @include_block fa_quad_types
 @include_block fa_user
 
@@ -94,6 +136,15 @@ layout(location=3) in vec2 params0;
 layout(location=4) in vec4 color2_0;
 layout(location=5) in vec2 shape_half0;
 layout(location=6) in vec2 shape_rs0;
+#if FA_NINST > 0
+layout(location=7) in vec4 fa_inst_d0;
+#endif
+#if FA_NINST > 1
+layout(location=8) in vec4 fa_inst_d1;
+#endif
+#if FA_NINST > 2
+layout(location=9) in vec4 fa_inst_d2;
+#endif
 
 out vec2 uv;
 out vec4 color;
@@ -104,8 +155,25 @@ out vec2 shape_half;
 out vec2 shape_rs;
 out vec3 xform;
 out float world_z;
+@include_block fa_inst_out
 
 void main() {
+#if FA_NINST == 1
+    fa_instance_unpack(fa_inst_d0, vec4(0.0), vec4(0.0));
+#elif FA_NINST == 2
+    fa_instance_unpack(fa_inst_d0, fa_inst_d1, vec4(0.0));
+#elif FA_NINST == 3
+    fa_instance_unpack(fa_inst_d0, fa_inst_d1, fa_inst_d2);
+#endif
+#if FA_NINST > 0
+    fa_inst_v0 = fa_inst_d0;
+#endif
+#if FA_NINST > 1
+    fa_inst_v1 = fa_inst_d1;
+#endif
+#if FA_NINST > 2
+    fa_inst_v2 = fa_inst_d2;
+#endif
     QuadVertex v;
     v.world_pos = position;
     v.uv = texcoord0;
@@ -155,6 +223,8 @@ layout(binding=1) uniform quad_fs_params {
 @end
 
 @block fa_quad_fs_common
+@include_block fa_inst_flags
+@include_block fa_inst_in
 @include_block fa_quad_types
 
 // The sample of `tex` as a colour: decoded to linear (or encoded back) as xform.y says.
@@ -193,10 +263,23 @@ QuadInput fa_quad_input(float base_mode) {
 #endif
     i.mode = base_mode;
     i.custom = vec4(0.0);
+    // A particle quad of a material carries its life in the shape half-size slot (modes 0 and 3 never read it otherwise).
+    i.life = (base_mode < 0.5 || (base_mode > 2.5 && base_mode < 3.5)) ? shape_half.x : 0.0;
     return i;
 }
 
 @include_block fa_user
+
+// Loads the flat varyings into the globals the generator declared for the instanced params (before fragment() reads them).
+void fa_inst_load() {
+#if FA_NINST == 1
+    fa_instance_unpack(fa_inst_v0, vec4(0.0), vec4(0.0));
+#elif FA_NINST == 2
+    fa_instance_unpack(fa_inst_v0, fa_inst_v1, vec4(0.0));
+#elif FA_NINST == 3
+    fa_instance_unpack(fa_inst_v0, fa_inst_v1, fa_inst_v2);
+#endif
+}
 @end
 
 @fs fs
@@ -359,6 +442,7 @@ void main() {
     QuadInput fa_in = fa_quad_input(mode);
     QuadSurface fa_surf;
     fa_surf.color = frag_color;
+    fa_inst_load();
     fragment(fa_in, fa_surf);
     frag_color = fa_surf.color;
     if (flash) frag_color.rgb = mix(frag_color.rgb, scene_rgb(color2.rgb), color2.a);
@@ -419,6 +503,7 @@ void main() {
     QuadInput fa_in = fa_quad_input(0.0);
     QuadSurface fa_surf;
     fa_surf.color = frag_color;
+    fa_inst_load();
     fragment(fa_in, fa_surf);
     frag_color = fa_surf.color;
 }

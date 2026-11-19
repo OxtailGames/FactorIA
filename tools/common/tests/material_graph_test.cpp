@@ -1040,7 +1040,23 @@ TEST_CASE("material.param.set_default writes one default, checks the value, and 
     CHECK(wrong.error["message"].get<std::string>().find("/params/dissolve/default") != std::string::npos);
     auto range = p.call("material.param.set_default",
                         R"({"material":"materials/dissolve.material.json","param":"dissolve","value":7})");
-    CHECK_FALSE(range.ok);
+    REQUIRE_FALSE(range.ok);
+    CHECK(range.error["message"].get<std::string>().find("/params/dissolve/default") != std::string::npos);
+    CHECK(range.error["hint"].is_string());
+    CHECK_FALSE(range.error["hint"].get<std::string>().empty());
+    // a param that is not an object ({"a": 5}) is an error of the command, never an exception
+    p.write("materials/odd.material.json",
+            R"({"format":"factoria.material/1","shader":"shaders/odd.surface.glsl","params":{"a":5}})");
+    p.write("shaders/odd.surface.glsl", "void surface(inout SurfaceOut s) {}\n");
+    const std::string odd = p.read("materials/odd.material.json");
+    auto notObject =
+        p.call("material.param.set_default", R"({"material":"materials/odd.material.json","param":"a","value":1})");
+    REQUIRE_FALSE(notObject.ok);
+    // (the material check of load_material refuses it first, with the pointer; the command's own is_object check is a second guard)
+    CHECK(notObject.error["code"].get<std::string>() == "invalid_material");
+    CHECK(notObject.error["message"].get<std::string>().find("/params/a") != std::string::npos);
+    CHECK_FALSE(notObject.error["hint"].get<std::string>().empty());
+    CHECK(p.read("materials/odd.material.json") == odd);
     // a param the file does not have: did you mean
     auto unknown = p.call("material.param.set_default",
                           R"({"material":"materials/dissolve.material.json","param":"disolve","value":0.1})");

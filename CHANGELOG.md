@@ -10,13 +10,26 @@ Older versions, one file per minor version with its patch releases: [0.30](chang
   vec4 and color: they change the PREVIEW only, nothing is written and nothing compiles again; **Reset** puts them back and
   **Set as default** writes the value as the param's `default` in the file, as one undo step), a **Compare** check box that
   draws the last saved version of the graph next to the current one, and a compiler error painted on the node whose generated
-  line it names (the generator keeps the id of the node that wrote each line of the snippet). A `sprite` material is drawn on a
-  2D quad (its texture, or a grey checker); `sky`, `post` and `compute` materials say why they have no preview instead of
-  drawing wrongly. New command `material.param.set_default {material, param, value, dryRun?}` writes one param's default
+  line it names (the generator keeps the id of the node that wrote each line of the snippet). The panel draws `mesh`
+  materials, and a `sky`, `post` or `compute` material says why it has no preview instead of drawing wrongly; the preview
+  is also ready to draw a `sprite` material on a 2D quad for when the graph generator supports that kind (it does not
+  yet, so no graph material reaches it today). New command `material.param.set_default {material, param, value, dryRun?}` writes one param's default
   (checked like the file; it returns the `previous` value). Two fixes: a preview that was redrawn after a shape change no longer
   turned an error back into "up to date", and a shader compile whose result could not be saved in `.factoria/shader-cache` is
   now an error in the panel instead of running sokol-shdc on the editor's thread. `.factoria/material-preview/` (the files the
   preview writes) is documented in the Graph panel section.
+- **Per-sprite values and vertex textures in sprite materials (M72.1):** a sprite material's param marked
+  `"instanced": true` takes its value per quad: 100 sprites, shapes, tiles, glyphs or particles of one material with 100
+  different `tint` values are one batch and one draw call, and the snippet reads `tint` by its name in `fragment()` and
+  `vertex()`. Same rules as a mesh (at most 3 vec4, the error on `/params` lists them); a param that is not instanced
+  still splits the batch; sky and compute materials still refuse `instanced` (`/params/<name>/instanced`). The values travel in a second
+  vertex buffer (the four corners of a quad carry the same values: up to 192 bytes per quad at 3 vec4) and reach
+  `fragment()` as `flat` varyings. A particle's instanced values are its emitter's `materialParams`, and the new
+  `QuadInput.life` is how far the particle is through its life (0 for everything else; `QuadInput.custom` stays
+  reserved). The `vertex()` of a sprite material can now sample the material's textures (mip 0, the same names as in
+  `fragment()`). `material.info` reports `instanceLayout` for a sprite. **Games with sprite materials must re-export:** the
+  sprite template changed (the engine's own sprites look the same), so older compiled twins are refused with the re-export
+  hint until `factoria export` or `shader.compile` writes them again.
 - **Per-instance params and vertex channels for mesh materials (M72.3):** a material param marked `"instanced": true`
   takes a value per entity inside one instanced draw call: 100 entities with 100 different `tint` values are one draw, and
   the snippet reads `tint` by its name in `vertex()` and `surface()` (also in the shadow and depth prepass programs, so a
@@ -40,12 +53,11 @@ Older versions, one file per minor version with its patch releases: [0.30](chang
   `unavailable`, naming the backend (`render.supports computeShaders`). Storage images are not available yet.
 
 - **Material kinds (M72 base):** `*.material.json` takes an optional `"kind"`: `"mesh"` (default, what materials were so far),
-  `"sprite"`, `"sky"`, `"post"` or `"compute"`. Only mesh materials compile and draw; `shader.compile`, `factoria validate`
-  and the renderer refuse the others with an error that names the package that brings them, and `shader.compile` and
-  `material.info` report the `kind`. Each kind hashes only its own template files (`fa::material_template_hash(kind)`), so
+  `"sprite"`, `"sky"`, `"post"` or `"compute"`. Every kind compiles and draws (the milestone's packages brought them one by
+  one); `shader.compile` and `material.info` report the `kind`. Each kind hashes only its own template files (`fa::material_template_hash(kind)`), so
   a change to one template no longer makes the twins of the other kinds stale; the mesh hash did not change, so no export
   needs to be redone. The skeletons `quad_common.glsl`, `sky_common.glsl` and `post_common.glsl` declare each kind's snippet
-  contract; nothing draws with them yet.
+  contract.
 - **Sprite materials, the template and the tooling (M72.1):** `"kind": "sprite"` compiles. The 2D quad shader is now a
   template (`quad_common.glsl`) with a hook: a snippet defines `void fragment(in QuadInput i, inout QuadSurface s)` (and
   optionally `void vertex(inout QuadVertex v)`), `s.color` arrives holding what the engine draws for the item (texture,
@@ -79,6 +91,21 @@ Older versions, one file per minor version with its patch releases: [0.30](chang
   render target samples the missing-texture checker for the camera that renders into it (never the image it writes), and a
   texture that failed to load no longer destroys the shared checker when the asset cache is cleared.
 
+- **Post-process materials (M72.2):** `"kind": "post"` compiles and draws. `PostProcess.customPasses` is a list (at most 8) of
+  `{material, materialParams, enabled, position, name}`: each entry is a full-screen pass of the camera's stack drawn by a
+  post material, placed before or after a named built-in effect (`"after:bloom"`, `"before:tonemap"` by default, `"after:ssr"`,
+  `"before:depthOfField"`...; a position that is not a place is refused with the ones that work). A snippet defines
+  `void post(in PostInput i, inout PostSurface s)` and reads the picture (`fa_scene_color`), optionally the linear depth and the
+  view-space normal (`fa_depth`, `fa_normal`: the renderer draws the depth and normal prepass for a camera only when a pass reads
+  them) and `fa_scene_rgb` for colours. Passes at one place run in list order, a split screen runs each camera's list over its
+  own rectangle, and a volume adds its entries at strength 0.5. A pass whose material is missing, broken, not a post material or
+  needs the depth on a GPU without it is skipped: the log says why once and `materialFallbacks` names it. `shader.compile`,
+  `material.info`, `factoria validate` and `factoria export` work for the kind (`lighting`, `alphaMode` and `doubleSided` are
+  refused with the reason); `postprocess.set` checks the entries with their JSON pointer; `postprocess.get {resolved}` lists the
+  passes and the problems; `render.supports` has the feature `postMaterials`; the editor's Post-processing panel adds, switches,
+  reorders, removes and edits the params of a pass, one undo step each; hot reload swaps the shader. The picture is read
+  with a half-texel clamp at the edge of the camera's rectangle (a split screen never reads the neighbour's pixels).
+  docs/shaders/SHADERS_POST.md.
 - **Custom lighting and textures in `vertex()` (M72.3):** a mesh material with `"lighting": "custom"` defines
   `vec3 light(in SurfaceInput i, in Surface s, in LightSample l)`, which the engine's light loop calls once per light
   (the engine still picks the lights and applies attenuation, shadows, emission and fog), and optionally `ambient()`:

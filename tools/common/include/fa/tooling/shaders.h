@@ -50,9 +50,12 @@ inline constexpr int kMaterialVsFirstView = kMaterialFsFirstView + kMaterialMaxT
 // this many vec4 (12 floats) per instance, so the main program of a skinned mesh (11 attributes + 3 + 2 declared channels)
 // stays within the 16 vertex attributes sokol and every backend allow.
 inline constexpr int kMaterialMaxInstanceVec4 = 3;
-// A sprite material's textures (kind "sprite") are fragment-stage only, at view kMaterialSpriteFirstView + i and sampler
+// A sprite material's textures (kind "sprite") are read by fragment() at view kMaterialSpriteFirstView + i and sampler
 // kMaterialSpriteFirstSampler + i: the 2D program's own four views and three samplers come first (render_internal.h has the same numbers).
 inline constexpr int kMaterialSpriteFirstView = 4, kMaterialSpriteFirstSampler = 3;
+// ... and the same textures for the vertex stage (vertex() may sample them as fa_vs_<name>): views and samplers after the fragment ones.
+inline constexpr int kMaterialSpriteVsFirstView = kMaterialSpriteFirstView + kMaterialMaxTextures,
+                     kMaterialSpriteVsFirstSampler = kMaterialSpriteFirstSampler + kMaterialMaxTextures;
 // A sky material's textures (kind "sky") are fragment-stage only too, and the sky program binds no texture of its own, so they are views
 // 0.. and samplers 0.. (render_internal.h has the same numbers).
 inline constexpr int kMaterialSkyFirstView = 0, kMaterialSkyFirstSampler = 0;
@@ -62,6 +65,9 @@ inline constexpr int kComputeMaxBufferFields = 16;  // fields of one buffer elem
 inline constexpr int kComputeMaxWorkgroupInvocations = 256;
 inline constexpr int kComputeMaxWorkgroupZ =
     64;  // z of the workgroup: Direct3D 11 numthreads and the OpenGL guaranteed minimum
+// A post material's textures (kind "post") are fragment-stage only, at view kMaterialPostFirstView + i and sampler
+// kMaterialPostFirstSampler + i: the pass's own scene colour and prepass views (0, 1) and its two samplers come first.
+inline constexpr int kMaterialPostFirstView = 2, kMaterialPostFirstSampler = 2;
 inline constexpr const char* kMaterialFormat = "factoria.material/1";
 inline constexpr const char* kShaderTwinFormat = "factoria.shader/1";
 inline constexpr const char* kMaterialAlphaCutoff = "alphaCutoff";
@@ -132,7 +138,7 @@ struct MaterialDef {
     std::string doc;
     std::string shader;  // project-relative path of the snippet
     std::string kind =
-        "mesh";  // "mesh" | "sprite" | "sky" | "post" | "compute" (fa::material_kind_names()); mesh, sprite, sky and compute compile
+        "mesh";  // "mesh" | "sprite" | "sky" | "post" | "compute" (fa::material_kind_names()); every kind compiles
     std::string lighting = "pbr";      // "pbr" | "unlit" | "custom" (a mesh material whose snippet defines light())
     std::string alphaMode = "opaque";  // "opaque" | "clip" | "blend"
     bool doubleSided = false;
@@ -204,13 +210,14 @@ struct GeneratedShader {
     std::string top;  // the sokol-shdc input
     std::vector<int>
         snippetLine;  // per line of `top` (index = line - 1): the 1-based line of the snippet it holds, 0 = generated
-    bool hasVertex = false;   // the snippet defines vertex()
-    bool hasSurface = false;  // the snippet defines surface() (a sprite material: fragment(), a sky material: sky())
+    bool hasVertex = false;  // the snippet defines vertex()
+    bool hasSurface =
+        false;  // the snippet defines surface() (a sprite material: fragment(), a sky material: sky(), a post material: post())
     bool hasLight = false;    // lighting "custom": the snippet defines light()
     bool hasAmbient = false;  // lighting "custom": the snippet defines ambient()
     bool hasCompute = false;  // the snippet defines compute() (kind "compute")
     std::vector<std::string>
-        programs;  // sprite: "quad", "quad_plain". Sky: "sky". Mesh: "mesh", "mesh_skin", with vertex() or "clip" "shadow", "shadow_skin", and "prepass", "prepass_skin"
+        programs;  // post: "post". Sprite: "quad", "quad_plain". Sky: "sky". Compute: "compute". Mesh: "mesh", "mesh_skin", with vertex() or "clip" "shadow", "shadow_skin", and "prepass", "prepass_skin"
     std::vector<std::string>
         defines;  // for --defines: FA_MATERIAL (sprite), FA_HAS_VERTEX, FA_ALPHA_CLIP, FA_CUSTOM_LIGHT, FA_HAS_AMBIENT (mesh),
                   // FA_INST_1..3 (the vec4 of per-instance data), FA_CH_UV1, FA_CH_COLOR1 (declared vertexAttributes)

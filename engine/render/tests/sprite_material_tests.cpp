@@ -686,3 +686,169 @@ TEST_CASE("emitter materials: a material whose params name the target a camera d
     const Color mid = img.pixel(80 + 160, 90);
     near(mid, 1, 0, 1);  // the magenta of the checker's first texel
 }
+
+// ---------------------------------------------------------------------------------------------------------------------------------
+// Per-sprite values (M72.1): instanced params travel with every quad, so sprites of one material keep one batch.
+// ---------------------------------------------------------------------------------------------------------------------------------
+namespace {
+
+constexpr const char* kInst = "materials/sprite_inst.material.json";
+constexpr const char* kVtex = "materials/sprite_vtex.material.json";
+constexpr const char* kLife = "materials/sprite_life.material.json";
+
+Json color_json(float r, float g, float b) { return Json::array({double(r), double(g), double(b), 1.0}); }
+
+}  // namespace
+
+TEST_CASE(
+    "sprite instances: 100 sprites with 100 different instanced values draw as one batch with their own colours") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    MaterialScope scope;
+    ProblemLog log;
+    auto frame = [&](int count, bool distinct) {
+        World w;
+        camera2d(w);
+        for (int i = 0; i < count; ++i) {
+            const int col = i % 10, row = i / 10;
+            Entity e = sprite(w, {-135.0f + 30.0f * float(col), 72.0f - 16.0f * float(row), 0}, kInst, {20, 10});
+            w.get<Sprite>(e)->color = Color::white();
+            if (distinct)
+                w.get<Sprite>(e)->materialParams =
+                    Json::object({{"tint", color_json(float(col) / 9.0f, float(row) / 9.0f, 1.0f - float(i) / 99.0f)}});
+        }
+        return g.render(w);
+    };
+    frame(1, false);
+    const int oneSprite = g.renderer.stats().drawCalls;
+    const Image img = frame(100, true);
+    CHECK(g.renderer.stats().drawCalls == oneSprite);
+    CHECK(g.renderer.stats().materials == 1);
+    CHECK(g.renderer.stats().materialFallbacks.empty());
+    for (int i = 0; i < 100; ++i) {
+        const int col = i % 10, row = i / 10;
+        INFO("sprite " << i);
+        const Color c = img.pixel(160 + (-135 + 30 * col), 90 - (72 - 16 * row));
+        near(c, float(col) / 9.0f, float(row) / 9.0f, 1.0f - float(i) / 99.0f, 0.03f);
+    }
+    CHECK(log.messages().empty());
+    // The same material without the override reads the param's default.
+    const Image def = frame(2, false);
+    near(def.pixel(160 - 135, 90 - 72), 1.0f, 1.0f, 1.0f, 0.03f);
+}
+
+TEST_CASE("sprite instances: a non-instanced param still splits the batch, an instanced one does not") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    MaterialScope scope;
+    auto frame = [&](const std::vector<Json>& params) {
+        World w;
+        camera2d(w);
+        float x = -105.0f;
+        for (const Json& p : params) {
+            Entity e = sprite(w, {x, 0, 0}, kInst, {40, 40});
+            w.get<Sprite>(e)->color = Color::white();
+            w.get<Sprite>(e)->materialParams = p;
+            x += 70.0f;
+        }
+        const Image img = g.render(w);
+        return std::make_pair(g.renderer.stats().drawCalls, img);
+    };
+    const Json a = Json::object({{"tint", color_json(1, 0, 0)}});
+    const Json b = Json::object({{"tint", color_json(0, 1, 0)}, {"shift", 5.0}});
+    const Json boost2 = Json::object({{"tint", color_json(1, 1, 1)}, {"boost", 0.5}});
+    const int one = frame({a, a, a, a}).first;
+    CHECK(frame({a, b, a, b}).first == one);
+    CHECK(frame({a, a, boost2, boost2}).first == one + 1);
+    const auto split = frame({a, boost2, a, boost2});
+    CHECK(split.first == one + 3);
+    // boost is per draw: 0.5 halves the white of the second sprite, the first keeps its red.
+    near(split.second.pixel(160 - 105, 90), 1.0f, 0.0f, 0.0f, 0.03f);
+    near(split.second.pixel(160 - 35, 90), 0.5f, 0.5f, 0.5f, 0.03f);
+}
+
+TEST_CASE("sprite instances: vertex() reads the instanced value of its sprite, and a texture in vertex() is sampled") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    MaterialScope scope;
+    {  // shift moves the four corners of one sprite and not its neighbour's
+        World w;
+        camera2d(w);
+        for (const float shift : {0.0f, 30.0f}) {
+            Entity e = sprite(w, {shift > 0 ? 60.0f : -60.0f, 0, 0}, kInst, {40, 40});
+            w.get<Sprite>(e)->color = Color::white();
+            w.get<Sprite>(e)->materialParams = Json::object({{"tint", color_json(0, 1, 0)}, {"shift", double(shift)}});
+        }
+        const Image img = g.render(w);
+        near(img.pixel(160 - 60, 90), 0, 1, 0, 0.03f);  // unshifted: x in [-80, -40]
+        near(img.pixel(160 - 30, 90), 0, 0, 0, 0.03f);  // right of it nothing
+        near(img.pixel(160 + 90, 90), 0, 1, 0, 0.03f);  // shifted: x in [70, 110]
+        near(img.pixel(160 + 55, 90), 0, 0, 0, 0.03f);  // where it would be without the shift (40 to 80), up to 70
+        CHECK(g.renderer.stats().drawCalls >= 1);
+    }
+    {  // a texture read in vertex(): the white texel at (0.4, 0.05) of the checker moves the sprite 40 units to the right
+        World w;
+        camera2d(w);
+        Entity moved = sprite(w, {-100, 0, 0}, kVtex, {40, 40});
+        w.get<Sprite>(moved)->color = Color::white();
+        const Image img = g.render(w);
+        near(img.pixel(160 - 60, 90), 1, 1, 1, 0.03f);   // shifted: x in [-80, -40]
+        near(img.pixel(160 - 100, 90), 0, 0, 0, 0.03f);  // where it would be without the vertex texture
+        near(img.pixel(160 - 85, 90), 0, 0, 0, 0.03f);
+    }
+}
+
+TEST_CASE("sprite instances: Shape2D, Tilemap, Text and particles pass their materialParams as instanced values") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    MaterialScope scope;
+    ProblemLog log;
+    for (const Kind kind : kKinds) {
+        INFO(kind_name(kind));
+        World w;
+        camera2d(w);
+        emitter(w, kind, 60, kInst, Json::object({{"tint", color_json(0, 1, 0)}}));
+        emitter(w, kind, 160, kInst, Json::object({{"tint", color_json(1, 0, 0)}}));
+        emitter(w, kind, 260, kInst, Json::object({{"tint", color_json(0, 0, 1)}}));
+        Image img;
+        for (int i = 0; i < 2; ++i) img = g.render(w, 1.0f / 60.0f);
+        const int calls = g.renderer.stats().drawCalls;
+        const Color l = brightest(img, 0, 110), m = brightest(img, 110, 210), r = brightest(img, 210, 320);
+        CHECK(l.g > 0.3f);
+        CHECK(l.r < l.g * 0.15f);
+        CHECK(l.b < l.g * 0.15f);
+        CHECK(m.r > 0.3f);
+        CHECK(m.g < m.r * 0.15f);
+        CHECK(m.b < m.r * 0.15f);
+        CHECK(r.b > 0.3f);
+        CHECK(r.r < r.b * 0.15f);
+        CHECK(r.g < r.b * 0.15f);
+        // Three values, one material: no more draws than for one value.
+        World one;
+        camera2d(one);
+        emitter(one, kind, 160, kInst, Json::object({{"tint", color_json(1, 0, 0)}}));
+        for (int i = 0; i < 2; ++i) g.render(one, 1.0f / 60.0f);
+        CHECK(calls == g.renderer.stats().drawCalls);
+    }
+    CHECK(g.renderer.stats().materialFallbacks.empty());
+    CHECK(log.messages().empty());
+}
+
+TEST_CASE("sprite instances: QuadInput.life is how far a particle is through its life and 0 elsewhere") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    MaterialScope scope;
+    World w;
+    camera2d(w);
+    Entity p = emitter(w, Kind::Particles, 100, kLife);
+    w.get<ParticleEmitter>(p)->lifetime = 2.0f;
+    emitter(w, Kind::Shape, 220, kLife);
+    const Image first = g.render(w, 0.25f);
+    const Image later = g.render(w, 0.5f);
+    const float a = brightest(first, 0, 160).r;
+    const float b = brightest(later, 0, 160).r;
+    CHECK(a < b);
+    CHECK(b > 0.1f);
+    CHECK(b < 0.7f);
+    CHECK(brightest(later, 160, 320).r < 0.02f);  // a shape has no life
+}

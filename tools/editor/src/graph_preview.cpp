@@ -198,6 +198,8 @@ void GraphPreview::set_document(const Json& material, std::uint64_t revision, co
         saved_.haveDoc = false;
         saved_.state = PreviewState::Empty;
         saved_.message.clear();
+        ++cur_.generation;  // a compile of the last material must not show up as this one's
+        ++saved_.generation;
     }
     if (cur_.haveDoc && revision == cur_.revision) return;
     cur_.doc = material;
@@ -223,8 +225,8 @@ void GraphPreview::clear() {
         s->drawn = false;
         s->redraw = false;
         s->nodeErrors.clear();
+        ++s->generation;  // a compile that is still running belongs to the document that was closed
     }
-    ++generation_;  // a compile that is still running belongs to the document that was closed
     path_.clear();
     overrides_ = Json::object();
 }
@@ -267,7 +269,7 @@ void GraphPreview::set_saved_document(const Json* material, std::uint64_t revisi
         saved_.pending = false;
         saved_.drawn = false;
         saved_.nodeErrors.clear();
-        ++generation_;
+        ++saved_.generation;  // only the saved picture's compile is dropped; the current one keeps its own
         return;
     }
     if (saved_.haveDoc && revision == saved_.revision) return;
@@ -320,6 +322,9 @@ void GraphPreview::tick_slot(Slot& s, Renderer* renderer) {
         finish(s, renderer);
     }
     if (s.job) return;  // one compile at a time: the newest document waits for it
+    // One compile at a time across both pictures too: the saved and the current document can give the same cache key, and two workers
+    // would write the same ".tmp" of the shader cache at once (a failed replace on Windows, a truncated file that is being read on POSIX).
+    if (s.pending && (&s == &cur_ ? saved_.job : cur_.job)) return;
     if (s.pending) {
         ++s.quiet;
         if (s.quiet >= kPreviewDebounceFrames || immediate_) start(s, renderer);
@@ -396,7 +401,7 @@ void GraphPreview::start(Slot& s, Renderer* renderer) {
     }
     auto job = std::make_shared<Job>();
     job->revision = s.revision;
-    job->generation = generation_;
+    job->generation = s.generation;
     job->dialect = renderer->shader_dialect();
     job->snippet = report.snippet;
     job->lineNodes = report.lineNodes;
@@ -466,8 +471,12 @@ void GraphPreview::finish(Slot& s, Renderer* renderer) {
     if (&s == &cur_) ++compiles_;
     if (!job) return;
     if (job->revision != s.revision ||
-        job->generation != generation_) {  // edited while it compiled: the newer document is next
-        if (s.haveDoc) s.state = PreviewState::Waiting;
+        job->generation != s.generation) {  // edited while it compiled: the newer document is next
+        if (s.haveDoc) {
+            s.state = PreviewState::Waiting;
+            s.pending = true;  // whatever dropped the job, the document in the slot still has to be compiled
+            s.quiet = 0;
+        }
         return;
     }
     if (!job->ok) {

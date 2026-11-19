@@ -315,10 +315,10 @@ to another material with unsaved edits asks first ("Discard the graph changes?")
     **Reset** puts that one back. **Reset values** resets all. The values go away when another material is opened or the param is removed. **Set as default** writes the value as
     the param's `default` in the material file (`material.param.set_default`, one set of code with the Console and an AI) at once, without saving the graph's other unsaved edits,
     and is one undo step (Undo writes the old default back; it refuses when the file's default is not the one the step expects).
-  - **Kinds.** A `mesh` material is drawn on the sphere, cube or quad. A `sprite` material is drawn on a 200x200 2D quad (a `Sprite` with the material and its params): it shows the
-    first texture the material declares a `default` file for, else a grey checker (written to `.factoria/material-preview/checker.png`); the shape buttons do not apply. A `sky`,
-    `post` or `compute` material is not drawn: the panel says why (a sky needs the scene around it, a post pass needs a camera's picture, a compute material draws nothing) instead of
-    drawing something wrong. (The generator writes graphs for the `mesh` kind today, so the sprite path is checked by unit tests and the others cannot reach the panel yet.)
+  - **Kinds.** The panel draws a `mesh` material on the sphere, cube or quad. A `sky`, `post` or `compute` material is not drawn: the panel says why (a sky needs the scene around it,
+    a post pass needs a camera's picture, a compute material draws nothing) instead of drawing something wrong. The preview also has the code to draw a `sprite` material on a 2D quad
+    (a `Sprite` with the material and its params, on its first default texture or a grey checker), for when the graph generator supports that kind: it writes graphs for the
+    `mesh` kind only today (`check_material_document` refuses another), so no graph material reaches that code yet and nothing tests it.
   - **Compare.** The **Compare** check box draws the last SAVED version of the graph (the file as it was read or saved) next to the current one, with the same shape and the same param
     values, so you see what the edits changed. The saved version compiles on its own worker. A graph that was never saved (a draft) says so. A save, a reload and a new default make a
     new saved version.
