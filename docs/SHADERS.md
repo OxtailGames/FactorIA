@@ -3,7 +3,8 @@
 A **material** gives some meshes their own look: a pulsing gem, dissolving armor, water, grass in the wind, a rim glow.
 You write a small GLSL **snippet** and a **material file** that names it and declares its parameters. The engine injects
 the snippet into its own mesh shader, so instancing, skinning, lights, shadows, fog and sky reflections keep working.
-You never write a vertex shader, a fragment shader or a `main`.
+You never write a vertex shader, a fragment shader or a `main`, unless you ask for it with a
+[full shader](#full-shaders-and-passes).
 
 The loop for an AI (or a person):
 
@@ -33,6 +34,7 @@ The loop for an AI (or a person):
 | `params` | Typed parameters the snippet reads (below). |
 | `textures` | Textures the snippet samples (below). |
 | `vertexAttributes` | Extra mesh channels `vertex()` reads: `["uv1"]` (glTF `TEXCOORD_1`), `["color1"]` (glTF `COLOR_1`) or both (see "Per-instance params and vertex channels" below). Default none. |
+| `mode` | `"snippet"` (default) or `"full"`: the file holds your own vertex and fragment stages and `passes`, `shadow` and `prepass` apply ([Full shaders and passes](#full-shaders-and-passes)). |
 | `graph` | Optional [node graph](#node-graphs) the snippet is generated from. |
 | `graphHash` | Written by `material.graph.generate`: the hash of the snippet it generated. Do not write it by hand. |
 
@@ -975,11 +977,16 @@ on the page [Post-process materials](shaders/SHADERS_POST.md).
 flow fields). You run it with the `compute.*` commands. The snippet contract, the buffers and their std430 layout, the commands
 and where it runs (not Android or the web) are on the page [Compute materials](shaders/SHADERS_COMPUTE.md).
 
+## Full shaders and passes
+
+When a snippet cannot say it (a second pass, your own `main`, your own light loop), a mesh material can be a **full
+shader**: `"mode": "full"`, a file with a `@vertex` and a `@fragment` section, and `"passes"` (up to four, each with its
+own `cull`, depth test and write, and `blend`, drawn in array order). Skinning and instancing keep working. The names the
+engine gives you, the shadow and SSAO rules and worked examples (an inked outline, an x-ray, a custom light loop) are on
+the page [Full shaders and passes](shaders/SHADERS_FULL.md) (`factoria docs read shaders-full`).
+
 ## Not available yet
 
-- **Full vertex and fragment shaders** (your own `main`, several passes): the snippet always runs inside the engine's
-  mesh or quad shader. Of a mesh material's vertex layout only `uv1` and `color1` can be added (`vertexAttributes`), and
-  only glTF meshes have them.
 - **Your own light loop** (which lights are chosen, how many, their order, the shadow map): `"custom"` lighting only
   shades each light the engine hands over. Image-based lighting (the sky reflection) is off in a custom material and
   cannot be called from `light()`.

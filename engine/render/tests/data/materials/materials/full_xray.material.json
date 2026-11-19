@@ -1,0 +1,11 @@
+{
+  "format": "factoria.material/1",
+  "doc": "Test fixture: a full shader with a body pass and an x-ray pass that ignores the depth buffer, so the mesh shows through what hides it.",
+  "mode": "full",
+  "shader": "shaders/full_xray.full.glsl",
+  "prepass": false,
+  "passes": [
+    {"name": "body"},
+    {"name": "xray", "depthTest": false, "depthWrite": false, "blend": "alpha"}
+  ]
+}
