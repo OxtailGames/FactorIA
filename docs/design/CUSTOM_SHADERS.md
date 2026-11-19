@@ -477,6 +477,15 @@ cache, hot reload, export, the runtime) is unchanged: a graph material is a mate
   (snippet, then material) are undone if the second fails, so the two files never disagree about a hash.
 - **Params and textures** a node uses are the material's own, so nothing about packing, `materialParams` or the inspector
   changes; a node names one (`"param": "dissolve"`), the checker reports a name the material lacks with the names it has.
+- **The file is rewritten.** `material.graph.generate`, `material.param.set_default` and `material.param|texture.create|rename|delete`
+  write the whole `*.material.json` again as 2-space JSON: the keys keep their order, hand formatting (alignment, blank lines) is
+  lost. Not reasonable to keep with the JSON writer, so the command descriptions say it. `create` takes an optional `index` (the
+  position in `params` or `textures`; the order of textures decides the slots) and `delete` returns the `index` it had, so undo
+  is `create` with the returned `entry` and `index`. `create`, `rename` and `delete` load a file whose graph reads an undeclared
+  param (the very error `create` fixes) and check the patched file instead; `rename` and `delete` return `warnings` when the
+  snippet is not the generated one (hand-written or edited) and still uses the name. A constant on a `vecN` input is an array of N
+  numbers, like a param's default; a bare number is accepted by `float` and `gen` inputs only (it widens).
+  `shader.compile` and `factoria validate` say "run material.graph.generate" when the graph's snippet is missing or out of date.
 - **Library in code, not data.** `tools/common/src/material_graph_lib.cpp` holds one table row per node type: ports (type,
   default, doc), the material kinds it works in, whether it needs the fragment stage and the GLSL expression of each output;
   the noise and parallax functions are helpers (`gn_` prefix, `fa_` is reserved for the engine) pasted only when used. Ports are
