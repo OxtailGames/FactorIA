@@ -235,6 +235,15 @@ bool Editor::open_graph_document(const std::string& rel, bool startGraph, bool d
         u.viewApplied = false;
         if (m.path() != before)
             graph_reset_entry_ui();  // the New param form and a rename in progress belong to the material that was open
+        else if (const char* section = u.renamingTexture ? "textures" : "params";
+                 !u.renaming.empty() &&
+                 !(m.material_json().contains(section) && m.material_json()[section].is_object() &&
+                   m.material_json()[section].contains(u.renaming))) {
+            // the same material read again: the New param form stays, a rename of an entry that is gone does not
+            u.renaming.clear();
+            u.renameBuf[0] = 0;
+            u.renameFocus = false;
+        }
         if (u.preview) u.preview->set_document(m.material_json(), m.revision(), m.path());
     } else {
         // a failed open changes nothing: the document that was open stays, with its edits
@@ -517,6 +526,9 @@ void Editor::draw_graph_toolbar(GraphModel& m) {
         ImGui::TextColored(kWarn, "snippet edited by hand");
         hint("The shader snippet was changed outside the graph (or was never written by it). Save asks before it "
              "overwrites it.");
+    } else if (st == "unreadable") {
+        ImGui::TextColored(kWarn, "snippet unreadable");
+        hint(m.snippet_error().empty() ? "The shader snippet exists but cannot be read." : m.snippet_error());
     } else if (st == "in_sync") {
         ImGui::TextColored(kGood, "snippet in sync");
         hint("The shader snippet on disk is the one this graph generates.");

@@ -299,12 +299,17 @@ GraphEditOutcome GraphModel::create(const std::string& rel) {
     }
     std::error_code rm;
     stdfs::remove(tmp, rm);
-    if (rm &&
-        stdfs::exists(
-            tmp, ec)) {  // a file open elsewhere (a virus scanner on Windows): tried again below and by the next create
+    std::string strayNote;  // said on every way out from here: the file stays until it is removed by hand
+    if (rm && stdfs::exists(tmp, ec)) {
+        // a file open elsewhere (a virus scanner on Windows): the retry is real at the next create(), which removes what is in strayTmp_ first;
+        // this one only says so
         strayTmp_.push_back(fs::path_to_utf8(tmp));
+        strayNote = " The temporary file " + fs::path_to_utf8(tmp) + " could not be removed (" + rm.message() +
+                    "): delete it by hand.";
     }
-    if (link) return fail(link == std::errc::file_exists ? already : "Cannot write " + rel + ": " + link.message());
+    if (link)
+        return fail((link == std::errc::file_exists ? already : "Cannot write " + rel + ": " + link.message()) +
+                    strayNote);
     auto undo_files = [&] {
         std::error_code e;
         stdfs::remove(file, e);
@@ -313,12 +318,12 @@ GraphEditOutcome GraphModel::create(const std::string& rel) {
     const CommandResult made = call_("material.graph.generate", Json::object({{"material", rel}, {"graph", graph}}));
     if (!made.ok) {
         undo_files();
-        return fail("Cannot write the shader snippet of " + rel + ": " + command_error_text(made.error));
+        return fail("Cannot write the shader snippet of " + rel + ": " + command_error_text(made.error) + strayNote);
     }
     if (!open(rel)) {  // (the document that was open stays: open changes nothing when it fails)
         const std::string why = error_;
         undo_files();
-        return fail(why);
+        return fail(why + strayNote);
     }
     status_ = "Made " + rel + " and its snippet.";
     for (auto it = strayTmp_.begin(); it != strayTmp_.end();) {
@@ -1109,13 +1114,18 @@ void GraphModel::cancel_gesture() {
 // ---------------------------------------------------------------------------------------------------------- file --
 void GraphModel::refresh_snippet_state() {
     snippetState_ = "unchecked";
+    snippetError_.clear();
     if (!is_open() || !call_ || savedGraph_.is_null()) {
         if (is_open() && savedGraph_.is_null()) snippetState_ = "draft";
         return;
     }
     const CommandResult r = call_("material.graph.validate", Json::object({{"material", rel_}}));
-    if (r.ok && r.result.is_object() && r.result.contains("snippet") && r.result["snippet"].is_object())
-        snippetState_ = r.result["snippet"].value("state", std::string("unchecked"));
+    if (r.ok && r.result.is_object() && r.result.contains("snippet") && r.result["snippet"].is_object()) {
+        const Json& sn = r.result["snippet"];
+        snippetState_ = sn.value("state", std::string("unchecked"));
+        if (snippetState_ == "unreadable" && sn.contains("error") && sn["error"].is_string())
+            snippetError_ = sn["error"].get<std::string>();  // why: shown as the tooltip of the state
+    }
 }
 
 Json GraphModel::graph_for_save() const {
@@ -1171,6 +1181,9 @@ GraphSaveOutcome GraphModel::save(bool force, bool overwriteExternal) {
                 out.error = "Cannot write " + rel_ + " again: " + w.error().message + " " + w.error().hint;
                 return out;
             }
+            // our own write: without this poll_external reads it as an external change and asks again
+            stamp_ = stamp();
+            conflict_ = false;
         }
     }
     Json args = Json::object({{"material", rel_}, {"graph", graph_for_save()}});
