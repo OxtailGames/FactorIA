@@ -301,7 +301,7 @@ to another material with unsaved edits asks first ("Discard the graph changes?")
 - **Keys** (while the canvas is hovered): Delete or Backspace removes the selection (the output node cannot be removed), Ctrl/Cmd+A selects all, C, X and V copy, cut and paste
   nodes with the links between them (the text goes on the system clipboard, so it pastes into another material), D duplicates, S saves.
 - **Inspector** (the right side, under the preview). For the selected node: its type and doc, a combo for `param` and `texture` nodes that lists the material's own params
-  and textures (they are not created here: add them to the material file or ask the AI), the constant of each unlinked input (a number, a vector or a colour), shown
+  and textures (a new one made in the Params or Textures list below is offered at once), the constant of each unlinked input (a number, a vector or a colour), shown
   dimmed with the default when the node does not set it, **Cut** for a linked input, and **Delete node** and **Duplicate**. A selected link shows its ends and **Cut link**. A drag on a number is one undo step.
 - **Problems.** The list `material.graph.validate` gives for the document as it is now, each with its JSON pointer and the fix; a click selects the node or link it names.
 - **Preview.** A lit sphere, cube or quad drawn with the material the graph would generate (what is being edited, not what is saved), using the engine's renderer. After an edit it
@@ -315,6 +315,17 @@ to another material with unsaved edits asks first ("Discard the graph changes?")
     **Reset** puts that one back. **Reset values** resets all. The values go away when another material is opened or the param is removed. **Set as default** writes the value as
     the param's `default` in the material file (`material.param.set_default`, one set of code with the Console and an AI) at once, without saving the graph's other unsaved edits,
     and is one undo step (Undo writes the old default back; it refuses when the file's default is not the one the step expects).
+  - **Making, renaming and deleting params and textures.** **+ Param** and **+ Texture** open a small form (name; type, default and optional range, or the sampler; a doc line) and
+    **Create** writes the entry into the material file at once through `material.param.create` / `material.texture.create`, the commands an AI calls, so the same checks apply (a name
+    the material already has, a GLSL word, `fa_` or the `gn_` prefix of the graph's helper functions, a default outside the range: the sentence appears in the form and nothing is
+    written). Every row has **Rename** and **Delete**. Rename (`material.param.rename`, `material.texture.rename`) writes the new name into the file and points the nodes that read
+    the old name at the new one, saved or not; scenes and prefabs that set a param by name in `MeshRenderer.materialParams` are NOT changed. Delete (`material.param.delete`,
+    `material.texture.delete`) is refused while a node of the graph as it is now reads the entry: the message names the nodes and the panel selects them, so you point them at another
+    entry or delete them first. The commands themselves can also remove those nodes (`force: true`, for an AI that means it); the panel never does, because a click that deletes nodes
+    nobody chose is not what the button says. A file whose shader snippet is the one the graph generated (state "in sync") gets its snippet generated again, so it never names a param
+    that is gone; a hand-edited snippet is left alone (the toolbar keeps saying so). Each of the three is ONE undo step, in order with the graph's own edits (Undo and Redo run the
+    inverse command: they write the file again, and refuse with the command's sentence when it cannot run, e.g. the name was taken or removed by an AI meanwhile). The preview
+    compiles again once the edits stop, because a new or removed param changes the material's uniforms.
   - **Kinds.** The panel draws a `mesh` material on the sphere, cube or quad. A `sky`, `post` or `compute` material is not drawn: the panel says why (a sky needs the scene around it,
     a post pass needs a camera's picture, a compute material draws nothing) instead of drawing something wrong. The preview also has the code to draw a `sprite` material on a 2D quad
     (a `Sprite` with the material and its params, on its first default texture or a grey checker), for when the graph generator supports that kind: it writes graphs for the
@@ -328,7 +339,12 @@ to another material with unsaved edits asks first ("Discard the graph changes?")
 - **Save and the hand-edit rule.** If the snippet on disk is not what the graph last wrote (edited by hand, or never generated), Save asks "Overwrite the shader snippet?":
   **Overwrite** passes `force`, **Cancel** changes nothing. If the file changed on disk after the panel read it, Save says so before it overwrites it.
 - **Undo.** Every edit that is kept (a node added, moved or removed, a link, a constant, a paste) is ONE step of the editor's Undo and Redo, in order with the other panels' edits.
-  Undo changes the open graph, not the file: Save writes it.
+  Undo changes the open graph, not the file: Save writes it. (The params and textures steps and "Set as default" are the exception: they are written to the file at once, and so are their
+  undo and redo.) A link dropped on the input it already feeds, a drag that ends where it began, and a rename to the same name make no step. While a node or link is being dragged the checker
+  does not run again for every mouse move: the problems list and the red marks are those of the graph as it was when the drag began, and update when the mouse is released.
+- **The file changed behind the panel.** The panel looks at the file every few frames. A change with nothing unsaved is read again ("The file changed on disk and was read again");
+  with unsaved edits the toolbar says so and **Reload** takes the file. A file that lost its `graph` (its shader became hand-written) is said ONCE, and the panel keeps its graph as a
+  draft (Save writes it back into the file) instead of reading the file again at every look.
 
 **Autotest.** Section G3 of `fa_editor_autotest` (at 1024x642 too) writes a dissolve material with a one-node graph, opens it, adds three nodes from the palette (a right click
 and the search box), drags four links with the mouse, sets two constants, waits for the preview and checks that it drew pixels (a skip when there is no renderer or no

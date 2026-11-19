@@ -62,6 +62,27 @@ struct GraphUi {
     };
     std::vector<Dead> graveyard;
 
+    // ---- the params and textures of the material (the Params and Textures sections of the side panel)
+    struct EntryForm {
+        bool open = false;
+        bool texture = false;  // a texture (name, sampler, doc) or a param (name, type, default, range, doc)
+        bool focus = false;    // the name box takes the keyboard the first frame
+        char name[64] = {};
+        int type =
+            0;  // a param: 0 float, 1 vec2, 2 vec3, 3 vec4, 4 color; a texture: 0 linear, 1 linearRepeat, 2 nearest, 3 nearestRepeat
+        float value[4] = {0, 0, 0, 0};
+        bool ranged = false;
+        float lo = 0, hi = 1;
+        char doc[200] = {};
+        std::string error;  // why the last Create was refused
+    } entryForm;
+    std::string renaming;  // the param or texture whose name is being typed ("" = none)
+    bool renamingTexture = false;
+    char renameBuf[64] = {};
+    bool renameFocus = false;
+    std::string
+        entryMessage;  // why the last rename or delete was refused (a delete of a name nodes still read lists them)
+
     bool focused = false;
     std::uint64_t lastPoll = 0;
     std::string clipboard;  // the last copy (the system clipboard too, when it holds one)
