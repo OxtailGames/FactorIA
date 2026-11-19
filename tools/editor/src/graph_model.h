@@ -39,13 +39,20 @@ struct GraphStep {
     // not the graph (before and after are null).
     std::string param;
     Json beforeValue, afterValue;
+    // A step that made, renamed or deleted a param or texture of the file ("create", "rename", "delete"): it goes through the material.param.* /
+    // material.texture.* commands in both directions. `entry` is the definition (create: what was made, delete: what was removed).
+    std::string op;
+    bool texture = false;
+    std::string name, newName;
+    Json entry;
 };
 
 struct GraphEditOutcome {
     bool ok = true;
-    std::string error;  // what is wrong, with the checker's hint
-    int step = 0;       // the undo step recorded (0 = nothing changed, or a gesture is open)
-    std::string id;     // add_node / paste: the id of the (first) node made
+    std::string error;               // what is wrong, with the checker's hint
+    int step = 0;                    // the undo step recorded (0 = nothing changed, or a gesture is open)
+    std::string id;                  // add_node / paste: the id of the (first) node made
+    std::vector<std::string> nodes;  // delete_entry refused because nodes read it: their ids
 };
 
 struct GraphSaveOutcome {
@@ -109,7 +116,12 @@ public:
     std::uint64_t saved_revision() const { return savedRevision_; }
     bool has_saved() const { return is_open() && !savedGraph_.is_null(); }
     // The check of the material with the graph as edited (cached per revision).
+    // While a gesture is open (a drag) the report of the graph at its start is returned and nothing is checked again, so a drag runs no
+    // validation per frame; the end of the gesture checks the graph once.
     const MaterialGraphReport& report() const;
+    int report_runs() const {
+        return reportRuns_;
+    }  // how many times the checker ran for report() (the tests count them)
     int node_count() const;
     int link_count() const;
     int node_index(const std::string& id) const;  // -1: none
@@ -162,6 +174,16 @@ public:
     // Writes `value` (a number, or an array of numbers) as the default of param `name` in the FILE (material.param.set_default), at once: the
     // graph's unsaved edits stay unsaved. One undo step (none while a gesture is open, or when the value is the default already).
     GraphEditOutcome set_param_default(const std::string& name, const Json& value);
+    // The params and textures of the material FILE, written at once through material.param.* / material.texture.* (the same commands as the
+    // Console and an AI), one undo step each. `spec` is what the command takes besides material and name: a param {type, default?, min?, max?,
+    // doc?}, a texture {default?, sampler?, doc?}. Like a default, they touch the file, not the graph: the graph's unsaved edits stay unsaved.
+    GraphEditOutcome add_entry(bool texture, const std::string& name, const Json& spec);
+    // Renames it in the file and in the nodes that read it (the file's graph and the one held here, unsaved edits included).
+    GraphEditOutcome rename_entry(bool texture, const std::string& name, const std::string& newName);
+    // Refused (ids in GraphEditOutcome::nodes) while nodes of the graph read it: the panel selects them.
+    GraphEditOutcome delete_entry(bool texture, const std::string& name);
+    // The ids of the nodes of the graph as edited that read the param or texture `name`.
+    std::vector<std::string> entry_readers(bool texture, const std::string& name) const;
     // The selection as clipboard text ({"factoria.graph.clip": 1, "nodes": [...], "links": [...]}); empty when nothing is selected.
     std::string copy(const std::set<std::string>& ids) const;
     GraphEditOutcome cut(const std::set<std::string>& ids, std::string* clip);
@@ -225,6 +247,12 @@ private:
     Json current_param_default(const std::string& name) const;
     // Calls material.param.set_default and takes the new default into doc_ (the file's stamp too). Returns "" or what went wrong.
     std::string write_param_default(const std::string& name, const Json& value, Json* previous, bool* written);
+    // One of the six param/texture commands with the graph held here; on success takes the file's params, textures and hash (and the graph the
+    // command changed) into the document. Returns "" or what went wrong (readers: the nodes that kept it from being deleted).
+    std::string run_entry_command(const std::string& op, bool texture, const Json& args, Json* result,
+                                  std::vector<std::string>* readers);
+    void take_entries_from_file(const Json* newGraph);
+    std::string apply_entry_step(const GraphStep& s, bool forward);
 
     std::string projectDir_;
     GraphCommandFn call_;
@@ -244,6 +272,7 @@ private:
     std::map<int, GraphStep> steps_;
     int nextStep_ = 1;
     mutable std::uint64_t reportRevision_ = 0;
+    mutable int reportRuns_ = 0;
     mutable MaterialGraphReport report_;
 };
 

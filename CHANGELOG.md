@@ -31,6 +31,18 @@ Older versions, one file per minor version with its patch releases: [0.30](chang
   turned an error back into "up to date", and a shader compile whose result could not be saved in `.factoria/shader-cache` is
   now an error in the panel instead of running sokol-shdc on the editor's thread. `.factoria/material-preview/` (the files the
   preview writes) is documented in the Graph panel section.
+- **Params and textures from the Graph panel (M72 P13b-2):** the Graph panel makes, renames and deletes the params and
+  textures of the material without leaving it (**+ Param**, **+ Texture**, **Rename**, **Delete** in the side list): the new
+  entry is in the file at once, a `param` or `texture` node offers it immediately, a rename points the nodes that read it at the
+  new name, a delete is refused while nodes read it (the panel names and selects them), and each is one undo step. Six new
+  commands do the work, so an AI and the panel share the checks: `material.param.create`, `material.param.rename`,
+  `material.param.delete`, `material.texture.create`, `material.texture.rename` and `material.texture.delete`
+  (`{material, name, ...}`, all with `dryRun`; a name the material has, a GLSL word, `fa_` or the graph's `gn_` prefix is
+  refused with the fix; `delete` refuses a used entry with error code `in_use` and the node ids, or removes those nodes and their
+  links with `force: true`; rename and delete also take the editor's in-memory graph as `graph`; a shader snippet that was in
+  sync is generated again). Three smaller fixes in the same panel: a link dropped on the input it already feeds is no longer an
+  empty undo step, the checker does not run at every mouse move of a drag (the report is the one of the graph when the drag
+  began), and a material file that lost its `graph` is reported once instead of being read again at every look.
 - **Per-sprite values and vertex textures in sprite materials (M72.1):** a sprite material's param marked
   `"instanced": true` takes its value per quad: 100 sprites, shapes, tiles, glyphs or particles of one material with 100
   different `tint` values are one batch and one draw call, and the snippet reads `tint` by its name in `fragment()` and
