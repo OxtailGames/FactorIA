@@ -170,9 +170,9 @@ void parse_buffers(const Json& doc, MaterialDef& m, std::vector<MaterialIssue>& 
               "Write \"buffers\": {\"particles\": {\"fields\": [{\"name\": \"pos\", \"type\": \"vec3\"}]}}.");
         return;
     }
-    if (int(bs->size()) > kComputeMaxBuffers)
+    if (int(bs->size()) > kComputeMaxMaterialBuffers)
         error(errors, "/buffers",
-              std::to_string(bs->size()) + " buffers, at most " + std::to_string(kComputeMaxBuffers) +
+              std::to_string(bs->size()) + " buffers, at most " + std::to_string(kComputeMaxMaterialBuffers) +
                   " (the uniform block, the textures and the buffers share the binding slots of every GPU the shader "
                   "runs on)",
               "Put the arrays that are always read together into one buffer with more fields.");

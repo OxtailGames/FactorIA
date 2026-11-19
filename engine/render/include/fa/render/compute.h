@@ -40,11 +40,13 @@ struct ComputeDispatch {
 };
 
 // Deterministic limits (a result never depends on CPU speed): a request over one is refused with the number it hit.
-constexpr int kMaxComputeBuffers = 64;                          // live buffers
+constexpr int kMaxLiveComputeBuffers = 64;                      // live buffers
 constexpr std::uint64_t kMaxComputeBufferBytes = 256ull << 20;  // one buffer: 256 MiB
 constexpr std::uint64_t kMaxComputeTotalBytes = 1024ull << 20;  // all live buffers: 1 GiB
 constexpr std::uint32_t kMaxComputeGroups = 65535;              // workgroups per dimension (the D3D11 limit)
 constexpr std::uint64_t kMaxComputeJsonElements = 1ull << 20;   // elements one write_buffer / read_buffer call converts
+constexpr std::uint64_t kMaxComputeJsonValues =
+    1ull << 22;  // numbers (elements x components of their fields) of one such call
 
 class Compute {
 public:
@@ -66,6 +68,9 @@ public:
     // The GPU's current contents of `count` elements from `first`, as an array of {field: value} objects (a vecN field is an
     // array, floats have 7 significant digits, a NaN or infinity is null). Submits the recorded work and waits for it.
     Result<Json> read_buffer(int id, std::uint64_t first, std::uint64_t count);
+    // The most elements one read_buffer / write_buffer call converts for buffer `id` (both JSON caps; the element cap for an
+    // unknown id).
+    std::uint64_t max_json_elements(int id) const;
     Result<void> destroy_buffer(int id);
     // Runs the material once over its buffers (a compute pass; the call returns when the work is recorded, read_buffer waits).
     Result<void> dispatch(const ComputeDispatch& d);
@@ -76,11 +81,8 @@ public:
     void attach(render::Gpu* gpu, render::Assets* assets);
     void detach();
 
-    // Tests: answer available() as the render::FeatureBackend `backend` (an int; -1 = the real one) would, to reach the refusal
-    // path of a backend without compute on a GPU that has it.
-    void set_backend_for_test(int backend);
-
     struct State;
+    friend struct ComputeTestAccess;  // tests (src/compute_internal.h)
 
 private:
     std::unique_ptr<State> s_;

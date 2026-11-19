@@ -160,7 +160,7 @@ void register_compute_commands(Engine& engine, Engine::Impl& I) {
          parse_schema(R"({"type":"object","properties":{
                "buffer":{"type":"integer","description":"Buffer id from compute.create_buffer."},
                "first":{"type":"integer","minimum":0,"description":"Index of the first element to read. Default 0."},
-               "count":{"type":"integer","minimum":0,"description":"Number of elements to read. Default: from `first` to the end (at most 1048576)."}},
+               "count":{"type":"integer","minimum":0,"description":"Number of elements to read. Default: from `first` to the end (at most 1048576 elements and 4194304 numbers per call: read bigger buffers in chunks with first/count)."}},
                "required":["buffer"]})"),
          true, "game"},
         [&I](const Json& a) {
@@ -179,7 +179,7 @@ void register_compute_commands(Engine& engine, Engine::Impl& I) {
                         total = b["count"].get<std::uint64_t>();
                         found = true;
                     }
-                if (found) count = total > first ? std::min(total - first, kMaxComputeJsonElements) : 0;
+                if (found) count = total > first ? std::min(total - first, c.max_json_elements(id)) : 0;
             }
             auto data = c.read_buffer(id, first, count);
             if (!data.ok()) rethrow(data.error());
