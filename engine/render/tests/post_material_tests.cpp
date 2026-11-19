@@ -48,6 +48,7 @@ void install_materials() {
 struct MaterialScope {
     MaterialScope() {
         gfx().renderer.clear_asset_cache();
+        gfx().renderer.reset_post_history();  // an earlier test's world may have had a camera with the same id
         install_materials();
     }
     ~MaterialScope() {
@@ -701,4 +702,220 @@ TEST_CASE("post plan: the cuts of the final pass, and an outline that cannot be 
     // AfterTonemap: the scene stage (converting) is active -> a cut; AfterVignette: the vignette -> a cut; AfterSharpen: nothing
     // since the last cut -> none; AfterPosterize: the posterize -> a cut.
     CHECK(two.ldr_cuts() == ((1u << kStageScene) | (1u << kStageVignette) | (1u << kStagePosterize)));
+}
+
+// ---- history: a pass that reads its own output of the frame before (fa_history) --------------------------------------------------
+
+namespace {
+
+constexpr const char* kHistory = "materials/post_history.material.json";
+// `mark`: the pass paints red where fa_history_valid is true.
+Json keep(double k, bool mark = false) { return Json::object({{"keep", k}, {"mark", mark ? 1.0 : 0.0}}); }
+
+// MaterialScope that also starts with no history image: the slots of the tests before are freed by drawing frames that ask for none
+// (kHistoryIdleFrames of them), so the counts of a test are its own.
+struct HistoryScope {
+    MaterialScope scope;
+    HistoryScope() {
+        Scene2d empty;
+        for (std::uint64_t i = 0; i < render::CustomPost::kHistoryIdleFrames + 2; ++i) gfx().render(empty.w);
+        REQUIRE(render::renderer_post_history_images(gfx().renderer) == 0);
+    }
+};
+
+}  // namespace
+
+TEST_CASE("post history: a trail stays where the sprite was, fades by keep each frame and is not mirrored") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    HistoryScope scope;
+    ProblemLog log;
+    Scene2d s;
+    s.w.get<Transform>(s.sprite)->position = {0, 40, 0};
+    s.passes({entry(kHistory, nullptr, keep(0.5))});
+    CHECK(render::renderer_post_history_images(g.renderer) == 0);
+    Image img = g.render(s.w);  // the first frame: no history, the picture as it is
+    CHECK(render::renderer_post_history_images(g.renderer) == 2);
+    const int oy = img.pixel(160, 50).r > 0.9f ? 50 : 130;  // where the sprite is on the picture (y up in the world)
+    REQUIRE(img.pixel(160, oy).r > 0.9f);
+    near(img.pixel(160, 180 - oy), 0, 0, 0);
+    s.w.get<Transform>(s.sprite)->position = {100, -40, 0};
+    img = g.render(s.w);
+    near(img.pixel(260, 180 - oy), 1, 1, 1);     // the sprite now
+    near(img.pixel(160, oy), 0.5f, 0.5f, 0.5f);  // its trail, where it was (not mirrored), half as bright
+    near(img.pixel(160, 180 - oy), 0, 0, 0);
+    near(img.pixel(260, oy), 0, 0, 0);
+    img = g.render(s.w);
+    near(img.pixel(160, oy), 0.25f, 0.25f, 0.25f);
+    img = g.render(s.w);
+    near(img.pixel(160, oy), 0.125f, 0.125f, 0.125f);
+    near(img.pixel(260, 180 - oy), 1, 1, 1);
+    CHECK(render::renderer_post_history_images(g.renderer) == 2);  // the same two images all along
+    CHECK(g.renderer.stats().materialFallbacks.empty());
+    CHECK(log.messages().empty());
+}
+
+TEST_CASE("post history: the first frame is the picture, and a reset, a resize and a new scene start it again") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    HistoryScope scope;
+    ProblemLog log;
+    Scene2d s;
+    const Image plain = g.render(s.w);
+    s.passes({entry(kHistory, nullptr, keep(1.0, true))});
+    Image img = g.render(s.w);
+    CHECK(diff_images(plain, img, 2.0f / 255.0f).maxError <= 2.0 / 255.0);  // frame 0: the picture, no garbage
+    img = g.render(s.w);
+    near(img.pixel(20, 20), 1, 0, 0);  // frame 1: the history is valid
+    near(img.pixel(160, 90), 1, 0, 0);
+    img = g.render(s.w);
+    near(img.pixel(20, 20), 1, 0, 0);
+    g.renderer.reset_post_history();  // every camera
+    img = g.render(s.w);
+    near(img.pixel(20, 20), 0, 0, 0);
+    near(img.pixel(160, 90), 1, 1, 1);
+    img = g.render(s.w);
+    near(img.pixel(20, 20), 1, 0, 0);
+    g.renderer.reset_post_history(s.cam.bits());  // this camera
+    img = g.render(s.w);
+    near(img.pixel(20, 20), 0, 0, 0);
+    img = g.render(s.w);
+    g.renderer.reset_post_history(s.cam.bits() + 1);  // another camera: nothing happens
+    img = g.render(s.w);
+    near(img.pixel(20, 20), 1, 0, 0);
+    // A resize (here the camera's rectangle): the images are made again and the first frame has no history.
+    s.w.get<Camera>(s.cam)->viewport = Rect{0, 0, 0.75f, 1};
+    img = g.render(s.w);
+    near(img.pixel(20, 20), 0, 0, 0);
+    img = g.render(s.w);
+    near(img.pixel(20, 20), 1, 0, 0);
+    CHECK(render::renderer_post_history_images(g.renderer) == 2);
+    // A scene load: the world's load count moves, the camera is the same entity.
+    s.w.bump_scene_generation();
+    img = g.render(s.w);
+    near(img.pixel(20, 20), 0, 0, 0);
+    img = g.render(s.w);
+    near(img.pixel(20, 20), 1, 0, 0);
+    // A clock that jumps (a seek) is a cut too.
+    for (int i = 0; i < 20; ++i) s.w.advance_clock(0.016);
+    img = g.render(s.w);
+    near(img.pixel(20, 20), 0, 0, 0);
+    img = g.render(s.w);
+    near(img.pixel(20, 20), 1, 0, 0);
+    CHECK(log.messages().empty());
+}
+
+TEST_CASE("post history: every camera keeps its own history, and a camera not drawn for a frame starts again") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    HistoryScope scope;
+    ProblemLog log;
+    World w;
+    auto camera = [&](const char* name, Vec3 pos, Rect viewport, int depth) {
+        Entity e = make(w, name, pos);
+        auto& c = w.add<Camera>(e);
+        c.viewport = viewport;
+        c.clearColor = Color::black();
+        c.depth = depth;
+        return e;
+    };
+    Entity left = camera("left", {0, 0, 0}, {0, 0, 0.5f, 1}, 0);
+    Entity right = camera("right", {500, 0, 0}, {0.5f, 0, 0.5f, 1}, 1);
+    for (const float x : {0.0f, 500.0f}) {
+        Entity e = make(w, "square", {x, 0, 0});
+        auto& sh = w.add<Shape2D>(e);
+        sh.shape = ShapeType::Rectangle;
+        sh.size = {40, 40};
+        sh.color = Color{1, 1, 1, 1};
+    }
+    w.add<PostProcess>(left).customPasses = Json::array({entry(kHistory, nullptr, keep(1.0, true))});
+    Image img = g.render(w);
+    img = g.render(w);
+    near(img.pixel(80, 90), 1, 0, 0);   // the left camera: red, its history is valid
+    near(img.pixel(240, 90), 1, 1, 1);  // the right one has no pass
+    CHECK(render::renderer_post_history_images(g.renderer) == 2);
+    // The right camera gets the pass now: its own first frame has no history while the left one's goes on.
+    w.add<PostProcess>(right).customPasses = Json::array({entry(kHistory, nullptr, keep(1.0, true))});
+    img = g.render(w);
+    near(img.pixel(80, 90), 1, 0, 0);
+    near(img.pixel(240, 90), 1, 1, 1);
+    CHECK(render::renderer_post_history_images(g.renderer) == 4);
+    img = g.render(w);
+    near(img.pixel(80, 90), 1, 0, 0);
+    near(img.pixel(240, 90), 1, 0, 0);
+    // The left camera is not drawn for a frame: when it comes back its history starts again, the right one's goes on.
+    w.get<Camera>(left)->primary = false;
+    img = g.render(w);
+    w.get<Camera>(left)->primary = true;
+    img = g.render(w);
+    near(img.pixel(80, 90), 1, 1, 1);  // not red: the frame before did not draw it
+    near(img.pixel(240, 90), 1, 0, 0);
+    img = g.render(w);
+    near(img.pixel(80, 90), 1, 0, 0);
+    CHECK(log.messages().empty());
+}
+
+TEST_CASE("post history: a history pass in a chain, first or last, and two of one material, each with its own images") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    HistoryScope scope;
+    ProblemLog log;
+    Scene2d s;
+    s.w.get<Transform>(s.sprite)->position = {0, 40, 0};
+    // History first, tint after: the tint multiplies what the history pass wrote.
+    s.passes({entry(kHistory, nullptr, keep(0.5)), entry(kTint)});
+    Image img = g.render(s.w);
+    const int oy = img.pixel(160, 50).r > 0.9f ? 50 : 130;
+    near(img.pixel(160, oy), 1.0f, 0.25f, 0.25f);
+    CHECK(render::renderer_post_history_images(g.renderer) == 2);
+    s.w.get<Transform>(s.sprite)->position = {100, -40, 0};
+    img = g.render(s.w);
+    near(img.pixel(160, oy), 0.5f, 0.125f, 0.125f);  // the trail, tinted after it was kept
+    // Tint first, history last: the last pass draws into its history image and is copied into the picture.
+    s.passes({entry(kTint), entry(kHistory, nullptr, keep(0.5))});
+    s.w.get<Transform>(s.sprite)->position = {0, 40, 0};
+    g.renderer.reset_post_history();
+    img = g.render(s.w);
+    near(img.pixel(160, oy), 1.0f, 0.25f, 0.25f);
+    s.w.get<Transform>(s.sprite)->position = {100, -40, 0};
+    img = g.render(s.w);
+    near(img.pixel(260, 180 - oy), 1.0f, 0.25f, 0.25f);
+    near(img.pixel(160, oy), 0.5f, 0.125f, 0.125f);  // the tinted sprite's trail
+    near(img.pixel(20, 20), 0, 0, 0);
+    // The same material twice: two slots.
+    s.passes({entry(kHistory, nullptr, keep(0.5, true)), entry(kHistory, nullptr, keep(0.5, true))});
+    g.renderer.reset_post_history();
+    img = g.render(s.w);
+    img = g.render(s.w);
+    near(img.pixel(20, 20), 1, 0, 0);
+    CHECK(render::renderer_post_history_images(g.renderer) == 4);
+    // A material that does not call fa_history keeps nothing of its own.
+    s.passes({entry(kTint)});
+    img = g.render(s.w);
+    near(img.pixel(260, 180 - oy), 1.0f, 0.25f, 0.25f);
+    CHECK(log.messages().empty());
+}
+
+TEST_CASE("post history: the images are freed after kHistoryIdleFrames frames nobody asked for them") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    HistoryScope scope;
+    ProblemLog log;
+    Scene2d s;
+    s.passes({entry(kHistory, nullptr, keep(1.0, true))});
+    g.render(s.w);
+    g.render(s.w);
+    CHECK(render::renderer_post_history_images(g.renderer) == 2);
+    s.passes({entry(kTint)});
+    for (int i = 0; i < 60; ++i) g.render(s.w);
+    CHECK(render::renderer_post_history_images(g.renderer) == 2);  // half of the time: still kept
+    for (int i = 0; i < 80; ++i) g.render(s.w);
+    CHECK(render::renderer_post_history_images(g.renderer) == 0);
+    s.passes({entry(kHistory, nullptr, keep(1.0, true))});
+    Image img = g.render(s.w);  // made again: the first frame has no history
+    near(img.pixel(20, 20), 0, 0, 0);
+    img = g.render(s.w);
+    near(img.pixel(20, 20), 1, 0, 0);
+    CHECK(render::renderer_post_history_images(g.renderer) == 2);
+    CHECK(log.messages().empty());
 }
