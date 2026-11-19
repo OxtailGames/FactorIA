@@ -63,6 +63,19 @@ void Editor::at_section_G3(AtScript& at) {
             step(2, [this, gx, gy] { inject_mouse(SAPP_EVENTTYPE_MOUSE_DOWN, graph_screen_pos(gx, gy), 1); });
             step(3, [this, gx, gy] { inject_mouse(SAPP_EVENTTYPE_MOUSE_UP, graph_screen_pos(gx, gy), 1); });
         };
+        // The same, at graph y `wantedY` or as low as the canvas goes: at zoom 0.5 and pan 24 a fixed y can fall below the bottom of a short canvas (the
+        // window of a 1024x642 display). The click is made at the clamped point; the check says so when there is no room below the first node.
+        auto right_click_graph_low = [this, &step](float gx, float wantedY) {
+            auto y = std::make_shared<float>(wantedY);
+            step(2, [this, gx, y, wantedY] {
+                *y = std::min(wantedY, (graph_.canvasH - 30.0f - graph_.panY) / graph_.zoom);
+                at_check(*y > 260.0f, "the canvas is tall enough for an empty point below the noise node (canvas " +
+                                          std::to_string(int(graph_.canvasH)) + " px high)");
+                inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, graph_screen_pos(gx, *y));
+            });
+            step(2, [this, gx, y] { inject_mouse(SAPP_EVENTTYPE_MOUSE_DOWN, graph_screen_pos(gx, *y), 1); });
+            step(3, [this, gx, y] { inject_mouse(SAPP_EVENTTYPE_MOUSE_UP, graph_screen_pos(gx, *y), 1); });
+        };
         // Drag a link from an output port to an input port.
         auto link = [this, &step](const std::string& fromNode, const std::string& fromPort, const std::string& toNode,
                                   const std::string& toPort) {
@@ -151,8 +164,8 @@ void Editor::at_section_G3(AtScript& at) {
                      "a click in the palette adds the node (noise_fbm)");
             at_check(undo_depth() == gs->undo + 1, "...as one undo step");
         });
-        right_click_graph(0.0f,
-                          300.0f);  // below the noise node (about 250 units tall at its default size): empty canvas
+        right_click_graph_low(0.0f,
+                              300.0f);  // below the noise node (about 250 units tall at its default size): empty canvas
         wait_until([this] { return at_visible("gr:add:param"); }, "the palette to list the param node");
         click_widget("gr:add:param");
         right_click_graph(220.0f, 60.0f);

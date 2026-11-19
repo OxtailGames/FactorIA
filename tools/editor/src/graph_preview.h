@@ -73,6 +73,12 @@ struct PreviewNodeError {
 std::vector<PreviewNodeError> map_compile_errors(const std::vector<ShaderIssue>& issues,
                                                  const std::vector<std::string>& lineNodes);
 
+// A compile error says where: the preview compiles a copy under a stage name ("stage-<n>-<hex>.surface.glsl") that the worker has deleted by the time the
+// message is read. This puts the file the user knows in its place: `stageSnippet` and `stageMaterial` (project-relative, or under `projectDir`) become
+// `snippet` and `material` (the project-relative paths of the real snippet and material).
+std::string name_real_files(std::string text, const std::string& projectDir, const std::string& stageMaterial,
+                            const std::string& stageSnippet, const std::string& material, const std::string& snippet);
+
 // Frames without an edit before the preview starts (a frame is ~16 ms: the user has stopped typing or dragging).
 inline constexpr int kPreviewDebounceFrames = 18;
 inline constexpr int kPreviewSide = 256;  // pixels of the picture
@@ -81,11 +87,16 @@ inline constexpr int kPreviewMaxMessage = 4000;
 class GraphPreview {
 public:
     explicit GraphPreview(std::string projectDir);
-    // A compile that is running (at most one per picture, sokol-shdc takes about a second) is waited for up to kCloseWaitMs in all, so closing the panel
-    // or changing the project normally leaves no thread behind; one that is still running after that is let go (it only holds copies and its own
+    // A compile that is running (at most one per picture, sokol-shdc takes about a second) is waited for up to kCloseWaitMs in all, so changing the project
+    // or quitting the editor (the only times a GraphPreview is destroyed) normally leaves no thread behind; one that is still running after that is let go (it only holds copies and its own
     // stage files) and ends by itself.
     ~GraphPreview();
     static constexpr int kCloseWaitMs = 2000;
+    // Files `stage-*` and `saved-stage-*` in .factoria/material-preview/ that are older than `olderThanSeconds`: what an editor that quit with a compile
+    // still running left behind (the worker removes its own files when it ends). The constructor removes them. A file that cannot be removed (open
+    // elsewhere on Windows) is left for the next time, with no error. Looks at the first few thousand entries only. Returns how many it removed.
+    static int remove_stale_stage_files(const std::string& projectDir, int olderThanSeconds = kStaleStageSeconds);
+    static constexpr int kStaleStageSeconds = 600;
 
     // The material to show (the file's JSON with the graph as edited) and the model's revision, which tells a new edit from the same document.
     // `path` names the material: when it changes the param overrides, the pictures and the saved document are dropped (a new material starts clean).
