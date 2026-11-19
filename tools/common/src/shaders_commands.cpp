@@ -1,5 +1,6 @@
 // "shader.compile", "material.info" and the material step of `factoria validate`.
 #include <algorithm>
+#include <cctype>
 #include <filesystem>
 
 #include "fa/core/strings.h"
@@ -60,18 +61,52 @@ std::string regenerate_hint(const std::string& state, const std::string& materia
         return "The graph of " + material +
                " changed since its snippet was generated: run material.graph.generate for it, then shader.compile "
                "again.";
+    if (state == "unreadable")
+        return "The snippet of " + material +
+               " exists but cannot be read (a folder with that name, a permission, or a program that holds it open): "
+               "make it readable, then run shader.compile again. `material.graph.validate` says why.";
     return {};
+}
+
+// The error hint of a material that cannot be compiled: the original one (what the compiler or the setup says, e.g. that sokol-shdc is missing)
+// stays, and the fix for a snippet the graph makes is added to it. It replaces the original only when that one is the generic "check the shader
+// path" of a snippet that cannot be read, which the fix answers better.
+std::string compile_error_hint(const std::string& original, const std::string& fix, const std::string& message) {
+    if (fix.empty()) return original;
+    if (original.empty() || message.rfind("cannot read the snippet", 0) == 0) return fix;
+    return original + " " + fix;
 }
 
 }  // namespace
 
 namespace shaders_detail {
 
+std::string material_path_shape_problem(const std::string& path) {
+    if (path.empty()) return {};
+    if (path.find('\\') != std::string::npos) return "uses a backslash";
+    const bool drive = path.size() >= 2 && path[1] == ':' && std::isalpha(static_cast<unsigned char>(path[0]));
+    // "~" and "~/..." are the home folder; a file whose name merely starts with a tilde ("~tmp.material.json") is a relative path.
+    const bool home = path[0] == '~' && (path.size() == 1 || path[1] == '/');
+    if (path[0] == '/' || home || drive) return "is an absolute path";
+    for (std::size_t start = 0; start <= path.size();) {
+        std::size_t end = path.find('/', start);
+        if (end == std::string::npos) end = path.size();
+        if (path.compare(start, end - start, "..") == 0) return "leaves the project with '..'";
+        start = end + 1;
+    }
+    return {};
+}
+
 std::string resolve_material(const std::string& projectDir, const std::string& arg) {
     if (arg.empty())
         throw CommandError(
             "invalid_argument", "material is empty",
             "Pass the project-relative path of a *.material.json, e.g. \"materials/water.material.json\".");
+    // The same answer on every OS as `factoria validate` gives for a material path ("c:x" is a drive path on POSIX too).
+    if (const std::string shape = material_path_shape_problem(arg); !shape.empty())
+        throw CommandError(
+            "invalid_argument", "material '" + arg + "' " + shape,
+            "Pass a path relative to the project root with forward slashes, e.g. \"materials/water.material.json\".");
     const stdfs::path p = stdfs::path(arg).lexically_normal();
     // Whole path components: a file called "..x" is inside the project, "../x" is not.
     if (p.is_absolute() || p.has_root_name() || p.has_root_directory() || (!p.empty() && *p.begin() == ".."))
@@ -149,7 +184,8 @@ void register_shader_commands(CommandRegistry& registry, const std::string& proj
             const std::string graphState = material_snippet_state(dir, material);
             if (!result.ok()) {
                 const std::string fix = regenerate_hint(graphState, material);
-                throw CommandError("unavailable", result.error().message, fix.empty() ? result.error().hint : fix);
+                throw CommandError("unavailable", result.error().message,
+                                   compile_error_hint(result.error().hint, fix, result.error().message));
             }
             Json out = Json::object({{"ok", result->ok},
                                      {"material", material},
@@ -343,7 +379,8 @@ void validate_materials(const std::string& projectDir, const SetupContext& conte
                 continue;
             }
             const std::string fix = regenerate_hint(material_snippet_state(projectDir, path), path);
-            report.errors.push_back({path, "", result.error().message, fix.empty() ? result.error().hint : fix});
+            report.errors.push_back({path, "", result.error().message,
+                                     compile_error_hint(result.error().hint, fix, result.error().message)});
             continue;
         }
         if (const std::string state = material_snippet_state(projectDir, path); state == "graph_changed")

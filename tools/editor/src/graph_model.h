@@ -106,7 +106,11 @@ public:
     // A new material `rel` with a one-node graph (the output), written through material.graph.generate; opens it. Never overwrites (the file is
     // published with a hard link, which fails when the name exists, even when another process made it a moment ago), and when the write of the
     // snippet fails the files it made are removed and the document that was open stays.
+    // Refused (nothing is written) when the snippet it would write (shaders/<name>.surface.glsl) is already a file: that one is somebody's.
     GraphEditOutcome create(const std::string& rel);
+    // The first free `assets/materials/graph[N].material.json` whose snippet `shaders/graph[N].surface.glsl` is free too (a hand-written snippet of
+    // that name is never taken over), for the New graph material button. Empty when a thousand names are taken.
+    std::string new_material_name() const;
     void close();
     bool is_open() const { return !rel_.empty(); }
     const std::string& path() const { return rel_; }
@@ -215,7 +219,8 @@ public:
     void refresh_snippet_state();
     // Saves: material.graph.generate {material, graph, force}. Refused (needsForce) when the snippet was edited by hand and `force` is false, and
     // (externalChange) when the file changed on disk behind the editor and `overwriteExternal` is false: the poll runs every 20 frames, so save looks
-    // at the file itself.
+    // at the file itself. A file that was deleted meanwhile is written again from the document as it was read (only with `overwriteExternal`: the
+    // user answered Overwrite), then generate runs on it.
     GraphSaveOutcome save(bool force, bool overwriteExternal = false);
     // The file changed on disk behind our back (not by save): true once, when a poll finds it. With nothing unsaved the graph is read again.
     bool poll_external();
@@ -274,8 +279,10 @@ private:
     std::string projectDir_;
     GraphCommandFn call_;
     std::string rel_, error_, status_;
-    Json doc_;         // the file, with doc_["graph"] == graph_ (kept in step)
-    Json graph_;       // the graph as edited
+    std::vector<std::string>
+        strayTmp_;  // temporary files of create() that could not be removed (a virus scanner holds them): tried again
+    Json doc_;      // the file, with doc_["graph"] == graph_ (kept in step)
+    Json graph_;    // the graph as edited
     Json savedGraph_;  // the graph as in the file (null: a draft that was never saved)
     View view_;
     std::string snippetState_ = "unchecked";

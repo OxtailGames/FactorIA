@@ -6,10 +6,22 @@ Older versions, one file per minor version with its patch releases: [0.30](chang
 
 ## Unreleased
 
+- **Material editor and material commands polish (M72, POL-LAST-A):** Graph panel: answering Overwrite for a file that changed on
+  disk is no longer followed by a second question about the file when the snippet was hand-edited; Overwrite also writes a
+  deleted material again, and a Reload that fails says why. New graph material picks a name that is free for the material and
+  for its `shaders/<name>.surface.glsl` (a hand-written snippet is never taken over, and `create` refuses one), says so when it
+  cannot remove its temporary file, and opening the material that is already open keeps a half-filled New param form. The
+  preview deletes the `stage-*` files an editor that quit mid-compile left behind (older than ten minutes) and its errors name
+  the material and the snippet instead of the stage files. Commands: `material.param.delete` and `material.texture.delete`
+  leave an empty section where the last entry was (a later create fills it in place), a warning about a hand-written snippet
+  says so, `shader.compile` keeps the original hint (for example where to get sokol-shdc) when it adds the regenerate fix, a
+  material path like `c:x` is refused on every OS, and a snippet that is there but cannot be read is state `unreadable` with
+  the path and the cause, not "does not exist yet".
+
 - **Graph panel polish (M72):** Save looks at the file first: when it changed on disk since the editor read it, a window asks
   Overwrite, Reload or Cancel instead of replacing it. New graph material publishes the file whole and removes it again if the
   snippet cannot be written. The editor's own writes (a param default, a new param) no longer hide an outside change from the
-  poll. Each preview stages its compile in files of its own and closing the panel waits at most two seconds for it. What the
+  poll. Each preview stages its compile in files of its own and changing project or quitting the editor waits at most two seconds for it. What the
   material commands say (a snippet not written again, `warnings` on rename and delete) is shown in the status, Undo of a param or
   texture delete puts it back at its place, and closing or opening a graph clears the forms. The Graph autotest no longer relies on
   fixed delays, and the editor autotest always uses its own clipboard.
