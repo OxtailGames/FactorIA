@@ -1631,3 +1631,228 @@ TEST_CASE("materials: a mesh without a declared channel is drawn magenta and rep
     CHECK(g.renderer.stats().materialFallbacks[0] == "materials/chan.material.json");
     CHECK(near_color(img.pixel(160 - 78, 90), 1, 0, 1, 0.3f));  // the quad's centre, magenta
 }
+
+// ---- full shaders (mode "full": the file is the whole vertex and fragment stage; docs/shaders/SHADERS_FULL.md) ----
+
+TEST_CASE("full shaders: an unlit colour from the fragment stage, drawn with no light and no surface()") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    MaterialScope scope;
+    World w;
+    add_camera(w, {0, 0, 4}, {0, 0, 0});
+    add_material_mesh(w, "cube", "materials/full_flat.material.json", {0, 0, 0}, Color::white(), {1.5f, 1.5f, 1.5f});
+    ErrorLog log;
+    const Image img = g.render(w);
+    CHECK(log.messages().empty());
+    CHECK(g.renderer.stats().materialFallbacks.empty());
+    CHECK(g.renderer.stats().materials == 1);
+    const Color c = img.pixel(160, 90);
+    CAPTURE(c.r);
+    CAPTURE(c.g);
+    CAPTURE(c.b);
+    CHECK(c.g > c.b);  // (0.2, 0.8, 0.4): the order survives any encoding
+    CHECK(c.b > c.r);
+    // A materialParams override reaches the params block of the full shader.
+    World w2;
+    add_camera(w2, {0, 0, 4}, {0, 0, 0});
+    Entity e = add_material_mesh(w2, "cube", "materials/full_flat.material.json", {0, 0, 0}, Color::white(),
+                                 {1.5f, 1.5f, 1.5f});
+    w2.get<MeshRenderer>(e)->materialParams = tint_params(1, 0, 0);
+    CHECK(near_color(g.render(w2).pixel(160, 90), 1, 0, 0, 0.12f));
+}
+
+TEST_CASE("full shaders: two passes draw in order, the outline from the back faces pushed along the normals") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    MaterialScope scope;
+    World w;
+    add_camera(w, {0, 0, 4}, {0, 0, 0});
+    Entity e = add_material_mesh(w, "sphere", "materials/full_outline.material.json", {0, 0, 0}, Color::white(),
+                                 {1.5f, 1.5f, 1.5f});
+    w.get<MeshRenderer>(e)->materialParams = Json::object({{"outlineWidth", 0.2}});
+    ErrorLog log;
+    const Image img = g.render(w);
+    CHECK(log.messages().empty());
+    CHECK(g.renderer.stats().materialFallbacks.empty());
+    CHECK(near_color(img.pixel(160, 90), 0.1f, 0.7f, 0.2f, 0.25f));  // the body pass, in the middle
+    int firstRed = -1, firstBody = -1, red = 0;
+    for (int x = 0; x < img.width; ++x) {
+        const Color c = img.pixel(x, 90);
+        const bool isRed = c.r > 0.8f && c.g < 0.25f && c.b < 0.25f;
+        if (isRed) ++red;
+        if (isRed && firstRed < 0) firstRed = x;
+        if (c.g > 0.5f && c.r < 0.4f && firstBody < 0) firstBody = x;
+    }
+    CHECK(red >= 4);  // a ring of the outline pass around the body
+    CHECK(firstRed >= 0);
+    CHECK(firstRed < firstBody);  // the ring is outside the body
+}
+
+TEST_CASE("full shaders: a pass without the depth test shows the mesh through what hides it") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    MaterialScope scope;
+    auto frame = [&](const char* material) {
+        World w;
+        add_camera(w, {0, 0, 6}, {0, 0, 0});
+        add_mesh(w, "cube", {0, 0, 2}, Color::hex(0x808080), {3, 3, 0.5f});  // the wall, in front
+        add_material_mesh(w, "cube", material, {0, 0, -1}, Color::white(), {1, 1, 1});
+        return g.render(w);
+    };
+    ErrorLog log;
+    const Image xray = frame("materials/full_xray.material.json");
+    const Image flat = frame("materials/full_flat.material.json");
+    CHECK(log.messages().empty());
+    CHECK(near_color(xray.pixel(160, 90), 1, 1, 0, 0.12f));  // the xray pass over the wall
+    CHECK_FALSE(near_color(flat.pixel(160, 90), 1, 1, 0, 0.3f));
+}
+
+TEST_CASE("full shaders: an own light loop over fa_light_count() lights, adding up") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    MaterialScope scope;
+    auto frame = [&](int lights) {
+        World w;
+        add_camera(w, {0, 0, 4}, {0, 0, 0});
+        w.settings().ambientLight = Color{0.1f, 0.1f, 0.1f, 1};
+        for (int i = 0; i < lights; ++i)
+            w.get<Light>(add_light(w, LightType::Directional, {0, 5, 0}, {-20.0f - 5 * i, 20, 0}, 0.4f))->castShadows =
+                false;
+        add_material_mesh(w, "sphere", "materials/full_lights.material.json", {0, 0, 0}, Color::white(),
+                          {2.0f, 2.0f, 2.0f});
+        return g.render(w).pixel(160, 90);
+    };
+    ErrorLog log;
+    const Color none = frame(0), one = frame(1), two = frame(2);
+    CHECK(log.messages().empty());
+    CAPTURE(none.g);
+    CAPTURE(one.g);
+    CAPTURE(two.g);
+    CHECK(one.g > none.g + 0.03f);
+    CHECK(two.g > one.g + 0.03f);
+}
+
+TEST_CASE("full shaders: a declared vertex channel is read, a mesh without it is drawn magenta and reported once") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    MaterialScope scope;
+    write_channel_quad("assets/full_quad.gltf", true);
+    write_channel_quad("assets/full_plain.gltf", false);
+    World w;
+    add_camera(w, {0, 0, 4}, {0, 0, 0});
+    add_material_mesh(w, "assets/full_quad.gltf", "materials/full_chan.material.json", {-2.5f, 0, 0}, Color::white(),
+                      {1, 1, 1});
+    add_material_mesh(w, "assets/full_plain.gltf", "materials/full_chan.material.json", {2.5f, 0, 0}, Color::white(),
+                      {1, 1, 1});
+    ErrorLog log;
+    const Image img = g.render(w);
+    g.render(w);
+    CHECK(
+        near_color(img.pixel(160 - 98 - 30, 90), 1, 0, 0, 0.3f));  // color1 * (uv1.x * 2): red on the left of the quad
+    CHECK(near_color(img.pixel(160 + 98, 90), 1, 0, 1, 0.3f));     // the mesh without the channels: magenta
+    CHECK(log.count("assets/full_plain.gltf") == 1);
+    CHECK(log.count("TEXCOORD_1") == 1);
+    REQUIRE(g.renderer.stats().materialFallbacks.size() == 1);
+    CHECK(g.renderer.stats().materialFallbacks[0] == "materials/full_chan.material.json");
+}
+
+TEST_CASE("full shaders: per-instance params and a texture read in both stages, one batch, an own shadow program") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    MaterialScope scope;
+    World w;
+    add_stage(w);
+    const double col[3][3] = {{1, 0, 0}, {0, 1, 0}, {0, 0, 1}};
+    for (int i = 0; i < 3; ++i) {
+        Entity e = add_material_mesh(w, "cube", "materials/full_inst.material.json", {(i - 1) * 2.2f, 0, 0},
+                                     Color::white(), {1, 1, 1});
+        w.get<MeshRenderer>(e)->materialParams = tint_params(col[i][0], col[i][1], col[i][2]);
+    }
+    ErrorLog log;
+    const Image img = g.render(w);
+    CHECK(log.messages().empty());
+    CHECK(g.renderer.stats().materialFallbacks.empty());
+    CHECK(g.renderer.stats().meshBatches == 2);  // the three cubes in one batch, and the ground
+    CHECK(near_color(img.pixel(80, 90), 1, 0, 0, 0.3f));
+    CHECK(near_color(img.pixel(160, 90), 0, 1, 0, 0.3f));
+    CHECK(near_color(img.pixel(240, 90), 0, 0, 1, 0.3f));
+}
+
+TEST_CASE(
+    "full shaders: a skinned glTF draws with the skinned program of every pass, instanced params after the joints") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    MaterialScope scope;
+    std::ifstream in(std::string(FA_REPO_ROOT) + "/engine/render/tests/data/skinned_two_bone.gltf", std::ios::binary);
+    std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    REQUIRE(fs::write_text("assets/rig_full.gltf", text).ok());
+    auto frame = [&](const char* material, double r, double gr) {
+        World w;
+        add_camera(w, {0.5f, 1.2f, 4}, {0.5f, 1.0f, 0});
+        w.get<Light>(add_light(w, LightType::Directional, {0, 5, 0}, {-40, 25, 0}, 1.0f))->castShadows = true;
+        add_mesh(w, "plane", {0, -0.01f, 0}, Color::hex(0x909090), {8, 1, 8});
+        Entity rig = make(w, "rig");
+        auto& mr = w.add<MeshRenderer>(rig);
+        mr.mesh = "assets/rig_full.gltf";
+        mr.material = material;
+        mr.materialParams = tint_params(r, gr, 0.0);
+        w.add<Animator>(rig).clip = "Bend";
+        update_animators(w, 0.0f);
+        update_animators(w, 0.5f);
+        return g.render(w);
+    };
+    ErrorLog log;
+    const Image red = frame("materials/full_inst.material.json", 1, 0);
+    const Image green = frame("materials/full_inst.material.json", 0, 1);
+    frame("materials/full_outline.material.json", 1, 0);  // two passes, both skinned
+    CHECK(log.messages().empty());
+    CHECK(g.renderer.stats().materialFallbacks.empty());
+    CHECK(diff_images(red, green, 4.0f / 255.0f).meanError > 0.002);
+}
+
+TEST_CASE("full shaders: hot reload swaps the shader, keeps the last good one on a broken edit and recovers") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    MaterialScope scope;
+    const std::string dialect = g.renderer.shader_dialect();
+    REQUIRE(fs::write_text(
+                "materials/hotfull.material.json",
+                R"({"format": "factoria.material/1", "mode": "full", "shader": "shaders/hotfull.txt", "prepass": false,
+                    "params": {"tint": {"type": "color", "default": [0.2, 0.8, 0.4, 1.0], "doc": "Colour."}}})")
+                .ok());
+    g.renderer.set_shader_compiler([dialect](const std::string&, const std::string&) -> Result<Json> {
+        auto text = fs::read_text("shaders/hotfull.txt");
+        if (!text.ok()) return text.error();
+        if (*text == "broken")
+            return make_error("shaders/hotfull.txt:2:1: error: 'broken' : undeclared identifier", "Write flat or alt.");
+        return load_json_file("materials/full_" + *text + ".material.json." + dialect + ".shader");
+    });
+    auto frame = [&]() {
+        World w;
+        add_camera(w, {0, 0, 4}, {0, 0, 0});
+        add_material_mesh(w, "cube", "materials/hotfull.material.json", {0, 0, 0}, Color::white(), {1.5f, 1.5f, 1.5f});
+        return g.render(w);
+    };
+    ErrorLog log;
+    REQUIRE(fs::write_text("shaders/hotfull.txt", "flat").ok());
+    const Image flat = frame();
+    REQUIRE(fs::write_text("shaders/hotfull.txt", "alt").ok());
+    g.renderer.reload_asset("shaders/hotfull.txt");
+    const Image alt = frame();
+    CHECK(diff_images(flat, alt, 4.0f / 255.0f).meanError > 0.003);
+    CHECK(alt.pixel(160, 90).r > alt.pixel(160, 90).b);  // flat: (0.2, 0.8, 0.4), alt: (0.4, 0.8, 0.2)
+    CHECK(flat.pixel(160, 90).b > flat.pixel(160, 90).r);
+    CHECK(log.messages().empty());
+
+    REQUIRE(fs::write_text("shaders/hotfull.txt", "broken").ok());
+    g.renderer.reload_asset("shaders/hotfull.txt");
+    const Image kept = frame();
+    frame();
+    CHECK(diff_images(alt, kept, 0.0f).maxError == 0.0);
+    CHECK(log.count("shaders/hotfull.txt:2:1") == 1);
+    CHECK(g.renderer.stats().materialFallbacks.empty());
+
+    REQUIRE(fs::write_text("shaders/hotfull.txt", "flat").ok());
+    g.renderer.reload_asset("shaders/hotfull.txt");
+    CHECK(diff_images(flat, frame(), 0.0f).maxError == 0.0);
+}

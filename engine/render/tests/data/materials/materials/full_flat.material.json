@@ -1,0 +1,10 @@
+{
+  "format": "factoria.material/1",
+  "doc": "Test fixture: a full shader (own vertex and fragment stage) that draws one flat colour.",
+  "mode": "full",
+  "shader": "shaders/full_flat.full.glsl",
+  "prepass": false,
+  "params": {
+    "tint": {"type": "color", "default": [0.2, 0.8, 0.4, 1.0], "doc": "The colour of the whole mesh."}
+  }
+}

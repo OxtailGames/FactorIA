@@ -448,8 +448,9 @@ display output.
   never touch them; in a linear scene their quad and text pipelines must write display-space values into `hudTarget`.
 - **Custom post passes (M72.2, `PostProcess.customPasses`).** Full-screen passes drawn by kind `"post"` materials, between the built-in
   effects. Data: `fa/render/post_custom.h` (the entry parser `parse_custom_post_passes`, the position table `kCustomPostPositions`
-  and the `PostSlot` places: `Main`, `AfterSsr`, `AfterShafts`, `AfterDof`, `AfterBloom`; a later package adds places as new slots and
-  rows only). `resolve_post_stack` collects the entries (own, then volumes with strength >= 0.5) into `PostStack::custom`, with the
+  and the `PostSlot` places: `Main`, `AfterSsr`, `AfterShafts`, `AfterDof`, `AfterBloom` on the scene-linear picture and `AfterTonemap`,
+  `AfterGrading`, `AfterVignette`, `AfterSharpen`, `AfterOutline`, `AfterPosterize`, `AfterGrain` on the display-referred one,
+  `post_slot_is_ldr`). `resolve_post_stack` collects the entries (own, then volumes with strength >= 0.5) into `PostStack::custom`, with the
   entries it could not read in `customErrors` (logged once per scene, shown by `postprocess.get {resolved}`). `plan_job`
   (`renderer_draw.cpp`) turns them into a `CustomPostPlan` (`make_custom_post_plan`, `renderer_custom_post.{h,cpp}`): one entry per
   material that built as a post material, with its params packed for UB5 and its textures; a material that did not build, is not a post
@@ -463,6 +464,18 @@ display output.
   the program `programs[0]` of the material, bound like the other kinds (`kMaterialPost*` in `render_internal.h`). The y-flip of a GL
   render target is in `fa_post_vs_params.fa_flip` and `fa_post_params.fa_a.x`, so a snippet always sees y running down. The feature
   `postMaterials` of `render.supports` is the Engine capability; the editor's panel edits the list (`tools/editor/src/postfx_custom.h`).
+  *The cut final pass.* The stages of `post.glsl` are `PostStage` (`postprocess.h`: scene = lens/aberration/radial blur/haze + exposure
+  + tonemap + sRGB encode, grade, vignette, sharpen, outline, posterize, grain, tail = flash/fade overlay + dither + colour filter) and
+  `PostSlice` says which of them one draw runs (`run_post_pass(..., slice)` masks the effect bits, so the shader is the same). The slot
+  `AfterTonemap + i` sits after stage `i`. `build_graph` (`declare` in `renderer_draw.cpp`) walks the stages: where an entry sits at a
+  slot and a stage before it is active, it draws the pending stages into one of two persistent images `ldrMid[2]`
+  (`Impl::ensure_ldr_targets`, the scene format, one sample, the picture's size), calls `add_passes` on that image with `linear` false
+  (`custom_here`) and goes on from the next stage; the last piece (always including the tail) draws to the destination as the one pass
+  did and is the only one that sets the HUD, filter and `frameAboveWhite` state. Slots with nothing active between them share one
+  `add_passes` call, a chain on the game target in place needs no image when the first stage is inactive. Pieces are named
+  `post-part<k>` and the last keeps `post` (or `post-base`); a frame with no display-referred entry never cuts, so its graph is the
+  one it always was (`post_material_tests.cpp` counts the passes). The auto exposure is read in the scene piece only, the outline's
+  source in the outline piece only, the dither and the colour filter in the tail only.
 - **The effects, one bullet each,** are on the page [rendering, the post-processing effects](ARCHITECTURE_RENDERING_POST.md): the grading and lens
 effects, the radial blur and the transient screen effects, the outline, pixelate and posterize, the ambient occlusion, the depth and
 normal prepass, and the depth of field and motion blur.

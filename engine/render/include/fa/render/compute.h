@@ -68,6 +68,9 @@ public:
     // The GPU's current contents of `count` elements from `first`, as an array of {field: value} objects (a vecN field is an
     // array, floats have 7 significant digits, a NaN or infinity is null). Submits the recorded work and waits for it.
     Result<Json> read_buffer(int id, std::uint64_t first, std::uint64_t count);
+    // The most elements one read_buffer / write_buffer call converts for buffer `id` (both JSON caps; the element cap for an
+    // unknown id).
+    std::uint64_t max_json_elements(int id) const;
     Result<void> destroy_buffer(int id);
     // Runs the material once over its buffers (a compute pass; the call returns when the work is recorded, read_buffer waits).
     Result<void> dispatch(const ComputeDispatch& d);

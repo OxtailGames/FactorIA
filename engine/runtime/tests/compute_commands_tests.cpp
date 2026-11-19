@@ -107,7 +107,7 @@ TEST_CASE("compute commands: buffers, a dispatch and a read back, or `unavailabl
                              "initial":[{"value":3,"pos":[1,2],"steps":5}]})";
     r = c.call("compute.create_buffer", Json::parse(create));
     if (!listed.result["available"].get<bool>()) {
-        // GLES3, WebGL2, macOS GL 4.1 or no graphics: a teaching error, no crash, no silent no-op. CI that has compute
+        // GLES3, WebGL2, macOS GL 4.1 or no graphics: a teaching error, no crash, no silent no-op. A runner that must have compute
         // sets FA_REQUIRE_COMPUTE=1 so this branch cannot hide a missing GPU.
         const char* require = std::getenv("FA_REQUIRE_COMPUTE");
         if (require && *require && std::string(require) != "0")

@@ -6,6 +6,7 @@
 #include "test_util.h"
 
 #include <clocale>
+#include <cmath>
 #include <cstdlib>
 #include <fstream>
 #include <limits>
@@ -92,7 +93,7 @@ Json element(double value, double x, double y, int steps = 0) {
 }
 
 // No compute on this machine's backend (WARP, llvmpipe, GL 4.1): one line says why the test does not run, and
-// FA_REQUIRE_COMPUTE=1 (CI sets it where compute exists) turns that into a failure so it can never become a silent pass.
+// FA_REQUIRE_COMPUTE=1 (set it on a runner that must have compute) turns that into a failure so it can never become a silent pass.
 void skip_without_compute(const char* what, const std::string& why) {
     const char* v = std::getenv("FA_REQUIRE_COMPUTE");
     if (v && *v && std::string(v) != "0")
@@ -288,13 +289,18 @@ TEST_CASE("compute: a float leaves with 7 digits whatever the C locale, and a ca
     // A comma-decimal locale made printf/strtod lose the fraction; to_chars/from_chars do not look at it.
     const char* current = std::setlocale(LC_NUMERIC, nullptr);
     const std::string old = current ? current : "C";
+    bool switched = false;
     for (const char* name : {"de_DE.UTF-8", "de_DE.utf8", "fr_FR.UTF-8", "German_Germany.1252"})
-        if (std::setlocale(LC_NUMERIC, name)) break;
+        if (std::setlocale(LC_NUMERIC, name)) {
+            switched = true;
+            break;
+        }
+    if (!switched) MESSAGE("locale not installed: the floats are checked in the C locale only");
     CHECK(compute_json_float(0.1f).get<double>() == 0.1);
     CHECK(compute_json_float(-2.5f).get<double>() == -2.5);
     CHECK(compute_json_float(1234.5678f).get<double>() == 1234.568);  // 7 significant digits
     CHECK(compute_json_float(16777217.0f).get<double>() ==
-          16777220.0);  // 16777216 as float: 7 digits, read back exactly
+          16777220.0);  // rounded to 7 digits (not a float32 round trip)
     CHECK(compute_json_float(std::numeric_limits<float>::infinity()).is_null());
     CHECK(compute_json_float(std::nanf("")).is_null());
     std::setlocale(LC_NUMERIC, old.c_str());
@@ -315,4 +321,7 @@ TEST_CASE("compute: a float leaves with 7 digits whatever the C locale, and a ca
     CHECK(contains(r.error().to_string(), "in chunks of at most"));
     CHECK(contains(r.error().to_string(), "`first`"));
     CHECK(s.compute().read_buffer(*id, 0, 1000).ok());
+    // Without `count` the command stops at the largest count that fits: the default never errs on a count nobody passed.
+    CHECK(s.compute().max_json_elements(*id) < (std::uint64_t(1) << 20));
+    CHECK(s.compute().max_json_elements(*id) >= 1000);
 }

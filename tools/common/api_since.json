@@ -1226,6 +1226,7 @@
     "material.graph.nodes": "unreleased",
     "material.graph.validate": "unreleased",
     "material.info": "0.2.0",
+    "material.param.set_default": "unreleased",
     "mesh.create": "0.9.0",
     "mesh.destroy": "0.9.0",
     "mesh.info": "0.9.0",

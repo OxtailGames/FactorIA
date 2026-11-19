@@ -179,7 +179,7 @@ void register_compute_commands(Engine& engine, Engine::Impl& I) {
                         total = b["count"].get<std::uint64_t>();
                         found = true;
                     }
-                if (found) count = total > first ? std::min(total - first, kMaxComputeJsonElements) : 0;
+                if (found) count = total > first ? std::min(total - first, c.max_json_elements(id)) : 0;
             }
             auto data = c.read_buffer(id, first, count);
             if (!data.ok()) rethrow(data.error());

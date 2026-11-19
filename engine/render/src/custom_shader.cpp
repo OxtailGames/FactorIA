@@ -40,6 +40,8 @@ std::string material_template_hash(MaterialKind kind) {
 
 std::string mesh_template_hash() { return material_template_hash(MaterialKind::Mesh); }
 
+std::string mesh_full_template_hash() { return FA_TEMPLATE_HASH_MESH_FULL; }
+
 }  // namespace fa
 
 namespace fa::render {
@@ -472,9 +474,21 @@ Result<void> Assets::build_material_checked(MaterialAsset& m) {
                                              : "Use one of: " + join(material_kind_names(), ", ") + ".");
         kind = *parsed;
     }
+    // "mode": "full" = the file is the whole vertex and fragment shader of a mesh material (docs/shaders/SHADERS_FULL.md).
+    const bool full = str_of(*doc, "mode") && text_of(*doc, "mode") == "full";
+    if (full && kind != MaterialKind::Mesh)
+        return make_error("material '" + m.path + "' has mode \"full\" with kind \"" + material_kind_name(kind) +
+                              "\": only mesh materials can be full shaders",
+                          "Remove \"mode\", or remove \"kind\" (a mesh material is the default).");
     const std::string lighting = str_of(*doc, "lighting") ? text_of(*doc, "lighting") : "pbr";
-    const std::string alphaMode = str_of(*doc, "alphaMode") ? text_of(*doc, "alphaMode") : "opaque";
+    std::string alphaMode = str_of(*doc, "alphaMode") ? text_of(*doc, "alphaMode") : "opaque";
     const bool doubleSided = doc->find("doubleSided") != doc->end() && doc->at("doubleSided") == true;
+    if (full) {  // the passes decide: a material with a blending pass is drawn far to near with the blended meshes
+        alphaMode = "opaque";
+        if (auto ps = doc->find("passes"); ps != doc->end() && ps->is_array())
+            for (const Json& p : *ps)
+                if (p.is_object() && str_of(p, "blend") && text_of(p, "blend") != "none") alphaMode = "blend";
+    }
     if (!m.ok) {  // never built: the error material still needs to be sorted into the right draw list
         m.kind = kind;
         m.lighting = lighting;
@@ -507,12 +521,19 @@ Result<void> Assets::build_material_checked(MaterialAsset& m) {
         return make_error("the shader of material '" + m.path + "' is a \"" + twinKind +
                               "\" shader, but the material has kind \"" + material_kind_name(kind) + "\"",
                           "The material's \"kind\" changed after its shader was made. " + std::string(kReexportHint));
-    if (text_of(twin, "engine") != FA_ENGINE_VERSION || text_of(twin, "template") != material_template_hash(kind))
-        return make_error("the shader of material '" + m.path + "' was made by factoria " + text_of(twin, "engine") +
-                              (text_of(twin, "engine") == FA_ENGINE_VERSION
-                                   ? std::string(" with another ") + material_kind_name(kind) + " template"
-                                   : ", but this is " + std::string(FA_ENGINE_VERSION)),
-                          kReexportHint);
+    if (full != (twin.contains("full") && twin["full"] == true))
+        return make_error("the shader of material '" + m.path + "' was made " +
+                              (full ? "without mode \"full\"" : "with mode \"full\"") +
+                              ", but the material says the opposite",
+                          "The material's \"mode\" changed after its shader was made. " + std::string(kReexportHint));
+    if (text_of(twin, "engine") != FA_ENGINE_VERSION ||
+        text_of(twin, "template") != (full ? mesh_full_template_hash() : material_template_hash(kind)))
+        return make_error(
+            "the shader of material '" + m.path + "' was made by factoria " + text_of(twin, "engine") +
+                (text_of(twin, "engine") == FA_ENGINE_VERSION
+                     ? std::string(" with another ") + (full ? "full-shader" : material_kind_name(kind)) + " template"
+                     : ", but this is " + std::string(FA_ENGINE_VERSION)),
+            kReexportHint);
     if (text_of(twin, "slang") != dialect)
         return make_error("the shader of material '" + m.path + "' is for '" + text_of(twin, "slang") +
                               "', this graphics backend needs '" + dialect + "'",
@@ -619,7 +640,61 @@ Result<void> Assets::build_material_checked(MaterialAsset& m) {
     const std::vector<const char*>& names = material_program_names(kind);
     MaterialProgram programs[kMaxMaterialPrograms];
     auto programsJson = twin.find("programs");
-    for (int i = 0; i < int(names.size()); ++i) {
+    std::vector<MaterialPassState> passes;
+    FullShadow shadowMode = FullShadow::Depth;
+    bool prepassOn = true;
+    if (full) {
+        // The passes in drawing order with their state; each names its programs in the twin. Every program is required (the
+        // tooling made them together), the shadow and prepass ones only when the twin says the material has them.
+        const std::string shadowName = text_of(twin, "shadow");
+        shadowMode = shadowName == "custom" ? FullShadow::Custom
+                     : shadowName == "none" ? FullShadow::None
+                                            : FullShadow::Depth;
+        prepassOn = !(twin.contains("prepass") && twin["prepass"] == false);
+        const Json& list = list_of(twin, "passes");
+        if (list.empty() || list.size() > std::size_t(kMaxMaterialPasses))
+            return make_error("the shader of material '" + m.path + "' has " + std::to_string(list.size()) +
+                                  " passes, between 1 and " + std::to_string(kMaxMaterialPasses) + " are drawn",
+                              kReexportHint);
+        std::vector<std::pair<std::string, int>> wanted;  // twin program name, MaterialAsset::programs slot
+        for (std::size_t p = 0; p < list.size(); ++p) {
+            const Json& e = list[p];
+            MaterialPassState st;
+            st.name = text_of(e, "name");
+            const std::string cull = text_of(e, "cull"), blend = text_of(e, "blend");
+            st.cull = cull == "none" ? 0 : cull == "front" ? 2 : 1;
+            st.depthTest = !(e.contains("depthTest") && e["depthTest"] == false);
+            st.depthWrite = !(e.contains("depthWrite") && e["depthWrite"] == false);
+            st.blend = blend == "alpha" ? 1 : blend == "additive" ? 2 : blend == "multiply" ? 3 : 0;
+            passes.push_back(std::move(st));
+            wanted.push_back({text_of(e, "program"), pass_program_slot(int(p), false)});
+            wanted.push_back({text_of(e, "programSkin"), pass_program_slot(int(p), true)});
+        }
+        if (shadowMode == FullShadow::Custom) {
+            wanted.push_back({"shadow", kProgShadow});
+            wanted.push_back({"shadow_skin", kProgShadowSkin});
+        }
+        if (prepassOn) {
+            wanted.push_back({"prepass", kProgPrepass});
+            wanted.push_back({"prepass_skin", kProgPrepassSkin});
+        }
+        for (const auto& [name, slot] : wanted) {
+            const Json* prog = programsJson != twin.end() && programsJson->is_object() && programsJson->contains(name)
+                                   ? &programsJson->at(name)
+                                   : nullptr;
+            Result<MaterialProgram> made =
+                prog ? make_material_program(m.path + " " + name, *prog)
+                     : make_error("the shader of material '" + m.path + "' has no program '" + name + "'",
+                                  kReexportHint);
+            if (!made.ok()) {
+                for (MaterialProgram& p : programs)
+                    if (p.shader.id) gpu_.destroy_shader(p.shader);
+                return made.error();
+            }
+            programs[slot] = *made;
+        }
+    }
+    for (int i = 0; !full && i < int(names.size()); ++i) {
         const Json* prog = programsJson != twin.end() && programsJson->is_object() && programsJson->contains(names[i])
                                ? &programsJson->at(names[i])
                                : nullptr;
@@ -649,6 +724,10 @@ Result<void> Assets::build_material_checked(MaterialAsset& m) {
     m.lighting = lighting;
     m.alphaMode = alphaMode;
     m.doubleSided = doubleSided;
+    m.full = full;
+    m.passes = std::move(passes);
+    m.shadow = shadowMode;
+    m.prepass = prepassOn;
     m.params = std::move(params);
     m.instanced = std::move(instanced);
     m.instanceVec4 = instanceVec4;

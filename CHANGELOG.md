@@ -10,6 +10,31 @@ Older versions, one file per minor version with its patch releases: [0.30](chang
   numbers (elements times the components of their fields) and say how many elements fit and to go on in chunks with
   `first`/`count`; floats read back are the same in every C locale.
 
+- **Full shaders and passes for mesh materials (M72.3):** `"mode": "full"` on a `"kind": "mesh"` material names a file
+  with the vertex and the fragment stage (`@common`, `@vertex`, `@fragment`, each with its own `main`) instead of the
+  `vertex()`/`surface()` snippet, and `"passes": [...]` draws the mesh up to four times in array order, each pass with its
+  own `cull`, `depthTest`, `depthWrite` and `blend` (an inverted-hull outline, an x-ray behind walls, a glow shell). The
+  engine still provides the model matrix (instancing, skinning), the instanced params, the declared `uv1`/`color1`
+  channels, the camera, the time and the same params and textures as globals, plus `fa_light_count()`, `fa_light(i, ...)`,
+  `fa_shadow(...)` and `fa_apply_fog(...)` to write your own lighting. `"shadow"` is `"depth"` (default), `"custom"` (the
+  first pass again, from the light) or `"none"`; `"prepass": false` keeps the material out of SSAO and the depth fog.
+  `lighting`, `alphaMode`, `doubleSided` and `graph` belong to snippets and are refused here. `shader.compile`,
+  `factoria validate` and `factoria export` compile every pass for every dialect (a compiler error names your file and line,
+  and a varying that one stage declares and the other does not is reported before the compiler runs); `material.info` lists
+  the mode, the passes and their programs. The page `factoria docs read shaders-full` has the rules and a complete outline.
+  **Games with custom mesh materials must re-export again** if they have not since the previous entry.
+- **Graph panel preview, complete (M72 P13b-1):** the live preview of a material graph now has param sliders (float, vec2, vec3,
+  vec4 and color: they change the PREVIEW only, nothing is written and nothing compiles again; **Reset** puts them back and
+  **Set as default** writes the value as the param's `default` in the file, as one undo step), a **Compare** check box that
+  draws the last saved version of the graph next to the current one, and a compiler error painted on the node whose generated
+  line it names (the generator keeps the id of the node that wrote each line of the snippet). The panel draws `mesh`
+  materials, and a `sky`, `post` or `compute` material says why it has no preview instead of drawing wrongly; the preview
+  is also ready to draw a `sprite` material on a 2D quad for when the graph generator supports that kind (it does not
+  yet, so no graph material reaches it today). New command `material.param.set_default {material, param, value, dryRun?}` writes one param's default
+  (checked like the file; it returns the `previous` value). Two fixes: a preview that was redrawn after a shape change no longer
+  turned an error back into "up to date", and a shader compile whose result could not be saved in `.factoria/shader-cache` is
+  now an error in the panel instead of running sokol-shdc on the editor's thread. `.factoria/material-preview/` (the files the
+  preview writes) is documented in the Graph panel section.
 - **Per-sprite values and vertex textures in sprite materials (M72.1):** a sprite material's param marked
   `"instanced": true` takes its value per quad: 100 sprites, shapes, tiles, glyphs or particles of one material with 100
   different `tint` values are one batch and one draw call, and the snippet reads `tint` by its name in `fragment()` and
@@ -97,6 +122,17 @@ Older versions, one file per minor version with its patch releases: [0.30](chang
   passes and the problems; `render.supports` has the feature `postMaterials`; the editor's Post-processing panel adds, switches,
   reorders, removes and edits the params of a pass, one undo step each; hot reload swaps the shader. The picture is read
   with a half-texel clamp at the edge of the camera's rectangle (a split screen never reads the neighbour's pixels).
+  docs/shaders/SHADERS_POST.md.
+- **Post passes between the screen effects (M72.2):** a custom pass can now sit after the tonemap and between the colour
+  grading, vignette, sharpen, outline, posterize and film grain: `"after:tonemap"`, `"after:colorGrading"`, `"after:vignette"`,
+  `"after:sharpen"`, `"after:outline"`, `"after:posterize"`, `"after:filmGrain"` (and the matching `"before:..."`, and
+  `"before:colorFilter"`). There the pass reads the display-referred picture the effects before it made (tonemapped,
+  sRGB-encoded; values above 1 survive on an HDR output) and the final pass is drawn in two pieces around it, only where an
+  entry sits: a frame without one draws the same single pass as before. The editor's Position list offers the new places.
+  `after:pixelate`, `before:pixelate` and `after:colorFilter` are refused with the reason. A camera and its volumes draw at
+  most 32 custom passes; the entries past that are dropped and the log says so once (it was silent). The `postMaterials` row of
+  `render.supports` says that the feature needs nothing of the GPU and only a pass that reads the depth or the normals needs
+  `sampledDepth`.
   docs/shaders/SHADERS_POST.md.
 - **Custom lighting and textures in `vertex()` (M72.3):** a mesh material with `"lighting": "custom"` defines
   `vec3 light(in SurfaceInput i, in Surface s, in LightSample l)`, which the engine's light loop calls once per light

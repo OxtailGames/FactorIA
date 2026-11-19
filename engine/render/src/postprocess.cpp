@@ -224,18 +224,44 @@ post_post_fx_params_t fx_uniforms(const PostFx& fx, const LutInfo& lut, bool gl,
 
 }  // namespace
 
+namespace {
+
+// The effects a piece of the final pass runs (PostSlice): the ones of its stages. The pixelate is in every piece (it moves the position
+// they all read).
+PostFx sliced_fx(const PostFx& in, const PostSlice& s) {
+    PostFx fx = in;
+    if (!s.has(kStageScene)) {
+        fx.lens = fx.aberration = fx.radialBlur = false;
+        fx.ringCount = fx.hazeCount = 0;
+    }
+    if (!s.has(kStageGrade)) fx.grade = fx.lut = false;
+    if (!s.has(kStageVignette)) fx.vignette = false;
+    if (!s.has(kStageSharpen)) fx.sharpen = false;
+    if (!s.has(kStageOutline)) fx.outline = false;
+    if (!s.has(kStagePosterize)) fx.posterize = false;
+    if (!s.has(kStageGrain)) fx.grain = false;
+    if (!s.has(kStageTail)) fx.overlay = false;
+    return fx;
+}
+
+}  // namespace
+
 void run_post_pass(Gpu& gpu, const PostPlan& plan, bool finalPass, int filter, bool autoExposure, const PassDesc& pass,
                    sg_view src, sg_view expo, sg_view white, sg_view aux, int picW, int picH,
-                   const OutputTarget& output, const PostRect& rect) {
+                   const OutputTarget& output, const PostRect& rect, const PostSlice& slice) {
     const bool partial = !rect.whole(picW, picH);
     const int w =
         partial ? rect.w
                 : picW;  // the pass's own area: the camera's rectangle (its pixels are the ones the effects count)
     const int h = partial ? rect.h : picH;
-    // finalPass: the pass that converts and draws the effects; the colour-filter-only pass has neither.
-    const bool convert = finalPass && plan.convert();
-    PostFx fx = finalPass ? plan.fx : PostFx{};
-    fx.lut = fx.lut && plan.lutInfo.view.id != 0;  // the table the renderer found (none: the effect is skipped)
+    // finalPass: the pass that converts and draws the effects; the colour-filter-only pass has neither. A piece of it (`slice`) runs only
+    // the stages it holds; the conversion is the first stage's and the colour filter the tail's.
+    const bool convertAll = finalPass && plan.convert();
+    const bool convert = convertAll && slice.has(kStageScene);
+    PostFx all = finalPass ? plan.fx : PostFx{};
+    all.lut = all.lut && plan.lutInfo.view.id != 0;  // the table the renderer found (none: the effect is skipped)
+    if (slice.whole()) all.outline = all.outline && aux.id != 0;
+    PostFx fx = sliced_fx(all, slice);
     const bool lut = fx.lut;
     fx.outline = fx.outline && aux.id != 0;  // the image the outline reads was not made: no outline
     gpu.begin_pass(pass);
@@ -264,12 +290,12 @@ void run_post_pass(Gpu& gpu, const PostPlan& plan, bool finalPass, int filter, b
     // The HDR tonemap only for a picture that stays as it is: a colour filter works on what an SDR screen shows (and clamps).
     const bool hdr = convert && filter == 0 && output.extended();
     u.p[2] = hdr ? 1.0f : 0.0f;
-    u.p[3] = float(filter);
+    u.p[3] = slice.tail() ? float(filter) : 0.0f;
     u.q[0] = convert && plan.tonemap ? float(plan.tonemapMode) : 0.0f;
     u.q[1] = convert && plan.exposure ? std::exp2(plan.exposureEv) : 1.0f;
     u.q[2] = convert && plan.exposure && autoExposure ? 1.0f : 0.0f;
     // The dither: one 8-bit step of the display. Not under a posterize: it would move a colour across a level.
-    u.q[3] = (convert || fx.any()) && !fx.posterize ? 1.0f / 255.0f : 0.0f;
+    u.q[3] = slice.tail() && (convertAll || all.any()) && !all.posterize ? 1.0f / 255.0f : 0.0f;
     u.r[0] = float(w);
     u.r[1] = float(h);
     if (hdr) {
