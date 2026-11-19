@@ -211,6 +211,34 @@ instance cost nothing (the recipe is in docs/shaders/SHADERS_COMPUTE.md, "Drawin
 Verified: Metal (tests in `engine/render/tests/mesh_buffer_tests.cpp`) and the real sokol-shdc for hlsl5, glsl430 and metal_macos
 (`tools/common/tests`). Read only: the GL 4.3 and D3D11 draws, a skinned mesh with buffers.
 
+## Sprites drawn from a compute buffer (M72.4, P18b)
+
+The 2D side of the section above, with the same compute pieces (`parse_mesh_buffers` accepts `buffers` for `kind: sprite`,
+`MeshBufferUse`, `bind_mesh_buffers`, `ComputeDrawAccess::bind`, `Assets::storage_buffers_available` and
+`storage_binding_limit`); the recipe for authors is docs/shaders/SHADERS_COMPUTE.md, "Sprites from a compute buffer".
+
+- **Component.** `Sprite.instances` (0 to `kMaxMeshInstances`) is the count; `materialParams[<buffer>]` the buffer ids. No
+  `instanceBounds`: `Scene2D` culls no sprite (the camera test of a sprite is the GPU's), so a box would have no reader.
+- **Template.** `quad_common.glsl` defines `FA_BUFFER_INST` when the material has buffers: the vertex stage writes the flat varying
+  `fa_inst_index_v = gl_InstanceIndex` and `fa_instance_index` is `gl_InstanceIndex` in `vertex()` and the varying in
+  `fragment()`; without buffers it is the constant 0. The four corners of the sprite's one quad are the template; `vertex()`
+  moves them. The pipeline is the normal 2D one (quad index buffer, 6 indices) and the draw is `sg_draw(0, 6, instances)`.
+- **Slots.** Sprite engine views 0-3, material textures 4-7 (fragment) and 8-11 (their vertex copies), buffers from
+  `kMeshBufferFirstView` = 16 as for meshes (vertex copy `16 + i`, fragment copy `16 + count + i`), so a texture and a buffer never
+  share a slot. The glsl430 twin is rebased like the mesh one (`build_twins`); there is no glsl300es twin.
+- **One draw per sprite.** `QuadItem::instances` / `QuadBatch::instances` (`render_internal.h`): `QuadList::flatten` merges only
+  items with `instances == 0`, so such a sprite is a batch of its own, ordered by layer like any other. The ids of the buffers are
+  part of the `MaterialUse` key (`bufferIds`), so two sprites that read other buffers never share a use either.
+- **Validation.** `resolve_sprite_buffers` (`sprite_buffer_draw.{h,cpp}`) runs in `Scene2D::gather_sprites` on the main thread
+  (the renderer's `Compute` is `Frame::compute`): a sprite that fails is `Slot::Skip` for that round, so it is not drawn and not
+  counted in `stats.sprites`; errors go through `Assets::note_failure` once, with `/instances` or `/materialParams/<name>`.
+  `bind_sprite_buffer_views` looks the buffers up again at draw time by id (the batch carries no pointer), and a buffer destroyed
+  in between skips the batch with one log line. A non-Sprite item with a buffers material is not drawn (`renderer_draw.cpp`).
+- **Ignored for such a sprite.** `meshColumns`/`meshRows`, `slice` (9-slice), `SpriteSkin` and a Parallax repeat.
+
+Verified: Metal (tests in `engine/render/tests/sprite_buffer_tests.cpp`) and the real sokol-shdc for hlsl5, glsl430 and
+metal_macos (`tools/common/tests`, the fixtures `spritebuf*`). Read only: the GL 4.3 and D3D11 draws.
+
 ## The sky material lights the meshes (M72 P15)
 
 `engine/render/src/renderer_env.{h,cpp}` (`Environment`) bakes the sky program of the scene's sky material into a prefiltered cube

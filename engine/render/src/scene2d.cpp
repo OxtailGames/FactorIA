@@ -15,6 +15,7 @@
 #include "render_jobs.h"
 #include "render_scene.h"
 #include "scene2d.h"
+#include "sprite_buffer_draw.h"
 
 namespace fa::render {
 
@@ -385,6 +386,8 @@ struct SpritePrep {
     MaterialRef
         material;  // Sprite.material with its materialParams (Assets::sprite_material); empty = the built-in look
     bool screen = false, mirrored = false, lit = false;
+    int instances =
+        0;  // > 0: a material with buffers draws the sprite's one quad this many times (sprite_buffer_draw.h)
     std::uint32_t slotIndex = 0;  // the Scene2D slot of the entity (Entity::index)
     bool share = false;           // the first drawing of a shareable Sprite: Scene2D keeps where its items end up
 };
@@ -431,8 +434,13 @@ void emit_sprite(const World& world, const Frame& f, const SpritePrep& prep, boo
                     s.blend, prep.clip);
     if (lit) list.set_lit(prep.normal);
     list.set_material(prep.material);
+    // A draw from buffers (Sprite.instances, or a material with buffers): the sprite is its one plain quad, the template the
+    // material's vertex() moves for each instance; the mesh grid, the skin, the 9-slice and a repeat do not apply.
+    const bool buffered = prep.instances > 0;
+    if (buffered) list.set_buffer_draw(prep.instances);
     if (const auto flash = inherited_flash(world, f, e)) list.set_flash(pack_color(*flash));
-    const bool nine = !s.texture.empty() && (s.slice.x > 0 || s.slice.y > 0 || s.slice.z > 0 || s.slice.w > 0);
+    const bool nine =
+        !buffered && !s.texture.empty() && (s.slice.x > 0 || s.slice.y > 0 || s.slice.z > 0 || s.slice.w > 0);
     const Vec2 spritePivot = prep.pivot;
     const float pivotX = mirrored ? 1.0f - spritePivot.x : spritePivot.x;
     const float bx0 = -pivotX * size.x, bx1 = (1 - pivotX) * size.x, by0 = -spritePivot.y * size.y,
@@ -440,7 +448,9 @@ void emit_sprite(const World& world, const Frame& f, const SpritePrep& prep, boo
     // A deformable sprite (meshColumns x meshRows cells, vertexOffsets) and the shear (skew). Both leave the pivot where it is.
     int meshCols = 0, meshRows = 0;
     std::vector<float> meshOffsets, meshColors;
-    if (sprite_mesh_grid(s, meshCols, meshRows)) {
+    if (buffered) {
+        // no grid
+    } else if (sprite_mesh_grid(s, meshCols, meshRows)) {
         meshOffsets = sprite_vertex_offsets(s, meshCols, meshRows);
         meshColors = sprite_vertex_colors(s, meshCols, meshRows);
         if (meshColors.empty() && warnMesh) notes.meshColorsProblem = sprite_vertex_colors_problem(s);
@@ -451,7 +461,7 @@ void emit_sprite(const World& world, const Frame& f, const SpritePrep& prep, boo
     // a mesh sprite. World space only; a screen-space sprite with a SpriteSkin draws as the plain mesh/quad.
     SkinMesh skinMesh;
     bool skinned = false;
-    if (!screen && world.has<SpriteSkin>(e)) {
+    if (!buffered && !screen && world.has<SpriteSkin>(e)) {
         skinned = build_skin_mesh(world, e, s, SkinBox{bx0, by0, bx1, by1}, skinMesh, &notes.skinProblem);
         if (skinned) meshCols = 0;  // the skin replaces the plain mesh
     }
@@ -545,7 +555,7 @@ void emit_sprite(const World& world, const Frame& f, const SpritePrep& prep, boo
         em.rect(bx0, by0, bx1, by1, u0, v0, u1, v1);
     };
 
-    const Parallax* par = screen ? nullptr : world.get<Parallax>(e);
+    const Parallax* par = screen || buffered ? nullptr : world.get<Parallax>(e);
     if (par && (par->repeatX || par->repeatY) && !f.cam.perspective) {
         // A repeating background: copies every `step` world units along x and/or y, only those the camera can see.
         float minX = 1e30f, maxX = -1e30f, minY = 1e30f, maxY = -1e30f;
@@ -1051,6 +1061,17 @@ void Scene2D::gather_sprites(World& world, Frame& f) {
         p.screen = screen;
         if (p.screen && !screen_clip(world, e, f, p.clip)) return;
         p.material = assets.sprite_material(s.material, s.materialParams);  // may load it: here, not in the jobs
+        // A material with "buffers" draws the sprite's quad Sprite.instances times; one that does not fit its buffers draws nothing
+        // (said once, with the entity). Checked here, on the main thread: the buffers are looked up in the renderer's Compute.
+        if (s.instances > 0 ||
+            (p.material.use && !p.material.use->error && !p.material.use->material->buffers.empty())) {
+            const MeshBufferUse bu = resolve_sprite_buffers(assets, f.compute, e, s, p.material.use);
+            if (bu.skip) {
+                sl.state = State::Skip;
+                return;
+            }
+            if (bu.active) p.instances = bu.instances;
+        }
         p.mirrored = p.screen && ui_mirrored(world, e);
         p.lit = s.lit && !p.screen;
         if (p.lit && !s.normalMap.empty()) p.normal = assets.texture(s.normalMap);

@@ -6,6 +6,15 @@ Older versions, one file per minor version with its patch releases: [0.30](chang
 
 ## Unreleased
 
+- **Sprites drawn from a compute buffer (M72.4, P18b):** a `kind: "sprite"` material can declare read-only `buffers` too, and
+  read them in `vertex()` and in `fragment()` by `fa_instance_index`. `Sprite.instances` = N draws the sprite's quad N times in
+  one draw (the quad is the template `vertex()` moves; a Sprite with such a material is never batched with another one).
+  `materialParams` gives the compute buffer ids; there is no `instanceBounds`, because the CPU culls no sprite. A missing,
+  destroyed or differently shaped buffer, a buffer shorter than `instances`, `instances` on a material without buffers and
+  `"instanced"` params next to `buffers` are teaching errors with a JSON pointer, and the sprite is not drawn (nor counted in
+  the stats). A Shape2D, Tilemap, Text, ParticleEmitter or UiBox with such a material is not drawn either. Same backends and
+  CPU-path refusal as the mesh version (GLES3, WebGL2 and OpenGL 4.1 refuse at load). 2D GPU-particles recipe in
+  docs/shaders/SHADERS_COMPUTE.md, "Sprites from a compute buffer".
 - **Meshes drawn from a compute buffer (M72.4, P18a):** a mesh material (snippet or `mode: "full"`) can declare read-only
   `buffers`, written by a compute material, and read them in `vertex()`, in helpers and in `surface()`. `MeshRenderer.instances`
   = N draws the entity N times; `vertex()` gets `fa_instance_index` and places each instance, `materialParams` gives the compute

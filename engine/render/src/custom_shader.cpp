@@ -372,7 +372,8 @@ void pack_material_params(MaterialAsset& m, const Json& overrides, float out[kMa
         for (const auto& p : m.params) names.push_back(p.name);
         for (const auto& p : m.instanced) names.push_back(p.name);
         for (const auto& t : m.textures) names.push_back(t.name);
-        for (const auto& b : m.buffers) names.push_back(b.name);  // a mesh material's buffer: the compute buffer id
+        for (const auto& b : m.buffers)
+            names.push_back(b.name);  // a mesh or sprite material's buffer: the compute buffer id
         for (auto it = overrides.begin(); it != overrides.end(); ++it)
             if (std::find(names.begin(), names.end(), it.key()) == names.end() && m.warned.insert(it.key()).second)
                 FA_WARN("render", "{}.{} of {} using '{}' is not a param or texture of that material. {}", field,
@@ -570,21 +571,24 @@ Result<void> Assets::build_material_checked(MaterialAsset& m) {
         m.alphaMode = alphaMode;
         m.doubleSided = doubleSided;
     }
-    if (kind == MaterialKind::Mesh && doc->contains("buffers") && !(*doc)["buffers"].empty()) {
-        // A mesh material that reads storage buffers (M72.4): refused at load on a backend that cannot, with the name of the
-        // backend and the CPU path, like a compute material.
+    if ((kind == MaterialKind::Mesh || kind == MaterialKind::Sprite) && doc->contains("buffers") &&
+        !(*doc)["buffers"].empty()) {
+        // A mesh or sprite material that reads storage buffers (M72.4): refused at load on a backend that cannot, with the name of
+        // the backend and the CPU path, like a compute material.
+        const bool spriteKind = kind == MaterialKind::Sprite;
         std::string backend, reason;
         if (!storage_buffers_available(&backend, &reason))
             return make_error(
                 "the material '" + m.path +
                     "' reads storage buffers (\"buffers\", /buffers in the material), but the " + backend +
                     " graphics backend cannot read them in a vertex shader: " + reason,
-                "Storage buffers in a mesh material run on Windows (D3D11), macOS and iOS (Metal) and Linux (OpenGL "
-                "4.3 or "
-                "newer), not on Android (GLES3), the web (WebGL2) or macOS OpenGL (4.1). Ask `render.supports` "
-                "{\"feature\":\"computeShaders\"} first, and on this backend use the CPU path: write the instances as "
-                "entities (or as \"instanced\" params of a material without buffers) from a script "
-                "(docs/shaders/SHADERS_COMPUTE.md, \"Drawing from a compute buffer\").");
+                std::string("Storage buffers in a ") + (spriteKind ? "sprite" : "mesh") +
+                    " material run on Windows (D3D11), macOS and iOS (Metal) and Linux (OpenGL 4.3 or newer), not on "
+                    "Android (GLES3), the web (WebGL2) or macOS OpenGL (4.1). Ask `render.supports` "
+                    "{\"feature\":\"computeShaders\"} first, and on this backend use the CPU path: write the instances "
+                    "as "
+                    "entities (or as \"instanced\" params of a material without buffers) from a script "
+                    "(docs/shaders/SHADERS_COMPUTE.md, \"Drawing from a compute buffer\").");
         // OpenGL counts the bindings of a program from 0 (the glsl430 twin does): each buffer is declared in the vertex and in
         // the fragment stage, so the program needs two bindings per buffer. GL 4.3 guarantees only 8 and many drivers give 16.
         const std::size_t buffers = std::min<std::size_t>((*doc)["buffers"].size(), kMaxMeshBuffers);
@@ -739,13 +743,13 @@ Result<void> Assets::build_material_checked(MaterialAsset& m) {
     std::vector<MaterialBufferDef> buffers;
     std::vector<MaterialImageDef> images;
     int workgroup[3] = {64, 1, 1};
-    if (kind == MaterialKind::Mesh && twin.contains("buffers")) {
+    if ((kind == MaterialKind::Mesh || kind == MaterialKind::Sprite) && twin.contains("buffers")) {
         auto read = read_compute_twin(m.path, twin, textures.size(), nullptr, buffers, images);
         if (!read.ok()) return read.error();
         if (buffers.size() > std::size_t(kMaxMeshBuffers))
             return make_error("the shader of material '" + m.path + "' has " + std::to_string(buffers.size()) +
-                                  " buffers, at most " + std::to_string(kMaxMeshBuffers) +
-                                  " are read by a mesh material",
+                                  " buffers, at most " + std::to_string(kMaxMeshBuffers) + " are read by a " +
+                                  material_kind_name(kind) + " material",
                               kReexportHint);
         images.clear();
     }
@@ -1054,12 +1058,23 @@ MaterialRef Assets::resolve_kind_material(const std::string& path, const Json& o
         for (std::size_t i = 0; i < nTextures; ++i) key.textures[i] = material_texture(*m, int(i), overrides, *this);
         mix(key.params, nParams * sizeof(key.params[0]));
         mix(key.textures, nTextures * sizeof(key.textures[0]));
+        // The compute buffers of a material with "buffers" are part of what a batch draws from: the id of each, -1 when the
+        // value is not an integer (the Sprite is refused when it is gathered, sprite_buffer_draw.cpp, which says why).
+        const std::size_t nBuffers = std::min<std::size_t>(m->buffers.size(), std::size_t(kMaxMeshBuffers));
+        for (std::size_t i = 0; i < nBuffers; ++i) {
+            const Json::const_iterator it =
+                overrides.is_object() ? overrides.find(m->buffers[i].name) : Json::const_iterator();
+            if (overrides.is_object() && it != overrides.end() && it->is_number_integer())
+                key.bufferIds[i] = it->get<std::int64_t>();
+        }
+        mix(key.bufferIds, nBuffers * sizeof(key.bufferIds[0]));
     }
     MaterialRef ref;
     auto [first, last] = m->uses.equal_range(hash);
     for (auto it = first; it != last; ++it) {
         MaterialUse& u = *it->second;
         if (u.error == error && std::memcmp(u.params, key.params, nParams * sizeof(key.params[0])) == 0 &&
+            std::equal(std::begin(u.bufferIds), std::end(u.bufferIds), std::begin(key.bufferIds)) &&
             std::memcmp(u.textures, key.textures, nTextures * sizeof(key.textures[0])) == 0) {
             u.tick = tick;
             ref.use = &u;
