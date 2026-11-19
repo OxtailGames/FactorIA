@@ -503,7 +503,7 @@ struct Renderer::Impl {
     void prepass_view_pass(DrawContext& ctx, const Target& t);
     void draw_group(DrawContext& ctx, const std::vector<QuadBatch>& batches, const Mat4& vp, bool depthTest,
                     const Px& base, int flatMode = 0, const TargetFormat* format = nullptr,
-                    const FogFxPlan* fog = nullptr, int targetW = 0, int targetH = 0);
+                    const FogFxPlan* fog = nullptr, int passW = 0, int passH = 0);
     void main_pass(DrawContext& ctx, const PassContext& pc);
     void hud_pass(DrawContext& ctx, const Target& into, const char* label);
     // Declares the job's passes in `graph` (plan_job).

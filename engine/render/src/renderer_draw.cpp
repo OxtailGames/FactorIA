@@ -1754,7 +1754,7 @@ void Renderer::Impl::prepass_view_pass(DrawContext& ctx, const Target& t) {
 // (drawCalls, materials, materialFallbacks).
 void Renderer::Impl::draw_group(DrawContext& ctx, const std::vector<QuadBatch>& batches, const Mat4& vp, bool depthTest,
                                 const Px& base, int flatMode, const TargetFormat* format, const FogFxPlan* fog,
-                                int targetW, int targetH) {
+                                int passW, int passH) {
     Frame& fr = ctx.fr;
     const sg_buffer vbuf = ctx.vbuf;
     const sg_view shadowRowsTex = ctx.shadowRowsTex;
@@ -1829,9 +1829,9 @@ void Renderer::Impl::draw_group(DrawContext& ctx, const std::vector<QuadBatch>& 
     const sg_view lightTexBound = flatMode == 1 ? lightTarget.texView : assets->white()->view;
     const sg_view shadowTexBound = shadowRowsTex.id ? shadowRowsTex : assets->white()->view;
     // The material draws: fa_time and fa_target are filled for them only (the engine's own programs never read them).
-    // (the size of the image the pass draws into: the game target's, or `targetW` x `targetH` for a smaller one)
-    const float targetInv[2] = {1.0f / float(std::max(1, targetW > 0 ? targetW : physW)),
-                                1.0f / float(std::max(1, targetH > 0 ? targetH : physH))};
+    // (the size of the image the pass draws into: the game target's, or `passW` x `passH` for a smaller one)
+    const float targetInv[2] = {1.0f / float(std::max(1, passW > 0 ? passW : physW)),
+                                1.0f / float(std::max(1, passH > 0 ? passH : physH))};
     for (const QuadBatch& qb : batches) {
         apply_clip(qb.clip);
         const bool plain = qb.plain && !fogOn;  // the lean program has no fog
