@@ -734,6 +734,7 @@ Result<void> Assets::build_material_checked(MaterialAsset& m) {
     m.uv1 = uv1;
     m.color1 = color1;
     m.animated = kind == MaterialKind::Sky && twin.value("animated", false);
+    m.usesSun = kind == MaterialKind::Sky && twin.value("usesSun", false);
     m.missingNoted.clear();  // the "material-mesh" failures of the old build went too (build_material erases them)
     m.instancedNames.clear();
     for (const MaterialParamDef& p : m.instanced) m.instancedNames.push_back(p.name);

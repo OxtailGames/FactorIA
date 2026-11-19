@@ -14,6 +14,15 @@
 //   2 passes: picture -> scratch, scratch -> picture
 //   n passes: picture -> A, A -> B, B -> A, ... -> picture
 //
+// History (docs/shaders/SHADERS_POST.md, "History"): a pass whose snippet calls fa_history(uv) reads its OWN output of the frame before. The
+// renderer keeps it in two images of the camera's rectangle size and the picture's format, one pair per camera and per pass (a CustomHistory
+// slot), and the pass draws into one of them while it reads the other (ping-pong: no copy, and the image the pass writes is the one the
+// next pass of the chain reads, so it costs nothing extra; the only extra draw is the copy into the picture when it is the last pass of the
+// chain, which a chain of one pass does anyway). The slot is made when a frame plans a pass that asks, and freed kHistoryIdleFrames frames
+// after the last frame that did. The history is not valid (fa_history_valid is false and fa_history gives the picture) in the first frame of a
+// slot, when the images were made again (a resize, a scale or format change), when the camera was not drawn in the frame before or the
+// scene changed or its clock jumped (CustomHistoryFrame::continuous), after reset_history, and in a frame that is not one of the game's.
+//
 // A pass that cannot be drawn (the material did not build or is not a post material, its prepass is missing, the intermediate images
 // cannot be made) is SKIPPED, never drawn wrong: the picture stays as the pass before left it, the material's path goes to
 // RenderStats::materialFallbacks and the log says why once.
@@ -21,7 +30,10 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <map>
+#include <memory>
 #include <string>
+#include <tuple>
 #include <unordered_set>
 #include <vector>
 
@@ -47,15 +59,34 @@ struct CustomPostEntry {
     PostSlot slot = PostSlot::AfterBloom;
     MaterialProgram program;  // the material's one program ("post")
     bool readsPrepass = false;
+    bool usesHistory = false;  // the snippet calls fa_history: the program declares the history view
+    int ordinal =
+        0;  // how many entries before it in the plan use the same material: with the material, which history slot it is
     float params[kMaxMaterialParams][4]{};
     int textureCount = 0;
     sg_view views[kMaxMaterialTextures]{};
     SamplerKind samplers[kMaxMaterialTextures]{};
 };
 
+// What a camera tells the passes that keep a history about this frame (plan_job fills it).
+struct CustomHistoryFrame {
+    std::uint64_t camera =
+        0;        // Entity::bits() of the camera: its passes' histories are its own, so a camera never reads another's
+    int job = 0;  // which job of that camera in this frame (0 = the first): two views of one camera keep two histories
+    std::uint64_t serial = 0;  // Renderer::Impl::postSerial: the frames of the game (a capture_world does not count)
+    std::uint64_t frame = 0;   // Renderer::Impl::frameSerial: the idle count of the slots
+    std::uint64_t scene =
+        0;  // a hash of the scene's path and load count: another scene (or a reload) starts the histories again
+    bool continuous =
+        false;  // the camera was drawn in the frame before and the world's clock did not jump (PostPlan::prevValid)
+    bool game =
+        false;  // a frame of the game; false (capture_world, a frame the plan did not set up): no history is read or written
+};
+
 // The passes of a camera. Empty (any() false) when it has none.
 struct CustomPostPlan {
     std::vector<CustomPostEntry> entries;
+    CustomHistoryFrame history;
     bool any() const { return !entries.empty(); }
     bool any_in(PostSlot slot) const {
         for (const CustomPostEntry& e : entries)
@@ -118,10 +149,43 @@ public:
                    const BloomTarget& dst, sg_pixel_format format, const PrepassRef& prepass, bool linear, float time,
                    int* drawCalls, std::vector<std::string>& fallbacks, const std::string& job);
 
-    // Forgets that creating the intermediate images failed (the game target was resized or recreated).
+    // Forgets that creating the intermediate images failed (the game target was resized or recreated) and frees every history image.
     void forget_targets();
 
+    // Frees the history of the slots no frame planned in kHistoryIdleFrames frames (`frame`: the renderer's frameSerial; once per frame).
+    void sweep_history(std::uint64_t frame);
+    // Frees all the history images (the context is going away, or the game target changed size).
+    void release_history();
+    // The next frame of the pass(es) of `camera` (Entity::bits(); 0 = every camera) starts its history again.
+    void reset_history(std::uint64_t camera);
+    // The images the histories hold now (a test).
+    int history_image_count() const;
+
+    static constexpr std::uint64_t kHistoryIdleFrames =
+        120;  // frames, not seconds: the result does not depend on the CPU
+
 private:
+    // The history of one pass of one camera. `read` and `write` are chosen when the frame plans the pass; `wrote` is set by the pass when it
+    // really drew, so the next frame reads only what exists. The passes of the frame share the slot, so it outlives a release.
+    struct HistorySlot {
+        Target img[2];
+        int w = 0, h = 0;
+        sg_pixel_format format = SG_PIXELFORMAT_NONE;
+        std::uint64_t camera = 0, serial = 0, planned = 0, scene = 0;
+        int last = 0;        // the image the pass wrote in frame `serial`
+        bool wrote = false;  // it did
+        int read = 1, write = 0;
+        bool valid = false;  // this frame's plan: img[read] holds the pass's output of the frame before
+    };
+    // The slot of a pass for this frame: made (or made again) when missing or of another size or format; null when the GPU cannot make
+    // its images (one warning). `valid` is decided here.
+    // camera, job, material path, how many entries before it use the same material
+    using HistoryKey = std::tuple<std::uint64_t, int, std::string, int>;
+    std::shared_ptr<HistorySlot> plan_history(const CustomHistoryFrame& hf, const HistoryKey& key, int w, int h,
+                                              sg_pixel_format format, const std::string& label);
+    std::map<HistoryKey, std::shared_ptr<HistorySlot>> history_;
+    bool warnedHistory_ = false;
+
     std::vector<std::uint64_t> failed_;  // shapes whose images could not be made
     std::vector<std::uint64_t> probed_;  // shapes whose images were made once
     bool warnedTargets_ = false;

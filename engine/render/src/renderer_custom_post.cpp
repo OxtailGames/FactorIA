@@ -22,7 +22,8 @@ void note_fallback(std::vector<std::string>& fallbacks, const std::string& path)
 
 // The fragment block of post_common.glsl (fa_post_params, binding 1).
 struct PostParamsBlock {
-    float a[4];     // x = 1 on OpenGL (render targets are bottom-up), y = 1 in a linear scene
+    float a
+        [4];  // x = 1 on OpenGL (render targets are bottom-up), y = 1 in a linear scene, z = 1 when the history holds the frame before
     float rc[4];    // the rectangle of the source image the pass reads, as fractions: xy corner, zw size
     float size[4];  // xy = the camera's rectangle in pixels, zw = 1 / that
     float time[4];  // x = seconds of game time
@@ -45,9 +46,11 @@ struct PixelRect {
 };
 
 // One full-screen triangle with the material's program into `pd`. `src`: the picture so far; `prepass`: bound only when the program
-// declares it. `part`: the rectangle of the destination the pass covers (null: all of it). False (nothing drawn) when the target is gone or
+// declares it. `history`: the pass's own output of the frame before (bound only when the program declares it; when there is none, the
+// picture stands in: fa_history_valid is false then and the shader does not read it). `part`: the rectangle of the destination the pass covers (null: all of it). False (nothing drawn) when the target is gone or
 // the program has no pipeline for this format.
-bool draw_post(Gpu& gpu, const PassDesc& pd, const PassData& d, sg_view src, sg_view prepass, const PixelRect* part) {
+bool draw_post(Gpu& gpu, const PassDesc& pd, const PassData& d, sg_view src, sg_view prepass, sg_view history,
+               const PixelRect* part) {
     if (!pd.color.id || !src.id) return false;
     const bool usesPrepass = ((d.program.viewMask >> 1) & 1u) != 0;
     if (usesPrepass && !prepass.id) return false;
@@ -67,6 +70,7 @@ bool draw_post(Gpu& gpu, const PassDesc& pd, const PassData& d, sg_view src, sg_
         b.views[1] = prepass;
         b.samplers[1] = gpu.sampler(SamplerKind::Nearest);
     }
+    b.views[kMaterialPostHistoryView] = history.id ? history : src;
     for (int i = 0; i < d.textureCount; ++i) {
         b.views[kMaterialPostFirstView + i] = d.views[i];
         b.samplers[kMaterialPostFirstSampler + i] = gpu.sampler(d.samplers[i]);
@@ -151,6 +155,9 @@ CustomPostPlan make_custom_post_plan(const PostStack& stack, Assets& assets, std
         e.slot = p.slot;
         e.program = *prog;
         e.readsPrepass = ((prog->viewMask >> 1) & 1u) != 0;
+        e.usesHistory = ((prog->viewMask >> kMaterialPostHistoryView) & 1u) != 0;
+        for (const CustomPostEntry& before : plan.entries)
+            if (before.path == e.path) ++e.ordinal;
         std::memcpy(e.params, use->params, sizeof(e.params));
         const MaterialAsset& m = *use->material;
         e.textureCount = int(std::min<std::size_t>(m.textures.size(), std::size_t(kMaxMaterialTextures)));
@@ -167,6 +174,104 @@ void CustomPost::forget_targets() {
     failed_.clear();
     probed_.clear();
     warnedTargets_ = false;
+    release_history();
+}
+
+namespace {
+
+// What the history images of all the slots may take (an estimate: a float format is eight bytes a pixel). A wasm32 build has a quarter.
+constexpr std::uint64_t kHistoryBudgetBytes =
+    sizeof(void*) >= 8 ? (std::uint64_t(1) << 30) : (std::uint64_t(256) << 20);
+
+std::uint64_t history_bytes(int w, int h, sg_pixel_format format) {
+    const std::uint64_t perPixel = format == SG_PIXELFORMAT_RGBA32F ? 16 : format == SG_PIXELFORMAT_RGBA16F ? 8 : 4;
+    return 2 * perPixel * std::uint64_t(std::max(w, 0)) * std::uint64_t(std::max(h, 0));
+}
+
+}  // namespace
+
+void CustomPost::release_history() {
+    for (auto& entry : history_)
+        for (Target& t : entry.second->img) destroy_target(t);
+    history_.clear();
+}
+
+void CustomPost::sweep_history(std::uint64_t frame) {
+    for (auto it = history_.begin(); it != history_.end();) {
+        if (frame >= it->second->planned && frame - it->second->planned >= kHistoryIdleFrames) {
+            for (Target& t : it->second->img) destroy_target(t);
+            it = history_.erase(it);
+        } else {
+            ++it;
+        }
+    }
+}
+
+void CustomPost::reset_history(std::uint64_t camera) {
+    for (auto& entry : history_)
+        if (camera == 0 || entry.second->camera == camera) entry.second->wrote = false;
+}
+
+int CustomPost::history_image_count() const {
+    int count = 0;
+    for (const auto& entry : history_)
+        for (const Target& t : entry.second->img)
+            if (t.valid()) ++count;
+    return count;
+}
+
+std::shared_ptr<CustomPost::HistorySlot> CustomPost::plan_history(const CustomHistoryFrame& hf, const HistoryKey& key,
+                                                                  int w, int h, sg_pixel_format format,
+                                                                  const std::string& label) {
+    std::shared_ptr<HistorySlot> slot;
+    if (const auto it = history_.find(key); it != history_.end()) slot = it->second;
+    const bool fits =
+        slot && slot->w == w && slot->h == h && slot->format == format && slot->img[0].valid() && slot->img[1].valid();
+    if (!fits) {
+        // The budget counts every other slot's images (this one, if it exists, is made again).
+        std::uint64_t used = 0;
+        for (const auto& entry : history_)
+            if (entry.second != slot) used += history_bytes(entry.second->w, entry.second->h, entry.second->format);
+        const std::uint64_t wanted = history_bytes(w, h, format);
+        if (!slot) slot = std::make_shared<HistorySlot>();
+        for (Target& t : slot->img) destroy_target(t);
+        slot->wrote = false;
+        bool ok = used + wanted <= kHistoryBudgetBytes;
+        for (int i = 0; i < 2 && ok; ++i) {
+            TargetDesc d;
+            d.label = i == 0 ? "post-history-0" : "post-history-1";
+            d.width = w;
+            d.height = h;
+            d.colorFormat = format;
+            slot->img[i] = make_target(d);
+            ok = slot->img[i].valid();
+        }
+        if (!ok) {
+            for (Target& t : slot->img) destroy_target(t);
+            history_.erase(key);
+            if (!warnedHistory_) {
+                warnedHistory_ = true;
+                FA_ERROR("render",
+                         "Custom post pass '{}' keeps a history of {}x{} and the renderer cannot hold it (the history "
+                         "images take at "
+                         "most {} MB, or the GPU refused them); it is drawn without its history (fa_history_valid is "
+                         "false). Hint: "
+                         "lower the render scale or the number of passes that call fa_history.",
+                         label, w, h, kHistoryBudgetBytes >> 20);
+            }
+            return nullptr;
+        }
+        slot->w = w;
+        slot->h = h;
+        slot->format = format;
+        slot->camera = std::get<0>(key);
+        history_[key] = slot;
+    }
+    slot->valid = slot->wrote && slot->serial + 1 == hf.serial && slot->scene == hf.scene && hf.continuous;
+    slot->read = slot->last;
+    slot->write = 1 - slot->last;
+    slot->planned = hf.frame;
+    return slot;
 }
 
 int CustomPost::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, SceneFx& copier,
@@ -220,10 +325,29 @@ int CustomPost::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gp
     if (chain.empty()) return 0;
     const int n = int(chain.size());
 
+    // The passes that keep a history draw into an image of their slot (ping-pong: they read the one they wrote the frame before); the
+    // others into a scratch image, and the last of a chain with several passes straight into the picture. A slot that cannot be made
+    // leaves its pass without history (drawn as any other, fa_history_valid false). A frame that is not one of the game's (a
+    // capture_world) reads and writes no history either.
+    std::vector<std::shared_ptr<HistorySlot>> hist(static_cast<std::size_t>(n));
+    if (plan.history.game) {
+        for (int k = 0; k < n; ++k) {
+            const CustomPostEntry& e = *chain[std::size_t(k)];
+            if (e.usesHistory)
+                hist[std::size_t(k)] =
+                    plan_history(plan.history, HistoryKey{plan.history.camera, plan.history.job, e.path, e.ordinal},
+                                 rect.w, rect.h, fmt, e.name);
+        }
+    }
+    // The number of the scratch image each pass writes; -1 for the pass that writes the picture or an image of its history.
+    std::vector<int> scratchOf(static_cast<std::size_t>(n), -1);
+    int results = 0;
+    for (int k = 0; k < n; ++k)
+        if (!hist[std::size_t(k)] && !(k == n - 1 && n > 1)) scratchOf[std::size_t(k)] = results++;
+
     // The intermediate images: one for every result but the last (one more than that for a single pass, whose result is copied back).
     // The graph aliases the ones whose lifetimes do not overlap, so a long chain needs two. Make sure the GPU can have them, so a
     // failure is one warning here and not a pass that cannot run halfway through the frame.
-    const int results = n == 1 ? 1 : n - 1;
     const int need = std::min(results, 2);
     TransientDesc sd;
     sd.width = rect.w;
@@ -231,11 +355,12 @@ int CustomPost::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gp
     sd.format = scratchFormat;
     const std::uint64_t shapeKey = (std::uint64_t(rect.w) << 40) ^ (std::uint64_t(rect.h) << 16) ^ std::uint64_t(fmt) ^
                                    (std::uint64_t(need) << 62);
-    if (std::find(failed_.begin(), failed_.end(), shapeKey) != failed_.end()) {
+    if (need > 0 && std::find(failed_.begin(), failed_.end(), shapeKey) != failed_.end()) {
         for (const CustomPostEntry* e : chain) note_fallback(fallbacks, e->path);
         return 0;
     }
-    if (std::find(probed_.begin(), probed_.end(), shapeKey) == probed_.end()) {  // once per shape, not every frame
+    if (need > 0 &&
+        std::find(probed_.begin(), probed_.end(), shapeKey) == probed_.end()) {  // once per shape, not every frame
         std::vector<std::uint64_t> held;
         bool ok = true;
         for (int i = 0; i < need && ok; ++i) {
@@ -266,12 +391,32 @@ int CustomPost::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gp
         probed_.push_back(shapeKey);
     }
 
-    std::vector<ResourceId> images;
+    // What every pass of the chain writes: a scratch image of the frame, or an image of its history slot (imported: the renderer owns
+    // it). The pass that draws into the picture has no `res`.
+    struct Out {
+        ResourceId res;
+        std::shared_ptr<HistorySlot> hs;  // set: the image img[writeIdx] of the slot
+        int writeIdx = 0;
+    };
+    std::vector<Out> out(static_cast<std::size_t>(n));
+    std::vector<ResourceId> historyRead(
+        static_cast<std::size_t>(n));  // the imported image a valid history is read from
     const std::string prefix = job + "/custom-" + slot_name(slot);
-    for (int i = 0; i < results; ++i) {
-        TransientDesc d = sd;
-        d.label = prefix + "-image" + std::to_string(i);
-        images.push_back(graph.create_transient(d));
+    for (int k = 0; k < n; ++k) {
+        Out& o = out[std::size_t(k)];
+        if (const auto& hs = hist[std::size_t(k)]) {
+            TransientDesc d = sd;
+            d.label = prefix + "-history" + std::to_string(k);
+            o.hs = hs;
+            o.writeIdx = hs->write;
+            o.res = graph.import_target(d.label + "-out", hs->img[hs->write].color.id, d);
+            if (hs->valid)
+                historyRead[std::size_t(k)] = graph.import_target(d.label + "-in", hs->img[hs->read].color.id, d);
+        } else if (scratchOf[std::size_t(k)] >= 0) {
+            TransientDesc d = sd;
+            d.label = prefix + "-image" + std::to_string(scratchOf[std::size_t(k)]);
+            o.res = graph.create_transient(d);
+        }
     }
 
     int declared = 0;
@@ -282,6 +427,7 @@ int CustomPost::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gp
     const float gl = gpu.is_gl() ? 1.0f : 0.0f;
     const ResourceId pre = prepass.res;
     const PrepassRef prepassRef = prepass;
+    const CustomHistoryFrame hf = plan.history;
     auto add = [&](const std::string& name, std::vector<ResourceId> reads, std::vector<ResourceId> writes, auto&& fn) {
         GraphPass gp;
         gp.name = name;
@@ -291,9 +437,14 @@ int CustomPost::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gp
         graph.add_pass(std::move(gp));
         ++declared;
     };
-    auto into_image = [tt](const PassContext& c, ResourceId r, const char* label) {
-        const Target* t = tt->get(c.handle(r));
-        PassDesc pd = t ? pass_into(*t, label) : PassDesc{};
+    auto into_image = [tt](const PassContext& c, const Out& o, const char* label) {
+        PassDesc pd;
+        if (o.hs) {
+            pd = pass_into(o.hs->img[o.writeIdx], label);
+        } else {
+            const Target* t = tt->get(c.handle(o.res));
+            pd = t ? pass_into(*t, label) : PassDesc{};
+        }
         pd.colorLoad = SG_LOADACTION_DONTCARE;
         return pd;
     };
@@ -307,8 +458,9 @@ int CustomPost::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gp
         pd.colorStore = SG_STOREACTION_STORE;
         return pd;
     };
-    auto view_of = [tt](const PassContext& c, ResourceId r) {
-        const Target* t = tt->get(c.handle(r));
+    auto view_of = [tt](const PassContext& c, const Out& o) {
+        if (o.hs) return o.hs->img[o.writeIdx].texView;
+        const Target* t = tt->get(c.handle(o.res));
         return t ? t->texView : sg_view{};
     };
 
@@ -322,17 +474,21 @@ int CustomPost::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gp
             data->views[i] = e.views[i];
             data->samplers[i] = e.samplers[i];
         }
+        const std::shared_ptr<HistorySlot> hs = hist[std::size_t(k)];
+        const bool histValid = hs && hs->valid;
         PostParamsBlock& u = data->block;
         u.a[0] = gl;
         u.a[1] = linear ? 1.0f : 0.0f;
+        u.a[2] = histValid ? 1.0f : 0.0f;
         u.size[0] = float(rect.w);
         u.size[1] = float(rect.h);
         u.size[2] = 1.0f / float(rect.w);
         u.size[3] = 1.0f / float(rect.h);
         u.time[0] = time;
         const bool first = k == 0;
-        const bool last = k == n - 1 && n > 1;  // a single pass draws into an image and is copied back
-        if (first) {                            // reads the picture's rectangle
+        const bool direct =
+            k == n - 1 && n > 1 && !hs;  // draws into the picture; the others into an image (copied back after)
+        if (first) {                     // reads the picture's rectangle
             u.rc[0] = ruv.x;
             u.rc[1] = ruv.y;
             u.rc[2] = ruv.w;
@@ -340,34 +496,44 @@ int CustomPost::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gp
         } else {  // reads a whole image
             u.rc[2] = u.rc[3] = 1.0f;
         }
+        const Out prev = first ? Out{} : out[std::size_t(k - 1)];
+        const Out self = out[std::size_t(k)];
+        const sg_view histView = histValid ? hs->img[hs->read].texView : sg_view{};
         std::vector<ResourceId> reads;
-        reads.push_back(first ? game : images[std::size_t(k - 1)]);
+        reads.push_back(first ? game : prev.res);
         if (e.readsPrepass) reads.push_back(pre);
-        if (last) {
+        if (histValid) reads.push_back(historyRead[std::size_t(k)]);
+        if (direct) {
             reads.push_back(game);
             add(prefix + "-pass" + std::to_string(k), std::move(reads), {game}, [=](const PassContext& c) {
                 const Target* pt = prepassRef.target(c);
-                const sg_view src = view_of(c, images[std::size_t(k - 1)]);
-                if (draw_post(*g, into_picture("custom-post"), *data, src, pt ? pt->texView : sg_view{},
+                const sg_view src = view_of(c, prev);
+                if (draw_post(*g, into_picture("custom-post"), *data, src, pt ? pt->texView : sg_view{}, histView,
                               rect.whole ? nullptr : &rect))
                     ++*drawCalls;
             });
         } else {
-            add(prefix + "-pass" + std::to_string(k), std::move(reads), {images[std::size_t(k)]},
-                [=](const PassContext& c) {
-                    const Target* pt = prepassRef.target(c);
-                    const sg_view src = first ? srcTex : view_of(c, images[std::size_t(k - 1)]);
-                    if (draw_post(*g, into_image(c, images[std::size_t(k)], "custom-post"), *data, src,
-                                  pt ? pt->texView : sg_view{}, nullptr))
-                        ++*drawCalls;
-                });
+            add(prefix + "-pass" + std::to_string(k), std::move(reads), {self.res}, [=](const PassContext& c) {
+                const Target* pt = prepassRef.target(c);
+                const sg_view src = first ? srcTex : view_of(c, prev);
+                const bool drew = draw_post(*g, into_image(c, self, "custom-post"), *data, src,
+                                            pt ? pt->texView : sg_view{}, histView, nullptr);
+                if (drew) ++*drawCalls;
+                if (drew && hs) {  // what the next frame's pass reads
+                    hs->wrote = true;
+                    hs->last = self.writeIdx;
+                    hs->serial = hf.serial;
+                    hs->scene = hf.scene;
+                }
+            });
         }
     }
-    if (n == 1) {  // the result is in the image: copy it into the camera's rectangle of the picture
-        const ResourceId image = images[0];
-        add(prefix + "-copy", {image, game}, {game}, [=](const PassContext& c) {
+    if (n == 1 ||
+        hist[std::size_t(n - 1)]) {  // the result is in an image: copy it into the camera's rectangle of the picture
+        const Out last = out[std::size_t(n - 1)];
+        add(prefix + "-copy", {last.res, game}, {game}, [=](const PassContext& c) {
             const int part[4] = {rect.x, rect.y, rect.w, rect.h};
-            if (fx->copy_into(*g, into_picture("custom-post-copy"), view_of(c, image), rect.whole ? nullptr : part))
+            if (fx->copy_into(*g, into_picture("custom-post-copy"), view_of(c, last), rect.whole ? nullptr : part))
                 ++*drawCalls;
         });
     }

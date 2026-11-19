@@ -65,7 +65,7 @@ void Editor::at_section_Q3(AtScript& at) {
         at_check(undo_depth() == *depth0 + 1, "...as one undo step");
     });
     step(6, [this] {
-        at_check(at_visible("insp:matparam:tint") && at_visible("insp:matparam:strength"),
+        at_check(at_visible("insp:SceneSettings:matparam:tint") && at_visible("insp:SceneSettings:matparam:strength"),
                  "the panel shows one control per param of the sky material, typed by material.info");
         at_check(at_visible("sset:note"), "...and says what the material is (a sky one)");
         at_check(at_visible("sset:reset:skyMaterial"), "...and a Reset appears for the field that changed");
@@ -84,12 +84,12 @@ void Editor::at_section_Q3(AtScript& at) {
         at_check(undo_depth() == *depth0 + 2, "...as a second undo step");
     });
     step(6, [this] {
-        at_check(at_enabled("insp:matreset:strength") && !at_enabled("insp:matreset:tint"),
+        at_check(at_enabled("insp:SceneSettings:matreset:strength") && !at_enabled("insp:SceneSettings:matreset:tint"),
                  "the param's Reset is enabled for the overridden param only");
         pendingFocus_ = "Scene settings";
     });
-    scroll_to("insp:matreset:strength", "Scene settings");
-    click("insp:matreset:strength");
+    scroll_to("insp:SceneSettings:matreset:strength", "Scene settings");
+    click("insp:SceneSettings:matreset:strength");
     step(4, [this, depth0] {
         const Json& p = world().settings().skyMaterialParams;
         at_check(!p.contains("strength"), "the param's Reset button removes the override from the scene settings");
@@ -105,7 +105,7 @@ void Editor::at_section_Q3(AtScript& at) {
         at_check(undo_depth() == *depth0 + 4, "...as one undo step");
     });
     step(4, [this] {
-        at_check(!at_visible("insp:matparam:tint"), "with no sky material the typed params are gone");
+        at_check(!at_visible("insp:SceneSettings:matparam:tint"), "with no sky material the typed params are gone");
         pendingFocus_ = "Scene settings";
     });
 

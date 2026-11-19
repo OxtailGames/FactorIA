@@ -1359,6 +1359,19 @@ void add_sky_scene(World& w, const char* skyMaterial, const Json& params = Json(
 
 namespace {
 // The largest per-channel difference (0..255) between the top `rows` rows of two frames: the rows that hold only the sky.
+// The mean absolute difference of the colour channels over the pixels of a rectangle (the part of the frame the mesh covers).
+double rect_mean_diff(const Image& a, const Image& b, int x0, int y0, int x1, int y1) {
+    double sum = 0.0;
+    int n = 0;
+    for (int y = y0; y < y1; ++y)
+        for (int x = x0; x < x1; ++x) {
+            const Color p = a.pixel(x, y), q = b.pixel(x, y);
+            sum += std::fabs(p.r - q.r) + std::fabs(p.g - q.g) + std::fabs(p.b - q.b);
+            ++n;
+        }
+    return n ? sum / (3.0 * n) : 0.0;
+}
+
 int top_rows_diff(const Image& a, const Image& b, int rows) {
     int worst = 0;
     for (int y = 0; y < rows; ++y)
@@ -1380,8 +1393,12 @@ TEST_CASE("sky materials: a material whose sky() is empty draws exactly the buil
     auto frame = [&](const char* material) {
         World w;
         add_sky_scene(w, material);
-        w.settings().skyColor = Color::hex(0x3060c0);
-        w.settings().horizonColor = Color::hex(0xe0b080);
+        // colours no other test baked: the count of draws below needs a bake that has not happened yet
+        // One colour for the whole sky, and the same one as the scene's ambient light: the sky a mesh is lit by is then the same
+        // light as the analytic path (ambientLight + gradient) gave it, so the two frames can be compared on the cube itself.
+        w.settings().skyColor = Color{0.31f, 0.43f, 0.57f, 1};
+        w.settings().horizonColor = Color{0.31f, 0.43f, 0.57f, 1};
+        w.settings().ambientLight = Color{0.31f, 0.43f, 0.57f, 1};
         return g.render(w);
     };
     const Image builtIn = frame("");
@@ -1400,8 +1417,12 @@ TEST_CASE("sky materials: a material whose sky() is empty draws exactly the buil
     CHECK(diff_images(material, again, 0.0f).maxError == 0.0);
     // the sky is really in the picture: the top of the frame is not the clear colour of a frame without a sky
     CHECK(builtIn.pixel(160, 2).b > 0.3f);
-    // The baked built-in gradient lights the mesh about like the analytic one did: a smooth sky, a few levels apart.
-    CHECK(diff_images(builtIn, material, 24.0f / 255.0f).meanError < 0.03);
+    // A sky of one colour lights the mesh like an ambient light and a gradient of that colour did (the irradiance cube is divided by pi
+    // and the prefiltered one holds the colour): measured on the pixels of the cube (the middle of the frame), where a difference
+    // would be, not diluted by the sky around it.
+    const double cubeDiff = rect_mean_diff(builtIn, material, 138, 76, 182, 104);
+    MESSAGE("mean difference on the cube: " << cubeDiff);
+    CHECK(cubeDiff < 0.05);
 }
 
 TEST_CASE(
@@ -1575,6 +1596,59 @@ TEST_CASE("sky materials: the environment is baked again when the sky changes, a
         w.advance_clock(kEnvTimeStep * 2.0);
         g.render(w);
         CHECK(calls() == baked);  // two steps later: baked again
+    }
+}
+
+TEST_CASE("sky materials: a turning sun bakes again only a sky whose snippet reads the sun") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    MaterialScope scope;
+    auto calls = [&]() { return g.renderer.stats().drawCalls; };
+    auto turn_sun = [](World& w, float yaw) {
+        w.each<Light>([&](Entity e, Light&) { w.get<Transform>(e)->rotation = Vec3{-50, yaw, 0}; });
+    };
+    // colours no other test baked, one per material, so the first frame of each is a bake
+    for (const char* material : {"materials/skygrad.material.json", "materials/skysun.material.json"}) {
+        const bool readsSun = std::string(material).find("skysun") != std::string::npos;
+        World w;
+        add_sky_scene(w, material);
+        w.settings().skyColor = readsSun ? Color{0.41f, 0.42f, 0.43f, 1} : Color{0.44f, 0.45f, 0.46f, 1};
+        g.render(w);
+        const auto baked = calls();
+        turn_sun(w, 80.0f);
+        g.render(w);
+        // the sun moved: a sky that reads it is baked again (the draws of the bake come back), one that does not is not
+        CHECK(calls() == (readsSun ? baked : baked - kEnvPasses));
+        turn_sun(w, 80.0f);
+        g.render(w);
+        CHECK(calls() == baked - kEnvPasses);  // the sun stood still: nothing to bake
+    }
+}
+
+TEST_CASE("sky materials: a sky that appears after the first frame of meshes makes no second sampler") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    MaterialScope scope;
+    {  // a frame of meshes without a sky material: the blank cube and the sampler of the environment are made
+        World w;
+        add_sky_scene(w, "");
+        g.render(w);
+    }
+    // then the sky: ready() must keep the sampler that blank_view() made (it once made a new one and leaked the first)
+    render::Gpu& gpu = *render::renderer_gpu(g.renderer);
+    render::Environment env;
+    env.blank_view(gpu);
+    const sg_sampler first = env.sampler();
+    REQUIRE(first.id != 0);
+    REQUIRE(env.ready(gpu));
+    CHECK(env.sampler().id == first.id);
+    env.release();
+    {  // and through the renderer
+        World w;
+        add_sky_scene(w, "materials/skygrad.material.json");
+        w.settings().skyColor = Color{0.47f, 0.48f, 0.49f, 1};
+        g.render(w);
+        CHECK(g.renderer.stats().materialFallbacks.empty());
     }
 }
 

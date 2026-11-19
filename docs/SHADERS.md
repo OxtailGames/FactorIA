@@ -996,8 +996,7 @@ the page [Full shaders and passes](shaders/SHADERS_FULL.md) (`factoria docs read
 - Compute storage images and compute on Android and the web; per-instance params
   in a sky or compute material and vertex channels (`vertexAttributes`) in a sprite, sky or compute material (a mesh
   has them).
-- **Post passes** that need the previous frame (a feedback or trail effect); a pass sees the depth and normals of mesh geometry
-  only (not of sprites).
+- **Post passes** see the depth and normals of mesh geometry only (not of sprites).
 
 If a game needs one of these, write it in the game's `ENGINE_FEEDBACK.json` (see [ENGINE_FEEDBACK.md](ENGINE_FEEDBACK.md)):
 that is how it gets built.
