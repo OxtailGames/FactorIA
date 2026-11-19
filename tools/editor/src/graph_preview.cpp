@@ -2,9 +2,12 @@
 #include "graph_preview.h"
 
 #include <algorithm>
+#include <atomic>
+#include <chrono>
 #include <cmath>
 #include <exception>
 #include <filesystem>
+#include <thread>
 
 #include "fa/core/fs.h"
 #include "fa/render/renderer.h"
@@ -31,7 +34,7 @@ std::string clip(std::string s) {
     return s;
 }
 
-Json preview_material(const Json& doc, const char* snippetPath) {
+Json preview_material(const Json& doc, const std::string& snippetPath) {
     Json m = doc;
     m.erase("graph");
     m.erase("graphHash");
@@ -133,21 +136,35 @@ struct GraphPreview::Job {
 };
 
 GraphPreview::GraphPreview(std::string projectDir) : projectDir_(std::move(projectDir)) {
-    cur_.stageMaterial = ".factoria/material-preview/stage.material.json";
-    cur_.stageSnippet = ".factoria/material-preview/stage.surface.glsl";
+    // A token for this instance: a counter (two previews of one process) and the clock (another editor process on the same project).
+    static std::atomic<unsigned> instances{0};
+    const std::string token =
+        std::to_string(instances.fetch_add(1)) + "-" +
+        std::to_string(std::uint64_t(std::chrono::steady_clock::now().time_since_epoch().count()) & 0xffffffULL);
+    cur_.stageMaterial = std::string(kDir) + "stage-" + token + ".material.json";
+    cur_.stageSnippet = std::string(kDir) + "stage-" + token + ".surface.glsl";
     cur_.liveMaterial = ".factoria/material-preview/preview.material.json";
     cur_.liveSnippet = ".factoria/material-preview/preview.surface.glsl";
-    saved_.stageMaterial = ".factoria/material-preview/saved-stage.material.json";
-    saved_.stageSnippet = ".factoria/material-preview/saved-stage.surface.glsl";
+    saved_.stageMaterial = std::string(kDir) + "saved-stage-" + token + ".material.json";
+    saved_.stageSnippet = std::string(kDir) + "saved-stage-" + token + ".surface.glsl";
     saved_.liveMaterial = ".factoria/material-preview/saved.material.json";
     saved_.liveSnippet = ".factoria/material-preview/saved.surface.glsl";
 }
 
 GraphPreview::~GraphPreview() {
-    // A compile that is still running (sokol-shdc can take seconds) never blocks the UI thread: the worker only holds copies
-    // (the project directory and the shared job), so it is let go and ends by itself.
-    if (cur_.worker.joinable()) cur_.worker.detach();
-    if (saved_.worker.joinable()) saved_.worker.detach();
+    // Waits for a compile that is still running, but not for ever (sokol-shdc can take seconds and this runs on the UI thread): the worker only
+    // holds copies (the project directory and the shared job) and writes files that carry this instance's token, so one that outlasts the wait is
+    // let go and ends by itself.
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(kCloseWaitMs);
+    for (Slot* s : {&cur_, &saved_}) {
+        if (!s->worker.joinable()) continue;
+        while (s->job && !s->job->done.load(std::memory_order_acquire) && std::chrono::steady_clock::now() < deadline)
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        if (!s->job || s->job->done.load(std::memory_order_acquire))
+            s->worker.join();
+        else
+            s->worker.detach();
+    }
 }
 
 Json GraphPreview::fitting_overrides(const Json& overrides, const Json& material) {
@@ -455,6 +472,10 @@ void GraphPreview::start(Slot& s, Renderer* renderer) {
             job->ok = false;
             job->error = "The preview compile failed with an unknown error.";
         }
+        // the stage files are this compile's own (their names carry the instance's token): nothing reads them again
+        std::error_code rm;
+        stdfs::remove(stdfs::path(abs_path(projectDir, job->stageSnippet)), rm);
+        stdfs::remove(stdfs::path(abs_path(projectDir, job->stageMaterial)), rm);
         job->done.store(true, std::memory_order_release);
     };
     if (immediate_) {

@@ -151,7 +151,8 @@ void Editor::at_section_G3(AtScript& at) {
                      "a click in the palette adds the node (noise_fbm)");
             at_check(undo_depth() == gs->undo + 1, "...as one undo step");
         });
-        right_click_graph(0.0f, 200.0f);
+        right_click_graph(0.0f,
+                          300.0f);  // below the noise node (about 250 units tall at its default size): empty canvas
         wait_until([this] { return at_visible("gr:add:param"); }, "the palette to list the param node");
         click_widget("gr:add:param");
         right_click_graph(220.0f, 60.0f);
@@ -378,14 +379,43 @@ void Editor::at_section_G3(AtScript& at) {
                      "Overwrite writes the snippet from the graph again");
         });
 
+        // ---- a file that changed on disk behind the editor: Save asks before it replaces it
+        step(3, [this, gs, rel, read_text] {
+            GraphModel& m = *graph_.model;
+            graph_edited(m.move_nodes({"out"}, 10.0f, 0.0f));
+            gs->fileBefore =
+                read_text(rel) + "\n";  // another size: the change is seen at once, whatever the file times do
+            std::ofstream(stdfs::path(projectDir_) / rel, std::ios::binary) << gs->fileBefore;
+            at_check(m.dirty(), "an unsaved move, and the file written by someone else");
+        });
+        click_widget("gr:save");
+        wait_until([this] { return at_visible("gr:conflict:overwrite"); },
+                   "the question before replacing a file that changed");
+        step(3, [this, gs, rel, read_text] {
+            at_check(read_text(rel) == gs->fileBefore, "Save asked first: the file is still the outside version");
+        });
+        click_widget("gr:conflict:cancel");
+        step(3, [this, gs, rel, read_text] {
+            at_check(read_text(rel) == gs->fileBefore && graph_.model->dirty() && graph_.model->external_conflict(),
+                     "Cancel writes nothing and keeps the unsaved graph");
+        });
+        click_widget("gr:save");
+        wait_until([this] { return at_visible("gr:conflict:overwrite"); }, "the question again");
+        click_widget("gr:conflict:overwrite");
+        step(3, [this, gs, rel, read_text] {
+            at_check(read_text(rel) != gs->fileBefore && !graph_.model->dirty() && !graph_.model->external_conflict(),
+                     "Overwrite writes the graph over the file");
+        });
+
         // ---- Undo and Redo through the editor's stack
         step(3, [this, gs] {
-            while (undo_depth() > gs->undo) undo();
+            // every undo takes one entry off the stack, so the loop ends after as many calls as there were entries
+            for (size_t left = undo_depth(); left > 0 && undo_depth() > gs->undo; --left) undo();
             GraphModel& m = *graph_.model;
             at_check(m.node_count() == 1 && m.link_count() == 0, "Undo walks every edit back to the one-node graph");
         });
         step(3, [this, gs] {
-            for (int i = 0; i < 40; ++i) redo();
+            for (size_t left = redo_.size(); left > 0 && !redo_.empty(); --left) redo();  // one entry per call
             GraphModel& m = *graph_.model;
             at_check(m.node_count() == 4 && m.link_count() == 4 && !m.has_errors(),
                      "Redo brings the dissolve graph back");
@@ -474,7 +504,8 @@ void Editor::at_section_G3(AtScript& at) {
                      "Rename wrote the new name into the file");
             at_check(m.entry_readers(false, "shine").size() == 1 && !m.has_errors(),
                      "...and the node reads the new name");
-            at_check(undo_depth() == gs->undoEntry + 4, "...as one undo step");
+            at_check(undo_depth() == gs->undoEntry + 4,
+                     "...the create, the param node, its name and the rename are four undo steps in all");
         });
         // delete of a param a node reads is refused, naming and selecting the node
         click_widget("gr:param:delete:shine");
@@ -489,13 +520,15 @@ void Editor::at_section_G3(AtScript& at) {
         });
         // back out: the three entries come off the stack, the file loses the param
         step(3, [this, gs, rel, read_text] {
-            while (undo_depth() > gs->undoEntry) undo();
+            for (size_t left = undo_depth(); left > 0 && undo_depth() > gs->undoEntry; --left) undo();
             const Json file = Json::parse(read_text(rel), nullptr, false);
             at_check(!file.is_discarded() && !file["params"].contains("shine") && !file["params"].contains("glow"),
                      "Undo takes the param out of the file again");
             at_check(graph_.model->node_count() == 4, "...and the node with it");
         });
 
+        // the preview compiles on a worker thread: its files go only after it has finished
+        wait_until([this] { return !graph_.preview || !graph_.preview->busy(); }, "the preview to finish compiling");
         step(2, [this, dir] {
             showGraph_ = false;
             graph_close_document();

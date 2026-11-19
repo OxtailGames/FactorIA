@@ -18,6 +18,10 @@ namespace {
 
 const std::vector<std::string> kFieldTypes = {"float", "vec2", "vec3", "vec4", "int", "uint"};
 const std::vector<std::string> kBufferAccess = {"readWrite", "read"};
+// The formats sokol-shdc takes as a storage image layout (its access_format) and every compute backend can write.
+const std::vector<std::string> kImageFormats = {"rgba8", "rgba16f", "r32f", "rgba32f"};
+// sokol-shdc refuses a readonly image2D ("use regular textures instead"), so the access of an image is write or readWrite.
+const std::vector<std::string> kImageAccess = {"write", "readWrite"};
 
 int type_size(const std::string& type) {
     if (type == "vec2") return 8;
@@ -239,12 +243,110 @@ void parse_buffers(const Json& doc, MaterialDef& m, std::vector<MaterialIssue>& 
     }
 }
 
+void parse_images(const Json& doc, MaterialDef& m, std::vector<MaterialIssue>& errors, std::set<std::string>& taken,
+                  const CheckName& checkName) {
+    auto is = doc.find("images");
+    if (is == doc.end()) return;
+    if (!is->is_object()) {
+        error(errors, "/images", "expected an object, got " + describe_json_value(*is),
+              "Write \"images\": {\"field\": {\"format\": \"rgba8\", \"size\": [256, 256]}}.");
+        return;
+    }
+    if (int(is->size()) > kComputeMaxMaterialImages)
+        error(errors, "/images",
+              std::to_string(is->size()) + " images, at most " + std::to_string(kComputeMaxMaterialImages) +
+                  " (the storage image bindings every GPU with compute guarantees to one shader)",
+              "Pack the channels that are written together into one rgba image, or use a second material.");
+    static const std::vector<std::string> keys = {"doc", "format", "access", "size"};
+    for (auto it = is->begin(); it != is->end(); ++it) {
+        const std::string ptr = "/images/" + escape_token(it.key());
+        const bool nameOk = checkName(ptr, it.key(), "image");
+        MaterialImage image;
+        image.name = it.key();
+        const Json& b = it.value();
+        if (!b.is_object()) {
+            error(errors, ptr, "expected an object, got " + describe_json_value(b),
+                  "Write \"" + it.key() + "\": {\"format\": \"rgba8\", \"access\": \"write\", \"size\": [256, 256]}.");
+            continue;
+        }
+        for (auto k = b.begin(); k != b.end(); ++k)
+            if (std::find(keys.begin(), keys.end(), k.key()) == keys.end())
+                error(errors, ptr + "/" + escape_token(k.key()), "unknown key \"" + k.key() + "\"",
+                      did_you_mean(k.key(), keys));
+        if (auto d = b.find("doc"); d != b.end()) {
+            if (d->is_string())
+                image.doc = d->get<std::string>();
+            else
+                error(errors, ptr + "/doc", "expected a string, got " + describe_json_value(*d),
+                      "Write \"doc\": \"...\".");
+        }
+        if (auto f = b.find("format"); f != b.end()) {
+            if (!f->is_string() ||
+                std::find(kImageFormats.begin(), kImageFormats.end(), f->get<std::string>()) == kImageFormats.end())
+                error(errors, ptr + "/format",
+                      std::string("unknown image format ") +
+                          (f->is_string() ? "\"" + f->get<std::string>() + "\"" : describe_json_value(*f)),
+                      f->is_string() ? did_you_mean(f->get<std::string>(), kImageFormats) +
+                                           " Formats: " + join(kImageFormats, ", ") + "."
+                                     : "Use one of: " + join(kImageFormats, ", ") + ".");
+            else
+                image.format = f->get<std::string>();
+        }
+        if (auto a = b.find("access"); a != b.end()) {
+            if (a->is_string() && a->get<std::string>() == "read")
+                error(errors, ptr + "/access",
+                      "a storage image cannot be read-only (the shader compiler refuses a readonly image2D)",
+                      "To only read an image, declare it a texture of the material (\"textures\") and use "
+                      "texelFetch/texture; use \"write\" (imageStore) or \"readWrite\" (imageStore and imageLoad).");
+            else if (!a->is_string() ||
+                     std::find(kImageAccess.begin(), kImageAccess.end(), a->get<std::string>()) == kImageAccess.end())
+                error(errors, ptr + "/access",
+                      std::string("unknown access ") +
+                          (a->is_string() ? "\"" + a->get<std::string>() + "\"" : describe_json_value(*a)),
+                      a->is_string()
+                          ? did_you_mean(a->get<std::string>(), kImageAccess)
+                          : "Use \"write\" (the default; imageStore) or \"readWrite\" (imageStore and imageLoad).");
+            else
+                image.access = a->get<std::string>();
+        }
+        if (auto s = b.find("size"); s != b.end()) {
+            const char* hint = "Write \"size\": [256, 256] (width, height in pixels) or [512] for a square image.";
+            if (!s->is_array() || s->empty() || s->size() > 2) {
+                error(errors, ptr + "/size", "expected an array of 1 or 2 integers, got " + describe_json_value(*s),
+                      hint);
+            } else {
+                int dims[2] = {0, 0};
+                for (std::size_t i = 0; i < s->size(); ++i) {
+                    const Json& v = (*s)[i];
+                    const bool whole = v.is_number() && std::floor(v.get<double>()) == v.get<double>();
+                    if (!whole || v.get<double>() < 1 || v.get<double>() > kComputeMaxImageSize)
+                        error(errors, ptr + "/size/" + std::to_string(i),
+                              "expected a whole number from 1 to " + std::to_string(kComputeMaxImageSize) + ", got " +
+                                  describe_json_value(v),
+                              hint);
+                    else
+                        dims[i] = int(v.get<double>());
+                }
+                if (dims[0] > 0 && (s->size() == 1 || dims[1] > 0)) {
+                    image.width = dims[0];
+                    image.height = s->size() == 1 ? dims[0] : dims[1];
+                }
+            }
+        }
+        if (!nameOk) continue;
+        if (!taken.insert(it.key()).second)
+            error(errors, ptr, "name \"" + it.key() + "\" is used twice",
+                  "Image, buffer, param and texture names share one namespace.");
+        m.images.push_back(std::move(image));
+    }
+}
+
 }  // namespace
 
 void parse_compute_fields(const Json& doc, MaterialDef& m, std::vector<MaterialIssue>& errors,
                           std::set<std::string>& taken, const CheckName& checkName) {
     if (m.kind != "compute") {
-        for (const char* key : {"workgroupSize", "buffers"})
+        for (const char* key : {"workgroupSize", "buffers", "images"})
             if (doc.contains(key))
                 error(errors, std::string("/") + key, std::string("\"") + key + "\" belongs to compute materials",
                       "Add \"kind\": \"compute\", or remove \"" + std::string(key) + "\".");
@@ -256,9 +358,13 @@ void parse_compute_fields(const Json& doc, MaterialDef& m, std::vector<MaterialI
                   "A compute material draws nothing: remove \"" + std::string(key) + "\".");
     parse_workgroup(doc, m, errors);
     parse_buffers(doc, m, errors, taken, checkName);
+    parse_images(doc, m, errors, taken, checkName);
     std::sort(m.buffers.begin(), m.buffers.end(),
               [](const MaterialBuffer& a, const MaterialBuffer& b) { return a.name < b.name; });
     for (std::size_t i = 0; i < m.buffers.size(); ++i) m.buffers[i].binding = int(i);
+    std::sort(m.images.begin(), m.images.end(),
+              [](const MaterialImage& a, const MaterialImage& b) { return a.name < b.name; });
+    for (std::size_t i = 0; i < m.images.size(); ++i) m.images[i].binding = int(m.buffers.size() + i);
 }
 
 bool defines_compute_entry(const std::string& strippedSnippet) {
@@ -278,8 +384,19 @@ Json compute_twin_fields(const MaterialDef& m) {
                                         {"access", b.access},
                                         {"fields", fields}}));
     }
-    return Json::object({{"workgroupSize", Json::array({m.workgroupSize[0], m.workgroupSize[1], m.workgroupSize[2]})},
-                         {"buffers", buffers}});
+    Json images = Json::array();
+    for (const MaterialImage& im : m.images)
+        images.push_back(Json::object({{"name", im.name},
+                                       {"binding", im.binding},
+                                       {"format", im.format},
+                                       {"access", im.access},
+                                       {"width", im.width},
+                                       {"height", im.height}}));
+    Json out =
+        Json::object({{"workgroupSize", Json::array({m.workgroupSize[0], m.workgroupSize[1], m.workgroupSize[2]})},
+                      {"buffers", buffers}});
+    if (!images.empty()) out["images"] = images;  // a material without images keeps the twin it always had
+    return out;
 }
 
 }  // namespace shaders_detail
@@ -311,8 +428,8 @@ GeneratedShader generate_compute_shader(const MaterialDef& material, std::string
             if (c == '\n') g.snippetLine.push_back(0);
     };
     generated("@module fa_mat\n@block fa_user\n");
-    // One uniform block (binding 0, the compute stage), the storage buffers from binding 0, then the textures: their views
-    // bind after the buffers (sokol numbers every view slot of a shader once) and their samplers from 0.
+    // One uniform block (binding 0, the compute stage), the storage buffers from binding 0, the storage images, then the
+    // textures: their views bind after the images (sokol numbers every view slot of a shader once) and their samplers from 0.
     if (!material.params.empty()) {
         std::string block = "layout(binding=0) uniform fa_material {\n";
         int pad = 0;
@@ -331,7 +448,11 @@ GeneratedShader generate_compute_shader(const MaterialDef& material, std::string
              " buffer fa_" + b.name + "_buf { " + b.name + "_item data[]; } " + b.name + ";\n";
         generated(s);
     }
-    int view = int(material.buffers.size()), sampler = 0;
+    // A storage image is a view slot after the buffers (layout(binding) is the slot; sokol-shdc numbers the GLSL image units itself).
+    for (const MaterialImage& im : material.images)
+        generated("layout(binding=" + std::to_string(im.binding) + ", " + im.format + ")" + " uniform " +
+                  (im.access == "write" ? "writeonly " : "") + "image2D " + im.name + ";\n");
+    int view = int(material.buffers.size() + material.images.size()), sampler = 0;
     for (const MaterialTexture& tex : material.textures)
         generated("layout(binding=" + std::to_string(view++) + ") uniform texture2D " + tex.name +
                   ";\nlayout(binding=" + std::to_string(sampler++) + ") uniform sampler " + tex.name + "_smp;\n");

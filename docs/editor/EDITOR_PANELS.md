@@ -288,7 +288,11 @@ its toolbar. **New graph material** writes `assets/materials/graph.material.json
 with no graph offers **Start a graph in this material**. The panel reads and writes the same JSON an AI writes, and **Save** runs the command an AI would call
 (`material.graph.generate`: it writes the graph and the shader snippet, with `graphHash`), so a person and an AI can take turns on one file. Nothing is written
 before Save; the toolbar's status line says when there are unsaved edits and what state the snippet is in (in sync, the graph changed, edited by hand, ...). Switching
-to another material with unsaved edits asks first ("Discard the graph changes?").
+to another material with unsaved edits asks first ("Discard the graph changes?"). A file that someone else changed on disk (an AI, a script, another editor) is looked at again
+when you press Save: the panel does not replace it but asks "The file changed on disk" with **Overwrite** (the graph as edited replaces the file), **Reload** (the file as it
+is, your edits gone) and **Cancel** (nothing is written, the unsaved graph stays). **New graph material** makes the material file whole or not at all: it is written under a
+temporary name and published only if the name is still free, and when the snippet cannot be written the material file it made is removed again, so a failed New leaves nothing behind
+and never replaces a file made meanwhile. Closing the panel or opening another material clears the Params and Textures forms and their messages.
 
 - **Canvas.** Nodes are boxes with their input ports on the left and output ports on the right, coloured by type (float, vec2, vec3, vec4). Drag a node to move it
   (all the selected ones move together; the position is saved as the node's `pos`). Press on a port and drag to another port to link them; dragging from an input
@@ -308,7 +312,8 @@ to another material with unsaved edits asks first ("Discard the graph changes?")
   waits a fraction of a second, then compiles on a worker thread and shows the picture, so dragging a slider never freezes the editor. **Animate** turns the shape so the lighting and
   `time` change. The preview compiles through sokol-shdc ([SHADERS.md](../SHADERS.md), "Compiler"): without it the panel says so and the rest still works. The files it writes (the
   material and snippet it compiles and the copies the renderer loads) are in `.factoria/material-preview/`, which a new project's `.gitignore` leaves out with the rest of `.factoria/`;
-  deleting the folder is safe, the next edit makes it again. The shader compile is cached in `.factoria/shader-cache`; when that result cannot be saved (a full disk, a read-only
+  deleting the folder is safe, the next edit makes it again. Each preview (the one on the canvas and the saved copy for Compare) stages its compile in files of its own
+  (`stage-<id>.*`), and closing the panel or changing project waits at most two seconds for a compile in flight before it lets the worker finish alone. The shader compile is cached in `.factoria/shader-cache`; when that result cannot be saved (a full disk, a read-only
   folder) the preview shows an error and does not compile on the editor's thread.
   - **Params.** Each param of the material (`params`; the ones the generator adds itself are left out) has a slider, a drag box or a colour editor under the preview. Moving one
     changes the PREVIEW only (`MeshRenderer.materialParams` of the scratch entity): the file is not touched, nothing compiles again, the name turns amber with "(preview only)", and
@@ -325,7 +330,9 @@ to another material with unsaved edits asks first ("Discard the graph changes?")
     nobody chose is not what the button says. A file whose shader snippet is the one the graph generated (state "in sync") gets its snippet generated again, so it never names a param
     that is gone; a hand-edited snippet is left alone (the toolbar keeps saying so). Each of the three is ONE undo step, in order with the graph's own edits (Undo and Redo run the
     inverse command: they write the file again, and refuse with the command's sentence when it cannot run, e.g. the name was taken or removed by an AI meanwhile). The preview
-    compiles again once the edits stop, because a new or removed param changes the material's uniforms.
+    compiles again once the edits stop, because a new or removed param changes the material's uniforms. When the command says something the panel would otherwise hide (the
+    snippet was not written again and why, or a hand-written snippet that still uses the old name), the sentence is shown in amber under the list instead of being dropped.
+    Undo of a delete puts the entry back at the place it had (the `index` the command returned), not at the end.
   - **Kinds.** The panel draws a `mesh` material on the sphere, cube or quad. A `sky`, `post` or `compute` material is not drawn: the panel says why (a sky needs the scene around it,
     a post pass needs a camera's picture, a compute material draws nothing) instead of drawing something wrong. The preview also has the code to draw a `sprite` material on a 2D quad
     (a `Sprite` with the material and its params, on its first default texture or a grey checker), for when the graph generator supports that kind: it writes graphs for the

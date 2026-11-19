@@ -425,7 +425,7 @@ material says what it is for with the optional key `"kind"` of its `*.material.j
 | `"sprite"` | the 2D quad path: `Sprite`, `Shape2D`, `Tilemap`, `Text`, particles and trails, UI images | `quad_common.glsl` (+ `color_space.glsl`, `light_shadow.glsl`) | M72.1: template, tooling and the `Sprite` draw built (M72-P1, P3); the other 2D emitters follow |
 | `"sky"` | the background of a 3D scene (`SceneSettings.skyMaterial`), also baked into the cubes that light the meshes ([P15](CUSTOM_SHADERS_KINDS.md#the-sky-material-lights-the-meshes-m72-p15)) | `sky_common.glsl` (+ `color_space.glsl`) | M72.1: built (M72-P6) |
 | `"post"` | one pass of a camera's post-processing stack (`PostProcess.customPasses`) | `post_common.glsl` | M72.2: built (M72-P7a) |
-| `"compute"` | compute shaders (storage buffers) | `compute_common.glsl` | built (M72.4) |
+| `"compute"` | compute shaders (storage buffers and storage images) | `compute_common.glsl` | built (M72.4); storage images M72.17 |
 
 Built by M72.0 (the shared base): the key, its check, the per-kind template hash and the skeletons. Every kind compiles now.
 A `kind` that is not one of the five is an error with "did you mean" and the
@@ -504,7 +504,7 @@ cache, hot reload, export, the runtime) is unchanged: a graph material is a mate
 ## Out of scope (recorded so nobody assumes it)
 
 - ~~A full-GLSL escape hatch (D1)~~: built in M72.3 for mesh materials, see [CUSTOM_SHADERS_FULL.md](CUSTOM_SHADERS_FULL.md).
-- Compute storage images, compute on GLES3/WebGL2, tessellation, geometry shaders (not in sokol_gfx's common subset for these backends anyway).
+- Compute on GLES3/WebGL2 (refused with the CPU path named), tessellation, geometry shaders (not in sokol_gfx's common subset for these backends anyway).
 - Per-instance material data inside one instanced draw.
 - The node-graph editor canvas (the graph document, its generator and the node library exist: "Node graphs").
 

@@ -81,14 +81,15 @@ std::string full_program_name(int pass, bool skinned);
 using CheckName = std::function<bool(const std::string& pointer, const std::string& name, const char* what)>;
 // std430 offsets of the fields of a buffer element and its stride.
 void layout_buffer(MaterialBuffer& buffer);
-// Reads "workgroupSize" and "buffers" of a material file into `m` (m.kind is already set), with JSON-pointer errors; a key that
+// Reads "workgroupSize", "buffers" and "images" of a material file into `m` (m.kind is already set), with JSON-pointer errors; a key that
 // is not for the kind is an error too. `taken` holds the names in use (params, textures) and gets the ones the buffers take.
 void parse_compute_fields(const Json& doc, MaterialDef& m, std::vector<MaterialIssue>& errors,
                           std::set<std::string>& taken, const CheckName& checkName);
 // True when the (comment-free) snippet defines `void compute(...)`.
 bool defines_compute_entry(const std::string& strippedSnippet);
-// {"workgroupSize": [x, y, z], "buffers": [{name, binding, stride, access, fields: [{name, type, offset}]}]}: what a compute
-// twin carries next to the programs, for the runtime that makes the buffers.
+// {"workgroupSize": [x, y, z], "buffers": [{name, binding, stride, access, fields: [{name, type, offset}]}], "images": [{name,
+// binding, format, access, width, height}]}: what a compute twin carries next to the programs, for the runtime that makes the
+// buffers and images ("images" only when the material has some).
 Json compute_twin_fields(const MaterialDef& m);
 
 }  // namespace fa::shaders_detail
