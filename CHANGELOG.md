@@ -12,6 +12,9 @@ Every renderer takes a custom shader: sprites, shapes, tilemaps, text, particles
 
 ### M72: custom shaders for everything
 
+- **Quieter OpenGL log:** sokol_gfx's "not found in shader" notes (a uniform block, texture or vertex attribute the GL
+  driver removed because the shader does not use it, as in a material without fog or `fa_time`) are logged at Debug,
+  not as warnings: the binding is skipped and the picture is the same.
 - **Sprites drawn from a compute buffer (M72.4, P18b):** a `kind: "sprite"` material can declare read-only `buffers` too, and
   read them in `vertex()` and in `fragment()` by `fa_instance_index`. `Sprite.instances` = N draws the sprite's quad N times in
   one draw (the quad is the template `vertex()` moves; a Sprite with such a material is never batched with another one).
