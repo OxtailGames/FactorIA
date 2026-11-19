@@ -23,6 +23,52 @@ size_t commands_bytes(const std::vector<UndoCommand>& v) {
 
 const Json kNull;
 
+// `base` followed by `patch`, as ONE RFC 7386 merge patch (nulls stay: they are the "delete this key" of the patch). A value
+// replaces what is there; two objects compose key by key. False when one patch cannot stand for both: an object after a
+// null or a plain value would merge into the current value instead of replacing what the first patch set or deleted.
+bool compose_patch(Json& base, const Json& patch) {
+    if (!patch.is_object()) {
+        base = patch;
+        return true;
+    }
+    if (!base.is_object()) return false;
+    Json out = base;
+    for (auto it = patch.begin(); it != patch.end(); ++it) {
+        if (!out.contains(it.key())) {
+            out[it.key()] = it.value();
+            continue;
+        }
+        if (!compose_patch(out[it.key()], it.value())) return false;
+    }
+    base = std::move(out);
+    return true;
+}
+
+// The merge patch of a scene.set_component-style call with `merge: true` (its `fields`), or null.
+const Json* merge_patch_of(const UndoCommand& c) {
+    if (!c.args.is_object()) return nullptr;
+    const auto merge = c.args.find("merge");
+    const auto fields = c.args.find("fields");
+    if (merge == c.args.end() || !merge->is_boolean() || !merge->get<bool>()) return nullptr;
+    return fields != c.args.end() && fields->is_object() ? &*fields : nullptr;
+}
+
+// `older` then `newer` (same target: the same fields of the same component) as ONE call whose patches are composed, in `newer`.
+// False when they are not two merge patches of one entity and component, or do not compose: the caller keeps both.
+bool compose_merge_calls(const UndoCommand& older, UndoCommand& newer) {
+    const Json* first = merge_patch_of(older);
+    const Json* second = merge_patch_of(newer);
+    if (!first || !second || older.cmd != newer.cmd) return false;
+    Json a = older.args, b = newer.args;  // the same entity and component, or they are not the same target
+    a["fields"] = nullptr;
+    b["fields"] = nullptr;
+    if (a != b) return false;
+    Json composed = *first;
+    if (!compose_patch(composed, *second)) return false;
+    newer.args["fields"] = std::move(composed);
+    return true;
+}
+
 }  // namespace
 
 size_t estimate_json_bytes(const Json& j) {
@@ -117,12 +163,18 @@ bool UndoStack::push_command(std::vector<UndoCommand> forward, std::vector<UndoC
             last.forward = std::move(forward);
         } else if (mode == CoalesceMode::Merge) {
             auto same = [&](const UndoCommand& c) { return c.target == forward[0].target; };
-            auto at = std::find_if(last.forward.begin(), last.forward.end(), same);
-            if (at != last.forward.end()) {
+            auto at = std::find_if(last.forward.rbegin(), last.forward.rend(), same);
+            // Two merge patches of one target are one patch (a drag of one colour of skyMaterialParams, then of another): the
+            // newest alone would leave the first out of redo. Patches that do not compose are both kept, in order.
+            const bool isMergeCall = merge_patch_of(forward[0]) != nullptr;
+            if (at != last.forward.rend() && isMergeCall && !compose_merge_calls(*at, forward[0])) {
+                last.forward.push_back(std::move(forward[0]));
+                last.inverse.insert(last.inverse.begin(), std::move(inverse[0]));
+            } else if (at != last.forward.rend()) {
                 // The newest call goes last: an older command of another target may set the same field too (position, then
                 // position and scale, then position again), and redo must end with the newest value. The inverse list stays
                 // as it is: its oldest-first-seen values are what undo has to give back.
-                last.forward.erase(at);
+                last.forward.erase(std::next(at).base());
                 last.forward.push_back(std::move(forward[0]));
             } else {
                 last.forward.push_back(std::move(forward[0]));
