@@ -141,6 +141,7 @@ struct Renderer::Impl {
             0;        // world.frame() when it was drawn: a jump back or far ahead is a cut (a scene load, a seek)
         Mat4 before;  // what a second job of the same camera in the same frame reprojects from (`hadBefore`)
         bool hadBefore = false;
+        int jobs = 0;  // how many jobs of this camera came before in the frame (the custom passes' histories)
     };
     std::unordered_map<std::uint64_t, PrevCamera> prevViewProj;  // by Entity::bits() of the camera
     bool fogMissingWarned = false;                               // one warning when a planned fog could not be drawn

@@ -7562,6 +7562,22 @@ Lists the 2D visuals (Sprite, Shape2D, Text, Tilemap, UI widgets) whose drawn bo
 | `position` | array | yes | [x, y] in design pixels (origin top-left). |
 | `max` | integer | no | At most this many hits. Default 20. |
 
+### `render.reset_post_history` (modifies state)
+
+Not released yet (on main after 0.31.0).
+
+Start again the history of the custom post passes that read their own output of the frame before (fa_history).
+
+Capabilities: read, state
+
+A custom post material whose snippet calls fa_history(uv) (trails, feedback, accumulation; docs/shaders/SHADERS_POST.md, "History") keeps its output of the frame before. This forgets it for one camera (`entity`) or every camera: from the next frame fa_history_valid is false and fa_history(uv) gives the picture, so the effect starts clean. The renderer already does it by itself in the first frame, after a resize or a change of render scale, when a camera was not drawn in the frame before, and when the scene or the world's clock jumps; call it at a cut the renderer cannot see (a camera switch inside one scene). Nothing is freed: the images stay for the next frame. Result: {reset: "all" or the camera}. Example: render.reset_post_history {}
+
+A camera without such passes is accepted and nothing changes. Errors: `not_found` for an `entity` that does not exist; `unavailable` without graphics (graphics=false). The same is Renderer::reset_post_history in C++.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `entity` | string | no | The camera (id or name). Default: every camera. |
+
 ### `render.supports`
 
 Since 0.31.0.

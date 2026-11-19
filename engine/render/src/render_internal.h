@@ -403,8 +403,11 @@ constexpr int kMaterialSpriteFirstView = 4, kMaterialSpriteFirstSampler = 3;
 constexpr int kQuadInstBuffer = 1, kQuadInstAttr = 7;
 constexpr int kMaterialSkyFirstView = 0, kMaterialSkyFirstSampler = 0;
 // post (post_common.glsl): uniform blocks vertex 0 fa_post_vs_params, fragment 1 fa_post_params; views 0 (fa_scene) and 1 (fa_prepass),
-// samplers 0 (linear clamp) and 1 (nearest) are the engine's, so a material's textures are views and samplers 2..5.
+// samplers 0 (linear clamp) and 1 (nearest) are the engine's, so a material's textures are views and samplers 2..5; view 6 is the history.
 constexpr int kMaterialPostFirstView = 2, kMaterialPostFirstSampler = 2;
+// The history of a post pass (fa_history(), the pass's own output of the frame before) is the view after the material's textures, read
+// through sampler 0; the program declares it only when the snippet calls fa_history (tools/common/include/fa/tooling/shaders.h).
+constexpr int kMaterialPostHistoryView = kMaterialPostFirstView + kMaxMaterialTextures;
 // A mesh material texture is bound twice: the fragment stage reads it at kMaterialFirstView + i, the vertex stage (vertex() may sample
 // it) at kMaterialVsFirstView + i, with the samplers likewise (fa/tooling/shaders.h kMaterialVsFirstView, the generator's top
 // file). Each program declares only the slots its stages use, and a draw binds only those.
