@@ -264,6 +264,9 @@ struct Renderer::Impl {
     std::unordered_map<const TextureAsset*, int> targetByAsset;
     std::string
         targetSelf;  // the name of the target being gathered or drawn: its own texture is the checker (sentinel)
+    // Sets (or, with an empty name, clears) targetSelf. The per-frame material cache holds textures resolved under the old value
+    // (a material whose params name "target:X" gets the checker only for X's own camera), so it is dropped.
+    void set_target_self(const std::string& name);
     TextureAsset selfSentinel;  // what texture("target:<self>") answers meanwhile: the checker, its handles are shared
     std::set<std::string> targetWarned;
     void collect_targets(World& world);

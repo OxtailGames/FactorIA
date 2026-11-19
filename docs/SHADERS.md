@@ -691,7 +691,7 @@ Check a material on any of these with `shader.compile` and `factoria validate`; 
 a different value, another material or a sprite without one starts a new batch (the draw order is the same as without
 materials). `fa_time` is the engine clock and `fa_target` the size of the render target (the image the pass draws into, which is the
 camera's rectangle, not the whole screen, in the coverage pass of the sprite outline effect), in both programs. The 2D quads of a frame look their material up once
-per component, not once per quad or particle (`materialResolves` in the render stats counts the lookups). A material that
+per distinct material and set of `materialParams` values, not once per component, quad or particle (`materialResolves` in the render stats and in `game.render_stats` counts the lookups). A material whose params name a render target (`"mask": "target:page"`) is looked up again for the camera that renders into that target, which gets the missing-texture checker instead of the image it is writing, and its items are not copied between cameras. A material that
 did not build, or that is not of kind `"sprite"`, draws the sprite in magenta (its alpha stays) with the engine's own shader
 and logs the compile error once; the error log (`game.logs`) says why, `materialFallbacks` in the render stats names it, and the previous version of a
 material stays in use when a hot reload of its shader fails.

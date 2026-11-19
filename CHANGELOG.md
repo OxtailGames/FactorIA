@@ -42,7 +42,9 @@ Older versions, one file per minor version with its patch releases: [0.30](chang
   `materialFallbacks`. The lookup of a material is made once per frame for every distinct material and set of values, not
   once per component (`RenderStats.materialResolves` counts them), so a thousand sprites with one material cost one lookup.
   `stats.materials` now counts each material once per frame (it counted once per quad group and camera), and the coverage
-  pass of the sprite outline effect gives `fa_target` and `screen_uv` the size of its own image.
+  pass of the sprite outline effect gives `fa_target` and `screen_uv` the size of its own image. A material whose params name a
+  render target samples the missing-texture checker for the camera that renders into it (never the image it writes), and a
+  texture that failed to load no longer destroys the shared checker when the asset cache is cleared.
 
 - **Custom lighting and textures in `vertex()` (M72.3):** a mesh material with `"lighting": "custom"` defines
   `vec3 light(in SurfaceInput i, in Surface s, in LightSample l)`, which the engine's light loop calls once per light

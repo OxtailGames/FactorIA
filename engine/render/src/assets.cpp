@@ -623,7 +623,9 @@ Assets::~Assets() {
 }
 
 void Assets::destroy_texture(TextureAsset& t) {
-    if (!t.atlas) {  // a packed texture borrows the GPU image of its atlas
+    // A texture that failed to load shares the checker's handles (use_placeholder): only the checker itself owns them.
+    const bool borrowed = t.placeholder && &t != placeholderTex_.get();
+    if (!t.atlas && !borrowed) {  // a packed texture borrows the GPU image of its atlas
         if (t.view.id) sg_destroy_view(t.view);
         if (t.image.id) sg_destroy_image(t.image);
     }

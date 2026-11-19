@@ -646,6 +646,13 @@ public:
     // before the first frame, such as an entity's bounds, only gets the checker).
     void set_drawing(bool on) { drawing_ = on; }
     static bool is_target_id(const std::string& path) { return path.rfind("target:", 0) == 0; }
+    // Whether a material's overrides (materialParams) hold a texture path that names a render target ("target:<name>").
+    static bool params_name_target(const Json& params) {
+        if (!params.is_object()) return false;
+        for (auto& [k, v] : params.items())
+            if (v.is_string() && is_target_id(v.get<std::string>())) return true;
+        return false;
+    }
     MeshAsset* mesh(const std::string& name);  // never null (cube placeholder on failure)
     // The procedural meshes ("mesh:N" ids of MeshRenderer.mesh, fa/scene/mesh_store.h) are looked up in `store`, the store of the
     // world being drawn: call this before mesh() once per frame. It frees the GPU copy of every mesh that left the store (destroyed,
@@ -675,6 +682,8 @@ public:
     // How many times sprite_material() did the whole lookup (not answered from the per-frame cache) since the last
     // begin_material_frame(): RenderStats::materialResolves.
     std::uint32_t material_resolves() const { return materialResolves_; }
+    // Puts the count back (a capture of one entity's subtree must not change the numbers of the frame drawn before it).
+    void set_material_resolves(std::uint32_t n) { materialResolves_ = n; }
     // How a material gets its twin (empty = read `<path>.<dialect>.shader` through fa::fs). Kept across clear().
     void set_shader_compiler(ShaderCompiler compiler) { shaderCompiler_ = std::move(compiler); }
     bool has_loaded(const std::string& path) const;

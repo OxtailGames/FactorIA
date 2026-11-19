@@ -383,11 +383,16 @@ void Scene2D::gather_particles(World& world, Frame& f) {
         bool independent = !screen;
         for (int g = 0; g < sim.group_count(); ++g) {
             const ParticleEmitter& c = sim.group_emitter(g, em);
-            independent = independent && !c.is3D && !Assets::is_target_id(c.texture);
+            independent = independent && !c.is3D && !Assets::is_target_id(c.texture) &&
+                          !Assets::params_name_target(c.materialParams);
             item.groupTex[std::size_t(g)] = f.assets->white();
-            if (sim.live(g) <= 0) continue;  // nothing of this group is drawn: nothing to look up
+            // Nothing to look up for a group with no live particle, except group 0 when the emitter's own trail is drawn with its
+            // material.
+            const bool trailOnly = g == 0 && em.trail == ParticleTrail::Emitter && !sim.emitterTrail.empty();
+            if (sim.live(g) <= 0 && !trailOnly) continue;
             item.groupMaterial[std::size_t(g)] =
                 f.assets->sprite_material(c.material, c.materialParams);  // may load it
+            if (sim.live(g) <= 0) continue;
             if (!c.texture.empty() && !c.pixelMode) item.groupTex[std::size_t(g)] = f.assets->texture(c.texture);
             if (c.pixelMode && !(c.palette.is_array() && !c.palette.empty()) && !frameStylePalette)
                 frameStylePalette = style_palette();
