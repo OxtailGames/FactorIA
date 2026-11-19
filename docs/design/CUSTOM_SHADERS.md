@@ -422,7 +422,7 @@ material says what it is for with the optional key `"kind"` of its `*.material.j
 | `kind` | What it will be | Template file | Package |
 |---|---|---|---|
 | `"mesh"` (default) | the surface of a `MeshRenderer`: everything in this document | `mesh_common.glsl` | built |
-| `"sprite"` | the 2D quad path: `Sprite`, `Shape2D`, `Tilemap`, `Text`, particles and trails, UI images | `quad_common.glsl` (+ `color_space.glsl`, `light_shadow.glsl`) | M72.1: template, tooling and the `Sprite` draw built (M72-P1, P3); the other 2D emitters follow |
+| `"sprite"` | the 2D quad path: `Sprite`, `Shape2D`, `Tilemap`, `Text`, particles and trails, UI images | `quad_common.glsl` (+ `color_space.glsl`, `light_shadow.glsl`) | M72.1: template, tooling and the `Sprite` draw built (M72-P1, P3); `Shape2D`, `Tilemap`, `Text`, particles and UI built (M72-P5) |
 | `"sky"` | the background of a 3D scene (`SceneSettings.skyMaterial`), also baked into the cubes that light the meshes ([P15](CUSTOM_SHADERS_KINDS.md#the-sky-material-lights-the-meshes-m72-p15)) | `sky_common.glsl` (+ `color_space.glsl`) | M72.1: built (M72-P6) |
 | `"post"` | one pass of a camera's post-processing stack (`PostProcess.customPasses`) | `post_common.glsl` | M72.2: built (M72-P7a) |
 | `"compute"` | compute shaders (storage buffers and storage images) | `compute_common.glsl` | built (M72.4); storage images M72.17 |
