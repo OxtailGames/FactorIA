@@ -1909,6 +1909,123 @@ TEST_CASE("compile: lighting custom needs light(): the error names the material 
     CHECK(validate_json(Json::parse(*schema), Json::parse(kToonMaterial)).empty());
 }
 
+TEST_CASE(
+    "compile: lighting() is the whole light loop: the generator, the errors and the did-you-mean of its functions") {
+    Project p;
+    FakeShdc shdc;
+    p.write("materials/toon.material.json", kToonMaterial);
+    ShaderCompileOptions options;
+    options.setup = shdc.context(p.str());
+    options.dialects = {"hlsl5"};
+    const std::string surface = "void surface(in SurfaceInput i, inout Surface s) {}\n";
+    const std::string loop = "vec3 lighting(in SurfaceInput i, in Surface s) {\n"
+                             "    vec3 lit = fa_ambient.rgb * s.albedo;\n"
+                             "    for (int n = 0; n < fa_light_count(); ++n) lit += fa_light(n, i).color * s.albedo;\n"
+                             "    return lit + fa_sky_light(i, s);\n}\n";
+    const MaterialDef custom = read_material(p.str(), "materials/toon.material.json").material;
+    auto errors_of = [&](const MaterialDef& material, const std::string& snippet) {
+        p.write(material.shader, snippet);
+        shdc.calls = 0;
+        return compile_material(p.str(), "materials/toon.material.json", options);
+    };
+
+    // the hook alone is a complete custom lighting: no "defines no light()" error, FA_HAS_LIGHTING, no FA_HAS_AMBIENT
+    const GeneratedShader g = generate_material_shader(custom, surface + loop);
+    CHECK(g.hasLighting);
+    CHECK_FALSE(g.hasLight);
+    CHECK_FALSE(g.lightingWithoutCustom);
+    CHECK(g.defines == std::vector<std::string>{"FA_CUSTOM_LIGHT", "FA_HAS_LIGHTING"});
+    CHECK(g.top.find("#ifdef GL_FRAGMENT_SHADER\nvec3 lighting(in SurfaceInput i") != std::string::npos);
+    auto r = errors_of(custom, surface + loop);
+    // the checks before sokol-shdc found nothing to refuse (the fake one runs once and writes no reflection file)
+    CHECK(shdc.calls == 1);
+
+    // a helper that is called lighting() but takes something else is not the hook
+    const GeneratedShader helper =
+        generate_material_shader(custom, surface + "vec3 lighting(vec3 a) { return a; }\n"
+                                                   "vec3 light(in SurfaceInput i, in Surface s, "
+                                                   "in LightSample l) { return lighting(l.color); }\n");
+    CHECK_FALSE(helper.hasLighting);
+    CHECK(helper.hasLight);
+    CHECK(helper.defines == std::vector<std::string>{"FA_CUSTOM_LIGHT"});
+
+    // a commented hook does not count
+    CHECK_FALSE(generate_material_shader(custom, surface + "// " + loop + "\n").hasLighting);
+
+    // the hook and light() (or ambient()) together: the engine would never call the second
+    r = errors_of(custom, surface + loop +
+                              "vec3 light(in SurfaceInput i, in Surface s, in LightSample l) { return vec3(0.0); }\n");
+    REQUIRE(r.ok());
+    REQUIRE(r->errors.size() == 1);
+    CHECK(r->errors[0].message.find("defines both lighting() and light()") != std::string::npos);
+    CHECK(r->errors[0].hint.find("Remove light()") != std::string::npos);
+    CHECK(r->errors[0].line == 7);  // where light() is defined
+    CHECK(shdc.calls == 0);
+    r = errors_of(custom,
+                  surface + loop +
+                      "vec3 ambient(in SurfaceInput i, in Surface s, vec3 ambientColor) { return ambientColor; }\n");
+    REQUIRE(r.ok());
+    REQUIRE(r->errors.size() == 1);
+    CHECK(r->errors[0].message.find("defines both lighting() and ambient()") != std::string::npos);
+
+    // the hook in a material without "lighting": "custom" says where to set it
+    MaterialDef pbr = custom;
+    pbr.lighting = "pbr";
+    std::string pbrFile = kToonMaterial;
+    pbrFile.replace(pbrFile.find("\"custom\""), 8, "\"pbr\"");
+    p.write("materials/toon.material.json", pbrFile);
+    r = errors_of(pbr, surface + loop);
+    REQUIRE(r.ok());
+    REQUIRE_FALSE(r->errors.empty());
+    CHECK(r->errors[0].message.find("does not have \"lighting\": \"custom\"") != std::string::npos);
+    CHECK(r->errors[0].hint.find("/lighting") != std::string::npos);
+    CHECK(shdc.calls == 0);
+    // ... and so does a pbr material that calls one of the lighting functions from its own helper
+    r = errors_of(pbr, surface + "vec3 sky(in SurfaceInput i, in Surface s) { return fa_sky_light(i, s); }\n");
+    REQUIRE(r.ok());
+    REQUIRE(r->errors.size() == 1);
+    CHECK(r->errors[0].message.find("'fa_sky_light' : the lighting functions belong to a material with") !=
+          std::string::npos);
+    CHECK(r->errors[0].hint.find("/lighting") != std::string::npos);
+    p.write("materials/toon.material.json", kToonMaterial);
+
+    // surface() runs before the lights are known: calling the functions there is refused, light() may call them
+    r = errors_of(
+        custom,
+        "void surface(in SurfaceInput i, inout Surface s) {\n    s.emission = fa_environment(i.world_normal, 0.5);\n}\n"
+        "vec3 light(in SurfaceInput i, in Surface s, in LightSample l) { return fa_sky_light(i, s); }\n");
+    REQUIRE(r.ok());
+    REQUIRE(r->errors.size() == 1);
+    CHECK(r->errors[0].message.find("'fa_environment' : the lighting functions cannot be called from surface()") !=
+          std::string::npos);
+    CHECK(r->errors[0].line == 2);
+    CHECK(r->errors[0].hint.find("light(), ambient() or lighting()") != std::string::npos);
+
+    // a misspelled function: did you mean, with the list of the functions
+    const std::string misspelled = surface + "vec3 lighting(in SurfaceInput i, in Surface s) {\n"
+                                             "    return fa_sky_ligth(i, s);\n}\n";
+    const GeneratedShader gm = generate_material_shader(custom, misspelled);
+    p.write(custom.shader, misspelled);
+    shdc.stderrText = "top.glsl:" + std::to_string(top_line_of(gm, 3)) +
+                      ":0: error: 'fa_sky_ligth' : no matching overloaded "
+                      "function found\n";
+    r = compile_material(p.str(), "materials/toon.material.json", options);
+    REQUIRE(r.ok());
+    REQUIRE(r->errors.size() == 1);
+    INFO(r->errors[0].hint);
+    CHECK(r->errors[0].hint.find("did you mean fa_sky_light?") != std::string::npos);
+    CHECK(r->errors[0].hint.find("fa_light_unshadowed") != std::string::npos);
+    shdc.stderrText.clear();
+
+    // the name `lighting` is reserved for the hook only in a custom material, like light and ambient
+    CHECK(has_error(parse(R"({"format":"factoria.material/1","shader":"s.glsl","lighting":"custom","params":{
+        "lighting":{"type":"float","default":1,"doc":"d"}}})"),
+                    "/params/lighting", "name of the snippet contract"));
+    CHECK(parse(R"({"format":"factoria.material/1","shader":"s.glsl","params":{
+        "lighting":{"type":"float","default":1,"doc":"d"}}})")
+              .ok());
+}
+
 TEST_CASE("compile: a material file with errors is reported with its JSON pointer and nothing is started") {
     Project p;
     FakeShdc shdc;

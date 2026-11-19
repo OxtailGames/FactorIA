@@ -328,6 +328,10 @@ const std::vector<DocManifestEntry>& manifest() {
         {"shaders-full",
          "Custom shaders, part: full shaders for mesh materials, your own vertex and fragment stages and passes.",
          aud({kGameAi, kEngineDev})},
+        {"shaders-lighting",
+         "Custom shaders, part: your own light loop (lighting()), the light functions and the sky light of custom "
+         "lighting.",
+         aud({kGameAi, kEngineDev})},
         {"shaders-post", "Custom shaders, part: post-process materials, the custom passes of a camera's post stack.",
          aud({kGameAi, kEngineDev})},
         {"skills", "Agent Skills: topic guides an AI loads when the work needs them.", aud({kGameAi, kUser})},
