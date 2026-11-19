@@ -28,7 +28,7 @@ The loop for an AI (or a person):
 | `shader` | Project-relative path of the snippet, e.g. `"shaders/pulse.surface.glsl"`. Required. |
 | `doc` | What the material looks like and is for. Shown by `material.info`. |
 | `kind` | What the material is for: `"mesh"` (default; the surface of a `MeshRenderer`, what this page describes), or `"sprite"` (a 2D item: `Sprite`, `Shape2D`, `Tilemap`, `Text`, particles; [below](#materials-on-sprites-shapes-tiles-text-and-particles)), or `"sky"` (the background of a 3D scene; [below](#sky-materials)), or `"compute"` (a program that runs on the GPU over storage buffers; [Compute materials](#compute-materials)), or `"post"` (one full-screen pass of the post-processing stack; [below](#post-process-materials)). Every kind compiles. |
-| `lighting` | `"pbr"` (default): the engine's lighting, fog and sky reflection. `"unlit"`: the surface albedo is drawn as it is, plus emission and fog. `"custom"` (mesh materials only): your snippet defines `light()` (and optionally `ambient()`), which the engine's light loop calls once per light instead of its own shading (see "Custom lighting" below); shadows, attenuation, emission and fog stay the engine's. |
+| `lighting` | `"pbr"` (default): the engine's lighting, fog and sky reflection. `"unlit"`: the surface albedo is drawn as it is, plus emission and fog. `"custom"` (mesh materials only): your snippet defines `light()` (and optionally `ambient()`), which the engine's light loop calls once per light instead of its own shading, or `lighting()`, your own loop (see "Custom lighting" below); shadows, attenuation, emission and fog stay the engine's. |
 | `alphaMode` | `"opaque"` (default): alpha is ignored. `"clip"`: fragments with `alpha` below `alphaCutoff` are discarded, also in the shadow pass. `"blend"`: drawn with the blended meshes, far to near. |
 | `doubleSided` | `true` draws back faces too. Default `false`. |
 | `params` | Typed parameters the snippet reads (below). |
@@ -225,9 +225,11 @@ correctly dark in shadow; `l.attenuation` and `l.shadow` are there for a look th
 as a flat band whatever the light's color). Without `ambient()` the ambient term is the scene's `ambientLight` times
 `s.albedo * s.occlusion`; with it, whatever you return (`ambientColor` is `SceneSettings.ambientLight`).
 
-What changes against `"pbr"`: the Cook-Torrance term and the sky reflection are gone (`s.metallic` and `s.roughness`
-are still filled, for you to use or ignore), and so is the engine's specular. What stays: `s.emission`, fog,
-`"clip"`, `"blend"`, instancing, skinning, shadows and the depth and normal prepass. A `light()` that returns `vec3(0.0)`
+What changes against `"pbr"`: the Cook-Torrance term and the sky reflection are gone, unless `light()` or `ambient()` calls
+`fa_sky_light(i, s)` (`s.metallic` and `s.roughness` are still filled, for you to use or ignore), and so is the engine's
+specular. To write the whole loop (the lights you pick, the shadow, the sky), define `lighting(i, s)` instead of
+`light()`: [Your own light loop](shaders/SHADERS_LIGHTING.md) (`factoria docs read shaders-lighting`). What stays:
+`s.emission`, fog, `"clip"`, `"blend"`, instancing, skinning, shadows and the depth and normal prepass. A `light()` that returns `vec3(0.0)`
 leaves only the ambient term.
 
 - The material needs `light()`; without it `shader.compile` stops before the compiler runs, with an error that names the
@@ -987,9 +989,6 @@ the page [Full shaders and passes](shaders/SHADERS_FULL.md) (`factoria docs read
 
 ## Not available yet
 
-- **Your own light loop** (which lights are chosen, how many, their order, the shadow map): `"custom"` lighting only
-  shades each light the engine hands over. Image-based lighting (the sky reflection) is off in a custom material and
-  cannot be called from `light()`.
 - Compute storage images and compute on Android and the web; a sky material that also
   drives the ambient and reflection light of the meshes (they follow `skyColor` and `horizonColor`); per-instance params
   in a sky or compute material and vertex channels (`vertexAttributes`) in a sprite, sky or compute material (a mesh
