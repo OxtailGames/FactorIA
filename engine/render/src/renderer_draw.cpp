@@ -2,6 +2,7 @@
 #include "color_space.h"
 #include "mesh_buffer_draw.h"
 #include "renderer_impl.h"
+#include "sprite_buffer_draw.h"
 
 #include <algorithm>
 #include <bit>
@@ -1836,6 +1837,25 @@ void Renderer::Impl::draw_group(DrawContext& ctx, const std::vector<QuadBatch>& 
             continue;
         }
         if (instVec4 > 0 && !ctx.vinst.id) continue;
+        // A material with "buffers" is drawn from them (M72.4, sprite_buffer_draw.h): only a Sprite makes such a batch (one quad,
+        // QuadBatch::instances times). The other 2D items (Shape2D, Tilemap, Text, ParticleEmitter, UiBox) have no buffers to give
+        // it, so an item of that kind with the material is not drawn (and the log says so once); a batch that cannot bind its
+        // buffers any more is not drawn either.
+        MeshBufferUse sbu;
+        if (prog && (!use->material->buffers.empty() || qb.instances > 0)) {
+            if (qb.instances <= 0 || use->material->buffers.empty()) {
+                assets->note_failure(
+                    "material-sprite", use->material->path + " on a 2D item that is not a Sprite",
+                    "the material '" + use->material->path +
+                        "' declares \"buffers\" (it is drawn from compute buffers), but a Shape2D, Tilemap, Text, "
+                        "ParticleEmitter or UiBox uses it: only a Sprite can draw from buffers, so that item is not "
+                        "drawn",
+                    "Use a material without \"buffers\" for this item, or draw it with a Sprite whose instances is set "
+                    "(docs/shaders/SHADERS_COMPUTE.md, \"Sprites from a compute buffer\").");
+                continue;
+            }
+            if (!bind_sprite_buffer_views(*assets, compute, *use, qb.instances, sbu)) continue;
+        }
         if (qb.use && !prog) {
             const std::string& path = qb.use->material->path;
             if (std::find(stats.materialFallbacks.begin(), stats.materialFallbacks.end(), path) ==
@@ -1913,8 +1933,9 @@ void Renderer::Impl::draw_group(DrawContext& ctx, const std::vector<QuadBatch>& 
                 for (int i = 0; i < SG_MAX_SAMPLER_BINDSLOTS; ++i)
                     if (!((prog->samplerMask >> i) & 1u)) b.samplers[i] = {};
             }
+            if (sbu.active) bind_mesh_buffers(b, sbu, *prog);
             sg_apply_bindings(&b);
-            sg_draw(0, int(n * 6), 1);
+            sg_draw(0, int(n * 6), sbu.active ? sbu.instances : 1);
             ++stats.drawCalls;
             done += n;
         }

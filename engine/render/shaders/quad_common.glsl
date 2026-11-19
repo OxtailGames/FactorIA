@@ -88,7 +88,14 @@ struct QuadVertex {             // vertex(): world space
 #endif
 @end
 
+// A material with "buffers" (M72.4, docs/shaders/SHADERS_COMPUTE.md, "Sprites from a compute buffer") defines FA_BUFFER_INST: its Sprite draws
+// Sprite.instances quads in ONE draw (the sprite's own quad, instanced), vertex() finds its instance in fa_instance_index
+// (gl_InstanceIndex, 0 .. instances - 1) and moves the quad; fragment() reads the same number through a flat varying. A material
+// without buffers draws every quad once: fa_instance_index is 0 there.
 @block fa_inst_out
+#ifdef FA_BUFFER_INST
+flat out int fa_inst_index_v;
+#endif
 #if FA_NINST > 0
 flat out vec4 fa_inst_v0;
 #if FA_NINST > 1
@@ -101,6 +108,12 @@ flat out vec4 fa_inst_v2;
 @end
 
 @block fa_inst_in
+#ifdef FA_BUFFER_INST
+flat in int fa_inst_index_v;
+#define fa_instance_index fa_inst_index_v
+#else
+#define fa_instance_index 0
+#endif
 #if FA_NINST > 0
 flat in vec4 fa_inst_v0;
 #if FA_NINST > 1
@@ -131,6 +144,9 @@ layout(binding=0) uniform vs_params {
 // What the snippet may call from vertex() (and from a helper of its own, which is compiled into both stages): an sRGB colour of the
 // author in the scene's colour space. fa_sample_main() exists in the fragment stage only: the main texture is not bound here.
 vec3 fa_scene_rgb(vec3 c) { return cspace.x > 0.5 ? fa_srgb_to_linear(c) : c; }
+
+// The instance of a material with buffers (see fa_inst_out); 0 when the quad is drawn once.
+#define fa_instance_index gl_InstanceIndex
 
 @include_block fa_user
 
@@ -163,6 +179,9 @@ out float world_z;
 @include_block fa_inst_out
 
 void main() {
+#ifdef FA_BUFFER_INST
+    fa_inst_index_v = gl_InstanceIndex;
+#endif
 #if FA_NINST == 1
     fa_instance_unpack(fa_inst_d0, vec4(0.0), vec4(0.0));
 #elif FA_NINST == 2

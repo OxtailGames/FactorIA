@@ -149,6 +149,9 @@ enum class WordBreak : std::int32_t { Auto, Normal, KeepAll };
 // localization key takes the language's direction. Ltr / Rtl: the paragraph runs that way whatever its first letter is.
 enum class TextDirection : std::int32_t { Auto, Ltr, Rtl };
 
+// The most GPU instances one MeshRenderer or Sprite draws (MeshRenderer.instances, Sprite.instances).
+inline constexpr std::int32_t kMaxMeshInstances = 1 << 24;
+
 struct Sprite {
     std::string texture;      // asset path; "" draws a solid quad of `color`
     Rect region{0, 0, 0, 0};  // source rect in texture pixels (top-left origin); 0 size = whole texture
@@ -181,6 +184,8 @@ struct Sprite {
     std::string material;  // "" = the built-in look; else a *.material.json of kind "sprite" (docs/SHADERS.md)
     Json materialParams =
         Json::object();  // per-entity overrides of the material's params, as MeshRenderer.materialParams
+    std::int32_t instances =
+        0;  // 0 = the sprite's one quad; N > 0 = N quads in ONE draw, placed by the material's vertex() from its compute buffers
 };
 
 // How a SpriteAnimator walks its frames: forward (first to last), reverse (last to first), pingpong (first to last and back).
@@ -1063,9 +1068,6 @@ struct MeshRenderer {
     float instanceBounds =
         0.0f;  // instances > 0: half-extent (local metres) of the box around the entity; 0 = never culled
 };
-// The most GPU instances one MeshRenderer draws (MeshRenderer.instances).
-inline constexpr std::int32_t kMaxMeshInstances = 1 << 24;
-
 enum class LightType : std::int32_t { Directional, Point, Spot };
 struct Light {
     LightType type = LightType::Directional;  // directional lights point along the entity's forward (-Z rotated)

@@ -736,7 +736,7 @@ TEST_CASE("compute material: errors name the JSON pointer, the problem and the f
     bad = parse(R"({"format":"factoria.material/1","shader":"s.glsl","workgroupSize":[8]})");
     CHECK(has_error(bad, "/workgroupSize", "\"kind\": \"compute\""));
     bad = parse(R"({"format":"factoria.material/1","kind":"post","shader":"s.glsl","buffers":{}})");
-    CHECK(has_error(bad, "/buffers", "belongs to compute materials"));
+    CHECK(has_error(bad, "/buffers", "belongs to compute, mesh and sprite materials"));
     bad = parse((head + R"("lighting":"lit","alphaMode":"clip","doubleSided":true})").c_str());
     CHECK(has_error(bad, "/lighting", "does not apply"));
     CHECK(has_error(bad, "/alphaMode", "does not apply"));
@@ -3593,7 +3593,7 @@ TEST_CASE("mesh buffers: read-only buffers are read, and the rules that cannot h
 
     bad = parse(R"({"format":"factoria.material/1","kind":"sky","shader":"s.glsl",
         "buffers":{"points":{"fields":[{"name":"pos","type":"vec4"}]}}})");
-    CHECK(has_error(bad, "/buffers", "compute materials and to mesh materials"));
+    CHECK(has_error(bad, "/buffers", "compute, mesh and sprite materials"));
 
     const std::string full = R"({"format":"factoria.material/1","mode":"full","shader":"shaders/m.full.glsl",)";
     bad = parse((full + kMeshBuffersTail).c_str());  // the default shadow is "depth"
@@ -3647,4 +3647,76 @@ TEST_CASE(
     CHECK(reflection.find("\"slot\":16") != std::string::npos);
     const std::string metal = r->twins.at("metal_macos")["programs"]["mesh"]["reflection"].dump();
     CHECK(metal.find("\"slot\":16") != std::string::npos);
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Sprite materials with buffers (M72.4, Sprite.instances)
+// ---------------------------------------------------------------------------------------------------------------
+
+namespace {
+const char* const kSpriteBuffersHead =
+    R"({"format":"factoria.material/1","kind":"sprite","shader":"shaders/s.fragment.glsl",)";
+const char* const kSpriteBuffersSnippet = R"(void vertex(inout QuadVertex v) {
+    v.world_pos.xy += points.data[fa_instance_index].pos.xy;
+}
+void fragment(in QuadInput i, inout QuadSurface s) {
+    s.color.rgb = points.data[fa_instance_index].pos.rgb;
+}
+)";
+}  // namespace
+
+TEST_CASE(
+    "sprite buffers: read-only buffers are accepted, and the rules that cannot hold are errors at their pointer") {
+    const auto ok = parse((std::string(kSpriteBuffersHead) + kMeshBuffersTail).c_str());
+    REQUIRE(ok.ok());
+    REQUIRE(ok.material.buffers.size() == 1);
+    CHECK(ok.material.buffers[0].access == "read");
+    CHECK(ok.material.buffers[0].stride == 16);
+
+    auto bad = parse((std::string(kSpriteBuffersHead) +
+                      R"("buffers":{"points":{"access":"readWrite","fields":[{"name":"pos","type":"vec4"}]}}})")
+                         .c_str());
+    CHECK(has_error(bad, "/buffers/points/access", "a sprite material reads its buffers only"));
+
+    bad = parse((std::string(kSpriteBuffersHead) +
+                 R"("params":{"k":{"type":"float","instanced":true,"default":1.0}},)" + kMeshBuffersTail)
+                    .c_str());
+    CHECK(has_error(bad, "/params/k/instanced", "Sprite.instances GPU instances"));
+    CHECK_FALSE(has_error(bad, "/params/k/instanced", "MeshRenderer.instances"));
+}
+
+TEST_CASE(
+    "real sokol-shdc: a sprite material with buffers compiles to the dialects that have storage buffers in the vertex "
+    "stage") {
+    SetupContext context;
+    if (!real_tool(context)) return;
+    Project p;
+    p.write("materials/s.material.json", std::string(kSpriteBuffersHead) + kMeshBuffersTail);
+    p.write("shaders/s.fragment.glsl", kSpriteBuffersSnippet);
+    ShaderCompileOptions options;
+    options.setup = context;
+    options.useCache = false;
+    options.dialects = {"hlsl5", "glsl430", "glsl300es", "metal_macos"};
+    auto r = compile_material(p.str(), "materials/s.material.json", options);
+    REQUIRE(r.ok());
+    const std::string why = r->errors.empty() ? std::string() : r->errors[0].to_string();
+    INFO(why);
+    REQUIRE(r->ok);
+    CHECK(r->twins.count("glsl300es") == 0);  // GLES3 and WebGL2 have no storage buffers in the vertex stage
+    REQUIRE(r->skippedDialects.size() == 1);
+    CHECK(r->skippedDialects[0] == "glsl300es");
+    for (const std::string slang : {"hlsl5", "glsl430", "metal_macos"}) {
+        CAPTURE(slang);
+        REQUIRE(r->twins.count(slang) == 1);
+        const Json& twin = r->twins.at(slang);
+        CHECK(twin.contains("buffers"));
+        CHECK(twin["programs"].contains("quad"));
+    }
+    // OpenGL counts storage buffer bindings from 0: the vertex copy is 0 and the fragment copy 1.
+    const Json& gl = r->twins.at("glsl430")["programs"]["quad"];
+    CHECK(gl["vs"].get<std::string>().find("layout(binding = 0, std430) readonly buffer fa_vs_points_buf") !=
+          std::string::npos);
+    CHECK(gl["fs"].get<std::string>().find("layout(binding = 1, std430) readonly buffer fa_points_buf") !=
+          std::string::npos);
+    CHECK(gl["reflection"].dump().find("\"glsl_binding_n\":16") == std::string::npos);
 }
