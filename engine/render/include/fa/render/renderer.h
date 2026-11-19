@@ -45,6 +45,7 @@
 namespace fa {
 
 class Renderer;
+class Compute;
 namespace render {
 class Gpu;
 class FrameGraph;
@@ -291,6 +292,9 @@ public:
     // The graphics backend in use: "metal", "d3d11", "glcore", "gles3", "dummy", or "unknown" for a sokol backend the
     // engine never builds (what game.device.gpuBackend reports).
     static const char* backend_name();
+    // The compute side of the renderer (storage buffers, dispatches of "kind": "compute" materials; available() says whether
+    // this backend can). Usable once init() succeeded; its buffers end with shutdown().
+    Compute& compute() { return *compute_; }
     int target_width() const;
     int target_height() const;
 
@@ -551,6 +555,7 @@ private:
     friend void render::renderer_force_output(Renderer& r, const HdrOutputInfo* info);
     friend bool render::renderer_read_floats(Renderer& r, bool present, std::vector<float>& out, std::string* error);
     std::unique_ptr<Impl> impl_;
+    std::unique_ptr<Compute> compute_;  // storage buffers and dispatches of compute materials (fa/render/compute.h)
     std::vector<std::string> fallbackFonts_;
     RichTextStyle richStyle_;
     float textScale_ = 1.0f;

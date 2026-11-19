@@ -60,7 +60,7 @@ bool is_reserved_word(std::string_view s) {
         "sizeof", "cast", "namespace", "using",
         // names of the snippet contract
         "main", "surface", "vertex", "Surface", "SurfaceInput", "VertexData", "LightSample", "QuadInput", "QuadSurface",
-        "QuadVertex", "fragment", "SkyInput", "SkySurface", "PostInput", "PostSurface",
+        "QuadVertex", "fragment", "SkyInput", "SkySurface", "PostInput", "PostSurface", "compute", "ComputeInput",
         // a name sokol-shdc cannot take for a texture ("no binding found for texture ''")
         "noise"};
     return words.count(s) > 0;
@@ -107,7 +107,7 @@ const std::vector<std::string>& template_file_names(const std::string& kind) {
         {"sprite", {"color_space.glsl", "light_shadow.glsl", "quad_common.glsl"}},
         {"sky", {"sky_common.glsl"}},
         {"post", {"post_common.glsl"}},
-        {"compute", {}}};
+        {"compute", {"compute_common.glsl"}}};
     static const std::vector<std::string> none;
     auto it = names.find(kind);
     return it == names.end() ? none : it->second;
@@ -132,7 +132,7 @@ const std::vector<std::pair<std::string, std::vector<std::string>>>& contract_st
         {"sprite", {"QuadInput", "QuadSurface", "QuadVertex"}},
         {"sky", {"SkyInput", "SkySurface"}},
         {"post", {"PostInput", "PostSurface"}},
-        {"compute", {}}};
+        {"compute", {"ComputeInput"}}};
     static const std::map<std::string, Structs> byKind = [] {
         std::map<std::string, Structs> result;
         for (const auto& [kindName, wantedList] : wantedByKind) {
@@ -327,11 +327,11 @@ const std::set<std::string, std::less<>>& template_globals(const std::string& ki
     return it == byKind.end() ? none : it->second;
 }
 
-bool kind_is_compiled(const std::string& kind) { return kind == "mesh" || kind == "sprite"; }
+bool kind_is_compiled(const std::string& kind) { return kind == "mesh" || kind == "sprite" || kind == "compute"; }
 
 std::string kind_refusal(const std::string& kind) {
     // Sprite is compiled (M72.1); sky is the other half of M72.1.
-    const char* package = kind == "post" ? "M72.2" : kind == "compute" ? "M72.4" : "M72.1";
+    const char* package = kind == "post" ? "M72.2" : "M72.1";
     return "kind \"" + kind + "\" is not compiled yet: " + kind + " materials arrive with " + package;
 }
 
@@ -469,6 +469,7 @@ std::string block_members(const std::vector<MaterialParam>& params) {
 }  // namespace
 
 GeneratedShader generate_material_shader(const MaterialDef& material, std::string_view snippetText) {
+    if (material.kind == "compute") return generate_compute_shader(material, snippetText);
     GeneratedShader g;
     g.kind = material.kind;
     const bool sprite = material.kind == "sprite";

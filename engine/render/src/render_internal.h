@@ -399,6 +399,7 @@ enum MaterialProgramId : int {
     kProgPrepassSkin,
     kProgCount  // the programs of a mesh material; the other kinds name theirs in material_program_names()
 };
+constexpr int kProgCompute = 0;  // the one program of a compute material (MaterialAsset::programs[0])
 // Room for the programs of every kind of material (a mesh material has kProgCount of them).
 constexpr int kMaxMaterialPrograms = 8;
 static_assert(kProgCount <= kMaxMaterialPrograms);
@@ -415,6 +416,23 @@ struct MaterialTextureDef {
     std::string name;
     TextureAsset* defaultTex = nullptr;
     SamplerKind sampler = SamplerKind::Linear;
+};
+
+// One field of the element of a compute material's storage buffer, as the twin lists it (std430 offsets made by the tooling).
+struct MaterialBufferFieldDef {
+    std::string name;
+    std::string type;          // float, vec2, vec3, vec4, int, uint
+    std::uint32_t offset = 0;  // bytes from the start of the element
+    int components = 1;        // 1..4 (4 bytes each)
+    bool isInt = false, isUint = false;
+};
+// One storage buffer of a compute material (the twin's "buffers": sorted by name, `binding` = its view slot).
+struct MaterialBufferDef {
+    std::string name;
+    int binding = 0;
+    std::uint32_t stride = 0;  // bytes of one element
+    bool readOnly = false;
+    std::vector<MaterialBufferFieldDef> fields;
 };
 
 // What one sprite-kind material draws with in a batch: the packed params and the textures of a 2D item, found once per
@@ -439,7 +457,9 @@ struct MaterialRef {
 struct MaterialAsset {
     std::string path;                        // the .material.json
     std::string snippet;                     // its `shader` file (a change of it reloads the material)
-    MaterialKind kind = MaterialKind::Mesh;  // its "kind"; Mesh and Sprite materials are built so far
+    MaterialKind kind = MaterialKind::Mesh;  // its "kind": Mesh, Sprite (built) or Compute (Compute::dispatch)
+    std::vector<MaterialBufferDef> buffers;  // Compute: the storage buffers, in binding order
+    int workgroup[3]{64, 1, 1};              // Compute: the threads of one workgroup
     std::string lighting = "pbr", alphaMode = "opaque";
     bool doubleSided = false;
     std::vector<MaterialParamDef> params;      // in the order of the twin's "params" (the packing order)
@@ -459,9 +479,12 @@ std::string backend_dialect(sg_backend backend);
 
 // The sg_shader_desc of a twin program (`programs.<name>` of factoria.shader/1) and the slots it declares in `slots` (its
 // shader is not made). The desc points into `program`, which must outlive it.
-Result<sg_shader_desc> material_shader_desc(const std::string& label, const Json& program, MaterialProgram& slots);
+// A compute program ("cs" instead of "vs" and "fs") also needs `workgroup`, the threads of a group (Metal takes them with the shader).
+Result<sg_shader_desc> material_shader_desc(const std::string& label, const Json& program, MaterialProgram& slots,
+                                            const int* workgroup = nullptr);
 // Builds the shader of a twin program; on failure the Error says what the twin/driver rejected.
-Result<MaterialProgram> make_material_program(const std::string& label, const Json& program);
+Result<MaterialProgram> make_material_program(const std::string& label, const Json& program,
+                                              const int* workgroup = nullptr);
 
 // Packs the params of `m` (defaults overlaid by `overrides`, a MeshRenderer.materialParams object) into one vec4 each.
 // A value of the wrong shape or an unknown name is warned about once per material and keeps the default.
@@ -1052,6 +1075,12 @@ public:
     static void begin_pass(const PassDesc& pass);
     static void end_pass();
     static bool in_pass() { return inPass_; }
+    // A compute pass (Compute::dispatch): no attachments, so no PassDesc. Counts as a pass (in_pass()) until end_compute_pass().
+    static void begin_compute_pass();
+    static void end_compute_pass();
+    // The compute pipeline of a compute material's program (`shader`), made on first use and cached like the others (destroy_shader
+    // drops it). Invalid, with one logged error, when the driver rejects it. Call it outside a pass.
+    sg_pipeline compute_pipeline(sg_shader shader);
     static const TargetFormat& pass_format() {
         return passFormat_;
     }  // of the pass begun last; meaningful while in_pass()
@@ -1071,6 +1100,8 @@ public:
         committed_ = false;
     }
     void note_commit() { committed_ = true; }
+    // GPU work was recorded outside a frame (a compute dispatch or buffer write): a read back must commit it first.
+    void note_work() { committed_ = false; }
     // False while the frame drawn last has not been submitted to the GPU by an sg_commit().
     bool committed() const { return committed_; }
     // The sokol frame being recorded: the sg_commit() calls made so far by anyone, the editor's included (a commit
@@ -1132,6 +1163,8 @@ private:
         bool warmed = false;         // made or asked for by the warm-up: never evicted
     };
     std::map<PipelineKey, PipelineEntry> pipelines_;
+    std::unordered_set<std::uint32_t>
+        failedComputePipelines_;      // shader ids whose compute pipeline the driver refused (one log)
     std::uint64_t pipelineTick_ = 0;  // begin_frame() calls (see "The pipeline cache")
     std::uint64_t pipelineHits_ = 0, pipelinesMade_ = 0, pipelinesEvicted_ = 0;
     bool warming_ = false;
@@ -1235,6 +1268,10 @@ private:
 
 // GPU->CPU readback of an RGBA8 image (top row first). Backend specific.
 bool readback_rgba8(sg_image image, int width, int height, std::vector<std::uint8_t>& out, std::string* error);
+// GPU->CPU readback of `bytes` bytes of a storage buffer from `offset` (Compute::read). Waits for the GPU: the work recorded so
+// far must have been committed (sg_commit) by the caller. Backend specific; false + `error` where the backend has no storage buffers.
+bool readback_buffer(sg_buffer buffer, std::size_t offset, std::size_t bytes, std::vector<std::uint8_t>& out,
+                     std::string* error);
 // The same for an RGBA16F image, as floats (4 per pixel, top row first): what the HDR tests read (Renderer::Impl::read_floats).
 bool readback_rgba16f(sg_image image, int width, int height, std::vector<float>& out, std::string* error);
 
