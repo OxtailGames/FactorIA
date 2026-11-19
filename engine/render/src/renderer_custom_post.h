@@ -164,6 +164,8 @@ public:
     void release_history();
     // The next frame of the pass(es) of `camera` (Entity::bits(); 0 = every camera) starts its history again.
     void reset_history(std::uint64_t camera);
+    // Frees the history images of `camera`'s slots now (a capture's, which must not count against the game's budget until they idle out).
+    void release_history_of(std::uint64_t camera);
     // The images the histories hold now (a test).
     int history_image_count() const;
     // Tests: the budget of the history images in bytes (0 = the default), whether the GPU refuses them, and how many times a slot was

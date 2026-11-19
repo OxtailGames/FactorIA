@@ -210,6 +210,17 @@ void CustomPost::sweep_history(std::uint64_t frame) {
     }
 }
 
+void CustomPost::release_history_of(std::uint64_t camera) {
+    for (auto it = history_.begin(); it != history_.end();) {
+        if (it->second->camera == camera) {
+            for (Target& t : it->second->img) destroy_target(t);
+            it = history_.erase(it);
+        } else {
+            ++it;
+        }
+    }
+}
+
 void CustomPost::reset_history(std::uint64_t camera) {
     for (auto& entry : history_)
         if (camera == 0 || entry.second->camera == camera) entry.second->wrote = false;
