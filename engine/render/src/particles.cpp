@@ -133,8 +133,13 @@ struct DrawItem {
     Rect clip;
     std::vector<TextureAsset*> groupTex;  // the texture of each group (white for soft dots and pixel mode)
     // The material of each group (its emitter's `material` with its materialParams): one per group, shared by the group's
-    // particles and trails, so they batch together; empty = the built-in look.
+    // particles and trails, so they batch together; empty = the built-in look. Left empty (no allocation) while no group of the
+    // emitter has a material, the common case; read it with material_of().
     std::vector<MaterialRef> groupMaterial;
+    const MaterialRef& material_of(int g) const {
+        static const MaterialRef none;
+        return std::size_t(g) < groupMaterial.size() ? groupMaterial[std::size_t(g)] : none;
+    }
     std::uint32_t slotIndex = 0;  // the Scene2D slot of the entity (Entity::index)
     bool share = false;           // the first drawing of a shareable emitter: Scene2D keeps where its items end up
     int count = 0;                // its live particles, for the stats
@@ -226,14 +231,14 @@ void draw_emitter(const World& world, const Frame& f, const DrawItem& item, cons
                         std::clamp((now - sim.emitterTrail[i].time) / std::max(1e-3f, em.trailTime), 0.0f, 1.0f));
                 }
                 list.begin_item(em.layer, depth, white, SamplerKind::Linear, em.blend, clip);
-                list.set_material(item.groupMaterial[std::size_t(g)]);
+                list.set_material(item.material_of(g));
                 ribbon(em, style, em.startColor, 1.0f, billboard);
                 list.end_item();
             }
             if (sim.live(g) <= 0) continue;
             if (c.trail == ParticleTrail::Particle) {
                 list.begin_item(c.layer, depth, white, SamplerKind::Linear, c.blend, clip);
-                list.set_material(item.groupMaterial[std::size_t(g)]);
+                list.set_material(item.material_of(g));
                 for (const Particle& p : sim.particles) {
                     const int points = sim.trail_size(p);
                     if (p.group != g || points == 0) continue;
@@ -277,7 +282,7 @@ void draw_emitter(const World& world, const Frame& f, const DrawItem& item, cons
             const bool plain = !c.alignToVelocity && c.startRotation.x == 0.0f && c.startRotation.y == 0.0f &&
                                c.spin.x == 0.0f && c.spin.y == 0.0f;
             list.begin_item(c.layer, depth, tex, pixel ? SamplerKind::Nearest : SamplerKind::Linear, c.blend, clip);
-            list.set_material(item.groupMaterial[std::size_t(g)]);
+            list.set_material(item.material_of(g));
             for (const Particle& p : sim.particles) {
                 if (p.group != g) continue;
                 const float t = p.age / p.life;
@@ -380,7 +385,6 @@ void Scene2D::gather_particles(World& world, Frame& f) {
         item.screen = screen;
         if (screen && !screen_clip(world, e, f, item.clip)) return;
         item.groupTex.resize(std::size_t(sim.group_count()));
-        item.groupMaterial.resize(std::size_t(sim.group_count()));
         // Copyable by another camera: world space, no group that faces the camera (is3D) or shows a render target's texture.
         bool independent = !screen;
         for (int g = 0; g < sim.group_count(); ++g) {
@@ -392,8 +396,11 @@ void Scene2D::gather_particles(World& world, Frame& f) {
             // material.
             const bool trailOnly = g == 0 && em.trail == ParticleTrail::Emitter && !sim.emitterTrail.empty();
             if (sim.live(g) <= 0 && !trailOnly) continue;
-            item.groupMaterial[std::size_t(g)] =
-                f.assets->sprite_material(c.material, c.materialParams);  // may load it
+            if (!c.material.empty()) {  // the built-in look keeps no ref (an empty path gives an empty one)
+                if (item.groupMaterial.empty()) item.groupMaterial.resize(std::size_t(sim.group_count()));
+                item.groupMaterial[std::size_t(g)] =
+                    f.assets->sprite_material(c.material, c.materialParams);  // may load it
+            }
             if (sim.live(g) <= 0) continue;
             if (!c.texture.empty() && !c.pixelMode) item.groupTex[std::size_t(g)] = f.assets->texture(c.texture);
             if (c.pixelMode && !(c.palette.is_array() && !c.palette.empty()) && !frameStylePalette)

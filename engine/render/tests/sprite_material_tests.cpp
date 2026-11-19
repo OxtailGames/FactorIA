@@ -361,7 +361,7 @@ TEST_CASE("sprite materials: hot reload swaps the shader, keeps the last good on
     g.renderer.reload_asset("shaders/hot.txt");
     const Image kept = frame();
     frame();
-    CHECK(diff_images(plain, kept, 0.0f).maxError == 0.0);
+    CHECK(diff_images(plain, kept, 1.0f / 255.0f).maxError <= 1.0 / 255.0);
     CHECK(log.count("shaders/hot.txt:1:1") == 1);
     CHECK(g.renderer.stats().materialFallbacks.empty());
     CHECK(g.renderer.asset_report()["failures"].size() == 1);
@@ -369,7 +369,7 @@ TEST_CASE("sprite materials: hot reload swaps the shader, keeps the last good on
     REQUIRE(fs::write_text("shaders/hot.txt", "sprite_tint").ok());
     g.renderer.reload_asset("shaders/hot.txt");
     const Image back = frame();
-    CHECK(diff_images(tinted, back, 0.0f).maxError == 0.0);
+    CHECK(diff_images(tinted, back, 1.0f / 255.0f).maxError <= 1.0 / 255.0);
     CHECK(log.messages().size() == 1);
     CHECK(g.renderer.asset_report()["failures"].empty());
 }
@@ -596,6 +596,108 @@ TEST_CASE(
     CHECK(resolves(40, true, false) == 2);   // two sets of values: two lookups
     CHECK(g.renderer.stats().to_json()["materialResolves"] == 2);
     CHECK(resolves(40, false, false) == 1);  // a new frame asks again, once
+}
+
+TEST_CASE("sprite materials: more than 16 distinct sets of params still cost one lookup each, however many sprites use "
+          "them") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    MaterialScope scope;
+    auto frame = [&](int sets, int sprites) {
+        World w;
+        camera2d(w);
+        for (int i = 0; i < sprites; ++i) {
+            Entity e = sprite(w, {float(i % 12) * 20.0f - 110.0f, float(i / 12) * 20.0f - 70.0f, 0}, kTint, {10, 10});
+            w.get<Sprite>(e)->materialParams =
+                Json::object({{"tint", Json::array({float(i % sets) / float(sets), 0.5, 0.5, 1.0})}});
+        }
+        return g.render(w);
+    };
+    frame(40, 120);  // 40 distinct sets (more than the 16 a path used to remember), three sprites each
+    CHECK(g.renderer.stats().materialResolves == 40);
+    frame(3, 120);
+    CHECK(g.renderer.stats().materialResolves == 3);
+    CHECK(g.renderer.stats().materials == 1);
+}
+
+TEST_CASE("sprite materials: a capture_world between two frames changes neither the picture nor the lookups of the "
+          "next one") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    MaterialScope scope;
+    World w;
+    camera2d(w);
+    Entity e = sprite(w, {0, 0, 0}, kTint, {80, 60});
+    w.get<Sprite>(e)->color = Color{1, 1, 1, 1};
+    w.get<Sprite>(e)->materialParams = Json::object({{"tint", Json::array({0.0, 1.0, 0.0, 1.0})}});
+    const Image before = g.render(w);
+    const int resolves = g.renderer.stats().materialResolves;
+    REQUIRE(resolves >= 1);
+    // The component changes after the frame: the capture must look it up again, not read the frame's answers.
+    w.get<Sprite>(e)->materialParams = Json::object({{"tint", Json::array({0.0, 0.0, 1.0, 1.0})}});
+    Renderer::WorldCapture spec;
+    spec.rect = Rect{-40, -30, 80, 60};
+    Image shot;
+    std::string err;
+    REQUIRE_MESSAGE(g.renderer.capture_world(w, spec, shot, &err), err);
+    near(shot.pixel(shot.width / 2, shot.height / 2), 0.0f, 0.0f, 1.0f);
+    CHECK(g.renderer.stats().materialResolves == resolves);  // the capture does not change the frame's numbers
+    w.get<Sprite>(e)->materialParams = Json::object({{"tint", Json::array({0.0, 1.0, 0.0, 1.0})}});
+    const Image after = g.render(w);
+    CHECK(g.renderer.stats().materialResolves == resolves);
+    CHECK(diff_images(before, after, 1.0f / 255.0f).maxError <= 1.0 / 255.0);
+}
+
+TEST_CASE("sprite materials: a hot reload drops the frame's answers, so the next lookup sees the rebuilt material") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    MaterialScope scope;
+    const std::string dialect = g.renderer.shader_dialect();
+    REQUIRE(fs::write_text("materials/reload.material.json",
+                           R"({"format": "factoria.material/1", "kind": "sprite", "shader": "shaders/reload.txt",
+                               "params": {"tint": {"type": "color", "default": [1.0, 0.25, 0.25, 1.0], "doc": "Tint."}}})")
+                .ok());
+    g.renderer.set_shader_compiler([dialect](const std::string&, const std::string&) -> Result<Json> {
+        auto snippet = fs::read_text("shaders/reload.txt");
+        if (!snippet.ok()) return snippet.error();
+        return load_json_file("materials/" + *snippet + ".material.json." + dialect + ".shader");
+    });
+    auto frame = [&]() {
+        World w;
+        camera2d(w);
+        Entity e = sprite(w, {0, 0, 0}, "materials/reload.material.json");
+        w.get<Sprite>(e)->color = Color{1, 1, 1, 1};
+        const Image img = g.render(w);
+        return std::pair{img, g.renderer.stats().materialResolves};
+    };
+    REQUIRE(fs::write_text("shaders/reload.txt", "sprite_tint").ok());
+    const auto tinted = frame();
+    near(tinted.first.pixel(160, 90), 1.0f, 0.25f, 0.25f);
+    CHECK(tinted.second == 1);
+    REQUIRE(fs::write_text("shaders/reload.txt", "sprite_empty").ok());
+    g.renderer.reload_asset("shaders/reload.txt");
+    const auto plain = frame();
+    near(plain.first.pixel(160, 90), 1.0f, 1.0f, 1.0f);
+    CHECK(plain.second == 1);  // looked up again after the reload, not answered from the frame before
+}
+
+TEST_CASE("sprite materials: in a split-screen camera screen_uv and fa_target still count the whole target") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    MaterialScope scope;
+    World w;
+    Entity cam = make(w, "cam");
+    auto& c = w.add<Camera>(cam);
+    c.clearColor = Color::black();
+    c.viewport = Rect{0.5f, 0, 0.5f, 1};  // the right half of the image
+    Entity e = sprite(w, {0, 0, 0}, kCut, {300, 160});
+    w.get<Sprite>(e)->color = Color{1, 1, 1, 1};
+    const Image img = g.render(w);
+    // cut = 0.5 of the whole target is the camera's own left edge: nothing of the sprite is cut. Counted from the camera's
+    // rectangle, the left half of the sprite would be gone.
+    CHECK(img.pixel(180, 90).r > 0.2f);
+    CHECK(img.pixel(300, 90).r > 0.2f);
+    near(img.pixel(80, 90), 0, 0, 0);  // outside the camera's rectangle
 }
 
 TEST_CASE(

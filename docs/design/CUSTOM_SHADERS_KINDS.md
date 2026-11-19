@@ -105,7 +105,18 @@ Built (M72-P4, per-sprite values): `"instanced": true` params of a sprite materi
   `instVec4 > 0` uses it: `Gpu::quad_pipeline(..., instanceVec4)` then declares explicit offsets for the 7 `Vertex2D` attributes
   (stride 48) and attributes 7..9 (`kQuadInstAttr`) as float4 of buffer 1; the engine's own programs and the materials without
   instanced params keep the old layout. A use whose instVec4 no longer matches its material (a hot reload that changed the
-  layout) is skipped for that frame. Ten attributes stay under the 16 of GLES3 and WebGL2 and D3D11's 32.
+  layout) is skipped for that frame. Ten attributes stay under the 16 of GLES3 and WebGL2 and D3D11's 32. Known cost: a
+  Tilemap or a Text with an instanced material repeats the same values for every one of its quads (four copies each, like any
+  quad); sharing one copy per item would need a per-item stream, which is not done.
+- **Per-frame lookup.** `Assets::sprite_material` keeps its answers of the frame per material path: first by the address of
+  the component's `materialParams` (the usual repeat: the same component, or a particle group), then by a hash of the values
+  (`hash_params`), comparing values in place only on a hash match. There is no cap on distinct sets (instanced values give
+  every sprite its own), and `materialResolves` counts one full lookup per distinct set. The address path relies on the
+  Json being a component's own field that keeps its values until the cache is dropped (`FA_ASSERT` checks it in debug).
+  `stats.materials` is deduplicated per frame (`Renderer::Impl::materialsCounted`), not per `draw_group` call.
+- **`fa_target` and `screen_uv`.** Both count the image the pass draws into: the whole game target in the main pass (a
+  camera with a viewport only draws into a part of it, so `screen_uv` there is still relative to the whole target), the
+  camera's rectangle in the sprite coverage pass (`coverage_pass` hands `draw_group` the real size of its target).
 - **Shader.** `quad_common.glsl` declares `fa_inst_d0..2` under `FA_INST_n`, unpacks them with the generated
   `fa_instance_unpack` before `vertex()` and passes them as `flat` varyings `fa_inst_v0..2` to `fa_inst_load()`, which runs before
   `fragment()`. The memory cost is 4 copies of the values per quad (48 bytes per vec4 of a quad): 192 bytes at 3 vec4, against
