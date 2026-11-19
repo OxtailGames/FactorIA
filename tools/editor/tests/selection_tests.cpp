@@ -341,6 +341,57 @@ TEST_CASE(
     CHECK(t.scale == 0);
 }
 
+TEST_CASE("UndoStack: Merge of two merge patches with one target redoes both (a drag of two params of one block)") {
+    auto patch = [](const char* fields) {
+        UndoCommand c;
+        c.cmd = "scene.set_component";
+        c.target = "scene.set_component|SceneSettings|skyMaterialParams,|merge";
+        c.args = Json::object({{"component", "SceneSettings"}, {"fields", Json::parse(fields)}, {"merge", true}});
+        return std::vector<UndoCommand>{c};
+    };
+    auto redo = [](const UndoStack& st) {
+        Json state = Json::object({{"skyMaterialParams", Json::object()}});
+        for (const UndoCommand& c : st.back().forward) state.merge_patch(c.args["fields"]);
+        return state;
+    };
+    UndoStack st;
+    // tint, then strength, then tint again, within one coalescing window
+    st.push_command(patch(R"({"skyMaterialParams":{"tint":[1,0,0,1]}})"), patch(R"({"skyMaterialParams":{}})"), false,
+                    CoalesceMode::Merge);
+    st.push_command(patch(R"({"skyMaterialParams":{"strength":2}})"), patch(R"({"skyMaterialParams":{}})"), true,
+                    CoalesceMode::Merge);
+    st.push_command(patch(R"({"skyMaterialParams":{"tint":[0,1,0,1]}})"), patch(R"({"skyMaterialParams":{}})"), true,
+                    CoalesceMode::Merge);
+    REQUIRE(st.back().forward.size() == 1);  // one patch of one target, not a growing list
+    CHECK(redo(st) == Json::parse(R"({"skyMaterialParams":{"tint":[0,1,0,1],"strength":2}})"));
+    // a key deleted by the first patch and set by the second: the null goes (the second value wins), nested objects compose
+    UndoStack st2;
+    st2.push_command(patch(R"({"skyMaterialParams":{"a":null,"deep":{"x":1}}})"), patch(R"({"skyMaterialParams":{}})"),
+                     false, CoalesceMode::Merge);
+    st2.push_command(patch(R"({"skyMaterialParams":{"a":5,"deep":{"y":2}}})"), patch(R"({"skyMaterialParams":{}})"),
+                     true, CoalesceMode::Merge);
+    CHECK(st2.back().forward.size() == 1);
+    CHECK(redo(st2) == Json::parse(R"({"skyMaterialParams":{"a":5,"deep":{"x":1,"y":2}}})"));
+    // an object after a null cannot be one patch (it would merge into the value instead of replacing the deleted one): both stay
+    UndoStack st3;
+    st3.push_command(patch(R"({"skyMaterialParams":{"a":null}})"), patch(R"({"skyMaterialParams":{}})"), false,
+                     CoalesceMode::Merge);
+    st3.push_command(patch(R"({"skyMaterialParams":{"a":{"x":1}}})"), patch(R"({"skyMaterialParams":{}})"), true,
+                     CoalesceMode::Merge);
+    CHECK(st3.back().forward.size() == 2);
+    CHECK(st3.back().inverse.size() == 2);
+    CHECK(redo(st3) == Json::parse(R"({"skyMaterialParams":{"a":{"x":1}}})"));
+    // the patches are of the same entity: another id is never composed
+    auto other = patch(R"({"skyMaterialParams":{"z":1}})");
+    other[0].args["id"] = "other";
+    UndoStack st4;
+    st4.push_command(patch(R"({"skyMaterialParams":{"y":1}})"), patch(R"({"skyMaterialParams":{}})"), false,
+                     CoalesceMode::Merge);
+    st4.push_command(other, patch(R"({"skyMaterialParams":{}})"), true, CoalesceMode::Merge);
+    CHECK(st4.back().forward.size() == 2);
+    CHECK(st4.bytes() == st4.back().bytes);
+}
+
 // ---------------------------------------------------------------------------------------- clicks, ranges, the ancestor skip
 namespace {
 // A tree as the Hierarchy shows it (depth first):  root > (kidA > grand), kidB ; other

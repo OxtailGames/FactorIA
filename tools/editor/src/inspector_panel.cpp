@@ -1115,7 +1115,7 @@ void Editor::draw_material_params(Entity e, const Json& cur, const std::string& 
     }
     if (specs->empty()) ImGui::TextDisabled("This material declares no params.");
 
-    ImGui::PushID("matparams");
+    ImGui::PushID(rawKey.c_str());  // one ID scope per component, so two blocks on an entity never share IDs
     for (const MaterialParamSpec& p : *specs) {
         const int n = material_param_arity(p.type);
         const bool overridden = material_param_overridden(p, overrides);
@@ -1139,7 +1139,8 @@ void Editor::draw_material_params(Entity e, const Json& cur, const std::string& 
         ImGui::SetNextItemWidth(-(reset + ImGui::GetStyle().ItemSpacing.x));
         Json out;
         bool changed = false;
-        const std::string track = "insp:matparam:" + p.name;
+        const std::string track = "insp:" + material_param_key(component, "matparam", p.name);
+        const std::string errKey = material_param_key(component, "matparam", p.name);
         float v[4];
         read_floats(value.is_number() ? Json::array({value}) : value, v, std::max(n, 1), 0.0f);
         const float lo = p.min ? float(*p.min) : 0.0f, hi = p.max ? float(*p.max) : 0.0f;
@@ -1164,33 +1165,33 @@ void Editor::draw_material_params(Entity e, const Json& cur, const std::string& 
             ImGui::TextDisabled("%s (not editable here)", p.type.c_str());
         }
         at_track(track);
-        const std::string editKey = "insp:" + id + ":matparam:" + p.name;
+        const std::string editKey = "insp:" + id + ":" + errKey;
         if (ImGui::IsItemActive() && lastEditKey_ == editKey) lastEditTime_ = time_;
         if (changed) {
             std::string err;
             CommandResult r = edit_command(editKey, "scene.set_component",
                                            material_param_edit_args(id, p, out, component, paramsField), &err);
             if (r.ok)
-                inspErrors_.erase("matparam:" + p.name);
+                inspErrors_.erase(errKey);
             else
-                inspErrors_["matparam:" + p.name] = err;
+                inspErrors_[errKey] = err;
         }
         ImGui::SameLine();
         ImGui::BeginDisabled(!overridden);
         if (ImGui::SmallButton("Reset")) {
             std::string err;
-            CommandResult r =
-                edit_command("insp:" + id + ":matreset:" + std::to_string(uiFrame_), "scene.set_component",
-                             material_param_reset_args(id, p, component, paramsField), &err);
+            CommandResult r = edit_command(
+                "insp:" + id + ":" + material_param_key(component, "matreset", p.name) + ":" + std::to_string(uiFrame_),
+                "scene.set_component", material_param_reset_args(id, p, component, paramsField), &err);
             if (!r.ok)
-                inspErrors_["matparam:" + p.name] = err;
+                inspErrors_[errKey] = err;
             else
-                inspErrors_.erase("matparam:" + p.name);
+                inspErrors_.erase(errKey);
         }
         ImGui::EndDisabled();
-        at_track("insp:matreset:" + p.name, overridden);
+        at_track("insp:" + material_param_key(component, "matreset", p.name), overridden);
         tooltip(std::string("Back to the material's default (removes the override from ") + owner + ")");
-        if (auto it = inspErrors_.find("matparam:" + p.name); it != inspErrors_.end()) error_text(it->second);
+        if (auto it = inspErrors_.find(errKey); it != inspErrors_.end()) error_text(it->second);
         ImGui::PopID();
     }
     ImGui::PopID();

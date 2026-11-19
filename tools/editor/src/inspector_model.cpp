@@ -258,6 +258,10 @@ std::string material_field_of_params(std::string_view paramsField) {
 
 bool is_material_field(std::string_view field) { return field == "material" || field == "skyMaterial"; }
 
+std::string material_param_key(std::string_view component, std::string_view kind, std::string_view param) {
+    return std::string(component) + ":" + std::string(kind) + ":" + std::string(param);
+}
+
 std::string material_build_error(const Json& assetReport, const std::string& materialPath) {
     if (materialPath.empty() || !assetReport.is_object() || !assetReport.contains("materials") ||
         !assetReport["materials"].is_array())
