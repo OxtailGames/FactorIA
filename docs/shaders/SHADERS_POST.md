@@ -192,7 +192,7 @@ when the camera was not drawn in the frame before (a new camera, one switched of
 **cut** the renderer sees (another scene or a reload of it, the world's clock going back or jumping by more than 8 ticks, see below); and after
 `render.reset_post_history` (`{"entity": "camera"}` for one camera, nothing for all), which you call at a cut it cannot see: a
 camera teleported inside one scene, or moved to another place by a script. A frame that is not one of the game's (a
-`capture_world` of another world, such as a thumbnail) neither reads nor writes any history, so it never disturbs a running trail.
+`capture_world` of another world, such as a thumbnail) neither reads nor writes any history, so it never disturbs a running trail. `Renderer::capture_camera` (the editor's preview) keeps a history of its own, under the capture's key: its frames build it, every call starts it clean and frees it at the end.
 
 **A slow game starts the history again every frame.** The clock test counts simulation ticks between two drawn frames, and a jump of
 more than 8 ticks is a cut. At the default 60 ticks a second, a game that draws fewer than about 7.5 frames a second (more than 8
