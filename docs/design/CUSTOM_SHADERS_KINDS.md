@@ -67,8 +67,9 @@ covers `color_space.glsl` and `sky_common.glsl`; the sky defines no preprocessor
   draws the sky through the material's program (`Gpu::sky_pipeline(format, shader)`, a pipeline per shader, the same uniforms
   as the built-in one plus the material's block and textures). A path that is not a built sky material (missing, another
   kind, a build error) draws the built-in gradient, with the reason logged once and the path listed in
-  `RenderStats.materialFallbacks`. The meshes' ambient and reflection light (`fa_env_sky`, `fa_env_horizon`) and the
-  reflection probes keep following `skyColor` and `horizonColor`: a sky material only paints the background.
+  `RenderStats.materialFallbacks`. The sky is also baked into the cubes that light the meshes (`renderer_env.cpp`,
+  "The sky material lights the meshes" below); without a sky material `fa_env_sky` and `fa_env_horizon` (the gradient) light them as before. The reflection
+  probes keep following `skyColor` and `horizonColor`.
 - **Editor.** View > Scene settings (`scene_settings_model.*`, `scene_settings_panel.cpp`) edits the settings through
   `scene.set_component` on `SceneSettings` with no `id` (`patch_settings` in `fa::scene` applies the fields all or nothing,
   `skyMaterialParams` merges); the editor's undo plan for it (`plan_set_settings`) puts back exactly the fields of the call.
@@ -162,3 +163,36 @@ a call and either in another kind. Which image is bound, and when it is valid, i
 - **Reported.** `render.supports` has the Engine feature `postMaterials`; `postprocess.get {resolved: true}` has `customPasses`
   and `customPassProblems`; the editor's Post-processing panel edits the list (`postfx_custom.h` makes each edit one whole-array
   `postprocess.set`, one undo step).
+
+## The sky material lights the meshes (M72 P15)
+
+`engine/render/src/renderer_env.{h,cpp}` (`Environment`) bakes the sky program of the scene's sky material into a prefiltered cube
+(128 x 128, 5 mips, GGX per mip) and an irradiance cube (8 x 8); the design, the pass count (60) and the format fallback are in
+the header comment. `mesh_common.glsl` and `mesh_full_common.glsl` declare them (views 14 and 15, sampler 10; `fa_env_sky.w` is 1
+when they are bound, `fa_env_horizon.w` the top mip) and `fa_environment()` and the new `fa_ambient_light(n)` read them, else the
+analytic gradient and `fa_ambient.rgb` as before. Without a sky material the pixels and the draw calls are the same as before: no
+pass, no environment image; only `blank_view()` makes a 1x1 black cube and a sampler at the first mesh draw (the built-in mesh
+program always binds the slots), plus three bindings per draw and one uniform branch per fragment.
+
+- **Plan.** `plan_env` (`renderer_draw.cpp`) declares a "sky-env" pass of the frame graph when a camera draws the world with a
+  valid sky material. Its key hashes the material, its generation, params, textures, the scene's sky colours, the colour space,
+  the sun when the twin says `usesSun` (the snippet reads `sun_dir` or `fa_sun`), and, for an **animated** material (the twin's
+  `animated`, set by `compile_material` when the snippet reads `.time` or `fa_time`), the step `floor(time / kEnvTimeStep)`; the
+  sky is baked at `step * kEnvTimeStep`: no wall clock, a replay gives the same frames. One environment per frame: the first job
+  that wants it fixes the key, a job with another key uses the analytic path.
+- **Order.** The shadow and prepass programs (and the `surface()` of an `alphaMode` `"clip"` material that runs in them) come
+  before "sky-env": they read the cubes of the previous frame, black in the first one.
+- **Faces.** The orientation is a table from the cube map specification (`env_face`); OpenGL renders bottom-up, so `up` is negated
+  there. S0..S3 are separate 1-mip images, because GLES 3 and WebGL 2 cannot restrict a texture view to a mip.
+- **Hook detection and the hints.** `lighting()` is the hook only with `SurfaceInput` and `Surface` as its first two parameters,
+  and the errors that point at it (`definition`) use the same pattern, so an overload of the name is never the line they report. A
+  name of the API that fails in the vertex stage (a helper compiled into both stages) gets the stage hint (fragment stage only,
+  `#ifdef GL_FRAGMENT_SHADER`) with its signature, never "did you mean" itself. `fa_environment`, `fa_env_brdf`,
+  `fa_sky_reflection` and `fa_ambient_light` may be called from `surface()`: they only read the sky images, which the shadow and
+  depth programs of an `alphaMode` `"clip"` material have too.
+
+Verified: Metal only (a mirror ball shows each side of a two-colour sky; a diffuse ball takes the ambient of the sky above and below;
+no sky material: the same frame and draw calls; the bake runs again exactly when the key changes, for the sun only when the sky reads
+it; the animated step; `ready()` after `blank_view()` keeps one sampler). Read only: the GL face orientation, D3D11, the RGBA8 fallback
+and WebGL 2. Cost on Metal: about 2 to 3.5 ms on a frame that bakes (60 passes), 0.3 to 0.6 ms of it CPU (the test "what one bake of
+the environment costs" reports it).

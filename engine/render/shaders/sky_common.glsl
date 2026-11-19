@@ -18,8 +18,8 @@
 //
 // What sky() receives. s.color holds what the engine would draw (the gradient of SceneSettings.skyColor and horizonColor, already in
 // the scene's colour space): an empty sky() is the built-in look. The result is drawn opaque, as the background of the 3D scene.
-// Only the background is made by the material: the ambient and reflection light of the scene (the image based lighting of the
-// meshes) still follow SceneSettings.skyColor and horizonColor.
+// The same sky is also what lights the meshes: the renderer runs this program again into small cube images (renderer_env.cpp) that the
+// mesh shaders read for the ambient and the reflection light, so sky() must not depend on the screen (no fragment position).
 
 // The snippet contract (docs/SHADERS.md, "Sky materials").
 @block fa_sky_types

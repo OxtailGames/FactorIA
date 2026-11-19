@@ -1,4 +1,4 @@
-// docs/SHADERS.md and docs/shaders/SHADERS_FULL.md: every worked example is a real material. A fenced block that follows a line "File `path`:" is written to
+// docs/SHADERS.md, docs/shaders/SHADERS_FULL.md and docs/shaders/SHADERS_LIGHTING.md: every worked example is a real material. A fenced block that follows a line "File `path`:" is written to
 // that path in a scratch project; the blocks that hold a material (`"format": "factoria.material/1"`) must pass the schema
 // and the material checks, and compile for every dialect with the real sokol-shdc (SOKOL_SHDC or `factoria setup shaders`;
 // skipped with a message where it is not installed, failed instead with FA_REQUIRE_SHDC=1 as in CI).
@@ -87,7 +87,8 @@ size_t material_blocks_in_pages() {
 
 }  // namespace
 
-TEST_CASE("docs/SHADERS.md and SHADERS_FULL.md: the worked examples pass the schema and the material checks") {
+TEST_CASE("the shader docs (SHADERS, SHADERS_FULL, SHADERS_LIGHTING): the worked examples pass the schema and the "
+          "material checks") {
     auto schema = bundled_read("schemas/material.schema.json");
     REQUIRE(schema.has_value());
     testing::TempDir dir;
@@ -102,8 +103,8 @@ TEST_CASE("docs/SHADERS.md and SHADERS_FULL.md: the worked examples pass the sch
     }
 }
 
-TEST_CASE(
-    "docs/SHADERS.md and SHADERS_FULL.md: the worked examples compile for every dialect with the real sokol-shdc") {
+TEST_CASE("the shader docs (SHADERS, SHADERS_FULL, SHADERS_LIGHTING): the worked examples compile for every dialect "
+          "with the real sokol-shdc") {
     ShaderCompileOptions options;
     options.setup = SetupContext{};
     FA_SKIP_WITHOUT_SHDC(options.setup, "sokol-shdc is not installed (SOKOL_SHDC, next to factoria, or `factoria setup "

@@ -34,4 +34,23 @@ sg_image make_image(const sg_image_desc& desc) {
     return image;
 }
 
+sg_image make_cube_image(const sg_image_desc& desc) {
+    sg_image image = sg_make_image(&desc);
+#if defined(SOKOL_GLES3)
+    // As make_image: the last level is set explicitly, on the cube target (a cube texture cannot be bound to GL_TEXTURE_2D).
+    const sg_gl_image_info info = sg_gl_query_image_info(image);
+    if (sg_query_image_state(image) == SG_RESOURCESTATE_VALID) {
+        GLint previous = 0;
+        glGetIntegerv(GL_TEXTURE_BINDING_CUBE_MAP, &previous);
+        for (const GLuint tex : info.tex) {
+            if (!tex) continue;
+            glBindTexture(GL_TEXTURE_CUBE_MAP, tex);
+            glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAX_LEVEL, std::max(desc.num_mipmaps, 1) - 1);
+        }
+        glBindTexture(GL_TEXTURE_CUBE_MAP, GLuint(previous));
+    }
+#endif
+    return image;
+}
+
 }  // namespace fa::render

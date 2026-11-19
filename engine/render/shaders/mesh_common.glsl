@@ -11,7 +11,8 @@
 //
 // Metallic-roughness PBR (Cook-Torrance GGX) with normal, metallic-roughness, occlusion and emissive maps, up to 32
 // directional/point/spot lights, sky image-based lighting (a procedural environment built from the scene's sky and
-// horizon colors), fog and an optional directional shadow map.
+// horizon colors, or the sky a sky material draws: its ambient light and reflection come from a baked cube), fog and an optional
+// directional shadow map.
 // Instanced: the model matrix of every instance comes from vertex buffer 1 (four vec4 columns, locations 5..8; 1..4 in
 // the shadow pass, whose attributes must be contiguous). Skinned meshes use the _skin programs: joints and weights come
 // from vertex buffer 2 (locations 9, 10; 5, 6 in the shadow pass).
@@ -29,7 +30,7 @@
 // Every engine identifier starts with fa_ (FA_ for constants), so "names starting with fa_ are the engine's" is the one
 // rule a snippet follows. Uniform block bindings: vertex 0 fa_mesh_vs_params, 3 fa_skin (4 is left for the material's
 // vertex-stage block); fragment 1 fa_mesh_fs_params, 2 fa_lights (5 for the material). Views 0-5 and samplers 0-1 are
-// the engine's. A material texture is bound twice, so both stages can sample it (a sokol view slot belongs to one stage and
+// the engine's, and so are views 14-15 and sampler 10 (the baked sky, fa_fs_head). A material texture is bound twice, so both stages can sample it (a sokol view slot belongs to one stage and
 // sokol-shdc refuses one name in both): the fragment stage reads it at view 6.. and sampler 2.., the vertex stage at view 10..
 // and sampler 6.. under the name fa_vs_<name> (the generator's #define makes the snippet write the plain name in both).
 //
@@ -323,6 +324,12 @@ layout(binding=0) uniform sampler fa_smp;
 layout(binding=1) uniform sampler fa_shadow_smp;
 @image_sample_type fa_shadow_tex unfilterable_float
 @sampler_type fa_shadow_smp nonfiltering
+// The sky of a sky material (SceneSettings.skyMaterial), baked by the renderer (renderer_env.h): the sky prefiltered by roughness (the
+// mips) and its irradiance. Both are views 14 and 15, the sampler 10 (after the material's textures and their vertex-stage copies);
+// bound and used only while fa_env_sky.w is 1.
+layout(binding=14) uniform textureCube fa_env_tex;
+layout(binding=15) uniform textureCube fa_irr_tex;
+layout(binding=10) uniform sampler fa_env_smp;
 
 layout(binding=1) uniform fa_mesh_fs_params {
     vec4 fa_camera_pos;         // xyz
@@ -339,8 +346,8 @@ layout(binding=1) uniform fa_mesh_fs_params {
                                 // z = height base (world y), w = height falloff; all 0 for the scene's own fog
     vec4 fa_fog_c;              // xyz = the camera's forward axis in the world, w = 1 for an orthographic camera (0 otherwise)
     vec4 fa_counts;             // x = light count, y = shadow texel size, z = 1 on OpenGL backends
-    vec4 fa_env_sky;            // rgb sky color (top of the environment)
-    vec4 fa_env_horizon;        // rgb horizon color
+    vec4 fa_env_sky;            // rgb sky color (top of the environment); w = 1 when the baked environment of a sky material is bound
+    vec4 fa_env_horizon;        // rgb horizon color; w = the highest mip of fa_env_tex (what roughness 1 reads)
     vec4 fa_time;               // x = seconds of game time since the scene started
 };
 
@@ -419,9 +426,14 @@ Surface fa_standard_surface(in SurfaceInput i) {
 // The sky the surface reflects, shared with the full-shader template (mesh_full_common.glsl includes this block after it has
 // declared fa_env_sky and fa_env_horizon).
 @block fa_env_funcs
-// The environment the surface reflects: the same gradient as the sky, the horizon color (darker) below the horizon,
-// and rougher surfaces see a blurrier, flatter version of it (a cheap stand-in for a prefiltered cubemap).
+// The environment the surface reflects. With a sky material (fa_env_sky.w = 1) it is the sky the material draws, baked into a cube whose
+// mips are prefiltered by roughness: roughness 0 reads mip 0, roughness 1 the last. Without one it is the gradient of skyColor and
+// horizonColor (the horizon color, darker, below the horizon), rougher surfaces seeing a blurrier, flatter version of it (a cheap
+// stand-in for a prefiltered cubemap).
 vec3 fa_environment(vec3 d, float rough) {
+    if (fa_env_sky.w > 0.5) {
+        return textureLod(samplerCube(fa_env_tex, fa_env_smp), d, clamp(rough, 0.0, 1.0) * fa_env_horizon.w).rgb;
+    }
     float blur = rough * rough;
     float h = clamp(d.y * (1.0 - 0.7 * blur), 0.0, 1.0);
     vec3 up = mix(fa_env_horizon.rgb, fa_env_sky.rgb, pow(h, 0.55));
@@ -429,6 +441,15 @@ vec3 fa_environment(vec3 d, float rough) {
     float k = smoothstep(-0.05 - 0.6 * blur, 0.05 + 0.6 * blur, d.y);
     vec3 e = mix(down, up, k);
     return mix(e, 0.5 * (fa_env_sky.rgb + fa_env_horizon.rgb) * 0.8, blur * 0.6);
+}
+
+// The ambient light a surface facing n receives: SceneSettings.ambientLight, or with a sky material the sky's irradiance toward n (what a
+// diffuse surface sees of the sky, divided by pi: a sky of one color gives that color), which replaces ambientLight.
+vec3 fa_ambient_light(vec3 n) {
+    if (fa_env_sky.w > 0.5) {
+        return textureLod(samplerCube(fa_irr_tex, fa_env_smp), n, 0.0).rgb;
+    }
+    return fa_ambient.rgb;
 }
 
 // Analytic split-sum environment BRDF (Karis, "Physically Based Shading on Mobile"): scale and bias of F0.
@@ -637,9 +658,9 @@ void main() {
 #ifdef FA_CUSTOM_LIGHT
         s.normal = n;
 #ifdef FA_HAS_AMBIENT
-        vec3 lit = ambient(i, s, fa_ambient.rgb);
+        vec3 lit = ambient(i, s, fa_ambient_light(n));
 #else
-        vec3 lit = fa_ambient.rgb * s.albedo * s.occlusion;
+        vec3 lit = fa_ambient_light(n) * s.albedo * s.occlusion;
 #endif
 #else
         float metallic = clamp(s.metallic, 0.0, 1.0);
@@ -649,7 +670,7 @@ void main() {
         float ndv = max(dot(n, v), 1e-4);
         vec3 diffuse_color = s.albedo * (1.0 - metallic);
         vec3 f0 = mix(vec3(0.04), s.albedo, metallic);
-        vec3 lit = fa_ambient.rgb * diffuse_color * s.occlusion;
+        vec3 lit = fa_ambient_light(n) * diffuse_color * s.occlusion;
 #endif
         int count = int(fa_counts.x);
         for (int li = 0; li < 32; li++) {

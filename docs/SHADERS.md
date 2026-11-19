@@ -232,7 +232,7 @@ specular. To write the whole loop (the lights you pick, the shadow, the sky), de
 `s.emission`, fog, `"clip"`, `"blend"`, instancing, skinning, shadows and the depth and normal prepass. A `light()` that returns `vec3(0.0)`
 leaves only the ambient term.
 
-- The material needs `light()`; without it `shader.compile` stops before the compiler runs, with an error that names the
+- The material needs `light()` or `lighting()`; without one `shader.compile` stops before the compiler runs, with an error that names the
   material file, shows the signature and says how to go back to `"pbr"`. `light` and `ambient` are entry points only in a
   `"custom"` material (in any other they are ordinary names), and `LightSample` is reserved in all of them.
 - `light()` runs once for each light, in the fragment stage, inside a loop. A texture read there needs
@@ -914,9 +914,10 @@ colour space, `fa_time` is the game clock. The names of the engine's own sky pro
 `sky_color`, `horizon_color`, `fa_sun`, `fa_cspace`...) are the engine's: a param or texture that takes one is refused with
 a rename suggestion (error at `/params/<name>` or `/textures/<name>`), and your snippet's own globals must avoid them too.
 
-**What the material changes.** Only the background that is painted behind the scene. The ambient and reflection light of
-the meshes (image based lighting) still follows `skyColor` and `horizonColor`: a sunset painted by a material does not
-light the meshes, so set those two colours near it. A scene with no sky material draws exactly what it drew before.
+**What the material changes.** The background behind the scene, and the ambient and reflection light of the meshes: the
+sky is baked into small cube images the meshes read (when, what it costs, the web fallback:
+[the sky lights the meshes](shaders/SHADERS_LIGHTING.md#the-sky-material-lights-the-meshes)). A scene with no sky material
+draws exactly what it drew before.
 
 **Textures** work as for a mesh material (`texture(sampler2D(map, map_smp), uv)`, at most 4); the sky program binds no
 texture of its own, so a sky material's textures are views and samplers 0 and up (you never write the numbers).
@@ -984,7 +985,7 @@ and where it runs (not Android or the web) are on the page [Compute materials](s
 
 ## Full shaders and passes
 
-When a snippet cannot say it (a second pass, your own `main`, your own light loop), a mesh material can be a **full
+When a snippet cannot say it (a second pass, your own `main`), a mesh material can be a **full
 shader**: `"mode": "full"`, a file with a `@vertex` and a `@fragment` section, and `"passes"` (up to four, each with its
 own `cull`, depth test and write, and `blend`, drawn in array order). Skinning and instancing keep working. The names the
 engine gives you, the shadow and SSAO rules and worked examples (an inked outline, an x-ray, a custom light loop) are on
@@ -992,11 +993,7 @@ the page [Full shaders and passes](shaders/SHADERS_FULL.md) (`factoria docs read
 
 ## Not available yet
 
-- **Your own light loop** (which lights are chosen, how many, their order, the shadow map): `"custom"` lighting only
-  shades each light the engine hands over. Image-based lighting (the sky reflection) is off in a custom material and
-  cannot be called from `light()`.
-- Compute on Android and the web; a sky material that also
-  drives the ambient and reflection light of the meshes (they follow `skyColor` and `horizonColor`); per-instance params
+- Compute on Android and the web; per-instance params
   in a sky or compute material and vertex channels (`vertexAttributes`) in a sprite, sky or compute material (a mesh
   has them).
 - **Post passes** see the depth and normals of mesh geometry only (not of sprites).
