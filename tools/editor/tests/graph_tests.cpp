@@ -767,6 +767,19 @@ TEST_CASE(
     CHECK(back.contains("graphHash"));
     CHECK(back["shader"] == "shaders/dissolve.surface.glsl");
     CHECK(m.snippet_state() == "in_sync");
+
+    // a hand-edited snippet and a deleted file: Overwrite writes the file, the generator then asks about the snippet. The editor's own write is
+    // not an external change, so no conflict is left and the poll does not ask "The file changed on disk" again
+    p.write("shaders/dissolve.surface.glsl", p.read("shaders/dissolve.surface.glsl") + "// my tweak\n");
+    stdfs::remove(p.dir / kMat);
+    REQUIRE(m.add_node("math.add", Vec2{10, 110}).ok);
+    CHECK(m.save(false).externalChange);
+    const GraphSaveOutcome asked2 = m.save(false, true);
+    CHECK_FALSE(asked2.ok);
+    CHECK(asked2.needsForce);
+    CHECK_FALSE(m.external_conflict());
+    CHECK_FALSE(m.poll_external());
+    CHECK_FALSE(m.external_conflict());
 }
 
 TEST_CASE("graph preview: errors name the material and the snippet, not the stage files that are gone") {
@@ -778,6 +791,18 @@ TEST_CASE("graph preview: errors name the material and the snippet, not the stag
     CHECK(out.find("stage-1-ab") == std::string::npos);
     CHECK(out.find("shaders/dissolve.surface.glsl:5:3: error: bad") != std::string::npos);
     CHECK(out.find("/p") == std::string::npos);
+
+    // the same on Windows, where a compiler prints the stage files with '\' or a mix of both
+    const std::string win = "C:\\p\\.factoria\\material-preview\\stage-1-ab.surface.glsl:5:3: error: bad\n"
+                            "C:/p\\.factoria\\material-preview\\stage-1-ab.material.json: /shader\n"
+                            ".factoria\\material-preview\\stage-1-ab.surface.glsl\n";
+    const std::string outWin = name_real_files(win, "C:/p", ".factoria/material-preview/stage-1-ab.material.json",
+                                               ".factoria/material-preview/stage-1-ab.surface.glsl",
+                                               "materials/dissolve.material.json", "shaders/dissolve.surface.glsl");
+    CHECK(outWin.find("stage-1-ab") == std::string::npos);
+    CHECK(outWin.find("material-preview") == std::string::npos);
+    CHECK(outWin.find("shaders/dissolve.surface.glsl:5:3: error: bad") != std::string::npos);
+    CHECK(outWin.find("materials/dissolve.material.json: /shader") != std::string::npos);
 }
 
 TEST_CASE("graph preview: stage files an editor left behind are removed once they are old, and nothing else is") {

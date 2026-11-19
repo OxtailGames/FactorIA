@@ -6,6 +6,7 @@
 #include "fa/core/command.h"
 #include "fa/tooling/material_graph.h"
 #include "fa/tooling/shaders.h"
+#include "fa/tooling/validate.h"
 #include "shaders_internal.h"
 #include "test_helpers.h"
 
@@ -527,4 +528,29 @@ TEST_CASE("a snippet that is there and cannot be read is 'unreadable', never 'do
     REQUIRE_FALSE(g.ok);
     CHECK(g.error["message"].get<std::string>().find("cannot read the snippet") != std::string::npos);
     CHECK(stdfs::is_directory(p.dir.path / kSnippet));  // nothing replaced it
+}
+
+TEST_CASE("validate without sokol-shdc still warns of a changed graph and reports a missing or unreadable snippet") {
+    Project p;
+    SetupContext noTool;  // no SOKOL_SHDC, no PATH, a home without tools: the compiler is not found
+    noTool.env = [](const std::string&) { return std::string(); };
+    noTool.home = p.dir.str();
+    noTool.host = "linux";
+
+    ValidationReport missing;
+    validate_materials(p.dir.str(), noTool, missing);
+    REQUIRE_FALSE(missing.errors.empty());
+    CHECK(missing.errors[0].hint.find("material.graph.generate") != std::string::npos);
+
+    p.generate();
+    Json doc = p.doc();
+    doc["graph"]["nodes"][3]["inputs"]["roughness"] = 0.9;
+    p.write(kMat, doc.dump(2));
+    ValidationReport changed;
+    validate_materials(p.dir.str(), noTool, changed);
+    const auto w = std::find_if(changed.warnings.begin(), changed.warnings.end(),
+                                [](const ValidationIssue& i) { return i.pointer == "/graph"; });
+    REQUIRE(w != changed.warnings.end());
+    CHECK(w->hint.find("material.graph.generate") != std::string::npos);
+    // (an unreadable snippet takes the same branch as a missing one; whether a folder in its place fails to read is up to the OS, so it has no case here)
 }
