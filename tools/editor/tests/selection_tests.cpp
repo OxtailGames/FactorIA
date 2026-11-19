@@ -390,6 +390,16 @@ TEST_CASE("UndoStack: Merge of two merge patches with one target redoes both (a 
     st4.push_command(other, patch(R"({"skyMaterialParams":{}})"), true, CoalesceMode::Merge);
     CHECK(st4.back().forward.size() == 2);
     CHECK(st4.bytes() == st4.back().bytes);
+    // two composed patches keep the OLDEST inverse: undo gives back the value from before the whole drag, not the one the first frame left
+    UndoStack st5;
+    st5.push_command(patch(R"({"skyMaterialParams":{"tint":[1,0,0,1]}})"),
+                     patch(R"({"skyMaterialParams":{"tint":[9,9,9,1]}})"), false, CoalesceMode::Merge);
+    st5.push_command(patch(R"({"skyMaterialParams":{"tint":[0,1,0,1]}})"),
+                     patch(R"({"skyMaterialParams":{"tint":[1,0,0,1]}})"), true, CoalesceMode::Merge);
+    REQUIRE(st5.back().forward.size() == 1);
+    REQUIRE(st5.back().inverse.size() == 1);
+    CHECK(st5.back().inverse[0].args["fields"] == Json::parse(R"({"skyMaterialParams":{"tint":[9,9,9,1]}})"));
+    CHECK(st5.back().forward[0].args["fields"] == Json::parse(R"({"skyMaterialParams":{"tint":[0,1,0,1]}})"));
 }
 
 // ---------------------------------------------------------------------------------------- clicks, ranges, the ancestor skip
