@@ -703,6 +703,19 @@ sg_pipeline Gpu::prepass_view_pipeline(const TargetFormat& format) {
     return find_or_make(key, format, d);
 }
 
+sg_pipeline Gpu::post_material_pipeline(const TargetFormat& format, sg_shader shader) {
+    if (!shader.id) return {};
+    PipelineKey key{0xF00u, shader.id};
+    sg_pipeline_desc d{};
+    d.shader = shader;
+    d.layout.attrs[0].format = SG_VERTEXFORMAT_FLOAT2;  // `pos` of post_common.glsl, location 0
+    d.depth.compare = SG_COMPAREFUNC_ALWAYS;
+    d.depth.write_enabled = false;
+    d.face_winding = SG_FACEWINDING_CCW;
+    d.label = "post-material";
+    return find_or_make(key, format, d);
+}
+
 bool Gpu::exposure_ready() {
     if (exposureState_ != 0) return exposureState_ > 0;
     exposure_shaders_[int(ExposureStage::Luma)] =

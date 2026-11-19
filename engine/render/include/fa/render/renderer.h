@@ -159,7 +159,7 @@ struct RenderStats {
         0;  // of lights2d, the point lights whose castShadows is in effect (a Tilemap with occludesLight; at most 32)
     int materials = 0;  // distinct custom materials (MeshRenderer or Sprite material) drawn with their own shaders
     std::vector<std::string>
-        materialFallbacks;  // materials drawn as the magenta error material (mesh) or magenta quads (sprite) because they failed to build (see asset_report)
+        materialFallbacks;  // materials drawn as the magenta error material (mesh) or magenta quads (sprite) because they failed to build (see asset_report); a post material of PostProcess.customPasses that did not build, is not a "post" material or cannot be drawn is here too, and its pass is skipped (the picture is drawn without it)
     // How many times, since the renderer was made, the 3D scene it builds (one per frame, and one per capture_world of an
     // entity's subtree) had more distinct meshes, textures, materials or pipelines than a sort key holds, so its opaque meshes
     // were sorted by the slower comparator instead. The picture is the same; 0 is normal. Unlike the other counters this one is

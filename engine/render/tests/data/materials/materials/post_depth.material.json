@@ -1,0 +1,6 @@
+{
+  "format": "factoria.material/1",
+  "kind": "post",
+  "doc": "Test fixture: shows the linear depth (red, one unit per 20 world units) and the view-space normal (green and blue).",
+  "shader": "shaders/post_depth.post.glsl"
+}

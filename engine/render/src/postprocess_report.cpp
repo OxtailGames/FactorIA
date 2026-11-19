@@ -89,8 +89,27 @@ Json post_stack_report(World& world, Entity camera) {
         effects.push_back(std::move(eff));
     }
 
+    // The custom passes the camera draws, in the order they are added (own first, then the volumes by priority).
+    Json custom = Json::array();
+    for (std::size_t i = 0; i < stack.custom.size(); ++i) {
+        const CustomPostPass& c = stack.custom[i];
+        const int li = i < trace.customLayers.size() ? trace.customLayers[i] : -1;
+        Json j = Json::object({{"name", c.name.empty() ? c.material : c.name},
+                               {"material", c.material},
+                               {"position", c.position},
+                               {"enabled", c.enabled},
+                               {"materialParams", c.params}});
+        j["from"] = li >= 0 && li < int(trace.layers.size()) ? layer_label(world, trace.layers[std::size_t(li)])
+                                                             : std::string("default");
+        custom.push_back(std::move(j));
+    }
+    Json problems = Json::array();
+    for (const Error& e : stack.customErrors) problems.push_back(e.to_string());
+
     return Json::object(
         {{"camera", camera.is_null() ? std::string() : world.id_of(camera)},
+         {"customPasses", std::move(custom)},
+         {"customPassProblems", std::move(problems)},
          {"position", Json::array({round3(geo.position.x), round3(geo.position.y), round3(geo.position.z)})},
          {"perspective", geo.perspective},
          {"layers", std::move(layers)},

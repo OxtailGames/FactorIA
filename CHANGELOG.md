@@ -34,6 +34,20 @@ Older versions, one file per minor version with its patch releases: [0.30](chang
   and a failed one keeps the last good version. A material with an empty `fragment()` draws the same pixels as none.
   `Shape2D`, `Tilemap`, `Text`, particles and UI keep the engine's shader until the next package.
 
+- **Post-process materials (M72.2):** `"kind": "post"` compiles and draws. `PostProcess.customPasses` is a list (at most 8) of
+  `{material, materialParams, enabled, position, name}`: each entry is a full-screen pass of the camera's stack drawn by a
+  post material, placed before or after a named built-in effect (`"after:bloom"`, `"before:tonemap"` by default, `"after:ssr"`,
+  `"before:depthOfField"`...; a position that is not a place is refused with the ones that work). A snippet defines
+  `void post(in PostInput i, inout PostSurface s)` and reads the picture (`fa_scene_color`), optionally the linear depth and the
+  view-space normal (`fa_depth`, `fa_normal`: the renderer draws the depth and normal prepass for a camera only when a pass reads
+  them) and `fa_scene_rgb` for colours. Passes at one place run in list order, a split screen runs each camera's list over its
+  own rectangle, and a volume adds its entries at strength 0.5. A pass whose material is missing, broken, not a post material or
+  needs the depth on a GPU without it is skipped: the log says why once and `materialFallbacks` names it. `shader.compile`,
+  `material.info`, `factoria validate` and `factoria export` work for the kind (`lighting`, `alphaMode` and `doubleSided` are
+  refused with the reason); `postprocess.set` checks the entries with their JSON pointer; `postprocess.get {resolved}` lists the
+  passes and the problems; `render.supports` has the feature `postMaterials`; the editor's Post-processing panel adds, switches,
+  reorders, removes and edits the params of a pass, one undo step each; hot reload swaps the shader. docs/SHADERS.md,
+  "Post-process materials".
 - **Custom lighting and textures in `vertex()` (M72.3):** a mesh material with `"lighting": "custom"` defines
   `vec3 light(in SurfaceInput i, in Surface s, in LightSample l)`, which the engine's light loop calls once per light
   (the engine still picks the lights and applies attenuation, shadows, emission and fog), and optionally `ambient()`:

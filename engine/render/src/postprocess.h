@@ -24,6 +24,7 @@
 #include "hdr_encode.h"
 #include "post_fx.h"
 #include "renderer_ssr.h"
+#include "renderer_custom_post.h"
 #include "renderer_dof.h"
 #include "renderer_fog.h"
 #include "transient_targets.h"
@@ -130,6 +131,9 @@ struct PostPlan {
     SceneFxPlan sceneFx;
     // Distance and height fog and sun shafts of this camera (renderer_fog.h): drawn on the scene colour before depth of field; empty when neither is on.
     FogFxPlan fogFx;
+    // The custom post passes of this camera (renderer_custom_post.h): the materials of PostProcess.customPasses that built, each at its position
+    // in the stack. Empty when none. Their prepass bits are set by plan_job (needsDepth / needsNormals) when one reads the depth.
+    CustomPostPlan custom;
 
     // The outline cannot be drawn this frame (its image is not made: no opaque mesh, an unsupported GPU, no memory for the image): the effect is dropped, and with it the conversion that only it asked for.
     void skip_outline() {

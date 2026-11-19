@@ -327,11 +327,11 @@ const std::set<std::string, std::less<>>& template_globals(const std::string& ki
     return it == byKind.end() ? none : it->second;
 }
 
-bool kind_is_compiled(const std::string& kind) { return kind == "mesh" || kind == "sprite"; }
+bool kind_is_compiled(const std::string& kind) { return kind == "mesh" || kind == "sprite" || kind == "post"; }
 
 std::string kind_refusal(const std::string& kind) {
-    // Sprite is compiled (M72.1); sky is the other half of M72.1.
-    const char* package = kind == "post" ? "M72.2" : kind == "compute" ? "M72.4" : "M72.1";
+    // Sprite is compiled (M72.1) and so is post (M72.2); sky is the other half of M72.1.
+    const char* package = kind == "compute" ? "M72.4" : "M72.1";
     return "kind \"" + kind + "\" is not compiled yet: " + kind + " materials arrive with " + package;
 }
 
@@ -472,11 +472,17 @@ GeneratedShader generate_material_shader(const MaterialDef& material, std::strin
     GeneratedShader g;
     g.kind = material.kind;
     const bool sprite = material.kind == "sprite";
-    const bool clip = material.alphaMode == "clip";
+    const bool post = material.kind == "post";
+    // A post material has no alpha test and no light(): parse_material refuses the keys that ask for them.
+    const bool clip = material.alphaMode == "clip" && !post;
     const std::string src = normalize_snippet(snippetText);
-    const bool custom =
-        !sprite && material.lighting == "custom";  // a sprite has no light(): it is lit by the 2D pipeline
-    const std::vector<Function> fns = find_entry_points(blank_comments(src), sprite ? "fragment" : "surface", custom);
+    // A sprite has no light(): it is lit by the 2D pipeline; a post pass is not lit at all.
+    const bool custom = !sprite && !post && material.lighting == "custom";
+    const std::vector<Function> fns = find_entry_points(blank_comments(src),
+                                                        sprite ? "fragment"
+                                                        : post ? "post"
+                                                               : "surface",
+                                                        custom);
     for (const Function& f : fns) {
         g.hasVertex = g.hasVertex || f.isVertex;
         g.hasSurface = g.hasSurface || f.isSurface;
@@ -500,10 +506,12 @@ GeneratedShader generate_material_shader(const MaterialDef& material, std::strin
         t.generated("layout(binding=5) uniform fa_material {\n" + block_members(material.params) + "};\n");
     t.generated("#endif\n");
     std::string vsDefines, vsUndefs, vsDecls, fsDecls;
-    if (sprite) {
+    if (sprite || post) {
         // A sprite material's textures are declared once, in the fragment stage (views 4.., samplers 3..): the 2D pipeline binds
-        // no vertex-stage views, so vertex() cannot sample one (the compiler's precheck says so).
-        int view = kMaterialSpriteFirstView, sampler = kMaterialSpriteFirstSampler;
+        // no vertex-stage views, so vertex() cannot sample one (the compiler's precheck says so). A post material's are views
+        // 2.. and samplers 2..: its pass is a full-screen triangle whose vertex stage has no material.
+        int view = post ? kMaterialPostFirstView : kMaterialSpriteFirstView,
+            sampler = post ? kMaterialPostFirstSampler : kMaterialSpriteFirstSampler;
         for (const MaterialTexture& tex : material.textures)
             t.generated("layout(binding=" + std::to_string(view++) + ") uniform texture2D " + tex.name +
                         ";\nlayout(binding=" + std::to_string(sampler++) + ") uniform sampler " + tex.name + "_smp;\n");
@@ -539,9 +547,14 @@ GeneratedShader generate_material_shader(const MaterialDef& material, std::strin
     t.snippet(src, pos, src.size());
     // The shims stop at the snippet: the engine's own vertex code below sees the real texture() and discard.
     t.generated("#ifdef GL_VERTEX_SHADER\n#undef texture\n#undef discard\n" + vsUndefs + "#endif\n");
-    t.generated(sprite ? "@end\n@include quad_common.glsl\n" : "@end\n@include mesh_common.glsl\n");
+    t.generated(post     ? "@end\n@include post_common.glsl\n"
+                : sprite ? "@end\n@include quad_common.glsl\n"
+                         : "@end\n@include mesh_common.glsl\n");
 
-    if (sprite) {
+    if (post) {
+        g.programs = {"post"};
+        t.generated("@program post vs fs\n");
+    } else if (sprite) {
         // quad: every mode; quad_plain: the lean program of a batch of plain textured quads (the renderer picks one per batch).
         g.programs = {"quad", "quad_plain"};
         t.generated("@program quad vs fs\n@program quad_plain vs fs_plain\n");

@@ -14,7 +14,9 @@ namespace fa::render {
 //   {camera: id ("" for the default camera), position: [x, y, z], perspective,
 //    layers: [{index, from, kind, entity, priority, weight, influence, strength}],
 //    effects: [{name, enabled, layers: [index], fields: {<field>: {value, from, strength}}}],   // every effect, canonical order
-//    count: how many effects run}
+//    count: how many effects run,
+//    customPasses: [{name, material, position, enabled, materialParams, from}],   // PostProcess.customPasses in the order they are drawn
+//    customPassProblems: [string]}                                                // entries that do not parse (pointer, what, hint)
 // `from` is "own" (the camera's PostProcess), "legacy" (its Camera.bloom* / colorFilter fields), "volume:<entity id>", or "default" for
 // a value no layer wrote (a switch that a layer too weak to switch left at its neutral value). `strength` is how strongly the layer
 // was applied (its weight times how deep the camera is inside the volume). `fields` is only there for an effect that runs.

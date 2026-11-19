@@ -7,6 +7,7 @@
 
 #include "engine_impl.h"
 #include "fa/core/strings.h"
+#include "fa/render/post_custom.h"
 #include "fa/render/post_report.h"
 #include "fa/runtime/postprocess_presets.h"
 #include "fa/scene/camera_query.h"
@@ -199,7 +200,11 @@ void register_postprocess_commands(Engine&, Engine::Impl& I) {
          "Result: {id, effects, value} as postprocess.get. `merge` reads `fields` as an RFC 7386 merge-patch like "
          "scene.set_component (a null resets a field to its default). The editor undoes the call in one step. The "
          "picture changes "
-         "when the renderer draws the effect (render.supports says which it does); the fields are stored either way.",
+         "when the renderer draws the effect (render.supports says which it does); the fields are stored either way. "
+         "`customPasses` is the list of your own post materials ({material, materialParams, enabled, position}, see "
+         "docs/SHADERS.md \"Post-process materials\"): the whole array is replaced, so send the list in the order you "
+         "want to add, reorder or remove a pass; every entry is checked first (a bad one changes nothing and the "
+         "error carries its JSON pointer) and the result has `customPasses`, the number of entries.",
          parse_schema(R"({"type":"object","required":["id","fields"],"properties":{
                "id":{"type":"string","description":"Entity id (or name). The PostProcess is added when it has none."},
                "fields":{"type":"object","description":"Field name -> value, e.g. {\"bloomEnabled\": true, \"bloomIntensity\": 0.8}."},
@@ -211,6 +216,14 @@ void register_postprocess_commands(Engine&, Engine::Impl& I) {
                 throw CommandError(
                     "invalid_argument", "postprocess.set: missing the object 'fields'.",
                     "Pass {id, fields: {bloomEnabled: true}}; api.components lists the fields of PostProcess.");
+            // The custom passes are checked before anything is written, so a bad entry changes nothing and the error points at it.
+            if (a["fields"].contains("customPasses") && !a["fields"]["customPasses"].is_null()) {
+                auto passes = render::parse_custom_post_passes(a["fields"]["customPasses"], "/fields/customPasses");
+                if (!passes.ok())
+                    throw CommandError("invalid_argument", passes.error().message,
+                                       passes.error().hint.empty() ? "docs/SHADERS.md, \"Post-process materials\"."
+                                                                   : passes.error().hint);
+            }
             Json args = a;
             args["component"] = "PostProcess";
             Json r = set_component(I.world, args);
@@ -218,6 +231,7 @@ void register_postprocess_commands(Engine&, Engine::Impl& I) {
             const PostProcess* p = I.world.get<PostProcess>(e);
             r.erase("component");
             r["effects"] = p ? running_effects(*p) : Json::array();
+            r["customPasses"] = p && p->customPasses.is_array() ? int(p->customPasses.size()) : 0;
             return r;
         });
 
