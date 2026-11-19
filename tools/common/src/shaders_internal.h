@@ -54,8 +54,7 @@ std::string kind_refusal(const std::string& kind);
 
 // What is wrong with the shape of a material path ("" = nothing): the same answer on every OS, whatever the host's own path rules say (a
 // backslash separates folders on Windows only, "C:/x" is absolute there only). A material is a project-relative path with forward slashes that
-// stays inside the project. `factoria validate` has the same rules for the material fields of scenes (validate.cpp keeps its own copy until
-// it is changed to call this one).
+// stays inside the project. `factoria validate` calls this one for the material fields of scenes (validate.cpp), so both answer alike.
 std::string material_path_shape_problem(const std::string& path);
 // The project-relative path a command argument of a material names: as written, or with ".material.json" added. Throws a
 // CommandError (invalid_argument outside the project, not_found with "did you mean"). Shared by the shader.* and material.* commands.

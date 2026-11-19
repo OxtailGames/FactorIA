@@ -322,21 +322,16 @@ std::string declared_by_other_material(const std::string& name, const MapContext
 // full-shader pages): the "did you mean" of an unknown fa_ name suggests these, never an internal name of the templates (fa_in,
 // fa_quad_types...) that the author may not use.
 const std::vector<std::string>& engine_names(const MaterialDef& material) {
-    static const std::vector<std::string> mesh = {"fa_time", "fa_camera_pos", "fa_tangent_normal"},
-                                          sprite = {"fa_time", "fa_target", "fa_sample_main", "fa_scene_rgb"},
-                                          sky = {"fa_time", "fa_scene_rgb"},
-                                          post = {"fa_scene_color", "fa_depth",         "fa_normal", "fa_history",
-                                                  "fa_history_valid", "fa_scene_rgb", "fa_time"},
-                                          full = {"fa_ambient",       "fa_apply_fog",    "fa_base_color",
-                                                  "fa_base_sample",   "fa_camera_pos",   "fa_color",
-                                                  "fa_emissive",      "fa_env_brdf",     "fa_env_horizon",
-                                                  "fa_env_sky",       "fa_environment",  "fa_frag_color",
-                                                  "fa_light",         "fa_light_count",  "fa_light_vp",
-                                                  "fa_linear_to_srgb", "fa_model",       "fa_normal",
-                                                  "fa_position",      "fa_shadow",       "fa_shadow_coord",
-                                                  "fa_sky_reflection", "fa_srgb_to_linear", "fa_tangent",
-                                                  "fa_texcoord",      "fa_uv_scale",     "fa_view_proj",
-                                                  "fa_world_direction", "fa_world_position"};
+    static const std::vector<std::string>
+        mesh = {"fa_time", "fa_camera_pos", "fa_tangent_normal"},
+        sprite = {"fa_time", "fa_target", "fa_sample_main", "fa_scene_rgb"}, sky = {"fa_time", "fa_scene_rgb"},
+        post = {"fa_scene_color", "fa_depth", "fa_normal", "fa_history", "fa_history_valid", "fa_scene_rgb", "fa_time"},
+        full = {"fa_ambient",        "fa_apply_fog",      "fa_base_color",      "fa_base_sample",   "fa_camera_pos",
+                "fa_color",          "fa_emissive",       "fa_env_brdf",        "fa_env_horizon",   "fa_env_sky",
+                "fa_environment",    "fa_frag_color",     "fa_light",           "fa_light_count",   "fa_light_vp",
+                "fa_linear_to_srgb", "fa_model",          "fa_normal",          "fa_position",      "fa_shadow",
+                "fa_shadow_coord",   "fa_sky_reflection", "fa_srgb_to_linear",  "fa_tangent",       "fa_texcoord",
+                "fa_uv_scale",       "fa_view_proj",      "fa_world_direction", "fa_world_position"};
     return material.full         ? full
            : is_post(material)   ? post
            : is_sprite(material) ? sprite
@@ -486,8 +481,8 @@ std::string undeclared_hint(const std::string& token, const MapContext& ctx, int
                 // The name exists. Called from an entry point of the fragment stage, the arguments are wrong; anywhere else the
                 // stage that failed does not have it (a helper of the snippet is compiled into both stages).
                 if (callFailed && in_fragment_entry(ctx, line))
-                    return "`" + token + "` exists, but this call does not match its signature: " +
-                           lighting_signature(token) + ".";
+                    return "`" + token +
+                           "` exists, but this call does not match its signature: " + lighting_signature(token) + ".";
                 return "`" + token +
                        "` is declared in the fragment stage only, and a function of the snippet that is not light(), "
                        "ambient(), "

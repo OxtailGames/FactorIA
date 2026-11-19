@@ -1933,7 +1933,8 @@ TEST_CASE("sprite material: a snippet that redefines a name of the engine's 2D p
     CHECK(r->errors[0].hint.find("is already a global") == std::string::npos);
 }
 
-TEST_CASE("sprite material: fa_sample_main in a vertex stage says it is fragment-only; did you mean offers documented names") {
+TEST_CASE("sprite material: fa_sample_main in a vertex stage says it is fragment-only; did you mean offers documented "
+          "names") {
     Project p;
     p.add_sprite();
     FakeShdc shdc;
@@ -1958,7 +1959,8 @@ TEST_CASE("sprite material: fa_sample_main in a vertex stage says it is fragment
     CHECK(e.hint.find("fragment stage only") != std::string::npos);
     CHECK(e.hint.find("vec4 fa_sample_main(vec2 p)") != std::string::npos);
     // a misspelled name: the suggestion is one the docs list, never an internal name of quad_common.glsl
-    e = compile_snippet("float x = fa_inst_flgs;\n" + std::string(kSpriteSnippet), "'fa_inst_flgs' : undeclared identifier");
+    e = compile_snippet("float x = fa_inst_flgs;\n" + std::string(kSpriteSnippet),
+                        "'fa_inst_flgs' : undeclared identifier");
     CHECK(e.hint.find("fa_inst_flags") == std::string::npos);
     CHECK(e.hint.find("fa_sample_main()") != std::string::npos);
     e = compile_snippet("float x = fa_sample_mian(vec2(0.0)).r;\n" + std::string(kSpriteSnippet),
@@ -2976,6 +2978,27 @@ TEST_CASE("the instance limit of the renderer is the one of the tooling") {
     CHECK(std::stoi(m[1].str()) == kMaterialMaxInstanceVec4);
 }
 
+TEST_CASE("cache: a twin made before a param was toggled \"instanced\" is not the one of the toggled material") {
+    // the twin lists the params of the block and the instance layout, and the cache key covers the generated top file and defines:
+    // toggling `instanced` without compiling again must not find the old twin (material.info says not_compiled, validate recompiles)
+    Project p;
+    const std::string snippet = "void surface(in SurfaceInput i, inout Surface s) { s.emission += vec3(k); }\n";
+    p.write("shaders/s.surface.glsl", snippet);
+    auto key_with = [&](const char* instanced) {
+        p.write("materials/m.material.json",
+                std::string(R"({"format":"factoria.material/1","shader":"shaders/s.surface.glsl","params":{
+                    "k":{"type":"float","default":1,"doc":"d")") +
+                    instanced + "}}}");
+        const MaterialParse mp = read_material(p.str(), "materials/m.material.json");
+        REQUIRE(mp.ok());
+        return shader_cache_path(p.str(), generate_material_shader(mp.material, snippet), snippet, "hlsl5");
+    };
+    const std::string plain = key_with("");
+    const std::string instanced = key_with(R"(,"instanced":true)");
+    CHECK(plain != instanced);
+    CHECK(plain == key_with(R"(,"instanced":false)"));
+}
+
 TEST_CASE("generator: instanced params are left out of the block, read from the instance data, and the channels are "
           "globals of vertex()") {
     Project p;
@@ -3371,11 +3394,10 @@ TEST_CASE("real sokol-shdc: a full shader at the varying limit (12 slots) with i
         writes += "    v" + std::to_string(n) + " = vec4(fa_normal, " + std::to_string(n) + ".0);\n";
         sum += " + v" + std::to_string(n);
     }
-    const std::string shader = "@common\n" + varyings +
-                               "\n@vertex\nvoid main() {\n" + writes +
+    const std::string shader = "@common\n" + varyings + "\n@vertex\nvoid main() {\n" + writes +
                                "    gl_Position = fa_view_proj * vec4(fa_world_position(fa_position), 1.0);\n}\n\n"
-                               "@fragment\nvoid main() {\n    vec4 sum = " + sum +
-                               ";\n    fa_frag_color = vec4(sum.rgb / 12.0 * tint.rgb, 1.0);\n}\n";
+                               "@fragment\nvoid main() {\n    vec4 sum = " +
+                               sum + ";\n    fa_frag_color = vec4(sum.rgb / 12.0 * tint.rgb, 1.0);\n}\n";
     FullProject p(shader, R"({
       "format": "factoria.material/1", "mode": "full", "shader": "shaders/ring.full.glsl",
       "params": {"tint": {"type": "color", "default": [1, 1, 1, 1], "instanced": true, "doc": "Tint of each entity."}}

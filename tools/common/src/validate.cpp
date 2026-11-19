@@ -51,6 +51,7 @@
 #include "localization_check.h"
 #include "fa/audio/snapshots.h"
 #include "js_scan.h"
+#include "shaders_internal.h"
 #include "player_commands.h"
 #include "script_lint.h"
 #include "util.h"
@@ -112,24 +113,6 @@ struct RootGuard {
     explicit RootGuard(const stdfs::path& root) : saved(fs::project_root()) { fs::set_project_root(root); }
     ~RootGuard() { fs::set_project_root(saved); }
 };
-
-// What is wrong with the shape of a material path ("" = nothing): the same answer on every OS, whatever the host's own path
-// rules say (a backslash separates folders on Windows only, "C:/x" is absolute there only). A material is a project-relative
-// path with forward slashes that stays inside the project.
-std::string material_path_shape_problem(const std::string& path) {
-    if (path.find('\\') != std::string::npos) return "uses a backslash";
-    const bool drive = path.size() >= 2 && path[1] == ':' && std::isalpha(static_cast<unsigned char>(path[0]));
-    // "~" and "~/..." are the home folder; a file whose name merely starts with a tilde ("~tmp.material.json") is a relative path.
-    const bool home = path[0] == '~' && (path.size() == 1 || path[1] == '/');
-    if (path[0] == '/' || home || drive) return "is an absolute path";
-    for (std::size_t start = 0; start <= path.size();) {
-        std::size_t end = path.find('/', start);
-        if (end == std::string::npos) end = path.size();
-        if (path.compare(start, end - start, "..") == 0) return "leaves the project with '..'";
-        start = end + 1;
-    }
-    return {};
-}
 
 // The "kind" of a *.material.json ("mesh" when it names none); "" when the file cannot be read as a JSON object.
 std::string material_kind_of_file(const std::string& dir, const std::string& rel) {
@@ -197,7 +180,7 @@ void check_asset_value(Ctx& c, const std::string& file, const std::string& point
         return;
     }
     if (f.assetType == "material") {
-        if (const std::string shape = material_path_shape_problem(path); !shape.empty()) {
+        if (const std::string shape = shaders_detail::material_path_shape_problem(path); !shape.empty()) {
             std::string fixed = path;
             std::replace(fixed.begin(), fixed.end(), '\\', '/');
             const std::string m = closest_match(fixed, find_material_files(c.dir));

@@ -6,6 +6,15 @@ Older versions, one file per minor version with its patch releases: [0.30](chang
 
 ## Unreleased
 
+- **Shader tools and docs polish (M72, POL-R1):** docs/SHADERS.md no longer ends with a "Not available yet" list: each limit
+  (per-instance params and extra vertex channels in sky and compute, depth and normals of a sprite, compute on Android and the
+  web) is a sentence in the section of its kind. A sprite's `vertex()` may call `fa_scene_rgb()`; `fa_sample_main()` is
+  fragment-only and an error from it in the vertex stage says so. The "did you mean" of an unknown `fa_` name suggests only names
+  the docs list. A texture named like a field of the contract (`normal`, `albedo`...) is refused with a rename; `alphaMode` on a
+  sprite says to remove it. A "no matching overloaded function" on a lighting function gives the vertex-stage hint only when the
+  call is compiled in the vertex stage, else the signature. `factoria validate` shares the material-path rules of the shader
+  commands. The result of `shader.compile` documents its `graph` field. New tests: 12 varyings with instanced params for GLES3,
+  a sprite material on a MeshRenderer, the cache key when `instanced` is toggled.
 - **Material editor and material commands polish (M72, POL-LAST-A):** Graph panel: answering Overwrite for a file that changed on
   disk is no longer followed by a second question about the file when the snippet was hand-edited; Overwrite also writes a
   deleted material again, and a Reload that fails says why. New graph material picks a name that is free for the material and
