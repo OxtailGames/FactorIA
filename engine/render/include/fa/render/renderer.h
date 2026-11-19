@@ -159,6 +159,12 @@ struct RenderStats {
     int lights2dShadowed =
         0;  // of lights2d, the point lights whose castShadows is in effect (a Tilemap with occludesLight; at most 32)
     int materials = 0;  // distinct custom materials (MeshRenderer or Sprite material) drawn with their own shaders
+    // How many times a 2D item's material was looked up in full this frame (path normalized, params packed and hashed): once per
+    // distinct material and set of materialParams values, however many components, quads or particles use it; the other asks are
+    // answered from a per-frame cache and not counted. The cache is also dropped when the camera being gathered changes (a
+    // material texture "target:<own>" is the checker for the camera that renders into it), so a frame with render targets counts
+    // the lookup once for each camera. Also in game.render_stats.
+    int materialResolves = 0;
     std::vector<std::string>
         materialFallbacks;  // materials drawn as the magenta error material (mesh) or magenta quads (sprite) because they failed to build (see asset_report)
     // How many times, since the renderer was made, the 3D scene it builds (one per frame, and one per capture_world of an
