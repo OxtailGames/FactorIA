@@ -1,6 +1,7 @@
 #include <doctest.h>
 
 #include <algorithm>
+#include <cctype>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -69,6 +70,25 @@ TEST_CASE(
         CHECK(material_template_hash(*material_kind_from_name(kind)) == expected);
         CHECK(shaders_detail::template_files(kind).size() == shaders_detail::template_file_names(kind).size());
     }
+    // The full-shader template of a mesh material (mode "full") is not a kind: it is the mesh template plus its own file, so
+    // mesh_common.glsl is in both lists on purpose.
+    {
+        std::string list;
+        for (const std::string& name : shaders_detail::template_file_names("mesh-full")) {
+            CAPTURE(name);
+            std::ifstream in(stdfs::path(FA_REPO_ROOT) / "engine/render/shaders" / name, std::ios::binary);
+            std::ostringstream text;
+            text << in.rdbuf();
+            std::string content = text.str();
+            content.erase(std::remove(content.begin(), content.end(), '\r'), content.end());
+            list += name + "\n" + sha256_hex(content) + "\n";
+            if (name != "mesh_common.glsl") seen.push_back(name);
+        }
+        CHECK(shaders_detail::template_file_names("mesh-full").size() == 2);
+        CHECK(shader_template_hash("mesh-full") == sha256_hex(list));
+        CHECK(mesh_full_template_hash() == sha256_hex(list));
+        CHECK(shader_template_hash("mesh-full") != shader_template_hash("mesh"));
+    }
     // every *_common.glsl belongs to a kind, so none is forgotten when a template is added
     for (const auto& e : stdfs::directory_iterator(stdfs::path(FA_REPO_ROOT) / "engine/render/shaders"))
         if (e.path().filename().string().ends_with("_common.glsl"))
@@ -103,4 +123,38 @@ TEST_CASE("shader template: every kind's contract structs are read from its own 
     // QuadInput: uv, color, world_pos, screen_uv, time, mode, custom
     CHECK(shaders_detail::contract_structs("sprite")[0].second.size() == 7);
     CHECK(shaders_detail::contract_structs("sprite")[2].second.size() == 3);  // QuadVertex: world_pos, uv, color
+}
+
+// mesh_full_common.glsl declares its own copies of the fragment uniform blocks of mesh_common.glsl (it cannot include the block
+// that holds them: that one also declares the engine's varyings). The CPU fills both from the same structs, so a member added to
+// one and not to the other would shift every value after it.
+TEST_CASE("shader template: the full-shader template's uniform blocks are those of mesh_common.glsl") {
+    auto read = [](const char* name) {
+        std::ifstream in(stdfs::path(FA_REPO_ROOT) / "engine/render/shaders" / name, std::ios::binary);
+        std::ostringstream text;
+        text << in.rdbuf();
+        return shaders_detail::blank_comments(text.str());
+    };
+    // The block `uniform <name> { ... };` with its whitespace squeezed.
+    auto block = [](const std::string& text, const std::string& name) {
+        const std::size_t at = text.find("uniform " + name + " {");
+        if (at == std::string::npos) return std::string();
+        const std::size_t end = text.find("};", at);
+        std::string out;
+        for (std::size_t i = at; i < end + 2 && i < text.size(); ++i) {
+            if (std::isspace(static_cast<unsigned char>(text[i]))) {
+                if (!out.empty() && out.back() != ' ') out += ' ';
+            } else {
+                out += text[i];
+            }
+        }
+        return out;
+    };
+    const std::string mesh = read("mesh_common.glsl"), full = read("mesh_full_common.glsl");
+    for (const char* name : {"fa_mesh_fs_params", "fa_lights"}) {
+        CAPTURE(name);
+        const std::string a = block(mesh, name), b = block(full, name);
+        CHECK_FALSE(a.empty());
+        CHECK(a == b);
+    }
 }

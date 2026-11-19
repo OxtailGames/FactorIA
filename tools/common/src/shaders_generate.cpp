@@ -105,6 +105,9 @@ const std::vector<std::string>& template_file_names(const std::string& kind) {
     // and 2D shadow helpers, so a change to them changes the sprite hash.
     static const std::map<std::string, std::vector<std::string>> names = {
         {"mesh", {"mesh_common.glsl"}},
+        // A mesh material in "full" mode: not a MaterialKind, a second template of the mesh kind (engine/render/CMakeLists.txt,
+        // FA_TEMPLATE_FILES_MESH_FULL); mesh_common.glsl is in both lists, so a change to it makes both hashes change.
+        {"mesh-full", {"mesh_common.glsl", "mesh_full_common.glsl"}},
         {"sprite", {"color_space.glsl", "light_shadow.glsl", "quad_common.glsl"}},
         {"sky", {"sky_common.glsl"}},
         {"post", {"post_common.glsl"}},
@@ -469,45 +472,29 @@ std::string block_members(const std::vector<MaterialParam>& params) {
 
 }  // namespace
 
-GeneratedShader generate_material_shader(const MaterialDef& material, std::string_view snippetText) {
-    if (material.kind == "compute") return generate_compute_shader(material, snippetText);
-    GeneratedShader g;
-    g.kind = material.kind;
-    const bool sprite = material.kind == "sprite";
-    const bool clip = material.alphaMode == "clip";
-    const std::string src = normalize_snippet(snippetText);
-    const bool custom =
-        !sprite && material.lighting == "custom";  // a sprite has no light(): it is lit by the 2D pipeline
-    const std::vector<Function> fns = find_entry_points(blank_comments(src), sprite ? "fragment" : "surface", custom);
-    for (const Function& f : fns) {
-        g.hasVertex = g.hasVertex || f.isVertex;
-        g.hasSurface = g.hasSurface || f.isSurface;
-        g.hasLight = g.hasLight || f.isLight;
-        g.hasAmbient = g.hasAmbient || f.isAmbient;
-    }
+namespace shaders_detail {
 
+std::string material_prologue(const MaterialDef& material, std::string& vsUndefs) {
+    const bool sprite = material.kind == "sprite";
+    std::string text;
+    auto gen = [&text](const std::string& piece) { text += piece; };
     // The params of the uniform block (one value per draw) and the instanced ones (a value per instance, read from the instance
     // buffer into plain globals before vertex() and surface() run, so the snippet reads them by the same name).
     std::vector<MaterialParam> blockParams;
     for (const MaterialParam& p : material.params)
         if (!p.instanced) blockParams.push_back(p);
     const InstanceLayout instLayout = instance_layout(material.params);
-
-    TopFile t{g};
-    t.generated("@module fa_mat\n@block fa_user\n");
     // The material block lives in one stage: a sokol uniform block slot belongs to one stage, so the vertex stage gets its own
     // block (binding 4) and the fragment stage (binding 5). Unused blocks and textures are not part of a program. The textures
     // take the slots after the engine's own (mesh: views 6.., samplers 2..; sprite: views 4.., samplers 3..; kMaterial* of
     // engine/render/src/render_internal.h).
-    t.generated("#ifdef GL_VERTEX_SHADER\n");
-    if (!blockParams.empty())
-        t.generated("layout(binding=4) uniform fa_material_vs {\n" + block_members(blockParams) + "};\n");
+    gen("#ifdef GL_VERTEX_SHADER\n");
+    if (!blockParams.empty()) gen("layout(binding=4) uniform fa_material_vs {\n" + block_members(blockParams) + "};\n");
     // Helpers that sample a texture or discard still compile in the vertex stage.
-    t.generated("#define texture(s, uv) textureLod(s, uv, 0.0)\n#define discard\n");
-    t.generated("#else\n");
-    if (!blockParams.empty())
-        t.generated("layout(binding=5) uniform fa_material {\n" + block_members(blockParams) + "};\n");
-    t.generated("#endif\n");
+    gen("#define texture(s, uv) textureLod(s, uv, 0.0)\n#define discard\n");
+    gen("#else\n");
+    if (!blockParams.empty()) gen("layout(binding=5) uniform fa_material {\n" + block_members(blockParams) + "};\n");
+    gen("#endif\n");
     if (instLayout.vec4Count > 0) {
         static const char* kLetters = "xyzw";
         std::string globals, unpack;
@@ -519,23 +506,23 @@ GeneratedShader generate_material_shader(const MaterialDef& material, std::strin
                       (s.components == 4 ? "" : "." + std::string(kLetters + s.offset, std::size_t(s.components))) +
                       ";\n";
         }
-        t.generated("// Instanced params: set from the instance buffer before vertex() and surface() run.\n" + globals +
-                    "void fa_instance_unpack(vec4 fa_d0, vec4 fa_d1, vec4 fa_d2) {\n" + unpack + "}\n");
+        gen("// Instanced params: set from the instance buffer before vertex() and surface() run.\n" + globals +
+            "void fa_instance_unpack(vec4 fa_d0, vec4 fa_d1, vec4 fa_d2) {\n" + unpack + "}\n");
     }
     if (std::find(material.vertexAttributes.begin(), material.vertexAttributes.end(), "uv1") !=
         material.vertexAttributes.end())
-        t.generated("#ifdef GL_VERTEX_SHADER\nvec2 vertex_uv1;\n#endif\n");
+        gen("#ifdef GL_VERTEX_SHADER\nvec2 vertex_uv1;\n#endif\n");
     if (std::find(material.vertexAttributes.begin(), material.vertexAttributes.end(), "color1") !=
         material.vertexAttributes.end())
-        t.generated("#ifdef GL_VERTEX_SHADER\nvec4 vertex_color1;\n#endif\n");
-    std::string vsDefines, vsUndefs, vsDecls, fsDecls;
+        gen("#ifdef GL_VERTEX_SHADER\nvec4 vertex_color1;\n#endif\n");
+    std::string vsDefines, vsDecls, fsDecls;
     if (sprite) {
         // A sprite material's textures are declared once, in the fragment stage (views 4.., samplers 3..): the 2D pipeline binds
         // no vertex-stage views, so vertex() cannot sample one (the compiler's precheck says so).
         int view = kMaterialSpriteFirstView, sampler = kMaterialSpriteFirstSampler;
         for (const MaterialTexture& tex : material.textures)
-            t.generated("layout(binding=" + std::to_string(view++) + ") uniform texture2D " + tex.name +
-                        ";\nlayout(binding=" + std::to_string(sampler++) + ") uniform sampler " + tex.name + "_smp;\n");
+            gen("layout(binding=" + std::to_string(view++) + ") uniform texture2D " + tex.name +
+                ";\nlayout(binding=" + std::to_string(sampler++) + ") uniform sampler " + tex.name + "_smp;\n");
     } else {
         // A mesh material's texture is declared once per stage: a sokol view or sampler slot belongs to one stage, and sokol-shdc refuses one name
         // in both. The fragment stage reads it at view 6.. and sampler 2.., the vertex stage (where the #define renames it for the
@@ -553,9 +540,37 @@ GeneratedShader generate_material_shader(const MaterialDef& material, std::strin
             fsDecls += "layout(binding=" + std::to_string(view++) + ") uniform texture2D " + tex.name +
                        ";\nlayout(binding=" + std::to_string(sampler++) + ") uniform sampler " + tex.name + "_smp;\n";
         }
-        if (!vsDecls.empty())
-            t.generated("#ifdef GL_VERTEX_SHADER\n" + vsDefines + vsDecls + "#else\n" + fsDecls + "#endif\n");
+        if (!vsDecls.empty()) gen("#ifdef GL_VERTEX_SHADER\n" + vsDefines + vsDecls + "#else\n" + fsDecls + "#endif\n");
     }
+    return text;
+}
+
+}  // namespace shaders_detail
+
+GeneratedShader generate_material_shader(const MaterialDef& material, std::string_view snippetText) {
+    if (material.kind == "compute") return generate_compute_shader(material, snippetText);
+    if (material.full) return generate_full_shader(material, snippetText);
+    GeneratedShader g;
+    g.kind = material.kind;
+    const bool sprite = material.kind == "sprite";
+    const bool clip = material.alphaMode == "clip";
+    const std::string src = normalize_snippet(snippetText);
+    const bool custom =
+        !sprite && material.lighting == "custom";  // a sprite has no light(): it is lit by the 2D pipeline
+    const std::vector<Function> fns = find_entry_points(blank_comments(src), sprite ? "fragment" : "surface", custom);
+    for (const Function& f : fns) {
+        g.hasVertex = g.hasVertex || f.isVertex;
+        g.hasSurface = g.hasSurface || f.isSurface;
+        g.hasLight = g.hasLight || f.isLight;
+        g.hasAmbient = g.hasAmbient || f.isAmbient;
+    }
+
+    const InstanceLayout instLayout = instance_layout(material.params);
+
+    TopFile t{g};
+    t.generated("@module fa_mat\n@block fa_user\n");
+    std::string vsUndefs;
+    t.generated(shaders_detail::material_prologue(material, vsUndefs));
 
     std::size_t pos = 0;
     for (const Function& f : fns) {

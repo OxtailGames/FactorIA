@@ -160,7 +160,7 @@ Start with the first three; the AI guide is what an agent reads first.
 Topics, one page each:
 
 - 2D and 3D art: [docs/ASSETS.md](docs/ASSETS.md) (generate, import and ship art, sound and models; import settings and provenance), [docs/IMAGES.md](docs/IMAGES.md) (layered images), [docs/VECTOR.md](docs/VECTOR.md) (vector illustration and SVG import), [docs/MODELING.md](docs/MODELING.md) (3D models as data), [docs/RIGGING.md](docs/RIGGING.md) (skeletons for 3D models), [docs/ANIMATION.md](docs/ANIMATION.md) (skeletal and 2D clips, state machines, tweens).
-- Look and feel: [docs/PARTICLES.md](docs/PARTICLES.md) (particle effects), [docs/EFFECTS.md](docs/EFFECTS.md) (visual and audio effects), [docs/GAME_FEEL.md](docs/GAME_FEEL.md) (shake, hit-stop, flash, knockback, squash and stretch), [docs/SHADERS.md](docs/SHADERS.md) (custom shaders per material), [docs/RENDERING.md](docs/RENDERING.md) (cameras that draw into textures, photographs of the world).
+- Look and feel: [docs/PARTICLES.md](docs/PARTICLES.md) (particle effects), [docs/EFFECTS.md](docs/EFFECTS.md) (visual and audio effects), [docs/GAME_FEEL.md](docs/GAME_FEEL.md) (shake, hit-stop, flash, knockback, squash and stretch), [docs/SHADERS.md](docs/SHADERS.md) (custom shaders per material), [docs/SHADERS_FULL.md](docs/SHADERS_FULL.md) (full shaders and passes for meshes), [docs/RENDERING.md](docs/RENDERING.md) (cameras that draw into textures, photographs of the world).
 - Sound: [docs/SOUND.md](docs/SOUND.md) (sound patches and audio documents), [docs/MUSIC.md](docs/MUSIC.md) (songs as data).
 - Text and menus: [docs/TEXT.md](docs/TEXT.md) (fonts, fallback, shaping, right-to-left text, text size), [docs/LOCALIZATION.md](docs/LOCALIZATION.md) (string tables, `key` fields, the `i18n` API), [docs/MENUS.md](docs/MENUS.md) (main menu, options, credits, loading screen, pause).
 - World and services: [docs/NAVIGATION.md](docs/NAVIGATION.md) (navmeshes and agents), [docs/NETWORKING.md](docs/NETWORKING.md) (`http.fetch`), [docs/PLATFORM.md](docs/PLATFORM.md) (achievements, stats, leaderboards, cloud saves, purchases), [docs/ANALYTICS.md](docs/ANALYTICS.md) (events and remote config).
@@ -189,6 +189,7 @@ Read [CLAUDE.md](CLAUDE.md) and [docs/design/ARCHITECTURE.md](docs/design/ARCHIT
 - [docs/EXTENDING.md](docs/EXTENDING.md): adding commands, components and systems (sections B to F, in docs/design/EXTENDING_*.md; A and G are for games).
 - [docs/ENGINE_FEEDBACK.md](docs/ENGINE_FEEDBACK.md): "Collecting" and "Triage loop" are for engine developers.
 - [docs/design/CUSTOM_SHADERS.md](docs/design/CUSTOM_SHADERS.md): design of custom shaders per material.
+- [docs/design/CUSTOM_SHADERS_FULL.md](docs/design/CUSTOM_SHADERS_FULL.md): design of full shaders and passes for mesh materials.
 - [docs/design/FEEDBACK_SHARING.md](docs/design/FEEDBACK_SHARING.md): design of sharing feedback with the engine developer.
 - [docs/design/SCRIPT_DEBUGGER.md](docs/design/SCRIPT_DEBUGGER.md): design of the script debugger and its VS Code extension.
 - [feedback/ROADMAP.md](feedback/ROADMAP.md) (open gaps and next milestones) and [CHANGELOG.md](CHANGELOG.md).

@@ -6,6 +6,19 @@ Older versions, one file per minor version with its patch releases: [0.30](chang
 
 ## Unreleased
 
+- **Full shaders and passes for mesh materials (M72.3):** `"mode": "full"` on a `"kind": "mesh"` material names a file
+  with the vertex and the fragment stage (`@common`, `@vertex`, `@fragment`, each with its own `main`) instead of the
+  `vertex()`/`surface()` snippet, and `"passes": [...]` draws the mesh up to four times in array order, each pass with its
+  own `cull`, `depthTest`, `depthWrite` and `blend` (an inverted-hull outline, an x-ray behind walls, a glow shell). The
+  engine still provides the model matrix (instancing, skinning), the instanced params, the declared `uv1`/`color1`
+  channels, the camera, the time and the same params and textures as globals, plus `fa_light_count()`, `fa_light(i, ...)`,
+  `fa_shadow(...)` and `fa_apply_fog(...)` to write your own lighting. `"shadow"` is `"depth"` (default), `"custom"` (the
+  first pass again, from the light) or `"none"`; `"prepass": false` keeps the material out of SSAO and the depth fog.
+  `lighting`, `alphaMode`, `doubleSided` and `graph` belong to snippets and are refused here. `shader.compile`,
+  `factoria validate` and `factoria export` compile every pass for every dialect (a compiler error names your file and line,
+  and a varying that one stage declares and the other does not is reported before the compiler runs); `material.info` lists
+  the mode, the passes and their programs. The page `factoria docs read shaders_full` has the rules and a complete outline.
+  **Games with custom mesh materials must re-export again** if they have not since the previous entry.
 - **Per-instance params and vertex channels for mesh materials (M72.3):** a material param marked `"instanced": true`
   takes a value per entity inside one instanced draw call: 100 entities with 100 different `tint` values are one draw, and
   the snippet reads `tint` by its name in `vertex()` and `surface()` (also in the shadow and depth prepass programs, so a
