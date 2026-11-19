@@ -1843,7 +1843,8 @@ TEST_CASE("compile: an error in a helper both stages compile is reported once, a
 
 TEST_CASE(
     "sprite material: the names of the engine's 2D program are refused for params and textures, mesh keeps them") {
-    const auto& names = shaders_detail::template_globals("sprite");
+    const std::string kind = "sprite";  // a named argument: GCC 14 -Wdangling-reference flags a temporary one
+    const auto& names = shaders_detail::template_globals(kind);
     // derived from quad_common.glsl, color_space.glsl and light_shadow.glsl: the inputs, varyings, block members, textures,
     // samplers, helpers and the defines
     for (const char* n : {"position",     "texcoord0",
