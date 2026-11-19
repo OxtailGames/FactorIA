@@ -29,12 +29,11 @@ Older versions, one file per minor version with its patch releases: [0.30](chang
   `unavailable`, naming the backend (`render.supports computeShaders`). Storage images are not available yet.
 
 - **Material kinds (M72 base):** `*.material.json` takes an optional `"kind"`: `"mesh"` (default, what materials were so far),
-  `"sprite"`, `"sky"`, `"post"` or `"compute"`. Only mesh materials compile and draw; `shader.compile`, `factoria validate`
-  and the renderer refuse the others with an error that names the package that brings them, and `shader.compile` and
-  `material.info` report the `kind`. Each kind hashes only its own template files (`fa::material_template_hash(kind)`), so
+  `"sprite"`, `"sky"`, `"post"` or `"compute"`. Every kind compiles and draws (the milestone's packages brought them one by
+  one); `shader.compile` and `material.info` report the `kind`. Each kind hashes only its own template files (`fa::material_template_hash(kind)`), so
   a change to one template no longer makes the twins of the other kinds stale; the mesh hash did not change, so no export
   needs to be redone. The skeletons `quad_common.glsl`, `sky_common.glsl` and `post_common.glsl` declare each kind's snippet
-  contract; nothing draws with them yet.
+  contract.
 - **Sprite materials, the template and the tooling (M72.1):** `"kind": "sprite"` compiles. The 2D quad shader is now a
   template (`quad_common.glsl`) with a hook: a snippet defines `void fragment(in QuadInput i, inout QuadSurface s)` (and
   optionally `void vertex(inout QuadVertex v)`), `s.color` arrives holding what the engine draws for the item (texture,
@@ -68,6 +67,21 @@ Older versions, one file per minor version with its patch releases: [0.30](chang
   render target samples the missing-texture checker for the camera that renders into it (never the image it writes), and a
   texture that failed to load no longer destroys the shared checker when the asset cache is cleared.
 
+- **Post-process materials (M72.2):** `"kind": "post"` compiles and draws. `PostProcess.customPasses` is a list (at most 8) of
+  `{material, materialParams, enabled, position, name}`: each entry is a full-screen pass of the camera's stack drawn by a
+  post material, placed before or after a named built-in effect (`"after:bloom"`, `"before:tonemap"` by default, `"after:ssr"`,
+  `"before:depthOfField"`...; a position that is not a place is refused with the ones that work). A snippet defines
+  `void post(in PostInput i, inout PostSurface s)` and reads the picture (`fa_scene_color`), optionally the linear depth and the
+  view-space normal (`fa_depth`, `fa_normal`: the renderer draws the depth and normal prepass for a camera only when a pass reads
+  them) and `fa_scene_rgb` for colours. Passes at one place run in list order, a split screen runs each camera's list over its
+  own rectangle, and a volume adds its entries at strength 0.5. A pass whose material is missing, broken, not a post material or
+  needs the depth on a GPU without it is skipped: the log says why once and `materialFallbacks` names it. `shader.compile`,
+  `material.info`, `factoria validate` and `factoria export` work for the kind (`lighting`, `alphaMode` and `doubleSided` are
+  refused with the reason); `postprocess.set` checks the entries with their JSON pointer; `postprocess.get {resolved}` lists the
+  passes and the problems; `render.supports` has the feature `postMaterials`; the editor's Post-processing panel adds, switches,
+  reorders, removes and edits the params of a pass, one undo step each; hot reload swaps the shader. The picture is read
+  with a half-texel clamp at the edge of the camera's rectangle (a split screen never reads the neighbour's pixels).
+  docs/shaders/SHADERS_POST.md.
 - **Custom lighting and textures in `vertex()` (M72.3):** a mesh material with `"lighting": "custom"` defines
   `vec3 light(in SurfaceInput i, in Surface s, in LightSample l)`, which the engine's light loop calls once per light
   (the engine still picks the lights and applies attenuation, shadows, emission and fog), and optionally `ambient()`:

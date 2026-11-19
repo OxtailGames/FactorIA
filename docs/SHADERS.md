@@ -26,7 +26,7 @@ The loop for an AI (or a person):
 | `format` | Always `"factoria.material/1"`. Required. |
 | `shader` | Project-relative path of the snippet, e.g. `"shaders/pulse.surface.glsl"`. Required. |
 | `doc` | What the material looks like and is for. Shown by `material.info`. |
-| `kind` | What the material is for: `"mesh"` (default; the surface of a `MeshRenderer`, what this page describes), or `"sprite"` (a 2D item: `Sprite`, `Shape2D`, `Tilemap`, `Text`, particles; [below](#materials-on-sprites-shapes-tiles-text-and-particles)), or `"sky"` (the background of a 3D scene; [below](#sky-materials)), or `"compute"` (a program that runs on the GPU over storage buffers; [Compute materials](#compute-materials)), or the reserved `"post"`. `"mesh"`, `"sprite"`, `"sky"` and `"compute"` compile: `shader.compile` refuses `"post"` with an error on `/kind` that names the engine milestone package that will bring it (M72.2). |
+| `kind` | What the material is for: `"mesh"` (default; the surface of a `MeshRenderer`, what this page describes), or `"sprite"` (a 2D item: `Sprite`, `Shape2D`, `Tilemap`, `Text`, particles; [below](#materials-on-sprites-shapes-tiles-text-and-particles)), or `"sky"` (the background of a 3D scene; [below](#sky-materials)), or `"compute"` (a program that runs on the GPU over storage buffers; [Compute materials](#compute-materials)), or `"post"` (one full-screen pass of the post-processing stack; [below](#post-process-materials)). Every kind compiles. |
 | `lighting` | `"pbr"` (default): the engine's lighting, fog and sky reflection. `"unlit"`: the surface albedo is drawn as it is, plus emission and fog. `"custom"` (mesh materials only): your snippet defines `light()` (and optionally `ambient()`), which the engine's light loop calls once per light instead of its own shading (see "Custom lighting" below); shadows, attenuation, emission and fog stay the engine's. |
 | `alphaMode` | `"opaque"` (default): alpha is ignored. `"clip"`: fragments with `alpha` below `alphaCutoff` are discarded, also in the shadow pass. `"blend"`: drawn with the blended meshes, far to near. |
 | `doubleSided` | `true` draws back faces too. Default `false`. |
@@ -948,6 +948,15 @@ Put `"skyMaterial": "materials/sky-dusk.material.json"` in the scene's settings 
 settings in the editor) and look with `factoria run --headless --frames 60 --screenshot-at 59` (the camera must be a
 perspective one).
 
+## Post-process materials
+
+`"kind": "post"` makes a material that is one full-screen pass of a camera's post-processing stack (a vignette of your
+own, an underwater tint, a heat haze, a depth-based fog, an outline from the normals). It is listed in
+`PostProcess.customPasses` next to the built-in effects, at a position you name (`"before:tonemap"` by default). Its
+snippet defines `void post(in PostInput i, inout PostSurface s)` and reads the picture, optionally the depth and the
+normals. The snippet contract, the helpers, the positions, the commands and what happens when a pass cannot be drawn are
+on the page [Post-process materials](shaders/SHADERS_POST.md).
+
 ## Compute materials
 
 `"kind": "compute"` makes a program that runs on the GPU over storage buffers and draws nothing (particle simulations, flocking,
@@ -962,10 +971,12 @@ and where it runs (not Android or the web) are on the page [Compute materials](s
 - **Your own light loop** (which lights are chosen, how many, their order, the shadow map): `"custom"` lighting only
   shades each light the engine hands over. Image-based lighting (the sky reflection) is off in a custom material and
   cannot be called from `light()`.
-- Materials for post-processing; compute storage images and compute on Android and the web; a sky material that also
+- Compute storage images and compute on Android and the web; a sky material that also
   drives the ambient and reflection light of the meshes (they follow `skyColor` and `horizonColor`); textures sampled in
   the `vertex()` of a sprite material (a mesh material can); per-instance params and vertex channels in a sprite, sky or
   compute material (mesh only).
+- **Post passes** after the tonemap (on the display picture) and a post pass that needs the previous frame (a feedback or
+  trail effect); a pass sees the depth and normals of mesh geometry only (not of sprites).
 
 If a game needs one of these, write it in the game's `ENGINE_FEEDBACK.json` (see [ENGINE_FEEDBACK.md](ENGINE_FEEDBACK.md)):
 that is how it gets built.

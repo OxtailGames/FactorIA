@@ -104,7 +104,8 @@ TEST_CASE("PostProcess: every field is documented and belongs to the metadata or
     REQUIRE(t);
     CHECK(t->category == "Camera");
     CHECK_FALSE(t->doc.empty());
-    const std::set<std::string> meta = {"enabled", "shape", "size", "blendDistance", "priority", "weight"};
+    const std::set<std::string> meta = {"enabled",  "shape",  "size",        "blendDistance",
+                                        "priority", "weight", "customPasses"};
     for (const FieldInfo& f : t->fields) {
         CAPTURE(f.name);
         CHECK_FALSE(f.doc.empty());

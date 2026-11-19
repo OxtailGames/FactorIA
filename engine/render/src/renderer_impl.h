@@ -31,6 +31,7 @@
 #include "renderer_ssr.h"
 #include "renderer_dof.h"
 #include "renderer_fog.h"
+#include "renderer_custom_post.h"
 #include "hdr_encode.h"
 #include "postprocess.h"
 #include "render_features.h"
@@ -91,7 +92,9 @@ struct Renderer::Impl {
     SceneFx
         sceneFx;  // depth of field and motion blur (renderer_dof.h): its shaders, pipelines and the autofocus of each camera
     FogFx fogFx;  // distance and height fog and sun shafts (renderer_fog.h): its shaders and pipelines
-    Bloom bloom;  // Camera.bloom post-process (its levels are transients of the frame graph, see bloom.h)
+    CustomPost
+        customPost;  // the passes of PostProcess.customPasses (renderer_custom_post.h): the intermediate images it probed
+    Bloom bloom;     // Camera.bloom post-process (its levels are transients of the frame graph, see bloom.h)
     // Camera.colorFilter: the filtered copy of the finished frame. A pass cannot read what it writes, so the filter
     // draws into this second image (made on first use) and present(), capture() and the editor viewport show it
     // while `filterActive` (the last frame was filtered).
@@ -185,7 +188,9 @@ struct Renderer::Impl {
     std::string
         warnedViewport;  // the last "bad Camera.viewport" problem logged (a viewport a script sets live is clamped)
     std::unordered_set<std::uint64_t>
-        warnedLegacyIgnored;     // cameras whose Camera.bloom/colorFilter a PostProcess of their own hides
+        warnedLegacyIgnored;  // cameras whose Camera.bloom/colorFilter a PostProcess of their own hides
+    std::unordered_set<std::string>
+        warnedCustomPass;        // the problems of PostProcess.customPasses entries already logged (once per scene)
     bool postBypass = false;     // Renderer::set_post_bypass: draw without any post-processing stack (the editor's A/B)
     bool warnedCameras = false;  // the "more cameras than the limit" warning, once per scene
     bool warnedLights2d = false;       // the "more Light2D in view than the budget" warning, once per scene

@@ -438,6 +438,10 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
         if (fr.cam.postStack)
             pp.sceneFx = sceneFx.plan(world, fr.cam, *fr.cam.postStack, camKey, postSerial, fr.dt, renderScale,
                                       pp.prevViewProj, pp.prevValid);
+        // The custom post passes (renderer_custom_post.h): the materials of PostProcess.customPasses that built. One that did not is left
+        // out here, named in stats.materialFallbacks and logged once.
+        if (fr.cam.postStack && fr.cam.postStack->has_custom())
+            pp.custom = make_custom_post_plan(*fr.cam.postStack, *assets, stats.materialFallbacks, warnedCustomPass);
         // A depth of field with no blur, and a motion blur with nothing to smear (the first frame, a cut, a still camera's null
         // intensity), draw nothing: they must not ask for a prepass. A forced effect (tests) and the AO debug view keep theirs.
         if (debugView != DebugView::Ao) {
@@ -499,6 +503,8 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
             pp.needsNormals = post_mask_needs_normals(pp.readMask);
         }
     }
+    // A custom post pass whose snippet calls fa_depth or fa_normal asks for the prepass; one that does not never makes it.
+    if (draws && ctx.postPlan.custom.reads_prepass()) ctx.postPlan.needsDepth = ctx.postPlan.needsNormals = true;
     plan_prepass(ctx);
     plan_outline(ctx);
     // The passes need the prepass and their shaders: a camera that cannot draw them keeps the scene's own fog (ss.fogDensity, below).
@@ -518,7 +524,8 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
         for (const DrawContext* c : postCams)
             sceneColorFx =
                 sceneColorFx ||
-                ((c->postPlan.ssr.any() || c->postPlan.fogFx.shafts || c->postPlan.sceneFx.any()) && c->doPrepass);
+                ((c->postPlan.ssr.any() || c->postPlan.fogFx.shafts || c->postPlan.sceneFx.any()) && c->doPrepass) ||
+                c->postPlan.custom.any();
         if (sceneColorFx) {
             ctx.hudAfterBloom = true;
             ctx.doMainPass = fr.wantWorld || !ctx.hudAfterBloom;
@@ -1309,7 +1316,9 @@ bool Renderer::Impl::plan_prepass(DrawContext& ctx) {
     if (!(pp.needsDepth || pp.needsNormals || debugView != DebugView::None)) return false;
     bool anyMesh = false;
     for (const MeshBatch& b : ctx.opaqueBatches) anyMesh = anyMesh || b.mainCount > 0;
-    if (!anyMesh || !gpu.prepass_ready()) return false;  // prepass_ready logs once why it is not
+    // A custom post pass that reads the depth gets the prepass of a camera with no opaque mesh too: it is cleared to "nothing drawn".
+    if (!(anyMesh || pp.custom.reads_prepass()) || !gpu.prepass_ready())
+        return false;  // prepass_ready logs once why it is not
     // Made now (and given back to the pool) so that a GPU that refuses the image is one warning here, not a failed pass.
     TransientDesc d;
     d.width = ctx.camPx.w;
@@ -2051,6 +2060,22 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
             use.skip_outline();  // the pass did not get the image: drawn without
         return t && use.fx.outline ? t->texView : sg_view{};
     };
+    // The custom post passes of PostProcess.customPasses (renderer_custom_post.h) at one place of the stack: every camera's own, over its
+    // rectangle of the picture, where the built-in passes of the camera before and after leave it.
+    auto custom_slot = [&](PostSlot slot) {
+        for (DrawContext* c : postCams) {
+            if (!c->postPlan.custom.any_in(slot)) continue;
+            const BloomTarget customDst =
+                ctx.hudAfterBloom && ctx.msaa
+                    ? BloomTarget{gameTarget.colorAtt, gameTarget.resolveAtt, gpu.sample_count()}
+                    : BloomTarget{ctx.msaa ? gameTarget.resolveColorAtt : gameTarget.colorAtt, sg_view{}, 1};
+            customPost.add_passes(graph, transient_targets(), gpu, sceneFx, c->postPlan.custom, slot, c->postPlan.rect,
+                                  physW, physH, game, gameTarget.texView, customDst, c->postPlan.prepass,
+                                  c->postPlan.sceneLinear, fr.time, &stats.drawCalls, stats.materialFallbacks,
+                                  c->plan.name);
+        }
+    };
+    custom_slot(PostSlot::Main);
     // Screen-space reflections of every camera (renderer_ssr.h), over its rectangle of the scene colour, on the picture the main pass drew (the ambient occlusion
     // and the fog are already in it), before the sun shafts, the depth of field and the rest of the stack.
     for (DrawContext* c : postCams) {
@@ -2062,6 +2087,7 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
         ssr.add_passes(graph, transient_targets(), gpu, c->postPlan.ssr, c->postPlan.rect, physW, physH, game,
                        gameTarget.texView, ssrDst, c->postPlan.prepass, &stats.drawCalls, c->plan.name);
     }
+    custom_slot(PostSlot::AfterSsr);
     // The sun shafts of every camera (renderer_fog.h), over its rectangle of the scene colour, before the depth of field. (The fog is
     // drawn in the main pass.)
     for (DrawContext* c : postCams) {
@@ -2073,6 +2099,7 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
         fogFx.add_passes(graph, transient_targets(), gpu, c->postPlan.fogFx, c->postPlan.rect, physW, physH, game,
                          gameTarget.texView, fogDst, c->postPlan.prepass, &stats.drawCalls, c->plan.name);
     }
+    custom_slot(PostSlot::AfterShafts);
     // Depth of field and motion blur of every camera (renderer_dof.h), over its rectangle of the scene colour and before the bloom.
     for (DrawContext* c : postCams) {
         if (!c->postPlan.sceneFx.any() || !c->postPlan.prepass.valid()) continue;
@@ -2083,6 +2110,7 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
         sceneFx.add_passes(graph, transient_targets(), gpu, c->postPlan.sceneFx, c->postPlan.rect, physW, physH, game,
                            gameTarget.texView, fxDst, c->postPlan.prepass, &stats.drawCalls, c->plan.name);
     }
+    custom_slot(PostSlot::AfterDof);
     if (pp.bloom.enabled) {
         BloomTarget dst;
         if (ctx.hudAfterBloom && ctx.msaa) {
@@ -2098,6 +2126,7 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
         bloom.add_passes(graph, transient_targets(), gpu, pp.bloom, physW, physH, game, gameTarget.texView, dst, dirt,
                          &stats.drawCalls, plan.name);
     }
+    custom_slot(PostSlot::AfterBloom);
     const bool hudItems = fr.wantScreen && (!ctx.gScreen.batches.empty() || !ctx.gDebugScreen.batches.empty());
     if (ctx.hudAfterBloom && hudItems) {
         std::vector<ResourceId> reads{game};

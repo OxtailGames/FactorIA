@@ -1,7 +1,7 @@
-Part of [custom shaders](CUSTOM_SHADERS.md), "Kinds (M72)": the two kinds built on the mesh design, sprite and sky, with their
+Part of [custom shaders](CUSTOM_SHADERS.md), "Kinds (M72)": the three kinds built on the mesh design, sprite, sky and post, with their
 template, tooling and draw. The shared base (the `kind` key, the per-kind template hash, the skeletons) is on that page.
 
-# Custom shaders: the sprite and sky kinds
+# Custom shaders: the sprite, sky and post kinds
 
 ## Sprite materials (M72.1, the template and the tooling)
 
@@ -88,3 +88,32 @@ gathers, on the calling thread, and the emit jobs only copy the result).
   `RenderStats::materialFallbacks` names the material. The build error is logged once (`note_failure`); a wrong kind warns once.
 - **Left for the next package:** `Shape2D`, `Tilemap`, `Text`, particles and UI call the same `QuadList::set_material`;
   `QuadInput.custom` stays zero.
+
+## Post materials (M72.2)
+
+`engine/render/shaders/post_common.glsl` is the one program of a post material (`material_program_names(Post)` = `{"post"}`): a
+full-screen triangle whose fragment shader reads the picture (`fa_scene_color`) and optionally the depth and normal prepass
+(`fa_depth`, `fa_normal`) and calls the snippet's `post(in PostInput, inout PostSurface)`. Bindings: uniform block 0 (vertex,
+the GL flip), 1 (fragment, `fa_a` = GL flip and linear scene, `fa_rc` = the camera's rectangle as fractions, `fa_size`,
+`fa_time`) and 5 (the material, `kMaterialUbFragment`); views 0 `fa_scene` and 1 `fa_prepass` with samplers 0 (linear, clamped)
+and 1 (nearest), a material's textures at views and samplers 2+ (`kMaterialPostFirstView`). The prepass is bound only when the
+program declares it (the snippet calls `fa_depth` or `fa_normal`), which is what makes the renderer draw it for the camera.
+`lighting`, `alphaMode` and `doubleSided` are refused for the kind; a graph is not generated for it.
+
+- **The entry.** `PostProcess.customPasses` (a flat `Json` field: the stack keeps its flat component) holds `{material,
+  materialParams, enabled, position, name}` entries; `fa/render/post_custom.h` is the one parser (`parse_custom_post_passes`, used by
+  `postprocess.set`, the resolve and the report) and the one position table. A position names a built-in effect and a side;
+  each row maps to a `PostSlot` (`Main`, `AfterSsr`, `AfterShafts`, `AfterDof`, `AfterBloom`), the places `build_graph` has. A later
+  package adds places (the display-referred ones) as new slots and new rows: no key of the entry changes.
+- **The frame graph.** `renderer_custom_post.cpp` (`CustomPost::add_passes`, called by `build_graph` at each slot) reads the
+  picture through the graph (`game` imported resource), runs the entries of the slot in array order over the camera's rectangle,
+  and ping-pongs between two transients of the picture's format (`custom-<slot>-pass<k>`); the last pass draws back into the
+  rectangle of the picture with the bloom's destination rules (MSAA, hud over bloom), and a lone pass is copied back
+  (`SceneFx::copy_into`). The depth and normals are requested (`needsDepth`, `needsNormals`) only when a planned pass reads them.
+- **Failures.** `make_custom_post_plan` asks `Assets::post_material` and a pass whose material did not build, is not a post
+  material, is missing or needs a prepass the GPU lacks is dropped from the plan: `materialFallbacks` gets its path and the log
+  one warning per `path|reason` (`warnedCustomPass`, cleared on a scene change). A hot reload swaps the material's programs as for
+  the other kinds.
+- **Reported.** `render.supports` has the Engine feature `postMaterials`; `postprocess.get {resolved: true}` has `customPasses`
+  and `customPassProblems`; the editor's Post-processing panel edits the list (`postfx_custom.h` makes each edit one whole-array
+  `postprocess.set`, one undo step).
