@@ -14,6 +14,18 @@ Older versions, one file per minor version with its patch releases: [0.30](chang
   texture delete puts it back at its place, and closing or opening a graph clears the forms. The Graph autotest no longer relies on
   fixed delays, and the editor autotest always uses its own clipboard.
 
+- **Compute storage images (M72.17):** a `"kind": "compute"` material can declare `"images"` (up to 4, each with a `format`
+  of `rgba8`, `rgba16f`, `r32f` or `rgba32f`, an `access` of `write` or `readWrite` and a `size`) and write them with
+  `imageStore` (read them with `imageLoad`). New commands `compute.create_image`, `compute.resize_image`,
+  `compute.read_image`, `compute.destroy_image` and `compute.list_images`; `compute.dispatch` takes `images` next to
+  `buffers`. The image is a texture for any material: put its `textureId` (`"compute:<id>"`) in `Sprite.texture`,
+  `MeshRenderer.texture` or a texture param of a mesh, sprite or post material, and a dispatch made before a draw is
+  finished when the draw reads it. A new image is zero; limits are counts (32 images, 8192 pixels a side, 256 MiB each,
+  512 MiB in all) and a format the GPU cannot write is refused with the ones that work. `"readWrite"` (`imageLoad` and `imageStore`) is guaranteed for `r32f` only: `compute.create_image` asks the GPU (Direct3D 11 typed UAV loads, the Metal read-write texture tier) and refuses another format where it cannot load it, with `/images/<name>/access` and the way out (`r32f`, or two images). `factoria validate` accepts `compute:<n>` in a texture field. `material.info` lists `images`.
+  Where there is no compute (Android, the web, macOS OpenGL 4.1) the refusal names the backend and the CPU path.
+  Compute materials with no images keep the twins they had: **nothing needs to be exported again** unless it declares images.
+  The page `factoria docs read shaders-compute` has the rules, a complete example and the table per backend.
+
 - **Material tools polish (M72):** `shader.compile` and `factoria validate` tell you to run `material.graph.generate` when the
   snippet of a graph material is missing or older than its graph. `material.param.create` and `material.texture.create` take
   an optional `index` (where in `params`/`textures` to insert; the order of textures decides the slots) and the matching

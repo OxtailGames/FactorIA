@@ -12,6 +12,7 @@
 #include "fa/core/log.h"
 #include "fa/core/strings.h"
 #include "compute_internal.h"
+#include "hdr_encode.h"
 #include "render_features.h"
 #include "render_internal.h"
 
@@ -31,18 +32,66 @@ struct Compute::State {
         sg_buffer buffer{};
         sg_view view{};
     };
+    // The GPU objects of one storage image: the image, the view a compute shader writes and reads it through, and the view a
+    // material samples it through (empty when the GPU cannot sample the format).
+    struct ImgGpu {
+        sg_image image{};
+        sg_view storage{}, sampled{};
+    };
+    struct Img {
+        int id = 0;
+        std::string material, name;  // the compute material and the image of it this one was made for
+        sg_pixel_format format = SG_PIXELFORMAT_RGBA8;
+        bool readWrite = false;
+        int width = 0, height = 0;
+        std::uint64_t bytes = 0;
+        ImgGpu gpu;
+        // What a material's texture value "compute:<id>" resolves to: one object for the life of the image (a resize remakes the
+        // GPU image under it), so a pointer taken for a frame stays valid for the frame.
+        std::unique_ptr<render::TextureAsset> tex;
+    };
     render::Gpu* gpu = nullptr;
     render::Assets* assets = nullptr;
     std::map<int, Buf> bufs;
+    std::map<int, Img> imgs;
+    // The texture objects of destroyed images, pointed at the white texture: a pointer an older frame kept never dangles. The
+    // oldest go first once there are more than kMaxRetiredImageTextures.
+    std::vector<std::unique_ptr<render::TextureAsset>> retired;
     int nextId = 1;
+    int nextImageId = 1;
     std::uint64_t totalBytes = 0;
+    std::uint64_t imageBytes = 0;
     int backendOverride = -1;  // tests: a render::FeatureBackend to answer as
+    int loadOverride =
+        0;  // tests: 1 = answer as a GPU that can imageLoad an r32f image only, 2 = one that cannot imageLoad any
 
     void destroy(Buf& b) {
         if (b.view.id) sg_destroy_view(b.view);
         if (b.buffer.id) sg_destroy_buffer(b.buffer);
         totalBytes -= std::min(totalBytes, b.bytes);
     }
+    static void release(ImgGpu& g) {
+        if (g.sampled.id) sg_destroy_view(g.sampled);
+        if (g.storage.id) sg_destroy_view(g.storage);
+        if (g.image.id) sg_destroy_image(g.image);
+        g = ImgGpu{};
+    }
+    void destroy(Img& im, bool gpuAlive) {
+        if (gpuAlive) release(im.gpu);
+        imageBytes -= std::min(imageBytes, im.bytes);
+        if (im.tex) {  // retire the texture object: whatever kept its pointer sees the white texture, not freed memory
+            render::TextureAsset* white = assets ? assets->white() : nullptr;
+            im.tex->image = white ? white->image : sg_image{};
+            im.tex->view = white ? white->view : sg_view{};
+            im.tex->width = im.tex->height = 1;
+            im.tex->format = SG_PIXELFORMAT_RGBA8;
+            im.tex->bytes = 0;
+            im.tex->placeholder = true;
+            retired.push_back(std::move(im.tex));
+            if (retired.size() > kMaxRetiredImageTextures) retired.erase(retired.begin());
+        }
+    }
+    static constexpr std::size_t kMaxRetiredImageTextures = 256;
 };
 
 namespace {
@@ -228,6 +277,150 @@ Result<void> upload(render::Gpu& gpu, sg_buffer dst, std::size_t offset, const s
     return {};
 }
 
+// ---- Storage images ----
+
+const char* image_format_name(sg_pixel_format f) {
+    switch (f) {
+        case SG_PIXELFORMAT_RGBA16F: return "rgba16f";
+        case SG_PIXELFORMAT_R32F: return "r32f";
+        case SG_PIXELFORMAT_RGBA32F: return "rgba32f";
+        default: return "rgba8";
+    }
+}
+
+int image_channels(sg_pixel_format f) { return f == SG_PIXELFORMAT_R32F ? 1 : 4; }
+
+// The storage formats this GPU can write from a shader (and read, when `readWrite`) and clear: the ones a material may declare.
+std::string usable_image_formats(bool readWrite) {
+    std::vector<std::string> ok;
+    for (sg_pixel_format f :
+         {SG_PIXELFORMAT_RGBA8, SG_PIXELFORMAT_RGBA16F, SG_PIXELFORMAT_R32F, SG_PIXELFORMAT_RGBA32F}) {
+        const sg_pixelformat_info pf = sg_query_pixelformat(f);
+        if (pf.write && (pf.read || !readWrite) && pf.render &&
+            (!readWrite || render::storage_image_loadable(f, nullptr)))
+            ok.push_back(image_format_name(f));
+    }
+    return ok.empty() ? std::string("none") : join(ok, ", ");
+}
+
+// The size a request asks (0 = the material's own), refused with the number it hit: the file's own size when none is given, the
+// engine's cap and the GPU's largest 2D image.
+Result<std::uint64_t> check_image_size(const std::string& what, sg_pixel_format format, int width, int height,
+                                       std::uint64_t otherBytes) {
+    if (width < 1 || height < 1)
+        return make_error(what + ": " + std::to_string(width) + " x " + std::to_string(height) + " is not a size",
+                          "Width and height are whole numbers of at least 1 (0 = the size the material declares).");
+    const int gpuSide = std::max(1, sg_query_limits().max_image_size_2d);
+    const int maxSide = std::min(kMaxComputeImageSide, gpuSide);
+    if (width > maxSide || height > maxSide)
+        return make_error(what + ": " + std::to_string(width) + " x " + std::to_string(height) +
+                              " is larger than the " + std::to_string(maxSide) + " pixels a side may have" +
+                              (gpuSide < kMaxComputeImageSide ? " on this graphics driver" : ""),
+                          "Use an image of at most " + std::to_string(maxSide) + " x " + std::to_string(maxSide) +
+                              "; for more detail, tile several images.");
+    const std::uint64_t pixel = std::uint64_t(std::max(1, sg_query_pixelformat(format).bytes_per_pixel));
+    const std::uint64_t bytes =
+        std::uint64_t(width) * std::uint64_t(height) * pixel;  // <= 8192 * 8192 * 16: no overflow
+    if (bytes > kMaxComputeImageBytes)
+        return make_error(
+            what + ": " + std::to_string(width) + " x " + std::to_string(height) + " pixels of " +
+                std::to_string(pixel) + " bytes are " + std::to_string(bytes >> 20) + " MiB, more than the " +
+                std::to_string(kMaxComputeImageBytes >> 20) + " MiB one image may hold",
+            "Use a smaller image or a narrower format (rgba8 is 4 bytes a pixel, r32f 4, rgba16f 8, rgba32f 16).");
+    const std::uint64_t others =
+        std::min(otherBytes, kMaxComputeImageTotalBytes);  // the live images other than this one
+    if (bytes > kMaxComputeImageTotalBytes - others)
+        return make_error(what + ": this image would bring the live images to more than " +
+                              std::to_string(kMaxComputeImageTotalBytes >> 20) + " MiB",
+                          "Destroy the images you no longer use (compute.destroy_image).");
+    return bytes;
+}
+
+// The image, its two views and a zero fill (a new GPU image holds undefined pixels; sokol cannot copy into a storage image, so
+// the image is also a colour attachment and one clearing pass fills it). Nothing is left behind on an error.
+Result<State::ImgGpu> make_image_gpu(render::Gpu& gpu, sg_pixel_format format, bool readWrite, int width, int height) {
+    const sg_pixelformat_info pf = sg_query_pixelformat(format);
+    if (!pf.write || (readWrite && !pf.read) || !pf.render)
+        return make_error("image: the format " + std::string(image_format_name(format)) +
+                              (readWrite ? " cannot be read and written" : " cannot be written") +
+                              " by a compute shader on this graphics backend (storage image format not supported)",
+                          "On this backend the formats that work are: " + usable_image_formats(readWrite) +
+                              ". Change \"format\" of the image in the material file.");
+    State::ImgGpu g;
+    sg_image_desc id{};
+    id.type = SG_IMAGETYPE_2D;
+    id.width = width;
+    id.height = height;
+    id.num_mipmaps = 1;
+    id.sample_count = 1;
+    id.pixel_format = format;
+    id.usage.storage_image = true;
+    id.usage.color_attachment = true;  // the clearing pass below (usage.copy_dst is refused for a storage image)
+    id.label = "compute image";
+    g.image = sg_make_image(&id);
+    if (sg_query_image_state(g.image) != SG_RESOURCESTATE_VALID) {
+        if (g.image.id) sg_destroy_image(g.image);
+        return make_error("compute: the graphics driver could not make a " + std::to_string(width) + " x " +
+                              std::to_string(height) + " " + image_format_name(format) +
+                              " storage image (the sokol log lines above have the reason)",
+                          "Use a smaller image or another format, or free GPU memory.");
+    }
+    sg_view_desc vd{};
+    vd.storage_image.image = g.image;
+    vd.label = "compute image storage view";
+    g.storage = sg_make_view(&vd);
+    vd = sg_view_desc{};
+    vd.color_attachment.image = g.image;
+    vd.label = "compute image clear view";
+    const sg_view clearView = sg_make_view(&vd);
+    bool ok = sg_query_view_state(g.storage) == SG_RESOURCESTATE_VALID &&
+              sg_query_view_state(clearView) == SG_RESOURCESTATE_VALID;
+    if (ok && pf.sample &&
+        pf.filter) {  // the shaders sample with a filtering sampler: a format that cannot filter is not shown
+        vd = sg_view_desc{};
+        vd.texture.image = g.image;
+        vd.label = "compute image texture view";
+        g.sampled = sg_make_view(&vd);
+        ok = sg_query_view_state(g.sampled) == SG_RESOURCESTATE_VALID;
+    }
+    if (!ok) {
+        if (clearView.id) sg_destroy_view(clearView);
+        State::release(g);
+        return make_error(
+            "compute: the graphics driver could not make the views of the storage image",
+            "This is a driver problem: update the graphics driver and report it with the sokol log lines above.");
+    }
+    render::PassDesc pass;
+    pass.label = "compute image clear";
+    pass.color = clearView;
+    pass.format.color = format;
+    pass.format.samples = 1;
+    pass.colorLoad = SG_LOADACTION_CLEAR;
+    pass.colorStore = SG_STOREACTION_STORE;
+    pass.clearColor = sg_color{0.0f, 0.0f, 0.0f, 0.0f};
+    render::Gpu::begin_pass(pass);
+    render::Gpu::end_pass();
+    sg_destroy_view(clearView);
+    gpu.note_work();
+    return g;
+}
+
+// Fills the texture object a material samples the image through from the image's current GPU objects.
+void describe_image_texture(render::TextureAsset& t, const std::string& path, sg_pixel_format format, int width,
+                            int height, std::uint64_t bytes, const State::ImgGpu& g) {
+    t.path = path;
+    // The pixels are what a shader wrote: not an sRGB-encoded file. rgba8 is shown as written (Raw, like any rgba8 file); the float
+    // formats hold scene values that nothing converts (Scene).
+    t.enc = format == SG_PIXELFORMAT_RGBA8 ? render::TexEncoding::Raw : render::TexEncoding::Scene;
+    t.image = g.image;
+    t.view = g.sampled;
+    t.width = width;
+    t.height = height;
+    t.placeholder = false;
+    t.format = format;
+    t.bytes = std::size_t(bytes);
+}
+
 }  // namespace
 
 Compute::Compute() : s_(std::make_unique<State>()) {}
@@ -236,9 +429,36 @@ Compute::~Compute() { detach(); }
 void Compute::attach(render::Gpu* gpu, render::Assets* assets) {
     s_->gpu = gpu;
     s_->assets = assets;
+    if (assets) {
+        State* st = s_.get();
+        assets->set_compute_image_resolver([st](const std::string& id, std::string* why) -> render::TextureAsset* {
+            const std::string digits = id.substr(8);  // after "compute:"
+            int n = 0;
+            bool numeric = !digits.empty() && digits.size() <= 9;
+            for (char c : digits) {
+                numeric = numeric && c >= '0' && c <= '9';
+                if (numeric) n = n * 10 + (c - '0');
+            }
+            auto it = numeric ? st->imgs.find(n) : st->imgs.end();
+            if (it == st->imgs.end()) {
+                if (why) *why = "'" + id + "' names no live compute image (it was destroyed, or never made)";
+                return nullptr;
+            }
+            render::TextureAsset* t = it->second.tex.get();
+            if (!t->view.id) {
+                if (why)
+                    *why = "'" + id + "' is a " + image_format_name(it->second.format) +
+                           " image, and this graphics backend cannot filter that format when a material samples it "
+                           "(use rgba8 or rgba16f for an image a material shows)";
+                return nullptr;
+            }
+            return t;
+        });
+    }
 }
 
 void ComputeTestAccess::set_backend(Compute& c, int backend) { c.s_->backendOverride = backend; }
+void ComputeTestAccess::set_load_override(Compute& c, int mode) { c.s_->loadOverride = mode; }
 
 Json compute_json_float(float v) {
     if (!std::isfinite(v)) return Json(nullptr);
@@ -252,10 +472,16 @@ Json compute_json_float(float v) {
 
 void Compute::detach() {
     if (!s_) return;
-    if (s_->gpu && sg_isvalid())
+    const bool alive = s_->gpu && sg_isvalid();
+    if (alive)
         for (auto& [id, b] : s_->bufs) s_->destroy(b);
+    if (s_->assets) s_->assets->set_compute_image_resolver(nullptr);
+    for (auto& [id, im] : s_->imgs) s_->destroy(im, alive);
     s_->bufs.clear();
+    s_->imgs.clear();
+    s_->retired.clear();  // before the assets go: they point at the white texture
     s_->totalBytes = 0;
+    s_->imageBytes = 0;
     s_->gpu = nullptr;
     s_->assets = nullptr;
 }
@@ -275,12 +501,15 @@ bool Compute::available(std::string* why) const {
     std::string reason;
     if (render::feature_supported(env, render::find_feature("computeShaders"), &reason)) return true;
     if (why)
-        *why =
-            std::string("compute shaders are not available on the ") + render::feature_backend_label(env.backend) +
-            " graphics backend: " + reason +
-            ". Compute materials run on Windows (D3D11), macOS and iOS (Metal) and Linux (OpenGL 4.3 or newer), not "
-            "on Android, the web or macOS OpenGL (4.1). Ask `render.supports` {\"feature\":\"computeShaders\"} first, "
-            "and on this backend do the work in a script or in a mesh or sprite material";
+        *why = std::string("compute shaders are not available on the ") + render::feature_backend_label(env.backend) +
+               " graphics backend: " + reason +
+               ". Compute materials run on Windows (D3D11), macOS and iOS (Metal) and Linux (OpenGL 4.3 or newer), not "
+               "on Android (GLES3), the web (WebGL2) or macOS OpenGL (4.1). Ask `render.supports` "
+               "{\"feature\":\"computeShaders\"} first, and on this backend use the CPU path: do the work in a script "
+               "(the "
+               "data of a buffer in an array) or in a mesh, sprite or post material that computes it per pixel (a "
+               "noise or "
+               "height map is a function of the pixel position) (docs/shaders/SHADERS_COMPUTE.md, \"Where it runs\")";
     return false;
 }
 
@@ -539,6 +768,39 @@ Result<void> Compute::dispatch(const ComputeDispatch& d) {
         bound.push_back(&it->second);
     }
 
+    // The storage images: the same rule (every one of the material, no other, each made with the format the material declares now).
+    std::vector<std::string> declaredImages;
+    for (const render::MaterialImageDef& def : m.images) declaredImages.push_back(def.name);
+    for (const auto& [name, id] : d.images)
+        if (std::find(declaredImages.begin(), declaredImages.end(), name) == declaredImages.end())
+            return make_error("images/" + name + ": the material '" + m.path + "' has no image '" + name + "'",
+                              declaredImages.empty() ? std::string("The material declares no images.")
+                                                     : did_you_mean(name, declaredImages));
+    std::vector<const State::Img*> boundImages;
+    for (const render::MaterialImageDef& def : m.images) {
+        auto given = d.images.find(def.name);
+        if (given == d.images.end())
+            return make_error("images: the image '" + def.name + "' of '" + m.path + "' is not given",
+                              "Pass an image id for every image of the material: " + join(declaredImages, ", ") + ".");
+        auto it = s.imgs.find(given->second);
+        if (it == s.imgs.end())
+            return make_error("images/" + def.name + ": no compute image " + std::to_string(given->second),
+                              "compute.list_images lists the live images; compute.create_image makes one.");
+        if (it->second.format != def.format)
+            return make_error(
+                "images/" + def.name + ": image " + std::to_string(given->second) + " was made for '" +
+                    it->second.name + "' of '" + it->second.material + "' as " + image_format_name(it->second.format) +
+                    ", but '" + def.name + "' of '" + m.path + "' is " + image_format_name(def.format) + " now",
+                "Make the image for this material (compute.create_image), or destroy and make it again if "
+                "the material's format changed.");
+        for (const State::Img* other : boundImages)
+            if (other == &it->second)
+                return make_error("images/" + def.name + ": image " + std::to_string(given->second) +
+                                      " is bound to two images of the material",
+                                  "Two bindings of one image cannot be written at once: use two images.");
+        boundImages.push_back(&it->second);
+    }
+
     // The values: a param by number or array, a texture by path, nothing else.
     std::vector<std::string> valueNames;
     for (const render::MaterialParamDef& p : m.params) valueNames.push_back(p.name);
@@ -595,9 +857,19 @@ Result<void> Compute::dispatch(const ComputeDispatch& d) {
     sg_bindings bind{};
     for (std::size_t i = 0; i < m.buffers.size(); ++i)
         if ((prog.viewMask >> m.buffers[i].binding) & 1u) bind.views[m.buffers[i].binding] = bound[i]->view;
+    for (std::size_t i = 0; i < m.images.size(); ++i)
+        if ((prog.viewMask >> m.images[i].binding) & 1u) bind.views[m.images[i].binding] = boundImages[i]->gpu.storage;
     for (std::size_t i = 0; i < m.textures.size(); ++i) {
-        const int viewSlot = int(m.buffers.size() + i);
+        const int viewSlot = int(m.buffers.size() + m.images.size() + i);
         render::TextureAsset* tex = render::material_texture(m, int(i), d.params, *s.assets);
+        for (const State::Img* img :
+             boundImages)  // sokol refuses one image as a storage image and a texture in one pass
+            if (tex && tex == img->tex.get() && ((prog.viewMask >> viewSlot) & 1u))
+                return make_error(
+                    "params/" + m.textures[i].name + ": the texture is the compute image '" +
+                        Compute::image_texture_id(img->id) + "', which this dispatch writes as a storage image",
+                    "Sample another image (a second one the dispatch writes into next frame) or read this one with "
+                    "imageLoad: declare it \"access\": \"readWrite\" and drop the texture.");
         if (!tex || !tex->gpu_view().id) tex = s.assets->white();
         if ((prog.viewMask >> viewSlot) & 1u) bind.views[viewSlot] = tex->gpu_view();
         if ((prog.samplerMask >> i) & 1u) bind.samplers[i] = s.gpu->sampler(m.textures[i].sampler);
@@ -622,6 +894,228 @@ Json Compute::list() const {
                                     {"count", b.count},
                                     {"stride", b.stride},
                                     {"bytes", b.bytes}}));
+    return out;
+}
+
+std::string Compute::image_texture_id(int id) { return "compute:" + std::to_string(id); }
+
+Result<int> Compute::create_image(const std::string& material, const std::string& image, int width, int height) {
+    State& s = *s_;
+    std::string why;
+    if (!available(&why)) return refused(why);
+    if (render::Gpu::in_pass())
+        return make_error("compute.create_image: a frame is being drawn",
+                          "Call it from a script's update, not while rendering.");
+    auto made = compute_material(s, material);
+    if (!made.ok()) return made.error();
+    const MaterialAsset& m = **made;
+
+    const render::MaterialImageDef* def = nullptr;
+    std::vector<std::string> names;
+    for (const render::MaterialImageDef& i : m.images) {
+        names.push_back(i.name);
+        if (i.name == image) def = &i;
+    }
+    if (!def)
+        return make_error("image: the material '" + material + "' has no image '" + image + "'",
+                          names.empty()
+                              ? std::string("The material declares no images: add an \"images\" entry to its file "
+                                            "(docs/shaders/SHADERS_COMPUTE.md, \"Storage images\").")
+                              : did_you_mean(image, names));
+    if (def->readWrite) {  // imageLoad of this format is a capability of the GPU, not of the format alone
+        std::string limit;
+        bool loadable = true;
+        if (s.loadOverride == 1) {
+            loadable = def->format == SG_PIXELFORMAT_R32F;
+            limit = "this GPU can read and write one image only in r32f (simulated by a test)";
+        } else if (s.loadOverride == 2) {
+            loadable = false;
+            limit = "this GPU cannot read an image in a shader (simulated by a test)";
+        } else {
+            loadable = render::storage_image_loadable(def->format, &limit);
+        }
+        if (!loadable)
+            return make_error(
+                "image: " + m.path + " /images/" + def->name +
+                    "/access: \"readWrite\" (imageLoad and imageStore) of the format " +
+                    image_format_name(def->format) + " does not work on this GPU: " + limit,
+                std::string(def->format == SG_PIXELFORMAT_R32F ? ""
+                                                               : "Use the format r32f for an image the shader reads "
+                                                                 "and writes, or ") +
+                    "split it into two images: write one and read the other as a texture, swapping them each frame "
+                    "(docs/shaders/SHADERS_COMPUTE.md, \"Storage images\").");
+    }
+    if (width == 0) width = def->width;
+    if (height == 0) height = def->height;
+    if (int(s.imgs.size()) >= kMaxLiveComputeImages)
+        return make_error(
+            "compute: " + std::to_string(kMaxLiveComputeImages) + " images are alive already",
+            "Destroy the ones you no longer use (compute.destroy_image); compute.list_images names them.");
+    auto bytes = check_image_size("width/height", def->format, width, height, s.imageBytes);
+    if (!bytes.ok()) return bytes.error();
+    auto gpu = make_image_gpu(*s.gpu, def->format, def->readWrite, width, height);
+    if (!gpu.ok()) return gpu.error();
+
+    State::Img im;
+    im.id = s.nextImageId++;
+    im.material = m.path;
+    im.name = def->name;
+    im.format = def->format;
+    im.readWrite = def->readWrite;
+    im.width = width;
+    im.height = height;
+    im.bytes = *bytes;
+    im.gpu = *gpu;
+    im.tex = std::make_unique<render::TextureAsset>();
+    describe_image_texture(*im.tex, image_texture_id(im.id), im.format, width, height, im.bytes, im.gpu);
+    s.imageBytes += im.bytes;
+    const int id = im.id;
+    s.imgs.emplace(id, std::move(im));
+    return id;
+}
+
+Result<void> Compute::resize_image(int id, int width, int height) {
+    State& s = *s_;
+    std::string why;
+    if (!available(&why)) return refused(why);
+    auto it = s.imgs.find(id);
+    if (it == s.imgs.end())
+        return make_error("image: no compute image " + std::to_string(id),
+                          "compute.list_images lists the live images.");
+    if (render::Gpu::in_pass())
+        return make_error("compute.resize_image: a frame is being drawn",
+                          "Call it from a script's update, not while rendering.");
+    State::Img& im = it->second;
+    auto bytes =
+        check_image_size("width/height", im.format, width, height, s.imageBytes - std::min(s.imageBytes, im.bytes));
+    if (!bytes.ok()) return bytes.error();
+    auto gpu = make_image_gpu(*s.gpu, im.format, im.readWrite, width, height);
+    if (!gpu.ok()) return gpu.error();
+    State::release(
+        im.gpu);  // the old GPU image goes (sokol defers it past the draws already recorded); the texture object stays
+    im.gpu = *gpu;
+    s.imageBytes = s.imageBytes - std::min(s.imageBytes, im.bytes) + *bytes;
+    im.bytes = *bytes;
+    im.width = width;
+    im.height = height;
+    describe_image_texture(*im.tex, image_texture_id(im.id), im.format, width, height, im.bytes, im.gpu);
+    return {};
+}
+
+std::uint64_t Compute::max_json_pixels(int id) const {
+    auto it = s_->imgs.find(id);
+    if (it == s_->imgs.end()) return kMaxComputeJsonValues;
+    return kMaxComputeJsonValues / std::uint64_t(image_channels(it->second.format));
+}
+
+Result<Json> Compute::read_image(int id, int x, int y, int width, int height) {
+    State& s = *s_;
+    std::string why;
+    if (!available(&why)) return refused(why);
+    auto it = s.imgs.find(id);
+    if (it == s.imgs.end())
+        return make_error("image: no compute image " + std::to_string(id),
+                          "compute.list_images lists the live images.");
+    const State::Img& im = it->second;
+    if (render::Gpu::in_pass())
+        return make_error("compute.read_image: a frame is being drawn",
+                          "Call it from a script's update, not while rendering.");
+    if (x < 0 || y < 0 || width < 0 || height < 0 || x >= im.width || y >= im.height)
+        return make_error(
+            "x/y/width/height: the rectangle " + std::to_string(x) + "," + std::to_string(y) + " " +
+                std::to_string(width) + " x " + std::to_string(height) + " is not inside the " +
+                std::to_string(im.width) + " x " + std::to_string(im.height) + " image",
+            "x and y are pixels from the top left (0 .. size - 1); width and height 0 mean to the right and bottom "
+            "edge.");
+    if (width == 0) width = im.width - x;
+    if (height == 0) height = im.height - y;
+    if (width > im.width - x || height > im.height - y)
+        return make_error("width/height: the rectangle " + std::to_string(x) + "," + std::to_string(y) + " " +
+                              std::to_string(width) + " x " + std::to_string(height) + " goes past the " +
+                              std::to_string(im.width) + " x " + std::to_string(im.height) + " image",
+                          "Keep x + width within " + std::to_string(im.width) + " and y + height within " +
+                              std::to_string(im.height) + ".");
+    const int channels = image_channels(im.format);
+    const std::uint64_t pixels = std::uint64_t(width) * std::uint64_t(height);  // each <= 8192: no overflow
+    const std::uint64_t maxPixels = kMaxComputeJsonValues / std::uint64_t(channels);
+    if (pixels > maxPixels)
+        return make_error(
+            "width/height: " + std::to_string(pixels) + " pixels of " + std::to_string(channels) +
+                " numbers each are more than the " + std::to_string(kMaxComputeJsonValues) +
+                " numbers one call converts (at most " + std::to_string(maxPixels) + " pixels)",
+            "Read the image in rectangles of at most " + std::to_string(maxPixels) +
+                " pixels (for example a few rows at a time): x, y, width and height choose the rectangle.");
+    if (!s.gpu->committed()) {  // as read_buffer: Metal only submits the recorded work at sg_commit
+        sg_commit();
+        s.gpu->note_commit();
+    }
+    std::vector<std::uint8_t> raw;
+    std::string error;
+    if (!render::readback_storage_image(im.gpu.image, im.format, im.width, im.height, raw, &error))
+        return make_error("compute.read_image: " + error,
+                          "This is a graphics driver problem on this backend; report it.");
+    const std::size_t pixelBytes = std::size_t(sg_query_pixelformat(im.format).bytes_per_pixel);
+    if (raw.size() < pixelBytes * std::size_t(im.width) * std::size_t(im.height))
+        return make_error("compute.read_image: the driver returned fewer bytes than the image holds",
+                          "This is a graphics driver problem on this backend; report it.");
+    Json data = Json::array();
+    for (int row = 0; row < height; ++row) {
+        const std::uint8_t* src =
+            raw.data() + (std::size_t(y + row) * std::size_t(im.width) + std::size_t(x)) * pixelBytes;
+        for (int col = 0; col < width; ++col) {
+            const std::uint8_t* px = src + std::size_t(col) * pixelBytes;
+            for (int c = 0; c < channels; ++c) {
+                switch (im.format) {
+                    case SG_PIXELFORMAT_RGBA16F: {
+                        std::uint16_t h;
+                        std::memcpy(&h, px + std::size_t(c) * 2, 2);
+                        data.push_back(compute_json_float(render::half_to_float(h)));
+                        break;
+                    }
+                    case SG_PIXELFORMAT_R32F:
+                    case SG_PIXELFORMAT_RGBA32F: {
+                        float f;
+                        std::memcpy(&f, px + std::size_t(c) * 4, 4);
+                        data.push_back(compute_json_float(f));
+                        break;
+                    }
+                    default: data.push_back(int(px[c])); break;
+                }
+            }
+        }
+    }
+    return Json::object({{"x", x},
+                         {"y", y},
+                         {"width", width},
+                         {"height", height},
+                         {"format", image_format_name(im.format)},
+                         {"channels", channels},
+                         {"data", std::move(data)}});
+}
+
+Result<void> Compute::destroy_image(int id) {
+    State& s = *s_;
+    auto it = s.imgs.find(id);
+    if (it == s.imgs.end())
+        return make_error("image: no compute image " + std::to_string(id),
+                          "compute.list_images lists the live images.");
+    s.destroy(it->second, sg_isvalid());
+    s.imgs.erase(it);
+    return {};
+}
+
+Json Compute::list_images() const {
+    Json out = Json::array();
+    for (const auto& [id, im] : s_->imgs)
+        out.push_back(Json::object({{"id", id},
+                                    {"material", im.material},
+                                    {"image", im.name},
+                                    {"format", image_format_name(im.format)},
+                                    {"access", im.readWrite ? "readWrite" : "write"},
+                                    {"width", im.width},
+                                    {"height", im.height},
+                                    {"bytes", im.bytes},
+                                    {"textureId", image_texture_id(im.id)}}));
     return out;
 }
 

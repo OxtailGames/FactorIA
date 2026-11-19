@@ -776,7 +776,8 @@ SHADERS.md "Not available yet" becomes empty.
 - M72.3 (L) Full shaders and custom lighting: own `main` and vertex layout, several passes, a custom light loop (toon
   ramps, cel bands, hatching), textures in `vertex()`, per-instance values in one instanced draw.
 - M72.4 (L) Compute shaders where the backend has them (D3D11, Metal, GL 4.3, Vulkan/D3D12 with M77): GPU particles,
-  culling, simulation helpers; a clear refusal on GLES3/WebGL2 with the CPU path named.
+  culling, simulation helpers; a clear refusal on GLES3/WebGL2 with the CPU path named (done in M72.4). Storage images
+  (a compute material writes a texture that a mesh, sprite or post material shows) are built in M72.17.
 - M72.5 (L) A node graph material editor that writes the same JSON/snippet an AI writes (graph and code stay one
   document), with live preview on mesh, sprite and quad, and a library of nodes (noise, dissolve, flow, fresnel,
   triplanar, parallax occlusion).
