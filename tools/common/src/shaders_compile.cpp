@@ -322,16 +322,21 @@ std::string declared_by_other_material(const std::string& name, const MapContext
 // full-shader pages): the "did you mean" of an unknown fa_ name suggests these, never an internal name of the templates (fa_in,
 // fa_quad_types...) that the author may not use.
 const std::vector<std::string>& engine_names(const MaterialDef& material) {
-    static const std::vector<std::string>
-        mesh = {"fa_time", "fa_camera_pos", "fa_tangent_normal"},
-        sprite = {"fa_time", "fa_target", "fa_sample_main", "fa_scene_rgb"}, sky = {"fa_time", "fa_scene_rgb"},
-        post = {"fa_scene_color", "fa_depth", "fa_normal", "fa_history", "fa_history_valid", "fa_scene_rgb", "fa_time"},
-        full = {"fa_ambient",        "fa_apply_fog",      "fa_base_color",      "fa_base_sample",   "fa_camera_pos",
-                "fa_color",          "fa_emissive",       "fa_env_brdf",        "fa_env_horizon",   "fa_env_sky",
-                "fa_environment",    "fa_frag_color",     "fa_light",           "fa_light_count",   "fa_light_vp",
-                "fa_linear_to_srgb", "fa_model",          "fa_normal",          "fa_position",      "fa_shadow",
-                "fa_shadow_coord",   "fa_sky_reflection", "fa_srgb_to_linear",  "fa_tangent",       "fa_texcoord",
-                "fa_uv_scale",       "fa_view_proj",      "fa_world_direction", "fa_world_position"};
+    static const std::vector<std::string> mesh = {"fa_time", "fa_camera_pos", "fa_tangent_normal"},
+                                          sprite = {"fa_time", "fa_target", "fa_sample_main", "fa_scene_rgb"},
+                                          sky = {"fa_time", "fa_scene_rgb", "fa_sun", "fa_cspace"},
+                                          post = {"fa_scene_color",   "fa_depth",     "fa_normal", "fa_history",
+                                                  "fa_history_valid", "fa_scene_rgb", "fa_time"},
+                                          full = {"fa_ambient",         "fa_apply_fog",      "fa_base_color",
+                                                  "fa_base_sample",     "fa_camera_pos",     "fa_color",
+                                                  "fa_emissive",        "fa_env_brdf",       "fa_env_horizon",
+                                                  "fa_env_sky",         "fa_environment",    "fa_frag_color",
+                                                  "fa_light",           "fa_light_count",    "fa_light_vp",
+                                                  "fa_linear_to_srgb",  "fa_model",          "fa_normal",
+                                                  "fa_position",        "fa_shadow",         "fa_shadow_coord",
+                                                  "fa_sky_reflection",  "fa_srgb_to_linear", "fa_tangent",
+                                                  "fa_texcoord0",       "fa_uv_scale",       "fa_view_proj",
+                                                  "fa_world_direction", "fa_world_position"};
     return material.full         ? full
            : is_post(material)   ? post
            : is_sprite(material) ? sprite
@@ -498,10 +503,15 @@ std::string undeclared_hint(const std::string& token, const MapContext& ctx, int
                 return "did you mean " + api + "? The lighting functions are " + join(lighting_api(), ", ") + ".";
         }
         // The sprite template declares the main texture in the fragment stage only; fa_scene_rgb() exists in both.
-        if (!ctx.material.full && is_sprite(ctx.material) && token == "fa_sample_main")
+        if (!ctx.material.full && is_sprite(ctx.material) && token == "fa_sample_main") {
+            if (callFailed && in_fragment_entry(ctx, line))
+                return "`fa_sample_main` exists, but this call does not match its signature: vec4 fa_sample_main(vec2 "
+                       "p) "
+                       "(the uv is a vec2).";
             return "`fa_sample_main` samples the main texture, which is bound in the fragment stage only: call it from "
                    "fragment(), not from vertex() or from a helper that vertex() calls (a helper of the snippet is "
                    "compiled into both stages). Its signature: vec4 fa_sample_main(vec2 p).";
+        }
         const std::string best = closest_match(token, engine_names(ctx.material));
         return best.empty()
                    ? std::string("No engine value is called ") + token +
@@ -581,6 +591,21 @@ std::string undeclared_hint(const std::string& token, const MapContext& ctx, int
 
 std::string hint_for(const std::string& message, const std::string& token, const std::string& source,
                      const MapContext& ctx, int line) {
+    // The vertex stage renames each texture of a mesh or sprite material with `#define <name> fa_vs_<name>`, which also rewrites a
+    // field of the contract with the same name (s.normal -> s.fa_vs_normal) in vertex() and in the helpers both stages compile.
+    if (!ctx.material.full && (ctx.material.kind == "mesh" || ctx.material.kind == "sprite"))
+        for (const MaterialTexture& t : ctx.material.textures)
+            if (const std::size_t at = message.find("fa_vs_" + t.name);
+                at != std::string::npos &&
+                (at + 6 + t.name.size() >= message.size() || !ident_char(message[at + 6 + t.name.size()])))
+                return "The texture \"" + t.name + "\" is called `fa_vs_" + t.name +
+                       "` in the vertex stage (`#define " + t.name + " fa_vs_" + t.name + "`), so a field or a name `" +
+                       t.name +
+                       "` in vertex(), or in a helper that vertex() shares with the fragment stage, is rewritten too. "
+                       "Rename the "
+                       "texture in " +
+                       ctx.material.path + " (e.g. \"" + t.name + "Map\"), or do not use `" + t.name +
+                       "` in vertex() or in helpers.";
     if (message.find("no such field in structure") != std::string::npos) return field_hint(token, source, ctx);
     if (message.find("undeclared identifier") != std::string::npos) return undeclared_hint(token, ctx, line, false);
     if (message.find("no matching overloaded function found") != std::string::npos && token.rfind("texture", 0) == 0) {
@@ -1083,6 +1108,10 @@ struct TempWork {
 };
 
 }  // namespace
+
+const std::vector<std::string>& shaders_detail::documented_engine_names(const MaterialDef& material) {
+    return engine_names(material);
+}
 
 std::string sokol_shdc_missing_hint(const SetupContext& context) {
     std::string hint = "Run `factoria setup shaders` to install it (a pinned sokol-tools-bin commit, " +

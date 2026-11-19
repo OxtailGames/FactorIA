@@ -10,7 +10,7 @@ Older versions, one file per minor version with its patch releases: [0.30](chang
   (per-instance params and extra vertex channels in sky and compute, depth and normals of a sprite, compute on Android and the
   web) is a sentence in the section of its kind. A sprite's `vertex()` may call `fa_scene_rgb()`; `fa_sample_main()` is
   fragment-only and an error from it in the vertex stage says so. The "did you mean" of an unknown `fa_` name suggests only names
-  the docs list. A texture named like a field of the contract (`normal`, `albedo`...) is refused with a rename; `alphaMode` on a
+  the docs list. A texture named like a field of the contract (`normal`, `albedo`...) still compiles; when `vertex()` or a shared helper reads that field, the error says to rename the texture; `alphaMode` on a
   sprite says to remove it. A "no matching overloaded function" on a lighting function gives the vertex-stage hint only when the
   call is compiled in the vertex stage, else the signature. `factoria validate` shares the material-path rules of the shader
   commands. The result of `shader.compile` documents its `graph` field. New tests: 12 varyings with instanced params for GLES3,

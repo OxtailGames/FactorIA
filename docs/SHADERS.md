@@ -199,7 +199,7 @@ complete examples.
 
 `"lighting": "custom"` hands the shading of every light to your snippet. The engine still chooses the lights, applies
 their attenuation and the shadow (the shadow map of the first directional light), adds `s.emission` and the fog; it
-calls your function once for each light of its list (also one out of range: its `l.color` is then 0) and adds the results:
+calls your function once per light of its list (a point light beyond its radius too, `l.color` 0) and adds the results:
 
 ```glsl
 vec3 light(in SurfaceInput i, in Surface s, in LightSample l);        // required: the light that reaches the surface

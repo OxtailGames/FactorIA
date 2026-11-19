@@ -1907,11 +1907,12 @@ TEST_CASE(
     const MaterialParse noise = parse(
         R"({"format":"factoria.material/1","shader":"s.glsl","textures":{"noise":{"sampler":"linearRepeat","doc":"d"}}})");
     CHECK(has_error(noise, "/textures/noise", "noiseMap"));
-    // a texture named like a field of the contract (i.normal, s.albedo...) would shadow it in the snippet: refused with a rename
+    // a texture named like a field of the contract (s.normal, s.albedo...) is a valid name: surface() reads it in the fragment stage
+    // only; the clash in vertex() or a shared helper is explained by the compile hint (the test "a texture named like a field")
     const MaterialParse field = parse(
-        R"({"format":"factoria.material/1","shader":"s.glsl","textures":{"normal":{"sampler":"linearRepeat","doc":"d"}}})");
-    CHECK(has_error(field, "/textures/normal", "normalMap"));
-    CHECK(has_error(field, "/textures/normal", "field of"));
+        R"({"format":"factoria.material/1","shader":"s.glsl","textures":{"normal":{"sampler":"linearRepeat","doc":"d"},
+            "albedo":{"sampler":"linearRepeat","doc":"d"}}})");
+    CHECK(field.ok());
 }
 
 TEST_CASE("sprite material: a snippet that redefines a name of the engine's 2D program gets the hint") {
@@ -1966,6 +1967,108 @@ TEST_CASE("sprite material: fa_sample_main in a vertex stage says it is fragment
     e = compile_snippet("float x = fa_sample_mian(vec2(0.0)).r;\n" + std::string(kSpriteSnippet),
                         "'fa_sample_mian' : undeclared identifier");
     CHECK(e.hint.find("did you mean fa_sample_main?") != std::string::npos);
+}
+
+TEST_CASE("compile: the engine names a \"did you mean\" suggests are the ones the docs list for the kind") {
+    const auto names_in = [](const char* page) {
+        const std::string text = testing::read_all(stdfs::path(FA_REPO_ROOT) / page);
+        std::set<std::string> out;
+        static const std::regex name(R"(\bfa_[a-z0-9_]+)");
+        for (auto it = std::sregex_iterator(text.begin(), text.end(), name); it != std::sregex_iterator(); ++it)
+            out.insert(it->str());
+        return out;
+    };
+    const auto list_of = [](const char* kind, bool full) {
+        MaterialDef m;
+        m.kind = kind;
+        m.full = full;
+        const auto& names = shaders_detail::documented_engine_names(m);
+        return std::set<std::string>(names.begin(), names.end());
+    };
+    // the pages of the post and the full shaders document these names and no others: the lists are equal to them
+    CHECK(list_of("post", false) == names_in("docs/shaders/SHADERS_POST.md"));
+    CHECK(list_of("mesh", true) == names_in("docs/shaders/SHADERS_FULL.md"));
+    // SHADERS.md documents the mesh, sprite and sky names (and the lighting functions, which have their own list): each one is in it
+    const std::set<std::string> guide = names_in("docs/SHADERS.md");
+    for (const char* kind : {"mesh", "sprite", "sky"})
+        for (const std::string& name : list_of(kind, false)) {
+            CAPTURE(kind);
+            CHECK_MESSAGE(guide.count(name) == 1, name << " is suggested for a " << kind
+                                                       << " material but docs/SHADERS.md does not mention it");
+        }
+}
+
+namespace {
+bool real_tool(SetupContext& context);
+}
+
+TEST_CASE("real sokol-shdc: a texture named like a field compiles when only surface() reads it; vertex() reading it "
+          "gets the hint") {
+    SetupContext context;
+    if (!real_tool(context)) return;
+    ShaderCompileOptions options;
+    options.setup = context;
+    options.dialects = {"hlsl5", "glsl430", "glsl300es"};
+    options.useCache = false;
+    Project p;
+    const auto material = [](const char* textures) {
+        return std::string(R"({"format":"factoria.material/1","shader":"shaders/n.surface.glsl","textures":{)") +
+               textures + "}}";
+    };
+    // `normal` and `albedo` are fields of Surface and textures here: the texture is renamed in the vertex stage only
+    p.write("materials/n.material.json",
+            material(R"("normal":{"sampler":"linearRepeat","doc":"d"},"albedo":{"sampler":"linearRepeat","doc":"d"})"));
+    p.write("shaders/n.surface.glsl",
+            "void surface(in SurfaceInput i, inout Surface s) {\n"
+            "    s.albedo = texture(sampler2D(albedo, albedo_smp), i.uv).rgb;\n"
+            "    s.normal = normalize(s.normal + texture(sampler2D(normal, normal_smp), i.uv).xyz * 0.01);\n}\n");
+    auto ok = compile_material(p.str(), "materials/n.material.json", options);
+    REQUIRE(ok.ok());
+    const std::string why = ok->errors.empty() ? std::string() : ok->errors[0].to_string();
+    INFO(why);
+    CHECK(ok->ok);
+    // vertex() reads the field `uv` of VertexData while a texture is called `uv`: the vertex stage reads `v.fa_vs_uv`
+    p.write("materials/n.material.json", material(R"("uv":{"sampler":"linearRepeat","doc":"d"})"));
+    p.write("shaders/n.surface.glsl", "void vertex(inout VertexData v) {\n    v.uv *= 2.0;\n}\n"
+                                      "void surface(in SurfaceInput i, inout Surface s) {\n"
+                                      "    s.albedo = texture(sampler2D(uv, uv_smp), i.uv).rgb;\n}\n");
+    auto bad = compile_material(p.str(), "materials/n.material.json", options);
+    REQUIRE(bad.ok());
+    REQUIRE_FALSE(bad->ok);
+    REQUIRE_FALSE(bad->errors.empty());
+    INFO(bad->errors[0].to_string());
+    CHECK(bad->errors[0].line == 2);
+    CHECK(bad->errors[0].hint.find("Rename the texture") != std::string::npos);
+    CHECK(bad->errors[0].hint.find("uvMap") != std::string::npos);
+}
+
+TEST_CASE(
+    "real sokol-shdc: a sprite vertex() may call fa_scene_rgb(), and fa_sample_main() there gets the stage hint") {
+    SetupContext context;
+    if (!real_tool(context)) return;
+    ShaderCompileOptions options;
+    options.setup = context;
+    options.useCache = false;
+    Project p;
+    p.add_sprite();
+    p.write("shaders/dissolve2d.fragment.glsl",
+            "void vertex(inout QuadVertex v) {\n    v.color.rgb *= fa_scene_rgb(vec3(1.0, 0.5, 0.2));\n}\n" +
+                std::string(kSpriteSnippet));
+    auto ok = compile_material(p.str(), "materials/dissolve2d.material.json", options);
+    REQUIRE(ok.ok());
+    const std::string why = ok->errors.empty() ? std::string() : ok->errors[0].to_string();
+    INFO(why);
+    CHECK(ok->ok);
+    p.write("shaders/dissolve2d.fragment.glsl",
+            "void vertex(inout QuadVertex v) {\n    v.color *= fa_sample_main(v.uv);\n}\n" +
+                std::string(kSpriteSnippet));
+    auto bad = compile_material(p.str(), "materials/dissolve2d.material.json", options);
+    REQUIRE(bad.ok());
+    REQUIRE_FALSE(bad->ok);
+    REQUIRE_FALSE(bad->errors.empty());
+    INFO(bad->errors[0].to_string());
+    CHECK(bad->errors[0].line == 2);
+    CHECK(bad->errors[0].hint.find("fragment stage only") != std::string::npos);
 }
 
 TEST_CASE("compile: hints for the frequent mistakes") {
@@ -3387,7 +3490,7 @@ TEST_CASE("real sokol-shdc: a full material compiles to every dialect, one progr
 TEST_CASE("real sokol-shdc: a full shader at the varying limit (12 slots) with instanced params compiles for GLES3") {
     SetupContext context;
     if (!real_tool(context)) return;
-    // 12 vec4 varyings plus the three flat instance varyings of the template are the 15 that OpenGL ES 3 guarantees
+    // 12 vec4 varyings plus the three flat instance varyings (three vec4 of instanced params) are the 15 that OpenGL ES 3 guarantees
     std::string varyings, writes, sum = "vec4(0.0)";
     for (int n = 0; n < 12; ++n) {
         varyings += "varying vec4 v" + std::to_string(n) + ";\n";
@@ -3397,10 +3500,14 @@ TEST_CASE("real sokol-shdc: a full shader at the varying limit (12 slots) with i
     const std::string shader = "@common\n" + varyings + "\n@vertex\nvoid main() {\n" + writes +
                                "    gl_Position = fa_view_proj * vec4(fa_world_position(fa_position), 1.0);\n}\n\n"
                                "@fragment\nvoid main() {\n    vec4 sum = " +
-                               sum + ";\n    fa_frag_color = vec4(sum.rgb / 12.0 * tint.rgb, 1.0);\n}\n";
+                               sum + ";\n    fa_frag_color = vec4(sum.rgb / 12.0 * (a.rgb * b.rgb + c * d), 1.0);\n}\n";
     FullProject p(shader, R"({
       "format": "factoria.material/1", "mode": "full", "shader": "shaders/ring.full.glsl",
-      "params": {"tint": {"type": "color", "default": [1, 1, 1, 1], "instanced": true, "doc": "Tint of each entity."}}
+      "params": {
+        "a": {"type": "color", "default": [1, 1, 1, 1], "instanced": true, "doc": "A colour per entity."},
+        "b": {"type": "color", "default": [1, 1, 1, 1], "instanced": true, "doc": "Another colour per entity."},
+        "c": {"type": "vec3", "default": [0, 0, 0], "instanced": true, "doc": "A lift per entity."},
+        "d": {"type": "float", "default": 0, "instanced": true, "doc": "Its strength per entity."}}
     })");
     ShaderCompileOptions options;
     options.setup = context;
@@ -3412,7 +3519,7 @@ TEST_CASE("real sokol-shdc: a full shader at the varying limit (12 slots) with i
     INFO(why);
     REQUIRE(r->ok);
     REQUIRE(r->twins.size() == 2);
-    CHECK(r->twins.at("glsl300es")["instanceVec4"] == 1);
+    CHECK(r->twins.at("glsl300es")["instanceVec4"] == 3);
     CHECK_FALSE(r->twins.at("glsl300es")["programs"]["mesh"]["vs"].get<std::string>().empty());
     // one slot more is the engine's own refusal, before any compiler runs
     FullProject over(replace_in(shader, "varying vec4 v11;\n", "varying vec4 v11;\nvarying vec4 v12;\n"),

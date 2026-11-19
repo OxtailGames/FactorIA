@@ -60,6 +60,10 @@ std::string material_path_shape_problem(const std::string& path);
 // CommandError (invalid_argument outside the project, not_found with "did you mean"). Shared by the shader.* and material.* commands.
 std::string resolve_material(const std::string& projectDir, const std::string& arg);
 
+// The fa_ names the docs list for the kind of `material` (the "did you mean" of an unknown fa_ name suggests these and no others):
+// a test compares each list with the page that documents it.
+const std::vector<std::string>& documented_engine_names(const MaterialDef& material);
+
 // The snippet's text with CRs removed (the line numbers stay those of the file).
 std::string normalize_snippet(std::string_view snippet);
 
