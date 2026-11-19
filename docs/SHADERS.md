@@ -26,12 +26,13 @@ The loop for an AI (or a person):
 | `format` | Always `"factoria.material/1"`. Required. |
 | `shader` | Project-relative path of the snippet, e.g. `"shaders/pulse.surface.glsl"`. Required. |
 | `doc` | What the material looks like and is for. Shown by `material.info`. |
-| `kind` | What the material is for: `"mesh"` (default; the surface of a `MeshRenderer`, what this page describes), or `"sprite"` (a 2D item: `Sprite`, `Shape2D`, `Tilemap`, `Text`, particles; [below](#materials-on-sprites-shapes-tiles-text-and-particles)), or `"sky"` (the background of a 3D scene; [below](#sky-materials)), or the reserved `"post"` and `"compute"`. `"mesh"`, `"sprite"` and `"sky"` compile: `shader.compile` refuses the others with an error on `/kind` that names the engine milestone package that will bring them (post: M72.2, compute: M72.4). |
+| `kind` | What the material is for: `"mesh"` (default; the surface of a `MeshRenderer`, what this page describes), or `"sprite"` (a 2D item: `Sprite`, `Shape2D`, `Tilemap`, `Text`, particles; [below](#materials-on-sprites-shapes-tiles-text-and-particles)), or `"sky"` (the background of a 3D scene; [below](#sky-materials)), or `"compute"` (a program that runs on the GPU over storage buffers; [Compute materials](#compute-materials)), or the reserved `"post"`. `"mesh"`, `"sprite"`, `"sky"` and `"compute"` compile: `shader.compile` refuses `"post"` with an error on `/kind` that names the engine milestone package that will bring it (M72.2). |
 | `lighting` | `"pbr"` (default): the engine's lighting, fog and sky reflection. `"unlit"`: the surface albedo is drawn as it is, plus emission and fog. `"custom"` (mesh materials only): your snippet defines `light()` (and optionally `ambient()`), which the engine's light loop calls once per light instead of its own shading (see "Custom lighting" below); shadows, attenuation, emission and fog stay the engine's. |
 | `alphaMode` | `"opaque"` (default): alpha is ignored. `"clip"`: fragments with `alpha` below `alphaCutoff` are discarded, also in the shadow pass. `"blend"`: drawn with the blended meshes, far to near. |
 | `doubleSided` | `true` draws back faces too. Default `false`. |
 | `params` | Typed parameters the snippet reads (below). |
 | `textures` | Textures the snippet samples (below). |
+| `vertexAttributes` | Extra mesh channels `vertex()` reads: `["uv1"]` (glTF `TEXCOORD_1`), `["color1"]` (glTF `COLOR_1`) or both (see "Per-instance params and vertex channels" below). Default none. |
 | `graph` | Optional [node graph](#node-graphs) the snippet is generated from. |
 | `graphHash` | Written by `material.graph.generate`: the hash of the snippet it generated. Do not write it by hand. |
 
@@ -44,8 +45,10 @@ and a `doc` saying what it does and its unit (AIs read these through `material.i
 | `vec2`, `vec3`, `vec4` | `[0.1, 0.2]` (2, 3 or 4 numbers) | `vec2`, `vec3`, `vec4` |
 | `color` | `[1, 0.5, 0, 1]` (always 4 numbers) | `vec4` |
 
-`min` and `max` are optional; they document the range (`material.info` lists them) and are checked against the default. At most **16
-params** (each takes a `vec4` of a 256-byte block), counting the implicit `alphaCutoff`.
+`min` and `max` are optional; they document the range (`material.info` lists them) and are checked against the default.
+`"instanced": true` (optional, default `false`) gives every entity its own value inside one draw call (below). At most **16
+params** (each takes a `vec4` of a 256-byte block), counting the implicit `alphaCutoff`; the instanced params do not count
+for it (they have their own limit, 3 vec4).
 
 **Textures.** Each key `waves` gives you the GLSL names `waves` (the texture) and `waves_smp` (its sampler). Fields:
 `default` (project-relative image used when an entity gives none), `sampler` (`linear` default, `linearRepeat`,
@@ -145,6 +148,50 @@ The normal is not recomputed: `v.world_normal` stays the mesh's own. Displace al
 facing, or recompute it from neighbouring samples when the relief is steep. The four-texture limit counts a texture once
 even when both stages read it. Example 9 below displaces a plane with a height map.
 
+## Per-instance params and vertex channels
+
+**A value per entity in one draw.** Mark a param `"instanced": true` and entities that differ only in that param still
+share one instanced draw call: a thousand grass blades each with their own tint, a crowd with a color each. Both this and
+`vertexAttributes` are for **mesh** materials only: a sprite, sky or compute material with an `instanced` param or a
+`vertexAttributes` is refused (`/params/<name>/instanced`, `/vertexAttributes`) rather than reading 0.
+
+```json
+"params": {
+  "tint":  { "type": "color", "default": [1, 1, 1, 1], "instanced": true, "doc": "Emission color of this entity." },
+  "raise": { "type": "float", "default": 0, "instanced": true, "doc": "Lift of this entity's vertices in meters." }
+}
+```
+
+The snippet reads `tint` and `raise` by their names in both `vertex()` and `surface()` (also in the shadow and depth
+prepass programs, so a vertex lifted by `raise` casts its shadow lifted). An entity sets its value like any param, in
+`materialParams` (`{ "tint": [1, 0, 0, 1] }`); without a key it gets the default. Limits:
+
+- At most **3 vec4 (12 floats)** of instanced params per material. A float, a vec2 or a vec3 shares a vec4 with others
+  (first fit, alphabetical: a vec3 and a float fit in one vec4); a vec4 or color takes a whole one. More is an error on
+  `/params` that lists them; make the least varied ones non-instanced.
+- A param that is **not** instanced still splits batches: entities whose non-instanced values differ are drawn in separate
+  calls, as before. Instanced params are not in the uniform block, so they do not count for the 16-param limit.
+- Textures are not params and are bound per draw: entities with different textures in `materialParams` still split.
+
+**Mesh channels.** `vertex()` can read the mesh's second UV set and second vertex-color set. List them in the material:
+
+```json
+"vertexAttributes": ["uv1", "color1"]
+```
+
+and `vertex()` sees two read-only globals, `vec2 vertex_uv1` and `vec4 vertex_color1`; copy what you need into the
+`VertexData` (`v.uv = vertex_uv1; v.color = vertex_color1;`) so `surface()` receives it as `i.uv` / `i.vertex_color`.
+`surface()` cannot read them directly. The channels exist only in **glTF meshes** that have `TEXCOORD_1` / `COLOR_1`
+(a `COLOR_1` of 3 or 4 components); procedural meshes and the built-in primitives (`cube`, `plane`...) have neither. A mesh part without a declared
+channel is drawn **magenta** (the error material) and the log says, once per material and mesh, which material, mesh,
+part and glTF attribute are missing (for a built-in primitive it says so and suggests a glTF that has the channel): add
+the channel to the model or remove it from `vertexAttributes`. A material that
+declares none gets the attributes it always had.
+
+The renderer's test fixtures `materials/inst.material.json` (per-entity `tint` and `raise`, a per-draw `boost`) and
+`materials/chan.material.json` (`vertex()` copying both channels), in `engine/render/tests/data/materials`, are small
+complete examples.
+
 ## Custom lighting
 
 `"lighting": "custom"` hands the shading of every light to your snippet. The engine still chooses the lights, applies
@@ -216,8 +263,9 @@ type, logs a warning that lists the right names and the default stays. Edit it l
 snippet starts from. `unlit: true` forces the unlit lighting. The material's `alphaMode` wins over `color.a < 1`.
 
 **Cost.** Entities with the same mesh and the same material and no overrides are drawn with one instanced draw call. Every
-**distinct** `materialParams` value is a batch of its own, so 100 gems that each get a different `strength` are 100 draw
-calls; vary the Transform instead, or give a few groups the same value. `play.report` (`factoria run --json`) shows
+**distinct** value of a param that is not `"instanced"` is a batch of its own, so 100 gems that each get a different
+`strength` are 100 draw calls; vary the Transform instead, give a few groups the same value, or mark the param
+`"instanced": true` ("Per-instance params and vertex channels" above), which keeps them one draw call. `play.report` (`factoria run --json`) shows
 `materials` (custom materials drawn) and `materialFallbacks` (materials that failed and are drawn magenta; the error log,
 `game.logs`, says why). A test checks the same with `game.screenshot(path)` (tests draw nothing until asked) and then
 `game.state().renderStats`; `material.info` says in `compile.toolFound` whether this computer can compile materials.
@@ -672,9 +720,17 @@ starts from differ.
 
 **What is built.** The template, the compiler and the tooling: `shader.compile`, `material.info` (programs `quad` and
 `quad_plain`), `factoria validate` and `factoria export` (`<name>.material.json.<dialect>.shader`) work for a sprite
-material. The components' `material` fields are listed by `docs.components`; until the renderer draws with
-the compiled programs (a later package of the same milestone) a 2D item keeps drawing with the engine's own shader, so
-check a sprite material with `shader.compile` and `factoria validate`.
+material. The renderer draws it for a **`Sprite`** (its `material` and `materialParams` fields): the item is drawn with the
+material's compiled programs. `Shape2D`, `Tilemap`, `Text`, particles and UI images still draw with the engine's own shader
+(their `material` fields are listed by `docs.components`; the draw for them is the next package of the same milestone), so
+check a material on those with `shader.compile` and `factoria validate`.
+
+**What the renderer does with a sprite material.** Sprites with the same material and equal param values share a draw call;
+a different value, another material or a sprite without one starts a new batch (the draw order is the same as without
+materials). `fa_time` is the engine clock and `fa_target` the size of the render target, in both programs. A material that
+did not build, or that is not of kind `"sprite"`, draws the sprite in magenta (its alpha stays) with the engine's own shader
+and logs the compile error once; the error log (`game.logs`) says why, `materialFallbacks` in the render stats names it, and the previous version of a
+material stays in use when a hot reload of its shader fails.
 
 **The snippet** is plain GLSL 450 like the mesh one, with these entry points:
 
@@ -797,7 +853,7 @@ a name of the engine's program (`tex`, `smp`, `normal_tex`... are refused).
 You name it in the scene's settings, not on an entity: `SceneSettings.skyMaterial` is the path of a `*.material.json`
 and `SceneSettings.skyMaterialParams` holds its param overrides (the same `{ "name": value }` object as
 `MeshRenderer.materialParams`). The file, the params, the textures, the compiler, the cache, `factoria validate` and
-`factoria export` are the ones described above.
+`factoria export` are the ones on that page.
 
 ```
 scene.set_component {"component": "SceneSettings", "fields": {"skyMaterial": "materials/sky-dusk.material.json"}}
@@ -880,16 +936,24 @@ Put `"skyMaterial": "materials/sky-dusk.material.json"` in the scene's settings 
 settings in the editor) and look with `factoria run --headless --frames 60 --screenshot-at 59` (the camera must be a
 perspective one).
 
+## Compute materials
+
+`"kind": "compute"` makes a program that runs on the GPU over storage buffers and draws nothing (particle simulations, flocking,
+flow fields). You run it with the `compute.*` commands. The snippet contract, the buffers and their std430 layout, the commands
+and where it runs (not Android or the web) are on the page [Compute materials](shaders/SHADERS_COMPUTE.md).
+
 ## Not available yet
 
-- **Full vertex and fragment shaders** (your own `main`, your own vertex layout, several passes): the snippet always
-  runs inside the engine's mesh or quad shader.
+- **Full vertex and fragment shaders** (your own `main`, several passes): the snippet always runs inside the engine's
+  mesh or quad shader. Of a mesh material's vertex layout only `uv1` and `color1` can be added (`vertexAttributes`), and
+  only glTF meshes have them.
 - **Your own light loop** (which lights are chosen, how many, their order, the shadow map): `"custom"` lighting only
   shades each light the engine hands over. Image-based lighting (the sky reflection) is off in a custom material and
   cannot be called from `light()`.
-- Materials for post-processing; compute shaders; a sky material that also drives the ambient and reflection light of the
-  meshes (they follow `skyColor` and `horizonColor`); textures sampled in the `vertex()` of a sprite material (a mesh
-  material can); one instanced draw with a different value per instance.
+- Materials for post-processing; compute storage images and compute on Android and the web; a sky material that also
+  drives the ambient and reflection light of the meshes (they follow `skyColor` and `horizonColor`); textures sampled in
+  the `vertex()` of a sprite material (a mesh material can); per-instance params and vertex channels in a sprite, sky or
+  compute material (mesh only).
 
 If a game needs one of these, write it in the game's `ENGINE_FEEDBACK.json` (see [ENGINE_FEEDBACK.md](ENGINE_FEEDBACK.md)):
 that is how it gets built.

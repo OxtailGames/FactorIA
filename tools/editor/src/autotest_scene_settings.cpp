@@ -24,7 +24,8 @@ const char* const kAtSkyMaterial = R"({
     "strength": { "type": "float", "default": 1.0, "min": 0.0, "max": 2.0, "doc": "How strongly the tint shows." }
   }
 })";
-const char* const kAtSkySnippet = "void sky(in SkyInput i, inout SkySurface s) {\n    s.color = tint.rgb * strength;\n}\n";
+const char* const kAtSkySnippet =
+    "void sky(in SkyInput i, inout SkySurface s) {\n    s.color = tint.rgb * strength;\n}\n";
 
 }  // namespace
 

@@ -664,6 +664,7 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
     register_i18n_commands(engine, I);             // i18n.state, i18n.set_language
     register_ui_check_commands(engine, I);         // ui.check_layout
     register_shot_commands(engine, I);             // game.screenshot, render.inspect, render.pick
+    register_compute_commands(engine, I);          // compute.create_buffer, .write_buffer, .read_buffer, .dispatch, ...
     register_music_commands(engine, I);            // audio.music_state, audio.music
     register_postprocess_commands(engine, I);      // postprocess.get, .set, .presets, .apply_preset
     register_vfx_commands(engine, I);              // vfx.play, vfx.stop, vfx.list; fills Impl::vfxHost

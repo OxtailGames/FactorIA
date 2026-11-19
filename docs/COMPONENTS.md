@@ -3498,6 +3498,110 @@ Writes back the files that were modified or deleted since checkpoint `id` and de
 | `id` | string | yes | A checkpoint id from checkpoint.list. |
 | `paths` | array | no | Restore only these files (project-relative, forward slashes); the rest of the project is not touched. |
 
+## game
+
+### `compute.create_buffer` (modifies state)
+
+Not released yet (on main after 0.31.0).
+
+Makes a GPU storage buffer shaped like one buffer of a compute material; returns its id.
+
+Capabilities: read, state
+
+A zero-filled buffer of `count` elements, each laid out like the element of the material's buffer `buffer` (its "buffers" entry: fields of float, vec2, vec3, vec4, int, uint). `initial` fills the first elements. The buffer lives until compute.destroy_buffer or the end of the game, whatever the scene (it is not part of one). Returns {id, count, stride, bytes}. Example: compute.create_buffer {"material":"materials/boids.material.json","buffer":"boids","count":1000,"initial":[{"pos":[0,0],"vel":[1,0]}]}
+
+Limits: 64 live buffers, 256 MiB each, 1 GiB in all; over one is `invalid_argument` with the number it hit. Errors: `unavailable` on a backend without compute shaders (GLES3, WebGL2, macOS OpenGL 4.1: the message names the backend and what to do; ask render.supports computeShaders first) or without graphics; `invalid_argument` for a material that is not a compute material or does not build, an unknown buffer name (did you mean), and an `initial` value that does not fit a field (the message has its JSON pointer).
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `material` | string | yes | Project-relative path of the compute material, e.g. materials/boids.material.json. |
+| `buffer` | string | yes | Name of one of the material's buffers (its "buffers" entry). |
+| `count` | integer | yes | Number of elements (at most 256 MiB / the element stride). |
+| `initial` | array | no | Optional {field: value} objects for the first elements (a vecN field is an array); fields left out are 0. |
+
+### `compute.destroy_buffer` (modifies state)
+
+Not released yet (on main after 0.31.0).
+
+Frees a compute storage buffer.
+
+Capabilities: read, state
+
+Destroys the GPU buffer; its id is not used again. Returns {destroyed: id}. Example: compute.destroy_buffer {"buffer":1}
+
+Errors: `invalid_argument` for an id that is not alive (compute.list_buffers lists the live ones).
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `buffer` | integer | yes | Buffer id from compute.create_buffer. |
+
+### `compute.dispatch` (modifies state)
+
+Not released yet (on main after 0.31.0).
+
+Runs a compute material once over its storage buffers.
+
+Capabilities: read, state
+
+`groups` counts WORKGROUPS of the material's workgroupSize threads each, not threads: ceil(work / workgroupSize.x) for a one-dimensional job. `buffers` gives a buffer id for every buffer of the material; `params` its param values and texture paths (like MeshRenderer.materialParams; what is left out keeps the material's default). The call returns when the work is recorded; compute.read_buffer waits for it. Returns {dispatched: [x, y, z]}. Example: compute.dispatch {"material":"materials/boids.material.json","buffers":{"boids":1},"params":{"speed":2},"groups":[16,1,1]}
+
+Each dimension of `groups` is 1 to 65535. A buffer must have been made for the same buffer of the same material (same layout), and one buffer cannot be bound twice. Errors: `unavailable` without compute (see compute.create_buffer); `invalid_argument` for a missing or unknown buffer or param (did you mean), a value of the wrong type, or groups out of range.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `material` | string | yes | Project-relative path of the compute material. |
+| `buffers` | object | yes | The material's buffer name -> buffer id from compute.create_buffer; every buffer of the material. |
+| `params` | object | no | {param: number or array} and {texture: path}; left out keeps the material's default. |
+| `groups` | array | no | Workgroups in x, y, z; a missing dimension is 1. Default [1,1,1]. |
+
+### `compute.list_buffers`
+
+Not released yet (on main after 0.31.0).
+
+Lists the live compute storage buffers and whether this backend runs compute.
+
+Capabilities: read
+
+Returns {available, status, buffers: [{id, material, buffer, count, stride, bytes}]}. `available` is the answer of render.supports computeShaders; when it is false `status` says which backend cannot and what to do, and `buffers` is empty. Example: compute.list_buffers {}
+
+Without graphics (graphics=false) `available` is false too.
+
+### `compute.read_buffer`
+
+Not released yet (on main after 0.31.0).
+
+Reads elements of a compute storage buffer back to the game (waits for the GPU).
+
+Capabilities: read
+
+Submits the recorded GPU work, waits for it and returns `count` elements from `first` as an array of {field: value} objects: a vecN field is an array, floats have 7 significant digits, a NaN or infinity is null. A read back stalls the frame: do it for a result you need, not every frame. Example: compute.read_buffer {"buffer":1,"first":0,"count":10}
+
+At most 1048576 elements in one call (read a large buffer in parts). Errors: `unavailable` without compute (see compute.create_buffer); `invalid_argument` for an unknown buffer id or a range outside the buffer.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `buffer` | integer | yes | Buffer id from compute.create_buffer. |
+| `first` | integer | no | Index of the first element to read. Default 0. |
+| `count` | integer | no | Number of elements to read. Default: from `first` to the end (at most 1048576). |
+
+### `compute.write_buffer` (modifies state)
+
+Not released yet (on main after 0.31.0).
+
+Overwrites elements of a compute storage buffer with values from the game.
+
+Capabilities: read, state
+
+Writes `elements` ({field: value} objects) from element `first` on; a field left out is written as 0, the other elements stay as the GPU left them. Returns {written}. Example: compute.write_buffer {"buffer":1,"first":0,"elements":[{"pos":[0,0],"vel":[1,0]}]}
+
+At most 1048576 elements in one call. Errors: `unavailable` without compute (see compute.create_buffer); `invalid_argument` for an unknown buffer id (compute.list_buffers), a range outside the buffer, or a value that does not fit its field (the message has its JSON pointer).
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `buffer` | integer | yes | Buffer id from compute.create_buffer. |
+| `first` | integer | no | Index of the first element to overwrite. Default 0. |
+| `elements` | array | yes | {field: value} objects, one per element. |
+
 ## docs
 
 ### `docs.commands`
@@ -5484,7 +5588,9 @@ Describe a custom material: lighting, alpha mode, params with types, defaults, r
 
 Capabilities: read
 
-Reads a *.material.json (schemas/material.schema.json) and returns {material, doc, kind, shader, lighting, alphaMode, doubleSided, params: [{name, type, default, min?, max?, doc, implicit?}], textures: [{name, default, sampler, doc}], programs, compile: {state, dialect, toolFound, hint?}}. `kind` is "mesh" (default), "sprite", "sky", "post" or "compute"; the last two report programs [] and compile.state "unsupported" with the package that brings them in compile.hint. params are listed in the order of the uniform block (alphabetical); `implicit` marks alphaCutoff, which alphaMode "clip" adds by itself. `lighting` is "pbr", "unlit" or "custom" (the snippet defines light(), the engine's light loop calls it once per light). `programs` are the shader programs the material makes: mesh, mesh_skin, prepass and prepass_skin, plus shadow and shadow_skin when the snippet defines vertex() or the alpha mode is clip; a sprite material makes quad and quad_plain, a sky material one program, sky. compile.state is "compiled" when the cache holds this exact material for this machine's dialect, else "not_compiled" (run shader.compile); nothing is compiled by this command. A material file with errors returns them (JSON pointer, message, fix). Example: {"material": "materials/water.material.json"}
+Reads a *.material.json (schemas/material.schema.json) and returns {material, doc, kind, shader, lighting, alphaMode, doubleSided, params: [{name, type, default, min?, max?, doc, implicit?, instanced?}], textures: [{name, default, sampler, doc}], vertexAttributes?, programs, compile: {state, dialect, toolFound, hint?}}. `kind` is "mesh" (default), "sprite", "sky", "post" or "compute"; post reports programs [] and compile.state "unsupported" with the package that brings it in compile.hint. params are listed in the order of the uniform block (alphabetical); `implicit` marks alphaCutoff, which alphaMode "clip" adds by itself. compile.state is "compiled" when the cache holds this exact material for this machine's dialect, else "not_compiled" (run shader.compile); nothing is compiled by this command. A material file with errors returns them (JSON pointer, message, fix). Example: {"material": "materials/water.material.json"}
+
+`lighting` is "pbr", "unlit" or "custom" (the snippet defines light(), the engine's light loop calls it once per light). `programs` are the shader programs the material makes: mesh, mesh_skin, prepass and prepass_skin, plus shadow and shadow_skin when the snippet defines vertex() or the alpha mode is clip; a sprite material makes quad and quad_plain, a sky material one program, sky. A compute material also returns workgroupSize [x, y, z] and buffers [{name, binding, access, stride, doc, fields: [{name, type, offset, doc}]}] (std430 layout); `runsOn` and `notOn` list the platforms the kind has shaders for (compute: not android or web). `instanced` marks a mesh param whose value every entity gives itself inside ONE instanced draw (it travels in the instance buffer instead of the uniform block); `vertexAttributes` lists the extra mesh channels (uv1, color1) vertex() reads as vertex_uv1 and vertex_color1 (docs/SHADERS.md, "The material file").
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -8076,9 +8182,9 @@ Compile a custom material's GLSL snippet for the dialects of some platforms and 
 
 Capabilities: read, process
 
-Checks the material file (*.material.json, schemas/material.schema.json) and compiles its snippet with sokol-shdc, injected into the engine's mesh, 2D (sprite) or sky shader, for every shader dialect of the platforms asked (default: all six: hlsl5 for Windows, glsl430 for Linux, metal_macos, metal_ios and metal_sim for macOS and iOS, glsl300es for Android and web). Some errors exist in one dialect only (a gradient inside a loop is fine in GLSL and refused by HLSL), so compile for the platforms you ship. Returns {ok, material, dialects, errors: [{file, line, column, message, hint, source}], cached, kind}: `kind` is "mesh" (default), "sprite" or "sky"; the other kinds are refused at /kind. A snippet error is mapped to the line of your snippet, with the offending line in `source` and a fix in `hint` (an unknown field of Surface gets "did you mean albedo?", texture(waves, uv) gets the separate-sampler form); a mistake in the material file has a JSON `pointer` instead of a line. Fix the file and call again until ok, then look at the result with game.screenshot. Results are cached in .factoria/shader-cache by content, so an unchanged material compiles instantly.
+Checks the material file (*.material.json, schemas/material.schema.json) and compiles its snippet with sokol-shdc, injected into the engine's mesh, 2D (sprite) or sky shader, for every shader dialect of the platforms asked (default: all six: hlsl5 for Windows, glsl430 for Linux, metal_macos, metal_ios and metal_sim for macOS and iOS, glsl300es for Android and web). Some errors exist in one dialect only (a gradient inside a loop is fine in GLSL and refused by HLSL), so compile for the platforms you ship. Returns {ok, material, dialects, errors: [{file, line, column, message, hint, source}], cached, kind, runsOn, notOn, skippedDialects}: `kind` is "mesh" (default), "sprite", "sky" or "compute"; the other kinds are refused at /kind. A snippet error is mapped to the line of your snippet, with the offending line in `source` and a fix in `hint` (an unknown field of Surface gets "did you mean albedo?", texture(waves, uv) gets the separate-sampler form); a mistake in the material file has a JSON `pointer` instead of a line. Fix the file and call again until ok, then look at the result with game.screenshot. Results are cached in .factoria/shader-cache by content, so an unchanged material compiles instantly.
 
-Needs sokol-shdc: the factoria downloads carry it next to factoria; otherwise `factoria setup shaders` installs it, or set SOKOL_SHDC.The snippet is GLSL 450 (Vulkan style) with no @ tags and no main: for a mesh material `void surface(in SurfaceInput i, inout Surface s)` is required and `void vertex(inout VertexData v)` optional; for a "sprite" material `void fragment(in QuadInput i, inout QuadSurface s)` is required and `void vertex(inout QuadVertex v)` optional; for a "sky" material `void sky(in SkyInput i, inout SkySurface s)` is required (no vertex()). Params are globals named like the JSON keys; textures are sampled with texture(sampler2D(name, name_smp), uv); names starting with fa_ are the engine's. Example: {"material": "materials/water.material.json", "platforms": ["windows", "web"]}
+A compute material (a snippet defining void compute(in ComputeInput i) over storage buffers, run by compute.dispatch) has no shader for android and web (GLES3 and WebGL2 have no compute shaders): `runsOn` and `notOn` list the platforms the kind has shaders for, asking for those platforms compiles nothing and lists glsl300es in `skippedDialects`. Needs sokol-shdc: the factoria downloads carry it next to factoria; otherwise `factoria setup shaders` installs it, or set SOKOL_SHDC.The snippet is GLSL 450 (Vulkan style) with no @ tags and no main: for a mesh material `void surface(in SurfaceInput i, inout Surface s)` is required and `void vertex(inout VertexData v)` optional; for a "sprite" material `void fragment(in QuadInput i, inout QuadSurface s)` is required and `void vertex(inout QuadVertex v)` optional; for a "sky" material `void sky(in SkyInput i, inout SkySurface s)` is required (no vertex()). Params are globals named like the JSON keys; textures are sampled with texture(sampler2D(name, name_smp), uv); names starting with fa_ are the engine's. Example: {"material": "materials/water.material.json", "platforms": ["windows", "web"]}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|

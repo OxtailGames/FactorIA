@@ -278,6 +278,9 @@ void register_i18n_commands(Engine& engine, Engine::Impl& impl);      // localiz
 void register_ui_check_commands(Engine& engine, Engine::Impl& impl);  // ui_check.cpp: ui.check_layout
 void register_shot_commands(Engine& engine,
                             Engine::Impl& impl);  // shot_commands.cpp: game.screenshot, render.inspect, render.pick
+void register_compute_commands(
+    Engine& engine,
+    Engine::Impl& impl);  // compute_commands.cpp: compute.create_buffer, .write_buffer, .dispatch
 void register_music_commands(Engine& engine, Engine::Impl& impl);  // music_commands.cpp: audio.music_state, audio.music
 void register_postprocess_commands(
     Engine& engine,

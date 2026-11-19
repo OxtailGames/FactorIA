@@ -188,7 +188,7 @@ Read [CLAUDE.md](CLAUDE.md) and [docs/design/ARCHITECTURE.md](docs/design/ARCHIT
 - [docs/design/BUILDING.md](docs/design/BUILDING.md): platform requirements, presets, CI, tests, releases and troubleshooting (split into pages: the file lists them).
 - [docs/EXTENDING.md](docs/EXTENDING.md): adding commands, components and systems (sections B to F, in docs/design/EXTENDING_*.md; A and G are for games).
 - [docs/ENGINE_FEEDBACK.md](docs/ENGINE_FEEDBACK.md): "Collecting" and "Triage loop" are for engine developers.
-- [docs/design/CUSTOM_SHADERS.md](docs/design/CUSTOM_SHADERS.md): design of custom shaders per material.
+- [docs/design/CUSTOM_SHADERS.md](docs/design/CUSTOM_SHADERS.md) and [docs/design/CUSTOM_SHADERS_KINDS.md](docs/design/CUSTOM_SHADERS_KINDS.md): design of custom shaders per material, and of its sprite and sky kinds.
 - [docs/design/FEEDBACK_SHARING.md](docs/design/FEEDBACK_SHARING.md): design of sharing feedback with the engine developer.
 - [docs/design/SCRIPT_DEBUGGER.md](docs/design/SCRIPT_DEBUGGER.md): design of the script debugger and its VS Code extension.
 - [feedback/ROADMAP.md](feedback/ROADMAP.md) (open gaps and next milestones) and [CHANGELOG.md](CHANGELOG.md).
