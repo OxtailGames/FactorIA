@@ -96,6 +96,46 @@ bool readback_rgba16f(sg_image image, int width, int height, std::vector<float>&
     return true;
 }
 
+bool readback_buffer(sg_buffer buffer, std::size_t offset, std::size_t bytes, std::vector<std::uint8_t>& out,
+                     std::string* error) {
+    auto* device = static_cast<ID3D11Device*>(const_cast<void*>(sg_d3d11_device()));
+    auto* ctx = static_cast<ID3D11DeviceContext*>(const_cast<void*>(sg_d3d11_device_context()));
+    auto* src = static_cast<ID3D11Buffer*>(const_cast<void*>(sg_d3d11_query_buffer_info(buffer).buf));
+    if (!device || !ctx || !src) {
+        if (error) *error = "readback: no D3D11 buffer for the storage buffer";
+        return false;
+    }
+    D3D11_BUFFER_DESC sd{};
+    src->GetDesc(&sd);
+    if (bytes > 0xFFFFFFFFu || offset > sd.ByteWidth || bytes > sd.ByteWidth - offset) {
+        if (error) *error = "readback: the range is outside the storage buffer";
+        return false;
+    }
+    out.resize(bytes);
+    if (bytes == 0) return true;
+    D3D11_BUFFER_DESC desc{};
+    desc.ByteWidth = UINT(bytes);
+    desc.Usage = D3D11_USAGE_STAGING;
+    desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+    ID3D11Buffer* staging = nullptr;
+    if (FAILED(device->CreateBuffer(&desc, nullptr, &staging))) {
+        if (error) *error = "readback: could not create the D3D11 staging buffer";
+        return false;
+    }
+    const D3D11_BOX box{UINT(offset), 0, 0, UINT(offset + bytes), 1, 1};
+    ctx->CopySubresourceRegion(staging, 0, 0, 0, 0, src, 0, &box);
+    D3D11_MAPPED_SUBRESOURCE map{};
+    if (FAILED(ctx->Map(staging, 0, D3D11_MAP_READ, 0, &map))) {
+        staging->Release();
+        if (error) *error = "readback: ID3D11DeviceContext::Map failed";
+        return false;
+    }
+    std::memcpy(out.data(), map.pData, bytes);
+    ctx->Unmap(staging, 0);
+    staging->Release();
+    return true;
+}
+
 }  // namespace fa::render
 
 #endif

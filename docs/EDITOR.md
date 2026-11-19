@@ -15,7 +15,7 @@ The reference is split by topic (every heading keeps its name, so `docs.read edi
 - [The AI Assistant and feedback](editor/EDITOR_ASSISTANT.md): The AI Assistant panel and the Sharing feedback window.
 - [Updates, export, setup and platform settings](editor/EDITOR_SETUP.md): Updates, exporting, Play on Phone, setting up the computer, platform settings, the program icon and scene files rebuilt on disk.
 - [Profiler, level generator, review and play sessions](editor/EDITOR_REVIEW.md): The audio and profiler views, the level generator, the review window and play sessions.
-- [Project, image, vector, sound and music panels](editor/EDITOR_PANELS.md): The asset panels: project, image, vector, sound and music.
+- [Project, image, vector, sound, music and graph panels](editor/EDITOR_PANELS.md): The asset panels: project, image, vector, sound, music and the material graph.
 - [Model, particles, animation and bone tools](editor/EDITOR_ANIMATION.md): The model, particles and animation panels and the bone tools.
 - [Testing the editor](editor/EDITOR_TESTING.md): The editor autotest: sections, environment variables and how to add a check.
 
@@ -120,6 +120,7 @@ Profiler stay closed). Two editors open at once share the file: the last one to 
 | Level generator | (View > Level generator, a window) makes a level from a sample you drew, tries other seeds and keeps one ([Level generator](editor/EDITOR_REVIEW.md#level-generator)). |
 | Animation | (View > Animation, a tab next to Console) the clips of the selected entity's Animator as a dopesheet or curves, with record mode ([Animation panel](editor/EDITOR_ANIMATION.md#animation-panel)). |
 | Bone tools | (View > Bone tools, a tab next to Inspector) draw a bone chain, bind a sprite, paint weights, drag IK targets ([Bone tools](editor/EDITOR_ANIMATION.md#bone-tools)). |
+| Graph | (View > Graph, a window) the node graph of a material: nodes and links on a canvas, a searchable palette, a live lit preview, the problems list, Save runs `material.graph.generate` ([Graph panel](editor/EDITOR_PANELS.md#graph-panel)). |
 
 Play snapshots the scene and runs the game; Stop restores the snapshot, so edits made while playing are temporary. For that
 reason the AI works in edit mode only: while the game runs (Play or Pause) its Run button is disabled ("game running: Stop it

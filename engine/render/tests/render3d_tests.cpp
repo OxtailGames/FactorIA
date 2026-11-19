@@ -1155,13 +1155,14 @@ TEST_CASE("materials: a twin of another kind than its material is refused with t
     }
     {  // a material of a kind that cannot be drawn yet
         ErrorLog log;
-        const Image img = draw(
-            "kindsprite",
-            R"({"format": "factoria.material/1", "kind": "sprite", "shader": "shaders/empty.surface.glsl"})", *twin);
+        const Image img =
+            draw("kindsky",
+                 R"({"format": "factoria.material/1", "kind": "sky", "shader": "shaders/empty.surface.glsl"})", *twin);
         CHECK(img.pixel(160, 90).g < 0.1f);
         REQUIRE(log.messages().size() == 1);
-        CHECK(log.messages()[0].find("kind \"sprite\"") != std::string::npos);
+        CHECK(log.messages()[0].find("kind \"sky\"") != std::string::npos);
         CHECK(log.messages()[0].find("cannot draw yet") != std::string::npos);
+        CHECK(log.messages()[0].find("sky materials arrive with M72.1") != std::string::npos);
     }
     {  // a kind that does not exist
         ErrorLog log;
@@ -1179,7 +1180,8 @@ TEST_CASE("materials: the template hash is per kind and the mesh one is unchange
     CHECK(material_template_hash(MaterialKind::Sprite).size() == 64);
     CHECK(material_template_hash(MaterialKind::Sprite) != mesh_template_hash());
     CHECK(material_template_hash(MaterialKind::Sky) != material_template_hash(MaterialKind::Post));
-    CHECK(material_template_hash(MaterialKind::Compute).empty());
+    CHECK(material_template_hash(MaterialKind::Compute).size() == 64);  // compute_common.glsl (M72.4)
+    CHECK(material_template_hash(MaterialKind::Compute) != mesh_template_hash());
     CHECK(material_kind_names().size() == 5);
     CHECK(std::string(material_kind_name(MaterialKind::Post)) == "post");
     CHECK(material_kind_from_name("sky") == MaterialKind::Sky);

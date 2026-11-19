@@ -23,13 +23,15 @@ TEST_CASE("real sokol-shdc: the committed twins of the renderer's fixture materi
 
     const std::vector<std::string> dialects = {"hlsl5", "glsl430", "metal_macos"};
     for (const char* name :
-         {"empty", "glow", "time", "lift", "cutout", "vcut", "toon", "dark", "ambient", "bump", "inst", "chan"}) {
+         {"empty", "glow", "time", "lift", "cutout", "vcut", "toon", "dark", "ambient", "bump", "inst", "chan",
+          "sprite_empty", "sprite_tint", "sprite_cut", "sprite_time", "sprite_mask"}) {
         const std::string material = std::string("materials/") + name + ".material.json";
         ShaderCompileOptions options;
         options.setup = context;
         options.dialects = dialects;
         options.useCache = false;
         auto r = compile_material(root.string(), material, options);
+        INFO((r.ok() ? std::string() : r.error().message));
         REQUIRE(r.ok());
         const std::string why = r->errors.empty() ? std::string() : r->errors[0].to_string();
         INFO(why);

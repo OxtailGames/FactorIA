@@ -1,0 +1,643 @@
+shaders:
+  -
+    slang: glsl430
+    programs:
+      -
+        name: quad
+        vertex_func:
+          path: out/m_fa_mat_quad_glsl430_vertex.glsl
+          is_binary: false
+          entry_point: main
+        fragment_func:
+          path: out/m_fa_mat_quad_glsl430_fragment.glsl
+          is_binary: false
+          entry_point: main
+        attrs:
+          -
+            slot: 0
+            type: vec3
+            base_type: Float
+            glsl_name: position
+          -
+            slot: 1
+            type: vec2
+            base_type: Float
+            glsl_name: texcoord0
+          -
+            slot: 2
+            type: vec4
+            base_type: Float
+            glsl_name: color0
+          -
+            slot: 3
+            type: vec2
+            base_type: Float
+            glsl_name: params0
+          -
+            slot: 4
+            type: vec4
+            base_type: Float
+            glsl_name: color2_0
+          -
+            slot: 5
+            type: vec2
+            base_type: Float
+            glsl_name: shape_half0
+          -
+            slot: 6
+            type: vec2
+            base_type: Float
+            glsl_name: shape_rs0
+        uniform_blocks:
+          -
+            slot: 0
+            stage: vertex
+            size: 96
+            struct_name: vs_params
+            inst_name: _68
+            glsl_uniforms:
+              -
+                type: vec4
+                array_count: 6
+                offset: 0
+                glsl_name: vs_params
+          -
+            slot: 1
+            stage: fragment
+            size: 944
+            struct_name: quad_fs_params
+            inst_name: _306
+            glsl_uniforms:
+              -
+                type: vec4
+                array_count: 59
+                offset: 0
+                glsl_name: quad_fs_params
+          -
+            slot: 5
+            stage: fragment
+            size: 32
+            struct_name: fa_material
+            inst_name: _373
+            glsl_uniforms:
+              -
+                type: vec4
+                array_count: 2
+                offset: 0
+                glsl_name: fa_material
+        views:
+          -
+            texture:
+              slot: 0
+              stage: fragment
+              name: tex
+              multisampled: false
+              type: 2d
+              sample_type: float
+          -
+            texture:
+              slot: 1
+              stage: fragment
+              name: normal_tex
+              multisampled: false
+              type: 2d
+              sample_type: float
+          -
+            texture:
+              slot: 2
+              stage: fragment
+              name: light_tex
+              multisampled: false
+              type: 2d
+              sample_type: float
+          -
+            texture:
+              slot: 3
+              stage: fragment
+              name: shadow_tex
+              multisampled: false
+              type: 2d
+              sample_type: float
+          -
+            texture:
+              slot: 4
+              stage: fragment
+              name: mask
+              multisampled: false
+              type: 2d
+              sample_type: float
+        samplers:
+          -
+            slot: 2
+            stage: fragment
+            name: shadow_smp
+            sampler_type: filtering
+          -
+            slot: 0
+            stage: fragment
+            name: smp
+            sampler_type: filtering
+          -
+            slot: 3
+            stage: fragment
+            name: mask_smp
+            sampler_type: filtering
+          -
+            slot: 1
+            stage: fragment
+            name: light_smp
+            sampler_type: filtering
+        texture_sampler_pairs:
+          -
+            slot: 0
+            stage: fragment
+            name: tex_smp
+            view_name: tex
+            sampler_name: smp
+            view_slot: 0
+            sampler_slot: 0
+            glsl_name: tex_smp
+          -
+            slot: 1
+            stage: fragment
+            name: normal_tex_smp
+            view_name: normal_tex
+            sampler_name: smp
+            view_slot: 1
+            sampler_slot: 0
+            glsl_name: normal_tex_smp
+          -
+            slot: 2
+            stage: fragment
+            name: light_tex_light_smp
+            view_name: light_tex
+            sampler_name: light_smp
+            view_slot: 2
+            sampler_slot: 1
+            glsl_name: light_tex_light_smp
+          -
+            slot: 3
+            stage: fragment
+            name: shadow_tex_shadow_smp
+            view_name: shadow_tex
+            sampler_name: shadow_smp
+            view_slot: 3
+            sampler_slot: 2
+            glsl_name: shadow_tex_shadow_smp
+          -
+            slot: 4
+            stage: fragment
+            name: mask_mask_smp
+            view_name: mask
+            sampler_name: mask_smp
+            view_slot: 4
+            sampler_slot: 3
+            glsl_name: mask_mask_smp
+      -
+        name: quad_plain
+        vertex_func:
+          path: out/m_fa_mat_quad_plain_glsl430_vertex.glsl
+          is_binary: false
+          entry_point: main
+        fragment_func:
+          path: out/m_fa_mat_quad_plain_glsl430_fragment.glsl
+          is_binary: false
+          entry_point: main
+        attrs:
+          -
+            slot: 0
+            type: vec3
+            base_type: Float
+            glsl_name: position
+          -
+            slot: 1
+            type: vec2
+            base_type: Float
+            glsl_name: texcoord0
+          -
+            slot: 2
+            type: vec4
+            base_type: Float
+            glsl_name: color0
+          -
+            slot: 3
+            type: vec2
+            base_type: Float
+            glsl_name: params0
+          -
+            slot: 4
+            type: vec4
+            base_type: Float
+            glsl_name: color2_0
+          -
+            slot: 5
+            type: vec2
+            base_type: Float
+            glsl_name: shape_half0
+          -
+            slot: 6
+            type: vec2
+            base_type: Float
+            glsl_name: shape_rs0
+        uniform_blocks:
+          -
+            slot: 0
+            stage: vertex
+            size: 96
+            struct_name: vs_params
+            inst_name: _68
+            glsl_uniforms:
+              -
+                type: vec4
+                array_count: 6
+                offset: 0
+                glsl_name: vs_params
+          -
+            slot: 1
+            stage: fragment
+            size: 944
+            struct_name: quad_fs_params
+            inst_name: _125
+            glsl_uniforms:
+              -
+                type: vec4
+                array_count: 59
+                offset: 0
+                glsl_name: quad_fs_params
+          -
+            slot: 5
+            stage: fragment
+            size: 32
+            struct_name: fa_material
+            inst_name: _201
+            glsl_uniforms:
+              -
+                type: vec4
+                array_count: 2
+                offset: 0
+                glsl_name: fa_material
+        views:
+          -
+            texture:
+              slot: 0
+              stage: fragment
+              name: tex
+              multisampled: false
+              type: 2d
+              sample_type: float
+          -
+            texture:
+              slot: 4
+              stage: fragment
+              name: mask
+              multisampled: false
+              type: 2d
+              sample_type: float
+        samplers:
+          -
+            slot: 3
+            stage: fragment
+            name: mask_smp
+            sampler_type: filtering
+          -
+            slot: 0
+            stage: fragment
+            name: smp
+            sampler_type: filtering
+        texture_sampler_pairs:
+          -
+            slot: 0
+            stage: fragment
+            name: tex_smp
+            view_name: tex
+            sampler_name: smp
+            view_slot: 0
+            sampler_slot: 0
+            glsl_name: tex_smp
+          -
+            slot: 1
+            stage: fragment
+            name: mask_mask_smp
+            view_name: mask
+            sampler_name: mask_smp
+            view_slot: 4
+            sampler_slot: 3
+            glsl_name: mask_mask_smp
+  -
+    slang: hlsl5
+    programs:
+      -
+        name: quad
+        vertex_func:
+          path: out/m_fa_mat_quad_hlsl5_vertex.hlsl
+          is_binary: false
+          entry_point: main
+          d3d11_target: vs_5_0
+        fragment_func:
+          path: out/m_fa_mat_quad_hlsl5_fragment.hlsl
+          is_binary: false
+          entry_point: main
+          d3d11_target: ps_5_0
+        attrs:
+          -
+            slot: 0
+            type: vec3
+            base_type: Float
+            hlsl_sem_name: TEXCOORD
+            hlsl_sem_index: 0
+          -
+            slot: 1
+            type: vec2
+            base_type: Float
+            hlsl_sem_name: TEXCOORD
+            hlsl_sem_index: 1
+          -
+            slot: 2
+            type: vec4
+            base_type: Float
+            hlsl_sem_name: TEXCOORD
+            hlsl_sem_index: 2
+          -
+            slot: 3
+            type: vec2
+            base_type: Float
+            hlsl_sem_name: TEXCOORD
+            hlsl_sem_index: 3
+          -
+            slot: 4
+            type: vec4
+            base_type: Float
+            hlsl_sem_name: TEXCOORD
+            hlsl_sem_index: 4
+          -
+            slot: 5
+            type: vec2
+            base_type: Float
+            hlsl_sem_name: TEXCOORD
+            hlsl_sem_index: 5
+          -
+            slot: 6
+            type: vec2
+            base_type: Float
+            hlsl_sem_name: TEXCOORD
+            hlsl_sem_index: 6
+        uniform_blocks:
+          -
+            slot: 0
+            stage: vertex
+            size: 96
+            struct_name: vs_params
+            inst_name: _68
+            hlsl_register_b_n: 0
+          -
+            slot: 1
+            stage: fragment
+            size: 944
+            struct_name: quad_fs_params
+            inst_name: _306
+            hlsl_register_b_n: 1
+          -
+            slot: 5
+            stage: fragment
+            size: 32
+            struct_name: fa_material
+            inst_name: _373
+            hlsl_register_b_n: 5
+        views:
+          -
+            texture:
+              slot: 0
+              stage: fragment
+              name: tex
+              multisampled: false
+              type: 2d
+              sample_type: float
+              hlsl_register_t_n: 0
+          -
+            texture:
+              slot: 1
+              stage: fragment
+              name: normal_tex
+              multisampled: false
+              type: 2d
+              sample_type: float
+              hlsl_register_t_n: 1
+          -
+            texture:
+              slot: 2
+              stage: fragment
+              name: light_tex
+              multisampled: false
+              type: 2d
+              sample_type: float
+              hlsl_register_t_n: 2
+          -
+            texture:
+              slot: 3
+              stage: fragment
+              name: shadow_tex
+              multisampled: false
+              type: 2d
+              sample_type: float
+              hlsl_register_t_n: 3
+          -
+            texture:
+              slot: 4
+              stage: fragment
+              name: mask
+              multisampled: false
+              type: 2d
+              sample_type: float
+              hlsl_register_t_n: 4
+        samplers:
+          -
+            slot: 2
+            stage: fragment
+            name: shadow_smp
+            sampler_type: filtering
+            hlsl_register_s_n: 2
+          -
+            slot: 0
+            stage: fragment
+            name: smp
+            sampler_type: filtering
+            hlsl_register_s_n: 0
+          -
+            slot: 3
+            stage: fragment
+            name: mask_smp
+            sampler_type: filtering
+            hlsl_register_s_n: 3
+          -
+            slot: 1
+            stage: fragment
+            name: light_smp
+            sampler_type: filtering
+            hlsl_register_s_n: 1
+        texture_sampler_pairs:
+          -
+            slot: 0
+            stage: fragment
+            name: tex_smp
+            view_name: tex
+            sampler_name: smp
+            view_slot: 0
+            sampler_slot: 0
+          -
+            slot: 1
+            stage: fragment
+            name: normal_tex_smp
+            view_name: normal_tex
+            sampler_name: smp
+            view_slot: 1
+            sampler_slot: 0
+          -
+            slot: 2
+            stage: fragment
+            name: light_tex_light_smp
+            view_name: light_tex
+            sampler_name: light_smp
+            view_slot: 2
+            sampler_slot: 1
+          -
+            slot: 3
+            stage: fragment
+            name: shadow_tex_shadow_smp
+            view_name: shadow_tex
+            sampler_name: shadow_smp
+            view_slot: 3
+            sampler_slot: 2
+          -
+            slot: 4
+            stage: fragment
+            name: mask_mask_smp
+            view_name: mask
+            sampler_name: mask_smp
+            view_slot: 4
+            sampler_slot: 3
+      -
+        name: quad_plain
+        vertex_func:
+          path: out/m_fa_mat_quad_plain_hlsl5_vertex.hlsl
+          is_binary: false
+          entry_point: main
+          d3d11_target: vs_5_0
+        fragment_func:
+          path: out/m_fa_mat_quad_plain_hlsl5_fragment.hlsl
+          is_binary: false
+          entry_point: main
+          d3d11_target: ps_5_0
+        attrs:
+          -
+            slot: 0
+            type: vec3
+            base_type: Float
+            hlsl_sem_name: TEXCOORD
+            hlsl_sem_index: 0
+          -
+            slot: 1
+            type: vec2
+            base_type: Float
+            hlsl_sem_name: TEXCOORD
+            hlsl_sem_index: 1
+          -
+            slot: 2
+            type: vec4
+            base_type: Float
+            hlsl_sem_name: TEXCOORD
+            hlsl_sem_index: 2
+          -
+            slot: 3
+            type: vec2
+            base_type: Float
+            hlsl_sem_name: TEXCOORD
+            hlsl_sem_index: 3
+          -
+            slot: 4
+            type: vec4
+            base_type: Float
+            hlsl_sem_name: TEXCOORD
+            hlsl_sem_index: 4
+          -
+            slot: 5
+            type: vec2
+            base_type: Float
+            hlsl_sem_name: TEXCOORD
+            hlsl_sem_index: 5
+          -
+            slot: 6
+            type: vec2
+            base_type: Float
+            hlsl_sem_name: TEXCOORD
+            hlsl_sem_index: 6
+        uniform_blocks:
+          -
+            slot: 0
+            stage: vertex
+            size: 96
+            struct_name: vs_params
+            inst_name: _68
+            hlsl_register_b_n: 0
+          -
+            slot: 1
+            stage: fragment
+            size: 944
+            struct_name: quad_fs_params
+            inst_name: _125
+            hlsl_register_b_n: 1
+          -
+            slot: 5
+            stage: fragment
+            size: 32
+            struct_name: fa_material
+            inst_name: _201
+            hlsl_register_b_n: 5
+        views:
+          -
+            texture:
+              slot: 0
+              stage: fragment
+              name: tex
+              multisampled: false
+              type: 2d
+              sample_type: float
+              hlsl_register_t_n: 0
+          -
+            texture:
+              slot: 4
+              stage: fragment
+              name: mask
+              multisampled: false
+              type: 2d
+              sample_type: float
+              hlsl_register_t_n: 1
+        samplers:
+          -
+            slot: 3
+            stage: fragment
+            name: mask_smp
+            sampler_type: filtering
+            hlsl_register_s_n: 3
+          -
+            slot: 0
+            stage: fragment
+            name: smp
+            sampler_type: filtering
+            hlsl_register_s_n: 0
+        texture_sampler_pairs:
+          -
+            slot: 0
+            stage: fragment
+            name: tex_smp
+            view_name: tex
+            sampler_name: smp
+            view_slot: 0
+            sampler_slot: 0
+          -
+            slot: 1
+            stage: fragment
+            name: mask_mask_smp
+            view_name: mask
+            sampler_name: mask_smp
+            view_slot: 4
+            sampler_slot: 3

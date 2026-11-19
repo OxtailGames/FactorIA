@@ -1,6 +1,7 @@
 // "material.graph.nodes", "material.graph.validate" and "material.graph.generate" (fa/tooling/material_graph.h).
 #include <algorithm>
 #include <filesystem>
+#include <optional>
 
 #include "assets_internal.h"
 #include "fa/core/strings.h"
@@ -49,9 +50,12 @@ struct LoadedMaterial {
     Json doc;
     MaterialDef def;
     std::string kind = "mesh";
+    Json fileGraph;  // the "graph" of the file as it was read (null: none), before an override
 };
 
-LoadedMaterial load_material(const std::string& projectDir, const Json& args, bool needGraph) {
+// `graphOverride`: a graph to use instead of the file's (material.graph.generate with `graph`: the editor saves through it).
+LoadedMaterial load_material(const std::string& projectDir, const Json& args, bool needGraph,
+                             const Json* graphOverride = nullptr) {
     LoadedMaterial m;
     m.path = resolve_material(projectDir, tooling_detail::arg_string(args, "material", true));
     auto text = tooling_detail::read_file(stdfs::path(projectDir) / m.path);
@@ -59,6 +63,8 @@ LoadedMaterial load_material(const std::string& projectDir, const Json& args, bo
     auto parsed = parse_json(*text, m.path);
     if (!parsed.ok()) throw CommandError("invalid_material", parsed.error().message, "Fix the JSON syntax.");
     m.doc = parsed.value();
+    if (auto g = m.doc.find("graph"); g != m.doc.end()) m.fileGraph = *g;
+    if (graphOverride) m.doc["graph"] = *graphOverride;
     MaterialParse mp = parse_material(m.doc, projectDir, m.path);
     if (!mp.ok())
         throw CommandError(
@@ -83,16 +89,16 @@ struct SnippetState {
     std::optional<std::string> existing;  // the file's text, CRs removed; nullopt = no file
 };
 
-SnippetState snippet_state(const std::string& projectDir, const LoadedMaterial& m, const GeneratedGraph& g) {
+SnippetState snippet_state(const std::string& projectDir, const MaterialDef& def, const std::string& hash) {
     SnippetState s;
-    if (auto raw = tooling_detail::read_file(stdfs::path(projectDir) / m.def.shader))
+    if (auto raw = tooling_detail::read_file(stdfs::path(projectDir) / def.shader))
         s.existing = shaders_detail::normalize_snippet(*raw);
-    const std::string& recorded = m.def.graphHash;
+    const std::string& recorded = def.graphHash;
     if (!s.existing)
         s.state = "missing";
-    else if (graph_snippet_hash(*s.existing) == g.hash && recorded == g.hash)
+    else if (graph_snippet_hash(*s.existing) == hash && recorded == hash)
         s.state = "in_sync";
-    else if (graph_snippet_hash(*s.existing) == g.hash)
+    else if (graph_snippet_hash(*s.existing) == hash)
         s.state = "hash_missing";  // the code is what the graph makes, the file does not say so
     else if (recorded.empty())
         s.state = "unmanaged";  // code that no generator wrote, next to a graph
@@ -211,10 +217,16 @@ void register_material_graph_commands(CommandRegistry& registry, const std::stri
             "generate updates it), \"hand_edited\" (the snippet no longer matches graphHash: generate refuses without "
             "force), \"unmanaged\" (a snippet that no generator wrote), \"hash_missing\", \"missing\" or \"unchecked\" "
             "(the graph "
-            "has errors). Example: {\"material\":\"materials/dissolve.material.json\"}";
+            "has errors). With `graph` (an object like the one in the file) that graph is checked instead of the "
+            "file's: the "
+            "editor's canvas validates the graph it holds in memory this way, against the params, textures and kind of "
+            "the "
+            "saved material. Example: {\"material\":\"materials/dissolve.material.json\"}";
         info.inputSchema = Json::parse(R"({
           "type":"object","required":["material"],"additionalProperties":false,
-          "properties":{"material":{"type":"string","description":"Project-relative path of the material, e.g. materials/dissolve.material.json."}}})");
+          "properties":{
+            "material":{"type":"string","description":"Project-relative path of the material, e.g. materials/dissolve.material.json."},
+            "graph":{"type":"object","description":"A graph to check instead of the one in the file (same format as \"graph\" of the material). Pointers still start at /graph."}}})");
         assets_detail::mark_paths(info.inputSchema, "read", {"material"});
         registry.add(info, [projectDir](const Json& args) {
             const std::string path = resolve_material(projectDir, tooling_detail::arg_string(args, "material", true));
@@ -223,12 +235,13 @@ void register_material_graph_commands(CommandRegistry& registry, const std::stri
                 throw CommandError("not_found", "cannot read " + path, "Check that the file is not open elsewhere.");
             auto parsed = parse_json(*text, path);
             if (!parsed.ok()) throw CommandError("invalid_material", parsed.error().message, "Fix the JSON syntax.");
-            MaterialParse mp = parse_material(parsed.value(), projectDir, path);
-            Json out = Json::object({{"material", path}, {"ok", mp.ok()}});
-            std::string kind = "mesh";
-            if (auto k = parsed.value().find("kind"); k != parsed.value().end() && k->is_string())
-                kind = k->get<std::string>();
-            if (mp.material.graph.is_null()) {
+            Json doc = parsed.value();
+            // A graph passed in the call replaces the one in the file: the canvas of the editor checks what it holds in memory
+            // against the params, textures and kind of the saved material.
+            if (auto g = args.find("graph"); g != args.end()) doc["graph"] = *g;
+            const MaterialGraphReport r = check_material_document(doc, projectDir, path);
+            Json out = Json::object({{"material", path}, {"ok", r.errors.empty()}});
+            if (!r.hasGraph) {
                 out["ok"] = false;
                 out["errors"] = Json::array({Json::object(
                     {{"pointer", "/graph"},
@@ -238,16 +251,12 @@ void register_material_graph_commands(CommandRegistry& registry, const std::stri
                 out["warnings"] = Json::array();
                 return out;
             }
-            // parse_material already ran the graph check: its errors are in mp.errors, the warnings come from a second run.
-            GeneratedGraph g = generate_graph_snippet(mp.material.graph, mp.material, kind);
-            out["errors"] = issues_json(mp.errors);
-            out["warnings"] = issues_json(g.check.warnings);
-            Json snippet = Json::object({{"path", mp.material.shader}});
-            if (g.check.ok()) {
-                LoadedMaterial lm;
-                lm.def = mp.material;
-                snippet["state"] = snippet_state(projectDir, lm, g).state;
-                snippet["hash"] = g.hash;
+            out["errors"] = issues_json(r.errors);
+            out["warnings"] = issues_json(r.warnings);
+            Json snippet = Json::object({{"path", r.material.shader}});
+            if (r.errors.empty()) {
+                snippet["state"] = snippet_state(projectDir, r.material, r.hash).state;
+                snippet["hash"] = r.hash;
             } else {
                 snippet["state"] = "unchecked";
             }
@@ -266,7 +275,9 @@ void register_material_graph_commands(CommandRegistry& registry, const std::stri
             "Checks the \"graph\" of the material (as material.graph.validate), generates the snippet (readable GLSL, "
             "one line "
             "per node with a comment naming the node id; the same graph gives the same bytes) into the file named by "
-            "\"shader\" and writes \"graphHash\" (SHA-256 of the snippet) into the material file. A snippet that does "
+            "\"shader\" and writes \"graphHash\" (SHA-256 of the snippet) into the material file. With `graph` the "
+            "command checks, stores and generates that graph instead of the one in the file (the node editor saves "
+            "through it, so the snippet and the hash have one writer). A snippet that does "
             "not "
             "match the recorded hash was edited by hand (or was written without a graph): the command refuses and "
             "changes "
@@ -282,12 +293,15 @@ void register_material_graph_commands(CommandRegistry& registry, const std::stri
           "properties":{
             "material":{"type":"string","description":"Project-relative path of the material, e.g. materials/dissolve.material.json."},
             "force":{"type":"boolean","default":false,"description":"Overwrite a snippet that was edited by hand (or never generated)."},
+            "graph":{"type":"object","description":"A graph to store in the material and generate the snippet from, instead of the one the file holds (the node editor saves this way)."},
             "dryRun":{"type":"boolean","default":false,"description":"Check and report what would be written, and write nothing."}}})");
         assets_detail::mark_paths(info.inputSchema, "write", {"material"});
         registry.add(info, [projectDir](const Json& args) {
             const bool force = tooling_detail::arg_bool(args, "force", false);
             const bool dryRun = tooling_detail::arg_bool(args, "dryRun", false);
-            LoadedMaterial m = load_material(projectDir, args, true);
+            const Json* graphArg = nullptr;
+            if (auto g = args.find("graph"); g != args.end()) graphArg = &*g;
+            LoadedMaterial m = load_material(projectDir, args, true, graphArg);
             GeneratedGraph g = generate_graph_snippet(m.def.graph, m.def, m.kind);
             if (!g.check.ok())  // load_material found these already; kept for a graph that only fails for the kind
                 throw CommandError("invalid_graph",
@@ -295,7 +309,7 @@ void register_material_graph_commands(CommandRegistry& registry, const std::stri
                                        g.check.errors.front().message,
                                    "Fix the graph (`material.graph.validate` lists every error).",
                                    Json::object({{"errors", issues_json(g.check.errors)}}));
-            const SnippetState st = snippet_state(projectDir, m, g);
+            const SnippetState st = snippet_state(projectDir, m.def, g.hash);
             if ((st.state == "hand_edited" || st.state == "unmanaged") && !force)
                 throw CommandError(
                     "hand_edited",
@@ -311,7 +325,8 @@ void register_material_graph_commands(CommandRegistry& registry, const std::stri
                         m.path + " to keep the hand-written code.",
                     Json::object({{"state", st.state}, {"shader", m.def.shader}}));
             const bool snippetChanges = !st.existing || *st.existing != g.snippet;
-            const bool hashChanges = m.def.graphHash != g.hash;
+            // the material file changes when the hash does, or when `graph` is not what the file holds
+            const bool hashChanges = m.def.graphHash != g.hash || (graphArg && m.fileGraph != *graphArg);
             Json out = Json::object({{"material", m.path},
                                      {"shader", m.def.shader},
                                      {"state", st.state},

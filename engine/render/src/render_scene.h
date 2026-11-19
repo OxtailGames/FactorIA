@@ -71,8 +71,10 @@ public:
     // Drops the entries nobody asked for this frame (entities that died, were hidden or lost their overrides), so a slot
     // that is reused starts from nothing.
     void end_frame();
-    // Both hashes of `e` in one call: touch + refresh.
-    void hashes(Entity e, const Json* params, const Json* colors, std::size_t& paramsHash, std::size_t& colorsHash);
+    // Both hashes of `e` in one call: touch + refresh. `material` = the entity's material (null = none): its instanced params are
+    // left out of the hash, as in RenderScene::build.
+    void hashes(Entity e, const Json* params, const Json* colors, std::size_t& paramsHash, std::size_t& colorsHash,
+                const MaterialAsset* material = nullptr);
     std::size_t size() const { return entries_.size(); }
     // Hashes computed since the cache was made (a test looks at it: no edit, no new hash).
     std::uint64_t computed() const { return computed_.load(std::memory_order_relaxed); }

@@ -1,6 +1,7 @@
 // Custom materials (MeshRenderer.material): the factoria.shader/1 twin -> sg_shader_desc (docs/design/CUSTOM_SHADERS.md),
 // and the packing of a material's params.
 #include "fa/core/engine_version.h"
+#include <algorithm>
 #include <cmath>
 #include <cstring>
 
@@ -59,8 +60,16 @@ const std::vector<const char*>& material_program_names(MaterialKind kind) {
     // The order of MaterialProgramId. The other kinds list theirs when their package makes them buildable.
     static const std::vector<const char*> mesh = {"mesh",        "mesh_skin", "shadow",
                                                   "shadow_skin", "prepass",   "prepass_skin"};
+    // Sprite: quad (every mode of quad_common.glsl) and quad_plain (a batch of plain textured quads); a material has both.
+    static const std::vector<const char*> sprite = {"quad", "quad_plain"};
+    static const std::vector<const char*> compute = {"compute"};
     static const std::vector<const char*> none;
-    return kind == MaterialKind::Mesh ? mesh : none;
+    switch (kind) {
+        case MaterialKind::Mesh: return mesh;
+        case MaterialKind::Sprite: return sprite;
+        case MaterialKind::Compute: return compute;
+        default: return none;
+    }
 }
 
 namespace {
@@ -102,12 +111,16 @@ bool pick(const std::string& name, std::initializer_list<std::pair<const char*, 
 }
 
 sg_shader_stage stage_of(const Json& j) {
-    return text_of(j, "stage") == "vertex" ? SG_SHADERSTAGE_VERTEX : SG_SHADERSTAGE_FRAGMENT;
+    const std::string stage = text_of(j, "stage");
+    return stage == "vertex"    ? SG_SHADERSTAGE_VERTEX
+           : stage == "compute" ? SG_SHADERSTAGE_COMPUTE
+                                : SG_SHADERSTAGE_FRAGMENT;
 }
 
 }  // namespace
 
-Result<sg_shader_desc> material_shader_desc(const std::string& label, const Json& program, MaterialProgram& out) {
+Result<sg_shader_desc> material_shader_desc(const std::string& label, const Json& program, MaterialProgram& out,
+                                            const int* workgroup) {
     const std::string where = "the program '" + label + "'";
     auto bad = [&](const std::string& what) {
         return make_error(where + " of the shader twin is malformed: " + what,
@@ -116,23 +129,31 @@ Result<sg_shader_desc> material_shader_desc(const std::string& label, const Json
     };
     const std::string* vs = str_of(program, "vs");
     const std::string* fsText = str_of(program, "fs");
+    const std::string* cs = str_of(program, "cs");  // a compute program has this one instead of "vs" and "fs"
     auto refl = program.find("reflection");
-    if (!vs || !fsText || refl == program.end() || !refl->is_object())
-        return bad("it needs \"vs\", \"fs\" and \"reflection\"");
+    if (refl == program.end() || !refl->is_object() || (cs ? (vs || fsText) : (!vs || !fsText)))
+        return bad("it needs \"reflection\" and either \"vs\" and \"fs\" or \"cs\"");
+    if (cs && (!workgroup || workgroup[0] < 1 || workgroup[1] < 1 || workgroup[2] < 1))
+        return bad("a compute program needs the material's workgroup size");
 
     // The strings the desc points to live in `program` (the Json) for the whole call.
     sg_shader_desc desc{};
     desc.label = label.c_str();
-    desc.vertex_func.source = vs->c_str();
-    desc.fragment_func.source = fsText->c_str();
-    for (auto [fn, key] :
-         {std::pair{&desc.vertex_func, "vertex_func"}, std::pair{&desc.fragment_func, "fragment_func"}}) {
+    const Json noFunc = Json::object();
+    auto function_of = [&](sg_shader_function& fn, const char* key, const std::string& source) {
+        fn.source = source.c_str();
         auto f = refl->find(key);
-        const Json none = Json::object();
-        const Json& fj = f != refl->end() && f->is_object() ? *f : none;
-        fn->entry = cstr_or_null(fj, "entry_point");
-        if (!fn->entry) fn->entry = "main";
-        fn->d3d11_target = cstr_or_null(fj, "d3d11_target");
+        const Json& fj = f != refl->end() && f->is_object() ? *f : noFunc;
+        fn.entry = cstr_or_null(fj, "entry_point");
+        if (!fn.entry) fn.entry = "main";
+        fn.d3d11_target = cstr_or_null(fj, "d3d11_target");
+    };
+    if (cs) {
+        function_of(desc.compute_func, "compute_func", *cs);
+        desc.mtl_threads_per_threadgroup = {workgroup[0], workgroup[1], workgroup[2]};
+    } else {
+        function_of(desc.vertex_func, "vertex_func", *vs);
+        function_of(desc.fragment_func, "fragment_func", *fsText);
     }
 
     for (const Json& a : list_of(*refl, "attrs")) {
@@ -181,9 +202,24 @@ Result<sg_shader_desc> material_shader_desc(const std::string& label, const Json
         out.ubSize[slot] = ub.size;
     }
     for (const Json& v : list_of(*refl, "views")) {
+        if (auto sb = v.find("storage_buffer"); cs && sb != v.end() && sb->is_object()) {
+            const int slot = int_or(*sb, "slot", -1);
+            if (slot < 0 || slot >= SG_MAX_VIEW_BINDSLOTS)
+                return bad("a storage buffer slot outside 0.." + std::to_string(SG_MAX_VIEW_BINDSLOTS - 1));
+            sg_shader_storage_buffer_view& bv = desc.views[slot].storage_buffer;
+            bv.stage = SG_SHADERSTAGE_COMPUTE;
+            bv.readonly = sb->find("readonly") != sb->end() && sb->at("readonly") == true;
+            bv.hlsl_register_t_n = std::uint8_t(int_or(*sb, "hlsl_register_t_n"));
+            bv.hlsl_register_u_n = std::uint8_t(int_or(*sb, "hlsl_register_u_n"));
+            bv.msl_buffer_n = std::uint8_t(int_or(*sb, "msl_buffer_n"));
+            bv.glsl_binding_n = std::uint8_t(int_or(*sb, "glsl_binding_n"));
+            out.viewMask |= 1u << slot;
+            continue;
+        }
         auto t = v.find("texture");
         if (t == v.end() || !t->is_object())
-            return bad("a view that is not a texture (storage buffers and images are not supported)");
+            return bad("a view that is not a texture (storage images are not supported" +
+                       std::string(cs ? ")" : ", and storage buffers only in a compute program)"));
         const int slot = int_or(*t, "slot", -1);
         if (slot < 0 || slot >= SG_MAX_VIEW_BINDSLOTS)
             return bad("a texture slot outside 0.." + std::to_string(SG_MAX_VIEW_BINDSLOTS - 1));
@@ -235,9 +271,9 @@ Result<sg_shader_desc> material_shader_desc(const std::string& label, const Json
     return desc;
 }
 
-Result<MaterialProgram> make_material_program(const std::string& label, const Json& program) {
+Result<MaterialProgram> make_material_program(const std::string& label, const Json& program, const int* workgroup) {
     MaterialProgram out;
-    auto made = material_shader_desc(label, program, out);
+    auto made = material_shader_desc(label, program, out, workgroup);
     if (!made.ok()) return made.error();
     const std::string where = "the program '" + label + "'";
     out.shader = make_shader(&*made, label.c_str());
@@ -264,7 +300,7 @@ void param_value(MaterialAsset& m, const MaterialParamDef& p, const Json& overri
         for (const Json& c : *it) good = good && c.is_number();
     if (!good) {
         if (m.warned.insert(p.name).second)
-            FA_WARN("render", "materialParams.{} of a MeshRenderer using '{}' must be {} (the default is kept)", p.name,
+            FA_WARN("render", "materialParams.{} of a component using '{}' must be {} (the default is kept)", p.name,
                     m.path,
                     p.components == 1 ? std::string("a number")
                                       : "an array of " + std::to_string(p.components) + " numbers, like " +
@@ -291,7 +327,7 @@ void pack_material_params(MaterialAsset& m, const Json& overrides, float out[kMa
         for (auto it = overrides.begin(); it != overrides.end(); ++it)
             if (std::find(names.begin(), names.end(), it.key()) == names.end() && m.warned.insert(it.key()).second)
                 FA_WARN("render",
-                        "materialParams.{} of a MeshRenderer using '{}' is not a param or texture of that material. {}",
+                        "materialParams.{} of a component using '{}' is not a param or texture of that material. {}",
                         it.key(), m.path, did_you_mean(it.key(), names));
     }
 }
@@ -313,7 +349,7 @@ TextureAsset* material_texture(MaterialAsset& m, int i, const Json& overrides, A
     if (it->is_string()) return assets.texture(it->get<std::string>());
     if (m.warned.insert(t.name).second)
         FA_WARN("render",
-                "materialParams.{} of a MeshRenderer using '{}' must be a texture path like \"assets/wood.png\" (the "
+                "materialParams.{} of a component using '{}' must be a texture path like \"assets/wood.png\" (the "
                 "default texture is kept)",
                 t.name, m.path);
     return t.defaultTex;
@@ -333,6 +369,80 @@ SamplerKind sampler_kind(const std::string& name) {
 
 const char* kReexportHint = "Export the game again with this factoria version (or run it with `factoria run`, which "
                             "compiles the shaders itself).";
+
+// The compute part of a twin: "workgroupSize" [x, y, z] and "buffers" (tools/common/src/shaders_compute.cpp compute_twin_fields).
+// Every number is range-checked before it is narrowed: the file may come from an export made by another version.
+Result<void> read_compute_twin(const std::string& path, const Json& twin, std::size_t textureCount, int workgroup[3],
+                               std::vector<MaterialBufferDef>& buffers) {
+    auto bad = [&](const std::string& what) {
+        return make_error("the shader of material '" + path + "' is malformed: " + what, kReexportHint);
+    };
+    auto whole = [](const Json& j, std::int64_t lo, std::int64_t hi, std::int64_t& out) {
+        if (!j.is_number_integer()) return false;
+        const std::int64_t v = j.get<std::int64_t>();
+        if (v < lo || v > hi) return false;
+        out = v;
+        return true;
+    };
+    std::int64_t n = 0;
+    auto wg = twin.find("workgroupSize");
+    if (wg == twin.end() || !wg->is_array() || wg->size() != 3) return bad("it has no \"workgroupSize\" [x, y, z]");
+    std::int64_t product = 1;
+    for (std::size_t i = 0; i < 3; ++i) {
+        if (!whole((*wg)[i], 1, 256, n)) return bad("\"workgroupSize\" holds a number outside 1..256");
+        workgroup[i] = int(n);
+        product *= n;
+    }
+    if (product > 256) return bad("\"workgroupSize\" asks for more than 256 threads in a group");
+
+    auto list = twin.find("buffers");
+    if (list == twin.end() || !list->is_array()) return bad("it has no \"buffers\" list");
+    if (list->size() > std::size_t(SG_MAX_VIEW_BINDSLOTS) ||
+        list->size() + textureCount > std::size_t(SG_MAX_VIEW_BINDSLOTS))
+        return bad("too many buffers and textures for one program");
+    for (const Json& b : *list) {
+        MaterialBufferDef def;
+        def.name = text_of(b, "name");
+        def.readOnly = text_of(b, "access") == "read";
+        if (def.name.empty() || !b.contains("binding") || !whole(b["binding"], 0, SG_MAX_VIEW_BINDSLOTS - 1, n))
+            return bad("a buffer without a name or a binding");
+        def.binding = int(n);
+        if (!b.contains("stride") || !whole(b["stride"], 4, 1 << 16, n))
+            return bad("the buffer '" + def.name + "' has no stride");
+        if (n % 4 != 0)
+            return bad("the buffer '" + def.name + "' has a stride of " + std::to_string(n) +
+                       " bytes, which is not a multiple of 4 (a field is made of 4-byte values)");
+        def.stride = std::uint32_t(n);
+        auto fields = b.find("fields");
+        if (fields == b.end() || !fields->is_array() || fields->empty())
+            return bad("the buffer '" + def.name + "' has no fields");
+        for (const Json& f : *fields) {
+            MaterialBufferFieldDef fd;
+            fd.name = text_of(f, "name");
+            fd.type = text_of(f, "type");
+            if (!f.contains("offset") || !whole(f["offset"], 0, 1 << 16, n)) return bad("a field without an offset");
+            fd.offset = std::uint32_t(n);
+            if (fd.type == "float" || fd.type == "int" || fd.type == "uint")
+                fd.components = 1;
+            else if (fd.type == "vec2")
+                fd.components = 2;
+            else if (fd.type == "vec3")
+                fd.components = 3;
+            else if (fd.type == "vec4")
+                fd.components = 4;
+            else
+                return bad("the field '" + def.name + "." + fd.name + "' has the type '" + fd.type + "'");
+            fd.isInt = fd.type == "int";
+            fd.isUint = fd.type == "uint";
+            if (fd.name.empty() || std::uint64_t(fd.offset) + std::uint64_t(fd.components) * 4 > def.stride)
+                return bad("the field '" + def.name + "." + fd.name + "' does not fit in " +
+                           std::to_string(def.stride) + " bytes");
+            def.fields.push_back(std::move(fd));
+        }
+        buffers.push_back(std::move(def));
+    }
+    return {};
+}
 
 }  // namespace
 
@@ -355,11 +465,6 @@ Result<void> Assets::build_material_checked(MaterialAsset& m) {
                                              : "Use one of: " + join(material_kind_names(), ", ") + ".");
         kind = *parsed;
     }
-    if (material_program_names(kind).empty())
-        return make_error("material '" + m.path + "' has kind \"" + material_kind_name(kind) +
-                              "\", which this factoria version cannot draw yet",
-                          "Only \"mesh\" materials (the default) are drawn so far; the other kinds arrive with M72 "
-                          "(docs/design/CUSTOM_SHADERS.md, \"Kinds (M72)\").");
     const std::string lighting = str_of(*doc, "lighting") ? text_of(*doc, "lighting") : "pbr";
     const std::string alphaMode = str_of(*doc, "alphaMode") ? text_of(*doc, "alphaMode") : "opaque";
     const bool doubleSided = doc->find("doubleSided") != doc->end() && doc->at("doubleSided") == true;
@@ -368,6 +473,17 @@ Result<void> Assets::build_material_checked(MaterialAsset& m) {
         m.lighting = lighting;
         m.alphaMode = alphaMode;
         m.doubleSided = doubleSided;
+    }
+    if (material_program_names(kind).empty()) {
+        // The package of each kind is the one the tooling names (shaders_generate.cpp kind_refusal).
+        const char* package = kind == MaterialKind::Post ? "M72.2" : "M72.1";
+        return make_error(
+            "material '" + m.path + "' has kind \"" + material_kind_name(kind) +
+                "\", which this factoria version cannot draw yet: " + material_kind_name(kind) +
+                " materials arrive with " + package,
+            "Only \"mesh\" and \"sprite\" materials are drawn, and \"compute\" ones run with the compute.* commands "
+            "(docs/design/CUSTOM_SHADERS.md, "
+            "\"Kinds (M72)\").");
     }
 
     // The twin: from the compiler of the editor / `factoria`, else from the file an export wrote.
@@ -496,6 +612,14 @@ Result<void> Assets::build_material_checked(MaterialAsset& m) {
         textures.push_back(std::move(d));
     }
 
+    // A compute material: the threads of a group and the storage buffers (the tooling made the std430 layout).
+    std::vector<MaterialBufferDef> buffers;
+    int workgroup[3] = {64, 1, 1};
+    if (kind == MaterialKind::Compute) {
+        auto compute = read_compute_twin(m.path, twin, textures.size(), workgroup, buffers);
+        if (!compute.ok()) return compute.error();
+    }
+
     // The shaders. Nothing of `m` changes unless all of them are made.
     const std::vector<const char*>& names = material_program_names(kind);
     MaterialProgram programs[kMaxMaterialPrograms];
@@ -505,7 +629,8 @@ Result<void> Assets::build_material_checked(MaterialAsset& m) {
                                ? &programsJson->at(names[i])
                                : nullptr;
         Result<MaterialProgram> made =
-            prog ? make_material_program(m.path + " " + names[i], *prog)
+            prog ? make_material_program(m.path + " " + names[i], *prog,
+                                         kind == MaterialKind::Compute ? workgroup : nullptr)
                  : make_error("the shader of material '" + m.path + "' has no program '" + names[i] + "'",
                               kReexportHint);
         if (made.ok()) {
@@ -534,6 +659,7 @@ Result<void> Assets::build_material_checked(MaterialAsset& m) {
     m.instanceVec4 = instanceVec4;
     m.uv1 = uv1;
     m.color1 = color1;
+    m.missingNoted.clear();  // the "material-mesh" failures of the old build went too (build_material erases them)
     m.instancedNames.clear();
     for (const MaterialParamDef& p : m.instanced) m.instancedNames.push_back(p.name);
     std::sort(m.instancedNames.begin(), m.instancedNames.end());
@@ -541,6 +667,8 @@ Result<void> Assets::build_material_checked(MaterialAsset& m) {
     for (const std::string& n : m.instancedNames)
         m.instancedKey = m.instancedKey * 1000003u + std::hash<std::string>{}(n);
     m.textures = std::move(textures);
+    m.buffers = std::move(buffers);
+    std::copy(std::begin(workgroup), std::end(workgroup), std::begin(m.workgroup));
     return {};
 }
 
@@ -561,7 +689,7 @@ void Assets::build_material(MaterialAsset& m) {
     m.error = r.error().message;
     note_failure("material", m.path,
                  r.error().message + (m.ok ? "\nThe previous version of the material stays in use."
-                                           : "\nThe meshes using it are drawn magenta."),
+                                           : "\nThe meshes and sprites using it are drawn magenta."),
                  r.error().hint);
 }
 
@@ -575,6 +703,72 @@ MaterialAsset* Assets::material(const std::string& path) {
         build_material(*slot);
     }
     return slot.get();
+}
+
+}  // namespace fa::render
+
+namespace fa::render {
+
+namespace {
+constexpr std::uint64_t kUseKeepFrames = 2;  // a use survives this many frames without an item asking for it
+}  // namespace
+
+MaterialRef Assets::sprite_material(const std::string& path, const Json& overrides) {
+    if (path.empty()) return {};
+    MaterialAsset* m = material(path);
+    const std::uint64_t tick = useTick_;
+    const bool wrongKind = m->ok && m->kind != MaterialKind::Sprite;
+    if (wrongKind && m->warned.insert("<kind>").second)
+        FA_WARN(
+            "render",
+            "the material '{}' has kind \"{}\", but a 2D item (Sprite, Shape2D, Tilemap, Text, ParticleEmitter, UiBox) "
+            "needs a \"sprite\" material: the item is drawn magenta",
+            m->path, material_kind_name(m->kind));
+    const bool error = !m->ok || wrongKind;
+
+    MaterialUse key;
+    key.material = m;
+    key.error = error;
+    std::uint64_t hash = 1469598103934665603ull;
+    auto mix = [&](const void* data, std::size_t n) {
+        const unsigned char* p = static_cast<const unsigned char*>(data);
+        for (std::size_t i = 0; i < n; ++i) hash = (hash ^ p[i]) * 1099511628211ull;
+    };
+    const std::uint64_t head[2] = {std::uint64_t(m->generation), error ? 1u : 0u};
+    mix(head, sizeof(head));
+    const std::size_t nParams = std::min<std::size_t>(m->params.size(), kMaxMaterialParams);
+    const std::size_t nTextures = std::min<std::size_t>(m->textures.size(), kMaxMaterialTextures);
+    if (!error) {
+        pack_material_params(*m, overrides, key.params);
+        for (std::size_t i = 0; i < nTextures; ++i) key.textures[i] = material_texture(*m, int(i), overrides, *this);
+        mix(key.params, nParams * sizeof(key.params[0]));
+        mix(key.textures, nTextures * sizeof(key.textures[0]));
+    }
+    auto [first, last] = m->uses.equal_range(hash);
+    for (auto it = first; it != last; ++it) {
+        MaterialUse& u = *it->second;
+        if (u.error == error && std::memcmp(u.params, key.params, nParams * sizeof(key.params[0])) == 0 &&
+            std::memcmp(u.textures, key.textures, nTextures * sizeof(key.textures[0])) == 0) {
+            u.tick = tick;
+            return {&u};
+        }
+    }
+    key.tick = tick;
+    auto made = std::make_unique<MaterialUse>(key);
+    MaterialUse* out = made.get();
+    m->uses.emplace(hash, std::move(made));
+    return {out};
+}
+
+void Assets::begin_material_frame() {
+    ++useTick_;
+    for (auto& [k, m] : materials_)
+        for (auto it = m->uses.begin(); it != m->uses.end();) {
+            if (useTick_ - it->second->tick > kUseKeepFrames)
+                it = m->uses.erase(it);
+            else
+                ++it;
+        }
 }
 
 }  // namespace fa::render

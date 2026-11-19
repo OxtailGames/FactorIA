@@ -60,7 +60,10 @@ bool is_reserved_word(std::string_view s) {
         "sizeof", "cast", "namespace", "using",
         // names of the snippet contract
         "main", "surface", "vertex", "Surface", "SurfaceInput", "VertexData", "LightSample", "QuadInput", "QuadSurface",
-        "SkyInput", "SkySurface", "PostInput", "PostSurface", "vertex_uv1", "vertex_color1"};
+        "QuadVertex", "fragment", "SkyInput", "SkySurface", "PostInput", "PostSurface", "compute", "ComputeInput",
+        "vertex_uv1", "vertex_color1",
+        // a name sokol-shdc cannot take for a texture ("no binding found for texture ''")
+        "noise"};
     return words.count(s) > 0;
 }
 
@@ -98,12 +101,14 @@ std::string normalize_snippet(std::string_view snippet) {
 
 const std::vector<std::string>& template_file_names(const std::string& kind) {
     // One list per kind, equal to FA_TEMPLATE_FILES_<KIND> of engine/render/CMakeLists.txt (a test compares the hashes). The mesh
-    // list is the one file the template hash was made of before kinds existed.
-    static const std::map<std::string, std::vector<std::string>> names = {{"mesh", {"mesh_common.glsl"}},
-                                                                          {"sprite", {"quad_common.glsl"}},
-                                                                          {"sky", {"sky_common.glsl"}},
-                                                                          {"post", {"post_common.glsl"}},
-                                                                          {"compute", {}}};
+    // list is the one file the template hash was made of before kinds existed; the sprite template also @includes the colour-space
+    // and 2D shadow helpers, so a change to them changes the sprite hash.
+    static const std::map<std::string, std::vector<std::string>> names = {
+        {"mesh", {"mesh_common.glsl"}},
+        {"sprite", {"color_space.glsl", "light_shadow.glsl", "quad_common.glsl"}},
+        {"sky", {"sky_common.glsl"}},
+        {"post", {"post_common.glsl"}},
+        {"compute", {"compute_common.glsl"}}};
     static const std::vector<std::string> none;
     auto it = names.find(kind);
     return it == names.end() ? none : it->second;
@@ -125,10 +130,10 @@ const std::vector<std::pair<std::string, std::vector<std::string>>>& contract_st
     // The structs each kind's snippet contract is made of (the template's @block of types).
     static const std::map<std::string, std::vector<std::string>> wantedByKind = {
         {"mesh", {"SurfaceInput", "Surface", "VertexData", "LightSample"}},
-        {"sprite", {"QuadInput", "QuadSurface"}},
+        {"sprite", {"QuadInput", "QuadSurface", "QuadVertex"}},
         {"sky", {"SkyInput", "SkySurface"}},
         {"post", {"PostInput", "PostSurface"}},
-        {"compute", {}}};
+        {"compute", {"ComputeInput"}}};
     static const std::map<std::string, Structs> byKind = [] {
         std::map<std::string, Structs> result;
         for (const auto& [kindName, wantedList] : wantedByKind) {
@@ -166,8 +171,168 @@ const std::vector<std::pair<std::string, std::vector<std::string>>>& contract_st
     return it == byKind.end() ? none : it->second;
 }
 
+namespace {
+
+using NameSet = std::set<std::string, std::less<>>;
+
+// The last identifier of `text` (after dropping a trailing `[...]`), "" when there is none.
+std::string last_identifier(std::string text) {
+    while (!text.empty() && (std::isspace(static_cast<unsigned char>(text.back())) || text.back() == ']')) {
+        if (text.back() == ']') {
+            const std::size_t open = text.rfind('[');
+            if (open == std::string::npos) break;
+            text.resize(open);
+        } else {
+            text.pop_back();
+        }
+    }
+    std::size_t b = text.size();
+    while (b > 0 && ident_char(text[b - 1])) --b;
+    return text.substr(b);
+}
+
+// The identifier that precedes the first '(' of `text` (a function's name), "" when there is none.
+std::string name_before_paren(const std::string& text) {
+    const std::size_t paren = text.find('(');
+    return paren == std::string::npos ? std::string() : last_identifier(text.substr(0, paren));
+}
+
+// `stmt` without its `layout(...)` qualifier.
+void strip_layout(std::string& stmt) {
+    const std::size_t layout = stmt.find("layout");
+    if (layout == std::string::npos) return;
+    const std::size_t open = stmt.find('(', layout);
+    int depth = 0;
+    for (std::size_t i = open; open != std::string::npos && i < stmt.size(); ++i) {
+        depth += stmt[i] == '(' ? 1 : stmt[i] == ')' ? -1 : 0;
+        if (depth == 0) {
+            stmt.erase(layout, i + 1 - layout);
+            return;
+        }
+    }
+}
+
+// The names a declaration statement (without its ';') declares: `layout(...) uniform texture2D tex`, `vec4 a, b[16]`,
+// `const float k = 1.0`, `float f(float x)` (a prototype).
+void declared_names(std::string stmt, NameSet& out) {
+    strip_layout(stmt);
+    const std::size_t paren = stmt.find('('), eq = stmt.find('=');
+    if (paren != std::string::npos && (eq == std::string::npos || paren < eq)) {  // a function prototype
+        const std::string name = name_before_paren(stmt);
+        if (!name.empty()) out.insert(name);
+        return;
+    }
+    int depth = 0;
+    std::size_t from = 0;
+    for (std::size_t i = 0; i <= stmt.size(); ++i) {
+        if (i < stmt.size()) {
+            depth += (stmt[i] == '(' || stmt[i] == '[') ? 1 : (stmt[i] == ')' || stmt[i] == ']') ? -1 : 0;
+            if (stmt[i] != ',' || depth != 0) continue;
+        }
+        std::string piece = stmt.substr(from, i - from);
+        from = i + 1;
+        if (const std::size_t e = piece.find('='); e != std::string::npos) piece.resize(e);
+        const std::string name = last_identifier(piece);
+        if (!name.empty() && name != "uniform" && name != "struct") out.insert(name);
+    }
+}
+
+// Every name the top level of a GLSL text declares (variables, in/out, textures, samplers, functions, structs, uniform
+// blocks and their members, #define names). Locals of function bodies are not globals.
+void scan_globals(const std::string& text, NameSet& out) {
+    std::string stmt;
+    bool lineStart = true;
+    for (std::size_t i = 0; i < text.size(); ++i) {
+        const char c = text[i];
+        if (c == '\n') {
+            lineStart = true;
+            stmt += ' ';
+            continue;
+        }
+        if (lineStart && std::isspace(static_cast<unsigned char>(c))) {
+            stmt += c;
+            continue;
+        }
+        if (lineStart && (c == '#' || c == '@')) {  // a preprocessor line or a sokol-shdc tag: not part of a statement
+            std::size_t end = text.find('\n', i);
+            if (end == std::string::npos) end = text.size();
+            const std::string line = text.substr(i, end - i);
+            if (line.rfind("#define", 0) == 0) {
+                std::size_t b = 7;
+                while (b < line.size() && std::isspace(static_cast<unsigned char>(line[b]))) ++b;
+                std::size_t e = b;
+                while (e < line.size() && ident_char(line[e])) ++e;
+                if (e > b) out.insert(line.substr(b, e - b));
+            }
+            i = end - 1;
+            continue;
+        }
+        lineStart = false;
+        if (c == ';') {
+            declared_names(stmt, out);
+            stmt.clear();
+        } else if (c == '{') {
+            std::size_t close = i;
+            for (int depth = 0; close < text.size(); ++close) {
+                depth += text[close] == '{' ? 1 : text[close] == '}' ? -1 : 0;
+                if (depth == 0) break;
+            }
+            if (close >= text.size()) return;
+            const std::string body = text.substr(i + 1, close - i - 1);
+            strip_layout(stmt);
+            const bool isFunction = stmt.find('(') != std::string::npos;
+            if (isFunction) {
+                const std::string name = name_before_paren(stmt);
+                if (!name.empty()) out.insert(name);
+            } else {
+                const std::string name = last_identifier(stmt);
+                if (!name.empty()) out.insert(name);              // a struct or a uniform block
+                if (stmt.find("uniform") != std::string::npos) {  // the members of a block are globals too
+                    std::size_t from = 0;
+                    while (from < body.size()) {
+                        const std::size_t semi = body.find(';', from);
+                        if (semi == std::string::npos) break;
+                        declared_names(body.substr(from, semi - from), out);
+                        from = semi + 1;
+                    }
+                }
+                std::size_t semi = text.find(';', close);  // an instance name between '}' and ';'
+                if (semi == std::string::npos) semi = text.size();
+                declared_names(text.substr(close + 1, semi - close - 1), out);
+                close = std::min(semi, text.size() - 1);
+            }
+            stmt.clear();
+            i = close;
+        } else {
+            stmt += c;
+        }
+    }
+}
+
+}  // namespace
+
+const std::set<std::string, std::less<>>& template_globals(const std::string& kind) {
+    // The names the template of a kind declares at the top level of its program, unprefixed (the prefixed ones are covered
+    // by the fa_ rule): a param or texture with one of them would redefine it. Derived from the bundled template so the
+    // list cannot drift. Only the sprite template has any: its snippet is spliced into a program whose inputs, varyings and
+    // helpers are not prefixed (the mesh template keeps its own names out of the snippet's way by other means).
+    static const std::map<std::string, NameSet> byKind = [] {
+        std::map<std::string, NameSet> result;
+        NameSet sprite;
+        for (const auto& [name, content] : template_files("sprite")) scan_globals(blank_comments(content), sprite);
+        result["sprite"] = std::move(sprite);
+        return result;
+    }();
+    static const NameSet none;
+    auto it = byKind.find(kind);
+    return it == byKind.end() ? none : it->second;
+}
+
+bool kind_is_compiled(const std::string& kind) { return kind == "mesh" || kind == "sprite" || kind == "compute"; }
+
 std::string kind_refusal(const std::string& kind) {
-    const char* package = kind == "post" ? "M72.2" : kind == "compute" ? "M72.4" : "M72.1";
+    // Sprite is compiled (M72.1); sky is the other half of M72.1.
+    const char* package = kind == "post" ? "M72.2" : "M72.1";
     return "kind \"" + kind + "\" is not compiled yet: " + kind + " materials arrive with " + package;
 }
 
@@ -183,13 +348,14 @@ using shaders_detail::normalize_snippet;
 struct Function {
     std::size_t begin = 0, end = 0;  // [begin, end) of `name(...) { ... }` in the snippet
     bool isVertex = false;           // vertex stage; else the fragment stage
-    bool isSurface = false, isLight = false, isAmbient = false;
+    bool isSurface = false, isLight = false,
+         isAmbient = false;  // isSurface: surface() or, in a sprite material, fragment()
 };
 
-// The definitions of void surface(...), void vertex(...) and, with lighting "custom", vec3 light(...) and vec3 ambient(...) at
-// the top level of the (comment-blanked) snippet. In a pbr or unlit material `light` and `ambient` are ordinary names (a
-// helper may be called that and run in both stages).
-std::vector<Function> find_entry_points(const std::string& s, bool customLighting) {
+// The definitions of void <fragmentName>(...) (surface, or fragment in a sprite material), void vertex(...) and, with lighting
+// "custom", vec3 light(...) and vec3 ambient(...) at the top level of the (comment-blanked) snippet. In a pbr or unlit
+// material `light` and `ambient` are ordinary names (a helper may be called that and run in both stages).
+std::vector<Function> find_entry_points(const std::string& s, const std::string& fragmentName, bool customLighting) {
     std::vector<Function> out;
     int depth = 0;
     std::size_t i = 0;
@@ -217,7 +383,7 @@ std::vector<Function> find_entry_points(const std::string& s, bool customLightin
             std::size_t nameStart = p;
             while (p < s.size() && ident_char(s[p])) ++p;
             const std::string name = s.substr(nameStart, p - nameStart);
-            if ((isVoid && (name == "surface" || name == "vertex")) ||
+            if ((isVoid && (name == fragmentName || name == "vertex")) ||
                 (isVec3 && (name == "light" || name == "ambient"))) {
                 p = skip_ws(p);
                 if (p < s.size() && s[p] == '(') {
@@ -244,7 +410,7 @@ std::vector<Function> find_entry_points(const std::string& s, bool customLightin
                             f.begin = i;
                             f.end = p + 1;
                             f.isVertex = name == "vertex";
-                            f.isSurface = name == "surface";
+                            f.isSurface = name == fragmentName;
                             f.isLight = name == "light";
                             f.isAmbient = name == "ambient";
                             out.push_back(f);
@@ -304,11 +470,15 @@ std::string block_members(const std::vector<MaterialParam>& params) {
 }  // namespace
 
 GeneratedShader generate_material_shader(const MaterialDef& material, std::string_view snippetText) {
+    if (material.kind == "compute") return generate_compute_shader(material, snippetText);
     GeneratedShader g;
+    g.kind = material.kind;
+    const bool sprite = material.kind == "sprite";
     const bool clip = material.alphaMode == "clip";
     const std::string src = normalize_snippet(snippetText);
-    const bool custom = material.lighting == "custom";
-    const std::vector<Function> fns = find_entry_points(blank_comments(src), custom);
+    const bool custom =
+        !sprite && material.lighting == "custom";  // a sprite has no light(): it is lit by the 2D pipeline
+    const std::vector<Function> fns = find_entry_points(blank_comments(src), sprite ? "fragment" : "surface", custom);
     for (const Function& f : fns) {
         g.hasVertex = g.hasVertex || f.isVertex;
         g.hasSurface = g.hasSurface || f.isSurface;
@@ -326,7 +496,9 @@ GeneratedShader generate_material_shader(const MaterialDef& material, std::strin
     TopFile t{g};
     t.generated("@module fa_mat\n@block fa_user\n");
     // The material block lives in one stage: a sokol uniform block slot belongs to one stage, so the vertex stage gets its own
-    // block (binding 4) and the fragment stage (binding 5). Unused blocks and textures are not part of a program.
+    // block (binding 4) and the fragment stage (binding 5). Unused blocks and textures are not part of a program. The textures
+    // take the slots after the engine's own (mesh: views 6.., samplers 2..; sprite: views 4.., samplers 3..; kMaterial* of
+    // engine/render/src/render_internal.h).
     t.generated("#ifdef GL_VERTEX_SHADER\n");
     if (!blockParams.empty())
         t.generated("layout(binding=4) uniform fa_material_vs {\n" + block_members(blockParams) + "};\n");
@@ -342,8 +514,8 @@ GeneratedShader generate_material_shader(const MaterialDef& material, std::strin
         for (const InstanceSlot& s : instLayout.slots) {
             const std::string type = s.components == 1 ? "float" : "vec" + std::to_string(s.components);
             globals += type + " " + s.name + ";\n";
-            const std::string src = "fa_d" + std::to_string(s.vec4);
-            unpack += "    " + s.name + " = " + src +
+            const std::string from = "fa_d" + std::to_string(s.vec4);
+            unpack += "    " + s.name + " = " + from +
                       (s.components == 4 ? "" : "." + std::string(kLetters + s.offset, std::size_t(s.components))) +
                       ";\n";
         }
@@ -356,25 +528,34 @@ GeneratedShader generate_material_shader(const MaterialDef& material, std::strin
     if (std::find(material.vertexAttributes.begin(), material.vertexAttributes.end(), "color1") !=
         material.vertexAttributes.end())
         t.generated("#ifdef GL_VERTEX_SHADER\nvec4 vertex_color1;\n#endif\n");
-    // A texture is declared once per stage: a sokol view or sampler slot belongs to one stage, and sokol-shdc refuses one name
-    // in both. The fragment stage reads it at view 6.. and sampler 2.., the vertex stage (where the #define renames it for the
-    // snippet, so the author writes `height` in both) at view 10.. and sampler 6... A declaration the stage does not use is not
-    // part of its program, so the runtime binds both slots (renderer_draw.cpp bind_textures) and each program takes what it
-    // declares.
-    int view = kMaterialFsFirstView, sampler = kMaterialFsFirstSampler;
-    int vsView = kMaterialVsFirstView, vsSampler = kMaterialVsFirstSampler;
     std::string vsDefines, vsUndefs, vsDecls, fsDecls;
-    for (const MaterialTexture& tex : material.textures) {
-        vsDefines += "#define " + tex.name + " fa_vs_" + tex.name + "\n#define " + tex.name + "_smp fa_vs_" + tex.name +
-                     "_smp\n";
-        vsUndefs += "#undef " + tex.name + "\n#undef " + tex.name + "_smp\n";
-        vsDecls += "layout(binding=" + std::to_string(vsView++) + ") uniform texture2D " + tex.name +
-                   ";\nlayout(binding=" + std::to_string(vsSampler++) + ") uniform sampler " + tex.name + "_smp;\n";
-        fsDecls += "layout(binding=" + std::to_string(view++) + ") uniform texture2D " + tex.name +
-                   ";\nlayout(binding=" + std::to_string(sampler++) + ") uniform sampler " + tex.name + "_smp;\n";
+    if (sprite) {
+        // A sprite material's textures are declared once, in the fragment stage (views 4.., samplers 3..): the 2D pipeline binds
+        // no vertex-stage views, so vertex() cannot sample one (the compiler's precheck says so).
+        int view = kMaterialSpriteFirstView, sampler = kMaterialSpriteFirstSampler;
+        for (const MaterialTexture& tex : material.textures)
+            t.generated("layout(binding=" + std::to_string(view++) + ") uniform texture2D " + tex.name +
+                        ";\nlayout(binding=" + std::to_string(sampler++) + ") uniform sampler " + tex.name + "_smp;\n");
+    } else {
+        // A mesh material's texture is declared once per stage: a sokol view or sampler slot belongs to one stage, and sokol-shdc refuses one name
+        // in both. The fragment stage reads it at view 6.. and sampler 2.., the vertex stage (where the #define renames it for the
+        // snippet, so the author writes `height` in both) at view 10.. and sampler 6... A declaration the stage does not use is not
+        // part of its program, so the runtime binds both slots (renderer_draw.cpp bind_textures) and each program takes what it
+        // declares.
+        int view = kMaterialFsFirstView, sampler = kMaterialFsFirstSampler;
+        int vsView = kMaterialVsFirstView, vsSampler = kMaterialVsFirstSampler;
+        for (const MaterialTexture& tex : material.textures) {
+            vsDefines += "#define " + tex.name + " fa_vs_" + tex.name + "\n#define " + tex.name + "_smp fa_vs_" +
+                         tex.name + "_smp\n";
+            vsUndefs += "#undef " + tex.name + "\n#undef " + tex.name + "_smp\n";
+            vsDecls += "layout(binding=" + std::to_string(vsView++) + ") uniform texture2D " + tex.name +
+                       ";\nlayout(binding=" + std::to_string(vsSampler++) + ") uniform sampler " + tex.name + "_smp;\n";
+            fsDecls += "layout(binding=" + std::to_string(view++) + ") uniform texture2D " + tex.name +
+                       ";\nlayout(binding=" + std::to_string(sampler++) + ") uniform sampler " + tex.name + "_smp;\n";
+        }
+        if (!vsDecls.empty())
+            t.generated("#ifdef GL_VERTEX_SHADER\n" + vsDefines + vsDecls + "#else\n" + fsDecls + "#endif\n");
     }
-    if (!vsDecls.empty())
-        t.generated("#ifdef GL_VERTEX_SHADER\n" + vsDefines + vsDecls + "#else\n" + fsDecls + "#endif\n");
 
     std::size_t pos = 0;
     for (const Function& f : fns) {
@@ -387,23 +568,31 @@ GeneratedShader generate_material_shader(const MaterialDef& material, std::strin
     t.snippet(src, pos, src.size());
     // The shims stop at the snippet: the engine's own vertex code below sees the real texture() and discard.
     t.generated("#ifdef GL_VERTEX_SHADER\n#undef texture\n#undef discard\n" + vsUndefs + "#endif\n");
-    t.generated("@end\n@include mesh_common.glsl\n");
+    t.generated(sprite ? "@end\n@include quad_common.glsl\n" : "@end\n@include mesh_common.glsl\n");
 
-    g.programs = {"mesh", "mesh_skin"};
-    t.generated("@program mesh vs fs\n@program mesh_skin vs_skin fs\n");
-    if (g.hasVertex || clip) {
-        g.programs.push_back("shadow");
-        g.programs.push_back("shadow_skin");
-        t.generated("@program shadow shadow_vs shadow_fs\n@program shadow_skin shadow_vs_skin shadow_fs\n");
+    if (sprite) {
+        // quad: every mode; quad_plain: the lean program of a batch of plain textured quads (the renderer picks one per batch).
+        g.programs = {"quad", "quad_plain"};
+        t.generated("@program quad vs fs\n@program quad_plain vs fs_plain\n");
+        g.defines.push_back("FA_MATERIAL");
+    } else {
+        g.programs = {"mesh", "mesh_skin"};
+        t.generated("@program mesh vs fs\n@program mesh_skin vs_skin fs\n");
+        if (g.hasVertex || clip) {
+            g.programs.push_back("shadow");
+            g.programs.push_back("shadow_skin");
+            t.generated("@program shadow shadow_vs shadow_fs\n@program shadow_skin shadow_vs_skin shadow_fs\n");
+        }
+        // The depth and normal prepass (M71) draws every opaque material: vertex() and surface() run in it as in the main pass.
+        g.programs.push_back("prepass");
+        g.programs.push_back("prepass_skin");
+        t.generated("@program prepass prepass_vs prepass_fs\n@program prepass_skin prepass_vs_skin prepass_fs\n");
     }
-    // The depth and normal prepass (M71) draws every opaque material: vertex() and surface() run in it as in the main pass.
-    g.programs.push_back("prepass");
-    g.programs.push_back("prepass_skin");
-    t.generated("@program prepass prepass_vs prepass_fs\n@program prepass_skin prepass_vs_skin prepass_fs\n");
     if (g.hasVertex) g.defines.push_back("FA_HAS_VERTEX");
     if (custom) g.defines.push_back("FA_CUSTOM_LIGHT");
     if (custom && g.hasAmbient) g.defines.push_back("FA_HAS_AMBIENT");
-    if (clip) g.defines.push_back("FA_ALPHA_CLIP");
+    // A sprite is blended by the engine: alphaMode "clip" (the mesh template's alpha test) adds nothing to it.
+    if (clip && !sprite) g.defines.push_back("FA_ALPHA_CLIP");
     // The instance data and the declared mesh channels (the template declares the matching vertex attributes after the
     // instance matrix, see mesh_common.glsl): flags, since a #define inside fa_user would come after the declarations.
     if (instLayout.vec4Count > 0) g.defines.push_back("FA_INST_" + std::to_string(std::min(instLayout.vec4Count, 3)));

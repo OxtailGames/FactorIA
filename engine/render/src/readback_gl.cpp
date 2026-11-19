@@ -86,6 +86,34 @@ bool readback_rgba16f(sg_image image, int width, int height, std::vector<float>&
     return ok;
 }
 
+bool readback_buffer(sg_buffer buffer, std::size_t offset, std::size_t bytes, std::vector<std::uint8_t>& out,
+                     std::string* error) {
+#if defined(SOKOL_GLES3)
+    (void)buffer, (void)offset, (void)bytes, (void)out;
+    if (error) *error = "readback: GLES3 has no storage buffers (compute shaders need desktop OpenGL 4.3)";
+    return false;
+#else
+    const sg_gl_buffer_info info = sg_gl_query_buffer_info(buffer);
+    const GLuint buf = info.buf[info.active_slot];
+    if (!buf) {
+        if (error) *error = "readback: the storage buffer has no GL buffer";
+        return false;
+    }
+    out.resize(bytes);
+    if (bytes == 0) return true;
+    for (int i = 0; i < 16 && glGetError() != GL_NO_ERROR; ++i) {  // a bounded clear of the errors of earlier calls
+    }
+    glMemoryBarrier(GL_ALL_BARRIER_BITS);  // the shaders' writes are visible to the read below
+    glBindBuffer(GL_COPY_READ_BUFFER, buf);
+    glGetBufferSubData(GL_COPY_READ_BUFFER, GLintptr(offset), GLsizeiptr(bytes), out.data());
+    const bool ok = glGetError() == GL_NO_ERROR;
+    glBindBuffer(GL_COPY_READ_BUFFER, 0);
+    sg_reset_state_cache();
+    if (!ok && error) *error = "readback: the GL driver refused to read the storage buffer back";
+    return ok;
+#endif
+}
+
 }  // namespace fa::render
 
 #endif
