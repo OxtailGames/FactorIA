@@ -200,6 +200,9 @@ menu::MainMenu Editor::build_main_menu(bool native) {
              "Edit a material as a node graph (a *.material.json with a \"graph\"): nodes and typed links on a "
              "canvas, a searchable node palette, constants, the checker's problems on the node they name and a "
              "live preview; Save is material.graph.generate"));
+    view.push_back(with(toggle("Scene settings", showSceneSettings_), "menu:scenesettings",
+                        "The settings of the whole scene: the sky (colours, or a sky material with its params), fog, "
+                        "ambient light, gravity, music and colour space; every change is one undo step"));
     view.push_back(with(toggle("Music", showMusic_), "menu:music",
                         "Edit a song (*.song.json): a piano roll, a drum grid, the arrangement of sections and layers "
                         "and a mixer, played by the player a game's entity.music uses (an intensity slider fades the "

@@ -55,7 +55,8 @@ const char* const kSnippetContract =
     "The snippet is GLSL 450 (Vulkan style) with no @ tags and no main: for a mesh material `void surface(in "
     "SurfaceInput i, inout Surface s)` is required and `void vertex(inout VertexData v)` optional; for a \"sprite\" "
     "material `void fragment(in QuadInput i, inout QuadSurface s)` is required and `void vertex(inout QuadVertex v)` "
-    "optional. Params are globals named like the JSON keys; textures are sampled with "
+    "optional; for a \"sky\" material `void sky(in SkyInput i, inout SkySurface s)` is required (no vertex()). Params "
+    "are globals named like the JSON keys; textures are sampled with "
     "texture(sampler2D(name, name_smp), uv); names starting with fa_ are the engine's.";
 
 }  // namespace
@@ -70,13 +71,15 @@ void register_shader_commands(CommandRegistry& registry, const std::string& proj
                        "with file, line and fixes.";
         info.description =
             "Checks the material file (*.material.json, schemas/material.schema.json) and compiles its "
-            "snippet with sokol-shdc, injected into the engine's mesh or 2D (sprite) shader, for every shader dialect "
+            "snippet with sokol-shdc, injected into the engine's mesh, 2D (sprite) or sky shader, for every shader "
+            "dialect "
             "of "
             "the platforms asked (default: all six: hlsl5 for Windows, glsl430 for Linux, metal_macos, "
             "metal_ios and metal_sim for macOS and iOS, glsl300es for Android and web). Some errors exist in "
             "one dialect only (a gradient inside a loop is fine in GLSL and refused by HLSL), so compile for "
             "the platforms you ship. Returns {ok, material, dialects, errors: [{file, line, column, message, "
-            "hint, source}], cached, kind}: `kind` is \"mesh\" (default) or \"sprite\"; the other kinds are refused "
+            "hint, source}], cached, kind}: `kind` is \"mesh\" (default), \"sprite\" or \"sky\"; the other kinds are "
+            "refused "
             "at /kind. A snippet error is mapped to the line of your snippet, with the "
             "offending line in `source` and a fix in `hint` (an unknown field of Surface gets \"did you mean "
             "albedo?\", texture(waves, uv) gets the separate-sampler form); a mistake in the material file "
@@ -133,7 +136,7 @@ void register_shader_commands(CommandRegistry& registry, const std::string& proj
             "Reads a *.material.json (schemas/material.schema.json) and returns {material, doc, kind, shader, "
             "lighting, alphaMode, doubleSided, params: [{name, type, default, min?, max?, doc, implicit?}], "
             "textures: [{name, default, sampler, doc}], programs, compile: {state, dialect, toolFound, hint?}}. "
-            "`kind` is \"mesh\" (default), \"sprite\", \"sky\", \"post\" or \"compute\"; the last three report "
+            "`kind` is \"mesh\" (default), \"sprite\", \"sky\", \"post\" or \"compute\"; the last two report "
             "programs [] and compile.state \"unsupported\" with the package that brings them in compile.hint. "
             "params are listed in the order of the uniform block (alphabetical); `implicit` marks "
             "alphaCutoff, which alphaMode \"clip\" adds by itself. "
@@ -141,7 +144,7 @@ void register_shader_commands(CommandRegistry& registry, const std::string& proj
             "calls it once per light). "
             "`programs` are the shader programs the material makes: mesh, mesh_skin, prepass and prepass_skin, plus "
             "shadow and shadow_skin when the snippet defines vertex() or the alpha mode is clip; a sprite "
-            "material makes quad and quad_plain. "
+            "material makes quad and quad_plain, a sky material one program, sky. "
             "compile.state is \"compiled\" when the cache holds this exact material for this machine's "
             "dialect, else \"not_compiled\" (run shader.compile); nothing is compiled by this command. "
             "A material file with errors returns them (JSON pointer, message, fix). Example: "

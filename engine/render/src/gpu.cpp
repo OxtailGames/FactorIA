@@ -426,10 +426,10 @@ sg_pipeline Gpu::mesh_pipeline(const TargetFormat& format, bool blended, bool do
     return find_or_make(key, format, d);
 }
 
-sg_pipeline Gpu::sky_pipeline(const TargetFormat& format) {
-    PipelineKey key{0x300u};
+sg_pipeline Gpu::sky_pipeline(const TargetFormat& format, sg_shader shader) {
+    PipelineKey key{0x300u, shader.id};
     sg_pipeline_desc d{};
-    d.shader = sky_shader_;
+    d.shader = shader.id ? shader : sky_shader_;
     d.layout.attrs[ATTR_sky_sky_pos].format = SG_VERTEXFORMAT_FLOAT2;
     d.depth.compare = SG_COMPAREFUNC_ALWAYS;
     d.depth.write_enabled = false;

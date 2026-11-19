@@ -1,0 +1,9 @@
+{
+  "format": "factoria.material/1",
+  "kind": "sky",
+  "doc": "Test fixture: a texture looked up by the view direction (the first texture slots of a sky material).",
+  "shader": "shaders/skytex.sky.glsl",
+  "textures": {
+    "map": { "default": "textures/checker.png", "sampler": "nearest", "doc": "Looked up by the horizontal view direction." }
+  }
+}

@@ -11323,12 +11323,12 @@ declare module "factoria" {
      */
     paperWhiteNits: number;
     /**
-     * Project-relative path of a custom material of kind "sky" (a *.material.json), or "" (default) for the skyColor / horizonColor gradient. The material's fragment() snippet computes the colour of the background of a perspective camera from the view direction, so it replaces the gradient. `material.info` lists its params and `shader.compile` compiles it and reports errors with file:line; a material that does not compile shows the gradient and logs why. Guide: docs/SHADERS.md (`factoria docs read shaders`). (asset path: material)
+     * Project-relative path of a custom material of kind "sky" (a *.material.json), or "" (default) for the skyColor / horizonColor gradient. The material's sky() snippet receives the view direction, the direction of the sun (the scene's directional light of slot 0), the time and the colour the gradient would have drawn, so it can replace or tint it; it draws the background of a perspective camera, opaque. The reflections and the ambient light of the meshes keep following skyColor and horizonColor. `material.info` lists the material's params and `shader.compile` compiles it and reports errors with file:line; a material that does not compile (or is not of kind "sky") shows the gradient and logs why. Guide: docs/SHADERS.md (`factoria docs read shaders`, "Sky materials"). (asset path: material)
      * @since unreleased
      */
     skyMaterial: string;
     /**
-     * Per-entity overrides of the material's params and textures, an object keyed by the name declared in the material file: numbers for float params, arrays for vectors and colors ([r, g, b, a]), project-relative paths for textures. Example: {"glow": [1, 0.2, 0, 1], "mask": "textures/leaf.png"}. Unnamed params keep the material's defaults. Same meaning as MeshRenderer.materialParams. They apply to the sky material only. Returns a plain-object COPY; assign a new value to write.
+     * Values for the params and textures of skyMaterial, an object keyed by the name declared in the material file: numbers for float params, arrays for vectors and colors ([r, g, b, a]), project-relative paths for textures. Example: {"horizonGlow": [1, 0.4, 0.1, 1], "stars": "textures/stars.png"}. Unnamed params keep the material's defaults. Ignored while skyMaterial is empty. The editor's Scene settings panel shows one control per param of the material. Returns a plain-object COPY; assign a new value to write.
      * @since unreleased
      */
     skyMaterialParams: any;

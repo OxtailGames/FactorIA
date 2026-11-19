@@ -19,7 +19,8 @@ set(FA_TEMPLATE_FILES_MESH mesh_common.glsl)
 # The sprite template @includes color_space.glsl and light_shadow.glsl (the other programs that use them include them too), so a
 # change to either one changes the sprite hash.
 set(FA_TEMPLATE_FILES_SPRITE color_space.glsl light_shadow.glsl quad_common.glsl)
-set(FA_TEMPLATE_FILES_SKY sky_common.glsl)
+# The sky template @includes color_space.glsl (fa_scene_rgb), so a change to it changes the sky hash too.
+set(FA_TEMPLATE_FILES_SKY color_space.glsl sky_common.glsl)
 set(FA_TEMPLATE_FILES_POST post_common.glsl)
 set(FA_TEMPLATE_FILES_COMPUTE "")
 set(FA_TEMPLATE_DEFINITIONS "")

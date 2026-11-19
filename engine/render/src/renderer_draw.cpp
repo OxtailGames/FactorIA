@@ -998,6 +998,32 @@ mesh_fa_mesh_fs_params_t Renderer::Impl::fill_fs(DrawContext& ctx, const MeshIte
     return fu;
 }
 
+// The material that draws the sky (SceneSettings.skyMaterial), or nullptr: the engine's gradient. A material that did not build (its
+// own error was logged when it failed, and the previous good build, when there is one, stays in use) or that is not of kind "sky" draws
+// the gradient, and the frame's materialFallbacks names it; a material of the wrong kind is reported once.
+MaterialAsset* Renderer::Impl::sky_material(const SceneSettings& ss) {
+    if (ss.skyMaterial.empty()) {
+        warnedSkyMaterial.clear();
+        return nullptr;
+    }
+    MaterialAsset* m = assets->material(ss.skyMaterial);
+    if (m && m->ok && m->kind == MaterialKind::Sky) return m;
+    if (std::find(stats.materialFallbacks.begin(), stats.materialFallbacks.end(), ss.skyMaterial) ==
+        stats.materialFallbacks.end())
+        stats.materialFallbacks.push_back(ss.skyMaterial);
+    if (m && m->ok &&
+        warnedSkyMaterial != m->path) {  // built, but not a sky: the build error of a broken one is logged by Assets
+        warnedSkyMaterial = m->path;
+        FA_ERROR(
+            "render",
+            "SceneSettings.skyMaterial '{}' is a \"{}\" material, not a \"sky\" one, so the built-in sky is drawn. "
+            "Hint: set \"kind\": \"sky\" in the material (docs/SHADERS.md, \"Sky materials\"), or point skyMaterial "
+            "at a sky material.",
+            m->path, material_kind_name(m->kind));
+    }
+    return nullptr;
+}
+
 void Renderer::Impl::material_inputs(const MeshItem& mi, MaterialAsset* mat, MaterialInputs& in) {
     pack_material_params(*mat, mi.mr->materialParams, in.params);
     for (std::size_t i = 0; i < mat->textures.size(); ++i)
@@ -1543,9 +1569,27 @@ void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
 
         // sky
         if (fr.wantWorld && fr.cam.perspective && fr.cam.clear && !fr.cam.studio) {
-            sg_apply_pipeline(gpu.sky_pipeline());
+            // SceneSettings.skyMaterial draws the sky through its own program (same vertex stage, same uniform blocks, plus the
+            // material's block and textures); anything wrong with it keeps the gradient. Reflections and the ambient light of the
+            // meshes (fa_env_sky / fa_env_horizon) always follow skyColor and horizonColor.
+            MaterialAsset* skyMat = sky_material(ss);
+            const MaterialProgram* skyProg = skyMat ? &skyMat->programs[0] : nullptr;
+            if (skyProg && !skyProg->shader.id) skyProg = nullptr;
+            MaterialInputs skyIn{};
+            sg_apply_pipeline(gpu.sky_pipeline(skyProg ? skyProg->shader : sg_shader{}));
             sg_bindings b{};
             b.vertex_buffers[0] = gpu.fullscreen_triangle();
+            if (skyProg) {
+                pack_material_params(*skyMat, ss.skyMaterialParams, skyIn.params, "skyMaterialParams of SceneSettings");
+                for (std::size_t i = 0; i < skyMat->textures.size(); ++i) {
+                    const int view = kMaterialSkyFirstView + int(i), smp = kMaterialSkyFirstSampler + int(i);
+                    if (!((skyProg->viewMask >> view) & 1u) || !((skyProg->samplerMask >> smp) & 1u)) continue;
+                    skyIn.textures[i] = material_texture(*skyMat, int(i), ss.skyMaterialParams, *assets,
+                                                         "skyMaterialParams of SceneSettings");
+                    b.views[view] = skyIn.textures[i]->gpu_view();
+                    b.samplers[smp] = gpu.sampler(skyMat->textures[i].sampler);
+                }
+            }
             sg_apply_bindings(&b);
             sky_sky_vs_params_t vu{};
             copy_mat(vu.inv_view_proj, fr.cam.invViewProj);
@@ -1562,7 +1606,20 @@ void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
             fu.horizon_color[1] = ss.horizonColor.g;
             fu.horizon_color[2] = ss.horizonColor.b;
             fu.horizon_color[3] = 1;
+            // The sun of a sky material: the directional light of slot 0 (the one that casts shadows, else the brightest), up
+            // when the scene has none. The built-in program does not read these.
+            Vec3 sun{0.0f, 1.0f, 0.0f};
+            if (!fr.cam.studio && !ctx.lights.empty()) {
+                const LightData& l = ctx.lights[0];
+                if (l.color.w == 0.0f && l.pos.w == 0.0f) sun = Vec3{l.pos.x, l.pos.y, l.pos.z};
+            }
+            fu.fa_sun[0] = sun.x;
+            fu.fa_sun[1] = sun.y;
+            fu.fa_sun[2] = sun.z;
+            fu.fa_time[0] = skyProg ? ctx.fuScene.fa_time[0] : 0.0f;
+            fu.fa_cspace[0] = fr.linear ? 1.0f : 0.0f;
             apply_uniforms(UB_sky_sky_fs_params, fu);
+            if (skyProg) apply_material_params(*skyProg, skyIn);
             sg_draw(0, 3, 1);
             ++stats.drawCalls;
         }
