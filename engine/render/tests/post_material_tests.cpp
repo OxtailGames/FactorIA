@@ -1279,7 +1279,8 @@ TEST_CASE("post history: the refused shapes are remembered up to a cap, and the 
     OwnRenderer own(g, 1);
     REQUIRE_MESSAGE(own.ok, own.error);
     Scene2d s;
-    // 32 history passes of one material (the camera's 8 and three volumes' 8 each: the most a stack takes), each its own slot.
+    // 32 history passes of one material (the camera's 8 and three volumes' 8 each: the most a stack takes), each its
+    // own slot.
     Json eight = Json::array();
     for (int i = 0; i < 8; ++i) eight.push_back(entry(kHistory, nullptr, keep(1.0, true)));
     s.post().customPasses = eight;
@@ -1290,10 +1291,10 @@ TEST_CASE("post history: the refused shapes are remembered up to a cap, and the 
     render::renderer_refuse_post_history(own.r, true);
     own.draw(s.w);
     CHECK(render::renderer_post_history_attempts(own.r) == 32);  // every slot asked once, every one refused
-    // The memory holds 16 shapes, the 16 refused last (16..31); the oldest goes first. Frame 2 plans 0..15 first: each one is asked and
-    // takes the place of the oldest, which is one of 16..31, so by the time 16..31 are planned none is left: all 32 are asked again
-    // (a first-in first-out memory over a loop longer than itself). A memory that dropped whichever key sorts first would keep
-    // most of 17..31 and ask 17, so the count tells which one is forgotten.
+    // The memory holds 16 shapes, the 16 refused last (16..31); the oldest goes first. Frame 2 plans 0..15 first: each
+    // one is asked and takes the place of the oldest, which is one of 16..31, so by the time 16..31 are planned none is
+    // left: all 32 are asked again (a first-in first-out memory over a loop longer than itself). A memory that dropped
+    // whichever key sorts first would keep most of 17..31 and ask 17, so the count tells which one is forgotten.
     own.draw(s.w);
     CHECK(render::renderer_post_history_attempts(own.r) == 64);
     own.draw(s.w);

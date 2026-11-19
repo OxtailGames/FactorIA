@@ -165,7 +165,8 @@ float strength_of(const PostProcess& c) {
 
 // Adds the customPasses of `c` to the stack when it applies with a strength of at least 0.5 (a list cannot be blended: it switches
 // like a string does). An entry that does not parse goes to `customErrors` with its JSON pointer.
-void add_custom_passes(PostStack& out, const PostProcess& c, float s, Entity entity, PostTrace* trace, int layer) {
+void add_custom_passes(PostStack& out, const World& world, const PostProcess& c, float s, Entity entity,
+                       PostTrace* trace, int layer) {
     if (s < 0.5f || !c.customPasses.is_array() || c.customPasses.empty()) return;
     if (c.customPasses.size() > std::size_t(kMaxCustomPostPasses)) {
         auto all = parse_custom_post_passes(c.customPasses, "/customPasses");  // the error that says "too many"
@@ -197,8 +198,8 @@ void add_custom_passes(PostStack& out, const PostProcess& c, float s, Entity ent
                         unparsable.push_back(rest.error());
                 }
             }
-            // The first component that hits the cap says it; the components after it (later volumes) add what they drop to that
-            // message, so every dropped entry is named once, not only those of the first one.
+            // The first component that hits the cap says it; the components after it (later volumes) add what they drop
+            // to that message, so every dropped entry is named once, not only those of the first one.
             const auto said = std::find_if(out.customErrors.begin(), out.customErrors.end(),
                                            [&](const Error& e) { return e.message.rfind(prefix, 0) == 0; });
             if (said == out.customErrors.end()) {
@@ -209,12 +210,12 @@ void add_custom_passes(PostStack& out, const PostProcess& c, float s, Entity ent
                     "passes into one material."});
                 for (Error& e : unparsable) out.customErrors.push_back(std::move(e));
             } else {
+                const std::string who = "entity '" + world.info(entity).name + "' (" + world.id_of(entity) + ")";
                 said->message += " Also not drawn: the " + std::to_string(dropped) +
-                                 (dropped == 1 ? " entry" : " entries") + " of the PostProcess of entity " +
-                                 std::to_string(entity.bits()) + " from /customPasses/" + std::to_string(i) + first +
-                                 " on.";
+                                 (dropped == 1 ? " entry" : " entries") + " of the PostProcess of " + who +
+                                 " from /customPasses/" + std::to_string(i) + first + " on.";
                 for (Error& e : unparsable) {
-                    e.message = "In the PostProcess of entity " + std::to_string(entity.bits()) + ": " + e.message;
+                    e.message = "In the PostProcess of " + who + ": " + e.message;
                     out.customErrors.push_back(std::move(e));
                 }
             }
@@ -334,7 +335,7 @@ PostStack resolve_post_stack(World& world, const CameraGeometry& cam, const Post
                 trace->layers.push_back({legacy ? PostLayer::Kind::Legacy : PostLayer::Kind::Own, cam.entity, s, 1.0f});
             }
             apply_component(out.fx, *own, s, trace, layer);
-            add_custom_passes(out, *own, s, cam.entity, trace, layer);
+            add_custom_passes(out, world, *own, s, cam.entity, trace, layer);
             ++out.sources;
         }
     }
@@ -354,7 +355,7 @@ PostStack resolve_post_stack(World& world, const CameraGeometry& cam, const Post
             trace->layers.push_back({PostLayer::Kind::Volume, v.entity, strength_of(*v.component), v.influence});
         }
         apply_component(out.fx, *v.component, v.strength, trace, layer);
-        add_custom_passes(out, *v.component, v.strength, v.entity, trace, layer);
+        add_custom_passes(out, world, *v.component, v.strength, v.entity, trace, layer);
         ++out.sources;
     }
     for (int e = 0; e < kPostEffectCount; ++e)

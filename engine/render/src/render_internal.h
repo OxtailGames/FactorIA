@@ -107,8 +107,9 @@ struct MeshExtras {
     int instanceVec4 = 0;  // vec4 of per-instance data (vertex buffer 3), 0..kMaxInstanceVec4
     bool uv1 = false;      // vertex buffer 4: TEXCOORD_1 as two floats
     bool color1 = false;   // vertex buffer 5: COLOR_1 as four normalized bytes
-    // The material has "buffers": its instances read storage buffers and the model is a uniform, so the instance attributes
-    // fa_inst_m0..3 read the mesh's own vertex buffer instead of vertex buffer 1 (Gpu: set_instance_layout), which is not bound.
+    // The material has "buffers": its instances read storage buffers and its model matrix is a uniform. Its pipelines
+    // therefore point the instance attributes fa_inst_m0..3 at the mesh's own vertex buffer instead of at vertex buffer
+    // 1, which holds one matrix only (Gpu: set_instance_layout).
     bool bufferInst = false;
     bool any() const { return instanceVec4 > 0 || uv1 || color1; }
 };
@@ -1147,6 +1148,10 @@ public:
     // Pipelines made (sg_make_pipeline), since the start.
     std::uint64_t pipelines_made() const { return pipelinesMade_; }
     std::uint64_t pipelines_evicted() const { return pipelinesEvicted_; }  // pipelines destroyed for being idle
+    // Tests: while on, a pipeline getter makes and caches nothing (it returns an empty pipeline) and keeps the vertex
+    // layout it built, which probed_layout() returns. Used to check offsets and strides without a draw.
+    void set_layout_probe(bool on) { layoutProbe_ = on; }
+    const sg_vertex_layout_state& probed_layout() const { return probedLayout_; }
     // While on, every pipeline made or asked for is kept out of the eviction (Renderer::warm_step turns it on around a group).
     void set_warming(bool on) { warming_ = on; }
     static constexpr std::size_t kPipelineCacheCap = 192;
@@ -1367,6 +1372,8 @@ private:
         bool warmed = false;         // made or asked for by the warm-up: never evicted
     };
     std::map<PipelineKey, PipelineEntry> pipelines_;
+    bool layoutProbe_ = false;
+    sg_vertex_layout_state probedLayout_{};
     std::unordered_set<std::uint32_t>
         failedComputePipelines_;      // shader ids whose compute pipeline the driver refused (one log)
     std::uint64_t pipelineTick_ = 0;  // begin_frame() calls (see "The pipeline cache")

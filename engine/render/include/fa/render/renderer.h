@@ -46,8 +46,9 @@ namespace fa {
 
 class Renderer;
 class Compute;
-// Test accessors (GPU objects, the frame graph, pool counts, history images) live in engine/render/src/renderer_test_access.h:
-// the one friend below opens Impl for the render tests; the public API has no test hooks.
+// Test accessors (GPU objects, the frame graph, pool counts, history images) live in
+// engine/render/src/renderer_test_access.h: the one friend below opens Impl for the render tests; the public API has no
+// test hooks.
 struct RendererTestAccess;
 
 // What the renderer shows instead of the game picture, to check the depth and normal prepass and the ambient occlusion

@@ -56,7 +56,8 @@ struct MaterialScope {
     }
 };
 
-// A test that plays *.vfx.json files starts and ends with an empty vfx cache, whichever way it leaves (a failed REQUIRE included).
+// A test that plays *.vfx.json files starts and ends with an empty vfx cache, whichever way it leaves (a failed REQUIRE
+// included).
 struct VfxCacheScope {
     VfxCacheScope() { clear_vfx_cache(); }
     ~VfxCacheScope() { clear_vfx_cache(); }
