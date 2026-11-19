@@ -58,7 +58,7 @@ bool Editor::entity_copy() {
                2);
         return false;
     }
-    sapp_set_clipboard_string(text.c_str());
+    clipboard_set_text(text.c_str());
     return true;
 }
 
@@ -71,7 +71,7 @@ void Editor::entity_cut() {
 
 void Editor::entity_paste() {
     if (!engine_) return;
-    const char* clip = clipboard_has_text() ? sapp_get_clipboard_string() : nullptr;
+    const char* clip = clipboard_has_text() ? clipboard_get_text() : nullptr;
     const std::string text = clip ? clip : "";
     if (text.empty()) {
         notify("Nothing to paste: copy some entities first (Ctrl+C in the Hierarchy or the Viewport).", 1);

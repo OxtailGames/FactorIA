@@ -6,6 +6,13 @@ Older versions, one file per minor version with its patch releases: [0.30](chang
 
 ## Unreleased
 
+- **Scene, Inspector and validation polish (M72):** `factoria validate` refuses a material path with a backslash, an absolute
+  path or `..` the same way on every OS (the error names the JSON pointer and the form to write), and checks that
+  `SceneSettings.skyMaterial` is a material of kind `sky` (the error names the kind it found and lists the project's sky
+  materials). The Inspector's material params keep one edit and one error per component, so two components of one entity with
+  a param of the same name no longer share them. Undo of two edits of one block of material params made within a moment redoes
+  both. The editor's Viewport draws the sky as the game does (docs/EDITOR.md says so). The editor autotest copies and pastes
+  through a clipboard of its own, so other programs using the system clipboard cannot fail it.
 - **Compute buffers (polish):** `compute.read_buffer` and `compute.write_buffer` also refuse a call of more than 4194304
   numbers (elements times the components of their fields) and say how many elements fit and to go on in chunks with
   `first`/`count`; floats read back are the same in every C locale.

@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <utility>
 
 namespace fa::editor {
 
@@ -18,8 +19,7 @@ const std::vector<GroupSpec>& group_specs() {
     static const std::vector<GroupSpec> specs = {
         {"Sky",
          "What a 3D camera paints behind the scene: a two-colour gradient, or a sky material (a *.material.json of "
-         "kind "
-         "\"sky\") with its own params. Reflections and the ambient light always follow the two colours.",
+         "kind \"sky\") with its own params.",
          {"skyColor", "horizonColor", "skyMaterial", "skyMaterialParams"}},
         {"Fog", "Distance fog: its colour and how fast it thickens (0 = no fog).", {"fogColor", "fogDensity"}},
         {"Lighting",

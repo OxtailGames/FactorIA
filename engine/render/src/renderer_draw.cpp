@@ -1751,7 +1751,8 @@ void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
         // clear of a camera that shares the target with others
         if (clearByQuad) draw_group(ctx, gClear.batches, Mat4::ortho(0, 1, 1, 0, -1.0f, 1.0f, z01), false, camPx);
 
-        // sky
+        // sky. Not for a studio camera (Camera.lighting = studio paints its clearColor). The editor's Viewport has no camera of
+        // its own: it shows what the scene's cameras draw, so it draws the sky exactly when the game does.
         if (fr.wantWorld && fr.cam.perspective && fr.cam.clear && !fr.cam.studio) {
             // SceneSettings.skyMaterial draws the sky through its own program (same vertex stage, same uniform blocks, plus the
             // material's block and textures); anything wrong with it keeps the gradient. Reflections and the ambient light of the
