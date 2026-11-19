@@ -40,8 +40,8 @@ TEST_CASE("validate: a material field names an existing *.material.json, with th
     REQUIRE(save_scene_json_file((dir / "scenes/main.scene.json").string(), *scene).ok());
 
     const ValidationReport r = validate_project(dir.string());
-    CHECK(find_error(r, "/entities/0/components/Sprite/material") == nullptr);
-    const std::size_t base = (*scene)["entities"].size() - 4;
+    const std::size_t base = (*scene)["entities"].size() - 4;  // the entities the test added come after the template's
+    CHECK(find_error(r, "/entities/" + std::to_string(base) + "/components/Sprite/material") == nullptr);
     const ValidationIssue* typo =
         find_error(r, "/entities/" + std::to_string(base + 1) + "/components/Sprite/material");
     REQUIRE(typo != nullptr);
@@ -55,4 +55,58 @@ TEST_CASE("validate: a material field names an existing *.material.json, with th
     const ValidationIssue* sky = find_error(r, "/settings/skyMaterial");
     REQUIRE(sky != nullptr);
     CHECK(sky->hint.find("materials/wave.material.json") != std::string::npos);
+}
+
+TEST_CASE("validate: a material path with a backslash, an absolute path or '..' is refused the same way on every OS") {
+    testing::TempDir tmp;
+    REQUIRE(create_project(tmp.sub("game"), "2d-empty").ok());
+    const stdfs::path dir = tmp.path / "game";
+    testing::write_all(dir / "materials/wave.material.json", "{}");
+
+    auto scene = load_json_file((dir / "scenes/main.scene.json").string());
+    REQUIRE(scene.ok());
+    const std::size_t base = (*scene)["entities"].size();
+    const char* paths[] = {"materials\\wave.material.json", "/materials/wave.material.json",
+                           "C:/game/materials/wave.material.json", "materials/../materials/wave.material.json"};
+    const char* shapes[] = {"uses a backslash", "is an absolute path", "is an absolute path", "leaves the project"};
+    for (std::size_t i = 0; i < 4; ++i)
+        (*scene)["entities"].push_back(
+            Json::object({{"id", "m" + std::to_string(i)},
+                          {"components", Json::object({{"Sprite", Json::object({{"material", paths[i]}})}})}}));
+    REQUIRE(save_scene_json_file((dir / "scenes/main.scene.json").string(), *scene).ok());
+
+    const ValidationReport r = validate_project(dir.string());
+    for (std::size_t i = 0; i < 4; ++i) {
+        const ValidationIssue* e =
+            find_error(r, "/entities/" + std::to_string(base + i) + "/components/Sprite/material");
+        INFO(paths[i]);
+        REQUIRE(e != nullptr);
+        CHECK(e->message.find(shapes[i]) != std::string::npos);
+        CHECK(e->hint.find("forward slashes") != std::string::npos);
+        CHECK(e->hint.find("materials/wave.material.json") != std::string::npos);
+    }
+}
+
+TEST_CASE("validate: SceneSettings.skyMaterial must be a material of kind sky") {
+    testing::TempDir tmp;
+    REQUIRE(create_project(tmp.sub("game"), "2d-empty").ok());
+    const stdfs::path dir = tmp.path / "game";
+    testing::write_all(dir / "materials/rock.material.json", R"({"kind": "mesh"})");
+    testing::write_all(dir / "materials/dusk.material.json", R"({"kind": "sky"})");
+
+    auto scene = load_json_file((dir / "scenes/main.scene.json").string());
+    REQUIRE(scene.ok());
+    (*scene)["settings"] = Json::parse(R"({"skyMaterial": "materials/rock.material.json"})");
+    REQUIRE(save_scene_json_file((dir / "scenes/main.scene.json").string(), *scene).ok());
+    ValidationReport r = validate_project(dir.string());
+    const ValidationIssue* wrong = find_error(r, "/settings/skyMaterial");
+    REQUIRE(wrong != nullptr);
+    CHECK(wrong->message.find("kind \"mesh\"") != std::string::npos);
+    CHECK(wrong->message.find("needs kind \"sky\"") != std::string::npos);
+    CHECK(wrong->hint.find("materials/dusk.material.json") != std::string::npos);
+
+    (*scene)["settings"] = Json::parse(R"({"skyMaterial": "materials/dusk.material.json"})");
+    REQUIRE(save_scene_json_file((dir / "scenes/main.scene.json").string(), *scene).ok());
+    r = validate_project(dir.string());
+    CHECK(find_error(r, "/settings/skyMaterial") == nullptr);
 }

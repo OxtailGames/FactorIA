@@ -113,6 +113,33 @@ struct RootGuard {
     ~RootGuard() { fs::set_project_root(saved); }
 };
 
+// What is wrong with the shape of a material path ("" = nothing): the same answer on every OS, whatever the host's own path
+// rules say (a backslash separates folders on Windows only, "C:/x" is absolute there only). A material is a project-relative
+// path with forward slashes that stays inside the project.
+std::string material_path_shape_problem(const std::string& path) {
+    if (path.find('\\') != std::string::npos) return "uses a backslash";
+    const bool drive = path.size() >= 2 && path[1] == ':' && std::isalpha(static_cast<unsigned char>(path[0]));
+    if (path[0] == '/' || path[0] == '~' || drive) return "is an absolute path";
+    for (std::size_t start = 0; start <= path.size();) {
+        std::size_t end = path.find('/', start);
+        if (end == std::string::npos) end = path.size();
+        if (path.compare(start, end - start, "..") == 0) return "leaves the project with '..'";
+        start = end + 1;
+    }
+    return {};
+}
+
+// The "kind" of a *.material.json ("mesh" when it names none); "" when the file cannot be read as a JSON object.
+std::string material_kind_of_file(const std::string& dir, const std::string& rel) {
+    auto text = tooling_detail::read_file(stdfs::path(dir) / rel);
+    if (!text) return {};
+    auto parsed = parse_json(*text, rel);
+    if (!parsed.ok() || !parsed->is_object()) return {};
+    const auto kind = parsed->find("kind");
+    if (kind == parsed->end()) return "mesh";
+    return kind->is_string() ? kind->get<std::string>() : std::string();
+}
+
 void check_asset_value(Ctx& c, const std::string& file, const std::string& pointer, const FieldInfo& f,
                        const Json& value) {
     if (!value.is_string()) return;
@@ -152,6 +179,17 @@ void check_asset_value(Ctx& c, const std::string& file, const std::string& point
                     builtin_font_list() + "; or use a .ttf path inside the project, e.g. assets/fonts/MyFont.ttf.");
         return;
     }
+    if (f.assetType == "material") {
+        if (const std::string shape = material_path_shape_problem(path); !shape.empty()) {
+            std::string fixed = path;
+            std::replace(fixed.begin(), fixed.end(), '\\', '/');
+            const std::string m = closest_match(fixed, find_material_files(c.dir));
+            c.error(file, pointer, "The material path '" + path + "' " + shape + ".",
+                    "Write the path relative to the project, with forward slashes, inside the project: " +
+                        (m.empty() ? std::string("\"materials/wave.material.json\"") : "'" + m + "'") + ".");
+            return;
+        }
+    }
     // A material field (MeshRenderer.material, Sprite.material, SceneSettings.skyMaterial...) names a *.material.json:
     // anything else, or a file that is not there, is answered with the project's materials.
     if (f.assetType == "material" && (!path.ends_with(".material.json") || !stdfs::exists(stdfs::path(c.dir) / path))) {
@@ -172,6 +210,28 @@ void check_asset_value(Ctx& c, const std::string& file, const std::string& point
                     : "Material '" + path + "' does not exist.",
                 hint);
         return;
+    }
+    // The sky of a scene is drawn by a material of kind "sky": any other kind is ignored at run time (the gradient is
+    // drawn), which looks like a bug in the shader. A material that cannot be read is validate_materials' to report.
+    if (f.assetType == "material" && f.name == "skyMaterial") {
+        const std::string kind = material_kind_of_file(c.dir, path);
+        if (!kind.empty() && kind != "sky") {
+            std::vector<std::string> skies;
+            for (const std::string& m : find_material_files(c.dir))
+                if (material_kind_of_file(c.dir, m) == "sky") skies.push_back(m);
+            c.error(file, pointer,
+                    "Material '" + path + "' is of kind \"" + kind +
+                        "\", but SceneSettings.skyMaterial needs kind \"sky\": the built-in sky gradient is drawn "
+                        "instead.",
+                    (skies.empty()
+                         ? std::string("The project has no sky material yet: ")
+                         : "The project's sky materials are " +
+                               join(std::vector<std::string>(skies.begin(),
+                                                             skies.begin() + std::min<std::size_t>(skies.size(), 6)),
+                                    ", ") +
+                               (skies.size() > 6 ? ", ..." : "") + ". Or ") +
+                        "set \"kind\": \"sky\" in " + path + " (docs/SHADERS.md, \"Sky materials\").");
+        }
     }
     if (!stdfs::exists(stdfs::path(c.dir) / path)) {
         // Suggest a similar file in the same folder.
