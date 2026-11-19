@@ -418,6 +418,10 @@ constexpr int kMaterialVsFirstView = kMaterialFirstView + kMaxMaterialTextures,
 constexpr int kMaterialEnvView = kMaterialVsFirstView + kMaxMaterialTextures,
               kMaterialEnvIrrView = kMaterialEnvView + 1,
               kMaterialEnvSampler = kMaterialVsFirstSampler + kMaxMaterialTextures;
+// The read-only storage buffers of a mesh material (fa/tooling/shaders.h kMeshBufferFirstView; M72.4): the vertex stage reads buffer i at
+// view kMeshBufferFirstView + i, the fragment stage at kMeshBufferFirstView + <buffer count> + i. Such a material takes the model
+// matrix of its entity from the vertex uniform block kMeshInstanceBaseUniform (one entity draws many GPU instances).
+constexpr int kMaxMeshBuffers = 4, kMeshBufferFirstView = 16, kMeshInstanceBaseUniform = 6;
 // A sprite material's textures are bound twice as well: the fragment stage reads texture i at kMaterialSpriteFirstView + i, the vertex
 // stage (vertex() may sample it, as fa_vs_<name>) at kMaterialSpriteVsFirstView + i, the samplers likewise.
 constexpr int kMaterialSpriteVsFirstView = kMaterialSpriteFirstView + kMaxMaterialTextures,
@@ -791,6 +795,12 @@ public:
     // is resized, so a pointer taken in a frame stays valid for that frame.
     using ComputeImageResolver = std::function<TextureAsset*(const std::string& id, std::string* why)>;
     void set_compute_image_resolver(ComputeImageResolver r) { computeResolver_ = std::move(r); }
+    // Whether this graphics backend reads storage buffers in a drawing program (the "buffers" of a mesh material; Metal, D3D11 and
+    // OpenGL 4.3 do, GLES3, WebGL2 and macOS OpenGL 4.1 do not). Without a gate the real GPU answers; Compute registers one so a
+    // test can answer as another backend. False: `*backend` is its name and `*reason` says why not.
+    using StorageBufferGate = std::function<bool(std::string* backend, std::string* reason)>;
+    void set_storage_buffer_gate(StorageBufferGate g) { bufferGate_ = std::move(g); }
+    bool storage_buffers_available(std::string* backend, std::string* reason) const;
     static bool is_compute_id(const std::string& path) { return path.rfind("compute:", 0) == 0; }
     // True while Renderer::render() runs: only then does a target id nobody renders into count as a failure (a query made
     // before the first frame, such as an entity's bounds, only gets the checker).
@@ -931,6 +941,7 @@ private:
     std::unique_ptr<TextureAsset> placeholderTex_;
     TargetResolver targetResolver_;
     ComputeImageResolver computeResolver_;
+    StorageBufferGate bufferGate_;
     bool drawing_ = false;
     std::unique_ptr<MeshAsset> placeholderMesh_;
     std::vector<Failure> failures_;

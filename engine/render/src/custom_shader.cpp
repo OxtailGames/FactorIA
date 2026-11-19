@@ -8,6 +8,7 @@
 #include "fa/core/fs.h"
 #include "fa/core/log.h"
 #include "fa/core/strings.h"
+#include "render_features.h"
 #include "render_internal.h"
 #include "shader_cache.h"
 
@@ -45,6 +46,13 @@ std::string mesh_full_template_hash() { return FA_TEMPLATE_HASH_MESH_FULL; }
 }  // namespace fa
 
 namespace fa::render {
+
+bool Assets::storage_buffers_available(std::string* backend, std::string* reason) const {
+    if (bufferGate_) return bufferGate_(backend, reason);
+    const FeatureEnv env = feature_env_from_sokol();
+    if (backend) *backend = feature_backend_label(env.backend);
+    return feature_supported(env, find_feature("computeShaders"), reason);
+}
 
 std::string backend_dialect(sg_backend backend) {
     switch (backend) {
@@ -210,13 +218,14 @@ Result<sg_shader_desc> material_shader_desc(const std::string& label, const Json
         out.ubSize[slot] = ub.size;
     }
     for (const Json& v : list_of(*refl, "views")) {
-        if (auto sb = v.find("storage_buffer"); cs && sb != v.end() && sb->is_object()) {
+        if (auto sb = v.find("storage_buffer"); sb != v.end() && sb->is_object()) {
             const int slot = int_or(*sb, "slot", -1);
             if (slot < 0 || slot >= SG_MAX_VIEW_BINDSLOTS)
                 return bad("a storage buffer slot outside 0.." + std::to_string(SG_MAX_VIEW_BINDSLOTS - 1));
             sg_shader_storage_buffer_view& bv = desc.views[slot].storage_buffer;
-            bv.stage = SG_SHADERSTAGE_COMPUTE;
+            bv.stage = cs ? SG_SHADERSTAGE_COMPUTE : stage_of(*sb);  // a mesh material reads them in both stages
             bv.readonly = sb->find("readonly") != sb->end() && sb->at("readonly") == true;
+            if (!cs && !bv.readonly) return bad("a storage buffer of a drawing program must be readonly");
             bv.hlsl_register_t_n = std::uint8_t(int_or(*sb, "hlsl_register_t_n"));
             bv.hlsl_register_u_n = std::uint8_t(int_or(*sb, "hlsl_register_u_n"));
             bv.msl_buffer_n = std::uint8_t(int_or(*sb, "msl_buffer_n"));
@@ -248,7 +257,7 @@ Result<sg_shader_desc> material_shader_desc(const std::string& label, const Json
         auto t = v.find("texture");
         if (t == v.end() || !t->is_object())
             return bad("a view that is neither a texture nor a storage buffer or image" +
-                       std::string(cs ? "" : " (storage buffers and images only in a compute program)"));
+                       std::string(cs ? "" : " (storage images only in a compute program)"));
         const int slot = int_or(*t, "slot", -1);
         if (slot < 0 || slot >= SG_MAX_VIEW_BINDSLOTS)
             return bad("a texture slot outside 0.." + std::to_string(SG_MAX_VIEW_BINDSLOTS - 1));
@@ -354,6 +363,7 @@ void pack_material_params(MaterialAsset& m, const Json& overrides, float out[kMa
         for (const auto& p : m.params) names.push_back(p.name);
         for (const auto& p : m.instanced) names.push_back(p.name);
         for (const auto& t : m.textures) names.push_back(t.name);
+        for (const auto& b : m.buffers) names.push_back(b.name);  // a mesh material's buffer: the compute buffer id
         for (auto it = overrides.begin(); it != overrides.end(); ++it)
             if (std::find(names.begin(), names.end(), it.key()) == names.end() && m.warned.insert(it.key()).second)
                 FA_WARN("render", "{}.{} of {} using '{}' is not a param or texture of that material. {}", field,
@@ -415,15 +425,17 @@ Result<void> read_compute_twin(const std::string& path, const Json& twin, std::s
         return true;
     };
     std::int64_t n = 0;
-    auto wg = twin.find("workgroupSize");
-    if (wg == twin.end() || !wg->is_array() || wg->size() != 3) return bad("it has no \"workgroupSize\" [x, y, z]");
-    std::int64_t product = 1;
-    for (std::size_t i = 0; i < 3; ++i) {
-        if (!whole((*wg)[i], 1, 256, n)) return bad("\"workgroupSize\" holds a number outside 1..256");
-        workgroup[i] = int(n);
-        product *= n;
+    if (workgroup) {  // a mesh material has buffers but no threads
+        auto wg = twin.find("workgroupSize");
+        if (wg == twin.end() || !wg->is_array() || wg->size() != 3) return bad("it has no \"workgroupSize\" [x, y, z]");
+        std::int64_t product = 1;
+        for (std::size_t i = 0; i < 3; ++i) {
+            if (!whole((*wg)[i], 1, 256, n)) return bad("\"workgroupSize\" holds a number outside 1..256");
+            workgroup[i] = int(n);
+            product *= n;
+        }
+        if (product > 256) return bad("\"workgroupSize\" asks for more than 256 threads in a group");
     }
-    if (product > 256) return bad("\"workgroupSize\" asks for more than 256 threads in a group");
 
     auto list = twin.find("buffers");
     if (list == twin.end() || !list->is_array()) return bad("it has no \"buffers\" list");
@@ -548,6 +560,22 @@ Result<void> Assets::build_material_checked(MaterialAsset& m) {
         m.lighting = lighting;
         m.alphaMode = alphaMode;
         m.doubleSided = doubleSided;
+    }
+    if (kind == MaterialKind::Mesh && doc->contains("buffers") && !(*doc)["buffers"].empty()) {
+        // A mesh material that reads storage buffers (M72.4): refused at load on a backend that cannot, with the name of the
+        // backend and the CPU path, like a compute material.
+        std::string backend, reason;
+        if (!storage_buffers_available(&backend, &reason))
+            return make_error(
+                "the material '" + m.path +
+                    "' reads storage buffers (\"buffers\", /buffers in the material), but the " + backend +
+                    " graphics backend cannot read them in a vertex shader: " + reason,
+                "Storage buffers in a mesh material run on Windows (D3D11), macOS and iOS (Metal) and Linux (OpenGL "
+                "4.3 or "
+                "newer), not on Android (GLES3), the web (WebGL2) or macOS OpenGL (4.1). Ask `render.supports` "
+                "{\"feature\":\"computeShaders\"} first, and on this backend use the CPU path: write the instances as "
+                "entities (or as \"instanced\" params of a material without buffers) from a script "
+                "(docs/shaders/SHADERS_COMPUTE.md, \"Drawing from a compute buffer\").");
     }
     // The twin: from the compiler of the editor / `factoria`, else from the file an export wrote.
     const std::string dialect = backend_dialect(sg_query_backend());
@@ -686,6 +714,16 @@ Result<void> Assets::build_material_checked(MaterialAsset& m) {
     std::vector<MaterialBufferDef> buffers;
     std::vector<MaterialImageDef> images;
     int workgroup[3] = {64, 1, 1};
+    if (kind == MaterialKind::Mesh && twin.contains("buffers")) {
+        auto read = read_compute_twin(m.path, twin, textures.size(), nullptr, buffers, images);
+        if (!read.ok()) return read.error();
+        if (buffers.size() > std::size_t(kMaxMeshBuffers))
+            return make_error("the shader of material '" + m.path + "' has " + std::to_string(buffers.size()) +
+                                  " buffers, at most " + std::to_string(kMaxMeshBuffers) +
+                                  " are read by a mesh material",
+                              kReexportHint);
+        images.clear();
+    }
     if (kind == MaterialKind::Compute) {
         auto compute = read_compute_twin(m.path, twin, textures.size(), workgroup, buffers, images);
         if (!compute.ok()) return compute.error();

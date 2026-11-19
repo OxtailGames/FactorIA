@@ -343,13 +343,58 @@ void parse_images(const Json& doc, MaterialDef& m, std::vector<MaterialIssue>& e
 
 }  // namespace
 
+namespace {
+
+// The storage buffers of a "mesh" material (M72.4): the same shapes as a compute material's, but read-only (the draw reads
+// them; a compute material writes them) and bound by the MeshRenderer, not by a dispatch.
+void parse_mesh_buffers(const Json& doc, MaterialDef& m, std::vector<MaterialIssue>& errors,
+                        std::set<std::string>& taken, const CheckName& checkName) {
+    parse_buffers(doc, m, errors, taken, checkName);
+    if (const auto bs = doc.find("buffers"); bs != doc.end() && bs->is_object())
+        for (auto it = bs->begin(); it != bs->end(); ++it) {
+            if (!it.value().is_object()) continue;
+            const auto a = it.value().find("access");
+            if (a != it.value().end() && a->is_string() && a->get<std::string>() == "readWrite")
+                error(errors, "/buffers/" + escape_token(it.key()) + "/access",
+                      "a mesh material reads its buffers only: \"readWrite\" belongs to compute materials",
+                      "Remove \"access\" or write \"read\"; the buffer is written by a compute material "
+                      "(`compute.dispatch`) and this material reads it in vertex() and surface().");
+        }
+    std::sort(m.buffers.begin(), m.buffers.end(),
+              [](const MaterialBuffer& a, const MaterialBuffer& b) { return a.name < b.name; });
+    for (std::size_t i = 0; i < m.buffers.size(); ++i) {
+        m.buffers[i].access = "read";
+        m.buffers[i].binding = int(i);
+    }
+    if (!m.buffers.empty())
+        for (const MaterialParam& p : m.params)
+            if (p.instanced) {
+                error(errors, "/params/" + escape_token(p.name) + "/instanced",
+                      "\"instanced\" params and \"buffers\" cannot be in one material: a material with buffers draws "
+                      "one entity as MeshRenderer.instances GPU instances, whose own data is in the buffers",
+                      "Remove \"instanced\": true (the param is then one value for the whole entity), or move the "
+                      "per-instance value into a buffer field.");
+                break;
+            }
+}
+
+}  // namespace
+
 void parse_compute_fields(const Json& doc, MaterialDef& m, std::vector<MaterialIssue>& errors,
                           std::set<std::string>& taken, const CheckName& checkName) {
     if (m.kind != "compute") {
-        for (const char* key : {"workgroupSize", "buffers", "images"})
+        for (const char* key : {"workgroupSize", "images"})
             if (doc.contains(key))
                 error(errors, std::string("/") + key, std::string("\"") + key + "\" belongs to compute materials",
                       "Add \"kind\": \"compute\", or remove \"" + std::string(key) + "\".");
+        if (!doc.contains("buffers")) return;
+        if (m.kind != "mesh") {
+            error(errors, "/buffers", "\"buffers\" belongs to compute materials and to mesh materials",
+                  "Add \"kind\": \"compute\" (a buffer the compute.dispatch command fills) or \"kind\": \"mesh\" (a "
+                  "read-only buffer a MeshRenderer draws from), or remove \"buffers\".");
+            return;
+        }
+        parse_mesh_buffers(doc, m, errors, taken, checkName);
         return;
     }
     for (const char* key : {"lighting", "alphaMode", "doubleSided"})
@@ -401,15 +446,15 @@ Json compute_twin_fields(const MaterialDef& m) {
 
 }  // namespace shaders_detail
 
-std::vector<std::string> shader_dialects_of_kind(const std::string& kind) {
+std::vector<std::string> shader_dialects_of_kind(const std::string& kind, bool storageBuffers) {
     std::vector<std::string> out = shader_dialects();
-    if (kind == "compute") std::erase(out, "glsl300es");
+    if (kind == "compute" || storageBuffers) std::erase(out, "glsl300es");
     return out;
 }
 
-std::vector<std::string> shader_platforms_of_kind(const std::string& kind) {
+std::vector<std::string> shader_platforms_of_kind(const std::string& kind, bool storageBuffers) {
     std::vector<std::string> out = shader_platforms();
-    if (kind == "compute") {
+    if (kind == "compute" || storageBuffers) {
         std::erase(out, "android");
         std::erase(out, "web");
     }

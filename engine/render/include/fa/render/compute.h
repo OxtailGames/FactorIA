@@ -112,6 +112,7 @@ public:
 
     struct State;
     friend struct ComputeTestAccess;  // tests (src/compute_internal.h)
+    friend struct ComputeDrawAccess;  // the mesh draw of a material with buffers (src/mesh_buffer_draw.cpp)
 
 private:
     std::unique_ptr<State> s_;

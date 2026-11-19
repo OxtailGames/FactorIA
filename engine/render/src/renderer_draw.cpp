@@ -1,5 +1,6 @@
 // Renderer::Impl, part 3: draw_view_job and draw_job, the passes of one frame's jobs.
 #include "color_space.h"
+#include "mesh_buffer_draw.h"
 #include "renderer_impl.h"
 
 #include <algorithm>
@@ -709,6 +710,7 @@ void Renderer::Impl::gather_meshes(DrawContext& ctx) {
         mi.bmin = sm.bmin;
         mi.bmax = sm.bmax;
         mi.paramsHash = sm.paramsHash;
+        mi.noCull = sm.noCull;
         mi.colorsHash = sm.colorsHash;
         mi.sortKey = sm.sortKey;
         mi.keyed = sm.keyed;
@@ -737,7 +739,7 @@ void Renderer::Impl::gather_meshes(DrawContext& ctx) {
     rjobs::run("render.mesh_frustum", meshSplit, [&](const jobs::Chunk& c) {
         for (std::size_t i = c.begin; i < c.end; ++i) {
             MeshItem& mi = meshes[i];
-            mi.visible = box_in_frustum(fr.cam.viewProj, z01, mi.bmin, mi.bmax, mi.model);
+            mi.visible = mi.noCull || box_in_frustum(fr.cam.viewProj, z01, mi.bmin, mi.bmax, mi.model);
         }
     });
     for (std::size_t i = 0; i < meshes.size(); ++i) (meshBlended[i] ? blended : opaque).push_back(meshes[i]);
@@ -899,8 +901,8 @@ void Renderer::Impl::cull_and_batch(DrawContext& ctx) {
                        [&](const jobs::Chunk& ch) {
                            for (std::size_t i = ch.begin; i < ch.end; ++i) {
                                MeshItem& mi = (*list)[i];
-                               mi.casts =
-                                   mi.mr->castShadows && box_in_frustum(lightVP, z01, mi.bmin, mi.bmax, mi.model);
+                               mi.casts = mi.mr->castShadows &&
+                                          (mi.noCull || box_in_frustum(lightVP, z01, mi.bmin, mi.bmax, mi.model));
                            }
                        });
         for (auto& mi : *list) {
@@ -1462,13 +1464,16 @@ void Renderer::Impl::shadow_pass(DrawContext& ctx) {
             MaterialInputs inputs{};
             if (mat && (mat->programs[kProgShadow].shader.id || mat->programs[kProgShadowSkin].shader.id))
                 material_inputs(rep, mat, inputs);
-            if (mat && mat->full && mat->shadow == FullShadow::None) continue;  // casts no shadow
+            if (mat && mat->full && mat->shadow == FullShadow::None) continue;      // casts no shadow
+            const MeshBufferUse mbu = resolve_mesh_buffers(*assets, compute, rep);  // mesh_buffer_draw.h
+            if (mbu.skip) continue;
             for (auto& p : rep.mesh->parts) {
                 const bool skinned = rep.anim && p.skinVb.id;
                 const PartDraw pd = part_draw(ctx, rep, p);
                 const MaterialProgram* prog =
                     pd.mat ? &mat->programs[skinned ? kProgShadowSkin : kProgShadow] : nullptr;
                 if (prog && !prog->shader.id) prog = nullptr;
+                if (mbu.active && !prog) continue;  // the engine's shadow program cannot place what the buffers place
                 sg_apply_pipeline(prog ? gpu.shadow_pipeline(skinned, prog->shader, true, mat->extras())
                                        : gpu.shadow_pipeline(skinned));
                 sg_bindings b{};
@@ -1480,7 +1485,9 @@ void Renderer::Impl::shadow_pass(DrawContext& ctx) {
                 b.index_buffer = p.ib;
                 b.index_buffer_offset = p.ibOffset;
                 if (prog) bind_textures(ctx, b, pd, prog, inputs, true);
+                if (mbu.active) bind_mesh_buffers(b, mbu, *prog);
                 sg_apply_bindings(&b);
+                if (mbu.active) apply_mesh_base_model(*prog, rep.model);
                 if (declares(prog, UB_mesh_fa_mesh_vs_params)) apply_uniforms(UB_mesh_fa_mesh_vs_params, u);
                 if (skinned && declares(prog, UB_mesh_fa_skin))
                     apply_uniforms(UB_mesh_fa_skin, pack_palette(palette_of(*rep.anim, p.skin)));
@@ -1490,7 +1497,7 @@ void Renderer::Impl::shadow_pass(DrawContext& ctx) {
                     if (prog->has_ub(UB_mesh_fa_lights)) apply_uniforms(UB_mesh_fa_lights, lightUniforms);
                     apply_material_params(*prog, inputs);
                 }
-                sg_draw(0, p.indexCount, int(batch.shadowCount));
+                sg_draw(0, p.indexCount, mbu.active ? mbu.instances : int(batch.shadowCount));
                 ++stats.drawCalls;
             }
         }
@@ -1620,12 +1627,15 @@ void Renderer::Impl::prepass_pass(DrawContext& ctx, const Target& t) {
         if (mat && (mat->programs[kProgPrepass].shader.id || mat->programs[kProgPrepassSkin].shader.id))
             material_inputs(mi, mat, inputs);
         if (mat && mat->full && !mat->prepass) continue;  // a full shader that keeps out of the depth and normal image
+        const MeshBufferUse mbu = resolve_mesh_buffers(*assets, compute, mi);
+        if (mbu.skip) continue;
         for (const SubMesh& part : mi.mesh->parts) {
             const bool skinned = mi.anim && part.skinVb.id;
             const PartDraw pd0 = part_draw(ctx, mi, part);
             const MaterialProgram* custom =
                 pd0.mat ? &mat->programs[skinned ? kProgPrepassSkin : kProgPrepass] : nullptr;
             if (custom && !custom->shader.id) custom = nullptr;  // a twin made before the prepass: the engine's program
+            if (mbu.active && !custom) continue;  // the engine's program cannot place what the buffers place
             const MaterialProgram* prog = custom ? custom : &gpu.prepass_program(skinned);
             PartDraw bind = pd0;
             if (!custom) bind.mat = nullptr;  // the engine's program has no material textures
@@ -1641,7 +1651,9 @@ void Renderer::Impl::prepass_pass(DrawContext& ctx, const Target& t) {
             b.index_buffer = part.ib;
             b.index_buffer_offset = part.ibOffset;
             bind_textures(ctx, b, bind, prog, inputs, true);
+            if (mbu.active) bind_mesh_buffers(b, mbu, *prog);
             sg_apply_bindings(&b);
+            if (mbu.active) apply_mesh_base_model(*prog, mi.model);
             apply_uniforms(UB_mesh_fa_mesh_vs_params, vu);
             if (skinned && prog->has_ub(UB_mesh_fa_skin))
                 apply_uniforms(UB_mesh_fa_skin, pack_palette(palette_of(*mi.anim, part.skin)));
@@ -1649,7 +1661,7 @@ void Renderer::Impl::prepass_pass(DrawContext& ctx, const Target& t) {
                 apply_uniforms(UB_mesh_fa_mesh_fs_params, fill_fs(ctx, mi, part, pd0));
             if (prog->has_ub(UB_mesh_fa_lights)) apply_uniforms(UB_mesh_fa_lights, ctx.lightUniforms);
             apply_material_params(*prog, inputs);
-            sg_draw(0, part.indexCount, int(batch.mainCount));
+            sg_draw(0, part.indexCount, mbu.active ? mbu.instances : int(batch.mainCount));
             ++stats.drawCalls;
         }
     }
@@ -1961,6 +1973,8 @@ void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
                                                     mi.material->path) == stats.materialFallbacks.end()) {
                     stats.materialFallbacks.push_back(mi.material->path);
                 }
+                const MeshBufferUse mbu = resolve_mesh_buffers(*assets, compute, mi);  // mesh_buffer_draw.h
+                if (mbu.skip) continue;
                 for (auto& part : mi.mesh->parts) {
                     const bool skinned = mi.anim && part.skinVb.id;
                     const PartDraw pd = part_draw(ctx, mi, part);
@@ -1970,7 +1984,8 @@ void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
                         stats.materialFallbacks.push_back(
                             mi.material->path);  // built, but this mesh lacks a declared channel
                     // A full-shader material draws the part once per pass, in order, each with its own program and state.
-                    const int passCount = pd.mat && pd.mat->full ? int(pd.mat->passes.size()) : 1;
+                    const int passCount =
+                        pd.mat && pd.mat->full ? int(pd.mat->passes.size()) : (mbu.active && !pd.mat ? 0 : 1);
                     for (int pass = 0; pass < passCount; ++pass) {
                         const MaterialProgram* prog =
                             pd.mat ? &pd.mat->programs[pass_program_slot(pass, skinned)] : nullptr;
@@ -1990,7 +2005,9 @@ void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
                         b.index_buffer = part.ib;
                         b.index_buffer_offset = part.ibOffset;
                         bind_textures(ctx, b, pd, prog, inputs, false);
+                        if (mbu.active && prog) bind_mesh_buffers(b, mbu, *prog);
                         sg_apply_bindings(&b);
+                        if (mbu.active && prog) apply_mesh_base_model(*prog, mi.model);
                         // A full shader declares only the blocks it reads (the compiler drops an unused one).
                         if (declares(prog, UB_mesh_fa_mesh_vs_params)) apply_uniforms(UB_mesh_fa_mesh_vs_params, vu);
                         if (skinned && declares(prog, UB_mesh_fa_skin))
@@ -1999,10 +2016,10 @@ void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
                             apply_uniforms(UB_mesh_fa_mesh_fs_params, fill_fs(ctx, mi, part, pd, isBlend));
                         if (declares(prog, UB_mesh_fa_lights)) apply_uniforms(UB_mesh_fa_lights, lightUniforms);
                         if (prog) apply_material_params(*prog, inputs);
-                        sg_draw(0, part.indexCount, int(batch.mainCount));
+                        sg_draw(0, part.indexCount, mbu.active ? mbu.instances : int(batch.mainCount));
                         ++stats.drawCalls;
                     }
-                    stats.triangles += part.indexCount / 3 * int(batch.mainCount);
+                    stats.triangles += part.indexCount / 3 * (mbu.active ? mbu.instances : int(batch.mainCount));
                 }
                 stats.meshes += int(batch.mainCount);
                 ++stats.meshBatches;

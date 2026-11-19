@@ -78,8 +78,17 @@ inline constexpr int kMaterialSpriteVsFirstView = kMaterialSpriteFirstView + kMa
 // A sky material's textures (kind "sky") are fragment-stage only too, and the sky program binds no texture of its own,
 // so they are views 0.. and samplers 0.. (render_internal.h has the same numbers).
 inline constexpr int kMaterialSkyFirstView = 0, kMaterialSkyFirstSampler = 0;
-inline constexpr int kComputeMaxMaterialBuffers = 4;  // storage buffers of one compute material
-inline constexpr int kComputeMaxBufferFields = 16;    // fields of one buffer element
+inline constexpr int kComputeMaxMaterialBuffers =
+    4;  // storage buffers of one compute material (and of one mesh material)
+// A mesh material's read-only buffers ("buffers" of a kind "mesh" material, M72.4) are views of the mesh programs after the
+// engine's and the material's textures (the environment cubes are 14 and 15): the vertex stage reads buffer i at view
+// kMeshBufferFirstView + i, the fragment stage at kMeshBufferFirstView + <buffer count> + i (a view slot belongs to one
+// stage, so each stage declares its own copy, as it does for textures; the vertex one is renamed fa_vs_<name>). The model
+// matrix of such a material comes from a per-draw uniform block (kMeshInstanceBaseUniform, vertex stage) instead of the
+// per-instance vertex buffer, because one entity draws `MeshRenderer.instances` GPU instances.
+inline constexpr int kMeshBufferFirstView = 16;
+inline constexpr int kMeshInstanceBaseUniform = 6;
+inline constexpr int kComputeMaxBufferFields = 16;  // fields of one buffer element
 // Storage images of one compute material: the portable minimum of sg_limits.max_storage_image_bindings_per_stage
 // (sokol_gfx.h, SG_MAX_PORTABLE_STORAGEIMAGE_BINDINGS_PER_STAGE), a floor on every GPU with compute.
 inline constexpr int kComputeMaxMaterialImages = 4;
@@ -156,7 +165,8 @@ struct MaterialBufferField {
 // `<name>.data[i].<field>`.
 struct MaterialBuffer {
     std::string name;
-    std::string access = "readWrite";  // "readWrite" | "read" (the shader only reads it)
+    std::string access =
+        "readWrite";  // "readWrite" | "read" (the shader only reads it); a mesh material's are always "read"
     std::string doc;
     std::vector<MaterialBufferField> fields;  // in the order written: it is the memory layout
     int stride = 0;   // bytes of one element (std430: a multiple of 16 when it holds a vec3 or vec4)
@@ -255,13 +265,14 @@ const std::vector<std::string>& shader_dialects();
 // The dialects of some platforms (union, no duplicates, in shader_dialects() order); empty = all. An unknown platform
 // is an error with a "did you mean".
 Result<std::vector<std::string>> shader_dialects_for(const std::vector<std::string>& platforms);
-// The dialects a material of `kind` is compiled for: shader_dialects() for every kind except "compute", which has no
-// glsl300es (GLES3 and WebGL2, hence Android and the web, have no compute shaders).
-std::vector<std::string> shader_dialects_of_kind(const std::string& kind);
-// The platforms a material of `kind` runs on (shader_platforms() order): all of them, except "compute": windows
-// (D3D11), linux (OpenGL 4.3 or newer), macos and ios (Metal). The GPU must still support it (render.supports
-// computeShaders): an OpenGL driver older than 4.3 does not.
-std::vector<std::string> shader_platforms_of_kind(const std::string& kind);
+// The dialects a material of `kind` is compiled for: shader_dialects() for every kind except "compute" (and a mesh material
+// with storage buffers, `storageBuffers`), which has no glsl300es (GLES3 and WebGL2, hence Android and the web, have no
+// compute shaders and no storage buffers in the vertex stage).
+std::vector<std::string> shader_dialects_of_kind(const std::string& kind, bool storageBuffers = false);
+// The platforms a material of `kind` runs on (shader_platforms() order): all of them, except "compute" and a mesh material
+// with storage buffers: windows (D3D11), linux (OpenGL 4.3 or newer), macos and ios (Metal). The GPU must still support it
+// (render.supports computeShaders): an OpenGL driver older than 4.3 does not.
+std::vector<std::string> shader_platforms_of_kind(const std::string& kind, bool storageBuffers = false);
 // The dialect the running machine's renderer uses (hlsl5 on Windows, glsl430 on Linux, metal_macos on macOS).
 std::string host_shader_dialect(const SetupContext& context = {});
 

@@ -379,6 +379,7 @@ bool Renderer::init(const RendererDesc& desc, const GfxEnvironment& env, std::st
     }
     im.assets = std::make_unique<Assets>(im.gpu);
     compute_->attach(&im.gpu, im.assets.get());
+    im.compute = compute_.get();
     im.assets->set_shader_compiler(shaderCompiler_);
     Impl* impl = &im;
     im.assets->set_target_resolver([impl](const std::string& name) { return impl->resolve_target(name); });

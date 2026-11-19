@@ -1898,7 +1898,11 @@ void register_builtin_components(TypeRegistry& r) {
                "project-relative paths "
                "for textures (a path, or \"target:<name>\" for the live picture of a render-target camera). Example: "
                "{\"glow\": [1, 0.2, 0, 1], \"mask\": \"textures/leaf.png\"}. Unnamed params keep the "
-               "material's defaults. An entity without overrides batches with the others that share the material.")
+               "material's defaults. A material that declares \"buffers\" takes the id of a compute buffer for each, "
+               "as an "
+               "integer: {\"particles\": 3} (see instances). An entity without overrides batches with the others that "
+               "share the "
+               "material.")
         .field(
             "materialColors", &MeshRenderer::materialColors,
             "Per-material colours of a glTF model, an object keyed by glTF material name: {\"Body\": [0.2, 0.8, 0.7, "
@@ -1922,7 +1926,31 @@ void register_builtin_components(TypeRegistry& r) {
                "model document has gameReady.lods (docs/MODELING.md). An entry that is not an object with a `mesh` "
                "string and a `distance` number is "
                "ignored. Colliders and picking keep using `mesh`. Entities that differ only in their LOD are drawn in "
-               "the batch of the mesh they show.");
+               "the batch of the mesh they show.")
+        .field(
+            "instances", &MeshRenderer::instances,
+            "0 (default) = a normal draw of the mesh. N > 0 = ONE draw of N instances of the mesh, whose data the "
+            "material reads from compute buffers (the material declares \"buffers\", and materialParams gives the id "
+            "of a compute buffer for each: {\"particles\": 3}; docs/shaders/SHADERS_COMPUTE.md, \"Drawing from a "
+            "compute buffer\"). The material's vertex() gets the instance number as fa_instance_index (0..N-1) and "
+            "places each instance; the entity's Transform is the base every instance is placed relative to (fa_model "
+            "in a full shader). At least one buffer the material reads must hold N elements (otherwise the entity is "
+            "not "
+            "drawn and the log says why), and N is at most 16777216: size the buffers for it. The instances cast "
+            "shadows and enter the depth "
+            "prepass like the mesh does; an entity with instances is drawn on its own and never batched with others. "
+            "Needs a material with buffers, on Metal, D3D11 or OpenGL 4.3 (not GLES3, WebGL2 or macOS OpenGL); "
+            "with another material, or none, instances > 0 draws nothing and logs why.")
+        .range(0, kMaxMeshInstances)
+        .field(
+            "instanceBounds", &MeshRenderer::instanceBounds,
+            "For a material with buffers only: the half-extent, in the entity's local metres, of the box around the "
+            "entity that "
+            "holds every instance (the instances are placed by the GPU, so the CPU cannot know where they are). The "
+            "entity is skipped, with its shadows, when that box (scaled by the Transform) is outside the camera's "
+            "view. 0 (default) = never culled by the camera, always drawn: safe, but it costs GPU time for an entity "
+            "that is off screen.")
+        .range(0, 1000000);
 
     r.add<Light>("Light",
                  "A light source for 3D meshes. A directional light shines along the entity's forward direction (-Z "
