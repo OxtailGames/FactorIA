@@ -87,6 +87,45 @@ TEST_CASE("validate: a material path with a backslash, an absolute path or '..' 
     }
 }
 
+TEST_CASE("validate: material path shapes: UNC, drive-relative, home and '..' folders are refused, '..x' and '~x' "
+          "names are not") {
+    testing::TempDir tmp;
+    REQUIRE(create_project(tmp.sub("game"), "2d-empty").ok());
+    const stdfs::path dir = tmp.path / "game";
+    testing::write_all(dir / "..x.material.json", "{}");
+    testing::write_all(dir / "~tmp.material.json", "{}");
+
+    auto scene = load_json_file((dir / "scenes/main.scene.json").string());
+    REQUIRE(scene.ok());
+    const std::size_t base = (*scene)["entities"].size();
+    const std::vector<std::pair<std::string, std::string>> paths = {{"\\\\server\\x.material.json", "uses a backslash"},
+                                                                    {"c:x.material.json", "is an absolute path"},
+                                                                    {"~/x.material.json", "is an absolute path"},
+                                                                    {"~", "is an absolute path"},
+                                                                    {"a/../b.material.json", "leaves the project"},
+                                                                    {"..x.material.json", ""},
+                                                                    {"~tmp.material.json", ""}};
+    for (std::size_t i = 0; i < paths.size(); ++i)
+        (*scene)["entities"].push_back(
+            Json::object({{"id", "m" + std::to_string(i)},
+                          {"components", Json::object({{"Sprite", Json::object({{"material", paths[i].first}})}})}}));
+    REQUIRE(save_scene_json_file((dir / "scenes/main.scene.json").string(), *scene).ok());
+
+    const ValidationReport r = validate_project(dir.string());
+    for (std::size_t i = 0; i < paths.size(); ++i) {
+        const ValidationIssue* e =
+            find_error(r, "/entities/" + std::to_string(base + i) + "/components/Sprite/material");
+        INFO(paths[i].first);
+        if (paths[i].second.empty()) {
+            if (e) CHECK(e->message.find("forward slashes") == std::string::npos);
+            if (e) CHECK(e->message.find("absolute") == std::string::npos);
+            continue;
+        }
+        REQUIRE(e != nullptr);
+        CHECK(e->message.find(paths[i].second) != std::string::npos);
+    }
+}
+
 TEST_CASE("validate: SceneSettings.skyMaterial must be a material of kind sky") {
     testing::TempDir tmp;
     REQUIRE(create_project(tmp.sub("game"), "2d-empty").ok());

@@ -52,6 +52,10 @@ bool kind_is_compiled(const std::string& kind);
 // Why a kind that is not compiled yet is refused for now: names the M72 package that brings it ("sky materials arrive with M72.1").
 std::string kind_refusal(const std::string& kind);
 
+// The project-relative path a command argument of a material names: as written, or with ".material.json" added. Throws a
+// CommandError (invalid_argument outside the project, not_found with "did you mean"). Shared by the shader.* and material.* commands.
+std::string resolve_material(const std::string& projectDir, const std::string& arg);
+
 // The snippet's text with CRs removed (the line numbers stay those of the file).
 std::string normalize_snippet(std::string_view snippet);
 

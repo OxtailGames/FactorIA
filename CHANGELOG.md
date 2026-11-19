@@ -6,6 +6,15 @@ Older versions, one file per minor version with its patch releases: [0.30](chang
 
 ## Unreleased
 
+- **Material tools polish (M72):** `shader.compile` and `factoria validate` tell you to run `material.graph.generate` when the
+  snippet of a graph material is missing or older than its graph. `material.param.create` and `material.texture.create` take
+  an optional `index` (where in `params`/`textures` to insert; the order of textures decides the slots) and the matching
+  `delete` returns the `index` it had, so an undo puts the entry back in place. `create`, `rename` and `delete` work on a file
+  whose graph reads a param that is not declared yet (create fixes it), and `rename`/`delete` return `warnings` when a
+  hand-written snippet still uses the name. `"graph": null` is an error with a pointer instead of a hand-written snippet; a
+  material called `..x.material.json` or `~tmp.material.json` is no longer refused as outside the project or absolute; the
+  command descriptions say the material file is rewritten (2-space JSON) by every command that writes it.
+
 - **Scene, Inspector and validation polish (M72):** `factoria validate` refuses a material path with a backslash, an absolute
   path or `..` the same way on every OS (the error names the JSON pointer and the form to write), and checks that
   `SceneSettings.skyMaterial` is a material of kind `sky` (the error names the kind it found and lists the project's sky

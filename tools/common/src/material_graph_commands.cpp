@@ -15,28 +15,6 @@ namespace stdfs = std::filesystem;
 
 namespace {
 
-// The project-relative path a command argument names: as written, or with ".material.json" added.
-std::string resolve_material(const std::string& projectDir, const std::string& arg) {
-    if (arg.empty())
-        throw CommandError(
-            "invalid_argument", "material is empty",
-            "Pass the project-relative path of a *.material.json, e.g. \"materials/dissolve.material.json\".");
-    const stdfs::path p = stdfs::path(arg).lexically_normal();
-    if (p.is_absolute() || p.generic_string().rfind("..", 0) == 0)
-        throw CommandError("invalid_argument", "material '" + arg + "' is not inside the project",
-                           "Pass a path relative to the project root, e.g. \"materials/dissolve.material.json\".");
-    std::error_code ec;
-    for (const std::string& candidate : {p.generic_string(), p.generic_string() + ".material.json"})
-        if (stdfs::is_regular_file(stdfs::path(projectDir) / candidate, ec)) return candidate;
-    const std::vector<std::string> all = find_material_files(projectDir);
-    throw CommandError("not_found", "no material '" + arg + "' in the project",
-                       all.empty()
-                           ? "The project has no *.material.json yet: create one (schemas/material.schema.json) with a "
-                             "\"graph\" (`material.graph.nodes` lists the nodes)."
-                           : did_you_mean(arg, all),
-                       Json::object({{"materials", Json(all)}}));
-}
-
 Json issues_json(const std::vector<MaterialIssue>& issues) {
     Json arr = Json::array();
     for (const MaterialIssue& e : issues)
@@ -54,10 +32,12 @@ struct LoadedMaterial {
 };
 
 // `graphOverride`: a graph to use instead of the file's (material.graph.generate with `graph`: the editor saves through it).
+// `tolerateGraphErrors`: the errors under "/graph" of the file are not fatal (material.param|texture.create|rename|delete: a graph
+// that reads a param the file does not declare is what `create` fixes); the caller checks the patched file instead.
 LoadedMaterial load_material(const std::string& projectDir, const Json& args, bool needGraph,
-                             const Json* graphOverride = nullptr) {
+                             const Json* graphOverride = nullptr, bool tolerateGraphErrors = false) {
     LoadedMaterial m;
-    m.path = resolve_material(projectDir, tooling_detail::arg_string(args, "material", true));
+    m.path = shaders_detail::resolve_material(projectDir, tooling_detail::arg_string(args, "material", true));
     auto text = tooling_detail::read_file(stdfs::path(projectDir) / m.path);
     if (!text) throw CommandError("not_found", "cannot read " + m.path, "Check that the file is not open elsewhere.");
     auto parsed = parse_json(*text, m.path);
@@ -65,7 +45,20 @@ LoadedMaterial load_material(const std::string& projectDir, const Json& args, bo
     m.doc = parsed.value();
     if (auto g = m.doc.find("graph"); g != m.doc.end()) m.fileGraph = *g;
     if (graphOverride) m.doc["graph"] = *graphOverride;
+    // "graph": null is not "no graph": say so, with the two ways out, instead of reading it as a hand-written snippet.
+    if (auto g = m.doc.find("graph"); g != m.doc.end() && g->is_null())
+        throw CommandError(
+            "invalid_material", m.path + "/graph: \"graph\" is null" + (graphOverride ? " (the `graph` argument)" : ""),
+            "Write the graph object ({\"nodes\": [...], \"links\": [...]}; `material.graph.nodes` shows the "
+            "format), or delete the \"graph\" key to keep a hand-written snippet.",
+            Json::object({{"pointer", "/graph"}}));
     MaterialParse mp = parse_material(m.doc, projectDir, m.path);
+    if (tolerateGraphErrors && !mp.ok() && std::all_of(mp.errors.begin(), mp.errors.end(), [](const MaterialIssue& e) {
+            return e.pointer == "/graph" || e.pointer.rfind("/graph/", 0) == 0;
+        })) {
+        mp.errors.clear();  // only the graph's own errors: the command checks the patched file
+        mp.material.graph = m.doc.contains("graph") ? m.doc["graph"] : Json();
+    }
     if (!mp.ok())
         throw CommandError(
             "invalid_material",
@@ -140,11 +133,13 @@ const char* const kFormatText =
     "constant}, "
     "\"param\"|\"texture\": name}], \"links\": [{\"from\": \"nodeId.output\", \"to\": \"nodeId.input\"}]}. Exactly one "
     "node has "
-    "type \"output\". An input takes a constant (a number, or an array of 2 to 4 numbers) or one link; an input with "
-    "neither "
-    "reads its default (listed by this command). A float widens to any vector; other size changes need math.split and "
-    "math.combine. Params and textures a node names are the material's own \"params\" and \"textures\". "
-    "material.graph.generate writes the snippet named by \"shader\" and \"graphHash\" into the material file.";
+    "type \"output\". An input takes a constant or one link; an input with neither reads its default (listed by this "
+    "command). A constant is a number for a float input, an array of N numbers for a vecN input (as a param's "
+    "default; a bare number there is an error), and either for a \"gen\" input (a number widens to the vector). A "
+    "float "
+    "widens to any vector; other size changes need math.split and math.combine. Params and textures a node names "
+    "are the material's own \"params\" and \"textures\". material.graph.generate writes the snippet named by "
+    "\"shader\" and \"graphHash\" into the material file.";
 
 // ---- params and textures of the material file (material.param.create|rename|delete, material.texture.create|rename|delete) ----
 
@@ -265,16 +260,38 @@ void require_valid(const Json& patched, const std::string& projectDir, const std
                        Json::object({{"pointer", e.pointer}, {"errors", issues_json(mp.errors)}}));
 }
 
+// True when `text` uses `name` as a whole identifier (not as a part of a longer one).
+bool names_identifier(const std::string& text, const std::string& name) {
+    for (std::size_t at = text.find(name); at != std::string::npos; at = text.find(name, at + 1)) {
+        const bool before = at > 0 && shaders_detail::ident_char(text[at - 1]);
+        const bool after = at + name.size() < text.size() && shaders_detail::ident_char(text[at + name.size()]);
+        if (!before && !after) return true;
+    }
+    return false;
+}
+
 // Writes the patched material file. With `syncSnippet`, and when the snippet on disk is the one the file's graph makes (state "in_sync"), the
 // snippet is made again right after: a rename or a delete changes the GLSL names the snippet uses, and one that names a param the file no
-// longer has would not compile. out["snippet"] = {state, regenerated[, error]}.
+// longer has would not compile. out["snippet"] = {state, regenerated[, error]}. out["warnings"] ([{message, hint}], always present) names a
+// snippet that is NOT regenerated (hand-written, hand-edited, or its graph unchecked) and still uses `oldName` as an identifier.
 void write_patched(const CommandRegistry& registry, const std::string& projectDir, const LoadedMaterial& m,
-                   const Json& patched, bool dryRun, bool syncSnippet, Json& out) {
+                   const Json& patched, bool dryRun, bool syncSnippet, Json& out, const std::string& oldName = {}) {
     std::string state = "none";
     if (syncSnippet && m.def.graph.is_object()) {
         const GeneratedGraph g = generate_graph_snippet(m.def.graph, m.def, m.kind);
         state = g.check.ok() ? snippet_state(projectDir, m.def, g.hash).state : "unchecked";
     }
+    Json warnings = Json::array();
+    if (syncSnippet && !oldName.empty() && state != "in_sync" && !m.def.shader.empty()) {
+        if (auto raw = tooling_detail::read_file(stdfs::path(projectDir) / m.def.shader);
+            raw && names_identifier(shaders_detail::blank_comments(*raw), oldName))
+            warnings.push_back(
+                Json::object({{"message", m.def.shader + " was not generated from the graph (state " + state +
+                                              "), so it was left as it is and may still use \"" + oldName + "\""},
+                              {"hint", "Change the name in the snippet by hand and run shader.compile; with a graph, "
+                                       "material.graph.generate writes the snippet again."}}));
+    }
+    out["warnings"] = warnings;
     Json snippet = Json::object({{"state", state}, {"regenerated", false}});
     out["written"] = !dryRun;
     if (dryRun) {
@@ -337,10 +354,12 @@ void add_entry_commands(CommandRegistry& registry, const std::string& projectDir
             "namespace), starts "
             "with gn_ or fa_, is a GLSL word or a name of the snippet contract is refused with the fix, and nothing is "
             "written. "
-            "With dryRun true nothing is written. Writing the material file formats it again (2-space JSON). Returns "
-            "{material, "
-            "kind, name, entry, written}; `entry` is what was added. " +
-            prefix + "delete takes it back. Example: " +
+            "With dryRun true nothing is written. The file is rewritten (2-space JSON, same key order; hand "
+            "formatting is lost). `index` inserts the " +
+            word + " at that position of \"" + sec.key +
+            "\" (default: the end; the order of textures decides their slots). Returns {material, kind, name, entry, "
+            "index, written, snippet, warnings}; `entry` is what was added. " +
+            prefix + "delete takes it back: call this with its `entry` and `index`. Example: " +
             (isParam
                  ? "{\"material\":\"materials/dissolve.material.json\",\"name\":\"glow\",\"type\":\"float\",\"min\":0,"
                    "\"max\":1}"
@@ -364,11 +383,15 @@ void add_entry_commands(CommandRegistry& registry, const std::string& projectDir
                 R"({"type":"number","description":"Smallest sensible value (the editor slider's start); the default is checked against it."})");
             props["max"] = Json::parse(
                 R"({"type":"number","description":"Largest sensible value (the editor slider's end); the default is checked against it."})");
+            props["index"] = Json::parse(
+                R"({"type":"integer","minimum":0,"description":"Position in \"params\" to insert at (0 = first; past the end = last). Default: the end. material.param.delete returns it: pass it to put a deleted param back where it was."})");
             props["instanced"] = Json::parse(
                 R"({"type":"boolean","description":"true: every entity's value travels in the instance data (docs/SHADERS.md, params)."})");
         } else {
             props["default"] = Json::parse(
                 R"({"type":"string","description":"Project-relative texture used when an entity gives none."})");
+            props["index"] = Json::parse(
+                R"({"type":"integer","minimum":0,"description":"Position in \"textures\" to insert at (0 = first; past the end = last): the order decides the texture slots. Default: the end. material.texture.delete returns it: pass it to put a deleted texture back in its slot."})");
             props["sampler"] = Json::parse(
                 R"({"type":"string","description":"linear (default), linearRepeat, nearest or nearestRepeat: filtering and wrapping of the sampler."})");
         }
@@ -380,7 +403,7 @@ void add_entry_commands(CommandRegistry& registry, const std::string& projectDir
         assets_detail::mark_paths(info.inputSchema, "write", {"material"});
         registry.add(info, [&registry, projectDir, sec, isParam, word](const Json& args) {
             const bool dryRun = tooling_detail::arg_bool(args, "dryRun", false);
-            LoadedMaterial m = load_material(projectDir, args, false);
+            LoadedMaterial m = load_material(projectDir, args, false, nullptr, true);
             const std::string name = tooling_detail::arg_string(args, "name", true);
             check_new_name(m, sec, name);
             Json entry = Json::object();
@@ -416,9 +439,31 @@ void add_entry_commands(CommandRegistry& registry, const std::string& projectDir
                                : Json(word + " " + name + ": describe what it does (replace this text).");
             Json patched = m.doc;
             if (!patched.contains(sec.key) || !patched[sec.key].is_object()) patched[sec.key] = Json::object();
-            patched[sec.key][name] = entry;
+            if (auto idx = args.find("index"); idx != args.end()) {
+                // Insert at `index` (the order of "textures" decides the slots; delete returns the index to put it back).
+                const std::vector<std::string> existing = names_of(m.doc, sec.key);
+                if (!idx->is_number_integer() || idx->get<long long>() < 0)
+                    throw CommandError(
+                        "invalid_argument", "/index: index must be a whole number of 0 or more, got " + idx->dump(),
+                        "Pass the position in \"" + std::string(sec.key) + "\" (0 = first; at or past " +
+                            std::to_string(existing.size()) + " = last), or leave index out to add at the end.",
+                        Json::object({{"pointer", "/index"}}));
+                const std::size_t at =
+                    std::size_t(std::min<long long>(idx->get<long long>(), (long long)existing.size()));
+                Json ordered = Json::object();
+                for (std::size_t i = 0; i <= existing.size(); ++i) {
+                    if (i == at) ordered[name] = entry;
+                    if (i < existing.size()) ordered[existing[i]] = m.doc[sec.key][existing[i]];
+                }
+                patched[sec.key] = ordered;
+            } else {
+                patched[sec.key][name] = entry;
+            }
             require_valid(patched, projectDir, m.path);
-            Json out = Json::object({{"material", m.path}, {"kind", word}, {"name", name}, {"entry", entry}});
+            const std::vector<std::string> order = names_of(patched, sec.key);
+            const int index = int(std::find(order.begin(), order.end(), name) - order.begin());
+            Json out = Json::object(
+                {{"material", m.path}, {"kind", word}, {"name", name}, {"entry", entry}, {"index", index}});
             write_patched(registry, projectDir, m, patched, dryRun, false, out);
             return out;
         });
@@ -443,10 +488,12 @@ void add_entry_commands(CommandRegistry& registry, const std::string& projectDir
             "snippet is "
             "the one the graph generated (state in_sync) it is generated again, so the file and its snippet stay in "
             "step "
-            "(`snippet.regenerated`); a hand-edited snippet is left alone. Scenes and prefabs that set the old name in "
-            "MeshRenderer.materialParams are NOT changed. With dryRun true nothing is written. Returns {material, "
-            "kind, name, "
-            "newName, renamedNodes, written, snippet[, graph]}: call it again with the names swapped to take it back. "
+            "(`snippet.regenerated`); any other snippet is left alone, and `warnings` says when it still uses the old "
+            "name. "
+            "Scenes and prefabs that set the old name in MeshRenderer.materialParams are NOT changed. With dryRun true "
+            "nothing is written; the file is rewritten (2-space JSON, hand formatting is lost). Returns {material, "
+            "kind, name, newName, renamedNodes, written, snippet, warnings[, graph]}: call it again with the names "
+            "swapped to take it back. "
             "Example: "
             "{\"material\":\"materials/dissolve.material.json\",\"name\":\"" +
             exampleName + "\",\"newName\":\"" + exampleName + "2\"}";
@@ -467,7 +514,7 @@ void add_entry_commands(CommandRegistry& registry, const std::string& projectDir
         assets_detail::mark_paths(info.inputSchema, "write", {"material"});
         registry.add(info, [&registry, projectDir, sec, word](const Json& args) {
             const bool dryRun = tooling_detail::arg_bool(args, "dryRun", false);
-            LoadedMaterial m = load_material(projectDir, args, false);
+            LoadedMaterial m = load_material(projectDir, args, false, nullptr, true);
             Json graph = graph_argument(args);
             const std::string name = tooling_detail::arg_string(args, "name", true);
             const std::string newName = tooling_detail::arg_string(args, "newName", true);
@@ -481,6 +528,7 @@ void add_entry_commands(CommandRegistry& registry, const std::string& projectDir
             if (name == newName) {  // nothing to do
                 out["renamedNodes"] = Json::array();
                 out["written"] = false;
+                out["warnings"] = Json::array();
                 out["snippet"] = Json::object({{"state", "none"}, {"regenerated", false}});
                 if (!graph.is_null()) out["graph"] = graph;
                 return out;
@@ -506,7 +554,7 @@ void add_entry_commands(CommandRegistry& registry, const std::string& projectDir
             }
             require_valid(patched, projectDir, m.path);
             out["renamedNodes"] = renamed;
-            write_patched(registry, projectDir, m, patched, dryRun, true, out);
+            write_patched(registry, projectDir, m, patched, dryRun, true, out, name);
             return out;
         });
     }
@@ -530,14 +578,14 @@ void add_entry_commands(CommandRegistry& registry, const std::string& projectDir
             word +
             "; the result's `graph` is that graph changed, and it is never written. When the "
             "shader snippet is the one the graph generated (state in_sync) it is generated again "
-            "(`snippet.regenerated`); a "
-            "hand-edited snippet is left alone. Scenes and prefabs that set the name in MeshRenderer.materialParams "
-            "are NOT "
-            "changed. With dryRun true nothing is written. Returns {material, kind, name, entry, removedNodes, "
-            "written, "
-            "snippet[, graph]}; `entry` is the definition removed: " +
+            "(`snippet.regenerated`); any other snippet is left alone, and `warnings` says when it still uses the "
+            "name. "
+            "Scenes and prefabs that set the name in MeshRenderer.materialParams are NOT changed. With dryRun true "
+            "nothing is written; the file is rewritten (2-space JSON, hand formatting is lost). Returns {material, "
+            "kind, name, entry, index, removedNodes, written, snippet, warnings[, graph]}; `entry` is the definition "
+            "removed and `index` its position: " +
             prefix +
-            "create with it takes it back. Example: {\"material\":\"materials/dissolve.material.json\",\"name\":\"" +
+            "create with both takes it back. Example: {\"material\":\"materials/dissolve.material.json\",\"name\":\"" +
             exampleName + "\"}";
         info.inputSchema = Json::object(
             {{"type", "object"},
@@ -556,7 +604,7 @@ void add_entry_commands(CommandRegistry& registry, const std::string& projectDir
         registry.add(info, [&registry, projectDir, sec, word](const Json& args) {
             const bool dryRun = tooling_detail::arg_bool(args, "dryRun", false);
             const bool force = tooling_detail::arg_bool(args, "force", false);
-            LoadedMaterial m = load_material(projectDir, args, false);
+            LoadedMaterial m = load_material(projectDir, args, false, nullptr, true);
             Json graph = graph_argument(args);
             const std::string name = tooling_detail::arg_string(args, "name", true);
             const std::vector<std::string> names = names_of(m.doc, sec.key);
@@ -582,6 +630,8 @@ void add_entry_commands(CommandRegistry& registry, const std::string& projectDir
                                    Json::object({{"nodes", Json(readers)}}));
             Json patched = m.doc;
             const Json entry = m.doc[sec.key][name];
+            const std::vector<std::string> before = names_of(m.doc, sec.key);
+            const int index = int(std::find(before.begin(), before.end(), name) - before.begin());
             patched[sec.key].erase(name);
             if (patched[sec.key].empty()) patched.erase(sec.key);
             Json removed = Json::array();
@@ -592,16 +642,27 @@ void add_entry_commands(CommandRegistry& registry, const std::string& projectDir
                     if (std::find(removed.begin(), removed.end(), id) == removed.end()) removed.push_back(id);
             }
             require_valid(patched, projectDir, m.path);
-            Json out = Json::object(
-                {{"material", m.path}, {"kind", word}, {"name", name}, {"entry", entry}, {"removedNodes", removed}});
+            Json out = Json::object({{"material", m.path},
+                                     {"kind", word},
+                                     {"name", name},
+                                     {"entry", entry},
+                                     {"index", index},
+                                     {"removedNodes", removed}});
             if (!graph.is_null()) out["graph"] = graph;
-            write_patched(registry, projectDir, m, patched, dryRun, true, out);
+            write_patched(registry, projectDir, m, patched, dryRun, true, out, name);
             return out;
         });
     }
 }
 
 }  // namespace
+
+std::string material_snippet_state(const std::string& projectDir, const std::string& path) {
+    const MaterialParse mp = read_material(projectDir, path);
+    if (!mp.ok() || !mp.material.graph.is_object()) return {};
+    const GeneratedGraph g = generate_graph_snippet(mp.material.graph, mp.material, mp.material.kind);
+    return g.check.ok() ? snippet_state(projectDir, mp.material, g.hash).state : std::string();
+}
 
 void register_material_graph_commands(CommandRegistry& registry, const std::string& projectDir) {
     {
@@ -684,7 +745,8 @@ void register_material_graph_commands(CommandRegistry& registry, const std::stri
             "graph":{"type":"object","description":"A graph to check instead of the one in the file (same format as \"graph\" of the material). Pointers still start at /graph."}}})");
         assets_detail::mark_paths(info.inputSchema, "read", {"material"});
         registry.add(info, [projectDir](const Json& args) {
-            const std::string path = resolve_material(projectDir, tooling_detail::arg_string(args, "material", true));
+            const std::string path =
+                shaders_detail::resolve_material(projectDir, tooling_detail::arg_string(args, "material", true));
             auto text = tooling_detail::read_file(stdfs::path(projectDir) / path);
             if (!text)
                 throw CommandError("not_found", "cannot read " + path, "Check that the file is not open elsewhere.");
@@ -737,9 +799,10 @@ void register_material_graph_commands(CommandRegistry& registry, const std::stri
             "match the recorded hash was edited by hand (or was written without a graph): the command refuses and "
             "changes "
             "nothing, because the edit would be lost. Then either pass force true to overwrite it, or delete \"graph\" "
-            "from the material to keep the hand-written code. With dryRun true nothing is written. Writing the "
-            "material file "
-            "formats it again (2-space JSON). Returns {material, shader, state, written, hash, usedNodes, warnings}; "
+            "from the material to keep the hand-written code. With dryRun true nothing is written. The "
+            "material file is rewritten "
+            "(2-space JSON, same key order; hand formatting is lost). Returns {material, shader, state, written, hash, "
+            "usedNodes, warnings}; "
             "state is the "
             "one material.graph.validate reports before the write. Run shader.compile afterwards. Example: "
             "{\"material\":\"materials/dissolve.material.json\"}";
@@ -835,7 +898,8 @@ void register_material_graph_commands(CommandRegistry& registry, const std::stri
             "generated again). The value is checked as the file is: a float param takes a number, vec2, vec3, vec4 and "
             "color take an array of 2, 3 or 4 numbers, and the value must be inside min and max when the param has "
             "them. Nothing is written when the value is already the default. With dryRun true nothing is written. "
-            "Writing the material file formats it again (2-space JSON). Returns {material, param, previous, value, "
+            "The file is rewritten (2-space JSON, same key order; hand formatting is lost). Returns {material, param, "
+            "previous, value, "
             "written}: call it again with `previous` to take the change back. Example: "
             "{\"material\":\"materials/dissolve.material.json\",\"param\":\"dissolve\",\"value\":0.4}";
         info.inputSchema = Json::parse(R"({
