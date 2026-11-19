@@ -486,14 +486,19 @@ void Editor::draw_graph_toolbar(GraphModel& m) {
     }
     at_track("gr:new");
     hint("material.graph.generate: writes assets/materials/graph.material.json (sprite_graph.material.json for a "
-         "sprite) with a graph of "
+         "sprite, post_graph.material.json for a post pass) with a graph of "
          "one output node, and opens it.");
     row.next("Sprite ");
     ImGui::SetNextItemWidth(ImGui::CalcTextSize("Sprite").x + ImGui::GetFrameHeight() +
                             ImGui::GetStyle().FramePadding.x * 2.0f);
-    if (ImGui::BeginCombo("##gnewkind", u.newKind == "sprite" ? "Sprite" : "Mesh")) {
-        for (const char* k : {"mesh", "sprite"}) {
-            if (ImGui::Selectable(k[0] == 'm' ? "Mesh" : "Sprite", u.newKind == k)) u.newKind = k;
+    static const std::pair<const char*, const char*> kNewKinds[] = {
+        {"mesh", "Mesh"}, {"sprite", "Sprite"}, {"post", "Post"}};
+    const char* newLabel = "Mesh";
+    for (const auto& [k, label] : kNewKinds)
+        if (u.newKind == k) newLabel = label;
+    if (ImGui::BeginCombo("##gnewkind", newLabel)) {
+        for (const auto& [k, label] : kNewKinds) {
+            if (ImGui::Selectable(label, u.newKind == k)) u.newKind = k;
             at_track(std::string("gr:newkind:") + k);
         }
         ImGui::EndCombo();
@@ -503,7 +508,8 @@ void Editor::draw_graph_toolbar(GraphModel& m) {
          "item, a sprite, "
          "shape, particle or text (fragment() and vertex()); it has its own nodes (sprite.color, sprite.life...) and "
          "no 3D ones "
-         "(normals, fresnel...).");
+         "(normals, fresnel...). Post: a full-screen pass over the picture of a camera (post()); its nodes read the "
+         "picture, the depth, the normals and the last frame (post.scene, post.depth, post.history...).");
     if (!m.is_open()) return;
 
     row.next("Add node");
@@ -1211,8 +1217,11 @@ void Editor::draw_graph_palette(GraphModel& m) {
         const std::string needle = to_lower(u.filter);
         std::size_t shown = 0;
         for (const GraphNodeType& t : graph_node_library()) {
+            // the match of the palette search: name, category and description
             if (std::find(t.kinds.begin(), t.kinds.end(), kind) != t.kinds.end() ||
-                to_lower(t.type).find(needle) == std::string::npos)
+                (to_lower(t.type).find(needle) == std::string::npos &&
+                 to_lower(t.category).find(needle) == std::string::npos &&
+                 to_lower(t.doc).find(needle) == std::string::npos))
                 continue;
             for (const auto& [k, text] : t.instead)
                 if (k == kind && shown++ < 2) {

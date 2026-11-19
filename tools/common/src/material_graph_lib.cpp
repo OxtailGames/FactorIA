@@ -21,6 +21,7 @@ const std::vector<std::string> kAllKinds = {"mesh", "sprite", "sky", "post"};
 const std::vector<std::string> kUvKinds = {"mesh", "sprite", "post"};
 const std::vector<std::string> kMeshOnly = {"mesh"};
 const std::vector<std::string> kSpriteOnly = {"sprite"};
+const std::vector<std::string> kPostOnly = {"post"};
 
 GraphPort in(const char* name, const char* type, Json def, const char* doc) {
     return GraphPort{name, type, std::move(def), doc};
@@ -75,6 +76,72 @@ GraphNodeType math2(const char* type, const char* doc, const char* expr, Json de
                 {out("result", "gen", "The result, a float or a vector like the linked inputs.")}, {expr});
 }
 
+// What to use in a post pass instead of a node that works in other kinds only (the hint of the error that names the node).
+void add_post_instead(std::vector<GraphNodeType>& lib) {
+    static const std::pair<const char*, const char*> kTexts[] = {
+        {"vertex.color",
+         "A post pass draws one full-screen triangle: it has no mesh vertex colours. `post.scene` gives the picture."},
+        {"position.world",
+         "A post pass has no geometry, it shades the pixels of the picture: `uv` is the pixel's place on the screen, "
+         "`post.depth` its distance from the camera and `post.normal` its surface direction."},
+        {"position.view",
+         "A post pass has no surface point: `post.depth` gives the distance from the camera at a pixel and `uv` its "
+         "place on the screen."},
+        {"normal.world",
+         "A post pass has no mesh: `post.normal` reads the view-space normal of what the frame drew at a pixel (it "
+         "makes the renderer draw the depth and normal prepass)."},
+        {"view.dir", "A post pass has no view direction: use `uv` (the place on the screen) and `post.depth`."},
+        {"texture.normal",
+         "A normal map belongs to a surface. Sample it as a colour with the `texture` node (for a distortion), or "
+         "read the scene's normals with `post.normal`."},
+        {"triplanar",
+         "A post pass has no world position to project along. Sample the texture at `uv` with the `texture` node."},
+        {"parallax",
+         "A post pass has no surface or view direction to shift a texture along. Sample the texture at `uv` with the "
+         "`texture` node."},
+        {"fresnel",
+         "A post pass has no surface angle to the camera. For a rim from the picture's geometry use math.dot of "
+         "`post.normal` and a direction; for one on the screen use math.length of (`uv` - 0.5) into math.smoothstep."},
+        {"sprite.color", "`post.scene` gives the picture at a point of the screen (what the passes before drew)."},
+        {"sprite.tint", "A post pass draws no item with a tint: use a colour param with the `param` node."},
+        {"sprite.texture",
+         "A post pass has no main texture: use the `texture` node with one of the material's textures, or "
+         "`post.scene` for the picture."},
+        {"sprite.life", "A post pass has no particles: use the `time` node for something that changes over time."},
+        {"sprite.custom", "A post pass has no per-item values: use the material's params with the `param` node."},
+        {"sprite.position",
+         "A post pass shades the screen: `uv` is the place on it, 0..1 with y down, and `post.screen` gives its "
+         "size in pixels."},
+    };
+    for (GraphNodeType& n : lib)
+        for (const auto& [type, text] : kTexts)
+            if (n.type == type) n.instead.emplace_back("post", text);
+    // The post nodes read the picture of the frame: a mesh or a sprite material has none, and says what to use there.
+    static const std::pair<const char*, const char*> kPostNodes[] = {
+        {"post.scene",
+         "A sprite or mesh material shades one item, not the picture: its colour is `sprite.color` (sprite) or the "
+         "output's fields (mesh). Reading the picture belongs to a post material (kind \"post\")."},
+        {"post.depth",
+         "Only a post material reads the depth of the picture (kind \"post\"). In a sprite or mesh material use "
+         "`position.view` or `sprite.position` for a place."},
+        {"post.normal",
+         "Only a post material reads the normals of the picture (kind \"post\"). A mesh material has `normal.world`; "
+         "a sprite has none."},
+        {"post.history",
+         "Only a post material keeps what it drew last frame (kind \"post\"). A sprite or mesh material has no "
+         "history: use a script that writes a param."},
+        {"post.screen",
+         "Only a post material shades the whole picture (kind \"post\"). A sprite has `sprite.position` (screen "
+         "output) for the pixel's place."},
+    };
+    for (GraphNodeType& n : lib)
+        for (const auto& [type, text] : kPostNodes)
+            if (n.type == type) {
+                n.instead.emplace_back("sprite", text);
+                n.instead.emplace_back("mesh", text);
+            }
+}
+
 std::vector<GraphNodeType> build_library() {
     std::vector<GraphNodeType> lib;
     // ---- constants ----
@@ -91,8 +158,9 @@ std::vector<GraphNodeType> build_library() {
                        {"{value}"}));
     lib.push_back(
         node("const.color", "constant",
-             "A colour, red green blue alpha, each 0..1. Written as typed (sRGB, like a colour param): in a linear "
-             "scene convert it with a math node if the exact value matters.",
+             "A colour, red green blue alpha, each 0..1, typed as sRGB like a colour param. A sprite or post graph "
+             "converts it to the colour space of the scene (fa_scene_rgb); a mesh graph writes it as typed. A "
+             "number typed straight into an output input is not converted.",
              {in("rgba", "vec4", vec({1, 1, 1, 1}), "The colour.")},
              {out("rgba", "vec4", "The colour with alpha."), out("rgb", "vec3", "The colour without alpha.")},
              {"{rgba}", "{self}rgba.rgb"}));
@@ -188,6 +256,52 @@ std::vector<GraphNodeType> build_library() {
              {out("world", "vec2", "World position (x, y)."),
               out("screen", "vec2", "Position in the render target, 0..1, y running down on every backend.")},
              {"$sprite_pos", "$screen_uv"}, kSpriteOnly)));
+    // ---- inputs of a post pass (PostInput, fa_scene_color, fa_depth, fa_normal, fa_history of the post template; docs/shaders/SHADERS_POST.md) ----
+    lib.push_back(node("post.scene", "input",
+                       "The picture the passes before this one left, at `uv` (fa_scene_color: 0..1 over the camera's "
+                       "rectangle, y down, bilinear, "
+                       "clamped to the rectangle): scene-linear HDR colour before the tonemap, display colour after "
+                       "it. Sample it at a moved `uv` for a "
+                       "distortion or a blur.",
+                       {in("uv", "vec2", "$uv", "Where to read the picture (default: this pixel).")},
+                       {out("rgba", "vec4", "The picture's colour with alpha."), out("rgb", "vec3", "The colour."),
+                        out("a", "float", "The alpha.")},
+                       {"fa_scene_color({uv})", "{self}rgba.rgb", "{self}rgba.a"}, kPostOnly));
+    lib.push_back(
+        node("post.depth", "input",
+             "The linear view depth at `uv` in world units (fa_depth), 60000 where no mesh was drawn (the sky, "
+             "sprites). Using it makes the "
+             "renderer draw the depth and normal prepass for the camera; a GPU without sampled depth skips the pass.",
+             {in("uv", "vec2", "$uv", "Where to read the depth (default: this pixel).")},
+             {out("depth", "float", "Distance along the camera's forward axis; 60000 where nothing was drawn."),
+              out("mask", "float", "1 where a mesh was drawn, 0 on the sky and on sprites.")},
+             {"fa_depth({uv})", "1.0 - step(59999.0, {self}depth)"}, kPostOnly));
+    lib.push_back(node("post.normal", "input",
+                       "The view-space normal of the surface at `uv` (fa_normal: x right, y up, z towards the camera), "
+                       "vec3(0) where no mesh was "
+                       "drawn. Using it makes the renderer draw the depth and normal prepass for the camera.",
+                       {in("uv", "vec2", "$uv", "Where to read the normal (default: this pixel).")},
+                       {out("normal", "vec3", "The normal; zero where nothing was drawn.")}, {"fa_normal({uv})"},
+                       kPostOnly));
+    lib.push_back(
+        node("post.history", "input",
+             "What THIS pass drew in the frame before, at `uv` (fa_history): a trail, a feedback, an accumulation. "
+             "Using it is what asks the "
+             "renderer to keep the pass's output (two images of the camera's rectangle, per camera); there is nothing "
+             "else to declare. Where "
+             "there is no history yet (the first frame, a resize, a camera cut) it gives the picture and `valid` is 0.",
+             {in("uv", "vec2", "$uv", "Where to read the last frame (default: this pixel).")},
+             {out("rgba", "vec4", "Last frame's output with alpha."), out("rgb", "vec3", "The colour."),
+              out("valid", "float", "1 when last frame's output was read, 0 when the picture stands in.")},
+             {"fa_history({uv})", "{self}rgba.rgb", "(fa_history_valid ? 1.0 : 0.0)"}, kPostOnly));
+    lib.push_back(node("post.screen", "input",
+                       "The camera's rectangle: the size of one pixel in uv units, its size in pixels and its aspect "
+                       "(width over height), "
+                       "to keep a vignette round or a blur the same size on every resolution.",
+                       {},
+                       {out("texel", "vec2", "1 / size: one pixel in uv units."),
+                        out("size", "vec2", "The rectangle in pixels."), out("aspect", "float", "Width over height.")},
+                       {"$texel", "$size", "$size.x / max($size.y, 1.0)"}, kPostOnly));
     lib.push_back(fragment_only(with_ref(
         node("texture", "texture",
              "Samples one of the material's textures (set \"texture\" to its name; declare it in the material's "
@@ -429,6 +543,19 @@ std::vector<GraphNodeType> build_library() {
                "World-space offset added to every vertex of the quad (wobble, wind): written into vertex().",
                "v.world_pos += {};")},
         {}, {}, kSpriteOnly));
+    // The output of a post graph: what post() leaves in PostSurface.color. No vertex stage (the pass is one full-screen triangle).
+    lib.push_back(node(
+        kGraphOutputNode, "output",
+        "The end of the graph (exactly one): the fields linked or set in \"inputs\" replace what post() received in "
+        "PostSurface.color (the picture at this pixel); the others keep it. `color` is written first, then `rgb` over "
+        "it. The pass "
+        "has no vertex stage and writes opaque colour (a NaN or a negative becomes 0): the alpha of the picture is "
+        "carried through.",
+        {in_as("color", "vec4", "The whole colour with alpha: replaces s.color.", "s.color = {};"),
+         in_as("rgb", "vec3", "The colour without alpha: replaces s.color.rgb (the alpha stays).",
+               "s.color.rgb = {};")},
+        {}, {}, kPostOnly));
+    add_post_instead(lib);
     return lib;
 }
 
@@ -452,7 +579,7 @@ const GraphNodeType* find_graph_node_type(std::string_view type, std::string_vie
 }
 
 const std::vector<std::string>& graph_supported_kinds() {
-    static const std::vector<std::string> kinds = {"mesh", "sprite"};
+    static const std::vector<std::string> kinds = {"mesh", "sprite", "post"};
     return kinds;
 }
 

@@ -85,7 +85,7 @@ const GraphNodeType* node_type_of(const std::string& kind, const std::string& ty
 }
 
 // The graph a new material starts with: the output node with a few of the fields its kind has, set to a flat colour so the canvas and the
-// preview show something at once (a sprite's `color` replaces the colour the engine drew).
+// preview show something at once (a sprite's `color` replaces the colour the engine drew); a post pass starts as the picture unchanged.
 Json starter_graph(const std::string& kind) {
     if (kind == "sprite")
         return Json::parse(R"({
@@ -94,6 +94,17 @@ Json starter_graph(const std::string& kind) {
     { "id": "out", "type": "output", "pos": [320, 0], "inputs": { "color": [1.0, 0.6, 0.2, 1.0] } }
   ],
   "links": []
+})");
+    if (kind == "post")  // the picture, unchanged: a pass that does nothing yet, and a node to build on
+        return Json::parse(R"({
+  "version": 1,
+  "nodes": [
+    { "id": "scene", "type": "post.scene", "pos": [0, 0] },
+    { "id": "out", "type": "output", "pos": [320, 0] }
+  ],
+  "links": [
+    { "from": "scene.rgb", "to": "out.rgb" }
+  ]
 })");
     return Json::parse(R"({
   "version": 1,
@@ -104,9 +115,10 @@ Json starter_graph(const std::string& kind) {
 })");
 }
 
-// The shader snippet a new material of `kind` writes: sprite templates name theirs *.fragment.glsl, mesh ones *.surface.glsl.
+// The shader snippet a new material of `kind` writes: sprite templates name theirs *.fragment.glsl, post ones *.post.glsl, mesh ones
+// *.surface.glsl.
 std::string snippet_path_for(const std::string& stem, const std::string& kind) {
-    return "shaders/" + stem + (kind == "sprite" ? ".fragment.glsl" : ".surface.glsl");
+    return "shaders/" + stem + (kind == "sprite" ? ".fragment.glsl" : kind == "post" ? ".post.glsl" : ".surface.glsl");
 }
 
 // Where the command put (create) or found (delete) the entry in the file's order; -1 when it said nothing (an older command).
@@ -849,7 +861,7 @@ GraphEditOutcome GraphModel::add_node(const std::string& type, Vec2 pos, const s
     const GraphNodeType* t = find_graph_node_type(type, kind);
     if (!t) {
         if (const GraphNodeType* other =
-                find_graph_node_type(type)) {  // a node of the 3D kinds in a sprite graph (or the other way round)
+                find_graph_node_type(type)) {  // a node of another kind (a 3D node in a sprite graph...)
             std::string why = "The node \"" + type + "\" does not work in a material of kind \"" + kind + "\".";
             for (const auto& [k, text] : other->instead)
                 if (k == kind) why += " " + text;

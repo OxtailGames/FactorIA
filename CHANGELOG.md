@@ -6,6 +6,19 @@ Older versions, one file per minor version with its patch releases: [0.30](chang
 
 ## Unreleased
 
+- **Node graphs for post materials (M72.5):** a material with `"kind": "post"` can hold a `"graph"`: `material.graph.generate`
+  writes `post(in PostInput i, inout PostSurface s)` into `shaders/<name>.post.glsl`, with the same `graphHash` and hand-edit rule
+  as the other kinds. The post `output` node has `color` and `rgb`; new nodes `post.scene`, `post.depth`, `post.normal`,
+  `post.history` and `post.screen` write the helper calls of the post contract (`fa_scene_color`, `fa_depth`, `fa_normal`,
+  `fa_history`, `i.texel`/`i.size`), and using one is all it takes to ask the renderer for the prepass or the history. Noise,
+  `flow`, `uv`, `time` and math work there; the nodes of a mesh or a sprite are refused with what to use instead.
+  `material.graph.nodes {kind: "post"}` returns a post example. Sprite and post graphs now convert `const.color` and `color`
+  params with `fa_scene_rgb` (a colour looks as picked in a linear scene; mesh graphs are unchanged), the "no output node" error
+  suggests a field of the material's own kind, and a palette search that matches a node of another kind (by name, category or
+  description) says what to use instead. Graph panel: the combo next to New graph material has Post; a post graph starts as
+  the picture unchanged, and its preview says why there is no picture (a post pass needs a camera's `PostProcess`: add the
+  material to `customPasses` to see it).
+
 - **Node graphs for sprite materials (M72.5):** a material with `"kind": "sprite"` can hold a `"graph"`:
   `material.graph.generate` writes the sprite snippet (`fragment(in QuadInput i, inout QuadSurface s)` and, when
   `vertexOffset` is linked, `vertex(inout QuadVertex v)`), with the same `graphHash` and hand-edit rule as a mesh graph. The

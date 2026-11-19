@@ -177,6 +177,61 @@ Json example_sprite_material() {
     })");
 }
 
+// A post material (what the nodes call with kind "post"): a wobbling vignette, the picture read through a moving noise.
+Json example_post_material() {
+    return Json::parse(R"({
+      "format": "factoria.material/1",
+      "kind": "post",
+      "doc": "Wobbly vignette: the picture is read through moving noise, then darkened towards the corners.",
+      "shader": "shaders/wobble-vignette.post.glsl",
+      "params": {
+        "wobble": { "type": "float", "default": 0.01, "min": 0.0, "max": 0.05, "doc": "How far the noise pushes the picture, in uv units." },
+        "darkness": { "type": "float", "default": 0.6, "min": 0.0, "max": 1.0, "doc": "How dark the corners get." }
+      },
+      "graph": {
+        "nodes": [
+          { "id": "uv", "type": "uv", "pos": [0, 0] },
+          { "id": "clock", "type": "time", "pos": [0, 140], "inputs": { "speed": 0.3 } },
+          { "id": "drift", "type": "math.add", "pos": [200, 60] },
+          { "id": "noise", "type": "noise.fbm", "pos": [400, 60], "inputs": { "scale": 4.0 } },
+          { "id": "centered", "type": "math.sub", "pos": [600, 60], "inputs": { "b": 0.5 } },
+          { "id": "amount", "type": "param", "pos": [600, 180], "param": "wobble" },
+          { "id": "push", "type": "math.mul", "pos": [800, 100] },
+          { "id": "moved", "type": "math.add", "pos": [1000, 40] },
+          { "id": "pic", "type": "post.scene", "pos": [1200, 40] },
+          { "id": "away", "type": "math.sub", "pos": [200, 300], "inputs": { "b": 0.5 } },
+          { "id": "dist", "type": "math.length", "pos": [400, 300] },
+          { "id": "edge", "type": "math.smoothstep", "pos": [600, 300], "inputs": { "edge0": 0.35, "edge1": 0.85 } },
+          { "id": "dark", "type": "param", "pos": [600, 420], "param": "darkness" },
+          { "id": "shade", "type": "math.mul", "pos": [800, 340] },
+          { "id": "keep", "type": "math.oneminus", "pos": [1000, 340] },
+          { "id": "lit", "type": "math.mul", "pos": [1400, 120] },
+          { "id": "out", "type": "output", "pos": [1600, 120] }
+        ],
+        "links": [
+          { "from": "uv.uv", "to": "drift.a" },
+          { "from": "clock.time", "to": "drift.b" },
+          { "from": "drift.result", "to": "noise.p" },
+          { "from": "noise.value", "to": "centered.a" },
+          { "from": "centered.result", "to": "push.a" },
+          { "from": "amount.value", "to": "push.b" },
+          { "from": "uv.uv", "to": "moved.a" },
+          { "from": "push.result", "to": "moved.b" },
+          { "from": "moved.result", "to": "pic.uv" },
+          { "from": "uv.uv", "to": "away.a" },
+          { "from": "away.result", "to": "dist.x" },
+          { "from": "dist.result", "to": "edge.x" },
+          { "from": "edge.result", "to": "shade.a" },
+          { "from": "dark.value", "to": "shade.b" },
+          { "from": "shade.result", "to": "keep.x" },
+          { "from": "pic.rgb", "to": "lit.a" },
+          { "from": "keep.result", "to": "lit.b" },
+          { "from": "lit.result", "to": "out.rgb" }
+        ]
+      }
+    })");
+}
+
 const char* const kFormatText =
     "A *.material.json may hold \"graph\": {\"nodes\": [{\"id\", \"type\", \"pos\": [x, y], \"inputs\": {input: "
     "constant}, "
@@ -737,15 +792,16 @@ void register_material_graph_commands(CommandRegistry& registry, const std::stri
             "type \"gen\" is a float or a vector; a float widens by itself. `stage` is \"fragment\" for "
             "nodes that sample "
             "textures or read the view direction (not allowed in the path of the output's "
-            "vertexOffset). `kinds` of a node are the material kinds it works in (\"mesh\", \"sprite\"; the "
+            "vertexOffset). `kinds` of a node are the material kinds it works in (\"mesh\", \"sprite\", \"post\"; the "
             "output node has one entry per kind, with that kind's fields); a node used in another kind "
             "is an error that says what to use. Filters: `kind` "
-            "(\"mesh\" or \"sprite\"; \"sprite\" also returns a sprite `example`), `category`, `type`. "
-            "Example: {\"kind\":\"sprite\",\"category\":\"noise\"}";
+            "(\"mesh\", \"sprite\" or \"post\"; a sprite or post kind also returns an `example` of its own), "
+            "`category`, `type`. "
+            "Example: {\"kind\":\"post\",\"category\":\"input\"}";
         info.inputSchema = Json::parse(R"({
           "type":"object","additionalProperties":false,
           "properties":{
-            "kind":{"type":"string","description":"Only nodes that work in this material kind (\"mesh\" or \"sprite\")."},
+            "kind":{"type":"string","description":"Only nodes that work in this material kind (\"mesh\", \"sprite\" or \"post\")."},
             "category":{"type":"string","description":"Only this category: constant, input, texture, math, noise, effect or output."},
             "type":{"type":"string","description":"Only this node type, e.g. \"noise.fbm\"."}}})");
         registry.add(info, [](const Json& args) {
@@ -768,7 +824,9 @@ void register_material_graph_commands(CommandRegistry& registry, const std::stri
             }
             Json result = Json::object({{"format", kFormatText}, {"kinds", Json(graph_supported_kinds())}});
             for (auto it = out.begin(); it != out.end(); ++it) result[it.key()] = it.value();
-            result["example"] = kind == "sprite" ? example_sprite_material() : example_material();
+            result["example"] = kind == "sprite" ? example_sprite_material()
+                                : kind == "post" ? example_post_material()
+                                                 : example_material();
             return result;
         });
     }

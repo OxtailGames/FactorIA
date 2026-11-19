@@ -496,7 +496,7 @@ cache, hot reload, export, the runtime) is unchanged: a graph material is a mate
   `// <id> (<type>)`; the output node's fields become assignments to `s.` in `surface()` and the vertex offset an addition to
   `v.world_pos` in `vertex()`. Nodes the output does not reach are left out with a warning.
 - **Kinds.** The checker reads the material's `kind` when the file has one (the rest of the pipeline adds it separately) and
-  refuses a kind it cannot generate (`graph_supported_kinds()`: `mesh` and `sprite`); every node type lists its kinds. A kind
+  refuses a kind it cannot generate (`graph_supported_kinds()`: `mesh`, `sprite` and `post`); every node type lists its kinds. A kind
   is a `KindProfile` row in `material_graph.cpp` (the function headers and what `uv`, `time`, `tint`, ... read there) plus an
   `output` node of its own in the library (same type name, one entry per kind, chosen by the material's kind; its ports carry
   the statement each one writes, `assign`). A node that does not work in the kind carries an `instead` text per kind, and
@@ -510,11 +510,15 @@ cache, hot reload, export, the runtime) is unchanged: a graph material is a mate
   position; `uv`, `time`, noise, `dissolve`, `flow` and math work as in a mesh. `fresnel`, `triplanar`, `parallax`,
   `normal.world`, `view.dir`, `position.view`, `texture.normal`, `vertex.color` and `position.world` are refused. A sprite is always blended (the material file
   refuses `alphaMode: clip` on its own).
-- **Post graphs** are not built. A post graph needs a `KindProfile` row (the `fragment(in PostInput ...)` header and what its
-  inputs read), an `output` entry with `kinds` = post and its `assign` statements, the `instead` texts of the nodes that do not
-  fit, the kind in `graph_supported_kinds()`, and the editor's preview, which already treats post as not drawn.
+- **Post graphs** (`"kind": "post"`, snippet `shaders/<name>.post.glsl`) write `post(in PostInput i, inout PostSurface s)`; the
+  output has `color` (`s.color`) and `rgb` (`s.color.rgb`) and no vertex stage. The `post.*` nodes (`scene`, `depth`, `normal`,
+  `history`, `screen`) write the helper calls of the snippet contract (docs/shaders/SHADERS_POST.md): calling `fa_depth`,
+  `fa_normal` or `fa_history` is what asks the renderer for the prepass or the history, so the node is the whole request and the
+  material file has no field for it. A sprite or post graph converts `const.color` and `color` params with `fa_scene_rgb`
+  in the fragment function (a mesh graph writes them as typed). The editor draws no preview of a post material:
+  `capture_world` makes its own camera and never reads a `PostProcess`, so one would need a render-module change.
 - **Cost of the canvas.** The editor's graph canvas edits the same JSON and calls the same generator, so a graph made by an AI
-  opens in the editor and the reverse; its New graph material takes a kind (mesh or sprite) from the combo next to it.
+  opens in the editor and the reverse; its New graph material takes a kind (mesh, sprite or post) from the combo next to it.
 
 ## Out of scope (recorded so nobody assumes it)
 

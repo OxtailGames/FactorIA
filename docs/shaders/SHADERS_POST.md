@@ -11,7 +11,7 @@ the snippet differs.
 
 **The file.** `{"format": "factoria.material/1", "kind": "post", "shader": "shaders/<name>.post.glsl", "params": {...},
 "textures": {...}}`. `lighting`, `alphaMode` and `doubleSided` do not apply (the pass is not lit and has no geometry): the
-compiler refuses them with the reason. A graph (`graph`) is not available for post materials.
+compiler refuses them with the reason. A graph (`graph`) is available: see "Node graphs" below.
 
 **The snippet** has one entry point, `void post(in PostInput i, inout PostSurface s)` (**required**), run for every pixel of the
 camera's rectangle of the picture:
@@ -206,3 +206,24 @@ a history). Changing the size of the game target frees all of them.
 **Errors.** `fa_history` used as a texture, `fa_history_valid(...)` called as a function, or either in a material that is not
 `"kind": "post"` are refused by `factoria validate` and `shader.compile` before sokol-shdc runs, with the line and the fix. A mistyped
 name gets a "did you mean".
+
+### Node graphs
+
+A post material may hold a `graph` (`"kind": "post"`, [SHADERS.md](../SHADERS.md), "Node graphs"): the snippet
+`shaders/<name>.post.glsl` is generated from it, and the output node has the fields `color` (a vec4, written to `s.color`) and `rgb`
+(a vec3, written to `s.color.rgb`, which keeps the alpha). The nodes that read the frame exist in post graphs only:
+
+| Node | Writes | Where it works |
+|---|---|---|
+| `post.scene` | `fa_scene_color(uv)`: outputs `rgba`, `rgb`, `a` | the picture at `uv` (default: this pixel) |
+| `post.depth` | `fa_depth(uv)`: outputs `depth`, `mask` | asks for the prepass, like the call |
+| `post.normal` | `fa_normal(uv)`: output `normal` | asks for the prepass, like the call |
+| `post.history` | `fa_history(uv)`: outputs `rgba`, `rgb`, `valid` (`fa_history_valid`) | asks for the history: the node is the whole request, the file has nothing to declare |
+| `post.screen` | `i.texel`, `i.size`: outputs `texel`, `size`, `aspect` | the camera's rectangle |
+
+`uv`, `time`, `param`, `texture`, the constants, the math nodes, noise, `flow` and `dissolve` work as in the other kinds. A colour
+(`const.color`, a `color` param) is converted with `fa_scene_rgb` where it is read, so a colour you picked looks as picked in
+a linear or a display picture; a number typed into an output input is written as it is. The nodes of a mesh or a sprite
+(`fresnel`, `position.world`, `sprite.color`...) are refused with what to use here instead. The Graph panel draws no
+preview of a post material (it has no camera picture to run over): put the material in a `PostProcess.customPasses` to see
+it. `material.graph.nodes {"kind": "post"}` returns the nodes and an example (a wobbling vignette).
