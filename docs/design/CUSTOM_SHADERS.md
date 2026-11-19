@@ -324,8 +324,9 @@ when it reloads. Attribute layouts are unchanged (the template keeps every locat
 
 `material_key` in `mesh_batch.cpp` adds the material asset pointer and a hash of the entity's `materialParams`
 (an entity without overrides hashes to 0). Many entities with one material and no overrides stay one instanced draw
-per mesh part, as today. Per-instance custom data (a color per instance inside one draw) is not in this design: it
-needs a wider instance buffer; listed under "Left open".
+per mesh part, as today. A value that differs per entity inside one draw is a param marked `"instanced": true`: its
+name is left out of the hash, so entities that differ only in those values share the batch (see "Per-instance params and
+vertex channels" below).
 
 ### Draw
 
@@ -358,6 +359,47 @@ Every material has the programs `prepass` and `prepass_skin` (docs/RENDERING.md,
 leaf is as cut in the depth as in the picture. Blended materials are not drawn in the prepass at all. The programs are optional in a
 twin (a twin without them draws its meshes with the engine's prepass program: no `vertex()`, no holes); a twin that lists one that
 does not build is an error, like a broken shadow program.
+
+### Per-instance params and vertex channels
+
+(M72.3, built.) Two additions of the mesh template; a material using neither gets exactly the program and the attributes it
+always had, and the engine's own mesh programs are unchanged except for the template hash (the text of the template changed,
+so every committed twin is rebuilt and games with custom materials re-export).
+
+**Instanced params.** A param with `"instanced": true` is not in `fa_material` / `fa_material_vs`; each entity's value is
+written into a per-instance buffer (vertex buffer 3, `vec4Count * 16` bytes per instance, step per instance) next to the
+matrix buffer. Layout (`instance_layout`): alphabetical, first fit, in floats of a vec4 (a vec3 or vec4 never straddles
+two vec4; a vec3 and a float share one); at most 3 vec4 (`kMaterialMaxInstanceVec4`, 12 floats), and the error on `/params`
+names the instanced params and the fix. The 16-param limit counts only the params of the block. The twin lists
+`"instanced": [{name, vec4, offset, components}]` and `"instanceVec4"` (absent when there are none; `"params"` lists only
+the block's names). The attribute locations follow the matrix (9, or 11 after the joints and weights of a skinned program):
+the instance vec4s, then uv1, then color1, so a skinned program with everything uses 16 attributes, sokol's limit. The
+pipeline key needs no extra bits: the shader of a material fixes its layout.
+
+The vertex shader copies the values to `flat` varyings and `fa_inst_begin()` unpacks them into plain globals named like the
+params (`fa_instance_unpack`, generated); the fragment shader unpacks the varyings (`fa_inst_load()`); the snippet reads
+`tint` in `vertex()` and `surface()` as it reads any param. The shadow and prepass programs run the same unpack when they
+run `vertex()` (or clip), with their own attribute locations, so a vertex displaced by an instanced value is displaced the
+same in all three passes.
+
+Batching: the hash of `materialParams` ignores the instanced names (`MaterialHashCache`, keyed by the material's
+`instancedKey` so a reloaded material invalidates it), so `build_batches` is unchanged; `pack_instance_extras` then packs
+each batch's values, in the order of its matrices (visible and shadow-casting items), after the culling. A non-instanced
+param still splits the batch.
+
+**Declared vertex channels.** `"vertexAttributes": ["uv1", "color1"]` makes the generator declare `vertex_uv1` (vec2) and
+`vertex_color1` (vec4) as globals of `vertex()` (copy them into `v.uv` / `v.color` to reach `surface()`), and the template
+declare the attributes after the instance data (vertex buffers 4 and 5, per vertex; `color1` is 4 normalized bytes). Only
+glTF meshes have them (`TEXCOORD_1`, `COLOR_1` as vec3 or vec4): a procedural mesh or a built-in primitive has neither.
+A part without a declared channel is drawn with the error material, `note_failure("material-mesh", ...)` logs once per
+material and mesh, naming the material, the mesh, the part and the glTF attribute, and the path joins
+`stats.materialFallbacks`; the other meshes of the material draw normally.
+
+Tests: tooling (the layout, the limits and their pointers, the generated top file, the six dialects with the real
+sokol-shdc, the twin's keys), renderer ("materials: ..." cases: 100 entities with different instanced values are one batch
+and one draw call with the right colours, a non-instanced param still splits, `vertex()` reading an instanced value moves the
+shadow like a mesh standing there, a skinned glTF, a declared channel is drawn, a missing channel is magenta and logged
+once).
 
 ## Commands and editor
 

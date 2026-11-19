@@ -74,6 +74,8 @@ struct Renderer::Impl::DrawContext {
     bool doCoverage = false;
     std::vector<MeshBatch> opaqueBatches, blendedBatches;
     std::vector<Mat4> mainMats, shadowMats;
+    std::vector<float> mainExtraData,
+        shadowExtraData;  // the per-instance params of the batches that have them (MeshBatch::mainExtra)
     // build_quad_stream
     struct Group {
         std::vector<QuadBatch> batches;
@@ -84,6 +86,8 @@ struct Renderer::Impl::DrawContext {
     Mat4 screenProj;
     // upload_instances
     sg_buffer mainInst{}, shadowInst{};
+    sg_buffer mainExtra{},
+        shadowExtra{};  // the per-instance params of mainExtraData / shadowExtraData (vertex buffer 3)
     // scene_uniforms
     SceneSettings ss;
     TextureAsset* white = nullptr;
@@ -786,6 +790,10 @@ void Renderer::Impl::cull_and_batch(DrawContext& ctx) {
     }
     build_batches(opaque, true, opaqueBatches, mainMats, shadowMats);
     build_batches(blended, false, blendedBatches, mainMats, shadowMats);
+    ctx.mainExtraData.clear();
+    ctx.shadowExtraData.clear();
+    pack_instance_extras(opaque, opaqueBatches, ctx.mainExtraData, ctx.shadowExtraData);
+    pack_instance_extras(blended, blendedBatches, ctx.mainExtraData, ctx.shadowExtraData);
 }
 
 // ---- flatten quads into one vertex stream ----
@@ -834,21 +842,23 @@ void Renderer::Impl::build_quad_stream(DrawContext& ctx) {
 }
 
 // ---- instance data: one model matrix per drawn mesh, written before any pass binds the buffers ----
-// Reads: ctx.mainMats, ctx.shadowMats. Writes: ctx.mainInst, ctx.shadowInst (transient GPU buffers).
+// Reads: ctx.mainMats, ctx.shadowMats, ctx.mainExtraData, ctx.shadowExtraData. Writes: ctx.mainInst, ctx.shadowInst, ctx.mainExtra,
+// ctx.shadowExtra (transient GPU buffers).
 void Renderer::Impl::upload_instances(DrawContext& ctx) {
     static_assert(sizeof(Mat4) == kMeshInstanceBytes, "an instance is one Mat4");
-    auto upload = [&](const std::vector<Mat4>& mats) {
-        if (mats.empty()) return sg_buffer{};
-        const std::size_t bytes = mats.size() * kMeshInstanceBytes;
+    auto upload = [&](const void* data, std::size_t bytes) {
+        if (bytes == 0) return sg_buffer{};
         sg_buffer buf = gpu.acquire_transient(bytes);
         sg_write_buffer_desc wd{};
-        wd.src.data = {mats.data(), bytes};
+        wd.src.data = {data, bytes};
         wd.dst.buffer = buf;
         sg_write_buffer_transient(&wd);
         return buf;
     };
-    ctx.mainInst = upload(ctx.mainMats);
-    ctx.shadowInst = upload(ctx.shadowMats);
+    ctx.mainInst = upload(ctx.mainMats.data(), ctx.mainMats.size() * kMeshInstanceBytes);
+    ctx.shadowInst = upload(ctx.shadowMats.data(), ctx.shadowMats.size() * kMeshInstanceBytes);
+    ctx.mainExtra = upload(ctx.mainExtraData.data(), ctx.mainExtraData.size() * sizeof(float));
+    ctx.shadowExtra = upload(ctx.shadowExtraData.data(), ctx.shadowExtraData.size() * sizeof(float));
 }
 
 // ---- the scene's uniforms: shared by the main pass and the shadow pass of alphaMode "clip" materials ----
@@ -933,18 +943,61 @@ void Renderer::Impl::scene_uniforms(DrawContext& ctx) {
     }
 }
 
+// Binds the vertex buffers of a custom material's extras (MeshExtras): its per-instance params from `data` (the floats of this
+// batch start at `floatOffset`) and the part's uv1 and color1 channels, as the pipeline made with m.extras() reads them.
+static void bind_extras(sg_bindings& b, const MaterialAsset& m, const SubMesh& part, sg_buffer data,
+                        std::uint32_t floatOffset) {
+    if (m.instanceVec4 > 0) {
+        b.vertex_buffers[kInstanceDataBuffer] = data;
+        b.vertex_buffer_offsets[kInstanceDataBuffer] = int(floatOffset * sizeof(float));
+    }
+    if (m.uv1) b.vertex_buffers[kUv1Buffer] = part.uv1Vb;
+    if (m.color1) b.vertex_buffers[kColor1Buffer] = part.color1Vb;
+}
+
 // What one part of an item is drawn with (reads ctx.white).
 Renderer::Impl::PartDraw Renderer::Impl::part_draw(DrawContext& ctx, const MeshItem& mi, const SubMesh& part) {
     TextureAsset* white = ctx.white;
     PartDraw d;
-    d.error = mi.material && !mi.material->ok;
-    d.mat = mi.material && mi.material->ok ? mi.material : nullptr;
+    // A material that built but declares a channel this part lacks (vertexAttributes) is drawn as the error material too.
+    const char* lacks = mi.material && mi.material->ok ? missing_channel(*mi.material, part) : nullptr;
+    if (lacks) note_missing_channel(mi, part, lacks);
+    d.error = mi.material && (!mi.material->ok || lacks);
+    d.mat = mi.material && mi.material->ok && !lacks ? mi.material : nullptr;
     d.tex = d.error ? white : mi.tex ? mi.tex : (part.texture ? part.texture : white);
     d.normal = d.error ? nullptr : (mi.normalTex ? mi.normalTex : part.normalTex);
     d.mr = d.error || !part.mrTex ? white : part.mrTex;
     d.occlusion = d.error || !part.occlusionTex ? white : part.occlusionTex;
     d.emissive = d.error || !part.emissiveTex ? white : part.emissiveTex;
     return d;
+}
+
+void Renderer::Impl::note_missing_channel(const MeshItem& mi, const SubMesh& part, const char* what) {
+    MaterialAsset& mat = *mi.material;
+    const bool uv = std::string(what) == "uv1";
+    // Already logged? One hash lookup, no string: this runs for every part of every batch of every pass of every frame.
+    const std::uint64_t key = (std::uint64_t(reinterpret_cast<std::uintptr_t>(mi.mesh)) * 1000003u +
+                               std::uint64_t(&part - mi.mesh->parts.data())) *
+                                  2u +
+                              (uv ? 0u : 1u);
+    if (!mat.missingNoted.insert(key).second) return;
+    const std::string mesh = mi.mesh->key;
+    const std::string channel = uv ? "TEXCOORD_1" : "COLOR_1";
+    const bool primitive = MeshStore::is_id(mesh);
+    assets->note_failure(
+        "material-mesh", mat.path + " on " + mesh,
+        "material '" + mat.path + "' lists \"" + what + "\" in vertexAttributes, but " +
+            (primitive ? "'" + mesh +
+                             "' is a built-in primitive (cube, plane, ...), which has only position, normal and uv, "
+                             "no TEXCOORD_1 or COLOR_1"
+                       : "part " + std::to_string(&part - mi.mesh->parts.data()) + " of mesh '" + mesh + "' has no " +
+                             channel + " attribute") +
+            ". The meshes using both are drawn magenta.",
+        primitive
+            ? "Use a glTF model that has " + channel + " (the built-in primitives never do), or remove \"" + what +
+                  "\" from the material's vertexAttributes."
+            : "Export the model with a second " + std::string(uv ? "UV set" : "vertex colour set") + " (glTF " +
+                  channel + "), remove \"" + what + "\" from the material's vertexAttributes, or use another mesh.");
 }
 
 // The fragment parameters (fa_mesh_fs_params) of one part (reads ctx.fuScene, or ctx.fuBlend for a blended part, ctx.doShadows).
@@ -1166,18 +1219,20 @@ void Renderer::Impl::shadow_pass(DrawContext& ctx) {
                 material_inputs(rep, mat, inputs);
             for (auto& p : rep.mesh->parts) {
                 const bool skinned = rep.anim && p.skinVb.id;
-                const MaterialProgram* prog = mat ? &mat->programs[skinned ? kProgShadowSkin : kProgShadow] : nullptr;
+                const PartDraw pd = part_draw(ctx, rep, p);
+                const MaterialProgram* prog =
+                    pd.mat ? &mat->programs[skinned ? kProgShadowSkin : kProgShadow] : nullptr;
                 if (prog && !prog->shader.id) prog = nullptr;
-                sg_apply_pipeline(prog ? gpu.shadow_pipeline(skinned, prog->shader, true)
+                sg_apply_pipeline(prog ? gpu.shadow_pipeline(skinned, prog->shader, true, mat->extras())
                                        : gpu.shadow_pipeline(skinned));
                 sg_bindings b{};
                 b.vertex_buffers[0] = p.vb;
                 b.vertex_buffers[1] = shadowInst;
                 b.vertex_buffer_offsets[1] = int(batch.shadowFirst * kMeshInstanceBytes);
                 if (skinned) b.vertex_buffers[2] = p.skinVb;
+                if (prog) bind_extras(b, *mat, p, ctx.shadowExtra, batch.shadowExtra);
                 b.index_buffer = p.ib;
                 b.index_buffer_offset = p.ibOffset;
-                const PartDraw pd = part_draw(ctx, rep, p);
                 if (prog) bind_textures(ctx, b, pd, prog, inputs, true);
                 sg_apply_bindings(&b);
                 apply_uniforms(UB_mesh_fa_mesh_vs_params, u);
@@ -1318,18 +1373,21 @@ void Renderer::Impl::prepass_pass(DrawContext& ctx, const Target& t) {
         for (const SubMesh& part : mi.mesh->parts) {
             const bool skinned = mi.anim && part.skinVb.id;
             const PartDraw pd0 = part_draw(ctx, mi, part);
-            const MaterialProgram* custom = mat ? &mat->programs[skinned ? kProgPrepassSkin : kProgPrepass] : nullptr;
+            const MaterialProgram* custom =
+                pd0.mat ? &mat->programs[skinned ? kProgPrepassSkin : kProgPrepass] : nullptr;
             if (custom && !custom->shader.id) custom = nullptr;  // a twin made before the prepass: the engine's program
             const MaterialProgram* prog = custom ? custom : &gpu.prepass_program(skinned);
             PartDraw bind = pd0;
             if (!custom) bind.mat = nullptr;  // the engine's program has no material textures
             sg_apply_pipeline(gpu.prepass_pipeline(pd.format, part.doubleSided || (pd0.mat && pd0.mat->doubleSided),
-                                                   skinned, custom ? custom->shader : sg_shader{}));
+                                                   skinned, custom ? custom->shader : sg_shader{},
+                                                   custom ? mat->extras() : MeshExtras{}));
             sg_bindings b{};
             b.vertex_buffers[0] = part.vb;
             b.vertex_buffers[1] = ctx.mainInst;
             b.vertex_buffer_offsets[1] = int(batch.mainFirst * kMeshInstanceBytes);
             if (skinned) b.vertex_buffers[2] = part.skinVb;
+            if (custom) bind_extras(b, *mat, part, ctx.mainExtra, batch.mainExtra);
             b.index_buffer = part.ib;
             b.index_buffer_offset = part.ibOffset;
             bind_textures(ctx, b, bind, prog, inputs, true);
@@ -1648,15 +1706,22 @@ void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
                 for (auto& part : mi.mesh->parts) {
                     const bool skinned = mi.anim && part.skinVb.id;
                     const PartDraw pd = part_draw(ctx, mi, part);
+                    if (pd.error && mi.material && mi.material->ok &&
+                        std::find(stats.materialFallbacks.begin(), stats.materialFallbacks.end(), mi.material->path) ==
+                            stats.materialFallbacks.end())
+                        stats.materialFallbacks.push_back(
+                            mi.material->path);  // built, but this mesh lacks a declared channel
                     const MaterialProgram* prog =
                         pd.mat ? &pd.mat->programs[skinned ? kProgMeshSkin : kProgMesh] : nullptr;
                     sg_apply_pipeline(gpu.mesh_pipeline(isBlend, part.doubleSided || (pd.mat && pd.mat->doubleSided),
-                                                        skinned, prog ? prog->shader : sg_shader{}));
+                                                        skinned, prog ? prog->shader : sg_shader{},
+                                                        pd.mat ? pd.mat->extras() : MeshExtras{}));
                     sg_bindings b{};
                     b.vertex_buffers[0] = part.vb;
                     b.vertex_buffers[1] = mainInst;
                     b.vertex_buffer_offsets[1] = int(batch.mainFirst * kMeshInstanceBytes);
                     if (skinned) b.vertex_buffers[2] = part.skinVb;
+                    if (pd.mat) bind_extras(b, *pd.mat, part, ctx.mainExtra, batch.mainExtra);
                     b.index_buffer = part.ib;
                     b.index_buffer_offset = part.ibOffset;
                     bind_textures(ctx, b, pd, prog, inputs, false);

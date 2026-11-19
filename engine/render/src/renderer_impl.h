@@ -402,6 +402,8 @@ struct Renderer::Impl {
     void upload_instances(DrawContext& ctx);
     void scene_uniforms(DrawContext& ctx);
     PartDraw part_draw(DrawContext& ctx, const MeshItem& mi, const SubMesh& part);
+    // Reports once per material and mesh that `part` lacks the channel `what` ("uv1" / "color1") the material declares.
+    void note_missing_channel(const MeshItem& mi, const SubMesh& part, const char* what);
     // `blended`: a part of the blended meshes, which fog themselves with the camera's stack fog (DrawContext::fuBlend).
     mesh_fa_mesh_fs_params_t fill_fs(DrawContext& ctx, const MeshItem& mi, const SubMesh& part, const PartDraw& d,
                                      bool blended = false);

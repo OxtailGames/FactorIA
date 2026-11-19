@@ -2009,3 +2009,211 @@ TEST_CASE("engine compiler: returns the twin, and an error with every issue's fi
     auto missing = compiler("materials/none.material.json", "hlsl5");
     CHECK_FALSE(missing.ok());
 }
+
+// ---------------------------------------------------------------------------------------------------------------
+// Per-instance params and declared vertex channels
+// ---------------------------------------------------------------------------------------------------------------
+
+namespace {
+const char* kInstParams = R"("params":{
+    "a":{"type":"color","default":[1,1,1,1],"instanced":true,"doc":"A color per entity."},
+    "b":{"type":"color","default":[1,1,1,1],"instanced":true,"doc":"Another color per entity."},
+    "c":{"type":"vec3","default":[0,0,0],"instanced":true,"doc":"A lift per entity."},
+    "d":{"type":"float","default":0,"instanced":true,"doc":"Its strength per entity."},
+    "k":{"type":"float","default":1,"min":0,"max":4,"doc":"One value per draw."}}})";
+const std::string kInstMaterial =
+    std::string(
+        R"({"format":"factoria.material/1","shader":"shaders/inst.surface.glsl","vertexAttributes":["uv1","color1"],)") +
+    kInstParams;
+const std::string kInstMaterialNoChannels =
+    std::string(R"({"format":"factoria.material/1","shader":"shaders/inst.surface.glsl",)") + kInstParams;
+const char* kInstSnippet = R"(void vertex(inout VertexData v) {
+    v.world_pos += c * d;
+    v.uv = vertex_uv1;
+    v.color = vertex_color1;
+}
+void surface(in SurfaceInput i, inout Surface s) {
+    s.emission += a.rgb * b.rgb * k + c * d;
+}
+)";
+}  // namespace
+
+TEST_CASE("instanced params: the layout packs floats and small vectors first-fit, alphabetically, in at most 3 vec4") {
+    Project p;
+    p.write("materials/inst.material.json", kInstMaterial);
+    p.write("shaders/inst.surface.glsl", kInstSnippet);
+    const MaterialParse m = read_material(p.str(), "materials/inst.material.json");
+    REQUIRE(m.ok());
+    CHECK(m.material.vertexAttributes == std::vector<std::string>{"color1", "uv1"});
+    const InstanceLayout layout = instance_layout(m.material.params);
+    CHECK(layout.vec4Count == 3);
+    REQUIRE(layout.slots.size() == 4);  // k is not instanced
+    CHECK(layout.slots[0].name == "a");
+    CHECK(layout.slots[0].vec4 == 0);
+    CHECK(layout.slots[1].vec4 == 1);
+    CHECK(layout.slots[2].name == "c");
+    CHECK(layout.slots[2].vec4 == 2);
+    CHECK(layout.slots[2].offset == 0);
+    CHECK(layout.slots[2].components == 3);
+    CHECK(layout.slots[3].name == "d");
+    CHECK(layout.slots[3].vec4 == 2);
+    CHECK(layout.slots[3].offset == 3);
+    CHECK(kMaterialMaxInstanceVec4 == 3);
+
+    auto schema = bundled_read("schemas/material.schema.json");
+    REQUIRE(schema.has_value());
+    CHECK(validate_json(Json::parse(*schema), Json::parse(kInstMaterial)).empty());
+
+    // 12 instanced floats fill exactly three vec4; the 13th does not fit
+    auto floats = [](int n) {
+        std::string s = R"({"format":"factoria.material/1","shader":"s.glsl","params":{)";
+        for (int i = 0; i < n; ++i)
+            s += std::string(i ? "," : "") + "\"f" + std::string(i < 10 ? "0" : "") + std::to_string(i) +
+                 R"(":{"type":"float","default":0,"instanced":true,"doc":"d"})";
+        return s + "}}";
+    };
+    const MaterialParse twelve = parse(floats(12).c_str());
+    CHECK(twelve.ok());
+    CHECK(instance_layout(twelve.material.params).vec4Count == 3);
+    CHECK(has_error(parse(floats(13).c_str()), "/params", "at most 3"));
+}
+
+TEST_CASE("instanced params: errors name the pointer, and the 16-param limit counts only the params of the block") {
+    CHECK(has_error(parse(R"({"format":"factoria.material/1","shader":"s.glsl","params":{
+        "tint":{"type":"color","default":[1,1,1,1],"instanced":"yes","doc":"d"}}})"),
+                    "/params/tint/instanced", "true or false"));
+    // four vec4 per instance are too many, and the message names the params
+    const auto four = parse(R"({"format":"factoria.material/1","shader":"s.glsl","params":{
+        "a":{"type":"color","default":[1,1,1,1],"instanced":true,"doc":"d"},
+        "b":{"type":"color","default":[1,1,1,1],"instanced":true,"doc":"d"},
+        "c":{"type":"color","default":[1,1,1,1],"instanced":true,"doc":"d"},
+        "d":{"type":"color","default":[1,1,1,1],"instanced":true,"doc":"d"}}})");
+    CHECK(has_error(four, "/params", "4 vec4"));
+    CHECK(has_error(four, "/params", "Make some of them not instanced"));
+    // a vec3 and a float share one vec4
+    CHECK(parse(R"({"format":"factoria.material/1","shader":"s.glsl","params":{
+        "a":{"type":"vec3","default":[0,0,0],"instanced":true,"doc":"d"},
+        "b":{"type":"float","default":0,"instanced":true,"doc":"d"}}})")
+              .ok());
+    // 17 params are too many for the block, unless some are instanced
+    auto many = [](int instanced) {
+        std::string s = R"({"format":"factoria.material/1","shader":"s.glsl","params":{)";
+        for (int i = 0; i < 17; ++i)
+            s += std::string(i ? "," : "") + "\"p" + std::string(i < 10 ? "0" : "") + std::to_string(i) +
+                 R"(":{"type":"float","default":1,"doc":"d")" + (i < instanced ? R"(,"instanced":true)" : "") + "}";
+        return s + "}}";
+    };
+    CHECK_FALSE(parse(many(0).c_str()).ok());
+    CHECK(parse(many(3).c_str()).ok());
+}
+
+TEST_CASE("vertexAttributes: the names are checked with their pointer, did you mean and the list of channels") {
+    CHECK(parse(R"({"format":"factoria.material/1","shader":"s.glsl","vertexAttributes":["uv1","color1"]})").ok());
+    auto bad = parse(R"({"format":"factoria.material/1","shader":"s.glsl","vertexAttributes":["uv2","uv1","uv1",3]})");
+    CHECK(has_error(bad, "/vertexAttributes/0", "Did you mean 'uv1'?"));
+    CHECK(has_error(bad, "/vertexAttributes/0", "TEXCOORD_1"));
+    CHECK(has_error(bad, "/vertexAttributes/2", "twice"));
+    CHECK(has_error(bad, "/vertexAttributes/3", "expected a name"));
+    CHECK(has_error(parse(R"({"format":"factoria.material/1","shader":"s.glsl","vertexAttributes":"uv1"})"),
+                    "/vertexAttributes", "expected an array"));
+}
+
+TEST_CASE("instanced params and vertexAttributes are refused in every kind but mesh, with the pointer and the fix") {
+    for (const char* kind : {"sprite", "compute", "sky"}) {
+        CAPTURE(kind);
+        const std::string head =
+            std::string(R"({"format":"factoria.material/1","shader":"s.glsl","kind":")") + kind + "\"";
+        const auto inst = parse(
+            (head + R"(,"params":{"tint":{"type":"color","default":[1,1,1,1],"instanced":true,"doc":"d"}}})").c_str());
+        CHECK_FALSE(inst.ok());
+        CHECK(has_error(inst, "/params/tint/instanced", "only mesh materials"));
+        CHECK(has_error(inst, "/params/tint/instanced", "Remove \"instanced\""));
+        const auto chan = parse((head + R"(,"vertexAttributes":["uv1"]})").c_str());
+        CHECK_FALSE(chan.ok());
+        CHECK(has_error(chan, "/vertexAttributes", "only mesh materials"));
+        CHECK(has_error(chan, "/vertexAttributes", "Remove \"vertexAttributes\""));
+        // "instanced": false is what every kind may write
+        CHECK_FALSE(has_error(
+            parse((head + R"(,"params":{"tint":{"type":"color","default":[1,1,1,1],"instanced":false,"doc":"d"}}})")
+                      .c_str()),
+            "/params/tint/instanced", "only mesh"));
+    }
+}
+
+TEST_CASE("the instance limit of the renderer is the one of the tooling") {
+    // render_internal.h is private to fa_render: read the constant the way the generator and the runtime must agree on it.
+    const std::string header = testing::read_all(stdfs::path(FA_REPO_ROOT) / "engine/render/src/render_internal.h");
+    std::smatch m;
+    REQUIRE(std::regex_search(header, m, std::regex(R"(constexpr int kMaxInstanceVec4 = (\d+);)")));
+    CHECK(std::stoi(m[1].str()) == kMaterialMaxInstanceVec4);
+}
+
+TEST_CASE("generator: instanced params are left out of the block, read from the instance data, and the channels are "
+          "globals of vertex()") {
+    Project p;
+    p.write("materials/inst.material.json", kInstMaterial);
+    p.write("shaders/inst.surface.glsl", kInstSnippet);
+    const MaterialDef inst = read_material(p.str(), "materials/inst.material.json").material;
+    const GeneratedShader g = generate_material_shader(inst, kInstSnippet);
+    CHECK(g.hasVertex);
+    CHECK(std::find(g.defines.begin(), g.defines.end(), "FA_INST_3") != g.defines.end());
+    CHECK(std::find(g.defines.begin(), g.defines.end(), "FA_CH_UV1") != g.defines.end());
+    CHECK(std::find(g.defines.begin(), g.defines.end(), "FA_CH_COLOR1") != g.defines.end());
+    CHECK(g.top.find("float k;") != std::string::npos);  // the one param of the block
+    CHECK(g.top.find("fa_instance_unpack(vec4 fa_d0, vec4 fa_d1, vec4 fa_d2)") != std::string::npos);
+    CHECK(g.top.find("c = fa_d2.xyz;") != std::string::npos);
+    CHECK(g.top.find("d = fa_d2.w;") != std::string::npos);
+    CHECK(g.top.find("vec2 vertex_uv1;") != std::string::npos);
+    CHECK(g.top.find("vec4 vertex_color1;") != std::string::npos);
+    // a material with neither gets none of it
+    const GeneratedShader plain =
+        generate_material_shader(read_material(p.str(), "materials/gem.material.json").material, kGemSnippet);
+    CHECK(plain.top.find("fa_instance_unpack") == std::string::npos);
+    CHECK(plain.top.find("vertex_uv1") == std::string::npos);
+    for (const std::string& d : plain.defines) CHECK(d.rfind("FA_INST_", 0) != 0);
+}
+
+TEST_CASE(
+    "real sokol-shdc: a material with three vec4 of instanced params and both channels compiles to every dialect") {
+    SetupContext context;
+    if (!real_tool(context)) return;
+    Project p;
+    p.write("materials/inst.material.json", kInstMaterial);
+    p.write("shaders/inst.surface.glsl", kInstSnippet);
+    ShaderCompileOptions options;
+    options.setup = context;
+    options.useCache = false;
+    auto r = compile_material(p.str(), "materials/inst.material.json", options);
+    REQUIRE(r.ok());
+    const std::string why = r->errors.empty() ? std::string() : r->errors[0].to_string();
+    INFO(why);
+    REQUIRE(r->ok);
+    REQUIRE(r->twins.size() == 6);
+    for (const auto& [slang, twin] : r->twins) {
+        CAPTURE(slang);
+        CHECK(twin["params"] == Json::parse(R"(["k"])"));
+        CHECK(twin["instanceVec4"] == 3);
+        CHECK(twin["vertexAttributes"] == Json::parse(R"(["color1","uv1"])"));
+        REQUIRE(twin["instanced"].size() == 4);
+        CHECK(twin["instanced"][2] == Json::parse(R"({"name":"c","vec4":2,"offset":0,"components":3})"));
+        CHECK(twin["programs"].size() == 6);
+        // the nine attributes of the mesh, three instance vec4, uv1 and color1; the skinned program adds joints and weights
+        CHECK(twin["programs"]["mesh"]["reflection"]["attrs"].size() == 14);
+        CHECK(twin["programs"]["mesh_skin"]["reflection"]["attrs"].size() == 16);
+        CHECK(twin["programs"]["shadow"]["reflection"]["attrs"].size() == 14);
+        CHECK(twin["programs"]["prepass"]["reflection"]["attrs"].size() == 14);
+    }
+    // a surface()-only material without channels: the instance data only, the shadow programs do not exist
+    p.write("shaders/inst.surface.glsl",
+            "void surface(in SurfaceInput i, inout Surface s) {\n    s.emission += a.rgb * b.rgb * k + c * d;\n}\n");
+    p.write("materials/inst.material.json", kInstMaterialNoChannels);
+    auto s = compile_material(p.str(), "materials/inst.material.json", options);
+    REQUIRE(s.ok());
+    REQUIRE(s->ok);
+    for (const auto& [slang, twin] : s->twins) {
+        CAPTURE(slang);
+        CHECK_FALSE(twin.contains("vertexAttributes"));
+        CHECK(twin["programs"].size() == 4);
+        CHECK(twin["programs"]["mesh"]["reflection"]["attrs"].size() == 12);
+    }
+}

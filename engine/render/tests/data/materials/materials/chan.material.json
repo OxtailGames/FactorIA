@@ -1,0 +1,6 @@
+{
+  "format": "factoria.material/1",
+  "doc": "Test fixture: vertex() reads the second UV set and the second vertex colour set of the mesh.",
+  "shader": "shaders/chan.surface.glsl",
+  "vertexAttributes": ["uv1", "color1"]
+}
