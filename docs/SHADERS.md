@@ -997,8 +997,8 @@ the page [Full shaders and passes](shaders/SHADERS_FULL.md) (`factoria docs read
   drives the ambient and reflection light of the meshes (they follow `skyColor` and `horizonColor`); per-instance params
   in a sky or compute material and vertex channels (`vertexAttributes`) in a sprite, sky or compute material (a mesh
   has them).
-- **Post passes** after the tonemap (on the display picture) and a post pass that needs the previous frame (a feedback or
-  trail effect); a pass sees the depth and normals of mesh geometry only (not of sprites).
+- **Post passes** that need the previous frame (a feedback or trail effect); a pass sees the depth and normals of mesh geometry
+  only (not of sprites).
 
 If a game needs one of these, write it in the game's `ENGINE_FEEDBACK.json` (see [ENGINE_FEEDBACK.md](ENGINE_FEEDBACK.md)):
 that is how it gets built.

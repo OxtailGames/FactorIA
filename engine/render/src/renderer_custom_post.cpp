@@ -99,6 +99,13 @@ const char* slot_name(PostSlot slot) {
         case PostSlot::AfterShafts: return "shafts";
         case PostSlot::AfterDof: return "dof";
         case PostSlot::AfterBloom: return "bloom";
+        case PostSlot::AfterTonemap: return "tonemap";
+        case PostSlot::AfterGrading: return "grading";
+        case PostSlot::AfterVignette: return "vignette";
+        case PostSlot::AfterSharpen: return "sharpen";
+        case PostSlot::AfterOutline: return "outline";
+        case PostSlot::AfterPosterize: return "posterize";
+        case PostSlot::AfterGrain: return "grain";
         default: break;
     }
     return "slot";
@@ -163,26 +170,33 @@ void CustomPost::forget_targets() {
 }
 
 int CustomPost::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, SceneFx& copier,
-                           const CustomPostPlan& plan, PostSlot slot, const PostRect& rectIn, int picW, int picH,
-                           ResourceId game, sg_view srcTex, const BloomTarget& dst, const PrepassRef& prepass,
-                           bool linear, float time, int* drawCalls, std::vector<std::string>& fallbacks,
-                           const std::string& job) {
-    if (!plan.any_in(slot)) return 0;
+                           const CustomPostPlan& plan, std::uint32_t slots, const PostRect& rectIn, int picW, int picH,
+                           ResourceId game, sg_view srcTex, const BloomTarget& dst, sg_pixel_format fmt,
+                           const PrepassRef& prepass, bool linear, float time, int* drawCalls,
+                           std::vector<std::string>& fallbacks, const std::string& job) {
+    if (!plan.any_in_mask(slots)) return 0;
+    int firstSlot = 0;  // the first place of the mask: it names the passes
+    while (((slots >> firstSlot) & 1u) == 0) ++firstSlot;
+    const PostSlot slot = PostSlot(firstSlot);
     PixelRect rect;
     rect.whole = rectIn.whole(picW, picH);
     rect.x = rect.whole ? 0 : rectIn.x;
     rect.y = rect.whole ? 0 : rectIn.y;
     rect.w = rect.whole ? picW : rectIn.w;
     rect.h = rect.whole ? picH : rectIn.h;
-    const sg_pixel_format fmt = gpu.scene_format();
 
     // The passes that can be drawn: one that reads the prepass of a camera without one, or that has no pipeline for the format of
     // the picture, is left out (the picture stays as the pass before left it).
     const TargetFormat scratchFormat{fmt, SG_PIXELFORMAT_NONE, 1};
     const TargetFormat dstFormat{fmt, SG_PIXELFORMAT_NONE, dst.samples};
     std::vector<const CustomPostEntry*> chain;
-    for (const CustomPostEntry& e : plan.entries) {
-        if (e.slot != slot) continue;
+    std::vector<const CustomPostEntry*> wanted;
+    for (const CustomPostEntry& e : plan.entries)
+        if (((slots >> int(e.slot)) & 1u) != 0) wanted.push_back(&e);
+    std::stable_sort(wanted.begin(), wanted.end(),
+                     [](const CustomPostEntry* a, const CustomPostEntry* b) { return int(a->slot) < int(b->slot); });
+    for (const CustomPostEntry* ep : wanted) {
+        const CustomPostEntry& e = *ep;
         std::string why;
         if (e.readsPrepass && !prepass.valid())
             why = "it reads the depth or the normals (fa_depth, fa_normal) and this camera has no depth and normal "

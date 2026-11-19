@@ -3,6 +3,7 @@
 #include "renderer_impl.h"
 
 #include <algorithm>
+#include <bit>
 #include <iterator>
 
 #include "shaders/prepass_view.glsl.h"
@@ -286,6 +287,7 @@ void Renderer::Impl::begin_frame_graph(bool countPost) {
     postCams.clear();
     frameJobs.clear();
     jobImages.clear();
+    release_idle_ldr_targets();
     ++frameSerial;
     framePost = countPost;
     if (countPost) ++postSerial;
@@ -444,6 +446,14 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
         // out here, named in stats.materialFallbacks and logged once.
         if (fr.cam.postStack && fr.cam.postStack->has_custom())
             pp.custom = make_custom_post_plan(*fr.cam.postStack, *assets, stats.materialFallbacks, warnedCustomPass);
+        // The passes after the tonemap cut the final pass in pieces, which go through two images of their own; without those the passes
+        // are not drawn (logged once) and the final pass stays whole.
+        if (pp.custom.any()) pp.settle_custom();
+        if (pp.customLdr) {
+            // One cut needs one image, two or more need both (the pieces alternate); none (nothing is drawn before the places) needs none.
+            const int cuts = std::popcount(pp.ldr_cuts());
+            if (!ensure_ldr_targets(cuts >= 2 ? 2 : cuts)) pp.drop_custom_ldr();
+        }
         // A depth of field with no blur, and a motion blur with nothing to smear (the first frame, a cut, a still camera's null
         // intensity), draw nothing: they must not ask for a prepass. A forced effect (tests) and the AO debug view keep theirs.
         if (debugView != DebugView::Ao) {
@@ -463,6 +473,8 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
             pp.exposure = pp.tonemap = pp.linear = false;
             pp.fx = PostFx{};
             pp.colorFilter = 0;
+            pp.custom.drop_ldr();
+            pp.customLdr = false;
         }
         if (pp.fx.lut) {
             // The .cube table of the grade: loaded (once) into a strip image; a file that cannot be read or parsed is logged once by
@@ -474,7 +486,8 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
                 pp.fx.lut = false;
                 pp.lut.clear();
                 // A LUT alone was the only reason to convert a linear scene: without it the present copy encodes it, as without a stack.
-                pp.linear = pp.linear && (pp.exposure || pp.tonemap || pp.colorFilter != 0 || pp.fx.any());
+                // A custom pass at a display-referred place keeps the conversion (its pieces encode the picture).
+                pp.settle_custom();
             }
         }
     }
@@ -527,7 +540,7 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
             sceneColorFx =
                 sceneColorFx ||
                 ((c->postPlan.ssr.any() || c->postPlan.fogFx.shafts || c->postPlan.sceneFx.any()) && c->doPrepass) ||
-                c->postPlan.custom.any();
+                c->postPlan.custom.any_hdr();
         if (sceneColorFx) {
             ctx.hudAfterBloom = true;
             ctx.doMainPass = fr.wantWorld || !ctx.hudAfterBloom;
@@ -2109,17 +2122,20 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
     };
     // The custom post passes of PostProcess.customPasses (renderer_custom_post.h) at one place of the stack: every camera's own, over its
     // rectangle of the picture, where the built-in passes of the camera before and after leave it.
+    // Where a pass that works on the game picture in place writes: the multisampled image (resolved at the end of the pass) when the
+    // screen-space items are drawn into it after, else the resolved image.
+    auto game_dst = [&]() {
+        return ctx.hudAfterBloom && ctx.msaa
+                   ? BloomTarget{gameTarget.colorAtt, gameTarget.resolveAtt, gpu.sample_count()}
+                   : BloomTarget{ctx.msaa ? gameTarget.resolveColorAtt : gameTarget.colorAtt, sg_view{}, 1};
+    };
     auto custom_slot = [&](PostSlot slot) {
         for (DrawContext* c : postCams) {
             if (!c->postPlan.custom.any_in(slot)) continue;
-            const BloomTarget customDst =
-                ctx.hudAfterBloom && ctx.msaa
-                    ? BloomTarget{gameTarget.colorAtt, gameTarget.resolveAtt, gpu.sample_count()}
-                    : BloomTarget{ctx.msaa ? gameTarget.resolveColorAtt : gameTarget.colorAtt, sg_view{}, 1};
-            customPost.add_passes(graph, transient_targets(), gpu, sceneFx, c->postPlan.custom, slot, c->postPlan.rect,
-                                  physW, physH, game, gameTarget.texView, customDst, c->postPlan.prepass,
-                                  c->postPlan.sceneLinear, fr.time, &stats.drawCalls, stats.materialFallbacks,
-                                  c->plan.name);
+            customPost.add_passes(graph, transient_targets(), gpu, sceneFx, c->postPlan.custom, 1u << int(slot),
+                                  c->postPlan.rect, physW, physH, game, gameTarget.texView, game_dst(),
+                                  gpu.scene_format(), c->postPlan.prepass, c->postPlan.sceneLinear, fr.time,
+                                  &stats.drawCalls, stats.materialFallbacks, c->plan.name);
         }
     };
     custom_slot(PostSlot::Main);
@@ -2228,31 +2244,97 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
         basePlan.linear = pp.sceneLinear;
         basePlan.colorFilter = pp.colorFilter;
         bool first =
-            true;  // the first pass draws every pixel it covers; the others keep what the passes before them drew
-        auto declare = [&](const std::string& job, const char* name, const PostPlan& use, AutoExposure* exposure,
-                           ResourceId evRes, const PostRect& rect) {
-            const bool autoExp = evRes.valid();
-            std::vector<ResourceId> reads{game};
+            true;  // the first pass that writes the destination draws every pixel it covers; the others keep what the passes before them drew
+        // The picture between two pieces of a final pass cut by custom passes: the game target (mid -1) or one of the images of ldrMid.
+        struct Where {
+            ResourceId res;
+            int mid = -1;
+        };
+        ResourceId midRes[2];
+        bool anyLdr = false;
+        for (const DrawContext* c : postCams) anyLdr = anyLdr || c->postPlan.customLdr;
+        if (anyLdr)
+            for (int i = 0; i < 2; ++i)
+                if (ldrMid[i].valid())
+                    midRes[i] = graph.import_target(i == 0 ? "post-mid-0" : "post-mid-1", ldrMid[i].colorAtt.id,
+                                                    import_desc(physW, physH, ldrMid[i].format, "post-mid"));
+        // One piece of a camera's final pass (all of it when no custom pass cuts it): the stages of `slice` over the camera's rectangle,
+        // from `from` into the image `toMid` of ldrMid or, -1, into the destination.
+        auto piece = [&](const std::string& job, const std::string& name, const PostPlan& use, AutoExposure* exposure,
+                         ResourceId evRes, const PostRect& rect, const PostSlice& slice, const Where& from,
+                         int toMid) -> Where {
+            const bool autoExp = evRes.valid() && slice.has(kStageScene);
+            const bool toDest = toMid < 0;
+            const bool outline = use.fx.outline && slice.has(kStageOutline);
+            std::vector<ResourceId> reads{from.res};
             if (autoExp) reads.push_back(evRes);
-            if (use.fx.outline) reads.push_back(use.outline_source().res);
-            if (!first) reads.push_back(dest);
-            const bool load = !first;
-            first = false;
-            add_job(job, name, std::move(reads), {dest},
-                    [this, use, autoExp, exposure, outline_view, filter, rect, load, hud](const PassContext& c) {
+            if (outline) reads.push_back(use.outline_source().res);
+            if (toDest && !first) reads.push_back(dest);
+            const bool load = toDest && !first;
+            if (toDest) first = false;
+            add_job(job, name, std::move(reads), {toDest ? dest : midRes[toMid]},
+                    [this, use, autoExp, exposure, outline_view, filter, rect, load, hud, slice, outline,
+                     fromMid = from.mid, toMid](const PassContext& c) {
                         PostPlan drawn;
-                        const sg_view aux = outline_view(use, c, drawn);
-                        post_pass(drawn, true, filter, autoExp, gameTarget.texView,
-                                  autoExp ? exposure->ev_view() : assets->white()->view, aux,
-                                  hud ? hudTarget : filterTarget, "post", hud, rect, load);
+                        sg_view aux{};
+                        if (outline)
+                            aux = outline_view(use, c, drawn);
+                        else
+                            drawn = use;
+                        const sg_view src = fromMid < 0 ? gameTarget.texView : ldrMid[fromMid].texView;
+                        const bool lastPiece = toMid < 0;
+                        Target& out = lastPiece ? (hud ? hudTarget : filterTarget) : ldrMid[toMid];
+                        post_pass(drawn, true, filter, autoExp, src,
+                                  autoExp ? exposure->ev_view() : assets->white()->view, aux, out, "post",
+                                  lastPiece && hud, rect, load, slice);
+                        if (!lastPiece) return;
                         if (hud)
                             hudActive = true;
                         else
                             filterActive = true;
                         finalEncoded = true;
                     });
+            return Where{toDest ? dest : midRes[toMid], toMid};
         };
-        if (needBase) declare(plan.name, "post-base", basePlan, nullptr, ResourceId{}, PostRect{});
+        // The custom passes of the display-referred places in `slots`, on the picture `at` (where the pieces before them left it).
+        auto custom_here = [&](const DrawContext* c, std::uint32_t slots, const Where& at) {
+            if (slots == 0) return;
+            const bool onMid = at.mid >= 0;
+            const Target& pic = onMid ? ldrMid[at.mid] : gameTarget;
+            const BloomTarget to = onMid ? BloomTarget{pic.colorAtt, sg_view{}, 1} : game_dst();
+            customPost.add_passes(graph, transient_targets(), gpu, sceneFx, c->postPlan.custom, slots, c->postPlan.rect,
+                                  physW, physH, at.res, pic.texView, to, gpu.scene_format(), c->postPlan.prepass, false,
+                                  fr.time, &stats.drawCalls, stats.materialFallbacks, c->plan.name);
+        };
+        auto declare = [&](const DrawContext* c, const std::string& job, const char* name, const PostPlan& use,
+                           AutoExposure* exposure, ResourceId evRes, const PostRect& rect) {
+            Where cur{game, -1};
+            if (use.customLdr) {
+                // Cut the final pass after every stage that has a custom pass at its place and something to do before it, and at no
+                // other: places with nothing drawn between them share one cut, and a custom pass before any stage that does something
+                // works on the picture as it is.
+                const std::uint32_t cuts = use.ldr_cuts();
+                std::uint32_t pending = 0;  // the places whose passes run before the next piece
+                int from = kStageScene, part = 0;
+                for (int i = kStageScene; i < kStageTail; ++i) {
+                    const PostSlot slot = PostSlot(int(PostSlot::AfterTonemap) + i);
+                    if (!use.custom.any_in(slot)) continue;
+                    if ((cuts >> i) & 1u) {
+                        custom_here(c, pending, cur);
+                        pending = 0;
+                        cur = piece(job, "post-part" + std::to_string(part++), use, exposure, evRes, rect,
+                                    PostSlice{from, i}, cur, cur.mid == 0 ? 1 : 0);
+                        from = i + 1;
+                    }
+                    pending |= 1u << int(slot);
+                }
+                custom_here(c, pending, cur);
+                piece(job, name, use, exposure, evRes, rect, PostSlice{from, kStageTail}, cur, -1);
+                return;
+            }
+            piece(job, name, use, exposure, evRes, rect, PostSlice{}, cur, -1);
+        };
+        if (needBase) declare(nullptr, plan.name, "post-base", basePlan, nullptr, ResourceId{}, PostRect{});
         for (std::size_t i = 0; i < postCams.size(); ++i) {
             DrawContext* c = postCams[i];
             const PostPlan& cp = c->postPlan;
@@ -2267,7 +2349,7 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
                     evRes = exposure->add_passes(graph, transient_targets(), gpu, cp, game, gameTarget.texView, fr.dt,
                                                  postSerial, &stats.drawCalls, c->plan.name, physW, physH);
                 }
-                declare(c->plan.name, "post", cp, exposure, evRes, cp.rect);
+                declare(c, c->plan.name, "post", cp, exposure, evRes, cp.rect);
                 continue;
             }
             // No stack: the plain pass, only where a stack drawn before it reaches its pixels.
@@ -2275,7 +2357,7 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
             const Rc mine = rect_of(cp);
             for (std::size_t j = 0; j < i && !covered; ++j)
                 covered = postCams[j]->postPlan.final_pass() && overlap(mine, rect_of(postCams[j]->postPlan));
-            if (covered) declare(c->plan.name, "post", basePlan, nullptr, ResourceId{}, cp.rect);
+            if (covered) declare(c, c->plan.name, "post", basePlan, nullptr, ResourceId{}, cp.rect);
         }
         if (hud) {
             // The picture went into hudTarget (its multisampled image kept), the screen-space items are drawn over it, and the colour

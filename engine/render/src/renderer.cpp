@@ -461,11 +461,11 @@ DebugDraw& Renderer::debug() {
 bool is_post_pass(std::string_view passName) {
     const std::size_t slash = passName.rfind('/');
     const std::string_view n = slash == std::string_view::npos ? passName : passName.substr(slash + 1);
-    if (n == "post" || n == "post-base")
-        return true;  // a camera's final pass, and the pass under the cameras' rectangles
+    if (n == "post" || n == "post-base" || n.substr(0, 9) == "post-part")
+        return true;  // a camera's final pass (or a piece of it, cut by a custom pass), and the pass under the cameras' rectangles
     // A pass is an effect's when its name is the effect's or `<effect>-<what>`; "fogbank" or "taaa" are not.
-    for (std::string_view effect :
-         {"bloom", "exposure", "ssao", "dof", "ssr", "motion", "fog", "shafts", "radial", "taa", "color-filter"})
+    for (std::string_view effect : {"bloom", "exposure", "ssao", "dof", "ssr", "motion", "fog", "shafts", "radial",
+                                    "taa", "color-filter", "custom"})
         if (n == effect ||
             (n.size() > effect.size() && n.substr(0, effect.size()) == effect && n[effect.size()] == '-'))
             return true;

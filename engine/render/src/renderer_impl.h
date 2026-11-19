@@ -100,6 +100,16 @@ struct Renderer::Impl {
     // while `filterActive` (the last frame was filtered).
     Target filterTarget;
     bool filterActive = false;
+    // The two images the final pass goes through when a custom pass sits between its stages (PostSlice, post_custom.h's display-referred
+    // places): the piece before a cut writes one, the passes of the cut work on it, the piece after reads it and writes the other one
+    // (or the destination). Made on first use at the size of the picture, in the scene's format (a float image keeps what is above
+    // white); a frame without such a pass never makes them.
+    Target ldrMid[2];
+    bool ldrWarned = false;  // making them failed: said once
+    // They are made when a frame needs them (one for a single cut, two for more) and freed after kLdrIdleFrames frames without use.
+    static constexpr int kLdrIdleFrames = 120;
+    std::uint64_t ldrUsedFrame = ~std::uint64_t(0);  // the frameSerial of the last frame that asked for them
+    int ldrIdle = 0;                                 // frames since
     // The post-processing stack (postprocess.h). hudTarget is the game-like image the final pass writes when screen-space items are drawn
     // over it in display space (made on first use: a frame without exposure, tonemap or linear colour never makes it); the HUD draws into
     // it with the game target's formats and sample count, so the pipelines of the game fit. hudActive: the last frame's picture is in it
@@ -297,6 +307,8 @@ struct Renderer::Impl {
     // frame is then drawn without the stack.
     bool ensure_filter_target();
     bool ensure_hud_target();
+    bool ensure_ldr_targets(int count);  // the first `count` of ldrMid
+    void release_idle_ldr_targets();
     // One full-screen pass of post.glsl: `src` (a texture view of the finished picture) through the plan's final pass (`finalPass`: conversion and effects) and the
     // colour filter `filter` into `dst`; `expo` is the adapted exposure or a dummy image. `keepMsaa`: an MSAA destination keeps its
     // multisampled image (a pass that draws over it follows). `rect`: the camera's rectangle of `dst` (whole by default; see
@@ -304,7 +316,7 @@ struct Renderer::Impl {
     // `aux`: the image the outline reads (PostPlan::outline_source of the frame), or a null view when there is none.
     void post_pass(const PostPlan& pp, bool finalPass, int filter, bool autoExposure, sg_view src, sg_view expo,
                    sg_view aux, Target& dst, const char* label, bool keepMsaa, const PostRect& rect = {},
-                   bool load = false);
+                   bool load = false, const PostSlice& slice = {});
     // The 8-bit picture of a game or view image (top row first). In a float scene format the image is first drawn into an
     // RGBA8 copy (clamped at white, as the screen shows it), because the per-backend readbacks read RGBA8 only.
     bool read_rgba8(sg_image image, sg_view view, int w, int h, std::vector<std::uint8_t>& out, std::string* error,
