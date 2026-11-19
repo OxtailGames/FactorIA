@@ -58,11 +58,28 @@ Describe a custom material: lighting, alpha mode, params with types, defaults, r
 
 Capabilities: read
 
-Reads a *.material.json (schemas/material.schema.json) and returns {material, doc, kind, shader, lighting, alphaMode, doubleSided, params: [{name, type, default, min?, max?, doc, implicit?, instanced?}], textures: [{name, default, sampler, doc}], vertexAttributes?, programs, compile: {state, dialect, toolFound, hint?}}. `kind` is "mesh" (default), "sprite", "sky", "post" or "compute". params are listed in the order of the uniform block (alphabetical); `implicit` marks alphaCutoff, which alphaMode "clip" adds by itself. compile.state is "compiled" when the cache holds this exact material for this machine's dialect, else "not_compiled" (run shader.compile); nothing is compiled by this command. A material file with errors returns them (JSON pointer, message, fix). Example: {"material": "materials/water.material.json"}
+Reads a *.material.json (schemas/material.schema.json) and returns {material, doc, kind, mode, shader, lighting, alphaMode, doubleSided, params: [{name, type, default, min?, max?, doc, implicit?, instanced?}], textures: [{name, default, sampler, doc}], vertexAttributes?, instanceLayout?, programs, compile: {state, dialect, toolFound, hint?}}. `kind` is "mesh" (default), "sprite", "sky", "post" or "compute". params are listed in the order of the uniform block (alphabetical); `implicit` marks alphaCutoff, which alphaMode "clip" adds by itself. compile.state is "compiled" when the cache holds this exact material for this machine's dialect, else "not_compiled" (run shader.compile); nothing is compiled by this command. A material file with errors returns them (JSON pointer, message, fix). Example: {"material": "materials/water.material.json"}
 
-`lighting` is "pbr", "unlit" or "custom" (the snippet defines light(), the engine's light loop calls it once per light). `programs` are the shader programs the material makes: mesh, mesh_skin, prepass and prepass_skin, plus shadow and shadow_skin when the snippet defines vertex() or the alpha mode is clip; a sprite material makes quad and quad_plain, a sky material one program, sky, a post material one, post. A compute material also returns workgroupSize [x, y, z] and buffers [{name, binding, access, stride, doc, fields: [{name, type, offset, doc}]}] (std430 layout); `runsOn` and `notOn` list the platforms the kind has shaders for (compute: not android or web). `instanced` marks a mesh param whose value every entity gives itself inside ONE instanced draw (it travels in the instance buffer instead of the uniform block); `vertexAttributes` lists the extra mesh channels (uv1, color1) vertex() reads as vertex_uv1 and vertex_color1 (docs/SHADERS.md, "The material file").
+`lighting` is "pbr", "unlit" or "custom" (the snippet defines light(), the engine's light loop calls it once per light). `programs` are the shader programs the material makes: mesh, mesh_skin, prepass and prepass_skin, plus shadow and shadow_skin when the snippet defines vertex() or the alpha mode is clip; a sprite material makes quad and quad_plain, a sky material one program, sky, a post material one, post. `mode` is "snippet" or "full". A full-shader material (the file holds your own vertex and fragment stages, docs/shaders/SHADERS_FULL.md) has no lighting, alphaMode or doubleSided; it returns shadow ("depth", "custom" or "none"), prepass and passes [{name, cull, depthTest, depthWrite, blend, program, programSkin}], and its `programs` list one program and one skinned program per pass (mesh, mesh_skin, pass1, pass1_skin, ...), then shadow and shadow_skin for "custom", then prepass and prepass_skin. A compute material also returns workgroupSize [x, y, z] and buffers [{name, binding, access, stride, doc, fields: [{name, type, offset, doc}]}] (std430 layout); `runsOn` and `notOn` list the platforms the kind has shaders for (compute: not android or web). `instanced` marks a mesh or sprite param whose value every entity (sprite: every quad) gives itself inside ONE draw (it travels in the instance data instead of the uniform block); `instanceLayout` {vec4, slots: [{name, vec4, offset, components}]} says where; `vertexAttributes` lists the extra mesh channels (uv1, color1) vertex() reads as vertex_uv1 and vertex_color1 (docs/SHADERS.md, "The material file").
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `material` | string | yes | Project-relative path of the material, e.g. materials/water.material.json. |
+
+## `material.param.set_default` (modifies state)
+
+Not released yet (on main after 0.31.0).
+
+Set the default value of one param of a material file (the Graph panel's "Set as default").
+
+Capabilities: read, writeProject
+
+Writes `value` as the "default" of the param `param` in the material file and changes nothing else (the shader snippet and the graph stay as they are: a default is read at run time, so no snippet needs to be generated again). The value is checked as the file is: a float param takes a number, vec2, vec3, vec4 and color take an array of 2, 3 or 4 numbers, and the value must be inside min and max when the param has them. Nothing is written when the value is already the default. With dryRun true nothing is written. Writing the material file formats it again (2-space JSON). Returns {material, param, previous, value, written}: call it again with `previous` to take the change back. Example: {"material":"materials/dissolve.material.json","param":"dissolve","value":0.4}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `material` | string | yes | Project-relative path of the material, e.g. materials/dissolve.material.json. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
+| `param` | string | yes | The name of a param written in the material file's "params" (material.info lists them). |
+| `value` | any | yes | The new default: a number for a float param, an array of 2 to 4 numbers for the others. |
+| `dryRun` | boolean | no | Check and report what would be written, and write nothing. Default false. |
 

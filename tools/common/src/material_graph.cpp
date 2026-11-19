@@ -786,11 +786,23 @@ struct Writer {
         return out;
     }
 
-    std::string function(bool vertex) const {
+    // `owners`, when given, gets the id of the node that wrote each line of the text returned (one entry per line).
+    std::string function(bool vertex, std::vector<std::string>* owners = nullptr) const {
+        auto own = [&](const std::string& text, const std::string& id) {
+            if (owners) owners->insert(owners->end(), std::size_t(std::count(text.begin(), text.end(), '\n')), id);
+        };
         std::string out =
             vertex ? "void vertex(inout VertexData v) {\n" : "void surface(in SurfaceInput i, inout Surface s) {\n";
-        for (int ni : vertex ? a.vertexOrder : a.fragmentOrder) out += node_line(a.nodes[ni], vertex);
-        out += output_lines(vertex);
+        own(out, "");
+        for (int ni : vertex ? a.vertexOrder : a.fragmentOrder) {
+            const std::string line = node_line(a.nodes[ni], vertex);
+            own(line, a.nodes[ni].id);
+            out += line;
+        }
+        const std::string outputs = output_lines(vertex);
+        own(outputs, a.nodes[a.output].id);
+        out += outputs;
+        own("}\n", "");
         return out + "}\n";
     }
 
@@ -839,6 +851,7 @@ MaterialGraphReport check_material_document(const Json& doc, const std::string& 
         r.hash = std::move(g.hash);
         r.usedNodes = std::move(g.usedNodes);
         r.hasVertex = g.hasVertex;
+        r.lineNodes = std::move(g.lineNodes);
     } else if (r.errors.empty()) {
         r.errors = std::move(g.check.errors);
     }
@@ -856,16 +869,24 @@ GeneratedGraph generate_graph_snippet(const Json& graph, const MaterialDef& mate
         "this file:\n"
         "// change the graph and generate again. A hand-edited snippet is never overwritten without force.\n\n";
     out.snippet += w.helpers_text();
+    out.lineNodes.assign(std::size_t(std::count(out.snippet.begin(), out.snippet.end(), '\n')), std::string());
     std::set<std::string> used;
     for (const auto* order : {&a.fragmentOrder, &a.vertexOrder})
         for (int ni : *order) used.insert(a.nodes[ni].id);
     out.usedNodes.assign(used.begin(), used.end());
     for (std::size_t p = 0; p < a.nodes[a.output].type->inputs.size(); ++p)
         if (a.nodes[a.output].type->inputs[p].name == "vertexOffset" && a.nodes[a.output].set(p)) out.hasVertex = true;
-    if (out.hasVertex) out.snippet += w.function(true) + "\n";
-    out.snippet += w.function(false);
+    if (out.hasVertex) {
+        out.snippet += w.function(true, &out.lineNodes) + "\n";
+        out.lineNodes.emplace_back();  // the blank line between the two functions
+    }
+    out.snippet += w.function(false, &out.lineNodes);
     out.hash = graph_snippet_hash(out.snippet);
     return out;
+}
+
+std::string graph_node_at_line(const std::vector<std::string>& lineNodes, int line) {
+    return line >= 1 && std::size_t(line) <= lineNodes.size() ? lineNodes[std::size_t(line) - 1] : std::string();
 }
 
 std::string graph_snippet_hash(std::string_view snippet) {

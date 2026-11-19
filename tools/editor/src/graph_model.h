@@ -35,6 +35,10 @@ struct GraphStep {
     std::string rel;  // the material the edit was made on
     std::string label;
     Json before, after;  // the "graph" object
+    // A step that set the default of a param ("Set as default"): the param and its default before and after. It touches the file,
+    // not the graph (before and after are null).
+    std::string param;
+    Json beforeValue, afterValue;
 };
 
 struct GraphEditOutcome {
@@ -99,6 +103,11 @@ public:
     const Json& material_json() const { return doc_; }  // the file with the graph as edited
     std::uint64_t revision() const { return revision_; }
     bool dirty() const;  // the graph is not the one in the file
+    // The material as it is in the file: the graph as last saved (or read from disk), the params as they are. Null when the graph was never saved.
+    // saved_revision() changes whenever that document does (a save, a reload, a param default), so a caller can tell a new one from the same one.
+    Json saved_material_json() const;
+    std::uint64_t saved_revision() const { return savedRevision_; }
+    bool has_saved() const { return is_open() && !savedGraph_.is_null(); }
     // The check of the material with the graph as edited (cached per revision).
     const MaterialGraphReport& report() const;
     int node_count() const;
@@ -150,6 +159,9 @@ public:
     GraphEditOutcome set_input(const std::string& id, const std::string& port, const Json& value);
     // The param or texture a param/texture node reads.
     GraphEditOutcome set_ref(const std::string& id, const std::string& name);
+    // Writes `value` (a number, or an array of numbers) as the default of param `name` in the FILE (material.param.set_default), at once: the
+    // graph's unsaved edits stay unsaved. One undo step (none while a gesture is open, or when the value is the default already).
+    GraphEditOutcome set_param_default(const std::string& name, const Json& value);
     // The selection as clipboard text ({"factoria.graph.clip": 1, "nodes": [...], "links": [...]}); empty when nothing is selected.
     std::string copy(const std::set<std::string>& ids) const;
     GraphEditOutcome cut(const std::set<std::string>& ids, std::string* clip);
@@ -209,6 +221,10 @@ private:
     static bool same_graph(const Json& a, const Json& b);
     static std::string unique_id(const Json& list, const std::string& base);
     Json graph_for_save() const;
+    // The default of param `name` as the file has it now (the parsed one when the file gives none); null when there is no such param.
+    Json current_param_default(const std::string& name) const;
+    // Calls material.param.set_default and takes the new default into doc_ (the file's stamp too). Returns "" or what went wrong.
+    std::string write_param_default(const std::string& name, const Json& value, Json* previous, bool* written);
 
     std::string projectDir_;
     GraphCommandFn call_;
@@ -220,6 +236,7 @@ private:
     std::string snippetState_ = "unchecked";
     std::set<std::string> selected_;
     std::uint64_t revision_ = 1;
+    std::uint64_t savedRevision_ = 1;
     Stamp stamp_;
     bool conflict_ = false;
     bool gesture_ = false;

@@ -1,0 +1,15 @@
+{
+  "format": "factoria.material/1",
+  "doc": "Test fixture: a full shader with per-instance params, a texture read in both stages and its own shadow program (the default prepass stays on).",
+  "mode": "full",
+  "shader": "shaders/full_inst.full.glsl",
+  "shadow": "custom",
+  "params": {
+    "tint": {"type": "color", "default": [1.0, 1.0, 1.0, 1.0], "instanced": true, "doc": "Colour of the mesh. One value per entity."},
+    "raise": {"type": "float", "default": 0.0, "instanced": true, "doc": "Lift of every vertex along the world up axis, in metres. One value per entity."},
+    "boost": {"type": "float", "default": 1.0, "min": 0.0, "max": 4.0, "doc": "Multiplies the colour. One value per draw."}
+  },
+  "textures": {
+    "height": {"default": "textures/white.png", "sampler": "nearest", "doc": "Height map: a tenth of the red channel lifts a vertex, in metres."}
+  }
+}

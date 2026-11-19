@@ -1,0 +1,7 @@
+{
+  "format": "factoria.material/1",
+  "kind": "sprite",
+  "doc": "Test fixture: vertex() samples a texture (mip 0) and shifts the corners by its red channel.",
+  "shader": "shaders/sprite_vtex.fragment.glsl",
+  "textures": { "mask": { "sampler": "nearest", "default": "textures/checker.png", "doc": "Read in vertex() and fragment()." } }
+}

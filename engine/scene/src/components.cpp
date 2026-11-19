@@ -51,7 +51,6 @@ constexpr const char* kDraggableDoc =
 
 // Custom materials on the renderers that are not meshes (MeshRenderer has its own, longer text): `material` names a
 // *.material.json and `materialParams` overrides its params, with the same meaning as MeshRenderer.materialParams.
-// TODO(M72-P3, M72-P5, M72-P6): the renderer reads these (sprite batches, sky pass, UI images).
 std::string material_params_doc(const char* sharing) {
     return std::string(
                "Per-entity overrides of the material's params and textures, an object keyed by the name declared in "
@@ -62,10 +61,13 @@ std::string material_params_doc(const char* sharing) {
            sharing;
 }
 
-std::string material_params_doc_2d() {
+std::string material_params_doc_2d(const char* extra = "") {
     return material_params_doc(
-        "Entities that share the same material and the same params are still drawn in one batch; different params "
-        "draw in separate batches.");
+        (std::string("Entities that share the same material and the same params are still drawn in one batch. A param "
+                     "the material declares with \"instanced\": true is sent with each quad, so entities that differ "
+                     "only in it stay in one batch; any other param that differs draws in a separate batch. ") +
+         extra)
+            .c_str());
 }
 
 std::string material_doc_2d(const char* type, const char* what) {
@@ -172,7 +174,11 @@ TypeBuilder<T>& ui_box_fields(TypeBuilder<T>& b) {
                             "and the disc or knob of a TouchStick or TouchButton (its background only when it has "
                             "a `texture`) stay on the built-in shader, and so does a tooltip")
                 .c_str())
-        .field("materialParams", static_cast<Json T::*>(&UiBox::materialParams), material_params_doc_2d().c_str())
+        .field("materialParams", static_cast<Json T::*>(&UiBox::materialParams),
+               material_params_doc_2d("They apply to the widget's background only (its 9-slice texture or solid color "
+                                      "rectangle, the same quads as `material`), not to its text, icons or the "
+                                      "picture of a Chart, Video or CameraView.")
+                   .c_str())
         .field("tooltip", static_cast<Json T::*>(&UiBox::tooltip), kTooltipDoc)
         .field("draggable", static_cast<Json T::*>(&UiBox::draggable), kDraggableDoc)
         .field("mirror", static_cast<bool T::*>(&UiBox::mirror),

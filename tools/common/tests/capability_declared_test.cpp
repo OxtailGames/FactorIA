@@ -73,6 +73,7 @@ TEST_CASE("tooling commands declare their capabilities explicitly (M92.1b2b)") {
         {"material.graph.nodes", reads()},
         {"material.graph.validate", reads()},
         {"material.graph.generate", writes_project()},
+        {"material.param.set_default", writes_project()},
         {"image.create", writes_project()},
         {"image.info", reads()},
         {"image.export", writes_project()},

@@ -1,0 +1,16 @@
+{
+  "format": "factoria.material/1",
+  "doc": "Test fixture: a full shader with two passes, the body and an outline made of the inflated back faces.",
+  "mode": "full",
+  "shader": "shaders/full_outline.full.glsl",
+  "prepass": false,
+  "passes": [
+    {"name": "body", "cull": "back"},
+    {"name": "outline", "cull": "front"}
+  ],
+  "params": {
+    "bodyColor": {"type": "color", "default": [0.1, 0.7, 0.2, 1.0], "doc": "The colour of the body pass."},
+    "outlineColor": {"type": "color", "default": [1.0, 0.0, 0.0, 1.0], "doc": "The colour of the outline pass."},
+    "outlineWidth": {"type": "float", "default": 0.08, "min": 0.0, "max": 1.0, "doc": "How far the outline pass pushes the vertices along their normals, in model units."}
+  }
+}

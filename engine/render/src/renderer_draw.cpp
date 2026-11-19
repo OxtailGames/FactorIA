@@ -83,6 +83,8 @@ struct Renderer::Impl::DrawContext {
     Group gClear, gWorld, gDebugWorld, gScreen, gDebugScreen;
     std::size_t lineFirst = 0;
     sg_buffer vbuf{};
+    sg_buffer
+        vinst{};  // the instanced params of the sprite-material batches, per vertex (vertex buffer 1 of their pipelines)
     Mat4 screenProj;
     // upload_instances
     sg_buffer mainInst{}, shadowInst{};
@@ -811,7 +813,7 @@ void Renderer::Impl::cull_and_batch(DrawContext& ctx) {
 
 // ---- flatten quads into one vertex stream ----
 // Reads: fr (world, debugWorld, screen, debugScreen quad lists, debugLines, camera clear colour), ctx.clearByQuad, targetW/H.
-// Writes: `stream`, ctx.gClear / gWorld / gDebugWorld / gScreen / gDebugScreen, ctx.lineFirst, ctx.vbuf (transient buffer),
+// Writes: `stream`, `instStream`, ctx.gClear / gWorld / gDebugWorld / gScreen / gDebugScreen, ctx.lineFirst, ctx.vbuf, ctx.vinst (transient buffers),
 // ctx.screenProj.
 void Renderer::Impl::build_quad_stream(DrawContext& ctx) {
     Frame& fr = ctx.fr;
@@ -825,6 +827,7 @@ void Renderer::Impl::build_quad_stream(DrawContext& ctx) {
     auto& lineFirst = ctx.lineFirst;
     auto& vbuf = ctx.vbuf;
     stream.clear();
+    instStream.clear();
     if (clearByQuad) {
         // The camera's clear colour over its viewport: one opaque quad over the unit square, which the viewport maps to the
         // camera's rectangle (see main_pass).
@@ -834,12 +837,12 @@ void Renderer::Impl::build_quad_stream(DrawContext& ctx) {
         QuadEmitter em{clearList, Mat4::identity(), false, pack_color(fr.cam.clearColor), kModeTextured, 0};
         em.rect(0, 0, 1, 1, 0, 0, 1, 1);
         clearList.end_item();
-        clearList.flatten(stream, gClear.batches);
+        clearList.flatten(stream, gClear.batches, &instStream);
     }
-    fr.world.flatten(stream, gWorld.batches);
-    fr.debugWorld.flatten(stream, gDebugWorld.batches);
-    fr.screen.flatten(stream, gScreen.batches);
-    fr.debugScreen.flatten(stream, gDebugScreen.batches);
+    fr.world.flatten(stream, gWorld.batches, &instStream);
+    fr.debugWorld.flatten(stream, gDebugWorld.batches, &instStream);
+    fr.screen.flatten(stream, gScreen.batches, &instStream);
+    fr.debugScreen.flatten(stream, gDebugScreen.batches, &instStream);
     lineFirst = stream.size();
     stream.insert(stream.end(), fr.debugLines.begin(), fr.debugLines.end());
 
@@ -848,6 +851,13 @@ void Renderer::Impl::build_quad_stream(DrawContext& ctx) {
         sg_write_buffer_desc wd{};
         wd.src.data = {stream.data(), stream.size() * sizeof(Vertex2D)};
         wd.dst.buffer = vbuf;
+        sg_write_buffer_transient(&wd);
+    }
+    if (!instStream.empty()) {
+        ctx.vinst = gpu.acquire_transient(instStream.size() * sizeof(float));
+        sg_write_buffer_desc wd{};
+        wd.src.data = {instStream.data(), instStream.size() * sizeof(float)};
+        wd.dst.buffer = ctx.vinst;
         sg_write_buffer_transient(&wd);
     }
 
@@ -914,6 +924,9 @@ void Renderer::Impl::scene_uniforms(DrawContext& ctx) {
     copy_mat(vuScene.fa_view_proj, fr.cam.viewProj);
     copy_mat(vuScene.fa_light_vp, lightVP);
     vuScene.fa_time[0] = float(world.time());
+    vuScene.fa_time[1] = fr.cam.position.x;  // yzw: the camera position, for the vertex stage of a full-shader material
+    vuScene.fa_time[2] = fr.cam.position.y;
+    vuScene.fa_time[3] = fr.cam.position.z;
     fuScene.fa_camera_pos[0] = fr.cam.position.x;
     fuScene.fa_camera_pos[1] = fr.cam.position.y;
     fuScene.fa_camera_pos[2] = fr.cam.position.z;
@@ -1267,6 +1280,7 @@ void Renderer::Impl::shadow_pass(DrawContext& ctx) {
             MaterialInputs inputs{};
             if (mat && (mat->programs[kProgShadow].shader.id || mat->programs[kProgShadowSkin].shader.id))
                 material_inputs(rep, mat, inputs);
+            if (mat && mat->full && mat->shadow == FullShadow::None) continue;  // casts no shadow
             for (auto& p : rep.mesh->parts) {
                 const bool skinned = rep.anim && p.skinVb.id;
                 const PartDraw pd = part_draw(ctx, rep, p);
@@ -1285,7 +1299,7 @@ void Renderer::Impl::shadow_pass(DrawContext& ctx) {
                 b.index_buffer_offset = p.ibOffset;
                 if (prog) bind_textures(ctx, b, pd, prog, inputs, true);
                 sg_apply_bindings(&b);
-                apply_uniforms(UB_mesh_fa_mesh_vs_params, u);
+                if (declares(prog, UB_mesh_fa_mesh_vs_params)) apply_uniforms(UB_mesh_fa_mesh_vs_params, u);
                 if (skinned && declares(prog, UB_mesh_fa_skin))
                     apply_uniforms(UB_mesh_fa_skin, pack_palette(palette_of(*rep.anim, p.skin)));
                 if (prog) {
@@ -1423,6 +1437,7 @@ void Renderer::Impl::prepass_pass(DrawContext& ctx, const Target& t) {
         MaterialInputs inputs{};
         if (mat && (mat->programs[kProgPrepass].shader.id || mat->programs[kProgPrepassSkin].shader.id))
             material_inputs(mi, mat, inputs);
+        if (mat && mat->full && !mat->prepass) continue;  // a full shader that keeps out of the depth and normal image
         for (const SubMesh& part : mi.mesh->parts) {
             const bool skinned = mi.anim && part.skinVb.id;
             const PartDraw pd0 = part_draw(ctx, mi, part);
@@ -1574,6 +1589,20 @@ void Renderer::Impl::draw_group(DrawContext& ctx, const std::vector<QuadBatch>& 
         const MaterialUse* use = qb.use && !qb.use->error ? qb.use : nullptr;
         // A material that built has both programs (the build fails otherwise): quad_plain for a plain batch.
         const MaterialProgram* prog = use ? &use->material->programs[plain ? 1 : 0] : nullptr;
+        // The instanced params of the material travel in vertex buffer 1, one value per vertex, written by flatten() for exactly the
+        // batches of such a use. A use made before a hot reload that changed them has no matching data: skipped for this frame
+        // (before it is counted as drawn), and reported once.
+        const int instVec4 = prog ? use->instVec4 : 0;
+        if (prog && instVec4 != use->material->instanceVec4) {
+            if (warnedSpriteInstLayout.insert(use->material->path).second)
+                FA_WARN("render",
+                        "The sprite material {} is not drawn: its instanced params changed after it was reloaded, so "
+                        "the batch built "
+                        "before no longer matches. Hint: recompile the material (shader.compile) and reopen the scene.",
+                        use->material->path);
+            continue;
+        }
+        if (instVec4 > 0 && !ctx.vinst.id) continue;
         if (qb.use && !prog) {
             const std::string& path = qb.use->material->path;
             if (std::find(stats.materialFallbacks.begin(), stats.materialFallbacks.end(), path) ==
@@ -1583,9 +1612,9 @@ void Renderer::Impl::draw_group(DrawContext& ctx, const std::vector<QuadBatch>& 
             count_material(use->material);
         }
         const sg_shader programShader = prog ? prog->shader : sg_shader{};
-        sg_apply_pipeline(format
-                              ? gpu.quad_pipeline(*format, depthTest, false, qb.blend, plain, qb.opaque, programShader)
-                              : gpu.quad_pipeline(depthTest, false, qb.blend, plain, qb.opaque, programShader));
+        sg_apply_pipeline(
+            format ? gpu.quad_pipeline(*format, depthTest, false, qb.blend, plain, qb.opaque, programShader, instVec4)
+                   : gpu.quad_pipeline(depthTest, false, qb.blend, plain, qb.opaque, programShader, instVec4));
         if (fogOn) {
             const float to = qb.blend == BlendMode::Multiply ? 1.0f : qb.blend == BlendMode::Additive ? 0.0f : -1.0f;
             for (int c = 0; c < 3; ++c) {
@@ -1624,6 +1653,11 @@ void Renderer::Impl::draw_group(DrawContext& ctx, const std::vector<QuadBatch>& 
             sg_bindings b{};
             b.vertex_buffers[0] = vbuf;
             b.vertex_buffer_offsets[0] = int((qb.firstQuad + done) * 4 * sizeof(Vertex2D));
+            if (instVec4 > 0) {
+                b.vertex_buffers[kQuadInstBuffer] = ctx.vinst;
+                b.vertex_buffer_offsets[kQuadInstBuffer] =
+                    int((qb.instFirst + std::size_t(done) * 4 * std::size_t(instVec4) * 4) * sizeof(float));
+            }
             b.index_buffer = gpu.quad_index_buffer();
             b.views[VIEW_quad_tex] = qb.tex->gpu_view();
             b.views[VIEW_quad_normal_tex] = (qb.lit && qb.normal ? qb.normal : assets->white())->gpu_view();
@@ -1635,8 +1669,11 @@ void Renderer::Impl::draw_group(DrawContext& ctx, const std::vector<QuadBatch>& 
             if (prog) {  // the material's textures follow the engine's views and samplers; only what the program declares
                 const MaterialAsset& mat = *use->material;
                 for (std::size_t i = 0; i < mat.textures.size() && i < std::size_t(kMaxMaterialTextures); ++i) {
+                    // Bound for both stages; the program takes the slots it declares (vertex() may sample the texture too).
                     b.views[kMaterialSpriteFirstView + int(i)] = use->textures[i]->gpu_view();
                     b.samplers[kMaterialSpriteFirstSampler + int(i)] = gpu.sampler(mat.textures[i].sampler);
+                    b.views[kMaterialSpriteVsFirstView + int(i)] = use->textures[i]->gpu_view();
+                    b.samplers[kMaterialSpriteVsFirstSampler + int(i)] = gpu.sampler(mat.textures[i].sampler);
                 }
                 for (int i = 0; i < SG_MAX_VIEW_BINDSLOTS; ++i)
                     if (!((prog->viewMask >> i) & 1u)) b.views[i] = {};
@@ -1790,29 +1827,39 @@ void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
                             stats.materialFallbacks.end())
                         stats.materialFallbacks.push_back(
                             mi.material->path);  // built, but this mesh lacks a declared channel
-                    const MaterialProgram* prog =
-                        pd.mat ? &pd.mat->programs[skinned ? kProgMeshSkin : kProgMesh] : nullptr;
-                    sg_apply_pipeline(gpu.mesh_pipeline(isBlend, part.doubleSided || (pd.mat && pd.mat->doubleSided),
-                                                        skinned, prog ? prog->shader : sg_shader{},
-                                                        pd.mat ? pd.mat->extras() : MeshExtras{}));
-                    sg_bindings b{};
-                    b.vertex_buffers[0] = part.vb;
-                    b.vertex_buffers[1] = mainInst;
-                    b.vertex_buffer_offsets[1] = int(batch.mainFirst * kMeshInstanceBytes);
-                    if (skinned) b.vertex_buffers[2] = part.skinVb;
-                    if (pd.mat) bind_extras(b, *pd.mat, part, ctx.mainExtra, batch.mainExtra);
-                    b.index_buffer = part.ib;
-                    b.index_buffer_offset = part.ibOffset;
-                    bind_textures(ctx, b, pd, prog, inputs, false);
-                    sg_apply_bindings(&b);
-                    apply_uniforms(UB_mesh_fa_mesh_vs_params, vu);
-                    if (skinned && declares(prog, UB_mesh_fa_skin))
-                        apply_uniforms(UB_mesh_fa_skin, pack_palette(palette_of(*mi.anim, part.skin)));
-                    apply_uniforms(UB_mesh_fa_mesh_fs_params, fill_fs(ctx, mi, part, pd, isBlend));
-                    apply_uniforms(UB_mesh_fa_lights, lightUniforms);
-                    if (prog) apply_material_params(*prog, inputs);
-                    sg_draw(0, part.indexCount, int(batch.mainCount));
-                    ++stats.drawCalls;
+                    // A full-shader material draws the part once per pass, in order, each with its own program and state.
+                    const int passCount = pd.mat && pd.mat->full ? int(pd.mat->passes.size()) : 1;
+                    for (int pass = 0; pass < passCount; ++pass) {
+                        const MaterialProgram* prog =
+                            pd.mat ? &pd.mat->programs[pass_program_slot(pass, skinned)] : nullptr;
+                        if (pd.mat && pd.mat->full)
+                            sg_apply_pipeline(
+                                gpu.full_pipeline(pd.mat->passes[pass], skinned, prog->shader, pd.mat->extras()));
+                        else
+                            sg_apply_pipeline(gpu.mesh_pipeline(
+                                isBlend, part.doubleSided || (pd.mat && pd.mat->doubleSided), skinned,
+                                prog ? prog->shader : sg_shader{}, pd.mat ? pd.mat->extras() : MeshExtras{}));
+                        sg_bindings b{};
+                        b.vertex_buffers[0] = part.vb;
+                        b.vertex_buffers[1] = mainInst;
+                        b.vertex_buffer_offsets[1] = int(batch.mainFirst * kMeshInstanceBytes);
+                        if (skinned) b.vertex_buffers[2] = part.skinVb;
+                        if (pd.mat) bind_extras(b, *pd.mat, part, ctx.mainExtra, batch.mainExtra);
+                        b.index_buffer = part.ib;
+                        b.index_buffer_offset = part.ibOffset;
+                        bind_textures(ctx, b, pd, prog, inputs, false);
+                        sg_apply_bindings(&b);
+                        // A full shader declares only the blocks it reads (the compiler drops an unused one).
+                        if (declares(prog, UB_mesh_fa_mesh_vs_params)) apply_uniforms(UB_mesh_fa_mesh_vs_params, vu);
+                        if (skinned && declares(prog, UB_mesh_fa_skin))
+                            apply_uniforms(UB_mesh_fa_skin, pack_palette(palette_of(*mi.anim, part.skin)));
+                        if (declares(prog, UB_mesh_fa_mesh_fs_params))
+                            apply_uniforms(UB_mesh_fa_mesh_fs_params, fill_fs(ctx, mi, part, pd, isBlend));
+                        if (declares(prog, UB_mesh_fa_lights)) apply_uniforms(UB_mesh_fa_lights, lightUniforms);
+                        if (prog) apply_material_params(*prog, inputs);
+                        sg_draw(0, part.indexCount, int(batch.mainCount));
+                        ++stats.drawCalls;
+                    }
                     stats.triangles += part.indexCount / 3 * int(batch.mainCount);
                 }
                 stats.meshes += int(batch.mainCount);

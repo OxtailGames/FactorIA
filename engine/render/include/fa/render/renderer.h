@@ -118,6 +118,8 @@ std::optional<MaterialKind> material_kind_from_name(std::string_view name);
 std::string material_template_hash(MaterialKind kind);
 // material_template_hash(MaterialKind::Mesh).
 std::string mesh_template_hash();
+// The template hash of a mesh material in "full" mode (mesh_common.glsl and mesh_full_common.glsl): the value of its twins' "template".
+std::string mesh_full_template_hash();
 
 struct RendererDesc {
     int designWidth = 1280;
@@ -165,8 +167,11 @@ struct RenderStats {
     // material texture "target:<own>" is the checker for the camera that renders into it), so a frame with render targets counts
     // the lookup once for each camera. Also in game.render_stats.
     int materialResolves = 0;
-    std::vector<std::string>
-        materialFallbacks;  // materials drawn as the magenta error material (mesh) or magenta quads (sprite) because they failed to build (see asset_report); a sky material that failed (or is not a sky one) draws the built-in sky gradient instead, not magenta; a post material of PostProcess.customPasses that did not build, is not a "post" material or cannot be drawn is here too, and its pass is skipped (the picture is drawn without it)
+    // Materials drawn as the magenta error material (mesh) or magenta quads (sprite) because they failed to build (see
+    // asset_report). A sky material that failed (or is not a sky one) draws the built-in sky gradient instead, not magenta. A
+    // post material of PostProcess.customPasses that did not build, is not a "post" material or cannot be drawn is here too,
+    // and its pass is skipped (the picture is drawn without it).
+    std::vector<std::string> materialFallbacks;
     // How many times, since the renderer was made, the 3D scene it builds (one per frame, and one per capture_world of an
     // entity's subtree) had more distinct meshes, textures, materials or pipelines than a sort key holds, so its opaque meshes
     // were sorted by the slower comparator instead. The picture is the same; 0 is normal. Unlike the other counters this one is

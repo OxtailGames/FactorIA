@@ -1,0 +1,8 @@
+{
+  "format": "factoria.material/1",
+  "doc": "Test fixture: a full shader that reads the second UV set and the second vertex colour set of the mesh.",
+  "mode": "full",
+  "shader": "shaders/full_chan.full.glsl",
+  "prepass": false,
+  "vertexAttributes": ["uv1", "color1"]
+}

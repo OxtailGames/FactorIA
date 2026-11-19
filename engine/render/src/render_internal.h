@@ -399,6 +399,8 @@ constexpr int kMaxMaterialParams = 16,
 //          material's textures are views 0..3 and samplers 0..3 (kMaterialSky*), all in the fragment stage (no vertex()).
 constexpr int kMaterialFirstView = 6, kMaterialFirstSampler = 2, kMaterialUbVertex = 4, kMaterialUbFragment = 5;
 constexpr int kMaterialSpriteFirstView = 4, kMaterialSpriteFirstSampler = 3;
+// The 2D vertex stream is vertex buffer 0; the instanced params of a sprite material are buffer 1 at the attributes from 7.
+constexpr int kQuadInstBuffer = 1, kQuadInstAttr = 7;
 constexpr int kMaterialSkyFirstView = 0, kMaterialSkyFirstSampler = 0;
 // post (post_common.glsl): uniform blocks vertex 0 fa_post_vs_params, fragment 1 fa_post_params; views 0 (fa_scene) and 1 (fa_prepass),
 // samplers 0 (linear clamp) and 1 (nearest) are the engine's, so a material's textures are views and samplers 2..5.
@@ -408,8 +410,10 @@ constexpr int kMaterialPostFirstView = 2, kMaterialPostFirstSampler = 2;
 // file). Each program declares only the slots its stages use, and a draw binds only those.
 constexpr int kMaterialVsFirstView = kMaterialFirstView + kMaxMaterialTextures,
               kMaterialVsFirstSampler = kMaterialFirstSampler + kMaxMaterialTextures;
-// A sprite material's vertex() cannot sample textures (the generator refuses it with a teaching error), so a sprite program has no
-// vertex-stage views: the sprite slots above are the fragment stage's only.
+// A sprite material's textures are bound twice as well: the fragment stage reads texture i at kMaterialSpriteFirstView + i, the vertex
+// stage (vertex() may sample it, as fa_vs_<name>) at kMaterialSpriteVsFirstView + i, the samplers likewise.
+constexpr int kMaterialSpriteVsFirstView = kMaterialSpriteFirstView + kMaxMaterialTextures,
+              kMaterialSpriteVsFirstSampler = kMaterialSpriteFirstSampler + kMaxMaterialTextures;
 
 // One program of a twin (mesh, mesh_skin, shadow, shadow_skin, prepass, prepass_skin) and what its reflection declares: a draw binds and applies
 // only those slots (sokol rejects a binding the shader does not declare, and a declared uniform block left unapplied).
@@ -428,12 +432,28 @@ enum MaterialProgramId : int {
     kProgPrepassSkin,
     kProgCount  // the programs of a mesh material; the other kinds name theirs in material_program_names()
 };
+// A full-shader mesh material (mode "full") keeps the programs of pass p >= 1 after kProgCount: pass p is
+// kProgCount + 2 * (p - 1), and + 1 for the skinned one. Pass 0 is kProgMesh / kProgMeshSkin.
+constexpr int kMaxMaterialPasses = 4;
+inline int pass_program_slot(int pass, bool skinned) {
+    return pass == 0 ? (skinned ? kProgMeshSkin : kProgMesh) : kProgCount + 2 * (pass - 1) + (skinned ? 1 : 0);
+}
 constexpr int kProgCompute = 0;  // the one program of a compute material (MaterialAsset::programs[0])
 // Room for the programs of every kind of material (a mesh material has kProgCount of them).
-constexpr int kMaxMaterialPrograms = 8;
+constexpr int kMaxMaterialPrograms = kProgCount + 2 * (kMaxMaterialPasses - 1);
 static_assert(kProgCount <= kMaxMaterialPrograms);
 // The programs a twin of `kind` carries, in MaterialAsset::programs order (the "programs" keys of the twin).
 const std::vector<const char*>& material_program_names(MaterialKind kind);
+
+// The fixed state of one pass of a full-shader material (the twin's "passes"; the tooling validated the words).
+struct MaterialPassState {
+    std::string name;
+    int cull = 1;  // 0 none, 1 back, 2 front
+    bool depthTest = true, depthWrite = true;
+    int blend = 0;  // 0 none, 1 alpha, 2 additive, 3 multiply
+};
+// Where a full-shader material's shadow caster comes from (the twin's "shadow").
+enum class FullShadow : int { Depth, Custom, None };
 
 struct MaterialParamDef {
     std::string name;
@@ -476,12 +496,16 @@ struct MaterialUse {
     bool error = false;
     float params[kMaxMaterialParams][4]{};
     TextureAsset* textures[kMaxMaterialTextures]{};
+    int instVec4 =
+        0;  // vec4 of per-instance data per quad the material's instanced params take (0 = none; 0 when `error`)
     std::uint64_t tick = 0;  // the frame (Assets::begin_material_frame) that last asked for it
 };
 // What a 2D emitter gets from Assets::sprite_material and hands to QuadList::set_material: nothing (`use` null) for an item
-// without a material.
+// without a material. `use` holds the values batches split on (the params that are not instanced and the textures); the values
+// of the instanced params are `inst` (use->instVec4 * 4 floats), which travel with the quads and never split a batch.
 struct MaterialRef {
     const MaterialUse* use = nullptr;
+    float inst[kMaxInstanceVec4 * 4]{};
 };
 
 struct MaterialAsset {
@@ -493,6 +517,10 @@ struct MaterialAsset {
     int workgroup[3]{64, 1, 1};              // Compute: the threads of one workgroup
     std::string lighting = "pbr", alphaMode = "opaque";
     bool doubleSided = false;
+    bool full = false;    // mode "full": the file is the whole shader; `passes` say how it is drawn
+    bool prepass = true;  // full: the engine's prepass program draws it (SSAO, fog, depth effects see it)
+    FullShadow shadow = FullShadow::Depth;    // full: the shadow caster
+    std::vector<MaterialPassState> passes;    // full: in drawing order; a plain material has none
     std::vector<MaterialParamDef> params;     // in the order of the twin's "params" (the packing order)
     std::vector<MaterialParamDef> instanced;  // the "instanced" params of the twin: they travel in the instance buffer
     int instanceVec4 = 0;                     // vec4 of per-instance data they take (0 = none)
@@ -569,6 +597,7 @@ struct QuadItem {
     std::uint32_t flash =
         0;  // QuadList::set_flash(): packed colour whose alpha is how much of it replaces the picture; 0 = none
     const MaterialUse* use = nullptr;  // QuadList::set_material(): the item's material (null = the built-in programs)
+    std::uint32_t instFirst = 0;       // use->instVec4 > 0: where the item's instanced values start in QuadList::inst
 };
 
 struct QuadBatch {
@@ -589,6 +618,9 @@ struct QuadBatch {
     // The material of the items of the batch (null = the built-in programs). Batches only merge with an equal pointer;
     // an `error` use draws with the built-in programs but stays a batch of its own, so the draw can count it.
     const MaterialUse* use = nullptr;
+    // use->instVec4 > 0: where the per-vertex instance data of the batch starts in the stream flatten() was given (in floats):
+    // use->instVec4 * 4 floats for each of the batch's vertices, so the quads of one batch may all differ in those values.
+    std::size_t instFirst = 0;
 };
 
 // Collects quads for one render space, then sorts and flattens them.
@@ -596,6 +628,7 @@ class QuadList {
 public:
     std::vector<Vertex2D> raw;
     std::vector<QuadItem> items;
+    std::vector<float> inst;  // the instanced values of the items that have them (QuadItem::instFirst)
 
     void begin_item(int layer, float secondary, TextureAsset* tex, SamplerKind smp, BlendMode blend = BlendMode::Alpha,
                     const Rect& clip = Rect{});
@@ -619,17 +652,26 @@ public:
     // Gives the item opened by begin_item() a material (Assets::sprite_material, asked on the thread that gathers): its quads
     // are drawn by the material's programs with its params, and batches split where the material or its values differ. A
     // material that did not build tints the quads magenta in flatten() (the error material). A null `ref` changes nothing.
-    void set_material(const MaterialRef& ref) { cur_.use = ref.use; }
+    void set_material(const MaterialRef& ref) {
+        cur_.use = ref.use;
+        if (ref.use && ref.use->instVec4 > 0) {
+            cur_.instFirst = std::uint32_t(inst.size());
+            inst.insert(inst.end(), ref.inst, ref.inst + ref.use->instVec4 * 4);
+        }
+    }
     void end_item();
     bool empty() const { return items.empty(); }
     // Sorts items (layer asc, secondary desc, seq asc) and appends the vertices in
     // draw order to `out`; returns merged batches referencing `out` (quad indices
     // relative to out's start + `baseQuad`).
     // As jobs when the list is big (render_jobs.h): the sort, then the copy of the vertices; the same result either way.
-    void flatten(std::vector<Vertex2D>& out, std::vector<QuadBatch>& batches);
+    // `instOut` (when not null) receives, for every batch of a material with instanced params, the values of each of its quads
+    // repeated for its four vertices (QuadBatch::instFirst says where); without it such a batch has no instance data.
+    void flatten(std::vector<Vertex2D>& out, std::vector<QuadBatch>& batches, std::vector<float>* instOut = nullptr);
     void clear() {
         raw.clear();
         items.clear();
+        inst.clear();
         open_ = false;
     }
     // Moves the items of `part` (a list a job filled, with no item open) after the items of this one, in their order:
@@ -869,14 +911,18 @@ private:
     std::uint64_t meshStoreSerial_ = 0;
     std::unordered_map<std::string, std::unique_ptr<MaterialAsset>> materials_;
     std::uint64_t useTick_ = 0;  // drawn frames counted by begin_material_frame (MaterialUse::tick)
-    // sprite_material()'s answers of this frame: by material path, then by the values (a pointer to the first component's params
-    // with them: nothing is copied; at most kMaxMaterialVariants distinct sets per path).
+    // sprite_material()'s answers of this frame, by material path: by the component's params address (the usual repeat) and by
+    // the hash of the values (a pointer to the first component's params with them: nothing is copied; equal values are compared
+    // only on a hash match, so the number of distinct sets is not capped).
     struct MaterialVariant {
         const Json* params;
         MaterialRef ref;
     };
-    static constexpr std::size_t kMaxMaterialVariants = 16;
-    std::unordered_map<std::string, std::vector<MaterialVariant>> materialVariants_;
+    struct PathVariants {
+        std::unordered_map<const Json*, MaterialVariant> byPointer;
+        std::unordered_multimap<std::uint64_t, MaterialVariant> byValue;
+    };
+    std::unordered_map<std::string, PathVariants> materialVariants_;
     std::uint32_t materialResolves_ = 0;
     MaterialRef resolve_kind_material(const std::string& path, const Json& overrides, MaterialKind want);
     ShaderCompiler shaderCompiler_;
@@ -955,10 +1001,12 @@ public:
     // `shader` = a program of a sprite material (quad or quad_plain; the pipeline is keyed by it); default = the built-in one.
     sg_pipeline quad_pipeline(const TargetFormat& format, bool depthTest, bool lines,
                               BlendMode blend = BlendMode::Alpha, bool plain = false, bool opaque = false,
-                              sg_shader shader = {});
+                              sg_shader shader = {}, int instanceVec4 = 0);
+    // `instanceVec4` = the vec4 of per-quad instanced params of that material (MaterialUse::instVec4): vertex buffer 1 (kQuadInstBuffer),
+    // attributes 7.. (the quad vertex shader's fa_inst_d0..2), one value per vertex.
     sg_pipeline quad_pipeline(bool depthTest, bool lines, BlendMode blend = BlendMode::Alpha, bool plain = false,
-                              bool opaque = false, sg_shader shader = {}) {
-        return quad_pipeline(scene_target_format(), depthTest, lines, blend, plain, opaque, shader);
+                              bool opaque = false, sg_shader shader = {}, int instanceVec4 = 0) {
+        return quad_pipeline(scene_target_format(), depthTest, lines, blend, plain, opaque, shader, instanceVec4);
     }
     // Vertex buffer 0 = MeshVertex, buffer 1 = one model matrix per instance. A skinned variant adds a `skinned` argument,
     // a PipelineKey bit and a second per-vertex buffer for joints and weights.
@@ -971,6 +1019,12 @@ public:
     sg_pipeline mesh_pipeline(bool blended, bool doubleSided, bool skinned = false, sg_shader shader = {},
                               MeshExtras extras = {}) {
         return mesh_pipeline(scene_target_format(), blended, doubleSided, skinned, shader, extras);
+    }
+    // One pass of a full-shader material: the vertex layout of mesh_pipeline with the pass's own cull, depth and blend state.
+    sg_pipeline full_pipeline(const TargetFormat& format, const MaterialPassState& state, bool skinned,
+                              sg_shader shader, MeshExtras extras);
+    sg_pipeline full_pipeline(const MaterialPassState& state, bool skinned, sg_shader shader, MeshExtras extras) {
+        return full_pipeline(scene_target_format(), state, skinned, shader, extras);
     }
     // `shader`: the program of a sky material (id 0 = the built-in gradient).
     sg_pipeline sky_pipeline(const TargetFormat& format, sg_shader shader = {});
