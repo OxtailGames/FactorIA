@@ -60,8 +60,8 @@ namespace {
 bool left_out(const std::vector<std::string>* names, const std::string& key) {
     return names && std::binary_search(names->begin(), names->end(), key);
 }
-// Do `kept` (a copy made without the left-out names; null = none) and `now` hold the same values, left-out names aside? No
-// allocation.
+// Do `kept` (a copy made without the left-out names; null = none) and `now` hold the same values, left-out names aside?
+// No allocation.
 bool same_without(const Json& kept, const Json& now, const std::vector<std::string>* leftOut) {
     if (!leftOut || leftOut->empty() || !now.is_object()) return kept == now;
     std::size_t count = 0;
@@ -147,9 +147,9 @@ void RenderScene::build(World& world, Assets& assets, Entity scopeRoot, bool wan
         sm.tex = mr.texture.empty() ? nullptr : assets.texture(mr.texture);
         sm.material = mr.material.empty() ? nullptr : assets.material(mr.material);
         if (sm.material && sm.material->ok && sm.material->kind != MaterialKind::Mesh) {
-            // A mesh is drawn with the programs of a mesh material only: a sprite material (quad programs) would be bound to a
-            // vertex layout it was not made for, and a compute material has no draw program. The mesh is drawn with the
-            // engine's own shader.
+            // A mesh is drawn with the programs of a mesh material only: a sprite material (quad programs) would be
+            // bound to a vertex layout it was not made for, and a compute material has no draw program. The mesh is
+            // drawn with the engine's own shader.
             if (sm.material->warned.insert("\x01kind").second)
                 FA_WARN(
                     "render",
@@ -210,9 +210,9 @@ void RenderScene::build(World& world, Assets& assets, Entity scopeRoot, bool wan
             mesh_cull_bounds(*sm.mesh, world.get<Animator>(sm.entity), sm.bmin, sm.bmax, sm.anim);
             sm.blended = mesh_is_blended(mr, *sm.mesh, sm.material);
             if (sm.material && !sm.material->buffers.empty()) {
-                // A mesh drawn from compute buffers (mesh_buffer_draw.h) is a batch of its own (the entity is part of what batches
-                // differ by), has no lod levels, and is culled by MeshRenderer.instanceBounds: its instances are where the buffer
-                // puts them, so the mesh's own box says nothing.
+                // A mesh drawn from compute buffers (mesh_buffer_draw.h) is a batch of its own (the entity is part of
+                // what batches differ by), has no lod levels, and is culled by MeshRenderer.instanceBounds: its
+                // instances are where the buffer puts them, so the mesh's own box says nothing.
                 std::uint64_t mixed = sm.paramsHash ^ (sm.entity.bits() * 0x9e3779b97f4a7c15ull);
                 mixed ^= mixed >> 32;  // two entities differ in the low bits: spread them before the hash is compared
                 mixed *= 0xd6e8feb86659fd93ull;

@@ -1,5 +1,5 @@
-// Autotest section G3: the Graph panel. Split from the other autotest files: an Editor::at_section_G3(AtScript&) that adds its steps to the
-// script, called by at_build_tools_script in the order of the full run (autotest_sections.h).
+// Autotest section G3: the Graph panel. Split from the other autotest files: an Editor::at_section_G3(AtScript&) that
+// adds its steps to the script, called by at_build_tools_script in the order of the full run (autotest_sections.h).
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
@@ -24,11 +24,12 @@ namespace stdfs = std::filesystem;
 
 void Editor::at_section_G3(AtScript& at) {
     AT_SCRIPT_LOCALS(at)
-    // The Graph panel (docs/EDITOR.md, "Graph panel"): a material with a one-node graph opens, three nodes are added from the palette (a right click
-    // on the canvas; the search box for one), four links are dragged from port to port (ONE undo step each), the dissolve graph checks with no
-    // problem and the live preview compiles it and draws a picture, Save writes the material and the snippet (one set of code with
-    // material.graph.generate), a snippet edited by hand is only overwritten after the question, and Undo/Redo walk every edit back and forth
-    // through the editor's stack. Every wait counts frames or state.
+    // The Graph panel (docs/EDITOR.md, "Graph panel"): a material with a one-node graph opens, three nodes are added
+    // from the palette (a right click on the canvas; the search box for one), four links are dragged from port to port
+    // (ONE undo step each), the dissolve graph checks with no problem and the live preview compiles it and draws a
+    // picture, Save writes the material and the snippet (one set of code with material.graph.generate), a snippet
+    // edited by hand is only overwritten after the question, and Undo/Redo walk every edit back and forth through the
+    // editor's stack. Every wait counts frames or state.
     {
         struct Gs {
             size_t undo = 0;
@@ -67,8 +68,9 @@ void Editor::at_section_G3(AtScript& at) {
             step(2, [this, gx, gy] { inject_mouse(SAPP_EVENTTYPE_MOUSE_DOWN, graph_screen_pos(gx, gy), 1); });
             step(3, [this, gx, gy] { inject_mouse(SAPP_EVENTTYPE_MOUSE_UP, graph_screen_pos(gx, gy), 1); });
         };
-        // The same, at graph y `wantedY` or as low as the canvas goes: at zoom 0.5 and pan 24 a fixed y can fall below the bottom of a short canvas (the
-        // window of a 1024x642 display). The click is made at the clamped point; the check says so when there is no room below the first node.
+        // The same, at graph y `wantedY` or as low as the canvas goes: at zoom 0.5 and pan 24 a fixed y can fall below
+        // the bottom of a short canvas (the window of a 1024x642 display). The click is made at the clamped point; the
+        // check says so when there is no room below the first node.
         auto right_click_graph_low = [this, &step](float gx, float wantedY) {
             auto y = std::make_shared<float>(wantedY);
             step(2, [this, gx, y, wantedY] {
@@ -223,7 +225,8 @@ void Editor::at_section_G3(AtScript& at) {
                 return;
             }
             if (pv.state() == PreviewState::Error) {
-                // a machine without the shader compiler cannot compile any material; CI installs it and sets FA_REQUIRE_SHDC=1
+                // a machine without the shader compiler cannot compile any material; CI installs it and sets
+                // FA_REQUIRE_SHDC=1
                 const bool noShdc =
                     msg.find("shdc") != std::string::npos || msg.find("shader compiler") != std::string::npos;
                 const char* required = std::getenv("FA_REQUIRE_SHDC");
@@ -246,7 +249,8 @@ void Editor::at_section_G3(AtScript& at) {
         });
         snap("editor_graph_panel.png");
 
-        // ---- a kind the preview cannot draw says why (a sky material needs the scene around it); nothing is compiled or drawn
+        // ---- a kind the preview cannot draw says why (a sky material needs the scene around it); nothing is compiled
+        // or drawn
         step(3, [this, gs] {
             if (gs->skip) return;
             GraphPreview sky(projectDir_);
@@ -348,7 +352,8 @@ void Editor::at_section_G3(AtScript& at) {
         // ---- a graph with an error: the preview says why and keeps the last picture
         step(3, [this, gs] {
             GraphModel& m = *graph_.model;
-            // a node whose type does not exist cannot be added by the panel; a link the checker refuses is refused by the model
+            // a node whose type does not exist cannot be added by the panel; a link the checker refuses is refused by
+            // the model
             const GraphEditOutcome bad = m.connect("dissolve.emission", "noise_fbm.scale");
             at_check(!bad.ok && !bad.error.empty(),
                      "a link of the wrong type is refused with the checker's sentence: " + bad.error);
@@ -439,7 +444,8 @@ void Editor::at_section_G3(AtScript& at) {
             at_check(undo_depth() > gs->undo, "...on the editor's undo stack");
         });
 
-        // ---- a param made in the panel, used by a node, renamed and deleted without leaving the panel (every wait is on state)
+        // ---- a param made in the panel, used by a node, renamed and deleted without leaving the panel (every wait is
+        // on state)
         step(3, [this, gs, rel] {
             gs->undoEntry = undo_depth();
             gs->compiles = graph_.preview ? graph_.preview->compiles() : 0;
@@ -544,8 +550,8 @@ void Editor::at_section_G3(AtScript& at) {
             at_check(graph_.model->node_count() == 4, "...and the node with it");
         });
 
-        // ---- a sprite graph: the kind next to New graph material makes one, 3D nodes are not offered, a noise node drives its alpha and
-        // the preview draws it on the 2D quad (docs/EDITOR.md, "Graph panel")
+        // ---- a sprite graph: the kind next to New graph material makes one, 3D nodes are not offered, a noise node
+        // drives its alpha and the preview draws it on the 2D quad (docs/EDITOR.md, "Graph panel")
         const std::string spriteRel = "assets/materials/sprite_graph.material.json";
         const std::string spriteSnippet = "shaders/sprite_graph.fragment.glsl";
         wait_until([this] { return !graph_.preview || !graph_.preview->busy(); },
@@ -637,8 +643,9 @@ void Editor::at_section_G3(AtScript& at) {
             at_check(at_visible("gr:preview"), "...and the panel shows it");
         });
 
-        // ---- a post graph: the kind Post of the same combo makes one with post.scene linked to the output, the palette has the post nodes and
-        // none of the 3D ones, a node is added, the snippet is the post() of the post template, and the preview says why it draws nothing
+        // ---- a post graph: the kind Post of the same combo makes one with post.scene linked to the output, the
+        // palette has the post nodes and none of the 3D ones, a node is added, the snippet is the post() of the post
+        // template, and the preview says why it draws nothing
         const std::string postRel = "assets/materials/post_graph.material.json";
         const std::string postSnippet = "shaders/post_graph.post.glsl";
         wait_until([this] { return !graph_.preview || !graph_.preview->busy(); },
@@ -681,8 +688,8 @@ void Editor::at_section_G3(AtScript& at) {
             at_check(!refused.ok && refused.error.find("post") != std::string::npos && m.node_count() == 2,
                      "a sprite node cannot be added to a post graph: " + refused.error);
         });
-        // The preview draws the default graph (the picture unchanged) over its small scene; then a noise node replaces the colour and the picture
-        // must move. The waits are on the preview's state, never on a time.
+        // The preview draws the default graph (the picture unchanged) over its small scene; then a noise node replaces
+        // the colour and the picture must move. The waits are on the preview's state, never on a time.
         auto pv_settled = [this] {
             if (!graph_.preview || !graph_.model) return false;
             const PreviewState s = graph_.preview->state();

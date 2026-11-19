@@ -132,9 +132,9 @@ struct DrawItem {
     bool screen = false;
     Rect clip;
     std::vector<TextureAsset*> groupTex;  // the texture of each group (white for soft dots and pixel mode)
-    // The material of each group (its emitter's `material` with its materialParams): one per group, shared by the group's
-    // particles and trails, so they batch together; empty = the built-in look. Left empty (no allocation) while no group of the
-    // emitter has a material, the common case; read it with material_of().
+    // The material of each group (its emitter's `material` with its materialParams): one per group, shared by the
+    // group's particles and trails, so they batch together; empty = the built-in look. Left empty (no allocation) while
+    // no group of the emitter has a material, the common case; read it with material_of().
     std::vector<MaterialRef> groupMaterial;
     const MaterialRef& material_of(int g) const {
         static const MaterialRef none;
@@ -329,8 +329,8 @@ void draw_emitter(const World& world, const Frame& f, const DrawItem& item, cons
                 const std::uint32_t pc = pack_color(colour);
                 auto v = [&](float sx, float sy, float uu, float vv) {
                     const Vec3 q = pos + r * (sx * h) + u * (sy * h);
-                    // halfW is the shape size of mode 7 and unused by modes 0 and 3: it carries the particle's life (0..1) to the
-                    // fragment shader, where a sprite material reads it as QuadInput.life.
+                    // halfW is the shape size of mode 7 and unused by modes 0 and 3: it carries the particle's life
+                    // (0..1) to the fragment shader, where a sprite material reads it as QuadInput.life.
                     return Vertex2D{q.x, q.y, q.z, uu, vv, pc, mode, 0, 0u, std::clamp(t, 0.0f, 1.0f)};
                 };
                 list.quad(v(-1, 1, a.x, a.y), v(-1, -1, a.x, b.y), v(1, -1, b.x, b.y), v(1, 1, b.x, a.y));
@@ -392,8 +392,8 @@ void Scene2D::gather_particles(World& world, Frame& f) {
             independent = independent && !c.is3D && !Assets::is_target_id(c.texture) &&
                           !Assets::params_name_target(c.materialParams);
             item.groupTex[std::size_t(g)] = f.assets->white();
-            // Nothing to look up for a group with no live particle, except group 0 when the emitter's own trail is drawn with its
-            // material.
+            // Nothing to look up for a group with no live particle, except group 0 when the emitter's own trail is
+            // drawn with its material.
             const bool trailOnly = g == 0 && em.trail == ParticleTrail::Emitter && !sim.emitterTrail.empty();
             if (sim.live(g) <= 0 && !trailOnly) continue;
             if (!c.material.empty()) {  // the built-in look keeps no ref (an empty path gives an empty one)

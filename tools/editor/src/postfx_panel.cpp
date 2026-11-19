@@ -421,7 +421,8 @@ void Editor::draw_postfx_custom(const Json& list, const Json& resolved) {
         postFx_.open.erase("custom");
     if (!section) return;
 
-    // Passes the camera draws that this target does not hold (a volume's, or the camera's own while a volume is the target).
+    // Passes the camera draws that this target does not hold (a volume's, or the camera's own while a volume is the
+    // target).
     int others = 0;
     if (resolved.contains("customPasses") && resolved["customPasses"].is_array())
         for (const Json& c : resolved["customPasses"])

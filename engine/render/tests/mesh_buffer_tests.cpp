@@ -1,8 +1,9 @@
-// Meshes drawn from compute buffers (M72.4, docs/shaders/SHADERS_COMPUTE.md "Drawing from a compute buffer"): a compute material writes
-// the instances, a mesh material with "buffers" reads them in vertex() and surface(), MeshRenderer.instances is the count. The
-// fixtures are tests/data/materials/materials/meshbuf*.material.json (twins made by tools/common/tests/shaders_fixtures_test.cpp).
-// What needs storage buffers in a vertex shader (Metal, D3D11, GL 4.3+) says "SKIPPED, no compute here" elsewhere
-// (FA_REQUIRE_COMPUTE=1 turns that into a failure on a runner that must have it).
+// Meshes drawn from compute buffers (M72.4, docs/shaders/SHADERS_COMPUTE.md "Drawing from a compute buffer"): a compute
+// material writes the instances, a mesh material with "buffers" reads them in vertex() and surface(),
+// MeshRenderer.instances is the count. The fixtures are tests/data/materials/materials/meshbuf*.material.json (twins
+// made by tools/common/tests/shaders_fixtures_test.cpp). What needs storage buffers in a vertex shader (Metal, D3D11,
+// GL 4.3+) says "SKIPPED, no compute here" elsewhere (FA_REQUIRE_COMPUTE=1 turns that into a failure on a runner that
+// must have it).
 #include "fa/core/engine_version.h"
 #include "fa/render/compute.h"
 #include "test_util.h"
@@ -123,7 +124,8 @@ Entity add_instanced(World& w, const char* material, Json params, int instances,
 
 bool is_red(const Color& c) { return c.r > 0.5f && c.g < 0.3f && c.b < 0.3f; }
 
-// The number of red runs along the picture's middle row (one per instance drawn there, 1 unit = ~40 px apart, ~20 px wide).
+// The number of red runs along the picture's middle row (one per instance drawn there, 1 unit = ~40 px apart, ~20 px
+// wide).
 int count_runs(const Image& img) {
     int runs = 0;
     bool in = false;
@@ -135,7 +137,8 @@ int count_runs(const Image& img) {
     return runs;
 }
 
-// Writes `count` instances into a buffer of `size` elements, in a row 1 unit apart centred on element 2; element `hide` hidden.
+// Writes `count` instances into a buffer of `size` elements, in a row 1 unit apart centred on element 2; element `hide`
+// hidden.
 void fill(Compute& c, int id, int count, int hide = -1) {
     ComputeDispatch d;
     d.material = kFill;

@@ -138,8 +138,8 @@ void Editor::at_section_G2(AtScript& at) {
         pendingFocus_ = "Post-processing";
     });
 
-    // Custom passes (post materials): add through the panel's edit path, open the section, reorder and remove with its buttons,
-    // undo every one. The materials need not exist: the panel lists the entry and says it is skipped.
+    // Custom passes (post materials): add through the panel's edit path, open the section, reorder and remove with its
+    // buttons, undo every one. The materials need not exist: the panel lists the entry and says it is skipped.
     step(3, [this, depth0] {
         // The second one sits at a place between the screen effects (display-referred): the command takes it.
         const Json two = custom_pass_set(custom_pass_add(custom_pass_add(Json::array(), "materials/one.material.json"),

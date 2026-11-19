@@ -1,9 +1,10 @@
-// The Scene settings panel (View > Scene settings): the SceneSettings of the open scene (the scene file's "settings": sky, fog, ambient
-// light, gravity, music, colour space) drawn from the reflection, the way the Inspector draws a component, but for the scene itself. A
-// sky material (skyMaterial) shows its params typed by material.info, through the Inspector's own draw_material_params. Nothing here
-// writes the world directly: every edit is a scene.set_component call with component "SceneSettings" and no id, through
-// Editor::edit_command, so it is one undo step, marks the scene dirty and reaches the scene file like any other edit. The rules (the
-// groups, the arguments of an edit, what is said about the sky material) are in scene_settings_model.h and tested without a window.
+// The Scene settings panel (View > Scene settings): the SceneSettings of the open scene (the scene file's "settings":
+// sky, fog, ambient light, gravity, music, colour space) drawn from the reflection, the way the Inspector draws a
+// component, but for the scene itself. A sky material (skyMaterial) shows its params typed by material.info, through
+// the Inspector's own draw_material_params. Nothing here writes the world directly: every edit is a scene.set_component
+// call with component "SceneSettings" and no id, through Editor::edit_command, so it is one undo step, marks the scene
+// dirty and reaches the scene file like any other edit. The rules (the groups, the arguments of an edit, what is said
+// about the sky material) are in scene_settings_model.h and tested without a window.
 #include <algorithm>
 #include <cstdio>
 

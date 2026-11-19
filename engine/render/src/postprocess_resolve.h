@@ -26,9 +26,10 @@ struct PostStack {
     std::uint32_t mask = 0;  // bit i is set when the effect PostEffect(i) runs (the same as fx.<effect>Enabled)
     int sources =
         0;  // how many components contributed: the camera's own (if any) plus the volumes with an influence above 0
-    // The custom passes (PostProcess.customPasses) of the camera's own component and the volumes that apply with a strength of at least
-    // 0.5, in the order they are drawn within a slot: own first, then ascending priority. Disabled entries are kept (the report
-    // shows them); the passes skip them. `customErrors`: the entries that did not parse, which the renderer logs once.
+    // The custom passes (PostProcess.customPasses) of the camera's own component and the volumes that apply with a
+    // strength of at least 0.5, in the order they are drawn within a slot: own first, then ascending priority. Disabled
+    // entries are kept (the report shows them); the passes skip them. `customErrors`: the entries that did not parse,
+    // which the renderer logs once.
     std::vector<CustomPostPass> custom;
     std::vector<Error> customErrors;
 

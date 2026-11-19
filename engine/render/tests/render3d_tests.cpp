@@ -948,8 +948,8 @@ TEST_CASE("materials: a light() that returns 0 leaves only the ambient term, and
 }
 
 namespace {
-// The largest per-channel difference (0..255) over the pixels of the disc of sphere_pixels(), and how many pixels differ by more
-// than `limit`. Neither depends on the order of the image rows.
+// The largest per-channel difference (0..255) over the pixels of the disc of sphere_pixels(), and how many pixels
+// differ by more than `limit`. Neither depends on the order of the image rows.
 struct DiscDiff {
     int maxDiff = 0;
     int over = 0;
@@ -1036,8 +1036,8 @@ TEST_CASE("materials: the sky (IBL) is one call away from lighting(), ambient() 
         m->roughness = 0.1f;
         return g.render(w);
     };
-    // The sphere's two ends along the image's vertical axis, one reflecting the sky above, the other the ground below. Which
-    // end is first in the image (GL counts rows from the bottom) does not matter: one is blue, the other orange.
+    // The sphere's two ends along the image's vertical axis, one reflecting the sky above, the other the ground below.
+    // Which end is first in the image (GL counts rows from the bottom) does not matter: one is blue, the other orange.
     auto ends_differ = [&](const Image& img) {
         const Color a = img.pixel(img.width / 2, img.height / 2 - 25);
         const Color b = img.pixel(img.width / 2, img.height / 2 + 25);
@@ -1240,8 +1240,8 @@ TEST_CASE("materials: a twin from another factoria version is refused with the r
     CHECK(g.renderer.stats().materialFallbacks.size() == 1);
 }
 
-// The kind of a material (M72): the twin must carry the material's kind (a twin without one is a mesh twin), and a kind that
-// is not a mesh one is not drawn by a MeshRenderer (the engine shader is used, with one warning).
+// The kind of a material (M72): the twin must carry the material's kind (a twin without one is a mesh twin), and a kind
+// that is not a mesh one is not drawn by a MeshRenderer (the engine shader is used, with one warning).
 TEST_CASE("materials: a twin of another kind than its material is refused with the re-export hint") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
@@ -1363,7 +1363,8 @@ TEST_CASE("3D mesh template: a material's emission driven by fa_time is the same
     expect_golden(a, "3d_fa_time_emission");
 }
 
-// Sky materials (SceneSettings.skyMaterial) ---------------------------------------------------------------------------------
+// Sky materials (SceneSettings.skyMaterial)
+// ---------------------------------------------------------------------------------
 namespace {
 // A camera looking slightly down at a cube: the top of the frame is sky, the middle is the mesh.
 void add_sky_scene(World& w, const char* skyMaterial, const Json& params = Json()) {
@@ -1376,8 +1377,9 @@ void add_sky_scene(World& w, const char* skyMaterial, const Json& params = Json(
 }  // namespace
 
 namespace {
-// The largest per-channel difference (0..255) between the top `rows` rows of two frames: the rows that hold only the sky.
-// The mean absolute difference of the colour channels over the pixels of a rectangle (the part of the frame the mesh covers).
+// The largest per-channel difference (0..255) between the top `rows` rows of two frames: the rows that hold only the
+// sky. The mean absolute difference of the colour channels over the pixels of a rectangle (the part of the frame the
+// mesh covers).
 double rect_mean_diff(const Image& a, const Image& b, int x0, int y0, int x1, int y1) {
     double sum = 0.0;
     int n = 0;
@@ -1412,8 +1414,9 @@ TEST_CASE("sky materials: a material whose sky() is empty draws exactly the buil
         World w;
         add_sky_scene(w, material);
         // colours no other test baked: the count of draws below needs a bake that has not happened yet
-        // One colour for the whole sky, and the same one as the scene's ambient light: the sky a mesh is lit by is then the same
-        // light as the analytic path (ambientLight + gradient) gave it, so the two frames can be compared on the cube itself.
+        // One colour for the whole sky, and the same one as the scene's ambient light: the sky a mesh is lit by is then
+        // the same light as the analytic path (ambientLight + gradient) gave it, so the two frames can be compared on
+        // the cube itself.
         w.settings().skyColor = Color{0.31f, 0.43f, 0.57f, 1};
         w.settings().horizonColor = Color{0.31f, 0.43f, 0.57f, 1};
         w.settings().ambientLight = Color{0.31f, 0.43f, 0.57f, 1};
@@ -1426,18 +1429,19 @@ TEST_CASE("sky materials: a material whose sky() is empty draws exactly the buil
     const Image again = frame("materials/skyempty.material.json");
     CHECK(log.messages().empty());
     CHECK(g.renderer.stats().materialFallbacks.empty());
-    // The sky is one draw either way; the first frame with a sky material also bakes the environment the meshes are lit with
-    // (kEnvPasses draws), the next one finds it in place.
+    // The sky is one draw either way; the first frame with a sky material also bakes the environment the meshes are lit
+    // with (kEnvPasses draws), the next one finds it in place.
     CHECK(firstCalls == builtInCalls + kEnvPasses);
     CHECK(g.renderer.stats().drawCalls == builtInCalls);
-    // The sky itself: the top rows are the very same pixels (the meshes are lit by the baked sky now, so the rest may differ a little).
+    // The sky itself: the top rows are the very same pixels (the meshes are lit by the baked sky now, so the rest may
+    // differ a little).
     CHECK(top_rows_diff(builtIn, material, 30) == 0);
     CHECK(diff_images(material, again, 0.0f).maxError == 0.0);
     // the sky is really in the picture: the top of the frame is not the clear colour of a frame without a sky
     CHECK(builtIn.pixel(160, 2).b > 0.3f);
-    // A sky of one colour lights the mesh like an ambient light and a gradient of that colour did (the irradiance cube is divided by pi
-    // and the prefiltered one holds the colour): measured on the pixels of the cube (the middle of the frame), where a difference
-    // would be, not diluted by the sky around it.
+    // A sky of one colour lights the mesh like an ambient light and a gradient of that colour did (the irradiance cube
+    // is divided by pi and the prefiltered one holds the colour): measured on the pixels of the cube (the middle of the
+    // frame), where a difference would be, not diluted by the sky around it.
     const double cubeDiff = rect_mean_diff(builtIn, material, 138, 76, 182, 104);
     MESSAGE("mean difference on the cube: " << cubeDiff);
     CHECK(cubeDiff < 0.05);
@@ -1491,9 +1495,11 @@ TEST_CASE("sky materials: SkyInput.time follows the engine clock and is the same
     CHECK(diff_images(start, a, 4.0f / 255.0f).meanError > 0.01);
 }
 
-// The sky lights the meshes (M72 P15) ---------------------------------------------------------------------------------------
+// The sky lights the meshes (M72 P15)
+// ---------------------------------------------------------------------------------------
 namespace {
-// A sphere in the middle of the frame, no lights, no ambient and a sky of the scene's own colors that the test must not see.
+// A sphere in the middle of the frame, no lights, no ambient and a sky of the scene's own colors that the test must not
+// see.
 void sky_sphere_world(World& w, const char* skyMaterial, const Json& params, float metallic, float roughness) {
     add_camera(w, {0, 1.5f, 4}, {0, 0, 0});
     w.settings().ambientLight = Color{0, 0, 0, 1};
@@ -1513,9 +1519,9 @@ TEST_CASE("sky materials: a metal sphere reflects the sky that is seen, each sid
     REQUIRE(g.ok);
     MaterialScope scope;
     ErrorLog log;
-    // skyquad: +x red, -x blue, above the horizon green added. The sphere is mirror-like, so each part of it shows the quarter of the
-    // sky it reflects: a face of the baked cube turned the wrong way (or mirrored) puts the colors in the wrong corners. The image's
-    // row 0 is the top on every backend (the capture flips OpenGL's).
+    // skyquad: +x red, -x blue, above the horizon green added. The sphere is mirror-like, so each part of it shows the
+    // quarter of the sky it reflects: a face of the baked cube turned the wrong way (or mirrored) puts the colors in
+    // the wrong corners. The image's row 0 is the top on every backend (the capture flips OpenGL's).
     World w;
     sky_sphere_world(w, "materials/skyquad.material.json", Json(), 1.0f, 0.05f);
     const Image img = g.render(w);
@@ -1537,7 +1543,8 @@ TEST_CASE("sky materials: a diffuse mesh takes the ambient light of the sky that
     ErrorLog log;
     const Json params =
         Json::object({{"zenith", Json::array({0.0, 1.0, 0.0, 1.0})}, {"ground", Json::array({1.0, 0.0, 0.0, 1.0})}});
-    // No lights, no ambient: what lights the sphere is the sky. Green above, red below: the top of the sphere is green, the bottom red.
+    // No lights, no ambient: what lights the sphere is the sky. Green above, red below: the top of the sphere is green,
+    // the bottom red.
     World w;
     sky_sphere_world(w, "materials/skygrad.material.json", params, 0.0f, 1.0f);
     const Image lit = g.render(w);
@@ -1551,7 +1558,8 @@ TEST_CASE("sky materials: a diffuse mesh takes the ambient light of the sky that
     CHECK(top.g > 1.5f * top.r);
     CHECK(bottom.r > 0.02f);
     CHECK(bottom.r > 1.5f * bottom.g);
-    // Without the material the scene's own ambient (black) is all there is, and a rough dielectric shows no reflection: dark.
+    // Without the material the scene's own ambient (black) is all there is, and a rough dielectric shows no reflection:
+    // dark.
     World bare;
     sky_sphere_world(bare, "", Json(), 0.0f, 1.0f);
     const Image dark = g.render(bare);
@@ -1680,8 +1688,9 @@ TEST_CASE("sky materials: what one bake of the environment costs (reported, neve
     Gfx& g = gfx();
     REQUIRE(g.ok);
     MaterialScope scope;
-    // The wall time of a whole frame including the read-back of the picture (so the GPU work is in it), median of 15 frames: with no
-    // sky material, with a sky that is baked once, and with a sky baked in every frame (its colour changes each time).
+    // The wall time of a whole frame including the read-back of the picture (so the GPU work is in it), median of 15
+    // frames: with no sky material, with a sky that is baked once, and with a sky baked in every frame (its colour
+    // changes each time).
     auto median_ms = [&](const char* material, bool changeEveryFrame) {
         World w;
         add_sky_scene(w, material);
@@ -1719,14 +1728,15 @@ TEST_CASE("sky materials: a render target planned first with another sky does no
     REQUIRE(g.ok);
     MaterialScope scope;
     ErrorLog log;
-    // The sky reads the texture "target:mirror": for the camera that renders into "mirror" it is the checker (its own picture would
-    // be a loop), for the main camera it is the mirror's picture, here plain green. The two jobs bake different skies; the job of the
-    // picture is planned last, and the sphere it draws must be lit by the sky it shows (green above) however the jobs are ordered.
+    // The sky reads the texture "target:mirror": for the camera that renders into "mirror" it is the checker (its own
+    // picture would be a loop), for the main camera it is the mirror's picture, here plain green. The two jobs bake
+    // different skies; the job of the picture is planned last, and the sphere it draws must be lit by the sky it shows
+    // (green above) however the jobs are ordered.
     World w;
     sky_sphere_world(w, "materials/skytex.material.json", Json::object({{"map", "target:mirror"}}), 0.0f, 1.0f);
     w.settings().skyColor = w.settings().horizonColor = Color{0.12f, 0.12f, 0.12f, 1};
-    // The mirror's camera is orthographic (it draws no sky of its own: the picture is not the checker) and far from the sphere: its
-    // picture is its green clear colour.
+    // The mirror's camera is orthographic (it draws no sky of its own: the picture is not the checker) and far from the
+    // sphere: its picture is its green clear colour.
     Entity mirror = make(w, "mirror", {1000, 1.5f, -400});
     Camera& mc = w.add<Camera>(mirror);
     mc.projection = Projection::Orthographic;
@@ -1918,7 +1928,8 @@ TEST_CASE("materials: 100 cubes with different instanced values are one batch an
     Gfx& g = gfx();
     REQUIRE(g.ok);
     MaterialScope scope;
-    // mode 0: every cube the same; 1: a different tint per cube; 2: a different tint and `raise`; 3: two `boost` values.
+    // mode 0: every cube the same; 1: a different tint per cube; 2: a different tint and `raise`; 3: two `boost`
+    // values.
     auto frame = [&](int mode) {
         World w;
         add_camera(w, {0, 9, 14}, {0, 0, 0});

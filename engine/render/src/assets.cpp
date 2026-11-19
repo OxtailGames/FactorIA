@@ -238,8 +238,8 @@ void generate_normals(std::vector<MeshVertex>& v, const std::vector<std::uint32_
     }
 }
 
-// `uv1` and `color1` get TEXCOORD_1 (two floats per vertex) and COLOR_1 (packed like MeshVertex::color) when the primitive has them,
-// the channels a material's "vertexAttributes" read; they stay empty otherwise.
+// `uv1` and `color1` get TEXCOORD_1 (two floats per vertex) and COLOR_1 (packed like MeshVertex::color) when the
+// primitive has them, the channels a material's "vertexAttributes" read; they stay empty otherwise.
 bool read_primitive(const cgltf_primitive& prim, const Mat4& world, const Mat4& normalMat,
                     std::vector<MeshVertex>& verts, std::vector<std::uint32_t>& idx, std::vector<float>& uv1,
                     std::vector<std::uint32_t>& color1) {

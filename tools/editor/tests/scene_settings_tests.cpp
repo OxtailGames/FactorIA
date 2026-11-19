@@ -176,7 +176,8 @@ TEST_CASE("scene.set_component on SceneSettings: set, merge, reset, refusals") {
     CHECK(r.error.dump().find("fogDensity") != std::string::npos);
     CHECK(s.values() == before);
 
-    // An empty id counts as none (the Inspector's helpers spell the id out, empty for the scene), also for the undo plan.
+    // An empty id counts as none (the Inspector's helpers spell the id out, empty for the scene), also for the undo
+    // plan.
     const Json emptyId =
         Json::object({{"id", ""}, {"component", "SceneSettings"}, {"fields", Json::object({{"fogDensity", 0.75}})}});
     REQUIRE(plan_undo(s.world(), "scene.set_component", emptyId).has_value());
@@ -243,6 +244,7 @@ TEST_CASE("undo plan of SceneSettings: the inverse puts back exactly the fields 
     for (const UndoCommand& c : merged->inverse) REQUIRE(s.call(c.cmd, c.args).ok);
     CHECK(s.values() == withA);
 
-    // Arguments the command would refuse give no plan: the editor then takes a snapshot and the command reports the error.
+    // Arguments the command would refuse give no plan: the editor then takes a snapshot and the command reports the
+    // error.
     CHECK(!plan_undo(s.world(), "scene.set_component", settings_edit_args("nonsense", 1)).has_value());
 }

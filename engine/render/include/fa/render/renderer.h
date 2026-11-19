@@ -74,8 +74,9 @@ inline constexpr float kMaxTextScale = 3.0f;
 using ShaderCompiler = std::function<Result<Json>(const std::string& materialPath, const std::string& slang)>;
 
 // What a custom material is for (the "kind" of *.material.json, docs/design/CUSTOM_SHADERS.md "Kinds (M72)"): Mesh = a
-// MeshRenderer's surface (the default), Sprite = the 2D quad path (Sprite, Shape2D, Tilemap, Text, particles, UI images),
-// Sky, Post = a pass of the post-processing stack, Compute. Each kind has its own template files and its own template hash.
+// MeshRenderer's surface (the default), Sprite = the 2D quad path (Sprite, Shape2D, Tilemap, Text, particles, UI
+// images), Sky, Post = a pass of the post-processing stack, Compute. Each kind has its own template files and its own
+// template hash.
 enum class MaterialKind { Mesh, Sprite, Sky, Post, Compute };
 // "mesh", "sprite", "sky", "post", "compute", in the order of MaterialKind.
 const std::vector<std::string>& material_kind_names();
@@ -83,12 +84,13 @@ const char* material_kind_name(MaterialKind kind);
 std::optional<MaterialKind> material_kind_from_name(std::string_view name);
 
 // SHA-256 of the template files of `kind` (engine/render/shaders/*_common.glsl, one list per kind in
-// engine/render/CMakeLists.txt) this renderer was built with: a material twin made from another template is refused. The
-// tooling writes the same value into every twin of that kind. "" for a kind without a template yet (Compute).
+// engine/render/CMakeLists.txt) this renderer was built with: a material twin made from another template is refused.
+// The tooling writes the same value into every twin of that kind. "" for a kind without a template yet (Compute).
 std::string material_template_hash(MaterialKind kind);
 // material_template_hash(MaterialKind::Mesh).
 std::string mesh_template_hash();
-// The template hash of a mesh material in "full" mode (mesh_common.glsl and mesh_full_common.glsl): the value of its twins' "template".
+// The template hash of a mesh material in "full" mode (mesh_common.glsl and mesh_full_common.glsl): the value of its
+// twins' "template".
 std::string mesh_full_template_hash();
 
 struct RendererDesc {
@@ -132,17 +134,18 @@ struct RenderStats {
     int lights2dShadowed =
         0;  // of lights2d, the point lights whose castShadows is in effect (a Tilemap with occludesLight; at most 32)
     int materials = 0;  // distinct custom materials (MeshRenderer or Sprite material) drawn with their own shaders
-    // How many times a 2D item's material was looked up in full this frame (path normalized, params packed and hashed): once per
-    // distinct material and set of materialParams values, however many components, quads or particles use it; the other asks are
-    // answered from a per-frame cache and not counted (a set of values counts as distinct when its keys come in another order too:
-    // {"a":1,"b":2} and {"b":2,"a":1} are looked up once each). The cache is also dropped when the camera being gathered changes (a
-    // material texture "target:<own>" is the checker for the camera that renders into it), so a frame with render targets counts
-    // the lookup once for each camera. Also in game.render_stats.
+    // How many times a 2D item's material was looked up in full this frame (path normalized, params packed and hashed):
+    // once per distinct material and set of materialParams values, however many components, quads or particles use it;
+    // the other asks are answered from a per-frame cache and not counted (a set of values counts as distinct when its
+    // keys come in another order too: {"a":1,"b":2} and {"b":2,"a":1} are looked up once each). The cache is also
+    // dropped when the camera being gathered changes (a material texture "target:<own>" is the checker for the camera
+    // that renders into it), so a frame with render targets counts the lookup once for each camera. Also in
+    // game.render_stats.
     int materialResolves = 0;
     // Materials drawn as the magenta error material (mesh) or magenta quads (sprite) because they failed to build (see
-    // asset_report). A sky material that failed (or is not a sky one) draws the built-in sky gradient instead, not magenta. A
-    // post material of PostProcess.customPasses that did not build, is not a "post" material or cannot be drawn is here too,
-    // and its pass is skipped (the picture is drawn without it).
+    // asset_report). A sky material that failed (or is not a sky one) draws the built-in sky gradient instead, not
+    // magenta. A post material of PostProcess.customPasses that did not build, is not a "post" material or cannot be
+    // drawn is here too, and its pass is skipped (the picture is drawn without it).
     std::vector<std::string> materialFallbacks;
     // How many times, since the renderer was made, the 3D scene it builds (one per frame, and one per capture_world of an
     // entity's subtree) had more distinct meshes, textures, materials or pipelines than a sort key holds, so its opaque meshes
@@ -269,8 +272,8 @@ public:
     // The graphics backend in use: "metal", "d3d11", "glcore", "gles3", "dummy", or "unknown" for a sokol backend the
     // engine never builds (what game.device.gpuBackend reports).
     static const char* backend_name();
-    // The compute side of the renderer (storage buffers, dispatches of "kind": "compute" materials; available() says whether
-    // this backend can). Usable once init() succeeded; its buffers end with shutdown().
+    // The compute side of the renderer (storage buffers, dispatches of "kind": "compute" materials; available() says
+    // whether this backend can). Usable once init() succeeded; its buffers end with shutdown().
     Compute& compute() { return *compute_; }
     int target_width() const;
     int target_height() const;
@@ -373,23 +376,28 @@ public:
     // stats() or the picture of the frame.
     bool capture_world(World& world, const WorldCapture& spec, Image& out, std::string* error = nullptr);
 
-    // ---- Off-screen capture through a camera, with its custom post passes (the editor's preview of a post material) -------------
+    // ---- Off-screen capture through a camera, with its custom post passes (the editor's preview of a post material)
+    // -------------
     struct CameraCapture {
         Entity camera = kNullEntity;  // a Camera entity of the world (primary or not: it is the one asked for)
         int width = 0, height = 0;    // pixels, 1 .. kMaxWorldCaptureSide
-        // How many frames are drawn, 1 .. kMaxCaptureFrames; only the last is read back. A frame matters when a pass of the camera's stack
-        // calls fa_history: it reads what the frame before drew (the first one starts clean, fa_history_valid false), so a trail or a
-        // feedback has built up in the picture that comes back. A camera whose stack has no custom pass draws one frame whatever this says.
+        // How many frames are drawn, 1 .. kMaxCaptureFrames; only the last is read back. A frame matters when a pass of
+        // the camera's stack calls fa_history: it reads what the frame before drew (the first one starts clean,
+        // fa_history_valid false), so a trail or a feedback has built up in the picture that comes back. A camera whose
+        // stack has no custom pass draws one frame whatever this says.
         int frames = 1;
     };
     static constexpr int kMaxCaptureFrames = 8;
-    // Draws what `spec.camera` sees (its 3D and 2D world, its clear colour, showTags and hideTags) into a width x height image and
-    // answers its pixels (row 0 = top, straight alpha), with the custom passes of the camera's PostProcess (PostProcess.customPasses of
-    // the camera and of the volumes it is in, each at its `position`; fa_depth and fa_normal get the camera's prepass) run over it. No
-    // other effect of the stack is drawn (no bloom, tonemap, ...): the picture is the scene as the camera draws it plus those passes.
-    // Like capture_world it needs no frame drawn first and changes neither stats() nor the picture of the frame; the histories of the
-    // camera's passes (fa_history) belong to the capture, start clean at every call and are freed when it ends, so the same world gives the same picture. The alpha is what the picture holds (the camera's clear has alpha 1, a pass writes its own): straight, never un-premultiplied. False
-    // + *error when the entity is not a Camera of the world, the size is not 1 .. kMaxWorldCaptureSide, or frames is outside its range.
+    // Draws what `spec.camera` sees (its 3D and 2D world, its clear colour, showTags and hideTags) into a width x
+    // height image and answers its pixels (row 0 = top, straight alpha), with the custom passes of the camera's
+    // PostProcess (PostProcess.customPasses of the camera and of the volumes it is in, each at its `position`; fa_depth
+    // and fa_normal get the camera's prepass) run over it. No other effect of the stack is drawn (no bloom, tonemap,
+    // ...): the picture is the scene as the camera draws it plus those passes. Like capture_world it needs no frame
+    // drawn first and changes neither stats() nor the picture of the frame; the histories of the camera's passes
+    // (fa_history) belong to the capture, start clean at every call and are freed when it ends, so the same world gives
+    // the same picture. The alpha is what the picture holds (the camera's clear has alpha 1, a pass writes its own):
+    // straight, never un-premultiplied. False and *error when the entity is not a Camera of the world, the size is not
+    // 1 .. kMaxWorldCaptureSide, or frames is outside its range.
     bool capture_camera(World& world, const CameraCapture& spec, Image& out, std::string* error = nullptr);
 
     // ---- Run-time textures ------------------------------------------------------------------------------------------
@@ -540,10 +548,11 @@ public:
     void set_debug_view(DebugView view);
     DebugView debug_view() const;
 
-    // Forgets what the custom post passes that read their own output of the frame before (fa_history, docs/shaders/SHADERS_POST.md,
-    // "History") kept: from the next frame their history is not valid (fa_history_valid is false, fa_history(uv) gives the picture), so
-    // a trail or an echo starts again. `camera`: the Entity::bits() of one camera; 0 = every camera. A game calls it at a camera cut or
-    // a scene change the renderer cannot see. Main thread; nothing happens without a renderer.
+    // Forgets what the custom post passes that read their own output of the frame before (fa_history,
+    // docs/shaders/SHADERS_POST.md, "History") kept: from the next frame their history is not valid (fa_history_valid
+    // is false, fa_history(uv) gives the picture), so a trail or an echo starts again. `camera`: the Entity::bits() of
+    // one camera; 0 = every camera. A game calls it at a camera cut or a scene change the renderer cannot see. Main
+    // thread; nothing happens without a renderer.
     void reset_post_history(std::uint64_t camera = 0);
 
     struct Impl;

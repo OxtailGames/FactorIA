@@ -40,8 +40,9 @@ struct Renderer::Impl::MaterialInputs {
     TextureAsset* textures[kMaxMaterialTextures]{};
 };
 
-// What draws the sky: the engine's own program (mat null) or a sky material (SceneSettings.skyMaterial) with its params, textures and the
-// numbers of its uniform block. The main pass draws it into the picture and the environment bake (renderer_env.h) into the faces of a cube.
+// What draws the sky: the engine's own program (mat null) or a sky material (SceneSettings.skyMaterial) with its
+// params, textures and the numbers of its uniform block. The main pass draws it into the picture and the environment
+// bake (renderer_env.h) into the faces of a cube.
 struct SkyDraw {
     MaterialAsset* mat = nullptr;
     const MaterialProgram* prog = nullptr;  // mat's program (null for the engine's)
@@ -116,13 +117,14 @@ struct Renderer::Impl::DrawContext {
     // fuScene with the camera's stack fog (PostProcess.fog*): the blended meshes fog themselves with it, while the opaque meshes and the sky
     // are fogged by the full-screen draw (fuScene has no fog then). Equal to fuScene when the camera has no stack fog.
     mesh_fa_mesh_fs_params_t fuBlend{};
-    // plan_env: the meshes of this job take the baked sky (SceneSettings.skyMaterial): the "sky-env" pass is declared when envBake, and
-    // envSky is what it draws (the time quantized, see plan_env).
+    // plan_env: the meshes of this job take the baked sky (SceneSettings.skyMaterial): the "sky-env" pass is declared
+    // when envBake, and envSky is what it draws (the time quantized, see plan_env).
     bool envActive = false, envBake = false;
     std::uint64_t envKey = 0;
     SkyDraw envSky;
-    // The textures plan_env resolved for the sky of the job, while the job's own render target was the checker: the sky of the main
-    // pass draws with them (resolving them again when the pass runs would bind the target the pass writes). Valid for skyPlannedMat.
+    // The textures plan_env resolved for the sky of the job, while the job's own render target was the checker: the sky
+    // of the main pass draws with them (resolving them again when the pass runs would bind the target the pass writes).
+    // Valid for skyPlannedMat.
     TextureAsset* skyPlanned[kMaxMaterialTextures]{};
     MaterialAsset* skyPlannedMat = nullptr;
     // build_graph: the occlusion image the main pass applies after the opaque meshes (valid when the "ssao-*" passes were declared).
@@ -215,8 +217,9 @@ void apply_material_params(const MaterialProgram& prog, const MaterialInputs& in
         sg_apply_uniforms(slot, &r);
     }
 }
-// What draws the sky of the job (its ss is in scene space): `mat` is the sky material sky_material accepted, or nullptr for the engine's
-// gradient. The sun is the directional light of slot 0, up when the scene has none; the time is the job's (fuScene.fa_time).
+// What draws the sky of the job (its ss is in scene space): `mat` is the sky material sky_material accepted, or nullptr
+// for the engine's gradient. The sun is the directional light of slot 0, up when the scene has none; the time is the
+// job's (fuScene.fa_time).
 void fill_sky(Renderer::Impl& im, const Renderer::Impl::DrawContext& ctx, MaterialAsset* mat, SkyDraw& d) {
     const SceneSettings& ss = ctx.ss;
     d = SkyDraw{};
@@ -249,8 +252,8 @@ void fill_sky(Renderer::Impl& im, const Renderer::Impl::DrawContext& ctx, Materi
     d.linear = ctx.fr.linear;
 }
 
-// Draws the sky as a full-screen triangle into the open pass: `invViewProj` (column-major) and `camPos` place the rays; `format`, when
-// given, is the format of the pass's colour image (the environment bake's cube faces), else the scene's.
+// Draws the sky as a full-screen triangle into the open pass: `invViewProj` (column-major) and `camPos` place the rays;
+// `format`, when given, is the format of the pass's colour image (the environment bake's cube faces), else the scene's.
 void draw_sky(Renderer::Impl& im, const SkyDraw& d, const float* invViewProj, const Vec3& camPos,
               const TargetFormat* format) {
     Gpu& gpu = im.gpu;
@@ -408,6 +411,7 @@ void Renderer::Impl::run_frame_graph() {
         FA_ERROR("render", "Frame {} (jobs: {}) {}: {} {}", frameSerial, jobs.empty() ? "none" : jobs,
                  running ? "cannot be drawn completely" : "draws nothing", e.message, e.hint);
     };
+    if (beforeFrameGraph) beforeFrameGraph();
     if (Result<void> r = graph.compile(); !r)
         report(r.error(), false);
     else if (Result<void> e = graph.execute(transient_targets().pool); !e)
@@ -545,22 +549,24 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
         if (fr.cam.postStack)
             pp.sceneFx = sceneFx.plan(world, fr.cam, *fr.cam.postStack, camKey, postSerial, fr.dt, renderScale,
                                       pp.prevViewProj, pp.prevValid);
-        // The custom post passes (renderer_custom_post.h): the materials of PostProcess.customPasses that built. One that did not is left
-        // out here, named in stats.materialFallbacks and logged once.
+        // The custom post passes (renderer_custom_post.h): the materials of PostProcess.customPasses that built. One
+        // that did not is left out here, named in stats.materialFallbacks and logged once.
         if (fr.cam.postStack && fr.cam.postStack->has_custom())
             pp.custom = make_custom_post_plan(*fr.cam.postStack, *assets, stats.materialFallbacks, warnedCustomPass);
-        // What the passes that read their own output of the frame before need to know (renderer_custom_post.h, CustomHistoryFrame).
-        // The scene's hash only matters to a pass that keeps a history: a frame without one does not hash the path.
+        // What the passes that read their own output of the frame before need to know (renderer_custom_post.h,
+        // CustomHistoryFrame). The scene's hash only matters to a pass that keeps a history: a frame without one does
+        // not hash the path.
         const std::uint64_t sceneKey =
             pp.custom.any_history()
                 ? std::hash<std::string>{}(world.scene_path()) * 1099511628211ull + world.scene_generation()
                 : 0;
         pp.custom.history = {camKey, histJob, postSerial, frameSerial, sceneKey, pp.prevValid, framePost};
-        // The passes after the tonemap cut the final pass in pieces, which go through two images of their own; without those the passes
-        // are not drawn (logged once) and the final pass stays whole.
+        // The passes after the tonemap cut the final pass in pieces, which go through two images of their own; without
+        // those the passes are not drawn (logged once) and the final pass stays whole.
         if (pp.custom.any()) pp.settle_custom();
         if (pp.customLdr) {
-            // One cut needs one image, two or more need both (the pieces alternate); none (nothing is drawn before the places) needs none.
+            // One cut needs one image, two or more need both (the pieces alternate); none (nothing is drawn before the
+            // places) needs none.
             const int cuts = std::popcount(pp.ldr_cuts());
             if (!ensure_ldr_targets(cuts >= 2 ? 2 : cuts)) pp.drop_custom_ldr();
         }
@@ -602,8 +608,9 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
         }
     }
 
-    // A capture through a camera (Renderer::capture_camera): the custom passes of the camera's stack over the picture, and nothing else of
-    // the stack. Their history is the capture's own (plan.history), their prepass the camera's (plan_prepass).
+    // A capture through a camera (Renderer::capture_camera): the custom passes of the camera's stack over the picture,
+    // and nothing else of the stack. Their history is the capture's own (plan.history), their prepass the camera's
+    // (plan_prepass).
     if (plan.view && plan.customPost && fr.wantWorld && fr.cam.postStack && fr.cam.postStack->has_custom()) {
         PostPlan& pp = ctx.postPlan;
         pp = PostPlan{};
@@ -638,7 +645,8 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
             pp.needsNormals = post_mask_needs_normals(pp.readMask);
         }
     }
-    // A custom post pass whose snippet calls fa_depth or fa_normal asks for the prepass; one that does not never makes it.
+    // A custom post pass whose snippet calls fa_depth or fa_normal asks for the prepass; one that does not never makes
+    // it.
     if ((draws || (plan.view && plan.customPost)) && ctx.postPlan.custom.reads_prepass())
         ctx.postPlan.needsDepth = ctx.postPlan.needsNormals = true;
     plan_prepass(ctx);
@@ -943,8 +951,8 @@ void Renderer::Impl::cull_and_batch(DrawContext& ctx) {
 
 // ---- flatten quads into one vertex stream ----
 // Reads: fr (world, debugWorld, screen, debugScreen quad lists, debugLines, camera clear colour), ctx.clearByQuad, targetW/H.
-// Writes: `stream`, `instStream`, ctx.gClear / gWorld / gDebugWorld / gScreen / gDebugScreen, ctx.lineFirst, ctx.vbuf, ctx.vinst (transient buffers),
-// ctx.screenProj.
+// Writes: `stream`, `instStream`, ctx.gClear / gWorld / gDebugWorld / gScreen / gDebugScreen, ctx.lineFirst, ctx.vbuf,
+// ctx.vinst (transient buffers), ctx.screenProj.
 void Renderer::Impl::build_quad_stream(DrawContext& ctx) {
     Frame& fr = ctx.fr;
     const bool z01 = ctx.z01;
@@ -995,8 +1003,8 @@ void Renderer::Impl::build_quad_stream(DrawContext& ctx) {
 }
 
 // ---- instance data: one model matrix per drawn mesh, written before any pass binds the buffers ----
-// Reads: ctx.mainMats, ctx.shadowMats, ctx.mainExtraData, ctx.shadowExtraData. Writes: ctx.mainInst, ctx.shadowInst, ctx.mainExtra,
-// ctx.shadowExtra (transient GPU buffers).
+// Reads: ctx.mainMats, ctx.shadowMats, ctx.mainExtraData, ctx.shadowExtraData. Writes: ctx.mainInst, ctx.shadowInst,
+// ctx.mainExtra, ctx.shadowExtra (transient GPU buffers).
 void Renderer::Impl::upload_instances(DrawContext& ctx) {
     static_assert(sizeof(Mat4) == kMeshInstanceBytes, "an instance is one Mat4");
     auto upload = [&](const void* data, std::size_t bytes) {
@@ -1105,14 +1113,15 @@ static_assert(
         kMaterialEnvSampler == SMP_mesh_fa_env_smp,
     "the environment slots of mesh_common.glsl and render_internal.h (and tools/common/shaders.h) must agree");
 
-// The sky environment (renderer_env.h) of a job: with SceneSettings.skyMaterial, the meshes light and reflect the sky that is seen, baked
-// into two cubes. Reads: ctx.ss, ctx.lights, ctx.fuScene.fa_time (all set), the job's frame. Writes: ctx.envActive (the meshes of this
-// job sample the cubes), ctx.envBake (this job declares the "sky-env" pass, which bakes them), ctx.envKey, ctx.envSky (what the pass
-// draws), the environment flags of ctx.fuScene (fa_env_sky.w, fa_env_horizon.w).
-// The cubes are baked again when their key changes: everything the sky depends on (the material and its build, its params and textures,
-// the colours, the sun when the snippet reads it, the colour space) and, for an animated sky (its snippet reads the time), the game time in steps of kEnvTimeStep
-// seconds (the sky is drawn at the step's start, so a run draws the same images at any frame rate). The first job of a frame that wants an
-// environment decides it for the frame; a later job whose sky differs draws its meshes with the gradient (they share the cubes).
+// The sky environment (renderer_env.h) of a job: with SceneSettings.skyMaterial, the meshes light and reflect the sky
+// that is seen, baked into two cubes. Reads: ctx.ss, ctx.lights, ctx.fuScene.fa_time (all set), the job's frame.
+// Writes: ctx.envActive (the meshes of this job sample the cubes), ctx.envBake (this job declares the "sky-env" pass,
+// which bakes them), ctx.envKey, ctx.envSky (what the pass draws), the environment flags of ctx.fuScene (fa_env_sky.w,
+// fa_env_horizon.w). The cubes are baked again when their key changes: everything the sky depends on (the material and
+// its build, its params and textures, the colours, the sun when the snippet reads it, the colour space) and, for an
+// animated sky (its snippet reads the time), the game time in steps of kEnvTimeStep seconds (the sky is drawn at the
+// step's start, so a run draws the same images at any frame rate). The first job of a frame that wants an environment
+// decides it for the frame; a later job whose sky differs draws its meshes with the gradient (they share the cubes).
 void Renderer::Impl::plan_env(DrawContext& ctx) {
     ctx.envActive = ctx.envBake = false;
     ctx.skyPlannedMat = nullptr;
@@ -1162,10 +1171,11 @@ void Renderer::Impl::plan_env(DrawContext& ctx) {
         envJobs.clear();
         if (envFrameOk) ctx.envBake = !skyEnv.baked() || skyEnv.key() != h;
     } else if (envFrameKey != h) {
-        // Jobs of the picture (a camera of the game's frame) are planned after the render targets and views, which would otherwise
-        // fix the key with a sky of their own (a material texture "target:<own>" is the checker for the camera that renders into
-        // it, so their key differs) and leave the main camera with the gradient. The picture wins: the jobs that took the first
-        // key lose the environment (their passes read the job's fields when they run), and this job bakes its own.
+        // Jobs of the picture (a camera of the game's frame) are planned after the render targets and views, which
+        // would otherwise fix the key with a sky of their own (a material texture "target:<own>" is the checker for the
+        // camera that renders into it, so their key differs) and leave the main camera with the gradient. The picture
+        // wins: the jobs that took the first key lose the environment (their passes read the job's fields when they
+        // run), and this job bakes its own.
         if (!pictureJob || !envFrameView) return;
         for (DrawContext* other : envJobs) {
             other->envActive = other->envBake = false;
@@ -1186,8 +1196,9 @@ void Renderer::Impl::plan_env(DrawContext& ctx) {
     ctx.fuScene.fa_env_horizon[3] = float(kEnvLevels - 1);
 }
 
-// Binds the vertex buffers of a custom material's extras (MeshExtras): its per-instance params from `data` (the floats of this
-// batch start at `floatOffset`) and the part's uv1 and color1 channels, as the pipeline made with m.extras() reads them.
+// Binds the vertex buffers of a custom material's extras (MeshExtras): its per-instance params from `data` (the floats
+// of this batch start at `floatOffset`) and the part's uv1 and color1 channels, as the pipeline made with m.extras()
+// reads them.
 static void bind_extras(sg_bindings& b, const MaterialAsset& m, const SubMesh& part, sg_buffer data,
                         std::uint32_t floatOffset) {
     if (m.instanceVec4 > 0) {
@@ -1202,7 +1213,8 @@ static void bind_extras(sg_bindings& b, const MaterialAsset& m, const SubMesh& p
 Renderer::Impl::PartDraw Renderer::Impl::part_draw(DrawContext& ctx, const MeshItem& mi, const SubMesh& part) {
     TextureAsset* white = ctx.white;
     PartDraw d;
-    // A material that built but declares a channel this part lacks (vertexAttributes) is drawn as the error material too.
+    // A material that built but declares a channel this part lacks (vertexAttributes) is drawn as the error material
+    // too.
     const char* lacks = mi.material && mi.material->ok ? missing_channel(*mi.material, part) : nullptr;
     if (lacks) note_missing_channel(mi, part, lacks);
     d.error = mi.material && (!mi.material->ok || lacks);
@@ -1303,9 +1315,10 @@ mesh_fa_mesh_fs_params_t Renderer::Impl::fill_fs(DrawContext& ctx, const MeshIte
     return fu;
 }
 
-// The material that draws the sky (SceneSettings.skyMaterial), or nullptr: the engine's gradient. A material that did not build (its
-// own error was logged when it failed, and the previous good build, when there is one, stays in use) or that is not of kind "sky" draws
-// the gradient, and the frame's materialFallbacks names it; a material of the wrong kind is reported once.
+// The material that draws the sky (SceneSettings.skyMaterial), or nullptr: the engine's gradient. A material that did
+// not build (its own error was logged when it failed, and the previous good build, when there is one, stays in use) or
+// that is not of kind "sky" draws the gradient, and the frame's materialFallbacks names it; a material of the wrong
+// kind is reported once.
 MaterialAsset* Renderer::Impl::sky_material(const SceneSettings& ss) {
     if (ss.skyMaterial.empty()) {
         warnedSkyMaterial.clear();
@@ -1321,7 +1334,8 @@ MaterialAsset* Renderer::Impl::sky_material(const SceneSettings& ss) {
     if (std::find(stats.materialFallbacks.begin(), stats.materialFallbacks.end(), ss.skyMaterial) ==
         stats.materialFallbacks.end())
         stats.materialFallbacks.push_back(ss.skyMaterial);
-    // Built but unusable: another kind, or a sky with no GPU program (the build error of a broken one is logged by Assets).
+    // Built but unusable: another kind, or a sky with no GPU program (the build error of a broken one is logged by
+    // Assets).
     if (m && m->ok && warnedSkyMaterial != m->path) {
         warnedSkyMaterial = m->path;
         if (sky)
@@ -1360,8 +1374,8 @@ void Renderer::Impl::bind_textures(DrawContext& ctx, sg_bindings& b, const PartD
     b.views[VIEW_mesh_fa_emissive_tex] = d.emissive->gpu_view();
     b.samplers[SMP_mesh_fa_smp] = gpu.sampler(SamplerKind::LinearRepeat);
     b.samplers[SMP_mesh_fa_shadow_smp] = gpu.sampler(SamplerKind::Nearest);
-    // The sky environment (renderer_env.h): the baked cubes, or a black one while the meshes use the gradient (every mesh program of the
-    // main pass declares the slots; a custom program that does not has them dropped below).
+    // The sky environment (renderer_env.h): the baked cubes, or a black one while the meshes use the gradient (every
+    // mesh program of the main pass declares the slots; a custom program that does not has them dropped below).
     const bool env = ctx.envActive && skyEnv.baked();
     b.views[kMaterialEnvView] = env ? skyEnv.prefiltered_view() : skyEnv.blank_view(gpu);
     b.views[kMaterialEnvIrrView] = env ? skyEnv.irradiance_view() : skyEnv.blank_view(gpu);
@@ -1371,7 +1385,8 @@ void Renderer::Impl::bind_textures(DrawContext& ctx, sg_bindings& b, const PartD
         for (std::size_t i = 0; i < d.mat->textures.size(); ++i) {
             b.views[kMaterialFirstView + int(i)] = in.textures[i]->gpu_view();
             b.samplers[kMaterialFirstSampler + int(i)] = gpu.sampler(d.mat->textures[i].sampler);
-            // The same texture for vertex(): the vertex stage's copy of the slot (dropped below when the program has none).
+            // The same texture for vertex(): the vertex stage's copy of the slot (dropped below when the program has
+            // none).
             b.views[kMaterialVsFirstView + int(i)] = b.views[kMaterialFirstView + int(i)];
             b.samplers[kMaterialVsFirstSampler + int(i)] = b.samplers[kMaterialFirstSampler + int(i)];
         }
@@ -1565,7 +1580,8 @@ bool Renderer::Impl::plan_prepass(DrawContext& ctx) {
     if (!(pp.needsDepth || pp.needsNormals || debugView != DebugView::None)) return false;
     bool anyMesh = false;
     for (const MeshBatch& b : ctx.opaqueBatches) anyMesh = anyMesh || b.mainCount > 0;
-    // A custom post pass that reads the depth gets the prepass of a camera with no opaque mesh too: it is cleared to "nothing drawn".
+    // A custom post pass that reads the depth gets the prepass of a camera with no opaque mesh too: it is cleared to
+    // "nothing drawn".
     if (!(anyMesh || pp.custom.reads_prepass()) || !gpu.prepass_ready())
         return false;  // prepass_ready logs once why it is not
     // Made now (and given back to the pool) so that a GPU that refuses the image is one warning here, not a failed pass.
@@ -1734,7 +1750,8 @@ void Renderer::Impl::prepass_view_pass(DrawContext& ctx, const Target& t) {
 }
 
 // Draws the batches of a quad group. Reads: ctx.vbuf, ctx.shadowRowsTex, fr (lights2d, shadowRows, ambient2d), renderScale,
-// physW / physH, gpu.light_range(), lightTarget.texView (`flatMode` 1 reads the light buffer). Writes: stats (drawCalls, materials, materialFallbacks).
+// physW / physH, gpu.light_range(), lightTarget.texView (`flatMode` 1 reads the light buffer). Writes: stats
+// (drawCalls, materials, materialFallbacks).
 void Renderer::Impl::draw_group(DrawContext& ctx, const std::vector<QuadBatch>& batches, const Mat4& vp, bool depthTest,
                                 const Px& base, int flatMode, const TargetFormat* format, const FogFxPlan* fog,
                                 int targetW, int targetH) {
@@ -1818,14 +1835,14 @@ void Renderer::Impl::draw_group(DrawContext& ctx, const std::vector<QuadBatch>& 
     for (const QuadBatch& qb : batches) {
         apply_clip(qb.clip);
         const bool plain = qb.plain && !fogOn;  // the lean program has no fog
-        // A sprite material that built draws with its own programs (quad, quad_plain: the ones of its twin); one that did
-        // not (the error material) draws with the built-in programs, its quads already tinted magenta by flatten().
+        // A sprite material that built draws with its own programs (quad, quad_plain: the ones of its twin); one that
+        // did not (the error material) draws with the built-in programs, its quads already tinted magenta by flatten().
         const MaterialUse* use = qb.use && !qb.use->error ? qb.use : nullptr;
         // A material that built has both programs (the build fails otherwise): quad_plain for a plain batch.
         const MaterialProgram* prog = use ? &use->material->programs[plain ? 1 : 0] : nullptr;
-        // The instanced params of the material travel in vertex buffer 1, one value per vertex, written by flatten() for exactly the
-        // batches of such a use. A use made before a hot reload that changed them has no matching data: skipped for this frame
-        // (before it is counted as drawn), and reported once.
+        // The instanced params of the material travel in vertex buffer 1, one value per vertex, written by flatten()
+        // for exactly the batches of such a use. A use made before a hot reload that changed them has no matching data:
+        // skipped for this frame (before it is counted as drawn), and reported once.
         const int instVec4 = prog ? use->instVec4 : 0;
         if (prog && instVec4 != use->material->instanceVec4) {
             if (warnedSpriteInstLayout.insert(use->material->path).second)
@@ -1837,21 +1854,26 @@ void Renderer::Impl::draw_group(DrawContext& ctx, const std::vector<QuadBatch>& 
             continue;
         }
         if (instVec4 > 0 && !ctx.vinst.id) continue;
-        // A material with "buffers" is drawn from them (M72.4, sprite_buffer_draw.h): only a Sprite makes such a batch (one quad,
-        // QuadBatch::instances times). The other 2D items (Shape2D, Tilemap, Text, ParticleEmitter, UiBox) have no buffers to give
-        // it, so an item of that kind with the material is not drawn (and the log says so once); a batch that cannot bind its
-        // buffers any more is not drawn either.
+        // A material with "buffers" is drawn from them (M72.4, sprite_buffer_draw.h): only a Sprite makes such a batch
+        // (one quad, QuadBatch::instances times). The other 2D items (Shape2D, Tilemap, Text, ParticleEmitter, UiBox)
+        // have no buffers to give it, so an item of that kind with the material is not drawn (and the log says so
+        // once); a batch that cannot bind its buffers any more is not drawn either.
         MeshBufferUse sbu;
         if (prog && (!use->material->buffers.empty() || qb.instances > 0)) {
             if (qb.instances <= 0 || use->material->buffers.empty()) {
-                assets->note_failure(
-                    "material-sprite", use->material->path + " on a 2D item that is not a Sprite",
-                    "the material '" + use->material->path +
-                        "' declares \"buffers\" (it is drawn from compute buffers), but a Shape2D, Tilemap, Text, "
-                        "ParticleEmitter or UiBox uses it: only a Sprite can draw from buffers, so that item is not "
-                        "drawn",
-                    "Use a material without \"buffers\" for this item, or draw it with a Sprite whose instances is set "
-                    "(docs/shaders/SHADERS_COMPUTE.md, \"Sprites from a compute buffer\").");
+                // Every frame this branch is reached again: the key is cheap to build and look up, the message is built
+                // once.
+                const std::string key = use->material->path + " on a 2D item that is not a Sprite";
+                if (!assets->failure_logged("material-sprite", key))
+                    assets->note_failure(
+                        "material-sprite", key,
+                        "the material '" + use->material->path +
+                            "' declares \"buffers\" (it is drawn from compute buffers), but a Shape2D, Tilemap, Text, "
+                            "ParticleEmitter or UiBox uses it: only a Sprite can draw from buffers, so that item is "
+                            "not "
+                            "drawn",
+                        "Use a material without \"buffers\" for this item, or draw it with a Sprite whose instances is "
+                        "set (docs/shaders/SHADERS_COMPUTE.md, \"Sprites from a compute buffer\").");
                 continue;
             }
             if (!bind_sprite_buffer_views(*assets, compute, *use, qb.instances, sbu)) continue;
@@ -1900,6 +1922,18 @@ void Renderer::Impl::draw_group(DrawContext& ctx, const std::vector<QuadBatch>& 
         } else if (!plain) {  // quad_plain declares no fragment uniforms
             apply_uniforms(UB_quad_quad_fs_params, fogOn ? fogged : unlit);
         }
+        // A batch from buffers is ONE quad drawn `instances` times (emit_sprite). Should another item ever make one
+        // with more quads, instancing them all would repeat the whole list: draw it once, without the buffers, and say
+        // so.
+        int instanceCount = sbu.active ? sbu.instances : 1;
+        if (sbu.active && qb.quadCount != 1) {
+            instanceCount = 1;
+            assets->note_failure("material-sprite", use->material->path + " batch with several quads",
+                                 "a batch drawn from the buffers of '" + use->material->path + "' has " +
+                                     std::to_string(qb.quadCount) +
+                                     " quads, not one, so it is drawn once and not instanced",
+                                 "Report this: only a Sprite with instances > 0 should make such a batch.");
+        }
         std::uint32_t done = 0;
         while (done < qb.quadCount) {
             std::uint32_t n = std::min<std::uint32_t>(qb.quadCount - done, kMaxQuadsPerDraw);
@@ -1922,7 +1956,8 @@ void Renderer::Impl::draw_group(DrawContext& ctx, const std::vector<QuadBatch>& 
             if (prog) {  // the material's textures follow the engine's views and samplers; only what the program declares
                 const MaterialAsset& mat = *use->material;
                 for (std::size_t i = 0; i < mat.textures.size() && i < std::size_t(kMaxMaterialTextures); ++i) {
-                    // Bound for both stages; the program takes the slots it declares (vertex() may sample the texture too).
+                    // Bound for both stages; the program takes the slots it declares (vertex() may sample the texture
+                    // too).
                     b.views[kMaterialSpriteFirstView + int(i)] = use->textures[i]->gpu_view();
                     b.samplers[kMaterialSpriteFirstSampler + int(i)] = gpu.sampler(mat.textures[i].sampler);
                     b.views[kMaterialSpriteVsFirstView + int(i)] = use->textures[i]->gpu_view();
@@ -1935,7 +1970,7 @@ void Renderer::Impl::draw_group(DrawContext& ctx, const std::vector<QuadBatch>& 
             }
             if (sbu.active) bind_mesh_buffers(b, sbu, *prog);
             sg_apply_bindings(&b);
-            sg_draw(0, int(n * 6), sbu.active ? sbu.instances : 1);
+            sg_draw(0, int(n * 6), instanceCount);
             ++stats.drawCalls;
             done += n;
         }
@@ -2003,12 +2038,13 @@ void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
         // clear of a camera that shares the target with others
         if (clearByQuad) draw_group(ctx, gClear.batches, Mat4::ortho(0, 1, 1, 0, -1.0f, 1.0f, z01), false, camPx);
 
-        // sky. Not for a studio camera (Camera.lighting = studio paints its clearColor). The editor's Viewport has no camera of
-        // its own: it shows what the scene's cameras draw, so it draws the sky exactly when the game does.
+        // sky. Not for a studio camera (Camera.lighting = studio paints its clearColor). The editor's Viewport has no
+        // camera of its own: it shows what the scene's cameras draw, so it draws the sky exactly when the game does.
         if (fr.wantWorld && fr.cam.perspective && fr.cam.clear && !fr.cam.studio) {
-            // SceneSettings.skyMaterial draws the sky through its own program (same vertex stage, same uniform blocks, plus the
-            // material's block and textures); anything wrong with it keeps the gradient. The meshes' reflections and ambient light
-            // follow the sky that is drawn here when it is a material (plan_env bakes it), else skyColor and horizonColor.
+            // SceneSettings.skyMaterial draws the sky through its own program (same vertex stage, same uniform blocks,
+            // plus the material's block and textures); anything wrong with it keeps the gradient. The meshes'
+            // reflections and ambient light follow the sky that is drawn here when it is a material (plan_env bakes
+            // it), else skyColor and horizonColor.
             SkyDraw sky;
             fill_sky(*this, ctx, sky_material(ss), sky);
             if (sky.mat && sky.mat == ctx.skyPlannedMat)
@@ -2046,13 +2082,14 @@ void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
                             stats.materialFallbacks.end())
                         stats.materialFallbacks.push_back(
                             mi.material->path);  // built, but this mesh lacks a declared channel
-                    // A full-shader material draws the part once per pass, in order, each with its own program and state.
+                    // A full-shader material draws the part once per pass, in order, each with its own program and
+                    // state.
                     const int passCount =
                         pd.mat && pd.mat->full ? int(pd.mat->passes.size()) : (mbu.active && !pd.mat ? 0 : 1);
                     if (passCount == 0) continue;  // nothing is drawn for this part: it is not in the stats either
                     anyDrawn = true;
-                    // The palette and the fragment parameters belong to the part, not to the pass: made by the first pass that
-                    // declares the block, reused by the others.
+                    // The palette and the fragment parameters belong to the part, not to the pass: made by the first
+                    // pass that declares the block, reused by the others.
                     bool paletteMade = false, fragmentMade = false;
                     mesh_fa_skin_t palette{};
                     mesh_fa_mesh_fs_params_t fragmentParams{};
@@ -2098,7 +2135,8 @@ void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
                         if (prog) apply_material_params(*prog, inputs);
                         sg_draw(0, part.indexCount, mbu.active ? mbu.instances : int(batch.mainCount));
                         ++stats.drawCalls;
-                        // Per pass drawn, like drawCalls: a part a full shader draws in 3 passes is 3 times its triangles.
+                        // Per pass drawn, like drawCalls: a part a full shader draws in 3 passes is 3 times its
+                        // triangles.
                         stats.triangles += part.indexCount / 3 * (mbu.active ? mbu.instances : int(batch.mainCount));
                     }
                 }
@@ -2270,7 +2308,8 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
                            import_desc(shadowTarget.w, shadowTarget.h, shadowTarget.format, "shadow-map"));
         add("shadow", {}, {shadowRes}, [this, &ctx](const PassContext&) { shadow_pass(ctx); });
     }
-    // The sky environment (plan_env): the first job that wants it declares the bake, every job that uses it reads it before its main pass.
+    // The sky environment (plan_env): the first job that wants it declares the bake, every job that uses it reads it
+    // before its main pass.
     ResourceId envRes;
     if (ctx.envActive) {
         TransientDesc envDesc =
@@ -2347,8 +2386,9 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
             if (t) coverage_pass(ctx, *t);
         });
     }
-    // A capture through a camera: its custom passes run over the picture the main pass drew, in the order of their places, as one chain
-    // (a view job has no final pass to cut). The picture is the view's resolved image, as the game's is for the bloom.
+    // A capture through a camera: its custom passes run over the picture the main pass drew, in the order of their
+    // places, as one chain (a view job has no final pass to cut). The picture is the view's resolved image, as the
+    // game's is for the bloom.
     if (plan.customPost && plan.target && ctx.postPlan.custom.any()) {
         const BloomTarget dst{ctx.msaa ? plan.target->resolveColorAtt : plan.target->colorAtt, sg_view{}, 1};
         customPost.add_passes(graph, transient_targets(), gpu, sceneFx, ctx.postPlan.custom,
@@ -2384,10 +2424,10 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
             use.skip_outline();  // the pass did not get the image: drawn without
         return t && use.fx.outline ? t->texView : sg_view{};
     };
-    // The custom post passes of PostProcess.customPasses (renderer_custom_post.h) at one place of the stack: every camera's own, over its
-    // rectangle of the picture, where the built-in passes of the camera before and after leave it.
-    // Where a pass that works on the game picture in place writes: the multisampled image (resolved at the end of the pass) when the
-    // screen-space items are drawn into it after, else the resolved image.
+    // The custom post passes of PostProcess.customPasses (renderer_custom_post.h) at one place of the stack: every
+    // camera's own, over its rectangle of the picture, where the built-in passes of the camera before and after leave
+    // it. Where a pass that works on the game picture in place writes: the multisampled image (resolved at the end of
+    // the pass) when the screen-space items are drawn into it after, else the resolved image.
     auto game_dst = [&]() {
         return ctx.hudAfterBloom && ctx.msaa
                    ? BloomTarget{gameTarget.colorAtt, gameTarget.resolveAtt, gpu.sample_count()}
@@ -2509,7 +2549,8 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
         basePlan.colorFilter = pp.colorFilter;
         bool first =
             true;  // the first pass that writes the destination draws every pixel it covers; the others keep what the passes before them drew
-        // The picture between two pieces of a final pass cut by custom passes: the game target (mid -1) or one of the images of ldrMid.
+        // The picture between two pieces of a final pass cut by custom passes: the game target (mid -1) or one of the
+        // images of ldrMid.
         struct Where {
             ResourceId res;
             int mid = -1;
@@ -2522,8 +2563,8 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
                 if (ldrMid[i].valid())
                     midRes[i] = graph.import_target(i == 0 ? "post-mid-0" : "post-mid-1", ldrMid[i].colorAtt.id,
                                                     import_desc(physW, physH, ldrMid[i].format, "post-mid"));
-        // One piece of a camera's final pass (all of it when no custom pass cuts it): the stages of `slice` over the camera's rectangle,
-        // from `from` into the image `toMid` of ldrMid or, -1, into the destination.
+        // One piece of a camera's final pass (all of it when no custom pass cuts it): the stages of `slice` over the
+        // camera's rectangle, from `from` into the image `toMid` of ldrMid or, -1, into the destination.
         auto piece = [&](const std::string& job, const std::string& name, const PostPlan& use, AutoExposure* exposure,
                          ResourceId evRes, const PostRect& rect, const PostSlice& slice, const Where& from,
                          int toMid) -> Where {
@@ -2560,7 +2601,8 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
                     });
             return Where{toDest ? dest : midRes[toMid], toMid};
         };
-        // The custom passes of the display-referred places in `slots`, on the picture `at` (where the pieces before them left it).
+        // The custom passes of the display-referred places in `slots`, on the picture `at` (where the pieces before
+        // them left it).
         auto custom_here = [&](const DrawContext* c, std::uint32_t slots, const Where& at) {
             if (slots == 0) return;
             const bool onMid = at.mid >= 0;
@@ -2575,9 +2617,9 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
                            AutoExposure* exposure, ResourceId evRes, const PostRect& rect) {
             Where cur{game, -1};
             if (use.customLdr) {
-                // Cut the final pass after every stage that has a custom pass at its place and something to do before it, and at no
-                // other: places with nothing drawn between them share one cut, and a custom pass before any stage that does something
-                // works on the picture as it is.
+                // Cut the final pass after every stage that has a custom pass at its place and something to do before
+                // it, and at no other: places with nothing drawn between them share one cut, and a custom pass before
+                // any stage that does something works on the picture as it is.
                 const std::uint32_t cuts = use.ldr_cuts();
                 std::uint32_t pending = 0;  // the places whose passes run before the next piece
                 int from = kStageScene, part = 0;

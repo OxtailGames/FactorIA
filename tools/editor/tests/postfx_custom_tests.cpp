@@ -1,5 +1,5 @@
-// The pure edits of PostProcess.customPasses behind the Post-processing panel (postfx_custom.h), and the same edits through
-// postprocess.set: each is one call, one undo step.
+// The pure edits of PostProcess.customPasses behind the Post-processing panel (postfx_custom.h), and the same edits
+// through postprocess.set: each is one call, one undo step.
 #include "doctest.h"
 
 #include <algorithm>

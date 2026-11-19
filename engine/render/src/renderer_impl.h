@@ -105,13 +105,15 @@ struct Renderer::Impl {
     // while `filterActive` (the last frame was filtered).
     Target filterTarget;
     bool filterActive = false;
-    // The two images the final pass goes through when a custom pass sits between its stages (PostSlice, post_custom.h's display-referred
-    // places): the piece before a cut writes one, the passes of the cut work on it, the piece after reads it and writes the other one
-    // (or the destination). Made on first use at the size of the picture, in Gpu::ldr_cut_format (the display format; a float one with an HDR
-    // output, which keeps what is above white); a frame without such a pass never makes them.
+    // The two images the final pass goes through when a custom pass sits between its stages (PostSlice, post_custom.h's
+    // display-referred places): the piece before a cut writes one, the passes of the cut work on it, the piece after
+    // reads it and writes the other one (or the destination). Made on first use at the size of the picture, in
+    // Gpu::ldr_cut_format (the display format; a float one with an HDR output, which keeps what is above white); a
+    // frame without such a pass never makes them.
     Target ldrMid[2];
     bool ldrWarned = false;  // making them failed: said once
-    // They are made when a frame needs them (one for a single cut, two for more) and freed after kLdrIdleFrames frames without use.
+    // They are made when a frame needs them (one for a single cut, two for more) and freed after kLdrIdleFrames frames
+    // without use.
     static constexpr int kLdrIdleFrames = 120;
     std::uint64_t ldrUsedFrame = ~std::uint64_t(0);  // the frameSerial of the last frame that asked for them
     int ldrIdle = 0;                                 // frames since
@@ -139,6 +141,9 @@ struct Renderer::Impl {
     // with, for the effects that reproject (PostPlan::prevViewProj); an entry the camera did not refresh in the frame before is dropped.
     DebugView debugView = DebugView::None;
     std::uint32_t forceEffects = 0;
+    // Tests (renderer_test_access.h): called once per frame when everything is gathered and the passes are about to
+    // run, so a test can change the world's resources (destroy a compute buffer) between the gather and the draw.
+    std::function<void()> beforeFrameGraph;
     struct PrevCamera {
         Mat4 viewProj;
         std::uint64_t frame = 0;  // the postSerial it was drawn in
@@ -184,7 +189,8 @@ struct Renderer::Impl {
 
     DebugDraw debug;
     RenderStats stats;
-    // The custom materials already counted in stats.materials this frame (a material drawn by two cameras or two passes counts once).
+    // The custom materials already counted in stats.materials this frame (a material drawn by two cameras or two passes
+    // counts once).
     std::vector<const MaterialAsset*> materialsCounted;
     void count_material(const MaterialAsset* m) {
         if (std::find(materialsCounted.begin(), materialsCounted.end(), m) != materialsCounted.end()) return;
@@ -198,9 +204,11 @@ struct Renderer::Impl {
     // hit tests ask these (camera_for), so an answer never depends on alpha. Empty = lastCams.
     std::vector<CameraInfo> logicCams;
     bool warnedNoLight = false;
-    // SceneSettings.skyMaterial: the last material that could not draw the sky and was reported (one log line per material).
+    // SceneSettings.skyMaterial: the last material that could not draw the sky and was reported (one log line per
+    // material).
     std::string warnedSkyMaterial;
-    // The sprite materials whose batches were skipped because their instanced layout changed after a hot reload (one log line each).
+    // The sprite materials whose batches were skipped because their instanced layout changed after a hot reload (one
+    // log line each).
     std::unordered_set<std::string> warnedSpriteInstLayout;
     MaterialAsset* sky_material(const SceneSettings& ss);
     std::string
@@ -292,8 +300,8 @@ struct Renderer::Impl {
     std::unordered_map<const TextureAsset*, int> targetByAsset;
     std::string
         targetSelf;  // the name of the target being gathered or drawn: its own texture is the checker (sentinel)
-    // Sets (or, with an empty name, clears) targetSelf. The per-frame material cache holds textures resolved under the old value
-    // (a material whose params name "target:X" gets the checker only for X's own camera), so it is dropped.
+    // Sets (or, with an empty name, clears) targetSelf. The per-frame material cache holds textures resolved under the
+    // old value (a material whose params name "target:X" gets the checker only for X's own camera), so it is dropped.
     void set_target_self(const std::string& name);
     TextureAsset selfSentinel;  // what texture("target:<self>") answers meanwhile: the checker, its handles are shared
     std::set<std::string> targetWarned;
@@ -381,9 +389,9 @@ struct Renderer::Impl {
             false;  // a CameraView's image: no post effects, never partial, resolved at once, 2D lights read per pixel
         const CameraInfo* post =
             nullptr;  // the camera whose bloom, bloomScreenSpace and colorFilter the frame gets (the first)
-        // A view job of Renderer::capture_camera: the custom passes of the camera's PostProcess (fr.cam.postStack) run over its picture,
-        // and no other effect of the stack. `target` is the view's own target (its resolved image is read and written); `history` tells
-        // the passes that keep a history which frame of the capture this is.
+        // A view job of Renderer::capture_camera: the custom passes of the camera's PostProcess (fr.cam.postStack) run
+        // over its picture, and no other effect of the stack. `target` is the view's own target (its resolved image is
+        // read and written); `history` tells the passes that keep a history which frame of the capture this is.
         bool customPost = false;
         const Target* target = nullptr;
         CustomHistoryFrame history;
@@ -397,9 +405,12 @@ struct Renderer::Impl {
     // view's image: plan_job with the image in the place of the game target. `key` is the view's key (view_image). Call
     // between begin_frame_graph() and run_frame_graph().
     void plan_view_job(World& world, Frame& fr, ViewTarget& target, std::uint64_t key, JobPlan plan);
-    // The drawing of Renderer::capture_world and capture_camera: `frames` frames (the passes that keep a history see the frame before
-    // it) of the world seen by `ci` into an image of w x h pixels, read back into `out` (straight alpha). `withCustom`: the camera's custom passes are drawn, over `historyCamera`'s
-    // history, which the frames start again and which is freed at the end. `premultiplied`: the colour in the picture is premultiplied by its alpha and is made straight (capture_world); false leaves it as drawn. `scale`, `subject`: see Renderer::WorldCapture.
+    // The drawing of Renderer::capture_world and capture_camera: `frames` frames (the passes that keep a history see
+    // the frame before it) of the world seen by `ci` into an image of w x h pixels, read back into `out` (straight
+    // alpha). `withCustom`: the camera's custom passes are drawn, over `historyCamera`'s history, which the frames
+    // start again and which is freed at the end. `premultiplied`: the colour in the picture is premultiplied by its
+    // alpha and is made straight (capture_world); false leaves it as drawn. `scale`, `subject`: see
+    // Renderer::WorldCapture.
     bool capture_view(World& world, CameraInfo ci, int w, int h, float scale, Entity subject, int frames,
                       bool withCustom, std::uint64_t historyCamera, bool premultiplied, Image& out, std::string* error);
     std::uint64_t captureSerial =
@@ -434,14 +445,15 @@ struct Renderer::Impl {
     std::unordered_map<std::uint64_t, JobImage> jobImages;
     // The targets the jobs of the frame share, one resource each (imported when the first job that uses it is declared).
     ResourceId sharedGame, sharedLight, sharedShadow, sharedEnv;
-    // The sky environment of the frame (plan_env): the first job that wants one decides which sky is baked (envFrameKey) and whether
-    // the "sky-env" pass is declared; a later job of the frame with another key falls back to the analytic gradient.
+    // The sky environment of the frame (plan_env): the first job that wants one decides which sky is baked
+    // (envFrameKey) and whether the "sky-env" pass is declared; a later job of the frame with another key falls back to
+    // the analytic gradient.
     std::uint64_t envFrame = 0;  // the frameSerial it was decided for
     std::uint64_t envFrameKey = 0;
     bool envFrameOk = false;
-    // The first job decided the key above from a render target, CameraView or capture (JobPlan::view), not from a camera of the
-    // picture: the first such camera of the picture takes the decision over (plan_env), and the jobs that used the first key (envJobs)
-    // go back to the gradient.
+    // The first job decided the key above from a render target, CameraView or capture (JobPlan::view), not from a
+    // camera of the picture: the first such camera of the picture takes the decision over (plan_env), and the jobs that
+    // used the first key (envJobs) go back to the gradient.
     bool envFrameView = false;
     std::vector<DrawContext*> envJobs;               // the jobs of this frame that sample the baked environment
     std::vector<std::shared_ptr<void>> jobContexts;  // the DrawContext of every job, alive until run_frame_graph() ends
@@ -465,7 +477,8 @@ struct Renderer::Impl {
     void build_quad_stream(DrawContext& ctx);
     void upload_instances(DrawContext& ctx);
     void scene_uniforms(DrawContext& ctx);
-    // The sky environment of the job (SceneSettings.skyMaterial): sets ctx.envActive / envBake / envKey and the flag of fuScene.
+    // The sky environment of the job (SceneSettings.skyMaterial): sets ctx.envActive / envBake / envKey and the flag of
+    // fuScene.
     void plan_env(DrawContext& ctx);
     PartDraw part_draw(DrawContext& ctx, const MeshItem& mi, const SubMesh& part);
     // Reports once per material and mesh that `part` lacks the channel `what` ("uv1" / "color1") the material declares.
