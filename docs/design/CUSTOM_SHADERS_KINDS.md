@@ -148,8 +148,8 @@ program declares it (the snippet calls `fa_depth` or `fa_normal`), which is what
   picture through the graph (`game` imported resource), runs the entries of the slot in array order over the camera's rectangle,
   and ping-pongs between two transients of the picture's format (`custom-<slot>-pass<k>`); the last pass draws back into the
   rectangle of the picture with the bloom's destination rules (MSAA, hud over bloom), and a lone pass is copied back
-  (`SceneFx::copy_into`). A display-referred slot cuts the final pass of `post.glsl` there (`PostSlice`, "Cut final pass" in
-  ARCHITECTURE_RENDERING_POST.md) and runs the entries on the image between two pieces, with `linear` false. The depth and normals are requested
+  (`SceneFx::copy_into`). A display-referred slot cuts the final pass of `post.glsl` there (`PostSlice`, "The cut final pass" in
+  ARCHITECTURE_RENDERING.md) and runs the entries on the image between two pieces, with `linear` false. The depth and normals are requested
   (`needsDepth`, `needsNormals`) only when a planned pass reads them.
 - **Failures.** `make_custom_post_plan` asks `Assets::post_material` and a pass whose material did not build, is not a post
   material, is missing or needs a prepass the GPU lacks is dropped from the plan: `materialFallbacks` gets its path and the log

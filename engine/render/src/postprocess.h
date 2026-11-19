@@ -201,6 +201,22 @@ struct PostPlan {
             default: return true;  // the tail
         }
     }
+    // The stages after which the final pass is cut for the custom passes (bit `stage`): the ones that have a pass at their place and
+    // an active stage since the last cut. Places with nothing drawn between them share one cut. build_graph draws one piece per cut and
+    // plan_job counts them to know how many images the pieces need.
+    std::uint32_t ldr_cuts() const {
+        std::uint32_t cuts = 0;
+        int from = kStageScene;
+        for (int i = kStageScene; i < kStageTail; ++i) {
+            if (!custom.any_in(PostSlot(int(PostSlot::AfterTonemap) + i))) continue;
+            bool active = false;
+            for (int st = from; st <= i; ++st) active = active || stage_active(st);
+            if (!active) continue;
+            cuts |= 1u << i;
+            from = i + 1;
+        }
+        return cuts;
+    }
     bool any() const { return bloom.enabled || final_pass() || colorFilter != 0; }
 };
 

@@ -2,6 +2,8 @@
 // shadow targets, the colour filter and the RGBA8 readback.
 #include "renderer_impl.h"
 
+#include <algorithm>
+
 namespace fa::render {
 
 bool Target::valid() const {
@@ -608,20 +610,25 @@ bool Renderer::Impl::ensure_hud_target() {
     return true;
 }
 
-// Makes (or keeps) the two images a final pass cut by custom passes goes through (ldrMid). False (and one logged error) when the GPU
-// cannot make them: the custom passes of the display-referred places are then not drawn.
-bool Renderer::Impl::ensure_ldr_targets() {
-    if (ldrMid[0].valid() && ldrMid[1].valid()) return true;
-    for (Target& t : ldrMid) destroy_target(t);
-    for (int i = 0; i < 2; ++i) {
+// Makes (or keeps) the first `count` (0..2) of the images a final pass cut by custom passes goes through (ldrMid): one cut needs one,
+// two or more need both. False (and one logged error) when the GPU cannot make them: the custom passes of the display-referred places
+// are then not drawn. An image nobody asked for for a while is freed (release_idle_ldr_targets).
+bool Renderer::Impl::ensure_ldr_targets(int count) {
+    if (count <= 0) return true;
+    ldrUsedFrame = frameSerial;
+    count = std::min(count, 2);
+    bool all = true;
+    for (int i = 0; i < count; ++i) {
+        if (ldrMid[i].valid()) continue;
         TargetDesc d;
         d.label = i == 0 ? "post-mid-0" : "post-mid-1";
         d.width = physW;
         d.height = physH;
         d.colorFormat = gpu.scene_format();
         ldrMid[i] = make_target(d);
+        all = all && ldrMid[i].valid();
     }
-    if (ldrMid[0].valid() && ldrMid[1].valid()) return true;
+    if (all) return true;
     for (Target& t : ldrMid) destroy_target(t);
     if (!ldrWarned) {
         ldrWarned = true;
@@ -633,6 +640,19 @@ bool Renderer::Impl::ensure_ldr_targets() {
             physW, physH);
     }
     return false;
+}
+
+// Frees the images of the cut final pass (ldrMid) once no frame has used them for kLdrIdleFrames frames (a 4K image of a float format is
+// 130 MB); called once per frame, after its graph ran.
+void Renderer::Impl::release_idle_ldr_targets() {
+    if (!ldrMid[0].valid() && !ldrMid[1].valid()) return;
+    if (ldrUsedFrame == frameSerial) {
+        ldrIdle = 0;
+        return;
+    }
+    if (++ldrIdle < kLdrIdleFrames) return;
+    ldrIdle = 0;
+    for (Target& t : ldrMid) destroy_target(t);
 }
 
 // Draws `src` through post.glsl into `dst` (ensure_filter_target / ensure_hud_target made it).

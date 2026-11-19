@@ -17,6 +17,8 @@
 #include "fa/core/json.h"
 #include "fa/scene/postprocess.h"
 #include "frame_graph.h"
+#include "postprocess.h"
+#include "renderer_custom_post.h"
 
 using namespace fa;
 using namespace fa::test;
@@ -640,4 +642,63 @@ TEST_CASE("post materials: entries at several display-referred places all run, i
     CHECK(index_of(order, "custom-tonemap-pass0") < index_of(order, "custom-vignette-pass0"));
     CHECK(index_of(order, "custom-vignette-pass0") < index_of(order, "custom-posterize-pass0"));
     CHECK(log.messages().empty());
+}
+
+TEST_CASE("post materials: a linear scene with a display-referred pass is still encoded when the LUT does not load") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    MaterialScope scope;
+    ProblemLog log;
+    auto picture = [&](bool withPass) {
+        Scene2d s;
+        s.w.settings().colorSpace = ColorSpace::Linear;
+        s.w.get<Sprite>(s.sprite)->color = Color{0.5f, 0.5f, 0.5f, 1};
+        if (withPass) {
+            PostProcess& p = s.post();
+            p.colorGradingEnabled =
+                true;  // the only effect, and its table is missing: nothing else asks for the conversion
+            p.colorGradingLut = "luts/does-not-exist.cube";
+            s.passes({entry(kEmpty, "after:vignette")});
+        }
+        return g.render(s.w).pixel(160, 90);
+    };
+    const Color plain = picture(false);
+    const Color cut = picture(true);
+    near(cut, plain.r, plain.g, plain.b, 0.02f);  // not left in linear light (about 0.21 where 0.5 is shown)
+    CHECK(cut.r > 0.4f);
+}
+
+TEST_CASE("post plan: the cuts of the final pass, and an outline that cannot be drawn keeps the conversion of a "
+          "display-referred pass") {
+    using namespace fa::render;
+    PostPlan pp;
+    pp.sceneLinear = true;
+    pp.fx.outline = true;
+    CustomPostEntry e;
+    e.slot = PostSlot::AfterOutline;
+    pp.custom.entries.push_back(e);
+    pp.settle_custom();
+    CHECK(pp.customLdr);
+    CHECK(pp.linear);
+    CHECK(pp.ldr_cuts() ==
+          (1u << kStageOutline));  // the scene stage converts: something is drawn before the outline's place
+    pp.skip_outline();
+    CHECK_FALSE(pp.fx.outline);
+    CHECK(pp.linear);  // the pass still reads an encoded picture
+    CHECK(pp.final_pass());
+    // Places with nothing drawn between them share a cut; an active stage in between makes a second one.
+    PostPlan two;
+    two.sceneLinear = true;
+    two.fx.vignette = true;
+    two.fx.posterize = true;
+    for (PostSlot s :
+         {PostSlot::AfterTonemap, PostSlot::AfterVignette, PostSlot::AfterSharpen, PostSlot::AfterPosterize}) {
+        CustomPostEntry c;
+        c.slot = s;
+        two.custom.entries.push_back(c);
+    }
+    two.settle_custom();
+    // AfterTonemap: the scene stage (converting) is active -> a cut; AfterVignette: the vignette -> a cut; AfterSharpen: nothing
+    // since the last cut -> none; AfterPosterize: the posterize -> a cut.
+    CHECK(two.ldr_cuts() == ((1u << kStageScene) | (1u << kStageVignette) | (1u << kStagePosterize)));
 }

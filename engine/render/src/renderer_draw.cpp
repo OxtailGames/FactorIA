@@ -3,6 +3,7 @@
 #include "renderer_impl.h"
 
 #include <algorithm>
+#include <bit>
 #include <iterator>
 
 #include "shaders/prepass_view.glsl.h"
@@ -286,6 +287,7 @@ void Renderer::Impl::begin_frame_graph(bool countPost) {
     postCams.clear();
     frameJobs.clear();
     jobImages.clear();
+    release_idle_ldr_targets();
     ++frameSerial;
     framePost = countPost;
     if (countPost) ++postSerial;
@@ -446,8 +448,12 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
             pp.custom = make_custom_post_plan(*fr.cam.postStack, *assets, stats.materialFallbacks, warnedCustomPass);
         // The passes after the tonemap cut the final pass in pieces, which go through two images of their own; without those the passes
         // are not drawn (logged once) and the final pass stays whole.
-        if (pp.custom.any_ldr() && !ensure_ldr_targets()) pp.custom.drop_ldr();
         if (pp.custom.any()) pp.settle_custom();
+        if (pp.customLdr) {
+            // One cut needs one image, two or more need both (the pieces alternate); none (nothing is drawn before the places) needs none.
+            const int cuts = std::popcount(pp.ldr_cuts());
+            if (!ensure_ldr_targets(cuts >= 2 ? 2 : cuts)) pp.drop_custom_ldr();
+        }
         // A depth of field with no blur, and a motion blur with nothing to smear (the first frame, a cut, a still camera's null
         // intensity), draw nothing: they must not ask for a prepass. A forced effect (tests) and the AO debug view keep theirs.
         if (debugView != DebugView::Ao) {
@@ -480,7 +486,8 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
                 pp.fx.lut = false;
                 pp.lut.clear();
                 // A LUT alone was the only reason to convert a linear scene: without it the present copy encodes it, as without a stack.
-                pp.linear = pp.linear && (pp.exposure || pp.tonemap || pp.colorFilter != 0 || pp.fx.any());
+                // A custom pass at a display-referred place keeps the conversion (its pieces encode the picture).
+                pp.settle_custom();
             }
         }
     }
@@ -2248,8 +2255,9 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
         for (const DrawContext* c : postCams) anyLdr = anyLdr || c->postPlan.customLdr;
         if (anyLdr)
             for (int i = 0; i < 2; ++i)
-                midRes[i] = graph.import_target(i == 0 ? "post-mid-0" : "post-mid-1", ldrMid[i].colorAtt.id,
-                                                import_desc(physW, physH, ldrMid[i].format, "post-mid"));
+                if (ldrMid[i].valid())
+                    midRes[i] = graph.import_target(i == 0 ? "post-mid-0" : "post-mid-1", ldrMid[i].colorAtt.id,
+                                                    import_desc(physW, physH, ldrMid[i].format, "post-mid"));
         // One piece of a camera's final pass (all of it when no custom pass cuts it): the stages of `slice` over the camera's rectangle,
         // from `from` into the image `toMid` of ldrMid or, -1, into the destination.
         auto piece = [&](const std::string& job, const std::string& name, const PostPlan& use, AutoExposure* exposure,
@@ -2274,12 +2282,12 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
                         else
                             drawn = use;
                         const sg_view src = fromMid < 0 ? gameTarget.texView : ldrMid[fromMid].texView;
-                        const bool toDest = toMid < 0;
-                        Target& out = toDest ? (hud ? hudTarget : filterTarget) : ldrMid[toMid];
+                        const bool lastPiece = toMid < 0;
+                        Target& out = lastPiece ? (hud ? hudTarget : filterTarget) : ldrMid[toMid];
                         post_pass(drawn, true, filter, autoExp, src,
                                   autoExp ? exposure->ev_view() : assets->white()->view, aux, out, "post",
-                                  toDest && hud, rect, load, slice);
-                        if (!toDest) return;
+                                  lastPiece && hud, rect, load, slice);
+                        if (!lastPiece) return;
                         if (hud)
                             hudActive = true;
                         else
@@ -2305,14 +2313,13 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
                 // Cut the final pass after every stage that has a custom pass at its place and something to do before it, and at no
                 // other: places with nothing drawn between them share one cut, and a custom pass before any stage that does something
                 // works on the picture as it is.
+                const std::uint32_t cuts = use.ldr_cuts();
                 std::uint32_t pending = 0;  // the places whose passes run before the next piece
                 int from = kStageScene, part = 0;
                 for (int i = kStageScene; i < kStageTail; ++i) {
                     const PostSlot slot = PostSlot(int(PostSlot::AfterTonemap) + i);
                     if (!use.custom.any_in(slot)) continue;
-                    bool active = false;
-                    for (int st = from; st <= i; ++st) active = active || use.stage_active(st);
-                    if (active) {
+                    if ((cuts >> i) & 1u) {
                         custom_here(c, pending, cur);
                         pending = 0;
                         cur = piece(job, "post-part" + std::to_string(part++), use, exposure, evRes, rect,
