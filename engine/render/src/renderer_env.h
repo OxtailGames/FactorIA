@@ -36,12 +36,12 @@
 
 namespace fa::render {
 
-inline constexpr int kEnvSize = 128;     // the faces of the prefiltered cube (mip 0)
-inline constexpr int kEnvLevels = 5;     // its mips: 128, 64, 32, 16, 8
-inline constexpr int kEnvIrrSize = 8;    // the faces of the irradiance cube
-inline constexpr int kEnvPyramid = 4;    // images S0..S3 (128, 64, 32, 16)
+inline constexpr int kEnvSize = 128;         // the faces of the prefiltered cube (mip 0)
+inline constexpr int kEnvLevels = 5;         // its mips: 128, 64, 32, 16, 8
+inline constexpr int kEnvIrrSize = 8;        // the faces of the irradiance cube
+inline constexpr int kEnvPyramid = 4;        // images S0..S3 (128, 64, 32, 16)
 inline constexpr double kEnvTimeStep = 0.1;  // seconds of game time between two bakes of an animated sky
-inline constexpr int kEnvPasses =6 * (1 + (kEnvPyramid - 1) + 1 + (kEnvLevels - 1) + 1);  // 60
+inline constexpr int kEnvPasses = 6 * (1 + (kEnvPyramid - 1) + 1 + (kEnvLevels - 1) + 1);  // 60
 
 // The direction a pixel looks at is fwd + x * right + y * up (x, y: the clip position). `up` is already negated for OpenGL.
 struct EnvFace {

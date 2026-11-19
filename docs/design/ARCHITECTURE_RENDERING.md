@@ -194,7 +194,8 @@ decides, and the game event `ui.viewPointer` goes out like the other ui.* events
   compiler. `factoria validate` compiles every dialect of every material.
 - *Sky environment.* A scene with a valid sky material (`SceneSettings.skyMaterial`) bakes that sky into two small cube images
   (`renderer_env.{h,cpp}`, a "sky-env" pass of the graph, shared by the jobs of the frame) that the mesh shaders read for the ambient
-  and the reflection light; no sky material, no pass and no image (`docs/design/CUSTOM_SHADERS.md`, "P15").
+  and the reflection light; no sky material, no pass and no environment image, only a 1x1 black cube and a sampler that fill the slot
+  (`docs/design/CUSTOM_SHADERS_KINDS.md`, "The sky material lights the meshes").
 - *Frame graph.* `engine/render/src/frame_graph.h` and `target_pool.h` are the CPU core: passes declare the
   resources they read and write; `compile()` orders them (declaration order where there is no dependency), culls the
   ones nobody reads and plans which transients share one physical target; `TargetPool` reuses targets across frames

@@ -94,8 +94,9 @@ bool Environment::ready(Gpu&) {
     if (state_ != 0) return state_ > 0;
     // The cube needs a format the GPU renders to and filters: the half-float one keeps the sky's brightness (a sun, an HDR sky), RGBA8
     // is the fallback (GLES 3 without the half-float render extension).
-    format_ = usable(SG_PIXELFORMAT_RGBA16F) ? SG_PIXELFORMAT_RGBA16F
-                                             : (usable(SG_PIXELFORMAT_RGBA8) ? SG_PIXELFORMAT_RGBA8 : SG_PIXELFORMAT_NONE);
+    format_ = usable(SG_PIXELFORMAT_RGBA16F)
+                  ? SG_PIXELFORMAT_RGBA16F
+                  : (usable(SG_PIXELFORMAT_RGBA8) ? SG_PIXELFORMAT_RGBA8 : SG_PIXELFORMAT_NONE);
     bool ok = format_ != SG_PIXELFORMAT_NONE;
     if (ok) {
         const sg_backend backend = sg_query_backend();
@@ -150,7 +151,9 @@ bool Environment::ready(Gpu&) {
             d.colors[0].pixel_format = format_;
             d.sample_count = 1;
             d.face_winding = SG_FACEWINDING_CCW;
-            d.label = p == int(Prog::Copy) ? "env-copy" : p == int(Prog::Prefilter) ? "env-prefilter" : "env-irradiance";
+            d.label = p == int(Prog::Copy)        ? "env-copy"
+                      : p == int(Prog::Prefilter) ? "env-prefilter"
+                                                  : "env-irradiance";
             pipelines_[p] = sg_make_pipeline(&d);
             ok = ok && sg_query_pipeline_state(pipelines_[p]) == SG_RESOURCESTATE_VALID;
         }
@@ -158,10 +161,11 @@ bool Environment::ready(Gpu&) {
     if (!ok) {
         release();
         state_ = -1;
-        FA_ERROR("render",
-                 "The sky material cannot light the meshes: the environment cubemaps or their shaders could not be made for this graphics "
-                 "backend (see the sokol log lines above). The meshes keep lighting themselves from skyColor and horizonColor. Hint: "
-                 "update the graphics driver (Mesa: try LIBGL_ALWAYS_SOFTWARE=1).");
+        FA_ERROR("render", "The sky material cannot light the meshes: the environment cubemaps or their shaders could "
+                           "not be made for this graphics "
+                           "backend (see the sokol log lines above). The meshes keep lighting themselves from skyColor "
+                           "and horizonColor. Hint: "
+                           "update the graphics driver (Mesa: try LIBGL_ALWAYS_SOFTWARE=1).");
         return false;
     }
     state_ = 1;
@@ -256,7 +260,8 @@ void Environment::bake(Gpu& gpu, std::uint64_t key, const SkyDraw& sky, int* dra
             draw(gpu, Prog::Copy, pyramidAtt_[s][f], pyramidTex_[s - 1], f, 0.0f, 0.0f, "env-down", drawCalls);
     // The prefiltered cube: mip 0 is the sky, mip k the GGX lobe of roughness k / (levels - 1) read from the pyramid image of about the
     // size of the mip (it never reads the image it draws into).
-    for (int f = 0; f < 6; ++f) draw(gpu, Prog::Copy, preAtt_[0][f], pyramidTex_[0], f, 0.0f, 0.0f, "env-level0", drawCalls);
+    for (int f = 0; f < 6; ++f)
+        draw(gpu, Prog::Copy, preAtt_[0][f], pyramidTex_[0], f, 0.0f, 0.0f, "env-level0", drawCalls);
     for (int m = 1; m < kEnvLevels; ++m) {
         const float roughness = float(m) / float(kEnvLevels - 1);
         const float samples = m <= 2 ? 32.0f : 64.0f;
@@ -266,7 +271,8 @@ void Environment::bake(Gpu& gpu, std::uint64_t key, const SkyDraw& sky, int* dra
     }
     // The irradiance: the cosine lobe of the smallest pyramid image.
     for (int f = 0; f < 6; ++f)
-        draw(gpu, Prog::Irradiance, irrAtt_[f], pyramidTex_[kEnvPyramid - 1], f, 0.0f, 128.0f, "env-irradiance", drawCalls);
+        draw(gpu, Prog::Irradiance, irrAtt_[f], pyramidTex_[kEnvPyramid - 1], f, 0.0f, 128.0f, "env-irradiance",
+             drawCalls);
     baked_ = true;
     key_ = key;
 }
