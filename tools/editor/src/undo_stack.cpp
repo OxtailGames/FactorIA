@@ -1,6 +1,7 @@
 #include "undo_stack.h"
 
 #include <algorithm>
+#include <iterator>
 #include <utility>
 
 namespace fa::editor {
@@ -53,16 +54,26 @@ const Json* merge_patch_of(const UndoCommand& c) {
     return fields != c.args.end() && fields->is_object() ? &*fields : nullptr;
 }
 
+// Whether two argument objects name the same target: every argument but "fields" equal (the entity, the component, "merge"...). Both have
+// "fields" (merge_patch_of found it), so equal sizes and every other key of `a` equal in `b` make the key sets equal too. A drag runs this
+// once per frame, so nothing is copied.
+bool same_target(const Json& a, const Json& b) {
+    if (!a.is_object() || !b.is_object() || a.size() != b.size()) return false;
+    for (auto it = a.begin(); it != a.end(); ++it) {
+        if (it.key() == "fields") continue;
+        const auto other = b.find(it.key());
+        if (other == b.end() || *other != it.value()) return false;
+    }
+    return true;
+}
+
 // `older` then `newer` (same target: the same fields of the same component) as ONE call whose patches are composed, in `newer`.
 // False when they are not two merge patches of one entity and component, or do not compose: the caller keeps both.
 bool compose_merge_calls(const UndoCommand& older, UndoCommand& newer) {
     const Json* first = merge_patch_of(older);
     const Json* second = merge_patch_of(newer);
     if (!first || !second || older.cmd != newer.cmd) return false;
-    Json a = older.args, b = newer.args;  // the same entity and component, or they are not the same target
-    a["fields"] = nullptr;
-    b["fields"] = nullptr;
-    if (a != b) return false;
+    if (!same_target(older.args, newer.args)) return false;
     Json composed = *first;
     if (!compose_patch(composed, *second)) return false;
     newer.args["fields"] = std::move(composed);

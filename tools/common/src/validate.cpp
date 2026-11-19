@@ -160,6 +160,21 @@ void check_asset_value(Ctx& c, const std::string& file, const std::string& point
                     "64 characters, e.g. \"target:book\".");
         return;
     }
+    // "compute:<n>" is compute image n (compute.create_image), made while the game runs: not a file, so it is never "missing".
+    if (f.assetType == "texture" && path.rfind("compute:", 0) == 0) {
+        const std::string number = path.substr(8);
+        const bool digits = !number.empty() && number.size() <= 9 &&
+                            std::all_of(number.begin(), number.end(), [](char ch) { return ch >= '0' && ch <= '9'; });
+        if (!digits || std::stoi(number) < 1)
+            c.error(file, pointer,
+                    "The texture '" + path + "' names a compute image, but " +
+                        (number.empty() ? std::string("it has no number after \"compute:\"")
+                                        : "'" + number + "' is not an image number") +
+                        ".",
+                    "Write \"compute:\" and the textureId compute.create_image returned, e.g. \"compute:1\"; the image "
+                    "exists only while the game runs, so set it from a script.");
+        return;
+    }
     if (f.assetType == "mesh" && MeshStore::is_id(path)) {
         // The ids of procedural meshes live in the World of a running scene only: a file that names one points to nothing.
         c.error(file, pointer,

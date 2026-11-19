@@ -993,7 +993,7 @@ the page [Full shaders and passes](shaders/SHADERS_FULL.md) (`factoria docs read
 
 ## Not available yet
 
-- Compute storage images and compute on Android and the web; per-instance params
+- Compute on Android and the web; per-instance params
   in a sky or compute material and vertex channels (`vertexAttributes`) in a sprite, sky or compute material (a mesh
   has them).
 - **Post passes** see the depth and normals of mesh geometry only (not of sprites).

@@ -994,6 +994,7 @@ Result<std::map<std::string, Json>> build_twins(const stdfs::path& work, const s
             const Json computeFields = shaders_detail::compute_twin_fields(material);
             twin["workgroupSize"] = computeFields["workgroupSize"];
             twin["buffers"] = computeFields["buffers"];
+            if (computeFields.contains("images")) twin["images"] = computeFields["images"];
         }
         Json programs = Json::object();
         for (const Json& prog : shader.value("programs", Json::array())) {

@@ -42,6 +42,8 @@ struct GraphUi {
     // ---- the pending questions
     bool askForce = false;       // the snippet was edited by hand: ask before overwriting
     bool askDiscard = false;     // opening another material with unsaved changes
+    bool askConflict = false;    // the file changed on disk since it was read: Overwrite, Reload or Cancel
+    bool conflictForce = false;  // ...and the Save that asked had force set (a hand-edited snippet was confirmed)
     std::string pendingOpen;     // ...the one the user asked for
     bool pendingStart = false;   // ...and whether it starts a graph
     bool pendingCreate = false;  // ...which is a new material to make, not an existing one
@@ -82,6 +84,8 @@ struct GraphUi {
     bool renameFocus = false;
     std::string
         entryMessage;  // why the last rename or delete was refused (a delete of a name nodes still read lists them)
+    bool entryMessageIsNote =
+        false;  // ...or what a rename or delete that went through still has to say (shown as a warning, not an error)
 
     bool focused = false;
     std::uint64_t lastPoll = 0;

@@ -38,8 +38,16 @@ struct TempProject {
         std::ofstream(dir / "factoria.json", std::ios::binary) << kProject;
         std::ofstream(dir / "scenes/main.scene.json", std::ios::binary) << kScene;
         const stdfs::path src = fs::path_from_utf8(FA_REPO_ROOT) / "engine/render/tests/data/materials/materials";
-        for (const char* name : {"scale.material.json", "scale.material.json.glsl430.shader",
-                                 "scale.material.json.hlsl5.shader", "scale.material.json.metal_macos.shader"}) {
+        stdfs::create_directories(dir / "shaders");
+        for (const char* name : {"shaders/field.compute.glsl", "shaders/scale.compute.glsl"}) {
+            std::ifstream in(src.parent_path() / name, std::ios::binary);
+            std::string bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+            std::ofstream(dir / name, std::ios::binary) << bytes;
+        }
+        for (const char* name :
+             {"scale.material.json", "scale.material.json.glsl430.shader", "scale.material.json.hlsl5.shader",
+              "scale.material.json.metal_macos.shader", "field.material.json", "field.material.json.glsl430.shader",
+              "field.material.json.hlsl5.shader", "field.material.json.metal_macos.shader"}) {
             std::ifstream in(src / name, std::ios::binary);
             std::string bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
             if (stdfs::path(name).extension() == ".shader") {
@@ -71,8 +79,10 @@ TEST_CASE("compute commands are documented, closed and classified") {
     Engine e;
     std::string err;
     REQUIRE_MESSAGE(e.init(cfg(p), nullptr, &err), err);
-    for (const char* name : {"compute.create_buffer", "compute.write_buffer", "compute.read_buffer", "compute.dispatch",
-                             "compute.destroy_buffer", "compute.list_buffers"}) {
+    for (const char* name :
+         {"compute.create_buffer", "compute.write_buffer", "compute.read_buffer", "compute.dispatch",
+          "compute.destroy_buffer", "compute.list_buffers", "compute.create_image", "compute.resize_image",
+          "compute.read_image", "compute.destroy_image", "compute.list_images"}) {
         INFO(name);
         const CommandInfo* info = e.commands().info(name);
         REQUIRE(info != nullptr);
@@ -83,7 +93,117 @@ TEST_CASE("compute commands are documented, closed and classified") {
     }
     CHECK(e.commands().info("compute.list_buffers")->readOnly);
     CHECK(e.commands().info("compute.read_buffer")->readOnly);
+    CHECK(e.commands().info("compute.list_images")->readOnly);
+    CHECK(e.commands().info("compute.read_image")->readOnly);
     CHECK_FALSE(e.commands().info("compute.dispatch")->readOnly);
+    CHECK_FALSE(e.commands().info("compute.create_image")->readOnly);
+    // The text an AI reads before the details stays short (MCP clients cut a long tool description).
+    for (const char* name : {"compute.dispatch", "compute.create_image", "compute.resize_image", "compute.read_image",
+                             "compute.destroy_image", "compute.list_images"}) {
+        INFO(name);
+        CHECK(e.commands().info(name)->description.size() < 2500);
+    }
+    e.shutdown();
+}
+
+TEST_CASE(
+    "compute commands: images, a dispatch that writes them and a read back, or `unavailable` with the backend named") {
+    TempProject p;
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(cfg(p), nullptr, &err), err);
+    auto& c = e.commands();
+
+    auto listed = c.call("compute.list_images", Json::object());
+    REQUIRE_MESSAGE(listed.ok, listed.error.dump());
+    CHECK(listed.result["status"].is_string());
+    CHECK(listed.result["images"].empty());
+    CHECK_FALSE(
+        c.call("compute.list_images", Json::parse(R"({"verbose":true})")).ok);  // a typo in an argument is taught
+
+    auto r =
+        c.call("compute.create_image", Json::parse(R"({"material":"materials/field.material.json","image":"field"})"));
+    if (!listed.result["available"].get<bool>()) {
+        const char* require = std::getenv("FA_REQUIRE_COMPUTE");
+        if (require && *require && std::string(require) != "0")
+            FAIL("FA_REQUIRE_COMPUTE=1 but this backend has no compute: " << listed.result["status"].dump());
+        MESSAGE("SKIPPED the GPU part, no compute here: " << listed.result["status"].dump());
+        REQUIRE_FALSE(r.ok);
+        CHECK(r.error["code"] == "unavailable");
+        CHECK(r.error["hint"].get<std::string>().find("render.supports") != std::string::npos);
+        for (const char* call : {"compute.read_image", "compute.resize_image"}) {
+            r = c.call(call, Json::parse(R"({"image":1,"width":4,"height":4})"));
+            REQUIRE_FALSE(r.ok);
+        }
+        e.shutdown();
+        return;
+    }
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+    const int id = r.result["id"].get<int>();
+    CHECK(r.result["format"] == "rgba8");
+    CHECK(r.result["width"] == 16);
+    CHECK(r.result["textureId"] == "compute:" + std::to_string(id));
+    r = c.call("compute.create_image", Json::parse(R"({"material":"materials/field.material.json","image":"count"})"));
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+    const int countId = r.result["id"].get<int>();
+    CHECK(r.result["bytes"] == 16 * 16 * 4);
+
+    const std::string ids =
+        std::string(R"({"field":)") + std::to_string(id) + R"(,"count":)" + std::to_string(countId) + "}";
+    r = c.call("compute.dispatch", Json::parse(R"({"material":"materials/field.material.json","images":)" + ids +
+                                               R"(,"params":{"blue":1},"groups":[2,2]})"));
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+    CHECK(r.result["dispatched"] == Json::parse("[2,2,1]"));
+    r = c.call("compute.read_image",
+               Json::parse(R"({"image":)" + std::to_string(id) + R"(,"x":3,"y":5,"width":1,"height":1})"));
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+    CHECK(r.result["channels"] == 4);
+    CHECK(r.result["data"] == Json::parse("[48,80,255,255]"));
+    // Without a rectangle: the whole image.
+    r = c.call("compute.read_image", Json::parse(R"({"image":)" + std::to_string(id) + "}"));
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+    CHECK(r.result["width"] == 16);
+    CHECK(r.result["height"] == 16);
+    CHECK(r.result["data"].size() == 16 * 16 * 4);
+
+    r = c.call("compute.resize_image", Json::parse(R"({"image":)" + std::to_string(id) + R"(,"width":4,"height":2})"));
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+    CHECK(r.result["width"] == 4);
+    CHECK(r.result["textureId"] == "compute:" + std::to_string(id));
+
+    // Wrong requests: the code, the place and the way out.
+    r = c.call("compute.create_image", Json::parse(R"({"material":"materials/field.material.json","image":"fied"})"));
+    REQUIRE_FALSE(r.ok);
+    CHECK((r.error["message"].get<std::string>() + r.error["hint"].get<std::string>()).find("field") !=
+          std::string::npos);
+    r = c.call("compute.create_image",
+               Json::parse(R"({"material":"materials/field.material.json","image":"field","width":9000})"));
+    REQUIRE_FALSE(r.ok);
+    CHECK(r.error["code"].get<std::string>().rfind("invalid_argument", 0) == 0);
+    r = c.call("compute.resize_image", Json::parse(R"({"image":)" + std::to_string(id) + R"(,"width":0,"height":2})"));
+    REQUIRE_FALSE(r.ok);
+    r = c.call("compute.read_image", Json::parse(R"({"image":)" + std::to_string(id) + R"(,"x":9})"));
+    REQUIRE_FALSE(r.ok);
+    CHECK(r.error["message"].get<std::string>().find("is not inside") != std::string::npos);
+    r = c.call("compute.read_image", Json::parse(R"({"image":99})"));
+    REQUIRE_FALSE(r.ok);
+    CHECK(r.error["message"].get<std::string>().find("no compute image 99") != std::string::npos);
+    r = c.call("compute.dispatch", Json::parse(R"({"material":"materials/field.material.json","images":{"field":)" +
+                                               std::to_string(id) + R"(}})"));
+    REQUIRE_FALSE(r.ok);
+    CHECK(r.error["message"].get<std::string>().find("the image 'count'") != std::string::npos);
+    r = c.call("compute.dispatch", Json::parse(R"({"material":"materials/field.material.json","images":[1]})"));
+    REQUIRE_FALSE(r.ok);
+
+    listed = c.call("compute.list_images", Json::object());
+    REQUIRE(listed.result["images"].size() == 2);
+    CHECK(listed.result["images"][0]["bytes"] == 4 * 2 * 4);
+    for (int image : {id, countId}) {
+        r = c.call("compute.destroy_image", Json::parse(R"({"image":)" + std::to_string(image) + "}"));
+        CHECK(r.ok);
+    }
+    r = c.call("compute.destroy_image", Json::parse(R"({"image":)" + std::to_string(id) + "}"));
+    CHECK_FALSE(r.ok);
     e.shutdown();
 }
 

@@ -1166,6 +1166,25 @@ TextureAsset* Assets::texture(const std::string& path) {
         }
         return slot.get();
     }
+    if (is_compute_id(
+            path)) {  // a storage image of a compute material: live, never cached (compute.resize_image remakes it)
+        std::string why;
+        TextureAsset* t = computeResolver_ ? computeResolver_(path, &why) : nullptr;
+        if (t) {
+            if (!failures_.empty())  // an older "no such image" record is stale now
+                failures_.erase(std::remove_if(failures_.begin(), failures_.end(),
+                                               [&](const Failure& f) { return f.kind == "texture" && f.path == path; }),
+                                failures_.end());
+            return t;
+        }
+        if (drawing_)
+            note_failure("texture", path,
+                         why.empty() ? std::format("'{}' is a compute image id but no such image exists now.", path)
+                                     : why,
+                         "Make the image with compute.create_image and use its `textureId`; compute.list_images names "
+                         "the live ones.");
+        return placeholderTex_.get();
+    }
     if (is_target_id(
             path)) {  // a render target: live, never cached (its image is remade when the camera's size changes)
         TextureAsset* t = targetResolver_ ? targetResolver_(path.substr(7)) : nullptr;
