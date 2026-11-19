@@ -6,6 +6,18 @@ Older versions, one file per minor version with its patch releases: [0.30](chang
 
 ## Unreleased
 
+- **Renderer polish: instances, full shaders, sky, compute and 2D materials (M72):** A mesh whose material failed to build
+  is tried again when the mesh reloads. The per-instance params of a mesh material are packed once per entity and kept until
+  its params change, not every frame. A full shader's parts fill their pass data once per part, and `stats.triangles` counts
+  the triangles every pass draws (a part with two passes counts twice, as `drawCalls` does). A sky material that reads a
+  `target:` texture is baked with the camera that was planned for it, and the main camera's environment now wins over a
+  mirror camera's when both ask. `compute.read_image` with `x`, `y`, `width` and `height` copies only that region from the GPU (the Metal,
+  D3D11 and OpenGL readbacks take a rectangle); a corner of a large image no longer costs the whole image. For 2D materials, one path
+  asked as a sprite material and as a post material keeps two answers, the lookup of a sprite no longer allocates a map node
+  per frame, a component whose `materialParams` is written while the frame renders is drawn with its current values with one
+  warning (in every build, not an assert that only debug builds had), and the docs say that two spellings of the same params
+  in another key order are two lookups of one material. `diff_images` documents that `maxError` is the plain difference.
+
 - **Graph panel polish (M72):** Save looks at the file first: when it changed on disk since the editor read it, a window asks
   Overwrite, Reload or Cancel instead of replacing it. New graph material publishes the file whole and removes it again if the
   snippet cannot be written. The editor's own writes (a param default, a new param) no longer hide an outside change from the

@@ -70,8 +70,8 @@ bool readback_rgba16f(sg_image image, int width, int height, std::vector<float>&
     }
 }
 
-bool readback_storage_image(sg_image image, sg_pixel_format format, int width, int height, std::vector<std::uint8_t>& out,
-                            std::string* error) {
+bool readback_storage_image(sg_image image, sg_pixel_format format, int x, int y, int width, int height,
+                            std::vector<std::uint8_t>& out, std::string* error) {
     @autoreleasepool {
     const sg_mtl_image_info info = sg_mtl_query_image_info(image);
     id<MTLTexture> tex = (__bridge id<MTLTexture>)info.tex[info.active_slot];
@@ -82,7 +82,8 @@ bool readback_storage_image(sg_image image, sg_pixel_format format, int width, i
         return false;
     }
     const NSUInteger pixel = NSUInteger(sg_query_pixelformat(format).bytes_per_pixel);
-    if (pixel == 0 || NSUInteger(width) > tex.width || NSUInteger(height) > tex.height) {
+    if (pixel == 0 || x < 0 || y < 0 || width < 1 || height < 1 || NSUInteger(x) + NSUInteger(width) > tex.width ||
+        NSUInteger(y) + NSUInteger(height) > tex.height) {
         if (error) *error = "readback: the storage image does not have the size or format asked for";
         return false;
     }
@@ -95,7 +96,7 @@ bool readback_storage_image(sg_image image, sg_pixel_format format, int width, i
     }
     id<MTLCommandBuffer> cmd = [queue commandBuffer];
     id<MTLBlitCommandEncoder> blit = [cmd blitCommandEncoder];
-    [blit copyFromTexture:tex sourceSlice:0 sourceLevel:0 sourceOrigin:MTLOriginMake(0, 0, 0)
+    [blit copyFromTexture:tex sourceSlice:0 sourceLevel:0 sourceOrigin:MTLOriginMake(NSUInteger(x), NSUInteger(y), 0)
                sourceSize:MTLSizeMake(NSUInteger(width), NSUInteger(height), 1) toBuffer:buf destinationOffset:0
         destinationBytesPerRow:bytesPerRow destinationBytesPerImage:bytes];
     [blit endEncoding];

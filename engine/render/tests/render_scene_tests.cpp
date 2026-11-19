@@ -9,6 +9,7 @@
 
 #include "fa/core/jobs.h"
 #include "render_internal.h"
+#include "mesh_batch.h"
 #include "render_scene.h"
 
 using namespace fa;
@@ -285,6 +286,77 @@ TEST_CASE("material hash: the instanced params of the material are left out, as 
     cache.hashes(b, &pb, nullptr, hb, c);
     cache.end_frame();
     CHECK(ha != hb);  // without the material the values count
+}
+
+TEST_CASE("instance params: the cache gives what pack_instance_params writes and packs again only on a change") {
+    World w;
+    render::MaterialAsset material;
+    material.ok = true;
+    material.generation = 1;
+    material.instanceVec4 = 2;
+    {
+        render::MaterialParamDef tint;
+        tint.name = "tint";
+        tint.components = 4;
+        tint.def[0] = tint.def[1] = tint.def[2] = tint.def[3] = 1.0f;
+        tint.vec4 = 0;
+        tint.offset = 0;
+        render::MaterialParamDef size;
+        size.name = "size";
+        size.components = 1;
+        size.def[0] = 3.0f;
+        size.vec4 = 1;
+        size.offset = 2;
+        material.instanced = {tint, size};
+    }
+    Entity a = make(w, "a"), b = make(w, "b"), c = make(w, "c");
+    MeshRenderer& ma = w.add<MeshRenderer>(a);
+    MeshRenderer& mb = w.add<MeshRenderer>(b);
+    MeshRenderer& mc = w.add<MeshRenderer>(c);
+    ma.materialParams = Json{{"tint", Json::array({1.0f, 0.5f, 0.0f, 1.0f})}, {"size", 5.0f}};
+    mb.materialParams = Json{{"size", 7.0f}};
+    // mc: no overrides, the defaults.
+    auto direct = [&](const MeshRenderer& mr) {
+        std::vector<float> v(8, -1.0f);
+        render::pack_instance_params(material, mr.materialParams, v.data());
+        return v;
+    };
+    auto cached = [&](render::InstanceParamCache& cache, Entity e, const MeshRenderer& mr) {
+        const float* p = cache.get(e, mr, material);
+        return std::vector<float>(p, p + 8);
+    };
+    render::InstanceParamCache cache;
+    cache.begin_frame(1);
+    CHECK(cached(cache, a, ma) == direct(ma));
+    CHECK(cached(cache, b, mb) == direct(mb));
+    CHECK(cached(cache, c, mc) == direct(mc));
+    CHECK(cached(cache, c, mc)[6] == 3.0f);  // the default of `size`
+    CHECK(cache.packed() == 3);
+    for (std::uint64_t frame = 2; frame < 6; ++frame) {  // a quiet scene: nothing is packed again
+        cache.begin_frame(frame);
+        CHECK(cached(cache, a, ma) == direct(ma));
+        CHECK(cached(cache, b, mb) == direct(mb));
+        CHECK(cached(cache, c, mc) == direct(mc));
+    }
+    CHECK(cache.packed() == 3);
+    // An edit of the overrides, then a rebuilt material: both are seen.
+    cache.begin_frame(6);
+    ma.materialParams["size"] = 9.0f;
+    CHECK(cached(cache, a, ma) == direct(ma));
+    CHECK(cached(cache, a, ma)[6] == 9.0f);
+    CHECK(cache.packed() == 4);
+    material.instanced[1].def[0] = 4.0f;
+    ++material.generation;
+    cache.begin_frame(7);
+    CHECK(cached(cache, c, mc)[6] == 4.0f);
+    CHECK(cached(cache, b, mb) == direct(mb));
+    CHECK(cached(cache, a, ma) == direct(ma));
+    // An entity nobody asks for goes after a frame.
+    CHECK(cache.size() == 2);
+    cache.begin_frame(8);
+    CHECK(cached(cache, a, ma) == direct(ma));
+    cache.begin_frame(9);
+    CHECK(cache.size() == 1);
 }
 
 TEST_CASE("material hash: computed when the overrides change, never again while they stay") {

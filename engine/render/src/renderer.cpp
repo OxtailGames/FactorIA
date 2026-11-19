@@ -523,6 +523,7 @@ std::string Renderer::shader_dialect() const {
 void Renderer::clear_asset_cache() {
     if (!impl_ || !impl_->assets) return;
     impl_->fonts->clear();
+    impl_->instanceParams.clear();  // it points at materials the cache below frees
     impl_->assets->clear();
 }
 std::uint64_t Renderer::texture_bytes() const {

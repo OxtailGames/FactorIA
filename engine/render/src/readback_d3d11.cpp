@@ -96,7 +96,7 @@ bool readback_rgba16f(sg_image image, int width, int height, std::vector<float>&
     return true;
 }
 
-bool readback_storage_image(sg_image image, sg_pixel_format format, int width, int height,
+bool readback_storage_image(sg_image image, sg_pixel_format format, int x, int y, int width, int height,
                             std::vector<std::uint8_t>& out, std::string* error) {
     auto* device = static_cast<ID3D11Device*>(const_cast<void*>(sg_d3d11_device()));
     auto* ctx = static_cast<ID3D11DeviceContext*>(const_cast<void*>(sg_d3d11_device_context()));
@@ -108,11 +108,16 @@ bool readback_storage_image(sg_image image, sg_pixel_format format, int width, i
     const std::size_t pixel = std::size_t(sg_query_pixelformat(format).bytes_per_pixel);
     D3D11_TEXTURE2D_DESC desc{};
     src->GetDesc(&desc);
-    if (pixel == 0 || desc.SampleDesc.Count != 1 || width < 1 || height < 1 || UINT(width) > desc.Width ||
-        UINT(height) > desc.Height) {
+    if (pixel == 0 || desc.SampleDesc.Count != 1 || x < 0 || y < 0 || width < 1 || height < 1 ||
+        UINT(x) + UINT(width) > desc.Width || UINT(y) + UINT(height) > desc.Height) {
         if (error) *error = "readback: the storage image does not have the size or format asked for";
         return false;
     }
+    // A staging texture of the rectangle's size only: a small read of a large image never holds the whole image.
+    desc.Width = UINT(width);
+    desc.Height = UINT(height);
+    desc.MipLevels = 1;
+    desc.ArraySize = 1;
     desc.Usage = D3D11_USAGE_STAGING;
     desc.BindFlags = 0;
     desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
@@ -122,8 +127,9 @@ bool readback_storage_image(sg_image image, sg_pixel_format format, int width, i
         if (error) *error = "readback: could not create the D3D11 staging texture";
         return false;
     }
-    ctx->CopyResource(staging,
-                      src);  // the UAV writes of the dispatches are ordered before the copy on the immediate context
+    const D3D11_BOX box{UINT(x), UINT(y), 0, UINT(x + width), UINT(y + height), 1};
+    // the UAV writes of the dispatches are ordered before the copy on the immediate context
+    ctx->CopySubresourceRegion(staging, 0, 0, 0, 0, src, 0, &box);
     D3D11_MAPPED_SUBRESOURCE map{};
     if (FAILED(ctx->Map(staging, 0, D3D11_MAP_READ, 0, &map))) {
         staging->Release();

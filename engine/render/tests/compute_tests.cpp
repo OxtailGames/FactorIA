@@ -2,6 +2,7 @@
 // GL 4.3+), and the refusal on a backend without compute. The fixture is tests/data/materials/materials/scale.material.json, whose
 // twins were made by `factoria call shader.compile` (hlsl5, glsl430, metal_macos).
 #include "fa/core/engine_version.h"
+#include "fa/core/perf.h"
 #include "fa/render/compute.h"
 #include "test_util.h"
 
@@ -18,6 +19,7 @@
 
 #include "compute_internal.h"
 #include "render_features.h"
+#include "render_internal.h"
 
 using namespace fa;
 using namespace fa::test;
@@ -646,4 +648,172 @@ TEST_CASE(
     CHECK(contains(text, "split it into two images"));
     CHECK(s.compute().list_images().size() == (write.ok() ? 1u : 0u));  // the refused request left nothing behind
     ComputeTestAccess::set_load_override(s.compute(), 0);
+}
+
+TEST_CASE("compute images: read_image takes only the rectangle off the GPU, a corner of a large image holds a corner") {
+    ComputeScope s;
+    std::string why;
+    if (!s.compute().available(&why)) {
+        skip_without_compute("the region read of a large image is not run", why);
+        return;
+    }
+    const int side =
+        2048;  // 16 MiB of rgba8 and of r32f: a whole-image read would hold that twice (the GPU copy and the vector)
+    auto field = s.compute().create_image(kField, "field", side, side);
+    auto count = s.compute().create_image(kField, "count", side, side);
+    REQUIRE_MESSAGE(field.ok(), field.error().to_string());
+    REQUIRE_MESSAGE(count.ok(), count.error().to_string());
+    ComputeDispatch d;
+    d.material = kField;
+    d.images["field"] = *field;
+    d.images["count"] = *count;
+    d.params = Json::object({{"blue", 0.0}});
+    d.groups[0] = side / 8;  // 8 x 8 threads a workgroup
+    d.groups[1] = side / 8;
+    REQUIRE_MESSAGE(s.compute().dispatch(d).ok(), "dispatch");
+
+    // The process peak only ever grows and the suite has run other tests before this one, so it is reported, not asserted: what the
+    // test asserts is the number of bytes each read took from the GPU, which is the rectangle's and nothing more.
+    const std::uint64_t peakBefore = peak_memory_bytes();
+    auto corner = s.compute().read_image(*field, side - 2, side - 3, 2, 3);
+    REQUIRE_MESSAGE(corner.ok(), corner.error().to_string());
+    CHECK(s.compute().last_read_image_bytes() == 2u * 3u * 4u);
+    REQUIRE((*corner)["data"].size() == 2 * 3 * 4);
+    CHECK(pixel_of((*corner)["data"], 1, 2, 4, 2) ==
+          Json::array({255, 255, 0, 255}));  // x, y past 15: red and green saturate
+
+    auto inner = s.compute().read_image(*field, 3, 5, 2, 2);
+    REQUIRE_MESSAGE(inner.ok(), inner.error().to_string());
+    CHECK(s.compute().last_read_image_bytes() == 2u * 2u * 4u);
+    CHECK(pixel_of((*inner)["data"], 0, 0, 4, 2) == Json::array({48, 80, 0, 255}));
+    CHECK(pixel_of((*inner)["data"], 1, 1, 4, 2) == Json::array({64, 96, 0, 255}));
+
+    auto one =
+        s.compute().read_image(*count, side - 1, side - 1, 1, 1);  // r32f: four bytes a pixel, one dispatch so far
+    REQUIRE_MESSAGE(one.ok(), one.error().to_string());
+    CHECK(s.compute().last_read_image_bytes() == 4u);
+    REQUIRE((*one)["data"].size() == 1);
+    CHECK((*one)["data"][0] == 1.0);
+
+    auto row = s.compute().read_image(*field, 0, side - 1, 0, 1);  // 0 = to the right edge: one row of the bottom
+    REQUIRE_MESSAGE(row.ok(), row.error().to_string());
+    CHECK(s.compute().last_read_image_bytes() == std::uint64_t(side) * 4u);
+    MESSAGE("process peak memory " << (peakBefore >> 20) << " MiB before the reads, " << (peak_memory_bytes() >> 20)
+                                   << " MiB after (a whole-image read adds about 32 MiB to a new peak)");
+}
+
+TEST_CASE("compute images: readWrite of a format other than r32f works where the GPU can imageLoad it, and says so "
+          "where not") {
+    ComputeScope s;
+    std::string why;
+    if (!s.compute().available(&why)) {
+        skip_without_compute("the readWrite rgba16f image is not run", why);
+        return;
+    }
+    std::string loadWhy;
+    const bool loadable = render::storage_image_loadable(SG_PIXELFORMAT_RGBA16F, &loadWhy);
+    auto acc = s.compute().create_image("materials/rwhalf.material.json", "acc");
+    if (!loadable) {
+        // Metal Tier 1, D3D11.0 hardware: only r32f is loaded. The image is refused with the way out, never made half working.
+        MESSAGE("SKIPPED, this GPU cannot imageLoad an rgba16f image ("
+                << loadWhy << "): the dispatch of a readWrite rgba16f image is not run");
+        REQUIRE_FALSE(acc.ok());
+        CHECK(contains(acc.error().to_string(), "/images/acc/access"));
+        return;
+    }
+    MESSAGE("this GPU loads rgba16f images: the readWrite dispatch runs");
+    REQUIRE_MESSAGE(acc.ok(), acc.error().to_string());
+    ComputeDispatch d;
+    d.material = "materials/rwhalf.material.json";
+    d.images["acc"] = *acc;
+    d.groups[0] = 1;
+    d.groups[1] = 1;
+    REQUIRE_MESSAGE(s.compute().dispatch(d).ok(), "first dispatch");
+    REQUIRE_MESSAGE(s.compute().dispatch(d).ok(), "second dispatch");
+    auto data = s.compute().read_image(*acc, 0, 0, 0, 0);
+    REQUIRE_MESSAGE(data.ok(), data.error().to_string());
+    CHECK((*data)["format"] == "rgba16f");
+    REQUIRE((*data)["data"].size() == 8 * 8 * 4);
+    // Two imageLoad + imageStore rounds: every pixel grew by (0.5, 1, 2, 3) twice (the sums are exact in halves).
+    bool all = true;
+    for (int p = 0; p < 64; ++p)
+        all = all && (*data)["data"][std::size_t(p) * 4] == 1.0 && (*data)["data"][std::size_t(p) * 4 + 1] == 2.0 &&
+              (*data)["data"][std::size_t(p) * 4 + 2] == 4.0 && (*data)["data"][std::size_t(p) * 4 + 3] == 6.0;
+    CHECK(all);
+}
+
+TEST_CASE("compute: a read back between the draws and the end of a frame commits inside the frame and the frame is "
+          "still right") {
+    ComputeScope s;
+    std::string why;
+    if (!s.compute().available(&why)) {
+        skip_without_compute("read_buffer and read_image inside a frame are not run", why);
+        return;
+    }
+    ErrorLog log(LogLevel::Warn);
+    auto field = s.compute().create_image(kField, "field");
+    auto count = s.compute().create_image(kField, "count");
+    auto items = s.compute().create_buffer(kScale, "items", 64);
+    REQUIRE(field.ok());
+    REQUIRE(count.ok());
+    REQUIRE(items.ok());
+    ComputeDispatch img;
+    img.material = kField;
+    img.images["field"] = *field;
+    img.images["count"] = *count;
+    img.params = Json::object({{"blue", 1.0}});
+    img.groups[0] = 2;
+    img.groups[1] = 2;
+    ComputeDispatch buf;
+    buf.material = kScale;
+    buf.buffers["items"] = *items;
+    buf.params = Json::object({{"factor", 2.0}});
+    buf.groups[0] = 1;
+    REQUIRE(s.compute().dispatch(img).ok());
+    REQUIRE(s.compute().dispatch(buf).ok());
+
+    World w;
+    shown(w, Compute::image_texture_id(*field));
+    const Image reference = s.g.render(w);  // the reference: no read back in the frame
+    REQUIRE(near_color(texel_3_5(reference), 48 / 255.0f, 80 / 255.0f, 1.0f));
+
+    // 1. The draws are recorded (render_world), then the script reads: sg_commit inside the frame, then the frame ends.
+    s.g.renderer.begin_frame();
+    s.g.renderer.render_world(w, 0.0f);
+    auto items1 = s.compute().read_buffer(*items, 0, 4);
+    auto pixels1 = s.compute().read_image(*field, 3, 5, 1, 1);
+    s.g.renderer.end_frame();
+    s.g.gpu.end_frame();
+    Image first;
+    std::string err;
+    REQUIRE_MESSAGE(s.g.renderer.capture(first, &err), err);
+    REQUIRE_MESSAGE(items1.ok(), items1.error().to_string());
+    REQUIRE_MESSAGE(pixels1.ok(), pixels1.error().to_string());
+    CHECK((*items1)[1]["id"] == 1);
+    CHECK(pixel_of((*pixels1)["data"], 0, 0, 4, 1) == Json::array({48, 80, 255, 255}));
+    CHECK(diff_images(first, reference, 0.0f).maxError == 0.0);
+
+    // 2. The script reads before anything of the frame is drawn, then the frame draws: the commit comes first.
+    s.g.renderer.begin_frame();
+    auto items2 = s.compute().read_buffer(*items, 0, 4);
+    s.g.renderer.render_world(w, 0.0f);
+    s.g.renderer.end_frame();
+    s.g.gpu.end_frame();
+    Image second;
+    REQUIRE_MESSAGE(s.g.renderer.capture(second, &err), err);
+    CHECK(items2.ok());
+    CHECK(diff_images(second, reference, 0.0f).maxError == 0.0);
+
+    // 3. A dispatch after the draws in the same frame and then a read: the read sees it and the frame ends cleanly.
+    s.g.renderer.begin_frame();
+    s.g.renderer.render_world(w, 0.0f);
+    REQUIRE(s.compute().dispatch(buf).ok());
+    auto items3 = s.compute().read_buffer(*items, 0, 4);
+    s.g.renderer.end_frame();
+    s.g.gpu.end_frame();
+    Image third;
+    REQUIRE_MESSAGE(s.g.renderer.capture(third, &err), err);
+    REQUIRE_MESSAGE(items3.ok(), items3.error().to_string());
+    CHECK(diff_images(third, reference, 0.0f).maxError == 0.0);
+    CHECK(log.count("") == 0);  // no sokol validation error, no refusal
 }

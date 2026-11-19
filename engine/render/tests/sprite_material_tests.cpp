@@ -15,6 +15,7 @@
 
 #include "fa/core/json.h"
 #include "fa/scene/tilemap.h"
+#include "render_internal.h"
 
 using namespace fa;
 using namespace fa::test;
@@ -953,4 +954,98 @@ TEST_CASE("sprite instances: QuadInput.life is how far a particle is through its
     CHECK(b > 0.1f);
     CHECK(b < 0.7f);
     CHECK(brightest(later, 160, 320).r < 0.02f);  // a shape has no life
+}
+
+// ---- Assets::sprite_material / post_material, called directly (POL-R2b P10..P13) ----
+
+TEST_CASE("material lookup: the same path asked as a sprite and as a post material keeps two answers") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    MaterialScope scope;
+    render::Assets assets(*render::renderer_gpu(g.renderer));
+    ProblemLog log;
+    assets.begin_material_frame();
+    const Json none;
+    const render::MaterialRef asSprite = assets.sprite_material(kTint, none);
+    REQUIRE(asSprite.use != nullptr);
+    CHECK_FALSE(asSprite.use->error);
+    // A sprite material asked for a custom post pass is the error answer: it must not be the sprite's cached one.
+    const render::MaterialRef asPost = assets.post_material(kTint, none);
+    REQUIRE(asPost.use != nullptr);
+    CHECK(asPost.use->error);
+    CHECK(asPost.use != asSprite.use);
+    CHECK(assets.material_resolves() == 2);
+    // Asked again in the same frame, each kind is answered from its own cache: no new lookup, the same answers.
+    CHECK(assets.sprite_material(kTint, none).use == asSprite.use);
+    CHECK(assets.post_material(kTint, none).use == asPost.use);
+    CHECK(assets.material_resolves() == 2);
+    // The same with values (the by-pointer and the by-value tables).
+    const Json green = Json::object({{"tint", Json::array({0.0, 1.0, 0.0, 1.0})}});
+    const render::MaterialRef spriteGreen = assets.sprite_material(kTint, green);
+    const render::MaterialRef postGreen = assets.post_material(kTint, green);
+    CHECK_FALSE(spriteGreen.use->error);
+    CHECK(postGreen.use->error);
+    CHECK(assets.material_resolves() == 4);
+    CHECK(assets.sprite_material(kTint, green).use == spriteGreen.use);
+    CHECK(assets.post_material(kTint, green).use == postGreen.use);
+    CHECK(assets.material_resolves() == 4);
+    CHECK(log.count("needs a \"post\" material") == 1);  // the wrong kind says so once
+    assets.clear();
+}
+
+TEST_CASE("material lookup: params with no entry are one set whether they are null, {} or [], and cost one lookup") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    MaterialScope scope;
+    render::Assets assets(*render::renderer_gpu(g.renderer));
+    assets.begin_material_frame();
+    const Json nothing, emptyObject = Json::object(), emptyArray = Json::array();
+    const render::MaterialRef a = assets.sprite_material(kTint, nothing);
+    CHECK(assets.sprite_material(kTint, emptyObject).use == a.use);
+    CHECK(assets.sprite_material(kTint, emptyArray).use == a.use);
+    CHECK(assets.sprite_material(kTint, nothing).use == a.use);
+    CHECK(assets.material_resolves() == 1);
+    assets.clear();
+}
+
+TEST_CASE(
+    "material lookup: two spellings of the same values in another key order are two lookups of one material use") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    MaterialScope scope;
+    render::Assets assets(*render::renderer_gpu(g.renderer));
+    assets.begin_material_frame();
+    // Json keeps the order of its keys, and the per-frame answers compare and hash the values as written, so these differ.
+    const Json ab = Json::object({{"shift", 1.0}, {"boost", 2.0}});
+    const Json ba = Json::object({{"boost", 2.0}, {"shift", 1.0}});
+    const render::MaterialRef first = assets.sprite_material("materials/sprite_inst.material.json", ab);
+    const render::MaterialRef second = assets.sprite_material("materials/sprite_inst.material.json", ba);
+    REQUIRE(first.use != nullptr);
+    CHECK(assets.material_resolves() == 2);
+    // But the values are packed by param name, so they are one material use (one batch).
+    CHECK(first.use == second.use);
+    assets.clear();
+}
+
+TEST_CASE(
+    "material lookup: params written to while the frame is drawn are read with their new values, with one warning") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    MaterialScope scope;
+    render::Assets assets(*render::renderer_gpu(g.renderer));
+    ProblemLog log;
+    assets.begin_material_frame();
+    Json params = Json::object({{"tint", Json::array({1.0, 0.0, 0.0, 1.0})}});
+    const render::MaterialRef red = assets.sprite_material(kTint, params);
+    REQUIRE(red.use != nullptr);
+    params["tint"] = Json::array({0.0, 0.0, 1.0, 1.0});  // the same component, written to after it was resolved
+    const render::MaterialRef blue = assets.sprite_material(kTint, params);
+    CHECK(blue.use != red.use);
+    CHECK(assets.material_resolves() == 2);
+    CHECK(assets.sprite_material(kTint, params).use == blue.use);  // answered by its new values
+    CHECK(assets.material_resolves() == 2);
+    params["tint"] = Json::array({0.0, 1.0, 0.0, 1.0});  // written to again: still one warning
+    assets.sprite_material(kTint, params);
+    CHECK(log.count("materialParams of a 2D item changed") == 1);
+    assets.clear();
 }

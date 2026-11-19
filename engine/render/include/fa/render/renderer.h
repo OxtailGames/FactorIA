@@ -150,7 +150,8 @@ struct RenderStats {
     int meshes = 0;        // MeshRenderer entities drawn in the main pass (instances)
     int meshesCulled = 0;  // MeshRenderer entities outside the camera frustum: not drawn in the main pass
     int meshBatches = 0;  // instanced batches drawn (meshes with the same mesh, textures and material values share one)
-    int triangles = 0;
+    int triangles =
+        0;  // triangles of the main pass draw calls, per pass drawn: a part a full-shader material draws in 3 passes counts 3 times
     int shadowCasters =
         0;          // MeshRenderer entities drawn into the shadow map (castShadows, inside the shadow light's volume)
     int views = 0;  // CameraViews drawn this frame (each one renders its camera into an image first)
@@ -165,7 +166,8 @@ struct RenderStats {
     int materials = 0;  // distinct custom materials (MeshRenderer or Sprite material) drawn with their own shaders
     // How many times a 2D item's material was looked up in full this frame (path normalized, params packed and hashed): once per
     // distinct material and set of materialParams values, however many components, quads or particles use it; the other asks are
-    // answered from a per-frame cache and not counted. The cache is also dropped when the camera being gathered changes (a
+    // answered from a per-frame cache and not counted (a set of values counts as distinct when its keys come in another order too:
+    // {"a":1,"b":2} and {"b":2,"a":1} are looked up once each). The cache is also dropped when the camera being gathered changes (a
     // material texture "target:<own>" is the checker for the camera that renders into it), so a frame with render targets counts
     // the lookup once for each camera. Also in game.render_stats.
     int materialResolves = 0;
