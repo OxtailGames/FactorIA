@@ -238,6 +238,10 @@ struct GeneratedShader {
         false;  // the snippet defines surface() (a sprite material: fragment(), a sky material: sky(), a post material: post())
     bool hasLight = false;    // lighting "custom": the snippet defines light()
     bool hasAmbient = false;  // lighting "custom": the snippet defines ambient()
+    bool hasLighting =
+        false;  // the snippet defines lighting(in SurfaceInput, in Surface), the whole light loop (lighting "custom")
+    bool lightingWithoutCustom =
+        false;                // a pbr or unlit snippet defines lighting(in SurfaceInput, ...): the compiler refuses it
     bool hasCompute = false;  // the snippet defines compute() (kind "compute")
     std::string
         stateKey;  // twin fields that the top file does not hold (a full material's passes): part of the cache key

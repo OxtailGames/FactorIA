@@ -1,0 +1,6 @@
+{
+  "format": "factoria.material/1",
+  "doc": "Test fixture: custom lighting where ambient() returns the sky reflection (fa_sky_light) and light() adds nothing.",
+  "shader": "shaders/skylit.surface.glsl",
+  "lighting": "custom"
+}

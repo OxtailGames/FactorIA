@@ -1,0 +1,8 @@
+{
+  "format": "factoria.material/1",
+  "doc": "Test fixture: a full shader that draws the sky reflection (fa_sky_reflection) of the surface and nothing else.",
+  "mode": "full",
+  "shader": "shaders/full_sky.full.glsl",
+  "prepass": false,
+  "shadow": "none"
+}
