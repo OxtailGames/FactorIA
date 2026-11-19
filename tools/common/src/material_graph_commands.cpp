@@ -182,7 +182,7 @@ Json example_post_material() {
     return Json::parse(R"({
       "format": "factoria.material/1",
       "kind": "post",
-      "doc": "Wobbly vignette: the picture is read through moving noise, then darkened towards the corners.",
+      "doc": "Wobbly vignette: the picture is read through two moving noises (one pushes it sideways, one up and down), then darkened towards the corners.",
       "shader": "shaders/wobble-vignette.post.glsl",
       "params": {
         "wobble": { "type": "float", "default": 0.01, "min": 0.0, "max": 0.05, "doc": "How far the noise pushes the picture, in uv units." },
@@ -194,9 +194,14 @@ Json example_post_material() {
           { "id": "clock", "type": "time", "pos": [0, 140], "inputs": { "speed": 0.3 } },
           { "id": "drift", "type": "math.add", "pos": [200, 60] },
           { "id": "noise", "type": "noise.fbm", "pos": [400, 60], "inputs": { "scale": 4.0 } },
-          { "id": "centered", "type": "math.sub", "pos": [600, 60], "inputs": { "b": 0.5 } },
+          { "id": "driftY", "type": "math.add", "pos": [200, -80], "inputs": { "b": [5.2, 1.3] } },
+          { "id": "noiseY", "type": "noise.fbm", "pos": [400, -80], "inputs": { "scale": 4.0 } },
+          { "id": "centeredX", "type": "math.sub", "pos": [600, 60], "inputs": { "b": 0.5 } },
+          { "id": "centeredY", "type": "math.sub", "pos": [600, -80], "inputs": { "b": 0.5 } },
           { "id": "amount", "type": "param", "pos": [600, 180], "param": "wobble" },
-          { "id": "push", "type": "math.mul", "pos": [800, 100] },
+          { "id": "pushX", "type": "math.mul", "pos": [800, 100] },
+          { "id": "pushY", "type": "math.mul", "pos": [800, -40] },
+          { "id": "push", "type": "math.combine", "pos": [900, 40] },
           { "id": "moved", "type": "math.add", "pos": [1000, 40] },
           { "id": "pic", "type": "post.scene", "pos": [1200, 40] },
           { "id": "away", "type": "math.sub", "pos": [200, 300], "inputs": { "b": 0.5 } },
@@ -212,11 +217,18 @@ Json example_post_material() {
           { "from": "uv.uv", "to": "drift.a" },
           { "from": "clock.time", "to": "drift.b" },
           { "from": "drift.result", "to": "noise.p" },
-          { "from": "noise.value", "to": "centered.a" },
-          { "from": "centered.result", "to": "push.a" },
-          { "from": "amount.value", "to": "push.b" },
+          { "from": "noise.value", "to": "centeredX.a" },
+          { "from": "centeredX.result", "to": "pushX.a" },
+          { "from": "amount.value", "to": "pushX.b" },
+          { "from": "drift.result", "to": "driftY.a" },
+          { "from": "driftY.result", "to": "noiseY.p" },
+          { "from": "noiseY.value", "to": "centeredY.a" },
+          { "from": "centeredY.result", "to": "pushY.a" },
+          { "from": "amount.value", "to": "pushY.b" },
+          { "from": "pushX.result", "to": "push.x" },
+          { "from": "pushY.result", "to": "push.y" },
           { "from": "uv.uv", "to": "moved.a" },
-          { "from": "push.result", "to": "moved.b" },
+          { "from": "push.vec2", "to": "moved.b" },
           { "from": "moved.result", "to": "pic.uv" },
           { "from": "uv.uv", "to": "away.a" },
           { "from": "away.result", "to": "dist.x" },
@@ -787,15 +799,15 @@ void register_material_graph_commands(CommandRegistry& registry, const std::stri
             "inputs: [{name, type, "
             "default?, doc}], outputs: [{name, type, doc}]}], example}. `format` says how the \"graph\" "
             "of a *.material.json is "
-            "written; `example` is a complete material (a dissolve) whose graph passes "
-            "material.graph.validate. An input "
+            "written; `example` is a complete material of the asked kind (a dissolve for mesh and sprite, a wobbly "
+            "vignette for post) whose graph passes material.graph.validate. An input "
             "type \"gen\" is a float or a vector; a float widens by itself. `stage` is \"fragment\" for "
             "nodes that sample "
             "textures or read the view direction (not allowed in the path of the output's "
             "vertexOffset). `kinds` of a node are the material kinds it works in (\"mesh\", \"sprite\", \"post\"; the "
             "output node has one entry per kind, with that kind's fields); a node used in another kind "
             "is an error that says what to use. Filters: `kind` "
-            "(\"mesh\", \"sprite\" or \"post\"; a sprite or post kind also returns an `example` of its own), "
+            "(\"mesh\", \"sprite\" or \"post\"; the example is of that kind), "
             "`category`, `type`. "
             "Example: {\"kind\":\"post\",\"category\":\"input\"}";
         info.inputSchema = Json::parse(R"({

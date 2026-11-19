@@ -686,7 +686,8 @@ void Editor::at_section_G3(AtScript& at) {
         wait_until([this] { return graph_.preview && graph_.preview->state() == PreviewState::Unsupported; },
                    "the preview to say it has no picture for a post material");
         step(3, [this] {
-            at_check(graph_.preview->message().find("PostProcess.customPasses") != std::string::npos,
+            at_check(graph_.preview->state() == PreviewState::Unsupported &&
+                         graph_.preview->message().find("PostProcess.customPasses") != std::string::npos,
                      "the preview says why there is no picture and where to see the material: " +
                          graph_.preview->message());
         });

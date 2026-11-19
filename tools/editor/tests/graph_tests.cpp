@@ -989,6 +989,18 @@ TEST_CASE("graph model: undo of a delete puts the param back in its place; what 
     CHECK(m.status().empty());
 }
 
+TEST_CASE("graph preview: a kind it never draws says why even with no GPU renderer, the others say there is none") {
+    GraphProject p;
+    GraphPreview pv(p.dir.generic_string());
+    pv.set_document(Json::parse(R"({"format":"factoria.material/1","kind":"post","shader":"shaders/a.post.glsl"})"), 1);
+    pv.tick(nullptr);
+    CHECK(pv.state() == PreviewState::Unsupported);
+    CHECK(pv.message().find("PostProcess.customPasses") != std::string::npos);
+    pv.set_document(Json::parse(R"({"format":"factoria.material/1","shader":"shaders/a.surface.glsl"})"), 2);
+    pv.tick(nullptr);
+    CHECK(pv.state() == PreviewState::NoRenderer);
+}
+
 TEST_CASE("graph preview: every instance stages its compile in files of its own") {
     GraphProject p;
     GraphPreview a(p.dir.generic_string());

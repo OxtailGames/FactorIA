@@ -402,6 +402,13 @@ void GraphPreview::tick(Renderer* renderer) {
     if (!renderer || !renderer->initialized() || renderer->shader_dialect().empty()) {
         for (Slot* s : {&cur_, &saved_}) {
             if (!s->haveDoc) continue;
+            // A kind this preview never draws (post, sky, compute) says why with or without a GPU: the reason does not depend on one.
+            const PreviewPlan plan = preview_plan(kind_of(s->doc));
+            if (plan.kind == PreviewKind::None) {
+                if (s->state != PreviewState::Unsupported || s->message != plan.reason)
+                    note_unsupported(*s, plan.reason);
+                continue;
+            }
             s->state = PreviewState::NoRenderer;
             s->message = "The editor has no GPU renderer here, so the preview cannot draw.";
         }
