@@ -10,6 +10,9 @@ namespace fa {
 // the refusal path of a backend without compute on a GPU that has it.
 struct ComputeTestAccess {
     static void set_backend(Compute& c, int backend);
+    // Make create_image answer as a GPU that can imageLoad an r32f storage image only (mode 1: a Metal Tier 1 or D3D11.0 GPU), or
+    // none (mode 2); 0 = the real GPU.
+    static void set_load_override(Compute& c, int mode);
 };
 
 // A float as JSON: 7 significant digits (arm64 and x86 differ in the last binary digit of what a shader computes), a NaN or

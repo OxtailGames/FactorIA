@@ -941,6 +941,127 @@ TEST_CASE("materials: a light() that returns 0 leaves only the ambient term, and
     CHECK(c.b < 0.02f);
 }
 
+namespace {
+// The largest per-channel difference (0..255) over the pixels of the disc of sphere_pixels(), and how many pixels differ by more
+// than `limit`. Neither depends on the order of the image rows.
+struct DiscDiff {
+    int maxDiff = 0;
+    int over = 0;
+    int total = 0;
+};
+DiscDiff disc_diff(const Image& a, const Image& b, int limit) {
+    DiscDiff d;
+    for (const auto& p : sphere_pixels(a)) {
+        const int x = p.second.first, y = p.second.second;
+        const Color ca = a.pixel(x, y), cb = b.pixel(x, y);
+        const int m = std::max({std::abs(int(std::lround((ca.r - cb.r) * 255.0f))),
+                                std::abs(int(std::lround((ca.g - cb.g) * 255.0f))),
+                                std::abs(int(std::lround((ca.b - cb.b) * 255.0f)))});
+        d.maxDiff = std::max(d.maxDiff, m);
+        if (m > limit) ++d.over;
+        ++d.total;
+    }
+    return d;
+}
+}  // namespace
+
+TEST_CASE(
+    "materials: lighting() is the whole light loop: only the brightest of two lights shades, the sky is optional") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    MaterialScope scope;
+    ErrorLog log;
+    auto frame = [&](const char* material, bool bright, bool dim, const Json& params = Json::object()) {
+        World w;
+        add_camera(w, {0, 1.5f, 4}, {0, 0, 0});
+        w.settings().ambientLight = Color{0.2f, 0.2f, 0.2f, 1};
+        if (dim)
+            w.get<Light>(add_light(w, LightType::Directional, {0, 5, 0}, {-30, -120, 0}, 0.3f))->castShadows = false;
+        if (bright)
+            w.get<Light>(add_light(w, LightType::Directional, {0, 5, 0}, {-50, 30, 0}, 0.8f))->castShadows = false;
+        Entity s = add_mesh(w, "sphere", {0, 0, 0}, Color::hex(0xe0e0e0), {2.4f, 2.4f, 2.4f});
+        w.get<MeshRenderer>(s)->material = material;
+        w.get<MeshRenderer>(s)->materialParams = params;
+        return g.render(w);
+    };
+    const char* loop = "materials/lightloop.material.json";
+    const Image onlyBright = frame(loop, true, false);
+    const Image both = frame(loop, true, true);
+    const Image perLight = frame("materials/toon.material.json", true, true);
+    const Image plainToonOne = frame("materials/toon.material.json", true, false);
+    CHECK(log.messages().empty());
+    // The loop reads every light and shades with the brightest one: the dim light changes nothing.
+    const DiscDiff same = disc_diff(onlyBright, both, 2);
+    CHECK(same.maxDiff <= 2);
+    // The per-light toon of the same two lights does add the dim one: its frame is not the one-light frame.
+    const DiscDiff added = disc_diff(plainToonOne, perLight, 10);
+    CHECK(added.over > added.total / 20);
+    // The loop is a two-band toon (its first light is the same as toon.material's): a few levels, not a gradient.
+    const DiscDiff alike = disc_diff(onlyBright, plainToonOne, 3);
+    CHECK(alike.over < alike.total / 20);
+    // No light at all: the ambient term the snippet wrote is what is left, flat.
+    const Image none = frame(loop, false, false);
+    int hi = 0, lo = 255;
+    for (const auto& p : sphere_pixels(none)) {
+        hi = std::max(hi, p.first);
+        lo = std::min(lo, p.first);
+    }
+    CHECK(hi - lo <= 4);
+    CHECK(lo >= 10);
+}
+
+TEST_CASE("materials: the sky (IBL) is one call away from lighting(), ambient() and a full shader") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    MaterialScope scope;
+    ErrorLog log;
+    // A shiny metal sphere under an orange horizon and a blue sky, no lights and no ambient: the sky is all there is.
+    auto frame = [&](const char* material, const Json& params) {
+        World w;
+        add_camera(w, {0, 1.5f, 4}, {0, 0, 0});
+        w.settings().ambientLight = Color{0, 0, 0, 1};
+        w.settings().skyColor = Color{0.1f, 0.2f, 1.0f, 1};
+        w.settings().horizonColor = Color{1.0f, 0.5f, 0.1f, 1};
+        Entity s = add_mesh(w, "sphere", {0, 0, 0}, Color::white(), {2.4f, 2.4f, 2.4f});
+        auto* m = w.get<MeshRenderer>(s);
+        m->material = material;
+        m->materialParams = params;
+        m->metallic = 1.0f;
+        m->roughness = 0.1f;
+        return g.render(w);
+    };
+    // The sphere's two ends along the image's vertical axis, one reflecting the sky above, the other the ground below. Which
+    // end is first in the image (GL counts rows from the bottom) does not matter: one is blue, the other orange.
+    auto ends_differ = [&](const Image& img) {
+        const Color a = img.pixel(img.width / 2, img.height / 2 - 25);
+        const Color b = img.pixel(img.width / 2, img.height / 2 + 25);
+        const bool aBlue = a.b > a.r + 0.1f && b.r > b.b + 0.1f;
+        const bool bBlue = b.b > b.r + 0.1f && a.r > a.b + 0.1f;
+        return aBlue || bBlue;
+    };
+    auto brightest = [&](const Image& img) {
+        float m = 0;
+        for (const auto& p : sphere_pixels(img)) {
+            const Color c = img.pixel(p.second.first, p.second.second);
+            m = std::max({m, c.r, c.g, c.b});
+        }
+        return m;
+    };
+    const Image off = frame("materials/lightloop.material.json", Json::object());
+    const Image on = frame("materials/lightloop.material.json", Json::object({{"skyAmount", 1.0}}));
+    const Image viaAmbient = frame("materials/skylit.material.json", Json::object());
+    const Image full = frame("materials/full_sky.material.json", Json::object());
+    CHECK(log.messages().empty());
+    CHECK(brightest(off) < 0.02f);  // skyAmount 0: no lights, no ambient, no sky
+    CHECK(brightest(on) > 0.2f);
+    CHECK(ends_differ(on));
+    CHECK(ends_differ(viaAmbient));
+    CHECK(ends_differ(full));
+    // The three ways to the sky are the engine's own sky reflection: the same colors in the same places.
+    CHECK(disc_diff(on, viaAmbient, 2).maxDiff <= 2);
+    CHECK(disc_diff(on, full, 8).over < disc_diff(on, full, 8).total / 10);
+}
+
 TEST_CASE("materials: alphaMode clip cuts holes in the mesh and in its shadow") {
     Gfx& g = gfx();
     REQUIRE(g.ok);

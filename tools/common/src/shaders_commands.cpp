@@ -3,6 +3,7 @@
 #include <filesystem>
 
 #include "fa/core/strings.h"
+#include "fa/tooling/material_graph.h"
 #include "fa/tooling/shaders.h"
 #include "fa/tooling/validate.h"
 #include "shaders_internal.h"
@@ -13,28 +14,6 @@ namespace fa {
 namespace stdfs = std::filesystem;
 
 namespace {
-
-// The project-relative path a command argument names: as written, or with ".material.json" added.
-std::string resolve_material(const std::string& projectDir, const std::string& arg) {
-    if (arg.empty())
-        throw CommandError(
-            "invalid_argument", "material is empty",
-            "Pass the project-relative path of a *.material.json, e.g. \"materials/water.material.json\".");
-    const stdfs::path p = stdfs::path(arg).lexically_normal();
-    if (p.is_absolute() || p.generic_string().rfind("..", 0) == 0)
-        throw CommandError("invalid_argument", "material '" + arg + "' is not inside the project",
-                           "Pass a path relative to the project root, e.g. \"materials/water.material.json\".");
-    std::error_code ec;
-    for (const std::string& candidate : {p.generic_string(), p.generic_string() + ".material.json"})
-        if (stdfs::is_regular_file(stdfs::path(projectDir) / candidate, ec)) return candidate;
-    const std::vector<std::string> all = find_material_files(projectDir);
-    throw CommandError("not_found", "no material '" + arg + "' in the project",
-                       all.empty()
-                           ? "The project has no *.material.json yet: create one (schema schemas/material.schema.json, "
-                             "`docs.read` it) next to a snippet shaders/<name>.surface.glsl."
-                           : did_you_mean(arg, all),
-                       Json::object({{"materials", Json(all)}}));
-}
 
 Json issues_json(const std::vector<ShaderIssue>& issues) {
     Json arr = Json::array();
@@ -71,7 +50,47 @@ const char* const kSnippetContract =
     "globals named like the JSON keys; textures are sampled with "
     "texture(sampler2D(name, name_smp), uv); names starting with fa_ are the engine's.";
 
+// The fix of a snippet that the material's graph makes and the project does not have (yet or any more): "" when the material has no
+// graph or the snippet is current.
+std::string regenerate_hint(const std::string& state, const std::string& material) {
+    if (state == "missing")
+        return "The snippet is generated from the \"graph\" of " + material +
+               " and does not exist yet: run material.graph.generate for it, then shader.compile again.";
+    if (state == "graph_changed")
+        return "The graph of " + material +
+               " changed since its snippet was generated: run material.graph.generate for it, then shader.compile "
+               "again.";
+    return {};
+}
+
 }  // namespace
+
+namespace shaders_detail {
+
+std::string resolve_material(const std::string& projectDir, const std::string& arg) {
+    if (arg.empty())
+        throw CommandError(
+            "invalid_argument", "material is empty",
+            "Pass the project-relative path of a *.material.json, e.g. \"materials/water.material.json\".");
+    const stdfs::path p = stdfs::path(arg).lexically_normal();
+    // Whole path components: a file called "..x" is inside the project, "../x" is not.
+    if (p.is_absolute() || p.has_root_name() || p.has_root_directory() || (!p.empty() && *p.begin() == ".."))
+        throw CommandError("invalid_argument", "material '" + arg + "' is not inside the project",
+                           "Pass a path relative to the project root, e.g. \"materials/water.material.json\".");
+    std::error_code ec;
+    for (const std::string& candidate : {p.generic_string(), p.generic_string() + ".material.json"})
+        if (stdfs::is_regular_file(stdfs::path(projectDir) / candidate, ec)) return candidate;
+    const std::vector<std::string> all = find_material_files(projectDir);
+    throw CommandError("not_found", "no material '" + arg + "' in the project",
+                       all.empty()
+                           ? "The project has no *.material.json yet: create one (schema "
+                             "schemas/material.schema.json, `docs.read` it) with a \"graph\" (`material.graph.nodes` "
+                             "lists the nodes) or next to a snippet shaders/<name>.surface.glsl."
+                           : did_you_mean(arg, all),
+                       Json::object({{"materials", Json(all)}}));
+}
+
+}  // namespace shaders_detail
 
 void register_shader_commands(CommandRegistry& registry, const std::string& projectDir, const SetupContext& context) {
     {
@@ -115,7 +134,8 @@ void register_shader_commands(CommandRegistry& registry, const std::string& proj
           }})");
         const std::string dir = projectDir;
         registry.add(info, [dir, context](const Json& args) {
-            const std::string material = resolve_material(dir, tooling_detail::arg_string(args, "material", true));
+            const std::string material =
+                shaders_detail::resolve_material(dir, tooling_detail::arg_string(args, "material", true));
             std::vector<std::string> platforms;
             if (args.contains("platforms") && args["platforms"].is_array())
                 for (const Json& p : args["platforms"])
@@ -126,7 +146,11 @@ void register_shader_commands(CommandRegistry& registry, const std::string& proj
             options.setup = context;
             options.dialects = *dialects;
             auto result = compile_material(dir, material, options);
-            if (!result.ok()) throw CommandError("unavailable", result.error().message, result.error().hint);
+            const std::string graphState = material_snippet_state(dir, material);
+            if (!result.ok()) {
+                const std::string fix = regenerate_hint(graphState, material);
+                throw CommandError("unavailable", result.error().message, fix.empty() ? result.error().hint : fix);
+            }
             Json out = Json::object({{"ok", result->ok},
                                      {"material", material},
                                      {"dialects", Json(result->dialects)},
@@ -140,6 +164,8 @@ void register_shader_commands(CommandRegistry& registry, const std::string& proj
                               join(result->skippedDialects, ", ") + ": it runs on " +
                               join(shader_platforms_of_kind(result->material.kind), ", ") +
                               " only (GLES3 and WebGL2 have no compute shaders).";
+            if (const std::string fix = regenerate_hint(graphState, material); !fix.empty())
+                out["graph"] = Json::object({{"state", graphState}, {"hint", fix}});
             if (!result->errors.empty()) {
                 std::string text;
                 for (const ShaderIssue& i : result->errors) text += (text.empty() ? "" : "\n") + i.to_string();
@@ -170,7 +196,7 @@ void register_shader_commands(CommandRegistry& registry, const std::string& proj
             "A material file with errors returns them (JSON pointer, message, fix). Example: "
             "{\"material\": \"materials/water.material.json\"}" FA_COMMAND_DETAILS
             "`lighting` is \"pbr\", \"unlit\" or \"custom\" (the snippet defines light(), the engine's light loop "
-            "calls it once per light). "
+            "calls it once per light, or lighting(), your own loop). "
             "`programs` are the shader programs the material makes: mesh, mesh_skin, prepass and prepass_skin, plus "
             "shadow and shadow_skin when the snippet defines vertex() or the alpha mode is clip; a sprite "
             "material makes quad and quad_plain, a sky material one program, sky, a post material one, post. "
@@ -194,7 +220,8 @@ void register_shader_commands(CommandRegistry& registry, const std::string& proj
           "properties":{"material":{"type":"string","description":"Project-relative path of the material, e.g. materials/water.material.json."}}})");
         const std::string dir = projectDir;
         registry.add(info, [dir, context](const Json& args) {
-            const std::string path = resolve_material(dir, tooling_detail::arg_string(args, "material", true));
+            const std::string path =
+                shaders_detail::resolve_material(dir, tooling_detail::arg_string(args, "material", true));
             MaterialParse mp = read_material(dir, path);
             if (!mp.ok()) {
                 Json errors = Json::array();
@@ -326,9 +353,14 @@ void validate_materials(const std::string& projectDir, const SetupContext& conte
                 ++notCompiled;
                 continue;
             }
-            report.errors.push_back({path, "", result.error().message, result.error().hint});
+            const std::string fix = regenerate_hint(material_snippet_state(projectDir, path), path);
+            report.errors.push_back({path, "", result.error().message, fix.empty() ? result.error().hint : fix});
             continue;
         }
+        if (const std::string state = material_snippet_state(projectDir, path); state == "graph_changed")
+            report.warnings.push_back({path, "/graph",
+                                       "the graph changed since the snippet was generated: the snippet is out of date",
+                                       regenerate_hint(state, path)});
         for (ValidationIssue& i : shader_validation_issues(*result)) report.errors.push_back(std::move(i));
     }
     if (notCompiled > 0)

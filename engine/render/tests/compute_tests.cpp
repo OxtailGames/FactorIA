@@ -614,3 +614,36 @@ TEST_CASE("compute images: every wrong request is refused with its place and a w
     CHECK(contains(refusal, std::to_string(kMaxLiveComputeImages) + " images are alive already"));
     CHECK(contains(refusal, "compute.destroy_image"));
 }
+
+TEST_CASE(
+    "compute images: readWrite needs a GPU that can imageLoad the format, and the refusal says what to use instead") {
+    ComputeScope s;
+    std::string why;
+    if (!s.compute().available(&why)) {
+        skip_without_compute("the readWrite capability check is not run", why);
+        return;
+    }
+    // This GPU's real answer for r32f (the one format every backend loads): the image of the material works.
+    auto real = s.compute().create_image(kField, "count");
+    CHECK_MESSAGE(real.ok(), real.error().to_string());
+    if (real.ok()) CHECK(s.compute().destroy_image(*real).ok());
+
+    // A GPU that loads r32f only (Metal Tier 1, D3D11.0): r32f still passes.
+    ComputeTestAccess::set_load_override(s.compute(), 1);
+    auto r32 = s.compute().create_image(kField, "count");
+    CHECK_MESSAGE(r32.ok(), r32.error().to_string());
+    if (r32.ok()) CHECK(s.compute().destroy_image(*r32).ok());
+    auto write = s.compute().create_image(kField, "field");  // a write-only image never needs a load
+    CHECK(write.ok());
+
+    // A GPU that loads nothing: the readWrite image is refused with its JSON pointer, what the GPU does and the way out.
+    ComputeTestAccess::set_load_override(s.compute(), 2);
+    auto refused = s.compute().create_image(kField, "count");
+    REQUIRE_FALSE(refused.ok());
+    const std::string text = refused.error().to_string();
+    CHECK(contains(text, "/images/count/access"));
+    CHECK(contains(text, "does not work on this GPU"));
+    CHECK(contains(text, "split it into two images"));
+    CHECK(s.compute().list_images().size() == (write.ok() ? 1u : 0u));  // the refused request left nothing behind
+    ComputeTestAccess::set_load_override(s.compute(), 0);
+}

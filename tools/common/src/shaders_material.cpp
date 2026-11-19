@@ -148,7 +148,8 @@ struct Checker {
                   "Name it for what it holds, e.g. \"noiseMap\" or \"mask\".");
             return false;
         }
-        if (is_reserved_word(name) || (out.material.lighting == "custom" && (name == "light" || name == "ambient")) ||
+        if (is_reserved_word(name) ||
+            (out.material.lighting == "custom" && (name == "light" || name == "ambient" || name == "lighting")) ||
             (kind == "sky" && name == "sky") ||    // sky(): the hook of a sky material, an ordinary name elsewhere
             (kind == "post" && name == "post")) {  // post(): the hook of a post material
             error(pointer,

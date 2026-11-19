@@ -399,6 +399,9 @@ void Renderer::shutdown() {
         compute_->detach();  // its storage buffers and views, while the context is open
         // Work recorded since the last frame (a dispatch, the clearing pass of a new storage image) that no frame ever submitted: Metal
         // waits for the completion of every frame it began at sg_shutdown, so an uncommitted one would wait forever.
+        // Precondition: no pass is open (shutdown is never called between begin_frame and the frame's end): sg_commit
+        // inside a pass is invalid in sokol.
+        FA_ASSERT(!Gpu::in_pass(), "Renderer::shutdown while a pass is open");
         if (!im.gpu.committed()) {
             sg_commit();
             im.gpu.note_commit();
@@ -805,6 +808,14 @@ void Renderer::set_debug_view(DebugView view) {
 }
 
 DebugView Renderer::debug_view() const { return impl_ ? impl_->debugView : DebugView::None; }
+
+void Renderer::reset_post_history(std::uint64_t camera) {
+    if (impl_) impl_->customPost.reset_history(camera);
+}
+
+int render::renderer_post_history_images(Renderer& r) {
+    return r.impl_ ? r.impl_->customPost.history_image_count() : 0;
+}
 
 void Renderer::update(World& world) {
     if (!initialized()) return;

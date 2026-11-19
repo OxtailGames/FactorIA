@@ -823,9 +823,44 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
             return Json::object({{"view", name_of(I.renderer->debug_view())}, {"previous", name_of(previous)}});
         });
 
+    I.commands.add(
+        {"render.reset_post_history",
+         "Start again the history of the custom post passes that read their own output of the frame before "
+         "(fa_history).",
+         "A custom post material whose snippet calls fa_history(uv) (trails, feedback, accumulation; "
+         "docs/shaders/SHADERS_POST.md, \"History\") keeps its output of the frame before. This forgets it for one "
+         "camera "
+         "(`entity`) or every camera: from the next frame fa_history_valid is false and fa_history(uv) gives the "
+         "picture, so the "
+         "effect starts clean. The renderer already does it by itself in the first frame, after a resize or a change "
+         "of render "
+         "scale, when a camera was not drawn in the frame before, and when the scene or the world's clock jumps; call "
+         "it at a cut "
+         "the renderer cannot see (a camera switch inside one scene). Nothing is freed: the images stay for the next "
+         "frame. "
+         "Result: {reset: \"all\" or the camera}. Example: render.reset_post_history {}" FA_COMMAND_DETAILS
+         "A camera without such passes is accepted and nothing changes. Errors: `not_found` for an `entity` that does "
+         "not "
+         "exist; `unavailable` without graphics (graphics=false). The same is Renderer::reset_post_history in C++.",
+         parse_schema(R"({"type":"object","properties":{
+               "entity":{"type":"string","description":"The camera (id or name). Default: every camera."}}})"),
+         false, "game"},
+        [&I](const Json& a) {
+            check_args_known(a, {"entity"}, "render.reset_post_history");
+            const bool one = a.is_object() && a.contains("entity") && !a["entity"].is_null();
+            const Entity camera = one ? need_entity(I.world, a, "entity") : kNullEntity;
+            if (!I.renderer || !I.renderer->initialized())
+                throw CommandError("unavailable",
+                                   "No renderer: the engine runs with graphics=false, so no pass keeps a history.",
+                                   "Run with graphics (headless needs Mesa/EGL on Linux), not graphics=false.");
+            I.renderer->reset_post_history(one ? camera.bits() : 0);
+            return Json::object({{"reset", one ? a["entity"].get<std::string>() : std::string("all")}});
+        });
+
     // Capabilities (capability.h): what each command does outside the engine's memory.
     declare_command_capabilities(I.commands, {
                                                  {"render.output", capability_sets::reads()},
+                                                 {"render.reset_post_history", capability_sets::changes_state()},
                                                  {"render.supports", capability_sets::reads()},
                                                  {"render.debug_view", capability_sets::changes_state()},
                                                  {"game.screenshot", capability_sets::changes_state()},

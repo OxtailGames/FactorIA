@@ -34,6 +34,8 @@ void Editor::at_section_G3(AtScript& at) {
             std::uint64_t serial = 0;  // a picture of the preview, to see it change
             std::string fileBefore;
             size_t undoParam = 0;
+            size_t undoEntry = 0;  // the undo depth before the param is made in the panel
+            std::string reader;    // the node that reads it
         };
         auto gs = std::make_shared<Gs>();
         const std::string dir = "assets/at-graph";
@@ -388,6 +390,110 @@ void Editor::at_section_G3(AtScript& at) {
             at_check(m.node_count() == 4 && m.link_count() == 4 && !m.has_errors(),
                      "Redo brings the dissolve graph back");
             at_check(undo_depth() > gs->undo, "...on the editor's undo stack");
+        });
+
+        // ---- a param made in the panel, used by a node, renamed and deleted without leaving the panel (every wait is on state)
+        step(3, [this, gs, rel] {
+            gs->undoEntry = undo_depth();
+            gs->compiles = graph_.preview ? graph_.preview->compiles() : 0;
+            at_check(graph_.model && graph_.model->path() == rel && at_visible("gr:params:add"),
+                     "the Params section offers + Param");
+        });
+        click_widget("gr:params:add");
+        wait_until([this] { return graph_.entryForm.open && at_visible("gr:entry:create"); }, "the new param form");
+        step(3, [this] {
+            // the name box has the keyboard when the form opens: the name is typed into it
+            for (char c : std::string("glow")) inject_char(unsigned(static_cast<unsigned char>(c)));
+        });
+        wait_until([this] { return std::string(graph_.entryForm.name) == "glow"; }, "the name typed into the form");
+        step(3, [this] {
+            graph_.entryForm.ranged = true;  // the other fields are set directly: they are not text boxes
+            graph_.entryForm.lo = 0.0f;
+            graph_.entryForm.hi = 1.0f;
+            graph_.entryForm.value[0] = 0.25f;
+        });
+        click_widget("gr:entry:create");
+        wait_until(
+            [this] {
+                const Json& d = graph_.model->material_json();
+                return d.contains("params") && d["params"].contains("glow") && !graph_.entryForm.open;
+            },
+            "the Create button to write the param glow");
+        step(3, [this, gs, rel, read_text] {
+            const Json file = Json::parse(read_text(rel), nullptr, false);
+            at_check(!file.is_discarded() && file["params"].contains("glow") &&
+                         std::abs(file["params"]["glow"].value("default", -1.0) - 0.25) < 1e-9 &&
+                         file["params"]["glow"].value("max", 0.0) == 1.0,
+                     "Create wrote the param glow (default 0.25, max 1) into the file");
+            at_check(undo_depth() == gs->undoEntry + 1, "...as one undo step");
+            at_check(at_visible("gr:param:glow"), "...and the Params list shows it");
+            // a node that reads it: the combo of the node offers it at once (it lists the model's params)
+            GraphModel& m = *graph_.model;
+            const GraphEditOutcome added = m.add_node("param", Vec2{0.0f, 300.0f});
+            graph_edited(added);
+            const GraphEditOutcome ref = m.set_ref(added.id, "glow");
+            graph_edited(ref);
+            gs->reader = added.id;
+            at_check(added.ok && ref.ok && m.entry_readers(false, "glow").size() == 1, "a param node reads glow");
+            at_check(!m.has_errors(), "...and the graph still checks");
+        });
+        // the preview compiles the material with the new param (its uniforms changed)
+        wait_until(
+            [this] {
+                const PreviewState s = graph_.preview->state();
+                return graph_.preview->shown_revision() == graph_.model->revision() || s == PreviewState::Error ||
+                       s == PreviewState::NoRenderer;
+            },
+            "the preview to follow the new param");
+        step(3, [this, gs] {
+            const GraphPreview& pv = *graph_.preview;
+            if (!gs->skip && pv.state() != PreviewState::NoRenderer)
+                at_check(pv.state() == PreviewState::Ready && pv.compiles() > gs->compiles,
+                         "the preview compiled again with the new param: " + pv.message());
+        });
+        // rename through the row's buttons: the node follows
+        click_widget("gr:param:rename:glow");
+        wait_until([this] { return graph_.renaming == "glow" && at_visible("gr:param:rename:ok:glow"); },
+                   "the rename box of glow");
+        step(3, [this] {  // the box has the keyboard with its text selected: the new name replaces it
+            for (char c : std::string("shine")) inject_char(unsigned(static_cast<unsigned char>(c)));
+        });
+        wait_until([this] { return std::string(graph_.renameBuf) == "shine"; },
+                   "the new name typed into the rename box");
+        click_widget("gr:param:rename:ok:glow");
+        wait_until(
+            [this] {
+                const Json& d = graph_.model->material_json();
+                return d.contains("params") && d["params"].contains("shine") && graph_.renaming.empty();
+            },
+            "the rename to reach the file");
+        step(3, [this, gs, rel, read_text] {
+            GraphModel& m = *graph_.model;
+            const Json file = Json::parse(read_text(rel), nullptr, false);
+            at_check(!file.is_discarded() && file["params"].contains("shine") && !file["params"].contains("glow"),
+                     "Rename wrote the new name into the file");
+            at_check(m.entry_readers(false, "shine").size() == 1 && !m.has_errors(),
+                     "...and the node reads the new name");
+            at_check(undo_depth() == gs->undoEntry + 4, "...as one undo step");
+        });
+        // delete of a param a node reads is refused, naming and selecting the node
+        click_widget("gr:param:delete:shine");
+        wait_until([this] { return !graph_.entryMessage.empty(); }, "the refusal to delete a param nodes read");
+        step(3, [this, gs, rel, read_text] {
+            const Json file = Json::parse(read_text(rel), nullptr, false);
+            at_check(!file.is_discarded() && file["params"].contains("shine"),
+                     "Delete is refused while a node reads the param");
+            at_check(!gs->reader.empty() && graph_.entryMessage.find(gs->reader) != std::string::npos &&
+                         graph_.model->is_selected(gs->reader),
+                     "...it names the node and selects it: " + graph_.entryMessage);
+        });
+        // back out: the three entries come off the stack, the file loses the param
+        step(3, [this, gs, rel, read_text] {
+            while (undo_depth() > gs->undoEntry) undo();
+            const Json file = Json::parse(read_text(rel), nullptr, false);
+            at_check(!file.is_discarded() && !file["params"].contains("shine") && !file["params"].contains("glow"),
+                     "Undo takes the param out of the file again");
+            at_check(graph_.model->node_count() == 4, "...and the node with it");
         });
 
         step(2, [this, dir] {

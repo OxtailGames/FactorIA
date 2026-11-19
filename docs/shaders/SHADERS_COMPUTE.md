@@ -74,7 +74,7 @@ made on the GPU and never copied to the CPU. The file declares each image:
 | Key | Meaning |
 |---|---|
 | `format` | `rgba8` (default; 8 bits a channel, `vec4` in 0..1), `rgba16f`, `r32f` (one float, `imageLoad(heat, p).x`) or `rgba32f`. |
-| `access` | `"write"` (default: `imageStore`) or `"readWrite"` (`imageStore` and `imageLoad`). A read-only image is refused: declare a texture of the material instead and sample it. |
+| `access` | `"write"` (default: `imageStore`) or `"readWrite"` (`imageStore` and `imageLoad`). `readWrite` is guaranteed for `r32f` only: whether another format can be loaded depends on the GPU (the table below), and `compute.create_image` refuses the image with `/images/<name>/access` when it cannot. A read-only image is refused: declare a texture of the material instead and sample it. |
 | `size` | The size `compute.create_image` gives when it is not asked another: `[width, height]`, or one number for a square. Default `[256, 256]`, each side 1 to 8192. |
 
 At most 4 images in a material (the number of storage images every GPU with compute guarantees one shader). The snippet uses
@@ -127,15 +127,17 @@ How an image behaves:
 Limits, all counts and sizes: 32 live images, 8192 pixels a side (or what the GPU allows), 256 MiB for one image and 512 MiB in
 all. A request over one is refused with the number it hit; a format the GPU cannot write as a storage image is refused with
 the list that works on it ("storage image format not supported"), and a material that declares one is refused the same way
-when the image is made. A refused request changes nothing.
+when the image is made. An image declared `readWrite` in a format this GPU cannot `imageLoad` is refused too (`/images/<name>/access`):
+make it `r32f`, or split it into two images, write one and read the other as a texture, swapping them each frame. A refused
+request changes nothing.
 
 | Where | Storage images |
 |---|---|
-| Windows, Direct3D 11 | Yes (typed UAVs). `rgba8` and the float formats can be written; whether a format can also be read (`readWrite`) is the GPU's answer, `r32f` always. |
-| macOS and iOS, Metal | Yes, all four formats written; `r32f` and `rgba32f` are filtered when sampled on macOS only. |
-| Linux, OpenGL 4.3 or newer | Yes (`imageLoad`/`imageStore`; the engine inserts the memory barriers). |
+| Windows, Direct3D 11 | Yes (typed UAVs). All four formats can be written. `readWrite` works for `r32f` on every GPU; for `rgba8`, `rgba16f` and `rgba32f` only where the device reports a typed UAV load for the format (D3D11.0 hardware does not: an `imageLoad` there would return garbage, so the engine refuses the image). |
+| macOS and iOS, Metal | Yes, all four formats written; `r32f` and `rgba32f` are filtered when sampled on macOS only. `readWrite` works for every format on a GPU with read-write texture Tier 2 (Apple silicon, recent AMD and Nvidia), and for `r32f` only on Tier 1 (older Intel Macs, iOS A9-A10): the other formats are refused there. |
+| Linux, OpenGL 4.3 or newer | Yes (`imageLoad`/`imageStore`; the engine inserts the memory barriers). `readWrite` works for all four formats (the shader declares the format, so every one can be loaded). |
 | macOS on OpenGL 4.1 | No compute at all. |
-| Android (OpenGL ES 3.0), the web (WebGL2) | No: the GPU has no compute shaders. `compute.create_image` fails with `unavailable`, naming the backend and the CPU path. |
+| Android (OpenGL ES 3.0), the web (WebGL2) | No: the GPU has no compute shaders and no storage images, so `compute.read_image` is not available either. `compute.create_image` fails with `unavailable`, naming the backend and the CPU path. |
 | Vulkan and Direct3D 12 | With the M77 backends. |
 
 **The CPU path** for a computer without compute (and for a game that ships to Android or the web): fill the picture in the

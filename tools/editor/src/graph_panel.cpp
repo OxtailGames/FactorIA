@@ -341,7 +341,7 @@ void Editor::draw_graph_panel() {
 
     if (m.is_open() && !m.gesture_open() && uiFrame_ - u.lastPoll >= 20) {
         u.lastPoll = uiFrame_;
-        if (m.poll_external() && !m.external_conflict()) m.set_status("The file changed on disk and was read again.");
+        m.poll_external();  // says by itself what it found (status), once per change of the file
     }
     draw_graph_toolbar(m);
     if (m.is_open() && m.external_conflict()) {
@@ -1297,16 +1297,201 @@ void Editor::draw_graph_side(GraphModel& m) {
     list(rep.warnings, true);
 }
 
+// The form that makes a param or a texture of the material (Create is material.param.create / material.texture.create: one undo step).
+// The entry is in the file when it returns true; an error stays in the form.
+static bool draw_entry_form(GraphModel& m, GraphUi& u, const std::function<void(const GraphEditOutcome&)>& edited,
+                            const std::function<void(const std::string&)>& track) {
+    GraphUi::EntryForm& f = u.entryForm;
+    bool created = false;
+    ImGui::PushID(f.texture ? "newtexture" : "newparam");
+    ImGui::Separator();
+    ImGui::TextUnformatted(f.texture ? "New texture" : "New param");
+    ImGui::SetNextItemWidth(-FLT_MIN);
+    if (f.focus) {
+        ImGui::SetKeyboardFocusHere();
+        f.focus = false;
+    }
+    ImGui::InputTextWithHint("##name", f.texture ? "maskMap" : "waveHeight", f.name, sizeof f.name);
+    track("gr:entry:name");
+    hint(
+        "A GLSL identifier, unique among the params and textures of the material, without the prefix gn_ or fa_: it is "
+        "a variable of the shader.");
+    if (f.texture) {
+        static const char* const samplers[] = {"linear", "linearRepeat", "nearest", "nearestRepeat"};
+        ImGui::SetNextItemWidth(-FLT_MIN);
+        ImGui::Combo("##sampler", &f.type, samplers, 4);
+        track("gr:entry:type");
+        hint("How the texture is filtered and wrapped: linear or nearest, clamped (default) or repeating.");
+    } else {
+        static const char* const types[] = {"float", "vec2", "vec3", "vec4", "color"};
+        const int before = f.type;
+        ImGui::SetNextItemWidth(-FLT_MIN);
+        ImGui::Combo("##type", &f.type, types, 5);
+        track("gr:entry:type");
+        hint("What the param holds: a number, a vector of 2 to 4 numbers, or a color (a vec4 with a color picker).");
+        if (f.type != before) {  // a color starts white, the rest at zero
+            for (float& v : f.value) v = f.type == 4 ? 1.0f : 0.0f;
+        }
+        const int n = f.type == 4 ? 4 : f.type + 1;
+        ImGui::SetNextItemWidth(-FLT_MIN);
+        if (f.type == 4) {
+            ImGui::ColorEdit4("##default", f.value, ImGuiColorEditFlags_Float);
+        } else {
+            ImGui::DragScalarN("##default", ImGuiDataType_Float, f.value, n, 0.01f);
+        }
+        track("gr:entry:default");
+        hint("The value of the param when an entity gives none.");
+        ImGui::Checkbox("Range", &f.ranged);
+        track("gr:entry:range");
+        hint("A smallest and a largest value: the slider covers them and the default is checked against them.");
+        if (f.ranged) {
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(-FLT_MIN);
+            float lohi[2] = {f.lo, f.hi};
+            if (ImGui::DragFloat2("##range", lohi, 0.01f)) {
+                f.lo = lohi[0];
+                f.hi = lohi[1];
+            }
+        }
+    }
+    ImGui::SetNextItemWidth(-FLT_MIN);
+    ImGui::InputTextWithHint("##doc", "what it does, with its unit", f.doc, sizeof f.doc);
+    track("gr:entry:doc");
+    hint("One line for whoever uses the material (an AI reads it too).");
+    if (ImGui::Button("Create")) {
+        Json spec = Json::object();
+        if (f.texture) {
+            static const char* const samplers[] = {"linear", "linearRepeat", "nearest", "nearestRepeat"};
+            spec["sampler"] = samplers[std::clamp(f.type, 0, 3)];
+        } else {
+            static const char* const types[] = {"float", "vec2", "vec3", "vec4", "color"};
+            const int ti = std::clamp(f.type, 0, 4);
+            spec["type"] = types[ti];
+            const int n = ti == 4 ? 4 : ti + 1;
+            Json def = Json::array();
+            for (int i = 0; i < n; ++i) {
+                float v = std::isfinite(f.value[i]) ? f.value[i] : 0.0f;
+                if (f.ranged && ti != 4) v = std::clamp(v, std::min(f.lo, f.hi), std::max(f.lo, f.hi));
+                def.push_back(double(std::round(v * 10000.0f) / 10000.0f));
+            }
+            spec["default"] = n == 1 ? def[0] : def;
+            if (f.ranged && ti != 4) {
+                spec["min"] = double(f.lo);
+                spec["max"] = double(f.hi);
+            }
+        }
+        if (f.doc[0]) spec["doc"] = std::string(f.doc);
+        const GraphEditOutcome out = m.add_entry(f.texture, f.name, spec);
+        if (out.ok) {
+            edited(out);
+            f = GraphUi::EntryForm();
+            created = true;
+        } else {
+            f.error = out.error;
+        }
+    }
+    track("gr:entry:create");
+    ImGui::SameLine();
+    if (ImGui::Button("Cancel")) f = GraphUi::EntryForm();
+    track("gr:entry:cancel");
+    if (!f.error.empty() && f.open) {
+        ImGui::PushStyleColor(ImGuiCol_Text, kBad);
+        ImGui::PushTextWrapPos(0.0f);
+        ImGui::TextUnformatted(f.error.c_str());
+        ImGui::PopTextWrapPos();
+        ImGui::PopStyleColor();
+    }
+    ImGui::Separator();
+    ImGui::PopID();
+    return created;
+}
+
 void Editor::draw_graph_params(GraphModel& m) {
-    GraphPreview& pv = *graph_.preview;
-    std::vector<const MaterialParam*> params;
-    for (const MaterialParam& p : m.report().material.params)
-        if (!p.implicit) params.push_back(&p);
-    if (params.empty()) return;
+    GraphUi& u = graph_;
+    GraphPreview& pv = *u.preview;
+    const std::function<void(const GraphEditOutcome&)> edited = [this](const GraphEditOutcome& o) { graph_edited(o); };
+    const std::function<void(const std::string&)> track = [this](const std::string& n) { at_track(n); };
+    // An edit of the list (a new entry, a rename, a delete) changes the report the rows read from, so the rows only note what was asked
+    // and it is done after them.
+    struct Pending {
+        enum { None, Rename, Delete } what = None;
+        bool texture = false;
+        std::string name, newName;
+    } pending;
+    // The buttons of one row: Rename (a box for the new name) and Delete (refused while nodes read it).
+    auto entry_actions = [&](const std::string& name, bool texture) {
+        const char* word = texture ? "texture" : "param";
+        ImGui::PushID(texture ? "t" : "p");
+        if (u.renaming == name && u.renamingTexture == texture) {
+            if (u.renameFocus) {
+                ImGui::SetKeyboardFocusHere();
+                u.renameFocus = false;
+            }
+            ImGui::SetNextItemWidth(-96.0f);
+            const bool enter =
+                ImGui::InputText("##rename", u.renameBuf, sizeof u.renameBuf,
+                                 ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll);
+            at_track(std::string("gr:") + word + ":newname:" + name);
+            ImGui::SameLine();
+            if (ImGui::SmallButton("OK") || enter) {
+                pending.what = Pending::Rename;
+                pending.texture = texture;
+                pending.name = name;
+                pending.newName = u.renameBuf;
+            }
+            at_track(std::string("gr:") + word + ":rename:ok:" + name);
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Cancel")) u.renaming.clear();
+            at_track(std::string("gr:") + word + ":rename:cancel:" + name);
+        } else {
+            if (ImGui::SmallButton("Rename")) {
+                u.renaming = name;
+                u.renamingTexture = texture;
+                std::snprintf(u.renameBuf, sizeof u.renameBuf, "%s", name.c_str());
+                u.renameFocus = true;
+                u.entryMessage.clear();
+            }
+            at_track(std::string("gr:") + word + ":rename:" + name);
+            hint(
+                std::string("Gives the ") + word +
+                " another name; the nodes that read it follow, the file is written now. Undo takes it back. Scenes and "
+                "prefabs that set it by name are not changed.");
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Delete")) {
+                pending.what = Pending::Delete;
+                pending.texture = texture;
+                pending.name = name;
+            }
+            at_track(std::string("gr:") + word + ":delete:" + name);
+            hint(std::string("Removes the ") + word +
+                 " from the file now (Undo brings it back). Refused while nodes "
+                 "read it: they are selected so you can point or delete them first.");
+        }
+        ImGui::PopID();
+    };
+    auto section_buttons = [&](bool texture) {
+        const char* word = texture ? "texture" : "param";
+        const std::string label =
+            std::string(texture ? "+ Texture" : "+ Param") + (texture ? "##gtexadd" : "##gparamadd");
+        ImGui::SameLine();
+        if (ImGui::SmallButton(label.c_str())) {
+            u.entryForm = GraphUi::EntryForm();
+            u.entryForm.open = true;
+            u.entryForm.texture = texture;
+            u.entryForm.focus = true;
+            u.renaming.clear();
+            u.entryMessage.clear();
+        }
+        at_track(texture ? "gr:textures:add" : "gr:params:add");
+        hint(std::string("Makes a new ") + word + " in " + m.path() + " now (one undo step); the nodes that read a " +
+             word + " list it at once.");
+    };
+
     ImGui::TextUnformatted("Params");
     hint("The values of the material's params in the preview. Moving a slider changes the PREVIEW only (the file is "
          "not touched); "
          "\"Set as default\" writes the value as the param's default in the file (one undo step).");
+    section_buttons(false);
     const bool any = pv.param_overrides().is_object() && !pv.param_overrides().empty();
     if (any) {
         ImGui::SameLine();
@@ -1314,6 +1499,12 @@ void Editor::draw_graph_params(GraphModel& m) {
         at_track("gr:params:reset");
         hint("Back to the defaults the file has, in the preview.");
     }
+    if (u.entryForm.open && !u.entryForm.texture) draw_entry_form(m, u, edited, track);
+    // (after the form: Create changes the report)
+    std::vector<const MaterialParam*> params;
+    for (const MaterialParam& p : m.report().material.params)
+        if (!p.implicit) params.push_back(&p);
+    if (params.empty()) ImGui::TextDisabled("No params yet. + Param makes one.");
     for (const MaterialParam* p : params) {
         const int n = std::clamp(p->components(), 1, 4);
         Json overValue;  // a copy: set_param below may remove the entry it came from
@@ -1380,7 +1571,59 @@ void Editor::draw_graph_params(GraphModel& m) {
             hint("Writes this value as the param's default in " + m.path() +
                  " now (the graph's unsaved edits stay unsaved). Undo takes it back.");
         }
+        entry_actions(p->name, false);
         ImGui::PopID();
+    }
+
+    // ---- the textures
+    ImGui::TextUnformatted("Textures");
+    hint("The textures the material declares: the nodes of type texture read one of them. They are made, renamed and "
+         "removed "
+         "in the file at once (one undo step each).");
+    section_buttons(true);
+    if (u.entryForm.open && u.entryForm.texture) draw_entry_form(m, u, edited, track);
+    std::vector<std::string> textures;
+    {
+        const Json& doc = m.material_json();
+        if (doc.contains("textures") && doc["textures"].is_object())
+            for (const auto& [k, v] : doc["textures"].items()) textures.push_back(k);
+    }
+    if (textures.empty()) ImGui::TextDisabled("No textures yet. + Texture makes one.");
+    for (const std::string& name : textures) {
+        ImGui::PushID(name.c_str());
+        ImGui::TextUnformatted(name.c_str());
+        at_track("gr:texture:" + name);
+        const Json& entry = m.material_json()["textures"][name];
+        if (entry.is_object() && entry.contains("doc") && entry["doc"].is_string())
+            hint(entry["doc"].get<std::string>());
+        entry_actions(name, true);
+        ImGui::PopID();
+    }
+
+    // ---- what the rows asked for
+    if (pending.what != Pending::None) {
+        GraphEditOutcome out = pending.what == Pending::Rename
+                                   ? m.rename_entry(pending.texture, pending.name, pending.newName)
+                                   : m.delete_entry(pending.texture, pending.name);
+        if (out.ok) {
+            graph_edited(out);
+            u.entryMessage.clear();
+            u.renaming.clear();
+        } else {
+            u.entryMessage = out.error;
+            if (!out.nodes.empty()) {  // the nodes that still read it: selected, to point them elsewhere or delete them
+                u.selectedLink = -1;
+                m.select_only(std::set<std::string>(out.nodes.begin(), out.nodes.end()));
+            }
+        }
+    }
+    if (!u.entryMessage.empty()) {
+        ImGui::PushStyleColor(ImGuiCol_Text, kBad);
+        ImGui::PushTextWrapPos(0.0f);
+        ImGui::TextUnformatted(u.entryMessage.c_str());
+        ImGui::PopTextWrapPos();
+        ImGui::PopStyleColor();
+        at_track("gr:entry:message");
     }
     ImGui::Separator();
 }

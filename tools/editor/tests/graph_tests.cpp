@@ -474,6 +474,146 @@ TEST_CASE("graph model: Set as default writes the file at once, is one undo step
     CHECK(unknown.error.find("dissolve") != std::string::npos);
 }
 
+TEST_CASE(
+    "graph model: a param is made, renamed and deleted from the panel, each one undo step, and the nodes follow it") {
+    GraphProject p;
+    p.open();
+    GraphModel& m = *p.model;
+    const std::uint64_t revision = m.revision();
+
+    // create: the file has it at once, the read nodes can name it, the revision moves (the preview compiles again)
+    const GraphEditOutcome made =
+        m.add_entry(false, "glow", Json::object({{"type", "float"}, {"default", 0.5}, {"min", 0.0}, {"max", 1.0}}));
+    REQUIRE_MESSAGE(made.ok, made.error);
+    CHECK(made.step > 0);
+    CHECK(m.revision() != revision);
+    CHECK(Json::parse(p.read(kMat))["params"].contains("glow"));
+    CHECK(m.material_json()["params"].contains("glow"));
+    CHECK_FALSE(m.dirty());          // the graph was not touched
+    CHECK_FALSE(m.poll_external());  // our own write is not an outside change
+    const GraphEditOutcome used = m.add_node("param", Vec2{0, 300});
+    REQUIRE_MESSAGE(used.ok, used.error);
+    REQUIRE(m.set_ref(used.id, "glow").ok);
+    CHECK(m.report().ok());
+    CHECK(m.entry_readers(false, "glow") == std::vector<std::string>{used.id});
+
+    // refused: taken, reserved, unknown type; nothing changes and no step is made
+    const GraphEditOutcome dup = m.add_entry(false, "dissolve", Json::object({{"type", "float"}}));
+    CHECK_FALSE(dup.ok);
+    CHECK(dup.step == 0);
+    CHECK(dup.error.find("already") != std::string::npos);
+    const GraphEditOutcome reserved = m.add_entry(false, "gn_mix", Json::object({{"type", "float"}}));
+    CHECK_FALSE(reserved.ok);
+    CHECK(reserved.error.find("gn_") != std::string::npos);
+    CHECK_FALSE(m.add_entry(false, "tint", Json::object({{"type", "flaot"}})).ok);
+    CHECK_FALSE(Json::parse(p.read(kMat))["params"].contains("tint"));
+
+    // rename: the nodes of the graph in memory (saved or not) read the new name
+    const GraphEditOutcome renamed = m.rename_entry(false, "glow", "shine");
+    REQUIRE_MESSAGE(renamed.ok, renamed.error);
+    CHECK(m.node_count() == 5);
+    CHECK(m.entry_readers(false, "shine") == std::vector<std::string>{used.id});
+    CHECK(m.entry_readers(false, "glow").empty());
+    CHECK(m.report().ok());
+    CHECK(m.rename_entry(false, "shine", "shine").step == 0);  // the same name: nothing
+    CHECK_FALSE(m.rename_entry(false, "shine", "dissolve").ok);
+    CHECK_FALSE(m.rename_entry(false, "nope", "other").ok);
+
+    // delete of a param that nodes read is refused and names them; the unused one goes
+    const GraphEditOutcome refused = m.delete_entry(false, "shine");
+    CHECK_FALSE(refused.ok);
+    CHECK(refused.nodes == std::vector<std::string>{used.id});
+    CHECK(Json::parse(p.read(kMat))["params"].contains("shine"));
+    CHECK(m.delete_entry(false, "dissolve").nodes == std::vector<std::string>{"amount"});
+
+    // undo and redo, in the order they were made
+    REQUIRE(m.remove_nodes({used.id}).ok);
+    const GraphEditOutcome gone = m.delete_entry(false, "shine");
+    REQUIRE_MESSAGE(gone.ok, gone.error);
+    CHECK_FALSE(Json::parse(p.read(kMat))["params"].contains("shine"));
+    REQUIRE_MESSAGE(m.apply_step(gone.step, false), m.status());
+    CHECK(Json::parse(p.read(kMat))["params"]["shine"]["default"] == 0.5);
+    REQUIRE_MESSAGE(m.apply_step(gone.step, true), m.status());
+    REQUIRE_MESSAGE(m.apply_step(gone.step, false), m.status());
+    // (the node removal is a step of its own: its undo brings the reader back before the rename is undone)
+    CHECK(m.entry_readers(false, "shine").empty());
+    REQUIRE_MESSAGE(m.apply_step(renamed.step, false), m.status());
+    CHECK(Json::parse(p.read(kMat))["params"].contains("glow"));
+    REQUIRE_MESSAGE(m.apply_step(made.step, false), m.status());
+    CHECK_FALSE(Json::parse(p.read(kMat))["params"].contains("glow"));
+    REQUIRE_MESSAGE(m.apply_step(made.step, true), m.status());
+    CHECK(Json::parse(p.read(kMat))["params"].contains("glow"));
+    // the file changed behind our back: the step says so and changes nothing
+    p.write(kMat, std::string(kDissolve));
+    REQUIRE(m.reload());
+    CHECK_FALSE(m.apply_step(made.step, false));
+    CHECK_FALSE(m.status().empty());
+}
+
+TEST_CASE("graph model: a texture is made and deleted from the panel like a param") {
+    GraphProject p;
+    p.open();
+    GraphModel& m = *p.model;
+    const GraphEditOutcome made = m.add_entry(true, "maskMap", Json::object({{"sampler", "linearRepeat"}}));
+    REQUIRE_MESSAGE(made.ok, made.error);
+    CHECK(Json::parse(p.read(kMat))["textures"].contains("maskMap"));
+    const GraphEditOutcome renamed = m.rename_entry(true, "maskMap", "coverMap");
+    REQUIRE_MESSAGE(renamed.ok, renamed.error);
+    CHECK(Json::parse(p.read(kMat))["textures"].contains("coverMap"));
+    const GraphEditOutcome gone = m.delete_entry(true, "coverMap");
+    REQUIRE_MESSAGE(gone.ok, gone.error);
+    CHECK_FALSE(Json::parse(p.read(kMat)).contains("textures"));
+    REQUIRE(m.apply_step(gone.step, false));
+    CHECK(Json::parse(p.read(kMat))["textures"].contains("coverMap"));
+}
+
+TEST_CASE(
+    "graph model: linking an input to the output it already has makes no undo step; a drag checks the graph once") {
+    GraphProject p;
+    p.open();
+    GraphModel& m = *p.model;
+    const Json before = m.graph();
+    const GraphEditOutcome same = m.connect("amount.value", "burn.threshold");
+    CHECK(same.ok);
+    CHECK(same.step == 0);
+    CHECK(m.graph() == before);
+    const GraphEditOutcome other = m.connect("noise.value", "burn.threshold");
+    CHECK(other.ok);
+    CHECK(other.step > 0);
+
+    // the checker does not run on every move of a drag: the report is the one of the graph when the drag began
+    REQUIRE(m.apply_step(other.step, false));
+    (void)m.report();
+    const int runs = m.report_runs();
+    m.begin_gesture();
+    for (int i = 0; i < 20; ++i) {
+        m.move_nodes({"noise"}, 1.0f, 0.0f);
+        (void)m.report();
+    }
+    CHECK(m.report_runs() == runs);
+    const GraphEditOutcome ended = m.end_gesture("Move node");
+    CHECK(ended.step > 0);
+    (void)m.report();
+    CHECK(m.report_runs() == runs + 1);
+}
+
+TEST_CASE("graph model: a file that lost its graph is said once, not at every poll") {
+    GraphProject p;
+    p.open();
+    GraphModel& m = *p.model;
+    p.write(
+        kMat,
+        R"({"format":"factoria.material/1","shader":"shaders/dissolve.surface.glsl","doc":"No graph any more, a longer text."})");
+    CHECK(m.poll_external());
+    CHECK(m.status().find("no \"graph\"") != std::string::npos);
+    CHECK(m.node_count() == 4);  // the editor's copy stays
+    CHECK(m.dirty());            // and is the only one: Save writes it back
+    m.set_status("");
+    CHECK_FALSE(m.poll_external());
+    CHECK(m.status().empty());
+    CHECK(m.error().empty());
+}
+
 TEST_CASE("graph model: the saved version is the graph as last read from the file; a draft has none") {
     GraphProject p;
     p.open();

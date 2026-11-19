@@ -5627,7 +5627,7 @@ Generate the GLSL snippet of a material from its node graph and record its hash 
 
 Capabilities: read, writeProject
 
-Checks the "graph" of the material (as material.graph.validate), generates the snippet (readable GLSL, one line per node with a comment naming the node id; the same graph gives the same bytes) into the file named by "shader" and writes "graphHash" (SHA-256 of the snippet) into the material file. With `graph` the command checks, stores and generates that graph instead of the one in the file (the node editor saves through it, so the snippet and the hash have one writer). A snippet that does not match the recorded hash was edited by hand (or was written without a graph): the command refuses and changes nothing, because the edit would be lost. Then either pass force true to overwrite it, or delete "graph" from the material to keep the hand-written code. With dryRun true nothing is written. Writing the material file formats it again (2-space JSON). Returns {material, shader, state, written, hash, usedNodes, warnings}; state is the one material.graph.validate reports before the write. Run shader.compile afterwards. Example: {"material":"materials/dissolve.material.json"}
+Checks the "graph" of the material (as material.graph.validate), generates the snippet (readable GLSL, one line per node with a comment naming the node id; the same graph gives the same bytes) into the file named by "shader" and writes "graphHash" (SHA-256 of the snippet) into the material file. With `graph` the command checks, stores and generates that graph instead of the one in the file (the node editor saves through it, so the snippet and the hash have one writer). A snippet that does not match the recorded hash was edited by hand (or was written without a graph): the command refuses and changes nothing, because the edit would be lost. Then either pass force true to overwrite it, or delete "graph" from the material to keep the hand-written code. With dryRun true nothing is written. The material file is rewritten (2-space JSON, same key order; hand formatting is lost). Returns {material, shader, state, written, hash, usedNodes, warnings}; state is the one material.graph.validate reports before the write. Run shader.compile afterwards. Example: {"material":"materials/dissolve.material.json"}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -5677,11 +5677,70 @@ Capabilities: read
 
 Reads a *.material.json (schemas/material.schema.json) and returns {material, doc, kind, mode, shader, lighting, alphaMode, doubleSided, params: [{name, type, default, min?, max?, doc, implicit?, instanced?}], textures: [{name, default, sampler, doc}], vertexAttributes?, instanceLayout?, programs, compile: {state, dialect, toolFound, hint?}}. `kind` is "mesh" (default), "sprite", "sky", "post" or "compute". params are listed in the order of the uniform block (alphabetical); `implicit` marks alphaCutoff, which alphaMode "clip" adds by itself. compile.state is "compiled" when the cache holds this exact material for this machine's dialect, else "not_compiled" (run shader.compile); nothing is compiled by this command. A material file with errors returns them (JSON pointer, message, fix). Example: {"material": "materials/water.material.json"}
 
-`lighting` is "pbr", "unlit" or "custom" (the snippet defines light(), the engine's light loop calls it once per light). `programs` are the shader programs the material makes: mesh, mesh_skin, prepass and prepass_skin, plus shadow and shadow_skin when the snippet defines vertex() or the alpha mode is clip; a sprite material makes quad and quad_plain, a sky material one program, sky, a post material one, post. `mode` is "snippet" or "full". A full-shader material (the file holds your own vertex and fragment stages, docs/shaders/SHADERS_FULL.md) has no lighting, alphaMode or doubleSided; it returns shadow ("depth", "custom" or "none"), prepass and passes [{name, cull, depthTest, depthWrite, blend, program, programSkin}], and its `programs` list one program and one skinned program per pass (mesh, mesh_skin, pass1, pass1_skin, ...), then shadow and shadow_skin for "custom", then prepass and prepass_skin. A compute material also returns workgroupSize [x, y, z] and buffers [{name, binding, access, stride, doc, fields: [{name, type, offset, doc}]}] (std430 layout) and images [{name, binding, format, access, width, height, doc}]; `runsOn` and `notOn` list the platforms the kind has shaders for (compute: not android or web). `instanced` marks a mesh or sprite param whose value every entity (sprite: every quad) gives itself inside ONE draw (it travels in the instance data instead of the uniform block); `instanceLayout` {vec4, slots: [{name, vec4, offset, components}]} says where; `vertexAttributes` lists the extra mesh channels (uv1, color1) vertex() reads as vertex_uv1 and vertex_color1 (docs/SHADERS.md, "The material file").
+`lighting` is "pbr", "unlit" or "custom" (the snippet defines light(), the engine's light loop calls it once per light, or lighting(), your own loop). `programs` are the shader programs the material makes: mesh, mesh_skin, prepass and prepass_skin, plus shadow and shadow_skin when the snippet defines vertex() or the alpha mode is clip; a sprite material makes quad and quad_plain, a sky material one program, sky, a post material one, post. `mode` is "snippet" or "full". A full-shader material (the file holds your own vertex and fragment stages, docs/shaders/SHADERS_FULL.md) has no lighting, alphaMode or doubleSided; it returns shadow ("depth", "custom" or "none"), prepass and passes [{name, cull, depthTest, depthWrite, blend, program, programSkin}], and its `programs` list one program and one skinned program per pass (mesh, mesh_skin, pass1, pass1_skin, ...), then shadow and shadow_skin for "custom", then prepass and prepass_skin. A compute material also returns workgroupSize [x, y, z] and buffers [{name, binding, access, stride, doc, fields: [{name, type, offset, doc}]}] (std430 layout) and images [{name, binding, format, access, width, height, doc}]; `runsOn` and `notOn` list the platforms the kind has shaders for (compute: not android or web). `instanced` marks a mesh or sprite param whose value every entity (sprite: every quad) gives itself inside ONE draw (it travels in the instance data instead of the uniform block); `instanceLayout` {vec4, slots: [{name, vec4, offset, components}]} says where; `vertexAttributes` lists the extra mesh channels (uv1, color1) vertex() reads as vertex_uv1 and vertex_color1 (docs/SHADERS.md, "The material file").
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `material` | string | yes | Project-relative path of the material, e.g. materials/water.material.json. |
+
+### `material.param.create` (modifies state)
+
+Not released yet (on main after 0.31.0).
+
+Add a param to a material file (the Graph panel's "+").
+
+Capabilities: read, writeProject
+
+Adds the param `name` to "params" of the material file and changes nothing else. `type` is float, vec2, vec3, vec4 or color; without `default` the value is 0 in every component (1 for a color), moved into min..max when they are given. Without `doc` a placeholder is written (the file format requires one: AIs read it through material.info), so write one. The result is checked as the file is: a name that is taken (params and textures share one namespace), starts with gn_ or fa_, is a GLSL word or a name of the snippet contract is refused with the fix, and nothing is written. With dryRun true nothing is written. The file is rewritten (2-space JSON, same key order; hand formatting is lost). `index` inserts the param at that position of "params" (default: the end; the order of textures decides their slots). Returns {material, kind, name, entry, index, written, snippet, warnings}; `entry` is what was added. material.param.delete takes it back: call this with its `entry` and `index`. Example: {"material":"materials/dissolve.material.json","name":"glow","type":"float","min":0,"max":1}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `material` | string | yes | Project-relative path of the material, e.g. materials/dissolve.material.json. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
+| `name` | string | yes | The new param's name: a GLSL identifier (it is a variable of the snippet), unique among the params and textures, without the prefix gn_ or fa_. |
+| `type` | string | yes | float, vec2, vec3, vec4, or color (a vec4 the editor shows as a color picker). |
+| `default` | any | no | A number for float, an array of 2, 3 or 4 numbers for the others. Default: zeros (a color: white). |
+| `min` | number | no | Smallest sensible value (the editor slider's start); the default is checked against it. |
+| `max` | number | no | Largest sensible value (the editor slider's end); the default is checked against it. |
+| `index` | integer | no | Position in "params" to insert at (0 = first; past the end = last). Default: the end. material.param.delete returns it: pass it to put a deleted param back where it was. |
+| `instanced` | boolean | no | true: every entity's value travels in the instance data (docs/SHADERS.md, params). |
+| `doc` | string | no | What it holds or does, with its unit. Default: a placeholder to replace. |
+| `dryRun` | boolean | no | Check and report what would be written, and write nothing. Default false. |
+
+### `material.param.delete` (modifies state)
+
+Not released yet (on main after 0.31.0).
+
+Remove a param from a material file; refused while graph nodes read it unless forced.
+
+Capabilities: read, writeProject
+
+Removes the param `name` from "params" of the material file. When nodes of the graph read it (the file's, and `graph` when passed) the call is refused with error code in_use and the node ids in data.nodes: point or delete those nodes first, or pass force true, which removes those nodes and the links that touch them too (the nodes' own inputs fall back to their defaults). `graph` is the graph the editor holds in memory: it, not the file's graph, says which nodes read the param; the result's `graph` is that graph changed, and it is never written. When the shader snippet is the one the graph generated (state in_sync) it is generated again (`snippet.regenerated`); any other snippet is left alone, and `warnings` says when it still uses the name. Scenes and prefabs that set the name in MeshRenderer.materialParams are NOT changed. With dryRun true nothing is written; the file is rewritten (2-space JSON, hand formatting is lost). Returns {material, kind, name, entry, index, removedNodes, written, snippet, warnings[, graph]}; `entry` is the definition removed and `index` its position: material.param.create with both takes it back. Example: {"material":"materials/dissolve.material.json","name":"glow"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `material` | string | yes | Project-relative path of the material, e.g. materials/dissolve.material.json. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
+| `name` | string | yes | The param to remove. |
+| `force` | boolean | no | Also remove the nodes that read it (and their links). Default false. |
+| `graph` | object | no | The graph the editor holds in memory (same format as "graph" of the material). The nodes in it that read the name are followed as well, and the result's `graph` is that graph changed; it is never written. |
+| `dryRun` | boolean | no | Check and report what would be written, and write nothing. Default false. |
+
+### `material.param.rename` (modifies state)
+
+Not released yet (on main after 0.31.0).
+
+Rename a param of a material file and the graph nodes that read it.
+
+Capabilities: read, writeProject
+
+Renames the param `name` to `newName` in "params" of the material file and points every node of the file's graph that reads it at the new name (`renamedNodes`). With `graph` the nodes of that graph are followed too (the Graph panel passes the graph it holds, unsaved edits included) and the result's `graph` is that graph changed; it is never written. The new name is checked as a new one is (taken, gn_ or fa_ prefix, GLSL words...): refused with the fix, nothing is written. When the shader snippet is the one the graph generated (state in_sync) it is generated again, so the file and its snippet stay in step (`snippet.regenerated`); any other snippet is left alone, and `warnings` says when it still uses the old name. Scenes and prefabs that set the old name in MeshRenderer.materialParams are NOT changed. With dryRun true nothing is written; the file is rewritten (2-space JSON, hand formatting is lost). Returns {material, kind, name, newName, renamedNodes, written, snippet, warnings[, graph]}: call it again with the names swapped to take it back. Example: {"material":"materials/dissolve.material.json","name":"glow","newName":"glow2"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `material` | string | yes | Project-relative path of the material, e.g. materials/dissolve.material.json. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
+| `name` | string | yes | The param to rename (material.info lists them). |
+| `newName` | string | yes | Its new name, a GLSL identifier unique among the params and textures, without the prefix gn_ or fa_. |
+| `graph` | object | no | The graph the editor holds in memory (same format as "graph" of the material). The nodes in it that read the name are followed as well, and the result's `graph` is that graph changed; it is never written. |
+| `dryRun` | boolean | no | Check and report what would be written, and write nothing. Default false. |
 
 ### `material.param.set_default` (modifies state)
 
@@ -5691,13 +5750,69 @@ Set the default value of one param of a material file (the Graph panel's "Set as
 
 Capabilities: read, writeProject
 
-Writes `value` as the "default" of the param `param` in the material file and changes nothing else (the shader snippet and the graph stay as they are: a default is read at run time, so no snippet needs to be generated again). The value is checked as the file is: a float param takes a number, vec2, vec3, vec4 and color take an array of 2, 3 or 4 numbers, and the value must be inside min and max when the param has them. Nothing is written when the value is already the default. With dryRun true nothing is written. Writing the material file formats it again (2-space JSON). Returns {material, param, previous, value, written}: call it again with `previous` to take the change back. Example: {"material":"materials/dissolve.material.json","param":"dissolve","value":0.4}
+Writes `value` as the "default" of the param `param` in the material file and changes nothing else (the shader snippet and the graph stay as they are: a default is read at run time, so no snippet needs to be generated again). The value is checked as the file is: a float param takes a number, vec2, vec3, vec4 and color take an array of 2, 3 or 4 numbers, and the value must be inside min and max when the param has them. Nothing is written when the value is already the default. With dryRun true nothing is written. The file is rewritten (2-space JSON, same key order; hand formatting is lost). Returns {material, param, previous, value, written}: call it again with `previous` to take the change back. Example: {"material":"materials/dissolve.material.json","param":"dissolve","value":0.4}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `material` | string | yes | Project-relative path of the material, e.g. materials/dissolve.material.json. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `param` | string | yes | The name of a param written in the material file's "params" (material.info lists them). |
 | `value` | any | yes | The new default: a number for a float param, an array of 2 to 4 numbers for the others. |
+| `dryRun` | boolean | no | Check and report what would be written, and write nothing. Default false. |
+
+### `material.texture.create` (modifies state)
+
+Not released yet (on main after 0.31.0).
+
+Add a texture to a material file (the Graph panel's "+").
+
+Capabilities: read, writeProject
+
+Adds the texture `name` to "textures" of the material file and changes nothing else. `default` is the project-relative texture used when an entity gives none; `sampler` is linear, linearRepeat, nearest or nearestRepeat. Without `doc` a placeholder is written (the file format requires one: AIs read it through material.info), so write one. The result is checked as the file is: a name that is taken (params and textures share one namespace), starts with gn_ or fa_, is a GLSL word or a name of the snippet contract is refused with the fix, and nothing is written. With dryRun true nothing is written. The file is rewritten (2-space JSON, same key order; hand formatting is lost). `index` inserts the texture at that position of "textures" (default: the end; the order of textures decides their slots). Returns {material, kind, name, entry, index, written, snippet, warnings}; `entry` is what was added. material.texture.delete takes it back: call this with its `entry` and `index`. Example: {"material":"materials/dissolve.material.json","name":"maskMap","sampler":"linearRepeat"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `material` | string | yes | Project-relative path of the material, e.g. materials/dissolve.material.json. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
+| `name` | string | yes | The new texture's name: a GLSL identifier (it is a variable of the snippet), unique among the params and textures, without the prefix gn_ or fa_. |
+| `default` | string | no | Project-relative texture used when an entity gives none. |
+| `index` | integer | no | Position in "textures" to insert at (0 = first; past the end = last): the order decides the texture slots. Default: the end. material.texture.delete returns it: pass it to put a deleted texture back in its slot. |
+| `sampler` | string | no | linear (default), linearRepeat, nearest or nearestRepeat: filtering and wrapping of the sampler. |
+| `doc` | string | no | What it holds or does, with its unit. Default: a placeholder to replace. |
+| `dryRun` | boolean | no | Check and report what would be written, and write nothing. Default false. |
+
+### `material.texture.delete` (modifies state)
+
+Not released yet (on main after 0.31.0).
+
+Remove a texture from a material file; refused while graph nodes read it unless forced.
+
+Capabilities: read, writeProject
+
+Removes the texture `name` from "textures" of the material file. When nodes of the graph read it (the file's, and `graph` when passed) the call is refused with error code in_use and the node ids in data.nodes: point or delete those nodes first, or pass force true, which removes those nodes and the links that touch them too (the nodes' own inputs fall back to their defaults). `graph` is the graph the editor holds in memory: it, not the file's graph, says which nodes read the texture; the result's `graph` is that graph changed, and it is never written. When the shader snippet is the one the graph generated (state in_sync) it is generated again (`snippet.regenerated`); any other snippet is left alone, and `warnings` says when it still uses the name. Scenes and prefabs that set the name in MeshRenderer.materialParams are NOT changed. With dryRun true nothing is written; the file is rewritten (2-space JSON, hand formatting is lost). Returns {material, kind, name, entry, index, removedNodes, written, snippet, warnings[, graph]}; `entry` is the definition removed and `index` its position: material.texture.create with both takes it back. Example: {"material":"materials/dissolve.material.json","name":"maskMap"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `material` | string | yes | Project-relative path of the material, e.g. materials/dissolve.material.json. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
+| `name` | string | yes | The texture to remove. |
+| `force` | boolean | no | Also remove the nodes that read it (and their links). Default false. |
+| `graph` | object | no | The graph the editor holds in memory (same format as "graph" of the material). The nodes in it that read the name are followed as well, and the result's `graph` is that graph changed; it is never written. |
+| `dryRun` | boolean | no | Check and report what would be written, and write nothing. Default false. |
+
+### `material.texture.rename` (modifies state)
+
+Not released yet (on main after 0.31.0).
+
+Rename a texture of a material file and the graph nodes that read it.
+
+Capabilities: read, writeProject
+
+Renames the texture `name` to `newName` in "textures" of the material file and points every node of the file's graph that reads it at the new name (`renamedNodes`). With `graph` the nodes of that graph are followed too (the Graph panel passes the graph it holds, unsaved edits included) and the result's `graph` is that graph changed; it is never written. The new name is checked as a new one is (taken, gn_ or fa_ prefix, GLSL words...): refused with the fix, nothing is written. When the shader snippet is the one the graph generated (state in_sync) it is generated again, so the file and its snippet stay in step (`snippet.regenerated`); any other snippet is left alone, and `warnings` says when it still uses the old name. Scenes and prefabs that set the old name in MeshRenderer.materialParams are NOT changed. With dryRun true nothing is written; the file is rewritten (2-space JSON, hand formatting is lost). Returns {material, kind, name, newName, renamedNodes, written, snippet, warnings[, graph]}: call it again with the names swapped to take it back. Example: {"material":"materials/dissolve.material.json","name":"maskMap","newName":"maskMap2"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `material` | string | yes | Project-relative path of the material, e.g. materials/dissolve.material.json. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
+| `name` | string | yes | The texture to rename (material.info lists them). |
+| `newName` | string | yes | Its new name, a GLSL identifier unique among the params and textures, without the prefix gn_ or fa_. |
+| `graph` | object | no | The graph the editor holds in memory (same format as "graph" of the material). The nodes in it that read the name are followed as well, and the result's `graph` is that graph changed; it is never written. |
 | `dryRun` | boolean | no | Check and report what would be written, and write nothing. Default false. |
 
 ## render
@@ -7532,6 +7647,22 @@ Lists the 2D visuals (Sprite, Shape2D, Text, Tilemap, UI widgets) whose drawn bo
 |---|---|---|---|
 | `position` | array | yes | [x, y] in design pixels (origin top-left). |
 | `max` | integer | no | At most this many hits. Default 20. |
+
+### `render.reset_post_history` (modifies state)
+
+Not released yet (on main after 0.31.0).
+
+Start again the history of the custom post passes that read their own output of the frame before (fa_history).
+
+Capabilities: read, state
+
+A custom post material whose snippet calls fa_history(uv) (trails, feedback, accumulation; docs/shaders/SHADERS_POST.md, "History") keeps its output of the frame before. This forgets it for one camera (`entity`) or every camera: from the next frame fa_history_valid is false and fa_history(uv) gives the picture, so the effect starts clean. The renderer already does it by itself in the first frame, after a resize or a change of render scale, when a camera was not drawn in the frame before, and when the scene or the world's clock jumps; call it at a cut the renderer cannot see (a camera switch inside one scene). Nothing is freed: the images stay for the next frame. Result: {reset: "all" or the camera}. Example: render.reset_post_history {}
+
+A camera without such passes is accepted and nothing changes. Errors: `not_found` for an `entity` that does not exist; `unavailable` without graphics (graphics=false). The same is Renderer::reset_post_history in C++.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `entity` | string | no | The camera (id or name). Default: every camera. |
 
 ### `render.supports`
 

@@ -50,3 +50,41 @@ TEST_CASE(
     CHECK(missing == 1);
     CHECK(other == 0);  // "target:page" on a Sprite and on a MeshRenderer is not reported as a missing file
 }
+
+TEST_CASE("validate: compute:<n> is accepted in texture fields (not a file); a malformed id says how to write it") {
+    testing::TempDir tmp;
+    REQUIRE(create_project(tmp.sub("game"), "2d-empty").ok());
+    const stdfs::path dir = tmp.path / "game";
+    auto scene = load_json_file((dir / "scenes/main.scene.json").string());
+    REQUIRE(scene.ok());
+    auto add = [&](const char* id, const char* component, const char* fields) {
+        Json e = Json::object({{"id", id}, {"components", Json::object({{component, Json::parse(fields)}})}});
+        (*scene)["entities"].push_back(e);
+    };
+    add("image_sprite", "Sprite", R"({"texture": "compute:3"})");
+    add("image_mesh", "MeshRenderer", R"({"mesh": "quad", "texture": "compute:12"})");
+    add("bad_number", "Sprite", R"({"texture": "compute:abc"})");
+    add("no_number", "Sprite", R"({"texture": "compute:"})");
+    add("zero", "Sprite", R"({"texture": "compute:0"})");
+    REQUIRE(save_scene_json_file((dir / "scenes/main.scene.json").string(), *scene).ok());
+
+    const ValidationReport r = validate_project(dir.string());
+    int named = 0, empty = 0, zero = 0, other = 0;
+    for (const ValidationIssue& i : r.errors) {
+        if (i.message.find("compute:abc") != std::string::npos) {
+            ++named;
+            CHECK(i.hint.find("compute:1") != std::string::npos);
+        } else if (i.message.find("no number after") != std::string::npos) {
+            ++empty;
+        } else if (i.message.find("compute:0") != std::string::npos) {
+            ++zero;
+        } else {
+            ++other;
+            MESSAGE(i.to_string());
+        }
+    }
+    CHECK(named == 1);
+    CHECK(empty == 1);
+    CHECK(zero == 1);
+    CHECK(other == 0);  // "compute:3" on a Sprite and on a MeshRenderer is not reported as a missing file
+}

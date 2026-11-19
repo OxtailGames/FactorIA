@@ -418,6 +418,7 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`render.inspect`](commands/game.md#renderinspect): Luminance profile of the current picture along a line, with the hard steps (seams, bands) in it. _Since 0.4.0._
 - [`render.output`](commands/game.md#renderoutput): What the game window shows: the standard range or HDR, in which encoding, and what the display can do. _Since 0.31.0._
 - [`render.pick`](commands/game.md#renderpick): Which entities draw a design-space pixel of the picture, topmost first. _Since 0.4.0._
+- [`render.reset_post_history`](commands/game.md#renderreset_post_history-modifies-state): Start again the history of the custom post passes that read their own output of the frame before (fa_history). _Not released yet._
 - [`render.supports`](commands/game.md#rendersupports): What this renderer can do on this graphics backend and GPU: float targets, linear colour, HDR output, post effects. _Since 0.31.0._
 - [`vfx.budget`](commands/game.md#vfxbudget): What an effect document costs on a phone: live particles and the screen they cover, with the fixes. _Since 0.17.0._
 - [`vfx.check`](commands/game.md#vfxcheck): Read an effect document (*.vfx.json) and list every problem, with its JSON pointer and the fix. _Since 0.17.0._
@@ -444,7 +445,13 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`material.graph.nodes`](commands/material.md#materialgraphnodes): List the node types of the material graph library, with their inputs, outputs and the kinds they work in. _Not released yet._
 - [`material.graph.validate`](commands/material.md#materialgraphvalidate): Check the node graph of a material and say whether its snippet is in sync with it. _Not released yet._
 - [`material.info`](commands/material.md#materialinfo): Describe a custom material: lighting, alpha mode, params with types, defaults, ranges and docs, textures, programs and compile state. _Since 0.2.0._
+- [`material.param.create`](commands/material.md#materialparamcreate-modifies-state): Add a param to a material file (the Graph panel's "+"). _Not released yet._
+- [`material.param.delete`](commands/material.md#materialparamdelete-modifies-state): Remove a param from a material file; refused while graph nodes read it unless forced. _Not released yet._
+- [`material.param.rename`](commands/material.md#materialparamrename-modifies-state): Rename a param of a material file and the graph nodes that read it. _Not released yet._
 - [`material.param.set_default`](commands/material.md#materialparamset_default-modifies-state): Set the default value of one param of a material file (the Graph panel's "Set as default"). _Not released yet._
+- [`material.texture.create`](commands/material.md#materialtexturecreate-modifies-state): Add a texture to a material file (the Graph panel's "+"). _Not released yet._
+- [`material.texture.delete`](commands/material.md#materialtexturedelete-modifies-state): Remove a texture from a material file; refused while graph nodes read it unless forced. _Not released yet._
+- [`material.texture.rename`](commands/material.md#materialtexturerename-modifies-state): Rename a texture of a material file and the graph nodes that read it. _Not released yet._
 
 ### [physics](commands/physics.md)
 

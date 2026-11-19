@@ -106,6 +106,10 @@ std::vector<std::string> list_asset_files(const std::string& projectDir, std::st
 // a params field ("" when `field` is not a params field), and whether a field is a material path.
 std::string material_field_of_params(std::string_view paramsField);
 bool is_material_field(std::string_view field);
+// The name of one control of a params block ("matparam" for the value, "matreset" for its Reset button) of `param` on
+// `component`: the coalescing key of its edits, its error slot and its autotest widget ("insp:" + this) all start with the
+// component, so two components of one entity that both have material params (Sprite and Text) never share them.
+std::string material_param_key(std::string_view component, std::string_view kind, std::string_view param);
 // One entry of material.info's `params`.
 struct MaterialParamSpec {
     std::string name;

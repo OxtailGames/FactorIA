@@ -311,7 +311,7 @@ void register_compute_commands(Engine& engine, Engine::Impl& I) {
          "filter everywhere; r32f and rgba32f may not on this GPU, then the checker shows and the log says why). "
          "Example: compute.create_image {\"material\":\"materials/noise.material.json\",\"image\":\"field\","
          "\"width\":512,\"height\":512}" FA_COMMAND_DETAILS "Limits: 32 live images, 8192 pixels a side (or what the "
-                                                            "GPU allows), 256 MiB each, 512 MiB in all; over one is "
+         "GPU allows), 256 MiB each, 512 MiB in all; over one is "
          "`invalid_argument` with the number it hit. A format the backend cannot write as a storage image is refused "
          "with the formats that work. Errors: `unavailable` on a backend without compute shaders (GLES3, WebGL2, "
          "macOS OpenGL 4.1: the message names the backend and the CPU path) or without graphics.",

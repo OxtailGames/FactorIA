@@ -139,6 +139,19 @@ bool readback_storage_image(sg_image image, sg_pixel_format format, int width, i
 #endif
 }
 
+bool storage_image_loadable(sg_pixel_format format, std::string* why) {
+    (void)format;
+    // Desktop OpenGL 4.3 loads every format the shader declares with a layout qualifier (the engine always writes one);
+    // GLES3 has no storage images at all, so no material reaches this.
+    if (why) why->clear();
+#if defined(SOKOL_GLES3)
+    if (why) *why = "GLES3 has no storage images";
+    return false;
+#else
+    return true;
+#endif
+}
+
 bool readback_buffer(sg_buffer buffer, std::size_t offset, std::size_t bytes, std::vector<std::uint8_t>& out,
                      std::string* error) {
 #if defined(SOKOL_GLES3)
