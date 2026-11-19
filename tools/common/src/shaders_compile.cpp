@@ -537,40 +537,6 @@ std::vector<ShaderIssue> precheck_snippet(const MaterialDef& material, const Gen
                 signatures(material) + ".";
         out.push_back(std::move(i));
     }
-    // A sprite's vertex() cannot sample a material texture: the 2D pipeline binds the textures to the fragment stage only
-    // (a mesh material has a second set of slots for the vertex stage).
-    if (is_sprite(material) && g.hasVertex && !material.textures.empty()) {
-        static const std::regex entry(R"(\bvoid\s+vertex\s*\()");
-        std::smatch m;
-        if (std::regex_search(stripped, m, entry)) {
-            const std::size_t open = stripped.find('{', std::size_t(m.position(0)));
-            std::size_t close = open;
-            for (int depth = 0; open != std::string::npos && close < stripped.size(); ++close) {
-                depth += stripped[close] == '{' ? 1 : stripped[close] == '}' ? -1 : 0;
-                if (depth == 0) break;
-            }
-            for (const MaterialTexture& t : material.textures) {
-                std::size_t use = std::string::npos;  // the first use of the name inside the body of vertex()
-                for (std::size_t p = open == std::string::npos ? open : stripped.find(t.name, open);
-                     p != std::string::npos && p < close; p = stripped.find(t.name, p + 1))
-                    if (word_at(stripped, p, t.name)) {
-                        use = p;
-                        break;
-                    }
-                if (use == std::string::npos) continue;
-                ShaderIssue i;
-                i.file = material.shader;
-                i.line = line_of(stripped, use);
-                i.source = line_text(snippet, i.line);
-                i.column = column_of(stripped, use) + 1;
-                i.message = "vertex() of a sprite material cannot sample the texture \"" + t.name + "\"";
-                i.hint = "The 2D pipeline binds a material's textures to the fragment stage only. Sample \"" + t.name +
-                         "\" in fragment(), or move the effect there; a mesh material (kind \"mesh\") may sample "
-                         "textures in vertex().";
-                out.push_back(std::move(i));
-            }
-        }
-    }
     if (is_sky(material) && g.hasVertex) {
         static const std::regex entry(R"(\bvoid\s+vertex\s*\()");
         std::smatch m;

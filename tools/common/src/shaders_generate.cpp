@@ -537,23 +537,24 @@ GeneratedShader generate_material_shader(const MaterialDef& material, std::strin
         material.vertexAttributes.end())
         t.generated("#ifdef GL_VERTEX_SHADER\nvec4 vertex_color1;\n#endif\n");
     std::string vsDefines, vsUndefs, vsDecls, fsDecls;
-    if (sprite || sky) {
-        // A sprite material's textures are declared once, in the fragment stage (views 4.., samplers 3..): the 2D pipeline binds
-        // no vertex-stage views, so vertex() cannot sample one (the compiler's precheck says so). A sky material has no vertex()
-        // and no engine texture: views 0.., samplers 0...
-        int view = sky ? kMaterialSkyFirstView : kMaterialSpriteFirstView;
-        int sampler = sky ? kMaterialSkyFirstSampler : kMaterialSpriteFirstSampler;
+    if (sky) {
+        // A sky material has no vertex() and no engine texture: its textures are declared once, in the fragment stage, at views 0..
+        // and samplers 0...
+        int view = kMaterialSkyFirstView, sampler = kMaterialSkyFirstSampler;
         for (const MaterialTexture& tex : material.textures)
             t.generated("layout(binding=" + std::to_string(view++) + ") uniform texture2D " + tex.name +
                         ";\nlayout(binding=" + std::to_string(sampler++) + ") uniform sampler " + tex.name + "_smp;\n");
     } else {
-        // A mesh material's texture is declared once per stage: a sokol view or sampler slot belongs to one stage, and sokol-shdc refuses one name
-        // in both. The fragment stage reads it at view 6.. and sampler 2.., the vertex stage (where the #define renames it for the
-        // snippet, so the author writes `height` in both) at view 10.. and sampler 6... A declaration the stage does not use is not
-        // part of its program, so the runtime binds both slots (renderer_draw.cpp bind_textures) and each program takes what it
-        // declares.
-        int view = kMaterialFsFirstView, sampler = kMaterialFsFirstSampler;
-        int vsView = kMaterialVsFirstView, vsSampler = kMaterialVsFirstSampler;
+        // A mesh or sprite material's texture is declared once per stage: a sokol view or sampler slot belongs to one stage, and sokol-shdc
+        // refuses one name in both. A mesh's fragment stage reads it at view 6.. and sampler 2.., a sprite's at view 4.. and sampler 3..
+        // (after the engine's own); the vertex stage (where the #define renames it for the snippet, so the author writes `height` in both)
+        // reads it at the slots after those (mesh: view 10.., sampler 6..; sprite: view 8.., sampler 7..). A declaration the stage does
+        // not use is not part of its program, so the runtime binds both slots (renderer_draw.cpp bind_textures, draw_group) and each
+        // program takes what it declares.
+        int view = sprite ? kMaterialSpriteFirstView : kMaterialFsFirstView;
+        int sampler = sprite ? kMaterialSpriteFirstSampler : kMaterialFsFirstSampler;
+        int vsView = sprite ? kMaterialSpriteVsFirstView : kMaterialVsFirstView;
+        int vsSampler = sprite ? kMaterialSpriteVsFirstSampler : kMaterialVsFirstSampler;
         for (const MaterialTexture& tex : material.textures) {
             vsDefines += "#define " + tex.name + " fa_vs_" + tex.name + "\n#define " + tex.name + "_smp fa_vs_" +
                          tex.name + "_smp\n";

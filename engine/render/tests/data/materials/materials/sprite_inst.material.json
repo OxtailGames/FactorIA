@@ -1,0 +1,11 @@
+{
+  "format": "factoria.material/1",
+  "kind": "sprite",
+  "doc": "Test fixture: per-sprite tint and shift (instanced params read in fragment() and vertex()) and a per-draw boost.",
+  "shader": "shaders/sprite_inst.fragment.glsl",
+  "params": {
+    "tint": { "type": "color", "default": [1.0, 1.0, 1.0, 1.0], "instanced": true, "doc": "Replaces the picture's color. One value per sprite." },
+    "shift": { "type": "float", "default": 0.0, "instanced": true, "doc": "World-space shift of every corner along x in units. One value per sprite." },
+    "boost": { "type": "float", "default": 1.0, "min": 0.0, "max": 4.0, "doc": "Multiplies the tint. One value per draw: sprites with different values draw separately." }
+  }
+}
