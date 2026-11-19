@@ -156,7 +156,8 @@ struct Checker {
                     error(pointer,
                           "texture name \"" + name + "\" is also a field of " + structName +
                               " in the snippet contract, and the vertex stage renames every texture with a #define, so "
-                              "`" + name + "` inside the snippet would stop meaning that field",
+                              "`" +
+                              name + "` inside the snippet would stop meaning that field",
                           "Rename it, e.g. \"" + name + "Map\".");
                     return false;
                 }
