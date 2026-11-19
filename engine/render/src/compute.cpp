@@ -61,6 +61,8 @@ struct Compute::State {
     int nextImageId = 1;
     std::uint64_t totalBytes = 0;
     std::uint64_t imageBytes = 0;
+    std::uint64_t lastReadBytes =
+        0;                     // the bytes the last read_image took from the GPU (Compute::last_read_image_bytes)
     int backendOverride = -1;  // tests: a render::FeatureBackend to answer as
     int loadOverride =
         0;  // tests: 1 = answer as a GPU that can imageLoad an r32f image only, 2 = one that cannot imageLoad any
@@ -1002,6 +1004,8 @@ Result<void> Compute::resize_image(int id, int width, int height) {
     return {};
 }
 
+std::uint64_t Compute::last_read_image_bytes() const { return s_->lastReadBytes; }
+
 std::uint64_t Compute::max_json_pixels(int id) const {
     auto it = s_->imgs.find(id);
     if (it == s_->imgs.end()) return kMaxComputeJsonValues;
@@ -1049,19 +1053,21 @@ Result<Json> Compute::read_image(int id, int x, int y, int width, int height) {
         sg_commit();
         s.gpu->note_commit();
     }
+    // Only the rectangle comes off the GPU (a region copy on every backend): reading a corner of a large image holds a corner.
     std::vector<std::uint8_t> raw;
     std::string error;
-    if (!render::readback_storage_image(im.gpu.image, im.format, im.width, im.height, raw, &error))
+    s.lastReadBytes = 0;
+    if (!render::readback_storage_image(im.gpu.image, im.format, x, y, width, height, raw, &error))
         return make_error("compute.read_image: " + error,
                           "This is a graphics driver problem on this backend; report it.");
     const std::size_t pixelBytes = std::size_t(sg_query_pixelformat(im.format).bytes_per_pixel);
-    if (raw.size() < pixelBytes * std::size_t(im.width) * std::size_t(im.height))
-        return make_error("compute.read_image: the driver returned fewer bytes than the image holds",
+    if (raw.size() < pixelBytes * std::size_t(width) * std::size_t(height))
+        return make_error("compute.read_image: the driver returned fewer bytes than the rectangle holds",
                           "This is a graphics driver problem on this backend; report it.");
+    s.lastReadBytes = raw.size();
     Json data = Json::array();
     for (int row = 0; row < height; ++row) {
-        const std::uint8_t* src =
-            raw.data() + (std::size_t(y + row) * std::size_t(im.width) + std::size_t(x)) * pixelBytes;
+        const std::uint8_t* src = raw.data() + std::size_t(row) * std::size_t(width) * pixelBytes;
         for (int col = 0; col < width; ++col) {
             const std::uint8_t* px = src + std::size_t(col) * pixelBytes;
             for (int c = 0; c < channels; ++c) {

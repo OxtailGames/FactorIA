@@ -819,9 +819,13 @@ public:
     // material did not build or is not of kind "sprite" (one warning). An empty path gives an empty ref. Call it on the
     // thread that gathers (it may load the material and its textures), never from the jobs that emit quads: hand the ref to
     // them and let them call QuadList::set_material.
-    // The answers are kept for the frame by path and values: a second item with the same material and equal `overrides` costs one
-    // hash-map find and a comparison, not the path normalization, the packing and the hash. `overrides` must live (and keep its
-    // values) until the next begin_material_frame()/drop_material_cache(): it is a component's own field, never a temporary.
+    // The answers are kept for the frame by path, kind and values: a second item with the same material and equal `overrides` costs
+    // one hash-map find and a comparison, not the path normalization and the packing; no params at all cost a path lookup only. Two
+    // sets of values that hold the same keys in another order are two sets (Json keeps the order), each resolved once and, after
+    // interning, drawn as the same material. `overrides` must live (and keep its values) until the next
+    // begin_material_frame()/drop_material_cache(): it is a component's own field, never a temporary. A component whose params
+    // change after it was asked in the same frame (a script wrote them while rendering) is answered for its current values and
+    // logged once, in every build.
     MaterialRef sprite_material(const std::string& path, const Json& overrides);
     // The same for a custom post pass (PostProcess.customPasses, renderer_custom_post.h): a "post" material and the entry's
     // materialParams. `use->error` is set when the material did not build or is not of kind "post" (one warning); the pass is
@@ -945,13 +949,22 @@ private:
     // only on a hash match, so the number of distinct sets is not capped).
     struct MaterialVariant {
         const Json* params;
+        std::uint64_t hash;  // of the values when it was resolved: tells a component written to since
         MaterialRef ref;
     };
-    struct PathVariants {
-        std::unordered_map<const Json*, MaterialVariant> byPointer;
+    // One kind's answers (the "sprite" and the "post" lookups of one path never share them: the answer carries the kind's check).
+    struct KindVariants {
+        std::unordered_map<const Json*, MaterialVariant>
+            byPointer;  // only sets resolved this frame (a by-value hit adds none)
         std::unordered_multimap<std::uint64_t, MaterialVariant> byValue;
+        MaterialRef empty;  // the answer for no params at all (null, {} or []): no hash, no entry
+        bool hasEmpty = false;
+    };
+    struct PathVariants {
+        KindVariants sprite, post;
     };
     std::unordered_map<std::string, PathVariants> materialVariants_;
+    bool variantsChangedNoted_ = false;  // the "params changed during the frame" warning is given once
     std::uint32_t materialResolves_ = 0;
     MaterialRef resolve_kind_material(const std::string& path, const Json& overrides, MaterialKind want);
     ShaderCompiler shaderCompiler_;
@@ -1432,11 +1445,13 @@ bool readback_rgba8(sg_image image, int width, int height, std::vector<std::uint
 // far must have been committed (sg_commit) by the caller. Backend specific; false + `error` where the backend has no storage buffers.
 bool readback_buffer(sg_buffer buffer, std::size_t offset, std::size_t bytes, std::vector<std::uint8_t>& out,
                      std::string* error);
-// GPU->CPU readback of a whole storage image (Compute::read_image): the pixels as the GPU holds them, `width * height *
-// bytes_per_pixel` bytes, row 0 first (the row an imageStore at y = 0 writes), tightly packed (RGBA16F as halves). Waits for the GPU:
-// the work recorded so far must have been committed (sg_commit) by the caller. `format` is the image's own (RGBA8, RGBA16F, R32F,
-// RGBA32F). False + `error` on a backend without storage images.
-bool readback_storage_image(sg_image image, sg_pixel_format format, int width, int height,
+// GPU->CPU readback of the rectangle (x, y, width, height) of a storage image (Compute::read_image): the pixels as the GPU holds
+// them, `width * height * bytes_per_pixel` bytes, the rectangle's first row first (rows count from the row an imageStore at y = 0
+// writes), tightly packed (RGBA16F as halves). Only the rectangle is copied (a blit, a staging copy or glReadPixels of its size),
+// so a small read of a large image never holds the whole image. Waits for the GPU: the work recorded so far must have been
+// committed (sg_commit) by the caller. `format` is the image's own (RGBA8, RGBA16F, R32F, RGBA32F). False + `error` on a backend
+// without storage images, or when the rectangle is outside the image.
+bool readback_storage_image(sg_image image, sg_pixel_format format, int x, int y, int width, int height,
                             std::vector<std::uint8_t>& out, std::string* error);
 // Whether a compute shader can imageLoad (not only imageStore) a storage image of `format` (RGBA8, RGBA16F, R32F, RGBA32F) on
 // this GPU, the question behind `"access": "readWrite"`. sokol's `read` flag does not answer it: on Direct3D 11 it means a
