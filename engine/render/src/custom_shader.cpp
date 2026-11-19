@@ -908,27 +908,49 @@ MaterialRef Assets::kind_material(const std::string& path, const Json& overrides
     // The answers of this frame by path, then by values: a second ask about the same component, or about another one with equal
     // values (the usual case: a thousand sprites with one material), costs one hash-map find and a comparison of the values in
     // place (nothing is copied).
-    PathVariants& variants = materialVariants_[path];
-    // The same component asked again: its address is the answer. Sound because `overrides` is a component's own field that keeps
-    // its values until the cache is dropped (the contract in render_internal.h); the assert holds that invariant.
-    if (auto it = variants.byPointer.find(&overrides); it != variants.byPointer.end()) {
-        FA_ASSERT(values_equal(*it->second.params, overrides), "a material's params changed during the frame");
-        return it->second.ref;
+    // The "sprite" and the "post" lookups of one path keep apart: the answer holds the kind's own check (a material of another kind
+    // is answered with its error), so one cannot serve the other.
+    PathVariants& perPath = materialVariants_[path];
+    KindVariants& variants = want == MaterialKind::Post ? perPath.post : perPath.sprite;
+    // No params at all (the usual case: a thousand sprites with one material): one answer, nothing hashed, nothing inserted.
+    const bool noParams = params_empty(overrides);
+    if (noParams && variants.hasEmpty) return variants.empty;
+    // The same component asked again: its address is the answer, while its values still hash as they did when it was resolved
+    // (comparing it with itself would prove nothing: the entry holds the component's address, not a copy). A component written
+    // to after that, in the same frame, is answered by its values below.
+    const std::uint64_t h = noParams ? 0 : hash_params(overrides);
+    if (!noParams) {
+        if (auto it = variants.byPointer.find(&overrides); it != variants.byPointer.end()) {
+            if (it->second.hash == h) return it->second.ref;
+            if (!variantsChangedNoted_) {
+                variantsChangedNoted_ = true;
+                FA_WARN(
+                    "render",
+                    "the materialParams of a 2D item changed while the frame was being drawn (material '{}'): the item "
+                    "is drawn with the material of its current values. Write materialParams in update(), never while "
+                    "rendering. (Said once.)",
+                    path);
+            }
+            variants.byPointer.erase(it);
+        }
     }
     // Another component: found by the hash of its values (compared in place only on a hash match, so any number of distinct
-    // sets costs one hash, not a walk over the others).
-    const std::uint64_t h = hash_params(overrides);
-    auto [first, last] = variants.byValue.equal_range(h);
-    for (auto it = first; it != last; ++it)
-        if (values_equal(*it->second.params, overrides)) {
-            const MaterialVariant found = it->second;
-            variants.byPointer.emplace(&overrides, found);
-            return found.ref;
-        }
+    // sets costs one hash, not a walk over the others). A hit is not entered by address: that would allocate a map node for every
+    // sprite of every frame, and the hash of a small set costs less.
+    if (!noParams) {
+        auto [first, last] = variants.byValue.equal_range(h);
+        for (auto it = first; it != last; ++it)
+            if (values_equal(*it->second.params, overrides)) return it->second.ref;
+    }
     // A set of values not seen this frame: the whole lookup (path normalized, params packed, hashed, interned).
     const MaterialRef ref = resolve_kind_material(path, overrides, want);
     ++materialResolves_;
-    const MaterialVariant v{&overrides, ref};
+    if (noParams) {
+        variants.empty = ref;
+        variants.hasEmpty = true;
+        return ref;
+    }
+    const MaterialVariant v{&overrides, h, ref};
     variants.byValue.emplace(h, v);
     variants.byPointer.emplace(&overrides, v);
     return ref;

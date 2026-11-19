@@ -89,6 +89,14 @@ pass (a pass reuses the batch of its entities, so an instanced material is still
 `"shadow": "none"`, and uses the `shadow`/`shadow_skin` programs for `"custom"`; the prepass skips a material with `"prepass":
 false`.
 
+Pipelines are made the first time a frame draws them, not when the material loads (no warm-up). A pipeline is keyed by what
+only a draw knows: the target format (a camera's HDR or LDR target, a render target, a cubemap face), whether the mesh is
+skinned and the `vertexAttributes` extras of the mesh it meets. Building every combination at load would cost more than
+the one or two a scene uses, and building only the likely one would still miss on the first frame of another camera. So the
+first frame that draws a full material (or draws it into a new kind of target) is the one that pays for its pipelines, once;
+the cache keeps them (it is keyed by the program, so a hot reload makes new ones). A game that cannot take that hitch draws the material once on a loading
+screen.
+
 A material that does not build, or whose mesh lacks a declared channel, is drawn with the error material and
 `stats.materialFallbacks` lists it, as for snippets. Hot reload is the existing path: the editor or `factoria run` sees the
 file change, the tooling recompiles it, and the renderer swaps all the programs of the material at once; a failed rebuild

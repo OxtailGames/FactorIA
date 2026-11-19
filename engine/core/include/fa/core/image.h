@@ -97,11 +97,13 @@ void simulate_color_vision(Image& img, ColorSimulation mode);
 
 struct ImageDiff {
     bool sameSize = false;
-    double meanError = 0.0;           // average absolute channel difference, 0..1
-    double maxError = 0.0;            // worst channel difference, 0..1
+    double meanError = 0.0;  // average absolute channel difference, 0..1
+    double maxError = 0.0;   // worst channel difference, 0..1 (the difference itself, not its excess over `tolerance`)
     std::size_t differingPixels = 0;  // pixels with any channel diff > tolerance
 };
-// Compare two images; `tolerance` is per-channel (0..1). Used by golden tests.
+// Compare two images; `tolerance` is per-channel (0..1) and only decides `differingPixels` (a channel that differs by more than it):
+// meanError and maxError are the plain differences, so `maxError <= tolerance` is a valid "no pixel differs" check. Used by
+// golden tests.
 ImageDiff diff_images(const Image& a, const Image& b, float tolerance = 2.0f / 255.0f);
 
 }  // namespace fa

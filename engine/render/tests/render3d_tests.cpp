@@ -1706,6 +1706,37 @@ TEST_CASE("sky materials: what one bake of the environment costs (reported, neve
     MESSAGE(line);
 }
 
+TEST_CASE("sky materials: a render target planned first with another sky does not take the environment from the main "
+          "camera") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    MaterialScope scope;
+    ErrorLog log;
+    // The sky reads the texture "target:mirror": for the camera that renders into "mirror" it is the checker (its own picture would
+    // be a loop), for the main camera it is the mirror's picture, here plain green. The two jobs bake different skies; the job of the
+    // picture is planned last, and the sphere it draws must be lit by the sky it shows (green above) however the jobs are ordered.
+    World w;
+    sky_sphere_world(w, "materials/skytex.material.json", Json::object({{"map", "target:mirror"}}), 0.0f, 1.0f);
+    w.settings().skyColor = w.settings().horizonColor = Color{0.12f, 0.12f, 0.12f, 1};
+    // The mirror's camera is orthographic (it draws no sky of its own: the picture is not the checker) and far from the sphere: its
+    // picture is its green clear colour.
+    Entity mirror = make(w, "mirror", {1000, 1.5f, -400});
+    Camera& mc = w.add<Camera>(mirror);
+    mc.projection = Projection::Orthographic;
+    mc.renderTarget = "mirror";
+    mc.renderTargetSize = Vec2{64, 64};
+    mc.clearColor = Color{0, 1, 0, 1};
+    const Image img = g.render(w);
+    CHECK(g.renderer.stats().renderTargets == 1);
+    const int cx = img.width / 2, cy = img.height / 2;
+    const Color top = img.pixel(cx, cy - 34);
+    CAPTURE(top.r);
+    CAPTURE(top.g);
+    CAPTURE(top.b);
+    CHECK(top.g > top.r + 0.1f);  // lit by the green picture of the mirror, not by the checker or the dark gradient
+    CHECK(log.messages().empty());
+}
+
 TEST_CASE("sky materials: a texture of the material is bound from view 0") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
@@ -2037,6 +2068,42 @@ TEST_CASE("materials: a mesh without a declared channel is drawn magenta and rep
     CHECK(near_color(img.pixel(160 - 78, 90), 1, 0, 1, 0.3f));  // the quad's centre, magenta
 }
 
+TEST_CASE("materials: a glTF reloaded with the declared channel leaves the report and draws normally") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    MaterialScope scope;
+    write_channel_quad("assets/reload_quad.gltf", false);
+    World w;
+    add_camera(w, {0, 0, 4}, {0, 0, 0});
+    add_material_mesh(w, "assets/reload_quad.gltf", "materials/chan.material.json", {0, 0, 0}, Color::white(),
+                      {1, 1, 1});
+    auto reported = [&] {
+        int n = 0;
+        const Json report = g.renderer.asset_report();
+        for (const Json& f : report["failures"])
+            if (f["kind"] == "material-mesh") ++n;
+        return n;
+    };
+    ErrorLog log;
+    const Image before = g.render(w);
+    CHECK(near_color(before.pixel(160, 90), 1, 0, 1, 0.3f));
+    CHECK(reported() == 1);
+    // The file now has the channels; the material itself is not rebuilt.
+    write_channel_quad("assets/reload_quad.gltf", true);
+    g.renderer.reload_asset("assets/reload_quad.gltf");
+    const Image after = g.render(w);
+    CHECK(reported() == 0);
+    CHECK(g.renderer.stats().materialFallbacks.empty());
+    CHECK(near_color(after.pixel(160 - 40, 90), 1, 0, 0, 0.3f));
+    CHECK(near_color(after.pixel(160 + 40, 90), 0, 0, 1, 0.3f));
+    // Reloaded again without them: reported again, once.
+    write_channel_quad("assets/reload_quad.gltf", false);
+    g.renderer.reload_asset("assets/reload_quad.gltf");
+    g.render(w);
+    g.render(w);
+    CHECK(reported() == 1);
+}
+
 // ---- full shaders (mode "full": the file is the whole vertex and fragment stage; docs/shaders/SHADERS_FULL.md) ----
 
 TEST_CASE("full shaders: an unlit colour from the fragment stage, drawn with no light and no surface()") {
@@ -2091,6 +2158,31 @@ TEST_CASE("full shaders: two passes draw in order, the outline from the back fac
     CHECK(red >= 4);  // a ring of the outline pass around the body
     CHECK(firstRed >= 0);
     CHECK(firstRed < firstBody);  // the ring is outside the body
+}
+
+TEST_CASE("full shaders: stats.triangles and drawCalls count each pass of a part, not the part once") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    MaterialScope scope;
+    auto frame = [&](const char* material) {
+        World w;
+        add_camera(w, {0, 0, 4}, {0, 0, 0});
+        if (material)
+            add_material_mesh(w, "sphere", material, {0, 0, 0}, Color::white(), {1.5f, 1.5f, 1.5f});
+        else
+            add_mesh(w, "sphere", {0, 0, 0}, Color::white(), {1.5f, 1.5f, 1.5f});
+        g.render(w);
+        return g.renderer.stats();
+    };
+    const RenderStats plain = frame(nullptr);
+    const RenderStats flat = frame("materials/full_flat.material.json");        // one pass
+    const RenderStats outline = frame("materials/full_outline.material.json");  // two passes
+    REQUIRE(plain.triangles > 0);
+    CHECK(flat.triangles == plain.triangles);
+    CHECK(outline.triangles == 2 * plain.triangles);
+    CHECK(outline.drawCalls == flat.drawCalls + 1);
+    CHECK(outline.meshes == 1);  // one entity, one batch: the passes are not more instances
+    CHECK(outline.meshBatches == 1);
 }
 
 TEST_CASE("full shaders: a pass without the depth test shows the mesh through what hides it") {

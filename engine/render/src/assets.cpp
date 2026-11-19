@@ -1521,6 +1521,17 @@ void Assets::reload(const std::string& pathIn) {
         failures_.erase(std::remove_if(failures_.begin(), failures_.end(),
                                        [&](const Failure& f) { return f.kind == "mesh" && f.path == path; }),
                         failures_.end());
+        // A material that lacked a channel of this mesh is told again after the reload (a glTF that now has it draws
+        // normally and its "material-mesh" report goes; one that still lacks it is reported again, once).
+        const std::string onMesh = " on " + path;
+        failures_.erase(std::remove_if(failures_.begin(), failures_.end(),
+                                       [&](const Failure& f) {
+                                           return f.kind == "material-mesh" && f.path.size() >= onMesh.size() &&
+                                                  f.path.compare(f.path.size() - onMesh.size(), onMesh.size(),
+                                                                 onMesh) == 0;
+                                       }),
+                        failures_.end());
+        for (auto& [key, mat] : materials_) mat->missingNoted.clear();
         load_mesh(path);
     }
     // Meshes referencing a reloaded texture keep pointing at the same TextureAsset (updated in place).

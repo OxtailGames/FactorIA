@@ -363,6 +363,7 @@ struct Renderer::Impl {
     // The 3D world of the frame, gathered once by render() (capture_world: scoped to its subject) before any job and read by the
     // gather_meshes of every camera, render target and CameraView.
     RenderScene renderScene;
+    InstanceParamCache instanceParams;  // the packed per-instance material params of each entity (mesh_batch.h)
     struct JobPlan {
         // The job's name in the frame graph: its passes are "<name>/<pass>" ("camera:0", "screen" for the screen-space job of a
         // split frame, "target:<name>", "view:<n>", "capture").
@@ -423,6 +424,11 @@ struct Renderer::Impl {
     std::uint64_t envFrame = 0;  // the frameSerial it was decided for
     std::uint64_t envFrameKey = 0;
     bool envFrameOk = false;
+    // The first job decided the key above from a render target, CameraView or capture (JobPlan::view), not from a camera of the
+    // picture: the first such camera of the picture takes the decision over (plan_env), and the jobs that used the first key (envJobs)
+    // go back to the gradient.
+    bool envFrameView = false;
+    std::vector<DrawContext*> envJobs;               // the jobs of this frame that sample the baked environment
     std::vector<std::shared_ptr<void>> jobContexts;  // the DrawContext of every job, alive until run_frame_graph() ends
     // What a job's passes read from the renderer when they run: the swapped-in image of a view job (plan_view_job).
     struct JobEnv {

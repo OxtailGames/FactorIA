@@ -413,9 +413,9 @@ display output.
   `resize_image` remakes the GPU image, so a sprite keeps working); a destroyed image points its texture object at the white
   texture and keeps the object (up to 256) so a draw already recorded never reads a freed pointer, and the id answers
   "no live compute image" with the checker. Order inside a frame is the order of the calls: `Gpu::begin_compute_pass` and
-  `end_compute_pass` close the pass, Metal and D3D11 track the hazard, sokol inserts the GL barriers. `read_image` commits, reads the
-  WHOLE image through `readback_storage_image` (one implementation per backend: Metal blit, D3D11 staging copy, GL
-  `glGetTexImage`) and crops on the CPU under the 4M-number cap. Caps are counts (32 images, 8192 a side or the GPU's
+  `end_compute_pass` close the pass, Metal and D3D11 track the hazard, sokol inserts the GL barriers. `read_image` commits, reads only
+  the rectangle through `readback_storage_image` (Metal blit with an origin, D3D11 `CopySubresourceRegion`, GL `glReadPixels` from
+  an FBO with `glGetTexImage` as fallback) under the 4M-number cap. Caps are counts (32 images, 8192 a side or the GPU's
   `max_image_size_2d`, 256 MiB each, 512 MiB in all), checked in 64-bit before the GPU allocates.
 - **Commands.** `postprocess.get`, `postprocess.set` (thin wrappers of `scene.set_component` for `PostProcess`), `postprocess.presets` and
   `postprocess.apply_preset` are in `engine/runtime/src/postprocess_commands.cpp`. The looks are data
