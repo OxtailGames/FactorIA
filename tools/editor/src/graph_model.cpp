@@ -191,6 +191,7 @@ bool GraphModel::load_from_disk(bool startGraph) {
     doc_ = std::move(parsed);
     graph_ = std::move(newGraph);
     savedGraph_ = std::move(newSaved);
+    ++savedRevision_;
     stamp_ = stamp();
     conflict_ = false;
     view_ = View{};
@@ -273,6 +274,7 @@ void GraphModel::close() {
     doc_ = Json();
     graph_ = Json();
     savedGraph_ = Json();
+    ++savedRevision_;
     error_.clear();
     selected_.clear();
     gesture_ = false;
@@ -282,6 +284,67 @@ void GraphModel::close() {
 }
 
 bool GraphModel::dirty() const { return is_open() && (savedGraph_.is_null() || !same_graph(graph_, savedGraph_)); }
+
+Json GraphModel::saved_material_json() const {
+    if (!has_saved()) return Json();
+    Json d = doc_;
+    d["graph"] = savedGraph_;
+    return d;
+}
+
+Json GraphModel::current_param_default(const std::string& name) const {
+    if (!is_open()) return Json();
+    auto params = doc_.find("params");
+    if (params != doc_.end() && params->is_object()) {
+        auto p = params->find(name);
+        if (p != params->end() && p->is_object()) {
+            auto d = p->find("default");
+            if (d != p->end() && !d->is_null()) return *d;
+        }
+    }
+    for (const MaterialParam& p : report().material.params)
+        if (p.name == name) return p.defaultValue;  // a param with no "default" in the file: the parsed one (zeros)
+    return Json();
+}
+
+std::string GraphModel::write_param_default(const std::string& name, const Json& value, Json* previous, bool* written) {
+    if (!call_) return "The Graph panel has no command line to write through.";
+    const CommandResult r =
+        call_("material.param.set_default", Json::object({{"material", rel_}, {"param", name}, {"value", value}}));
+    if (!r.ok) return command_error_text(r.error);
+    if (written) *written = r.result.is_object() && r.result.value("written", false);
+    if (previous) *previous = r.result.is_object() ? r.result.value("previous", Json()) : Json();
+    if (previous && previous->is_null()) *previous = current_param_default(name);
+    if (!doc_["params"].is_object() || !doc_["params"][name].is_object()) return "";
+    doc_["params"][name]["default"] = value;
+    stamp_ = stamp();  // the file changed by our own hand: not an external edit
+    ++revision_;
+    ++savedRevision_;
+    return "";
+}
+
+GraphEditOutcome GraphModel::set_param_default(const std::string& name, const Json& value) {
+    if (!is_open()) return fail("No material is open in the Graph panel.");
+    Json previous;
+    bool written = false;
+    const std::string err = write_param_default(name, value, &previous, &written);
+    if (!err.empty()) return fail(err);
+    GraphEditOutcome out;
+    if (!written) return out;  // already the default: nothing was written
+    if (!gesture_) {
+        GraphStep s;
+        s.id = nextStep_++;
+        s.rel = rel_;
+        s.label = "Set default of " + name;
+        s.param = name;
+        s.beforeValue = previous;
+        s.afterValue = value;
+        out.step = s.id;
+        steps_[s.id] = std::move(s);
+    }
+    status_.clear();
+    return out;
+}
 
 void GraphModel::touch() {
     doc_["graph"] = graph_;
@@ -884,6 +947,23 @@ bool GraphModel::apply_step(int id, bool forward) {
         return false;
     }
     if (gesture_) cancel_gesture();
+    if (!s->param.empty()) {  // a param default: the file's value must be the one the step expects
+        const Json& expectsValue = forward ? s->beforeValue : s->afterValue;
+        const Json& target = forward ? s->afterValue : s->beforeValue;
+        if (current_param_default(s->param) != expectsValue) {
+            status_ = "The default of " + s->param +
+                      " is not what that edit expects (it changed outside the editor): "
+                      "the step is dropped.";
+            return false;
+        }
+        const std::string err = write_param_default(s->param, target, nullptr, nullptr);
+        if (!err.empty()) {
+            status_ = err;
+            return false;
+        }
+        status_.clear();
+        return true;
+    }
     const Json& expects = forward ? s->before : s->after;
     if (!same_graph(graph_, expects)) {
         status_ = "The graph is not what that edit expects (it changed outside the editor or by a reload): the step is "

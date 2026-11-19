@@ -368,7 +368,72 @@ void register_material_graph_commands(CommandRegistry& registry, const std::stri
             return out;
         });
     }
+    {
+        CommandInfo info;
+        info.name = "material.param.set_default";
+        info.category = "material";
+        info.readOnly = false;
+        info.summary = "Set the default value of one param of a material file (the Graph panel's \"Set as default\").";
+        info.description =
+            "Writes `value` as the \"default\" of the param `param` in the material file and changes nothing else (the "
+            "shader snippet and the graph stay as they are: a default is read at run time, so no snippet needs to be "
+            "generated again). The value is checked as the file is: a float param takes a number, vec2, vec3, vec4 and "
+            "color take an array of 2, 3 or 4 numbers, and the value must be inside min and max when the param has "
+            "them. Nothing is written when the value is already the default. With dryRun true nothing is written. "
+            "Writing the material file formats it again (2-space JSON). Returns {material, param, previous, value, "
+            "written}: call it again with `previous` to take the change back. Example: "
+            "{\"material\":\"materials/dissolve.material.json\",\"param\":\"dissolve\",\"value\":0.4}";
+        info.inputSchema = Json::parse(R"({
+          "type":"object","required":["material","param","value"],"additionalProperties":false,
+          "properties":{
+            "material":{"type":"string","description":"Project-relative path of the material, e.g. materials/dissolve.material.json."},
+            "param":{"type":"string","description":"The name of a param written in the material file's \"params\" (material.info lists them)."},
+            "value":{"description":"The new default: a number for a float param, an array of 2 to 4 numbers for the others.","oneOf":[{"type":"number"},{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":4}]},
+            "dryRun":{"type":"boolean","default":false,"description":"Check and report what would be written, and write nothing."}}})");
+        assets_detail::mark_paths(info.inputSchema, "write", {"material"});
+        registry.add(info, [projectDir](const Json& args) {
+            const bool dryRun = tooling_detail::arg_bool(args, "dryRun", false);
+            LoadedMaterial m = load_material(projectDir, args, false);
+            const std::string param = tooling_detail::arg_string(args, "param", true);
+            auto value = args.find("value");
+            if (value == args.end())
+                throw CommandError(
+                    "invalid_argument", "value is missing",
+                    "Pass a number, or an array of 2 to 4 numbers for a vec2, vec3, vec4 or color param.");
+            auto params = m.doc.find("params");
+            std::vector<std::string> names;
+            if (params != m.doc.end() && params->is_object())
+                for (auto it = params->begin(); it != params->end(); ++it) names.push_back(it.key());
+            if (std::find(names.begin(), names.end(), param) == names.end())
+                throw CommandError("not_found", m.path + " has no param \"" + param + "\" in its \"params\"",
+                                   names.empty() ? "The material declares no params." : did_you_mean(param, names),
+                                   Json::object({{"params", Json(names)}}));
+            Json previous = (*params)[param].value("default", Json());
+            Json patched = m.doc;
+            patched["params"][param]["default"] = *value;
+            const MaterialParse mp = parse_material(patched, projectDir, m.path);
+            const std::string prefix = "/params/" + tooling_detail::escape_token(param);
+            for (const MaterialIssue& e : mp.errors)
+                if (e.pointer.rfind(prefix, 0) == 0)
+                    throw CommandError("invalid_value", m.path + e.pointer + ": " + e.message, e.hint,
+                                       Json::object({{"pointer", e.pointer}}));
+            const bool changes = previous != *value;
+            Json out = Json::object({{"material", m.path},
+                                     {"param", param},
+                                     {"previous", previous},
+                                     {"value", *value},
+                                     {"written", !dryRun && changes}});
+            if (dryRun || !changes) return out;
+            const stdfs::path materialPath = assets_detail::project_write_file(projectDir, m.path);
+            std::string err;
+            if (!tooling_detail::write_file(materialPath, dump_json(patched, JsonFormat{}) + "\n", &err))
+                throw CommandError("failed", "cannot write " + m.path + ": " + err,
+                                   "Check that the file is not open elsewhere or read-only. Nothing was changed.");
+            return out;
+        });
+    }
     declare_command_capabilities(registry, {{"material.graph.nodes", capability_sets::reads()},
+                                            {"material.param.set_default", capability_sets::writes_project()},
                                             {"material.graph.validate", capability_sets::reads()},
                                             {"material.graph.generate", capability_sets::writes_project()}});
 }

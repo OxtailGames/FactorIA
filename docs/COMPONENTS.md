@@ -5596,6 +5596,23 @@ Reads a *.material.json (schemas/material.schema.json) and returns {material, do
 |---|---|---|---|
 | `material` | string | yes | Project-relative path of the material, e.g. materials/water.material.json. |
 
+### `material.param.set_default` (modifies state)
+
+Not released yet (on main after 0.31.0).
+
+Set the default value of one param of a material file (the Graph panel's "Set as default").
+
+Capabilities: read, writeProject
+
+Writes `value` as the "default" of the param `param` in the material file and changes nothing else (the shader snippet and the graph stay as they are: a default is read at run time, so no snippet needs to be generated again). The value is checked as the file is: a float param takes a number, vec2, vec3, vec4 and color take an array of 2, 3 or 4 numbers, and the value must be inside min and max when the param has them. Nothing is written when the value is already the default. With dryRun true nothing is written. Writing the material file formats it again (2-space JSON). Returns {material, param, previous, value, written}: call it again with `previous` to take the change back. Example: {"material":"materials/dissolve.material.json","param":"dissolve","value":0.4}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `material` | string | yes | Project-relative path of the material, e.g. materials/dissolve.material.json. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
+| `param` | string | yes | The name of a param written in the material file's "params" (material.info lists them). |
+| `value` | any | yes | The new default: a number for a float param, an array of 2 to 4 numbers for the others. |
+| `dryRun` | boolean | no | Check and report what would be written, and write nothing. Default false. |
+
 ## render
 
 ### `mesh.create` (modifies state)
