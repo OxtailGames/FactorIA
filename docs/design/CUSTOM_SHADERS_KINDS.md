@@ -136,6 +136,10 @@ the GL flip), 1 (fragment, `fa_a` = GL flip and linear scene, `fa_rc` = the came
 `fa_time`) and 5 (the material, `kMaterialUbFragment`); views 0 `fa_scene` and 1 `fa_prepass` with samplers 0 (linear, clamped)
 and 1 (nearest), a material's textures at views and samplers 2+ (`kMaterialPostFirstView`). The prepass is bound only when the
 program declares it (the snippet calls `fa_depth` or `fa_normal`), which is what makes the renderer draw it for the camera.
+The history (`fa_history(uv)`, `fa_history_valid` = `fa_a.z`) is view 6 (`kMaterialPostHistoryView`, after the material's four textures),
+read through sampler 0 with the same `fa_flip_uv` as the scratch images; like the prepass it is bound only when the program declares it
+(sokol-shdc drops an unused texture), and the precheck in `shaders_compile.cpp` refuses `fa_history` as a texture, `fa_history_valid(...)` as
+a call and either in another kind. Which image is bound, and when it is valid, is the renderer's (`renderer_custom_post.cpp`, `CustomPost`).
 `lighting`, `alphaMode` and `doubleSided` are refused for the kind; a graph is not generated for it.
 
 - **The entry.** `PostProcess.customPasses` (a flat `Json` field: the stack keeps its flat component) holds `{material,

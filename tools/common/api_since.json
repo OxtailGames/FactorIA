@@ -1330,6 +1330,7 @@
     "render.inspect": "0.4.0",
     "render.output": "0.31.0",
     "render.pick": "0.4.0",
+    "render.reset_post_history": "unreleased",
     "render.supports": "0.31.0",
     "review.cleanup": "0.18.0",
     "review.info": "0.18.0",

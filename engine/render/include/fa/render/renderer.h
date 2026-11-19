@@ -68,6 +68,8 @@ TransientPoolStats renderer_transient_stats(Renderer& r);
 struct ShadowRowsStats {
     int slots = 0, uploads = 0;
 };
+// The images the post passes that read their own output of the frame before (fa_history) hold now, for the render tests.
+int renderer_post_history_images(Renderer& r);
 ShadowRowsStats renderer_shadow_rows_stats(Renderer& r);
 // Draws the depth and normal prepass as if the camera's stack switched on the effects of `effects` (a mask like PostStack::mask, bit i =
 // PostEffect(i); 0 = as the stack says), for the tests of the prepass: no effect that reads it is drawn yet.
@@ -549,6 +551,12 @@ public:
     void set_debug_view(DebugView view);
     DebugView debug_view() const;
 
+    // Forgets what the custom post passes that read their own output of the frame before (fa_history, docs/shaders/SHADERS_POST.md,
+    // "History") kept: from the next frame their history is not valid (fa_history_valid is false, fa_history(uv) gives the picture), so
+    // a trail or an echo starts again. `camera`: the Entity::bits() of one camera; 0 = every camera. A game calls it at a camera cut or
+    // a scene change the renderer cannot see. Main thread; nothing happens without a renderer.
+    void reset_post_history(std::uint64_t camera = 0);
+
     struct Impl;
 
 private:
@@ -557,6 +565,7 @@ private:
     friend const render::FrameGraph* render::renderer_frame_graph(Renderer& r);
     friend render::TransientPoolStats render::renderer_transient_stats(Renderer& r);
     friend render::ShadowRowsStats render::renderer_shadow_rows_stats(Renderer& r);
+    friend int render::renderer_post_history_images(Renderer& r);
     friend void render::renderer_force_output(Renderer& r, const HdrOutputInfo* info);
     friend bool render::renderer_read_floats(Renderer& r, bool present, std::vector<float>& out, std::string* error);
     std::unique_ptr<Impl> impl_;
