@@ -385,11 +385,20 @@ void validate_materials(const std::string& projectDir, const SetupContext& conte
         ++report.materialsChecked;
         auto result = compile_material(projectDir, path, options);
         if (!result.ok()) {
-            if (!toolFound) {
+            const std::string state = material_snippet_state(projectDir, path);
+            // A snippet the graph makes that is missing or unreadable is an error with or without the compiler: the
+            // compiler is never reached for it. Only a failure that needs the compiler is counted as "not compiled".
+            const bool snippetProblem = state == "missing" || state == "unreadable";
+            if (!toolFound && !snippetProblem) {
+                if (state == "graph_changed")
+                    report.warnings.push_back(
+                        {path, "/graph",
+                         "the graph changed since the snippet was generated: the snippet is out of date",
+                         regenerate_hint(state, path)});
                 ++notCompiled;
                 continue;
             }
-            const std::string fix = regenerate_hint(material_snippet_state(projectDir, path), path);
+            const std::string fix = regenerate_hint(state, path);
             report.errors.push_back({path, "", result.error().message,
                                      compile_error_hint(result.error().hint, fix, result.error().message)});
             continue;

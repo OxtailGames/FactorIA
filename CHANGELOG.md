@@ -17,6 +17,12 @@ Older versions, one file per minor version with its patch releases: [0.30](chang
   says so, `shader.compile` keeps the original hint (for example where to get sokol-shdc) when it adds the regenerate fix, a
   material path like `c:x` is refused on every OS, and a snippet that is there but cannot be read is state `unreadable` with
   the path and the cause, not "does not exist yet".
+  Last polish: `factoria validate` without sokol-shdc still warns (`/graph`) when the graph changed since its snippet, and
+  reports a missing or unreadable snippet as an error with the regenerate hint instead of counting it as "not compiled". Graph
+  panel: Overwrite on a deleted file no longer makes the poll ask again "The file changed on disk"; the preview names the real
+  files also when the compiler prints the stage paths with `\` or a mix; an unreadable snippet shows in amber with the reason
+  as tooltip; a New material that cannot remove its temporary file says so on every failure, not only on success; reopening
+  the same material keeps the New param form but drops a rename of an entry that is gone.
 
 - **Graph panel polish (M72):** Save looks at the file first: when it changed on disk since the editor read it, a window asks
   Overwrite, Reload or Cancel instead of replacing it. New graph material publishes the file whole and removes it again if the
