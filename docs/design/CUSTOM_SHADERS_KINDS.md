@@ -148,7 +148,7 @@ The history (`fa_history(uv)`, `fa_history_valid` = `fa_a.z`) is view 6 (`kMater
 read through sampler 0 with the same `fa_flip_uv` as the scratch images; like the prepass it is bound only when the program declares it
 (sokol-shdc drops an unused texture), and the precheck in `shaders_compile.cpp` refuses `fa_history` as a texture, `fa_history_valid(...)` as
 a call and either in another kind. Which image is bound, and when it is valid, is the renderer's (`renderer_custom_post.cpp`, `CustomPost`).
-`lighting`, `alphaMode` and `doubleSided` are refused for the kind; a graph is not generated for it.
+`lighting`, `alphaMode` and `doubleSided` are refused for the kind; a graph is generated for it like for the other kinds (`kind: post`, snippet `<name>.post.glsl`, the `post.*` nodes: [SHADERS_POST.md](../shaders/SHADERS_POST.md), "Node graphs").
 
 - **The entry.** `PostProcess.customPasses` (a flat `Json` field: the stack keeps its flat component) holds `{material,
   materialParams, enabled, position, name}` entries; `fa/render/post_custom.h` is the one parser (`parse_custom_post_passes`, used by
@@ -203,3 +203,16 @@ no sky material: the same frame and draw calls; the bake runs again exactly when
 it; the animated step; `ready()` after `blank_view()` keeps one sampler). Read only: the GL face orientation, D3D11, the RGBA8 fallback
 and WebGL 2. Cost on Metal: about 2 to 3.5 ms on a frame that bakes (60 passes), 0.3 to 0.6 ms of it CPU (the test "what one bake of
 the environment costs" reports it).
+
+## Post graphs
+
+A post material (`"kind": "post"`, snippet `shaders/<name>.post.glsl`) may hold a `graph`; the user's view is
+[SHADERS_POST.md](../shaders/SHADERS_POST.md), "Node graphs". The generator writes
+`post(in PostInput i, inout PostSurface s)` and no vertex stage; the output has `color` (`s.color`) and `rgb` (`s.color.rgb`).
+The `post.*` nodes (`scene`, `depth`, `normal`, `history`, `screen`) write the helper calls of the snippet contract: calling
+`fa_depth`, `fa_normal` or `fa_history` is what asks the renderer for the prepass or the history, so the node is the whole
+request and the material file has no field for it. A sprite or post graph converts `const.color` and `color` params with
+`fa_scene_rgb` in the fragment function (a mesh graph writes them as typed, so its output is unchanged). The editor draws no
+preview of a post material: `capture_world` makes its own camera and never reads a `PostProcess`, so a preview would need a
+render-module change (a post pass on the capture camera, a scene to run it over, the prepass, the history). The Graph panel says
+why instead, with or without a GPU (`preview_plan`).

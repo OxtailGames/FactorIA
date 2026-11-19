@@ -331,12 +331,11 @@ the editor's Graph panel (View > Graph, [EDITOR.md](EDITOR.md)) edits the same J
   `view.dir`, `texture`, `texture.normal`, `triplanar`, `parallax` (occlusion mapping), math (`add`, `sub`, `mul`, `div`, `min`,
   `max`, `pow`, `lerp`, `clamp`, `saturate`, `smoothstep`, `step`, `abs`, `fract`, `sin`, `oneminus`, `dot`, `length`,
   `normalize`, `split`, `combine`), noise (`noise.value`, `noise.gradient`, `noise.voronoi`, `noise.fbm`), effects (`dissolve`,
-  `flow`, `fresnel`) and `output`. Noise helpers are plain GLSL functions named `gn_...`, pasted into the snippet only when a
+  `flow`, `fresnel`) and `output`; `sprite.*` and `post.*` nodes belong to their kind. Noise helpers are plain GLSL functions named `gn_...`, pasted into the snippet only when a
   node uses them.
 - **Where a node can go.** Nodes that sample a texture or read the view direction (`texture`, `texture.normal`, `triplanar`,
   `parallax`, `view.dir`, `position.view`, `fresnel`) run in the fragment function only: they may not feed `vertexOffset`
-  (no textures in the vertex stage). Each node lists the kinds it works in (`mesh`, `sprite`); a sprite graph (`"kind":
-  "sprite"`, output `color`, `rgb`, `alpha`, `vertexOffset`) refuses the 3D nodes and says what to use instead.
+  (no textures in the vertex stage). Each node lists the kinds it works in (`mesh`, `sprite`, `post`); another kind's node is refused and the error says what to use ([post graphs](shaders/SHADERS_POST.md)).
 - **Commands.** `material.graph.nodes` (the library), `material.graph.validate {material}` (every problem with its JSON
   pointer, what is wrong and the fix: unknown node type with a "did you mean", a link to a node or port that does not exist,
   a type mismatch, a cycle, a missing output, a node used in the vertex path that needs the fragment stage), and
@@ -823,6 +822,7 @@ write them. The slots are listed in `engine/render/src/render_internal.h` (`kMat
   you want a cut-out. `lighting` `"pbr"` and `"unlit"` and `doubleSided` mean nothing here and are ignored; `"custom"` is an
   error (there is no `light()` hook in the 2D pipeline).
 - `vertexAttributes` does not apply (a quad has no second UV or colour set): refused.
+- A sprite material admits a `graph` (kind `sprite`, "Node graphs").
 - `vertex()` samples the material's textures as a mesh material's does ("Textures in `vertex()`": mip 0, the same names).
 - An `instanced` param is a per-quad value (at most 3 vec4, same rules as a mesh); the snippet reads it by name in
   `fragment()` and `vertex()`. A particle's instanced values are its emitter's `materialParams`, and `i.life` is the

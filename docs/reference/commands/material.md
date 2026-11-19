@@ -27,11 +27,11 @@ List the node types of the material graph library, with their inputs, outputs an
 
 Capabilities: read
 
-Returns {format, kinds, categories, nodes: [{type, category, doc, kinds, stage, needs?, inputs: [{name, type, default?, doc}], outputs: [{name, type, doc}]}], example}. `format` says how the "graph" of a *.material.json is written; `example` is a complete material (a dissolve) whose graph passes material.graph.validate. An input type "gen" is a float or a vector; a float widens by itself. `stage` is "fragment" for nodes that sample textures or read the view direction (not allowed in the path of the output's vertexOffset). `kinds` of a node are the material kinds it works in ("mesh", "sprite"; the output node has one entry per kind, with that kind's fields); a node used in another kind is an error that says what to use. Filters: `kind` ("mesh" or "sprite"; "sprite" also returns a sprite `example`), `category`, `type`. Example: {"kind":"sprite","category":"noise"}
+Returns {format, kinds, categories, nodes: [{type, category, doc, kinds, stage, needs?, inputs: [{name, type, default?, doc}], outputs: [{name, type, doc}]}], example}. `format` says how the "graph" of a *.material.json is written; `example` is a complete material of the asked kind (a dissolve for mesh and sprite, a wobbly vignette for post) whose graph passes material.graph.validate. An input type "gen" is a float or a vector; a float widens by itself. `stage` is "fragment" for nodes that sample textures or read the view direction (not allowed in the path of the output's vertexOffset). `kinds` of a node are the material kinds it works in ("mesh", "sprite", "post"; the output node has one entry per kind, with that kind's fields); a node used in another kind is an error that says what to use. Filters: `kind` ("mesh", "sprite" or "post"; the example is of that kind), `category`, `type`. Example: {"kind":"post","category":"input"}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `kind` | string | no | Only nodes that work in this material kind ("mesh" or "sprite"). |
+| `kind` | string | no | Only nodes that work in this material kind ("mesh", "sprite" or "post"). |
 | `category` | string | no | Only this category: constant, input, texture, math, noise, effect or output. |
 | `type` | string | no | Only this node type, e.g. "noise.fbm". |
 

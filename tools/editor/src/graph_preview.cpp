@@ -91,9 +91,10 @@ PreviewPlan preview_plan(const std::string& kind) {
                       "so this preview cannot draw it. Pick it in View > Scene settings and look at the Scene view.";
     } else if (kind == "post") {
         plan.kind = PreviewKind::None;
-        plan.reason = "A post material is a full-screen pass over a camera's finished picture, so there is nothing for "
-                      "this preview "
-                      "to draw it on. Run the game or the Scene view to see it.";
+        plan.reason =
+            "No preview for post materials; add it to a PostProcess.customPasses to see it. A post pass runs over the "
+            "finished picture of a camera, and this preview renders its own small scene with its own camera, which "
+            "ignores the PostProcess of the project: Run the game or the Scene view.";
     } else if (kind == "compute") {
         plan.kind = PreviewKind::None;
         plan.reason =
@@ -401,6 +402,13 @@ void GraphPreview::tick(Renderer* renderer) {
     if (!renderer || !renderer->initialized() || renderer->shader_dialect().empty()) {
         for (Slot* s : {&cur_, &saved_}) {
             if (!s->haveDoc) continue;
+            // A kind this preview never draws (post, sky, compute) says why with or without a GPU: the reason does not depend on one.
+            const PreviewPlan plan = preview_plan(kind_of(s->doc));
+            if (plan.kind == PreviewKind::None) {
+                if (s->state != PreviewState::Unsupported || s->message != plan.reason)
+                    note_unsupported(*s, plan.reason);
+                continue;
+            }
             s->state = PreviewState::NoRenderer;
             s->message = "The editor has no GPU renderer here, so the preview cannot draw.";
         }
