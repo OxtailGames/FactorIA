@@ -50,7 +50,10 @@ The `compute.*` commands (also `fa.call("compute.dispatch", ...)` in a script, a
 From C++ the same is `Renderer::compute()` (`fa/render/compute.h`: `create_buffer`, `write_buffer`, `dispatch`, `read_buffer`).
 
 Limits, all counts and never time: 64 buffers, 256 MiB each and 1 GiB in all, at most 65535 workgroups per dimension and
-1048576 elements converted per write or read call. A request over one is refused with the number it hit.
+1048576 elements and 4194304 numbers (elements times the components of their fields, so the JSON of one call stays small)
+converted per write or read call. A request over one is refused with the number it hit and, for a read or write, the
+largest count that fits: go on in chunks with `first` and `count`. A read without `count` stops at that largest count.
+Floats come back rounded to 7 digits, so integers above 2^24 stored in a float field do not return exact.
 
 ### Where it runs
 
