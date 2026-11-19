@@ -620,8 +620,7 @@ bool Renderer::Impl::ensure_ldr_targets(int count) {
     bool all = true;
     // They hold display values: the display format, and a float one when the window is HDR (Gpu::ldr_cut_format). A change of the
     // output makes them again.
-    const HdrOutputInfo& out = output();
-    const sg_pixel_format format = gpu.ldr_cut_format(out.active && out.encoding != HdrEncoding::Sdr);
+    const sg_pixel_format format = gpu.ldr_cut_format(frameOutput.extended());
     for (int i = 0; i < count; ++i) {
         if (ldrMid[i].valid() && ldrMid[i].format.color == format) continue;
         destroy_target(ldrMid[i]);

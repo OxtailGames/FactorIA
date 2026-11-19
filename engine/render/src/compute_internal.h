@@ -11,6 +11,9 @@ namespace fa {
 // the refusal path of a backend without compute on a GPU that has it.
 struct ComputeTestAccess {
     static void set_backend(Compute& c, int backend);
+    // With set_backend: whether that backend's GPU has compute (1) or not (0), whatever the backend usually has: OpenGL on macOS
+    // is 4.1 (no storage buffers, no compute) while OpenGL on Linux and Windows is 4.3 or newer. -1 = by backend (the default).
+    static void set_compute_capable(Compute& c, int mode);
     // Make the material loader answer as an OpenGL driver with `limit` storage buffer bindings per stage would (-1 = the real one).
     static void set_binding_limit(Compute& c, int limit);
     // Make create_image answer as a GPU that can imageLoad an r32f storage image only (mode 1: a Metal Tier 1 or D3D11.0 GPU), or

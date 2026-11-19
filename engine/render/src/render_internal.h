@@ -107,6 +107,9 @@ struct MeshExtras {
     int instanceVec4 = 0;  // vec4 of per-instance data (vertex buffer 3), 0..kMaxInstanceVec4
     bool uv1 = false;      // vertex buffer 4: TEXCOORD_1 as two floats
     bool color1 = false;   // vertex buffer 5: COLOR_1 as four normalized bytes
+    // The material has "buffers": its instances read storage buffers and the model is a uniform, so the instance attributes
+    // fa_inst_m0..3 read the mesh's own vertex buffer instead of vertex buffer 1 (Gpu: set_instance_layout), which is not bound.
+    bool bufferInst = false;
     bool any() const { return instanceVec4 > 0 || uv1 || color1; }
 };
 // Skinning: a skinned part has a third vertex buffer (vertex buffer 2) of SkinVertex, and the draw uploads the joint
@@ -554,7 +557,7 @@ struct MaterialAsset {
         instancedNames;  // their names, sorted: what the hash of MeshRenderer.materialParams leaves out
     std::size_t instancedKey =
         0;  // changes when the set of instanced names does (a cached hash of the overrides is then stale)
-    MeshExtras extras() const { return {instanceVec4, uv1, color1}; }
+    MeshExtras extras() const { return {instanceVec4, uv1, color1, !buffers.empty()}; }
     std::vector<MaterialTextureDef> textures;  // in the order of the twin's "textures" (views 6+i, samplers 2+i)
     MaterialProgram programs
         [kMaxMaterialPrograms];  // by MaterialProgramId for a mesh material; a sprite one: quad, quad_plain; a sky one: sky; a post one: post
@@ -981,7 +984,8 @@ private:
         KindVariants sprite, post;
     };
     std::unordered_map<std::string, PathVariants> materialVariants_;
-    bool variantsChangedNoted_ = false;  // the "params changed during the frame" warning is given once
+    bool variantsChangedNoted_ =
+        false;  // the "params changed during the frame" warning is given once (until clear() or a material reload)
     std::uint32_t materialResolves_ = 0;
     MaterialRef resolve_kind_material(const std::string& path, const Json& overrides, MaterialKind want);
     ShaderCompiler shaderCompiler_;

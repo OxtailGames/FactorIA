@@ -13,6 +13,7 @@
 #include "fa/scene/tilemap.h"
 #include "render_internal.h"
 #include "scene2d.h"
+#include "renderer_test_access.h"
 
 using namespace fa;
 using namespace fa::test;

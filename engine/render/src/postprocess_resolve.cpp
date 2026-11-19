@@ -197,15 +197,26 @@ void add_custom_passes(PostStack& out, const PostProcess& c, float s, Entity ent
                         unparsable.push_back(rest.error());
                 }
             }
-            const bool said = std::any_of(out.customErrors.begin(), out.customErrors.end(),
-                                          [&](const Error& e) { return e.message.rfind(prefix, 0) == 0; });
-            if (!said) {
+            // The first component that hits the cap says it; the components after it (later volumes) add what they drop to that
+            // message, so every dropped entry is named once, not only those of the first one.
+            const auto said = std::find_if(out.customErrors.begin(), out.customErrors.end(),
+                                           [&](const Error& e) { return e.message.rfind(prefix, 0) == 0; });
+            if (said == out.customErrors.end()) {
                 out.customErrors.push_back(Error{
                     prefix + "the " + std::to_string(dropped) + (dropped == 1 ? " entry" : " entries") +
                         " of one PostProcess from /customPasses/" + std::to_string(i) + first + " on are not drawn.",
                     "Remove entries from PostProcess.customPasses of the camera or the volumes, or merge "
                     "passes into one material."});
                 for (Error& e : unparsable) out.customErrors.push_back(std::move(e));
+            } else {
+                said->message += " Also not drawn: the " + std::to_string(dropped) +
+                                 (dropped == 1 ? " entry" : " entries") + " of the PostProcess of entity " +
+                                 std::to_string(entity.bits()) + " from /customPasses/" + std::to_string(i) + first +
+                                 " on.";
+                for (Error& e : unparsable) {
+                    e.message = "In the PostProcess of entity " + std::to_string(entity.bits()) + ": " + e.message;
+                    out.customErrors.push_back(std::move(e));
+                }
             }
             return;
         }

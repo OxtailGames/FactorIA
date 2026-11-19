@@ -192,7 +192,11 @@ instance cost nothing (the recipe is in docs/shaders/SHADERS_COMPUTE.md, "Drawin
 - **Base model.** The entity's matrix is not an instance attribute for these materials: `mesh_common.glsl` /
   `mesh_full_common.glsl` define `FA_BUFFER_INST` and read `fa_base_model` from the vertex uniform block 6
   (`kMeshInstanceBaseUniform`, `apply_mesh_base_model`) as `FA_INST_MODEL`, so `fa_instance_index` (`gl_InstanceIndex`) is free to
-  mean the buffer element. The unused instance attributes of the pipeline are tolerated.
+  mean the buffer element. The shader still declares the instance attributes `fa_inst_m0..3`, and the instance vertex buffer holds
+  one matrix while N instances are drawn, so for these materials (`MeshExtras::bufferInst`) the pipeline points the four attributes
+  at the first 16 bytes of the mesh's own vertex buffer, per vertex (`set_instance_layout` in `gpu.cpp`): they never read past a
+  buffer, whatever N is, on every backend (a step rate cannot do it: sokol_gfx narrows it to an int8 on OpenGL). A skinned mesh
+  (Animator) with such a material is drawn posed, each instance with the same pose.
 - **Draw hooks.** `mesh_buffer_draw.{h,cpp}`: `resolve_mesh_buffers` (once per batch in the shadow pass, the prepass and the main
   pass) reads the ids from `materialParams[<buffer>]`, lets `ComputeDrawAccess::bind` check id, stride and fields, and checks
   `instances` against every buffer (each must hold N elements; the error names the short one). A failure marks the use `skip` (the entity is not drawn) and reports once through

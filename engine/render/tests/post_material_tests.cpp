@@ -20,6 +20,7 @@
 #include "frame_graph.h"
 #include "postprocess.h"
 #include "renderer_custom_post.h"
+#include "renderer_test_access.h"
 
 using namespace fa;
 using namespace fa::test;
@@ -1268,6 +1269,37 @@ TEST_CASE("post history: a GPU that refuses the images is asked once for a shape
     const Image img = own.draw(s.w);
     near(img.pixel(20, 20), 1, 0, 0);
     CHECK(render::renderer_post_history_attempts(own.r) == 2);
+}
+
+TEST_CASE("post history: the refused shapes are remembered up to a cap, and the oldest one is forgotten first") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    MaterialScope scope;
+    ProblemLog log;
+    OwnRenderer own(g, 1);
+    REQUIRE_MESSAGE(own.ok, own.error);
+    Scene2d s;
+    // 32 history passes of one material (the camera's 8 and three volumes' 8 each: the most a stack takes), each its own slot.
+    Json eight = Json::array();
+    for (int i = 0; i < 8; ++i) eight.push_back(entry(kHistory, nullptr, keep(1.0, true)));
+    s.post().customPasses = eight;
+    for (int v = 0; v < 3; ++v) {
+        Entity e = make(s.w, "volume");
+        s.w.add<PostProcess>(e).customPasses = eight;
+    }
+    render::renderer_refuse_post_history(own.r, true);
+    own.draw(s.w);
+    CHECK(render::renderer_post_history_attempts(own.r) == 32);  // every slot asked once, every one refused
+    // The memory holds 16 shapes, the 16 refused last (16..31); the oldest goes first. Frame 2 plans 0..15 first: each one is asked and
+    // takes the place of the oldest, which is one of 16..31, so by the time 16..31 are planned none is left: all 32 are asked again
+    // (a first-in first-out memory over a loop longer than itself). A memory that dropped whichever key sorts first would keep
+    // most of 17..31 and ask 17, so the count tells which one is forgotten.
+    own.draw(s.w);
+    CHECK(render::renderer_post_history_attempts(own.r) == 64);
+    own.draw(s.w);
+    CHECK(render::renderer_post_history_attempts(own.r) == 96);
+    CHECK(render::renderer_post_history_images(own.r) == 0);
+    CHECK(log.count("keeps a history") == 1);
 }
 
 TEST_CASE(

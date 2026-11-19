@@ -17,6 +17,7 @@
 #include "fa/scene/tilemap.h"
 #include "fa/scene/vfx.h"
 #include "render_internal.h"
+#include "renderer_test_access.h"
 
 using namespace fa;
 using namespace fa::test;
@@ -53,6 +54,14 @@ struct MaterialScope {
         gfx().renderer.set_shader_compiler({});
         gfx().renderer.clear_asset_cache();
     }
+};
+
+// A test that plays *.vfx.json files starts and ends with an empty vfx cache, whichever way it leaves (a failed REQUIRE included).
+struct VfxCacheScope {
+    VfxCacheScope() { clear_vfx_cache(); }
+    ~VfxCacheScope() { clear_vfx_cache(); }
+    VfxCacheScope(const VfxCacheScope&) = delete;
+    VfxCacheScope& operator=(const VfxCacheScope&) = delete;
 };
 
 // The warnings and errors logged while alive (the sink may run on a job thread).
@@ -1048,6 +1057,14 @@ TEST_CASE(
     params["tint"] = Json::array({0.0, 1.0, 0.0, 1.0});  // written to again: still one warning
     assets.sprite_material(kTint, params);
     CHECK(log.count("materialParams of a 2D item changed") == 1);
+    // After clear() (the table is rebuilt: a hot reload does the same) a later change warns again.
+    assets.clear();
+    assets.begin_material_frame();
+    Json again = Json::object({{"tint", Json::array({1.0, 0.0, 0.0, 1.0})}});
+    REQUIRE(assets.sprite_material(kTint, again).use != nullptr);
+    again["tint"] = Json::array({0.0, 0.0, 1.0, 1.0});
+    assets.sprite_material(kTint, again);
+    CHECK(log.count("materialParams of a 2D item changed") == 2);
     assets.clear();
 }
 
@@ -1055,7 +1072,7 @@ TEST_CASE("emitter materials: an emitter part of a *.vfx.json takes material and
     Gfx& g = gfx();
     REQUIRE(g.ok);
     MaterialScope scope;
-    clear_vfx_cache();
+    VfxCacheScope vfxScope;
     const Json doc = Json::parse(R"({
         "format": "factoria.vfx/1",
         "parts": [{"type": "emitter", "name": "glow", "at": 0, "emitter": {

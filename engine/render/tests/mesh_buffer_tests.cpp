@@ -16,8 +16,11 @@
 #include <string>
 #include <vector>
 
+#include "fa/scene/animation.h"
+
 #include "compute_internal.h"
 #include "render_features.h"
+#include "renderer_test_access.h"
 
 using namespace fa;
 using namespace fa::test;
@@ -55,6 +58,7 @@ struct Scope {
     ~Scope() {
         for (const Json& b : g.renderer.compute().list()) (void)g.renderer.compute().destroy_buffer(b["id"].get<int>());
         ComputeTestAccess::set_backend(g.renderer.compute(), -1);
+        ComputeTestAccess::set_compute_capable(g.renderer.compute(), -1);
         ComputeTestAccess::set_binding_limit(g.renderer.compute(), -1);
         g.renderer.clear_asset_cache();
     }
@@ -457,4 +461,140 @@ TEST_CASE("mesh buffers: a backend that cannot read storage buffers in a vertex 
         REQUIRE(s.g.renderer.stats().materialFallbacks.size() == 1);  // drawn with the error material, never a crash
         CHECK(s.g.renderer.stats().materialFallbacks[0] == kMesh);
     }
+}
+
+TEST_CASE("mesh buffers: OpenGL 4.1 (macOS: no storage buffers, no compute) refuses the material at load and says what "
+          "to do") {
+    Scope s;
+    // The GL backend of a Linux or Windows machine has compute; the one of macOS stops at 4.1 and has none: the same backend,
+    // answered as a GPU without compute (the gate of the load reads what Compute answers, ComputeTestAccess).
+    ComputeTestAccess::set_backend(s.compute(), int(render::FeatureBackend::Gl));
+    ComputeTestAccess::set_compute_capable(s.compute(), 0);
+    s.g.renderer.clear_asset_cache();
+    install_materials();
+    ErrorLog log;
+    World w;
+    add_camera(w, {0, 0, 4});
+    add_instanced(w, kMesh, Json::object({{"points", 1}}), 4);
+    s.g.render(w);
+    s.g.render(w);
+    CHECK(log.count("the GL graphics backend") >= 1);
+    CHECK(log.count("lacks compute") >= 1);
+    CHECK(log.count("macOS OpenGL (4.1)") >= 1);  // the hint names it, and the CPU path
+    CHECK(log.count("CPU path") >= 1);
+    REQUIRE(s.g.renderer.stats().materialFallbacks.size() == 1);  // drawn with the error material, never a crash
+    CHECK(s.g.renderer.stats().materialFallbacks[0] == kMesh);
+    CHECK(count_runs(s.g.render(w)) == 0);
+    // The same backend with compute (GL 4.3+) loads it.
+    ComputeTestAccess::set_compute_capable(s.compute(), 1);
+    s.g.renderer.clear_asset_cache();
+    install_materials();
+    s.g.render(w);
+    CHECK(s.g.renderer.stats().materialFallbacks.empty());
+}
+
+TEST_CASE(
+    "mesh buffers: a very large instance count reads only its buffer, never the one-matrix instance vertex buffer") {
+    Scope s;
+    std::string why;
+    if (!s.compute().available(&why)) {
+        skip_without_compute("the large instance count is not drawn", why);
+        return;
+    }
+    // 1 << 20 instances: with a per-instance step the attributes fa_inst_m0..3 would read 64 MB past the one matrix the draw binds.
+    // The model is a uniform and the attributes read the first 16 bytes of each vertex (Gpu set_instance_layout), so only the first
+    // five elements, the ones the compute pass wrote, show; the rest are zero and collapse.
+    const int big = 1 << 20;
+    const int id = make_buffer(s.compute(), big);
+    fill(s.compute(), id, 5);
+    ErrorLog log;
+    World w;
+    add_camera(w, {0, 0, 4});
+    add_instanced(w, kMesh, Json::object({{"points", id}}), big);
+    Entity light = make(w, "light", {0, 5, 0});
+    w.get<Transform>(light)->rotation = {-50, 30, 0};
+    auto& l = w.add<Light>(light);
+    l.type = LightType::Directional;
+    l.castShadows = true;  // the same draw in the shadow pass
+    CHECK(count_runs(s.g.render(w)) == 5);
+    CHECK(count_runs(s.g.render(w)) == 5);
+    CHECK(log.total() == 0);
+}
+
+TEST_CASE(
+    "mesh buffers: an entity skipped by a buffer error is left out of the shadow pass, the prepass and the main pass") {
+    Scope s;
+    std::string why;
+    if (!s.compute().available(&why)) {
+        skip_without_compute("the skipped entity is not run", why);
+        return;
+    }
+    // The prepass is made when an effect that reads depth is on (forced here, as the tests of the prepass do).
+    struct Force {
+        Renderer& r;
+        explicit Force(Renderer& rr) : r(rr) { render::renderer_force_post_effects(r, 1u << int(PostEffect::Ssao)); }
+        ~Force() { render::renderer_force_post_effects(r, 0); }
+    } force(s.g.renderer);
+    auto build = [&](World& w, bool withBroken) {
+        add_camera(w, {0, 0, 4});
+        Entity light = make(w, "light", {0, 5, 0});
+        w.get<Transform>(light)->rotation = {-50, 30, 0};
+        auto& l = w.add<Light>(light);
+        l.type = LightType::Directional;
+        l.castShadows = true;
+        Entity cube = make(w, "cube", {0, 1.2f, 0});
+        auto& m = w.add<MeshRenderer>(cube);
+        m.mesh = "cube";
+        if (withBroken) add_instanced(w, kMesh, Json::object(), 5);  // no buffer id: the entity cannot be drawn
+    };
+    ErrorLog log;
+    World plain;
+    build(plain, false);
+    s.g.render(plain);
+    const RenderStats base = s.g.renderer.stats();
+    World broken;
+    build(broken, true);
+    const Image img = s.g.render(broken);
+    s.g.render(broken);
+    const RenderStats stats = s.g.renderer.stats();
+    CHECK(count_runs(img) == 0);
+    CHECK(stats.drawCalls == base.drawCalls);              // not one draw in any pass for the broken entity
+    CHECK(stats.shadowCasters == base.shadowCasters + 1);  // counted as a caster, but skipped by the draw
+    CHECK(log.count("/materialParams/points") == 1);  // the three passes report it once, not once per pass or frame
+    CHECK(stats.materialFallbacks.empty());
+}
+
+TEST_CASE("mesh buffers: a skinned mesh (Animator) with a buffers material draws its instances, posed") {
+    Scope s;
+    std::string why;
+    if (!s.compute().available(&why)) {
+        skip_without_compute("the skinned instances are not drawn", why);
+        return;
+    }
+    std::ifstream in(std::string(FA_REPO_ROOT) + "/engine/render/tests/data/skinned_two_bone.gltf", std::ios::binary);
+    std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    REQUIRE(fs::write_text("assets/rig_buffers.gltf", text).ok());
+    const int id = make_buffer(s.compute(), 8);
+    fill(s.compute(), id, 3);
+    ErrorLog log;
+    World w;
+    add_camera(w, {1, 1, 6});
+    Entity rig = make(w, "rig", {0, 0, 0});
+    auto& m = w.add<MeshRenderer>(rig);
+    m.mesh = "assets/rig_buffers.gltf";
+    m.color = Color::black();
+    m.material = kMesh;
+    m.materialParams = Json::object({{"points", id}});
+    m.instances = 3;
+    w.add<Animator>(rig).clip = "Bend";
+    update_animators(w, 0.0f);
+    update_animators(w, 0.5f);
+    const Image img = s.g.render(w);
+    int red = 0;
+    for (int y = 0; y < img.height; y += 2)
+        for (int x = 0; x < img.width; x += 2) red += is_red(img.pixel(x, y)) ? 1 : 0;
+    CHECK(red > 50);  // the posed rig is drawn in the colour the buffer gives
+    CHECK(s.g.renderer.stats().meshes == 1);
+    CHECK(log.total() == 0);
+    CHECK(s.g.renderer.stats().materialFallbacks.empty());
 }

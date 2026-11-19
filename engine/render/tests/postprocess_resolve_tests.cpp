@@ -468,6 +468,10 @@ TEST_CASE(
     REQUIRE(st.customErrors.size() == 1);
     CHECK(st.customErrors[0].message.find("32") != std::string::npos);
     CHECK_FALSE(st.customErrors[0].hint.empty());
+    // v3 hit the cap (8 entries dropped); v4's 8 are added to the same message, with its entity, not left out.
+    CHECK(st.customErrors[0].message.find("the 8 entries of one PostProcess") != std::string::npos);
+    CHECK(st.customErrors[0].message.find("Also not drawn: the 8 entries of the PostProcess of entity") !=
+          std::string::npos);
 }
 
 TEST_CASE("resolve_post_stack: the entries past the cap of 32 are named, and one that does not parse says why") {
@@ -497,6 +501,19 @@ TEST_CASE("resolve_post_stack: the entries past the cap of 32 are named, and one
     CHECK(st.customErrors[1].message.find("material") != std::string::npos);
     CHECK(st.customErrors[2].message.find("/customPasses/2") != std::string::npos);
     CHECK(st.customErrors[2].message.find("after:nowhere") != std::string::npos);
+
+    // A later volume that is cut too is named in the same message, and its entries that do not parse get their own errors.
+    Json more = Json::array();
+    more.push_back(Json::object({{"material", "v4first"}}));
+    more.push_back(Json::object({{"position", "before:bloom"}}));
+    s.pp(s.volume("v4")).customPasses = more;
+    const PostStack st2 = s.resolve();
+    REQUIRE(st2.customErrors.size() == 4);
+    CHECK(st2.customErrors[0].message.find("Also not drawn: the 2 entries of the PostProcess of entity") !=
+          std::string::npos);
+    CHECK(st2.customErrors[0].message.find("'v4first'") != std::string::npos);
+    CHECK(st2.customErrors[3].message.find("In the PostProcess of entity") != std::string::npos);
+    CHECK(st2.customErrors[3].message.find("/customPasses/1") != std::string::npos);
 }
 
 TEST_CASE("resolve_post_stack: the camera's own stack goes first, volumes are applied over it") {
