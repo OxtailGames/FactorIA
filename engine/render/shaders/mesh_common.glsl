@@ -86,6 +86,97 @@ vec3 fa_tangent_normal(in SurfaceInput i, vec3 m) {
 }
 @end
 
+// Per-instance params and declared mesh channels. The generator defines FA_INST_1..3 (the vec4 of per-instance data the
+// material's instanced params need) and FA_CH_UV1 / FA_CH_COLOR1 (the "vertexAttributes" it declares); a material with none
+// of them gets exactly the attributes it always had. The extra vertex attributes follow the matrix (and the joints) of every
+// program that runs vertex() or surface(): FA_X_BASE (9, 11 in the skinned programs) is the first, then the instance data
+// (vertex buffer 3, one per instance), then uv1 and color1 (vertex buffers 4 and 5, per vertex). The varyings are `flat`: one
+// value per instance reaches surface() unchanged, which loads it into the globals the generator declared (fa_instance_unpack).
+@block fa_inst_flags
+#if defined(FA_INST_3)
+#define FA_NINST 3
+#elif defined(FA_INST_2)
+#define FA_NINST 2
+#elif defined(FA_INST_1)
+#define FA_NINST 1
+#else
+#define FA_NINST 0
+#endif
+@end
+
+@block fa_inst_out
+#if FA_NINST > 0
+#define FA_INST_OUT
+flat out vec4 fa_inst_v0;
+#if FA_NINST > 1
+flat out vec4 fa_inst_v1;
+#endif
+#if FA_NINST > 2
+flat out vec4 fa_inst_v2;
+#endif
+#endif
+@end
+
+@block fa_inst_in
+#if FA_NINST > 0
+flat in vec4 fa_inst_v0;
+#if FA_NINST > 1
+flat in vec4 fa_inst_v1;
+#endif
+#if FA_NINST > 2
+flat in vec4 fa_inst_v2;
+#endif
+#endif
+@end
+
+// The vertex attributes of the instance data and the declared channels; the vertex shader defines FA_X_BASE first and calls
+// fa_inst_begin() before anything reads the params, vertex_uv1 or vertex_color1.
+@block fa_extra_attrs
+#if FA_NINST > 0
+layout(location=FA_X_BASE) in vec4 fa_inst_d0;
+#endif
+#if FA_NINST > 1
+layout(location=FA_X_BASE+1) in vec4 fa_inst_d1;
+#endif
+#if FA_NINST > 2
+layout(location=FA_X_BASE+2) in vec4 fa_inst_d2;
+#endif
+#ifdef FA_CH_UV1
+layout(location=FA_X_BASE+FA_NINST) in vec2 fa_attr_uv1;
+#define FA_NUV1 1
+#else
+#define FA_NUV1 0
+#endif
+#ifdef FA_CH_COLOR1
+layout(location=FA_X_BASE+FA_NINST+FA_NUV1) in vec4 fa_attr_color1;
+#endif
+
+void fa_inst_begin() {
+#if FA_NINST == 1
+    fa_instance_unpack(fa_inst_d0, vec4(0.0), vec4(0.0));
+#elif FA_NINST == 2
+    fa_instance_unpack(fa_inst_d0, fa_inst_d1, vec4(0.0));
+#elif FA_NINST == 3
+    fa_instance_unpack(fa_inst_d0, fa_inst_d1, fa_inst_d2);
+#endif
+#ifdef FA_INST_OUT
+    fa_inst_v0 = fa_inst_d0;
+#if FA_NINST > 1
+    fa_inst_v1 = fa_inst_d1;
+#endif
+#if FA_NINST > 2
+    fa_inst_v2 = fa_inst_d2;
+#endif
+#endif
+#ifdef FA_CH_UV1
+    vertex_uv1 = fa_attr_uv1;
+#endif
+#ifdef FA_CH_COLOR1
+    vertex_color1 = fa_attr_color1;
+#endif
+}
+@end
+
 @block fa_vs_common
 layout(binding=0) uniform fa_mesh_vs_params {
     mat4 fa_view_proj;
@@ -94,6 +185,7 @@ layout(binding=0) uniform fa_mesh_vs_params {
     vec4 fa_time;               // x = seconds of game time since the scene started
 };
 
+@include_block fa_inst_flags
 @include_block fa_types
 @include_block fa_user
 
@@ -138,6 +230,7 @@ mat4 fa_skin_matrix(vec4 joints, vec4 weights) {
 @end
 
 @block fa_mesh_vs
+@include_block fa_inst_out
 out vec3 fa_world_pos;
 out vec3 fa_world_normal;
 out vec4 fa_world_tangent;
@@ -174,8 +267,11 @@ layout(location=5) in vec4 fa_inst_m0;     // per-instance model matrix, one col
 layout(location=6) in vec4 fa_inst_m1;
 layout(location=7) in vec4 fa_inst_m2;
 layout(location=8) in vec4 fa_inst_m3;
+#define FA_X_BASE 9
+@include_block fa_extra_attrs
 
 void main() {
+    fa_inst_begin();
     fa_shade_vertex(mat4(fa_inst_m0, fa_inst_m1, fa_inst_m2, fa_inst_m3), fa_position, fa_normal, fa_tangent, fa_texcoord0, fa_color);
 }
 @end
@@ -197,8 +293,11 @@ layout(location=7) in vec4 fa_inst_m2;
 layout(location=8) in vec4 fa_inst_m3;
 layout(location=9) in vec4 fa_joints;
 layout(location=10) in vec4 fa_weights;
+#define FA_X_BASE 11
+@include_block fa_extra_attrs
 
 void main() {
+    fa_inst_begin();
     fa_shade_vertex(mat4(fa_inst_m0, fa_inst_m1, fa_inst_m2, fa_inst_m3) * fa_skin_matrix(fa_joints, fa_weights),
                     fa_position, fa_normal, fa_tangent, fa_texcoord0, fa_color);
 }
@@ -238,6 +337,10 @@ layout(binding=1) uniform fa_mesh_fs_params {
     vec4 fa_time;               // x = seconds of game time since the scene started
 };
 
+// The varyings are declared in the order of the vertex stage's outputs (the instance values first): sokol-shdc matches them
+// by that order.
+@include_block fa_inst_flags
+@include_block fa_inst_in
 in vec3 fa_world_pos;
 in vec3 fa_world_normal;
 in vec4 fa_world_tangent;
@@ -246,6 +349,17 @@ in vec4 fa_vertex_color;
 
 @include_block fa_types
 @include_block fa_user
+
+// Loads the instanced params the vertex stage passed on into the globals the generator declared (surface() reads them).
+void fa_inst_load() {
+#if FA_NINST == 1
+    fa_instance_unpack(fa_inst_v0, vec4(0.0), vec4(0.0));
+#elif FA_NINST == 2
+    fa_instance_unpack(fa_inst_v0, fa_inst_v1, vec4(0.0));
+#elif FA_NINST == 3
+    fa_instance_unpack(fa_inst_v0, fa_inst_v1, fa_inst_v2);
+#endif
+}
 
 // The sRGB transfer functions (the CPU side is engine/render/src/color_space.h) and the fix of one texture sample: 0 = as
 // sampled, 1 = sRGB-encoded values -> linear (a colour texture the GPU did not decode), 2 = linear -> sRGB-encoded (a data
@@ -349,6 +463,7 @@ vec2 fa_env_brdf(float rough, float ndv) {
 }
 
 void main() {
+    fa_inst_load();
     SurfaceInput i;
     i.world_pos = fa_world_pos;
     i.front_facing = gl_FrontFacing;
@@ -493,6 +608,11 @@ layout(location=5) in vec3 fa_normal;
 layout(location=6) in vec2 fa_texcoord0;
 layout(location=7) in vec4 fa_tangent;
 layout(location=8) in vec4 fa_color;
+#ifdef FA_ALPHA_CLIP
+@include_block fa_inst_out
+#endif
+#define FA_X_BASE 9
+@include_block fa_extra_attrs
 #endif
 #ifdef FA_ALPHA_CLIP
 out vec3 fa_world_pos;
@@ -504,6 +624,7 @@ out vec4 fa_vertex_color;
 void main() {
     mat4 model = mat4(fa_inst_m0, fa_inst_m1, fa_inst_m2, fa_inst_m3);
 #if defined(FA_HAS_VERTEX) || defined(FA_ALPHA_CLIP)
+    fa_inst_begin();
     VertexData v = fa_vertex_data(model, fa_position, fa_normal, fa_tangent, fa_texcoord0, fa_color);
 #ifdef FA_HAS_VERTEX
     vertex(v);
@@ -537,6 +658,11 @@ layout(location=7) in vec3 fa_normal;
 layout(location=8) in vec2 fa_texcoord0;
 layout(location=9) in vec4 fa_tangent;
 layout(location=10) in vec4 fa_color;
+#ifdef FA_ALPHA_CLIP
+@include_block fa_inst_out
+#endif
+#define FA_X_BASE 11
+@include_block fa_extra_attrs
 #endif
 #ifdef FA_ALPHA_CLIP
 out vec3 fa_world_pos;
@@ -548,6 +674,7 @@ out vec4 fa_vertex_color;
 void main() {
     mat4 model = mat4(fa_inst_m0, fa_inst_m1, fa_inst_m2, fa_inst_m3) * fa_skin_matrix(fa_joints, fa_weights);
 #if defined(FA_HAS_VERTEX) || defined(FA_ALPHA_CLIP)
+    fa_inst_begin();
     VertexData v = fa_vertex_data(model, fa_position, fa_normal, fa_tangent, fa_texcoord0, fa_color);
 #ifdef FA_HAS_VERTEX
     vertex(v);
@@ -575,6 +702,7 @@ void main() {
 out vec4 fa_frag_color;
 void main() {
 #ifdef FA_ALPHA_CLIP
+    fa_inst_load();
     SurfaceInput i;
     i.world_pos = fa_world_pos;
     i.front_facing = gl_FrontFacing;
@@ -598,6 +726,7 @@ void main() {
 // depth, and the rotation of the view matrix as three rows (the fragment shader turns the surface normal, which surface() may have
 // changed, into view space; a varying that is the same at every vertex is exact after interpolation).
 @block fa_prepass_vs
+@include_block fa_inst_out
 out vec3 fa_world_pos;
 out vec3 fa_world_normal;
 out vec4 fa_world_tangent;
@@ -641,7 +770,10 @@ layout(location=5) in vec4 fa_inst_m0;
 layout(location=6) in vec4 fa_inst_m1;
 layout(location=7) in vec4 fa_inst_m2;
 layout(location=8) in vec4 fa_inst_m3;
+#define FA_X_BASE 9
+@include_block fa_extra_attrs
 void main() {
+    fa_inst_begin();
     fa_prepass_vertex(mat4(fa_inst_m0, fa_inst_m1, fa_inst_m2, fa_inst_m3), fa_position, fa_normal, fa_tangent, fa_texcoord0, fa_color);
 }
 @end
@@ -661,7 +793,10 @@ layout(location=7) in vec4 fa_inst_m2;
 layout(location=8) in vec4 fa_inst_m3;
 layout(location=9) in vec4 fa_joints;
 layout(location=10) in vec4 fa_weights;
+#define FA_X_BASE 11
+@include_block fa_extra_attrs
 void main() {
+    fa_inst_begin();
     fa_prepass_vertex(mat4(fa_inst_m0, fa_inst_m1, fa_inst_m2, fa_inst_m3) * fa_skin_matrix(fa_joints, fa_weights), fa_position,
                       fa_normal, fa_tangent, fa_texcoord0, fa_color);
 }
@@ -683,6 +818,7 @@ in vec3 fa_pre_r1;
 in vec3 fa_pre_r2;
 out vec4 fa_frag_color;
 void main() {
+    fa_inst_load();
     SurfaceInput i;
     i.world_pos = fa_world_pos;
     i.front_facing = gl_FrontFacing;

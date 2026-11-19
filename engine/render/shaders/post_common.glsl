@@ -75,8 +75,11 @@ out vec4 fa_frag_color;
 // top-left uv of the camera's rectangle <-> the uv of a render target of this backend (the same function both ways)
 vec2 fa_flip_uv(vec2 s) { return vec2(s.x, mix(s.y, 1.0 - s.y, fa_a.x)); }
 
+// The uv is kept within the pixel centres of the camera's rectangle: the first pass reads the whole picture, and a bilinear tap at the edge
+// of the rectangle would otherwise blend in the pixels of the camera next to it (split screen), as the built-in effects do.
 vec4 fa_scene_color(vec2 uv) {
-    vec2 s = clamp(uv, vec2(0.0), vec2(1.0));
+    vec2 h = 0.5 * fa_size.zw;
+    vec2 s = clamp(uv, h, 1.0 - h);
     return textureLod(sampler2D(fa_scene, fa_scene_smp), fa_flip_uv(s * fa_rc.zw + fa_rc.xy), 0.0);
 }
 vec4 fa_prepass_at(vec2 uv) {

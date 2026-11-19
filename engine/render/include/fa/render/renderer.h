@@ -45,6 +45,7 @@
 namespace fa {
 
 class Renderer;
+class Compute;
 namespace render {
 class Gpu;
 class FrameGraph;
@@ -158,8 +159,14 @@ struct RenderStats {
     int lights2dShadowed =
         0;  // of lights2d, the point lights whose castShadows is in effect (a Tilemap with occludesLight; at most 32)
     int materials = 0;  // distinct custom materials (MeshRenderer or Sprite material) drawn with their own shaders
+    // How many times a 2D item's material was looked up in full this frame (path normalized, params packed and hashed): once per
+    // distinct material and set of materialParams values, however many components, quads or particles use it; the other asks are
+    // answered from a per-frame cache and not counted. The cache is also dropped when the camera being gathered changes (a
+    // material texture "target:<own>" is the checker for the camera that renders into it), so a frame with render targets counts
+    // the lookup once for each camera. Also in game.render_stats.
+    int materialResolves = 0;
     std::vector<std::string>
-        materialFallbacks;  // materials drawn as the magenta error material (mesh) or magenta quads (sprite) because they failed to build (see asset_report); a post material of PostProcess.customPasses that did not build, is not a "post" material or cannot be drawn is here too, and its pass is skipped (the picture is drawn without it)
+        materialFallbacks;  // materials drawn as the magenta error material (mesh) or magenta quads (sprite) because they failed to build (see asset_report); a sky material that failed (or is not a sky one) draws the built-in sky gradient instead, not magenta; a post material of PostProcess.customPasses that did not build, is not a "post" material or cannot be drawn is here too, and its pass is skipped (the picture is drawn without it)
     // How many times, since the renderer was made, the 3D scene it builds (one per frame, and one per capture_world of an
     // entity's subtree) had more distinct meshes, textures, materials or pipelines than a sort key holds, so its opaque meshes
     // were sorted by the slower comparator instead. The picture is the same; 0 is normal. Unlike the other counters this one is
@@ -285,6 +292,9 @@ public:
     // The graphics backend in use: "metal", "d3d11", "glcore", "gles3", "dummy", or "unknown" for a sokol backend the
     // engine never builds (what game.device.gpuBackend reports).
     static const char* backend_name();
+    // The compute side of the renderer (storage buffers, dispatches of "kind": "compute" materials; available() says whether
+    // this backend can). Usable once init() succeeded; its buffers end with shutdown().
+    Compute& compute() { return *compute_; }
     int target_width() const;
     int target_height() const;
 
@@ -545,6 +555,7 @@ private:
     friend void render::renderer_force_output(Renderer& r, const HdrOutputInfo* info);
     friend bool render::renderer_read_floats(Renderer& r, bool present, std::vector<float>& out, std::string* error);
     std::unique_ptr<Impl> impl_;
+    std::unique_ptr<Compute> compute_;  // storage buffers and dispatches of compute materials (fa/render/compute.h)
     std::vector<std::string> fallbackFonts_;
     RichTextStyle richStyle_;
     float textScale_ = 1.0f;

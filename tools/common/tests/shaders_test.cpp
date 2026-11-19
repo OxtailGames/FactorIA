@@ -124,6 +124,26 @@ const char* kPostSnippet = R"(void post(in PostInput i, inout PostSurface s) {
 }
 )";
 
+// A sky material: a starfield (the reflection fixture shdc_sky_hlsl5_glsl430.yaml is its compile).
+const char* kSkyMaterial = R"({
+  "format": "factoria.material/1",
+  "kind": "sky",
+  "doc": "A starfield that twinkles.",
+  "shader": "shaders/stars.sky.glsl",
+  "params": {
+    "twinkle": { "type": "float", "default": 0.5, "min": 0.0, "max": 1.0, "doc": "How much the stars flicker." },
+    "tint": { "type": "color", "default": [0.8, 0.9, 1.0, 1.0], "doc": "Color of the stars." }
+  },
+  "textures": { "stars": { "sampler": "linearRepeat", "doc": "Star map (r), looked up by the view direction." } }
+})";
+
+// sky() is the sky entry point and, as surface() of a mesh material, runs in the fragment stage only.
+const char* kSkySnippet = R"(void sky(in SkyInput i, inout SkySurface s) {
+    float n = texture(sampler2D(stars, stars_smp), i.dir.xz * 2.0).r;
+    s.color += tint.rgb * n * (1.0 - twinkle + twinkle * sin(i.time * 4.0));
+}
+)";
+
 std::string fixture(const std::string& name) {
     return testing::read_all(stdfs::path(FA_REPO_ROOT) / "tools/common/tests/fixtures" / name);
 }
@@ -148,6 +168,10 @@ struct Project {
         write("materials/tint.material.json", kPostMaterial);
         write("shaders/tint.post.glsl", kPostSnippet);
     }
+    void add_sky() {
+        write("materials/stars.material.json", kSkyMaterial);
+        write("shaders/stars.sky.glsl", kSkySnippet);
+    }
     std::string str() const { return dir.str(); }
 };
 
@@ -164,8 +188,10 @@ struct FakeShdc {
             argvs.push_back(o.argv);
             const stdfs::path work(o.workingDir);
             CHECK(stdfs::exists(work / "top.glsl"));
-            CHECK((stdfs::exists(work / "mesh_common.glsl") || stdfs::exists(work / "quad_common.glsl") ||
-                   stdfs::exists(work / "post_common.glsl")));
+            bool template_present = false;
+            for (const auto& e : stdfs::directory_iterator(work))
+                template_present = template_present || e.path().filename().string().ends_with("_common.glsl");
+            CHECK(template_present);
             ProcessResult r;
             if (!stderrText.empty()) {
                 r.exitCode = 10;
@@ -544,53 +570,31 @@ TEST_CASE("material kind: absent means mesh, every kind is read, and a wrong one
               .empty());
 }
 
-TEST_CASE("material kind: mesh, sprite and post compile, the others are refused with the package that brings them") {
+TEST_CASE("material kind: every kind has programs and compiles, none is refused as unsupported") {
     Project p;
+    p.add_sprite();
+    p.add_sky();
+    p.add_post();
     FakeShdc shdc;
-    ShaderCompileOptions options;
-    options.setup = shdc.context(p.str());
-    const std::vector<std::pair<std::string, std::string>> kinds = {{"sky", "sky materials arrive with M72.1"},
-                                                                    {"compute", "compute materials arrive with M72.4"}};
     CommandRegistry registry;
     register_shader_commands(registry, p.str(), shdc.context(p.str()));
-    for (const auto& [kind, text] : kinds) {
+    const std::vector<std::pair<std::string, std::string>> kinds = {
+        {"sprite", "dissolve2d"}, {"sky", "stars"}, {"post", "tint"}};
+    for (const auto& [kind, name] : kinds) {
         CAPTURE(kind);
-        p.write("materials/" + kind + ".material.json",
-                R"({"format":"factoria.material/1","kind":")" + kind + R"(","shader":"shaders/gem.surface.glsl"})");
-        auto r = compile_material(p.str(), "materials/" + kind + ".material.json", options);
-        REQUIRE(r.ok());
-        CHECK_FALSE(r->ok);
-        CHECK(r->material.kind == kind);
-        REQUIRE(r->errors.size() == 1);
-        CHECK(r->errors[0].pointer == "/kind");
-        CHECK(r->errors[0].message.find(text) != std::string::npos);
-        CHECK(r->errors[0].hint.find("\"mesh\"") != std::string::npos);
-        CHECK(shdc.calls == 0);
-
-        auto c =
-            registry.call("shader.compile", Json::parse(R"({"material":"materials/)" + kind + R"(.material.json"})"));
-        REQUIRE(c.ok);
-        CHECK(c.result["ok"] == false);
-        CHECK(c.result["kind"] == kind);
-        CHECK(c.result["errors"][0]["pointer"] == "/kind");
         auto info =
-            registry.call("material.info", Json::parse(R"({"material":"materials/)" + kind + R"(.material.json"})"));
+            registry.call("material.info", Json::parse(R"({"material":"materials/)" + name + R"(.material.json"})"));
         REQUIRE(info.ok);
         CHECK(info.result["kind"] == kind);
-        CHECK(info.result["programs"].empty());
-        CHECK(info.result["compile"]["state"] == "unsupported");
-        CHECK(info.result["compile"]["hint"].get<std::string>().find(text) != std::string::npos);
+        CHECK_FALSE(info.result["programs"].empty());
+        CHECK(info.result["compile"]["state"] == "not_compiled");  // nothing in the cache yet; never "unsupported"
+        CHECK_FALSE(info.result["compile"].contains("hint"));
     }
-    // `factoria validate` lists the refusal as an error of the material
-    // (the project's three mesh materials do compile, one run each; the two refused kinds never reach the compiler)
+    // `factoria validate` compiles every kind: the project's three mesh materials and the three others, one run each
     ValidationReport report;
     validate_materials(p.str(), shdc.context(p.str()), report);
-    CHECK_FALSE(report.ok);
-    CHECK(shdc.calls == 3);
-    int kindErrors = 0;
-    for (const auto& e : report.errors)
-        if (e.message.find("is not compiled yet") != std::string::npos) ++kindErrors;
-    CHECK(kindErrors == 2);
+    CHECK(shdc.calls == 6);
+    for (const auto& e : report.errors) CHECK(e.message.find("is not compiled yet") == std::string::npos);
 }
 
 TEST_CASE("material kind: a mesh twin has no kind key (the format of every twin made before M72), info and compile say "
@@ -616,6 +620,253 @@ TEST_CASE("material kind: a mesh twin has no kind key (the format of every twin 
                            Json::parse(R"({"material":"materials/gem.material.json","platforms":["windows"]})"));
     REQUIRE(c.ok);
     CHECK(c.result["kind"] == "mesh");
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Compute materials (M72.4)
+// ---------------------------------------------------------------------------------------------------------------
+
+const char* const kComputeMaterial = R"({
+  "format": "factoria.material/1",
+  "kind": "compute",
+  "shader": "shaders/move.compute.glsl",
+  "workgroupSize": [64],
+  "params": { "speed": { "type": "float", "default": 1.0, "doc": "Units per second." } },
+  "buffers": {
+    "particles": { "doc": "The particles.", "fields": [
+      { "name": "pos", "type": "vec3", "doc": "Position." },
+      { "name": "life", "type": "float" } ] },
+    "src": { "access": "read", "fields": [ { "name": "v", "type": "vec4" } ] }
+  }
+})";
+const char* const kComputeSnippet = R"(void compute(in ComputeInput i) {
+    uint k = i.global_id.x;
+    particles.data[k].pos = src.data[k].v.xyz * speed;
+    particles.data[k].life = float(k);
+}
+)";
+
+TEST_CASE("compute material: the file is read, the buffers are laid out as std430 and sorted by name") {
+    const auto r = parse(kComputeMaterial);
+    REQUIRE(r.ok());
+    const MaterialDef& m = r.material;
+    CHECK(m.kind == "compute");
+    CHECK(m.workgroupSize[0] == 64);
+    CHECK(m.workgroupSize[1] == 1);
+    CHECK(m.workgroupSize[2] == 1);
+    REQUIRE(m.buffers.size() == 2);
+    CHECK(m.buffers[0].name == "particles");
+    CHECK(m.buffers[0].binding == 0);
+    CHECK(m.buffers[0].access == "readWrite");
+    CHECK(m.buffers[0].fields[0].offset == 0);  // vec3 at 0 (size 12), the float fits in its padding
+    CHECK(m.buffers[0].fields[1].offset == 12);
+    CHECK(m.buffers[0].stride == 16);
+    CHECK(m.buffers[1].name == "src");
+    CHECK(m.buffers[1].binding == 1);
+    CHECK(m.buffers[1].access == "read");
+    CHECK(m.buffers[1].stride == 16);
+    // the default workgroup is 64 x 1 x 1
+    CHECK(parse(R"({"format":"factoria.material/1","kind":"compute","shader":"s.glsl"})").material.workgroupSize[0] ==
+          64);
+    // vec2 aligns to 8, vec3 and vec4 to 16, the stride rounds up to the widest alignment
+    const auto layout = parse(
+        R"({"format":"factoria.material/1","kind":"compute","shader":"s.glsl","buffers":{"b":{"fields":[
+        {"name":"a","type":"float"},{"name":"b","type":"vec2"},{"name":"c","type":"vec3"},{"name":"d","type":"uint"}]}}})");
+    REQUIRE(layout.ok());
+    const auto& f = layout.material.buffers[0].fields;
+    CHECK(f[0].offset == 0);
+    CHECK(f[1].offset == 8);
+    CHECK(f[2].offset == 16);
+    CHECK(f[3].offset == 28);
+    CHECK(layout.material.buffers[0].stride == 32);
+    // the schema accepts it
+    const Json schema = Json::parse(*bundled_read("schemas/material.schema.json"));
+    CHECK(validate_json(Json::parse(kComputeMaterial), schema).empty());
+}
+
+TEST_CASE("compute material: errors name the JSON pointer, the problem and the fix") {
+    const std::string head = R"({"format":"factoria.material/1","kind":"compute","shader":"s.glsl",)";
+    auto bad = parse((head + R"("workgroupSize":[0]})").c_str());
+    CHECK(has_error(bad, "/workgroupSize/0", "whole number from 1 to 256"));
+    bad = parse((head + R"("workgroupSize":[32,32]})").c_str());
+    CHECK(has_error(bad, "/workgroupSize", "1024 threads"));
+    CHECK(has_error(bad, "/workgroupSize", "dispatch more workgroups"));
+    bad = parse((head + R"("workgroupSize":[8]})").c_str());
+    CHECK(has_error(bad, "/workgroupSize", "8 threads (8 x 1 x 1), which is not a multiple of 32"));
+    CHECK(parse((head + R"("workgroupSize":[8,8]})").c_str()).errors.empty());
+    bad = parse((head + R"("workgroupSize":[1,1,128]})").c_str());  // 128 threads, but z is limited to 64
+    CHECK(has_error(bad, "/workgroupSize/2", "z is 128, at most 64"));
+    CHECK(has_error(bad, "/workgroupSize/2", "[8, 8, 1] or [4, 4, 4]"));
+    CHECK(parse((head + R"("workgroupSize":[1,1,64]})").c_str()).errors.empty());
+    bad = parse((head + R"("workgroupSize":"big"})").c_str());
+    CHECK(has_error(bad, "/workgroupSize", "1 to 3 integers"));
+    bad = parse((head + R"("buffers":{"b":{"fields":[{"name":"x","type":"flaot"}]}}})").c_str());
+    CHECK(has_error(bad, "/buffers/b/fields/0/type", "Did you mean 'float'?"));
+    bad = parse((head + R"("buffers":{"b":{"fields":[{"name":"x","type":"float","tpye":1}]}}})").c_str());
+    CHECK(has_error(bad, "/buffers/b/fields/0/tpye", "unknown key"));
+    bad = parse((head + R"("buffers":{"b":{"access":"readwrite","fields":[{"name":"x","type":"float"}]}}})").c_str());
+    CHECK(has_error(bad, "/buffers/b/access", "Did you mean 'readWrite'?"));
+    bad = parse((head + R"("buffers":{"b":{"fields":[]}}})").c_str());
+    CHECK(has_error(bad, "/buffers/b/fields", "non-empty array"));
+    bad = parse((head + R"("buffers":{"b":{}}})").c_str());
+    CHECK(has_error(bad, "/buffers/b/fields", "missing \"fields\""));
+    bad = parse(
+        (head + R"("buffers":{"b":{"fields":[{"name":"x","type":"float"},{"name":"x","type":"int"}]}}})").c_str());
+    CHECK(has_error(bad, "/buffers/b/fields/1/name", "used twice"));
+    // names: reserved words and the namespace shared with params, textures and the element type
+    bad = parse((head + R"("buffers":{"fa_b":{"fields":[{"name":"x","type":"float"}]}}})").c_str());
+    CHECK(has_error(bad, "/buffers/fa_b"));
+    bad = parse(
+        (head +
+         R"("params":{"b":{"type":"float","default":0}},"buffers":{"b":{"fields":[{"name":"x","type":"float"}]}}})")
+            .c_str());
+    CHECK(has_error(bad, "/buffers/b", "used twice"));
+    bad = parse(
+        (head +
+         R"("params":{"b_item":{"type":"float","default":0}},"buffers":{"b":{"fields":[{"name":"x","type":"float"}]}}})")
+            .c_str());
+    CHECK(has_error(bad, "/buffers/b", "b_item"));
+    // at most four buffers
+    std::string many = head + R"("buffers":{)";
+    for (int i = 0; i < 5; ++i)
+        many += std::string(i ? "," : "") + "\"b" + std::to_string(i) + R"(":{"fields":[{"name":"x","type":"float"}]})";
+    bad = parse((many + "}}").c_str());
+    CHECK(has_error(bad, "/buffers", "5 buffers, at most 4"));
+    // compute keys on another kind, mesh keys on a compute material
+    bad = parse(R"({"format":"factoria.material/1","shader":"s.glsl","workgroupSize":[8]})");
+    CHECK(has_error(bad, "/workgroupSize", "\"kind\": \"compute\""));
+    bad = parse(R"({"format":"factoria.material/1","shader":"s.glsl","buffers":{}})");
+    CHECK(has_error(bad, "/buffers", "belongs to compute materials"));
+    bad = parse((head + R"("lighting":"lit","alphaMode":"clip","doubleSided":true})").c_str());
+    CHECK(has_error(bad, "/lighting", "does not apply"));
+    CHECK(has_error(bad, "/alphaMode", "does not apply"));
+    CHECK(has_error(bad, "/doubleSided", "does not apply"));
+}
+
+TEST_CASE("compute material: the generated top file declares the params, buffers, textures, workgroup and snippet") {
+    const auto r = parse(kComputeMaterial);
+    REQUIRE(r.ok());
+    const auto g = generate_material_shader(r.material, kComputeSnippet);
+    CHECK(g.kind == "compute");
+    CHECK(g.hasCompute);
+    CHECK(g.programs == std::vector<std::string>{"compute"});
+    CHECK(g.top.find("@include compute_common.glsl") != std::string::npos);
+    CHECK(g.top.find("@program compute fa_cs") != std::string::npos);
+    CHECK(g.top.find("layout(binding=0) uniform fa_material {") != std::string::npos);
+    CHECK(g.top.find("struct particles_item { vec3 pos; float life; };") != std::string::npos);
+    CHECK(g.top.find("layout(binding=0) buffer fa_particles_buf { particles_item data[]; } particles;") !=
+          std::string::npos);
+    CHECK(g.top.find("layout(binding=1) readonly buffer fa_src_buf { src_item data[]; } src;") != std::string::npos);
+    CHECK(g.top.find("layout(local_size_x=64, local_size_y=1, local_size_z=1) in;") != std::string::npos);
+    CHECK(g.snippetLine.size() == std::size_t(std::count(g.top.begin(), g.top.end(), '\n')));
+    CHECK(top_line_of(g, 1) > 0);
+    // a snippet without compute() is flagged, comments do not count
+    CHECK_FALSE(generate_material_shader(r.material, "// void compute(in ComputeInput i) {}\n").hasCompute);
+    // textures bind after the buffers
+    const auto t = parse(R"({"format":"factoria.material/1","kind":"compute","shader":"s.glsl",
+        "textures":{"tex":{"doc":"Input."}},"buffers":{"b":{"fields":[{"name":"x","type":"float"}]}}})");
+    REQUIRE(t.ok());
+    const auto gt = generate_material_shader(t.material, "void compute(in ComputeInput i) {}\n");
+    CHECK(gt.top.find("layout(binding=1) uniform texture2D tex;") != std::string::npos);
+    CHECK(gt.top.find("layout(binding=0) uniform sampler tex_smp;") != std::string::npos);
+}
+
+TEST_CASE(
+    "compute material: compiles for the dialects with compute, skips glsl300es, and the twin carries the buffers") {
+    Project p;
+    p.write("materials/move.material.json", kComputeMaterial);
+    p.write("shaders/move.compute.glsl", kComputeSnippet);
+    FakeShdc shdc;
+    shdc.reflection = fixture("shdc_compute_hlsl5_glsl430_metal.yaml");
+    ShaderCompileOptions options;
+    options.setup = shdc.context(p.str());
+    options.dialects = {"hlsl5", "glsl430", "glsl300es", "metal_macos"};
+    auto r = compile_material(p.str(), "materials/move.material.json", options);
+    REQUIRE(r.ok());
+    const std::string why = r->errors.empty() ? std::string() : r->errors[0].to_string();
+    INFO(why);
+    REQUIRE(r->ok);
+    CHECK(shdc.calls == 1);
+    CHECK(r->skippedDialects == std::vector<std::string>{"glsl300es"});
+    REQUIRE(r->twins.size() == 3);
+    CHECK(std::find(shdc.argvs[0].begin(), shdc.argvs[0].end(), "hlsl5:glsl430:metal_macos") != shdc.argvs[0].end());
+    const Json& twin = r->twins.at("hlsl5");
+    CHECK(twin["kind"] == "compute");
+    CHECK(twin["template"] == shader_template_hash("compute"));
+    CHECK(twin["workgroupSize"] == Json::parse("[64,1,1]"));
+    REQUIRE(twin["buffers"].size() == 2);
+    CHECK(twin["buffers"][0]["name"] == "particles");
+    CHECK(twin["buffers"][0]["stride"] == 16);
+    CHECK(twin["buffers"][0]["fields"][1] == Json::parse(R"({"name":"life","type":"float","offset":12})"));
+    CHECK(twin["buffers"][1]["access"] == "read");
+    REQUIRE(twin["programs"].contains("compute"));
+    CHECK_FALSE(twin["programs"].contains("mesh"));
+    CHECK(twin["programs"]["compute"]["cs"].get<std::string>().find("generated source") != std::string::npos);
+    CHECK(twin["programs"]["compute"]["reflection"]["compute_func"]["d3d11_target"] == "cs_5_0");
+    CHECK(r->twins.at("metal_macos")["programs"]["compute"]["reflection"]["mtl_threads_per_threadgroup"]["x"] == 64);
+
+    // no dialects asked: every one that has compute
+    options.dialects.clear();
+    options.useCache = false;
+    r = compile_material(p.str(), "materials/move.material.json", options);
+    REQUIRE(r.ok());
+    CHECK(r->dialects == shader_dialects_of_kind("compute"));
+    CHECK(r->skippedDialects.empty());
+
+    // the platforms that have no compute: nothing is compiled, and the result says why
+    options.dialects = {"glsl300es"};
+    const int calls = shdc.calls;
+    r = compile_material(p.str(), "materials/move.material.json", options);
+    REQUIRE(r.ok());
+    CHECK(r->ok);
+    CHECK(r->twins.empty());
+    CHECK(r->skippedDialects == std::vector<std::string>{"glsl300es"});
+    CHECK(shdc.calls == calls);
+}
+
+TEST_CASE("compute material: a snippet without compute() says what to define") {
+    Project p;
+    p.write("materials/move.material.json", kComputeMaterial);
+    p.write("shaders/move.compute.glsl", "void surface(in SurfaceInput i, inout Surface s) {}\n");
+    FakeShdc shdc;
+    ShaderCompileOptions options;
+    options.setup = shdc.context(p.str());
+    auto r = compile_material(p.str(), "materials/move.material.json", options);
+    REQUIRE(r.ok());
+    CHECK_FALSE(r->ok);
+    REQUIRE_FALSE(r->errors.empty());
+    CHECK(r->errors[0].message.find("compute()") != std::string::npos);
+    CHECK(r->errors[0].hint.find("ComputeInput") != std::string::npos);
+    CHECK(shdc.calls == 0);
+}
+
+TEST_CASE("compute material: shader.compile and material.info list where it runs, the workgroup and the buffers") {
+    Project p;
+    p.write("materials/move.material.json", kComputeMaterial);
+    p.write("shaders/move.compute.glsl", kComputeSnippet);
+    FakeShdc shdc;
+    shdc.reflection = fixture("shdc_compute_hlsl5_glsl430_metal.yaml");
+    CommandRegistry registry;
+    register_shader_commands(registry, p.str(), shdc.context(p.str()));
+    auto info = registry.call("material.info", Json::parse(R"({"material":"materials/move.material.json"})"));
+    REQUIRE(info.ok);
+    CHECK(info.result["kind"] == "compute");
+    CHECK(info.result["runsOn"] == Json::parse(R"(["windows","linux","macos","ios"])"));
+    CHECK(info.result["notOn"] == Json::parse(R"(["android","web"])"));
+    CHECK(info.result["workgroupSize"] == Json::parse("[64,1,1]"));
+    REQUIRE(info.result["buffers"].size() == 2);
+    CHECK(info.result["buffers"][0]["name"] == "particles");
+    CHECK(info.result["buffers"][0]["stride"] == 16);
+    CHECK(info.result["buffers"][0]["fields"][0]["offset"] == 0);
+    CHECK(info.result["buffers"][1]["access"] == "read");
+    CHECK(info.result["compile"]["state"] != "unsupported");
+    auto c = registry.call("shader.compile",
+                           Json::parse(R"({"material":"materials/move.material.json","platforms":["web"]})"));
+    REQUIRE(c.ok);
+    CHECK(c.result["ok"] == true);
+    CHECK(c.result["skippedDialects"] == Json::parse(R"(["glsl300es"])"));
+    CHECK(c.result["note"].get<std::string>().find("glsl300es") != std::string::npos);
+    CHECK(c.result["notOn"] == Json::parse(R"(["android","web"])"));
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -842,6 +1093,207 @@ TEST_CASE("sprite material: validate compiles it next to the mesh materials") {
     const auto err = std::find_if(failing.errors.begin(), failing.errors.end(), [](const ValidationIssue& e) {
         return e.file == "shaders/dissolve2d.fragment.glsl";
     });
+    REQUIRE(err != failing.errors.end());
+    CHECK(err->message.find("line 2") != std::string::npos);
+}
+
+TEST_CASE(
+    "sky material: the generator includes sky_common.glsl, takes views and samplers from 0 and lists the sky program") {
+    Project p;
+    p.add_sky();
+    const MaterialParse parsed = read_material(p.str(), "materials/stars.material.json");
+    REQUIRE(parsed.ok());
+    CHECK(parsed.material.kind == "sky");
+    const GeneratedShader g = generate_material_shader(parsed.material, kSkySnippet);
+    CHECK(g.kind == "sky");
+    CHECK(g.hasSurface);  // the sky() entry point
+    CHECK_FALSE(g.hasVertex);
+    CHECK(g.programs == std::vector<std::string>{"sky"});
+    CHECK(g.defines.empty());  // the engine's own program is the same with an empty hook: nothing to switch
+    CHECK(g.top.find("@include sky_common.glsl") != std::string::npos);
+    CHECK(g.top.find("@include mesh_common.glsl") == std::string::npos);
+    CHECK(g.top.find("@include quad_common.glsl") == std::string::npos);
+    CHECK(g.top.find("@program sky vs fs\n") != std::string::npos);
+    CHECK(g.top.find("@program mesh") == std::string::npos);
+    // the engine binds no texture for the sky: the first texture of a material is view 0, sampler 0
+    CHECK(g.top.find("layout(binding=0) uniform texture2D stars;") != std::string::npos);
+    CHECK(g.top.find("layout(binding=0) uniform sampler stars_smp;") != std::string::npos);
+    CHECK(g.top.find("layout(binding=5) uniform fa_material {") != std::string::npos);
+    CHECK(g.top.find("#ifdef GL_FRAGMENT_SHADER\nvoid sky(in SkyInput i, inout SkySurface s) {") != std::string::npos);
+    // a surface() or fragment() is not the entry point of a sky
+    CHECK_FALSE(
+        generate_material_shader(parsed.material, "void surface(in SurfaceInput i, inout Surface s) {}\n").hasSurface);
+    CHECK_FALSE(generate_material_shader(parsed.material, "void fragment(in QuadInput i, inout QuadSurface s) {}\n")
+                    .hasSurface);
+    // the names of the contract: sky is a reserved name of a sky material only
+    CHECK(has_error(parse(R"({"format":"factoria.material/1","kind":"sky","shader":"s.glsl","params":{
+        "sky":{"type":"float","default":1,"doc":"d"}}})"),
+                    "/params/sky"));
+    CHECK_FALSE(has_error(parse(R"({"format":"factoria.material/1","shader":"s.glsl","params":{
+        "sky":{"type":"float","default":1,"doc":"d"}}})"),
+                          "/params/sky"));
+    // the sky program's globals are not available as params
+    CHECK(has_error(parse(R"({"format":"factoria.material/1","kind":"sky","shader":"s.glsl","params":{
+        "ray_dir":{"type":"float","default":1,"doc":"d"}}})"),
+                    "/params/ray_dir", "sky program"));
+}
+
+TEST_CASE("sky material: with an empty sky() the generated top file is sky.glsl, the engine's own program, modulo the "
+          "user block") {
+    MaterialDef m;
+    m.kind = "sky";
+    m.shader = "shaders/empty.glsl";
+    const GeneratedShader g = generate_material_shader(m, "void sky(in SkyInput i, inout SkySurface s) {}\n");
+    const std::string builtIn = testing::read_all(stdfs::path(FA_REPO_ROOT) / "engine/render/shaders/sky.glsl");
+    auto after_block = [](const std::string& text) {
+        const std::size_t end = text.find("@end\n");
+        REQUIRE(end != std::string::npos);
+        std::string out;
+        std::size_t at = end + 5;
+        while (at < text.size()) {
+            std::size_t nl = text.find('\n', at);
+            if (nl == std::string::npos) nl = text.size();
+            const std::string line = text.substr(at, nl - at);
+            if (!line.empty() && line.rfind("//", 0) != 0) out += line + "\n";
+            at = nl + 1;
+        }
+        return out;
+    };
+    const std::string tail = after_block(g.top);
+    CHECK(tail == "@include sky_common.glsl\n@program sky vs fs\n");
+    CHECK(after_block(builtIn) == tail);
+    CHECK(g.top.find("void sky(in SkyInput i, inout SkySurface s) {}") != std::string::npos);
+    CHECK(builtIn.find("void sky(in SkyInput i, inout SkySurface s) {}") != std::string::npos);
+    CHECK(g.defines.empty());
+}
+
+TEST_CASE("sky material: errors name sky() and the sky contract; lighting custom, alphaMode and vertex() are refused") {
+    Project p;
+    p.add_sky();
+    FakeShdc shdc;
+    shdc.reflection = fixture("shdc_sky_hlsl5_glsl430.yaml");
+    ShaderCompileOptions options;
+    options.setup = shdc.context(p.str());
+    options.dialects = {"hlsl5"};
+
+    // no sky(): the message and the hint are the sky's
+    p.write("shaders/stars.sky.glsl", "void surface(in SurfaceInput i, inout Surface s) {}\n");
+    auto r = compile_material(p.str(), "materials/stars.material.json", options);
+    REQUIRE(r.ok());
+    CHECK_FALSE(r->ok);
+    REQUIRE_FALSE(r->errors.empty());
+    CHECK(r->errors[0].message.find("defines no sky() function") != std::string::npos);
+    CHECK(r->errors[0].hint.find("void sky(in SkyInput i, inout SkySurface s)") != std::string::npos);
+    CHECK(r->errors[0].hint.find("s.color arrives holding the engine's sky") != std::string::npos);
+    CHECK(shdc.calls == 0);
+
+    // a mistake in the snippet is mapped to its line, with the fields of SkyInput and the aliases of the sun
+    const std::string bad = "void sky(in SkyInput i, inout SkySurface s) {\n    s.color *= i.sun;\n}\n";
+    p.write("shaders/stars.sky.glsl", bad);
+    const GeneratedShader g =
+        generate_material_shader(read_material(p.str(), "materials/stars.material.json").material, bad);
+    shdc.stderrText =
+        "top.glsl:" + std::to_string(top_line_of(g, 2)) + ":0: error: 'sun' : no such field in structure 'i'\n";
+    r = compile_material(p.str(), "materials/stars.material.json", options);
+    REQUIRE(r.ok());
+    REQUIRE(r->errors.size() == 1);
+    CHECK(r->errors[0].line == 2);
+    CHECK(r->errors[0].hint.find("did you mean sun_dir?") != std::string::npos);
+    CHECK(r->errors[0].hint.find("SkyInput has the fields") != std::string::npos);
+
+    // the light() hook, the alpha modes and a vertex stage mean nothing for a sky
+    auto light = parse(R"({"format":"factoria.material/1","kind":"sky","shader":"s.glsl","lighting":"custom"})");
+    CHECK(has_error(light, "/lighting", "not lit"));
+    auto clip = parse(R"({"format":"factoria.material/1","kind":"sky","shader":"s.glsl","alphaMode":"clip"})");
+    CHECK(has_error(clip, "/alphaMode", "opaque background"));
+    auto blend = parse(R"({"format":"factoria.material/1","kind":"sky","shader":"s.glsl","alphaMode":"blend"})");
+    CHECK(has_error(blend, "/alphaMode", "opaque background"));
+    auto ok = parse(R"({"format":"factoria.material/1","kind":"sky","shader":"s.glsl","lighting":"unlit",
+        "alphaMode":"opaque","doubleSided":true})");
+    CHECK(ok.ok());
+
+    shdc.stderrText.clear();
+    shdc.calls = 0;
+    p.write("shaders/stars.sky.glsl",
+            std::string(kSkySnippet) + "void vertex(inout VertexData v) { v.world_pos.y += 1.0; }\n");
+    r = compile_material(p.str(), "materials/stars.material.json", options);
+    REQUIRE(r.ok());
+    CHECK_FALSE(r->ok);
+    REQUIRE_FALSE(r->errors.empty());
+    CHECK(r->errors[0].message.find("a sky material has no vertex()") != std::string::npos);
+    CHECK(shdc.calls == 0);
+}
+
+TEST_CASE("sky material: compile writes a twin with the sky template hash and the program sky") {
+    Project p;
+    p.add_sky();
+    FakeShdc shdc;
+    shdc.reflection = fixture("shdc_sky_hlsl5_glsl430.yaml");
+    ShaderCompileOptions options;
+    options.setup = shdc.context(p.str());
+    options.dialects = {"hlsl5", "glsl430"};
+
+    auto first = compile_material(p.str(), "materials/stars.material.json", options);
+    REQUIRE(first.ok());
+    const std::string why = first->errors.empty() ? std::string() : first->errors[0].to_string();
+    INFO(why);
+    REQUIRE(first->ok);
+    CHECK(shdc.calls == 1);
+    CHECK(first->material.kind == "sky");
+    CHECK(first->generated.kind == "sky");
+    REQUIRE(first->twins.size() == 2);
+    const Json& twin = first->twins.at("hlsl5");
+    CHECK(twin["format"] == "factoria.shader/1");
+    CHECK(twin["kind"] == "sky");
+    CHECK(twin["template"] == shader_template_hash("sky"));
+    CHECK(twin["template"] != shader_template_hash("mesh"));
+    CHECK(twin["template"] != shader_template_hash("sprite"));
+    CHECK(twin["params"] == Json::parse(R"(["tint","twinkle"])"));
+    CHECK(twin["textures"] == Json::parse(R"(["stars"])"));
+    REQUIRE(twin["programs"].contains("sky"));
+    CHECK(twin["programs"].size() == 1);
+    CHECK(twin["programs"]["sky"]["reflection"]["vertex_func"]["d3d11_target"] == "vs_5_0");
+    auto second = compile_material(p.str(), "materials/stars.material.json", options);
+    REQUIRE(second.ok());
+    CHECK(second->cacheHits == 2);
+    CHECK(shdc.calls == 1);
+
+    CommandRegistry registry;
+    register_shader_commands(registry, p.str(), shdc.context(p.str()));
+    auto c = registry.call("shader.compile",
+                           Json::parse(R"({"material":"materials/stars.material.json","platforms":["linux"]})"));
+    REQUIRE(c.ok);
+    CHECK(c.result["ok"] == true);
+    CHECK(c.result["kind"] == "sky");
+    auto info = registry.call("material.info", Json::parse(R"({"material":"materials/stars.material.json"})"));
+    REQUIRE(info.ok);
+    CHECK(info.result["kind"] == "sky");
+    CHECK(info.result["programs"] == Json::parse(R"(["sky"])"));
+}
+
+TEST_CASE("sky material: validate compiles it next to the mesh materials") {
+    Project p;
+    p.add_sky();
+    FakeShdc shdc;
+    shdc.reflection = fixture("shdc_sky_hlsl5_glsl430.yaml");
+    for (const char* name : {"gem", "wave", "bad"})
+        stdfs::remove(p.dir.path / "materials" / (std::string(name) + ".material.json"));
+    ValidationReport report;
+    validate_materials(p.str(), shdc.context(p.str()), report);
+    CHECK(report.materialsChecked == 1);
+    CHECK(shdc.calls == 1);
+    for (const auto& e : report.errors) CHECK(e.message.find("is not compiled yet") == std::string::npos);
+
+    const std::string bad = "void sky(in SkyInput i, inout SkySurface s) {\n    s.color = tnt;\n}\n";
+    p.write("shaders/stars.sky.glsl", bad);
+    const GeneratedShader g =
+        generate_material_shader(read_material(p.str(), "materials/stars.material.json").material, bad);
+    shdc.stderrText = "top.glsl:" + std::to_string(top_line_of(g, 2)) + ":0: error: 'tnt' : undeclared identifier\n";
+    ValidationReport failing;
+    validate_materials(p.str(), shdc.context(p.str()), failing);
+    CHECK_FALSE(failing.ok);
+    const auto err = std::find_if(failing.errors.begin(), failing.errors.end(),
+                                  [](const ValidationIssue& e) { return e.file == "shaders/stars.sky.glsl"; });
     REQUIRE(err != failing.errors.end());
     CHECK(err->message.find("line 2") != std::string::npos);
 }
@@ -1950,4 +2402,212 @@ TEST_CASE("engine compiler: returns the twin, and an error with every issue's fi
 
     auto missing = compiler("materials/none.material.json", "hlsl5");
     CHECK_FALSE(missing.ok());
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Per-instance params and declared vertex channels
+// ---------------------------------------------------------------------------------------------------------------
+
+namespace {
+const char* kInstParams = R"("params":{
+    "a":{"type":"color","default":[1,1,1,1],"instanced":true,"doc":"A color per entity."},
+    "b":{"type":"color","default":[1,1,1,1],"instanced":true,"doc":"Another color per entity."},
+    "c":{"type":"vec3","default":[0,0,0],"instanced":true,"doc":"A lift per entity."},
+    "d":{"type":"float","default":0,"instanced":true,"doc":"Its strength per entity."},
+    "k":{"type":"float","default":1,"min":0,"max":4,"doc":"One value per draw."}}})";
+const std::string kInstMaterial =
+    std::string(
+        R"({"format":"factoria.material/1","shader":"shaders/inst.surface.glsl","vertexAttributes":["uv1","color1"],)") +
+    kInstParams;
+const std::string kInstMaterialNoChannels =
+    std::string(R"({"format":"factoria.material/1","shader":"shaders/inst.surface.glsl",)") + kInstParams;
+const char* kInstSnippet = R"(void vertex(inout VertexData v) {
+    v.world_pos += c * d;
+    v.uv = vertex_uv1;
+    v.color = vertex_color1;
+}
+void surface(in SurfaceInput i, inout Surface s) {
+    s.emission += a.rgb * b.rgb * k + c * d;
+}
+)";
+}  // namespace
+
+TEST_CASE("instanced params: the layout packs floats and small vectors first-fit, alphabetically, in at most 3 vec4") {
+    Project p;
+    p.write("materials/inst.material.json", kInstMaterial);
+    p.write("shaders/inst.surface.glsl", kInstSnippet);
+    const MaterialParse m = read_material(p.str(), "materials/inst.material.json");
+    REQUIRE(m.ok());
+    CHECK(m.material.vertexAttributes == std::vector<std::string>{"color1", "uv1"});
+    const InstanceLayout layout = instance_layout(m.material.params);
+    CHECK(layout.vec4Count == 3);
+    REQUIRE(layout.slots.size() == 4);  // k is not instanced
+    CHECK(layout.slots[0].name == "a");
+    CHECK(layout.slots[0].vec4 == 0);
+    CHECK(layout.slots[1].vec4 == 1);
+    CHECK(layout.slots[2].name == "c");
+    CHECK(layout.slots[2].vec4 == 2);
+    CHECK(layout.slots[2].offset == 0);
+    CHECK(layout.slots[2].components == 3);
+    CHECK(layout.slots[3].name == "d");
+    CHECK(layout.slots[3].vec4 == 2);
+    CHECK(layout.slots[3].offset == 3);
+    CHECK(kMaterialMaxInstanceVec4 == 3);
+
+    auto schema = bundled_read("schemas/material.schema.json");
+    REQUIRE(schema.has_value());
+    CHECK(validate_json(Json::parse(*schema), Json::parse(kInstMaterial)).empty());
+
+    // 12 instanced floats fill exactly three vec4; the 13th does not fit
+    auto floats = [](int n) {
+        std::string s = R"({"format":"factoria.material/1","shader":"s.glsl","params":{)";
+        for (int i = 0; i < n; ++i)
+            s += std::string(i ? "," : "") + "\"f" + std::string(i < 10 ? "0" : "") + std::to_string(i) +
+                 R"(":{"type":"float","default":0,"instanced":true,"doc":"d"})";
+        return s + "}}";
+    };
+    const MaterialParse twelve = parse(floats(12).c_str());
+    CHECK(twelve.ok());
+    CHECK(instance_layout(twelve.material.params).vec4Count == 3);
+    CHECK(has_error(parse(floats(13).c_str()), "/params", "at most 3"));
+}
+
+TEST_CASE("instanced params: errors name the pointer, and the 16-param limit counts only the params of the block") {
+    CHECK(has_error(parse(R"({"format":"factoria.material/1","shader":"s.glsl","params":{
+        "tint":{"type":"color","default":[1,1,1,1],"instanced":"yes","doc":"d"}}})"),
+                    "/params/tint/instanced", "true or false"));
+    // four vec4 per instance are too many, and the message names the params
+    const auto four = parse(R"({"format":"factoria.material/1","shader":"s.glsl","params":{
+        "a":{"type":"color","default":[1,1,1,1],"instanced":true,"doc":"d"},
+        "b":{"type":"color","default":[1,1,1,1],"instanced":true,"doc":"d"},
+        "c":{"type":"color","default":[1,1,1,1],"instanced":true,"doc":"d"},
+        "d":{"type":"color","default":[1,1,1,1],"instanced":true,"doc":"d"}}})");
+    CHECK(has_error(four, "/params", "4 vec4"));
+    CHECK(has_error(four, "/params", "Make some of them not instanced"));
+    // a vec3 and a float share one vec4
+    CHECK(parse(R"({"format":"factoria.material/1","shader":"s.glsl","params":{
+        "a":{"type":"vec3","default":[0,0,0],"instanced":true,"doc":"d"},
+        "b":{"type":"float","default":0,"instanced":true,"doc":"d"}}})")
+              .ok());
+    // 17 params are too many for the block, unless some are instanced
+    auto many = [](int instanced) {
+        std::string s = R"({"format":"factoria.material/1","shader":"s.glsl","params":{)";
+        for (int i = 0; i < 17; ++i)
+            s += std::string(i ? "," : "") + "\"p" + std::string(i < 10 ? "0" : "") + std::to_string(i) +
+                 R"(":{"type":"float","default":1,"doc":"d")" + (i < instanced ? R"(,"instanced":true)" : "") + "}";
+        return s + "}}";
+    };
+    CHECK_FALSE(parse(many(0).c_str()).ok());
+    CHECK(parse(many(3).c_str()).ok());
+}
+
+TEST_CASE("vertexAttributes: the names are checked with their pointer, did you mean and the list of channels") {
+    CHECK(parse(R"({"format":"factoria.material/1","shader":"s.glsl","vertexAttributes":["uv1","color1"]})").ok());
+    auto bad = parse(R"({"format":"factoria.material/1","shader":"s.glsl","vertexAttributes":["uv2","uv1","uv1",3]})");
+    CHECK(has_error(bad, "/vertexAttributes/0", "Did you mean 'uv1'?"));
+    CHECK(has_error(bad, "/vertexAttributes/0", "TEXCOORD_1"));
+    CHECK(has_error(bad, "/vertexAttributes/2", "twice"));
+    CHECK(has_error(bad, "/vertexAttributes/3", "expected a name"));
+    CHECK(has_error(parse(R"({"format":"factoria.material/1","shader":"s.glsl","vertexAttributes":"uv1"})"),
+                    "/vertexAttributes", "expected an array"));
+}
+
+TEST_CASE("instanced params and vertexAttributes are refused in every kind but mesh, with the pointer and the fix") {
+    for (const char* kind : {"sprite", "compute", "sky"}) {
+        CAPTURE(kind);
+        const std::string head =
+            std::string(R"({"format":"factoria.material/1","shader":"s.glsl","kind":")") + kind + "\"";
+        const auto inst = parse(
+            (head + R"(,"params":{"tint":{"type":"color","default":[1,1,1,1],"instanced":true,"doc":"d"}}})").c_str());
+        CHECK_FALSE(inst.ok());
+        CHECK(has_error(inst, "/params/tint/instanced", "only mesh materials"));
+        CHECK(has_error(inst, "/params/tint/instanced", "Remove \"instanced\""));
+        const auto chan = parse((head + R"(,"vertexAttributes":["uv1"]})").c_str());
+        CHECK_FALSE(chan.ok());
+        CHECK(has_error(chan, "/vertexAttributes", "only mesh materials"));
+        CHECK(has_error(chan, "/vertexAttributes", "Remove \"vertexAttributes\""));
+        // "instanced": false is what every kind may write
+        CHECK_FALSE(has_error(
+            parse((head + R"(,"params":{"tint":{"type":"color","default":[1,1,1,1],"instanced":false,"doc":"d"}}})")
+                      .c_str()),
+            "/params/tint/instanced", "only mesh"));
+    }
+}
+
+TEST_CASE("the instance limit of the renderer is the one of the tooling") {
+    // render_internal.h is private to fa_render: read the constant the way the generator and the runtime must agree on it.
+    const std::string header = testing::read_all(stdfs::path(FA_REPO_ROOT) / "engine/render/src/render_internal.h");
+    std::smatch m;
+    REQUIRE(std::regex_search(header, m, std::regex(R"(constexpr int kMaxInstanceVec4 = (\d+);)")));
+    CHECK(std::stoi(m[1].str()) == kMaterialMaxInstanceVec4);
+}
+
+TEST_CASE("generator: instanced params are left out of the block, read from the instance data, and the channels are "
+          "globals of vertex()") {
+    Project p;
+    p.write("materials/inst.material.json", kInstMaterial);
+    p.write("shaders/inst.surface.glsl", kInstSnippet);
+    const MaterialDef inst = read_material(p.str(), "materials/inst.material.json").material;
+    const GeneratedShader g = generate_material_shader(inst, kInstSnippet);
+    CHECK(g.hasVertex);
+    CHECK(std::find(g.defines.begin(), g.defines.end(), "FA_INST_3") != g.defines.end());
+    CHECK(std::find(g.defines.begin(), g.defines.end(), "FA_CH_UV1") != g.defines.end());
+    CHECK(std::find(g.defines.begin(), g.defines.end(), "FA_CH_COLOR1") != g.defines.end());
+    CHECK(g.top.find("float k;") != std::string::npos);  // the one param of the block
+    CHECK(g.top.find("fa_instance_unpack(vec4 fa_d0, vec4 fa_d1, vec4 fa_d2)") != std::string::npos);
+    CHECK(g.top.find("c = fa_d2.xyz;") != std::string::npos);
+    CHECK(g.top.find("d = fa_d2.w;") != std::string::npos);
+    CHECK(g.top.find("vec2 vertex_uv1;") != std::string::npos);
+    CHECK(g.top.find("vec4 vertex_color1;") != std::string::npos);
+    // a material with neither gets none of it
+    const GeneratedShader plain =
+        generate_material_shader(read_material(p.str(), "materials/gem.material.json").material, kGemSnippet);
+    CHECK(plain.top.find("fa_instance_unpack") == std::string::npos);
+    CHECK(plain.top.find("vertex_uv1") == std::string::npos);
+    for (const std::string& d : plain.defines) CHECK(d.rfind("FA_INST_", 0) != 0);
+}
+
+TEST_CASE(
+    "real sokol-shdc: a material with three vec4 of instanced params and both channels compiles to every dialect") {
+    SetupContext context;
+    if (!real_tool(context)) return;
+    Project p;
+    p.write("materials/inst.material.json", kInstMaterial);
+    p.write("shaders/inst.surface.glsl", kInstSnippet);
+    ShaderCompileOptions options;
+    options.setup = context;
+    options.useCache = false;
+    auto r = compile_material(p.str(), "materials/inst.material.json", options);
+    REQUIRE(r.ok());
+    const std::string why = r->errors.empty() ? std::string() : r->errors[0].to_string();
+    INFO(why);
+    REQUIRE(r->ok);
+    REQUIRE(r->twins.size() == 6);
+    for (const auto& [slang, twin] : r->twins) {
+        CAPTURE(slang);
+        CHECK(twin["params"] == Json::parse(R"(["k"])"));
+        CHECK(twin["instanceVec4"] == 3);
+        CHECK(twin["vertexAttributes"] == Json::parse(R"(["color1","uv1"])"));
+        REQUIRE(twin["instanced"].size() == 4);
+        CHECK(twin["instanced"][2] == Json::parse(R"({"name":"c","vec4":2,"offset":0,"components":3})"));
+        CHECK(twin["programs"].size() == 6);
+        // the nine attributes of the mesh, three instance vec4, uv1 and color1; the skinned program adds joints and weights
+        CHECK(twin["programs"]["mesh"]["reflection"]["attrs"].size() == 14);
+        CHECK(twin["programs"]["mesh_skin"]["reflection"]["attrs"].size() == 16);
+        CHECK(twin["programs"]["shadow"]["reflection"]["attrs"].size() == 14);
+        CHECK(twin["programs"]["prepass"]["reflection"]["attrs"].size() == 14);
+    }
+    // a surface()-only material without channels: the instance data only, the shadow programs do not exist
+    p.write("shaders/inst.surface.glsl",
+            "void surface(in SurfaceInput i, inout Surface s) {\n    s.emission += a.rgb * b.rgb * k + c * d;\n}\n");
+    p.write("materials/inst.material.json", kInstMaterialNoChannels);
+    auto s = compile_material(p.str(), "materials/inst.material.json", options);
+    REQUIRE(s.ok());
+    REQUIRE(s->ok);
+    for (const auto& [slang, twin] : s->twins) {
+        CAPTURE(slang);
+        CHECK_FALSE(twin.contains("vertexAttributes"));
+        CHECK(twin["programs"].size() == 4);
+        CHECK(twin["programs"]["mesh"]["reflection"]["attrs"].size() == 12);
+    }
 }

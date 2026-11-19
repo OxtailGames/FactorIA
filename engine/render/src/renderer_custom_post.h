@@ -92,7 +92,6 @@ public:
     void forget_targets();
 
 private:
-    static constexpr std::size_t kMaxFailed = 16;
     std::vector<std::uint64_t> failed_;  // shapes whose images could not be made
     std::vector<std::uint64_t> probed_;  // shapes whose images were made once
     bool warnedTargets_ = false;

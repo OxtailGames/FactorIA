@@ -324,8 +324,9 @@ when it reloads. Attribute layouts are unchanged (the template keeps every locat
 
 `material_key` in `mesh_batch.cpp` adds the material asset pointer and a hash of the entity's `materialParams`
 (an entity without overrides hashes to 0). Many entities with one material and no overrides stay one instanced draw
-per mesh part, as today. Per-instance custom data (a color per instance inside one draw) is not in this design: it
-needs a wider instance buffer; listed under "Left open".
+per mesh part, as today. A value that differs per entity inside one draw is a param marked `"instanced": true`: its
+name is left out of the hash, so entities that differ only in those values share the batch (see "Per-instance params and
+vertex channels" below).
 
 ### Draw
 
@@ -359,6 +360,47 @@ leaf is as cut in the depth as in the picture. Blended materials are not drawn i
 twin (a twin without them draws its meshes with the engine's prepass program: no `vertex()`, no holes); a twin that lists one that
 does not build is an error, like a broken shadow program.
 
+### Per-instance params and vertex channels
+
+(M72.3, built.) Two additions of the mesh template; a material using neither gets exactly the program and the attributes it
+always had, and the engine's own mesh programs are unchanged except for the template hash (the text of the template changed,
+so every committed twin is rebuilt and games with custom materials re-export).
+
+**Instanced params.** A param with `"instanced": true` is not in `fa_material` / `fa_material_vs`; each entity's value is
+written into a per-instance buffer (vertex buffer 3, `vec4Count * 16` bytes per instance, step per instance) next to the
+matrix buffer. Layout (`instance_layout`): alphabetical, first fit, in floats of a vec4 (a vec3 or vec4 never straddles
+two vec4; a vec3 and a float share one); at most 3 vec4 (`kMaterialMaxInstanceVec4`, 12 floats), and the error on `/params`
+names the instanced params and the fix. The 16-param limit counts only the params of the block. The twin lists
+`"instanced": [{name, vec4, offset, components}]` and `"instanceVec4"` (absent when there are none; `"params"` lists only
+the block's names). The attribute locations follow the matrix (9, or 11 after the joints and weights of a skinned program):
+the instance vec4s, then uv1, then color1, so a skinned program with everything uses 16 attributes, sokol's limit. The
+pipeline key needs no extra bits: the shader of a material fixes its layout.
+
+The vertex shader copies the values to `flat` varyings and `fa_inst_begin()` unpacks them into plain globals named like the
+params (`fa_instance_unpack`, generated); the fragment shader unpacks the varyings (`fa_inst_load()`); the snippet reads
+`tint` in `vertex()` and `surface()` as it reads any param. The shadow and prepass programs run the same unpack when they
+run `vertex()` (or clip), with their own attribute locations, so a vertex displaced by an instanced value is displaced the
+same in all three passes.
+
+Batching: the hash of `materialParams` ignores the instanced names (`MaterialHashCache`, keyed by the material's
+`instancedKey` so a reloaded material invalidates it), so `build_batches` is unchanged; `pack_instance_extras` then packs
+each batch's values, in the order of its matrices (visible and shadow-casting items), after the culling. A non-instanced
+param still splits the batch.
+
+**Declared vertex channels.** `"vertexAttributes": ["uv1", "color1"]` makes the generator declare `vertex_uv1` (vec2) and
+`vertex_color1` (vec4) as globals of `vertex()` (copy them into `v.uv` / `v.color` to reach `surface()`), and the template
+declare the attributes after the instance data (vertex buffers 4 and 5, per vertex; `color1` is 4 normalized bytes). Only
+glTF meshes have them (`TEXCOORD_1`, `COLOR_1` as vec3 or vec4): a procedural mesh or a built-in primitive has neither.
+A part without a declared channel is drawn with the error material, `note_failure("material-mesh", ...)` logs once per
+material and mesh, naming the material, the mesh, the part and the glTF attribute, and the path joins
+`stats.materialFallbacks`; the other meshes of the material draw normally.
+
+Tests: tooling (the layout, the limits and their pointers, the generated top file, the six dialects with the real
+sokol-shdc, the twin's keys), renderer ("materials: ..." cases: 100 entities with different instanced values are one batch
+and one draw call with the right colours, a non-instanced param still splits, `vertex()` reading an instanced value moves the
+shadow like a mesh standing there, a skinned glTF, a declared channel is drawn, a missing channel is magenta and logged
+once).
+
 ## Commands and editor
 
 - `shader.compile` `{material, platforms?}` -> `{ok, dialects: [...], errors: [{file, line, column, message, hint}]}`.
@@ -381,14 +423,12 @@ material says what it is for with the optional key `"kind"` of its `*.material.j
 |---|---|---|---|
 | `"mesh"` (default) | the surface of a `MeshRenderer`: everything in this document | `mesh_common.glsl` | built |
 | `"sprite"` | the 2D quad path: `Sprite`, `Shape2D`, `Tilemap`, `Text`, particles and trails, UI images | `quad_common.glsl` (+ `color_space.glsl`, `light_shadow.glsl`) | M72.1: template, tooling and the `Sprite` draw built (M72-P1, P3); the other 2D emitters follow |
-| `"sky"` | the sky the scene and its environment lighting use | `sky_common.glsl` | M72.1 |
-| `"post"` | one pass of a camera's post-processing stack | `post_common.glsl` | M72.2: template, tooling and the renderer (`PostProcess.customPasses`) built (M72-P7a) |
-| `"compute"` | compute shaders (storage buffers) | none yet | M72.4 |
+| `"sky"` | the background of a 3D scene (`SceneSettings.skyMaterial`); the lighting still follows the two sky colours | `sky_common.glsl` (+ `color_space.glsl`) | M72.1: built (M72-P6) |
+| `"post"` | one pass of a camera's post-processing stack (`PostProcess.customPasses`) | `post_common.glsl` | M72.2: built (M72-P7a) |
+| `"compute"` | compute shaders (storage buffers) | `compute_common.glsl` | built (M72.4) |
 
-Built by M72.0 (the shared base): the key, its check, the per-kind template hash and the skeletons. `"mesh"`, `"sprite"` and
-`"post"` compile; `shader.compile` and `factoria validate` refuse the others with a message that names the package
-that brings them (`kind "sky" is not compiled yet: sky materials arrive with M72.1`, pointer `/kind`), and the renderer
-refuses to build such a material (the same message, with the file). A `kind` that is not one of the five is an error with "did you mean" and the
+Built by M72.0 (the shared base): the key, its check, the per-kind template hash and the skeletons. Every kind compiles now.
+A `kind` that is not one of the five is an error with "did you mean" and the
 pointer `/kind` (`parse_material`, `schemas/material.schema.json`).
 
 - **One template hash per kind.** `fa::material_template_hash(kind)` (the tooling's `shader_template_hash(kind)` returns
@@ -396,111 +436,33 @@ pointer `/kind` (`parse_material`, `schemas/material.schema.json`).
   (`FA_TEMPLATE_FILES_<KIND>`) and in `template_file_names()` of `tools/common/src/shaders_generate.cpp`; a doctest checks
   that both lists give the same hash and that every `*_common.glsl` is in one list. Editing the sprite template leaves
   every mesh twin valid. The mesh list is `mesh_common.glsl`, the one file the hash was made of before kinds existed, so
-  its value did not change and no committed fixture or exported game needs a new export. `compute` has no template yet:
-  its hash is empty.
+  its value did not change and no committed fixture or exported game needs a new export. `compute` hashes `compute_common.glsl`
+  (`FA_TEMPLATE_FILES_COMPUTE`).
 - **The twin names its kind.** A twin of any kind other than mesh carries `"kind": "<kind>"`; a twin without the key is a
   mesh twin (so every twin made before M72 stays valid, and mesh twins are written as they always were).
   `build_material_checked` compares the twin's kind with the material file's and refuses a mismatch with the re-export
   hint, then checks the `engine` and `template` fields against the hash of that kind.
 - **One contract per kind.** Each template declares its own structs, so a top file includes the template of one kind
   and the error hints read the fields from the right one: mesh `SurfaceInput`, `Surface`, `VertexData`; sprite
-  `QuadInput`, `QuadSurface`, `QuadVertex`; sky `SkyInput`, `SkySurface` (a skeleton M72.1 fills in); post `PostInput`,
+  `QuadInput`, `QuadSurface`, `QuadVertex`; sky `SkyInput`, `SkySurface`; post `PostInput`,
   `PostSurface`.
 - **Programs per kind.** `MaterialAsset` stores its `kind` and `kMaxMaterialPrograms` (8) program slots; the programs a
   kind's twin carries are named by `material_program_names(kind)` (the six of a mesh material, `quad` and `quad_plain`
-  of a sprite one), so a kind adds its own list when it becomes buildable.
-- **Commands.** `shader.compile` and `material.info` return `kind`; `material.info` of a kind that does not compile yet
-  reports `programs: []` and `compile.state: "unsupported"` with the package in `compile.hint`.
+  of a sprite one, `sky`, `post`, `compute`).
+- **Commands.** `shader.compile` and `material.info` return `kind`; `material.info` lists the programs of the kind
+  and `compile.state` (`compiled` or `not_compiled`).
 
-### Sprite materials (M72.1, the template and the tooling)
+### Sprite and sky materials (M72.1)
 
-`engine/render/shaders/quad_common.glsl` is the source of every 2D quad program, as `mesh_common.glsl` is for meshes.
-`quad.glsl` is the template with the default snippet, an empty `fragment()`: it declares `@block fa_user` with
-`void fragment(in QuadInput i, inout QuadSurface s) {}`, includes the template and declares the two programs the renderer
-binds by generated names (`quad`, `quad_plain`; so every name `quad.glsl` already had is unchanged and a material must
-not take it). A sprite material's generated top file has that very shape with its own `fa_user` block, so a material
-whose `fragment()` is empty draws the pixels of the engine's own program (the tooling test "sprite template" compares the
-generated top file with the built-in source modulo the user block; the render tests "sprite materials" compare the pixels of the two, in the lean and the full program).
-
-- **Contract.** `void fragment(in QuadInput i, inout QuadSurface s)` (required) and `void vertex(inout QuadVertex v)`
-  (optional, defines `FA_HAS_VERTEX`). `s.color` arrives holding what the engine would draw for the mode (the textured,
-  lit, glyph, circle, ring, soft or SDF-shape result, alpha already including the coverage); the engine applies the flash,
-  the multiply conversion and the fog to what the snippet leaves in it. `QuadInput` carries `uv`, `color` (the tint),
-  `world_pos`, `screen_uv` (y down on every backend), `time`, `mode` and `custom` (zero for now). `fa_sample_main(uv)` samples the main texture in the colour space of the scene,
-  `fa_scene_rgb(c)` takes an sRGB colour of the author to the scene's.
-- **One program per variant.** `quad` has every mode; `quad_plain` is the lean program the renderer picks for a batch of
-  plain textured quads (no lights, no multiply). The snippet runs in both, so it must not depend on anything the plain
-  program does not have: `i.mode` is 0 in it. The twin carries both (`programs.quad`, `programs.quad_plain`).
-- **Slots.** Uniform blocks: vertex 0 `quad_vs_params`, fragment 1 `quad_fs_params` (the engine's), 4 `fa_material_vs`
-  (vertex stage) and 5 `fa_material` (fragment stage) are the material's, as for a mesh. Views 0-3 (`tex`, `normal_tex`,
-  `light_tex`, `shadow_tex`) and samplers 0-2 are the engine's, so a material's textures take views 4..7 and samplers 3..6
-  (`kMaterialSpriteFirstView`, `kMaterialSpriteFirstSampler` in `fa/tooling/shaders.h` and `engine/render/src/render_internal.h`;
-  a mesh material uses views from 6 and samplers from 2, and a second set at 10.. and 6.. for the textures of its `vertex()`: a
-  sprite has no vertex-stage views, so the compiler refuses a sprite `vertex()` that samples a material texture). `fa_time` and
-  `fa_target` are members of the fragment block `quad_fs_params`, and `fa_time` of the vertex block `vs_params`: the renderer
-  fills them for a material's draws, and in the engine's own programs they stay zero and unread (the lean program has no
-  uniform block at all). A material's `quad_plain` does get the fragment block (`fa_time`, `fa_target`: the lean built-in has
-  none), so its draw binds UB1 too.
-- **Not a material key.** `alphaMode: "clip"` (the mesh template's alpha test and implicit `alphaCutoff`) is an error for a
-  sprite: write `discard` in `fragment()`. `lighting: "custom"` (the `light()` hook of a mesh material) is an error for a
-  sprite; `"pbr"`/`"unlit"` and `doubleSided` mean nothing to a sprite and are ignored.
-- **Tooling.** `generate_material_shader` sets `GeneratedShader::kind`, includes `quad_common.glsl`, defines
-  `FA_MATERIAL` (and `FA_HAS_VERTEX`) and lists the programs `quad`, `quad_plain`; the cache key, the twin's `template`
-  and the compile all use the hash of the kind (the sprite one covers `color_space.glsl`, `light_shadow.glsl` and
-  `quad_common.glsl`). The error hints name `fragment()`, `QuadInput` and its fields. Export writes
-  `<name>.material.json.<dialect>.shader` as for any kind.
-- **Names.** The unprefixed names of the 2D program (vertex inputs, varyings, textures, samplers, uniform blocks and their
-  members, helper functions) share one flat namespace with the params, so `parse_material` refuses a sprite param or texture
-  that takes one (error at `/params/<name>` or `/textures/<name>`, with a rename); the list is derived from the bundled
-  template files (`template_globals`, `tools/common/src/shaders_generate.cpp`), so it cannot drift. `noise` is refused for
-  every kind (sokol-shdc cannot compile a texture called that).
-
-Built (M72-P3, the `Sprite` draw): `Sprite` draws with its material (`scene2d.cpp` asks `Assets::sprite_material` while it
-gathers, on the calling thread, and the emit jobs only copy the result).
-
-- **`MaterialUse`.** The material, its packed params (UB5 layout) and its textures are one interned record per distinct
-  (material, generation, values, textures), pooled in the `MaterialAsset` and swept after two frames without use. A
-  `QuadItem` and a `QuadBatch` hold a `const MaterialUse*`, so flatten splits batches on pointer equality (never copies
-  `materialParams` per frame), keeps the draw-order rules, and a donor Frame's items stay valid in another camera's Frame.
-  The reload of a snippet or material bumps `generation`, which makes the next frame take a new use with the new programs.
-- **Draw.** `draw_group` picks the material's `quad` or `quad_plain` program (the same blend and depth state as the built-in:
-  `Gpu::quad_pipeline` takes the shader and keys its cache on it), writes UB0 (`fa_time`), UB1 (`fa_time`, `fa_target`: 1 / the
-  target size in pixels and z = 1 on GL, where `screen_uv.y` is flipped to run down), UB4/UB5 and binds the textures at views
-  4+ and samplers 3+. Views and samplers the program does not declare are cleared.
-- **Error material.** A material that did not build, or whose kind is not `"sprite"`, makes the use an error use: flatten
-  replaces the vertex colours by magenta (the alpha stays), the batch draws with the built-in program, and
-  `RenderStats::materialFallbacks` names the material. The build error is logged once (`note_failure`); a wrong kind warns once.
-- **Left for the next package:** `Shape2D`, `Tilemap`, `Text`, particles and UI call the same `QuadList::set_material`;
-  `QuadInput.custom` stays zero.
+The template, the tooling and the draw of the `"sprite"` and `"sky"` kinds are on the page
+[custom shaders: the sprite, sky and post kinds](CUSTOM_SHADERS_KINDS.md): the template files and the generated top file, the slots of
+textures and params, what the tooling refuses, the `Sprite` draw (`MaterialUse`, the error material) and the sky draw
+(`Renderer::Impl::sky_material`, the editor's Scene settings panel).
 
 ### Post materials (M72.2)
 
-`engine/render/shaders/post_common.glsl` is the one program of a post material (`material_program_names(Post)` = `{"post"}`): a
-full-screen triangle whose fragment shader reads the picture (`fa_scene_color`) and optionally the depth and normal prepass
-(`fa_depth`, `fa_normal`) and calls the snippet's `post(in PostInput, inout PostSurface)`. Bindings: uniform block 0 (vertex,
-the GL flip), 1 (fragment, `fa_a` = GL flip and linear scene, `fa_rc` = the camera's rectangle as fractions, `fa_size`,
-`fa_time`) and 5 (the material, `kMaterialUbFragment`); views 0 `fa_scene` and 1 `fa_prepass` with samplers 0 (linear, clamped)
-and 1 (nearest), a material's textures at views and samplers 2+ (`kMaterialPostFirstView`). The prepass is bound only when the
-program declares it (the snippet calls `fa_depth` or `fa_normal`), which is what makes the renderer draw it for the camera.
-`lighting`, `alphaMode` and `doubleSided` are refused for the kind; a graph is not generated for it.
-
-- **The entry.** `PostProcess.customPasses` (a flat `Json` field: the stack keeps its flat component) holds `{material,
-  materialParams, enabled, position, name}` entries; `fa/render/post_custom.h` is the one parser (`parse_custom_post_passes`, used by
-  `postprocess.set`, the resolve and the report) and the one position table. A position names a built-in effect and a side;
-  each row maps to a `PostSlot` (`Main`, `AfterSsr`, `AfterShafts`, `AfterDof`, `AfterBloom`), the places `build_graph` has. A later
-  package adds places (the display-referred ones) as new slots and new rows: no key of the entry changes.
-- **The frame graph.** `renderer_custom_post.cpp` (`CustomPost::add_passes`, called by `build_graph` at each slot) reads the
-  picture through the graph (`game` imported resource), runs the entries of the slot in array order over the camera's rectangle,
-  and ping-pongs between two transients of the picture's format (`custom-<slot>-pass<k>`); the last pass draws back into the
-  rectangle of the picture with the bloom's destination rules (MSAA, hud over bloom), and a lone pass is copied back
-  (`SceneFx::copy_into`). The depth and normals are requested (`needsDepth`, `needsNormals`) only when a planned pass reads them.
-- **Failures.** `make_custom_post_plan` asks `Assets::post_material` and a pass whose material did not build, is not a post
-  material, is missing or needs a prepass the GPU lacks is dropped from the plan: `materialFallbacks` gets its path and the log
-  one warning per `path|reason` (`warnedCustomPass`, cleared on a scene change). A hot reload swaps the material's programs as for
-  the other kinds.
-- **Reported.** `render.supports` has the Engine feature `postMaterials`; `postprocess.get {resolved: true}` has `customPasses`
-  and `customPassProblems`; the editor's Post-processing panel edits the list (`postfx_custom.h` makes each edit one whole-array
-  `postprocess.set`, one undo step).
+The template, the tooling, the custom-pass entry (`PostProcess.customPasses`), the render pass and the editor panel of the
+"post" kind are in [custom shaders: the sprite, sky and post kinds](CUSTOM_SHADERS_KINDS.md), "Post materials (M72.2)".
 
 ## Node graphs
 
@@ -532,10 +494,10 @@ cache, hot reload, export, the runtime) is unchanged: a graph material is a mate
 
 ## Out of scope (recorded so nobody assumes it)
 
-- Custom shaders for the sky: M72.1 (the kind, hash and skeleton exist, the program does not). The 2D kind has its template
-  and tooling; what draws with it is in "Sprite materials" above. Post passes after the tonemap (display-referred): M72.2b.
+- Post passes after the tonemap (display-referred) and a post pass that needs the previous frame. A sky material does not
+  drive the meshes' ambient and reflection light.
 - A full-GLSL escape hatch (D1).
-- Compute shaders, tessellation, geometry shaders (not in sokol_gfx's common subset for these backends anyway).
+- Compute storage images, compute on GLES3/WebGL2, tessellation, geometry shaders (not in sokol_gfx's common subset for these backends anyway).
 - Per-instance material data inside one instanced draw.
 - The node-graph editor canvas (the graph document, its generator and the node library exist: "Node graphs").
 

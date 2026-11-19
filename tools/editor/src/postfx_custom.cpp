@@ -61,7 +61,8 @@ Json custom_pass_set_param(const Json& list, std::size_t index, const std::strin
     std::vector<Json> entries = entries_of(list);
     if (index >= entries.size() || !entries[index].is_object()) return array_of(std::move(entries));
     Json& e = entries[index];
-    Json params = e.contains("materialParams") && e["materialParams"].is_object() ? e["materialParams"] : Json::object();
+    Json params =
+        e.contains("materialParams") && e["materialParams"].is_object() ? e["materialParams"] : Json::object();
     if (value.is_null()) {
         if (params.contains(name)) params.erase(name);
     } else {
@@ -79,7 +80,8 @@ std::string custom_pass_label(const Json& entry) {
     if (!entry.is_object()) return "(no material)";
     if (entry.contains("name") && entry["name"].is_string() && !entry["name"].get<std::string>().empty())
         return entry["name"].get<std::string>();
-    std::string m = entry.contains("material") && entry["material"].is_string() ? entry["material"].get<std::string>() : "";
+    std::string m =
+        entry.contains("material") && entry["material"].is_string() ? entry["material"].get<std::string>() : "";
     if (m.empty()) return "(no material)";
     const std::size_t slash = m.find_last_of('/');
     if (slash != std::string::npos) m.erase(0, slash + 1);

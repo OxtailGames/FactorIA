@@ -54,7 +54,9 @@ TEST_CASE(
         std::string list;
         for (const std::string& name : shaders_detail::template_file_names(kind)) {
             CAPTURE(name);
-            CHECK(std::find(seen.begin(), seen.end(), name) == seen.end());
+            // a kind's own *_common.glsl is in its list only; the files a template @includes (color_space.glsl,
+            // light_shadow.glsl) may be in several lists, each hash covers them
+            if (name.ends_with("_common.glsl")) CHECK(std::find(seen.begin(), seen.end(), name) == seen.end());
             seen.push_back(name);
             REQUIRE(bundled_read("engine/render/shaders/" + name).has_value());
             std::ifstream in(stdfs::path(FA_REPO_ROOT) / "engine/render/shaders" / name, std::ios::binary);
@@ -78,7 +80,8 @@ TEST_CASE(
     CHECK(shader_template_hash("mesh") != shader_template_hash("sprite"));
     CHECK(shader_template_hash("sprite") != shader_template_hash("sky"));
     CHECK(shader_template_hash("sky") != shader_template_hash("post"));
-    CHECK(shader_template_hash("compute").empty());  // no template until M72.4
+    CHECK(shader_template_hash("post") != shader_template_hash("compute"));
+    CHECK_FALSE(shader_template_hash("compute").empty());
     CHECK(shader_template_hash("nonsense").empty());
 }
 
@@ -88,7 +91,7 @@ TEST_CASE("shader template: every kind's contract structs are read from its own 
         {"sprite", {"QuadInput", "QuadSurface", "QuadVertex"}},
         {"sky", {"SkyInput", "SkySurface"}},
         {"post", {"PostInput", "PostSurface"}},
-        {"compute", {}}};
+        {"compute", {"ComputeInput"}}};
     for (const auto& [kind, structs] : expected) {
         CAPTURE(kind);
         const auto& found = shaders_detail::contract_structs(kind);

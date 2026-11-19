@@ -85,7 +85,7 @@ std::string Editor::postfx_target_id() {
     return postFx_.report.is_object() ? postFx_.report.value("id", std::string()) : std::string();
 }
 
-bool Editor::postfx_edit(const Json& fields, bool ownStep) {
+bool Editor::postfx_edit(const Json& fields, bool ownStep, int entry) {
     const std::string id = postfx_target_id();
     postFx_.error.clear();
     if (id.empty()) {
@@ -94,6 +94,7 @@ bool Editor::postfx_edit(const Json& fields, bool ownStep) {
     }
     std::string key = "postfx:" + id + ":";
     for (auto it = fields.begin(); it != fields.end(); ++it) key += it.key() + ",";
+    if (entry >= 0) key += "#" + std::to_string(entry) + ",";  // a drag on one custom pass never merges into another's
     if (ownStep) key += std::to_string(uiFrame_);
     std::string err;
     const CommandResult r = edit_command(key, "postprocess.set", Json::object({{"id", id}, {"fields", fields}}), &err);
@@ -650,7 +651,8 @@ void Editor::draw_postfx_custom(const Json& list, const Json& resolved) {
                         }
                         at_track("postfx:custom:param:" + idx + ":" + p.name);
                         if (changed)
-                            postfx_edit(Json::object({{"customPasses", custom_pass_set_param(list, i, p.name, out)}}));
+                            postfx_edit(Json::object({{"customPasses", custom_pass_set_param(list, i, p.name, out)}}),
+                                        false, int(i));
                         ImGui::SameLine();
                         ImGui::BeginDisabled(!overridden);
                         if (ImGui::SmallButton("Reset"))

@@ -93,6 +93,22 @@ constexpr int kMaxQuadsPerDraw = 16384;  // 16-bit indices
 constexpr int kMaxLights =
     32;  // also the size of the light arrays in mesh.glsl (96 vec4s: within the WebGL2 minimum of 224)
 constexpr int kMeshInstanceBytes = 64;  // one Mat4 per instance
+// The vertex buffers beyond the mesh (0), the model matrices (1) and the skin (2) that a custom material's programs may read
+// (docs/design/CUSTOM_SHADERS.md, "Per-instance params and vertex channels"): the packed per-instance params (up to 3 vec4 per
+// instance, one value per instance), then the declared mesh channels uv1 (2 floats) and color1 (4 normalized bytes), per vertex.
+constexpr int kInstanceDataBuffer = 3, kUv1Buffer = 4, kColor1Buffer = 5;
+constexpr int kMaxInstanceVec4 = 3;  // fa/tooling/shaders.h kMaterialMaxInstanceVec4
+// The first attribute location of those extras in a program that has them: after the matrix (9), or after the joints and weights
+// of a skinned program (11), in mesh_common.glsl FA_X_BASE. Up to kMaxInstanceVec4 + 2 attributes: 16 = SG_MAX_VERTEX_ATTRIBUTES.
+constexpr int kExtraAttrBase = 9, kExtraAttrBaseSkinned = 11;
+// The extra vertex attributes of a custom material's main, prepass and (with vertex() or alphaMode "clip") shadow programs; a
+// material without per-instance params and declared channels has none, and its pipelines are the built-in layout.
+struct MeshExtras {
+    int instanceVec4 = 0;  // vec4 of per-instance data (vertex buffer 3), 0..kMaxInstanceVec4
+    bool uv1 = false;      // vertex buffer 4: TEXCOORD_1 as two floats
+    bool color1 = false;   // vertex buffer 5: COLOR_1 as four normalized bytes
+    bool any() const { return instanceVec4 > 0 || uv1 || color1; }
+};
 // Skinning: a skinned part has a third vertex buffer (vertex buffer 2) of SkinVertex, and the draw uploads the joint
 // palette as kMaxSkinJoints 3x4 matrices (three vec4 rows each = 192 vec4, which fits the 256 vec4 of vertex uniforms
 // that GLES3 / WebGL2 guarantee next to the other uniforms). A model with more joints is drawn in bind pose.
@@ -233,7 +249,11 @@ const char* pixel_format_name(
 struct SubMesh {
     sg_buffer vb{};
     sg_buffer skinVb{};  // SkinVertex per vertex when the part belongs to a skinned glTF node; else id 0
-    int skin = -1;       // index of the glTF skin that deforms it (-1 = not skinned)
+    sg_buffer
+        uv1Vb{};  // TEXCOORD_1 (two floats per vertex) when the glTF primitive has it, else id 0 (a material's "uv1")
+    sg_buffer
+        color1Vb{};  // COLOR_1 (four normalized bytes per vertex, like MeshVertex::color) when it has it, else id 0
+    int skin = -1;   // index of the glTF skin that deforms it (-1 = not skinned)
     sg_buffer ib{};
     int ibOffset = 0;  // byte offset of this part's first index in `ib` (a procedural mesh's submeshes share one pair)
     int vertexCount = 0;
@@ -288,7 +308,9 @@ struct PreparedPart {
     std::vector<std::uint32_t> idx;
     SubMesh material;  // the material and bounds fields (no GPU handles, no texture pointers yet)
     PreparedTextureRef base, metalRough, normal, occlusion, emissive;
-    std::vector<SkinVertex> skin;  // empty: not skinned
+    std::vector<SkinVertex> skin;       // empty: not skinned
+    std::vector<float> uv1;             // TEXCOORD_1, two floats per vertex; empty: the primitive has none
+    std::vector<std::uint32_t> color1;  // COLOR_1 packed as MeshVertex::color; empty: the primitive has none
     int skinIndex = -1;
 };
 struct PreparedMesh {
@@ -373,8 +395,11 @@ constexpr int kMaxMaterialParams = 16,
 //          light_tex, shadow_tex) and samplers 0-2 (smp, light_smp, shadow_smp) are the engine's, so a material's textures are
 //          views 4..7 and samplers 3..6 (kMaterialSprite*): none collides with the 2D slots, and 4 + 4 views stay far below
 //          the 16 texture units GLES3 and WebGL2 guarantee.
+//   sky    (sky_common.glsl): uniform blocks vertex 0 sky_vs_params, fragment 1 sky_fs_params; the engine binds no texture, so a
+//          material's textures are views 0..3 and samplers 0..3 (kMaterialSky*), all in the fragment stage (no vertex()).
 constexpr int kMaterialFirstView = 6, kMaterialFirstSampler = 2, kMaterialUbVertex = 4, kMaterialUbFragment = 5;
 constexpr int kMaterialSpriteFirstView = 4, kMaterialSpriteFirstSampler = 3;
+constexpr int kMaterialSkyFirstView = 0, kMaterialSkyFirstSampler = 0;
 // post (post_common.glsl): uniform blocks vertex 0 fa_post_vs_params, fragment 1 fa_post_params; views 0 (fa_scene) and 1 (fa_prepass),
 // samplers 0 (linear clamp) and 1 (nearest) are the engine's, so a material's textures are views and samplers 2..5.
 constexpr int kMaterialPostFirstView = 2, kMaterialPostFirstSampler = 2;
@@ -403,22 +428,41 @@ enum MaterialProgramId : int {
     kProgPrepassSkin,
     kProgCount  // the programs of a mesh material; the other kinds name theirs in material_program_names()
 };
+constexpr int kProgCompute = 0;  // the one program of a compute material (MaterialAsset::programs[0])
 // Room for the programs of every kind of material (a mesh material has kProgCount of them).
 constexpr int kMaxMaterialPrograms = 8;
 static_assert(kProgCount <= kMaxMaterialPrograms);
-// The programs a twin of `kind` carries, in MaterialAsset::programs order (the "programs" keys of the twin). Empty for a kind
-// that cannot be built yet.
+// The programs a twin of `kind` carries, in MaterialAsset::programs order (the "programs" keys of the twin).
 const std::vector<const char*>& material_program_names(MaterialKind kind);
 
 struct MaterialParamDef {
     std::string name;
     int components = 1;  // 1..4
     float def[4]{0, 0, 0, 0};
+    int vec4 = 0,
+        offset = 0;  // an instanced param: where it sits in the per-instance data (vec4 index, first float in it)
 };
 struct MaterialTextureDef {
     std::string name;
     TextureAsset* defaultTex = nullptr;
     SamplerKind sampler = SamplerKind::Linear;
+};
+
+// One field of the element of a compute material's storage buffer, as the twin lists it (std430 offsets made by the tooling).
+struct MaterialBufferFieldDef {
+    std::string name;
+    std::string type;          // float, vec2, vec3, vec4, int, uint
+    std::uint32_t offset = 0;  // bytes from the start of the element
+    int components = 1;        // 1..4 (4 bytes each)
+    bool isInt = false, isUint = false;
+};
+// One storage buffer of a compute material (the twin's "buffers": sorted by name, `binding` = its view slot).
+struct MaterialBufferDef {
+    std::string name;
+    int binding = 0;
+    std::uint32_t stride = 0;  // bytes of one element
+    bool readOnly = false;
+    std::vector<MaterialBufferFieldDef> fields;
 };
 
 // What one sprite-kind material draws with in a batch: the packed params and the textures of a 2D item, found once per
@@ -441,37 +485,69 @@ struct MaterialRef {
 };
 
 struct MaterialAsset {
-    std::string path;                        // the .material.json
-    std::string snippet;                     // its `shader` file (a change of it reloads the material)
-    MaterialKind kind = MaterialKind::Mesh;  // its "kind"; Mesh, Sprite and Post materials are built so far
+    std::string path;     // the .material.json
+    std::string snippet;  // its `shader` file (a change of it reloads the material)
+    MaterialKind kind =
+        MaterialKind::Mesh;  // its "kind": Mesh, Sprite, Sky and Post (drawn) or Compute (Compute::dispatch)
+    std::vector<MaterialBufferDef> buffers;  // Compute: the storage buffers, in binding order
+    int workgroup[3]{64, 1, 1};              // Compute: the threads of one workgroup
     std::string lighting = "pbr", alphaMode = "opaque";
     bool doubleSided = false;
-    std::vector<MaterialParamDef> params;      // in the order of the twin's "params" (the packing order)
+    std::vector<MaterialParamDef> params;     // in the order of the twin's "params" (the packing order)
+    std::vector<MaterialParamDef> instanced;  // the "instanced" params of the twin: they travel in the instance buffer
+    int instanceVec4 = 0;                     // vec4 of per-instance data they take (0 = none)
+    bool uv1 = false, color1 = false;         // the "vertexAttributes" the twin declares
+    std::vector<std::string>
+        instancedNames;  // their names, sorted: what the hash of MeshRenderer.materialParams leaves out
+    std::size_t instancedKey =
+        0;  // changes when the set of instanced names does (a cached hash of the overrides is then stale)
+    MeshExtras extras() const { return {instanceVec4, uv1, color1}; }
     std::vector<MaterialTextureDef> textures;  // in the order of the twin's "textures" (views 6+i, samplers 2+i)
     MaterialProgram programs
-        [kMaxMaterialPrograms];  // by MaterialProgramId for a mesh material; a sprite one: quad, quad_plain; a post one: post
-    bool ok = false;             // false = drawn with the error material
-    std::string error;           // the last build error (kept while an older good build still draws)
-    int generation = 0;          // counts successful builds
+        [kMaxMaterialPrograms];  // by MaterialProgramId for a mesh material; a sprite one: quad, quad_plain; a sky one: sky; a post one: post
+    bool ok = false;                         // false = drawn with the error material
+    std::string error;                       // the last build error (kept while an older good build still draws)
+    int generation = 0;                      // counts successful builds
     std::unordered_set<std::string> warned;  // params already complained about
+    // (mesh, part, channel) triples already logged as lacking a declared vertex channel: checked before the message is built,
+    // as the draw asks once per part, batch and pass of every frame. Cleared when the material builds again.
+    std::unordered_set<std::uint64_t> missingNoted;
     // The sets of values 2D items use (MaterialUse), by a hash of the values and the generation.
     std::unordered_multimap<std::uint64_t, std::unique_ptr<MaterialUse>> uses;
 };
+
+// The first channel `m` declares in "vertexAttributes" that `part` has no buffer for ("uv1", "color1"; a glTF primitive without
+// TEXCOORD_1 / COLOR_1, or a procedural mesh); nullptr when it has them all.
+inline const char* missing_channel(const MaterialAsset& m, const SubMesh& part) {
+    if (m.uv1 && !part.uv1Vb.id) return "uv1";
+    if (m.color1 && !part.color1Vb.id) return "color1";
+    return nullptr;
+}
 
 // The dialect name of a sokol backend ("hlsl5", "glsl430"...); "" for an unsupported one.
 std::string backend_dialect(sg_backend backend);
 
 // The sg_shader_desc of a twin program (`programs.<name>` of factoria.shader/1) and the slots it declares in `slots` (its
 // shader is not made). The desc points into `program`, which must outlive it.
-Result<sg_shader_desc> material_shader_desc(const std::string& label, const Json& program, MaterialProgram& slots);
+// A compute program ("cs" instead of "vs" and "fs") also needs `workgroup`, the threads of a group (Metal takes them with the shader).
+Result<sg_shader_desc> material_shader_desc(const std::string& label, const Json& program, MaterialProgram& slots,
+                                            const int* workgroup = nullptr);
 // Builds the shader of a twin program; on failure the Error says what the twin/driver rejected.
-Result<MaterialProgram> make_material_program(const std::string& label, const Json& program);
+Result<MaterialProgram> make_material_program(const std::string& label, const Json& program,
+                                              const int* workgroup = nullptr);
 
 // Packs the params of `m` (defaults overlaid by `overrides`, a MeshRenderer.materialParams object) into one vec4 each.
 // A value of the wrong shape or an unknown name is warned about once per material and keeps the default.
-void pack_material_params(MaterialAsset& m, const Json& overrides, float out[kMaxMaterialParams][4]);
+// `field` and `holder` say where `overrides` came from, for the warnings ("materialParams.speed of a component using ...";
+// the sky passes "skyMaterialParams" and "SceneSettings").
+void pack_material_params(MaterialAsset& m, const Json& overrides, float out[kMaxMaterialParams][4],
+                          const char* field = "materialParams", const char* holder = "a component");
+// Packs the instanced params of `m` for one instance: `m.instanceVec4` * 4 floats at `out` (defaults overlaid by `overrides`;
+// the unused floats of a vec4 are 0). Warns once per material about a value of the wrong shape, like pack_material_params.
+void pack_instance_params(MaterialAsset& m, const Json& overrides, float* out);
 // The texture bound as texture `i` of `m`: the override path in `overrides` (loaded by `assets`), else the default.
-TextureAsset* material_texture(MaterialAsset& m, int i, const Json& overrides, Assets& assets);
+TextureAsset* material_texture(MaterialAsset& m, int i, const Json& overrides, Assets& assets,
+                               const char* field = "materialParams", const char* holder = "a component");
 
 // ---------------------------------------------------------------------------
 // Batches (CPU side, before upload)
@@ -650,6 +726,13 @@ public:
     // before the first frame, such as an entity's bounds, only gets the checker).
     void set_drawing(bool on) { drawing_ = on; }
     static bool is_target_id(const std::string& path) { return path.rfind("target:", 0) == 0; }
+    // Whether a material's overrides (materialParams) hold a texture path that names a render target ("target:<name>").
+    static bool params_name_target(const Json& params) {
+        if (!params.is_object()) return false;
+        for (auto& [k, v] : params.items())
+            if (v.is_string() && is_target_id(v.get<std::string>())) return true;
+        return false;
+    }
     MeshAsset* mesh(const std::string& name);  // never null (cube placeholder on failure)
     // The procedural meshes ("mesh:N" ids of MeshRenderer.mesh, fa/scene/mesh_store.h) are looked up in `store`, the store of the
     // world being drawn: call this before mesh() once per frame. It frees the GPU copy of every mesh that left the store (destroyed,
@@ -666,13 +749,25 @@ public:
     // material did not build or is not of kind "sprite" (one warning). An empty path gives an empty ref. Call it on the
     // thread that gathers (it may load the material and its textures), never from the jobs that emit quads: hand the ref to
     // them and let them call QuadList::set_material.
+    // The answers are kept for the frame by path and values: a second item with the same material and equal `overrides` costs one
+    // hash-map find and a comparison, not the path normalization, the packing and the hash. `overrides` must live (and keep its
+    // values) until the next begin_material_frame()/drop_material_cache(): it is a component's own field, never a temporary.
     MaterialRef sprite_material(const std::string& path, const Json& overrides);
     // The same for a custom post pass (PostProcess.customPasses, renderer_custom_post.h): a "post" material and the entry's
     // materialParams. `use->error` is set when the material did not build or is not of kind "post" (one warning); the pass is
     // then skipped, not drawn magenta. Call it on the render thread while the frame is planned.
     MaterialRef post_material(const std::string& path, const Json& overrides);
-    // Once per drawn frame, before the first gather: uses no item asked for during the last two frames are dropped.
+    // Once per drawn frame, before the first gather: uses no item asked for during the last two frames are dropped, and the
+    // per-frame answers of sprite_material() are forgotten.
     void begin_material_frame();
+    // Forgets the per-frame answers of sprite_material() (a gather outside a drawn frame, such as a capture, may see components
+    // that changed since the last frame).
+    void drop_material_cache() { materialVariants_.clear(); }
+    // How many times sprite_material() did the whole lookup (not answered from the per-frame cache) since the last
+    // begin_material_frame(): RenderStats::materialResolves.
+    std::uint32_t material_resolves() const { return materialResolves_; }
+    // Puts the count back (a capture of one entity's subtree must not change the numbers of the frame drawn before it).
+    void set_material_resolves(std::uint32_t n) { materialResolves_ = n; }
     // How a material gets its twin (empty = read `<path>.<dialect>.shader` through fa::fs). Kept across clear().
     void set_shader_compiler(ShaderCompiler compiler) { shaderCompiler_ = std::move(compiler); }
     bool has_loaded(const std::string& path) const;
@@ -774,6 +869,16 @@ private:
     std::uint64_t meshStoreSerial_ = 0;
     std::unordered_map<std::string, std::unique_ptr<MaterialAsset>> materials_;
     std::uint64_t useTick_ = 0;  // drawn frames counted by begin_material_frame (MaterialUse::tick)
+    // sprite_material()'s answers of this frame: by material path, then by the values (a pointer to the first component's params
+    // with them: nothing is copied; at most kMaxMaterialVariants distinct sets per path).
+    struct MaterialVariant {
+        const Json* params;
+        MaterialRef ref;
+    };
+    static constexpr std::size_t kMaxMaterialVariants = 16;
+    std::unordered_map<std::string, std::vector<MaterialVariant>> materialVariants_;
+    std::uint32_t materialResolves_ = 0;
+    MaterialRef resolve_kind_material(const std::string& path, const Json& overrides, MaterialKind want);
     ShaderCompiler shaderCompiler_;
 };
 
@@ -858,13 +963,19 @@ public:
     // Vertex buffer 0 = MeshVertex, buffer 1 = one model matrix per instance. A skinned variant adds a `skinned` argument,
     // a PipelineKey bit and a second per-vertex buffer for joints and weights.
     // `shader` = a program of a custom material (the pipeline is keyed by it); default = the built-in mesh program.
+    // `extras` = the per-instance params and declared channels of that custom material (MaterialAsset::extras()): vertex buffers 3, 4
+    // and 5 at the attributes after the matrix (and the joints). The shader id decides the pipeline: a material's programs and its
+    // extras change together, so the key does not name them.
     sg_pipeline mesh_pipeline(const TargetFormat& format, bool blended, bool doubleSided, bool skinned = false,
-                              sg_shader shader = {});
-    sg_pipeline mesh_pipeline(bool blended, bool doubleSided, bool skinned = false, sg_shader shader = {}) {
-        return mesh_pipeline(scene_target_format(), blended, doubleSided, skinned, shader);
+                              sg_shader shader = {}, MeshExtras extras = {});
+    sg_pipeline mesh_pipeline(bool blended, bool doubleSided, bool skinned = false, sg_shader shader = {},
+                              MeshExtras extras = {}) {
+        return mesh_pipeline(scene_target_format(), blended, doubleSided, skinned, shader, extras);
     }
-    sg_pipeline sky_pipeline(const TargetFormat& format);
+    // `shader`: the program of a sky material (id 0 = the built-in gradient).
+    sg_pipeline sky_pipeline(const TargetFormat& format, sg_shader shader = {});
     sg_pipeline sky_pipeline() { return sky_pipeline(scene_target_format()); }
+    sg_pipeline sky_pipeline(sg_shader shader) { return sky_pipeline(scene_target_format(), shader); }
 
     // The format the game target (and the CameraView and render-target passes drawn with it) writes into:
     // scene_format(), the depth-stencil format and the game target's sample count. A change of scene_format() (the
@@ -887,9 +998,10 @@ public:
     // main program's (every attribute), the culling the main pass's: `doubleSided` as for mesh_pipeline. Invalid when the built-in
     // shader cannot be made.
     sg_pipeline prepass_pipeline(const TargetFormat& format, bool doubleSided, bool skinned = false,
-                                 sg_shader shader = {});
-    sg_pipeline prepass_pipeline(bool doubleSided, bool skinned = false, sg_shader shader = {}) {
-        return prepass_pipeline(prepass_target_format(), doubleSided, skinned, shader);
+                                 sg_shader shader = {}, MeshExtras extras = {});
+    sg_pipeline prepass_pipeline(bool doubleSided, bool skinned = false, sg_shader shader = {},
+                                 MeshExtras extras = {}) {
+        return prepass_pipeline(prepass_target_format(), doubleSided, skinned, shader, extras);
     }
     // The debug view of the prepass (prepass_view.glsl): a full-screen triangle that draws it as a picture into `format` (the game target's).
     bool prepass_view_ready();
@@ -925,10 +1037,12 @@ public:
     std::uint64_t pipeline_idle_frames() const { return pipelineIdleFrames_; }
     // `fullVertex` (custom shadow programs: vertex() or alphaMode "clip") also reads normal, texcoord0 and tangent from
     // vertex buffer 0, at locations 5, 6, 7 (skinned: 7, 8, 9) as shadow_vs of mesh_common.glsl declares them.
+    // `extras` count only with `fullVertex` (the shadow programs without vertex() and clip do not read them).
     sg_pipeline shadow_pipeline(const TargetFormat& format, bool skinned = false, sg_shader shader = {},
-                                bool fullVertex = false);
-    sg_pipeline shadow_pipeline(bool skinned = false, sg_shader shader = {}, bool fullVertex = false) {
-        return shadow_pipeline(shadow_target_format(), skinned, shader, fullVertex);
+                                bool fullVertex = false, MeshExtras extras = {});
+    sg_pipeline shadow_pipeline(bool skinned = false, sg_shader shader = {}, bool fullVertex = false,
+                                MeshExtras extras = {}) {
+        return shadow_pipeline(shadow_target_format(), skinned, shader, fullVertex, extras);
     }
     // Destroys a custom material program together with the pipelines made from it.
     void destroy_shader(sg_shader shader);
@@ -1036,6 +1150,12 @@ public:
     static void begin_pass(const PassDesc& pass);
     static void end_pass();
     static bool in_pass() { return inPass_; }
+    // A compute pass (Compute::dispatch): no attachments, so no PassDesc. Counts as a pass (in_pass()) until end_compute_pass().
+    static void begin_compute_pass();
+    static void end_compute_pass();
+    // The compute pipeline of a compute material's program (`shader`), made on first use and cached like the others (destroy_shader
+    // drops it). Invalid, with one logged error, when the driver rejects it. Call it outside a pass.
+    sg_pipeline compute_pipeline(sg_shader shader);
     static const TargetFormat& pass_format() {
         return passFormat_;
     }  // of the pass begun last; meaningful while in_pass()
@@ -1055,6 +1175,8 @@ public:
         committed_ = false;
     }
     void note_commit() { committed_ = true; }
+    // GPU work was recorded outside a frame (a compute dispatch or buffer write): a read back must commit it first.
+    void note_work() { committed_ = false; }
     // False while the frame drawn last has not been submitted to the GPU by an sg_commit().
     bool committed() const { return committed_; }
     // The sokol frame being recorded: the sg_commit() calls made so far by anyone, the editor's included (a commit
@@ -1116,6 +1238,8 @@ private:
         bool warmed = false;         // made or asked for by the warm-up: never evicted
     };
     std::map<PipelineKey, PipelineEntry> pipelines_;
+    std::unordered_set<std::uint32_t>
+        failedComputePipelines_;      // shader ids whose compute pipeline the driver refused (one log)
     std::uint64_t pipelineTick_ = 0;  // begin_frame() calls (see "The pipeline cache")
     std::uint64_t pipelineHits_ = 0, pipelinesMade_ = 0, pipelinesEvicted_ = 0;
     bool warming_ = false;
@@ -1219,6 +1343,10 @@ private:
 
 // GPU->CPU readback of an RGBA8 image (top row first). Backend specific.
 bool readback_rgba8(sg_image image, int width, int height, std::vector<std::uint8_t>& out, std::string* error);
+// GPU->CPU readback of `bytes` bytes of a storage buffer from `offset` (Compute::read). Waits for the GPU: the work recorded so
+// far must have been committed (sg_commit) by the caller. Backend specific; false + `error` where the backend has no storage buffers.
+bool readback_buffer(sg_buffer buffer, std::size_t offset, std::size_t bytes, std::vector<std::uint8_t>& out,
+                     std::string* error);
 // The same for an RGBA16F image, as floats (4 per pixel, top row first): what the HDR tests read (Renderer::Impl::read_floats).
 bool readback_rgba16f(sg_image image, int width, int height, std::vector<float>& out, std::string* error);
 

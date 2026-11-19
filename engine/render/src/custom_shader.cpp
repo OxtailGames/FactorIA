@@ -33,7 +33,7 @@ std::string material_template_hash(MaterialKind kind) {
         case MaterialKind::Sprite: return FA_TEMPLATE_HASH_SPRITE;
         case MaterialKind::Sky: return FA_TEMPLATE_HASH_SKY;
         case MaterialKind::Post: return FA_TEMPLATE_HASH_POST;
-        case MaterialKind::Compute: return {};  // no template until M72.4: the build defines no hash for it
+        case MaterialKind::Compute: return FA_TEMPLATE_HASH_COMPUTE;
     }
     return {};
 }
@@ -57,17 +57,22 @@ std::string backend_dialect(sg_backend backend) {
 }
 
 const std::vector<const char*>& material_program_names(MaterialKind kind) {
-    // The order of MaterialProgramId. The other kinds list theirs when their package makes them buildable.
+    // The order of MaterialProgramId. Every kind has its programs.
     static const std::vector<const char*> mesh = {"mesh",        "mesh_skin", "shadow",
                                                   "shadow_skin", "prepass",   "prepass_skin"};
     // Sprite: quad (every mode of quad_common.glsl) and quad_plain (a batch of plain textured quads); a material has both.
     static const std::vector<const char*> sprite = {"quad", "quad_plain"};
+    // Sky: the one program of sky_common.glsl.
+    static const std::vector<const char*> sky = {"sky"};
+    static const std::vector<const char*> compute = {"compute"};
     // Post: one full-screen program (post_common.glsl).
     static const std::vector<const char*> post = {"post"};
     static const std::vector<const char*> none;
     switch (kind) {
         case MaterialKind::Mesh: return mesh;
         case MaterialKind::Sprite: return sprite;
+        case MaterialKind::Sky: return sky;
+        case MaterialKind::Compute: return compute;
         case MaterialKind::Post: return post;
         default: return none;
     }
@@ -112,12 +117,16 @@ bool pick(const std::string& name, std::initializer_list<std::pair<const char*, 
 }
 
 sg_shader_stage stage_of(const Json& j) {
-    return text_of(j, "stage") == "vertex" ? SG_SHADERSTAGE_VERTEX : SG_SHADERSTAGE_FRAGMENT;
+    const std::string stage = text_of(j, "stage");
+    return stage == "vertex"    ? SG_SHADERSTAGE_VERTEX
+           : stage == "compute" ? SG_SHADERSTAGE_COMPUTE
+                                : SG_SHADERSTAGE_FRAGMENT;
 }
 
 }  // namespace
 
-Result<sg_shader_desc> material_shader_desc(const std::string& label, const Json& program, MaterialProgram& out) {
+Result<sg_shader_desc> material_shader_desc(const std::string& label, const Json& program, MaterialProgram& out,
+                                            const int* workgroup) {
     const std::string where = "the program '" + label + "'";
     auto bad = [&](const std::string& what) {
         return make_error(where + " of the shader twin is malformed: " + what,
@@ -126,23 +135,31 @@ Result<sg_shader_desc> material_shader_desc(const std::string& label, const Json
     };
     const std::string* vs = str_of(program, "vs");
     const std::string* fsText = str_of(program, "fs");
+    const std::string* cs = str_of(program, "cs");  // a compute program has this one instead of "vs" and "fs"
     auto refl = program.find("reflection");
-    if (!vs || !fsText || refl == program.end() || !refl->is_object())
-        return bad("it needs \"vs\", \"fs\" and \"reflection\"");
+    if (refl == program.end() || !refl->is_object() || (cs ? (vs || fsText) : (!vs || !fsText)))
+        return bad("it needs \"reflection\" and either \"vs\" and \"fs\" or \"cs\"");
+    if (cs && (!workgroup || workgroup[0] < 1 || workgroup[1] < 1 || workgroup[2] < 1))
+        return bad("a compute program needs the material's workgroup size");
 
     // The strings the desc points to live in `program` (the Json) for the whole call.
     sg_shader_desc desc{};
     desc.label = label.c_str();
-    desc.vertex_func.source = vs->c_str();
-    desc.fragment_func.source = fsText->c_str();
-    for (auto [fn, key] :
-         {std::pair{&desc.vertex_func, "vertex_func"}, std::pair{&desc.fragment_func, "fragment_func"}}) {
+    const Json noFunc = Json::object();
+    auto function_of = [&](sg_shader_function& fn, const char* key, const std::string& source) {
+        fn.source = source.c_str();
         auto f = refl->find(key);
-        const Json none = Json::object();
-        const Json& fj = f != refl->end() && f->is_object() ? *f : none;
-        fn->entry = cstr_or_null(fj, "entry_point");
-        if (!fn->entry) fn->entry = "main";
-        fn->d3d11_target = cstr_or_null(fj, "d3d11_target");
+        const Json& fj = f != refl->end() && f->is_object() ? *f : noFunc;
+        fn.entry = cstr_or_null(fj, "entry_point");
+        if (!fn.entry) fn.entry = "main";
+        fn.d3d11_target = cstr_or_null(fj, "d3d11_target");
+    };
+    if (cs) {
+        function_of(desc.compute_func, "compute_func", *cs);
+        desc.mtl_threads_per_threadgroup = {workgroup[0], workgroup[1], workgroup[2]};
+    } else {
+        function_of(desc.vertex_func, "vertex_func", *vs);
+        function_of(desc.fragment_func, "fragment_func", *fsText);
     }
 
     for (const Json& a : list_of(*refl, "attrs")) {
@@ -191,9 +208,24 @@ Result<sg_shader_desc> material_shader_desc(const std::string& label, const Json
         out.ubSize[slot] = ub.size;
     }
     for (const Json& v : list_of(*refl, "views")) {
+        if (auto sb = v.find("storage_buffer"); cs && sb != v.end() && sb->is_object()) {
+            const int slot = int_or(*sb, "slot", -1);
+            if (slot < 0 || slot >= SG_MAX_VIEW_BINDSLOTS)
+                return bad("a storage buffer slot outside 0.." + std::to_string(SG_MAX_VIEW_BINDSLOTS - 1));
+            sg_shader_storage_buffer_view& bv = desc.views[slot].storage_buffer;
+            bv.stage = SG_SHADERSTAGE_COMPUTE;
+            bv.readonly = sb->find("readonly") != sb->end() && sb->at("readonly") == true;
+            bv.hlsl_register_t_n = std::uint8_t(int_or(*sb, "hlsl_register_t_n"));
+            bv.hlsl_register_u_n = std::uint8_t(int_or(*sb, "hlsl_register_u_n"));
+            bv.msl_buffer_n = std::uint8_t(int_or(*sb, "msl_buffer_n"));
+            bv.glsl_binding_n = std::uint8_t(int_or(*sb, "glsl_binding_n"));
+            out.viewMask |= 1u << slot;
+            continue;
+        }
         auto t = v.find("texture");
         if (t == v.end() || !t->is_object())
-            return bad("a view that is not a texture (storage buffers and images are not supported)");
+            return bad("a view that is not a texture (storage images are not supported" +
+                       std::string(cs ? ")" : ", and storage buffers only in a compute program)"));
         const int slot = int_or(*t, "slot", -1);
         if (slot < 0 || slot >= SG_MAX_VIEW_BINDSLOTS)
             return bad("a texture slot outside 0.." + std::to_string(SG_MAX_VIEW_BINDSLOTS - 1));
@@ -245,9 +277,9 @@ Result<sg_shader_desc> material_shader_desc(const std::string& label, const Json
     return desc;
 }
 
-Result<MaterialProgram> make_material_program(const std::string& label, const Json& program) {
+Result<MaterialProgram> make_material_program(const std::string& label, const Json& program, const int* workgroup) {
     MaterialProgram out;
-    auto made = material_shader_desc(label, program, out);
+    auto made = material_shader_desc(label, program, out, workgroup);
     if (!made.ok()) return made.error();
     const std::string where = "the program '" + label + "'";
     out.shader = make_shader(&*made, label.c_str());
@@ -262,54 +294,71 @@ Result<MaterialProgram> make_material_program(const std::string& label, const Js
     return out;
 }
 
-void pack_material_params(MaterialAsset& m, const Json& overrides, float out[kMaxMaterialParams][4]) {
-    const int n = std::min<int>(int(m.params.size()), kMaxMaterialParams);
-    for (int i = 0; i < n; ++i) {
-        const MaterialParamDef& p = m.params[std::size_t(i)];
-        std::memcpy(out[i], p.def, sizeof(p.def));
-        auto it = overrides.is_object() ? overrides.find(p.name) : overrides.end();
-        if (it == overrides.end()) continue;
-        bool good = p.components == 1 ? it->is_number() : (it->is_array() && int(it->size()) == p.components);
-        if (good && it->is_array())
-            for (const Json& c : *it) good = good && c.is_number();
-        if (!good) {
-            if (m.warned.insert(p.name).second)
-                FA_WARN("render", "materialParams.{} of a component using '{}' must be {} (the default is kept)",
-                        p.name, m.path,
-                        p.components == 1 ? std::string("a number")
-                                          : "an array of " + std::to_string(p.components) + " numbers, like " +
-                                                (p.components == 2   ? "[0.5, 1]"
-                                                 : p.components == 3 ? "[1, 0.5, 0]"
-                                                                     : "[1, 0.5, 0, 1]"));
-            continue;
-        }
-        if (p.components == 1)
-            out[i][0] = it->get<float>();
-        else
-            for (int c = 0; c < p.components; ++c) out[i][c] = (*it)[std::size_t(c)].get<float>();
+namespace {
+// The value of param `p` for an entity: the default overlaid by `overrides[p.name]`; a value of the wrong shape is warned about
+// once per material and keeps the default. `field` and `holder` name where `overrides` came from, for the warning.
+void param_value(MaterialAsset& m, const MaterialParamDef& p, const Json& overrides, float out[4], const char* field,
+                 const char* holder) {
+    std::memcpy(out, p.def, sizeof(p.def));
+    auto it = overrides.is_object() ? overrides.find(p.name) : overrides.end();
+    if (it == overrides.end()) return;
+    bool good = p.components == 1 ? it->is_number() : (it->is_array() && int(it->size()) == p.components);
+    if (good && it->is_array())
+        for (const Json& c : *it) good = good && c.is_number();
+    if (!good) {
+        if (m.warned.insert(p.name).second)
+            FA_WARN("render", "{}.{} of {} using '{}' must be {} (the default is kept)", field, p.name, holder, m.path,
+                    p.components == 1 ? std::string("a number")
+                                      : "an array of " + std::to_string(p.components) + " numbers, like " +
+                                            (p.components == 2   ? "[0.5, 1]"
+                                             : p.components == 3 ? "[1, 0.5, 0]"
+                                                                 : "[1, 0.5, 0, 1]"));
+        return;
     }
+    if (p.components == 1)
+        out[0] = it->get<float>();
+    else
+        for (int c = 0; c < p.components; ++c) out[c] = (*it)[std::size_t(c)].get<float>();
+}
+}  // namespace
+
+void pack_material_params(MaterialAsset& m, const Json& overrides, float out[kMaxMaterialParams][4], const char* field,
+                          const char* holder) {
+    const int n = std::min<int>(int(m.params.size()), kMaxMaterialParams);
+    for (int i = 0; i < n; ++i) param_value(m, m.params[std::size_t(i)], overrides, out[i], field, holder);
     if (overrides.is_object() && !overrides.empty()) {
         std::vector<std::string> names;
         for (const auto& p : m.params) names.push_back(p.name);
+        for (const auto& p : m.instanced) names.push_back(p.name);
         for (const auto& t : m.textures) names.push_back(t.name);
         for (auto it = overrides.begin(); it != overrides.end(); ++it)
             if (std::find(names.begin(), names.end(), it.key()) == names.end() && m.warned.insert(it.key()).second)
-                FA_WARN("render",
-                        "materialParams.{} of a component using '{}' is not a param or texture of that material. {}",
-                        it.key(), m.path, did_you_mean(it.key(), names));
+                FA_WARN("render", "{}.{} of {} using '{}' is not a param or texture of that material. {}", field,
+                        it.key(), holder, m.path, did_you_mean(it.key(), names));
     }
 }
 
-TextureAsset* material_texture(MaterialAsset& m, int i, const Json& overrides, Assets& assets) {
+void pack_instance_params(MaterialAsset& m, const Json& overrides, float* out) {
+    const int floats = m.instanceVec4 * 4;
+    for (int i = 0; i < floats; ++i) out[i] = 0.0f;
+    for (const MaterialParamDef& p : m.instanced) {
+        float v[4];
+        param_value(m, p, overrides, v, "materialParams", "a component");
+        for (int c = 0; c < p.components; ++c) out[p.vec4 * 4 + p.offset + c] = v[c];
+    }
+}
+
+TextureAsset* material_texture(MaterialAsset& m, int i, const Json& overrides, Assets& assets, const char* field,
+                               const char* holder) {
     const MaterialTextureDef& t = m.textures[std::size_t(i)];
     auto it = overrides.is_object() ? overrides.find(t.name) : overrides.end();
     if (it == overrides.end()) return t.defaultTex;
     if (it->is_string()) return assets.texture(it->get<std::string>());
     if (m.warned.insert(t.name).second)
         FA_WARN("render",
-                "materialParams.{} of a component using '{}' must be a texture path like \"assets/wood.png\" (the "
-                "default texture is kept)",
-                t.name, m.path);
+                "{}.{} of {} using '{}' must be a texture path like \"assets/wood.png\" (the default texture is "
+                "kept)",
+                field, t.name, holder, m.path);
     return t.defaultTex;
 }
 
@@ -327,6 +376,80 @@ SamplerKind sampler_kind(const std::string& name) {
 
 const char* kReexportHint = "Export the game again with this factoria version (or run it with `factoria run`, which "
                             "compiles the shaders itself).";
+
+// The compute part of a twin: "workgroupSize" [x, y, z] and "buffers" (tools/common/src/shaders_compute.cpp compute_twin_fields).
+// Every number is range-checked before it is narrowed: the file may come from an export made by another version.
+Result<void> read_compute_twin(const std::string& path, const Json& twin, std::size_t textureCount, int workgroup[3],
+                               std::vector<MaterialBufferDef>& buffers) {
+    auto bad = [&](const std::string& what) {
+        return make_error("the shader of material '" + path + "' is malformed: " + what, kReexportHint);
+    };
+    auto whole = [](const Json& j, std::int64_t lo, std::int64_t hi, std::int64_t& out) {
+        if (!j.is_number_integer()) return false;
+        const std::int64_t v = j.get<std::int64_t>();
+        if (v < lo || v > hi) return false;
+        out = v;
+        return true;
+    };
+    std::int64_t n = 0;
+    auto wg = twin.find("workgroupSize");
+    if (wg == twin.end() || !wg->is_array() || wg->size() != 3) return bad("it has no \"workgroupSize\" [x, y, z]");
+    std::int64_t product = 1;
+    for (std::size_t i = 0; i < 3; ++i) {
+        if (!whole((*wg)[i], 1, 256, n)) return bad("\"workgroupSize\" holds a number outside 1..256");
+        workgroup[i] = int(n);
+        product *= n;
+    }
+    if (product > 256) return bad("\"workgroupSize\" asks for more than 256 threads in a group");
+
+    auto list = twin.find("buffers");
+    if (list == twin.end() || !list->is_array()) return bad("it has no \"buffers\" list");
+    if (list->size() > std::size_t(SG_MAX_VIEW_BINDSLOTS) ||
+        list->size() + textureCount > std::size_t(SG_MAX_VIEW_BINDSLOTS))
+        return bad("too many buffers and textures for one program");
+    for (const Json& b : *list) {
+        MaterialBufferDef def;
+        def.name = text_of(b, "name");
+        def.readOnly = text_of(b, "access") == "read";
+        if (def.name.empty() || !b.contains("binding") || !whole(b["binding"], 0, SG_MAX_VIEW_BINDSLOTS - 1, n))
+            return bad("a buffer without a name or a binding");
+        def.binding = int(n);
+        if (!b.contains("stride") || !whole(b["stride"], 4, 1 << 16, n))
+            return bad("the buffer '" + def.name + "' has no stride");
+        if (n % 4 != 0)
+            return bad("the buffer '" + def.name + "' has a stride of " + std::to_string(n) +
+                       " bytes, which is not a multiple of 4 (a field is made of 4-byte values)");
+        def.stride = std::uint32_t(n);
+        auto fields = b.find("fields");
+        if (fields == b.end() || !fields->is_array() || fields->empty())
+            return bad("the buffer '" + def.name + "' has no fields");
+        for (const Json& f : *fields) {
+            MaterialBufferFieldDef fd;
+            fd.name = text_of(f, "name");
+            fd.type = text_of(f, "type");
+            if (!f.contains("offset") || !whole(f["offset"], 0, 1 << 16, n)) return bad("a field without an offset");
+            fd.offset = std::uint32_t(n);
+            if (fd.type == "float" || fd.type == "int" || fd.type == "uint")
+                fd.components = 1;
+            else if (fd.type == "vec2")
+                fd.components = 2;
+            else if (fd.type == "vec3")
+                fd.components = 3;
+            else if (fd.type == "vec4")
+                fd.components = 4;
+            else
+                return bad("the field '" + def.name + "." + fd.name + "' has the type '" + fd.type + "'");
+            fd.isInt = fd.type == "int";
+            fd.isUint = fd.type == "uint";
+            if (fd.name.empty() || std::uint64_t(fd.offset) + std::uint64_t(fd.components) * 4 > def.stride)
+                return bad("the field '" + def.name + "." + fd.name + "' does not fit in " +
+                           std::to_string(def.stride) + " bytes");
+            def.fields.push_back(std::move(fd));
+        }
+        buffers.push_back(std::move(def));
+    }
+    return {};
+}
 
 }  // namespace
 
@@ -358,17 +481,6 @@ Result<void> Assets::build_material_checked(MaterialAsset& m) {
         m.alphaMode = alphaMode;
         m.doubleSided = doubleSided;
     }
-    if (material_program_names(kind).empty()) {
-        // The package of each kind is the one the tooling names (shaders_generate.cpp kind_refusal).
-        const char* package = kind == MaterialKind::Compute ? "M72.4" : "M72.1";
-        return make_error(
-            "material '" + m.path + "' has kind \"" + material_kind_name(kind) +
-                "\", which this factoria version cannot draw yet: " + material_kind_name(kind) +
-                " materials arrive with " + package,
-            "Only \"mesh\", \"sprite\" and \"post\" materials are drawn so far (docs/design/CUSTOM_SHADERS.md, "
-            "\"Kinds (M72)\").");
-    }
-
     // The twin: from the compiler of the editor / `factoria`, else from the file an export wrote.
     const std::string dialect = backend_dialect(sg_query_backend());
     Json twin;
@@ -413,11 +525,12 @@ Result<void> Assets::build_material_checked(MaterialAsset& m) {
     };
     const Json* paramDefs = section("params");
     const Json* textureDefs = section("textures");
-    std::vector<MaterialParamDef> params;
+    std::vector<MaterialParamDef> params, instanced;
     std::vector<MaterialTextureDef> textures;
-    for (const Json& n : twin.value("params", Json::array())) {
+    // The definition of param `name` as the material file declares it (the twin only names it).
+    auto param_def = [&](const std::string& name) -> Result<MaterialParamDef> {
         MaterialParamDef d;
-        d.name = n.is_string() ? n.get<std::string>() : std::string();
+        d.name = name;
         auto it = paramDefs ? paramDefs->find(d.name) : Json::const_iterator();
         if (paramDefs && it != paramDefs->end() && it->is_object()) {
             const std::string type = text_of(*it, "type");
@@ -435,7 +548,43 @@ Result<void> Assets::build_material_checked(MaterialAsset& m) {
                                   "', which /params of the material does not declare",
                               "The material changed after its shader was made. " + std::string(kReexportHint));
         }
-        params.push_back(std::move(d));
+        return d;
+    };
+    for (const Json& n : twin.value("params", Json::array())) {
+        auto d = param_def(n.is_string() ? n.get<std::string>() : std::string());
+        if (!d.ok()) return d.error();
+        params.push_back(std::move(*d));
+    }
+    // The per-instance params: where each sits in the instance buffer (fa/tooling/shaders.h instance_layout).
+    const int instanceVec4 = int_or(twin, "instanceVec4", 0);
+    for (const Json& n : twin.value("instanced", Json::array())) {
+        auto d = param_def(text_of(n, "name"));
+        if (!d.ok()) return d.error();
+        d->vec4 = int_or(n, "vec4", -1);
+        d->offset = int_or(n, "offset", -1);
+        if (int_or(n, "components", 0) != d->components || d->vec4 < 0 || d->vec4 >= instanceVec4 || d->offset < 0 ||
+            d->offset + d->components > 4)
+            return make_error("the shader of material '" + m.path + "' places the instanced param '" + d->name +
+                                  "' where the material does not (vec4 " + std::to_string(d->vec4) + ", float " +
+                                  std::to_string(d->offset) + " of " + std::to_string(instanceVec4) + " vec4)",
+                              "The material changed after its shader was made. " + std::string(kReexportHint));
+        instanced.push_back(std::move(*d));
+    }
+    if (instanceVec4 < 0 || instanceVec4 > kMaxInstanceVec4 || (instanceVec4 > 0) != !instanced.empty())
+        return make_error("the shader of material '" + m.path + "' has " + std::to_string(instanceVec4) +
+                              " vec4 of per-instance data, at most " + std::to_string(kMaxInstanceVec4),
+                          kReexportHint);
+    bool uv1 = false, color1 = false;
+    for (const Json& n : twin.value("vertexAttributes", Json::array())) {
+        const std::string name = n.is_string() ? n.get<std::string>() : std::string();
+        if (name == "uv1")
+            uv1 = true;
+        else if (name == "color1")
+            color1 = true;
+        else
+            return make_error("the shader of material '" + m.path + "' declares the vertex attribute '" + name +
+                                  "', which this engine version does not know",
+                              kReexportHint);
     }
     if (params.size() > std::size_t(kMaxMaterialParams))
         return make_error("the shader of material '" + m.path + "' has " + std::to_string(params.size()) +
@@ -458,6 +607,14 @@ Result<void> Assets::build_material_checked(MaterialAsset& m) {
         textures.push_back(std::move(d));
     }
 
+    // A compute material: the threads of a group and the storage buffers (the tooling made the std430 layout).
+    std::vector<MaterialBufferDef> buffers;
+    int workgroup[3] = {64, 1, 1};
+    if (kind == MaterialKind::Compute) {
+        auto compute = read_compute_twin(m.path, twin, textures.size(), workgroup, buffers);
+        if (!compute.ok()) return compute.error();
+    }
+
     // The shaders. Nothing of `m` changes unless all of them are made.
     const std::vector<const char*>& names = material_program_names(kind);
     MaterialProgram programs[kMaxMaterialPrograms];
@@ -467,7 +624,8 @@ Result<void> Assets::build_material_checked(MaterialAsset& m) {
                                ? &programsJson->at(names[i])
                                : nullptr;
         Result<MaterialProgram> made =
-            prog ? make_material_program(m.path + " " + names[i], *prog)
+            prog ? make_material_program(m.path + " " + names[i], *prog,
+                                         kind == MaterialKind::Compute ? workgroup : nullptr)
                  : make_error("the shader of material '" + m.path + "' has no program '" + names[i] + "'",
                               kReexportHint);
         if (made.ok()) {
@@ -492,25 +650,45 @@ Result<void> Assets::build_material_checked(MaterialAsset& m) {
     m.alphaMode = alphaMode;
     m.doubleSided = doubleSided;
     m.params = std::move(params);
+    m.instanced = std::move(instanced);
+    m.instanceVec4 = instanceVec4;
+    m.uv1 = uv1;
+    m.color1 = color1;
+    m.missingNoted.clear();  // the "material-mesh" failures of the old build went too (build_material erases them)
+    m.instancedNames.clear();
+    for (const MaterialParamDef& p : m.instanced) m.instancedNames.push_back(p.name);
+    std::sort(m.instancedNames.begin(), m.instancedNames.end());
+    m.instancedKey = 0;
+    for (const std::string& n : m.instancedNames)
+        m.instancedKey = m.instancedKey * 1000003u + std::hash<std::string>{}(n);
     m.textures = std::move(textures);
+    m.buffers = std::move(buffers);
+    std::copy(std::begin(workgroup), std::end(workgroup), std::begin(m.workgroup));
     return {};
 }
 
 void Assets::build_material(MaterialAsset& m) {
     auto r = build_material_checked(m);
     failures_.erase(std::remove_if(failures_.begin(), failures_.end(),
-                                   [&](const Failure& f) { return f.kind == "material" && f.path == m.path; }),
+                                   [&](const Failure& f) {
+                                       return (f.kind == "material" && f.path == m.path) ||
+                                              (f.kind == "material-mesh" && f.path.rfind(m.path + " on ", 0) == 0);
+                                   }),
                     failures_.end());
     if (r.ok()) {
         m.ok = true;
         m.error.clear();
+        m.warned.erase("<kind>");  // a material of the wrong kind that was fixed warns again if it is broken again
         ++m.generation;
         return;
     }
     m.error = r.error().message;
     note_failure("material", m.path,
                  r.error().message + (m.ok ? "\nThe previous version of the material stays in use."
-                                           : "\nThe meshes and sprites using it are drawn magenta."),
+                                      : m.kind == MaterialKind::Post ? "\nThe custom post passes using it are skipped."
+                                      : m.kind == MaterialKind::Sky
+                                          ? "\nThe sky using it is drawn as the built-in gradient."
+                                          : "\nThe meshes and sprites using it are drawn magenta."),
                  r.error().hint);
 }
 
@@ -544,6 +722,20 @@ MaterialRef Assets::post_material(const std::string& path, const Json& overrides
 
 MaterialRef Assets::kind_material(const std::string& path, const Json& overrides, MaterialKind want) {
     if (path.empty()) return {};
+    // The answers of this frame by path, then by values: a second ask about the same component, or about another one with equal
+    // values (the usual case: a thousand sprites with one material), costs one hash-map find and a comparison of the values in
+    // place (nothing is copied).
+    std::vector<MaterialVariant>& variants = materialVariants_[path];
+    for (const MaterialVariant& v : variants)
+        if (v.params == &overrides || (v.params->empty() && overrides.empty()) || *v.params == overrides) return v.ref;
+    // A set of values not seen this frame: the whole lookup (path normalized, params packed, hashed, interned).
+    const MaterialRef ref = resolve_kind_material(path, overrides, want);
+    ++materialResolves_;
+    if (variants.size() < kMaxMaterialVariants) variants.push_back({&overrides, ref});
+    return ref;
+}
+
+MaterialRef Assets::resolve_kind_material(const std::string& path, const Json& overrides, MaterialKind want) {
     MaterialAsset* m = material(path);
     const std::uint64_t tick = useTick_;
     const bool wrongKind = m->ok && m->kind != want;
@@ -597,6 +789,8 @@ MaterialRef Assets::kind_material(const std::string& path, const Json& overrides
 
 void Assets::begin_material_frame() {
     ++useTick_;
+    drop_material_cache();
+    materialResolves_ = 0;
     for (auto& [k, m] : materials_)
         for (auto it = m->uses.begin(); it != m->uses.end();) {
             if (useTick_ - it->second->tick > kUseKeepFrames)
