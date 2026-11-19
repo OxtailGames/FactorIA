@@ -202,7 +202,7 @@ void register_postprocess_commands(Engine&, Engine::Impl& I) {
          "picture changes "
          "when the renderer draws the effect (render.supports says which it does); the fields are stored either way. "
          "`customPasses` is the list of your own post materials ({material, materialParams, enabled, position}, see "
-         "docs/SHADERS.md \"Post-process materials\"): the whole array is replaced, so send the list in the order you "
+         "docs/shaders/SHADERS_POST.md): the whole array is replaced, so send the list in the order you "
          "want to add, reorder or remove a pass; every entry is checked first (a bad one changes nothing and the "
          "error carries its JSON pointer) and the result has `customPasses`, the number of entries.",
          parse_schema(R"({"type":"object","required":["id","fields"],"properties":{
@@ -221,7 +221,7 @@ void register_postprocess_commands(Engine&, Engine::Impl& I) {
                 auto passes = render::parse_custom_post_passes(a["fields"]["customPasses"], "/fields/customPasses");
                 if (!passes.ok())
                     throw CommandError("invalid_argument", passes.error().message,
-                                       passes.error().hint.empty() ? "docs/SHADERS.md, \"Post-process materials\"."
+                                       passes.error().hint.empty() ? "docs/shaders/SHADERS_POST.md."
                                                                    : passes.error().hint);
             }
             Json args = a;

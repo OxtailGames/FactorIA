@@ -38,11 +38,20 @@ and these helpers (every engine name starts with `fa_`, so a param may take any 
 | `vec3 fa_scene_rgb(vec3 c)` | an sRGB colour you picked (a `color` param) in the colour space of the picture |
 | `fa_time` | `vec4`, `x` = seconds of game time (the engine clock, never the wall clock) |
 
-The picture is **scene-linear HDR colour** (values above 1 survive) at the position you choose, before the exposure and the
-tonemap unless you put the pass after them, so a tint or a glow is multiplied or added in light. In a scene with
-`SceneSettings.colorSpace` `"gamma"` it is the sRGB-encoded picture the scene was drawn in (`fa_scene_rgb` returns the colour as it
-is), so write the snippet with `fa_scene_rgb` for every colour you take from a param. The result is sanitised like the final pass:
-a NaN or an infinity becomes 0, a negative colour 0. A pass writes opaque colour: the alpha channel is carried through.
+What the picture holds depends on the position:
+
+- **Up to `before:tonemap`** it is **scene-linear HDR colour** (values above 1 survive), before the exposure and the tonemap, so a
+  tint or a glow is multiplied or added in light. In a scene with `SceneSettings.colorSpace` `"gamma"` it is the sRGB-encoded
+  picture the scene was drawn in.
+- **From `after:tonemap` on** (the places between the screen effects, below) it is the **display-referred picture the effects
+  before it made**: tonemapped (the exposure, the lens effects, the radial blur and the tonemap are done), **sRGB-encoded**, in
+  0..1 on an ordinary display. On an HDR output or a float picture format the values above 1 survive, so do not clamp them.
+  Sharpen, outline, posterize and the grain are drawn by the final pass in this encoding, and so is your pass: a tint is
+  multiplied in display colours, as in a gamma scene, not in light. `fa_scene_rgb` returns the colour as it is there (a gamma scene
+  and these places read the same way), so write the snippet with `fa_scene_rgb` for every colour you take from a param.
+
+The result is sanitised like the final pass: a NaN or an infinity becomes 0, a negative colour 0. A pass writes opaque colour:
+the alpha channel is carried through.
 
 **Depth and normals** come from the depth and normal prepass the SSAO, reflections and depth of field already use. The renderer
 draws that prepass for a camera **only when a pass of it calls `fa_depth` or `fa_normal`**; a material that calls neither costs no
@@ -65,12 +74,29 @@ prepass. A scene with no mesh in view gives 60000 and `vec3(0)` everywhere. A GP
   | `after:ssr`, `before:sunShafts` | after the reflections, before the sun shafts |
   | `after:sunShafts`, `before:depthOfField` | after the sun shafts, before the depth of field |
   | `after:motionBlur`, `before:bloom` | after the depth of field and the motion blur, before the bloom |
-  | `after:bloom`, `before:exposure`, `before:radialBlur`, `before:lensDistortion`, `before:chromaticAberration`, `before:tonemap`, `before:colorGrading` | after the bloom, right before the final pass (the exposure, the lens effects, the tonemap and the grading run fused in it) |
+  | `after:bloom`, `before:exposure`, `before:radialBlur`, `before:lensDistortion`, `before:chromaticAberration`, `before:tonemap` | after the bloom, right before the final pass (the exposure, the lens effects and the tonemap run fused in it): **scene-linear** |
+  | `after:tonemap`, `before:colorGrading` | after the exposure, the lens effects and the tonemap, before the colour grading: **display-referred** from here on |
+  | `after:colorGrading`, `before:vignette` | after the colour grading (and its LUT), before the vignette |
+  | `after:vignette`, `before:sharpen` | after the vignette, before the sharpen |
+  | `after:sharpen`, `before:outline` | after the sharpen, before the outline |
+  | `after:outline`, `before:posterize` | after the outline, before the posterize |
+  | `after:posterize`, `before:filmGrain` | after the posterize, before the film grain |
+  | `after:filmGrain`, `before:colorFilter` | after the film grain, before what the frame draws last (a flash or fade overlay, the dither, the colour filter) |
 
   A position that names an effect but is not a place (`before:ssao`: the ambient occlusion is part of the scene's own pass;
-  `after:depthOfField`; `after:tonemap`: the picture is already in display colours there, not supported in this version) is
-  refused with the reason and the ones that work. Passes at the same place run in **array order**, each reading the picture the
-  one before wrote. An effect that is off does not change where the others go.
+  `after:depthOfField`; `after:exposure`; `before:pixelate` and `after:pixelate`: the pixelate is not a step of its own;
+  `after:colorFilter`: the colour filter is the last thing the frame draws) is refused with the reason and the ones that work.
+  Passes at the same place run in **array order**, each reading the picture the one before wrote; places run in the order of the
+  table, whatever the order of the array. An effect that is off does not change where the others go.
+- **The display-referred places cut the final pass.** The exposure, the lens effects, the tonemap, the grading, the vignette, the
+  sharpen, the outline, the posterize and the grain are one pass of the engine (`post.glsl`). Only where an entry sits at one of
+  these places, that pass is drawn in two pieces: the effects before the place into an image, your pass(es), then the effects after
+  it into the frame. A frame with no entry there draws the same one pass as always, at the same cost. What runs in the last piece
+  is what the frame draws last: a flash or fade overlay, the dither of one 8-bit step (not when the posterize is on) and the
+  colour filter. Things to know: the **pixelate** applies to every piece, so the picture is blocky again after your pass, and the
+  **sharpen** after your pass compares a pixel with its neighbours in the picture your pass left.
+- At most **32 entries** are drawn together for a camera and its volumes (8 per `PostProcess`); the entries after those are not
+  drawn and the log says so once.
 - A volume (a `PostProcess` that is not on a camera) adds its entries after the camera's own when its strength (weight times
   influence) is at least 0.5, the rule of every switch of a volume.
 - A split screen draws each camera's list over its own rectangle of the picture.
@@ -84,7 +110,9 @@ The previous version of a material stays in use when a hot reload of its shader 
 `render.supports {"feature": "postMaterials"}` says whether this renderer draws them.
 
 **Cost.** Every enabled pass is one full-screen draw of the rectangle (and a copy when it is the only one: the picture is read
-and written in two images), plus the prepass when it is read. Start with one or two passes; sample the picture a few times
+and written in two images), plus the prepass when it is read. A display-referred place adds the cost of the cut: the final pass
+is drawn in two pieces, so the picture is written and read once more per place that has an entry (one image of the picture's
+size, kept between frames; places with no effect between them share one cut). Start with one or two passes; sample the picture a few times
 per pixel, not dozens.
 
 **Editor.** View > Post-processing has a "Custom passes" section: add a material from the project, switch a pass on or off,

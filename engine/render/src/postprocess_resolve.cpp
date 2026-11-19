@@ -178,7 +178,18 @@ void add_custom_passes(PostStack& out, const PostProcess& c, float s, Entity ent
             out.customErrors.push_back(r.error());
             continue;
         }
-        if (out.custom.size() >= std::size_t(4 * kMaxCustomPostPasses)) return;  // the volumes together stay bounded
+        if (out.custom.size() >= std::size_t(4 * kMaxCustomPostPasses)) {  // the volumes together stay bounded
+            const std::string msg = "The custom passes of the camera and its volumes together are limited to " +
+                                    std::to_string(4 * kMaxCustomPostPasses) +
+                                    "; the entries after those are not drawn.";
+            const bool said = std::any_of(out.customErrors.begin(), out.customErrors.end(),
+                                          [&](const Error& e) { return e.message == msg; });
+            if (!said)
+                out.customErrors.push_back(
+                    Error{msg, "Remove entries from PostProcess.customPasses of the camera or the volumes, or merge "
+                               "passes into one material."});
+            return;
+        }
         r->source = entity.bits();
         out.custom.push_back(std::move(*r));
         if (trace) trace->customLayers.push_back(layer);
