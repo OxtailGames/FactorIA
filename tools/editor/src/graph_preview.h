@@ -178,6 +178,8 @@ private:
         PreviewKind drawKind = PreviewKind::Mesh;
         std::string spriteTexture;  // a sprite material: the texture the quad shows ("" = the checker)
         bool drawn = false;
+        bool readsTime =
+            false;  // the compiled snippet reads the clock: an animated post picture changes from one draw to the next
         bool redraw = false;  // the shape or a param value changed: draw the last compiled material again
         std::thread worker;
         std::shared_ptr<Job> job;

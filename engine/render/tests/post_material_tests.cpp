@@ -1436,7 +1436,10 @@ TEST_CASE(
     near(three.pixel(5, 5), 1, 0, 0);  // the history is valid from the second frame
     near(three.pixel(40, 22), 1, 0, 0);
     REQUIRE_MESSAGE(g.renderer.capture_camera(s.w, spec, again, &err), err);
-    CHECK(diff_images(three, again, 0.0f).maxError == 0.0);  // the same world, the same picture: it started clean again
+    // The capture's slots are freed when it ends, not left to count against the game's budget for 120 frames: only the game's pair is held.
+    CHECK(render::renderer_post_history_images(g.renderer) == 2);
+    CHECK(diff_images(three, again, 1.0f / 255.0f).maxError ==
+          0.0);  // the same world, the same picture: it started clean again
     spec.frames = 1;
     REQUIRE_MESSAGE(g.renderer.capture_camera(s.w, spec, one, &err), err);
     near(one.pixel(5, 5), 0, 0, 0);  // and a single frame after them is clean too
@@ -1445,6 +1448,30 @@ TEST_CASE(
     CHECK(g.renderer.stats().materialFallbacks == stats.materialFallbacks);
     game = g.render(s.w);
     near(game.pixel(20, 20), 1, 0, 0);
+    CHECK(log.messages().empty());
+}
+
+TEST_CASE("capture_camera: the alpha a pass writes comes back as it is, never un-premultiplied") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    MaterialScope scope;
+    ProblemLog log;
+    Scene2d s;
+    s.w.get<Sprite>(s.sprite)->color = Color{0.25f, 0.25f, 0.25f, 1.0f};  // dark enough for a division by 0.5 to show
+    Renderer::CameraCapture spec;
+    spec.camera = s.cam;
+    spec.width = 64;
+    spec.height = 36;
+    std::string err;
+    Image plain, half;
+    REQUIRE_MESSAGE(g.renderer.capture_camera(s.w, spec, plain, &err), err);
+    CHECK(plain.pixel(32, 18).a > 0.99f);
+    s.passes({entry("materials/post_alpha.material.json")});
+    REQUIRE_MESSAGE(g.renderer.capture_camera(s.w, spec, half, &err), err);
+    CHECK(std::fabs(half.pixel(32, 18).a - 0.5f) <= 0.02f);
+    CHECK(std::fabs(half.pixel(0, 0).a - 0.5f) <= 0.02f);
+    near(half.pixel(32, 18), plain.pixel(32, 18).r, plain.pixel(32, 18).g,
+         plain.pixel(32, 18).b);  // the colour is the picture's
     CHECK(log.messages().empty());
 }
 

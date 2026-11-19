@@ -487,7 +487,10 @@ void GraphPreview::tick_slot(Slot& s, Renderer* renderer) {
         if (s.drawn) draw(s, renderer, false);
         return;
     }
-    if (animated_ && s.drawn && s.state == PreviewState::Ready && animFrame_ % kAnimateEvery == 0)
+    // A post picture only changes with the clock, so one whose snippet never reads the time is not drawn again (the same picture, 4 frames
+    // of 256 x 256 each time).
+    const bool changes = s.drawKind != PreviewKind::Post || s.readsTime;
+    if (animated_ && changes && s.drawn && s.state == PreviewState::Ready && animFrame_ % kAnimateEvery == 0)
         draw(s, renderer, true);
 }
 
@@ -668,6 +671,8 @@ void GraphPreview::finish(Slot& s, Renderer* renderer) {
     renderer->reload_asset(s.liveMaterial);
     s.shownRevision = job->revision;
     s.nodeErrors.clear();
+    // fa_time (the graph's time node, post.time) or PostInput.time (a hand-written snippet).
+    s.readsTime = job->snippet.find("fa_time") != std::string::npos || job->snippet.find("i.time") != std::string::npos;
     draw(s, renderer, true);
 }
 
@@ -685,6 +690,10 @@ void GraphPreview::draw(Slot& s, Renderer* renderer, bool markReady) {
         Json entry = Json::object({{"material", s.liveMaterial}});
         if (params.is_object() && !params.empty()) entry["materialParams"] = params;
         pp->customPasses = Json::array({entry});
+        // The scratch world's engine clock follows the animation (a step of 1/60 s per tick, never the wall clock), so a pass that reads
+        // the time moves, and both pictures of a comparison show the same instant.
+        if (animated_ && double(animFrame_) / 60.0 > world_->time())
+            world_->advance_clock(double(animFrame_) / 60.0 - world_->time());
         Renderer::CameraCapture spec;
         spec.camera = camera_;
         spec.width = spec.height = kPreviewSide;
