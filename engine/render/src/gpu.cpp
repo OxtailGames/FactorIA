@@ -38,7 +38,42 @@ sg_sampler make_sampler(sg_filter minmag, sg_filter mip, sg_wrap wrap, const cha
 }
 
 // Vertex buffer 1: a 4x4 model matrix per instance in four consecutive attributes starting at `firstAttr`.
-void set_instance_layout(sg_pipeline_desc& d, int firstAttr) {
+//
+// `bufferInst` (a mesh material with "buffers", MeshExtras::bufferInst) draws the entity as N instances that read
+// storage buffers, and its model matrix is a uniform (FA_BUFFER_INST). Instance vertex buffer 1 would hold one matrix,
+// so a per-instance step would read past its end from the second instance on. So the four attributes stay in the layout
+// (the generated program still declares them, and the attribute slots must be contiguous) but read the first 16 bytes
+// of each vertex of the mesh's own buffer 0, which is always in range: any N, any backend. A step rate cannot do this,
+// because sokol_gfx narrows it to an int8 on OpenGL. The shader never uses the values. Buffer 1 is not part of this
+// layout at all (a draw that still binds it is fine: sokol_gfx ignores a slot the layout does not use).
+//
+// Buffer 0 then needs explicit offsets: sokol_gfx packs them itself only while every one of them is 0, and it would
+// pack the four instance attributes into the vertex too. So the other attributes of buffer 0 get the offsets of a
+// packed MeshVertex, in location order, whatever is still unset when this runs (a shadow pipeline sets its skin
+// attributes after it: they are skipped here, they live in buffer 2). The instance attributes get the offsets 0, 4, 8
+// and 12: the last one ends at byte 28, inside the smallest vertex, and the offset 4 keeps sokol_gfx from packing a
+// pipeline whose buffer 0 holds nothing but the position.
+void set_instance_layout(sg_pipeline_desc& d, int firstAttr, bool bufferInst = false) {
+    if (bufferInst) {
+        for (int i = 0; i < 4; ++i) {
+            d.layout.attrs[firstAttr + i].format = SG_VERTEXFORMAT_FLOAT4;
+            d.layout.attrs[firstAttr + i].buffer_index = 0;
+            d.layout.attrs[firstAttr + i].offset = i * 4;
+        }
+        int offset = 0;
+        for (int i = 0; i < SG_MAX_VERTEX_ATTRIBUTES; ++i) {
+            sg_vertex_attr_state& a = d.layout.attrs[i];
+            if (a.format == SG_VERTEXFORMAT_INVALID) continue;  // not set yet (see above)
+            if (a.buffer_index != 0 || (i >= firstAttr && i < firstAttr + 4)) continue;
+            a.offset = offset;
+            offset += a.format == SG_VERTEXFORMAT_FLOAT4   ? 16
+                      : a.format == SG_VERTEXFORMAT_FLOAT3 ? 12
+                      : a.format == SG_VERTEXFORMAT_FLOAT2 ? 8
+                                                           : 4;  // UBYTE4N, the vertex color
+        }
+        if (d.layout.buffers[0].stride == 0) d.layout.buffers[0].stride = offset;
+        return;
+    }
     d.layout.buffers[1].stride = kMeshInstanceBytes;
     d.layout.buffers[1].step_func = SG_VERTEXSTEP_PER_INSTANCE;
     for (int i = 0; i < 4; ++i) {
@@ -406,6 +441,10 @@ sg_pipeline Gpu::find_or_make(PipelineKey key, const TargetFormat& format, const
     FA_ASSERT(!inPass_ || format == passFormat_,
               "a pipeline was fetched for another target format than the pass being drawn (PassDesc::format)");
 #endif
+    if (layoutProbe_) {  // a test reads the layout a getter built; nothing is made or cached
+        probedLayout_ = request.layout;
+        return {};
+    }
     key.format = format;
     auto it = pipelines_.find(key);
     if (it != pipelines_.end()) {
@@ -512,7 +551,7 @@ sg_pipeline Gpu::mesh_pipeline(const TargetFormat& format, bool blended, bool do
     d.layout.attrs[ATTR_mesh_mesh_fa_tangent].format = SG_VERTEXFORMAT_FLOAT4;
     d.layout.attrs[ATTR_mesh_mesh_fa_color].format =
         SG_VERTEXFORMAT_UBYTE4N;  // vertex color, white without (MeshVertex::color)
-    set_instance_layout(d, ATTR_mesh_mesh_fa_inst_m0);
+    set_instance_layout(d, ATTR_mesh_mesh_fa_inst_m0, shader.id && extras.bufferInst);
     if (skinned) set_skin_layout(d, ATTR_mesh_mesh_skin_fa_joints, ATTR_mesh_mesh_skin_fa_weights);
     if (shader.id) set_extra_layout(d, skinned ? kExtraAttrBaseSkinned : kExtraAttrBase, extras);
     d.index_type = SG_INDEXTYPE_UINT32;
@@ -543,7 +582,7 @@ sg_pipeline Gpu::full_pipeline(const TargetFormat& format, const MaterialPassSta
     d.layout.attrs[ATTR_mesh_mesh_fa_texcoord0].format = SG_VERTEXFORMAT_FLOAT2;
     d.layout.attrs[ATTR_mesh_mesh_fa_tangent].format = SG_VERTEXFORMAT_FLOAT4;
     d.layout.attrs[ATTR_mesh_mesh_fa_color].format = SG_VERTEXFORMAT_UBYTE4N;
-    set_instance_layout(d, ATTR_mesh_mesh_fa_inst_m0);
+    set_instance_layout(d, ATTR_mesh_mesh_fa_inst_m0, shader.id && extras.bufferInst);
     if (skinned) set_skin_layout(d, ATTR_mesh_mesh_skin_fa_joints, ATTR_mesh_mesh_skin_fa_weights);
     set_extra_layout(d, skinned ? kExtraAttrBaseSkinned : kExtraAttrBase, extras);
     d.index_type = SG_INDEXTYPE_UINT32;
@@ -604,7 +643,7 @@ sg_pipeline Gpu::shadow_pipeline(const TargetFormat& format, bool skinned, sg_sh
         d.layout.attrs[first + 2].format = SG_VERTEXFORMAT_FLOAT4;   // tangent
         d.layout.attrs[first + 3].format = SG_VERTEXFORMAT_UBYTE4N;  // vertex color
     }
-    set_instance_layout(d, ATTR_mesh_shadow_fa_inst_m0);
+    set_instance_layout(d, ATTR_mesh_shadow_fa_inst_m0, shader.id && extras.bufferInst);
     if (skinned) set_skin_layout(d, ATTR_mesh_shadow_skin_fa_joints, ATTR_mesh_shadow_skin_fa_weights);
     if (shader.id && fullVertex) set_extra_layout(d, skinned ? kExtraAttrBaseSkinned : kExtraAttrBase, extras);
     d.index_type = SG_INDEXTYPE_UINT32;
@@ -818,7 +857,7 @@ sg_pipeline Gpu::prepass_pipeline(const TargetFormat& format, bool doubleSided, 
     d.layout.attrs[ATTR_mesh_prepass_fa_texcoord0].format = SG_VERTEXFORMAT_FLOAT2;
     d.layout.attrs[ATTR_mesh_prepass_fa_tangent].format = SG_VERTEXFORMAT_FLOAT4;
     d.layout.attrs[ATTR_mesh_prepass_fa_color].format = SG_VERTEXFORMAT_UBYTE4N;
-    set_instance_layout(d, ATTR_mesh_prepass_fa_inst_m0);
+    set_instance_layout(d, ATTR_mesh_prepass_fa_inst_m0, shader.id && extras.bufferInst);
     if (skinned) set_skin_layout(d, ATTR_mesh_prepass_skin_fa_joints, ATTR_mesh_prepass_skin_fa_weights);
     if (shader.id) set_extra_layout(d, skinned ? kExtraAttrBaseSkinned : kExtraAttrBase, extras);
     d.index_type = SG_INDEXTYPE_UINT32;

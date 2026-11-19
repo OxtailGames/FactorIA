@@ -11,6 +11,7 @@
 #include "render_internal.h"
 #include "mesh_batch.h"
 #include "render_scene.h"
+#include "renderer_test_access.h"
 
 using namespace fa;
 using namespace fa::test;

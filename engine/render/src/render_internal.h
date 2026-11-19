@@ -107,6 +107,10 @@ struct MeshExtras {
     int instanceVec4 = 0;  // vec4 of per-instance data (vertex buffer 3), 0..kMaxInstanceVec4
     bool uv1 = false;      // vertex buffer 4: TEXCOORD_1 as two floats
     bool color1 = false;   // vertex buffer 5: COLOR_1 as four normalized bytes
+    // The material has "buffers": its instances read storage buffers and its model matrix is a uniform. Its pipelines
+    // therefore point the instance attributes fa_inst_m0..3 at the mesh's own vertex buffer instead of at vertex buffer
+    // 1, which holds one matrix only (Gpu: set_instance_layout).
+    bool bufferInst = false;
     bool any() const { return instanceVec4 > 0 || uv1 || color1; }
 };
 // Skinning: a skinned part has a third vertex buffer (vertex buffer 2) of SkinVertex, and the draw uploads the joint
@@ -557,7 +561,7 @@ struct MaterialAsset {
         instancedNames;  // their names, sorted: what the hash of MeshRenderer.materialParams leaves out
     std::size_t instancedKey =
         0;  // changes when the set of instanced names does (a cached hash of the overrides is then stale)
-    MeshExtras extras() const { return {instanceVec4, uv1, color1}; }
+    MeshExtras extras() const { return {instanceVec4, uv1, color1, !buffers.empty()}; }
     std::vector<MaterialTextureDef> textures;  // in the order of the twin's "textures" (views 6+i, samplers 2+i)
     MaterialProgram programs
         [kMaxMaterialPrograms];  // by MaterialProgramId for a mesh material; a sprite one: quad, quad_plain; a sky one: sky; a post one: post
@@ -991,7 +995,8 @@ private:
         KindVariants sprite, post;
     };
     std::unordered_map<std::string, PathVariants> materialVariants_;
-    bool variantsChangedNoted_ = false;  // the "params changed during the frame" warning is given once
+    bool variantsChangedNoted_ =
+        false;  // the "params changed during the frame" warning is given once (until clear() or a material reload)
     std::uint32_t materialResolves_ = 0;
     MaterialRef resolve_kind_material(const std::string& path, const Json& overrides, MaterialKind want);
     ShaderCompiler shaderCompiler_;
@@ -1153,6 +1158,10 @@ public:
     // Pipelines made (sg_make_pipeline), since the start.
     std::uint64_t pipelines_made() const { return pipelinesMade_; }
     std::uint64_t pipelines_evicted() const { return pipelinesEvicted_; }  // pipelines destroyed for being idle
+    // Tests: while on, a pipeline getter makes and caches nothing (it returns an empty pipeline) and keeps the vertex
+    // layout it built, which probed_layout() returns. Used to check offsets and strides without a draw.
+    void set_layout_probe(bool on) { layoutProbe_ = on; }
+    const sg_vertex_layout_state& probed_layout() const { return probedLayout_; }
     // While on, every pipeline made or asked for is kept out of the eviction (Renderer::warm_step turns it on around a group).
     void set_warming(bool on) { warming_ = on; }
     static constexpr std::size_t kPipelineCacheCap = 192;
@@ -1373,6 +1382,8 @@ private:
         bool warmed = false;         // made or asked for by the warm-up: never evicted
     };
     std::map<PipelineKey, PipelineEntry> pipelines_;
+    bool layoutProbe_ = false;
+    sg_vertex_layout_state probedLayout_{};
     std::unordered_set<std::uint32_t>
         failedComputePipelines_;      // shader ids whose compute pipeline the driver refused (one log)
     std::uint64_t pipelineTick_ = 0;  // begin_frame() calls (see "The pipeline cache")

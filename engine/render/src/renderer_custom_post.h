@@ -197,7 +197,13 @@ private:
     std::map<HistoryKey, std::shared_ptr<HistorySlot>> history_;
     // The slots whose images the GPU refused, with the shape (w, h, format) it refused: plan_history does not try them again until the
     // shape changes or forget_targets.
-    std::map<HistoryKey, std::tuple<int, int, sg_pixel_format>> historyRefused_;
+    struct RefusedShape {
+        int w = 0, h = 0;
+        sg_pixel_format format = SG_PIXELFORMAT_NONE;
+        std::uint64_t seq = 0;  // when it was refused: the oldest is the one dropped at the cap
+    };
+    std::map<HistoryKey, RefusedShape> historyRefused_;
+    std::uint64_t refusedSeq_ = 0;
     bool warnedHistory_ = false;
     std::uint64_t historyBudget_ = 0;
     bool refuseHistory_ = false;

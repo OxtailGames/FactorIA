@@ -17,8 +17,9 @@
 #include "fa/scene/animation.h"
 
 #include "mesh_batch.h"
-#include "render_internal.h"    // material_shader_desc
-#include "renderer_env.h"       // kEnvPasses: the draws of one bake of the sky environment
+#include "render_internal.h"  // material_shader_desc
+#include "renderer_env.h"     // kEnvPasses: the draws of one bake of the sky environment
+#include "renderer_test_access.h"
 #include "shaders/mesh.glsl.h"  // mesh_mesh_shader_desc: what the converter of the twins must reproduce
 
 using namespace fa;
@@ -1542,8 +1543,14 @@ TEST_CASE("sky materials: a diffuse mesh takes the ambient light of the sky that
     const Image lit = g.render(w);
     const int cx = lit.width / 2, cy = lit.height / 2;
     const Color top = lit.pixel(cx, cy - 34), bottom = lit.pixel(cx, cy + 34);
-    CHECK(top.g > top.r + 0.1f);
-    CHECK(bottom.r > bottom.g + 0.1f);
+    // What the sky lights is a ratio, not an absolute brightness (the irradiance and the filtering differ per driver):
+    // the green side is lit and its green is well above its red, the red side the other way round.
+    INFO("top " << top.r << " " << top.g << " " << top.b << ", bottom " << bottom.r << " " << bottom.g << " "
+                << bottom.b);
+    CHECK(top.g > 0.02f);
+    CHECK(top.g > 1.5f * top.r);
+    CHECK(bottom.r > 0.02f);
+    CHECK(bottom.r > 1.5f * bottom.g);
     // Without the material the scene's own ambient (black) is all there is, and a rough dielectric shows no reflection: dark.
     World bare;
     sky_sphere_world(bare, "", Json(), 0.0f, 1.0f);
