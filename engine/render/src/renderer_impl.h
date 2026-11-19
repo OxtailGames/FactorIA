@@ -381,6 +381,12 @@ struct Renderer::Impl {
             false;  // a CameraView's image: no post effects, never partial, resolved at once, 2D lights read per pixel
         const CameraInfo* post =
             nullptr;  // the camera whose bloom, bloomScreenSpace and colorFilter the frame gets (the first)
+        // A view job of Renderer::capture_camera: the custom passes of the camera's PostProcess (fr.cam.postStack) run over its picture,
+        // and no other effect of the stack. `target` is the view's own target (its resolved image is read and written); `history` tells
+        // the passes that keep a history which frame of the capture this is.
+        bool customPost = false;
+        const Target* target = nullptr;
+        CustomHistoryFrame history;
     };
     void render(World& world, float dt);
     void setup_frame(Frame& fr, World& world, float dt);
@@ -391,6 +397,13 @@ struct Renderer::Impl {
     // view's image: plan_job with the image in the place of the game target. `key` is the view's key (view_image). Call
     // between begin_frame_graph() and run_frame_graph().
     void plan_view_job(World& world, Frame& fr, ViewTarget& target, std::uint64_t key, JobPlan plan);
+    // The drawing of Renderer::capture_world and capture_camera: `frames` frames (the passes that keep a history see the frame before
+    // it) of the world seen by `ci` into an image of w x h pixels, read back into `out` (straight alpha). `withCustom`: the camera's custom passes are drawn, over `historyCamera`'s
+    // history, which the frames start again. `scale`, `subject`: see Renderer::WorldCapture.
+    bool capture_view(World& world, CameraInfo ci, int w, int h, float scale, Entity subject, int frames,
+                      bool withCustom, std::uint64_t historyCamera, Image& out, std::string* error);
+    std::uint64_t captureSerial =
+        0;  // the frames of captures that keep a history: a history is valid when its frame came right before
 
     // ---- The frame graph: one per render() (and per capture_world) ----
     // begin_frame_graph() empties it, every job adds its passes (plan_job, plan_view_job) in the order the jobs must

@@ -177,77 +177,133 @@ bool Renderer::capture_world(World& world, const WorldCapture& spec, Image& out,
     ci.visible = Rect{cx - ci.halfW, cy - ci.halfH, ci.halfW * 2.0f, ci.halfH * 2.0f};
     ci.clear = true;
     ci.clearColor = Color{0, 0, 0, 0};
-    im.sync_color_space(world);  // the picture is made in the world's colour space
+    return im.capture_view(world, std::move(ci), w, h, spec.scale, spec.subject, 1, false, 0, out, error);
+}
 
-    im.settle_pass_times();  // the capture replaces the frame graph that the last frame's pass times are read from
-    const RenderStats savedStats = im.stats;
-    const std::vector<const MaterialAsset*> savedMaterialsCounted = im.materialsCounted;
-    const std::uint32_t savedMaterialResolves = im.assets->material_resolves();
-    im.set_target_self({});
-    im.ramps.begin_frame();
-    Frame fr;
-    for (int attempt = 0; attempt < 2; ++attempt) {
-        const unsigned atlasEpoch = im.fonts->atlas_epoch();
-        fr = Frame{};
-        fr.cam = ci;
-        fr.wantWorld = true;
-        fr.wantScreen = false;
-        fr.scopeRoot = spec.subject;
-        im.setup_frame(fr, world, 0.0f);
-        fr.targetW = w;
-        fr.targetH = h;
-        fr.renderScale = spec.scale;
-        apply_sprite_frames(world, fr);
-        im.assets->drop_material_cache();  // this world's components are not the ones the last frame asked about
-        gather_2d(world, fr);
-        gather_particles(world, fr);
-        if (im.fonts->atlas_epoch() == atlasEpoch) break;  // else the atlas was remade halfway: gather again
-    }
-    // gather_2d shifted the layers for the capture's own camera: put back the shift for the scene's first camera (its real pose). A
-    // renderer that has not drawn or updated yet has no cameras collected, so look them up (collect_cameras always returns at least one).
-    if (im.lastCams.empty())
-        update_parallax(world, im.collect_cameras(world, false).front().position.xy());
-    else
-        update_parallax(world, im.logic_camera_xy());
-    im.fonts->sync();
-    im.ramps.sync();
+// The histories of a capture are kept under the camera's bits with this bit set: the game's cameras (their bits alone, and bit 0 would be "every
+// history" to reset_history) never share a history with a capture of a camera of another world, or of the same one.
+static constexpr std::uint64_t kCaptureHistoryBit = 1ull << 62;
 
+bool Renderer::capture_camera(World& world, const CameraCapture& spec, Image& out, std::string* error) {
+    auto fail = [&](std::string message) {
+        if (error) *error = std::move(message);
+        return false;
+    };
+    if (!initialized()) return fail("Renderer is not initialized");
+    Impl& im = *impl_;
+    if (!world.alive(spec.camera) || !world.get<Camera>(spec.camera))
+        return fail(
+            "the entity is not a Camera of this world. Pass the entity of an entity that has a Camera component");
+    if (spec.width < 1 || spec.height < 1 || spec.width > kMaxWorldCaptureSide || spec.height > kMaxWorldCaptureSide)
+        return fail("the picture would be " + std::to_string(spec.width) + " x " + std::to_string(spec.height) +
+                    " pixels; each side must be between 1 and " + std::to_string(kMaxWorldCaptureSide));
+    if (spec.frames < 1 || spec.frames > kMaxCaptureFrames)
+        return fail("frames must be between 1 and " + std::to_string(kMaxCaptureFrames) + ", but got " +
+                    std::to_string(spec.frames));
+    // The camera as a render target draws it (it fills the image whatever its viewport says), with its stack even when the editor's A/B
+    // switch (set_post_bypass) has the game's off: this picture is what the stack does.
+    const Vec2 size{float(spec.width), float(spec.height)};
+    const bool bypass = im.postBypass;
+    im.postBypass = false;
+    CameraInfo ci = im.build_camera(world, spec.camera, &size, true);
+    im.postBypass = bypass;
+    const bool custom = ci.postStack && ci.postStack->has_custom();
+    return im.capture_view(world, std::move(ci), spec.width, spec.height, 1.0f, kNullEntity, custom ? spec.frames : 1,
+                           custom, kCaptureHistoryBit | spec.camera.bits(), out, error);
+}
+
+bool Renderer::Impl::capture_view(World& world, CameraInfo ci, int w, int h, float scale, Entity subject, int frames,
+                                  bool withCustom, std::uint64_t historyCamera, Image& out, std::string* error) {
+    auto fail = [&](std::string message) {
+        if (error) *error = std::move(message);
+        return false;
+    };
+    sync_color_space(world);  // the picture is made in the world's colour space
+
+    settle_pass_times();  // the capture replaces the frame graph that the last frame's pass times are read from
+    const RenderStats savedStats = stats;
+    const std::vector<const MaterialAsset*> savedMaterialsCounted = materialsCounted;
+    const std::uint32_t savedMaterialResolves = assets->material_resolves();
+    auto restore = [&]() {
+        stats = savedStats;
+        materialsCounted = savedMaterialsCounted;
+        assets->set_material_resolves(savedMaterialResolves);
+        assets->drop_material_cache();  // the capture's lookups are not the next frame's
+    };
+    set_target_self({});
+    // The passes that keep a history start clean, so the same world always gives the same picture.
+    if (withCustom) customPost.reset_history(historyCamera);
     constexpr std::uint64_t kKey =
         1ull << 62;  // not a CameraView widget (entity bits) and not a render target (bit 63)
-    TextureAsset* tex = im.view_image(kKey, w, h);
-    if (!tex) {
-        im.stats = savedStats;
-        im.materialsCounted = savedMaterialsCounted;
-        im.assets->set_material_resolves(savedMaterialResolves);
-        im.assets->drop_material_cache();
-        return fail("the " + std::to_string(w) + " x " + std::to_string(h) +
-                    " image could not be created (out of GPU memory?)");
+    for (int frame = 0; frame < frames; ++frame) {
+        ramps.begin_frame();
+        Frame fr;
+        for (int attempt = 0; attempt < 2; ++attempt) {
+            const unsigned atlasEpoch = fonts->atlas_epoch();
+            fr = Frame{};
+            fr.cam = ci;
+            fr.wantWorld = true;
+            fr.wantScreen = false;
+            fr.scopeRoot = subject;
+            setup_frame(fr, world, 0.0f);
+            fr.targetW = w;
+            fr.targetH = h;
+            fr.renderScale = scale;
+            apply_sprite_frames(world, fr);
+            assets->drop_material_cache();  // this world's components are not the ones the last frame asked about
+            gather_2d(world, fr);
+            gather_particles(world, fr);
+            if (fonts->atlas_epoch() == atlasEpoch) break;  // else the atlas was remade halfway: gather again
+        }
+        // gather_2d shifted the layers for the capture's own camera: put back the shift for the scene's first camera (its real pose). A
+        // renderer that has not drawn or updated yet has no cameras collected, so look them up (collect_cameras always returns at least one).
+        if (lastCams.empty())
+            update_parallax(world, collect_cameras(world, false).front().position.xy());
+        else
+            update_parallax(world, logic_camera_xy());
+        fonts->sync();
+        ramps.sync();
+
+        TextureAsset* tex = view_image(kKey, w, h);
+        if (!tex) {
+            restore();
+            viewTargets.erase(kKey);
+            return fail("the " + std::to_string(w) + " x " + std::to_string(h) +
+                        " image could not be created (out of GPU memory?)");
+        }
+        gpu.begin_frame();
+        transient_targets().pool.begin_frame();
+        // One job in a frame graph of its own; gather_meshes builds the scene of fr.scopeRoot (the subject).
+        begin_frame_graph(false);
+        JobPlan plan;
+        plan.name = "capture";
+        plan.customPost = withCustom;
+        if (plan.customPost) {
+            // A history is valid when the frame before it was drawn right before, by this capture: the serial counts every frame of every
+            // capture, the first frame of a capture has none before it.
+            plan.history.camera = historyCamera;
+            plan.history.serial = ++captureSerial;
+            plan.history.frame = frameSerial;
+            plan.history.continuous = frame > 0;
+            plan.history.game = true;
+        }
+        plan_view_job(world, fr, *viewTargets[kKey], kKey, plan);
+        run_frame_graph();
+        graphFromCapture = true;  // the graph the frame-graph report shows is this one until the next render()
+        renderScene.reset();
+        // Read-back waits for the GPU, and on Metal the work is only submitted by sg_commit (see capture()).
+        sg_commit();
+        gpu.note_commit();
     }
-    im.gpu.begin_frame();
-    im.transient_targets().pool.begin_frame();
-    // One job in a frame graph of its own; gather_meshes builds the scene of fr.scopeRoot (the subject).
-    im.begin_frame_graph(false);
-    Impl::JobPlan plan;
-    plan.name = "capture";
-    im.plan_view_job(world, fr, *im.viewTargets[kKey], kKey, plan);
-    im.run_frame_graph();
-    im.graphFromCapture = true;  // the graph the frame-graph report shows is this one until the next render()
-    im.renderScene.reset();
-    // Read-back waits for the GPU, and on Metal the work is only submitted by sg_commit (see capture()).
-    sg_commit();
-    im.gpu.note_commit();
-    const Impl::ViewTarget& vt = *im.viewTargets[kKey];
+    const ViewTarget& vt = *viewTargets[kKey];
     std::vector<std::uint8_t> px;
     std::string readError;
-    const bool ok = im.read_rgba8(vt.asset.image, vt.asset.view, w, h, px, &readError, true);
-    im.release_view(*im.viewTargets[kKey]);
-    im.viewTargets.erase(kKey);
+    const bool ok = read_rgba8(vt.asset.image, vt.asset.view, w, h, px, &readError, true);
+    release_view(*viewTargets[kKey]);
+    viewTargets.erase(kKey);
     // The RGBA8 copy of a big picture (a 4K capture is 64 MB) is not worth keeping: only the game target's size is asked for again.
-    if (im.readW != im.physW || im.readH != im.physH) im.free_read_image();
-    im.stats = savedStats;
-    im.materialsCounted = savedMaterialsCounted;
-    im.assets->set_material_resolves(savedMaterialResolves);
-    im.assets->drop_material_cache();  // the capture's lookups are not the next frame's
+    if (readW != physW || readH != physH) free_read_image();
+    restore();
     if (!ok) return fail("reading the picture back from the GPU failed: " + readError);
     // The pass blended onto a transparent background, so the colour is premultiplied by alpha; texture fields expect straight alpha.
     for (std::size_t i = 0; i + 3 < px.size(); i += 4) {

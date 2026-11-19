@@ -35,8 +35,16 @@ Older versions, one file per minor version with its patch releases: [0.30](chang
   params with `fa_scene_rgb` (a colour looks as picked in a linear scene; mesh graphs are unchanged), the "no output node" error
   suggests a field of the material's own kind, and a palette search that matches a node of another kind (by name, category or
   description) says what to use instead. Graph panel: the combo next to New graph material has Post; a post graph starts as
-  the picture unchanged, and its preview says why there is no picture (a post pass needs a camera's `PostProcess`: add the
-  material to `customPasses` to see it).
+  the picture unchanged.
+
+- **Live preview of post materials (M72.5):** the Graph panel draws a `kind: post` material over a small 3D scene (a floor and
+  four lit shapes at different depths, over a sky) seen by a camera whose `PostProcess.customPasses` holds only that material,
+  four frames in a row, so `post.history` has a frame before it and `post.depth` / `post.normal` have their prepass. New
+  `Renderer::capture_camera` (C++, `CameraCapture`): captures a world through a camera entity with the custom passes of its
+  `PostProcess`, with its own histories (clean at each call, the game's are not touched), the same picture for the same world.
+  It runs the custom passes only, every slot as one chain over the unencoded picture, not the rest of the stack. The panel's
+  **Try on scene camera** button adds the saved material to the `customPasses` of the camera that draws the scene, as one undo
+  step. The history is not available when a capture asks for one frame.
 
 - **Node graphs for sprite materials (M72.5):** a material with `"kind": "sprite"` can hold a `"graph"`:
   `material.graph.generate` writes the sprite snippet (`fragment(in QuadInput i, inout QuadSurface s)` and, when

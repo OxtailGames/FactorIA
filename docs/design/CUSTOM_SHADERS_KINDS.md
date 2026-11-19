@@ -252,7 +252,13 @@ A post material (`"kind": "post"`, snippet `shaders/<name>.post.glsl`) may hold 
 The `post.*` nodes (`scene`, `depth`, `normal`, `history`, `screen`) write the helper calls of the snippet contract: calling
 `fa_depth`, `fa_normal` or `fa_history` is what asks the renderer for the prepass or the history, so the node is the whole
 request and the material file has no field for it. A sprite or post graph converts `const.color` and `color` params with
-`fa_scene_rgb` in the fragment function (a mesh graph writes them as typed, so its output is unchanged). The editor draws no
-preview of a post material: `capture_world` makes its own camera and never reads a `PostProcess`, so a preview would need a
-render-module change (a post pass on the capture camera, a scene to run it over, the prepass, the history). The Graph panel says
-why instead, with or without a GPU (`preview_plan`).
+`fa_scene_rgb` in the fragment function (a mesh graph writes them as typed, so its output is unchanged). The editor previews a
+post material through `Renderer::capture_camera` (renderer.h): `capture_world` makes its own camera and a view job skips the
+post stack, so the preview builds a scratch world (`GraphPreview::build_post_scene`: a floor, four lit shapes at several
+depths, a sky, and a Camera whose `PostProcess.customPasses` is the live material alone) and captures the camera for
+`kPreviewPostFrames` (4) frames. `capture_camera` runs the camera's custom passes only (every slot as one chain over the
+unencoded picture, the camera's prepass when a pass calls `fa_depth`/`fa_normal`) and none of the stack's own effects; the
+histories of its passes are the capture's (kept under the camera's bits with bit 62 set, reset at the start of each call,
+valid from the second frame), so the same world always gives the same picture and the game's histories are not touched.
+`preview_plan("post")` is `PreviewKind::Post`; without a GPU the state is `NoRenderer` like every drawn kind. The snippet is
+staged as `stage-<token>.post.glsl` and the live copy `preview.post.glsl` (`saved.post.glsl` for the compare picture).
