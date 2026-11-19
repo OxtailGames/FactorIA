@@ -66,6 +66,12 @@ inline constexpr int kMaterialSpriteVsFirstView = kMaterialSpriteFirstView + kMa
 inline constexpr int kMaterialSkyFirstView = 0, kMaterialSkyFirstSampler = 0;
 inline constexpr int kComputeMaxMaterialBuffers = 4;  // storage buffers of one compute material
 inline constexpr int kComputeMaxBufferFields = 16;    // fields of one buffer element
+// Storage images of one compute material: the portable minimum of sg_limits.max_storage_image_bindings_per_stage (sokol_gfx.h,
+// SG_MAX_PORTABLE_STORAGEIMAGE_BINDINGS_PER_STAGE), a floor on every GPU with compute.
+inline constexpr int kComputeMaxMaterialImages = 4;
+inline constexpr int kComputeMaxImageSize =
+    8192;  // a side of a declared image; the GPU's own limit is checked on creation
+inline constexpr int kComputeDefaultImageSize = 256;
 // x*y*z of the workgroup size: WebGPU's default limit, a floor on every GPU (D3D11 and Metal allow 1024).
 inline constexpr int kComputeMaxWorkgroupInvocations = 256;
 inline constexpr int kComputeMaxWorkgroupZ =
@@ -138,6 +144,19 @@ struct MaterialBuffer {
     int binding = 0;  // the storage buffer binding of the shader (alphabetical order of the buffers)
 };
 
+// A storage image a compute material declares: a 2D texture the snippet writes (imageStore) and optionally reads (imageLoad),
+// that mesh, sprite and post materials can then sample ("compute:<id>", docs/shaders/SHADERS_COMPUTE.md "Storage images").
+struct MaterialImage {
+    std::string name;
+    std::string format =
+        "rgba8";  // "rgba8" | "rgba16f" | "r32f" | "rgba32f" (the GLSL layout qualifier of the same name)
+    std::string access = "write";  // "write" (imageStore only) | "readWrite" (imageLoad too)
+    std::string doc;
+    int width = kComputeDefaultImageSize,
+        height = kComputeDefaultImageSize;  // size when compute.create_image gives none
+    int binding = 0;  // the shader's view slot: after the buffers (buffers.size() + index in the alphabetical order)
+};
+
 // One draw of a full-mode mesh material (docs/shaders/SHADERS_FULL.md): the fixed-function state of that pass. Drawn in array order for
 // every mesh part, each with its own programs.
 struct MaterialPass {
@@ -174,6 +193,7 @@ struct MaterialDef {
     // bind after them).
     int workgroupSize[3] = {64, 1, 1};
     std::vector<MaterialBuffer> buffers;
+    std::vector<MaterialImage> images;  // alphabetical, view slots buffers.size().. (the textures bind after them)
     // The node graph the snippet is generated from (fa/tooling/material_graph.h); null = the snippet is hand-written. graphHash
     // is the hash of the snippet material.graph.generate wrote ("" = never generated).
     Json graph;

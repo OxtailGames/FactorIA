@@ -1,0 +1,27 @@
+{
+  "format": "factoria.material/1",
+  "kind": "compute",
+  "doc": "Test fixture: a compute material that writes a known pattern into a storage image and counts its dispatches in a second, read-write one.",
+  "shader": "shaders/field.compute.glsl",
+  "workgroupSize": [8, 8],
+  "params": {
+    "blue": { "type": "float", "default": 0.0, "doc": "The blue channel of every pixel of the field." }
+  },
+  "textures": {
+    "src": { "sampler": "nearest", "default": "textures/checker.png", "doc": "Unused by the snippet: a texture param that a dispatch must not bind to an image it writes." }
+  },
+  "images": {
+    "field": {
+      "doc": "The pattern: red = 16 * x, green = 16 * y, blue = the param, alpha = 1.",
+      "format": "rgba8",
+      "access": "write",
+      "size": [16, 16]
+    },
+    "count": {
+      "doc": "One float per pixel that grows by 1 on every dispatch (imageLoad then imageStore).",
+      "format": "r32f",
+      "access": "readWrite",
+      "size": [16, 16]
+    }
+  }
+}

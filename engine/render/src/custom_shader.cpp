@@ -224,10 +224,31 @@ Result<sg_shader_desc> material_shader_desc(const std::string& label, const Json
             out.viewMask |= 1u << slot;
             continue;
         }
+        if (auto si = v.find("storage_image"); cs && si != v.end() && si->is_object()) {
+            const int slot = int_or(*si, "slot", -1);
+            if (slot < 0 || slot >= SG_MAX_VIEW_BINDSLOTS)
+                return bad("a storage image slot outside 0.." + std::to_string(SG_MAX_VIEW_BINDSLOTS - 1));
+            sg_shader_storage_image_view& iv = desc.views[slot].storage_image;
+            iv.stage = SG_SHADERSTAGE_COMPUTE;
+            iv.image_type = SG_IMAGETYPE_2D;
+            if (!pick<sg_pixel_format>(text_of(*si, "access_format"),
+                                       {{"RGBA8", SG_PIXELFORMAT_RGBA8},
+                                        {"RGBA16F", SG_PIXELFORMAT_RGBA16F},
+                                        {"R32F", SG_PIXELFORMAT_R32F},
+                                        {"RGBA32F", SG_PIXELFORMAT_RGBA32F}},
+                                       iv.access_format))
+                return bad("the storage image format '" + text_of(*si, "access_format") + "'");
+            iv.writeonly = si->find("writeonly") != si->end() && si->at("writeonly") == true;
+            iv.hlsl_register_u_n = std::uint8_t(int_or(*si, "hlsl_register_u_n"));
+            iv.msl_texture_n = std::uint8_t(int_or(*si, "msl_texture_n"));
+            iv.glsl_binding_n = std::uint8_t(int_or(*si, "glsl_binding_n"));
+            out.viewMask |= 1u << slot;
+            continue;
+        }
         auto t = v.find("texture");
         if (t == v.end() || !t->is_object())
-            return bad("a view that is not a texture (storage images are not supported" +
-                       std::string(cs ? ")" : ", and storage buffers only in a compute program)"));
+            return bad("a view that is neither a texture nor a storage buffer or image" +
+                       std::string(cs ? "" : " (storage buffers and images only in a compute program)"));
         const int slot = int_or(*t, "slot", -1);
         if (slot < 0 || slot >= SG_MAX_VIEW_BINDSLOTS)
             return bad("a texture slot outside 0.." + std::to_string(SG_MAX_VIEW_BINDSLOTS - 1));
@@ -382,7 +403,7 @@ const char* kReexportHint = "Export the game again with this factoria version (o
 // The compute part of a twin: "workgroupSize" [x, y, z] and "buffers" (tools/common/src/shaders_compute.cpp compute_twin_fields).
 // Every number is range-checked before it is narrowed: the file may come from an export made by another version.
 Result<void> read_compute_twin(const std::string& path, const Json& twin, std::size_t textureCount, int workgroup[3],
-                               std::vector<MaterialBufferDef>& buffers) {
+                               std::vector<MaterialBufferDef>& buffers, std::vector<MaterialImageDef>& images) {
     auto bad = [&](const std::string& what) {
         return make_error("the shader of material '" + path + "' is malformed: " + what, kReexportHint);
     };
@@ -449,6 +470,39 @@ Result<void> read_compute_twin(const std::string& path, const Json& twin, std::s
             def.fields.push_back(std::move(fd));
         }
         buffers.push_back(std::move(def));
+    }
+
+    // The storage images (absent in a twin of a material that declares none).
+    if (auto imgs = twin.find("images"); imgs != twin.end()) {
+        if (!imgs->is_array()) return bad("\"images\" is not a list");
+        if (list->size() + imgs->size() + textureCount > std::size_t(SG_MAX_VIEW_BINDSLOTS))
+            return bad("too many buffers, images and textures for one program");
+        for (const Json& im : *imgs) {
+            MaterialImageDef def;
+            def.name = text_of(im, "name");
+            if (def.name.empty() || !im.contains("binding") || !whole(im["binding"], 0, SG_MAX_VIEW_BINDSLOTS - 1, n))
+                return bad("an image without a name or a binding");
+            def.binding = int(n);
+            const std::string format = text_of(im, "format");
+            if (format == "rgba8")
+                def.format = SG_PIXELFORMAT_RGBA8;
+            else if (format == "rgba16f")
+                def.format = SG_PIXELFORMAT_RGBA16F;
+            else if (format == "r32f")
+                def.format = SG_PIXELFORMAT_R32F;
+            else if (format == "rgba32f")
+                def.format = SG_PIXELFORMAT_RGBA32F;
+            else
+                return bad("the image '" + def.name + "' has the format '" + format + "'");
+            def.readWrite = text_of(im, "access") == "readWrite";
+            if (!im.contains("width") || !whole(im["width"], 1, 16384, n))
+                return bad("the image '" + def.name + "' has no width");
+            def.width = int(n);
+            if (!im.contains("height") || !whole(im["height"], 1, 16384, n))
+                return bad("the image '" + def.name + "' has no height");
+            def.height = int(n);
+            images.push_back(std::move(def));
+        }
     }
     return {};
 }
@@ -630,10 +684,19 @@ Result<void> Assets::build_material_checked(MaterialAsset& m) {
 
     // A compute material: the threads of a group and the storage buffers (the tooling made the std430 layout).
     std::vector<MaterialBufferDef> buffers;
+    std::vector<MaterialImageDef> images;
     int workgroup[3] = {64, 1, 1};
     if (kind == MaterialKind::Compute) {
-        auto compute = read_compute_twin(m.path, twin, textures.size(), workgroup, buffers);
+        auto compute = read_compute_twin(m.path, twin, textures.size(), workgroup, buffers, images);
         if (!compute.ok()) return compute.error();
+        // The per-material cap of this GPU: the tooling allows the portable minimum (4); a GPU may allow fewer.
+        const int imageLimit = sg_isvalid() ? sg_query_limits().max_storage_image_bindings_per_stage : 0;
+        if (sg_isvalid() && int(images.size()) > imageLimit)
+            return make_error("the compute material '" + m.path + "' declares " + std::to_string(images.size()) +
+                                  " storage images, but this graphics driver binds at most " +
+                                  std::to_string(imageLimit) + " to one shader",
+                              "Pack the channels written together into one rgba image, or split the work in two "
+                              "materials.");
     }
 
     // The shaders. Nothing of `m` changes unless all of them are made.
@@ -742,6 +805,7 @@ Result<void> Assets::build_material_checked(MaterialAsset& m) {
         m.instancedKey = m.instancedKey * 1000003u + std::hash<std::string>{}(n);
     m.textures = std::move(textures);
     m.buffers = std::move(buffers);
+    m.images = std::move(images);
     std::copy(std::begin(workgroup), std::end(workgroup), std::begin(m.workgroup));
     return {};
 }

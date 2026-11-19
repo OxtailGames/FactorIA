@@ -484,6 +484,14 @@ struct MaterialBufferDef {
     bool readOnly = false;
     std::vector<MaterialBufferFieldDef> fields;
 };
+// One storage image of a compute material (the twin's "images": sorted by name, `binding` = its view slot).
+struct MaterialImageDef {
+    std::string name;
+    int binding = 0;
+    sg_pixel_format format = SG_PIXELFORMAT_RGBA8;
+    bool readWrite = false;         // the shader may imageLoad it too
+    int width = 256, height = 256;  // the size compute.create_image uses when it gets none
+};
 
 // What one sprite-kind material draws with in a batch: the packed params and the textures of a 2D item, found once per
 // distinct set of values (Assets::sprite_material) so that two items with the same values share one pointer: QuadList
@@ -514,6 +522,7 @@ struct MaterialAsset {
     MaterialKind kind =
         MaterialKind::Mesh;  // its "kind": Mesh, Sprite, Sky and Post (drawn) or Compute (Compute::dispatch)
     std::vector<MaterialBufferDef> buffers;  // Compute: the storage buffers, in binding order
+    std::vector<MaterialImageDef> images;    // Compute: the storage images, in binding order (after the buffers)
     int workgroup[3]{64, 1, 1};              // Compute: the threads of one workgroup
     std::string lighting = "pbr", alphaMode = "opaque";
     bool doubleSided = false;
@@ -764,6 +773,13 @@ public:
     // null when no camera renders into that name (texture() then answers the checker and logs why, once per name).
     using TargetResolver = std::function<TextureAsset*(const std::string& name)>;
     void set_target_resolver(TargetResolver r) { targetResolver_ = std::move(r); }
+    // Answers the storage-image ids ("compute:<id>", Compute::create_image): the resolver returns the image's texture, or null with
+    // `*why` saying what is wrong (the id was destroyed, or the GPU cannot sample the format). texture() then answers the checker
+    // and, while drawing, logs `why` once. The texture object of an image lives until compute.destroy_image, also when the image
+    // is resized, so a pointer taken in a frame stays valid for that frame.
+    using ComputeImageResolver = std::function<TextureAsset*(const std::string& id, std::string* why)>;
+    void set_compute_image_resolver(ComputeImageResolver r) { computeResolver_ = std::move(r); }
+    static bool is_compute_id(const std::string& path) { return path.rfind("compute:", 0) == 0; }
     // True while Renderer::render() runs: only then does a target id nobody renders into count as a failure (a query made
     // before the first frame, such as an entity's bounds, only gets the checker).
     void set_drawing(bool on) { drawing_ = on; }
@@ -902,6 +918,7 @@ private:
     std::unique_ptr<TextureAsset> white_;
     std::unique_ptr<TextureAsset> placeholderTex_;
     TargetResolver targetResolver_;
+    ComputeImageResolver computeResolver_;
     bool drawing_ = false;
     std::unique_ptr<MeshAsset> placeholderMesh_;
     std::vector<Failure> failures_;
@@ -1401,6 +1418,12 @@ bool readback_rgba8(sg_image image, int width, int height, std::vector<std::uint
 // far must have been committed (sg_commit) by the caller. Backend specific; false + `error` where the backend has no storage buffers.
 bool readback_buffer(sg_buffer buffer, std::size_t offset, std::size_t bytes, std::vector<std::uint8_t>& out,
                      std::string* error);
+// GPU->CPU readback of a whole storage image (Compute::read_image): the pixels as the GPU holds them, `width * height *
+// bytes_per_pixel` bytes, row 0 first (the row an imageStore at y = 0 writes), tightly packed (RGBA16F as halves). Waits for the GPU:
+// the work recorded so far must have been committed (sg_commit) by the caller. `format` is the image's own (RGBA8, RGBA16F, R32F,
+// RGBA32F). False + `error` on a backend without storage images.
+bool readback_storage_image(sg_image image, sg_pixel_format format, int width, int height,
+                            std::vector<std::uint8_t>& out, std::string* error);
 // The same for an RGBA16F image, as floats (4 per pixel, top row first): what the HDR tests read (Renderer::Impl::read_floats).
 bool readback_rgba16f(sg_image image, int width, int height, std::vector<float>& out, std::string* error);
 

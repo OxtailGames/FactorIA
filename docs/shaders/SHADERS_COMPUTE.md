@@ -26,9 +26,10 @@ snippet, e.g. `shaders/boids.compute.glsl`); `lighting`, `alphaMode` and `double
 | `buffers` | The storage buffers: `{"name": {"doc": "...", "access": "readWrite" or "read", "fields": [{"name": "pos", "type": "vec2", "doc": "..."}]}}`. At most 4 buffers of at most 16 fields each. A field is `float`, `vec2`, `vec3`, `vec4`, `int` or `uint`. The buffer is an array of elements made of the fields, laid out as std430 (a `vec3` takes 12 bytes but aligns to 16: prefer `vec4`); the snippet reads and writes `<name>.data[index].<field>`. |
 | `params` | As for a mesh material (at most 16, each a variable of the snippet). A dispatch gives their values. |
 | `textures` | As for a mesh material: read in the snippet like in a mesh snippet. A dispatch gives the path of each texture in `params`. |
+| `images` | The storage images: `{"name": {"doc": "...", "format": "rgba8", "access": "write", "size": [256, 256]}}` ([Storage images](#storage-images)). At most 4. |
 
-A buffer in the file only describes the element; the buffer itself is created at run time with `compute.create_buffer`.
-**Storage images** (a compute shader that writes a texture) are not available yet: write the result to a buffer.
+A buffer in the file only describes the element; the buffer itself is created at run time with `compute.create_buffer`. A
+storage image is the same: the file declares it, `compute.create_image` makes it.
 
 Errors point at the place: `/workgroupSize: 8 threads (8 x 1 x 1), which is not a multiple of 32`, `/buffers/items/fields/0/type:
 unknown field type "flaot" (did you mean "float"?)`, a snippet without `compute(in ComputeInput i)` says so with the file and
@@ -46,14 +47,101 @@ The `compute.*` commands (also `fa.call("compute.dispatch", ...)` in a script, a
 | `compute.read_buffer` | `{buffer, first?, count?}`: the current contents as `{field: value}` objects (a `vecN` is an array, floats have 7 significant digits, a NaN or infinity is `null`). It waits for the GPU, so use it to check a result, not every frame. |
 | `compute.destroy_buffer` | `{buffer}`: frees it. |
 | `compute.list_buffers` | The live buffers, and `available` / `status`. |
+| `compute.create_image`, `compute.resize_image`, `compute.read_image`, `compute.destroy_image`, `compute.list_images` | The storage images ([below](#storage-images)). `compute.dispatch` takes `images` next to `buffers`. |
 
-From C++ the same is `Renderer::compute()` (`fa/render/compute.h`: `create_buffer`, `write_buffer`, `dispatch`, `read_buffer`).
+From C++ the same is `Renderer::compute()` (`fa/render/compute.h`: `create_buffer`, `write_buffer`, `dispatch`, `read_buffer`,
+`create_image`, `resize_image`, `read_image`, `destroy_image`).
 
 Limits, all counts and never time: 64 buffers, 256 MiB each and 1 GiB in all, at most 65535 workgroups per dimension and
 1048576 elements and 4194304 numbers (elements times the components of their fields, so the JSON of one call stays small)
 converted per write or read call. A request over one is refused with the number it hit and, for a read or write, the
 largest count that fits: go on in chunks with `first` and `count`. A read without `count` stops at that largest count.
 Floats come back rounded to 7 digits, so integers above 2^24 stored in a float field do not return exact.
+
+### Storage images
+
+A compute shader can write (and read) the pixels of a **2D image**, and the image is then a texture for a mesh, sprite or post
+material, a `Sprite.texture` or a `MeshRenderer.texture`: a noise field, a heat map, a flow field, a water height map, all
+made on the GPU and never copied to the CPU. The file declares each image:
+
+```json
+"images": {
+  "field": { "doc": "The pattern.", "format": "rgba8", "access": "write", "size": [256, 256] },
+  "heat":  { "doc": "Heat, grows by 1 a dispatch.", "format": "r32f", "access": "readWrite", "size": [256] }
+}
+```
+
+| Key | Meaning |
+|---|---|
+| `format` | `rgba8` (default; 8 bits a channel, `vec4` in 0..1), `rgba16f`, `r32f` (one float, `imageLoad(heat, p).x`) or `rgba32f`. |
+| `access` | `"write"` (default: `imageStore`) or `"readWrite"` (`imageStore` and `imageLoad`). A read-only image is refused: declare a texture of the material instead and sample it. |
+| `size` | The size `compute.create_image` gives when it is not asked another: `[width, height]`, or one number for a square. Default `[256, 256]`, each side 1 to 8192. |
+
+At most 4 images in a material (the number of storage images every GPU with compute guarantees one shader). The snippet uses
+the image by its name:
+
+```glsl
+void compute(in ComputeInput i) {
+    ivec2 p = ivec2(i.global_id.xy);
+    ivec2 size = imageSize(field);
+    if (p.x >= size.x || p.y >= size.y) return;           // the dispatch may be a bit larger than the image
+    imageStore(field, p, vec4(float(p.x) / float(size.x), float(p.y) / float(size.y), 0.5, 1.0));
+    imageStore(heat, p, vec4(imageLoad(heat, p).x + 1.0, 0.0, 0.0, 0.0));
+}
+```
+
+**A complete run** (a script; `workgroupSize` is `[8, 8]`, so 32 x 32 workgroups cover 256 x 256 pixels):
+
+```js
+const field = fa.call("compute.create_image", { material: "materials/field.material.json", image: "field" });
+const heat = fa.call("compute.create_image", { material: "materials/field.material.json", image: "heat" });
+fa.call("compute.dispatch", { material: "materials/field.material.json",
+                              images: { field: field.id, heat: heat.id }, groups: [32, 32, 1] });
+// field.textureId is "compute:1": write it into the `texture` of any Sprite (or the texture param of a material)
+// to check a result: the top-left 2 x 2 pixels, [r, g, b, a] each, row by row
+const px = fa.call("compute.read_image", { image: field.id, x: 0, y: 0, width: 2, height: 2 }).data;
+```
+
+How an image behaves:
+
+- **Texture id.** `textureId` is `"compute:<id>"`. Put it wherever a texture path goes (`Sprite.texture`, `MeshRenderer.texture`,
+  a `Shape2D`, a UI image, or the value of a texture param in `materialParams`). It stays valid when the image is resized.
+  After `compute.destroy_image` the material draws the missing-texture checker and the log names the id, so a stale id is
+  seen at once. An id is never used for another image.
+- **A new image is zero** (transparent black), not whatever the GPU memory held, and so is a resized one: its pixels are lost.
+- **Order.** Commands run in the order they are made. A dispatch recorded before a draw of the same frame is finished when the
+  draw reads the image (the graphics API orders it: Metal and Direct3D 11 track it, OpenGL gets a memory barrier). Reading
+  an image back (`compute.read_image`) waits for every dispatch before it.
+- **Not both at once.** One image is not a storage image and a texture of the same dispatch (the graphics APIs refuse it):
+  `compute.dispatch` says which texture param names the image it writes. Sample it in the NEXT dispatch, or read it with
+  `imageLoad` (`"readWrite"`).
+- **Filtering.** `rgba8` and `rgba16f` filter (linear sampling) everywhere. `r32f` and `rgba32f` do not on some GPUs; there the
+  image can still be written and read back, but a material that samples it shows the checker and the log says that the
+  format cannot be filtered: use `rgba16f` for a picture.
+- **Reading.** `compute.read_image {image, x?, y?, width?, height?}` returns `{x, y, width, height, format, channels, data}`
+  with `data` flat, row by row from the top, `channels` numbers a pixel (`rgba8`: integers 0..255; floats with 7 significant
+  digits, a NaN or infinity `null`). It waits for the GPU: use it to test a result, never every frame. A call converts at most
+  4194304 numbers; without `width` and `height` the command returns the rows that fit.
+- **Deterministic.** The same dispatches over the same images give the same pixels; nothing depends on the time or the CPU.
+
+Limits, all counts and sizes: 32 live images, 8192 pixels a side (or what the GPU allows), 256 MiB for one image and 512 MiB in
+all. A request over one is refused with the number it hit; a format the GPU cannot write as a storage image is refused with
+the list that works on it ("storage image format not supported"), and a material that declares one is refused the same way
+when the image is made. A refused request changes nothing.
+
+| Where | Storage images |
+|---|---|
+| Windows, Direct3D 11 | Yes (typed UAVs). `rgba8` and the float formats can be written; whether a format can also be read (`readWrite`) is the GPU's answer, `r32f` always. |
+| macOS and iOS, Metal | Yes, all four formats written; `r32f` and `rgba32f` are filtered when sampled on macOS only. |
+| Linux, OpenGL 4.3 or newer | Yes (`imageLoad`/`imageStore`; the engine inserts the memory barriers). |
+| macOS on OpenGL 4.1 | No compute at all. |
+| Android (OpenGL ES 3.0), the web (WebGL2) | No: the GPU has no compute shaders. `compute.create_image` fails with `unavailable`, naming the backend and the CPU path. |
+| Vulkan and Direct3D 12 | With the M77 backends. |
+
+**The CPU path** for a computer without compute (and for a game that ships to Android or the web): fill the picture in the
+script. `render.textureFromPNG` makes a texture at run time and returns its `id` ("runtime:3"; docs/SCRIPTING.md, "Render"),
+or compute the same effect per pixel in a mesh, sprite or post material, which runs everywhere a material does. A game
+decides with `render.supports computeShaders`.
 
 ### Where it runs
 

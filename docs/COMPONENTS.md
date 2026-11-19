@@ -3520,6 +3520,25 @@ Limits: 64 live buffers, 256 MiB each, 1 GiB in all; over one is `invalid_argume
 | `count` | integer | yes | Number of elements (at most 256 MiB / the element stride). |
 | `initial` | array | no | Optional {field: value} objects for the first elements (a vecN field is an array); fields left out are 0. |
 
+### `compute.create_image` (modifies state)
+
+Not released yet (on main after 0.31.0).
+
+Makes a GPU storage image a compute material writes and a material shows; returns its id.
+
+Capabilities: read, state
+
+A zero-filled 2D image shaped like one image of a compute material (its "images" entry: format rgba8, rgba16f, r32f or rgba32f). `width` and `height` default to the size the material declares. The image lives until compute.destroy_image or the end of the game, whatever the scene. Returns {id, material, image, format, access, width, height, bytes, textureId}: put `textureId` ("compute:<id>") in a Sprite.texture, MeshRenderer.texture or the texture param of a mesh, sprite or post material to show it (rgba8 and rgba16f filter everywhere; r32f and rgba32f may not on this GPU, then the checker shows and the log says why). Example: compute.create_image {"material":"materials/noise.material.json","image":"field","width":512,"height":512}
+
+Limits: 32 live images, 8192 pixels a side (or what the GPU allows), 256 MiB each, 512 MiB in all; over one is `invalid_argument` with the number it hit. A format the backend cannot write as a storage image is refused with the formats that work. Errors: `unavailable` on a backend without compute shaders (GLES3, WebGL2, macOS OpenGL 4.1: the message names the backend and the CPU path) or without graphics.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `material` | string | yes | Project-relative path of the compute material, e.g. materials/noise.material.json. |
+| `image` | string | yes | Name of one of the material's images (its "images" entry). |
+| `width` | integer | no | Width in pixels. Default: the material's size. |
+| `height` | integer | no | Height in pixels. Default: the material's size. |
+
 ### `compute.destroy_buffer` (modifies state)
 
 Not released yet (on main after 0.31.0).
@@ -3536,6 +3555,22 @@ Errors: `invalid_argument` for an id that is not alive (compute.list_buffers lis
 |---|---|---|---|
 | `buffer` | integer | yes | Buffer id from compute.create_buffer. |
 
+### `compute.destroy_image` (modifies state)
+
+Not released yet (on main after 0.31.0).
+
+Frees a compute storage image.
+
+Capabilities: read, state
+
+Destroys the GPU image; its id is not used again and a material that still shows its textureId gets the checker (the log says why). Returns {destroyed: id}. Example: compute.destroy_image {"image":1}
+
+Errors: `invalid_argument` for an id that is not alive (compute.list_images lists the live ones).
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `image` | integer | yes | Image id from compute.create_image. |
+
 ### `compute.dispatch` (modifies state)
 
 Not released yet (on main after 0.31.0).
@@ -3544,14 +3579,15 @@ Runs a compute material once over its storage buffers.
 
 Capabilities: read, state
 
-`groups` counts WORKGROUPS of the material's workgroupSize threads each, not threads: ceil(work / workgroupSize.x) for a one-dimensional job. `buffers` gives a buffer id for every buffer of the material; `params` its param values and texture paths (like MeshRenderer.materialParams; what is left out keeps the material's default). The call returns when the work is recorded; compute.read_buffer waits for it. Returns {dispatched: [x, y, z]}. Example: compute.dispatch {"material":"materials/boids.material.json","buffers":{"boids":1},"params":{"speed":2},"groups":[16,1,1]}
+`groups` counts WORKGROUPS of the material's workgroupSize threads each, not threads: ceil(work / workgroupSize.x) for a one-dimensional job. `buffers` gives a buffer id for every buffer of the material and `images` an image id for every storage image of it; `params` its param values and texture paths (like MeshRenderer.materialParams; what is left out keeps the material's default). The call returns when the work is recorded; compute.read_buffer and compute.read_image wait for it, and a draw of the same frame sees the image the dispatch wrote. Returns {dispatched: [x, y, z]}. Example: compute.dispatch {"material":"materials/boids.material.json","buffers":{"boids":1},"params":{"speed":2},"groups":[16,1,1]}
 
-Each dimension of `groups` is 1 to 65535. A buffer must have been made for the same buffer of the same material (same layout), and one buffer cannot be bound twice. Errors: `unavailable` without compute (see compute.create_buffer); `invalid_argument` for a missing or unknown buffer or param (did you mean), a value of the wrong type, or groups out of range.
+Each dimension of `groups` is 1 to 65535. A buffer or image must have been made for the same buffer or image of the same material (same layout or format), and one buffer or image cannot be bound twice. An image cannot also be one of the dispatch's texture params. Errors: `unavailable` without compute (see compute.create_buffer); `invalid_argument` for a missing or unknown buffer, image or param (did you mean), a value of the wrong type, or groups out of range.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `material` | string | yes | Project-relative path of the compute material. |
-| `buffers` | object | yes | The material's buffer name -> buffer id from compute.create_buffer; every buffer of the material. |
+| `buffers` | object | no | The material's buffer name -> buffer id from compute.create_buffer; every buffer of the material (omit it for a material with none). |
+| `images` | object | no | The material's storage image name -> image id from compute.create_image; every image of the material (omit it for a material with none). |
 | `params` | object | no | {param: number or array} and {texture: path}; left out keeps the material's default. |
 | `groups` | array | no | Workgroups in x, y, z; a missing dimension is 1. Default [1,1,1]. |
 
@@ -3564,6 +3600,18 @@ Lists the live compute storage buffers and whether this backend runs compute.
 Capabilities: read
 
 Returns {available, status, buffers: [{id, material, buffer, count, stride, bytes}]}. `available` is the answer of render.supports computeShaders; when it is false `status` says which backend cannot and what to do, and `buffers` is empty. Example: compute.list_buffers {}
+
+Without graphics (graphics=false) `available` is false too.
+
+### `compute.list_images`
+
+Not released yet (on main after 0.31.0).
+
+Lists the live compute storage images and whether this backend runs compute.
+
+Capabilities: read
+
+Returns {available, status, images: [{id, material, image, format, access, width, height, bytes, textureId}]}. `available` is the answer of render.supports computeShaders; when it is false `status` says which backend cannot and the CPU path to use instead, and `images` is empty. Example: compute.list_images {}
 
 Without graphics (graphics=false) `available` is false too.
 
@@ -3584,6 +3632,44 @@ At most 1048576 elements in one call (read a large buffer in parts). Errors: `un
 | `buffer` | integer | yes | Buffer id from compute.create_buffer. |
 | `first` | integer | no | Index of the first element to read. Default 0. |
 | `count` | integer | no | Number of elements to read. Default: from `first` to the end (at most 1048576 elements and 4194304 numbers per call: read bigger buffers in chunks with first/count). |
+
+### `compute.read_image`
+
+Not released yet (on main after 0.31.0).
+
+Reads pixels of a compute storage image back to the game (waits for the GPU).
+
+Capabilities: read
+
+Submits the recorded GPU work, waits for it and returns {x, y, width, height, format, channels, data}: `data` is a flat array, row by row from the top, pixel by pixel, `channels` numbers each (rgba8: integers 0..255; rgba16f and rgba32f: r, g, b, a floats; r32f: one float), floats with 7 significant digits, a NaN or infinity is null. A read back stalls the frame: do it for a result you need, not every frame. Example: compute.read_image {"image":1,"x":0,"y":0,"width":4,"height":4}
+
+x and y default to 0, and width and height to the right and bottom edge; when both are left out of an image too large for one call, you get the top rows that fit (width from x to the right edge). At most 4194304 numbers in one call (read a large image in rectangles). Errors: `unavailable` without compute; `invalid_argument` for an id that is not alive or a rectangle outside the image.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `image` | integer | yes | Image id from compute.create_image. |
+| `x` | integer | no | Left pixel of the rectangle. Default 0. |
+| `y` | integer | no | Top pixel of the rectangle. Default 0. |
+| `width` | integer | no | Width of the rectangle; 0 or left out = to the right edge. |
+| `height` | integer | no | Height of the rectangle; 0 or left out = to the bottom edge. |
+
+### `compute.resize_image` (modifies state)
+
+Not released yet (on main after 0.31.0).
+
+Gives a compute storage image another size (its pixels are lost, its texture id stays).
+
+Capabilities: read, state
+
+Makes the image `width` x `height` and zero-fills it; `textureId` stays valid, so a Sprite or material that shows it follows the new size. Run the dispatch again to fill it. Returns the image as compute.list_images lists it. Example: compute.resize_image {"image":1,"width":1024,"height":1024}
+
+Same limits as compute.create_image. Errors: `unavailable` without compute; `invalid_argument` for an id that is not alive or a size over a limit.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `image` | integer | yes | Image id from compute.create_image. |
+| `width` | integer | yes | New width in pixels. |
+| `height` | integer | yes | New height in pixels. |
 
 ### `compute.write_buffer` (modifies state)
 
@@ -5591,7 +5677,7 @@ Capabilities: read
 
 Reads a *.material.json (schemas/material.schema.json) and returns {material, doc, kind, mode, shader, lighting, alphaMode, doubleSided, params: [{name, type, default, min?, max?, doc, implicit?, instanced?}], textures: [{name, default, sampler, doc}], vertexAttributes?, instanceLayout?, programs, compile: {state, dialect, toolFound, hint?}}. `kind` is "mesh" (default), "sprite", "sky", "post" or "compute". params are listed in the order of the uniform block (alphabetical); `implicit` marks alphaCutoff, which alphaMode "clip" adds by itself. compile.state is "compiled" when the cache holds this exact material for this machine's dialect, else "not_compiled" (run shader.compile); nothing is compiled by this command. A material file with errors returns them (JSON pointer, message, fix). Example: {"material": "materials/water.material.json"}
 
-`lighting` is "pbr", "unlit" or "custom" (the snippet defines light(), the engine's light loop calls it once per light). `programs` are the shader programs the material makes: mesh, mesh_skin, prepass and prepass_skin, plus shadow and shadow_skin when the snippet defines vertex() or the alpha mode is clip; a sprite material makes quad and quad_plain, a sky material one program, sky, a post material one, post. `mode` is "snippet" or "full". A full-shader material (the file holds your own vertex and fragment stages, docs/shaders/SHADERS_FULL.md) has no lighting, alphaMode or doubleSided; it returns shadow ("depth", "custom" or "none"), prepass and passes [{name, cull, depthTest, depthWrite, blend, program, programSkin}], and its `programs` list one program and one skinned program per pass (mesh, mesh_skin, pass1, pass1_skin, ...), then shadow and shadow_skin for "custom", then prepass and prepass_skin. A compute material also returns workgroupSize [x, y, z] and buffers [{name, binding, access, stride, doc, fields: [{name, type, offset, doc}]}] (std430 layout); `runsOn` and `notOn` list the platforms the kind has shaders for (compute: not android or web). `instanced` marks a mesh or sprite param whose value every entity (sprite: every quad) gives itself inside ONE draw (it travels in the instance data instead of the uniform block); `instanceLayout` {vec4, slots: [{name, vec4, offset, components}]} says where; `vertexAttributes` lists the extra mesh channels (uv1, color1) vertex() reads as vertex_uv1 and vertex_color1 (docs/SHADERS.md, "The material file").
+`lighting` is "pbr", "unlit" or "custom" (the snippet defines light(), the engine's light loop calls it once per light). `programs` are the shader programs the material makes: mesh, mesh_skin, prepass and prepass_skin, plus shadow and shadow_skin when the snippet defines vertex() or the alpha mode is clip; a sprite material makes quad and quad_plain, a sky material one program, sky, a post material one, post. `mode` is "snippet" or "full". A full-shader material (the file holds your own vertex and fragment stages, docs/shaders/SHADERS_FULL.md) has no lighting, alphaMode or doubleSided; it returns shadow ("depth", "custom" or "none"), prepass and passes [{name, cull, depthTest, depthWrite, blend, program, programSkin}], and its `programs` list one program and one skinned program per pass (mesh, mesh_skin, pass1, pass1_skin, ...), then shadow and shadow_skin for "custom", then prepass and prepass_skin. A compute material also returns workgroupSize [x, y, z] and buffers [{name, binding, access, stride, doc, fields: [{name, type, offset, doc}]}] (std430 layout) and images [{name, binding, format, access, width, height, doc}]; `runsOn` and `notOn` list the platforms the kind has shaders for (compute: not android or web). `instanced` marks a mesh or sprite param whose value every entity (sprite: every quad) gives itself inside ONE draw (it travels in the instance data instead of the uniform block); `instanceLayout` {vec4, slots: [{name, vec4, offset, components}]} says where; `vertexAttributes` lists the extra mesh channels (uv1, color1) vertex() reads as vertex_uv1 and vertex_color1 (docs/SHADERS.md, "The material file").
 
 | Argument | Type | Required | Description |
 |---|---|---|---|

@@ -110,6 +110,27 @@
         }
       }
     },
+    "images": {
+      "type": "object",
+      "description": "Compute materials only: the storage images the snippet writes with imageStore(name, ivec2, vec4) (and reads with imageLoad when access is \"readWrite\"); at most 4, sorted by name, bound after the buffers. compute.create_image makes one; a mesh, sprite or post material samples it through the texture id \"compute:<id>\" (docs/shaders/SHADERS_COMPUTE.md, \"Storage images\"). Same naming rules as params.",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "doc": { "type": "string", "description": "What the image holds (shown by material.info)." },
+          "format": { "enum": ["rgba8", "rgba16f", "r32f", "rgba32f"], "default": "rgba8", "description": "Pixel format, also the GLSL layout qualifier. rgba8: 8-bit colour, 0..1. rgba16f: half floats (every GPU filters them). r32f: one float channel (a height or density field). rgba32f: full floats. The GPU may not offer a format as storage: compute.create_image says so." },
+          "access": { "enum": ["write", "readWrite"], "default": "write", "description": "\"write\": imageStore only. \"readWrite\": imageStore and imageLoad (a simulation that reads its previous values). A read-only storage image does not exist: sample a texture instead." },
+          "size": {
+            "type": "array",
+            "items": { "type": "integer", "minimum": 1, "maximum": 8192 },
+            "minItems": 1,
+            "maxItems": 2,
+            "default": [256, 256],
+            "description": "[width, height] in pixels, or [side] for a square image: the size compute.create_image uses when it gets none. Capped by the GPU's maximum image size and by a per-material memory budget at creation."
+          }
+        }
+      }
+    },
     "graph": {
       "type": "object",
       "description": "Optional node graph the snippet named by `shader` is GENERATED from (`material.graph.generate`; docs/SHADERS.md, \"Node graphs\"). Without it the snippet is hand-written. `material.graph.nodes` lists the node types. Params and textures the nodes name are this material's own `params` and `textures`.",
