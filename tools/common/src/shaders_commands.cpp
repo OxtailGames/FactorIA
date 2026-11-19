@@ -156,10 +156,11 @@ void register_shader_commands(CommandRegistry& registry, const std::string& proj
         info.summary = "Describe a custom material: lighting, alpha mode, params with types, defaults, ranges and "
                        "docs, textures, programs and compile state.";
         info.description =
-            "Reads a *.material.json (schemas/material.schema.json) and returns {material, doc, kind, shader, "
+            "Reads a *.material.json (schemas/material.schema.json) and returns {material, doc, kind, mode, shader, "
             "lighting, alphaMode, doubleSided, params: [{name, type, default, min?, max?, doc, implicit?, "
             "instanced?}], "
-            "textures: [{name, default, sampler, doc}], vertexAttributes?, programs, compile: {state, dialect, "
+            "textures: [{name, default, sampler, doc}], vertexAttributes?, instanceLayout?, programs, compile: {state, "
+            "dialect, "
             "toolFound, hint?}}. "
             "`kind` is \"mesh\" (default), \"sprite\", \"sky\", \"post\" or \"compute\". "
             "params are listed in the order of the uniform block (alphabetical); `implicit` marks "
@@ -173,11 +174,18 @@ void register_shader_commands(CommandRegistry& registry, const std::string& proj
             "`programs` are the shader programs the material makes: mesh, mesh_skin, prepass and prepass_skin, plus "
             "shadow and shadow_skin when the snippet defines vertex() or the alpha mode is clip; a sprite "
             "material makes quad and quad_plain, a sky material one program, sky, a post material one, post. "
+            "`mode` is \"snippet\" or \"full\". A full-shader material (the file holds your own vertex and fragment "
+            "stages, docs/shaders/SHADERS_FULL.md) has no lighting, alphaMode or doubleSided; it returns shadow "
+            "(\"depth\", "
+            "\"custom\" or \"none\"), prepass and passes [{name, cull, depthTest, depthWrite, blend, program, "
+            "programSkin}], and its `programs` list one program and one skinned program per pass (mesh, mesh_skin, "
+            "pass1, pass1_skin, ...), then shadow and shadow_skin for \"custom\", then prepass and prepass_skin. "
             "A compute material also returns workgroupSize [x, y, z] and buffers [{name, binding, access, stride, "
             "doc, fields: [{name, type, offset, doc}]}] (std430 layout); `runsOn` and `notOn` list the platforms the "
             "kind has shaders for (compute: not android or web). "
-            "`instanced` marks a mesh param whose value every entity gives itself inside ONE instanced draw (it "
-            "travels in the instance buffer instead of the uniform block); `vertexAttributes` lists the extra mesh "
+            "`instanced` marks a mesh or sprite param whose value every entity (sprite: every quad) gives itself "
+            "inside ONE draw (it travels in the instance data instead of the uniform block); `instanceLayout` "
+            "{vec4, slots: [{name, vec4, offset, components}]} says where; `vertexAttributes` lists the extra mesh "
             "channels (uv1, color1) vertex() reads as vertex_uv1 and vertex_color1 (docs/SHADERS.md, \"The material "
             "file\").";
         info.inputSchema = Json::parse(R"({
@@ -208,8 +216,8 @@ void register_shader_commands(CommandRegistry& registry, const std::string& proj
                 snippet = shaders_detail::normalize_snippet(*raw);
             const GeneratedShader g = generate_material_shader(m, snippet);
             const std::string dialect = host_shader_dialect(context);
-            const bool compiled =
-                !shader_template_hash(m.kind).empty() && stdfs::exists(shader_cache_path(dir, g, snippet, dialect));
+            const bool compiled = !shader_template_hash(m.full ? "mesh-full" : m.kind).empty() &&
+                                  stdfs::exists(shader_cache_path(dir, g, snippet, dialect));
             Json out = Json::object({{"material", path},
                                      {"doc", m.doc},
                                      {"kind", m.kind},
@@ -221,6 +229,34 @@ void register_shader_commands(CommandRegistry& registry, const std::string& proj
                                      {"textures", textures},
                                      {"programs", Json(g.programs)}});
             if (!m.vertexAttributes.empty()) out["vertexAttributes"] = Json(m.vertexAttributes);
+            out["mode"] = m.full ? "full" : "snippet";
+            if (m.full) {
+                // lighting, alphaMode and doubleSided are the engine's shader's: a full material has none of them.
+                out.erase("lighting");
+                out.erase("alphaMode");
+                out.erase("doubleSided");
+                out["shadow"] = m.shadow;
+                out["prepass"] = m.prepass;
+                Json passes = Json::array();
+                for (std::size_t i = 0; i < m.passes.size(); ++i) {
+                    const MaterialPass& p = m.passes[i];
+                    passes.push_back(Json::object({{"name", p.name},
+                                                   {"cull", p.cull},
+                                                   {"depthTest", p.depthTest},
+                                                   {"depthWrite", p.depthWrite},
+                                                   {"blend", p.blend},
+                                                   {"program", shaders_detail::full_program_name(int(i), false)},
+                                                   {"programSkin", shaders_detail::full_program_name(int(i), true)}}));
+                }
+                out["passes"] = passes;
+            }
+            if (const InstanceLayout layout = instance_layout(m.params); layout.vec4Count > 0) {
+                Json slots = Json::array();
+                for (const InstanceSlot& s : layout.slots)
+                    slots.push_back(Json::object(
+                        {{"name", s.name}, {"vec4", s.vec4}, {"offset", s.offset}, {"components", s.components}}));
+                out["instanceLayout"] = Json::object({{"vec4", layout.vec4Count}, {"slots", slots}});
+            }
             add_platforms(out, m.kind);
             if (m.kind == "compute") {
                 const Json fields = shaders_detail::compute_twin_fields(m);

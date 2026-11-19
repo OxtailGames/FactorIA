@@ -26,8 +26,10 @@ generated top file with the built-in source modulo the user block; the render te
   (vertex stage) and 5 `fa_material` (fragment stage) are the material's, as for a mesh. Views 0-3 (`tex`, `normal_tex`,
   `light_tex`, `shadow_tex`) and samplers 0-2 are the engine's, so a material's textures take views 4..7 and samplers 3..6
   (`kMaterialSpriteFirstView`, `kMaterialSpriteFirstSampler` in `fa/tooling/shaders.h` and `engine/render/src/render_internal.h`;
-  a mesh material uses views from 6 and samplers from 2, and a second set at 10.. and 6.. for the textures of its `vertex()`: a
-  sprite has no vertex-stage views, so the compiler refuses a sprite `vertex()` that samples a material texture). `fa_time` and
+  a mesh material uses views from 6 and samplers from 2, and a second set at 10.. and 6.. for the textures of its `vertex()`; a
+  sprite has its second set at views 8.. and samplers 7.. (`kMaterialSpriteVsFirstView`, `kMaterialSpriteVsFirstSampler`),
+  declared as `fa_vs_<name>` the way a mesh's are, so a sprite `vertex()` samples a material texture at mip 0).
+  `fa_time` and
   `fa_target` are members of the fragment block `quad_fs_params`, and `fa_time` of the vertex block `vs_params`: the renderer
   fills them for a material's draws, and in the engine's own programs they stay zero and unread (the lean program has no
   uniform block at all). A material's `quad_plain` does get the fragment block (`fa_time`, `fa_target`: the lean built-in has
@@ -88,6 +90,42 @@ gathers, on the calling thread, and the emit jobs only copy the result).
   `RenderStats::materialFallbacks` names the material. The build error is logged once (`note_failure`); a wrong kind warns once.
 - **Left for the next package:** `Shape2D`, `Tilemap`, `Text`, particles and UI call the same `QuadList::set_material`;
   `QuadInput.custom` stays zero.
+
+Built (M72-P4, per-sprite values): `"instanced": true` params of a sprite material travel with each quad.
+
+- **Layout.** `instance_layout` is the mesh's (first fit, at most `kMaterialMaxInstanceVec4` = 3 vec4). `MaterialUse.instVec4`
+  is the material's `instanceVec4`; the instanced values are NOT part of the use's key, so the batch key (the use pointer) is
+  unchanged: sprites that differ only in instanced values share a use and a batch. The values are packed in
+  `MaterialRef::inst` by `resolve_kind_material` (`pack_instance_params`) and copied by `QuadList::set_material` into
+  `QuadItem::instFirst` of `QuadList::inst`; `append` and `append_items` remap `instFirst`, so items copied between cameras or
+  built by jobs keep their values.
+- **Stream.** `flatten(out, batches, &instOut)` writes the values of every quad four times (once per corner) in vertex order,
+  and `QuadBatch::instFirst` is where a batch starts. `build_quad_stream` uploads the stream as a transient vertex buffer
+  (`DrawContext::vinst`) bound as buffer 1; `draw_group` offsets it by the chunk's first quad. Only a material with
+  `instVec4 > 0` uses it: `Gpu::quad_pipeline(..., instanceVec4)` then declares explicit offsets for the 7 `Vertex2D` attributes
+  (stride 48) and attributes 7..9 (`kQuadInstAttr`) as float4 of buffer 1; the engine's own programs and the materials without
+  instanced params keep the old layout. A use whose instVec4 no longer matches its material (a hot reload that changed the
+  layout) is skipped for that frame. Ten attributes stay under the 16 of GLES3 and WebGL2 and D3D11's 32. Known cost: a
+  Tilemap or a Text with an instanced material repeats the same values for every one of its quads (four copies each, like any
+  quad); sharing one copy per item would need a per-item stream, which is not done.
+- **Per-frame lookup.** `Assets::sprite_material` keeps its answers of the frame per material path: first by the address of
+  the component's `materialParams` (the usual repeat: the same component, or a particle group), then by a hash of the values
+  (`hash_params`), comparing values in place only on a hash match. There is no cap on distinct sets (instanced values give
+  every sprite its own), and `materialResolves` counts one full lookup per distinct set. The address path relies on the
+  Json being a component's own field that keeps its values until the cache is dropped (`FA_ASSERT` checks it in debug).
+  `stats.materials` is deduplicated per frame (`Renderer::Impl::materialsCounted`), not per `draw_group` call.
+- **`fa_target` and `screen_uv`.** Both count the image the pass draws into: the whole game target in the main pass (a
+  camera with a viewport only draws into a part of it, so `screen_uv` there is still relative to the whole target), the
+  camera's rectangle in the sprite coverage pass (`coverage_pass` hands `draw_group` the real size of its target).
+- **Shader.** `quad_common.glsl` declares `fa_inst_d0..2` under `FA_INST_n`, unpacks them with the generated
+  `fa_instance_unpack` before `vertex()` and passes them as `flat` varyings `fa_inst_v0..2` to `fa_inst_load()`, which runs before
+  `fragment()`. The memory cost is 4 copies of the values per quad (48 bytes per vec4 of a quad): 192 bytes at 3 vec4, against
+  the 192 bytes of the quad's four `Vertex2D`.
+- **Particles.** The instanced values of a particle are its emitter's `materialParams`. `QuadInput.life` (new) is the particle's
+  age over its lifetime (the vertex's `shape_half.x` of modes 0 and 3, which no other mode uses there); it is 0 for every other item, a particle's trail ribbon included. `custom`
+  stays reserved.
+- **Vertex textures.** A sprite's vertex-stage views and samplers are 8.. and 7.. (after the fragment stage's 4.. and 3..), bound
+  by `draw_group` next to the fragment ones; a mesh's are at 10.. and 6... The count of views stays at most 4 textures x 2 stages.
 
 ## Post materials (M72.2)
 

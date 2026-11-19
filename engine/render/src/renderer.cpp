@@ -193,7 +193,7 @@ sg_desc make_sg_desc(const GfxEnvironment& env) {
     sd.image_pool_size = 1024;
     sd.view_pool_size = 4096;
     sd.sampler_pool_size = 64;
-    sd.shader_pool_size = 384;  // about 15 built-in shaders, up to 6 per custom material
+    sd.shader_pool_size = 384;  // about 15 built-in shaders, up to 12 per custom material
     sd.pipeline_pool_size = 256;
     sd.uniform_buffer_size = 16 * 1024 * 1024;
     return sd;

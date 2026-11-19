@@ -677,6 +677,8 @@ public:
     void draw_graph_canvas(GraphModel& m);
     void draw_graph_palette(GraphModel& m);
     void draw_graph_side(GraphModel& m);
+    void draw_graph_params(
+        GraphModel& m);  // the params of the material: sliders that change the preview only, and "Set as default"
     void draw_graph_node_inspector(GraphModel& m, const std::string& id);
     // *.material.json; false and a toast on failure (or when it asked about unsaved changes first). `discard`: do not ask.
     bool open_graph_document(const std::string& rel, bool startGraph = false, bool discard = false);

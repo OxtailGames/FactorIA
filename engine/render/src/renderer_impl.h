@@ -190,6 +190,8 @@ struct Renderer::Impl {
     bool warnedNoLight = false;
     // SceneSettings.skyMaterial: the last material that could not draw the sky and was reported (one log line per material).
     std::string warnedSkyMaterial;
+    // The sprite materials whose batches were skipped because their instanced layout changed after a hot reload (one log line each).
+    std::unordered_set<std::string> warnedSpriteInstLayout;
     MaterialAsset* sky_material(const SceneSettings& ss);
     std::string
         warnedViewport;  // the last "bad Camera.viewport" problem logged (a viewport a script sets live is clamped)
@@ -243,6 +245,8 @@ struct Renderer::Impl {
     bool updated = false;  // update() ran since the last draw
     ScaleMode scaleMode = ScaleMode::Fit;
     std::vector<Vertex2D> stream;
+    std::vector<float>
+        instStream;  // the instanced values of the sprite-material batches of `stream`, per vertex (QuadBatch::instFirst)
 
     // The image a CameraView shows (ui2d.cpp, draw_camera_view): the camera is drawn into it before the frame's own jobs. One per
     // widget, made when a gather asks for it with a size and kept while the widget keeps asking; the ones nobody asked for in a

@@ -991,20 +991,20 @@ TEST_CASE("sprite material: errors name fragment() and the sprite contract; alph
     auto light = parse(R"({"format":"factoria.material/1","kind":"sprite","shader":"s.glsl","lighting":"custom"})");
     CHECK(has_error(light, "/lighting"));
 
-    // a sprite's vertex() cannot sample a material texture (no vertex-stage views in the 2D pipeline): refused
-    // before sokol-shdc runs, with the texture named
+    // a sprite's vertex() samples a material texture through its own vertex-stage view and sampler (slots 8.. and 7..,
+    // after the fragment stage's 4.. and 3..), the same way a mesh material does
     const std::string sampling =
         std::string(kSpriteSnippet) +
         "void vertex(inout QuadVertex v) { v.world_pos.y += texture(sampler2D(mask, mask_smp), vec2(0.5)).r; }\n";
-    p.write("shaders/dissolve2d.fragment.glsl", sampling);
-    shdc.calls = 0;
-    r = compile_material(p.str(), "materials/dissolve2d.material.json", options);
-    REQUIRE(r.ok());
-    CHECK_FALSE(r->ok);
-    REQUIRE_FALSE(r->errors.empty());
-    CHECK(r->errors[0].message.find("vertex() of a sprite material cannot sample the texture \"mask\"") !=
-          std::string::npos);
-    CHECK(shdc.calls == 0);
+    const MaterialParse vsParse = read_material(p.str(), "materials/dissolve2d.material.json");
+    REQUIRE(vsParse.ok());
+    const GeneratedShader gv = generate_material_shader(vsParse.material, sampling);
+    CHECK(gv.hasVertex);
+    CHECK(gv.top.find("#define mask fa_vs_mask") != std::string::npos);
+    CHECK(gv.top.find("layout(binding=8) uniform texture2D mask;") != std::string::npos);
+    CHECK(gv.top.find("layout(binding=7) uniform sampler mask_smp;") != std::string::npos);
+    CHECK(gv.top.find("layout(binding=4) uniform texture2D mask;") != std::string::npos);
+    CHECK(gv.top.find("layout(binding=3) uniform sampler mask_smp;") != std::string::npos);
 }
 
 TEST_CASE("sprite material: compile writes a twin with the sprite template hash and the programs quad and quad_plain") {
@@ -2512,15 +2512,68 @@ TEST_CASE("vertexAttributes: the names are checked with their pointer, did you m
                     "/vertexAttributes", "expected an array"));
 }
 
-TEST_CASE("instanced params and vertexAttributes are refused in every kind but mesh, with the pointer and the fix") {
-    for (const char* kind : {"sprite", "compute", "sky"}) {
+TEST_CASE("instanced params: a sprite material takes them with the mesh limits, and the error names the pointer") {
+    const std::string head = R"({"format":"factoria.material/1","shader":"s.glsl","kind":"sprite")";
+    const auto ok = parse(
+        (head + R"(,"params":{"tint":{"type":"color","default":[1,1,1,1],"instanced":true,"doc":"d"}}})").c_str());
+    CHECK(ok.ok());
+    const InstanceLayout layout = instance_layout(ok.material.params);
+    CHECK(layout.vec4Count == 1);
+    // four vec4 per sprite are too many, as for a mesh
+    const auto four = parse((head + R"(,"params":{
+        "a":{"type":"color","default":[1,1,1,1],"instanced":true,"doc":"d"},
+        "b":{"type":"color","default":[1,1,1,1],"instanced":true,"doc":"d"},
+        "c":{"type":"color","default":[1,1,1,1],"instanced":true,"doc":"d"},
+        "d":{"type":"color","default":[1,1,1,1],"instanced":true,"doc":"d"}}})")
+                                .c_str());
+    CHECK_FALSE(four.ok());
+    CHECK(has_error(four, "/params", "4 vec4"));
+    CHECK(has_error(four, "/params", "Make some of them not instanced"));
+    // vertexAttributes are the mesh's: a sprite has no channels to read
+    const auto chan = parse((head + R"(,"vertexAttributes":["uv1"]})").c_str());
+    CHECK(has_error(chan, "/vertexAttributes", "only mesh materials"));
+    // the generator gives the sprite programs the per-quad stream, and a material without instanced params none of it
+    Project p;
+    p.add_sprite();
+    const std::string src = std::string(kSpriteSnippet);
+    const GeneratedShader plain =
+        generate_material_shader(read_material(p.str(), "materials/dissolve2d.material.json").material, src);
+    for (const std::string& d : plain.defines) CHECK(d.rfind("FA_INST_", 0) != 0);
+    CHECK(plain.top.find("fa_instance_unpack") == std::string::npos);
+    const GeneratedShader inst = generate_material_shader(
+        ok.material, "void fragment(in QuadInput i, inout QuadSurface s) { s.color.rgb = tint.rgb; }\n");
+    CHECK(std::find(inst.defines.begin(), inst.defines.end(), "FA_INST_1") != inst.defines.end());
+    CHECK(inst.top.find("fa_instance_unpack(vec4 fa_d0, vec4 fa_d1, vec4 fa_d2)") != std::string::npos);
+    CHECK(inst.top.find("tint = fa_d0;") != std::string::npos);
+    // material.info reports the layout for a sprite as for a mesh
+    p.write("materials/quads.material.json",
+            R"({"format":"factoria.material/1","kind":"sprite","shader":"shaders/quads.fragment.glsl","params":{
+        "tint":{"type":"color","default":[1,1,1,1],"instanced":true,"doc":"d"},
+        "wave":{"type":"float","default":0,"instanced":true,"doc":"d"}}})");
+    p.write("shaders/quads.fragment.glsl",
+            "void fragment(in QuadInput i, inout QuadSurface s) { s.color.rgb *= tint.rgb * wave; }\n");
+    FakeShdc shdc;
+    CommandRegistry registry;
+    register_shader_commands(registry, p.str(), shdc.context(p.str()));
+    auto info = registry.call("material.info", Json::parse(R"({"material":"materials/quads.material.json"})"));
+    REQUIRE(info.ok);
+    CHECK(info.result["kind"] == "sprite");
+    REQUIRE(info.result.contains("instanceLayout"));
+    CHECK(info.result["instanceLayout"]["vec4"] == 2);
+    CHECK(info.result["instanceLayout"]["slots"].size() == 2);
+}
+
+TEST_CASE(
+    "instanced params and vertexAttributes are refused in every kind but mesh and sprite, with the pointer and the "
+    "fix") {
+    for (const char* kind : {"compute", "sky"}) {
         CAPTURE(kind);
         const std::string head =
             std::string(R"({"format":"factoria.material/1","shader":"s.glsl","kind":")") + kind + "\"";
         const auto inst = parse(
             (head + R"(,"params":{"tint":{"type":"color","default":[1,1,1,1],"instanced":true,"doc":"d"}}})").c_str());
         CHECK_FALSE(inst.ok());
-        CHECK(has_error(inst, "/params/tint/instanced", "only mesh materials"));
+        CHECK(has_error(inst, "/params/tint/instanced", "only mesh and sprite materials"));
         CHECK(has_error(inst, "/params/tint/instanced", "Remove \"instanced\""));
         const auto chan = parse((head + R"(,"vertexAttributes":["uv1"]})").c_str());
         CHECK_FALSE(chan.ok());
@@ -2610,4 +2663,347 @@ TEST_CASE(
         CHECK(twin["programs"].size() == 4);
         CHECK(twin["programs"]["mesh"]["reflection"]["attrs"].size() == 12);
     }
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Full shaders (mode "full"): the file holds the vertex and the fragment stage
+// ---------------------------------------------------------------------------------------------------------------
+
+namespace {
+
+const char* kFullMaterial = R"({
+  "format": "factoria.material/1",
+  "mode": "full",
+  "shader": "shaders/ring.full.glsl",
+  "shadow": "custom",
+  "passes": [
+    {"name": "body", "cull": "back"},
+    {"name": "outline", "cull": "front", "depthWrite": true}
+  ],
+  "params": {
+    "width": { "type": "float", "default": 0.05, "min": 0.0, "max": 1.0, "doc": "Outline width." },
+    "ink": { "type": "color", "default": [0, 0, 0, 1], "doc": "Outline colour." }
+  }
+})";
+
+// Line 1 is `@common`, the vertex main() is on line 5, gl_Position on line 11, `@fragment` on line 14, the outline colour on line 17.
+const char* kFullShader = R"(@common
+varying vec3 v_normal;
+
+@vertex
+void main() {
+    vec3 p = fa_position;
+#ifdef FA_PASS_OUTLINE
+    p += fa_normal * width;
+#endif
+    v_normal = fa_normal;
+    gl_Position = fa_view_proj * vec4(fa_world_position(p), 1.0);
+}
+
+@fragment
+void main() {
+#ifdef FA_PASS_OUTLINE
+    fa_frag_color = vec4(ink.rgb, 1.0);
+#else
+    fa_frag_color = vec4(v_normal * 0.5 + 0.5, 1.0);
+#endif
+}
+)";
+
+// A project with the full material above; `shader` replaces the shader file.
+struct FullProject : Project {
+    explicit FullProject(const std::string& shader = kFullShader, const char* material = kFullMaterial) {
+        write("materials/ring.material.json", material);
+        write("shaders/ring.full.glsl", shader);
+    }
+    MaterialParse read() { return read_material(str(), "materials/ring.material.json"); }
+};
+
+std::string replace_in(std::string text, const std::string& from, const std::string& to) {
+    const std::size_t at = text.find(from);
+    REQUIRE(at != std::string::npos);
+    return text.replace(at, from.size(), to);
+}
+
+}  // namespace
+
+TEST_CASE("full material: the file is read with its passes in order, and the schema accepts it") {
+    FullProject p;
+    const MaterialParse mp = p.read();
+    for (const MaterialIssue& e : mp.errors) INFO(e.pointer << ": " << e.message);
+    REQUIRE(mp.ok());
+    const MaterialDef& m = mp.material;
+    CHECK(m.full);
+    CHECK(m.kind == "mesh");
+    CHECK(m.shadow == "custom");
+    CHECK(m.prepass);
+    REQUIRE(m.passes.size() == 2);
+    CHECK(m.passes[0].name == "body");
+    CHECK(m.passes[0].cull == "back");
+    CHECK(m.passes[0].depthWrite);  // an opaque pass writes depth unless the file says otherwise
+    CHECK(m.passes[1].cull == "front");
+    // no "passes": one pass called main; "blend" turns the depth write off
+    const auto one = parse(R"({"format":"factoria.material/1","mode":"full","shader":"s.glsl"})");
+    REQUIRE(one.material.passes.size() == 1);
+    CHECK(one.material.passes[0].name == "main");
+    const auto glass = parse(
+        R"({"format":"factoria.material/1","mode":"full","shader":"s.glsl","passes":[{"name":"glass","blend":"alpha"}]})");
+    REQUIRE(glass.material.passes.size() == 1);
+    CHECK_FALSE(glass.material.passes[0].depthWrite);
+    // the schema accepts the file and refuses a typo
+    auto schema = bundled_read("schemas/material.schema.json");
+    REQUIRE(schema.has_value());
+    CHECK(validate_json(Json::parse(*schema), Json::parse(kFullMaterial)).empty());
+    Json bad = Json::parse(kFullMaterial);
+    bad["mode"] = "fulll";
+    CHECK_FALSE(validate_json(Json::parse(*schema), bad).empty());
+}
+
+TEST_CASE("full material: errors name the JSON pointer, the problem and the fix") {
+    const std::string head = R"({"format":"factoria.material/1","shader":"s.glsl",)";
+    auto full = [&](const std::string& rest) { return parse((head + R"("mode":"full",)" + rest + "}").c_str()); };
+
+    const auto mode = parse((head + R"("mode":"fulll"})").c_str());
+    CHECK(has_error(mode, "/mode", "Did you mean 'full'?"));
+
+    // passes, shadow and prepass are for full materials only
+    for (const char* key : {"passes", "shadow", "prepass"}) {
+        CAPTURE(key);
+        const std::string value = std::string(key) == "passes"   ? R"([{"name":"a"}])"
+                                  : std::string(key) == "shadow" ? R"("none")"
+                                                                 : "false";
+        const auto snip = parse((head + "\"" + key + "\":" + value + "}").c_str());
+        CHECK(has_error(snip, std::string("/") + key, "belongs to a full-shader material"));
+        CHECK(has_error(snip, std::string("/") + key, "\"mode\": \"full\""));
+    }
+    // keys that describe the engine's shader do nothing in a full material
+    CHECK(has_error(full(R"("lighting":"unlit")"), "/lighting", "has no effect"));
+    CHECK(has_error(full(R"("alphaMode":"blend")"), "/alphaMode", "set \"blend\""));
+    CHECK(has_error(full(R"("doubleSided":true)"), "/doubleSided", "\"cull\": \"none\""));
+    // other kinds have no full mode
+    const auto sprite = parse((head + R"("kind":"sprite","mode":"full"})").c_str());
+    CHECK(has_error(sprite, "/mode", "is for mesh materials"));
+
+    CHECK(has_error(full(R"("shadow":"deph")"), "/shadow", "Did you mean 'depth'?"));
+    CHECK(has_error(full(R"("prepass":"no")"), "/prepass", "expected true or false"));
+    CHECK(has_error(full(R"("passes":[])"), "/passes", "non-empty array"));
+    CHECK(has_error(full(R"("passes":{"a":1})"), "/passes", "non-empty array"));
+    CHECK(has_error(full(R"("passes":[3])"), "/passes/0", "expected an object"));
+    CHECK(has_error(full(R"("passes":[{"cull":"back"}])"), "/passes/0/name", "missing \"name\""));
+    CHECK(has_error(full(R"("passes":[{"name":"1a"}])"), "/passes/0/name", "must be an identifier"));
+    CHECK(has_error(full(R"("passes":[{"name":"float"}])"), "/passes/0/name", "must be an identifier"));
+    CHECK(has_error(full(R"("passes":[{"name":"a"},{"name":"A"}])"), "/passes/1/name", "used twice"));
+    CHECK(has_error(full(R"("passes":[{"name":"a","cul":"back"}])"), "/passes/0/cul", "Did you mean 'cull'?"));
+    CHECK(has_error(full(R"("passes":[{"name":"a","cull":"bak"}])"), "/passes/0/cull", "Did you mean 'back'?"));
+    CHECK(has_error(full(R"("passes":[{"name":"a","blend":"alfa"}])"), "/passes/0/blend", "alpha"));
+    CHECK(has_error(full(R"("passes":[{"name":"a","depthTest":1}])"), "/passes/0/depthTest", "expected true or false"));
+    CHECK(has_error(full(R"("passes":[{"name":"a","depthWrite":"yes"}])"), "/passes/0/depthWrite",
+                    "expected true or false"));
+    const auto five = full(R"("passes":[{"name":"a"},{"name":"b"},{"name":"c"},{"name":"d"},{"name":"e"}])");
+    CHECK(has_error(five, "/passes", "5 passes, at most 4"));
+    CHECK(full(R"("passes":[{"name":"a"},{"name":"b"},{"name":"c"},{"name":"d"}])").ok());
+}
+
+TEST_CASE("full material: the file is checked without a compiler, each problem at its line") {
+    FakeShdc shdc;
+    shdc.reflection = fixture("shdc_mesh_hlsl5_glsl430.yaml");
+    ShaderCompileOptions options;
+    options.dialects = {"hlsl5"};
+    auto errors_of = [&](const std::string& shader) {
+        FullProject p(shader);
+        options.setup = shdc.context(p.str());
+        auto r = compile_material(p.str(), "materials/ring.material.json", options);
+        REQUIRE(r.ok());
+        return r->errors;
+    };
+    auto has = [](const std::vector<ShaderIssue>& v, int line, const std::string& text) {
+        return std::any_of(v.begin(), v.end(), [&](const ShaderIssue& i) {
+            return i.line == line &&
+                   (i.message.find(text) != std::string::npos || i.hint.find(text) != std::string::npos);
+        });
+    };
+
+    // no main() in a stage: reported at the line of its section
+    const auto noMain = errors_of(replace_in(kFullShader, "void main() {\n#ifdef FA_PASS_OUTLINE\n    fa_frag_color",
+                                             "void mian() {\n#ifdef FA_PASS_OUTLINE\n    fa_frag_color"));
+    CHECK(has(noMain, 14, "defines no `void main()`"));
+    // a missing section has no line
+    CHECK(has(errors_of("@fragment\nvoid main() { fa_frag_color = vec4(1.0); }\n"), 0, "no `@vertex` section"));
+    CHECK(has(errors_of("@vertex\nvoid main() { gl_Position = vec4(0.0); }\n"), 0, "no `@fragment` section"));
+    // code before the first section; an unknown section; two of one
+    CHECK(has(errors_of("float x = 1.0;\n" + std::string(kFullShader)), 1, "code before the first section"));
+    CHECK(has(errors_of(replace_in(kFullShader, "@common", "@comon")), 1, "Did you mean `@common`?"));
+    CHECK(has(errors_of(std::string(kFullShader) + "@fragment\nvoid main() {}\n"), 22, "appears twice"));
+    // main() in @common would be defined twice
+    CHECK(has(errors_of(replace_in(kFullShader, "@common\n", "@common\nvoid main() {}\n")), 1, "defines `main()`"));
+    // the stages never write their output
+    CHECK(has(errors_of(replace_in(kFullShader, "gl_Position", "gl_Positon")), 4, "never writes gl_Position"));
+    CHECK(has(errors_of(replace_in(replace_in(kFullShader, "fa_frag_color = vec4(ink", "x = vec4(ink"),
+                                   "fa_frag_color = vec4(v_normal", "x = vec4(v_normal")),
+              14, "never writes fa_frag_color"));
+
+    // varyings: the same list in both stages, in the same order
+    const std::string vertexOnly = replace_in(kFullShader, "@common\nvarying vec3 v_normal;\n\n@vertex",
+                                              "@common\n\n@vertex\nvarying vec3 v_normal;");
+    CHECK(has(errors_of(vertexOnly), 4,
+              "the vertex stage declares `varying vec3 v_normal`, which the fragment stage does not"));
+    const auto otherType = errors_of(replace_in(vertexOnly, "@fragment\n", "@fragment\nvarying vec4 v_normal;\n"));
+    bool mismatch = false;
+    for (const ShaderIssue& i : otherType) mismatch = mismatch || i.message.find("as varying 1") != std::string::npos;
+    CHECK(mismatch);
+    CHECK(has(errors_of(replace_in(
+                  kFullShader, "varying vec3 v_normal;",
+                  "varying vec3 v_normal;\nvarying mat4 a;\nvarying mat4 b;\nvarying mat4 c;\nvarying mat4 d;")),
+              6, "varying vec4 slots"));
+
+    // fa_ names: the ones the template documents are free, the others are the engine's
+    const auto reserved = errors_of(replace_in(kFullShader, "vec3 p = fa_position;", "vec3 p = fa_positon;"));
+    REQUIRE(reserved.size() == 1);
+    CHECK(reserved[0].line == 6);
+    CHECK(reserved[0].column == 14);
+    CHECK(reserved[0].message.find("`fa_positon` is not a name a full shader may use") != std::string::npos);
+    CHECK(reserved[0].hint.find("did you mean `fa_position`?") != std::string::npos);
+    CHECK(has(errors_of(replace_in(kFullShader, "vec3 p = fa_position;", "float fa_mine = 1.0; vec3 p = fa_position;")),
+              6, "fa_mine"));
+    // FA_PASS_<NAME> of a pass the material declares is a define; of a pass it does not, a typo
+    for (const ShaderIssue& i :
+         errors_of(replace_in(kFullShader, "#ifdef FA_PASS_OUTLINE\n    p +=", "#ifdef FA_PASS_BODY\n    p +=")))
+        CHECK(i.message.find("FA_PASS_") == std::string::npos);
+    CHECK(has(errors_of(replace_in(kFullShader, "#ifdef FA_PASS_OUTLINE\n    p +=", "#ifdef FA_PASS_OUTLNE\n    p +=")),
+              7, "FA_PASS_OUTLNE"));
+}
+
+TEST_CASE("full material: the generated top file has one vertex and fragment program per pass, and the twin fields say "
+          "how to draw them") {
+    FullProject p;
+    const MaterialDef m = p.read().material;
+    const GeneratedShader g = generate_material_shader(m, kFullShader);
+    CHECK(g.kind == "mesh-full");
+    CHECK(g.programs == std::vector<std::string>{"mesh", "mesh_skin", "pass1", "pass1_skin", "shadow", "shadow_skin",
+                                                 "prepass", "prepass_skin"});
+    CHECK(g.top.find("@include mesh_full_common.glsl") != std::string::npos);
+    CHECK(g.top.find("#define FA_PASS 1\n#define FA_PASS_OUTLINE 1\n") != std::string::npos);
+    CHECK(g.top.find("#define FA_SKIN\n") != std::string::npos);
+    CHECK(g.top.find("#define FA_SHADOW_PASS\n") != std::string::npos);
+    CHECK(g.top.find("@program pass1_skin fvs_pass1_skin ffs_pass1") != std::string::npos);
+    CHECK(g.top.find("float width;") != std::string::npos);  // the params block, as in a snippet material
+    // the author's lines map back to the file: the vertex main() is line 5, the fragment main() line 15
+    CHECK(top_line_of(g, 5) > 0);
+    CHECK(top_line_of(g, 15) > top_line_of(g, 5));
+    // the passes are part of the cache key even though the top file does not hold them
+    MaterialDef other = m;
+    other.passes[1].cull = "none";
+    CHECK(generate_material_shader(other, kFullShader).stateKey != g.stateKey);
+    // "prepass": false and "shadow": "depth" leave their programs out
+    MaterialDef lean = m;
+    lean.prepass = false;
+    lean.shadow = "depth";
+    CHECK(generate_material_shader(lean, kFullShader).programs ==
+          std::vector<std::string>{"mesh", "mesh_skin", "pass1", "pass1_skin"});
+    const Json fields = shaders_detail::full_twin_fields(m);
+    CHECK(fields["full"] == true);
+    CHECK(fields["shadow"] == "custom");
+    REQUIRE(fields["passes"].size() == 2);
+    CHECK(fields["passes"][1]["program"] == "pass1");
+    CHECK(fields["passes"][1]["programSkin"] == "pass1_skin");
+}
+
+TEST_CASE("full material: material.info reports the mode, the passes and the programs of each") {
+    FullProject p;
+    FakeShdc shdc;
+    shdc.reflection = fixture("shdc_mesh_hlsl5_glsl430.yaml");
+    CommandRegistry registry;
+    register_shader_commands(registry, p.str(), shdc.context(p.str()));
+    auto info = registry.call("material.info", Json::parse(R"({"material":"materials/ring.material.json"})"));
+    REQUIRE(info.ok);
+    CHECK(info.result["mode"] == "full");
+    CHECK(info.result["kind"] == "mesh");
+    CHECK_FALSE(info.result.contains("lighting"));
+    CHECK_FALSE(info.result.contains("alphaMode"));
+    CHECK(info.result["shadow"] == "custom");
+    CHECK(info.result["prepass"] == true);
+    REQUIRE(info.result["passes"].size() == 2);
+    CHECK(info.result["passes"][0]["name"] == "body");
+    CHECK(info.result["passes"][1]["cull"] == "front");
+    CHECK(info.result["passes"][1]["program"] == "pass1");
+    CHECK(info.result["passes"][1]["programSkin"] == "pass1_skin");
+    CHECK(info.result["programs"].size() == 8);
+    CHECK(info.result["compile"]["state"] == "not_compiled");
+    // a snippet material says its mode and has no passes
+    info = registry.call("material.info", Json::parse(R"({"material":"materials/gem.material.json"})"));
+    REQUIRE(info.ok);
+    CHECK(info.result["mode"] == "snippet");
+    CHECK_FALSE(info.result.contains("passes"));
+    CHECK(info.result["lighting"] == "pbr");
+    // an error of the file comes back with its pointer
+    p.write("materials/ring.material.json", replace_in(kFullMaterial, "\"back\"", "\"bak\""));
+    auto bad = registry.call("material.info", Json::parse(R"({"material":"materials/ring.material.json"})"));
+    CHECK_FALSE(bad.ok);
+    CHECK(bad.error["message"].get<std::string>().find("/passes/0/cull") != std::string::npos);
+}
+
+TEST_CASE("real sokol-shdc: a full material compiles to every dialect, one program per pass, and its twin says how to "
+          "draw them") {
+    SetupContext context;
+    if (!real_tool(context)) return;
+    FullProject p;
+    ShaderCompileOptions options;
+    options.setup = context;
+    options.useCache = false;
+    auto r = compile_material(p.str(), "materials/ring.material.json", options);
+    REQUIRE(r.ok());
+    const std::string why = r->errors.empty() ? std::string() : r->errors[0].to_string();
+    INFO(why);
+    REQUIRE(r->ok);
+    REQUIRE(r->twins.size() == 6);
+    for (const auto& [slang, twin] : r->twins) {
+        CAPTURE(slang);
+        CHECK_FALSE(twin.contains("kind"));  // a mesh twin, as every twin made before M72
+        CHECK(twin["full"] == true);
+        CHECK(twin["shadow"] == "custom");
+        CHECK(twin["passes"].size() == 2);
+        for (const char* name :
+             {"mesh", "mesh_skin", "pass1", "pass1_skin", "shadow", "shadow_skin", "prepass", "prepass_skin"}) {
+            CAPTURE(name);
+            REQUIRE(twin["programs"].contains(name));
+            CHECK_FALSE(twin["programs"][name]["vs"].get<std::string>().empty());
+            CHECK_FALSE(twin["programs"][name]["fs"].get<std::string>().empty());
+        }
+        // the params block sits on the same slot as a snippet material's: the inspector and the renderer write it alike
+        bool block = false;
+        for (const Json& ub : twin["programs"]["pass1"]["reflection"]["uniform_blocks"])
+            if (ub["struct_name"] == "fa_material") {
+                block = true;
+                CHECK(ub["slot"] == 5);
+            }
+        CHECK(block);
+    }
+}
+
+TEST_CASE("real sokol-shdc: an error of a full shader is mapped to the line of the user's file, in each stage") {
+    SetupContext context;
+    if (!real_tool(context)) return;
+    ShaderCompileOptions options;
+    options.setup = context;
+    options.dialects = {"hlsl5", "glsl430"};
+    options.useCache = false;
+    auto first_error = [&](const std::string& shader) {
+        FullProject p(shader);
+        auto r = compile_material(p.str(), "materials/ring.material.json", options);
+        REQUIRE(r.ok());
+        REQUIRE_FALSE(r->ok);
+        REQUIRE_FALSE(r->errors.empty());
+        return r->errors[0];
+    };
+    // line 11 is in the vertex stage, line 17 in the fragment stage
+    ShaderIssue e =
+        first_error(replace_in(kFullShader, "gl_Position = fa_view_proj", "gl_Position = fa_view_proj * wdth"));
+    CHECK(e.file == "shaders/ring.full.glsl");
+    CHECK(e.line == 11);
+    CHECK(e.hint.find("did you mean width?") != std::string::npos);
+    e = first_error(
+        replace_in(kFullShader, "fa_frag_color = vec4(ink.rgb, 1.0);", "fa_frag_color = vec4(ik.rgb, 1.0);"));
+    CHECK(e.file == "shaders/ring.full.glsl");
+    CHECK(e.line == 17);
+    CHECK(e.to_string().find("shaders/ring.full.glsl:17:") != std::string::npos);
 }

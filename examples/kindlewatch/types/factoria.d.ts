@@ -6445,7 +6445,7 @@ declare module "factoria" {
      */
     material: string;
     /**
-     * Per-entity overrides of the material's params and textures, an object keyed by the name declared in the material file: numbers for float params, arrays for vectors and colors ([r, g, b, a]), project-relative paths for textures. Example: {"glow": [1, 0.2, 0, 1], "mask": "textures/leaf.png"}. Unnamed params keep the material's defaults. Same meaning as MeshRenderer.materialParams. Entities that share the same material and the same params are still drawn in one batch; different params draw in separate batches. Returns a plain-object COPY; assign a new value to write.
+     * Per-entity overrides of the material's params and textures, an object keyed by the name declared in the material file: numbers for float params, arrays for vectors and colors ([r, g, b, a]), project-relative paths for textures. Example: {"glow": [1, 0.2, 0, 1], "mask": "textures/leaf.png"}. Unnamed params keep the material's defaults. Same meaning as MeshRenderer.materialParams. Entities that share the same material and the same params are still drawn in one batch. A param the material declares with "instanced": true is sent with each quad, so entities that differ only in it stay in one batch; any other param that differs draws in a separate batch.  Returns a plain-object COPY; assign a new value to write.
      * @since unreleased
      */
     materialParams: any;
@@ -6869,7 +6869,7 @@ declare module "factoria" {
      */
     material: string;
     /**
-     * Per-entity overrides of the material's params and textures, an object keyed by the name declared in the material file: numbers for float params, arrays for vectors and colors ([r, g, b, a]), project-relative paths for textures. Example: {"glow": [1, 0.2, 0, 1], "mask": "textures/leaf.png"}. Unnamed params keep the material's defaults. Same meaning as MeshRenderer.materialParams. Entities that share the same material and the same params are still drawn in one batch; different params draw in separate batches. Returns a plain-object COPY; assign a new value to write.
+     * Per-entity overrides of the material's params and textures, an object keyed by the name declared in the material file: numbers for float params, arrays for vectors and colors ([r, g, b, a]), project-relative paths for textures. Example: {"glow": [1, 0.2, 0, 1], "mask": "textures/leaf.png"}. Unnamed params keep the material's defaults. Same meaning as MeshRenderer.materialParams. Entities that share the same material and the same params are still drawn in one batch. A param the material declares with "instanced": true is sent with each quad, so entities that differ only in it stay in one batch; any other param that differs draws in a separate batch.  Returns a plain-object COPY; assign a new value to write.
      * @since unreleased
      */
     materialParams: any;
@@ -6994,7 +6994,7 @@ declare module "factoria" {
      */
     material: string;
     /**
-     * Per-entity overrides of the material's params and textures, an object keyed by the name declared in the material file: numbers for float params, arrays for vectors and colors ([r, g, b, a]), project-relative paths for textures. Example: {"glow": [1, 0.2, 0, 1], "mask": "textures/leaf.png"}. Unnamed params keep the material's defaults. Same meaning as MeshRenderer.materialParams. Entities that share the same material and the same params are still drawn in one batch; different params draw in separate batches. Returns a plain-object COPY; assign a new value to write.
+     * Per-entity overrides of the material's params and textures, an object keyed by the name declared in the material file: numbers for float params, arrays for vectors and colors ([r, g, b, a]), project-relative paths for textures. Example: {"glow": [1, 0.2, 0, 1], "mask": "textures/leaf.png"}. Unnamed params keep the material's defaults. Same meaning as MeshRenderer.materialParams. Entities that share the same material and the same params are still drawn in one batch. A param the material declares with "instanced": true is sent with each quad, so entities that differ only in it stay in one batch; any other param that differs draws in a separate batch.  Returns a plain-object COPY; assign a new value to write.
      * @since unreleased
      */
     materialParams: any;
@@ -7095,7 +7095,7 @@ declare module "factoria" {
      */
     material: string;
     /**
-     * Per-entity overrides of the material's params and textures, an object keyed by the name declared in the material file: numbers for float params, arrays for vectors and colors ([r, g, b, a]), project-relative paths for textures. Example: {"glow": [1, 0.2, 0, 1], "mask": "textures/leaf.png"}. Unnamed params keep the material's defaults. Same meaning as MeshRenderer.materialParams. Entities that share the same material and the same params are still drawn in one batch; different params draw in separate batches. Returns a plain-object COPY; assign a new value to write.
+     * Per-entity overrides of the material's params and textures, an object keyed by the name declared in the material file: numbers for float params, arrays for vectors and colors ([r, g, b, a]), project-relative paths for textures. Example: {"glow": [1, 0.2, 0, 1], "mask": "textures/leaf.png"}. Unnamed params keep the material's defaults. Same meaning as MeshRenderer.materialParams. Entities that share the same material and the same params are still drawn in one batch. A param the material declares with "instanced": true is sent with each quad, so entities that differ only in it stay in one batch; any other param that differs draws in a separate batch.  Returns a plain-object COPY; assign a new value to write.
      * @since unreleased
      */
     materialParams: any;
@@ -7418,7 +7418,7 @@ declare module "factoria" {
      */
     material: string;
     /**
-     * Per-entity overrides of the material's params and textures, an object keyed by the name declared in the material file: numbers for float params, arrays for vectors and colors ([r, g, b, a]), project-relative paths for textures. Example: {"glow": [1, 0.2, 0, 1], "mask": "textures/leaf.png"}. Unnamed params keep the material's defaults. Same meaning as MeshRenderer.materialParams. Entities that share the same material and the same params are still drawn in one batch; different params draw in separate batches. Returns a plain-object COPY; assign a new value to write.
+     * Per-entity overrides of the material's params and textures, an object keyed by the name declared in the material file: numbers for float params, arrays for vectors and colors ([r, g, b, a]), project-relative paths for textures. Example: {"glow": [1, 0.2, 0, 1], "mask": "textures/leaf.png"}. Unnamed params keep the material's defaults. Same meaning as MeshRenderer.materialParams. Entities that share the same material and the same params are still drawn in one batch. A param the material declares with "instanced": true is sent with each quad, so entities that differ only in it stay in one batch; any other param that differs draws in a separate batch.  Returns a plain-object COPY; assign a new value to write.
      * @since unreleased
      */
     materialParams: any;
@@ -8643,7 +8643,7 @@ declare module "factoria" {
      */
     material: string;
     /**
-     * Per-entity overrides of the material's params and textures, an object keyed by the name declared in the material file: numbers for float params, arrays for vectors and colors ([r, g, b, a]), project-relative paths for textures. Example: {"glow": [1, 0.2, 0, 1], "mask": "textures/leaf.png"}. Unnamed params keep the material's defaults. Same meaning as MeshRenderer.materialParams. Entities that share the same material and the same params are still drawn in one batch; different params draw in separate batches. Returns a plain-object COPY; assign a new value to write.
+     * Per-entity overrides of the material's params and textures, an object keyed by the name declared in the material file: numbers for float params, arrays for vectors and colors ([r, g, b, a]), project-relative paths for textures. Example: {"glow": [1, 0.2, 0, 1], "mask": "textures/leaf.png"}. Unnamed params keep the material's defaults. Same meaning as MeshRenderer.materialParams. Entities that share the same material and the same params are still drawn in one batch. A param the material declares with "instanced": true is sent with each quad, so entities that differ only in it stay in one batch; any other param that differs draws in a separate batch. They apply to the widget's background only (its 9-slice texture or solid color rectangle, the same quads as `material`), not to its text, icons or the picture of a Chart, Video or CameraView. Returns a plain-object COPY; assign a new value to write.
      * @since unreleased
      */
     materialParams: any;
@@ -8799,7 +8799,7 @@ declare module "factoria" {
      */
     material: string;
     /**
-     * Per-entity overrides of the material's params and textures, an object keyed by the name declared in the material file: numbers for float params, arrays for vectors and colors ([r, g, b, a]), project-relative paths for textures. Example: {"glow": [1, 0.2, 0, 1], "mask": "textures/leaf.png"}. Unnamed params keep the material's defaults. Same meaning as MeshRenderer.materialParams. Entities that share the same material and the same params are still drawn in one batch; different params draw in separate batches. Returns a plain-object COPY; assign a new value to write.
+     * Per-entity overrides of the material's params and textures, an object keyed by the name declared in the material file: numbers for float params, arrays for vectors and colors ([r, g, b, a]), project-relative paths for textures. Example: {"glow": [1, 0.2, 0, 1], "mask": "textures/leaf.png"}. Unnamed params keep the material's defaults. Same meaning as MeshRenderer.materialParams. Entities that share the same material and the same params are still drawn in one batch. A param the material declares with "instanced": true is sent with each quad, so entities that differ only in it stay in one batch; any other param that differs draws in a separate batch. They apply to the widget's background only (its 9-slice texture or solid color rectangle, the same quads as `material`), not to its text, icons or the picture of a Chart, Video or CameraView. Returns a plain-object COPY; assign a new value to write.
      * @since unreleased
      */
     materialParams: any;
@@ -8998,7 +8998,7 @@ declare module "factoria" {
      */
     material: string;
     /**
-     * Per-entity overrides of the material's params and textures, an object keyed by the name declared in the material file: numbers for float params, arrays for vectors and colors ([r, g, b, a]), project-relative paths for textures. Example: {"glow": [1, 0.2, 0, 1], "mask": "textures/leaf.png"}. Unnamed params keep the material's defaults. Same meaning as MeshRenderer.materialParams. Entities that share the same material and the same params are still drawn in one batch; different params draw in separate batches. Returns a plain-object COPY; assign a new value to write.
+     * Per-entity overrides of the material's params and textures, an object keyed by the name declared in the material file: numbers for float params, arrays for vectors and colors ([r, g, b, a]), project-relative paths for textures. Example: {"glow": [1, 0.2, 0, 1], "mask": "textures/leaf.png"}. Unnamed params keep the material's defaults. Same meaning as MeshRenderer.materialParams. Entities that share the same material and the same params are still drawn in one batch. A param the material declares with "instanced": true is sent with each quad, so entities that differ only in it stay in one batch; any other param that differs draws in a separate batch. They apply to the widget's background only (its 9-slice texture or solid color rectangle, the same quads as `material`), not to its text, icons or the picture of a Chart, Video or CameraView. Returns a plain-object COPY; assign a new value to write.
      * @since unreleased
      */
     materialParams: any;
@@ -9178,7 +9178,7 @@ declare module "factoria" {
      */
     material: string;
     /**
-     * Per-entity overrides of the material's params and textures, an object keyed by the name declared in the material file: numbers for float params, arrays for vectors and colors ([r, g, b, a]), project-relative paths for textures. Example: {"glow": [1, 0.2, 0, 1], "mask": "textures/leaf.png"}. Unnamed params keep the material's defaults. Same meaning as MeshRenderer.materialParams. Entities that share the same material and the same params are still drawn in one batch; different params draw in separate batches. Returns a plain-object COPY; assign a new value to write.
+     * Per-entity overrides of the material's params and textures, an object keyed by the name declared in the material file: numbers for float params, arrays for vectors and colors ([r, g, b, a]), project-relative paths for textures. Example: {"glow": [1, 0.2, 0, 1], "mask": "textures/leaf.png"}. Unnamed params keep the material's defaults. Same meaning as MeshRenderer.materialParams. Entities that share the same material and the same params are still drawn in one batch. A param the material declares with "instanced": true is sent with each quad, so entities that differ only in it stay in one batch; any other param that differs draws in a separate batch. They apply to the widget's background only (its 9-slice texture or solid color rectangle, the same quads as `material`), not to its text, icons or the picture of a Chart, Video or CameraView. Returns a plain-object COPY; assign a new value to write.
      * @since unreleased
      */
     materialParams: any;
@@ -9569,7 +9569,7 @@ declare module "factoria" {
      */
     material: string;
     /**
-     * Per-entity overrides of the material's params and textures, an object keyed by the name declared in the material file: numbers for float params, arrays for vectors and colors ([r, g, b, a]), project-relative paths for textures. Example: {"glow": [1, 0.2, 0, 1], "mask": "textures/leaf.png"}. Unnamed params keep the material's defaults. Same meaning as MeshRenderer.materialParams. Entities that share the same material and the same params are still drawn in one batch; different params draw in separate batches. Returns a plain-object COPY; assign a new value to write.
+     * Per-entity overrides of the material's params and textures, an object keyed by the name declared in the material file: numbers for float params, arrays for vectors and colors ([r, g, b, a]), project-relative paths for textures. Example: {"glow": [1, 0.2, 0, 1], "mask": "textures/leaf.png"}. Unnamed params keep the material's defaults. Same meaning as MeshRenderer.materialParams. Entities that share the same material and the same params are still drawn in one batch. A param the material declares with "instanced": true is sent with each quad, so entities that differ only in it stay in one batch; any other param that differs draws in a separate batch. They apply to the widget's background only (its 9-slice texture or solid color rectangle, the same quads as `material`), not to its text, icons or the picture of a Chart, Video or CameraView. Returns a plain-object COPY; assign a new value to write.
      * @since unreleased
      */
     materialParams: any;
@@ -9769,7 +9769,7 @@ declare module "factoria" {
      */
     material: string;
     /**
-     * Per-entity overrides of the material's params and textures, an object keyed by the name declared in the material file: numbers for float params, arrays for vectors and colors ([r, g, b, a]), project-relative paths for textures. Example: {"glow": [1, 0.2, 0, 1], "mask": "textures/leaf.png"}. Unnamed params keep the material's defaults. Same meaning as MeshRenderer.materialParams. Entities that share the same material and the same params are still drawn in one batch; different params draw in separate batches. Returns a plain-object COPY; assign a new value to write.
+     * Per-entity overrides of the material's params and textures, an object keyed by the name declared in the material file: numbers for float params, arrays for vectors and colors ([r, g, b, a]), project-relative paths for textures. Example: {"glow": [1, 0.2, 0, 1], "mask": "textures/leaf.png"}. Unnamed params keep the material's defaults. Same meaning as MeshRenderer.materialParams. Entities that share the same material and the same params are still drawn in one batch. A param the material declares with "instanced": true is sent with each quad, so entities that differ only in it stay in one batch; any other param that differs draws in a separate batch. They apply to the widget's background only (its 9-slice texture or solid color rectangle, the same quads as `material`), not to its text, icons or the picture of a Chart, Video or CameraView. Returns a plain-object COPY; assign a new value to write.
      * @since unreleased
      */
     materialParams: any;
@@ -9878,7 +9878,7 @@ declare module "factoria" {
      */
     material: string;
     /**
-     * Per-entity overrides of the material's params and textures, an object keyed by the name declared in the material file: numbers for float params, arrays for vectors and colors ([r, g, b, a]), project-relative paths for textures. Example: {"glow": [1, 0.2, 0, 1], "mask": "textures/leaf.png"}. Unnamed params keep the material's defaults. Same meaning as MeshRenderer.materialParams. Entities that share the same material and the same params are still drawn in one batch; different params draw in separate batches. Returns a plain-object COPY; assign a new value to write.
+     * Per-entity overrides of the material's params and textures, an object keyed by the name declared in the material file: numbers for float params, arrays for vectors and colors ([r, g, b, a]), project-relative paths for textures. Example: {"glow": [1, 0.2, 0, 1], "mask": "textures/leaf.png"}. Unnamed params keep the material's defaults. Same meaning as MeshRenderer.materialParams. Entities that share the same material and the same params are still drawn in one batch. A param the material declares with "instanced": true is sent with each quad, so entities that differ only in it stay in one batch; any other param that differs draws in a separate batch. They apply to the widget's background only (its 9-slice texture or solid color rectangle, the same quads as `material`), not to its text, icons or the picture of a Chart, Video or CameraView. Returns a plain-object COPY; assign a new value to write.
      * @since unreleased
      */
     materialParams: any;
@@ -9987,7 +9987,7 @@ declare module "factoria" {
      */
     material: string;
     /**
-     * Per-entity overrides of the material's params and textures, an object keyed by the name declared in the material file: numbers for float params, arrays for vectors and colors ([r, g, b, a]), project-relative paths for textures. Example: {"glow": [1, 0.2, 0, 1], "mask": "textures/leaf.png"}. Unnamed params keep the material's defaults. Same meaning as MeshRenderer.materialParams. Entities that share the same material and the same params are still drawn in one batch; different params draw in separate batches. Returns a plain-object COPY; assign a new value to write.
+     * Per-entity overrides of the material's params and textures, an object keyed by the name declared in the material file: numbers for float params, arrays for vectors and colors ([r, g, b, a]), project-relative paths for textures. Example: {"glow": [1, 0.2, 0, 1], "mask": "textures/leaf.png"}. Unnamed params keep the material's defaults. Same meaning as MeshRenderer.materialParams. Entities that share the same material and the same params are still drawn in one batch. A param the material declares with "instanced": true is sent with each quad, so entities that differ only in it stay in one batch; any other param that differs draws in a separate batch. They apply to the widget's background only (its 9-slice texture or solid color rectangle, the same quads as `material`), not to its text, icons or the picture of a Chart, Video or CameraView. Returns a plain-object COPY; assign a new value to write.
      * @since unreleased
      */
     materialParams: any;
@@ -10141,7 +10141,7 @@ declare module "factoria" {
      */
     material: string;
     /**
-     * Per-entity overrides of the material's params and textures, an object keyed by the name declared in the material file: numbers for float params, arrays for vectors and colors ([r, g, b, a]), project-relative paths for textures. Example: {"glow": [1, 0.2, 0, 1], "mask": "textures/leaf.png"}. Unnamed params keep the material's defaults. Same meaning as MeshRenderer.materialParams. Entities that share the same material and the same params are still drawn in one batch; different params draw in separate batches. Returns a plain-object COPY; assign a new value to write.
+     * Per-entity overrides of the material's params and textures, an object keyed by the name declared in the material file: numbers for float params, arrays for vectors and colors ([r, g, b, a]), project-relative paths for textures. Example: {"glow": [1, 0.2, 0, 1], "mask": "textures/leaf.png"}. Unnamed params keep the material's defaults. Same meaning as MeshRenderer.materialParams. Entities that share the same material and the same params are still drawn in one batch. A param the material declares with "instanced": true is sent with each quad, so entities that differ only in it stay in one batch; any other param that differs draws in a separate batch. They apply to the widget's background only (its 9-slice texture or solid color rectangle, the same quads as `material`), not to its text, icons or the picture of a Chart, Video or CameraView. Returns a plain-object COPY; assign a new value to write.
      * @since unreleased
      */
     materialParams: any;
@@ -10267,7 +10267,7 @@ declare module "factoria" {
      */
     material: string;
     /**
-     * Per-entity overrides of the material's params and textures, an object keyed by the name declared in the material file: numbers for float params, arrays for vectors and colors ([r, g, b, a]), project-relative paths for textures. Example: {"glow": [1, 0.2, 0, 1], "mask": "textures/leaf.png"}. Unnamed params keep the material's defaults. Same meaning as MeshRenderer.materialParams. Entities that share the same material and the same params are still drawn in one batch; different params draw in separate batches. Returns a plain-object COPY; assign a new value to write.
+     * Per-entity overrides of the material's params and textures, an object keyed by the name declared in the material file: numbers for float params, arrays for vectors and colors ([r, g, b, a]), project-relative paths for textures. Example: {"glow": [1, 0.2, 0, 1], "mask": "textures/leaf.png"}. Unnamed params keep the material's defaults. Same meaning as MeshRenderer.materialParams. Entities that share the same material and the same params are still drawn in one batch. A param the material declares with "instanced": true is sent with each quad, so entities that differ only in it stay in one batch; any other param that differs draws in a separate batch. They apply to the widget's background only (its 9-slice texture or solid color rectangle, the same quads as `material`), not to its text, icons or the picture of a Chart, Video or CameraView. Returns a plain-object COPY; assign a new value to write.
      * @since unreleased
      */
     materialParams: any;
@@ -10449,7 +10449,7 @@ declare module "factoria" {
      */
     material: string;
     /**
-     * Per-entity overrides of the material's params and textures, an object keyed by the name declared in the material file: numbers for float params, arrays for vectors and colors ([r, g, b, a]), project-relative paths for textures. Example: {"glow": [1, 0.2, 0, 1], "mask": "textures/leaf.png"}. Unnamed params keep the material's defaults. Same meaning as MeshRenderer.materialParams. Entities that share the same material and the same params are still drawn in one batch; different params draw in separate batches. Returns a plain-object COPY; assign a new value to write.
+     * Per-entity overrides of the material's params and textures, an object keyed by the name declared in the material file: numbers for float params, arrays for vectors and colors ([r, g, b, a]), project-relative paths for textures. Example: {"glow": [1, 0.2, 0, 1], "mask": "textures/leaf.png"}. Unnamed params keep the material's defaults. Same meaning as MeshRenderer.materialParams. Entities that share the same material and the same params are still drawn in one batch. A param the material declares with "instanced": true is sent with each quad, so entities that differ only in it stay in one batch; any other param that differs draws in a separate batch. They apply to the widget's background only (its 9-slice texture or solid color rectangle, the same quads as `material`), not to its text, icons or the picture of a Chart, Video or CameraView. Returns a plain-object COPY; assign a new value to write.
      * @since unreleased
      */
     materialParams: any;
@@ -10553,7 +10553,7 @@ declare module "factoria" {
      */
     material: string;
     /**
-     * Per-entity overrides of the material's params and textures, an object keyed by the name declared in the material file: numbers for float params, arrays for vectors and colors ([r, g, b, a]), project-relative paths for textures. Example: {"glow": [1, 0.2, 0, 1], "mask": "textures/leaf.png"}. Unnamed params keep the material's defaults. Same meaning as MeshRenderer.materialParams. Entities that share the same material and the same params are still drawn in one batch; different params draw in separate batches. Returns a plain-object COPY; assign a new value to write.
+     * Per-entity overrides of the material's params and textures, an object keyed by the name declared in the material file: numbers for float params, arrays for vectors and colors ([r, g, b, a]), project-relative paths for textures. Example: {"glow": [1, 0.2, 0, 1], "mask": "textures/leaf.png"}. Unnamed params keep the material's defaults. Same meaning as MeshRenderer.materialParams. Entities that share the same material and the same params are still drawn in one batch. A param the material declares with "instanced": true is sent with each quad, so entities that differ only in it stay in one batch; any other param that differs draws in a separate batch. They apply to the widget's background only (its 9-slice texture or solid color rectangle, the same quads as `material`), not to its text, icons or the picture of a Chart, Video or CameraView. Returns a plain-object COPY; assign a new value to write.
      * @since unreleased
      */
     materialParams: any;

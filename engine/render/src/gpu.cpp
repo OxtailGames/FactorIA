@@ -419,7 +419,7 @@ sg_pipeline Gpu::find_or_make(PipelineKey key, const TargetFormat& format, const
 }
 
 sg_pipeline Gpu::quad_pipeline(const TargetFormat& format, bool depthTest, bool lines, BlendMode blend, bool plain,
-                               bool opaque, sg_shader shader) {
+                               bool opaque, sg_shader shader, int instanceVec4) {
     PipelineKey key{0x100u | (depthTest ? 1u : 0u) | (lines ? 2u : 0u) | (std::uint32_t(blend) << 2) |
                         (plain ? 0x10u : 0u) | (opaque ? 0x20u : 0u),
                     shader.id};
@@ -432,6 +432,25 @@ sg_pipeline Gpu::quad_pipeline(const TargetFormat& format, bool depthTest, bool 
     d.layout.attrs[ATTR_quad_quad_color2_0].format = SG_VERTEXFORMAT_UBYTE4N;
     d.layout.attrs[ATTR_quad_quad_shape_half0].format = SG_VERTEXFORMAT_FLOAT2;
     d.layout.attrs[ATTR_quad_quad_shape_rs0].format = SG_VERTEXFORMAT_HALF2;
+    if (instanceVec4 > 0) {
+        // sokol computes the offsets of every attribute or of none: with the second buffer they are given, as Vertex2D has them.
+        static_assert(sizeof(Vertex2D) == 48, "the offsets below are those of Vertex2D");
+        d.layout.attrs[ATTR_quad_quad_position].offset = 0;
+        d.layout.attrs[ATTR_quad_quad_texcoord0].offset = 12;
+        d.layout.attrs[ATTR_quad_quad_color0].offset = 20;
+        d.layout.attrs[ATTR_quad_quad_params0].offset = 24;
+        d.layout.attrs[ATTR_quad_quad_color2_0].offset = 32;
+        d.layout.attrs[ATTR_quad_quad_shape_half0].offset = 36;
+        d.layout.attrs[ATTR_quad_quad_shape_rs0].offset = 44;
+        d.layout.buffers[0].stride = int(sizeof(Vertex2D));
+        const int n = std::min(instanceVec4, kMaxInstanceVec4);
+        d.layout.buffers[kQuadInstBuffer].stride = n * 16;
+        for (int i = 0; i < n; ++i) {
+            d.layout.attrs[kQuadInstAttr + i].format = SG_VERTEXFORMAT_FLOAT4;
+            d.layout.attrs[kQuadInstAttr + i].buffer_index = kQuadInstBuffer;
+            d.layout.attrs[kQuadInstAttr + i].offset = i * 16;
+        }
+    }
     d.primitive_type = lines ? SG_PRIMITIVETYPE_LINES : SG_PRIMITIVETYPE_TRIANGLES;
     d.index_type = lines ? SG_INDEXTYPE_NONE : SG_INDEXTYPE_UINT16;
     d.depth.compare = depthTest ? SG_COMPAREFUNC_LESS_EQUAL : SG_COMPAREFUNC_ALWAYS;
@@ -493,6 +512,53 @@ sg_pipeline Gpu::mesh_pipeline(const TargetFormat& format, bool blended, bool do
     d.cull_mode = (doubleSided || blended) ? SG_CULLMODE_NONE : SG_CULLMODE_BACK;
     d.face_winding = SG_FACEWINDING_CCW;
     d.label = "mesh";
+    return find_or_make(key, format, d);
+}
+
+sg_pipeline Gpu::full_pipeline(const TargetFormat& format, const MaterialPassState& state, bool skinned,
+                               sg_shader shader, MeshExtras extras) {
+    PipelineKey key{0x1000u | (skinned ? 1u : 0u) | (unsigned(state.cull) << 1) | (state.depthTest ? 8u : 0u) |
+                        (state.depthWrite ? 16u : 0u) | (unsigned(state.blend) << 5),
+                    shader.id};
+    sg_pipeline_desc d{};
+    d.shader = shader;
+    d.layout.attrs[ATTR_mesh_mesh_fa_position].format = SG_VERTEXFORMAT_FLOAT3;
+    d.layout.attrs[ATTR_mesh_mesh_fa_normal].format = SG_VERTEXFORMAT_FLOAT3;
+    d.layout.attrs[ATTR_mesh_mesh_fa_texcoord0].format = SG_VERTEXFORMAT_FLOAT2;
+    d.layout.attrs[ATTR_mesh_mesh_fa_tangent].format = SG_VERTEXFORMAT_FLOAT4;
+    d.layout.attrs[ATTR_mesh_mesh_fa_color].format = SG_VERTEXFORMAT_UBYTE4N;
+    set_instance_layout(d, ATTR_mesh_mesh_fa_inst_m0);
+    if (skinned) set_skin_layout(d, ATTR_mesh_mesh_skin_fa_joints, ATTR_mesh_mesh_skin_fa_weights);
+    set_extra_layout(d, skinned ? kExtraAttrBaseSkinned : kExtraAttrBase, extras);
+    d.index_type = SG_INDEXTYPE_UINT32;
+    d.depth.compare = state.depthTest ? SG_COMPAREFUNC_LESS_EQUAL : SG_COMPAREFUNC_ALWAYS;
+    d.depth.write_enabled = state.depthWrite;
+    if (state.blend != 0) {
+        d.colors[0].blend.enabled = true;
+        switch (state.blend) {
+            case 2:  // additive: dst + src.rgb * src.a
+                d.colors[0].blend.src_factor_rgb = SG_BLENDFACTOR_SRC_ALPHA;
+                d.colors[0].blend.dst_factor_rgb = SG_BLENDFACTOR_ONE;
+                d.colors[0].blend.src_factor_alpha = SG_BLENDFACTOR_ZERO;
+                d.colors[0].blend.dst_factor_alpha = SG_BLENDFACTOR_ONE;
+                break;
+            case 3:  // multiply: dst * src.rgb
+                d.colors[0].blend.src_factor_rgb = SG_BLENDFACTOR_DST_COLOR;
+                d.colors[0].blend.dst_factor_rgb = SG_BLENDFACTOR_ZERO;
+                d.colors[0].blend.src_factor_alpha = SG_BLENDFACTOR_ZERO;
+                d.colors[0].blend.dst_factor_alpha = SG_BLENDFACTOR_ONE;
+                break;
+            default:  // alpha
+                d.colors[0].blend.src_factor_rgb = SG_BLENDFACTOR_SRC_ALPHA;
+                d.colors[0].blend.dst_factor_rgb = SG_BLENDFACTOR_ONE_MINUS_SRC_ALPHA;
+                d.colors[0].blend.src_factor_alpha = SG_BLENDFACTOR_ONE;
+                d.colors[0].blend.dst_factor_alpha = SG_BLENDFACTOR_ONE_MINUS_SRC_ALPHA;
+                break;
+        }
+    }
+    d.cull_mode = state.cull == 0 ? SG_CULLMODE_NONE : state.cull == 2 ? SG_CULLMODE_FRONT : SG_CULLMODE_BACK;
+    d.face_winding = SG_FACEWINDING_CCW;
+    d.label = "mesh-full";
     return find_or_make(key, format, d);
 }
 
