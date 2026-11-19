@@ -4,6 +4,8 @@
 #include <algorithm>
 #include <cctype>
 #include <filesystem>
+#include <map>
+#include <random>
 #include <regex>
 #include <set>
 
@@ -51,22 +53,25 @@ std::string ShaderIssue::to_string() const {
 // The cache
 // ---------------------------------------------------------------------------------------------------------------
 
-std::string shader_template_hash() {
-    // The renderer's own value (computed by CMake from engine/render/shaders/*_common.glsl, the files embedded here), so a
-    // twin's "template" is what the player that loads it checks.
-    return template_files().empty() ? std::string() : mesh_template_hash();
+std::string shader_template_hash(const std::string& kind) {
+    if (kind == "mesh-full") return template_files(kind).empty() ? std::string() : mesh_full_template_hash();
+    // The renderer's own value (computed by CMake from the template files of the kind, embedded here), so a twin's "template"
+    // is what the player that loads it checks.
+    const auto parsed = material_kind_from_name(kind);
+    return !parsed || template_files(kind).empty() ? std::string() : material_template_hash(*parsed);
 }
 
 std::string shader_cache_path(const std::string& projectDir, const GeneratedShader& generated, std::string_view snippet,
                               const std::string& slang) {
     std::string key = generated.top;
-    const std::string templateHash = shader_template_hash();
+    const std::string templateHash = shader_template_hash(generated.kind);
     for (std::string_view part : {snippet, std::string_view(templateHash), std::string_view(slang),
                                   std::string_view(kSetupSokolShdcCommit), std::string_view(FA_ENGINE_VERSION)}) {
         key += '\x01';
         key += part;
     }
     for (const std::string& d : generated.defines) key += '\x01' + d;
+    key += '\x01' + generated.stateKey;  // the twin fields that are not in the top file (a full material's passes)
     return (stdfs::path(projectDir) / ".factoria" / "shader-cache" / (sha256_hex(key) + "." + slang + ".shader"))
         .string();
 }
@@ -84,7 +89,8 @@ std::optional<Json> read_cached_twin(const std::string& path, const std::string&
 }
 
 void write_cached_twin(const std::string& path, const Json& twin) {
-    const std::string tmp = path + ".tmp";
+    // A name of its own per writer: two processes compiling the same material must not write one .tmp file.
+    const std::string tmp = path + "." + std::to_string(std::random_device{}()) + ".tmp";
     if (!tooling_detail::write_file(tmp, twin.dump() + "\n")) return;  // a cache that cannot be written only costs time
     std::error_code ec;
     fs::replace_file(tmp, path, ec);
@@ -148,12 +154,34 @@ std::size_t find_word(const std::string& s, const std::string& word, bool afterD
     return std::string::npos;
 }
 
+// The variable the signature of the kind names its struct by: SurfaceInput/QuadInput i, Surface/QuadSurface s, the vertex one v.
 std::string struct_var(const std::string& typeName) {
-    return typeName == "SurfaceInput" ? "i" : typeName == "Surface" ? "s" : "v";
+    if (typeName == "LightSample") return "l";
+    if (typeName.ends_with("Input")) return "i";
+    if (typeName.ends_with("Surface")) return "s";
+    return "v";
 }
 
-const std::vector<std::string>* struct_fields(const std::string& name) {
-    for (const auto& [n, fields] : contract_structs())
+bool is_sprite(const MaterialDef& material) { return material.kind == "sprite"; }
+bool is_sky(const MaterialDef& material) { return material.kind == "sky"; }
+bool is_post(const MaterialDef& material) { return material.kind == "post"; }
+
+// The structs of the contract this material uses: LightSample only with lighting "custom" (a pbr material has no light()).
+std::vector<std::pair<std::string, std::vector<std::string>>> contract_of(const MaterialDef& material) {
+    auto out = contract_structs(material.kind);
+    // A full shader has no surface contract: the one struct it meets is the LightSample fa_light() returns.
+    if (material.full)
+        out.erase(std::remove_if(out.begin(), out.end(), [](const auto& e) { return e.first != "LightSample"; }),
+                  out.end());
+    else if (material.lighting != "custom")
+        out.erase(std::remove_if(out.begin(), out.end(), [](const auto& e) { return e.first == "LightSample"; }),
+                  out.end());
+    return out;
+}
+
+const std::vector<std::string>*
+struct_fields(const std::string& name, const std::vector<std::pair<std::string, std::vector<std::string>>>& structs) {
+    for (const auto& [n, fields] : structs)
         if (n == name) return &fields;
     return nullptr;
 }
@@ -168,19 +196,43 @@ std::string field_hint(const std::string& token, const std::string& source, cons
         while (b > 0 && ident_char(source[b - 1])) --b;
         const std::string var = source.substr(b, e - b);
         if (!var.empty()) {
-            static const std::regex decl(R"(\b(SurfaceInput|Surface|VertexData)\s+(\w+))");
+            // `Surface s`, `QuadInput i`, `LightSample l`...: the struct types of the kind's contract.
+            std::string types;
+            for (const auto& [n, f] : contract_structs(ctx.material.kind)) types += (types.empty() ? "" : "|") + n;
+            const std::regex decl("\\b(" + types + ")\\s+(\\w+)");
             for (auto it = std::sregex_iterator(ctx.stripped.begin(), ctx.stripped.end(), decl);
                  it != std::sregex_iterator(); ++it)
                 if ((*it)[2] == var) typeName = (*it)[1];
         }
     }
+    if (is_post(ctx.material)) {
+        // The depth and the normals are not fields of PostInput: reading them is what asks the renderer for the prepass.
+        std::string flat;
+        for (char c : to_lower(token))
+            if (c != '_') flat += c;
+        if (flat == "depth" || flat == "lineardepth" || flat == "zdepth" || flat == "viewdepth")
+            return "PostInput has no depth: read it with fa_depth(i.uv), the linear view depth in world units (the "
+                   "renderer then draws the depth and normal prepass for the camera).";
+        if (flat == "normal" || flat == "normals" || flat == "viewnormal" || flat == "worldnormal")
+            return "PostInput has no normal: read it with fa_normal(i.uv), the view-space normal (the renderer then "
+                   "draws the depth and normal prepass for the camera).";
+        if (flat == "color" || flat == "colour" || flat == "scene" || flat == "rgba")
+            return "PostInput has no colour: the picture at this pixel arrives in s.color (inout PostSurface s), and "
+                   "fa_scene_color(uv) reads it at any other uv.";
+    }
     std::vector<std::string> fields;
-    std::string where = "Surface, SurfaceInput and VertexData";
-    if (const auto* f = struct_fields(typeName)) {
+    const auto structs = contract_of(ctx.material);
+    std::string where = ctx.material.full                   ? "LightSample"
+                        : is_post(ctx.material)             ? "PostSurface and PostInput"
+                        : is_sprite(ctx.material)           ? "QuadSurface, QuadInput and QuadVertex"
+                        : is_sky(ctx.material)              ? "SkySurface and SkyInput"
+                        : ctx.material.lighting == "custom" ? "Surface, SurfaceInput, VertexData and LightSample"
+                                                            : "Surface, SurfaceInput and VertexData";
+    if (const auto* f = struct_fields(typeName, structs)) {
         fields = *f;
         where = typeName;
     } else {
-        for (const auto& [n, f2] : contract_structs())
+        for (const auto& [n, f2] : structs)
             for (const std::string& name : f2)
                 if (std::find(fields.begin(), fields.end(), name) == fields.end()) fields.push_back(name);
     }
@@ -214,7 +266,32 @@ std::string field_hint(const std::string& token, const std::string& source, cons
                                                                              {"tangent", "world_tangent"},
                                                                              {"worldnormal", "world_normal"},
                                                                              {"frontfacing", "front_facing"},
-                                                                             {"isfrontface", "front_facing"}};
+                                                                             {"isfrontface", "front_facing"},
+                                                                             {"colour", "color"},
+                                                                             {"rgba", "color"},
+                                                                             {"tint", "color"},
+                                                                             {"screenuv", "screen_uv"},
+                                                                             {"screenuv", "uv"},
+                                                                             {"coord", "uv"},
+                                                                             {"fragcoord", "uv"},
+                                                                             {"resolution", "size"},
+                                                                             {"res", "size"},
+                                                                             {"screensize", "size"},
+                                                                             {"pixelsize", "texel"},
+                                                                             {"texelsize", "texel"},
+                                                                             {"invsize", "texel"},
+                                                                             {"screenpos", "screen_uv"},
+                                                                             {"screenposition", "screen_uv"},
+                                                                             {"seconds", "time"},
+                                                                             {"direction", "dir"},
+                                                                             {"raydir", "dir"},
+                                                                             {"viewdir", "dir"},
+                                                                             {"viewdirection", "dir"},
+                                                                             {"sun", "sun_dir"},
+                                                                             {"sundir", "sun_dir"},
+                                                                             {"sundirection", "sun_dir"},
+                                                                             {"sunlight", "sun_dir"},
+                                                                             {"lightdir", "sun_dir"}};
     std::string lower = to_lower(token), flat;
     for (char c : lower)
         if (c != '_') flat += c;
@@ -243,37 +320,257 @@ std::string declared_by_other_material(const std::string& name, const MapContext
     return {};
 }
 
-std::vector<std::string> engine_names() {
-    static const std::vector<std::string> names = [] {
-        std::set<std::string> found;
-        static const std::regex re(R"(\bfa_\w+)");
-        for (const auto& [file, content] : template_files()) {
-            const std::string text = blank_comments(content);
-            for (auto it = std::sregex_iterator(text.begin(), text.end(), re); it != std::sregex_iterator(); ++it)
-                found.insert(it->str());
-        }
-        return std::vector<std::string>(found.begin(), found.end());
-    }();
+// The fa_ names a snippet of the kind may use, as the docs list them (docs/SHADERS.md "Engine values", the sprite, sky, post and
+// full-shader pages): the "did you mean" of an unknown fa_ name suggests these, never an internal name of the templates (fa_in,
+// fa_quad_types...) that the author may not use.
+const std::vector<std::string>& engine_names(const MaterialDef& material) {
+    static const std::vector<std::string>
+        mesh = {"fa_time", "fa_camera_pos", "fa_tangent_normal", "fa_instance_index"},
+        sprite = {"fa_time", "fa_target", "fa_sample_main", "fa_scene_rgb", "fa_instance_index"},
+        sky = {"fa_time", "fa_scene_rgb", "fa_sun", "fa_cspace"},
+        post = {"fa_scene_color", "fa_depth", "fa_normal", "fa_history", "fa_history_valid", "fa_scene_rgb", "fa_time"},
+        full = {"fa_ambient",     "fa_apply_fog",      "fa_base_color",     "fa_base_sample",     "fa_camera_pos",
+                "fa_color",       "fa_emissive",       "fa_env_brdf",       "fa_env_horizon",     "fa_env_sky",
+                "fa_environment", "fa_frag_color",     "fa_instance_index", "fa_light",           "fa_light_count",
+                "fa_light_vp",    "fa_linear_to_srgb", "fa_model",          "fa_normal",          "fa_position",
+                "fa_shadow",      "fa_shadow_coord",   "fa_sky_reflection", "fa_srgb_to_linear",  "fa_tangent",
+                "fa_texcoord0",   "fa_uv_scale",       "fa_view_proj",      "fa_world_direction", "fa_world_position"};
+    return material.full         ? full
+           : is_post(material)   ? post
+           : is_sprite(material) ? sprite
+           : is_sky(material)    ? sky
+                                 : mesh;
+}
+
+std::string prefix_rule(const MaterialDef& material) {
+    if (material.full)
+        return "Names starting with fa_ or FA_ belong to the engine: a full shader may use the ones "
+               "docs/shaders/SHADERS_FULL.md lists "
+               "(fa_view_proj, fa_world_position(), fa_light(), FA_TIME...) but not declare any. Rename it without the "
+               "prefix.";
+    if (is_post(material))
+        return "Names starting with fa_ belong to the engine: the snippet may use the ones the contract lists "
+               "(fa_scene_color(), fa_depth(), fa_normal(), fa_history(), fa_history_valid, fa_time) but not declare "
+               "any. "
+               "Rename it without the prefix.";
+    if (is_sky(material))
+        return "Names starting with fa_ belong to the engine: the snippet may use the ones the contract lists "
+               "(fa_time, fa_scene_rgb()) but not declare any. Rename it without the prefix.";
+    return is_sprite(material)
+               ? "Names starting with fa_ belong to the engine: the snippet may use the ones the contract lists "
+                 "(fa_time, fa_sample_main(), fa_scene_rgb()) but not declare any. Rename it without the prefix."
+               : "Names starting with fa_ belong to the engine: the snippet may read the ones the contract lists "
+                 "(fa_time, fa_camera_pos, fa_tangent_normal) but not declare any. Rename it without the prefix.";
+}
+
+constexpr const char* kLightSignatures =
+    "void surface(in SurfaceInput i, inout Surface s) { ... }  (required),  void vertex(inout VertexData v) { ... }  "
+    "(optional),  vec3 light(in SurfaceInput i, in Surface s, in LightSample l) { ... }  (required with \"lighting\": "
+    "\"custom\" unless lighting() is defined)  and  vec3 ambient(in SurfaceInput i, in Surface s, vec3 ambientColor) "
+    "{ ... }  (optional); or, instead of light() and ambient(), your own light loop: vec3 lighting(in SurfaceInput i, "
+    "in Surface s) { ... }  (docs/shaders/SHADERS_LIGHTING.md)";
+
+// The functions of the lighting API of a "custom" mesh material (mesh_common.glsl, fa_fs_light): they work in light(),
+// ambient(), lighting() and the helpers those call, not in surface() or vertex().
+const std::vector<std::string>& lighting_api() {
+    static const std::vector<std::string> names = {"fa_light_count",  "fa_light",     "fa_light_unshadowed",
+                                                   "fa_light_shadow", "fa_sky_light", "fa_sky_reflection",
+                                                   "fa_environment",  "fa_env_brdf",  "fa_ambient_light"};
     return names;
 }
 
-constexpr const char* kPrefixRule =
-    "Names starting with fa_ belong to the engine: the snippet may read the ones the contract lists (fa_time, "
-    "fa_camera_pos, fa_tangent_normal) but not declare any. Rename it without the prefix.";
-constexpr const char* kSignatures = "void surface(in SurfaceInput i, inout Surface s) { ... }  (required)  and  void "
-                                    "vertex(inout VertexData v) { ... }  (optional)";
+// The declaration of a function of the lighting API, for the hints that name one.
+std::string lighting_signature(const std::string& name) {
+    static const std::map<std::string, std::string> sigs = {
+        {"fa_light_count", "int fa_light_count()"},
+        {"fa_light", "LightSample fa_light(int n, in SurfaceInput i)"},
+        {"fa_light_unshadowed", "LightSample fa_light_unshadowed(int n, in SurfaceInput i)"},
+        {"fa_light_shadow", "float fa_light_shadow(int n, in SurfaceInput i)"},
+        {"fa_sky_light", "vec3 fa_sky_light(in SurfaceInput i, in Surface s)"},
+        {"fa_sky_reflection", "vec3 fa_sky_reflection(vec3 n, vec3 v, vec3 f0, float roughness)"},
+        {"fa_environment", "vec3 fa_environment(vec3 d, float rough)"},
+        {"fa_env_brdf", "vec2 fa_env_brdf(float rough, float ndv)"},
+        {"fa_ambient_light", "vec3 fa_ambient_light(vec3 n)"}};
+    const auto it = sigs.find(name);
+    return it == sigs.end() ? std::string() : it->second;
+}
 
-std::string undeclared_hint(const std::string& token, const MapContext& ctx) {
-    // A field written without its struct.
-    for (const auto& [n, fields] : contract_structs())
+// The functions of the lighting API that surface() may call: they read the sky environment, which the shadow and depth passes of an
+// alphaMode "clip" material (they run surface() to know what to discard) have bound too. The functions that need the lights, or
+// the whole Surface, are declared in the main fragment stage only.
+bool lighting_api_in_surface(const std::string& name) {
+    return name == "fa_environment" || name == "fa_env_brdf" || name == "fa_sky_reflection" ||
+           name == "fa_ambient_light";
+}
+
+// The [begin, end) of the body of `<returnType> <name>(...) { ... }` in the comment-blanked snippet, or {0, 0}.
+std::pair<std::size_t, std::size_t> body_of(const std::string& stripped, const std::string& returnType,
+                                            const std::string& name) {
+    const std::regex re("\\b" + returnType + "\\s+" + name + "\\s*\\(");
+    std::smatch m;
+    if (!std::regex_search(stripped, m, re)) return {0, 0};
+    std::size_t p = stripped.find('{', std::size_t(m.position(0)));
+    if (p == std::string::npos) return {0, 0};
+    const std::size_t begin = p;
+    for (int depth = 0; p < stripped.size(); ++p) {
+        depth += stripped[p] == '{' ? 1 : stripped[p] == '}' ? -1 : 0;
+        if (depth == 0) return {begin, p + 1};
+    }
+    return {0, 0};
+}
+
+// True when snippet line `line` (1-based) lies inside an entry point that only the fragment stage compiles (surface(), fragment(),
+// sky(), post(), light(), ambient(), lighting()). Anywhere else (a helper of the snippet, vertex()) the line is compiled into the
+// vertex stage too.
+bool in_fragment_entry(const MapContext& ctx, int line) {
+    if (line <= 0) return false;
+    for (const char* name : {"surface", "fragment", "sky", "post", "light", "ambient", "lighting"}) {
+        const std::regex re(std::string("\\b\\w+\\s+") + name + "\\s*\\(");
+        std::smatch m;
+        if (!std::regex_search(ctx.stripped, m, re)) continue;
+        std::size_t p = ctx.stripped.find('{', std::size_t(m.position(0)));
+        if (p == std::string::npos) continue;
+        const std::size_t begin = p;
+        for (int depth = 0; p < ctx.stripped.size(); ++p) {
+            depth += ctx.stripped[p] == '{' ? 1 : ctx.stripped[p] == '}' ? -1 : 0;
+            if (depth == 0) break;
+        }
+        if (line >= line_of(ctx.stripped, begin) && line <= line_of(ctx.stripped, std::min(p, ctx.stripped.size() - 1)))
+            return true;
+    }
+    return false;
+}
+
+std::string signatures(const MaterialDef& material) {
+    if (is_post(material))
+        return "void post(in PostInput i, inout PostSurface s) { ... }  (required; a post material has no vertex())";
+    if (is_sky(material))
+        return "void sky(in SkyInput i, inout SkySurface s) { ... }  (required; a sky has no vertex())";
+    if (is_sprite(material))
+        return "void fragment(in QuadInput i, inout QuadSurface s) { ... }  (required)  and  void "
+               "vertex(inout QuadVertex v) { ... }  (optional)";
+    if (material.lighting == "custom") return kLightSignatures;
+    return "void surface(in SurfaceInput i, inout Surface s) { ... }  (required)  and  void "
+           "vertex(inout VertexData v) { ... }  (optional)";
+}
+
+// The entry point of the fragment stage the kind's contract names.
+const char* fragment_entry(const MaterialDef& material) {
+    return is_post(material) ? "post" : is_sprite(material) ? "fragment" : is_sky(material) ? "sky" : "surface";
+}
+
+// `line` is where the error is in the snippet (0 when unknown); `callFailed` says the compiler found no overload for a call of
+// `token` (the name exists, its arguments or its stage do not fit) instead of an unknown name.
+std::string undeclared_hint(const std::string& token, const MapContext& ctx, int line = 0, bool callFailed = false) {
+    // A field written without its struct (a full shader has no snippet functions to put it in).
+    const auto contract = ctx.material.full ? decltype(contract_of(ctx.material)){} : contract_of(ctx.material);
+    for (const auto& [n, fields] : contract)
         if (std::find(fields.begin(), fields.end(), token) != fields.end())
             return "`" + token + "` is a field of " + n + ": write " + struct_var(n) + "." + token + " inside " +
-                   (n == "VertexData" ? "vertex" : "surface") + "().";
+                   (n == "VertexData" || n == "QuadVertex" ? "vertex"
+                    : n == "LightSample"                   ? "light"
+                                                           : fragment_entry(ctx.material)) +
+                   "().";
+    if ((token == "fa_history" || token == "fa_history_valid") && !is_post(ctx.material))
+        return "`" + token +
+               "` is only for a post material (\"kind\": \"post\"): the history is what a post pass wrote in the frame "
+               "before, and no other kind has a previous frame to read. Move the effect to a post material "
+               "(docs/shaders/SHADERS_POST.md, \"History\").";
     if (token.rfind("fa_", 0) == 0) {
-        const std::string best = closest_match(token, engine_names());
-        return best.empty() ? std::string("No engine value is called ") + token +
-                                  "; the ones a snippet may read are fa_time, fa_camera_pos and fa_tangent_normal()."
-                            : "did you mean " + best + "?";
+        // A custom mesh material: the documented lighting functions come first (the template has helpers of its own).
+        if (!ctx.material.full && ctx.material.kind == "mesh" && ctx.material.lighting == "custom") {
+            const auto& names = lighting_api();
+            if (std::find(names.begin(), names.end(), token) != names.end()) {
+                // The name exists. Called from an entry point of the fragment stage, the arguments are wrong; anywhere else the
+                // stage that failed does not have it (a helper of the snippet is compiled into both stages).
+                if (callFailed && in_fragment_entry(ctx, line))
+                    return "`" + token +
+                           "` exists, but this call does not match its signature: " + lighting_signature(token) + ".";
+                return "`" + token +
+                       "` is declared in the fragment stage only, and a function of the snippet that is not light(), "
+                       "ambient(), "
+                       "lighting(), surface() or vertex() is compiled into the vertex stage too, where this error "
+                       "comes from. Call "
+                       "it from light(), ambient(), lighting() or a helper they call, or wrap the call in #ifdef "
+                       "GL_FRAGMENT_SHADER "
+                       "... #endif. Its signature: " +
+                       lighting_signature(token) + ".";
+            }
+            const std::string api = closest_match(token, lighting_api());
+            if (!api.empty())
+                return "did you mean " + api + "? The lighting functions are " + join(lighting_api(), ", ") + ".";
+        }
+        // The sprite template declares the main texture in the fragment stage only; fa_scene_rgb() exists in both.
+        if (!ctx.material.full && is_sprite(ctx.material) && token == "fa_sample_main") {
+            if (callFailed && in_fragment_entry(ctx, line))
+                return "`fa_sample_main` exists, but this call does not match its signature: vec4 fa_sample_main(vec2 "
+                       "p) "
+                       "(the uv is a vec2).";
+            return "`fa_sample_main` samples the main texture, which is bound in the fragment stage only: call it from "
+                   "fragment(), not from vertex() or from a helper that vertex() calls (a helper of the snippet is "
+                   "compiled into both stages). Its signature: vec4 fa_sample_main(vec2 p).";
+        }
+        const std::string best = closest_match(token, engine_names(ctx.material));
+        return best.empty()
+                   ? std::string("No engine value is called ") + token +
+                         (ctx.material.full
+                              ? "; docs/shaders/SHADERS_FULL.md lists the ones a full shader may use (fa_view_proj, "
+                                "fa_world_position(), fa_light(), fa_frag_color, FA_TIME...)."
+                          : is_post(ctx.material)
+                              ? "; the ones a snippet may use are fa_scene_color(uv), fa_depth(uv), fa_normal(uv), "
+                                "fa_history(uv), fa_history_valid and fa_time."
+                          : is_sprite(ctx.material)
+                              ? "; the ones a snippet may use are fa_time, fa_sample_main() and fa_scene_rgb()."
+                          : is_sky(ctx.material)
+                              ? "; the ones a snippet may use are fa_time and fa_scene_rgb()."
+                              : "; the ones a snippet may read are fa_time, fa_camera_pos and fa_tangent_normal().")
+                   : "did you mean " + best + "?";
+    }
+    if (is_post(ctx.material)) {
+        // What authors bring from other engines' post-process shaders.
+        std::string flat;
+        for (char c : to_lower(token))
+            if (c != '_') flat += c;
+        auto is_one = [&](std::initializer_list<const char*> names) {
+            return std::any_of(names.begin(), names.end(), [&](const char* n) { return flat == n; });
+        };
+        if (is_one({"scenecolor", "screentexture", "scenetexture", "maintex", "source", "inputtexture", "rendertexture",
+                    "colortexture", "screencolor", "framebuffer", "scene", "sceneimage", "image", "ichannel0"}))
+            return "`" + token +
+                   "` is not declared: the picture is not a texture of the snippet. Read it with fa_scene_color(uv) "
+                   "(linear colour, uv 0..1 with the origin top left); at the pixel being drawn it already is s.color.";
+        if (is_one({"depthtexture", "depthmap", "zbuffer", "depthbuffer", "scenedepth", "cameradepthtexture",
+                    "depthsample"}))
+            return "`" + token +
+                   "` is not declared: read the linear view depth in world units with fa_depth(uv); using it makes the "
+                   "renderer draw the depth and normal prepass for the camera.";
+        if (is_one({"history", "historytexture", "historytex", "prevframe", "previousframe", "lastframe", "prevtexture",
+                    "previoustexture", "prevcolor", "previouscolor", "prevscene", "feedback", "feedbacktexture",
+                    "accumulation", "accumtexture", "trailtexture", "lasttexture", "framebufferprev", "oldframe"}))
+            return "`" + token +
+                   "` is not declared: the output of this pass in the frame before is not a texture of the snippet. "
+                   "Read it with fa_history(uv) (uv 0..1, origin top left); calling it is what asks the renderer to "
+                   "keep "
+                   "the output, and fa_history_valid says whether there is one yet (not on the first frame, after a "
+                   "resize or a camera cut: fa_history then gives the picture).";
+        if (is_one({"normaltexture", "normalmap", "gbuffer", "scenenormal", "viewnormal", "normalbuffer"}))
+            return "`" + token +
+                   "` is not declared: read the view-space normal with fa_normal(uv); using it makes the renderer draw "
+                   "the depth and normal prepass for the camera.";
+        if (is_one(
+                {"resolution", "screensize", "iresolution", "viewportsize", "texturesize", "screenres", "uresolution"}))
+            return "`" + token +
+                   "` is not declared: the size of the picture in pixels is i.size (and i.texel is one pixel in uv "
+                   "units).";
+        if (is_one({"itime", "utime", "time", "gametime", "globaltime", "elapsed"}))
+            return "`" + token + "` is not declared: the seconds of game time are i.time (inside post()) or fa_time.x.";
+        if (is_one({"fragcoord", "glfragcoord", "screenuv", "screenpos", "uv", "texcoord", "vuv"}))
+            return "`" + token +
+                   "` is not declared: the pixel is i.uv (0..1 over the picture, origin top left, y down on every "
+                   "backend); in pixels it is i.uv * i.size.";
+        if (is_one({"fragcolor", "glfragcolor", "outcolor", "outputcolor", "result", "fragment"}))
+            return "`" + token +
+                   "` is not declared: write the result into s.color (inout PostSurface s); the pass outputs it.";
     }
     std::vector<std::string> names;
     for (const MaterialParam& p : ctx.material.params) names.push_back(p.name);
@@ -291,9 +588,24 @@ std::string undeclared_hint(const std::string& token, const MapContext& ctx) {
 }
 
 std::string hint_for(const std::string& message, const std::string& token, const std::string& source,
-                     const MapContext& ctx) {
+                     const MapContext& ctx, int line) {
+    // The vertex stage renames each texture of a mesh or sprite material with `#define <name> fa_vs_<name>`, which also rewrites a
+    // field of the contract with the same name (s.normal -> s.fa_vs_normal) in vertex() and in the helpers both stages compile.
+    if (!ctx.material.full && (ctx.material.kind == "mesh" || ctx.material.kind == "sprite"))
+        for (const MaterialTexture& t : ctx.material.textures)
+            if (const std::size_t at = message.find("fa_vs_" + t.name);
+                at != std::string::npos &&
+                (at + 6 + t.name.size() >= message.size() || !ident_char(message[at + 6 + t.name.size()])))
+                return "The texture \"" + t.name + "\" is called `fa_vs_" + t.name +
+                       "` in the vertex stage (`#define " + t.name + " fa_vs_" + t.name + "`), so a field or a name `" +
+                       t.name +
+                       "` in vertex(), or in a helper that vertex() shares with the fragment stage, is rewritten too. "
+                       "Rename the "
+                       "texture in " +
+                       ctx.material.path + " (e.g. \"" + t.name + "Map\"), or do not use `" + t.name +
+                       "` in vertex() or in helpers.";
     if (message.find("no such field in structure") != std::string::npos) return field_hint(token, source, ctx);
-    if (message.find("undeclared identifier") != std::string::npos) return undeclared_hint(token, ctx);
+    if (message.find("undeclared identifier") != std::string::npos) return undeclared_hint(token, ctx, line, false);
     if (message.find("no matching overloaded function found") != std::string::npos && token.rfind("texture", 0) == 0) {
         // texture(waves, uv) on a separate texture.
         for (const MaterialTexture& t : ctx.material.textures) {
@@ -305,7 +617,11 @@ std::string hint_for(const std::string& message, const std::string& token, const
         return "Texture lookups take a combined sampler built from the texture and its sampler: " + token +
                "(sampler2D(name, name_smp), uv), with a vec2 uv.";
     }
-    if (message.find("redefinition") != std::string::npos && token.rfind("fa_", 0) == 0) return kPrefixRule;
+    // A function of the engine that is spelled wrong (glslang says "no matching overloaded function" for an unknown name).
+    if (message.find("no matching overloaded function found") != std::string::npos && token.rfind("fa_", 0) == 0)
+        return undeclared_hint(token, ctx, line, true);
+    if (message.find("redefinition") != std::string::npos && token.rfind("fa_", 0) == 0)
+        return prefix_rule(ctx.material);
     if (message.find("redefinition") != std::string::npos) {
         for (const MaterialParam& p : ctx.material.params)
             if (p.name == token)
@@ -315,6 +631,15 @@ std::string hint_for(const std::string& message, const std::string& token, const
             if (t.name == token || t.name + "_smp" == token)
                 return "`" + token + "` is already declared by the texture \"" + t.name +
                        "\" of this material. Rename the local variable.";
+        if (template_globals(ctx.material.kind).count(token) > 0)
+            return "`" + token +
+                   (is_sky(ctx.material)
+                        ? "` is a name taken by the engine's sky program (sky_common.glsl and the files it includes: "
+                          "its vertex input, varying, uniform blocks and helper functions are not prefixed). "
+                        : "` is a name taken by the engine's 2D program (quad_common.glsl and the files it includes: "
+                          "its vertex inputs, varyings, textures, uniform blocks and helper functions are not "
+                          "prefixed). ") +
+                   "Rename your variable or function.";
     }
     if (message.find("syntax error") != std::string::npos)
         return "A syntax error is often reported on the line after the real mistake: look for a missing ';', ')' or "
@@ -331,18 +656,34 @@ void outside_snippet(ShaderIssue& issue, const std::string& where, const std::st
     issue.line = 0;
     issue.source.clear();
     issue.file = ctx.material.shader.empty() ? ctx.material.path : ctx.material.shader;
-    if (token == "surface" || token == "vertex")
-        issue.hint = std::string("The engine calls ") + token +
-                     "() from its template, so the snippet must define it with exactly this signature: " + kSignatures +
-                     ".";
-    else if (token == "main")
+    if (ctx.material.full)
         issue.hint =
-            "The engine owns main(): the snippet defines surface() (and vertex()) and must not define main. Remove it.";
+            "The engine builds the programs from the sections of the file (`@common`, `@vertex`, `@fragment`), each "
+            "stage "
+            "with its own `void main()`: the problem is in how the stages fit together, such as varyings that differ "
+            "between "
+            "the stages, a name starting with fa_ or FA_, or a resource the template does not declare in that stage. "
+            "docs/shaders/SHADERS_FULL.md lists what a full shader may use.";
+    else if (token == "surface" || token == "fragment" || token == "vertex" ||
+             (token == "sky" && is_sky(ctx.material)) || (token == "post" && is_post(ctx.material)) ||
+             (ctx.material.lighting == "custom" && (token == "light" || token == "ambient" || token == "lighting")))
+        issue.hint = std::string("The engine calls ") + token +
+                     "() from its template, so the snippet must define it with exactly this signature: " +
+                     signatures(ctx.material) + ".";
+    else if (ctx.material.kind == "compute")
+        issue.hint =
+            "A compute snippet defines `void compute(in ComputeInput i)` and reads its buffers as "
+            "<buffer>.data[i]; do not declare names starting with fa_ or main(). A workgroupSize whose product "
+            "is not a multiple of 32 is refused by the compiler: use [64], [32, 2] or [8, 8]. "
+            "docs/SHADERS.md, \"Compute materials\".";
+    else if (token == "main")
+        issue.hint = std::string("The engine owns main(): the snippet defines ") + fragment_entry(ctx.material) +
+                     "() (and vertex()) and must not define main. Remove it.";
     else
         issue.hint =
             std::string(
                 "The engine template could not be built from the snippet, so the snippet broke the contract: define ") +
-            kSignatures +
+            signatures(ctx.material) +
             ", and do not declare names starting with fa_ or main(). Run `factoria call docs.read "
             "'{\"path\":\"docs/SHADERS.md\"}'` for the contract once it is documented.";
 }
@@ -372,7 +713,7 @@ std::vector<ShaderIssue> map_diagnostics(const std::vector<Diagnostic>& diags, c
                 if (p == std::string::npos) p = 0;
             }
             issue.column = int(p) + 1;
-            issue.hint = hint_for(d.message, token, issue.source, ctx);
+            issue.hint = hint_for(d.message, token, issue.source, ctx, sl);
         } else if (base == "top.glsl") {
             outside_snippet(issue, "in the generated declarations of the material", token, ctx);
         } else if (!d.file.empty()) {
@@ -408,16 +749,220 @@ std::vector<ShaderIssue> map_diagnostics(const std::vector<Diagnostic>& diags, c
 std::vector<ShaderIssue> precheck_snippet(const MaterialDef& material, const GeneratedShader& g,
                                           const std::string& snippet, const std::string& stripped) {
     std::vector<ShaderIssue> out;
-    if (!g.hasSurface) {
+    if (material.kind == "compute" && !g.hasCompute) {
         ShaderIssue i;
         i.file = material.shader;
-        i.message = "the snippet defines no surface() function";
+        i.message = "the snippet defines no compute() function";
         i.hint =
-            std::string(
-                "Define it as `void surface(in SurfaceInput i, inout Surface s) { s.albedo = vec3(1.0, 0.0, 0.0); }`. "
-                "s arrives filled with the standard MeshRenderer result, so change only what you need. Signatures: ") +
-            kSignatures + ".";
+            "Define it as `void compute(in ComputeInput i) { ... }`: it runs once per thread, i.global_id.x is the "
+            "thread's index over the whole dispatch. The buffers are <name>.data[i], the params are globals. The "
+            "snippet must not define main.";
         out.push_back(std::move(i));
+    } else if (material.kind != "compute" && !g.hasSurface) {
+        ShaderIssue i;
+        i.file = material.shader;
+        i.message = std::string("the snippet defines no ") + fragment_entry(material) + "() function";
+        if (is_post(material))
+            i.hint =
+                "Define it as `void post(in PostInput i, inout PostSurface s) { s.color.rgb = 1.0 - s.color.rgb; }`. "
+                "s.color arrives holding the picture at this pixel (linear, as the passes before this one left it), so "
+                "change only what you need; fa_scene_color(uv), fa_depth(uv) and fa_normal(uv) read other pixels. "
+                "Signatures: " +
+                signatures(material) + ".";
+        else if (is_sky(material))
+            i.hint = "Define it as `void sky(in SkyInput i, inout SkySurface s) { s.color = mix(s.color, vec3(1.0, "
+                     "0.5, 0.2), "
+                     "pow(max(dot(i.dir, i.sun_dir), 0.0), 8.0)); }`. s.color arrives holding the engine's sky (the "
+                     "gradient of "
+                     "SceneSettings.skyColor and horizonColor), so change only what you need. Signatures: " +
+                     signatures(material) + ".";
+        else if (is_sprite(material))
+            i.hint =
+                "Define it as `void fragment(in QuadInput i, inout QuadSurface s) { s.color.rgb *= vec3(1.0, 0.5, "
+                "0.5); }`. s.color arrives holding what the engine would draw for the sprite, shape, tile, glyph or "
+                "particle, so change only what you need. Signatures: " +
+                signatures(material) + ".";
+        else
+            i.hint =
+                "Define it as `void surface(in SurfaceInput i, inout Surface s) { s.albedo = vec3(1.0, 0.0, 0.0); }`. "
+                "s arrives filled with the standard MeshRenderer result, so change only what you need. Signatures: " +
+                signatures(material) + ".";
+        out.push_back(std::move(i));
+    }
+    // A post pass is one full-screen triangle drawn by the engine: there is no vertex stage to hook.
+    if (is_post(material)) {
+        static const std::regex entry(R"(\bvoid\s+vertex\s*\()");
+        std::smatch m;
+        if (std::regex_search(stripped, m, entry)) {
+            const std::size_t at = std::size_t(m.position(0));
+            ShaderIssue i;
+            i.file = material.shader;
+            i.line = line_of(stripped, at);
+            i.source = line_text(snippet, i.line);
+            i.column = column_of(stripped, at) + 1;
+            i.message = "a post material has no vertex() hook";
+            i.hint =
+                "The pass draws one full-screen triangle, so there is no geometry to move. Remove vertex() and do the "
+                "work in post(), per pixel (i.uv is the pixel, fa_scene_color(uv) reads the picture anywhere); "
+                "a mesh material (kind \"mesh\") has vertex().";
+            out.push_back(std::move(i));
+        }
+    }
+    if (is_sky(material) && g.hasVertex) {
+        static const std::regex entry(R"(\bvoid\s+vertex\s*\()");
+        std::smatch m;
+        ShaderIssue i;
+        i.file = material.shader;
+        if (std::regex_search(stripped, m, entry)) {
+            i.line = line_of(stripped, std::size_t(m.position(0)));
+            i.source = line_text(snippet, i.line);
+            i.column = column_of(stripped, std::size_t(m.position(0))) + 1;
+        }
+        i.message = "a sky material has no vertex(): the sky is one full-screen triangle";
+        i.hint =
+            "Remove vertex() and compute the colour of each pixel in sky() from i.dir (the view direction), i.sun_dir "
+            "and i.time. Signatures: " +
+            signatures(material) + ".";
+        out.push_back(std::move(i));
+    }
+    if (material.kind == "mesh" && material.lighting == "custom" && !g.hasLight && !g.hasLighting) {
+        ShaderIssue i;
+        i.file = material.shader;
+        i.message = "the material " + (material.path.empty() ? std::string("file") : material.path) +
+                    " has \"lighting\": \"custom\" but the snippet defines no light() function";
+        i.hint = "Define `vec3 light(in SurfaceInput i, in Surface s, in LightSample l) { return s.albedo * l.color * "
+                 "max(dot(s.normal, l.direction), 0.0); }`: the engine calls it once per light and adds the results; "
+                 "l.color "
+                 "already has the light's attenuation and shadow in it. (Optional: `vec3 ambient(in SurfaceInput i, in "
+                 "Surface s, "
+                 "vec3 ambientColor)` for the ambient term. To choose the lights yourself, define `vec3 lighting(in "
+                 "SurfaceInput i, in Surface s)` instead of both.) Or set \"lighting\" to \"pbr\" (the engine's "
+                 "lighting) or "
+                 "\"unlit\" in " +
+                 (material.path.empty() ? std::string("the material file") : material.path) +
+                 " (pointer /lighting). Signatures: " + kLightSignatures + ".";
+        out.push_back(std::move(i));
+    }
+    if (material.kind == "mesh") {
+        const std::string where = material.path.empty() ? std::string("the material file") : material.path;
+        auto issue_at = [&](std::size_t offset, std::string message, std::string hint) {
+            ShaderIssue i;
+            i.file = material.shader;
+            i.line = line_of(stripped, offset);
+            i.source = line_text(snippet, i.line);
+            i.column = column_of(stripped, offset) + 1;
+            i.message = std::move(message);
+            i.hint = std::move(hint);
+            return i;
+        };
+        // Where `vec3 <name>(` is defined.
+        auto definition = [&](const std::string& name) {
+            std::smatch m;
+            // lighting(): the one the hook detection took, (in SurfaceInput i, in Surface s), not a helper of the same name.
+            const std::string params =
+                name == "lighting" ? R"(\(\s*(?:in\s+)?SurfaceInput\s+\w+\s*,\s*(?:in\s+)?Surface\b)" : R"(\()";
+            const std::regex re("\\bvec3\\s+" + name + "\\s*" + params);
+            return std::regex_search(stripped, m, re) ? std::size_t(m.position(0)) : std::size_t(0);
+        };
+        if (g.lightingWithoutCustom)
+            out.push_back(
+                issue_at(definition("lighting"),
+                         "the snippet defines lighting() but the material does not have \"lighting\": \"custom\"",
+                         "lighting() is your own light loop: the engine calls it instead of its own lighting only "
+                         "in a material with \"lighting\": \"custom\". Set \"lighting\": \"custom\" in " +
+                             where +
+                             " (pointer /lighting), or rename the function if it is a helper (a helper called "
+                             "lighting must not take a SurfaceInput as its first parameter). Signatures: " +
+                             kLightSignatures + "."));
+        if (material.lighting == "custom" && g.hasLighting && (g.hasLight || g.hasAmbient)) {
+            const std::string other = g.hasLight ? "light" : "ambient";
+            out.push_back(issue_at(
+                definition(other), "the snippet defines both lighting() and " + other + "()",
+                "lighting() is the whole light loop and the ambient and sky terms: the engine does not call " + other +
+                    "() when lighting() is defined, so it would never run. Remove " + other +
+                    "() and do its work in lighting() (light n is fa_light(n, i); the scene's ambient light is "
+                    "fa_ambient.rgb), or remove lighting() to keep the per-light hooks. "
+                    "docs/shaders/SHADERS_LIGHTING.md has an example."));
+        }
+        if (material.lighting != "custom") {
+            // A pbr or unlit material has no lighting functions.
+            for (const std::string& name : lighting_api()) {
+                const std::size_t at = find_word(stripped, name);
+                if (at == std::string::npos) continue;
+                out.push_back(issue_at(
+                    at, "'" + name + "' : the lighting functions belong to a material with \"lighting\": \"custom\"",
+                    "fa_light_count(), fa_light(n, i), fa_light_unshadowed(), fa_light_shadow(), fa_sky_light(), "
+                    "fa_sky_reflection(), fa_environment(), fa_env_brdf() and fa_ambient_light() are for the snippet "
+                    "of a \"custom\" "
+                    "material (in light(), ambient() or lighting()). Set \"lighting\": \"custom\" in " +
+                        where + " (pointer /lighting) and define light() or lighting()."));
+                break;
+            }
+        } else {
+            // surface() and vertex() run before the lights are known, and in the shadow and depth passes.
+            for (const char* fn : {"surface", "vertex"}) {
+                const auto [b, e] = body_of(stripped, "void", fn);
+                if (e == 0) continue;
+                const std::string body = stripped.substr(b, e - b);
+                for (const std::string& name : lighting_api()) {
+                    if (std::string(fn) == "surface" && lighting_api_in_surface(name)) continue;
+                    const std::size_t at = find_word(body, name);
+                    if (at == std::string::npos) continue;
+                    out.push_back(issue_at(
+                        b + at, "'" + name + "' : the lighting functions cannot be called from " + fn + "()",
+                        std::string(fn) +
+                            "() runs before the lights are known (and in the shadow and depth passes, which have "
+                            "none). "
+                            "Call " +
+                            name +
+                            "() in light(), ambient() or lighting(); to hand a value over, write it into a Surface "
+                            "field (s.emission, s.occlusion...) in " +
+                            fn + "()."));
+                    break;
+                }
+            }
+        }
+    }
+    // The history (fa_history(uv), fa_history_valid) is the previous frame of a post pass: no other kind has one, and the texture is
+    // not a name to sample (calling the function is what asks the engine to keep the output).
+    {
+        static const std::regex history(R"(\bfa_history(_valid)?\b)");
+        for (auto it = std::sregex_iterator(stripped.begin(), stripped.end(), history); it != std::sregex_iterator();
+             ++it) {
+            const std::smatch& m = *it;
+            const std::size_t offset = std::size_t(m.position(0));
+            std::size_t after = offset + m.length(0);
+            while (after < stripped.size() && std::isspace(static_cast<unsigned char>(stripped[after]))) ++after;
+            const bool call = after < stripped.size() && stripped[after] == '(';
+            std::string message, hint;
+            if (!is_post(material)) {
+                message = "'" + m[0].str() + "' : only a post material has a history";
+                hint = "The history is what a post pass wrote in the frame before; a \"" + material.kind +
+                       "\" material has no previous frame to read. Move the effect to a post material (\"kind\": "
+                       "\"post\", docs/shaders/SHADERS_POST.md, \"History\").";
+            } else if (m[1].matched ? call : !call) {
+                message = m[1].matched ? "'fa_history_valid' : it is a value, not a function"
+                                       : "'fa_history' : it is a function, not a texture";
+                hint = m[1].matched
+                           ? "Write `if (fa_history_valid) { ... }`: it is true when fa_history(uv) returns what "
+                             "this pass wrote last frame."
+                           : "Read the output of this pass in the frame before with `vec4 last = fa_history(i.uv);` "
+                             "(uv 0..1 over the camera's rectangle, origin top left, as fa_scene_color(uv)); "
+                             "calling it is what asks the renderer to keep the output. There is no texture to "
+                             "sample by hand.";
+            } else {
+                continue;
+            }
+            ShaderIssue i;
+            i.file = material.shader;
+            i.line = line_of(stripped, offset);
+            i.source = line_text(snippet, i.line);
+            i.column = column_of(stripped, offset) + 1;
+            i.message = std::move(message);
+            i.hint = std::move(hint);
+            out.push_back(std::move(i));
+            if (!is_post(material)) break;  // one is enough
+        }
     }
     // A declaration with an fa_ name: `<type> fa_x ;|=|[|(|,|)` or #define fa_x.
     static const std::regex decl(R"(\b([A-Za-z_]\w*)\s+(fa_\w*)\s*(?=[;=\[(,)]))");
@@ -433,7 +978,7 @@ std::vector<ShaderIssue> precheck_snippet(const MaterialDef& material, const Gen
         i.source = line_text(snippet, i.line);
         i.column = column_of(stripped, offset) + 1;
         i.message = "'" + m[2].str() + "' : the snippet declares a name starting with fa_";
-        i.hint = kPrefixRule;
+        i.hint = prefix_rule(material);
         out.push_back(std::move(i));
     }
     return out;
@@ -455,61 +1000,126 @@ std::string read_output_file(const stdfs::path& work, const std::string& rel) {
     return tooling_detail::read_file(p).value_or(std::string());
 }
 
+// OpenGL numbers a storage buffer binding point for the whole program and refuses a shader whose binding is not below
+// GL_MAX_SHADER_STORAGE_BUFFER_BINDINGS (8 is all GL 4.3 guarantees), while sokol-shdc keeps the view slot as the GLSL binding.
+// A mesh material's buffers sit at view slots 16 and up, so its glsl430 twin counts them from 0: the vertex stage's copies
+// 0..count-1 and the fragment stage's count..2*count-1 (the same order as the slots, so they stay unique across stages).
+std::string rebase_gl_storage_bindings(std::string text) {
+    const std::string head = "layout(binding = ", tail = ", std430)";
+    std::size_t at = 0;
+    while ((at = text.find(head, at)) != std::string::npos) {
+        std::size_t digits = at + head.size(), end = digits;
+        while (end < text.size() && text[end] >= '0' && text[end] <= '9') ++end;
+        if (end > digits && end - digits <= 3 && text.compare(end, tail.size(), tail) == 0) {
+            const int n = std::stoi(text.substr(digits, end - digits));
+            if (n >= kMeshBufferFirstView) {
+                const std::string moved = std::to_string(n - kMeshBufferFirstView);
+                text.replace(digits, end - digits, moved);
+                end = digits + moved.size();
+            }
+        }
+        at = end;
+    }
+    return text;
+}
+
+void rebase_gl_reflection(Json& j) {
+    if (j.is_object()) {
+        for (auto& [key, value] : j.items()) {
+            if (key == "glsl_binding_n" && value.is_number_integer() && value.get<int>() >= kMeshBufferFirstView)
+                value = value.get<int>() - kMeshBufferFirstView;
+            else
+                rebase_gl_reflection(value);
+        }
+    } else if (j.is_array()) {
+        for (Json& v : j) rebase_gl_reflection(v);
+    }
+}
+
 // The twins of the requested slangs from sokol-shdc's reflection YAML and the source files it points to.
 Result<std::map<std::string, Json>> build_twins(const stdfs::path& work, const std::string& yamlText,
-                                                const MaterialDef& material, const std::vector<std::string>& slangs,
-                                                std::vector<ShaderIssue>& issues) {
+                                                const MaterialDef& material, const std::vector<std::string>& slangs) {
     auto yaml = parse_shdc_yaml(yamlText);
     if (!yaml.ok()) return yaml.error();
     if (!yaml->is_object() || !yaml->contains("shaders") || !(*yaml)["shaders"].is_array())
         return make_error("the reflection file of sokol-shdc has no \"shaders\" list",
                           "Install the pinned sokol-shdc (`factoria setup shaders`).");
     Json paramNames = Json::array(), textureNames = Json::array();
-    for (const MaterialParam& p : material.params) paramNames.push_back(p.name);
+    // The uniform block holds the params that are not instanced; the instanced ones travel in the instance buffer, laid out as
+    // "instanced" says (a twin without these keys has none: older twins stay valid).
+    for (const MaterialParam& p : material.params)
+        if (!p.instanced) paramNames.push_back(p.name);
     for (const MaterialTexture& t : material.textures) textureNames.push_back(t.name);
+    const InstanceLayout instLayout = instance_layout(material.params);
+    Json instancedSlots = Json::array(), vertexAttributes = Json::array();
+    for (const InstanceSlot& s : instLayout.slots)
+        instancedSlots.push_back(
+            Json::object({{"name", s.name}, {"vec4", s.vec4}, {"offset", s.offset}, {"components", s.components}}));
+    for (const std::string& a : material.vertexAttributes) vertexAttributes.push_back(a);
 
     std::map<std::string, Json> twins;
-    bool vertexTextureReported = false;
     for (const Json& shader : (*yaml)["shaders"]) {
         const std::string slang = shader.value("slang", std::string());
         if (std::find(slangs.begin(), slangs.end(), slang) == slangs.end()) continue;
         Json twin = Json::object({{"format", kShaderTwinFormat},
                                   {"engine", FA_ENGINE_VERSION},
-                                  {"template", shader_template_hash()},
+                                  {"template", shader_template_hash(material.full ? "mesh-full" : material.kind)},
                                   {"slang", slang},
                                   {"params", paramNames},
                                   {"textures", textureNames}});
+        // A twin without "kind" is a mesh twin: mesh twins stay as they were before M72, so no committed or exported one is
+        // made stale by the kinds.
+        if (material.kind != "mesh") twin["kind"] = material.kind;
+        if (instLayout.vec4Count > 0) {
+            twin["instanced"] = instancedSlots;
+            twin["instanceVec4"] = instLayout.vec4Count;
+        }
+        if (!vertexAttributes.empty()) twin["vertexAttributes"] = vertexAttributes;
+        if (material.full) {
+            const Json fullFields = full_twin_fields(material);  // a named value: items() of a temporary dangles
+            for (const auto& [key, value] : fullFields.items()) twin[key] = value;
+        }
+        if (material.kind == "compute") {
+            const Json computeFields = shaders_detail::compute_twin_fields(material);
+            twin["workgroupSize"] = computeFields["workgroupSize"];
+            twin["buffers"] = computeFields["buffers"];
+            if (computeFields.contains("images")) twin["images"] = computeFields["images"];
+        }
+        if ((material.kind == "mesh" || material.kind == "sprite") &&
+            !material.buffers.empty())  // no buffers, no such key
+            twin["buffers"] = shaders_detail::compute_twin_fields(material)["buffers"];
         Json programs = Json::object();
         for (const Json& prog : shader.value("programs", Json::array())) {
             const std::string name = prog.value("name", std::string());
             Json reflection = prog;
             reflection.erase("name");
+            if (material.kind == "compute") {  // one compute function ("cs") instead of a vertex and a fragment one
+                const Json cf = prog.value("compute_func", Json::object());
+                reflection["compute_func"] = func_reflection(cf);
+                const std::string csText = read_output_file(work, cf.value("path", std::string()));
+                if (csText.empty())
+                    return make_error(
+                        "sokol-shdc did not write the " + slang + " source of program '" + name + "'",
+                        "Run sokol-shdc by hand on the generated top file (`factoria call shader.compile` "
+                        "prints its errors).");
+                programs[name] = Json::object({{"cs", csText}, {"reflection", std::move(reflection)}});
+                continue;
+            }
             const Json vf = prog.value("vertex_func", Json::object()), ff = prog.value("fragment_func", Json::object());
             reflection["vertex_func"] = func_reflection(vf);
             reflection["fragment_func"] = func_reflection(ff);
-            const std::string vsText = read_output_file(work, vf.value("path", std::string())),
-                              fsText = read_output_file(work, ff.value("path", std::string()));
+            std::string vsText = read_output_file(work, vf.value("path", std::string())),
+                        fsText = read_output_file(work, ff.value("path", std::string()));
+            if (slang == "glsl430" && (material.kind == "mesh" || material.kind == "sprite") &&
+                !material.buffers.empty()) {
+                vsText = rebase_gl_storage_bindings(std::move(vsText));
+                fsText = rebase_gl_storage_bindings(std::move(fsText));
+                rebase_gl_reflection(reflection);
+            }
             if (vsText.empty() || fsText.empty())
                 return make_error("sokol-shdc did not write the " + slang + " source of program '" + name + "'",
                                   "Run sokol-shdc by hand on the generated top file (`factoria call shader.compile` "
                                   "prints its errors).");
-            if (!vertexTextureReported)
-                for (const Json& view : prog.value("views", Json::array())) {
-                    const Json tex = view.value("texture", Json::object());
-                    const std::string tname = tex.value("name", std::string());
-                    if (tex.value("stage", std::string()) == "vertex" &&
-                        std::any_of(material.textures.begin(), material.textures.end(),
-                                    [&](const MaterialTexture& t) { return t.name == tname; })) {
-                        ShaderIssue i;
-                        i.file = material.shader;
-                        i.message = "the texture '" + tname +
-                                    "' is sampled in vertex(), but textures can only be read in the fragment stage";
-                        i.hint = "Read textures in surface(), or compute the displacement from fa_time and params in "
-                                 "vertex(). Vertex-stage textures are not supported yet.";
-                        issues.push_back(std::move(i));
-                        vertexTextureReported = true;
-                    }
-                }
             programs[name] = Json::object({{"vs", vsText}, {"fs", fsText}, {"reflection", std::move(reflection)}});
         }
         twin["programs"] = std::move(programs);
@@ -542,6 +1152,10 @@ struct TempWork {
 
 }  // namespace
 
+const std::vector<std::string>& shaders_detail::documented_engine_names(const MaterialDef& material) {
+    return engine_names(material);
+}
+
 std::string sokol_shdc_missing_hint(const SetupContext& context) {
     std::string hint = "Run `factoria setup shaders` to install it (a pinned sokol-tools-bin commit, " +
                        std::string(kSetupSokolShdcCommit).substr(0, 7) +
@@ -550,6 +1164,20 @@ std::string sokol_shdc_missing_hint(const SetupContext& context) {
         hint += " Windows Defender may have quarantined sokol-shdc.exe as a false positive: restore it from Windows "
                 "Security > Protection history, or point SOKOL_SHDC at a copy you trust.";
     return hint;
+}
+
+// A sky material whose snippet reads the game time (SkyInput.time, or fa_time) is "animated" in its twins, and one that reads the sun (sun_dir, fa_sun) has "usesSun": the renderer bakes the environment it lights the
+// meshes with again as time passes, or the sun turns (docs/shaders/SHADERS_LIGHTING.md, "The sky material lights the meshes"). Set on cached twins too: it depends on
+// the snippet text, which the cache key hashes, but not on anything sokol-shdc produces.
+static void mark_animated(ShaderCompileResult& res, const std::string& stripped) {
+    if (res.generated.kind != "sky") return;
+    static const std::regex timeUse(R"(\bfa_time\b|\.time\b)");
+    static const std::regex sunUse(R"(\bfa_sun\b|\bsun_dir\b)");
+    const bool animated = std::regex_search(stripped, timeUse), usesSun = std::regex_search(stripped, sunUse);
+    for (auto& [slang, twin] : res.twins) {
+        if (animated) twin["animated"] = true;
+        if (usesSun) twin["usesSun"] = true;
+    }
 }
 
 Result<ShaderCompileResult> compile_material(const std::string& projectDir, const std::string& materialPath,
@@ -575,7 +1203,18 @@ Result<ShaderCompileResult> compile_material(const std::string& projectDir, cons
         res.errors.push_back(std::move(i));
     }
     if (!mp.ok()) return res;
-
+    if (res.material.kind == "compute" || !res.material.buffers.empty()) {
+        // No glsl300es twin: GLES3 and WebGL2 have no compute shaders and no storage buffers in the vertex stage.
+        const std::vector<std::string> has = shader_dialects_of_kind(res.material.kind, !res.material.buffers.empty());
+        if (options.dialects.empty()) {  // "every dialect" means every dialect the kind has
+            res.dialects = has;
+        } else {
+            std::vector<std::string> kept;
+            for (const std::string& d : res.dialects)
+                (std::find(has.begin(), has.end(), d) != has.end() ? kept : res.skippedDialects).push_back(d);
+            res.dialects = std::move(kept);
+        }
+    }
     auto raw = tooling_detail::read_file(stdfs::path(projectDir) / res.material.shader);
     if (!raw)
         return make_error("cannot read the snippet '" + res.material.shader + "' of " + materialPath,
@@ -583,10 +1222,12 @@ Result<ShaderCompileResult> compile_material(const std::string& projectDir, cons
     const std::string snippet = normalize_snippet(*raw);
     const std::string stripped = blank_comments(snippet);
     res.generated = generate_material_shader(res.material, snippet);
-    res.errors = precheck_snippet(res.material, res.generated, snippet, stripped);
+    res.errors = res.material.full ? precheck_full(res.material, snippet, stripped)
+                                   : precheck_snippet(res.material, res.generated, snippet, stripped);
     if (!res.errors.empty()) return res;
-    if (shader_template_hash().empty())
-        return make_error("this factoria build has no mesh shader template (engine/render/shaders/*_common.glsl)",
+    if (shader_template_hash(res.generated.kind).empty())
+        return make_error("this factoria build has no " + res.generated.kind +
+                              " shader template (engine/render/shaders/*_common.glsl)",
                           "Rebuild factoria from the full source tree so the template is embedded.");
 
     // What the cache already has.
@@ -601,6 +1242,7 @@ Result<ShaderCompileResult> compile_material(const std::string& projectDir, cons
         missing.push_back(slang);
     }
     if (missing.empty()) {
+        mark_animated(res, stripped);
         res.ok = true;
         return res;
     }
@@ -616,7 +1258,7 @@ Result<ShaderCompileResult> compile_material(const std::string& projectDir, cons
     if (work.error) return *work.error;
     bool written = tooling_detail::write_file(work.path / "top.glsl", res.generated.top) &&
                    tooling_detail::write_file(work.path / "out" / ".keep", "");
-    for (const auto& [name, content] : template_files())
+    for (const auto& [name, content] : template_files(res.generated.kind))
         written = written && tooling_detail::write_file(work.path / name, content);
     if (!written)
         return make_error("cannot write to the temporary folder " + work.path.string(), "Check the free disk space.");
@@ -666,13 +1308,14 @@ Result<ShaderCompileResult> compile_material(const std::string& projectDir, cons
         return make_error(
             "sokol-shdc succeeded but wrote no reflection file",
             "The pinned sokol-shdc writes it with --format bare_yaml; reinstall it with `factoria setup shaders`.");
-    auto twins = build_twins(work.path, yamlText, res.material, missing, res.errors);
+    auto twins = build_twins(work.path, yamlText, res.material, missing);
     if (!twins.ok()) return twins.error();
     if (!res.errors.empty()) return res;
     for (auto& [slang, twin] : *twins) {
         write_cached_twin(shader_cache_path(projectDir, res.generated, snippet, slang), twin);
         res.twins[slang] = std::move(twin);
     }
+    mark_animated(res, stripped);
     res.ok = true;
     return res;
 }

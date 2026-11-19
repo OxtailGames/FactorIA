@@ -1,0 +1,14 @@
+{
+  "format": "factoria.material/1",
+  "doc": "Test fixture: draws a mesh once per element of the `points` buffer (MeshRenderer.instances); a cleared flag collapses the instance.",
+  "shader": "shaders/meshbuf.surface.glsl",
+  "buffers": {
+    "points": {
+      "doc": "The instances, as meshbuf_fill.material.json writes them.",
+      "fields": [
+        { "name": "pos", "type": "vec4", "doc": "xyz = the offset from the entity; w = 1 visible, 0 hidden." },
+        { "name": "tint", "type": "vec4", "doc": "The colour of the instance." }
+      ]
+    }
+  }
+}

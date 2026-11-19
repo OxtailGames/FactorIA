@@ -166,8 +166,15 @@ decides, and the game event `ui.viewPointer` goes out like the other ui.* events
   and calls `vertex(v)` (with `FA_HAS_VERTEX`) inside `fa_shade_vertex`, after the instance and skin matrices, and
   `surface(i, s)` in the fragment `main` after `fa_standard_surface`, before lighting. `FA_ALPHA_CLIP` makes the
   fragment `discard` below `alphaCutoff` and makes `shadow_fs` run `surface()` too. Uniform bindings: vertex 0 params,
-  3 skin, 4 the material's vertex-stage block; fragment 1 params, 2 lights, 5 the material block; material textures use
-  views 6-9 and samplers 2-5.
+  3 skin, 4 the material's vertex-stage block; fragment 1 params, 2 lights, 5 the material block. A material's textures
+  are bound twice, under a different slot per stage: fragment views 6-9 with samplers 2-5, vertex views 10-13 with
+  samplers 6-9 (`vertex()` reads them through `#define <name> fa_vs_<name>`); the baked sky cubes are fragment views
+  14-15 with sampler 10. With `"lighting": "custom"` the template defines `FA_CUSTOM_LIGHT`: the engine's light loop
+  keeps choosing the lights (their number, attenuation and shadow) and calls the snippet's `light(i, s, l)` for each
+  one with a `LightSample l`, and its `ambient(i, s, ambientColor)` once (`FA_HAS_AMBIENT`); or the snippet defines
+  `lighting(i, s)` (`FA_HAS_LIGHTING`), the whole loop, and the template declares `fa_light_count()`, `fa_light(n, i)`,
+  `fa_light_unshadowed()`, `fa_light_shadow()` and `fa_sky_light()` before the snippet (stubs in the shadow and prepass
+  programs); the cap of 32 lights and their order are `select_lights`' (CUSTOM_SHADERS.md, P14).
 - *Generator* (`tools/common/src/shaders_generate.cpp`). `generate_material_shader` writes the sokol-shdc top file: the
   params as one alphabetical block (each padded to a `vec4`), the textures, the snippet verbatim with a line table, then
   `@include mesh_common.glsl` and the programs (`mesh`, `mesh_skin`, `prepass`, `prepass_skin`, plus `shadow`, `shadow_skin`
@@ -189,6 +196,10 @@ decides, and the game event `ui.viewPointer` goes out like the other ui.* events
   platform's dialects (Windows `hlsl5`, Linux `glsl430`, macOS `metal_macos`, iOS `metal_ios` + `metal_sim`, Android and
   web `glsl300es`), adds the twins, drops the snippets, and fails the export on a compile error. The player has no
   compiler. `factoria validate` compiles every dialect of every material.
+- *Sky environment.* A scene with a valid sky material (`SceneSettings.skyMaterial`) bakes that sky into two small cube images
+  (`renderer_env.{h,cpp}`, a "sky-env" pass of the graph, shared by the jobs of the frame) that the mesh shaders read for the ambient
+  and the reflection light; no sky material, no pass and no environment image, only a 1x1 black cube and a sampler that fill the slot
+  (`docs/design/CUSTOM_SHADERS_KINDS.md`, "The sky material lights the meshes").
 - *Frame graph.* `engine/render/src/frame_graph.h` and `target_pool.h` are the CPU core: passes declare the
   resources they read and write; `compile()` orders them (declaration order where there is no dependency), culls the
   ones nobody reads and plans which transients share one physical target; `TargetPool` reuses targets across frames
@@ -240,7 +251,7 @@ decides, and the game event `ui.viewPointer` goes out like the other ui.* events
   draws no glow until the size or the format changes, so a failed creation is not retried every frame.
   `FrameGraph::set_import_handle` rebinds an imported resource to another image without a new compile. Not graph passes
   yet: the read-back copies. The render tests reach the graph of the last frame and the pool's counters through
-  `render::renderer_frame_graph` and `render::renderer_transient_stats`. *What a pass cost:* `execute` times every
+  `render::renderer_frame_graph` and `render::renderer_transient_stats` (the test accessors live in `src/renderer_test_access.h`, behind the one friend `RendererTestAccess`; the public `renderer.h` has none). *What a pass cost:* `execute` times every
   callback with the steady clock (`PassStats::cpuMs`, also when it throws) and calls the `PassHooks` of the graph around
   it (`FrameGraph::set_pass_hooks`, kept by `clear()` and `release_callbacks()`); the renderer sets them once. The
   `begin` hook starts a GPU timestamp pair of `GpuTimer` and the `end` hook closes it and adds a zone `<job>/<pass>` to
@@ -392,6 +403,20 @@ display output.
   `static_assert` checks it against `kPostEffectOrder`. The editor's post panel calls `Renderer::supports_report()` directly (the same
   table `render.supports` answers), not the command. Compute shaders exist on GL, D3D11 and Metal, never on GLES3 or WebGL2; `hdrOutput` only on D3D11 and Metal.
   The decision is a pure function of a `FeatureEnv` (backend + what the GPU reported), so a test asks what D3D11 would say.
+- **Compute storage images (`engine/render/src/compute.cpp`, `fa/render/compute.h`, M72.17).** `Compute::create_image` makes an
+  immutable sokol image with `usage.storage_image` AND `usage.color_attachment`: sokol cannot copy into a storage image (`copy_dst`
+  excludes `immutable`), so a clearing pass over the attachment view zero-fills it (the GPU's memory is undefined). The image has a
+  storage view (the dispatch binds it after the buffers' view slots, sorted by name) and, when `sg_query_pixelformat` says the format
+  filters, a sampled view for the draws. A sampled view and a storage view of one image are never bound in one pass (sokol refuses
+  it), so a dispatch whose texture param is an image it writes is an error. The texture id `compute:<id>` is resolved by
+  `Assets::texture` through `ComputeImageResolver` to one stable `TextureAsset` per image (`describe_image_texture` refills it when
+  `resize_image` remakes the GPU image, so a sprite keeps working); a destroyed image points its texture object at the white
+  texture and keeps the object (up to 256) so a draw already recorded never reads a freed pointer, and the id answers
+  "no live compute image" with the checker. Order inside a frame is the order of the calls: `Gpu::begin_compute_pass` and
+  `end_compute_pass` close the pass, Metal and D3D11 track the hazard, sokol inserts the GL barriers. `read_image` commits, reads only
+  the rectangle through `readback_storage_image` (Metal blit with an origin, D3D11 `CopySubresourceRegion`, GL `glReadPixels` from
+  an FBO with `glGetTexImage` as fallback) under the 4M-number cap. Caps are counts (32 images, 8192 a side or the GPU's
+  `max_image_size_2d`, 256 MiB each, 512 MiB in all), checked in 64-bit before the GPU allocates.
 - **Commands.** `postprocess.get`, `postprocess.set` (thin wrappers of `scene.set_component` for `PostProcess`), `postprocess.presets` and
   `postprocess.apply_preset` are in `engine/runtime/src/postprocess_commands.cpp`. The looks are data
   (`engine/runtime/data/postprocess_presets.json`, `fa/runtime/postprocess_presets.h`; `postprocess_preset_fields` gives the fields a
@@ -433,7 +458,7 @@ display output.
   would depend on the frame rate, and a 32-bit target cannot be filtered or rendered on WebGL2 and iOS) with the engine's frame dt;
   a first frame, new targets or a frame in which the passes were not declared (`lastSerial_ + 1 != serial`, where `serial` is
   `Impl::postSerial`, the count of the game's frames: `capture_world` calls `begin_frame_graph(false)` and does not advance it, so
-  a capture neither resets the exposure nor, with `framePost` false, reads or writes the motion-blur matrices) take the target at once;
+  a capture neither resets the exposure nor, with `framePost` false, reads or writes the motion-blur matrices; `capture_camera` too) take the target at once;
   a target that cannot be made leaves the exposure manual for 300 frames (`kRetryFrames`) and then tries again, dt 0 leaves it as it is, and it needs the
   RGBA16F scene format (else one warning and the exposure stays manual). The legacy fields: `build_camera` builds an implicit
   `PostProcess` from the sanitised `Camera.bloom*` and `colorFilter` (knee 0, no dirt) and `resolve_post_stack` uses it when the
@@ -446,6 +471,49 @@ display output.
   clamped to the frame's headroom only when its final pass went above white (`frameAboveWhite`). The CPU functions mirror
   the shaders; `renderer_force_output` and `renderer_read_floats` let the tests check them without an HDR display. Screen-space items are drawn after the final pass, so exposure and tonemap
   never touch them; in a linear scene their quad and text pipelines must write display-space values into `hudTarget`.
+- **Custom post passes (M72.2, `PostProcess.customPasses`).** Full-screen passes drawn by kind `"post"` materials, between the built-in
+  effects. Data: `fa/render/post_custom.h` (the entry parser `parse_custom_post_passes`, the position table `kCustomPostPositions`
+  and the `PostSlot` places: `Main`, `AfterSsr`, `AfterShafts`, `AfterDof`, `AfterBloom` on the scene-linear picture and `AfterTonemap`,
+  `AfterGrading`, `AfterVignette`, `AfterSharpen`, `AfterOutline`, `AfterPosterize`, `AfterGrain` on the display-referred one,
+  `post_slot_is_ldr`). `resolve_post_stack` collects the entries (own, then volumes with strength >= 0.5) into `PostStack::custom`, with the
+  entries it could not read in `customErrors` (logged once per scene, shown by `postprocess.get {resolved}`). `plan_job`
+  (`renderer_draw.cpp`) turns them into a `CustomPostPlan` (`make_custom_post_plan`, `renderer_custom_post.{h,cpp}`): one entry per
+  material that built as a post material, with its params packed for UB5 and its textures; a material that did not build, is not a post
+  material, is missing or needs the prepass on a GPU without it is left out, listed in `RenderStats::materialFallbacks` and logged once
+  (`warnedCustomPass`). `needsDepth` and `needsNormals` become true only when a planned pass reads the prepass (`fa_depth`/`fa_normal`
+  make the program declare it), and `plan_prepass` draws it even for a camera with no mesh then. `build_graph` calls `custom_slot(slot)`
+  at each place: `CustomPost::add_passes` declares one pass per entry reading the picture (the first) or the transient before it,
+  ping-ponging between two transients of the picture's format (a pass cannot read what it writes) and drawing the last one into the
+  camera's rectangle of the picture (viewport and scissor on a split screen, the bloom's MSAA and hud-over-bloom destination rules; a
+  lone pass is copied back with `SceneFx::copy_into`). The pipeline is `Gpu::post_material_pipeline(format, shader)` (cache key 0xF00),
+  the program `programs[0]` of the material, bound like the other kinds (`kMaterialPost*` in `render_internal.h`). The y-flip of a GL
+  render target is in `fa_post_vs_params.fa_flip` and `fa_post_params.fa_a.x`, so a snippet always sees y running down. The feature
+  `postMaterials` of `render.supports` is the Engine capability; the editor's panel edits the list (`tools/editor/src/postfx_custom.h`).
+  *The cut final pass.* The stages of `post.glsl` are `PostStage` (`postprocess.h`: scene = lens/aberration/radial blur/haze + exposure
+  + tonemap + sRGB encode, grade, vignette, sharpen, outline, posterize, grain, tail = flash/fade overlay + dither + colour filter) and
+  `PostSlice` says which of them one draw runs (`run_post_pass(..., slice)` masks the effect bits, so the shader is the same). The slot
+  `AfterTonemap + i` sits after stage `i`. `build_graph` (`declare` in `renderer_draw.cpp`) walks the stages: where an entry sits at a
+  slot and a stage before it is active, it draws the pending stages into one of two persistent images `ldrMid[2]`
+  (`Impl::ensure_ldr_targets`, the scene format, one sample, the picture's size), calls `add_passes` on that image with `linear` false
+  (`custom_here`) and goes on from the next stage; the last piece (always including the tail) draws to the destination as the one pass
+  did and is the only one that sets the HUD, filter and `frameAboveWhite` state. Slots with nothing active between them share one
+  `add_passes` call, a chain on the game target in place needs no image when the first stage is inactive. Pieces are named
+  `post-part<k>` and the last keeps `post` (or `post-base`); a frame with no display-referred entry never cuts, so its graph is the
+  one it always was (`post_material_tests.cpp` counts the passes). The auto exposure is read in the scene piece only, the outline's
+  source in the outline piece only, the dither and the colour filter in the tail only.
+  *History (M72.16, `fa_history`).* A pass whose program declares view `kMaterialPostHistoryView` (the snippet calls `fa_history`:
+  `CustomPostEntry::usesHistory`) keeps a `HistorySlot` in `CustomPost::history_`: two `Target`s of the camera's rectangle size and the
+  picture's format, one slot per camera (`CustomHistoryFrame::camera`), job (two views of one camera), material path and ordinal (two entries
+  of one material). `plan_history` runs when the frame is built: it makes or re-makes the images (size or format change; a 1 GiB budget,
+  256 MiB on wasm32, or a refused image leaves the pass without history and logs once) and decides `valid`: the slot wrote in the frame
+  before (`serial + 1 == postSerial`, which a capture does not advance; `capture_camera` keeps its histories under `kCaptureHistoryBit | camera bits` (renderer_present.cpp), valid when `captureSerial`, which counts the frames of every capture, is one before and the frame is not the first of the call, and frees them when it ends), the scene hash (path and `scene_generation`) is the
+  same and the camera was continuous (`PostPlan::prevValid`: drawn in the frame before, no world-clock jump). The pass draws into
+  `img[write]` and reads `img[read]`, both imported into the graph (`<prefix>-history<k>-in/-out`), so the order and liveness come from
+  the graph; the image it wrote is also the picture the next pass reads, so the only extra draw is the copy into the picture when it is the
+  last pass (a lone pass copies anyway). A slot nobody planned for `kHistoryIdleFrames` (120) frames is freed by `sweep_history`, called
+  once per frame from `begin_frame_graph` (a frame count, not time, as P7b's cut images). `Renderer::reset_post_history(camera)` and the
+  command `render.reset_post_history` only clear `wrote`. The history is read with `fa_flip_uv`, like the scratch images, so GL and the
+  top-down backends agree.
 - **The effects, one bullet each,** are on the page [rendering, the post-processing effects](ARCHITECTURE_RENDERING_POST.md): the grading and lens
 effects, the radial blur and the transient screen effects, the outline, pixelate and posterize, the ambient occlusion, the depth and
 normal prepass, and the depth of field and motion blur.

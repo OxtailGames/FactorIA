@@ -24,6 +24,7 @@
 #include "hdr_encode.h"
 #include "post_fx.h"
 #include "renderer_ssr.h"
+#include "renderer_custom_post.h"
 #include "renderer_dof.h"
 #include "renderer_fog.h"
 #include "transient_targets.h"
@@ -86,6 +87,31 @@ SsaoSettings ssao_from_stack(const PostStack& stack);
 // The settings of the debug view ao: the stack's own when it has the effect on, else the defaults of the component; `view` set.
 SsaoSettings ssao_debug_settings(const SsaoSettings& own);
 
+// The stages of the final pass (post.glsl) in the order it runs them, for the cuts a custom pass at a display-referred
+// place makes (post_custom.h, post_slot_is_ldr): the place after stage `i` is PostSlot(int(PostSlot::AfterTonemap) +
+// i). A stage that has nothing to do for the plan is not active; the pass is cut only where a custom pass sits, and a
+// frame without one runs every stage in one pass.
+enum PostStage : int {
+    kStageScene =
+        0,        // the lens, the aberration, the transient screen warps; the exposure, the tonemap and the sRGB encode
+    kStageGrade,  // the colour grading and its LUT
+    kStageVignette,
+    kStageSharpen,
+    kStageOutline,
+    kStagePosterize,
+    kStageGrain,
+    kStageTail,  // the flash / fade, the dither and the colour filter: always the last, and the one that writes the destination
+    kPostStageCount
+};
+
+// Which stages one pass of the final pass runs: first..last.
+struct PostSlice {
+    int first = kStageScene, last = kStageTail;
+    bool has(int stage) const { return stage >= first && stage <= last; }
+    bool whole() const { return first == kStageScene && last == kStageTail; }
+    bool tail() const { return last == kStageTail; }
+};
+
 struct PostPlan {
     BloomSettings bloom;  // bloom.enabled = false: no bloom
     bool exposure = false;
@@ -130,11 +156,31 @@ struct PostPlan {
     SceneFxPlan sceneFx;
     // Distance and height fog and sun shafts of this camera (renderer_fog.h): drawn on the scene colour before depth of field; empty when neither is on.
     FogFxPlan fogFx;
+    // The custom post passes of this camera (renderer_custom_post.h): the materials of PostProcess.customPasses that
+    // built, each at its position in the stack. Empty when none. Their prepass bits are set by plan_job (needsDepth /
+    // needsNormals) when one reads the depth.
+    CustomPostPlan custom;
+    // Some custom pass sits at a display-referred place (custom.any_ldr()): the final pass runs, cut in pieces there
+    // (PostSlice), even when the stack has nothing else for it, and a linear scene is converted by it.
+    bool customLdr = false;
+
+    // Settles `customLdr` from `custom` (after the passes that built are known) and the conversion a linear scene needs
+    // for them.
+    void settle_custom() {
+        customLdr = custom.any_ldr();
+        linear = sceneLinear && (exposure || tonemap || colorFilter != 0 || fx.any() || customLdr);
+    }
+    // The display-referred custom passes cannot be drawn (the images the pieces go through could not be made, or the
+    // final pass is off).
+    void drop_custom_ldr() {
+        custom.drop_ldr();
+        settle_custom();
+    }
 
     // The outline cannot be drawn this frame (its image is not made: no opaque mesh, an unsupported GPU, no memory for the image): the effect is dropped, and with it the conversion that only it asked for.
     void skip_outline() {
         fx.outline = false;
-        linear = sceneLinear && (exposure || tonemap || colorFilter != 0 || fx.any());
+        linear = sceneLinear && (exposure || tonemap || colorFilter != 0 || fx.any() || customLdr);
     }
     // The image the outline reads this frame (the prepass in depth mode, the coverage in sprite mode); invalid when there is no outline.
     const PrepassRef& outline_source() const { return fx.outline_sprite() ? coverage : prepass; }
@@ -143,7 +189,39 @@ struct PostPlan {
     bool convert() const { return exposure || tonemap || linear; }
     // True when the final pass runs: a conversion or an effect. A frame that only has a colour filter is the plain filter pass; one
     // that only has bloom has none.
-    bool final_pass() const { return convert() || fx.any(); }
+    bool final_pass() const { return convert() || fx.any() || customLdr; }
+    // True when the stage has something to do in the final pass (the cuts are made only where a stage after the last
+    // cut is active).
+    bool stage_active(int stage) const {
+        switch (stage) {
+            case kStageScene:
+                return convert() || fx.pixelate || fx.lens || fx.aberration || fx.ringCount > 0 || fx.hazeCount > 0 ||
+                       fx.radialBlur;
+            case kStageGrade: return fx.grade || fx.lut;
+            case kStageVignette: return fx.vignette;
+            case kStageSharpen: return fx.sharpen;
+            case kStageOutline: return fx.outline;
+            case kStagePosterize: return fx.posterize;
+            case kStageGrain: return fx.grain;
+            default: return true;  // the tail
+        }
+    }
+    // The stages after which the final pass is cut for the custom passes (bit `stage`): the ones that have a pass at
+    // their place and an active stage since the last cut. Places with nothing drawn between them share one cut.
+    // build_graph draws one piece per cut and plan_job counts them to know how many images the pieces need.
+    std::uint32_t ldr_cuts() const {
+        std::uint32_t cuts = 0;
+        int from = kStageScene;
+        for (int i = kStageScene; i < kStageTail; ++i) {
+            if (!custom.any_in(PostSlot(int(PostSlot::AfterTonemap) + i))) continue;
+            bool active = false;
+            for (int st = from; st <= i; ++st) active = active || stage_active(st);
+            if (!active) continue;
+            cuts |= 1u << i;
+            from = i + 1;
+        }
+        return cuts;
+    }
     bool any() const { return bloom.enabled || final_pass() || colorFilter != 0; }
 };
 
@@ -173,9 +251,13 @@ BloomSettings bloom_from_stack(const PostStack& stack);
 // viewport and a scissor) and every effect works in camera-local pixels (the lens, the vignette, the pixelate grid, the grain and the
 // dither start at the rectangle's corner); `aux` has the rectangle's size. Whole (the default): the pass is the one of a camera that
 // covers the picture.
+// `slice`: the stages this pass runs (the default: all of them, the one fused pass). A piece that does not hold the
+// first stage reads a picture that is already converted and encoded (the one before it wrote), the tail piece alone
+// runs the colour filter, and only a piece with the stage runs what the stage does (the outline reads `aux` in its
+// piece only). The pixelate, which moves the position every effect reads, is in every piece.
 void run_post_pass(Gpu& gpu, const PostPlan& plan, bool convert, int filter, bool autoExposure, const PassDesc& pass,
                    sg_view src, sg_view expo, sg_view white, sg_view aux, int w, int h, const OutputTarget& output = {},
-                   const PostRect& rect = {});
+                   const PostRect& rect = {}, const PostSlice& slice = {});
 
 // PostProcess.exposureMode auto. The adapted EV lives in a 1x1 RGBA16F target (two of them, taking turns: a pass cannot read what it
 // writes); `exposure-luma` reduces the finished game image to 32x32 log-luminances and `exposure-adapt` moves the stored EV toward the

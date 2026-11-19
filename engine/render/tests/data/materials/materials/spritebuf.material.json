@@ -1,0 +1,15 @@
+{
+  "format": "factoria.material/1",
+  "kind": "sprite",
+  "doc": "Test fixture: a Sprite drawn once per element of the `points` buffer (Sprite.instances): vertex() places and scales the quad, fragment() colours it; a zero pos.w collapses the instance.",
+  "shader": "shaders/spritebuf.fragment.glsl",
+  "buffers": {
+    "points": {
+      "doc": "The instances, as meshbuf_fill.material.json writes them.",
+      "fields": [
+        { "name": "pos", "type": "vec4", "doc": "xy = the offset of the quad's centre in world units; w = 1 visible, 0 hidden." },
+        { "name": "tint", "type": "vec4", "doc": "The colour of the instance." }
+      ]
+    }
+  }
+}

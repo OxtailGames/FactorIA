@@ -2,6 +2,8 @@
 // shadow targets, the colour filter and the RGBA8 readback.
 #include "renderer_impl.h"
 
+#include <algorithm>
+
 namespace fa::render {
 
 bool Target::valid() const {
@@ -255,6 +257,7 @@ void Renderer::Impl::destroy_targets() {
     ssao.release();
     sceneFx.forget_targets();
     fogFx.forget_targets();
+    customPost.forget_targets();
     if (transients) transients->pool.clear_free();  // the bloom levels are made again, at the new size
     destroy_target(lightTarget);
     lightW = lightH = 0;
@@ -263,6 +266,7 @@ void Renderer::Impl::destroy_targets() {
     finalEncoded = false;
     destroy_target(filterTarget);
     destroy_target(hudTarget);
+    for (Target& t : ldrMid) destroy_target(t);
     for (auto& [key, slot] : autoExposures)
         if (slot.exposure) slot.exposure->release();
     autoExposures.clear();
@@ -296,6 +300,8 @@ TextureAsset* Renderer::Impl::view_image(std::uint64_t key, int w, int h, bool r
     d.height = h;
     d.colorFormat = gpu.scene_format();
     d.samples = gpu.sample_count();
+    d.resolveAsColor =
+        true;  // capture_camera's custom passes draw into the resolved image, as the bloom does in the game's
     d.depthFormat = kSceneDepthFormat;
     t.main = make_target(d);
     if (!t.main.valid()) {
@@ -409,6 +415,12 @@ void Renderer::Impl::collect_targets(World& world) {
         targetByAsset[asset] = int(targetCams.size());
         targetCams.push_back(TargetCam{e, c.renderTarget, w, h, key, c.depth, asset});
     });
+}
+
+void Renderer::Impl::set_target_self(const std::string& name) {
+    if (name == targetSelf) return;
+    targetSelf = name;
+    assets->drop_material_cache();
 }
 
 // What texture("target:<name>") answers: the target's live texture; the checker (selfSentinel) for the camera that
@@ -600,17 +612,69 @@ bool Renderer::Impl::ensure_hud_target() {
     return true;
 }
 
+// Makes (or keeps) the first `count` (0..2) of the images a final pass cut by custom passes goes through (ldrMid, in
+// Gpu::ldr_cut_format): one cut needs one, two or more need both. False (and one logged error) when the GPU cannot make
+// them: the custom passes of the display-referred places are then not drawn. An image nobody asked for for a while is
+// freed (release_idle_ldr_targets).
+bool Renderer::Impl::ensure_ldr_targets(int count) {
+    if (count <= 0) return true;
+    ldrUsedFrame = frameSerial;
+    count = std::min(count, 2);
+    bool all = true;
+    // They hold display values: the display format, and a float one when the window is HDR (Gpu::ldr_cut_format). A
+    // change of the output makes them again.
+    const sg_pixel_format format = gpu.ldr_cut_format(frameOutput.extended());
+    for (int i = 0; i < count; ++i) {
+        if (ldrMid[i].valid() && ldrMid[i].format.color == format) continue;
+        destroy_target(ldrMid[i]);
+        TargetDesc d;
+        d.label = i == 0 ? "post-mid-0" : "post-mid-1";
+        d.width = physW;
+        d.height = physH;
+        d.colorFormat = format;
+        ldrMid[i] = make_target(d);
+        all = all && ldrMid[i].valid();
+    }
+    if (all) return true;
+    for (Target& t : ldrMid) destroy_target(t);
+    if (!ldrWarned) {
+        ldrWarned = true;
+        FA_ERROR(
+            "render",
+            "Custom post passes after the tonemap: cannot create the two {}x{} images the final pass is cut through; "
+            "those passes are not drawn. Hint: lower the render scale, or move the entries of "
+            "PostProcess.customPasses to a place before the tonemap (\"before:tonemap\").",
+            physW, physH);
+    }
+    return false;
+}
+
+// Frees the images of the cut final pass (ldrMid) once no frame has used them for kLdrIdleFrames frames (a 4K image of
+// a float format is 130 MB); called once per frame, after its graph ran.
+void Renderer::Impl::release_idle_ldr_targets() {
+    if (!ldrMid[0].valid() && !ldrMid[1].valid()) return;
+    if (ldrUsedFrame == frameSerial) {
+        ldrIdle = 0;
+        return;
+    }
+    if (++ldrIdle < kLdrIdleFrames) return;
+    ldrIdle = 0;
+    for (Target& t : ldrMid) destroy_target(t);
+}
+
 // Draws `src` through post.glsl into `dst` (ensure_filter_target / ensure_hud_target made it).
 void Renderer::Impl::post_pass(const PostPlan& pp, bool finalPass, int filter, bool autoExposure, sg_view src,
                                sg_view expo, sg_view aux, Target& dst, const char* label, bool keepMsaa,
-                               const PostRect& rect, bool load) {
+                               const PostRect& rect, bool load, const PostSlice& slice) {
     PassDesc p = pass_into(dst, label);
     p.colorLoad = load ? SG_LOADACTION_LOAD : SG_LOADACTION_DONTCARE;  // else every pixel is drawn
     p.colorStore = (dst.samples > 1 && !keepMsaa) ? SG_STOREACTION_DONTCARE : SG_STOREACTION_STORE;
     run_post_pass(gpu, pp, finalPass, filter, autoExposure, p, src, expo, assets->white()->view, aux, dst.w, dst.h,
-                  frameOutput, rect);
+                  frameOutput, rect, slice);
     ++stats.drawCalls;
     // A colour filter clamps to paper white (also when it follows the HDR picture); the conversion alone goes above it.
+    // A piece that does not end the final pass leaves it to the last one.
+    if (!slice.tail()) return;
     if (filter != 0)
         frameAboveWhite = false;
     else if (finalPass && pp.convert() && frameOutput.extended())

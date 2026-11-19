@@ -10,6 +10,7 @@
 #include <string>
 #include <vector>
 
+#include "fa/render/post_custom.h"
 #include "fa/render/renderer.h"
 #include "postprocess_resolve.h"
 #include "render_features.h"
@@ -321,6 +322,202 @@ TEST_CASE("resolve_post_stack: disabled, inactive and zero-weight components con
     CHECK(st.sources == 1);
 }
 
+TEST_CASE("custom post passes: an entry is parsed with its defaults, and every mistake says where and how to fix it") {
+    auto ok = parse_custom_post_pass(Json::parse(R"({"material":"materials/a.material.json"})"), "/customPasses/0");
+    REQUIRE_MESSAGE(ok.ok(), ok.error().message);
+    CHECK(ok->enabled);
+    CHECK(ok->position == "before:tonemap");
+    CHECK(ok->slot == PostSlot::AfterBloom);
+    CHECK(ok->params.is_object());
+
+    ok = parse_custom_post_pass(
+        Json::parse(R"({"material":"m","position":"after:ssr","enabled":false,"name":"x","materialParams":{"a":1}})"),
+        "/customPasses/1");
+    REQUIRE(ok.ok());
+    CHECK(ok->slot == PostSlot::AfterSsr);
+    CHECK_FALSE(ok->enabled);
+    CHECK(ok->name == "x");
+    CHECK(ok->params["a"] == 1);
+
+    // Every error starts with the pointer; the hint names what works.
+    auto bad = parse_custom_post_pass(Json::parse(R"({"material":"m","position":"after:bloon"})"), "/customPasses/2");
+    REQUIRE_FALSE(bad.ok());
+    CHECK(bad.error().message.find("/customPasses/2/position") != std::string::npos);
+    CHECK((bad.error().message + bad.error().hint).find("after:bloom") != std::string::npos);
+    bad = parse_custom_post_pass(Json::parse(R"({"material":"m","position":"before:ssao"})"), "/customPasses/0");
+    REQUIRE_FALSE(bad.ok());
+    CHECK((bad.error().message + bad.error().hint).find("after:ssao") != std::string::npos);
+    bad = parse_custom_post_pass(Json::parse(R"({"materal":"m"})"), "/customPasses/0");
+    REQUIRE_FALSE(bad.ok());
+    CHECK((bad.error().message + bad.error().hint).find("material") != std::string::npos);
+    bad = parse_custom_post_pass(Json::parse(R"({"position":"after:bloom"})"), "/customPasses/0");
+    CHECK_FALSE(bad.ok());  // the material is required
+    bad = parse_custom_post_pass(Json::parse(R"({"material":"m","enabled":"yes"})"), "/customPasses/0");
+    CHECK_FALSE(bad.ok());
+    bad = parse_custom_post_pass(Json::parse(R"("a string")"), "/customPasses/0");
+    CHECK_FALSE(bad.ok());
+
+    // The whole array: nine entries are too many.
+    Json many = Json::array();
+    for (int i = 0; i < kMaxCustomPostPasses + 1; ++i) many.push_back(Json::parse(R"({"material":"m"})"));
+    auto all = parse_custom_post_passes(many, "/customPasses");
+    REQUIRE_FALSE(all.ok());
+    CHECK(all.error().message.find("/customPasses") != std::string::npos);
+    CHECK(all.error().message.find("8") != std::string::npos);
+    CHECK_FALSE(parse_custom_post_passes(Json::parse(R"({"a":1})"), "/customPasses").ok());
+}
+
+TEST_CASE("custom post passes: every position maps to a place, in frame order, and the names are the table's") {
+    const std::vector<std::string> names = custom_post_position_names();
+    CHECK(int(names.size()) == kCustomPostPositionCount);
+    PostSlot previous = PostSlot::Main;
+    for (int i = 0; i < kCustomPostPositionCount; ++i) {
+        INFO(names[std::size_t(i)]);
+        auto r = parse_custom_post_pass(Json::object({{"material", "m"}, {"position", names[std::size_t(i)]}}), "/p");
+        REQUIRE(r.ok());
+        CHECK(r->slot == kCustomPostPositions[i].slot);
+        CHECK(int(r->slot) >= int(previous));  // the table is in frame order
+        previous = r->slot;
+    }
+    CHECK(int(PostSlot::Count) == kPostSlotCount);
+    CHECK(std::find(names.begin(), names.end(), std::string(kCustomPostDefaultPosition)) != names.end());
+}
+
+TEST_CASE("custom post passes: the display-referred places parse, the ones that are no place say why") {
+    const std::pair<const char*, PostSlot> places[] = {
+        {"after:tonemap", PostSlot::AfterTonemap},      {"before:colorGrading", PostSlot::AfterTonemap},
+        {"after:colorGrading", PostSlot::AfterGrading}, {"before:vignette", PostSlot::AfterGrading},
+        {"after:vignette", PostSlot::AfterVignette},    {"before:sharpen", PostSlot::AfterVignette},
+        {"after:sharpen", PostSlot::AfterSharpen},      {"before:outline", PostSlot::AfterSharpen},
+        {"after:outline", PostSlot::AfterOutline},      {"before:posterize", PostSlot::AfterOutline},
+        {"after:posterize", PostSlot::AfterPosterize},  {"before:filmGrain", PostSlot::AfterPosterize},
+        {"after:filmGrain", PostSlot::AfterGrain},      {"before:colorFilter", PostSlot::AfterGrain},
+    };
+    for (const auto& [name, slot] : places) {
+        INFO(name);
+        auto r = parse_custom_post_pass(Json::object({{"material", "m"}, {"position", name}}), "/p");
+        REQUIRE(r.ok());
+        CHECK(r->slot == slot);
+        CHECK(post_slot_is_ldr(r->slot));
+    }
+    CHECK_FALSE(post_slot_is_ldr(PostSlot::AfterBloom));
+    // The pixelate and the colour filter are no places; the message says what to write instead and no text says the
+    // display-referred places do not exist.
+    for (const char* name : {"before:pixelate", "after:pixelate", "after:colorFilter"}) {
+        INFO(name);
+        auto bad = parse_custom_post_pass(Json::object({{"material", "m"}, {"position", name}}), "/p");
+        REQUIRE_FALSE(bad.ok());
+        CHECK(bad.error().message.find("/p/position") != std::string::npos);
+        CHECK(bad.error().hint.find("is not a place") != std::string::npos);
+        CHECK(bad.error().hint.find(std::string(name).find("pixelate") != std::string::npos
+                                        ? "after:outline"
+                                        : "before:colorFilter") != std::string::npos);
+        CHECK(bad.error().hint.find("not supported") == std::string::npos);
+    }
+}
+
+TEST_CASE("resolve_post_stack: custom passes of the camera and of volumes, in order; an unreadable entry is reported") {
+    Scene s;
+    s.world.add<PostProcess>(s.cam);
+    PostProcess& own = *s.world.get<PostProcess>(s.cam);
+    own.customPasses =
+        Json::parse(R"([{"material":"own1"},{"material":"own2","position":"after:ssr"},{"mat":"typo"}])");
+    Entity v = s.volume("v");
+    s.pp(v).customPasses = Json::parse(R"([{"material":"vol1"}])");
+    PostStack st = s.resolve();
+    REQUIRE(st.custom.size() == 3);  // own first (in list order), then the volume
+    CHECK(st.custom[0].material == "own1");
+    CHECK(st.custom[1].material == "own2");
+    CHECK(st.custom[2].material == "vol1");
+    REQUIRE(st.customErrors.size() == 1);
+    CHECK(st.customErrors[0].message.find("/customPasses/2") != std::string::npos);
+    CHECK(st.has_custom());
+
+    // A volume that is weaker than one half adds nothing (a list cannot be blended); a custom pass is no effect of the
+    // order.
+    s.pp(v).weight = 0.4f;
+    st = s.resolve();
+    CHECK(st.custom.size() == 2);
+    CHECK(st.effect_count() == 0);
+    CHECK(st.mask == 0);
+
+    // The same world resolves to the same list every time.
+    const PostStack again = s.resolve();
+    CHECK(again.custom.size() == st.custom.size());
+
+    // Too many entries on one component: none of them is taken, the error says why.
+    Json many = Json::array();
+    for (int i = 0; i < kMaxCustomPostPasses + 1; ++i) many.push_back(Json::parse(R"({"material":"m"})"));
+    own.customPasses = many;
+    s.pp(v).customPasses = Json::array();
+    st = s.resolve();
+    CHECK(st.custom.empty());
+    CHECK_FALSE(st.customErrors.empty());
+}
+
+TEST_CASE(
+    "resolve_post_stack: the custom passes of camera and volumes together stop at 32, and the stack says so once") {
+    Scene s;
+    s.world.add<PostProcess>(s.cam);
+    Json eight = Json::array();
+    for (int i = 0; i < kMaxCustomPostPasses; ++i)
+        eight.push_back(Json::object({{"material", "m" + std::to_string(i)}}));
+    s.world.get<PostProcess>(s.cam)->customPasses = eight;
+    for (const char* id : {"v0", "v1", "v2", "v3", "v4"}) s.pp(s.volume(id)).customPasses = eight;
+    const PostStack st = s.resolve();
+    CHECK(st.custom.size() == std::size_t(4 * kMaxCustomPostPasses));
+    REQUIRE(st.customErrors.size() == 1);
+    CHECK(st.customErrors[0].message.find("32") != std::string::npos);
+    CHECK_FALSE(st.customErrors[0].hint.empty());
+    // v3 hit the cap (8 entries dropped); v4's 8 are added to the same message, with its entity, not left out.
+    CHECK(st.customErrors[0].message.find("the 8 entries of one PostProcess") != std::string::npos);
+    CHECK(st.customErrors[0].message.find("Also not drawn: the 8 entries of the PostProcess of entity 'v4' (v4)") !=
+          std::string::npos);
+}
+
+TEST_CASE("resolve_post_stack: the entries past the cap of 32 are named, and one that does not parse says why") {
+    Scene s;
+    s.world.add<PostProcess>(s.cam);
+    Json eight = Json::array();
+    for (int i = 0; i < kMaxCustomPostPasses; ++i)
+        eight.push_back(Json::object({{"material", "m" + std::to_string(i)}}));
+    s.world.get<PostProcess>(s.cam)->customPasses = eight;
+    for (const char* id : {"v0", "v1", "v2"}) s.pp(s.volume(id)).customPasses = eight;
+    Json last =
+        Json::array();  // the 33rd entry is fine, the 34th names no material and the 35th has a position nobody knows
+    last.push_back(Json::object({{"material", "late"}}));
+    last.push_back(Json::object({{"position", "after:bloom"}}));
+    last.push_back(Json::object({{"material", "later"}, {"position", "after:nowhere"}}));
+    s.pp(s.volume("v3")).customPasses = last;
+    const PostStack st = s.resolve();
+    CHECK(st.custom.size() == std::size_t(4 * kMaxCustomPostPasses));
+    REQUIRE(st.customErrors.size() == 3);
+    const std::string& cap = st.customErrors[0].message;
+    CHECK(cap.find("32") != std::string::npos);
+    CHECK(cap.find("3 entries") != std::string::npos);
+    CHECK(cap.find("/customPasses/0") != std::string::npos);
+    CHECK(cap.find("'late'") != std::string::npos);
+    // The two that do not parse say which they are and why, as an entry of the camera would.
+    CHECK(st.customErrors[1].message.find("/customPasses/1") != std::string::npos);
+    CHECK(st.customErrors[1].message.find("material") != std::string::npos);
+    CHECK(st.customErrors[2].message.find("/customPasses/2") != std::string::npos);
+    CHECK(st.customErrors[2].message.find("after:nowhere") != std::string::npos);
+
+    // A later volume that is cut too is named in the same message, and its entries that do not parse get their own
+    // errors.
+    Json more = Json::array();
+    more.push_back(Json::object({{"material", "v4first"}}));
+    more.push_back(Json::object({{"position", "before:bloom"}}));
+    s.pp(s.volume("v4")).customPasses = more;
+    const PostStack st2 = s.resolve();
+    REQUIRE(st2.customErrors.size() == 4);
+    CHECK(st2.customErrors[0].message.find("Also not drawn: the 2 entries of the PostProcess of entity 'v4' (v4)") !=
+          std::string::npos);
+    CHECK(st2.customErrors[0].message.find("'v4first'") != std::string::npos);
+    CHECK(st2.customErrors[3].message.find("In the PostProcess of entity 'v4' (v4): ") != std::string::npos);
+    CHECK(st2.customErrors[3].message.find("/customPasses/1") != std::string::npos);
+}
+
 TEST_CASE("resolve_post_stack: the camera's own stack goes first, volumes are applied over it") {
     Scene s;
     s.world.add<PostProcess>(s.cam);
@@ -376,9 +573,10 @@ bool supported(const FeatureEnv& env, const char* name, std::string* why = nullp
 
 TEST_CASE("features: the table has the capabilities, the engine features and every post effect once") {
     const std::vector<std::string> names = feature_names();
-    CHECK(names.size() == 6 + std::size_t(kPostEffectCount));
+    CHECK(names.size() == 7 + std::size_t(kPostEffectCount));
     CHECK(std::set<std::string>(names.begin(), names.end()).size() == names.size());
-    for (const char* n : {"floatTargets", "r11g11b10", "linearColor", "hdrOutput", "sampledDepth", "computeShaders"})
+    for (const char* n :
+         {"floatTargets", "r11g11b10", "linearColor", "hdrOutput", "sampledDepth", "computeShaders", "postMaterials"})
         CHECK(find_feature(n) >= 0);
     for (const std::string_view e : kPostEffectOrder) CHECK(find_feature(e) >= 0);
     CHECK(find_feature("bloomm") == -1);
@@ -389,7 +587,7 @@ TEST_CASE("features: the table has the capabilities, the engine features and eve
         CHECK(std::string(f.doc).size() > 20);
     }
     // The effects come last, in the canonical order.
-    for (int i = 0; i < kPostEffectCount; ++i) CHECK(names[6 + std::size_t(i)] == kPostEffectOrder[std::size_t(i)]);
+    for (int i = 0; i < kPostEffectCount; ++i) CHECK(names[7 + std::size_t(i)] == kPostEffectOrder[std::size_t(i)]);
 }
 
 TEST_CASE("features: the capabilities follow what each backend's GPU reports") {

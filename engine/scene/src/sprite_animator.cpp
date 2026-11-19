@@ -49,7 +49,10 @@ SizeCache& size_cache() {
 // The size the renderer gives the texture of a Sprite, from files only. Unknown for the ids only the GPU knows.
 TexDims cpu_texture_dims(const std::string& texture) {
     if (texture.empty()) return {true, 1, 1};  // the renderer's white pixel
-    if (texture.rfind("runtime:", 0) == 0 || texture.rfind("target:", 0) == 0) return {};
+    // runtime:, target: and compute: ids are made on the GPU, not files (a compute image's size is the renderer's to know;
+    // this module sits below it), so their size stays unknown instead of being looked up as a file that is not there.
+    if (texture.rfind("runtime:", 0) == 0 || texture.rfind("target:", 0) == 0 || texture.rfind("compute:", 0) == 0)
+        return {};
     const std::string key = fs::normalize(texture);
     auto read = [&]() -> TexDims {
         auto r = texture_size(key);

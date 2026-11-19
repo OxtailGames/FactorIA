@@ -59,6 +59,12 @@ Part of [Building FactorIA](BUILDING.md) (the entry page lists every page).
   `cmake -DFA_TEST_WINDOWS_FILE_RULES=OFF`. A test that sets its own `ENVIRONMENT` property must `APPEND` to it
   (`set_property(TEST <name> APPEND PROPERTY ENVIRONMENT ...)`); `set_tests_properties(... ENVIRONMENT ...)` replaces the
   mode's variable.
+- **Compute tests and `FA_REQUIRE_COMPUTE`.** The tests that run a compute material on the GPU (`compute: ...` and
+  `compute images: ...` in `fa_test_render`, `compute commands: ...` in `fa_test_runtime`) need a backend with compute shaders (Metal, D3D11,
+  OpenGL 4.3). Where there is none (WARP or llvmpipe without compute, macOS GL 4.1) they print one line
+  `SKIPPED, no compute here (<why>)` and pass. `FA_REQUIRE_COMPUTE=1` turns that skip into a failure, like
+  `FA_REQUIRE_SHDC` does for sokol-shdc: set it on a runner that must have compute (CI sets it in the `linux` job,
+  where llvmpipe offers GL 4.5), so a driver that stopped offering it cannot turn into silent skips. The refusal test (a backend without compute answers with its name) always runs.
 - **Time limits count CPU time.** The 60 s of one test of `factoria test`, the 5 s of `script.eval`, the 2 s of a callback
   and the like measure the CPU time the script thread spent (`CLOCK_THREAD_CPUTIME_ID`, `GetThreadTimes`), not the wall
   clock, so a loaded machine or a build running next to the tests cannot fail them. A script blocked for good (a native that

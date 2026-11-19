@@ -149,6 +149,9 @@ enum class WordBreak : std::int32_t { Auto, Normal, KeepAll };
 // localization key takes the language's direction. Ltr / Rtl: the paragraph runs that way whatever its first letter is.
 enum class TextDirection : std::int32_t { Auto, Ltr, Rtl };
 
+// The most GPU instances one MeshRenderer or Sprite draws (MeshRenderer.instances, Sprite.instances).
+inline constexpr std::int32_t kMaxMeshInstances = 1 << 24;
+
 struct Sprite {
     std::string texture;      // asset path; "" draws a solid quad of `color`
     Rect region{0, 0, 0, 0};  // source rect in texture pixels (top-left origin); 0 size = whole texture
@@ -178,6 +181,11 @@ struct Sprite {
     ArrayF32 vertexOffsets;
     // grid sprites: [r, g, b, a, ...] per grid vertex (same order), multiplied with `color`
     ArrayF32 vertexColors;
+    std::string material;  // "" = the built-in look; else a *.material.json of kind "sprite" (docs/SHADERS.md)
+    Json materialParams =
+        Json::object();  // per-entity overrides of the material's params, as MeshRenderer.materialParams
+    std::int32_t instances =
+        0;  // 0 = the sprite's one quad; N > 0 = N quads in ONE draw, placed by the material's vertex() from its compute buffers
 };
 
 // How a SpriteAnimator walks its frames: forward (first to last), reverse (last to first), pingpong (first to last and back).
@@ -327,6 +335,9 @@ struct Shape2D {
         Json::array();  // gradient: [[t, color], ...] (t 0..1, up to 8) replacing color -> color2; [] = just those two
     GradientEase gradientEase =
         GradientEase::Linear;  // gradient: the curve applied to the position before the colour lookup
+    std::string material;      // "" = the built-in look; else a *.material.json of kind "sprite" (docs/SHADERS.md)
+    Json materialParams =
+        Json::object();  // per-entity overrides of the material's params, as MeshRenderer.materialParams
 };
 
 struct Text {
@@ -357,6 +368,9 @@ struct Text {
     RenderSpace space = RenderSpace::World;
     Vec2 anchor{0, 0};      // screen space only: screen point the position is relative to
     bool safeArea = false;  // screen space only: the anchor names a point of the safe area (see above)
+    std::string material;   // "" = the built-in look; else a *.material.json of kind "sprite" (docs/SHADERS.md)
+    Json materialParams =
+        Json::object();  // per-entity overrides of the material's params, as MeshRenderer.materialParams
 };
 
 // Whether align start is the right edge of `t` (and end the left): direction rtl, or auto in a right-to-left language.
@@ -435,6 +449,9 @@ struct Tilemap {
     std::int32_t seenHeight = 0;
     std::uint32_t sizeChanges = 0;
     bool sizeSeen = false;
+    std::string material;  // "" = the built-in look; else a *.material.json of kind "sprite" (docs/SHADERS.md)
+    Json materialParams =
+        Json::object();  // per-entity overrides of the material's params, as MeshRenderer.materialParams
 };
 
 // Draws this entity's 2D visuals (Sprite, Shape2D, Text, Tilemap) shifted by a fraction of the camera's movement, so
@@ -575,6 +592,9 @@ struct ParticleEmitter {
         array();  // pixel mode: ["#rrggbb", ...] the colours snap to; [] = assets.json style.palette (none = unchanged)
     std::int32_t seed =
         0;  // 0 = derived from the entity's id; another number gives another (still repeatable) random run
+    std::string material;  // "" = the built-in look; else a *.material.json of kind "sprite" (docs/SHADERS.md)
+    Json materialParams =
+        Json::object();  // per-entity overrides of the material's params, as MeshRenderer.materialParams
 };
 
 // -------------------------------------------------------------------- UI ---
@@ -603,6 +623,9 @@ struct UiBox {
     Json draggable;  // null / false = no; true or {payload, slop}: the player can drag it (ui.on("dragStart" ...))
     bool mirror =
         true;  // false: stays where it is written in a right-to-left language (ui.mirrorRtl): a map, a 3D view
+    std::string material;  // "" = the built-in look; else a *.material.json of kind "sprite" (docs/SHADERS.md)
+    Json materialParams =
+        Json::object();  // per-entity overrides of the material's params, as MeshRenderer.materialParams
 };
 
 // What Button, Toggle, Slider and TextField add to UiBox.
@@ -1040,8 +1063,11 @@ struct MeshRenderer {
         Json::object();  // glTF material name -> [r,g,b,a] replacing that material's base color factor
     Json lods = Json::
         array();  // lower-detail meshes, nearest first: [{"mesh": "assets/lamp.lod1.glb", "distance": 12}, ...] (lod_mesh, fa/scene/lod.h)
+    std::int32_t instances =
+        0;  // 0 = one normal draw; N > 0 = N GPU instances read from the material's compute buffers
+    float instanceBounds =
+        0.0f;  // instances > 0: half-extent (local metres) of the box around the entity; 0 = never culled
 };
-
 enum class LightType : std::int32_t { Directional, Point, Spot };
 struct Light {
     LightType type = LightType::Directional;  // directional lights point along the entity's forward (-Z rotated)
@@ -1462,6 +1488,8 @@ struct SceneSettings {
     float fogDensity = 0.0f;                      // 0 = no fog
     Color skyColor{0.45f, 0.62f, 0.85f, 1.0f};    // 3D background gradient top (used when a perspective camera clears)
     Color horizonColor{0.8f, 0.85f, 0.9f, 1.0f};  // gradient bottom
+    std::string skyMaterial;                      // "" = the gradient; else a *.material.json of kind "sky"
+    Json skyMaterialParams = Json::object();      // overrides of the sky material's params
     std::string music;                            // asset path, looped background music ("" = none)
     float musicVolume = 0.6f;
     float lightScale = 1.0f;  // size of the Light2D light buffer as a fraction of the picture (0.25 .. 1)

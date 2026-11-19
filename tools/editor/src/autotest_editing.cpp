@@ -596,16 +596,16 @@ void Editor::at_section_L(AtScript& at) {
             he->undo = undo_depth();
         });
         step(30, [this] {
-            at_check(at_visible("insp:matparam:pulse") && at_visible("insp:matparam:glow") &&
-                         at_visible("insp:matparam:tint"),
+            at_check(at_visible("insp:MeshRenderer:matparam:pulse") && at_visible("insp:MeshRenderer:matparam:glow") &&
+                         at_visible("insp:MeshRenderer:matparam:tint"),
                      "the Inspector lists the params of MeshRenderer.material, typed by material.info");
-            at_check(!at_enabled("insp:matreset:pulse"), "...a param with no override cannot be reset");
+            at_check(!at_enabled("insp:MeshRenderer:matreset:pulse"), "...a param with no override cannot be reset");
         });
         // Scrolled once the material's build report is in: an error under the material field (no shader compiler on this
         // machine) pushes the params down, out of a small window's Inspector.
         step(2, [this] { inspScrollTo_ = "MeshRenderer.materialParams"; });
         step(3, [] {});
-        click("insp:matparam:pulse");
+        click("insp:MeshRenderer:matparam:pulse");
         type_text("2.5");
         press_enter();
         step(4, [this, he] {
@@ -615,9 +615,9 @@ void Editor::at_section_L(AtScript& at) {
             at_check(params.is_object() && params.value("pulse", 0.0) == 2.5,
                      "typing a value for a material param writes it into materialParams");
             at_check(undo_depth() == he->undo + 1, "...as one undo step");
-            at_check(at_enabled("insp:matreset:pulse"), "...and the param can now be reset");
+            at_check(at_enabled("insp:MeshRenderer:matreset:pulse"), "...and the param can now be reset");
         });
-        click("insp:matparam:pulse");
+        click("insp:MeshRenderer:matparam:pulse");
         type_text("9");
         press_enter();
         step(4, [this] {
@@ -627,7 +627,7 @@ void Editor::at_section_L(AtScript& at) {
             at_check(params.value("pulse", 0.0) == 4.0, "a value above the param's max is held to it (max 4)");
         });
         snap("editor_inspector_material.png");
-        click("insp:matreset:pulse");
+        click("insp:MeshRenderer:matreset:pulse");
         step(4, [this] {
             const Json params =
                 component_to_json(world(), world().find_by_id("gem"), *TypeRegistry::global().find("MeshRenderer"),
@@ -2143,7 +2143,7 @@ void Editor::at_section_M5(AtScript& at) {
             });
         };
         auto clip_has = [](const char* needle) {
-            const char* c = sapp_get_clipboard_string();
+            const char* c = clipboard_get_text();
             return c && std::string(c).find(needle) != std::string::npos;
         };
         auto pos_of_id = [this](const std::string& id) {
@@ -2155,7 +2155,7 @@ void Editor::at_section_M5(AtScript& at) {
         // 1. Two coins selected in the tree (coin_2 last: the primary), Ctrl+C: text on the clipboard, nothing else changes.
         step(3, [this, m] {
             select_id("");
-            sapp_set_clipboard_string("not entities");
+            clipboard_set_text("not entities");
             m->undo = undo_depth();
             m->entities = world().entities().size();
         });
@@ -2192,7 +2192,7 @@ void Editor::at_section_M5(AtScript& at) {
         step(2, [this, m] {
             m->undo = undo_depth();
             m->entities = world().entities().size();
-            sapp_set_clipboard_string("not entities");
+            clipboard_set_text("not entities");
         });
         chord(SAPP_KEYCODE_X);
         step(3, [this, m, clip_has] {
@@ -2243,7 +2243,7 @@ void Editor::at_section_M5(AtScript& at) {
         // 4. Text that is not entities pastes nothing and records no undo step.
         click("tree:player");
         step(2, [this, m] {
-            sapp_set_clipboard_string("hello, not an entity");
+            clipboard_set_text("hello, not an entity");
             m->undo = undo_depth();
             m->entities = world().entities().size();
         });
@@ -2268,7 +2268,7 @@ void Editor::at_section_M5(AtScript& at) {
             at_check(r.ok, "an entity with a property longer than the clipboard is made");
             m->big = r.result.value("id", std::string());
             select_id(m->big);
-            sapp_set_clipboard_string("sentinel");
+            clipboard_set_text("sentinel");
             m->undo = undo_depth();
             m->entities = world().entities().size();
             entity_cut();
@@ -2282,7 +2282,7 @@ void Editor::at_section_M5(AtScript& at) {
 
         // 5. Another panel holding the keyboard keeps Ctrl+C: the Inspector does not copy the selection.
         step(2, [this] {
-            sapp_set_clipboard_string("sentinel");
+            clipboard_set_text("sentinel");
             focus_window("Inspector");
         });
         step(4, [] {});

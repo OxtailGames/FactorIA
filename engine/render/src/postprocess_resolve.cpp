@@ -163,6 +163,70 @@ float strength_of(const PostProcess& c) {
     return w;
 }
 
+// Adds the customPasses of `c` to the stack when it applies with a strength of at least 0.5 (a list cannot be blended:
+// it switches like a string does). An entry that does not parse goes to `customErrors` with its JSON pointer.
+void add_custom_passes(PostStack& out, const World& world, const PostProcess& c, float s, Entity entity,
+                       PostTrace* trace, int layer) {
+    if (s < 0.5f || !c.customPasses.is_array() || c.customPasses.empty()) return;
+    if (c.customPasses.size() > std::size_t(kMaxCustomPostPasses)) {
+        auto all = parse_custom_post_passes(c.customPasses, "/customPasses");  // the error that says "too many"
+        if (!all.ok()) out.customErrors.push_back(all.error());
+        return;
+    }
+    for (std::size_t i = 0; i < c.customPasses.size(); ++i) {
+        auto r = parse_custom_post_pass(c.customPasses[i], "/customPasses/" + std::to_string(i));
+        if (!r.ok()) {
+            out.customErrors.push_back(r.error());
+            continue;
+        }
+        if (out.custom.size() >= std::size_t(4 * kMaxCustomPostPasses)) {  // the volumes together stay bounded
+            // Name the entries that are dropped: the first one with its material (or why it does not parse either), and
+            // every other one of this component that does not parse with its own pointer and reason.
+            const std::string prefix = "The custom passes of the camera and its volumes together are limited to " +
+                                       std::to_string(4 * kMaxCustomPostPasses) + "; ";
+            const std::size_t dropped = c.customPasses.size() - i;
+            std::string first;
+            std::vector<Error> unparsable;
+            for (std::size_t j = i; j < c.customPasses.size(); ++j) {
+                auto rest = parse_custom_post_pass(c.customPasses[j], "/customPasses/" + std::to_string(j));
+                if (rest.ok()) {
+                    if (j == i) first = " (material '" + rest->material + "')";
+                } else {
+                    if (j == i)
+                        first = " (it does not parse either: " + rest.error().message + ")";
+                    else
+                        unparsable.push_back(rest.error());
+                }
+            }
+            // The first component that hits the cap says it; the components after it (later volumes) add what they drop
+            // to that message, so every dropped entry is named once, not only those of the first one.
+            const auto said = std::find_if(out.customErrors.begin(), out.customErrors.end(),
+                                           [&](const Error& e) { return e.message.rfind(prefix, 0) == 0; });
+            if (said == out.customErrors.end()) {
+                out.customErrors.push_back(Error{
+                    prefix + "the " + std::to_string(dropped) + (dropped == 1 ? " entry" : " entries") +
+                        " of one PostProcess from /customPasses/" + std::to_string(i) + first + " on are not drawn.",
+                    "Remove entries from PostProcess.customPasses of the camera or the volumes, or merge "
+                    "passes into one material."});
+                for (Error& e : unparsable) out.customErrors.push_back(std::move(e));
+            } else {
+                const std::string who = "entity '" + world.info(entity).name + "' (" + world.id_of(entity) + ")";
+                said->message += " Also not drawn: the " + std::to_string(dropped) +
+                                 (dropped == 1 ? " entry" : " entries") + " of the PostProcess of " + who +
+                                 " from /customPasses/" + std::to_string(i) + first + " on.";
+                for (Error& e : unparsable) {
+                    e.message = "In the PostProcess of " + who + ": " + e.message;
+                    out.customErrors.push_back(std::move(e));
+                }
+            }
+            return;
+        }
+        r->source = entity.bits();
+        out.custom.push_back(std::move(*r));
+        if (trace) trace->customLayers.push_back(layer);
+    }
+}
+
 }  // namespace
 
 int PostStack::effect_count() const {
@@ -271,6 +335,7 @@ PostStack resolve_post_stack(World& world, const CameraGeometry& cam, const Post
                 trace->layers.push_back({legacy ? PostLayer::Kind::Legacy : PostLayer::Kind::Own, cam.entity, s, 1.0f});
             }
             apply_component(out.fx, *own, s, trace, layer);
+            add_custom_passes(out, world, *own, s, cam.entity, trace, layer);
             ++out.sources;
         }
     }
@@ -290,6 +355,7 @@ PostStack resolve_post_stack(World& world, const CameraGeometry& cam, const Post
             trace->layers.push_back({PostLayer::Kind::Volume, v.entity, strength_of(*v.component), v.influence});
         }
         apply_component(out.fx, *v.component, v.strength, trace, layer);
+        add_custom_passes(out, world, *v.component, v.strength, v.entity, trace, layer);
         ++out.sources;
     }
     for (int e = 0; e < kPostEffectCount; ++e)

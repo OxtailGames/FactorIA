@@ -8,22 +8,47 @@ fa_embed_files(fa_render fa_render_fonts embedded_fonts
           ${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts/PressStart2P-Regular.ttf
     BASE ${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts)
 
-# mesh_template_hash(): SHA-256 of the mesh template files, the value the tooling writes into every material twin
-# (fa/tooling/shaders.h shader_template_hash() returns it): per file, by name, "<name>\n<sha256 of content>\n", all hashed,
-# with CRs removed so that every checkout gives the same value (.gitattributes also checks the shaders out with LF).
-file(GLOB FA_MESH_TEMPLATE_FILES CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/shaders/*_common.glsl)
-list(SORT FA_MESH_TEMPLATE_FILES)
-set(FA_MESH_TEMPLATE_LIST "")
-foreach(f ${FA_MESH_TEMPLATE_FILES})
-    get_filename_component(n ${f} NAME)
-    file(READ ${f} c)
-    string(REPLACE "\r" "" c "${c}")
-    string(SHA256 h "${c}")
-    string(APPEND FA_MESH_TEMPLATE_LIST "${n}\n${h}\n")
+# fa::material_template_hash(kind): SHA-256 of the template files of one material kind, the value the tooling writes into
+# every material twin of that kind (fa/tooling/shaders.h shader_template_hash(kind) returns it): per file, by name,
+# "<name>\n<sha256 of content>\n", all hashed, with CRs removed so that every checkout gives the same value (.gitattributes
+# also checks the shaders out with LF). Each kind hashes only its own files, so editing the sprite template leaves every
+# mesh twin valid. THE LISTS ARE EXPLICIT and must equal template_file_names() of tools/common/src/shaders_generate.cpp (a
+# test compares both). The mesh list is the file set the hash was computed from before kinds existed, so its value did not
+# change.
+set(FA_TEMPLATE_FILES_MESH mesh_common.glsl)
+# A mesh material in "full" mode (its own vertex and fragment stage, docs/shaders/SHADERS_FULL.md) is built from mesh_common.glsl's blocks plus
+# mesh_full_common.glsl; its twin carries this hash (the mesh hash above stays what it was: no snippet twin is made stale by the
+# full-shader template).
+set(FA_TEMPLATE_FILES_MESH_FULL mesh_common.glsl mesh_full_common.glsl)
+# The sprite template @includes color_space.glsl and light_shadow.glsl (the other programs that use them include them too), so a
+# change to either one changes the sprite hash.
+set(FA_TEMPLATE_FILES_SPRITE color_space.glsl light_shadow.glsl quad_common.glsl)
+# The sky template @includes color_space.glsl (fa_scene_rgb), so a change to it changes the sky hash too.
+set(FA_TEMPLATE_FILES_SKY color_space.glsl sky_common.glsl)
+set(FA_TEMPLATE_FILES_POST post_common.glsl)
+set(FA_TEMPLATE_FILES_COMPUTE compute_common.glsl)
+set(FA_TEMPLATE_DEFINITIONS "")
+foreach(kind MESH MESH_FULL SPRITE SKY POST COMPUTE)
+    set(list "")
+    foreach(n ${FA_TEMPLATE_FILES_${kind}})
+        set(f ${CMAKE_CURRENT_SOURCE_DIR}/shaders/${n})
+        file(READ ${f} c)
+        string(REPLACE "\r" "" c "${c}")
+        string(SHA256 h "${c}")
+        string(APPEND list "${n}\n${h}\n")
+        set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${f})
+    endforeach()
+    if(list STREQUAL "")
+        set(FA_TEMPLATE_HASH_${kind} "")
+    else()
+        string(SHA256 FA_TEMPLATE_HASH_${kind} "${list}")
+    endif()
+    # A kind without a template (compute) defines nothing: an empty quoted define is not portable (material_template_hash returns {}).
+    if(NOT list STREQUAL "")
+        list(APPEND FA_TEMPLATE_DEFINITIONS "FA_TEMPLATE_HASH_${kind}=\"${FA_TEMPLATE_HASH_${kind}}\"")
+    endif()
 endforeach()
-string(SHA256 FA_MESH_TEMPLATE_HASH "${FA_MESH_TEMPLATE_LIST}")
-set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${FA_MESH_TEMPLATE_FILES})
-set_source_files_properties(src/custom_shader.cpp PROPERTIES COMPILE_DEFINITIONS "FA_MESH_TEMPLATE_HASH=\"${FA_MESH_TEMPLATE_HASH}\"")
+set_source_files_properties(src/custom_shader.cpp PROPERTIES COMPILE_DEFINITIONS "${FA_TEMPLATE_DEFINITIONS}")
 
 # Third-party implementation TUs: no warnings.
 if(MSVC)

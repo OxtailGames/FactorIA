@@ -297,6 +297,9 @@ Json component_to_json(const World& world, Entity e, const TypeInfo& type, bool 
                        bool includeRuntime = false, std::size_t summarizeArraysOver = SIZE_MAX);
 // Adds the component if missing, then applies the partial field object.
 Result<void> patch_component(World& world, Entity e, const TypeInfo& type, const Json& fields);
+// The same for the scene's SceneSettings (it is no component of an entity): the partial object `fields` is applied to
+// `world.settings()`, every field or none (an unknown or invalid one changes nothing). The error names the field.
+Result<void> patch_settings(World& world, const Json& fields);
 
 // Prefabs
 // `overrides` is entity JSON applied over the prefab's root; its "overrides" key patches descendants (see docs/MENUS.md).

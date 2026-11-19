@@ -133,6 +133,87 @@ void build_batches(std::vector<MeshItem>& items, bool sortByMaterial, std::vecto
     }
 }
 
+void InstanceParamCache::begin_frame(std::uint64_t serial) {
+    if (serial == serial_) return;
+    // Drop what the previous frame did not ask for (an entity that died, hid or changed material).
+    if (entries_.size() > touched_) std::erase_if(entries_, [&](const auto& kv) { return kv.second.seen != serial_; });
+    serial_ = serial;
+    touched_ = 0;
+}
+
+void InstanceParamCache::clear() {
+    entries_.clear();
+    defaults_.clear();
+    serial_ = ~std::uint64_t(0);
+    touched_ = 0;
+}
+
+const float* InstanceParamCache::get(Entity entity, const MeshRenderer& mr, MaterialAsset& m) {
+    const std::size_t floats = std::size_t(m.instanceVec4) * 4;
+    const Json& over = mr.materialParams;
+    if (!over.is_object() || over.empty()) {  // the defaults: one block for every entity of the material
+        Default& d = defaults_[&m];
+        if (d.generation != m.generation || d.floats.size() != floats) {
+            d.floats.assign(floats, 0.0f);
+            pack_instance_params(m, Json(), d.floats.data());
+            d.generation = m.generation;
+            ++packed_;
+        }
+        return d.floats.data();
+    }
+    Entry& e = entries_[entity.bits()];
+    if (e.seen != serial_ || e.generation < 0) ++touched_;
+    e.seen = serial_;
+    if (e.material != &m || e.generation != m.generation || e.floats.size() != floats || !(e.overrides == over)) {
+        e.floats.assign(floats, 0.0f);
+        pack_instance_params(m, over, e.floats.data());
+        e.overrides = over;
+        e.material = &m;
+        e.generation = m.generation;
+        ++packed_;
+    }
+    return e.floats.data();
+}
+
+void pack_instance_extras(const std::vector<MeshItem>& items, std::vector<MeshBatch>& batches,
+                          std::vector<float>& mainData, std::vector<float>& shadowData, InstanceParamCache* cache) {
+    for (std::size_t bi = 0; bi < batches.size(); ++bi) {
+        MeshBatch& b = batches[bi];
+        MaterialAsset* mat = items[b.rep].material;
+        if (!mat || !mat->ok || mat->instanceVec4 <= 0) continue;
+        const std::size_t end = bi + 1 < batches.size() ? batches[bi + 1].rep : items.size();
+        const std::size_t floats = std::size_t(mat->instanceVec4) * 4;
+        b.instanceVec4 = std::uint32_t(mat->instanceVec4);
+        b.mainExtra = std::uint32_t(mainData.size());
+        b.shadowExtra = std::uint32_t(shadowData.size());
+        for (std::size_t i = b.rep; i < end; ++i) {
+            const MeshItem& mi = items[i];
+            if (!mi.visible && !mi.casts) continue;
+            // The values of this entity: from the cache, or packed into the first buffer that needs them.
+            const float* packed = cache ? cache->get(mi.entity, *mi.mr, *mat) : nullptr;
+            const std::size_t mainAt = mainData.size(), shadowAt = shadowData.size();
+            float* out = nullptr;
+            if (mi.visible) {
+                mainData.resize(mainAt + floats);
+                out = mainData.data() + mainAt;
+                if (packed)
+                    std::memcpy(out, packed, floats * sizeof(float));
+                else
+                    pack_instance_params(*mat, mi.mr->materialParams, out);
+            }
+            if (mi.casts) {
+                shadowData.resize(shadowAt + floats);
+                if (out)
+                    std::memcpy(shadowData.data() + shadowAt, out, floats * sizeof(float));
+                else if (packed)
+                    std::memcpy(shadowData.data() + shadowAt, packed, floats * sizeof(float));
+                else
+                    pack_instance_params(*mat, mi.mr->materialParams, shadowData.data() + shadowAt);
+            }
+        }
+    }
+}
+
 // ---- the sort key ----
 
 bool pack_sort_key(std::uint64_t mesh, std::uint64_t tex, std::uint64_t normal, std::uint64_t rest,

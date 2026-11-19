@@ -1,0 +1,10 @@
+{
+  "format": "factoria.material/1",
+  "doc": "Test fixture: the same params as full_flat with the red and blue channels swapped (the hot reload test swaps one for the other).",
+  "mode": "full",
+  "shader": "shaders/full_alt.full.glsl",
+  "prepass": false,
+  "params": {
+    "tint": {"type": "color", "default": [0.2, 0.8, 0.4, 1.0], "doc": "The colour of the whole mesh, red and blue swapped."}
+  }
+}

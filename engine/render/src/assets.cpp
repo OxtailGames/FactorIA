@@ -238,9 +238,13 @@ void generate_normals(std::vector<MeshVertex>& v, const std::vector<std::uint32_
     }
 }
 
+// `uv1` and `color1` get TEXCOORD_1 (two floats per vertex) and COLOR_1 (packed like MeshVertex::color) when the
+// primitive has them, the channels a material's "vertexAttributes" read; they stay empty otherwise.
 bool read_primitive(const cgltf_primitive& prim, const Mat4& world, const Mat4& normalMat,
-                    std::vector<MeshVertex>& verts, std::vector<std::uint32_t>& idx) {
+                    std::vector<MeshVertex>& verts, std::vector<std::uint32_t>& idx, std::vector<float>& uv1,
+                    std::vector<std::uint32_t>& color1) {
     const cgltf_accessor *pos = nullptr, *nrm = nullptr, *uv = nullptr, *tng = nullptr, *col = nullptr;
+    const cgltf_accessor *uvB = nullptr, *colB = nullptr;
     for (cgltf_size a = 0; a < prim.attributes_count; ++a) {
         const cgltf_attribute& at = prim.attributes[a];
         if (at.type == cgltf_attribute_type_position && at.index == 0)
@@ -254,8 +258,25 @@ bool read_primitive(const cgltf_primitive& prim, const Mat4& world, const Mat4& 
         else if (at.type == cgltf_attribute_type_color && at.index == 0 &&
                  (at.data->type == cgltf_type_vec3 || at.data->type == cgltf_type_vec4))
             col = at.data;  // COLOR_0: multiplies the base color (rgb or rgba, floats or normalized integers)
+        else if (at.type == cgltf_attribute_type_texcoord && at.index == 1)
+            uvB = at.data;
+        else if (at.type == cgltf_attribute_type_color && at.index == 1 &&
+                 (at.data->type == cgltf_type_vec3 || at.data->type == cgltf_type_vec4))
+            colB = at.data;
     }
     if (!pos) return false;
+    if (uvB) {
+        uv1.assign(pos->count * 2, 0.0f);
+        for (cgltf_size i = 0; i < pos->count && i < uvB->count; ++i) cgltf_accessor_read_float(uvB, i, &uv1[i * 2], 2);
+    }
+    if (colB) {
+        color1.assign(pos->count, 0xFFFFFFFFu);
+        for (cgltf_size i = 0; i < pos->count && i < colB->count; ++i) {
+            float c[4] = {1, 1, 1, 1};
+            cgltf_accessor_read_float(colB, i, c, colB->type == cgltf_type_vec3 ? 3 : 4);
+            color1[i] = pack_vertex_color(c[0], c[1], c[2], c[3]);
+        }
+    }
     verts.resize(pos->count);
     for (cgltf_size i = 0; i < pos->count; ++i) {
         float p[3] = {0, 0, 0};
@@ -475,7 +496,7 @@ bool decode_gltf(const std::string& path, const std::uint8_t* bytes, std::size_t
                 continue;
             }
             PreparedPart part;
-            if (!read_primitive(prim, world, normalMat, part.verts, part.idx)) continue;
+            if (!read_primitive(prim, world, normalMat, part.verts, part.idx, part.uv1, part.color1)) continue;
             compute_bounds(part.verts, part.material.bmin, part.material.bmax);
             prepare_material(prim.material, dir, part);
             prepare_skin(path, skeleton, int(ni), int(pi), part, out.warnings);
@@ -541,6 +562,20 @@ public:
                 sm.skinVb = sg_make_buffer(&bd);
                 sm.skin = part.skinIndex;
                 bytes += part.skin.size() * sizeof(SkinVertex);
+            }
+            if (!part.uv1.empty()) {
+                sg_buffer_desc bd{};
+                bd.data = {part.uv1.data(), part.uv1.size() * sizeof(float)};
+                bd.label = "uv1";
+                sm.uv1Vb = sg_make_buffer(&bd);
+                bytes += part.uv1.size() * sizeof(float);
+            }
+            if (!part.color1.empty()) {
+                sg_buffer_desc bd{};
+                bd.data = {part.color1.data(), part.color1.size() * sizeof(std::uint32_t)};
+                bd.label = "color1";
+                sm.color1Vb = sg_make_buffer(&bd);
+                bytes += part.color1.size() * sizeof(std::uint32_t);
             }
             out.parts.push_back(sm);
         }
@@ -623,7 +658,9 @@ Assets::~Assets() {
 }
 
 void Assets::destroy_texture(TextureAsset& t) {
-    if (!t.atlas) {  // a packed texture borrows the GPU image of its atlas
+    // A texture that failed to load shares the checker's handles (use_placeholder): only the checker itself owns them.
+    const bool borrowed = t.placeholder && &t != placeholderTex_.get();
+    if (!t.atlas && !borrowed) {  // a packed texture borrows the GPU image of its atlas
         if (t.view.id) sg_destroy_view(t.view);
         if (t.image.id) sg_destroy_image(t.image);
     }
@@ -637,6 +674,8 @@ void Assets::destroy_mesh(MeshAsset& m) {
         sg_destroy_buffer(p.vb);
         sg_destroy_buffer(p.ib);
         if (p.skinVb.id) sg_destroy_buffer(p.skinVb);
+        if (p.uv1Vb.id) sg_destroy_buffer(p.uv1Vb);
+        if (p.color1Vb.id) sg_destroy_buffer(p.color1Vb);
     }
     m.parts.clear();
 }
@@ -660,6 +699,8 @@ void Assets::clear() {
         for (MaterialProgram& p : m->programs)
             if (p.shader.id) gpu_.destroy_shader(p.shader);
     materials_.clear();
+    drop_material_cache();
+    variantsChangedNoted_ = false;  // a later change of materialParams during a frame warns again
     failures_.clear();
     meshSources_.clear();
 }
@@ -1126,6 +1167,25 @@ TextureAsset* Assets::texture(const std::string& path) {
         }
         return slot.get();
     }
+    if (is_compute_id(
+            path)) {  // a storage image of a compute material: live, never cached (compute.resize_image remakes it)
+        std::string why;
+        TextureAsset* t = computeResolver_ ? computeResolver_(path, &why) : nullptr;
+        if (t) {
+            if (!failures_.empty())  // an older "no such image" record is stale now
+                failures_.erase(std::remove_if(failures_.begin(), failures_.end(),
+                                               [&](const Failure& f) { return f.kind == "texture" && f.path == path; }),
+                                failures_.end());
+            return t;
+        }
+        if (drawing_)
+            note_failure("texture", path,
+                         why.empty() ? std::format("'{}' is a compute image id but no such image exists now.", path)
+                                     : why,
+                         "Make the image with compute.create_image and use its `textureId`; compute.list_images names "
+                         "the live ones.");
+        return placeholderTex_.get();
+    }
     if (is_target_id(
             path)) {  // a render target: live, never cached (its image is remade when the camera's size changes)
         TextureAsset* t = targetResolver_ ? targetResolver_(path.substr(7)) : nullptr;
@@ -1462,11 +1522,24 @@ void Assets::reload(const std::string& pathIn) {
         failures_.erase(std::remove_if(failures_.begin(), failures_.end(),
                                        [&](const Failure& f) { return f.kind == "mesh" && f.path == path; }),
                         failures_.end());
+        // A material that lacked a channel of this mesh is told again after the reload (a glTF that now has it draws
+        // normally and its "material-mesh" report goes; one that still lacks it is reported again, once).
+        const std::string onMesh = " on " + path;
+        failures_.erase(std::remove_if(failures_.begin(), failures_.end(),
+                                       [&](const Failure& f) {
+                                           return f.kind == "material-mesh" && f.path.size() >= onMesh.size() &&
+                                                  f.path.compare(f.path.size() - onMesh.size(), onMesh.size(),
+                                                                 onMesh) == 0;
+                                       }),
+                        failures_.end());
+        for (auto& [key, mat] : materials_) mat->missingNoted.clear();
         load_mesh(path);
     }
     // Meshes referencing a reloaded texture keep pointing at the same TextureAsset (updated in place).
     // A material rebuilds in place when its file, its snippet or its compiled twin changed.
     const std::string dialect = backend_dialect(sg_query_backend());
+    drop_material_cache();
+    variantsChangedNoted_ = false;  // a hot reload starts the "params changed during the frame" warning again
     for (auto& [key, mat] : materials_)
         if (path == key || path == mat->snippet || path == key + "." + dialect + ".shader") build_material(*mat);
 }

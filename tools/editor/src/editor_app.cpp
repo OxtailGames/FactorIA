@@ -273,6 +273,9 @@ int Editor::run() {
     g_editor = this;
     const char* at = std::getenv("FA_EDITOR_AUTOTEST");
     autotest_ = at && *at && std::string(at) != "0";
+    // Always called, with the autotest flag: the scripted copies and pastes never touch (or read) the user's clipboard,
+    // and a normal run (a second Editor in the same process, after an autotest one) goes back to the system clipboard.
+    clipboard_use_private(autotest_);
     if (autotest_)
         set_ui_lock_wait_sec(2.0);  // a scripted click must not fail because a loaded machine held a lock past 0.3 s
     load_recent_projects();         // before any project opens, so opening one never overwrites the history
@@ -639,11 +642,13 @@ bool Editor::boot(const std::string& dirIn) {
         anim3d_release_textures();
         anim3d_.model.reset();
         modeler_release_textures();
-        modeler_.model.reset();  // (its evaluation worker is joined here)
-        reset_review_state();    // the Review window's reader and its sheet of seeds stop; its pictures are freed
-        sound_.player.reset();   // before the engine: it owns a voice of the mixer
-        music_.preview.reset();  // ...and so does the Music panel's preview
-        music_.model.reset();    // (its render worker is joined here)
+        modeler_.model.reset();    // (its evaluation worker is joined here)
+        graph_release_textures();  // the Graph panel: its picture belongs to this context
+        graph_ = GraphUi{};        // (its preview waits at most two seconds for a compile in flight)
+        reset_review_state();      // the Review window's reader and its sheet of seeds stop; its pictures are freed
+        sound_.player.reset();     // before the engine: it owns a voice of the mixer
+        music_.preview.reset();    // ...and so does the Music panel's preview
+        music_.model.reset();      // (its render worker is joined here)
         engine_->shutdown();
         engine_.reset();
     } else if (gfxUp_) {
@@ -723,8 +728,13 @@ bool Editor::boot(const std::string& dirIn) {
     register_layout_settings();
     // sokol_app hands back the last pasted text when the clipboard holds no text (a picture): ImGui would paste that
     // again, and the AI panel's Ctrl+V would never see an empty clipboard and attach the picture.
+    // Both directions go through the editor's clipboard (clipboard.cpp), which is private to the process under the
+    // autotest.
     ImGui::GetPlatformIO().Platform_GetClipboardTextFn = [](ImGuiContext*) {
-        return clipboard_has_text() ? sapp_get_clipboard_string() : "";
+        return clipboard_has_text() ? clipboard_get_text() : "";
+    };
+    ImGui::GetPlatformIO().Platform_SetClipboardTextFn = [](ImGuiContext*, const char* text) {
+        clipboard_set_text(text);
     };
     uiUp_ = true;
     queue_.reopen();
@@ -1104,6 +1114,7 @@ void Editor::on_frame(double dt) {
         profile_tick(frameBefore);
     }
 
+    graph_pre_frame();  // the Graph panel's preview compiles and draws here, outside the UI build (a capture commits the GPU frame)
     const int fbW = sapp_width(), fbH = sapp_height();
     ui::new_frame(fbW, fbH, dt, dpi_);
     ++uiFrame_;
@@ -1469,6 +1480,7 @@ void Editor::step_history(bool forward) {
         {"$vector", &Editor::vector_apply_undo},      // vector_panel.cpp
         {"$sound", &Editor::sound_apply_undo},        // sound_panel.cpp
         {"$particle", &Editor::particle_apply_undo},  // particle_panel.cpp
+        {"$graph", &Editor::graph_apply_undo},        // graph_panel.cpp
         {"$music", &Editor::music_apply_undo},        // music_panel.cpp
         {"$modeler", &Editor::modeler_apply_undo},    // modeler_panel.cpp
     };
@@ -1543,10 +1555,10 @@ void Editor::open_screenshots_folder() {
 // Layout and top-level UI
 // The panels that can be closed, in the order of the saved mask. The dock layout itself is saved by ImGui in the same ini file.
 int Editor::panels_mask() const {
-    const bool flags[] = {showViewport_,  showHierarchy_, showInspector_, showConsole_,  showProject_,
-                          showAi_,        showFeedback_,  showAudio_,     showProfiler_, showAnimation_,
-                          showBoneTools_, showImage_,     showVector_,    showSound_,    showMusic_,
-                          showModeler_,   showParticle_,  showLevelGen_,  showPostFx_};
+    const bool flags[] = {
+        showViewport_, showHierarchy_, showInspector_, showConsole_,   showProject_, showAi_,     showFeedback_,
+        showAudio_,    showProfiler_,  showAnimation_, showBoneTools_, showImage_,   showVector_, showSound_,
+        showMusic_,    showModeler_,   showParticle_,  showLevelGen_,  showPostFx_,  showGraph_,  showSceneSettings_};
     int mask = 0;
     for (std::size_t i = 0; i < std::size(flags); ++i)
         if (flags[i]) mask |= 1 << i;
@@ -1554,10 +1566,11 @@ int Editor::panels_mask() const {
 }
 
 void Editor::set_panels_mask(int mask) {
-    bool* flags[] = {&showViewport_,  &showHierarchy_, &showInspector_, &showConsole_,  &showProject_,
-                     &showAi_,        &showFeedback_,  &showAudio_,     &showProfiler_, &showAnimation_,
-                     &showBoneTools_, &showImage_,     &showVector_,    &showSound_,    &showMusic_,
-                     &showModeler_,   &showParticle_,  &showLevelGen_,  &showPostFx_};
+    bool* flags[] = {&showViewport_,     &showHierarchy_, &showInspector_, &showConsole_,  &showProject_,
+                     &showAi_,           &showFeedback_,  &showAudio_,     &showProfiler_, &showAnimation_,
+                     &showBoneTools_,    &showImage_,     &showVector_,    &showSound_,    &showMusic_,
+                     &showModeler_,      &showParticle_,  &showLevelGen_,  &showPostFx_,   &showGraph_,
+                     &showSceneSettings_};
     for (std::size_t i = 0; i < std::size(flags); ++i) *flags[i] = (mask >> i) & 1;
 }
 
@@ -1756,6 +1769,8 @@ void Editor::build_ui() {
         else if (sound_.player && sound_.player->playing())
             sound_.player->stop();
         if (showParticle_) draw_particle_panel();
+        if (showGraph_) draw_graph_panel();
+        if (showSceneSettings_) draw_scene_settings_panel();
         if (showMusic_)
             draw_music_panel();
         else if (music_.preview && music_.preview->playing())

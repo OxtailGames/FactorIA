@@ -7,16 +7,20 @@
 // `postprocess.get {resolved: true}`: the same one the renderer draws, computed on the CPU (render::post_stack_report called directly: a
 // command call every frame would reach the console and the MCP history through the command interceptor).
 #include <algorithm>
+#include <cmath>
 #include <utility>
 
 #include "editor_internal.h"
+#include "fa/core/fs.h"
 #include "fa/core/reflect.h"
+#include "fa/render/post_custom.h"
 #include "fa/render/post_report.h"
 #include "fa/render/renderer.h"
 #include "fa/runtime/postprocess_presets.h"
 #include "fa/scene/camera_query.h"
 #include "fa/scene/postprocess.h"
 #include "imgui_internal.h"
+#include "postfx_custom.h"
 
 namespace fa::editor {
 
@@ -81,7 +85,7 @@ std::string Editor::postfx_target_id() {
     return postFx_.report.is_object() ? postFx_.report.value("id", std::string()) : std::string();
 }
 
-bool Editor::postfx_edit(const Json& fields) {
+bool Editor::postfx_edit(const Json& fields, bool ownStep, int entry) {
     const std::string id = postfx_target_id();
     postFx_.error.clear();
     if (id.empty()) {
@@ -90,6 +94,8 @@ bool Editor::postfx_edit(const Json& fields) {
     }
     std::string key = "postfx:" + id + ":";
     for (auto it = fields.begin(); it != fields.end(); ++it) key += it.key() + ",";
+    if (entry >= 0) key += "#" + std::to_string(entry) + ",";  // a drag on one custom pass never merges into another's
+    if (ownStep) key += std::to_string(uiFrame_);
     std::string err;
     const CommandResult r = edit_command(key, "postprocess.set", Json::object({{"id", id}, {"fields", fields}}), &err);
     if (!r.ok) postFx_.error = err;
@@ -393,8 +399,280 @@ void Editor::draw_postfx_panel() {
         }
         ImGui::PopID();
     }
+    ImGui::Separator();
+    draw_postfx_custom(targetHas && ownJson.contains("customPasses") ? ownJson["customPasses"] : Json::array(),
+                       resolved);
     ImGui::EndChild();
     ImGui::End();
+}
+
+void Editor::draw_postfx_custom(const Json& list, const Json& resolved) {
+    const std::size_t count = list.is_array() ? list.size() : 0;
+    ImGui::SetNextItemOpen(postFx_.open.count("custom") > 0, ImGuiCond_Always);
+    const bool section =
+        ImGui::TreeNodeEx("##customnode", ImGuiTreeNodeFlags_SpanAvailWidth, "Custom passes (%zu)", count);
+    at_track("postfx:custom");
+    tip("Your own full-screen passes: kind \"post\" materials drawn between the built-in effects "
+        "(PostProcess.customPasses; docs/shaders/SHADERS_POST.md). Every change below is one "
+        "postprocess.set call and one undo step.");
+    if (section)
+        postFx_.open.insert("custom");
+    else
+        postFx_.open.erase("custom");
+    if (!section) return;
+
+    // Passes the camera draws that this target does not hold (a volume's, or the camera's own while a volume is the
+    // target).
+    int others = 0;
+    if (resolved.contains("customPasses") && resolved["customPasses"].is_array())
+        for (const Json& c : resolved["customPasses"])
+            if (c.value("from", std::string()) != "own") ++others;
+    if (others > 0)
+        ImGui::TextDisabled("%d more pass%s come from other layers (see the resolved stack).", others,
+                            others == 1 ? "" : "es");
+    if (resolved.contains("customPassProblems") && resolved["customPassProblems"].is_array())
+        for (const Json& p : resolved["customPassProblems"]) {
+            ImGui::PushTextWrapPos(0.0f);
+            ImGui::TextColored(kRed, "%s", p.is_string() ? p.get<std::string>().c_str() : "");
+            ImGui::PopTextWrapPos();
+        }
+
+    // The asset report and the skipped passes are asked at most twice a second, like the Inspector's material rows.
+    if (assetReportAt_ + 0.5 < time_ || assetReport_.is_null()) {
+        assetReportAt_ = time_;
+        assetReport_ = engine_ && engine_->renderer() ? engine_->renderer()->asset_report() : Json::object();
+    }
+    const std::vector<std::string> skipped = count > 0 && engine_ && engine_->renderer()
+                                                 ? engine_->renderer()->stats(false).materialFallbacks
+                                                 : std::vector<std::string>();
+    const std::vector<std::string> positions = render::custom_post_position_names();
+
+    // Add: pick one of the project's materials.
+    {
+        ImGui::BeginDisabled(count >= std::size_t(render::kMaxCustomPostPasses));
+        ImGui::SetNextItemWidth(260);
+        if (ImGui::BeginCombo("##addpass", "Add a post material...")) {
+            auto& cache = assetFiles_["material"];
+            if (cache.first + 2.0 < time_ || cache.second.empty()) {
+                cache.first = time_;
+                cache.second = list_asset_files(projectDir_, "material");
+            }
+            for (const std::string& file : cache.second)
+                if (ImGui::Selectable(file.c_str()))
+                    postfx_edit(Json::object({{"customPasses", custom_pass_add(list, file)}}), true);
+            if (cache.second.empty())
+                ImGui::TextDisabled("No materials in the project (docs/shaders/SHADERS_POST.md).");
+            ImGui::EndCombo();
+        }
+        ImGui::EndDisabled();
+        at_track("postfx:custom:add", count < std::size_t(render::kMaxCustomPostPasses));
+        tip_always(count >= std::size_t(render::kMaxCustomPostPasses)
+                       ? "A stack holds at most 8 custom passes: remove one first."
+                       : "Adds a pass at the end of the list, at the default position (before the tonemap). The "
+                         "material must have \"kind\": \"post\" (docs/shaders/SHADERS_POST.md).");
+    }
+    if (count == 0) ImGui::TextDisabled("No custom passes on this edit target.");
+
+    for (std::size_t i = 0; i < count; ++i) {
+        const Json& entry = list[i];
+        const std::string idx = std::to_string(i);
+        const std::string material = entry.is_object() && entry.contains("material") && entry["material"].is_string()
+                                         ? entry["material"].get<std::string>()
+                                         : std::string();
+        const bool enabled = !entry.is_object() || entry.value("enabled", true);
+        const std::string position = entry.is_object() && entry.contains("position") && entry["position"].is_string()
+                                         ? entry["position"].get<std::string>()
+                                         : std::string(render::kCustomPostDefaultPosition);
+        const std::string buildError = material.empty() ? std::string() : material_build_error(assetReport_, material);
+        const bool isSkipped =
+            enabled && !material.empty() && std::find(skipped.begin(), skipped.end(), material) != skipped.end();
+        ImGui::PushID(int(i));
+
+        bool on = enabled;
+        if (ImGui::Checkbox("##on", &on))
+            postfx_edit(Json::object({{"customPasses", custom_pass_set(list, i, "enabled", on)}}), true);
+        at_track("postfx:custom:on:" + idx);
+        tip_always("Draws this pass (off: it stays in the list and draws nothing).");
+        ImGui::SameLine();
+        const std::string key = "custom:" + idx;
+        ImGui::SetNextItemOpen(postFx_.open.count(key) > 0, ImGuiCond_Always);
+        const bool open =
+            ImGui::TreeNodeEx("##node", ImGuiTreeNodeFlags_AllowOverlap, "%s", custom_pass_label(entry).c_str());
+        at_track("postfx:custom:open:" + idx);
+        if (open)
+            postFx_.open.insert(key);
+        else
+            postFx_.open.erase(key);
+        ImGui::SameLine();
+        if (!enabled)
+            ImGui::TextDisabled("off");
+        else if (isSkipped || !buildError.empty())
+            ImGui::TextColored(kRed, "skipped");
+        else
+            ImGui::TextColored(kGreen, "%s", position.c_str());
+        if (isSkipped || !buildError.empty())
+            tip_always(buildError.empty()
+                           ? "The renderer skipped this pass: the material is missing, is not a \"post\" "
+                             "material or cannot be drawn here. The log says why."
+                           : "Build error: " + buildError);
+        ImGui::SameLine();
+        ImGui::BeginDisabled(i == 0);
+        if (ImGui::SmallButton("Up"))
+            postfx_edit(Json::object({{"customPasses", custom_pass_move(list, i, -1)}}), true);
+        ImGui::EndDisabled();
+        at_track("postfx:custom:up:" + idx, i > 0);
+        tip_always(
+            "Moves the pass earlier: passes at the same position run in list order, each reading the picture the one "
+            "before wrote.");
+        ImGui::SameLine();
+        ImGui::BeginDisabled(i + 1 >= count);
+        if (ImGui::SmallButton("Down"))
+            postfx_edit(Json::object({{"customPasses", custom_pass_move(list, i, 1)}}), true);
+        ImGui::EndDisabled();
+        at_track("postfx:custom:down:" + idx, i + 1 < count);
+        tip_always("Moves the pass later.");
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Remove"))
+            postfx_edit(Json::object({{"customPasses", custom_pass_remove(list, i)}}), true);
+        at_track("postfx:custom:remove:" + idx);
+        tip_always("Removes the pass from the list (Edit > Undo brings it back). The material file is not touched.");
+
+        if (open) {
+            ImGui::Indent();
+            // Position.
+            ImGui::SetNextItemWidth(200);
+            if (ImGui::BeginCombo("Position", position.c_str())) {
+                for (const std::string& p : positions)
+                    if (ImGui::Selectable(p.c_str(), p == position))
+                        postfx_edit(Json::object({{"customPasses", custom_pass_set(list, i, "position", p)}}), true);
+                ImGui::EndCombo();
+            }
+            at_track("postfx:custom:position:" + idx);
+            tip("Where in the frame the pass runs: before or after a built-in effect. Up to \"before:tonemap\" the "
+                "pass reads scene-linear colour (the positions before the exposure, the lens effects and the tonemap "
+                "are the same place, after the bloom); from \"after:tonemap\" on it reads the display-referred, "
+                "sRGB-encoded picture between two screen effects (the colour grading, vignette, sharpen, outline, "
+                "posterize, film grain), and the final pass is drawn in two pieces there.");
+            // Material.
+            ImGui::SetNextItemWidth(260);
+            if (ImGui::BeginCombo("Material", material.empty() ? "(none)" : material.c_str())) {
+                auto& cache = assetFiles_["material"];
+                if (cache.first + 2.0 < time_ || cache.second.empty()) {
+                    cache.first = time_;
+                    cache.second = list_asset_files(projectDir_, "material");
+                }
+                for (const std::string& file : cache.second)
+                    if (ImGui::Selectable(file.c_str(), file == material))
+                        postfx_edit(Json::object({{"customPasses", custom_pass_set(list, i, "material", file)}}), true);
+                ImGui::EndCombo();
+            }
+            at_track("postfx:custom:material:" + idx);
+            tip("The kind \"post\" material this pass draws. Changing it drops the params set below.");
+            if (!buildError.empty()) ImGui::TextColored(kRed, "Build error: %s", buildError.c_str());
+
+            // Params of the material, typed by material.info; an edit overrides the value in this entry only.
+            if (!material.empty()) {
+                MaterialInfoEntry& info = materialInfo_[material];
+                if (info.checkedAt + 0.5 < time_) {
+                    info.checkedAt = time_;
+                    const std::int64_t mtime = fs::modified_time(material);
+                    if (mtime != info.mtime || !info.error.empty()) {
+                        info.mtime = mtime;
+                        info.error.clear();
+                        info.info = Json();
+                        if (!engine_ || !engine_->commands().info("material.info")) {
+                            info.error = "This build has no material.info command.";
+                        } else {
+                            CommandResult r =
+                                engine_->commands().call("material.info", Json::object({{"material", material}}));
+                            if (r.ok)
+                                info.info = r.result;
+                            else
+                                info.error = command_error_text(r.error);
+                        }
+                    }
+                }
+                const Json overrides =
+                    entry.is_object() && entry.contains("materialParams") && entry["materialParams"].is_object()
+                        ? entry["materialParams"]
+                        : Json::object();
+                const auto specs = material_params_from_info(info.error.empty() ? info.info : Json::object());
+                if (!info.error.empty()) {
+                    ImGui::TextColored(kRed, "Cannot read the material's params: %s", info.error.c_str());
+                } else if (!specs.ok()) {
+                    ImGui::TextColored(kRed, "%s", specs.error().message.c_str());
+                } else {
+                    if (specs->empty()) ImGui::TextDisabled("This material declares no params.");
+                    for (const MaterialParamSpec& p : *specs) {
+                        const int n = material_param_arity(p.type);
+                        const bool overridden = material_param_overridden(p, overrides);
+                        const Json value = material_param_value(p, overrides);
+                        ImGui::PushID(p.name.c_str());
+                        ImGui::AlignTextToFramePadding();
+                        ImGui::TextUnformatted((p.name + (overridden ? " *" : "")).c_str());
+                        tip(p.doc + "\n" + p.type +
+                            (overridden ? "\nSet on this pass." : "\nUsing the material's default."));
+                        ImGui::SameLine();
+                        const float resetW = ImGui::CalcTextSize("Reset").x + ImGui::GetStyle().FramePadding.x * 2.0f;
+                        ImGui::SetNextItemWidth(-(resetW + ImGui::GetStyle().ItemSpacing.x));
+                        float v[4] = {0, 0, 0, 0};
+                        for (int k = 0; k < std::max(n, 1); ++k) {
+                            const Json& cell = value.is_array()
+                                                   ? (std::size_t(k) < value.size() ? value[std::size_t(k)] : Json(0))
+                                                   : value;
+                            v[k] = cell.is_number() ? cell.get<float>() : 0.0f;
+                        }
+                        const float lo = p.min ? float(*p.min) : 0.0f, hi = p.max ? float(*p.max) : 0.0f;
+                        const float speed = p.min && p.max ? std::max(1e-4f, (hi - lo) / 200.0f)
+                                                           : std::max(0.01f, std::fabs(v[0]) * 0.01f);
+                        Json out;
+                        bool changed = false;
+                        auto numbers = [&](int count_) {
+                            Json a = Json::array();
+                            for (int k = 0; k < count_; ++k) a.push_back(std::round(v[k] * 10000.0f) / 10000.0f);
+                            return a;
+                        };
+                        if (p.type == "float") {
+                            changed = ImGui::DragFloat("##v", v, speed, lo, hi, "%.3f", ImGuiSliderFlags_ClampOnInput);
+                            if (changed) out = std::round(v[0] * 10000.0f) / 10000.0f;
+                        } else if (p.type == "vec2") {
+                            changed = ImGui::DragFloat2("##v", v, speed, lo, hi, "%.3f", ImGuiSliderFlags_ClampOnInput);
+                            if (changed) out = numbers(2);
+                        } else if (p.type == "vec3") {
+                            changed = ImGui::DragFloat3("##v", v, speed, lo, hi, "%.3f", ImGuiSliderFlags_ClampOnInput);
+                            if (changed) out = numbers(3);
+                        } else if (p.type == "vec4") {
+                            changed = ImGui::DragFloat4("##v", v, speed, lo, hi, "%.3f", ImGuiSliderFlags_ClampOnInput);
+                            if (changed) out = numbers(4);
+                        } else if (p.type == "color") {
+                            changed =
+                                ImGui::ColorEdit4("##v", v, ImGuiColorEditFlags_AlphaBar | ImGuiColorEditFlags_Float);
+                            if (changed) out = numbers(4);
+                        } else {
+                            ImGui::TextDisabled("%s (not editable here)", p.type.c_str());
+                        }
+                        at_track("postfx:custom:param:" + idx + ":" + p.name);
+                        if (changed)
+                            postfx_edit(Json::object({{"customPasses", custom_pass_set_param(list, i, p.name, out)}}),
+                                        false, int(i));
+                        ImGui::SameLine();
+                        ImGui::BeginDisabled(!overridden);
+                        if (ImGui::SmallButton("Reset"))
+                            postfx_edit(
+                                Json::object({{"customPasses", custom_pass_set_param(list, i, p.name, Json())}}), true);
+                        ImGui::EndDisabled();
+                        at_track("postfx:custom:reset:" + idx + ":" + p.name, overridden);
+                        tip_always("Back to the material's default (removes the override from this pass).");
+                        ImGui::PopID();
+                    }
+                }
+            }
+            ImGui::Unindent();
+            ImGui::TreePop();
+        }
+        ImGui::PopID();
+    }
+    ImGui::TreePop();
 }
 
 }  // namespace fa::editor

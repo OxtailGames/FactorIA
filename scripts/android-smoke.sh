@@ -412,12 +412,19 @@ if [ -n "${FA_SMOKE_QUIT:-}" ] && [ -n "${FA_SMOKE_BACK:-}" ]; then
     sleep 5
     NOW_PID="$(app_pid)"
     # A process of the package may come back for a service of a bundled library (Google's datatransport job scheduler
-    # restarts itself a second later): that is not the game. Only an activity of the package means the game came back.
+    # restarts itself a second later): that is not the game. Only a process started for an activity, or an activity of
+    # the package on top, means the game came back. `dumpsys activity activities` is no proof: it still lists the
+    # finished activity (task t-1, flag f) a while after the process ended.
     if [ -n "$NOW_PID" ]; then
-        if "$ADB" shell dumpsys activity activities 2>/dev/null | tr -d '\r' | grep -qE "ActivityRecord\{[^}]* $PKG/"; then
-            fail "quit: the system started the game again (pid $NOW_PID, with an activity) after it ended"
+        snapshot_log
+        START_REASON="$(grep -oE "am_proc_start: \[[0-9]+,$NOW_PID,[0-9]+,$PKG,[^,]+" "$OUT/logcat.txt" | tail -n 1 |
+            awk -F, '{print $NF}')"
+        if [[ "$START_REASON" == *activity* ]] ||
+           "$ADB" shell dumpsys activity activities 2>/dev/null | tr -d '\r' |
+               grep -E "(topResumedActivity|mResumedActivity|ResumedActivity:)" | grep -qF " $PKG/"; then
+            fail "quit: the system started the game again (pid $NOW_PID, started for '${START_REASON:-?}', with an activity) after it ended"
         fi
-        note "quit: pid $NOW_PID of $PKG runs no activity (a service of a bundled library), not the game"
+        note "quit: pid $NOW_PID of $PKG was started for '${START_REASON:-?}' and runs no activity (a service of a bundled library), not the game"
     fi
     snapshot_log
     "$ADB" logcat -d -b all -v threadtime --pid="$QUIT_PID" >"$OUT/logcat-app-quit.txt" 2>/dev/null

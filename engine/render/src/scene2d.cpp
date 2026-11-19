@@ -15,6 +15,7 @@
 #include "render_jobs.h"
 #include "render_scene.h"
 #include "scene2d.h"
+#include "sprite_buffer_draw.h"
 
 namespace fa::render {
 
@@ -382,7 +383,11 @@ struct SpritePrep {
     Color color;                     // Sprite.color with the inherited Tint
     Rect clip;
     Vec2 pivot{0.5f, 0.5f};
+    MaterialRef
+        material;  // Sprite.material with its materialParams (Assets::sprite_material); empty = the built-in look
     bool screen = false, mirrored = false, lit = false;
+    int instances =
+        0;  // > 0: a material with buffers draws the sprite's one quad this many times (sprite_buffer_draw.h)
     std::uint32_t slotIndex = 0;  // the Scene2D slot of the entity (Entity::index)
     bool share = false;           // the first drawing of a shareable Sprite: Scene2D keeps where its items end up
 };
@@ -428,8 +433,15 @@ void emit_sprite(const World& world, const Frame& f, const SpritePrep& prep, boo
     list.begin_item(s.layer, secondary_key(f, m, !screen), tex, s.pixelArt ? SamplerKind::Nearest : SamplerKind::Linear,
                     s.blend, prep.clip);
     if (lit) list.set_lit(prep.normal);
+    list.set_material(prep.material);
+    // A draw from buffers (Sprite.instances, or a material with buffers): the sprite is its one plain quad, the
+    // template the material's vertex() moves for each instance; the mesh grid, the skin, the 9-slice and a repeat do
+    // not apply.
+    const bool buffered = prep.instances > 0;
+    if (buffered) list.set_buffer_draw(prep.instances);
     if (const auto flash = inherited_flash(world, f, e)) list.set_flash(pack_color(*flash));
-    const bool nine = !s.texture.empty() && (s.slice.x > 0 || s.slice.y > 0 || s.slice.z > 0 || s.slice.w > 0);
+    const bool nine =
+        !buffered && !s.texture.empty() && (s.slice.x > 0 || s.slice.y > 0 || s.slice.z > 0 || s.slice.w > 0);
     const Vec2 spritePivot = prep.pivot;
     const float pivotX = mirrored ? 1.0f - spritePivot.x : spritePivot.x;
     const float bx0 = -pivotX * size.x, bx1 = (1 - pivotX) * size.x, by0 = -spritePivot.y * size.y,
@@ -437,7 +449,9 @@ void emit_sprite(const World& world, const Frame& f, const SpritePrep& prep, boo
     // A deformable sprite (meshColumns x meshRows cells, vertexOffsets) and the shear (skew). Both leave the pivot where it is.
     int meshCols = 0, meshRows = 0;
     std::vector<float> meshOffsets, meshColors;
-    if (sprite_mesh_grid(s, meshCols, meshRows)) {
+    if (buffered) {
+        // no grid
+    } else if (sprite_mesh_grid(s, meshCols, meshRows)) {
         meshOffsets = sprite_vertex_offsets(s, meshCols, meshRows);
         meshColors = sprite_vertex_colors(s, meshCols, meshRows);
         if (meshColors.empty() && warnMesh) notes.meshColorsProblem = sprite_vertex_colors_problem(s);
@@ -448,7 +462,7 @@ void emit_sprite(const World& world, const Frame& f, const SpritePrep& prep, boo
     // a mesh sprite. World space only; a screen-space sprite with a SpriteSkin draws as the plain mesh/quad.
     SkinMesh skinMesh;
     bool skinned = false;
-    if (!screen && world.has<SpriteSkin>(e)) {
+    if (!buffered && !screen && world.has<SpriteSkin>(e)) {
         skinned = build_skin_mesh(world, e, s, SkinBox{bx0, by0, bx1, by1}, skinMesh, &notes.skinProblem);
         if (skinned) meshCols = 0;  // the skin replaces the plain mesh
     }
@@ -542,7 +556,7 @@ void emit_sprite(const World& world, const Frame& f, const SpritePrep& prep, boo
         em.rect(bx0, by0, bx1, by1, u0, v0, u1, v1);
     };
 
-    const Parallax* par = screen ? nullptr : world.get<Parallax>(e);
+    const Parallax* par = screen || buffered ? nullptr : world.get<Parallax>(e);
     if (par && (par->repeatX || par->repeatY) && !f.cam.perspective) {
         // A repeating background: copies every `step` world units along x and/or y, only those the camera can see.
         float minX = 1e30f, maxX = -1e30f, minY = 1e30f, maxY = -1e30f;
@@ -649,6 +663,7 @@ bool emit_shape(World& world, Frame& f, Entity e, Shape2D& s, QuadList& list, Ve
     else
         list.begin_item(s.layer, secondary_key(f, m, false), assets.white(), SamplerKind::Nearest, s.blend, clip);
     if (s.lit && !screen) list.set_lit(nullptr);
+    list.set_material(assets.sprite_material(s.material, s.materialParams));  // may load it: on this thread
     QuadEmitter em{list, m, screen, pack_color(color1), kModeTextured, 0};
     // Bounding box [bx0,bx1] x [by0,by1] in local units (y up; screen space flips it): pivot (0,0) = bottom-left.
     float bx0 = -s.pivot.x * s.size.x, bx1 = bx0 + s.size.x;
@@ -751,6 +766,8 @@ void gather_tilemaps_and_text(World& world, Frame& f) {
         QuadList& list = f.world;
         list.begin_item(tm.layer, secondary_key(f, m, false), tex, SamplerKind::Nearest);
         if (tm.lit) list.set_lit(tm.normalMap.empty() ? nullptr : assets.texture(tm.normalMap));
+        // One material for the whole component; the bands below only hold quads that join this item (add_quads_of).
+        list.set_material(assets.sprite_material(tm.material, tm.materialParams));
         float texW = float(std::max(1, tex->width)), texH = float(std::max(1, tex->height));
         bool cull = !f.cam.perspective;
         Rect view = f.cam.visible;
@@ -970,7 +987,8 @@ void gather_tilemaps_and_text(World& world, Frame& f) {
             m.at(3, 1) = std::round((m.at(3, 1) - oy) * k) / k + oy;
         }
         f.stats->textGlyphs += emit_text(pick(t.space), m, screen, lay, t.color * textTint, *f.fonts, assets, t.layer,
-                                         secondary_key(f, m, false), clip, t.visibleCharacters, textTint);
+                                         secondary_key(f, m, false), clip, t.visibleCharacters, textTint,
+                                         assets.sprite_material(t.material, t.materialParams));
     });
 }
 
@@ -996,9 +1014,12 @@ namespace {
 
 // Whether what an entity draws can be copied from the quads another camera made: not when it follows a Parallax layer (its matrix
 // holds the shift of the camera that drew it, and its repeat the camera's rectangle) or shows a render target's texture (the
-// target's own camera sees the checker where the others see the target).
-bool camera_independent(const World& world, Entity e, bool screen, const std::string& tex, const std::string& tex2) {
-    return !screen && !world.has<Parallax>(e) && !Assets::is_target_id(tex) && !Assets::is_target_id(tex2);
+// target's own camera sees the checker where the others see the target), nor when a texture of its material's params
+// does (the same rule: the material's use holds the texture that the camera which resolved it was shown).
+bool camera_independent(const World& world, Entity e, bool screen, const std::string& tex, const std::string& tex2,
+                        const Json& materialParams) {
+    return !screen && !world.has<Parallax>(e) && !Assets::is_target_id(tex) && !Assets::is_target_id(tex2) &&
+           !Assets::params_name_target(materialParams);
 }
 
 }  // namespace
@@ -1040,6 +1061,19 @@ void Scene2D::gather_sprites(World& world, Frame& f) {
         p.tex = assets.texture(s.texture);
         p.screen = screen;
         if (p.screen && !screen_clip(world, e, f, p.clip)) return;
+        p.material = assets.sprite_material(s.material, s.materialParams);  // may load it: here, not in the jobs
+        // A material with "buffers" draws the sprite's quad Sprite.instances times; one that does not fit its buffers
+        // draws nothing (said once, with the entity). Checked here, on the main thread: the buffers are looked up in
+        // the renderer's Compute.
+        if (s.instances > 0 ||
+            (p.material.use && !p.material.use->error && !p.material.use->material->buffers.empty())) {
+            const MeshBufferUse bu = resolve_sprite_buffers(assets, f.compute, e, s, p.material.use);
+            if (bu.skip) {
+                sl.state = State::Skip;
+                return;
+            }
+            if (bu.active) p.instances = bu.instances;
+        }
         p.mirrored = p.screen && ui_mirrored(world, e);
         p.lit = s.lit && !p.screen;
         if (p.lit && !s.normalMap.empty()) p.normal = assets.texture(s.normalMap);
@@ -1048,7 +1082,7 @@ void Scene2D::gather_sprites(World& world, Frame& f) {
             p.pivot = sprite_effective_pivot(s, *anim, animator_plan(f, *anim, s.texture));
         p.slotIndex = e.index;
         if (sl.state == State::Todo) {
-            if (camera_independent(world, e, screen, s.texture, p.lit ? s.normalMap : std::string()))
+            if (camera_independent(world, e, screen, s.texture, p.lit ? s.normalMap : std::string(), s.materialParams))
                 p.share = true;
             else
                 sl.state = State::Direct;
@@ -1186,7 +1220,7 @@ void Scene2D::gather_shapes(World& world, Frame& f) {
         if (screen) return;  // a screen-space Shape2D is built by the one frame that draws the screen
         if (!counted) {
             sl.state = State::Skip;  // whatever stopped it drawing (inactive, transparent) holds for every camera
-        } else if (camera_independent(world, e, false, std::string(), std::string())) {
+        } else if (camera_independent(world, e, false, std::string(), std::string(), s.materialParams)) {
             sl.state = State::Share;
             sl.donor = &list;
             sl.first = std::uint32_t(first);

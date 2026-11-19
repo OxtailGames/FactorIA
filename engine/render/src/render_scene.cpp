@@ -1,6 +1,7 @@
 #include "render_scene.h"
 
 #include <algorithm>
+#include <cmath>
 #include <functional>
 
 #include "fa/core/log.h"
@@ -55,20 +56,51 @@ MaterialHashCache::Entry* MaterialHashCache::touch(Entity e) {
     return &en;
 }
 
-void MaterialHashCache::refresh(Entry& entry, const Json* params, const Json* colors) {
-    auto one = [&](Json& kept, std::size_t& hash, const Json* now) {
+namespace {
+bool left_out(const std::vector<std::string>* names, const std::string& key) {
+    return names && std::binary_search(names->begin(), names->end(), key);
+}
+// Do `kept` (a copy made without the left-out names; null = none) and `now` hold the same values, left-out names aside?
+// No allocation.
+bool same_without(const Json& kept, const Json& now, const std::vector<std::string>* leftOut) {
+    if (!leftOut || leftOut->empty() || !now.is_object()) return kept == now;
+    std::size_t count = 0;
+    for (auto it = now.begin(); it != now.end(); ++it) {
+        if (left_out(leftOut, it.key())) continue;
+        ++count;
+        if (!kept.is_object()) return false;
+        auto k = kept.find(it.key());
+        if (k == kept.end() || !(*k == it.value())) return false;
+    }
+    return count == 0 ? kept.is_null() : kept.is_object() && kept.size() == count;
+}
+}  // namespace
+
+void MaterialHashCache::refresh(Entry& entry, const Json* params, const Json* colors,
+                                const std::vector<std::string>* leftOut, std::size_t leftOutKey) {
+    auto one = [&](Json& kept, std::size_t& hash, const Json* now, const std::vector<std::string>* out, bool stale) {
         if (!now) {
             kept = Json();
             hash = 0;
             return;
         }
-        if (kept == *now) return;  // the same value as when the hash was made: nothing to compute
-        kept = *now;
-        hash = std::hash<std::string>{}(kept.dump());
+        if (!stale && same_without(kept, *now, out))
+            return;  // the same value as when the hash was made: nothing to compute
+        if (out && !out->empty() && now->is_object()) {
+            Json filtered = Json::object();
+            for (auto it = now->begin(); it != now->end(); ++it)
+                if (!left_out(out, it.key())) filtered[it.key()] = it.value();
+            kept = filtered.empty() ? Json() : std::move(filtered);
+        } else {
+            kept = *now;
+        }
+        hash = kept.is_null() ? 0 : std::hash<std::string>{}(kept.dump());
         computed_.fetch_add(1, std::memory_order_relaxed);
     };
-    one(entry.params, entry.paramsHash, params);
-    one(entry.colors, entry.colorsHash, colors);
+    const bool stale = entry.leftOutKey != leftOutKey;
+    entry.leftOutKey = leftOutKey;
+    one(entry.params, entry.paramsHash, params, leftOut, stale);
+    one(entry.colors, entry.colorsHash, colors, nullptr, false);
 }
 
 void MaterialHashCache::end_frame() {
@@ -76,9 +108,12 @@ void MaterialHashCache::end_frame() {
 }
 
 void MaterialHashCache::hashes(Entity e, const Json* params, const Json* colors, std::size_t& paramsHash,
-                               std::size_t& colorsHash) {
+                               std::size_t& colorsHash, const MaterialAsset* material) {
     Entry* en = touch(e);
-    refresh(*en, params, colors);
+    // As RenderScene::build does: the instanced params of the entity's material are not part of the params hash.
+    refresh(*en, params, colors,
+            params && material && !material->instancedNames.empty() ? &material->instancedNames : nullptr,
+            params && material ? material->instancedKey : 0);
     paramsHash = en->paramsHash;
     colorsHash = en->colorsHash;
 }
@@ -111,6 +146,20 @@ void RenderScene::build(World& world, Assets& assets, Entity scopeRoot, bool wan
         sm.mesh = assets.mesh(mr.mesh);
         sm.tex = mr.texture.empty() ? nullptr : assets.texture(mr.texture);
         sm.material = mr.material.empty() ? nullptr : assets.material(mr.material);
+        if (sm.material && sm.material->ok && sm.material->kind != MaterialKind::Mesh) {
+            // A mesh is drawn with the programs of a mesh material only: a sprite material (quad programs) would be
+            // bound to a vertex layout it was not made for, and a compute material has no draw program. The mesh is
+            // drawn with the engine's own shader.
+            if (sm.material->warned.insert("\x01kind").second)
+                FA_WARN(
+                    "render",
+                    "MeshRenderer.material '{}' is a \"{}\" material: only \"mesh\" materials draw a MeshRenderer, so "
+                    "the engine's own shader is used (a \"sprite\" material is for the 2D quad pipeline, a \"compute\" "
+                    "one for the compute.* commands, a \"sky\" one for the sky and a \"post\" one for "
+                    "PostProcess.customPasses)",
+                    mr.material, material_kind_name(sm.material->kind));
+            sm.material = nullptr;
+        }
         sm.normalTex = mr.normalMap.empty() ? nullptr : assets.texture(mr.normalMap);
         sm.hasLods = !mr.lods.empty();
         sm.liveTextures = Assets::is_target_id(mr.texture) || Assets::is_target_id(mr.normalMap);
@@ -152,12 +201,31 @@ void RenderScene::build(World& world, Assets& assets, Entity scopeRoot, bool wan
             if (MaterialHashCache::Entry* en = entries[i]) {
                 const bool params = sm.material && mr.materialParams.is_object() && !mr.materialParams.empty();
                 const bool colors = mr.materialColors.is_object() && !mr.materialColors.empty();
-                hashes_.refresh(*en, params ? &mr.materialParams : nullptr, colors ? &mr.materialColors : nullptr);
+                hashes_.refresh(*en, params ? &mr.materialParams : nullptr, colors ? &mr.materialColors : nullptr,
+                                params && !sm.material->instancedNames.empty() ? &sm.material->instancedNames : nullptr,
+                                params ? sm.material->instancedKey : 0);
                 sm.paramsHash = en->paramsHash;
                 sm.colorsHash = en->colorsHash;
             }
             mesh_cull_bounds(*sm.mesh, world.get<Animator>(sm.entity), sm.bmin, sm.bmax, sm.anim);
             sm.blended = mesh_is_blended(mr, *sm.mesh, sm.material);
+            if (sm.material && !sm.material->buffers.empty()) {
+                // A mesh drawn from compute buffers (mesh_buffer_draw.h) is a batch of its own (the entity is part of
+                // what batches differ by), has no lod levels, and is culled by MeshRenderer.instanceBounds: its
+                // instances are where the buffer puts them, so the mesh's own box says nothing.
+                std::uint64_t mixed = sm.paramsHash ^ (sm.entity.bits() * 0x9e3779b97f4a7c15ull);
+                mixed ^= mixed >> 32;  // two entities differ in the low bits: spread them before the hash is compared
+                mixed *= 0xd6e8feb86659fd93ull;
+                mixed ^= mixed >> 32;
+                sm.paramsHash = std::size_t(mixed ? mixed : 1);
+                sm.hasLods = false;
+                const float h = std::isfinite(mr.instanceBounds) ? mr.instanceBounds : 0.0f;
+                sm.noCull = !(h > 0.0f);
+                if (!sm.noCull) {
+                    sm.bmin = {-h, -h, -h};
+                    sm.bmax = {h, h, h};
+                }
+            }
         }
     });
     if (wholeWorld) hashes_.end_frame();

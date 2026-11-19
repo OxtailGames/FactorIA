@@ -276,7 +276,7 @@ std::string open_url(const std::string& url) {
 
 #ifdef _WIN32
 
-std::vector<std::uint8_t> clipboard_image_png() {
+std::vector<std::uint8_t> system_clipboard_image_png() {
     std::vector<std::uint8_t> png;
     if (!OpenClipboard(nullptr)) return png;
     auto grab = [](UINT format) {
@@ -306,13 +306,13 @@ std::vector<std::uint8_t> clipboard_image_png() {
     return png;
 }
 
-bool clipboard_has_text() { return IsClipboardFormatAvailable(CF_UNICODETEXT); }
+bool system_clipboard_has_text() { return IsClipboardFormatAvailable(CF_UNICODETEXT); }
 
 #elif defined(__APPLE__)
 
-bool clipboard_has_text() { return true; }  // sokol_app empties its text for a pasteboard without a string
+bool system_clipboard_has_text() { return true; }  // sokol_app empties its text for a pasteboard without a string
 
-std::vector<std::uint8_t> clipboard_image_png() {
+std::vector<std::uint8_t> system_clipboard_image_png() {
     std::error_code ec;
     const std::filesystem::path tmp =
         std::filesystem::temp_directory_path(ec) / ("factoria_clipboard_" + std::to_string(std::rand()) + ".png");
@@ -346,7 +346,7 @@ std::vector<std::uint8_t> clipboard_image_png() {
 
 #else
 
-std::vector<std::uint8_t> clipboard_image_png() {
+std::vector<std::uint8_t> system_clipboard_image_png() {
     ai::ProcessOptions po;
     po.maxCapture = 64u << 20;
     const char* wayland = std::getenv("WAYLAND_DISPLAY");
@@ -363,7 +363,7 @@ std::vector<std::uint8_t> clipboard_image_png() {
 }
 
 // ponytail: X11 also hands back the last pasted text for a picture; ask the selection owner for TARGETS if it bites.
-bool clipboard_has_text() { return true; }
+bool system_clipboard_has_text() { return true; }
 
 #endif
 

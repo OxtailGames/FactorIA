@@ -102,7 +102,44 @@ std::optional<Json> old_component_values(const World& world, const Target& t, co
 
 // scene.set_component {id, component, fields, merge?}: undo sets the old value of exactly the fields the call names (a
 // whole value, whatever `merge` was); a component the entity did not have is removed again.
+// scene.set_component {component: "SceneSettings", fields, merge?} with no id: the scene's own settings. Undo sets the
+// old value of exactly the fields the call names.
+std::optional<UndoPlan> plan_set_settings(const World& world, const Json& a) {
+    const TypeInfo* type = TypeRegistry::global().find("SceneSettings");
+    const Json fields = a.contains("fields") ? a["fields"] : Json::object();
+    if (!type || !fields.is_object()) return std::nullopt;
+    Json old = Json::object();
+    std::string keys;
+    std::vector<std::string> names;
+    for (auto it = fields.begin(); it != fields.end(); ++it) names.push_back(it.key());
+    std::sort(names.begin(), names.end());
+    for (const std::string& k : names) {
+        const FieldInfo* f = type->field(k);
+        if (!f || !f->serialized || f->readOnly || f->kind == FieldKind::Entity) return std::nullopt;
+        old[k] = field_to_json(*f, &world.settings());
+        keys += k + ",";
+    }
+    const bool merge = a.contains("merge") && a["merge"].is_boolean() && a["merge"].get<bool>();
+    UndoPlan plan;
+    UndoCommand fwd;
+    fwd.cmd = "scene.set_component";
+    fwd.args = Json::object({{"component", "SceneSettings"}, {"fields", fields}});
+    if (merge) fwd.args["merge"] = true;
+    fwd.target = "scene.set_component|SceneSettings|" + keys + (merge ? "|merge" : "|");
+    plan.forward.push_back(std::move(fwd));
+    UndoCommand inv;
+    inv.cmd = "scene.set_component";
+    inv.args = Json::object({{"component", "SceneSettings"}, {"fields", old}});
+    plan.inverse.push_back(std::move(inv));
+    return plan;
+}
+
 std::optional<UndoPlan> plan_set_component(const World& world, const Json& a) {
+    if (a.is_object() && a.contains("component") && a["component"].is_string() &&
+        (!a.contains("id") || a["id"].is_null() || (a["id"].is_string() && a["id"].get<std::string>().empty()))) {
+        const TypeInfo* t = TypeRegistry::global().find_ci(a["component"].get<std::string>());
+        if (t && t->name == "SceneSettings") return plan_set_settings(world, a);
+    }
     Target t;
     if (!resolve_target(world, a, t)) return std::nullopt;
     const Json fields = a.contains("fields") ? a["fields"] : Json::object();

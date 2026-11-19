@@ -118,6 +118,13 @@ std::vector<FeatureDef> build_table() {
          "Showing the picture on a high dynamic range display (SceneSettings.hdrOutput auto): EDR on macOS and iOS, "
          "scRGB or HDR10 on Windows; the display and the OS must allow it. Values above paper white come from the "
          "tonemap of a PostProcess. render.output says what the window shows."});
+    t.push_back(
+        {"postMaterials", FeatureKind::Engine, kEveryGpu, "", nullptr,
+         "Custom post-process passes: kind \"post\" materials drawn as full-screen passes of the stack, before the "
+         "tonemap and between the display effects after it (PostProcess.customPasses, docs/shaders/SHADERS_POST.md). "
+         "The feature needs nothing of the GPU (it is on wherever the engine draws); only a pass whose material reads "
+         "the depth or the normals (fa_depth, fa_normal) needs the sampledDepth feature, and that pass alone is "
+         "skipped without it."});
     for (int i = 0; i < kPostEffectCount; ++i)
         t.push_back({kPostEffectOrder[std::size_t(i)].data(), FeatureKind::Effect, kEveryGpu, kEffectRows[i].needs,
                      effect_drawn(PostEffect(i)) ? nullptr : "M71", kEffectRows[i].doc});
