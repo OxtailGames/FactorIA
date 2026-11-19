@@ -771,7 +771,8 @@ SHADERS.md "Not available yet" becomes empty.
   same snippet model as meshes (`fragment()`, `vertex()`), batching kept for sprites that share a material, per-sprite
   values through instance data.
 - M72.2 (M) Post-process materials: a custom pass in the M71 stack (reads colour, depth, normals, previous passes),
-  ordered with the built-in effects.
+  ordered with the built-in effects. Built (M72-P7a, docs/shaders/SHADERS_POST.md): `PostProcess.customPasses`, positions around the
+  built-in effects before the tonemap; passes on the display picture and a previous-frame input are left.
 - M72.3 (L) Full shaders and custom lighting: own `main` and vertex layout, several passes, a custom light loop (toon
   ramps, cel bands, hatching), textures in `vertex()`, per-instance values in one instanced draw.
 - M72.4 (L) Compute shaders where the backend has them (D3D11, Metal, GL 4.3, Vulkan/D3D12 with M77): GPU particles,

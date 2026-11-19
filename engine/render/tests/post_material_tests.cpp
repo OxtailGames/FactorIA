@@ -102,9 +102,7 @@ Json entry(const char* material, const char* position = nullptr, Json params = J
     if (!enabled) e["enabled"] = false;
     return e;
 }
-Json tint(double r, double g, double b) {
-    return Json::object({{"tint", Json::array({r, g, b, 1.0})}});
-}
+Json tint(double r, double g, double b) { return Json::object({{"tint", Json::array({r, g, b, 1.0})}}); }
 
 // A 2D world: a white 60x40 sprite at the middle of the 320x180 picture on a black clear colour.
 struct Scene2d {
@@ -248,7 +246,8 @@ TEST_CASE("post materials: the depth and normals are made only when a material r
     CHECK(log.messages().empty());
 }
 
-TEST_CASE("post materials: a material's texture is bound after the engine's two views, and amount 0 leaves the picture") {
+TEST_CASE(
+    "post materials: a material's texture is bound after the engine's two views, and amount 0 leaves the picture") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     MaterialScope scope;
@@ -300,8 +299,9 @@ TEST_CASE("post materials: an entry says where it goes, relative to the built-in
     p.bloomThreshold = 0.0f;
     p.depthOfFieldEnabled = true;
     p.depthOfFieldFocusDistance = 9.0f;
-    p.customPasses = Json::array({entry(kTint, "before:bloom"), entry(kTint, "after:bloom"), entry(kTint, "before:depthOfField"),
-                                  entry(kTint, "after:ssao"), entry(kTint, "after:motionBlur")});
+    p.customPasses =
+        Json::array({entry(kTint, "before:bloom"), entry(kTint, "after:bloom"), entry(kTint, "before:depthOfField"),
+                     entry(kTint, "after:ssao"), entry(kTint, "after:motionBlur")});
     g.render(s.w);
     const std::vector<std::string> order = graph_order(g);
     const int main = index_of(order, "custom-main-pass0");
@@ -317,10 +317,10 @@ TEST_CASE("post materials: an entry says where it goes, relative to the built-in
     REQUIRE(bloom >= 0);
     REQUIRE(bloomPass >= 0);
     REQUIRE(dofPass >= 0);
-    CHECK(main < dofPass);   // after:ssao
-    CHECK(shafts < dofPass);  // before:depthOfField
-    CHECK(dofPass < dof);    // after:motionBlur
-    CHECK(dof < bloomPass);  // before:bloom
+    CHECK(main < dofPass);     // after:ssao
+    CHECK(shafts < dofPass);   // before:depthOfField
+    CHECK(dofPass < dof);      // after:motionBlur
+    CHECK(dof < bloomPass);    // before:bloom
     CHECK(bloomPass < bloom);  // after:bloom
     CHECK(log.messages().empty());
 }
@@ -351,9 +351,9 @@ TEST_CASE("post materials: a material that does not build, or is not a post mate
     // Stands in for the tooling: the fixtures have their twins, the broken material does not compile.
     g.renderer.set_shader_compiler([dialect](const std::string& path, const std::string&) -> Result<Json> {
         if (path.find("broken") != std::string::npos)
-            return make_error(
-                "shaders/broken.post.glsl:3:5: error: 'colour' : no such field in structure 'PostSurface'\n  hint: did you mean color?",
-                "did you mean color?");
+            return make_error("shaders/broken.post.glsl:3:5: error: 'colour' : no such field in structure "
+                              "'PostSurface'\n  hint: did you mean color?",
+                              "did you mean color?");
         return load_json_file(path + "." + dialect + ".shader");
     });
     ProblemLog log;
@@ -450,8 +450,8 @@ TEST_CASE("post materials: a camera of a split screen draws its pass over its ow
     }
     w.add<PostProcess>(left).customPasses = Json::array({entry(kTint)});
     const Image img = g.render(w);
-    near(img.pixel(80, 90), 1.0f, 0.25f, 0.25f);   // the left camera's square, tinted
-    near(img.pixel(240, 90), 1.0f, 1.0f, 1.0f);    // the right camera's, not
+    near(img.pixel(80, 90), 1.0f, 0.25f, 0.25f);  // the left camera's square, tinted
+    near(img.pixel(240, 90), 1.0f, 1.0f, 1.0f);   // the right camera's, not
     near(img.pixel(10, 10), 0, 0, 0);
     near(img.pixel(310, 170), 0, 0, 0);
     CHECK(log.messages().empty());

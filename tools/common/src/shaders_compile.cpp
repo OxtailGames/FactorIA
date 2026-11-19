@@ -158,6 +158,7 @@ std::string struct_var(const std::string& typeName) {
 }
 
 bool is_sprite(const MaterialDef& material) { return material.kind == "sprite"; }
+bool is_sky(const MaterialDef& material) { return material.kind == "sky"; }
 bool is_post(const MaterialDef& material) { return material.kind == "post"; }
 
 // The structs of the contract this material uses: LightSample only with lighting "custom" (a pbr material has no light()).
@@ -214,6 +215,7 @@ std::string field_hint(const std::string& token, const std::string& source, cons
     const auto structs = contract_of(ctx.material);
     std::string where = is_post(ctx.material)               ? "PostSurface and PostInput"
                         : is_sprite(ctx.material)           ? "QuadSurface, QuadInput and QuadVertex"
+                        : is_sky(ctx.material)              ? "SkySurface and SkyInput"
                         : ctx.material.lighting == "custom" ? "Surface, SurfaceInput, VertexData and LightSample"
                                                             : "Surface, SurfaceInput and VertexData";
     if (const auto* f = struct_fields(typeName, structs)) {
@@ -270,7 +272,16 @@ std::string field_hint(const std::string& token, const std::string& source, cons
                                                                              {"invsize", "texel"},
                                                                              {"screenpos", "screen_uv"},
                                                                              {"screenposition", "screen_uv"},
-                                                                             {"seconds", "time"}};
+                                                                             {"seconds", "time"},
+                                                                             {"direction", "dir"},
+                                                                             {"raydir", "dir"},
+                                                                             {"viewdir", "dir"},
+                                                                             {"viewdirection", "dir"},
+                                                                             {"sun", "sun_dir"},
+                                                                             {"sundir", "sun_dir"},
+                                                                             {"sundirection", "sun_dir"},
+                                                                             {"sunlight", "sun_dir"},
+                                                                             {"lightdir", "sun_dir"}};
     std::string lower = to_lower(token), flat;
     for (char c : lower)
         if (c != '_') flat += c;
@@ -313,8 +324,8 @@ std::vector<std::string> engine_names_of(const std::string& kind) {
 
 const std::vector<std::string>& engine_names(const MaterialDef& material) {
     static const std::vector<std::string> mesh = engine_names_of("mesh"), sprite = engine_names_of("sprite"),
-                                          post = engine_names_of("post");
-    return is_post(material) ? post : is_sprite(material) ? sprite : mesh;
+                                          sky = engine_names_of("sky"), post = engine_names_of("post");
+    return is_post(material) ? post : is_sprite(material) ? sprite : is_sky(material) ? sky : mesh;
 }
 
 std::string prefix_rule(const MaterialDef& material) {
@@ -322,6 +333,9 @@ std::string prefix_rule(const MaterialDef& material) {
         return "Names starting with fa_ belong to the engine: the snippet may use the ones the contract lists "
                "(fa_scene_color(), fa_depth(), fa_normal(), fa_time) but not declare any. Rename it without the "
                "prefix.";
+    if (is_sky(material))
+        return "Names starting with fa_ belong to the engine: the snippet may use the ones the contract lists "
+               "(fa_time, fa_scene_rgb()) but not declare any. Rename it without the prefix.";
     return is_sprite(material)
                ? "Names starting with fa_ belong to the engine: the snippet may use the ones the contract lists "
                  "(fa_time, fa_sample_main(), fa_scene_rgb()) but not declare any. Rename it without the prefix."
@@ -337,6 +351,8 @@ constexpr const char* kLightSignatures =
 std::string signatures(const MaterialDef& material) {
     if (is_post(material))
         return "void post(in PostInput i, inout PostSurface s) { ... }  (required; a post material has no vertex())";
+    if (is_sky(material))
+        return "void sky(in SkyInput i, inout SkySurface s) { ... }  (required; a sky has no vertex())";
     if (is_sprite(material))
         return "void fragment(in QuadInput i, inout QuadSurface s) { ... }  (required)  and  void "
                "vertex(inout QuadVertex v) { ... }  (optional)";
@@ -347,7 +363,7 @@ std::string signatures(const MaterialDef& material) {
 
 // The entry point of the fragment stage the kind's contract names.
 const char* fragment_entry(const MaterialDef& material) {
-    return is_post(material) ? "post" : is_sprite(material) ? "fragment" : "surface";
+    return is_post(material) ? "post" : is_sprite(material) ? "fragment" : is_sky(material) ? "sky" : "surface";
 }
 
 std::string undeclared_hint(const std::string& token, const MapContext& ctx) {
@@ -368,6 +384,8 @@ std::string undeclared_hint(const std::string& token, const MapContext& ctx) {
                                 "fa_time."
                           : is_sprite(ctx.material)
                               ? "; the ones a snippet may use are fa_time, fa_sample_main() and fa_scene_rgb()."
+                          : is_sky(ctx.material)
+                              ? "; the ones a snippet may use are fa_time and fa_scene_rgb()."
                               : "; the ones a snippet may read are fa_time, fa_camera_pos and fa_tangent_normal().")
                    : "did you mean " + best + "?";
     }
@@ -451,10 +469,13 @@ std::string hint_for(const std::string& message, const std::string& token, const
                        "\" of this material. Rename the local variable.";
         if (template_globals(ctx.material.kind).count(token) > 0)
             return "`" + token +
-                   "` is a name taken by the engine's 2D program (quad_common.glsl and the files it includes: "
-                   "its vertex inputs, varyings, textures, uniform blocks and helper functions are not prefixed). "
-                   "Rename "
-                   "your variable or function.";
+                   (is_sky(ctx.material)
+                        ? "` is a name taken by the engine's sky program (sky_common.glsl and the files it includes: "
+                          "its vertex input, varying, uniform blocks and helper functions are not prefixed). "
+                        : "` is a name taken by the engine's 2D program (quad_common.glsl and the files it includes: "
+                          "its vertex inputs, varyings, textures, uniform blocks and helper functions are not "
+                          "prefixed). ") +
+                   "Rename your variable or function.";
     }
     if (message.find("syntax error") != std::string::npos)
         return "A syntax error is often reported on the line after the real mistake: look for a missing ';', ')' or "
@@ -471,11 +492,18 @@ void outside_snippet(ShaderIssue& issue, const std::string& where, const std::st
     issue.line = 0;
     issue.source.clear();
     issue.file = ctx.material.shader.empty() ? ctx.material.path : ctx.material.shader;
-    if (token == "surface" || token == "fragment" || token == "vertex" || token == "post" ||
+    if (token == "surface" || token == "fragment" || token == "vertex" || (token == "sky" && is_sky(ctx.material)) ||
+        (token == "post" && is_post(ctx.material)) ||
         (ctx.material.lighting == "custom" && (token == "light" || token == "ambient")))
         issue.hint = std::string("The engine calls ") + token +
                      "() from its template, so the snippet must define it with exactly this signature: " +
                      signatures(ctx.material) + ".";
+    else if (ctx.material.kind == "compute")
+        issue.hint =
+            "A compute snippet defines `void compute(in ComputeInput i)` and reads its buffers as "
+            "<buffer>.data[i]; do not declare names starting with fa_ or main(). A workgroupSize whose product "
+            "is not a multiple of 32 is refused by the compiler: use [64], [32, 2] or [8, 8]. "
+            "docs/SHADERS.md, \"Compute materials\".";
     else if (token == "main")
         issue.hint = std::string("The engine owns main(): the snippet defines ") + fragment_entry(ctx.material) +
                      "() (and vertex()) and must not define main. Remove it.";
@@ -549,7 +577,16 @@ std::vector<ShaderIssue> map_diagnostics(const std::vector<Diagnostic>& diags, c
 std::vector<ShaderIssue> precheck_snippet(const MaterialDef& material, const GeneratedShader& g,
                                           const std::string& snippet, const std::string& stripped) {
     std::vector<ShaderIssue> out;
-    if (!g.hasSurface) {
+    if (material.kind == "compute" && !g.hasCompute) {
+        ShaderIssue i;
+        i.file = material.shader;
+        i.message = "the snippet defines no compute() function";
+        i.hint =
+            "Define it as `void compute(in ComputeInput i) { ... }`: it runs once per thread, i.global_id.x is the "
+            "thread's index over the whole dispatch. The buffers are <name>.data[i], the params are globals. The "
+            "snippet must not define main.";
+        out.push_back(std::move(i));
+    } else if (material.kind != "compute" && !g.hasSurface) {
         ShaderIssue i;
         i.file = material.shader;
         i.message = std::string("the snippet defines no ") + fragment_entry(material) + "() function";
@@ -560,6 +597,13 @@ std::vector<ShaderIssue> precheck_snippet(const MaterialDef& material, const Gen
                 "change only what you need; fa_scene_color(uv), fa_depth(uv) and fa_normal(uv) read other pixels. "
                 "Signatures: " +
                 signatures(material) + ".";
+        else if (is_sky(material))
+            i.hint = "Define it as `void sky(in SkyInput i, inout SkySurface s) { s.color = mix(s.color, vec3(1.0, "
+                     "0.5, 0.2), "
+                     "pow(max(dot(i.dir, i.sun_dir), 0.0), 8.0)); }`. s.color arrives holding the engine's sky (the "
+                     "gradient of "
+                     "SceneSettings.skyColor and horizonColor), so change only what you need. Signatures: " +
+                     signatures(material) + ".";
         else if (is_sprite(material))
             i.hint =
                 "Define it as `void fragment(in QuadInput i, inout QuadSurface s) { s.color.rgb *= vec3(1.0, 0.5, "
@@ -626,7 +670,24 @@ std::vector<ShaderIssue> precheck_snippet(const MaterialDef& material, const Gen
             }
         }
     }
-    if (!is_sprite(material) && material.lighting == "custom" && !g.hasLight) {
+    if (is_sky(material) && g.hasVertex) {
+        static const std::regex entry(R"(\bvoid\s+vertex\s*\()");
+        std::smatch m;
+        ShaderIssue i;
+        i.file = material.shader;
+        if (std::regex_search(stripped, m, entry)) {
+            i.line = line_of(stripped, std::size_t(m.position(0)));
+            i.source = line_text(snippet, i.line);
+            i.column = column_of(stripped, std::size_t(m.position(0))) + 1;
+        }
+        i.message = "a sky material has no vertex(): the sky is one full-screen triangle";
+        i.hint =
+            "Remove vertex() and compute the colour of each pixel in sky() from i.dir (the view direction), i.sun_dir "
+            "and i.time. Signatures: " +
+            signatures(material) + ".";
+        out.push_back(std::move(i));
+    }
+    if (material.kind == "mesh" && material.lighting == "custom" && !g.hasLight) {
         ShaderIssue i;
         i.file = material.shader;
         i.message = "the material " + (material.path.empty() ? std::string("file") : material.path) +
@@ -688,8 +749,17 @@ Result<std::map<std::string, Json>> build_twins(const stdfs::path& work, const s
         return make_error("the reflection file of sokol-shdc has no \"shaders\" list",
                           "Install the pinned sokol-shdc (`factoria setup shaders`).");
     Json paramNames = Json::array(), textureNames = Json::array();
-    for (const MaterialParam& p : material.params) paramNames.push_back(p.name);
+    // The uniform block holds the params that are not instanced; the instanced ones travel in the instance buffer, laid out as
+    // "instanced" says (a twin without these keys has none: older twins stay valid).
+    for (const MaterialParam& p : material.params)
+        if (!p.instanced) paramNames.push_back(p.name);
     for (const MaterialTexture& t : material.textures) textureNames.push_back(t.name);
+    const InstanceLayout instLayout = instance_layout(material.params);
+    Json instancedSlots = Json::array(), vertexAttributes = Json::array();
+    for (const InstanceSlot& s : instLayout.slots)
+        instancedSlots.push_back(
+            Json::object({{"name", s.name}, {"vec4", s.vec4}, {"offset", s.offset}, {"components", s.components}}));
+    for (const std::string& a : material.vertexAttributes) vertexAttributes.push_back(a);
 
     std::map<std::string, Json> twins;
     bool vertexTextureReported = false;
@@ -705,11 +775,33 @@ Result<std::map<std::string, Json>> build_twins(const stdfs::path& work, const s
         // A twin without "kind" is a mesh twin: mesh twins stay as they were before M72, so no committed or exported one is
         // made stale by the kinds.
         if (material.kind != "mesh") twin["kind"] = material.kind;
+        if (instLayout.vec4Count > 0) {
+            twin["instanced"] = instancedSlots;
+            twin["instanceVec4"] = instLayout.vec4Count;
+        }
+        if (!vertexAttributes.empty()) twin["vertexAttributes"] = vertexAttributes;
+        if (material.kind == "compute") {
+            const Json computeFields = shaders_detail::compute_twin_fields(material);
+            twin["workgroupSize"] = computeFields["workgroupSize"];
+            twin["buffers"] = computeFields["buffers"];
+        }
         Json programs = Json::object();
         for (const Json& prog : shader.value("programs", Json::array())) {
             const std::string name = prog.value("name", std::string());
             Json reflection = prog;
             reflection.erase("name");
+            if (material.kind == "compute") {  // one compute function ("cs") instead of a vertex and a fragment one
+                const Json cf = prog.value("compute_func", Json::object());
+                reflection["compute_func"] = func_reflection(cf);
+                const std::string csText = read_output_file(work, cf.value("path", std::string()));
+                if (csText.empty())
+                    return make_error(
+                        "sokol-shdc did not write the " + slang + " source of program '" + name + "'",
+                        "Run sokol-shdc by hand on the generated top file (`factoria call shader.compile` "
+                        "prints its errors).");
+                programs[name] = Json::object({{"cs", csText}, {"reflection", std::move(reflection)}});
+                continue;
+            }
             const Json vf = prog.value("vertex_func", Json::object()), ff = prog.value("fragment_func", Json::object());
             reflection["vertex_func"] = func_reflection(vf);
             reflection["fragment_func"] = func_reflection(ff);
@@ -802,19 +894,17 @@ Result<ShaderCompileResult> compile_material(const std::string& projectDir, cons
         res.errors.push_back(std::move(i));
     }
     if (!mp.ok()) return res;
-    if (!kind_is_compiled(res.material.kind)) {  // the other kinds are filled in by their M72 packages
-        ShaderIssue i;
-        i.file = materialPath;
-        i.pointer = "/kind";
-        i.message = kind_refusal(res.material.kind);
-        i.hint =
-            "Only \"mesh\" (the default kind), \"sprite\" and \"post\" materials compile now. Remove \"kind\" to use "
-            "the material on a MeshRenderer, set it to \"sprite\" for Sprite, Shape2D, Tilemap, Text or particles, "
-            "or to \"post\" for a pass of the post-processing stack.";
-        res.errors.push_back(std::move(i));
-        return res;
+    if (res.material.kind == "compute") {  // no glsl300es twin: GLES3 and WebGL2 have no compute shaders
+        const std::vector<std::string> has = shader_dialects_of_kind("compute");
+        if (options.dialects.empty()) {  // "every dialect" means every dialect the kind has
+            res.dialects = has;
+        } else {
+            std::vector<std::string> kept;
+            for (const std::string& d : res.dialects)
+                (std::find(has.begin(), has.end(), d) != has.end() ? kept : res.skippedDialects).push_back(d);
+            res.dialects = std::move(kept);
+        }
     }
-
     auto raw = tooling_detail::read_file(stdfs::path(projectDir) / res.material.shader);
     if (!raw)
         return make_error("cannot read the snippet '" + res.material.shader + "' of " + materialPath,

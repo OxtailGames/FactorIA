@@ -22,10 +22,10 @@ namespace fa::render {
 
 // The places of the frame graph a custom pass can be drawn at, in frame order. All of them work on scene-linear HDR colour.
 enum class PostSlot : std::int32_t {
-    Main,        // after the scene (its ambient occlusion and fog) is drawn, before the screen-space reflections
-    AfterSsr,    // after the screen-space reflections, before the sun shafts
-    AfterShafts, // after the sun shafts, before the depth of field
-    AfterDof,    // after the depth of field and the motion blur, before the bloom
+    Main,         // after the scene (its ambient occlusion and fog) is drawn, before the screen-space reflections
+    AfterSsr,     // after the screen-space reflections, before the sun shafts
+    AfterShafts,  // after the sun shafts, before the depth of field
+    AfterDof,     // after the depth of field and the motion blur, before the bloom
     AfterBloom,  // after the bloom, before the final pass (exposure, lens effects, tonemap, grading and the display looks)
     Count
 };
@@ -44,10 +44,11 @@ std::vector<std::string> custom_post_position_names();
 
 // One entry of PostProcess.customPasses after validation.
 struct CustomPostPass {
-    std::string name;       // optional label shown in logs and the editor ("" = the material's file name)
-    std::string material;   // project-relative path of the kind "post" *.material.json
-    Json params = Json::object();  // per-pass overrides of the material's params (MeshRenderer.materialParams semantics)
-    bool enabled = true;    // false: the entry stays in the list and draws nothing
+    std::string name;      // optional label shown in logs and the editor ("" = the material's file name)
+    std::string material;  // project-relative path of the kind "post" *.material.json
+    Json params =
+        Json::object();   // per-pass overrides of the material's params (MeshRenderer.materialParams semantics)
+    bool enabled = true;  // false: the entry stays in the list and draws nothing
     std::string position = std::string(kCustomPostDefaultPosition);
     PostSlot slot = PostSlot::AfterBloom;
     // The entity of the PostProcess the entry came from (set by resolve_post_stack; null from parse_*), for log messages.

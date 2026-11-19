@@ -118,9 +118,10 @@ CustomPostPlan make_custom_post_plan(const PostStack& stack, Assets& assets, std
         if (!use || !use->material) {
             why = "the entry names no material";
         } else if (use->error) {
-            why = use->material->ok ? "its kind is \"" + std::string(material_kind_name(use->material->kind)) +
-                                          "\", not \"post\""
-                                    : use->material->error.empty() ? "it did not build" : use->material->error;
+            why = use->material->ok
+                      ? "its kind is \"" + std::string(material_kind_name(use->material->kind)) + "\", not \"post\""
+                  : use->material->error.empty() ? "it did not build"
+                                                 : use->material->error;
         } else if (use->material->programs[0].shader.id == 0) {
             why = "the material has no \"post\" program (regenerate it: factoria call material.generate)";
         } else {
@@ -132,7 +133,8 @@ CustomPostPlan make_custom_post_plan(const PostStack& stack, Assets& assets, std
             if (warned.insert(key).second)
                 FA_WARN("render",
                         "Custom post pass '{}' (material '{}') is skipped: {}. Hint: fix the material (factoria call "
-                        "material.validate) or remove the entry from PostProcess.customPasses; the picture is drawn without it.",
+                        "material.validate) or remove the entry from PostProcess.customPasses; the picture is drawn "
+                        "without it.",
                         label, p.material, why);
             continue;
         }
@@ -183,7 +185,8 @@ int CustomPost::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gp
         if (e.slot != slot) continue;
         std::string why;
         if (e.readsPrepass && !prepass.valid())
-            why = "it reads the depth or the normals (fa_depth, fa_normal) and this camera has no depth and normal prepass";
+            why = "it reads the depth or the normals (fa_depth, fa_normal) and this camera has no depth and normal "
+                  "prepass";
         else if (rect.w < 1 || rect.h < 1)
             why = "the camera's rectangle is empty";
         else if (!gpu.post_material_pipeline(scratchFormat, e.program.shader).id ||
@@ -237,10 +240,11 @@ int CustomPost::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gp
             for (const CustomPostEntry* e : chain) note_fallback(fallbacks, e->path);
             if (!warnedTargets_) {
                 warnedTargets_ = true;
-                FA_ERROR("render",
-                         "Custom post passes: cannot create the intermediate images for a {}x{} camera; they are skipped. "
-                         "Hint: lower the render scale, or remove the entries of PostProcess.customPasses.",
-                         rect.w, rect.h);
+                FA_ERROR(
+                    "render",
+                    "Custom post passes: cannot create the intermediate images for a {}x{} camera; they are skipped. "
+                    "Hint: lower the render scale, or remove the entries of PostProcess.customPasses.",
+                    rect.w, rect.h);
             }
             return 0;
         }
@@ -314,7 +318,7 @@ int CustomPost::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gp
         u.time[0] = time;
         const bool first = k == 0;
         const bool last = k == n - 1 && n > 1;  // a single pass draws into an image and is copied back
-        if (first) {  // reads the picture's rectangle
+        if (first) {                            // reads the picture's rectangle
             u.rc[0] = ruv.x;
             u.rc[1] = ruv.y;
             u.rc[2] = ruv.w;

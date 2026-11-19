@@ -412,6 +412,12 @@ void Renderer::Impl::collect_targets(World& world) {
     });
 }
 
+void Renderer::Impl::set_target_self(const std::string& name) {
+    if (name == targetSelf) return;
+    targetSelf = name;
+    assets->drop_material_cache();
+}
+
 // What texture("target:<name>") answers: the target's live texture; the checker (selfSentinel) for the camera that
 // draws that very target (a pass cannot sample the image it writes); null when no camera renders into the name.
 TextureAsset* Renderer::Impl::resolve_target(const std::string& name) {

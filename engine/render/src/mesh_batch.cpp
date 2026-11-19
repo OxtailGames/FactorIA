@@ -133,6 +133,38 @@ void build_batches(std::vector<MeshItem>& items, bool sortByMaterial, std::vecto
     }
 }
 
+void pack_instance_extras(const std::vector<MeshItem>& items, std::vector<MeshBatch>& batches,
+                          std::vector<float>& mainData, std::vector<float>& shadowData) {
+    for (std::size_t bi = 0; bi < batches.size(); ++bi) {
+        MeshBatch& b = batches[bi];
+        MaterialAsset* mat = items[b.rep].material;
+        if (!mat || !mat->ok || mat->instanceVec4 <= 0) continue;
+        const std::size_t end = bi + 1 < batches.size() ? batches[bi + 1].rep : items.size();
+        const std::size_t floats = std::size_t(mat->instanceVec4) * 4;
+        b.instanceVec4 = std::uint32_t(mat->instanceVec4);
+        b.mainExtra = std::uint32_t(mainData.size());
+        b.shadowExtra = std::uint32_t(shadowData.size());
+        for (std::size_t i = b.rep; i < end; ++i) {
+            const MeshItem& mi = items[i];
+            if (!mi.visible && !mi.casts) continue;
+            const std::size_t mainAt = mainData.size(), shadowAt = shadowData.size();
+            float* out = nullptr;
+            if (mi.visible) {
+                mainData.resize(mainAt + floats);
+                out = mainData.data() + mainAt;
+                pack_instance_params(*mat, mi.mr->materialParams, out);
+            }
+            if (mi.casts) {
+                shadowData.resize(shadowAt + floats);
+                if (out)
+                    std::memcpy(shadowData.data() + shadowAt, out, floats * sizeof(float));
+                else
+                    pack_instance_params(*mat, mi.mr->materialParams, shadowData.data() + shadowAt);
+            }
+        }
+    }
+}
+
 // ---- the sort key ----
 
 bool pack_sort_key(std::uint64_t mesh, std::uint64_t tex, std::uint64_t normal, std::uint64_t rest,

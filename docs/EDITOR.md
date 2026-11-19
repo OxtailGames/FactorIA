@@ -120,6 +120,7 @@ Profiler stay closed). Two editors open at once share the file: the last one to 
 | Level generator | (View > Level generator, a window) makes a level from a sample you drew, tries other seeds and keeps one ([Level generator](editor/EDITOR_REVIEW.md#level-generator)). |
 | Animation | (View > Animation, a tab next to Console) the clips of the selected entity's Animator as a dopesheet or curves, with record mode ([Animation panel](editor/EDITOR_ANIMATION.md#animation-panel)). |
 | Bone tools | (View > Bone tools, a tab next to Inspector) draw a bone chain, bind a sprite, paint weights, drag IK targets ([Bone tools](editor/EDITOR_ANIMATION.md#bone-tools)). |
+| Scene settings | (View > Scene settings, a window) the scene's own settings (`SceneSettings`: sky colours, the sky material and its params, fog, ambient light, gravity, music, colour space) in groups, every change one undo step ([Scene settings panel](editor/EDITOR_PANELS.md#scene-settings-panel)). |
 | Graph | (View > Graph, a window) the node graph of a material: nodes and links on a canvas, a searchable palette, a live lit preview, the problems list, Save runs `material.graph.generate` ([Graph panel](editor/EDITOR_PANELS.md#graph-panel)). |
 
 Play snapshots the scene and runs the game; Stop restores the snapshot, so edits made while playing are temporary. For that

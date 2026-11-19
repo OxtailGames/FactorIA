@@ -449,10 +449,10 @@ public:
     // the renderer's stack off without touching the data (Renderer::set_post_bypass). The autotest drives postfx_edit / postfx_preset.
     void draw_postfx_panel();
     void postfx_release();  // the panel closed: the A/B switch goes back to "stack on"
-    bool postfx_edit(
-        const Json& fields,
-        bool ownStep =
-            false);  // postprocess.set on the edit target; false (and postFx_.error) when refused; ownStep: never merged with the edit before (a click, not a drag)
+    // postprocess.set on the edit target; false (and postFx_.error) when refused; ownStep: never merged with the edit before
+    // (a click, not a drag); entry: the customPasses index being edited, part of the undo key (a drag on one pass never merges
+    // into another's)
+    bool postfx_edit(const Json& fields, bool ownStep = false, int entry = -1);
     bool postfx_preset(const std::string& name);  // postprocess.apply_preset on the edit target
     // The "Custom passes" section of the panel: the edit target's PostProcess.customPasses (`list`) with add, enable, reorder, remove,
     // position, material and param edits; each one is a postprocess.set of the whole array (postfx_custom.h), one undo step.
@@ -692,6 +692,16 @@ public:
     Vec2 graph_node_screen(const std::string& id, const std::string& port = "", bool output = false) const;
     GraphUi graph_;
     bool showGraph_ = false;
+
+    // Scene settings panel (scene_settings_panel.cpp; View > Scene settings): the SceneSettings of the open scene (sky, fog, ambient light,
+    // gravity, music, colour space) drawn from the reflection, a sky material's params typed by material.info (draw_material_params).
+    // Every edit is scene.set_component {component: "SceneSettings"} with no id through edit_command (one undo step); the rules are in
+    // scene_settings_model.h. The autotest drives scene_settings_edit / scene_settings_reset, the panel's own paths.
+    void draw_scene_settings_panel();
+    bool scene_settings_edit(const std::string& field, const Json& value, bool merge = false,
+                             std::string* error = nullptr);
+    bool scene_settings_reset(const std::string& field, std::string* error = nullptr);
+    bool showSceneSettings_ = false;
     // Music panel (music_panel.cpp, music_mixer_panel.cpp; View > Music, or a double click on a *.song.json in the Project panel): a song as a
     // piano roll, a drum grid, an arrangement and a mixer, played by the same transport a game's entity.music uses (an intensity slider fades
     // the layers, a section can be looped). The rules are in music_model.h: every edit it keeps is a command call (music.edit, music.arpeggio,
@@ -1392,8 +1402,9 @@ public:
         std::int64_t mtime = -2;
         double checkedAt = -1e9;
     };
-    std::map<std::string, MaterialInfoEntry> materialInfo_;  // by material path
-    Json assetReport_;                                       // Renderer::asset_report(), refreshed twice a second
+    std::map<std::string, MaterialInfoEntry> materialInfo_;               // by material path
+    const MaterialInfoEntry& material_info_for(const std::string& path);  // material.info of a material, cached
+    Json assetReport_;  // Renderer::asset_report(), refreshed twice a second
     double assetReportAt_ = -1e9;
     std::map<std::string, std::pair<double, std::vector<std::string>>>
         assetFiles_;  // asset type -> files, refreshed every 2 s
@@ -1792,6 +1803,7 @@ public:
     void at_section_P3(AtScript& at);
     void at_section_O3(AtScript& at);  // autotest_model_particles.cpp
     void at_section_G3(AtScript& at);  // autotest_graph.cpp
+    void at_section_Q3(AtScript& at);  // autotest_scene_settings.cpp
     void at_section_R3(AtScript& at);
     void at_section_A3(AtScript& at);
     void at_section_T2(AtScript& at);  // autotest_play_review.cpp

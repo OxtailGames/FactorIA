@@ -1,7 +1,7 @@
 {
   "format": "factoria.shader/1",
   "engine": "0.31.0",
-  "template": "d03c1c7f934d4bdc20c513c6cb4bc09d11d7167b51a10ca9dcb59b504997591f",
+  "template": "0964dd8c7b4b6a9814d4999b680edcc8bb5c3a448cca399e0e1757e076dac8d0",
   "slang": "glsl430",
   "params": [
     "amount"
@@ -13,7 +13,7 @@
   "programs": {
     "post": {
       "vs": "#version 430\n\nuniform vec4 fa_post_vs_params[1];\nlayout(location = 0) in vec2 pos;\nlayout(location = 0) out vec2 fa_uv;\n\nvoid main()\n{\n    gl_Position = vec4(pos, 0.0, 1.0);\n    float _33 = pos.y * 0.5;\n    fa_uv = vec2((pos.x * 0.5) + 0.5, mix(0.5 - _33, 0.5 + _33, fa_post_vs_params[0].x));\n}\n\n",
-      "fs": "#version 430\n\nstruct PostInput\n{\n    vec2 uv;\n    vec2 texel;\n    vec2 size;\n    float time;\n};\n\nstruct PostSurface\n{\n    vec4 color;\n};\n\nuniform vec4 fa_post_params[4];\nuniform vec4 fa_material[1];\nlayout(binding = 0) uniform sampler2D fa_scene_fa_scene_smp;\nlayout(binding = 1) uniform sampler2D mask_mask_smp;\n\nlayout(location = 0) in vec2 fa_uv;\nlayout(location = 0) out vec4 fa_frag_color;\n\nvec2 fa_flip_uv(vec2 s)\n{\n    return vec2(s.x, mix(s.y, 1.0 - s.y, fa_post_params[0].x));\n}\n\nvec4 fa_scene_color(vec2 uv)\n{\n    vec2 param = (clamp(uv, vec2(0.0), vec2(1.0)) * fa_post_params[1].zw) + fa_post_params[1].xy;\n    return textureLod(fa_scene_fa_scene_smp, fa_flip_uv(param), 0.0);\n}\n\nvoid post(PostInput i, inout PostSurface s)\n{\n    vec2 param = i.uv;\n    vec3 _127 = mix(fa_scene_color(param).xyz, texture(mask_mask_smp, vec2(0.0500000007450580596923828125)).xyz, vec3(fa_material[0].x));\n    s.color.x = _127.x;\n    s.color.y = _127.y;\n    s.color.z = _127.z;\n}\n\nfloat fa_sane(float x)\n{\n    if (((floatBitsToUint(x) >> 23u) & 255u) == 255u)\n    {\n        return 0.0;\n    }\n    return clamp(x, 0.0, 65504.0);\n}\n\nvoid main()\n{\n    vec2 param = fa_uv;\n    vec2 _140 = fa_flip_uv(param);\n    vec2 param_1 = _140;\n    vec4 _160 = fa_scene_color(param_1);\n    vec4 _212 = _160;\n    PostInput param_2 = PostInput(_140, fa_post_params[2].zw, fa_post_params[2].xy, fa_post_params[3].x);\n    PostSurface param_3 = PostSurface(_160);\n    post(param_2, param_3);\n    _212 = param_3.color;\n    float _177;\n    if (((floatBitsToUint(param_3.color.w) >> 23u) & 255u) == 255u)\n    {\n        _177 = 1.0;\n    }\n    else\n    {\n        _177 = clamp(_212.w, 0.0, 1.0);\n    }\n    float param_4 = _212.x;\n    float param_5 = _212.y;\n    float param_6 = _212.z;\n    fa_frag_color = vec4(fa_sane(param_4), fa_sane(param_5), fa_sane(param_6), _177);\n}\n\n",
+      "fs": "#version 430\n\nstruct PostInput\n{\n    vec2 uv;\n    vec2 texel;\n    vec2 size;\n    float time;\n};\n\nstruct PostSurface\n{\n    vec4 color;\n};\n\nuniform vec4 fa_post_params[4];\nuniform vec4 fa_material[1];\nlayout(binding = 0) uniform sampler2D fa_scene_fa_scene_smp;\nlayout(binding = 1) uniform sampler2D mask_mask_smp;\n\nlayout(location = 0) in vec2 fa_uv;\nlayout(location = 0) out vec4 fa_frag_color;\n\nvec2 fa_flip_uv(vec2 s)\n{\n    return vec2(s.x, mix(s.y, 1.0 - s.y, fa_post_params[0].x));\n}\n\nvec4 fa_scene_color(vec2 uv)\n{\n    vec2 _62 = fa_post_params[2].zw * 0.5;\n    vec2 param = (clamp(uv, _62, vec2(1.0) - _62) * fa_post_params[1].zw) + fa_post_params[1].xy;\n    return textureLod(fa_scene_fa_scene_smp, fa_flip_uv(param), 0.0);\n}\n\nvoid post(PostInput i, inout PostSurface s)\n{\n    vec2 param = i.uv;\n    vec3 _136 = mix(fa_scene_color(param).xyz, texture(mask_mask_smp, vec2(0.0500000007450580596923828125)).xyz, vec3(fa_material[0].x));\n    s.color.x = _136.x;\n    s.color.y = _136.y;\n    s.color.z = _136.z;\n}\n\nfloat fa_sane(float x)\n{\n    if (((floatBitsToUint(x) >> 23u) & 255u) == 255u)\n    {\n        return 0.0;\n    }\n    return clamp(x, 0.0, 65504.0);\n}\n\nvoid main()\n{\n    vec2 param = fa_uv;\n    vec2 _149 = fa_flip_uv(param);\n    vec2 param_1 = _149;\n    vec4 _168 = fa_scene_color(param_1);\n    vec4 _220 = _168;\n    PostInput param_2 = PostInput(_149, fa_post_params[2].zw, fa_post_params[2].xy, fa_post_params[3].x);\n    PostSurface param_3 = PostSurface(_168);\n    post(param_2, param_3);\n    _220 = param_3.color;\n    float _185;\n    if (((floatBitsToUint(param_3.color.w) >> 23u) & 255u) == 255u)\n    {\n        _185 = 1.0;\n    }\n    else\n    {\n        _185 = clamp(_220.w, 0.0, 1.0);\n    }\n    float param_4 = _220.x;\n    float param_5 = _220.y;\n    float param_6 = _220.z;\n    fa_frag_color = vec4(fa_sane(param_4), fa_sane(param_5), fa_sane(param_6), _185);\n}\n\n",
       "reflection": {
         "vertex_func": {
           "entry_point": "main"
@@ -65,7 +65,7 @@
             "stage": "fragment",
             "size": 16,
             "struct_name": "fa_material",
-            "inst_name": "_123",
+            "inst_name": "_132",
             "glsl_uniforms": [
               {
                 "type": "vec4",

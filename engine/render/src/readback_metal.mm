@@ -70,6 +70,41 @@ bool readback_rgba16f(sg_image image, int width, int height, std::vector<float>&
     }
 }
 
+bool readback_buffer(sg_buffer buffer, std::size_t offset, std::size_t bytes, std::vector<std::uint8_t>& out,
+                     std::string* error) {
+    @autoreleasepool {
+    const sg_mtl_buffer_info info = sg_mtl_query_buffer_info(buffer);
+    id<MTLBuffer> src = (__bridge id<MTLBuffer>)info.buf[info.active_slot];
+    id<MTLCommandQueue> queue = (__bridge id<MTLCommandQueue>)sg_mtl_command_queue();
+    id<MTLDevice> device = (__bridge id<MTLDevice>)sg_mtl_device();
+    if (!src || !queue || !device) {
+        if (error) *error = "readback: no Metal buffer for the storage buffer";
+        return false;
+    }
+    if (offset > std::size_t(src.length) || bytes > std::size_t(src.length) - offset) {
+        if (error) *error = "readback: the range is outside the storage buffer";
+        return false;
+    }
+    out.resize(bytes);
+    if (bytes == 0) return true;
+    // A copy through a shared buffer: the same code serves a managed (Intel) and a private-memory buffer, and the blit
+    // runs after the sokol command buffer that holds the dispatches (one queue, in order; the caller committed it).
+    id<MTLBuffer> dst = [device newBufferWithLength:bytes options:MTLResourceStorageModeShared];
+    if (!dst) {
+        if (error) *error = "readback: Metal could not allocate " + std::to_string(bytes) + " bytes to read into";
+        return false;
+    }
+    id<MTLCommandBuffer> cmd = [queue commandBuffer];
+    id<MTLBlitCommandEncoder> blit = [cmd blitCommandEncoder];
+    [blit copyFromBuffer:src sourceOffset:offset toBuffer:dst destinationOffset:0 size:bytes];
+    [blit endEncoding];
+    [cmd commit];
+    [cmd waitUntilCompleted];
+    std::memcpy(out.data(), [dst contents], bytes);
+    return true;
+    }
+}
+
 }  // namespace fa::render
 
 #endif

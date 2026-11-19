@@ -63,14 +63,16 @@ std::string why_refused(std::string_view side, std::string_view effect) {
                " is part of how the scene is lit): a custom pass can only go after it, use \"after:" +
                std::string(effect) + "\".";
     if (e == PostEffect::MotionBlur || (e == PostEffect::DepthOfField && side == "after"))
-        return at + " is not a place: the depth of field and the motion blur are drawn together, so a custom pass goes "
-                    "before the depth of field (\"before:depthOfField\") or after the motion blur (\"after:motionBlur\").";
+        return at +
+               " is not a place: the depth of field and the motion blur are drawn together, so a custom pass goes "
+               "before the depth of field (\"before:depthOfField\") or after the motion blur (\"after:motionBlur\").";
     if (post_effect_is_hdr(e) && side == "after" && e != PostEffect::Bloom)
         return at + " is not a place: the exposure, the lens effects and the radial blur run fused in the final pass, "
                     "after the bloom. A custom pass goes before them, e.g. \"before:tonemap\" (or \"after:bloom\").";
-    return at + " is not available yet: the effects after the tonemap work on the display-referred picture, and a custom "
-                "pass there is not supported in this version. Use \"before:tonemap\" (scene-linear colour, before the "
-                "tonemap) instead.";
+    return at +
+           " is not available yet: the effects after the tonemap work on the display-referred picture, and a custom "
+           "pass there is not supported in this version. Use \"before:tonemap\" (scene-linear colour, before the "
+           "tonemap) instead.";
 }
 
 }  // namespace
@@ -78,9 +80,10 @@ std::string why_refused(std::string_view side, std::string_view effect) {
 Result<CustomPostPass> parse_custom_post_pass(const Json& entry, std::string_view pointer) {
     const std::string at(pointer);
     if (!entry.is_object())
-        return make_error(at + ": a custom pass is an object, got " + std::string(entry.type_name()) + ".",
-                          "Write {\"material\": \"materials/vignette.material.json\", \"position\": \"before:tonemap\"}; "
-                          "the material is a kind \"post\" material (docs/SHADERS.md, \"Post-process materials\").");
+        return make_error(
+            at + ": a custom pass is an object, got " + std::string(entry.type_name()) + ".",
+            "Write {\"material\": \"materials/vignette.material.json\", \"position\": \"before:tonemap\"}; "
+            "the material is a kind \"post\" material (docs/SHADERS.md, \"Post-process materials\").");
     std::vector<std::string> keys;
     for (std::string_view k : kEntryKeys) keys.emplace_back(k);
     for (auto it = entry.begin(); it != entry.end(); ++it) {
@@ -109,8 +112,9 @@ Result<CustomPostPass> parse_custom_post_pass(const Json& entry, std::string_vie
     };
     if (auto r = string_of("material", out.material, true); !r.ok()) return r.error();
     if (out.material.empty())
-        return make_error(pointer_of(at, "material") + ": the material path is empty.",
-                          "Name a kind \"post\" *.material.json of the project, e.g. \"materials/vignette.material.json\".");
+        return make_error(
+            pointer_of(at, "material") + ": the material path is empty.",
+            "Name a kind \"post\" *.material.json of the project, e.g. \"materials/vignette.material.json\".");
     if (auto r = string_of("name", out.name, false); !r.ok()) return r.error();
     if (entry.contains("enabled")) {
         if (!entry["enabled"].is_boolean())
@@ -120,10 +124,11 @@ Result<CustomPostPass> parse_custom_post_pass(const Json& entry, std::string_vie
     }
     if (entry.contains("materialParams")) {
         if (!entry["materialParams"].is_object())
-            return make_error(pointer_of(at, "materialParams") + ": \"materialParams\" must be an object, got " +
-                                  std::string(entry["materialParams"].type_name()) + ".",
-                              "Give the material's params by name, e.g. {\"strength\": 0.5, \"tint\": [1, 0.8, 0.8, 1]} "
-                              "(`material.info` lists them).");
+            return make_error(
+                pointer_of(at, "materialParams") + ": \"materialParams\" must be an object, got " +
+                    std::string(entry["materialParams"].type_name()) + ".",
+                "Give the material's params by name, e.g. {\"strength\": 0.5, \"tint\": [1, 0.8, 0.8, 1]} "
+                "(`material.info` lists them).");
         out.params = entry["materialParams"];
     }
     std::string position(kCustomPostDefaultPosition);
@@ -133,15 +138,16 @@ Result<CustomPostPass> parse_custom_post_pass(const Json& entry, std::string_vie
     if (found == kCustomPostPositions + kCustomPostPositionCount) {
         const std::size_t colon = position.find(':');
         std::string why;
-        if (colon != std::string::npos) why = why_refused(std::string_view(position).substr(0, colon),
-                                                          std::string_view(position).substr(colon + 1));
+        if (colon != std::string::npos)
+            why =
+                why_refused(std::string_view(position).substr(0, colon), std::string_view(position).substr(colon + 1));
         const std::vector<std::string> names = custom_post_position_names();
         std::string hint = why.empty() ? fa::did_you_mean(position, names) : why + " Valid: " + join(names) + ".";
         if (why.empty() && colon == std::string::npos)
             hint += " A position is \"before:<effect>\" or \"after:<effect>\" with an effect of PostProcess (e.g. "
                     "\"before:tonemap\").";
-        return make_error(pointer_of(at, "position") + ": \"" + position + "\" is not a position a custom pass can take.",
-                          hint);
+        return make_error(
+            pointer_of(at, "position") + ": \"" + position + "\" is not a position a custom pass can take.", hint);
     }
     out.position = position;
     out.slot = found->slot;
@@ -151,7 +157,8 @@ Result<CustomPostPass> parse_custom_post_pass(const Json& entry, std::string_vie
 Result<std::vector<CustomPostPass>> parse_custom_post_passes(const Json& array, std::string_view pointer) {
     const std::string at(pointer);
     if (!array.is_array())
-        return make_error(at + ": customPasses is an array of custom passes, got " + std::string(array.type_name()) + ".",
+        return make_error(at + ": customPasses is an array of custom passes, got " + std::string(array.type_name()) +
+                              ".",
                           "Write [] for none, or [{\"material\": \"materials/vignette.material.json\", \"position\": "
                           "\"before:tonemap\"}].");
     if (array.size() > std::size_t(kMaxCustomPostPasses))

@@ -60,7 +60,8 @@ bool is_reserved_word(std::string_view s) {
         "sizeof", "cast", "namespace", "using",
         // names of the snippet contract
         "main", "surface", "vertex", "Surface", "SurfaceInput", "VertexData", "LightSample", "QuadInput", "QuadSurface",
-        "QuadVertex", "fragment", "SkyInput", "SkySurface", "PostInput", "PostSurface",
+        "QuadVertex", "fragment", "SkyInput", "SkySurface", "PostInput", "PostSurface", "compute", "ComputeInput",
+        "vertex_uv1", "vertex_color1",
         // a name sokol-shdc cannot take for a texture ("no binding found for texture ''")
         "noise"};
     return words.count(s) > 0;
@@ -105,9 +106,9 @@ const std::vector<std::string>& template_file_names(const std::string& kind) {
     static const std::map<std::string, std::vector<std::string>> names = {
         {"mesh", {"mesh_common.glsl"}},
         {"sprite", {"color_space.glsl", "light_shadow.glsl", "quad_common.glsl"}},
-        {"sky", {"sky_common.glsl"}},
+        {"sky", {"color_space.glsl", "sky_common.glsl"}},
         {"post", {"post_common.glsl"}},
-        {"compute", {}}};
+        {"compute", {"compute_common.glsl"}}};
     static const std::vector<std::string> none;
     auto it = names.find(kind);
     return it == names.end() ? none : it->second;
@@ -132,7 +133,7 @@ const std::vector<std::pair<std::string, std::vector<std::string>>>& contract_st
         {"sprite", {"QuadInput", "QuadSurface", "QuadVertex"}},
         {"sky", {"SkyInput", "SkySurface"}},
         {"post", {"PostInput", "PostSurface"}},
-        {"compute", {}}};
+        {"compute", {"ComputeInput"}}};
     static const std::map<std::string, Structs> byKind = [] {
         std::map<std::string, Structs> result;
         for (const auto& [kindName, wantedList] : wantedByKind) {
@@ -313,26 +314,20 @@ void scan_globals(const std::string& text, NameSet& out) {
 const std::set<std::string, std::less<>>& template_globals(const std::string& kind) {
     // The names the template of a kind declares at the top level of its program, unprefixed (the prefixed ones are covered
     // by the fa_ rule): a param or texture with one of them would redefine it. Derived from the bundled template so the
-    // list cannot drift. Only the sprite template has any: its snippet is spliced into a program whose inputs, varyings and
+    // list cannot drift. Only the sprite, sky and post templates have any: their snippet is spliced into a program whose inputs, varyings and
     // helpers are not prefixed (the mesh template keeps its own names out of the snippet's way by other means).
     static const std::map<std::string, NameSet> byKind = [] {
         std::map<std::string, NameSet> result;
-        NameSet sprite;
-        for (const auto& [name, content] : template_files("sprite")) scan_globals(blank_comments(content), sprite);
-        result["sprite"] = std::move(sprite);
+        for (const char* kind : {"sprite", "sky", "post"}) {
+            NameSet names;
+            for (const auto& [name, content] : template_files(kind)) scan_globals(blank_comments(content), names);
+            result[kind] = std::move(names);
+        }
         return result;
     }();
     static const NameSet none;
     auto it = byKind.find(kind);
     return it == byKind.end() ? none : it->second;
-}
-
-bool kind_is_compiled(const std::string& kind) { return kind == "mesh" || kind == "sprite" || kind == "post"; }
-
-std::string kind_refusal(const std::string& kind) {
-    // Sprite is compiled (M72.1) and so is post (M72.2); sky is the other half of M72.1.
-    const char* package = kind == "compute" ? "M72.4" : "M72.1";
-    return "kind \"" + kind + "\" is not compiled yet: " + kind + " materials arrive with " + package;
 }
 
 }  // namespace shaders_detail
@@ -469,17 +464,18 @@ std::string block_members(const std::vector<MaterialParam>& params) {
 }  // namespace
 
 GeneratedShader generate_material_shader(const MaterialDef& material, std::string_view snippetText) {
+    if (material.kind == "compute") return generate_compute_shader(material, snippetText);
     GeneratedShader g;
     g.kind = material.kind;
-    const bool sprite = material.kind == "sprite";
-    const bool post = material.kind == "post";
+    const bool sprite = material.kind == "sprite", sky = material.kind == "sky", post = material.kind == "post";
     // A post material has no alpha test and no light(): parse_material refuses the keys that ask for them.
     const bool clip = material.alphaMode == "clip" && !post;
     const std::string src = normalize_snippet(snippetText);
-    // A sprite has no light(): it is lit by the 2D pipeline; a post pass is not lit at all.
-    const bool custom = !sprite && !post && material.lighting == "custom";
+    // Only a mesh has light(): a sprite is lit by the 2D pipeline, a sky and a post pass are not lit.
+    const bool custom = material.kind == "mesh" && material.lighting == "custom";
     const std::vector<Function> fns = find_entry_points(blank_comments(src),
                                                         sprite ? "fragment"
+                                                        : sky  ? "sky"
                                                         : post ? "post"
                                                                : "surface",
                                                         custom);
@@ -490,6 +486,13 @@ GeneratedShader generate_material_shader(const MaterialDef& material, std::strin
         g.hasAmbient = g.hasAmbient || f.isAmbient;
     }
 
+    // The params of the uniform block (one value per draw) and the instanced ones (a value per instance, read from the instance
+    // buffer into plain globals before vertex() and surface() run, so the snippet reads them by the same name).
+    std::vector<MaterialParam> blockParams;
+    for (const MaterialParam& p : material.params)
+        if (!p.instanced) blockParams.push_back(p);
+    const InstanceLayout instLayout = instance_layout(material.params);
+
     TopFile t{g};
     t.generated("@module fa_mat\n@block fa_user\n");
     // The material block lives in one stage: a sokol uniform block slot belongs to one stage, so the vertex stage gets its own
@@ -497,21 +500,42 @@ GeneratedShader generate_material_shader(const MaterialDef& material, std::strin
     // take the slots after the engine's own (mesh: views 6.., samplers 2..; sprite: views 4.., samplers 3..; kMaterial* of
     // engine/render/src/render_internal.h).
     t.generated("#ifdef GL_VERTEX_SHADER\n");
-    if (!material.params.empty())
-        t.generated("layout(binding=4) uniform fa_material_vs {\n" + block_members(material.params) + "};\n");
+    if (!blockParams.empty())
+        t.generated("layout(binding=4) uniform fa_material_vs {\n" + block_members(blockParams) + "};\n");
     // Helpers that sample a texture or discard still compile in the vertex stage.
     t.generated("#define texture(s, uv) textureLod(s, uv, 0.0)\n#define discard\n");
     t.generated("#else\n");
-    if (!material.params.empty())
-        t.generated("layout(binding=5) uniform fa_material {\n" + block_members(material.params) + "};\n");
+    if (!blockParams.empty())
+        t.generated("layout(binding=5) uniform fa_material {\n" + block_members(blockParams) + "};\n");
     t.generated("#endif\n");
+    if (instLayout.vec4Count > 0) {
+        static const char* kLetters = "xyzw";
+        std::string globals, unpack;
+        for (const InstanceSlot& s : instLayout.slots) {
+            const std::string type = s.components == 1 ? "float" : "vec" + std::to_string(s.components);
+            globals += type + " " + s.name + ";\n";
+            const std::string from = "fa_d" + std::to_string(s.vec4);
+            unpack += "    " + s.name + " = " + from +
+                      (s.components == 4 ? "" : "." + std::string(kLetters + s.offset, std::size_t(s.components))) +
+                      ";\n";
+        }
+        t.generated("// Instanced params: set from the instance buffer before vertex() and surface() run.\n" + globals +
+                    "void fa_instance_unpack(vec4 fa_d0, vec4 fa_d1, vec4 fa_d2) {\n" + unpack + "}\n");
+    }
+    if (std::find(material.vertexAttributes.begin(), material.vertexAttributes.end(), "uv1") !=
+        material.vertexAttributes.end())
+        t.generated("#ifdef GL_VERTEX_SHADER\nvec2 vertex_uv1;\n#endif\n");
+    if (std::find(material.vertexAttributes.begin(), material.vertexAttributes.end(), "color1") !=
+        material.vertexAttributes.end())
+        t.generated("#ifdef GL_VERTEX_SHADER\nvec4 vertex_color1;\n#endif\n");
     std::string vsDefines, vsUndefs, vsDecls, fsDecls;
-    if (sprite || post) {
+    if (sprite || sky || post) {
         // A sprite material's textures are declared once, in the fragment stage (views 4.., samplers 3..): the 2D pipeline binds
-        // no vertex-stage views, so vertex() cannot sample one (the compiler's precheck says so). A post material's are views
-        // 2.. and samplers 2..: its pass is a full-screen triangle whose vertex stage has no material.
-        int view = post ? kMaterialPostFirstView : kMaterialSpriteFirstView,
-            sampler = post ? kMaterialPostFirstSampler : kMaterialSpriteFirstSampler;
+        // no vertex-stage views, so vertex() cannot sample one (the compiler's precheck says so). A sky material has no vertex()
+        // and no engine texture: views 0.., samplers 0... A post material's are views 2.. and samplers 2..: its pass is a
+        // full-screen triangle whose vertex stage has no material.
+        int view = sky ? kMaterialSkyFirstView : post ? kMaterialPostFirstView : kMaterialSpriteFirstView;
+        int sampler = sky ? kMaterialSkyFirstSampler : post ? kMaterialPostFirstSampler : kMaterialSpriteFirstSampler;
         for (const MaterialTexture& tex : material.textures)
             t.generated("layout(binding=" + std::to_string(view++) + ") uniform texture2D " + tex.name +
                         ";\nlayout(binding=" + std::to_string(sampler++) + ") uniform sampler " + tex.name + "_smp;\n");
@@ -548,12 +572,16 @@ GeneratedShader generate_material_shader(const MaterialDef& material, std::strin
     // The shims stop at the snippet: the engine's own vertex code below sees the real texture() and discard.
     t.generated("#ifdef GL_VERTEX_SHADER\n#undef texture\n#undef discard\n" + vsUndefs + "#endif\n");
     t.generated(post     ? "@end\n@include post_common.glsl\n"
+                : sky    ? "@end\n@include sky_common.glsl\n"
                 : sprite ? "@end\n@include quad_common.glsl\n"
                          : "@end\n@include mesh_common.glsl\n");
 
     if (post) {
         g.programs = {"post"};
         t.generated("@program post vs fs\n");
+    } else if (sky) {
+        g.programs = {"sky"};
+        t.generated("@program sky vs fs\n");
     } else if (sprite) {
         // quad: every mode; quad_plain: the lean program of a batch of plain textured quads (the renderer picks one per batch).
         g.programs = {"quad", "quad_plain"};
@@ -572,11 +600,17 @@ GeneratedShader generate_material_shader(const MaterialDef& material, std::strin
         g.programs.push_back("prepass_skin");
         t.generated("@program prepass prepass_vs prepass_fs\n@program prepass_skin prepass_vs_skin prepass_fs\n");
     }
-    if (g.hasVertex) g.defines.push_back("FA_HAS_VERTEX");
+    if (g.hasVertex && !sky && !post)
+        g.defines.push_back("FA_HAS_VERTEX");  // a sky and a post pass have no vertex(): the precheck refuses one
     if (custom) g.defines.push_back("FA_CUSTOM_LIGHT");
     if (custom && g.hasAmbient) g.defines.push_back("FA_HAS_AMBIENT");
     // A sprite is blended by the engine: alphaMode "clip" (the mesh template's alpha test) adds nothing to it.
-    if (clip && !sprite) g.defines.push_back("FA_ALPHA_CLIP");
+    if (clip && material.kind == "mesh") g.defines.push_back("FA_ALPHA_CLIP");
+    // The instance data and the declared mesh channels (the template declares the matching vertex attributes after the
+    // instance matrix, see mesh_common.glsl): flags, since a #define inside fa_user would come after the declarations.
+    if (instLayout.vec4Count > 0) g.defines.push_back("FA_INST_" + std::to_string(std::min(instLayout.vec4Count, 3)));
+    for (const std::string& a : material.vertexAttributes)
+        g.defines.push_back(a == "uv1" ? "FA_CH_UV1" : "FA_CH_COLOR1");
     return g;
 }
 
