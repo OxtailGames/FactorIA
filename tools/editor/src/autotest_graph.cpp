@@ -1,6 +1,7 @@
 // Autotest section G3: the Graph panel. Split from the other autotest files: an Editor::at_section_G3(AtScript&) that adds its steps to the
 // script, called by at_build_tools_script in the order of the full run (autotest_sections.h).
 #include <algorithm>
+#include <cmath>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -30,6 +31,9 @@ void Editor::at_section_G3(AtScript& at) {
             std::string saved;
             bool skip = false;
             int compiles = 0;
+            std::uint64_t serial = 0;  // a picture of the preview, to see it change
+            std::string fileBefore;
+            size_t undoParam = 0;
         };
         auto gs = std::make_shared<Gs>();
         const std::string dir = "assets/at-graph";
@@ -221,6 +225,105 @@ void Editor::at_section_G3(AtScript& at) {
             gs->compiles = pv.compiles();
         });
         snap("editor_graph_panel.png");
+
+        // ---- a kind the preview cannot draw says why (a sky material needs the scene around it); nothing is compiled or drawn
+        step(3, [this, gs] {
+            if (gs->skip) return;
+            GraphPreview sky(projectDir_);
+            sky.set_immediate(true);
+            sky.set_document(Json::parse(R"({"format":"factoria.material/1","kind":"sky","shader":"x.sky.glsl"})"), 1,
+                             "x.material.json");
+            sky.tick(engine_ ? engine_->renderer() : nullptr);
+            at_check(
+                sky.state() == PreviewState::Unsupported && sky.message().find("skyMaterial") != std::string::npos &&
+                    sky.image().empty() && sky.compiles() == 0,
+                "a sky material is not drawn wrongly: the preview says it needs the scene (" + sky.message() + ")");
+        });
+
+        // ---- params: a slider changes the preview only (the file is not touched, nothing compiles again) ...
+        step(3, [this, gs, rel, read_text] {
+            if (gs->skip) return;
+            GraphPreview& pv = *graph_.preview;
+            at_check(at_visible("gr:param:dissolve"), "the Params section lists the material's param with a slider");
+            gs->serial = pv.image_serial();
+            gs->fileBefore = read_text(rel);
+            gs->compiles = pv.compiles();
+            pv.set_param("dissolve", Json(0.8));  // what moving the slider does
+        });
+        wait_until(
+            [this, gs] {
+                return gs->skip || (graph_.preview->image_serial() != gs->serial &&
+                                    at_visible("gr:param:default:dissolve") && at_visible("gr:param:reset:dissolve"));
+            },
+            "the preview to draw the overridden param and the panel to offer Reset and Set as default");
+        step(3, [this, gs, rel, read_text] {
+            if (gs->skip) return;
+            GraphPreview& pv = *graph_.preview;
+            at_check(pv.param_overrides().contains("dissolve") && pv.state() == PreviewState::Ready,
+                     "the override is drawn: the preview stays up to date");
+            at_check(read_text(rel) == gs->fileBefore, "...the file is not touched");
+            at_check(pv.compiles() == gs->compiles, "...and the shader is not compiled again");
+            gs->undoParam = undo_depth();
+        });
+        // ... "Set as default" writes the value into the file, as one undo step, and the unsaved graph stays unsaved
+        click_widget("gr:param:default:dissolve");
+        step(3, [this, gs, rel, read_text] {
+            if (gs->skip) return;
+            Json file = Json::parse(read_text(rel), nullptr, false);
+            const double v = !file.is_discarded() && file.contains("params") && file["params"].contains("dissolve")
+                                 ? file["params"]["dissolve"].value("default", -1.0)
+                                 : -1.0;
+            at_check(std::abs(v - 0.8) < 1e-9, "Set as default writes 0.8 as the param's default in the file");
+            at_check(undo_depth() == gs->undoParam + 1, "...as one undo step");
+            at_check(graph_.model->dirty() && graph_.model->node_count() == 4,
+                     "...and the graph's unsaved edits stay unsaved");
+            at_check(graph_.preview->param_overrides().empty(),
+                     "...the override is gone: the default is the value now");
+            undo();
+        });
+        step(3, [this, gs, rel, read_text] {
+            if (gs->skip) return;
+            Json file = Json::parse(read_text(rel), nullptr, false);
+            const double v = !file.is_discarded() && file.contains("params") && file["params"].contains("dissolve")
+                                 ? file["params"]["dissolve"].value("default", -1.0)
+                                 : -1.0;
+            at_check(std::abs(v - 0.35) < 1e-9, "Undo puts the old default back in the file");
+            redo();
+        });
+        step(3, [this, gs, rel, read_text] {
+            if (gs->skip) return;
+            Json file = Json::parse(read_text(rel), nullptr, false);
+            const double v = !file.is_discarded() && file.contains("params") && file["params"].contains("dissolve")
+                                 ? file["params"]["dissolve"].value("default", -1.0)
+                                 : -1.0;
+            at_check(std::abs(v - 0.8) < 1e-9, "...and Redo writes 0.8 again");
+        });
+        wait_until(
+            [this, gs] {
+                const PreviewState s = graph_.preview->state();
+                return gs->skip || graph_.preview->shown_revision() == graph_.model->revision() ||
+                       s == PreviewState::Error;
+            },
+            "the preview to follow the new default");
+
+        // ---- Compare: the last saved version (the one-node graph in the file) beside the current one
+        click_widget("gr:compare");
+        wait_until(
+            [this, gs] {
+                const PreviewState s = graph_.preview->saved_state();
+                return gs->skip ||
+                       (graph_.preview->compare() && (s == PreviewState::Ready || s == PreviewState::Error));
+            },
+            "the preview to draw the saved version");
+        step(3, [this, gs] {
+            if (gs->skip) return;
+            const GraphPreview& pv = *graph_.preview;
+            at_check(pv.has_saved() && pv.saved_state() == PreviewState::Ready && !pv.saved_image().empty(),
+                     "Compare draws the saved version too: " + pv.saved_message());
+            at_check(at_visible("gr:preview:saved") && at_visible("gr:preview"), "...both pictures are on the panel");
+            at_check(pv.saved_image().rgba != pv.image().rgba, "...and they differ: the edits changed the picture");
+            graph_.preview->set_compare(false);  // the Save below would compile the saved version again
+        });
 
         // ---- a graph with an error: the preview says why and keeps the last picture
         step(3, [this, gs] {

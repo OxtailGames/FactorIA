@@ -439,6 +439,7 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`material.graph.nodes`](commands/material.md#materialgraphnodes): List the node types of the material graph library, with their inputs, outputs and the kinds they work in. _Not released yet._
 - [`material.graph.validate`](commands/material.md#materialgraphvalidate): Check the node graph of a material and say whether its snippet is in sync with it. _Not released yet._
 - [`material.info`](commands/material.md#materialinfo): Describe a custom material: lighting, alpha mode, params with types, defaults, ranges and docs, textures, programs and compile state. _Since 0.2.0._
+- [`material.param.set_default`](commands/material.md#materialparamset_default-modifies-state): Set the default value of one param of a material file (the Graph panel's "Set as default"). _Not released yet._
 
 ### [physics](commands/physics.md)
 
