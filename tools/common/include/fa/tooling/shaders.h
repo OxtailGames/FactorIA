@@ -59,8 +59,8 @@ inline constexpr int kMaterialSpriteVsFirstView = kMaterialSpriteFirstView + kMa
 // A sky material's textures (kind "sky") are fragment-stage only too, and the sky program binds no texture of its own, so they are views
 // 0.. and samplers 0.. (render_internal.h has the same numbers).
 inline constexpr int kMaterialSkyFirstView = 0, kMaterialSkyFirstSampler = 0;
-inline constexpr int kComputeMaxBuffers = 4;        // storage buffers of one compute material
-inline constexpr int kComputeMaxBufferFields = 16;  // fields of one buffer element
+inline constexpr int kComputeMaxMaterialBuffers = 4;  // storage buffers of one compute material
+inline constexpr int kComputeMaxBufferFields = 16;    // fields of one buffer element
 // x*y*z of the workgroup size: WebGPU's default limit, a floor on every GPU (D3D11 and Metal allow 1024).
 inline constexpr int kComputeMaxWorkgroupInvocations = 256;
 inline constexpr int kComputeMaxWorkgroupZ =

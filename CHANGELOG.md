@@ -6,6 +6,10 @@ Older versions, one file per minor version with its patch releases: [0.30](chang
 
 ## Unreleased
 
+- **Compute buffers (polish):** `compute.read_buffer` and `compute.write_buffer` also refuse a call of more than 4194304
+  numbers (elements times the components of their fields) and say how many elements fit and to go on in chunks with
+  `first`/`count`; floats read back are the same in every C locale.
+
 - **Per-sprite values and vertex textures in sprite materials (M72.1):** a sprite material's param marked
   `"instanced": true` takes its value per quad: 100 sprites, shapes, tiles, glyphs or particles of one material with 100
   different `tint` values are one batch and one draw call, and the snippet reads `tint` by its name in `fragment()` and

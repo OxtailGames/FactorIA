@@ -84,7 +84,7 @@ At most 1048576 elements in one call (read a large buffer in parts). Errors: `un
 |---|---|---|---|
 | `buffer` | integer | yes | Buffer id from compute.create_buffer. |
 | `first` | integer | no | Index of the first element to read. Default 0. |
-| `count` | integer | no | Number of elements to read. Default: from `first` to the end (at most 1048576). |
+| `count` | integer | no | Number of elements to read. Default: from `first` to the end (at most 1048576 elements and 4194304 numbers per call: read bigger buffers in chunks with first/count). |
 
 ## `compute.write_buffer` (modifies state)
 
