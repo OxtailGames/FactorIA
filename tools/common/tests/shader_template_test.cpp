@@ -76,7 +76,8 @@ TEST_CASE(
     // mesh_common.glsl is in both lists on purpose.
     {
         std::string list;
-        for (const std::string& name : shaders_detail::template_file_names("mesh-full")) {
+        const std::string kind = "mesh-full";  // a named argument: GCC 14 -Wdangling-reference flags a temporary one
+        for (const std::string& name : shaders_detail::template_file_names(kind)) {
             CAPTURE(name);
             std::ifstream in(stdfs::path(FA_REPO_ROOT) / "engine/render/shaders" / name, std::ios::binary);
             std::ostringstream text;
