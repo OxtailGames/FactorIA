@@ -5,6 +5,7 @@
 
 #include "fa/core/command.h"
 #include "fa/tooling/material_graph.h"
+#include "fa/tooling/shaders.h"
 #include "test_helpers.h"
 
 using namespace fa;
@@ -79,7 +80,8 @@ TEST_CASE("material.param.create adds a param with the file's own checks, and dr
     CHECK(dry.result["entry"]["default"] == 0.0);
     CHECK(p.read(kMat) == before);
 
-    auto made = p.call("material.param.create", R"({"name":"glow","type":"float","min":0.25,"max":1,"doc":"Edge glow."})");
+    auto made =
+        p.call("material.param.create", R"({"name":"glow","type":"float","min":0.25,"max":1,"doc":"Edge glow."})");
     REQUIRE_MESSAGE(made.ok, failure(made));
     CHECK(made.result["written"] == true);
     CHECK(p.doc()["params"]["glow"]["default"] == 0.25);  // zero moved into min..max
@@ -117,7 +119,8 @@ TEST_CASE("material.param.create and texture.create refuse what the file refuses
     refused("material.param.create", R"({"name":"glow","type":"flaot"})", "invalid_value", "float");
     refused("material.param.create", R"({"name":"main","type":"float"})", "invalid_value", "main");
     refused("material.param.create", R"({"name":"glow","type":"float","default":[1,2]})", "invalid_value", "number");
-    refused("material.param.create", R"({"name":"glow","type":"float","min":1,"max":2,"default":5})", "invalid_value", "max");
+    refused("material.param.create", R"({"name":"glow","type":"float","min":1,"max":2,"default":5})", "invalid_value",
+            "max");
     refused("material.param.create", R"({"name":"1glow","type":"float"})", "invalid_value", "waveHeight");
     refused("material.texture.create", R"({"name":"noise"})", "invalid_value", "noiseMap");
     refused("material.texture.create", R"({"name":"dissolve"})", "already_exists", "namespace");
@@ -167,7 +170,8 @@ TEST_CASE("material.param.rename follows the nodes that read it, keeps the snipp
     // a graph held in memory is followed too (an unsaved node included), and never written
     Json graph = doc["graph"];
     graph["nodes"].push_back(Json::parse(R"({"id":"extra","type":"param","pos":[0,0],"param":"amountLeft"})"));
-    auto back = p.call("material.param.rename", Json::object({{"name", "amountLeft"}, {"newName", "dissolve"}, {"graph", graph}}));
+    auto back = p.call("material.param.rename",
+                       Json::object({{"name", "amountLeft"}, {"newName", "dissolve"}, {"graph", graph}}));
     REQUIRE_MESSAGE(back.ok, failure(back));
     CHECK(back.result["graph"]["nodes"][4]["param"] == "dissolve");
     CHECK(back.result["graph"]["nodes"][1]["param"] == "dissolve");
@@ -275,4 +279,183 @@ TEST_CASE("material.param.delete: an unused param goes, a used one is refused wi
     auto delTex = p.call("material.texture.delete", R"({"name":"maskMap"})");
     REQUIRE_MESSAGE(delTex.ok, failure(delTex));
     CHECK_FALSE(p.doc().contains("textures"));
+}
+
+TEST_CASE("material.param|texture.create takes an index, and delete returns the one to put the entry back at") {
+    Project p;
+    REQUIRE(p.call("material.param.create", R"({"name":"spare","type":"vec2"})").ok);
+    REQUIRE(p.call("material.texture.create", R"({"name":"aMap"})").ok);
+    REQUIRE(p.call("material.texture.create", R"({"name":"bMap"})").ok);
+    REQUIRE(p.call("material.texture.create", R"({"name":"cMap"})").ok);
+    auto keys = [&](const char* list) {
+        const Json doc = p.doc();
+        std::string out;
+        for (auto it = doc[list].begin(); it != doc[list].end(); ++it) out += it.key() + " ";
+        return out;
+    };
+    CHECK(keys("textures") == "aMap bMap cMap ");
+
+    // delete in the middle, create it back with the entry and the index it returned: same order (the order is the slots)
+    auto gone = p.call("material.texture.delete", R"({"name":"bMap"})");
+    REQUIRE_MESSAGE(gone.ok, failure(gone));
+    CHECK(gone.result["index"] == 1);
+    CHECK(keys("textures") == "aMap cMap ");
+    Json back = Json::object({{"name", "bMap"}, {"index", gone.result["index"]}});
+    for (const char* k : {"default", "sampler", "doc"})
+        if (gone.result["entry"].contains(k)) back[k] = gone.result["entry"][k];
+    auto made = p.call("material.texture.create", back);
+    REQUIRE_MESSAGE(made.ok, failure(made));
+    CHECK(made.result["index"] == 1);
+    CHECK(keys("textures") == "aMap bMap cMap ");
+
+    // the same for params; 0 is first, past the end is last, none is the end
+    auto first = p.call("material.param.create", R"({"name":"first","type":"float","index":0})");
+    REQUIRE_MESSAGE(first.ok, failure(first));
+    CHECK(keys("params") == "first dissolve spare ");
+    auto last = p.call("material.param.create", R"({"name":"last","type":"float","index":99})");
+    REQUIRE_MESSAGE(last.ok, failure(last));
+    CHECK(last.result["index"] == 3);
+    CHECK(keys("params") == "first dissolve spare last ");
+    auto dry = p.call("material.param.create", R"({"name":"mid","type":"float","index":2,"dryRun":true})");
+    REQUIRE_MESSAGE(dry.ok, failure(dry));
+    CHECK(dry.result["index"] == 2);
+    CHECK(keys("params") == "first dissolve spare last ");
+
+    // a bad index is refused with the pointer and the fix; nothing is written
+    for (const char* bad : {R"({"name":"x","type":"float","index":-1})", R"({"name":"x","type":"float","index":1.5})",
+                            R"({"name":"x","type":"float","index":"1"})"}) {
+        auto r = p.call("material.param.create", bad);
+        INFO(bad);
+        REQUIRE_FALSE(r.ok);
+        // the input schema (integer, minimum 0) refuses it first; the command's own check says the same for a caller
+        // that skips the schema
+        CHECK((r.error["code"] == "invalid_arguments" || r.error["code"] == "invalid_argument"));
+        CHECK(r.error.dump().find("index") != std::string::npos);
+    }
+    CHECK(keys("params") == "first dissolve spare last ");
+}
+
+TEST_CASE("material.param.create fixes a graph that reads a param the file does not declare") {
+    Project p;
+    Json doc = p.doc();
+    doc.erase("params");
+    p.write(kMat, doc.dump(2));
+    // the graph is broken for every command that loads the file whole
+    CHECK_FALSE(p.registry.call("material.graph.generate", Json::object({{"material", kMat}})).ok);
+    auto made = p.call("material.param.create", R"({"name":"dissolve","type":"float"})");
+    REQUIRE_MESSAGE(made.ok, failure(made));
+    CHECK(made.result["written"] == true);
+    p.generate();
+    // a create that leaves the graph broken says what is wrong, and writes nothing
+    p.write(kMat, doc.dump(2));
+    const std::string before = p.read(kMat);
+    auto other = p.call("material.param.create", R"({"name":"other","type":"float"})");
+    REQUIRE_FALSE(other.ok);
+    CHECK(other.error["message"].get<std::string>().find("/graph/nodes/1") != std::string::npos);
+    CHECK(p.read(kMat) == before);
+    // an error outside the graph is not tolerated
+    Json broken = doc;
+    broken["alphaMode"] = "nope";
+    p.write(kMat, broken.dump(2));
+    CHECK_FALSE(p.call("material.param.create", R"({"name":"dissolve","type":"float"})").ok);
+}
+
+TEST_CASE("material.param.rename and delete warn when a snippet they leave alone still uses the name") {
+    Project p;
+    p.generate();
+    p.write(kSnippet, p.read(kSnippet) + "// my edit\n");
+    auto r = p.call("material.param.rename", R"({"name":"dissolve","newName":"fade"})");
+    REQUIRE_MESSAGE(r.ok, failure(r));
+    REQUIRE(r.result["warnings"].size() == 1);
+    CHECK(r.result["warnings"][0]["message"].get<std::string>().find("\"dissolve\"") != std::string::npos);
+    CHECK(r.result["warnings"][0]["message"].get<std::string>().find(kSnippet) != std::string::npos);
+
+    // a hand-written snippet that does not use the name: no warning; one that does: a warning on delete too
+    Project q;
+    Json doc = q.doc();
+    doc.erase("graph");
+    doc["params"]["spare"] = Json::parse(R"({"type":"float","default":0,"doc":"x."})");
+    q.write(kMat, doc.dump(2));
+    q.write(kSnippet, "void surface(in SurfaceInput i, inout Surface s) { s.albedo = vec3(spare); }\n");
+    auto d = q.call("material.param.delete", R"({"name":"dissolve"})");
+    REQUIRE_MESSAGE(d.ok, failure(d));
+    CHECK(d.result["warnings"].empty());
+    auto d2 = q.call("material.param.delete", R"({"name":"spare"})");
+    REQUIRE_MESSAGE(d2.ok, failure(d2));
+    CHECK(d2.result["snippet"]["state"] == "none");
+}
+
+TEST_CASE("a graph that is null is an error with a pointer, not a hand-written snippet") {
+    Project p;
+    Json doc = p.doc();
+    doc["graph"] = Json();
+    p.write(kMat, doc.dump(2));
+    const std::vector<std::pair<const char*, const char*>> calls = {
+        {"material.graph.generate", "{}"},
+        {"material.param.rename", R"({"name":"dissolve","newName":"x"})"},
+        {"material.param.create", R"({"name":"x","type":"float"})"}};
+    for (const auto& [name, args] : calls) {
+        auto r = p.call(name, args);
+        INFO(name);
+        REQUIRE_FALSE(r.ok);
+        INFO(r.error.dump());
+        CHECK(r.error["code"] != "no_graph");
+        CHECK(r.error["message"].get<std::string>().find("/graph") != std::string::npos);
+    }
+    auto v = p.call("material.graph.validate", Json::object());
+    REQUIRE(v.ok);
+    CHECK(v.result["ok"] == false);
+    CHECK(v.result["errors"][0]["pointer"] == "/graph");
+    // the same for the `graph` argument
+    Project q;
+    auto g = q.call("material.graph.generate", Json::parse(R"({"graph":null})"));
+    REQUIRE_FALSE(g.ok);
+    CHECK(g.error["message"].get<std::string>().find("/graph") != std::string::npos);
+}
+
+TEST_CASE("a bare number for a vecN constant of a graph is refused with the form, a float input takes one") {
+    Project p;
+    Json graph = p.doc()["graph"];
+    graph["nodes"][3]["inputs"]["albedo"] = 0.5;
+    auto v = p.registry.call("material.graph.validate", Json::object({{"material", kMat}, {"graph", graph}}));
+    REQUIRE(v.ok);
+    REQUIRE(v.result["errors"].size() == 1);
+    CHECK(v.result["errors"][0]["pointer"] == "/graph/nodes/3/inputs/albedo");
+    CHECK(v.result["errors"][0]["message"].get<std::string>().find("an array of 3 numbers") != std::string::npos);
+    CHECK(v.result["errors"][0]["hint"].get<std::string>().find("[1.0, 0.5, 0.0]") != std::string::npos);
+    graph["nodes"][3]["inputs"]["albedo"] = Json::parse("[0.5, 0.5, 0.5]");
+    graph["nodes"][3]["inputs"]["roughness"] = 0.5;
+    auto ok = p.registry.call("material.graph.validate", Json::object({{"material", kMat}, {"graph", graph}}));
+    CHECK(ok.result["ok"] == true);
+}
+
+TEST_CASE("material paths: ..x is inside the project, ../x is not; shader.compile says to generate a missing snippet") {
+    Project p;
+    CHECK(p.registry.call("material.graph.validate", Json::object({{"material", "materials/dissolve"}})).ok);
+    for (const char* bad : {"../x.material.json", "a/../../x.material.json", "/abs/x.material.json"}) {
+        auto r = p.registry.call("material.graph.validate", Json::object({{"material", bad}}));
+        INFO(bad);
+        REQUIRE_FALSE(r.ok);
+        CHECK(r.error["code"] == "invalid_argument");
+    }
+    p.write("..x.material.json", p.read(kMat));
+    auto dots = p.registry.call("material.graph.validate", Json::object({{"material", "..x.material.json"}}));
+    CHECK_MESSAGE(dots.ok, failure(dots));
+
+    CommandRegistry shaders;
+    register_shader_commands(shaders, p.dir.str());
+    auto missing = shaders.call("shader.compile", Json::object({{"material", kMat}}));
+    REQUIRE_FALSE(missing.ok);
+    CHECK(missing.error["hint"].get<std::string>().find("material.graph.generate") != std::string::npos);
+    CHECK(material_snippet_state(p.dir.str(), kMat) == "missing");
+    p.generate();
+    CHECK(material_snippet_state(p.dir.str(), kMat) == "in_sync");
+    Json doc = p.doc();
+    doc["graph"]["nodes"][3]["inputs"]["roughness"] = 0.9;
+    p.write(kMat, doc.dump(2));
+    CHECK(material_snippet_state(p.dir.str(), kMat) == "graph_changed");
+    doc.erase("graph");
+    doc.erase("graphHash");
+    p.write(kMat, doc.dump(2));
+    CHECK(material_snippet_state(p.dir.str(), kMat).empty());
 }

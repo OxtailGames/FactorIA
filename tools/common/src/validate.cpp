@@ -119,7 +119,9 @@ struct RootGuard {
 std::string material_path_shape_problem(const std::string& path) {
     if (path.find('\\') != std::string::npos) return "uses a backslash";
     const bool drive = path.size() >= 2 && path[1] == ':' && std::isalpha(static_cast<unsigned char>(path[0]));
-    if (path[0] == '/' || path[0] == '~' || drive) return "is an absolute path";
+    // "~" and "~/..." are the home folder; a file whose name merely starts with a tilde ("~tmp.material.json") is a relative path.
+    const bool home = path[0] == '~' && (path.size() == 1 || path[1] == '/');
+    if (path[0] == '/' || home || drive) return "is an absolute path";
     for (std::size_t start = 0; start <= path.size();) {
         std::size_t end = path.find('/', start);
         if (end == std::string::npos) end = path.size();
