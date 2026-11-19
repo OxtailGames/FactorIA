@@ -117,28 +117,48 @@ void add_post_instead(std::vector<GraphNodeType>& lib) {
         for (const auto& [type, text] : kTexts)
             if (n.type == type) n.instead.emplace_back("post", text);
     // The post nodes read the picture of the frame: a mesh or a sprite material has none, and says what to use there.
-    static const std::pair<const char*, const char*> kPostNodes[] = {
+    struct PostNodeHint {
+        const char* type;
+        const char* mesh;
+        const char* sprite;
+    };
+    static const PostNodeHint kPostNodes[] = {
         {"post.scene",
-         "A sprite or mesh material shades one item, not the picture: its colour is `sprite.color` (sprite) or the "
-         "output's fields (mesh). Reading the picture belongs to a post material (kind \"post\")."},
+         "A mesh material shades one surface, not the picture: set the output's fields (albedo, emission...). Reading "
+         "the "
+         "picture belongs to a post material (kind \"post\").",
+         "A sprite material shades one item, not the picture: its own colour is `sprite.color`. Reading the picture "
+         "belongs "
+         "to a post material (kind \"post\")."},
         {"post.depth",
-         "Only a post material reads the depth of the picture (kind \"post\"). In a sprite or mesh material use "
-         "`position.view` or `sprite.position` for a place."},
+         "Only a post material reads the depth of the picture (kind \"post\"). In a mesh material `position.view` "
+         "gives the "
+         "point in view space.",
+         "Only a post material reads the depth of the picture (kind \"post\"). A sprite has no depth: "
+         "`sprite.position` "
+         "gives its place."},
         {"post.normal",
-         "Only a post material reads the normals of the picture (kind \"post\"). A mesh material has `normal.world`; "
-         "a sprite has none."},
+         "Only a post material reads the normals of the picture (kind \"post\"). A mesh material has the surface's own "
+         "`normal.world`.",
+         "Only a post material reads the normals of the picture (kind \"post\"). A sprite has no normal in a graph."},
         {"post.history",
-         "Only a post material keeps what it drew last frame (kind \"post\"). A sprite or mesh material has no "
-         "history: use a script that writes a param."},
+         "Only a post material keeps what it drew last frame (kind \"post\"). A mesh material has no history: use a "
+         "script "
+         "that writes a param.",
+         "Only a post material keeps what it drew last frame (kind \"post\"). A sprite material has no history: use a "
+         "script that writes a param."},
         {"post.screen",
-         "Only a post material shades the whole picture (kind \"post\"). A sprite has `sprite.position` (screen "
-         "output) for the pixel's place."},
+         "Only a post material shades the whole picture (kind \"post\"). A mesh material has `uv` for a place on its "
+         "surface.",
+         "Only a post material shades the whole picture (kind \"post\"). A sprite has `sprite.position` (its `screen` "
+         "output "
+         "is the pixel's place) and `uv`."},
     };
     for (GraphNodeType& n : lib)
-        for (const auto& [type, text] : kPostNodes)
-            if (n.type == type) {
-                n.instead.emplace_back("sprite", text);
-                n.instead.emplace_back("mesh", text);
+        for (const PostNodeHint& h : kPostNodes)
+            if (n.type == h.type) {
+                n.instead.emplace_back("sprite", h.sprite);
+                n.instead.emplace_back("mesh", h.mesh);
             }
 }
 

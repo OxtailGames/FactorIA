@@ -331,13 +331,11 @@ the editor's Graph panel (View > Graph, [EDITOR.md](EDITOR.md)) edits the same J
   `view.dir`, `texture`, `texture.normal`, `triplanar`, `parallax` (occlusion mapping), math (`add`, `sub`, `mul`, `div`, `min`,
   `max`, `pow`, `lerp`, `clamp`, `saturate`, `smoothstep`, `step`, `abs`, `fract`, `sin`, `oneminus`, `dot`, `length`,
   `normalize`, `split`, `combine`), noise (`noise.value`, `noise.gradient`, `noise.voronoi`, `noise.fbm`), effects (`dissolve`,
-  `flow`, `fresnel`) and `output`; for one kind each, `sprite.*` (`color`, `tint`, `texture`, `life`, `custom`, `position`) and
-  `post.*` (`scene`, `depth`, `normal`, `history`, `screen`). Noise helpers are plain GLSL functions named `gn_...`, pasted into the snippet only when a
+  `flow`, `fresnel`) and `output`; `sprite.*` and `post.*` nodes belong to their kind. Noise helpers are plain GLSL functions named `gn_...`, pasted into the snippet only when a
   node uses them.
 - **Where a node can go.** Nodes that sample a texture or read the view direction (`texture`, `texture.normal`, `triplanar`,
   `parallax`, `view.dir`, `position.view`, `fresnel`) run in the fragment function only: they may not feed `vertexOffset`
-  (no textures in the vertex stage). Each node lists the kinds it works in (`mesh`, `sprite`, `post`); a sprite graph (`"kind":
-  "sprite"`, output `color`, `rgb`, `alpha`, `vertexOffset`) or post graph (output `color`, `rgb`; [SHADERS_POST.md](shaders/SHADERS_POST.md)) refuses the other kinds' nodes and says what to use instead.
+  (no textures in the vertex stage). Each node lists the kinds it works in (`mesh`, `sprite`, `post`); another kind's node is refused and the error says what to use ([post graphs](shaders/SHADERS_POST.md)).
 - **Commands.** `material.graph.nodes` (the library), `material.graph.validate {material}` (every problem with its JSON
   pointer, what is wrong and the fix: unknown node type with a "did you mean", a link to a node or port that does not exist,
   a type mismatch, a cycle, a missing output, a node used in the vertex path that needs the fragment stage), and

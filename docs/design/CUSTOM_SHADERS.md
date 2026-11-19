@@ -510,13 +510,7 @@ cache, hot reload, export, the runtime) is unchanged: a graph material is a mate
   position; `uv`, `time`, noise, `dissolve`, `flow` and math work as in a mesh. `fresnel`, `triplanar`, `parallax`,
   `normal.world`, `view.dir`, `position.view`, `texture.normal`, `vertex.color` and `position.world` are refused. A sprite is always blended (the material file
   refuses `alphaMode: clip` on its own).
-- **Post graphs** (`"kind": "post"`, snippet `shaders/<name>.post.glsl`) write `post(in PostInput i, inout PostSurface s)`; the
-  output has `color` (`s.color`) and `rgb` (`s.color.rgb`) and no vertex stage. The `post.*` nodes (`scene`, `depth`, `normal`,
-  `history`, `screen`) write the helper calls of the snippet contract (docs/shaders/SHADERS_POST.md): calling `fa_depth`,
-  `fa_normal` or `fa_history` is what asks the renderer for the prepass or the history, so the node is the whole request and the
-  material file has no field for it. A sprite or post graph converts `const.color` and `color` params with `fa_scene_rgb`
-  in the fragment function (a mesh graph writes them as typed). The editor draws no preview of a post material:
-  `capture_world` makes its own camera and never reads a `PostProcess`, so one would need a render-module change.
+- **Post graphs** (`"kind": "post"`) write `post(...)` into `shaders/<name>.post.glsl`: [CUSTOM_SHADERS_KINDS.md](CUSTOM_SHADERS_KINDS.md), "Post graphs".
 - **Cost of the canvas.** The editor's graph canvas edits the same JSON and calls the same generator, so a graph made by an AI
   opens in the editor and the reverse; its New graph material takes a kind (mesh, sprite or post) from the combo next to it.
 
