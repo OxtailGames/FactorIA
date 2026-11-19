@@ -6,8 +6,8 @@
 // A position names a built-in effect and a side. The renderer has a few places ("slots") where a custom pass can be put in the
 // frame graph, each between two built-in passes; a position maps to the slot that has that effect on that side. Where the slot is
 // between two passes that do not fit a request (a pass cannot go between the SSAO and the scene it is part of), the position is
-// refused with the list of the ones that work. Adding a place (M72.2b adds the display-referred ones) is one new slot and the
-// rows that map to it in kCustomPostPositions: nothing else in the entry format changes.
+// refused with the list of the ones that work. Adding a place is one new slot and the rows that map to it in
+// kCustomPostPositions: nothing else in the entry format changes.
 #pragma once
 
 #include <cstdint>
@@ -20,16 +20,28 @@
 
 namespace fa::render {
 
-// The places of the frame graph a custom pass can be drawn at, in frame order. All of them work on scene-linear HDR colour.
+// The places of the frame graph a custom pass can be drawn at, in frame order. The first five work on scene-linear HDR colour (the
+// scene's own picture, before the exposure and the tonemap); the others (post_slot_is_ldr) work on the picture the tonemap made: the
+// display-referred, sRGB-encoded colour that the final pass goes on to grade, vignette, sharpen, outline, posterize and grain.
 enum class PostSlot : std::int32_t {
     Main,         // after the scene (its ambient occlusion and fog) is drawn, before the screen-space reflections
     AfterSsr,     // after the screen-space reflections, before the sun shafts
     AfterShafts,  // after the sun shafts, before the depth of field
     AfterDof,     // after the depth of field and the motion blur, before the bloom
     AfterBloom,  // after the bloom, before the final pass (exposure, lens effects, tonemap, grading and the display looks)
+    // Display-referred places. The final pass (post.glsl) is cut into pieces at every one of them that has a pass, and at no other.
+    AfterTonemap,  // after the exposure, the lens effects and the tonemap (with the sRGB encode), before the colour grading
+    AfterGrading,    // after the colour grading and its LUT, before the vignette
+    AfterVignette,   // after the vignette, before the sharpen
+    AfterSharpen,    // after the sharpen, before the outline
+    AfterOutline,    // after the outline, before the posterize
+    AfterPosterize,  // after the posterize, before the film grain
+    AfterGrain,      // after the film grain, before the flash / fade, the dither and the colour filter
     Count
 };
 inline constexpr int kPostSlotCount = int(PostSlot::Count);
+// True for the places that work on the display-referred picture (AfterTonemap and the ones after it).
+constexpr bool post_slot_is_ldr(PostSlot s) { return int(s) >= int(PostSlot::AfterTonemap); }
 
 struct CustomPostPosition {
     std::string_view name;  // "after:ssr"

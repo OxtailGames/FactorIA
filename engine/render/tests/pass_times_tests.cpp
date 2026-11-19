@@ -167,6 +167,11 @@ TEST_CASE("post pass times: the post passes are named, summed, and a missing GPU
     CHECK(is_post_pass("camera:0/bloom-bright"));
     CHECK(is_post_pass("target:minimap/exposure-adapt"));
     CHECK(is_post_pass("post"));
+    CHECK(is_post_pass("camera:0/post-part0"));  // a piece of the final pass cut by a custom pass
+    CHECK(is_post_pass("camera:0/post-base"));
+    CHECK(is_post_pass("camera:0/custom-tonemap-pass0"));
+    CHECK(is_post_pass("target:minimap/custom-main-pass1"));
+    CHECK(!is_post_pass("camera:0/customised"));  // "custom" or "custom-<what>" only
     CHECK(!is_post_pass("camera:0/prepass"));
     CHECK(!is_post_pass("camera:0/sprite-coverage"));
     CHECK(!is_post_pass("camera:0/game"));

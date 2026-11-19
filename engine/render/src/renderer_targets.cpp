@@ -2,6 +2,8 @@
 // shadow targets, the colour filter and the RGBA8 readback.
 #include "renderer_impl.h"
 
+#include <algorithm>
+
 namespace fa::render {
 
 bool Target::valid() const {
@@ -264,6 +266,7 @@ void Renderer::Impl::destroy_targets() {
     finalEncoded = false;
     destroy_target(filterTarget);
     destroy_target(hudTarget);
+    for (Target& t : ldrMid) destroy_target(t);
     for (auto& [key, slot] : autoExposures)
         if (slot.exposure) slot.exposure->release();
     autoExposures.clear();
@@ -607,17 +610,64 @@ bool Renderer::Impl::ensure_hud_target() {
     return true;
 }
 
+// Makes (or keeps) the first `count` (0..2) of the images a final pass cut by custom passes goes through (ldrMid): one cut needs one,
+// two or more need both. False (and one logged error) when the GPU cannot make them: the custom passes of the display-referred places
+// are then not drawn. An image nobody asked for for a while is freed (release_idle_ldr_targets).
+bool Renderer::Impl::ensure_ldr_targets(int count) {
+    if (count <= 0) return true;
+    ldrUsedFrame = frameSerial;
+    count = std::min(count, 2);
+    bool all = true;
+    for (int i = 0; i < count; ++i) {
+        if (ldrMid[i].valid()) continue;
+        TargetDesc d;
+        d.label = i == 0 ? "post-mid-0" : "post-mid-1";
+        d.width = physW;
+        d.height = physH;
+        d.colorFormat = gpu.scene_format();
+        ldrMid[i] = make_target(d);
+        all = all && ldrMid[i].valid();
+    }
+    if (all) return true;
+    for (Target& t : ldrMid) destroy_target(t);
+    if (!ldrWarned) {
+        ldrWarned = true;
+        FA_ERROR(
+            "render",
+            "Custom post passes after the tonemap: cannot create the two {}x{} images the final pass is cut through; "
+            "those passes are not drawn. Hint: lower the render scale, or move the entries of "
+            "PostProcess.customPasses to a place before the tonemap (\"before:tonemap\").",
+            physW, physH);
+    }
+    return false;
+}
+
+// Frees the images of the cut final pass (ldrMid) once no frame has used them for kLdrIdleFrames frames (a 4K image of a float format is
+// 130 MB); called once per frame, after its graph ran.
+void Renderer::Impl::release_idle_ldr_targets() {
+    if (!ldrMid[0].valid() && !ldrMid[1].valid()) return;
+    if (ldrUsedFrame == frameSerial) {
+        ldrIdle = 0;
+        return;
+    }
+    if (++ldrIdle < kLdrIdleFrames) return;
+    ldrIdle = 0;
+    for (Target& t : ldrMid) destroy_target(t);
+}
+
 // Draws `src` through post.glsl into `dst` (ensure_filter_target / ensure_hud_target made it).
 void Renderer::Impl::post_pass(const PostPlan& pp, bool finalPass, int filter, bool autoExposure, sg_view src,
                                sg_view expo, sg_view aux, Target& dst, const char* label, bool keepMsaa,
-                               const PostRect& rect, bool load) {
+                               const PostRect& rect, bool load, const PostSlice& slice) {
     PassDesc p = pass_into(dst, label);
     p.colorLoad = load ? SG_LOADACTION_LOAD : SG_LOADACTION_DONTCARE;  // else every pixel is drawn
     p.colorStore = (dst.samples > 1 && !keepMsaa) ? SG_STOREACTION_DONTCARE : SG_STOREACTION_STORE;
     run_post_pass(gpu, pp, finalPass, filter, autoExposure, p, src, expo, assets->white()->view, aux, dst.w, dst.h,
-                  frameOutput, rect);
+                  frameOutput, rect, slice);
     ++stats.drawCalls;
-    // A colour filter clamps to paper white (also when it follows the HDR picture); the conversion alone goes above it.
+    // A colour filter clamps to paper white (also when it follows the HDR picture); the conversion alone goes above it. A piece that
+    // does not end the final pass leaves it to the last one.
+    if (!slice.tail()) return;
     if (filter != 0)
         frameAboveWhite = false;
     else if (finalPass && pp.convert() && frameOutput.extended())
