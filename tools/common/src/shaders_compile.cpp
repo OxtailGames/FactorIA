@@ -322,21 +322,21 @@ std::string declared_by_other_material(const std::string& name, const MapContext
 // full-shader pages): the "did you mean" of an unknown fa_ name suggests these, never an internal name of the templates (fa_in,
 // fa_quad_types...) that the author may not use.
 const std::vector<std::string>& engine_names(const MaterialDef& material) {
-    static const std::vector<std::string> mesh = {"fa_time", "fa_camera_pos", "fa_tangent_normal"},
+    static const std::vector<std::string> mesh = {"fa_time", "fa_camera_pos", "fa_tangent_normal", "fa_instance_index"},
                                           sprite = {"fa_time", "fa_target", "fa_sample_main", "fa_scene_rgb"},
                                           sky = {"fa_time", "fa_scene_rgb", "fa_sun", "fa_cspace"},
                                           post = {"fa_scene_color",   "fa_depth",     "fa_normal", "fa_history",
                                                   "fa_history_valid", "fa_scene_rgb", "fa_time"},
-                                          full = {"fa_ambient",         "fa_apply_fog",      "fa_base_color",
-                                                  "fa_base_sample",     "fa_camera_pos",     "fa_color",
-                                                  "fa_emissive",        "fa_env_brdf",       "fa_env_horizon",
-                                                  "fa_env_sky",         "fa_environment",    "fa_frag_color",
-                                                  "fa_light",           "fa_light_count",    "fa_light_vp",
-                                                  "fa_linear_to_srgb",  "fa_model",          "fa_normal",
-                                                  "fa_position",        "fa_shadow",         "fa_shadow_coord",
-                                                  "fa_sky_reflection",  "fa_srgb_to_linear", "fa_tangent",
-                                                  "fa_texcoord0",       "fa_uv_scale",       "fa_view_proj",
-                                                  "fa_world_direction", "fa_world_position"};
+                                          full = {"fa_ambient",        "fa_apply_fog",       "fa_base_color",
+                                                  "fa_base_sample",    "fa_camera_pos",      "fa_color",
+                                                  "fa_emissive",       "fa_env_brdf",        "fa_env_horizon",
+                                                  "fa_env_sky",        "fa_environment",     "fa_frag_color",
+                                                  "fa_instance_index", "fa_light",           "fa_light_count",
+                                                  "fa_light_vp",       "fa_linear_to_srgb",  "fa_model",
+                                                  "fa_normal",         "fa_position",        "fa_shadow",
+                                                  "fa_shadow_coord",   "fa_sky_reflection",  "fa_srgb_to_linear",
+                                                  "fa_tangent",        "fa_texcoord0",       "fa_uv_scale",
+                                                  "fa_view_proj",      "fa_world_direction", "fa_world_position"};
     return material.full         ? full
            : is_post(material)   ? post
            : is_sprite(material) ? sprite
@@ -1002,6 +1002,42 @@ std::string read_output_file(const stdfs::path& work, const std::string& rel) {
     return tooling_detail::read_file(p).value_or(std::string());
 }
 
+// OpenGL numbers a storage buffer binding point for the whole program and refuses a shader whose binding is not below
+// GL_MAX_SHADER_STORAGE_BUFFER_BINDINGS (8 is all GL 4.3 guarantees), while sokol-shdc keeps the view slot as the GLSL binding.
+// A mesh material's buffers sit at view slots 16 and up, so its glsl430 twin counts them from 0: the vertex stage's copies
+// 0..count-1 and the fragment stage's count..2*count-1 (the same order as the slots, so they stay unique across stages).
+std::string rebase_gl_storage_bindings(std::string text) {
+    const std::string head = "layout(binding = ", tail = ", std430)";
+    std::size_t at = 0;
+    while ((at = text.find(head, at)) != std::string::npos) {
+        std::size_t digits = at + head.size(), end = digits;
+        while (end < text.size() && text[end] >= '0' && text[end] <= '9') ++end;
+        if (end > digits && end - digits <= 3 && text.compare(end, tail.size(), tail) == 0) {
+            const int n = std::stoi(text.substr(digits, end - digits));
+            if (n >= kMeshBufferFirstView) {
+                const std::string moved = std::to_string(n - kMeshBufferFirstView);
+                text.replace(digits, end - digits, moved);
+                end = digits + moved.size();
+            }
+        }
+        at = end;
+    }
+    return text;
+}
+
+void rebase_gl_reflection(Json& j) {
+    if (j.is_object()) {
+        for (auto& [key, value] : j.items()) {
+            if (key == "glsl_binding_n" && value.is_number_integer() && value.get<int>() >= kMeshBufferFirstView)
+                value = value.get<int>() - kMeshBufferFirstView;
+            else
+                rebase_gl_reflection(value);
+        }
+    } else if (j.is_array()) {
+        for (Json& v : j) rebase_gl_reflection(v);
+    }
+}
+
 // The twins of the requested slangs from sokol-shdc's reflection YAML and the source files it points to.
 Result<std::map<std::string, Json>> build_twins(const stdfs::path& work, const std::string& yamlText,
                                                 const MaterialDef& material, const std::vector<std::string>& slangs) {
@@ -1051,6 +1087,8 @@ Result<std::map<std::string, Json>> build_twins(const stdfs::path& work, const s
             twin["buffers"] = computeFields["buffers"];
             if (computeFields.contains("images")) twin["images"] = computeFields["images"];
         }
+        if (material.kind == "mesh" && !material.buffers.empty())  // a mesh twin without buffers has no such key
+            twin["buffers"] = shaders_detail::compute_twin_fields(material)["buffers"];
         Json programs = Json::object();
         for (const Json& prog : shader.value("programs", Json::array())) {
             const std::string name = prog.value("name", std::string());
@@ -1071,8 +1109,13 @@ Result<std::map<std::string, Json>> build_twins(const stdfs::path& work, const s
             const Json vf = prog.value("vertex_func", Json::object()), ff = prog.value("fragment_func", Json::object());
             reflection["vertex_func"] = func_reflection(vf);
             reflection["fragment_func"] = func_reflection(ff);
-            const std::string vsText = read_output_file(work, vf.value("path", std::string())),
-                              fsText = read_output_file(work, ff.value("path", std::string()));
+            std::string vsText = read_output_file(work, vf.value("path", std::string())),
+                        fsText = read_output_file(work, ff.value("path", std::string()));
+            if (slang == "glsl430" && material.kind == "mesh" && !material.buffers.empty()) {
+                vsText = rebase_gl_storage_bindings(std::move(vsText));
+                fsText = rebase_gl_storage_bindings(std::move(fsText));
+                rebase_gl_reflection(reflection);
+            }
             if (vsText.empty() || fsText.empty())
                 return make_error("sokol-shdc did not write the " + slang + " source of program '" + name + "'",
                                   "Run sokol-shdc by hand on the generated top file (`factoria call shader.compile` "
@@ -1160,8 +1203,9 @@ Result<ShaderCompileResult> compile_material(const std::string& projectDir, cons
         res.errors.push_back(std::move(i));
     }
     if (!mp.ok()) return res;
-    if (res.material.kind == "compute") {  // no glsl300es twin: GLES3 and WebGL2 have no compute shaders
-        const std::vector<std::string> has = shader_dialects_of_kind("compute");
+    if (res.material.kind == "compute" || !res.material.buffers.empty()) {
+        // No glsl300es twin: GLES3 and WebGL2 have no compute shaders and no storage buffers in the vertex stage.
+        const std::vector<std::string> has = shader_dialects_of_kind(res.material.kind, !res.material.buffers.empty());
         if (options.dialects.empty()) {  // "every dialect" means every dialect the kind has
             res.dialects = has;
         } else {

@@ -361,6 +361,8 @@
     "MeshRenderer.color": "0.1.0",
     "MeshRenderer.emissive": "0.1.0",
     "MeshRenderer.emissiveStrength": "0.23.0",
+    "MeshRenderer.instanceBounds": "unreleased",
+    "MeshRenderer.instances": "unreleased",
     "MeshRenderer.material": "0.2.0",
     "MeshRenderer.lods": "0.16.0",
     "MeshRenderer.materialColors": "0.3.0",

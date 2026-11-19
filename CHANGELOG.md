@@ -6,6 +6,15 @@ Older versions, one file per minor version with its patch releases: [0.30](chang
 
 ## Unreleased
 
+- **Meshes drawn from a compute buffer (M72.4, P18a):** a mesh material (snippet or `mode: "full"`) can declare read-only
+  `buffers`, written by a compute material, and read them in `vertex()`, in helpers and in `surface()`. `MeshRenderer.instances`
+  = N draws the entity N times; `vertex()` gets `fa_instance_index` and places each instance, `materialParams` gives the compute
+  buffer id of each buffer and `instanceBounds` the half-extent the camera culls the entity by (0 never culls). Instances cast
+  shadows and enter the depth prepass (a full shader writes `"shadow": "custom"` and `"prepass": false`). A missing, destroyed or
+  differently shaped buffer, or `instances` larger than the buffers, is an error with the JSON pointer and the entity is not
+  drawn. sokol_gfx has no indirect draw, so GPU culling means the compute pass writes a flag and `vertex()` collapses the
+  instance (recipe and two examples in docs/shaders/SHADERS_COMPUTE.md, "Drawing from a compute buffer"). Metal, Direct3D 11 and
+  OpenGL 4.3; GLES3, WebGL2 and OpenGL 4.1 refuse the material at load and name the CPU path.
 - **Shader tools and docs polish (M72, POL-R1):** docs/SHADERS.md no longer ends with a "Not available yet" list: each limit
   (per-instance params and extra vertex channels in sky and compute, depth and normals of a sprite, compute on Android and the
   web) is a sentence in the section of its kind. A sprite's `vertex()` may call `fa_scene_rgb()`; `fa_sample_main()` is

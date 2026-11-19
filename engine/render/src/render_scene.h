@@ -101,6 +101,8 @@ struct SceneMesh {
     Vec3 bmin{0, 0, 0}, bmax{0, 0, 0};  // culling box of `mesh` (mesh_cull_bounds)
     std::size_t paramsHash = 0, colorsHash = 0;
     bool blended = false;
+    bool noCull =
+        false;  // reads compute buffers with no instanceBounds: never frustum-culled (MeshRenderer.instanceBounds)
     // SortKeyTable key of the item as the scene sees it (a camera redoes it for `special` ones).
     std::uint64_t sortKey = 0;
     bool keyed = false;

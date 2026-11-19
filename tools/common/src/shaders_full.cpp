@@ -172,7 +172,7 @@ const std::vector<std::string>& provided_names() {
     static const std::vector<std::string> names = {
         // vertex stage
         "fa_position", "fa_normal", "fa_texcoord0", "fa_tangent", "fa_color", "fa_model", "fa_view_proj", "fa_light_vp",
-        "fa_uv_scale", "fa_world_position", "fa_world_direction", "fa_shadow_coord",
+        "fa_uv_scale", "fa_world_position", "fa_world_direction", "fa_shadow_coord", "fa_instance_index",
         // fragment stage
         "fa_frag_color", "fa_tex", "fa_smp", "fa_base_sample", "fa_base_color", "fa_camera_pos", "fa_ambient",
         "fa_emissive", "fa_env_sky", "fa_env_horizon", "fa_shadow", "fa_light_count", "fa_light", "fa_apply_fog",
@@ -417,6 +417,7 @@ GeneratedShader generate_full_shader(const MaterialDef& material, std::string_vi
     if (instLayout.vec4Count > 0) g.defines.push_back("FA_INST_" + std::to_string(std::min(instLayout.vec4Count, 3)));
     for (const std::string& a : material.vertexAttributes)
         g.defines.push_back(a == "uv1" ? "FA_CH_UV1" : "FA_CH_COLOR1");
+    if (!material.buffers.empty()) g.defines.push_back("FA_BUFFER_INST");  // see generate_material_shader
     return g;
 }
 

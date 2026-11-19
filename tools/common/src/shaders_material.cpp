@@ -778,6 +778,29 @@ MaterialParse parse_material(const Json& doc, const std::string& projectDir, con
         std::sort(m.vertexAttributes.begin(), m.vertexAttributes.end());
     }
     c.read_full(doc, m);
+    if (m.full && !m.buffers.empty()) {
+        // The engine's own depth programs (the shadow "depth" and the prepass) draw the one base mesh, not the instances a
+        // buffer describes, so a full material with buffers draws its own shadow or none, and stays out of the prepass.
+        if (m.shadow == "depth")
+            c.error("/shadow",
+                    "a full-shader material with \"buffers\" cannot use the engine's depth shadow (\"depth\", the "
+                    "default): it "
+                    "would draw one mesh, not MeshRenderer.instances of them",
+                    "Write \"shadow\": \"custom\" (the first pass is compiled again for the shadow map, so its vertex "
+                    "stage draws the instances there too) or "
+                    "\"shadow\": \"none\".");
+        auto p = doc.find("prepass");
+        if (p == doc.end())
+            m.prepass = false;
+        else if (p->is_boolean() && p->get<bool>())
+            c.error(
+                "/prepass",
+                "a full-shader material with \"buffers\" cannot enter the engine's depth and normal prepass: that "
+                "program "
+                "draws one mesh, not MeshRenderer.instances of them",
+                "Write \"prepass\": false (post effects that read the depth then do not see this material), or remove "
+                "the key.");
+    }
     c.read_graph(doc, m);
     return std::move(c.out);
 }

@@ -33,8 +33,8 @@ Json param_json(const MaterialParam& p) {
 }
 
 // runsOn / notOn: the platforms a material of `kind` has shaders for (shader_platforms_of_kind) and the ones it has none for.
-void add_platforms(Json& out, const std::string& kind) {
-    const std::vector<std::string> runsOn = shader_platforms_of_kind(kind);
+void add_platforms(Json& out, const std::string& kind, bool storageBuffers = false) {
+    const std::vector<std::string> runsOn = shader_platforms_of_kind(kind, storageBuffers);
     std::vector<std::string> notOn;
     for (const std::string& p : shader_platforms())
         if (std::find(runsOn.begin(), runsOn.end(), p) == runsOn.end()) notOn.push_back(p);
@@ -197,13 +197,15 @@ void register_shader_commands(CommandRegistry& registry, const std::string& proj
                                      {"errors", issues_json(result->errors)},
                                      {"cached", result->cacheHits},
                                      {"kind", result->material.kind}});
-            add_platforms(out, result->material.kind);
+            add_platforms(out, result->material.kind, !result->material.buffers.empty());
             out["skippedDialects"] = Json(result->skippedDialects);
             if (!result->skippedDialects.empty())
-                out["note"] = "The " + result->material.kind + " material has no shader for " +
-                              join(result->skippedDialects, ", ") + ": it runs on " +
-                              join(shader_platforms_of_kind(result->material.kind), ", ") +
-                              " only (GLES3 and WebGL2 have no compute shaders).";
+                out["note"] =
+                    "The " + result->material.kind + " material has no shader for " +
+                    join(result->skippedDialects, ", ") + ": it runs on " +
+                    join(shader_platforms_of_kind(result->material.kind, !result->material.buffers.empty()), ", ") +
+                    " only (GLES3 and WebGL2 have no compute shaders and no storage buffers in the vertex "
+                    "stage).";
             if (const std::string fix = regenerate_hint(graphState, material); !fix.empty())
                 out["graph"] = Json::object({{"state", graphState}, {"hint", fix}});
             if (!result->errors.empty()) {
@@ -325,10 +327,10 @@ void register_shader_commands(CommandRegistry& registry, const std::string& proj
                         {{"name", s.name}, {"vec4", s.vec4}, {"offset", s.offset}, {"components", s.components}}));
                 out["instanceLayout"] = Json::object({{"vec4", layout.vec4Count}, {"slots", slots}});
             }
-            add_platforms(out, m.kind);
-            if (m.kind == "compute") {
+            add_platforms(out, m.kind, !m.buffers.empty());
+            if (m.kind == "compute" || !m.buffers.empty()) {  // a mesh material's buffers are read-only
                 const Json fields = shaders_detail::compute_twin_fields(m);
-                out["workgroupSize"] = fields["workgroupSize"];
+                if (m.kind == "compute") out["workgroupSize"] = fields["workgroupSize"];
                 Json buffers = Json::array();
                 for (const MaterialBuffer& b : m.buffers) {
                     Json bf = Json::array();
@@ -343,6 +345,8 @@ void register_shader_commands(CommandRegistry& registry, const std::string& proj
                                                     {"fields", bf}}));
                 }
                 out["buffers"] = buffers;
+            }
+            if (m.kind == "compute") {
                 Json images = Json::array();
                 for (const MaterialImage& im : m.images)
                     images.push_back(Json::object({{"name", im.name},

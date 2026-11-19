@@ -1,0 +1,21 @@
+{
+  "format": "factoria.material/1",
+  "doc": "Test fixture: like meshbuf.material.json with a second buffer, `extra`, that vertex() reads for the same instance (a very negative pos.w hides it).",
+  "shader": "shaders/meshbuf2.surface.glsl",
+  "buffers": {
+    "extra": {
+      "doc": "A second per-instance buffer, shaped like `points`.",
+      "fields": [
+        { "name": "pos", "type": "vec4", "doc": "pos.w below -1 hides the instance." },
+        { "name": "tint", "type": "vec4", "doc": "Unused by the shader." }
+      ]
+    },
+    "points": {
+      "doc": "The instances, as meshbuf_fill.material.json writes them.",
+      "fields": [
+        { "name": "pos", "type": "vec4", "doc": "xyz = the offset from the entity; w = 1 visible, 0 hidden." },
+        { "name": "tint", "type": "vec4", "doc": "The colour of the instance." }
+      ]
+    }
+  }
+}

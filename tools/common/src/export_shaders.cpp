@@ -36,11 +36,14 @@ Result<void> convert_shaders(ExportAssets& ea) {
         if (!compiled->skippedDialects.empty() && compiled->twins.empty())
             ea.report.warnings.push_back(
                 "the " + compiled->material.kind + " material " + path + " has no shader for " + ea.platform +
-                ": that platform has no compute shaders (" + join(compiled->skippedDialects, ", ") +
-                "), so it is exported without one and compute.* calls fail there with an error. Check "
+                ": that platform has no compute shaders and no storage buffers in the vertex stage (" +
+                join(compiled->skippedDialects, ", ") +
+                "), so it is exported without one (compute.* calls fail there with an error, and a MeshRenderer with a "
+                "material with buffers is drawn with the error material). Check "
                 "render.supports computeShaders before using it, or leave the material out of this platform's export "
                 "(it runs on " +
-                join(shader_platforms_of_kind(compiled->material.kind), ", ") + ").");
+                join(shader_platforms_of_kind(compiled->material.kind, !compiled->material.buffers.empty()), ", ") +
+                ").");
         for (const auto& [slang, twin] : compiled->twins) {
             const std::string shipped = path + "." + slang + ".shader";
             const stdfs::path source = ea.cacheDir / "shaders" / shipped;

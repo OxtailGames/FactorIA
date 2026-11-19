@@ -95,9 +95,9 @@ vec4 fa_shadow_coord(vec3 world) { return fa_light_vp * vec4(world, 1.0); }
 void main() {
     fa_inst_begin();
 #ifdef FA_SKIN
-    fa_model = mat4(fa_inst_m0, fa_inst_m1, fa_inst_m2, fa_inst_m3) * fa_skin_matrix(fa_joints, fa_weights);
+    fa_model = FA_INST_MODEL * fa_skin_matrix(fa_joints, fa_weights);
 #else
-    fa_model = mat4(fa_inst_m0, fa_inst_m1, fa_inst_m2, fa_inst_m3);
+    fa_model = FA_INST_MODEL;
 #endif
     fa_user_main();
 }
