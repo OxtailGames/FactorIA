@@ -1,4 +1,5 @@
 // M72.4: the compute.* commands (storage buffers and dispatches of compute materials).
+#include <cstdlib>
 #include <doctest.h>
 
 #include <filesystem>
@@ -106,7 +107,12 @@ TEST_CASE("compute commands: buffers, a dispatch and a read back, or `unavailabl
                              "initial":[{"value":3,"pos":[1,2],"steps":5}]})";
     r = c.call("compute.create_buffer", Json::parse(create));
     if (!listed.result["available"].get<bool>()) {
-        // GLES3, WebGL2, macOS GL 4.1 or no graphics: a teaching error, no crash, no silent no-op.
+        // GLES3, WebGL2, macOS GL 4.1 or no graphics: a teaching error, no crash, no silent no-op. CI that has compute
+        // sets FA_REQUIRE_COMPUTE=1 so this branch cannot hide a missing GPU.
+        const char* require = std::getenv("FA_REQUIRE_COMPUTE");
+        if (require && *require && std::string(require) != "0")
+            FAIL("FA_REQUIRE_COMPUTE=1 but this backend has no compute: " << listed.result["status"].dump());
+        MESSAGE("SKIPPED the GPU part, no compute here: " << listed.result["status"].dump());
         REQUIRE_FALSE(r.ok);
         CHECK(r.error["code"] == "unavailable");
         CHECK(r.error["message"].get<std::string>().find("compute") != std::string::npos);

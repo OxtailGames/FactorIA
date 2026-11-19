@@ -5,13 +5,17 @@
 #include "fa/render/compute.h"
 #include "test_util.h"
 
+#include <clocale>
+#include <cstdlib>
 #include <fstream>
+#include <limits>
 #include <iterator>
 #include <memory>
 #include <mutex>
 #include <string>
 #include <vector>
 
+#include "compute_internal.h"
 #include "render_features.h"
 
 using namespace fa;
@@ -49,7 +53,7 @@ struct ComputeScope {
     }
     ~ComputeScope() {
         for (const Json& b : g.renderer.compute().list()) (void)g.renderer.compute().destroy_buffer(b["id"].get<int>());
-        g.renderer.compute().set_backend_for_test(-1);
+        ComputeTestAccess::set_backend(g.renderer.compute(), -1);
         g.renderer.clear_asset_cache();
     }
     Compute& compute() { return g.renderer.compute(); }
@@ -87,13 +91,22 @@ Json element(double value, double x, double y, int steps = 0) {
     return Json::object({{"value", value}, {"pos", Json::array({x, y})}, {"steps", steps}});
 }
 
+// No compute on this machine's backend (WARP, llvmpipe, GL 4.1): one line says why the test does not run, and
+// FA_REQUIRE_COMPUTE=1 (CI sets it where compute exists) turns that into a failure so it can never become a silent pass.
+void skip_without_compute(const char* what, const std::string& why) {
+    const char* v = std::getenv("FA_REQUIRE_COMPUTE");
+    if (v && *v && std::string(v) != "0")
+        FAIL("FA_REQUIRE_COMPUTE=1 but this backend has no compute (" << why << "): " << what);
+    MESSAGE("SKIPPED, no compute here (" << why << "): " << what << " (FA_REQUIRE_COMPUTE=1 fails instead)");
+}
+
 }  // namespace
 
 TEST_CASE("compute: dispatch, read back, write and dispatch again on this GPU") {
     ComputeScope s;
     std::string why;
     if (!s.compute().available(&why)) {
-        MESSAGE("no compute on this backend, the dispatch is not run: " << why);
+        skip_without_compute("the dispatch is not run", why);
         return;
     }
     Json initial = Json::array();
@@ -153,7 +166,7 @@ TEST_CASE("compute: every wrong request is refused with its place and a way out"
     ComputeScope s;
     std::string why;
     if (!s.compute().available(&why)) {
-        MESSAGE("no compute on this backend, the checks after the backend test are not run: " << why);
+        skip_without_compute("the checks after the backend test are not run", why);
         return;
     }
     auto err = [](const auto& result) { return result.ok() ? std::string("<ok>") : result.error().to_string(); };
@@ -228,7 +241,7 @@ TEST_CASE("compute: a backend without compute shaders is refused with its name a
     ComputeScope s;
     using FB = render::FeatureBackend;
     for (FB backend : {FB::Gles3, FB::WebGl2, FB::Headless}) {
-        s.compute().set_backend_for_test(int(backend));
+        ComputeTestAccess::set_backend(s.compute(), int(backend));
         std::string why;
         CHECK_FALSE(s.compute().available(&why));
         CHECK(contains(why, render::feature_backend_label(backend)));
@@ -245,7 +258,7 @@ TEST_CASE("compute: a backend without compute shaders is refused with its name a
         CHECK_FALSE(s.compute().write_buffer(1, 0, Json::array()).ok());
         CHECK(s.compute().list().empty());
     }
-    s.compute().set_backend_for_test(int(FB::Metal));
+    ComputeTestAccess::set_backend(s.compute(), int(FB::Metal));
     CHECK(s.compute()
               .available());  // a backend with compute passes the capability check (the GPU may still say no below)
 }
@@ -269,4 +282,37 @@ TEST_CASE("compute: a MeshRenderer that names a compute material is drawn with t
         (px.r > 0.9f && px.g < 0.1f && px.b > 0.9f));  // not the magenta of a failed material: the cube is drawn
     CHECK(log.count("compute") >= 1);
     CHECK(log.count("scale.material.json") == 1);  // once, not once per frame
+}
+
+TEST_CASE("compute: a float leaves with 7 digits whatever the C locale, and a call is capped by its numbers") {
+    // A comma-decimal locale made printf/strtod lose the fraction; to_chars/from_chars do not look at it.
+    const char* current = std::setlocale(LC_NUMERIC, nullptr);
+    const std::string old = current ? current : "C";
+    for (const char* name : {"de_DE.UTF-8", "de_DE.utf8", "fr_FR.UTF-8", "German_Germany.1252"})
+        if (std::setlocale(LC_NUMERIC, name)) break;
+    CHECK(compute_json_float(0.1f).get<double>() == 0.1);
+    CHECK(compute_json_float(-2.5f).get<double>() == -2.5);
+    CHECK(compute_json_float(1234.5678f).get<double>() == 1234.568);  // 7 significant digits
+    CHECK(compute_json_float(16777217.0f).get<double>() ==
+          16777220.0);  // 16777216 as float: 7 digits, read back exactly
+    CHECK(compute_json_float(std::numeric_limits<float>::infinity()).is_null());
+    CHECK(compute_json_float(std::nanf("")).is_null());
+    std::setlocale(LC_NUMERIC, old.c_str());
+
+    ComputeScope s;
+    std::string why;
+    if (!s.compute().available(&why)) {
+        skip_without_compute("the value cap is not run", why);
+        return;
+    }
+    auto id = s.compute().create_buffer(kScale, "items", std::uint64_t(1) << 20);
+    REQUIRE_MESSAGE(id.ok(), id.error().to_string());
+    // An element of the fixture has more than 4 numbers (value, pos x2, steps, id), so 1M elements are within the element cap
+    // but over the 4M-number cap.
+    auto r = s.compute().read_buffer(*id, 0, std::uint64_t(1) << 20);
+    REQUIRE_FALSE(r.ok());
+    CHECK(contains(r.error().to_string(), "numbers one call converts"));
+    CHECK(contains(r.error().to_string(), "in chunks of at most"));
+    CHECK(contains(r.error().to_string(), "`first`"));
+    CHECK(s.compute().read_buffer(*id, 0, 1000).ok());
 }

@@ -3,6 +3,7 @@
 #include "fa/render/compute.h"
 
 #include <algorithm>
+#include <charconv>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -10,6 +11,7 @@
 
 #include "fa/core/log.h"
 #include "fa/core/strings.h"
+#include "compute_internal.h"
 #include "render_features.h"
 #include "render_internal.h"
 
@@ -46,15 +48,6 @@ struct Compute::State {
 namespace {
 
 using State = Compute::State;
-
-// Floats leave with 7 significant digits (arm64 and x86 differ in the last binary digit of what a shader computes), a NaN or
-// infinity as null.
-Json json_float(float v) {
-    if (!std::isfinite(v)) return Json(nullptr);
-    char text[40];
-    std::snprintf(text, sizeof text, "%.7g", double(v));
-    return Json(std::strtod(text, nullptr));
-}
 
 // A whole number of `n` in [lo, hi] (a JSON integer, never narrowed before this check).
 bool whole_number(const Json& n, std::int64_t lo, std::int64_t hi, std::int64_t& out) {
@@ -158,12 +151,28 @@ Json unpack_element(const State::Buf& b, const std::uint8_t* src) {
             } else {
                 float x;
                 std::memcpy(&x, at, 4);
-                values.push_back(json_float(x));
+                values.push_back(compute_json_float(x));
             }
         }
         e[f.name] = f.components == 1 ? values[0] : values;
     }
     return e;
+}
+
+// The JSON numbers of `count` elements of `b` (every component of every field): the JSON of a call weighs about that many
+// values, whatever the stride. Refused over kMaxComputeJsonValues, with the largest count that fits and how to go on.
+Result<void> check_json_values(const State::Buf& b, std::uint64_t count, const char* what, const char* chunk) {
+    std::uint64_t perElement = 0;
+    for (const MaterialBufferFieldDef& f : b.fields) perElement += std::uint64_t(f.components);
+    perElement = std::max<std::uint64_t>(perElement, 1);
+    const std::uint64_t maxElements = kMaxComputeJsonValues / perElement;
+    if (count <= maxElements) return {};
+    return make_error(std::string(what) + ": " + std::to_string(count) + " elements of " + std::to_string(perElement) +
+                          " numbers each (" + std::to_string(b.fields.size()) + " fields) are more than the " +
+                          std::to_string(kMaxComputeJsonValues) + " numbers one call converts (at most " +
+                          std::to_string(maxElements) + " elements for this buffer)",
+                      std::string(chunk) + " in chunks of at most " + std::to_string(maxElements) +
+                          " elements: each call takes `first` (the index to start at) and the number of elements.");
 }
 
 bool same_layout(const State::Buf& b, const MaterialBufferDef& def) {
@@ -229,7 +238,16 @@ void Compute::attach(render::Gpu* gpu, render::Assets* assets) {
     s_->assets = assets;
 }
 
-void Compute::set_backend_for_test(int backend) { s_->backendOverride = backend; }
+void ComputeTestAccess::set_backend(Compute& c, int backend) { c.s_->backendOverride = backend; }
+
+Json compute_json_float(float v) {
+    if (!std::isfinite(v)) return Json(nullptr);
+    char text[48];
+    const auto written = std::to_chars(text, text + sizeof text, v, std::chars_format::general, 7);
+    double out = double(v);
+    if (written.ec == std::errc()) std::from_chars(text, written.ptr, out);
+    return Json(out);
+}
 
 void Compute::detach() {
     if (!s_) return;
@@ -303,9 +321,9 @@ Result<int> Compute::create_buffer(const std::string& material, const std::strin
                               " MiB one buffer may hold (at most " + std::to_string(maxElements) + " elements)",
                           "Split the data into several buffers, or make the element smaller.");
     const std::uint64_t bytes = count * def->stride;  // <= kMaxComputeBufferBytes: no overflow
-    if (int(s.bufs.size()) >= kMaxComputeBuffers)
+    if (int(s.bufs.size()) >= kMaxLiveComputeBuffers)
         return make_error(
-            "compute: " + std::to_string(kMaxComputeBuffers) + " buffers are alive already",
+            "compute: " + std::to_string(kMaxLiveComputeBuffers) + " buffers are alive already",
             "Destroy the ones you no longer use (compute.destroy_buffer); compute.list_buffers names them.");
     if (bytes > kMaxComputeTotalBytes - std::min(s.totalBytes, kMaxComputeTotalBytes))
         return make_error("compute: this buffer would bring the live buffers to more than " +
@@ -390,6 +408,7 @@ Result<void> Compute::write_buffer(int id, std::uint64_t first, const Json& elem
         return make_error("elements: " + std::to_string(elements.size()) + " elements in one call; at most " +
                               std::to_string(kMaxComputeJsonElements),
                           "Write the buffer in several calls.");
+    if (auto fits = check_json_values(b, elements.size(), "elements", "Write the buffer"); !fits.ok()) return fits;
     if (first >= b.count || elements.size() > b.count - first)
         return make_error("first/elements: elements " + std::to_string(first) + ".." +
                               std::to_string(first + elements.size()) + " are outside the buffer of " +
@@ -421,12 +440,16 @@ Result<Json> Compute::read_buffer(int id, std::uint64_t first, std::uint64_t cou
         return make_error("count: " + std::to_string(count) + " elements in one call; at most " +
                               std::to_string(kMaxComputeJsonElements),
                           "Read the buffer in several calls (first, count).");
+    if (auto fits = check_json_values(b, count, "count", "Read the buffer"); !fits.ok()) return fits.error();
     if (first > b.count || count > b.count - first)
         return make_error("first/count: elements " + std::to_string(first) + ".." + std::to_string(first + count) +
                               " are outside the buffer of " + std::to_string(b.count),
                           "Keep first + count within " + std::to_string(b.count) + ".");
     if (count == 0) return Json::array();
-    // A read back waits for the GPU, and on Metal the recorded work is only submitted by sg_commit (Renderer::capture does the same).
+    // A read back waits for the GPU, and on Metal the recorded work is only submitted by sg_commit (Renderer::capture does the
+    // same). Committing outside a pass is allowed in a frame too (the editor commits once per UI frame): only a call made while
+    // a pass is open is wrong, and in_pass() above refuses it. So there is no "inFrame" error: the frame's later draws just
+    // start a new sokol frame's worth of work (note_commit lets begin_frame reuse its transient buffers).
     if (!s.gpu->committed()) {
         sg_commit();
         s.gpu->note_commit();
