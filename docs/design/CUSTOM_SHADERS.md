@@ -383,10 +383,10 @@ material says what it is for with the optional key `"kind"` of its `*.material.j
 | `"sprite"` | the 2D quad path: `Sprite`, `Shape2D`, `Tilemap`, `Text`, particles and trails, UI images | `quad_common.glsl` (+ `color_space.glsl`, `light_shadow.glsl`) | M72.1: template, tooling and the `Sprite` draw built (M72-P1, P3); the other 2D emitters follow |
 | `"sky"` | the sky the scene and its environment lighting use | `sky_common.glsl` | M72.1 |
 | `"post"` | one pass of a camera's post-processing stack | `post_common.glsl` | M72.2 |
-| `"compute"` | compute shaders (storage buffers) | none yet | M72.4 |
+| `"compute"` | compute shaders (storage buffers) | `compute_common.glsl` | built (M72.4) |
 
-Built by M72.0 (the shared base): the key, its check, the per-kind template hash and the skeletons. `"mesh"` and
-`"sprite"` compile; `shader.compile` and `factoria validate` refuse the others with a message that names the package
+Built by M72.0 (the shared base): the key, its check, the per-kind template hash and the skeletons. `"mesh"`, `"sprite"` and
+`"compute"` compile; `shader.compile` and `factoria validate` refuse the others with a message that names the package
 that brings them (`kind "sky" is not compiled yet: sky materials arrive with M72.1`, pointer `/kind`), and the renderer
 refuses to build such a material (the same message, with the file). A `kind` that is not one of the five is an error with "did you mean" and the
 pointer `/kind` (`parse_material`, `schemas/material.schema.json`).
@@ -396,8 +396,8 @@ pointer `/kind` (`parse_material`, `schemas/material.schema.json`).
   (`FA_TEMPLATE_FILES_<KIND>`) and in `template_file_names()` of `tools/common/src/shaders_generate.cpp`; a doctest checks
   that both lists give the same hash and that every `*_common.glsl` is in one list. Editing the sprite template leaves
   every mesh twin valid. The mesh list is `mesh_common.glsl`, the one file the hash was made of before kinds existed, so
-  its value did not change and no committed fixture or exported game needs a new export. `compute` has no template yet:
-  its hash is empty.
+  its value did not change and no committed fixture or exported game needs a new export. `compute` hashes `compute_common.glsl`
+  (`FA_TEMPLATE_FILES_COMPUTE`).
 - **The twin names its kind.** A twin of any kind other than mesh carries `"kind": "<kind>"`; a twin without the key is a
   mesh twin (so every twin made before M72 stays valid, and mesh twins are written as they always were).
   `build_material_checked` compares the twin's kind with the material file's and refuses a mismatch with the re-export
@@ -507,7 +507,7 @@ cache, hot reload, export, the runtime) is unchanged: a graph material is a mate
   skeletons exist, the programs do not). The 2D kind has its template and tooling; what draws with it is in
   "Sprite materials" above.
 - A full-GLSL escape hatch (D1).
-- Compute shaders, tessellation, geometry shaders (not in sokol_gfx's common subset for these backends anyway).
+- Compute storage images, compute on GLES3/WebGL2, tessellation, geometry shaders (not in sokol_gfx's common subset for these backends anyway).
 - Per-instance material data inside one instanced draw.
 - The node-graph editor canvas (the graph document, its generator and the node library exist: "Node graphs").
 

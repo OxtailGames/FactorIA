@@ -1,0 +1,22 @@
+{
+  "format": "factoria.material/1",
+  "kind": "compute",
+  "doc": "Test fixture: a compute material that scales, offsets and indexes the elements of one storage buffer.",
+  "shader": "shaders/scale.compute.glsl",
+  "workgroupSize": [64],
+  "params": {
+    "factor": { "type": "float", "default": 1.0, "doc": "Multiplies each element's value." },
+    "offset": { "type": "vec2", "default": [0.0, 0.0], "doc": "Added to each element's pos." }
+  },
+  "buffers": {
+    "items": {
+      "doc": "The elements to update in place.",
+      "fields": [
+        { "name": "value", "type": "float", "doc": "Scaled by factor." },
+        { "name": "pos", "type": "vec2", "doc": "Moved by offset." },
+        { "name": "id", "type": "uint", "doc": "Set to the thread's index." },
+        { "name": "steps", "type": "int", "doc": "Counts the dispatches." }
+      ]
+    }
+  }
+}

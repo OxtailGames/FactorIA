@@ -297,6 +297,7 @@ void Gpu::destroy_shader(sg_shader shader) {
             ++it;
         }
     }
+    failedComputePipelines_.erase(shader.id);
     sg_destroy_shader(shader);
 }
 
@@ -313,6 +314,48 @@ void Gpu::begin_pass(const PassDesc& pass) {
 void Gpu::end_pass() {
     sg_end_pass();
     inPass_ = false;
+}
+
+void Gpu::begin_compute_pass() {
+#ifndef NDEBUG
+    FA_ASSERT(!inPass_, "Gpu::begin_compute_pass: a pass is already open (end_pass it first)");
+#endif
+    sg_pass p{};
+    p.compute = true;
+    p.label = "compute";
+    sg_begin_pass(&p);
+    inPass_ = true;
+    passFormat_ = TargetFormat{};
+}
+
+void Gpu::end_compute_pass() {
+    sg_end_pass();
+    inPass_ = false;
+}
+
+sg_pipeline Gpu::compute_pipeline(sg_shader shader) {
+    PipelineKey key{0xF00u, shader.id};
+    auto it = pipelines_.find(key);
+    if (it != pipelines_.end()) {
+        it->second.lastUsed = pipelineTick_;
+        ++pipelineHits_;
+        return it->second.pipeline;
+    }
+    if (failedComputePipelines_.count(shader.id)) return {};  // the driver refused this program already (logged once)
+    sg_pipeline_desc d{};
+    d.compute = true;
+    d.shader = shader;
+    d.label = "compute";
+    sg_pipeline p = sg_make_pipeline(&d);
+    if (sg_query_pipeline_state(p) != SG_RESOURCESTATE_VALID) {
+        FA_ERROR("render", "failed to create a compute pipeline (the sokol log lines above have the reason)");
+        sg_destroy_pipeline(p);
+        failedComputePipelines_.insert(shader.id);
+        return {};
+    }
+    ++pipelinesMade_;
+    pipelines_[key] = {p, pipelineTick_, warming_};
+    return p;
 }
 
 sg_pipeline Gpu::find_or_make(PipelineKey key, const TargetFormat& format, const sg_pipeline_desc& request) {
