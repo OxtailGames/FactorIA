@@ -347,6 +347,7 @@ void Renderer::Impl::plan_view_job(World& world, Frame& fr, ViewTarget& target, 
     plan.view = true;
     plan.post = &noPost;
     plan.image = image.drawn;
+    if (plan.customPost) plan.target = &target.main;
     plan_job(world, fr, plan);
     set_job_env(saved);
     if (target.flipCopy) {
@@ -600,6 +601,16 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
         }
     }
 
+    // A capture through a camera (Renderer::capture_camera): the custom passes of the camera's stack over the picture, and nothing else of
+    // the stack. Their history is the capture's own (plan.history), their prepass the camera's (plan_prepass).
+    if (plan.view && plan.customPost && fr.wantWorld && fr.cam.postStack && fr.cam.postStack->has_custom()) {
+        PostPlan& pp = ctx.postPlan;
+        pp = PostPlan{};
+        pp.sceneLinear = fr.linear;
+        pp.custom = make_custom_post_plan(*fr.cam.postStack, *assets, stats.materialFallbacks, warnedCustomPass);
+        pp.custom.history = plan.history;
+    }
+
     gather_meshes(ctx);
     collect_lights(ctx);
     shadow_bounds(ctx);
@@ -627,7 +638,8 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
         }
     }
     // A custom post pass whose snippet calls fa_depth or fa_normal asks for the prepass; one that does not never makes it.
-    if (draws && ctx.postPlan.custom.reads_prepass()) ctx.postPlan.needsDepth = ctx.postPlan.needsNormals = true;
+    if ((draws || (plan.view && plan.customPost)) && ctx.postPlan.custom.reads_prepass())
+        ctx.postPlan.needsDepth = ctx.postPlan.needsNormals = true;
     plan_prepass(ctx);
     plan_outline(ctx);
     // The passes need the prepass and their shaders: a camera that cannot draw them keeps the scene's own fog (ss.fogDensity, below).
@@ -1547,7 +1559,8 @@ void Renderer::Impl::shadow_pass(DrawContext& ctx) {
 bool Renderer::Impl::plan_prepass(DrawContext& ctx) {
     const PostPlan& pp = ctx.postPlan;
     ctx.doPrepass = ctx.debugPrepass = false;
-    if (ctx.plan.view || !ctx.fr.wantWorld || ctx.camPx.w < 1 || ctx.camPx.h < 1) return false;
+    if ((ctx.plan.view && !ctx.plan.customPost) || !ctx.fr.wantWorld || ctx.camPx.w < 1 || ctx.camPx.h < 1)
+        return false;
     if (!(pp.needsDepth || pp.needsNormals || debugView != DebugView::None)) return false;
     bool anyMesh = false;
     for (const MeshBatch& b : ctx.opaqueBatches) anyMesh = anyMesh || b.mainCount > 0;
@@ -2312,6 +2325,15 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
             const Target* t = transient_targets().get(c.handle(coverageRes));
             if (t) coverage_pass(ctx, *t);
         });
+    }
+    // A capture through a camera: its custom passes run over the picture the main pass drew, in the order of their places, as one chain
+    // (a view job has no final pass to cut). The picture is the view's resolved image, as the game's is for the bloom.
+    if (plan.customPost && plan.target && ctx.postPlan.custom.any()) {
+        const BloomTarget dst{ctx.msaa ? plan.target->resolveColorAtt : plan.target->colorAtt, sg_view{}, 1};
+        customPost.add_passes(graph, transient_targets(), gpu, sceneFx, ctx.postPlan.custom,
+                              (1u << kPostSlotCount) - 1u, ctx.postPlan.rect, physW, physH, game, plan.target->texView,
+                              dst, gpu.scene_format(), ctx.postPlan.prepass, fr.linear, fr.time, &stats.drawCalls,
+                              stats.materialFallbacks, plan.name);
     }
     if (!plan.last) return;
 
