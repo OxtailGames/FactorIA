@@ -71,7 +71,30 @@ const Json* find_node(const Json& nodes, const std::string& id) {
     return nullptr;
 }
 
-Json starter_graph() {
+// The material kind of a document ("mesh" when it does not say).
+std::string doc_kind(const Json& doc) {
+    auto it = doc.find("kind");
+    return it != doc.end() && it->is_string() ? it->get<std::string>() : std::string("mesh");
+}
+
+// The node type a graph of `kind` means by `type`: the one of the kind (the output node has one per kind), else any of that name (a
+// node of another kind that a file holds: the checks report it, the canvas still draws it).
+const GraphNodeType* node_type_of(const std::string& kind, const std::string& type) {
+    if (const GraphNodeType* t = find_graph_node_type(type, kind)) return t;
+    return find_graph_node_type(type);
+}
+
+// The graph a new material starts with: the output node with a few of the fields its kind has, set to a flat colour so the canvas and the
+// preview show something at once (a sprite's `color` replaces the colour the engine drew).
+Json starter_graph(const std::string& kind) {
+    if (kind == "sprite")
+        return Json::parse(R"({
+  "version": 1,
+  "nodes": [
+    { "id": "out", "type": "output", "pos": [320, 0], "inputs": { "color": [1.0, 0.6, 0.2, 1.0] } }
+  ],
+  "links": []
+})");
     return Json::parse(R"({
   "version": 1,
   "nodes": [
@@ -79,6 +102,11 @@ Json starter_graph() {
   ],
   "links": []
 })");
+}
+
+// The shader snippet a new material of `kind` writes: sprite templates name theirs *.fragment.glsl, mesh ones *.surface.glsl.
+std::string snippet_path_for(const std::string& stem, const std::string& kind) {
+    return "shaders/" + stem + (kind == "sprite" ? ".fragment.glsl" : ".surface.glsl");
 }
 
 // Where the command put (create) or found (delete) the entry in the file's order; -1 when it said nothing (an older command).
@@ -188,7 +216,7 @@ bool GraphModel::load_from_disk(bool startGraph) {
             return false;
         }
     } else if (startGraph) {
-        newGraph = starter_graph();
+        newGraph = starter_graph(doc_kind(parsed));
         parsed["graph"] = newGraph;
     } else {
         error_ = rel_ +
@@ -246,8 +274,12 @@ bool GraphModel::open(const std::string& rel, bool startGraph) {
     return true;
 }
 
-GraphEditOutcome GraphModel::create(const std::string& rel) {
+GraphEditOutcome GraphModel::create(const std::string& rel, const std::string& kind) {
     GraphEditOutcome out;
+    const std::vector<std::string>& kinds = graph_supported_kinds();
+    if (std::find(kinds.begin(), kinds.end(), kind) == kinds.end())
+        return fail("Node graphs are made for materials of kind " + join(kinds, ", ") + "; \"" + kind +
+                    "\" is not one of them.");
     if (!ends_with(to_lower(rel), ".material.json")) return fail("'" + rel + "' must end in .material.json.");
     auto abs = resolve_project_path(projectDir_, rel);
     if (!abs.ok()) return fail(abs.error().message);
@@ -267,8 +299,9 @@ GraphEditOutcome GraphModel::create(const std::string& rel) {
     Json doc = Json::object();
     doc["format"] = kMaterialFormat;
     doc["doc"] = "A material made of nodes: edit it in the Graph panel (View > Graph).";
-    doc["shader"] = "shaders/" + stem + ".surface.glsl";
-    Json graph = starter_graph();
+    if (kind != "mesh") doc["kind"] = kind;
+    doc["shader"] = snippet_path_for(stem, kind);
+    Json graph = starter_graph(kind);
     graph["version"] = kGraphVersion;
     // The snippet the generator will write: noted before, so a failure removes only what this call made. A file of that name is somebody's (a
     // hand-written snippet): the generator would refuse to replace it, so say so before anything is written.
@@ -340,13 +373,14 @@ GraphEditOutcome GraphModel::create(const std::string& rel) {
     return out;
 }
 
-std::string GraphModel::new_material_name() const {
+std::string GraphModel::new_material_name(const std::string& kind) const {
+    const std::string base = kind == "mesh" ? "graph" : kind + "_graph";
     for (int i = 1; i < 1000; ++i) {
-        const std::string stem = i == 1 ? "graph" : "graph" + std::to_string(i);
+        const std::string stem = i == 1 ? base : base + std::to_string(i);
         const std::string rel = "assets/materials/" + stem + ".material.json";
         std::error_code ec;
         bool taken = false;
-        for (const std::string& r : {rel, "shaders/" + stem + ".surface.glsl"}) {
+        for (const std::string& r : {rel, snippet_path_for(stem, kind)}) {
             auto abs = resolve_project_path(projectDir_, r);
             taken = taken || (abs.ok() && stdfs::exists(*abs, ec));
         }
@@ -439,9 +473,10 @@ std::vector<std::string> GraphModel::entry_readers(bool texture, const std::stri
     std::vector<std::string> ids;
     const char* key = texture ? "texture" : "param";
     if (!graph_.is_object() || !nodes().is_array()) return ids;
+    const std::string kind = doc_kind(doc_);
     for (const Json& n : nodes()) {
         if (!n.is_object()) continue;
-        const GraphNodeType* t = find_graph_node_type(n.value("type", std::string()));
+        const GraphNodeType* t = node_type_of(kind, n.value("type", std::string()));
         if (t && t->ref == key && n.value(key, std::string()) == name) ids.push_back(n.value("id", std::string()));
     }
     return ids;
@@ -659,7 +694,7 @@ std::string GraphModel::node_id(int index) const {
 
 const GraphNodeType* GraphModel::node_type(const std::string& id) const {
     const int i = node_index(id);
-    return i < 0 ? nullptr : find_graph_node_type(nodes()[i].value("type", std::string()));
+    return i < 0 ? nullptr : node_type_of(doc_kind(doc_), nodes()[i].value("type", std::string()));
 }
 
 Vec2 GraphModel::node_pos(const std::string& id) const {
@@ -810,10 +845,19 @@ std::string GraphModel::unique_id(const Json& list, const std::string& base) {
 }
 
 GraphEditOutcome GraphModel::add_node(const std::string& type, Vec2 pos, const std::string& ref) {
-    const GraphNodeType* t = find_graph_node_type(type);
-    if (!t)
+    const std::string kind = doc_kind(doc_);
+    const GraphNodeType* t = find_graph_node_type(type, kind);
+    if (!t) {
+        if (const GraphNodeType* other =
+                find_graph_node_type(type)) {  // a node of the 3D kinds in a sprite graph (or the other way round)
+            std::string why = "The node \"" + type + "\" does not work in a material of kind \"" + kind + "\".";
+            for (const auto& [k, text] : other->instead)
+                if (k == kind) why += " " + text;
+            return fail(why);
+        }
         return fail("There is no node type \"" + type +
                     "\": pick one from the palette (material.graph.nodes lists them).");
+    }
     if (type == kGraphOutputNode) {
         for (const Json& n : nodes())
             if (n.is_object() && n.value("type", std::string()) == kGraphOutputNode)

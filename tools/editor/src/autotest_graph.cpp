@@ -540,13 +540,99 @@ void Editor::at_section_G3(AtScript& at) {
             at_check(graph_.model->node_count() == 4, "...and the node with it");
         });
 
+        // ---- a sprite graph: the kind next to New graph material makes one, 3D nodes are not offered, a noise node drives its alpha and
+        // the preview draws it on the 2D quad (docs/EDITOR.md, "Graph panel")
+        const std::string spriteRel = "assets/materials/sprite_graph.material.json";
+        const std::string spriteSnippet = "shaders/sprite_graph.fragment.glsl";
+        wait_until([this] { return !graph_.preview || !graph_.preview->busy(); },
+                   "the mesh preview to finish compiling");
+        step(2, [this] {
+            graph_close_document();
+            graph_.newKind = "sprite";
+        });
+        wait_until([this] { return at_visible("gr:new") && at_visible("gr:newkind"); },
+                   "the New graph material buttons");
+        click_widget("gr:new");
+        wait_until(
+            [this, spriteRel] {
+                return graph_.model && graph_.model->is_open() && graph_.model->path() == spriteRel &&
+                       at_visible("gr:canvas") && graph_.canvasW > 150 && graph_.canvasH > 100;
+            },
+            "the Graph panel to open the new sprite material");
+        step(3, [this, gs, spriteRel, spriteSnippet, read_text] {
+            GraphModel& m = *graph_.model;
+            const Json file = Json::parse(read_text(spriteRel), nullptr, false);
+            at_check(!file.is_discarded() && file.value("kind", std::string()) == "sprite" &&
+                         file.value("shader", std::string()) == spriteSnippet && file.contains("graph"),
+                     "New graph material with the kind Sprite wrote a sprite material with a graph");
+            at_check(read_text(spriteSnippet).find("void fragment(in QuadInput i, inout QuadSurface s)") !=
+                         std::string::npos,
+                     "...and its snippet is the fragment() of the sprite template");
+            at_check(m.report().kind == "sprite" && !m.has_errors() && m.node_count() == 1,
+                     "...it checks, with the output node of a sprite");
+            // the palette offers the nodes of a sprite and none of the 3D ones
+            bool has2d = false, has3d = false;
+            for (const GraphNodeType* t : m.palette("")) {
+                has2d = has2d || t->type == "sprite.color";
+                has3d = has3d || t->type == "fresnel" || t->type == "normal.world";
+            }
+            at_check(has2d && !has3d, "the palette lists sprite.color and not fresnel or normal.world");
+            const GraphEditOutcome refused = m.add_node("fresnel", Vec2{0.0f, 0.0f});
+            at_check(!refused.ok && refused.error.find("sprite") != std::string::npos && m.node_count() == 1,
+                     "a 3D node cannot be added to a sprite graph: " + refused.error);
+            const GraphEditOutcome added = m.add_node("noise.fbm", Vec2{0.0f, 0.0f});
+            graph_edited(added);
+            const GraphEditOutcome linked = added.ok ? m.connect(added.id + ".value", "out.alpha") : added;
+            graph_edited(linked);
+            at_check(added.ok && linked.ok && !m.has_errors() && m.link_count() == 1,
+                     "a noise node is added and linked into the alpha of the output: " + linked.error);
+            gs->compiles = graph_.preview ? graph_.preview->compiles() : 0;
+        });
+        wait_until(
+            [this] {
+                const PreviewState s = graph_.preview->state();
+                return graph_.preview->shown_revision() == graph_.model->revision() || s == PreviewState::Error ||
+                       s == PreviewState::NoRenderer;
+            },
+            "the preview to compile the sprite graph");
+        step(3, [this, gs] {
+            const GraphPreview& pv = *graph_.preview;
+            if (pv.state() == PreviewState::NoRenderer) {
+                atLog_.push_back("SKIP Sprite graph preview (this window has no GPU renderer)");
+                return;
+            }
+            if (pv.state() == PreviewState::Error) {
+                const std::string msg = pv.message();
+                const bool noShdc =
+                    msg.find("shdc") != std::string::npos || msg.find("shader compiler") != std::string::npos;
+                const char* required = std::getenv("FA_REQUIRE_SHDC");
+                if (noShdc && !(required && std::string(required) == "1")) {
+                    atLog_.push_back("SKIP Sprite graph preview (no sokol-shdc? set SOKOL_SHDC): " + msg);
+                    return;
+                }
+                at_check(false, "the preview compiled the sprite graph: " + msg);
+                return;
+            }
+            at_check(pv.state() == PreviewState::Ready && !pv.image().empty() && pv.compiles() > gs->compiles,
+                     "the preview compiled the sprite graph and drew a picture: " + pv.message());
+            at_check(pv.drawing() == PreviewKind::Sprite, "...on the 2D quad, not on the sphere");
+            int covered = 0;
+            for (std::size_t i = 3; i < pv.image().rgba.size(); i += 4)
+                if (pv.image().rgba[i] > 0) ++covered;
+            at_check(covered > 0, "...the quad is in it (" + std::to_string(covered) + " pixels drawn)");
+            at_check(at_visible("gr:preview"), "...and the panel shows it");
+        });
+
         // the preview compiles on a worker thread: its files go only after it has finished
         wait_until([this] { return !graph_.preview || !graph_.preview->busy(); }, "the preview to finish compiling");
-        step(2, [this, dir] {
+        step(2, [this, dir, spriteRel, spriteSnippet] {
             showGraph_ = false;
             graph_close_document();
+            graph_.newKind = "mesh";
             std::error_code ec;
             stdfs::remove_all(stdfs::path(projectDir_) / dir, ec);
+            stdfs::remove(stdfs::path(projectDir_) / spriteRel, ec);
+            stdfs::remove(stdfs::path(projectDir_) / spriteSnippet, ec);
             std::error_code ec2;
             stdfs::remove_all(stdfs::path(projectDir_) / ".factoria/material-preview", ec2);
             project_files_changed();

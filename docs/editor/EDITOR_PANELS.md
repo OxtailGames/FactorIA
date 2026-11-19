@@ -293,6 +293,10 @@ when you press Save: the panel does not replace it but asks "The file changed on
 is, your edits gone) and **Cancel** (nothing is written, the unsaved graph stays). **New graph material** makes the material file whole or not at all: it is written under a
 temporary name and published only if the name is still free, and when the snippet cannot be written the material file it made is removed again, so a failed New leaves nothing behind
 and never replaces a file made meanwhile (on a volume with hard links; on one without, a look and a rename leave a very small window). If the name of the snippet the material would get (`shaders/<name>.surface.glsl`) is already taken by a hand-written file, the next free name is used for both. Closing the material (or opening another) clears the Params and Textures forms and their messages.
+The box next to **New graph material** picks the kind: `mesh` (the default) or `sprite`, a graph for a 2D item that writes `assets/materials/sprite_graph.material.json` with
+`"kind": "sprite"` and the snippet `shaders/sprite_graph.fragment.glsl` (the output has `color`, `rgb`, `alpha` and `vertexOffset`, and starts with a colour). The kind of an open material
+is the file's `kind`: a sprite graph's palette leaves out the 3D nodes (`fresnel`, `triplanar`, `parallax`, `texture.normal`, `normal.world`, `view.dir`, `position.view`, `vertex.color`, `position.world`), a search that
+matches one of them says what to use instead, and its preview draws a Sprite (the 2D quad) instead of the mesh.
 
 - **Canvas.** Nodes are boxes with their input ports on the left and output ports on the right, coloured by type (float, vec2, vec3, vec4). Drag a node to move it
   (all the selected ones move together; the position is saved as the node's `pos`). Press on a port and drag to another port to link them; dragging from an input
