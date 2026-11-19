@@ -2002,8 +2002,9 @@ void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
                     const int passCount = pd.mat && pd.mat->full ? int(pd.mat->passes.size()) : 1;
                     // The palette and the fragment parameters belong to the part, not to the pass: made by the first pass that
                     // declares the block, reused by the others.
-                    std::optional<mesh_fa_skin_t> palette;
-                    std::optional<mesh_fa_mesh_fs_params_t> fragmentParams;
+                    bool paletteMade = false, fragmentMade = false;
+                    mesh_fa_skin_t palette{};
+                    mesh_fa_mesh_fs_params_t fragmentParams{};
                     for (int pass = 0; pass < passCount; ++pass) {
                         const MaterialProgram* prog =
                             pd.mat ? &pd.mat->programs[pass_program_slot(pass, skinned)] : nullptr;
@@ -2027,12 +2028,18 @@ void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
                         // A full shader declares only the blocks it reads (the compiler drops an unused one).
                         if (declares(prog, UB_mesh_fa_mesh_vs_params)) apply_uniforms(UB_mesh_fa_mesh_vs_params, vu);
                         if (skinned && declares(prog, UB_mesh_fa_skin)) {
-                            if (!palette) palette = pack_palette(palette_of(*mi.anim, part.skin));
-                            apply_uniforms(UB_mesh_fa_skin, *palette);
+                            if (!paletteMade) {
+                                palette = pack_palette(palette_of(*mi.anim, part.skin));
+                                paletteMade = true;
+                            }
+                            apply_uniforms(UB_mesh_fa_skin, palette);
                         }
                         if (declares(prog, UB_mesh_fa_mesh_fs_params)) {
-                            if (!fragmentParams) fragmentParams = fill_fs(ctx, mi, part, pd, isBlend);
-                            apply_uniforms(UB_mesh_fa_mesh_fs_params, *fragmentParams);
+                            if (!fragmentMade) {
+                                fragmentParams = fill_fs(ctx, mi, part, pd, isBlend);
+                                fragmentMade = true;
+                            }
+                            apply_uniforms(UB_mesh_fa_mesh_fs_params, fragmentParams);
                         }
                         if (declares(prog, UB_mesh_fa_lights)) apply_uniforms(UB_mesh_fa_lights, lightUniforms);
                         if (prog) apply_material_params(*prog, inputs);

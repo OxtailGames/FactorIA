@@ -657,8 +657,7 @@ TEST_CASE("compute images: read_image takes only the rectangle off the GPU, a co
         skip_without_compute("the region read of a large image is not run", why);
         return;
     }
-    const int side =
-        2048;  // 16 MiB of rgba8 and of r32f: a whole-image read would hold that twice (the GPU copy and the vector)
+    const int side = 512;  // 1 MiB of rgba8 and of r32f: the reads below take bytes, not the image, off the GPU
     auto field = s.compute().create_image(kField, "field", side, side);
     auto count = s.compute().create_image(kField, "count", side, side);
     REQUIRE_MESSAGE(field.ok(), field.error().to_string());
@@ -699,7 +698,10 @@ TEST_CASE("compute images: read_image takes only the rectangle off the GPU, a co
     REQUIRE_MESSAGE(row.ok(), row.error().to_string());
     CHECK(s.compute().last_read_image_bytes() == std::uint64_t(side) * 4u);
     MESSAGE("process peak memory " << (peakBefore >> 20) << " MiB before the reads, " << (peak_memory_bytes() >> 20)
-                                   << " MiB after (a whole-image read adds about 32 MiB to a new peak)");
+                                   << " MiB after");
+    // A read refused before it reaches the GPU leaves 0, not the bytes of the read before it.
+    CHECK_FALSE(s.compute().read_image(*field, side, 0, 1, 1).ok());
+    CHECK(s.compute().last_read_image_bytes() == 0);
 }
 
 TEST_CASE("compute images: readWrite of a format other than r32f works where the GPU can imageLoad it, and says so "
