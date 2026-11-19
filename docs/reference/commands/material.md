@@ -4,7 +4,7 @@
 
 ## `material.graph.generate` (modifies state)
 
-Not released yet (on main after 0.31.0).
+Since 0.32.0.
 
 Generate the GLSL snippet of a material from its node graph and record its hash in the material file.
 
@@ -21,7 +21,7 @@ Checks the "graph" of the material (as material.graph.validate), generates the s
 
 ## `material.graph.nodes`
 
-Not released yet (on main after 0.31.0).
+Since 0.32.0.
 
 List the node types of the material graph library, with their inputs, outputs and the kinds they work in.
 
@@ -37,7 +37,7 @@ Returns {format, kinds, categories, nodes: [{type, category, doc, kinds, stage, 
 
 ## `material.graph.validate`
 
-Not released yet (on main after 0.31.0).
+Since 0.32.0.
 
 Check the node graph of a material and say whether its snippet is in sync with it.
 
@@ -68,7 +68,7 @@ Reads a *.material.json (schemas/material.schema.json) and returns {material, do
 
 ## `material.param.create` (modifies state)
 
-Not released yet (on main after 0.31.0).
+Since 0.32.0.
 
 Add a param to a material file (the Graph panel's "+").
 
@@ -91,7 +91,7 @@ Adds the param `name` to "params" of the material file and changes nothing else.
 
 ## `material.param.delete` (modifies state)
 
-Not released yet (on main after 0.31.0).
+Since 0.32.0.
 
 Remove a param from a material file; refused while graph nodes read it unless forced.
 
@@ -109,7 +109,7 @@ Removes the param `name` from "params" of the material file. When nodes of the g
 
 ## `material.param.rename` (modifies state)
 
-Not released yet (on main after 0.31.0).
+Since 0.32.0.
 
 Rename a param of a material file and the graph nodes that read it.
 
@@ -127,7 +127,7 @@ Renames the param `name` to `newName` in "params" of the material file and point
 
 ## `material.param.set_default` (modifies state)
 
-Not released yet (on main after 0.31.0).
+Since 0.32.0.
 
 Set the default value of one param of a material file (the Graph panel's "Set as default").
 
@@ -144,7 +144,7 @@ Writes `value` as the "default" of the param `param` in the material file and ch
 
 ## `material.texture.create` (modifies state)
 
-Not released yet (on main after 0.31.0).
+Since 0.32.0.
 
 Add a texture to a material file (the Graph panel's "+").
 
@@ -164,7 +164,7 @@ Adds the texture `name` to "textures" of the material file and changes nothing e
 
 ## `material.texture.delete` (modifies state)
 
-Not released yet (on main after 0.31.0).
+Since 0.32.0.
 
 Remove a texture from a material file; refused while graph nodes read it unless forced.
 
@@ -182,7 +182,7 @@ Removes the texture `name` from "textures" of the material file. When nodes of t
 
 ## `material.texture.rename` (modifies state)
 
-Not released yet (on main after 0.31.0).
+Since 0.32.0.
 
 Rename a texture of a material file and the graph nodes that read it.
 
