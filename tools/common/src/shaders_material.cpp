@@ -123,14 +123,15 @@ struct Checker {
                   "Name it for what it holds, e.g. \"noiseMap\" or \"mask\".");
             return false;
         }
-        if (is_reserved_word(name) || (out.material.lighting == "custom" && (name == "light" || name == "ambient"))) {
+        if (is_reserved_word(name) || (out.material.lighting == "custom" && (name == "light" || name == "ambient")) ||
+            (kind == "sky" && name == "sky")) {  // sky(): the hook of a sky material, an ordinary name elsewhere
             error(pointer,
                   std::string(what) + " name \"" + name +
                       "\" is a GLSL keyword or a name of the snippet contract, so it cannot be a variable",
                   "Rename it, e.g. \"" + name + "Value\".");
             return false;
         }
-        // The unprefixed names of the kind's own program (sprite: its vertex inputs, varyings, textures, uniform blocks and
+        // The unprefixed names of the kind's own program (sprite, sky: its vertex inputs, varyings, textures, uniform blocks and
         // helpers) share one flat namespace with the snippet and the params: taking one redefines it.
         const auto& globals = template_globals(kind);
         const std::string sampler = std::string(what) == "texture" ? name + "_smp" : std::string();
@@ -140,12 +141,19 @@ struct Checker {
             error(pointer,
                   std::string(what) + " name \"" + name + "\" is " +
                       (takesName ? "a name" : "the base of the name \"" + sampler + "\"") +
-                      " of the engine's 2D program (quad_common.glsl: its vertex inputs, varyings, textures, "
-                      "uniform blocks and helper functions are not prefixed), and a " +
-                      what + " becomes a global variable next to them, so " + kind + " materials cannot take it",
+                      (kind == "sky"
+                           ? " of the engine's sky program (sky_common.glsl: its vertex input, varying, uniform "
+                             "blocks and helper functions are not prefixed)"
+                           : " of the engine's 2D program (quad_common.glsl: its vertex inputs, varyings, textures, "
+                             "uniform blocks and helper functions are not prefixed)") +
+                      ", and a " + what + " becomes a global variable next to them, so " + kind +
+                      " materials cannot take it",
                   "Rename it, e.g. \"" + name + suffix +
-                      "\". The names of the 2D program are listed in "
-                      "engine/render/shaders/quad_common.glsl and color_space.glsl / light_shadow.glsl.");
+                      (kind == "sky"
+                           ? "\". The names of the sky program are listed in "
+                             "engine/render/shaders/sky_common.glsl and color_space.glsl."
+                           : "\". The names of the 2D program are listed in "
+                             "engine/render/shaders/quad_common.glsl and color_space.glsl / light_shadow.glsl."));
             return false;
         }
         return true;
@@ -439,7 +447,10 @@ MaterialParse parse_material(const Json& doc, const std::string& projectDir, con
             if (int(t->size()) > kMaterialMaxTextures)
                 c.error("/textures",
                         std::to_string(t->size()) + " textures, at most " + std::to_string(kMaterialMaxTextures) +
-                            " (the engine already binds " + (m.kind == "sprite" ? "4" : "6") +
+                            " (the engine already binds " +
+                            (m.kind == "sprite" ? "4"
+                             : m.kind == "sky"  ? "0"
+                                                : "6") +
                             " texture units of the 16 that GLES3 and WebGL2 guarantee, and materials get the next 4)",
                         "Pack masks into the channels of one texture (r = foam, g = height...) or remove a texture.");
             for (auto it = t->begin(); it != t->end(); ++it) {
@@ -467,7 +478,17 @@ MaterialParse parse_material(const Json& doc, const std::string& projectDir, con
                 "Remove \"lighting\" (a sprite ignores \"pbr\" and \"unlit\") and change what the lights give in "
                 "fragment(), "
                 "or use a mesh material (kind \"mesh\") for a custom light loop.");
-    if (m.alphaMode == "clip" && m.kind == "sprite") {
+    if (m.lighting == "custom" && m.kind == "sky")
+        c.error(
+            "/lighting", "lighting \"custom\" (the light() hook) is for mesh materials; a sky is not lit",
+            "Remove \"lighting\" (a sky ignores \"pbr\" and \"unlit\"): sky() computes the colour of the background "
+            "itself, from the view direction.");
+    if ((m.alphaMode == "clip" || m.alphaMode == "blend") && m.kind == "sky")
+        c.error(
+            "/alphaMode",
+            "alphaMode \"" + m.alphaMode + "\" means nothing for a sky material: the sky is the opaque background",
+            "Remove \"alphaMode\" (a sky is always opaque; its sky() returns an RGB colour). doubleSided is ignored.");
+    else if (m.alphaMode == "clip" && m.kind == "sprite") {
         c.error("/alphaMode", "alphaMode \"clip\" is the mesh template's alpha test; a sprite material has none",
                 "Use \"blend\" (the default look of a sprite) and write `if (s.color.a < 0.5) discard;` in fragment() "
                 "where "

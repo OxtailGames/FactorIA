@@ -381,13 +381,13 @@ material says what it is for with the optional key `"kind"` of its `*.material.j
 |---|---|---|---|
 | `"mesh"` (default) | the surface of a `MeshRenderer`: everything in this document | `mesh_common.glsl` | built |
 | `"sprite"` | the 2D quad path: `Sprite`, `Shape2D`, `Tilemap`, `Text`, particles and trails, UI images | `quad_common.glsl` (+ `color_space.glsl`, `light_shadow.glsl`) | M72.1: template and tooling built (M72-P1), the fields and the draw follow |
-| `"sky"` | the sky the scene and its environment lighting use | `sky_common.glsl` | M72.1 |
+| `"sky"` | the background of a 3D scene (`SceneSettings.skyMaterial`); the lighting still follows the two sky colours | `sky_common.glsl` (+ `color_space.glsl`) | M72.1: built (M72-P6) |
 | `"post"` | one pass of a camera's post-processing stack | `post_common.glsl` | M72.2 |
 | `"compute"` | compute shaders (storage buffers) | none yet | M72.4 |
 
 Built by M72.0 (the shared base): the key, its check, the per-kind template hash and the skeletons. `"mesh"` and
-`"sprite"` compile; `shader.compile` and `factoria validate` refuse the others with a message that names the package
-that brings them (`kind "sky" is not compiled yet: sky materials arrive with M72.1`, pointer `/kind`), and the renderer
+`"sprite"` compile (and `"sky"`, since M72-P6); `shader.compile` and `factoria validate` refuse the others with a message that names the package
+that brings them (`kind "post" is not compiled yet: post materials arrive with M72.2`, pointer `/kind`), and the renderer
 refuses to build such a material (the same message, with the file). A `kind` that is not one of the five is an error with "did you mean" and the
 pointer `/kind` (`parse_material`, `schemas/material.schema.json`).
 
@@ -454,6 +454,31 @@ generated top file with the built-in source modulo the user block; the render-le
   template files (`template_globals`, `tools/common/src/shaders_generate.cpp`), so it cannot drift. `noise` is refused for
   every kind (sokol-shdc cannot compile a texture called that).
 
+### Sky materials (M72.1, the template, the tooling and the draw)
+
+`engine/render/shaders/sky_common.glsl` is the source of the sky program, the engine's own and every material's: the full-screen
+vertex stage, the fragment stage (uniform blocks `sky_vs_params` 0 and `sky_fs_params` 1, the colour-space helpers, `fa_scene_rgb`)
+and a `main()` that builds `SkyInput` (`dir`, `sun_dir`, `time`), starts `SkySurface.color` at the gradient of
+`SceneSettings.skyColor` and `horizonColor`, calls the snippet's `sky(in SkyInput, inout SkySurface)` and writes the colour
+opaque. `sky.glsl` is the template with an empty `sky()` (so the engine's pixels are what they were) and declares
+`@program sky vs fs`; a material's generated top file is the same with its own `fa_user` block. The template hash of the kind
+covers `color_space.glsl` and `sky_common.glsl`; the sky defines no preprocessor macros and has no `vertex()`.
+
+- **Slots.** The sky binds no texture of its own: a material's textures are views and samplers 0 and up
+  (`kMaterialSkyFirstView`, `kMaterialSkyFirstSampler` in `render_internal.h`), its params block is fragment binding 5.
+- **Tooling.** `shader.compile`, `material.info` (one program, `sky`), `factoria validate` and `factoria export` handle the kind;
+  `lighting: "custom"` and `alphaMode` `"clip"`/`"blend"` are errors on `/lighting` and `/alphaMode` with the fix; `template_globals`
+  gives the reserved names of the kind (`pos`, `ray_dir`, `frag_color`, `sky_color`...) as for a sprite.
+- **Draw.** `SceneSettings.skyMaterial` / `skyMaterialParams` (`Renderer::Impl::sky_material`): a perspective camera that clears
+  draws the sky through the material's program (`Gpu::sky_pipeline(format, shader)`, a pipeline per shader, the same uniforms
+  as the built-in one plus the material's block and textures). A path that is not a built sky material (missing, another
+  kind, a build error) draws the built-in gradient, with the reason logged once and the path listed in
+  `RenderStats.materialFallbacks`. The meshes' ambient and reflection light (`fa_env_sky`, `fa_env_horizon`) and the
+  reflection probes keep following `skyColor` and `horizonColor`: a sky material only paints the background.
+- **Editor.** View > Scene settings (`scene_settings_model.*`, `scene_settings_panel.cpp`) edits the settings through
+  `scene.set_component` on `SceneSettings` with no `id` (`patch_settings` in `fa::scene` applies the fields all or nothing,
+  `skyMaterialParams` merges); the editor's undo plan for it (`plan_set_settings`) puts back exactly the fields of the call.
+
 ## Node graphs
 
 A `*.material.json` may hold an optional `"graph"` (docs/SHADERS.md, "Node graphs"): nodes with typed inputs and outputs and the
@@ -484,9 +509,9 @@ cache, hot reload, export, the runtime) is unchanged: a graph material is a mate
 
 ## Out of scope (recorded so nobody assumes it)
 
-- Custom shaders for the sky and custom post-processing: M72.1 and M72.2 (see "Kinds (M72)"; the kinds, hashes and
-  skeletons exist, the programs do not). The 2D kind has its template and tooling; what draws with it is in
-  "Sprite materials" above.
+- Custom post-processing: M72.2 (see "Kinds (M72)"; the kind, hash and skeleton exist, the program does not). The 2D and
+  sky kinds have their template, tooling and draw: "Sprite materials" and "Sky materials" above. A sky material does not
+  drive the meshes' ambient and reflection light.
 - A full-GLSL escape hatch (D1).
 - Compute shaders, tessellation, geometry shaders (not in sokol_gfx's common subset for these backends anyway).
 - Per-instance material data inside one instanced draw.

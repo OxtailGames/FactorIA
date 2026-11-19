@@ -68,10 +68,9 @@ const TypeInfo& need_component_type(const std::string& name) {
 // values, field by field. A null removes the field's value, i.e. resets it to its default (a key that was never set); an
 // object for a Json-valued field (Script.props) is merged into the current object, recursively, null deleting a key;
 // every other value replaces the field, as without merge. Returns the plain `fields` patch_component applies.
-Json merge_fields(const World& world, Entity e, const TypeInfo& type, const Json& patch) {
+Json merge_fields(const void* current, const TypeInfo& type, const Json& patch) {
     if (!patch.is_object()) return patch;  // patch_component explains what is wrong
     DefaultObject defaults(type);
-    const void* current = world.get(e, type);
     Json out = Json::object();
     for (auto it = patch.begin(); it != patch.end(); ++it) {
         const FieldInfo* f = type.field(it.key());
@@ -94,11 +93,30 @@ Json merge_fields(const World& world, Entity e, const TypeInfo& type, const Json
 
 // scene.set_component on `world`: `a` is {id, component, fields?, merge?}.
 Json set_component(World& world, const Json& a) {
+    // SceneSettings belongs to the scene, not to an entity: it is written with no `id` (an empty one counts as none).
+    if (a.contains("component") && a["component"].is_string()) {
+        const TypeInfo* settings = TypeRegistry::global().find_ci(a["component"].get<std::string>());
+        const bool noId =
+            !a.contains("id") || a["id"].is_null() || (a["id"].is_string() && a["id"].get<std::string>().empty());
+        if (settings && settings->name == "SceneSettings" && noId) {
+            Json fields = a.contains("fields") ? a["fields"] : Json::object();
+            if (a.value("merge", false)) fields = merge_fields(&world.settings(), *settings, fields);
+            auto r = patch_settings(world, fields);
+            if (!r)
+                throw CommandError("invalid_argument", r.error().message,
+                                   r.error().hint.empty() ? "Use api.components to see the fields of SceneSettings."
+                                                          : r.error().hint);
+            Json value = Json::object();
+            for (const FieldInfo& f : settings->fields)
+                if (f.serialized) value[f.name] = field_to_json(f, &world.settings());
+            return Json::object({{"component", "SceneSettings"}, {"value", std::move(value)}});
+        }
+    }
     Entity e = need_entity(world, a);
     const std::string cname = a["component"].get<std::string>();
     const TypeInfo& t = need_component_type(cname);
     Json fields = a.contains("fields") ? a["fields"] : Json::object();
-    if (a.value("merge", false)) fields = merge_fields(world, e, t, fields);
+    if (a.value("merge", false)) fields = merge_fields(std::as_const(world).get(e, t), t, fields);
     auto r = patch_component(world, e, t, fields);
     if (!r.ok())
         throw CommandError("invalid_argument", r.error().message,
@@ -473,9 +491,11 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
          "rest: "
          "scene.set_component "
          "{\"id\":\"level\",\"component\":\"Script\",\"fields\":{\"props\":{\"levelIndex\":3,\"oldProp\":null}},"
-         "\"merge\":true}",
-         parse_schema(R"({"type":"object","required":["id","component"],"properties":{
-               "id":{"type":"string","description":"Entity id (or name)."},
+         "\"merge\":true}. The scene's own settings are the component \"SceneSettings\", written with NO `id`: "
+         "scene.set_component "
+         "{\"component\":\"SceneSettings\",\"fields\":{\"skyMaterial\":\"materials/dusk.material.json\"}}.",
+         parse_schema(R"({"type":"object","required":["component"],"properties":{
+               "id":{"type":"string","description":"Entity id (or name). Required for every component except SceneSettings, which belongs to the scene: leave it out."},
                "component":{"type":"string","description":"Component name, e.g. Transform, Sprite, RigidBody2D."},
                "fields":{"type":"object","description":"Field name -> value."},
                "merge":{"type":"boolean","default":false,"description":"true = read `fields` as an RFC 7386 JSON merge-patch: objects (Script.props) merge into the current value recursively, null deletes a key (or resets a plain field to its default). false = every given field is replaced as a whole."}}})"),

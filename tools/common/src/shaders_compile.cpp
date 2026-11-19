@@ -158,6 +158,7 @@ std::string struct_var(const std::string& typeName) {
 }
 
 bool is_sprite(const MaterialDef& material) { return material.kind == "sprite"; }
+bool is_sky(const MaterialDef& material) { return material.kind == "sky"; }
 
 // The structs of the contract this material uses: LightSample only with lighting "custom" (a pbr material has no light()).
 std::vector<std::pair<std::string, std::vector<std::string>>> contract_of(const MaterialDef& material) {
@@ -197,6 +198,7 @@ std::string field_hint(const std::string& token, const std::string& source, cons
     std::vector<std::string> fields;
     const auto structs = contract_of(ctx.material);
     std::string where = is_sprite(ctx.material)             ? "QuadSurface, QuadInput and QuadVertex"
+                        : is_sky(ctx.material)              ? "SkySurface and SkyInput"
                         : ctx.material.lighting == "custom" ? "Surface, SurfaceInput, VertexData and LightSample"
                                                             : "Surface, SurfaceInput and VertexData";
     if (const auto* f = struct_fields(typeName, structs)) {
@@ -244,7 +246,16 @@ std::string field_hint(const std::string& token, const std::string& source, cons
                                                                              {"screenuv", "screen_uv"},
                                                                              {"screenpos", "screen_uv"},
                                                                              {"screenposition", "screen_uv"},
-                                                                             {"seconds", "time"}};
+                                                                             {"seconds", "time"},
+                                                                             {"direction", "dir"},
+                                                                             {"raydir", "dir"},
+                                                                             {"viewdir", "dir"},
+                                                                             {"viewdirection", "dir"},
+                                                                             {"sun", "sun_dir"},
+                                                                             {"sundir", "sun_dir"},
+                                                                             {"sundirection", "sun_dir"},
+                                                                             {"sunlight", "sun_dir"},
+                                                                             {"lightdir", "sun_dir"}};
     std::string lower = to_lower(token), flat;
     for (char c : lower)
         if (c != '_') flat += c;
@@ -286,11 +297,15 @@ std::vector<std::string> engine_names_of(const std::string& kind) {
 }
 
 const std::vector<std::string>& engine_names(const MaterialDef& material) {
-    static const std::vector<std::string> mesh = engine_names_of("mesh"), sprite = engine_names_of("sprite");
-    return is_sprite(material) ? sprite : mesh;
+    static const std::vector<std::string> mesh = engine_names_of("mesh"), sprite = engine_names_of("sprite"),
+                                          sky = engine_names_of("sky");
+    return is_sprite(material) ? sprite : is_sky(material) ? sky : mesh;
 }
 
 std::string prefix_rule(const MaterialDef& material) {
+    if (is_sky(material))
+        return "Names starting with fa_ belong to the engine: the snippet may use the ones the contract lists "
+               "(fa_time, fa_scene_rgb()) but not declare any. Rename it without the prefix.";
     return is_sprite(material)
                ? "Names starting with fa_ belong to the engine: the snippet may use the ones the contract lists "
                  "(fa_time, fa_sample_main(), fa_scene_rgb()) but not declare any. Rename it without the prefix."
@@ -304,6 +319,8 @@ constexpr const char* kLightSignatures =
     "\"custom\")  and  vec3 ambient(in SurfaceInput i, in Surface s, vec3 ambientColor) { ... }  (optional)";
 
 std::string signatures(const MaterialDef& material) {
+    if (is_sky(material))
+        return "void sky(in SkyInput i, inout SkySurface s) { ... }  (required; a sky has no vertex())";
     if (is_sprite(material))
         return "void fragment(in QuadInput i, inout QuadSurface s) { ... }  (required)  and  void "
                "vertex(inout QuadVertex v) { ... }  (optional)";
@@ -313,7 +330,9 @@ std::string signatures(const MaterialDef& material) {
 }
 
 // The entry point of the fragment stage the kind's contract names.
-const char* fragment_entry(const MaterialDef& material) { return is_sprite(material) ? "fragment" : "surface"; }
+const char* fragment_entry(const MaterialDef& material) {
+    return is_sprite(material) ? "fragment" : is_sky(material) ? "sky" : "surface";
+}
 
 std::string undeclared_hint(const std::string& token, const MapContext& ctx) {
     // A field written without its struct.
@@ -330,6 +349,8 @@ std::string undeclared_hint(const std::string& token, const MapContext& ctx) {
                    ? std::string("No engine value is called ") + token +
                          (is_sprite(ctx.material)
                               ? "; the ones a snippet may use are fa_time, fa_sample_main() and fa_scene_rgb()."
+                          : is_sky(ctx.material)
+                              ? "; the ones a snippet may use are fa_time and fa_scene_rgb()."
                               : "; the ones a snippet may read are fa_time, fa_camera_pos and fa_tangent_normal().")
                    : "did you mean " + best + "?";
     }
@@ -376,10 +397,13 @@ std::string hint_for(const std::string& message, const std::string& token, const
                        "\" of this material. Rename the local variable.";
         if (template_globals(ctx.material.kind).count(token) > 0)
             return "`" + token +
-                   "` is a name taken by the engine's 2D program (quad_common.glsl and the files it includes: "
-                   "its vertex inputs, varyings, textures, uniform blocks and helper functions are not prefixed). "
-                   "Rename "
-                   "your variable or function.";
+                   (is_sky(ctx.material)
+                        ? "` is a name taken by the engine's sky program (sky_common.glsl and the files it includes: "
+                          "its vertex input, varying, uniform blocks and helper functions are not prefixed). "
+                        : "` is a name taken by the engine's 2D program (quad_common.glsl and the files it includes: "
+                          "its vertex inputs, varyings, textures, uniform blocks and helper functions are not "
+                          "prefixed). ") +
+                   "Rename your variable or function.";
     }
     if (message.find("syntax error") != std::string::npos)
         return "A syntax error is often reported on the line after the real mistake: look for a missing ';', ')' or "
@@ -396,7 +420,7 @@ void outside_snippet(ShaderIssue& issue, const std::string& where, const std::st
     issue.line = 0;
     issue.source.clear();
     issue.file = ctx.material.shader.empty() ? ctx.material.path : ctx.material.shader;
-    if (token == "surface" || token == "fragment" || token == "vertex" ||
+    if (token == "surface" || token == "fragment" || token == "vertex" || (token == "sky" && is_sky(ctx.material)) ||
         (ctx.material.lighting == "custom" && (token == "light" || token == "ambient")))
         issue.hint = std::string("The engine calls ") + token +
                      "() from its template, so the snippet must define it with exactly this signature: " +
@@ -478,7 +502,14 @@ std::vector<ShaderIssue> precheck_snippet(const MaterialDef& material, const Gen
         ShaderIssue i;
         i.file = material.shader;
         i.message = std::string("the snippet defines no ") + fragment_entry(material) + "() function";
-        if (is_sprite(material))
+        if (is_sky(material))
+            i.hint = "Define it as `void sky(in SkyInput i, inout SkySurface s) { s.color = mix(s.color, vec3(1.0, "
+                     "0.5, 0.2), "
+                     "pow(max(dot(i.dir, i.sun_dir), 0.0), 8.0)); }`. s.color arrives holding the engine's sky (the "
+                     "gradient of "
+                     "SceneSettings.skyColor and horizonColor), so change only what you need. Signatures: " +
+                     signatures(material) + ".";
+        else if (is_sprite(material))
             i.hint =
                 "Define it as `void fragment(in QuadInput i, inout QuadSurface s) { s.color.rgb *= vec3(1.0, 0.5, "
                 "0.5); }`. s.color arrives holding what the engine would draw for the sprite, shape, tile, glyph or "
@@ -525,7 +556,24 @@ std::vector<ShaderIssue> precheck_snippet(const MaterialDef& material, const Gen
             }
         }
     }
-    if (!is_sprite(material) && material.lighting == "custom" && !g.hasLight) {
+    if (is_sky(material) && g.hasVertex) {
+        static const std::regex entry(R"(\bvoid\s+vertex\s*\()");
+        std::smatch m;
+        ShaderIssue i;
+        i.file = material.shader;
+        if (std::regex_search(stripped, m, entry)) {
+            i.line = line_of(stripped, std::size_t(m.position(0)));
+            i.source = line_text(snippet, i.line);
+            i.column = column_of(stripped, std::size_t(m.position(0))) + 1;
+        }
+        i.message = "a sky material has no vertex(): the sky is one full-screen triangle";
+        i.hint =
+            "Remove vertex() and compute the colour of each pixel in sky() from i.dir (the view direction), i.sun_dir "
+            "and i.time. Signatures: " +
+            signatures(material) + ".";
+        out.push_back(std::move(i));
+    }
+    if (material.kind == "mesh" && material.lighting == "custom" && !g.hasLight) {
         ShaderIssue i;
         i.file = material.shader;
         i.message = "the material " + (material.path.empty() ? std::string("file") : material.path) +
@@ -706,8 +754,11 @@ Result<ShaderCompileResult> compile_material(const std::string& projectDir, cons
         i.file = materialPath;
         i.pointer = "/kind";
         i.message = kind_refusal(res.material.kind);
-        i.hint = "Only \"mesh\" (the default kind) and \"sprite\" materials compile now. Remove \"kind\" to use the "
-                 "material on a MeshRenderer, or set it to \"sprite\" for Sprite, Shape2D, Tilemap, Text or particles.";
+        i.hint =
+            "Only \"mesh\" (the default kind), \"sprite\" and \"sky\" materials compile now. Remove \"kind\" to use "
+            "the "
+            "material on a MeshRenderer, or set it to \"sprite\" for Sprite, Shape2D, Tilemap, Text or particles, or "
+            "to \"sky\" for SceneSettings.skyMaterial.";
         res.errors.push_back(std::move(i));
         return res;
     }

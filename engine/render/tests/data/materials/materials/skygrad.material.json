@@ -1,0 +1,10 @@
+{
+  "format": "factoria.material/1",
+  "kind": "sky",
+  "doc": "Test fixture: a vertical gradient between two colors, by the height of the view direction.",
+  "shader": "shaders/skygrad.sky.glsl",
+  "params": {
+    "zenith": { "type": "color", "default": [0.9, 0.2, 0.1, 1.0], "doc": "Color straight up." },
+    "ground": { "type": "color", "default": [0.1, 0.1, 0.6, 1.0], "doc": "Color straight down." }
+  }
+}

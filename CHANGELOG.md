@@ -38,7 +38,18 @@ Older versions, one file per minor version with its patch releases: [0.30](chang
   different), so the compiled shader files an older export shipped for custom materials are refused, with the re-export
   hint, until the game is exported again.
 
-- **Materials on every renderer (fields):** `Sprite`, `Shape2D`, `Tilemap`, `Text`, `ParticleEmitter` and every UI widget (`UiBox`) get `material` and `materialParams`, and `SceneSettings` gets `skyMaterial` and `skyMaterialParams`, like `MeshRenderer`; `factoria validate` checks that a `material` is an existing `*.material.json` and suggests the closest one, and the Inspector types the params of each by `material.info`.
+- **Materials on every renderer (fields):** `Sprite`, `Shape2D`, `Tilemap`, `Text`, `ParticleEmitter` and every UI widget (`UiBox`) get `material` and `materialParams`, and `SceneSettings` gets `skyMaterial` and `skyMaterialParams`, like `MeshRenderer`; `factoria validate` checks that a `material` is an existing `*.material.json` and suggests the closest one, and the Inspector types the params of each entity's component by `material.info` (the params of `SceneSettings` are typed by the Scene settings panel, see Sky materials below).
+
+- **Sky materials and the Scene settings panel (M72.1):** `"kind": "sky"` compiles and draws. A snippet defines
+  `void sky(in SkyInput i, inout SkySurface s)` (`i.dir` the view direction, `i.sun_dir` the scene's sun, `i.time`; `s.color`
+  arrives holding the engine's gradient, so an empty `sky()` is the built-in sky), and `SceneSettings.skyMaterial` and
+  `skyMaterialParams` paint the background of every perspective camera with it. A material that is missing, of another kind
+  or that did not build keeps the gradient and logs why once. The meshes' ambient and reflection light still follow `skyColor`
+  and `horizonColor`. `shader.compile`, `material.info` (program `sky`), `factoria validate` and `factoria export` work for the
+  kind; docs/SHADERS.md has the contract and an example with a dusk sky and a sun. `scene.set_component` now takes the
+  component `SceneSettings` with no `id`, so the scene's settings can be edited (and undone) by the editor, scripts and AIs
+  through one command. **View > Scene settings** is a new editor window with every setting in groups, the sky material's
+  params typed by `material.info` with a Reset each, and one undo step per change.
 
 - **Material node graphs (the document and the generator):** a `*.material.json` can hold a `"graph"` of nodes and links, and
   `material.graph.generate` writes the material's GLSL snippet from it (deterministic, readable text, one line per node, with

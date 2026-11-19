@@ -43,6 +43,16 @@ const char* kSpriteSnippet = R"(void fragment(in QuadInput i, inout QuadSurface 
     s.color.rgb = mix(s.color.rgb, vec3(1.0), flash);
 }
 )";
+const char* kSkyMaterial = R"({
+  "format": "factoria.material/1",
+  "kind": "sky",
+  "shader": "shaders/dusk.sky.glsl",
+  "params": { "glow": { "type": "color", "default": [1.0, 0.5, 0.2, 1.0], "doc": "Color of the sun's halo." } }
+})";
+const char* kSkySnippet = R"(void sky(in SkyInput i, inout SkySurface s) {
+    s.color = mix(s.color, glow.rgb, pow(max(dot(i.dir, i.sun_dir), 0.0), 8.0));
+}
+)";
 // Line 2 uses a name that does not exist.
 const char* kBrokenSnippet = R"(void surface(in SurfaceInput i, inout Surface s) {
     s.albedo = tnt.rgb;
@@ -92,10 +102,12 @@ struct FakeShdc {
             if (at == o.argv.end() || at + 1 == o.argv.end()) return Error{"no --slang", ""};
             const stdfs::path work(o.workingDir);
             // a sprite material's top file includes quad_common.glsl and declares the programs quad and quad_plain
-            const bool sprite =
-                testing::read_all(work / "top.glsl").find("@include quad_common.glsl") != std::string::npos;
-            const std::vector<const char*> programs =
-                sprite ? std::vector<const char*>{"quad", "quad_plain"} : std::vector<const char*>{"mesh", "mesh_skin"};
+            const std::string top = testing::read_all(work / "top.glsl");
+            const bool sprite = top.find("@include quad_common.glsl") != std::string::npos;
+            const bool sky = top.find("@include sky_common.glsl") != std::string::npos;  // one program: sky
+            const std::vector<const char*> programs = sky      ? std::vector<const char*>{"sky"}
+                                                      : sprite ? std::vector<const char*>{"quad", "quad_plain"}
+                                                               : std::vector<const char*>{"mesh", "mesh_skin"};
             std::string yaml = "shaders:\n";
             for (const std::string& slang : split(*(at + 1), ':')) {
                 yaml += "  -\n    slang: " + slang + "\n    programs:\n";
@@ -208,6 +220,25 @@ TEST_CASE("export shaders: a sprite material ships its twin like a mesh one, wit
     REQUIRE(gem.ok());
     CHECK_FALSE(gem->contains("kind"));
     CHECK((*gem)["template"] == shader_template_hash("mesh"));
+}
+
+TEST_CASE("export shaders: a sky material ships its twin like a mesh one, with the program sky") {
+    Fixture f;
+    testing::write_all(stdfs::path(f.proj) / "materials/dusk.material.json", kSkyMaterial);
+    testing::write_all(stdfs::path(f.proj) / "shaders/dusk.sky.glsl", kSkySnippet);
+    auto r = export_project(f.options("linux"));
+    REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
+    const stdfs::path game = f.tmp.sub("out/shader-test-linux/game");
+    CHECK(shader_files(files_below(game)) ==
+          std::vector<std::string>{"dusk.material.json.glsl430.shader", "gem.material.json.glsl430.shader"});
+    CHECK_FALSE(stdfs::exists(game / "shaders"));
+    auto twin = parse_json(testing::read_all(game / "materials/dusk.material.json.glsl430.shader"));
+    REQUIRE(twin.ok());
+    CHECK((*twin)["kind"] == "sky");
+    CHECK((*twin)["template"] == shader_template_hash("sky"));
+    CHECK((*twin)["programs"].size() == 1);
+    CHECK((*twin)["programs"]["sky"]["vs"] == "// glsl430 sky vertex\n");
+    CHECK((*twin)["programs"]["sky"]["fs"] == "// glsl430 sky fragment\n");
 }
 
 TEST_CASE("export shaders: game.pak of a release, the APK assets and the web pack hold exactly their dialects") {

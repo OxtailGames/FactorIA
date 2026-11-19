@@ -61,10 +61,13 @@ const std::vector<const char*>& material_program_names(MaterialKind kind) {
                                                   "shadow_skin", "prepass",   "prepass_skin"};
     // Sprite: quad (every mode of quad_common.glsl) and quad_plain (a batch of plain textured quads); a material has both.
     static const std::vector<const char*> sprite = {"quad", "quad_plain"};
+    // Sky: the one program of sky_common.glsl.
+    static const std::vector<const char*> sky = {"sky"};
     static const std::vector<const char*> none;
     switch (kind) {
         case MaterialKind::Mesh: return mesh;
         case MaterialKind::Sprite: return sprite;
+        case MaterialKind::Sky: return sky;
         default: return none;
     }
 }
@@ -258,7 +261,8 @@ Result<MaterialProgram> make_material_program(const std::string& label, const Js
     return out;
 }
 
-void pack_material_params(MaterialAsset& m, const Json& overrides, float out[kMaxMaterialParams][4]) {
+void pack_material_params(MaterialAsset& m, const Json& overrides, float out[kMaxMaterialParams][4],
+                          const char* owner) {
     const int n = std::min<int>(int(m.params.size()), kMaxMaterialParams);
     for (int i = 0; i < n; ++i) {
         const MaterialParamDef& p = m.params[std::size_t(i)];
@@ -270,8 +274,7 @@ void pack_material_params(MaterialAsset& m, const Json& overrides, float out[kMa
             for (const Json& c : *it) good = good && c.is_number();
         if (!good) {
             if (m.warned.insert(p.name).second)
-                FA_WARN("render", "materialParams.{} of a MeshRenderer using '{}' must be {} (the default is kept)",
-                        p.name, m.path,
+                FA_WARN("render", "{}.{} using '{}' must be {} (the default is kept)", owner, p.name, m.path,
                         p.components == 1 ? std::string("a number")
                                           : "an array of " + std::to_string(p.components) + " numbers, like " +
                                                 (p.components == 2   ? "[0.5, 1]"
@@ -290,21 +293,19 @@ void pack_material_params(MaterialAsset& m, const Json& overrides, float out[kMa
         for (const auto& t : m.textures) names.push_back(t.name);
         for (auto it = overrides.begin(); it != overrides.end(); ++it)
             if (std::find(names.begin(), names.end(), it.key()) == names.end() && m.warned.insert(it.key()).second)
-                FA_WARN("render",
-                        "materialParams.{} of a MeshRenderer using '{}' is not a param or texture of that material. {}",
-                        it.key(), m.path, did_you_mean(it.key(), names));
+                FA_WARN("render", "{}.{} using '{}' is not a param or texture of that material. {}", owner, it.key(),
+                        m.path, did_you_mean(it.key(), names));
     }
 }
 
-TextureAsset* material_texture(MaterialAsset& m, int i, const Json& overrides, Assets& assets) {
+TextureAsset* material_texture(MaterialAsset& m, int i, const Json& overrides, Assets& assets, const char* owner) {
     const MaterialTextureDef& t = m.textures[std::size_t(i)];
     auto it = overrides.is_object() ? overrides.find(t.name) : overrides.end();
     if (it == overrides.end()) return t.defaultTex;
     if (it->is_string()) return assets.texture(it->get<std::string>());
     if (m.warned.insert(t.name).second)
         FA_WARN("render",
-                "materialParams.{} of a MeshRenderer using '{}' must be a texture path like \"assets/wood.png\" (the "
-                "default texture is kept)",
+                "{}.{} using '{}' must be a texture path like \"assets/wood.png\" (the default texture is kept)", owner,
                 t.name, m.path);
     return t.defaultTex;
 }
@@ -356,12 +357,13 @@ Result<void> Assets::build_material_checked(MaterialAsset& m) {
     }
     if (material_program_names(kind).empty()) {
         // The package of each kind is the one the tooling names (shaders_generate.cpp kind_refusal).
-        const char* package = kind == MaterialKind::Post ? "M72.2" : kind == MaterialKind::Compute ? "M72.4" : "M72.1";
-        return make_error("material '" + m.path + "' has kind \"" + material_kind_name(kind) +
-                              "\", which this factoria version cannot draw yet: " + material_kind_name(kind) +
-                              " materials arrive with " + package,
-                          "Only \"mesh\" and \"sprite\" materials are drawn so far (docs/design/CUSTOM_SHADERS.md, "
-                          "\"Kinds (M72)\").");
+        const char* package = kind == MaterialKind::Post ? "M72.2" : "M72.4";
+        return make_error(
+            "material '" + m.path + "' has kind \"" + material_kind_name(kind) +
+                "\", which this factoria version cannot draw yet: " + material_kind_name(kind) +
+                " materials arrive with " + package,
+            "Only \"mesh\", \"sprite\" and \"sky\" materials are drawn so far (docs/design/CUSTOM_SHADERS.md, "
+            "\"Kinds (M72)\").");
     }
 
     // The twin: from the compiler of the editor / `factoria`, else from the file an export wrote.

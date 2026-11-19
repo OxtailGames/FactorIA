@@ -26,7 +26,7 @@ The loop for an AI (or a person):
 | `format` | Always `"factoria.material/1"`. Required. |
 | `shader` | Project-relative path of the snippet, e.g. `"shaders/pulse.surface.glsl"`. Required. |
 | `doc` | What the material looks like and is for. Shown by `material.info`. |
-| `kind` | What the material is for: `"mesh"` (default; the surface of a `MeshRenderer`, what this page describes), or `"sprite"` (a 2D item: `Sprite`, `Shape2D`, `Tilemap`, `Text`, particles; [below](#materials-on-sprites-shapes-tiles-text-and-particles)), or the reserved `"sky"`, `"post"` and `"compute"`. `"mesh"` and `"sprite"` compile: `shader.compile` refuses the others with an error on `/kind` that names the engine milestone package that will bring them (sky: M72.1, post: M72.2, compute: M72.4). |
+| `kind` | What the material is for: `"mesh"` (default; the surface of a `MeshRenderer`, what this page describes), or `"sprite"` (a 2D item: `Sprite`, `Shape2D`, `Tilemap`, `Text`, particles; [below](#materials-on-sprites-shapes-tiles-text-and-particles)), or `"sky"` (the background of a 3D scene; [below](#sky-materials)), or the reserved `"post"` and `"compute"`. `"mesh"`, `"sprite"` and `"sky"` compile: `shader.compile` refuses the others with an error on `/kind` that names the engine milestone package that will bring them (post: M72.2, compute: M72.4). |
 | `lighting` | `"pbr"` (default): the engine's lighting, fog and sky reflection. `"unlit"`: the surface albedo is drawn as it is, plus emission and fog. `"custom"` (mesh materials only): your snippet defines `light()` (and optionally `ambient()`), which the engine's light loop calls once per light instead of its own shading (see "Custom lighting" below); shadows, attenuation, emission and fog stay the engine's. |
 | `alphaMode` | `"opaque"` (default): alpha is ignored. `"clip"`: fragments with `alpha` below `alphaCutoff` are discarded, also in the shadow pass. `"blend"`: drawn with the blended meshes, far to near. |
 | `doubleSided` | `true` draws back faces too. Default `false`. |
@@ -791,6 +791,95 @@ void fragment(in QuadInput i, inout QuadSurface s) {
 A texture works as for a mesh material, sampled with `texture(sampler2D(mask, mask_smp), i.uv)`; name it anything but
 a name of the engine's program (`tex`, `smp`, `normal_tex`... are refused).
 
+## Sky materials
+
+`"kind": "sky"` makes a material that draws the background of a 3D scene instead of the engine's two-colour gradient.
+You name it in the scene's settings, not on an entity: `SceneSettings.skyMaterial` is the path of a `*.material.json`
+and `SceneSettings.skyMaterialParams` holds its param overrides (the same `{ "name": value }` object as
+`MeshRenderer.materialParams`). The file, the params, the textures, the compiler, the cache, `factoria validate` and
+`factoria export` are the ones described above.
+
+```
+scene.set_component {"component": "SceneSettings", "fields": {"skyMaterial": "materials/sky-dusk.material.json"}}
+scene.set_component {"component": "SceneSettings", "fields": {"skyMaterialParams": {"sunGlow": 0.6}}, "merge": true}
+```
+
+`SceneSettings` has no entity, so the command takes no `id`. In the editor, View > Scene settings does the same: it lists
+the settings, a sky material's params appear typed by `material.info` with a Reset each, and every change is one undo
+step.
+
+**The snippet** defines one entry point, `void sky(in SkyInput i, inout SkySurface s)` (**required**), run for every
+pixel of the sky. There is no `vertex()`: the sky is one full-screen triangle.
+
+```glsl
+struct SkyInput {               // read-only, per sky fragment
+    vec3 dir;                   // view direction in world space, normalized (y = up)
+    vec3 sun_dir;               // direction towards the sun, normalized: the directional light of slot 0, (0, 1, 0) with none
+    float time;                 // seconds of game time since the scene started (the same as fa_time.x)
+};
+struct SkySurface { vec3 color; };   // linear RGB radiance in the scene's colour space
+```
+
+`sky()` arrives with `s.color` holding the engine's gradient (`SceneSettings.skyColor` at the top, `horizonColor` at the
+horizon), so an empty `sky()` draws exactly the built-in sky and a snippet changes only what it needs. The result is
+drawn opaque. `fa_scene_rgb(c)` takes an sRGB colour of yours (a param of type `color`, or a constant) to the scene's
+colour space, `fa_time` is the game clock. The names of the engine's own sky program (`pos`, `ray_dir`, `frag_color`,
+`sky_color`, `horizon_color`, `fa_sun`, `fa_cspace`...) are the engine's: a param or texture that takes one is refused with
+a rename suggestion (error at `/params/<name>` or `/textures/<name>`), and your snippet's own globals must avoid them too.
+
+**What the material changes.** Only the background that is painted behind the scene. The ambient and reflection light of
+the meshes (image based lighting) still follows `skyColor` and `horizonColor`: a sunset painted by a material does not
+light the meshes, so set those two colours near it. A scene with no sky material draws exactly what it drew before.
+
+**Textures** work as for a mesh material (`texture(sampler2D(map, map_smp), uv)`, at most 4); the sky program binds no
+texture of its own, so a sky material's textures are views and samplers 0 and up (you never write the numbers).
+`alphaMode` (`"clip"`, `"blend"`) and `"lighting": "custom"` are errors on a sky (a sky is opaque and not lit);
+`"pbr"`, `"unlit"` and `doubleSided` are ignored.
+
+**What the renderer does.** A material that is not of kind `"sky"`, does not exist or did not build draws the built-in
+sky: the reason is logged once, the build error with the file when it did not build, and the editor shows it under the
+`skyMaterial` field. A sky material is drawn where the gradient is: by a perspective camera that clears the target (not by an orthographic
+camera). The compiled twin carries
+`programs.sky` and `"kind": "sky"`; its `template` is the hash of the sky template, so a change of it recompiles sky
+materials only.
+
+### 11. A dusk sky with a sun
+
+A gradient from a warm horizon to a deep zenith, and a glow around the sun that follows the scene's directional light
+(`i.sun_dir`), so turning that light turns the sunset. `sunGlow` 0 leaves just the gradient.
+
+File `materials/sky-dusk.material.json`:
+
+```json
+{
+  "format": "factoria.material/1",
+  "kind": "sky",
+  "doc": "A dusk sky: warm horizon, deep zenith and a glow around the sun (the directional light of slot 0).",
+  "shader": "shaders/sky-dusk.sky.glsl",
+  "params": {
+    "horizon": { "type": "color", "default": [0.95, 0.55, 0.35, 1.0], "doc": "Color at the horizon." },
+    "zenith": { "type": "color", "default": [0.08, 0.1, 0.3, 1.0], "doc": "Color straight up." },
+    "sunGlow": { "type": "float", "default": 1.0, "min": 0.0, "max": 3.0, "doc": "Strength of the glow around the sun: 0 none." }
+  }
+}
+```
+
+File `shaders/sky-dusk.sky.glsl`:
+
+```glsl
+void sky(in SkyInput i, inout SkySurface s) {
+    float up = clamp(i.dir.y, 0.0, 1.0);
+    vec3 col = mix(fa_scene_rgb(horizon.rgb), fa_scene_rgb(zenith.rgb), pow(up, 0.5));
+    float toward = max(dot(i.dir, i.sun_dir), 0.0);
+    float glow = pow(toward, 64.0) + 0.25 * pow(toward, 6.0);
+    s.color = col + fa_scene_rgb(vec3(1.0, 0.7, 0.4)) * glow * sunGlow;
+}
+```
+
+Put `"skyMaterial": "materials/sky-dusk.material.json"` in the scene's settings (the command above, or View > Scene
+settings in the editor) and look with `factoria run --headless --frames 60 --screenshot-at 59` (the camera must be a
+perspective one).
+
 ## Not available yet
 
 - **Full vertex and fragment shaders** (your own `main`, your own vertex layout, several passes): the snippet always
@@ -798,7 +887,8 @@ a name of the engine's program (`tex`, `smp`, `normal_tex`... are refused).
 - **Your own light loop** (which lights are chosen, how many, their order, the shadow map): `"custom"` lighting only
   shades each light the engine hands over. Image-based lighting (the sky reflection) is off in a custom material and
   cannot be called from `light()`.
-- Materials for the sky and post-processing; compute shaders; textures sampled in the `vertex()` of a sprite material (a mesh
+- Materials for post-processing; compute shaders; a sky material that also drives the ambient and reflection light of the
+  meshes (they follow `skyColor` and `horizonColor`); textures sampled in the `vertex()` of a sprite material (a mesh
   material can); one instanced draw with a different value per instance.
 
 If a game needs one of these, write it in the game's `ENGINE_FEEDBACK.json` (see [ENGINE_FEEDBACK.md](ENGINE_FEEDBACK.md)):

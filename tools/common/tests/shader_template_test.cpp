@@ -54,7 +54,9 @@ TEST_CASE(
         std::string list;
         for (const std::string& name : shaders_detail::template_file_names(kind)) {
             CAPTURE(name);
-            CHECK(std::find(seen.begin(), seen.end(), name) == seen.end());
+            // a kind's own *_common.glsl is in its list only; the files a template @includes (color_space.glsl,
+            // light_shadow.glsl) may be in several lists, each hash covers them
+            if (name.ends_with("_common.glsl")) CHECK(std::find(seen.begin(), seen.end(), name) == seen.end());
             seen.push_back(name);
             REQUIRE(bundled_read("engine/render/shaders/" + name).has_value());
             std::ifstream in(stdfs::path(FA_REPO_ROOT) / "engine/render/shaders" / name, std::ios::binary);
