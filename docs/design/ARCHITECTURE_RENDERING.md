@@ -166,11 +166,15 @@ decides, and the game event `ui.viewPointer` goes out like the other ui.* events
   and calls `vertex(v)` (with `FA_HAS_VERTEX`) inside `fa_shade_vertex`, after the instance and skin matrices, and
   `surface(i, s)` in the fragment `main` after `fa_standard_surface`, before lighting. `FA_ALPHA_CLIP` makes the
   fragment `discard` below `alphaCutoff` and makes `shadow_fs` run `surface()` too. Uniform bindings: vertex 0 params,
-  3 skin, 4 the material's vertex-stage block; fragment 1 params, 2 lights, 5 the material block; material textures use
-  views 6-9 and samplers 2-5. With `"lighting": "custom"` the snippet may define `lighting(i, s)` (`FA_HAS_LIGHTING`), the
-  whole light loop: the template declares `fa_light_count()`, `fa_light(n, i)`, `fa_light_unshadowed()`, `fa_light_shadow()`
-  and `fa_sky_light()` before the snippet (stubs in the shadow and prepass programs); the cap of 32 lights and their order
-  are `select_lights`' (CUSTOM_SHADERS.md, P14).
+  3 skin, 4 the material's vertex-stage block; fragment 1 params, 2 lights, 5 the material block. A material's textures
+  are bound twice, under a different slot per stage: fragment views 6-9 with samplers 2-5, vertex views 10-13 with
+  samplers 6-9 (`vertex()` reads them through `#define <name> fa_vs_<name>`); the baked sky cubes are fragment views
+  14-15 with sampler 10. With `"lighting": "custom"` the template defines `FA_CUSTOM_LIGHT`: the engine's light loop
+  keeps choosing the lights (their number, attenuation and shadow) and calls the snippet's `light(i, s, l)` for each
+  one with a `LightSample l`, and its `ambient(i, s, ambientColor)` once (`FA_HAS_AMBIENT`); or the snippet defines
+  `lighting(i, s)` (`FA_HAS_LIGHTING`), the whole loop, and the template declares `fa_light_count()`, `fa_light(n, i)`,
+  `fa_light_unshadowed()`, `fa_light_shadow()` and `fa_sky_light()` before the snippet (stubs in the shadow and prepass
+  programs); the cap of 32 lights and their order are `select_lights`' (CUSTOM_SHADERS.md, P14).
 - *Generator* (`tools/common/src/shaders_generate.cpp`). `generate_material_shader` writes the sokol-shdc top file: the
   params as one alphabetical block (each padded to a `vec4`), the textures, the snippet verbatim with a line table, then
   `@include mesh_common.glsl` and the programs (`mesh`, `mesh_skin`, `prepass`, `prepass_skin`, plus `shadow`, `shadow_skin`

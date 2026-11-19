@@ -1295,6 +1295,23 @@ TEST_CASE("materials: a twin of another kind than its material is refused with t
         CHECK(warnings[0].find("is a \"post\" material") != std::string::npos);
         CHECK(g.renderer.stats().materialFallbacks.empty());
     }
+    {  // a sprite material on a MeshRenderer (quad programs, another vertex layout): the same, one warning over several frames
+        std::vector<std::string> warnings;
+        const int sink = add_log_sink([&warnings](const LogEntry& e) {
+            if (e.level == LogLevel::Warn) warnings.push_back(e.message);
+        });
+        World w;
+        add_stage(w);
+        add_material_mesh(w, "cube", "materials/sprite_empty.material.json", {0, 0, 0});
+        const Image img = g.render(w);
+        g.render(w);
+        g.render(w);
+        remove_log_sink(sink);
+        CHECK(img.pixel(160, 90).g > 0.1f);  // drawn by the engine's own shader, not magenta
+        REQUIRE(warnings.size() == 1);
+        CHECK(warnings[0].find("is a \"sprite\" material") != std::string::npos);
+        CHECK(g.renderer.stats().materialFallbacks.empty());
+    }
     {  // a kind that does not exist
         ErrorLog log;
         draw("kindtypo",

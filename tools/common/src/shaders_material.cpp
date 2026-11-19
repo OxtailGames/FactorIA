@@ -148,6 +148,18 @@ struct Checker {
                   "Name it for what it holds, e.g. \"noiseMap\" or \"mask\".");
             return false;
         }
+        // The vertex stage reads a mesh or sprite texture through `#define <name> fa_vs_<name>` (shaders_generate.cpp), which would
+        // also rewrite a field of the contract that is called the same: `s.normal` would become `s.fa_vs_normal`.
+        if (std::string(what) == "texture" && !out.material.full && (kind == "mesh" || kind == "sprite"))
+            for (const auto& [structName, fields] : shaders_detail::contract_structs(kind))
+                if (std::find(fields.begin(), fields.end(), name) != fields.end()) {
+                    error(pointer,
+                          "texture name \"" + name + "\" is also a field of " + structName +
+                              " in the snippet contract, and the vertex stage renames every texture with a #define, so "
+                              "`" + name + "` inside the snippet would stop meaning that field",
+                          "Rename it, e.g. \"" + name + "Map\".");
+                    return false;
+                }
         if (is_reserved_word(name) ||
             (out.material.lighting == "custom" && (name == "light" || name == "ambient" || name == "lighting")) ||
             (kind == "sky" && name == "sky") ||    // sky(): the hook of a sky material, an ordinary name elsewhere
@@ -682,9 +694,8 @@ MaterialParse parse_material(const Json& doc, const std::string& projectDir, con
             "Remove \"alphaMode\" (a sky is always opaque; its sky() returns an RGB colour). doubleSided is ignored.");
     else if (m.alphaMode == "clip" && m.kind == "sprite") {
         c.error("/alphaMode", "alphaMode \"clip\" is the mesh template's alpha test; a sprite material has none",
-                "Use \"blend\" (the default look of a sprite) and write `if (s.color.a < 0.5) discard;` in fragment() "
-                "where "
-                "you want a cut-out.");
+                "Remove alphaMode (a sprite is always blended) and write `if (s.color.a < 0.5) discard;` in "
+                "fragment() where you want a cut-out.");
     } else if (m.alphaMode == "clip" && m.kind != "post") {
         auto declared = std::find_if(m.params.begin(), m.params.end(),
                                      [](const MaterialParam& p) { return p.name == kMaterialAlphaCutoff; });

@@ -127,6 +127,11 @@ layout(binding=0) uniform vs_params {
 @include_block color_space
 @include_block fa_inst_flags
 @include_block fa_quad_types
+
+// What the snippet may call from vertex() (and from a helper of its own, which is compiled into both stages): an sRGB colour of the
+// author in the scene's colour space. fa_sample_main() exists in the fragment stage only: the main texture is not bound here.
+vec3 fa_scene_rgb(vec3 c) { return cspace.x > 0.5 ? fa_srgb_to_linear(c) : c; }
+
 @include_block fa_user
 
 layout(location=0) in vec3 position;
@@ -478,6 +483,8 @@ void main() {
 // The plain variant, for batches whose quads are all mode 0 (not lit, not multiply): the output of mode 0 above, without
 // the branches. Software rasterizers (llvmpipe, WARP) run every branch of `fs` for every pixel, all its texture fetches
 // and light loops included, so a screen-sized sprite, panel or video costs several times more there with `fs`.
+// A material's fs_plain still reads uniform block 1 (quad_fs_params): fa_time and fa_target, and the fog, come from it. Only the
+// engine's own plain program (no FA_MATERIAL) has no uniform block at all.
 @fs fs_plain
 layout(binding=0) uniform texture2D tex;
 layout(binding=0) uniform sampler smp;
