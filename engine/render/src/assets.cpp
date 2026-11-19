@@ -658,7 +658,9 @@ Assets::~Assets() {
 }
 
 void Assets::destroy_texture(TextureAsset& t) {
-    if (!t.atlas) {  // a packed texture borrows the GPU image of its atlas
+    // A texture that failed to load shares the checker's handles (use_placeholder): only the checker itself owns them.
+    const bool borrowed = t.placeholder && &t != placeholderTex_.get();
+    if (!t.atlas && !borrowed) {  // a packed texture borrows the GPU image of its atlas
         if (t.view.id) sg_destroy_view(t.view);
         if (t.image.id) sg_destroy_image(t.image);
     }
@@ -697,6 +699,7 @@ void Assets::clear() {
         for (MaterialProgram& p : m->programs)
             if (p.shader.id) gpu_.destroy_shader(p.shader);
     materials_.clear();
+    drop_material_cache();
     failures_.clear();
     meshSources_.clear();
 }
@@ -1504,6 +1507,7 @@ void Assets::reload(const std::string& pathIn) {
     // Meshes referencing a reloaded texture keep pointing at the same TextureAsset (updated in place).
     // A material rebuilds in place when its file, its snippet or its compiled twin changed.
     const std::string dialect = backend_dialect(sg_query_backend());
+    drop_material_cache();
     for (auto& [key, mat] : materials_)
         if (path == key || path == mat->snippet || path == key + "." + dialect + ".shader") build_material(*mat);
 }

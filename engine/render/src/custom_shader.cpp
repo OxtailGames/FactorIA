@@ -715,6 +715,20 @@ constexpr std::uint64_t kUseKeepFrames = 2;  // a use survives this many frames 
 
 MaterialRef Assets::sprite_material(const std::string& path, const Json& overrides) {
     if (path.empty()) return {};
+    // The answers of this frame by path, then by values: a second ask about the same component, or about another one with equal
+    // values (the usual case: a thousand sprites with one material), costs one hash-map find and a comparison of the values in
+    // place (nothing is copied).
+    std::vector<MaterialVariant>& variants = materialVariants_[path];
+    for (const MaterialVariant& v : variants)
+        if (v.params == &overrides || (v.params->empty() && overrides.empty()) || *v.params == overrides) return v.ref;
+    // A set of values not seen this frame: the whole lookup (path normalized, params packed, hashed, interned).
+    const MaterialRef ref = resolve_sprite_material(path, overrides);
+    ++materialResolves_;
+    if (variants.size() < kMaxMaterialVariants) variants.push_back({&overrides, ref});
+    return ref;
+}
+
+MaterialRef Assets::resolve_sprite_material(const std::string& path, const Json& overrides) {
     MaterialAsset* m = material(path);
     const std::uint64_t tick = useTick_;
     const bool wrongKind = m->ok && m->kind != MaterialKind::Sprite;
@@ -762,6 +776,8 @@ MaterialRef Assets::sprite_material(const std::string& path, const Json& overrid
 
 void Assets::begin_material_frame() {
     ++useTick_;
+    drop_material_cache();
+    materialResolves_ = 0;
     for (auto& [k, m] : materials_)
         for (auto it = m->uses.begin(); it != m->uses.end();) {
             if (useTick_ - it->second->tick > kUseKeepFrames)

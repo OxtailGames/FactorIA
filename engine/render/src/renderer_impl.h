@@ -165,6 +165,13 @@ struct Renderer::Impl {
 
     DebugDraw debug;
     RenderStats stats;
+    // The custom materials already counted in stats.materials this frame (a material drawn by two cameras or two passes counts once).
+    std::vector<const MaterialAsset*> materialsCounted;
+    void count_material(const MaterialAsset* m) {
+        if (std::find(materialsCounted.begin(), materialsCounted.end(), m) != materialsCounted.end()) return;
+        materialsCounted.push_back(m);
+        ++stats.materials;
+    }
     // The rendering cameras of the last update()/draw in draw order (never empty after the first one: a world without a camera
     // gets one default camera). [0] is "the" camera: the lowest depth.
     std::vector<CameraInfo> lastCams;
@@ -257,6 +264,9 @@ struct Renderer::Impl {
     std::unordered_map<const TextureAsset*, int> targetByAsset;
     std::string
         targetSelf;  // the name of the target being gathered or drawn: its own texture is the checker (sentinel)
+    // Sets (or, with an empty name, clears) targetSelf. The per-frame material cache holds textures resolved under the old value
+    // (a material whose params name "target:X" gets the checker only for X's own camera), so it is dropped.
+    void set_target_self(const std::string& name);
     TextureAsset selfSentinel;  // what texture("target:<self>") answers meanwhile: the checker, its handles are shared
     std::set<std::string> targetWarned;
     void collect_targets(World& world);
@@ -424,7 +434,7 @@ struct Renderer::Impl {
     void prepass_view_pass(DrawContext& ctx, const Target& t);
     void draw_group(DrawContext& ctx, const std::vector<QuadBatch>& batches, const Mat4& vp, bool depthTest,
                     const Px& base, int flatMode = 0, const TargetFormat* format = nullptr,
-                    const FogFxPlan* fog = nullptr);
+                    const FogFxPlan* fog = nullptr, int targetW = 0, int targetH = 0);
     void main_pass(DrawContext& ctx, const PassContext& pc);
     void hud_pass(DrawContext& ctx, const Target& into, const char* label);
     // Declares the job's passes in `graph` (plan_job).

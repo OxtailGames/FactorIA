@@ -652,6 +652,7 @@ bool emit_shape(World& world, Frame& f, Entity e, Shape2D& s, QuadList& list, Ve
     else
         list.begin_item(s.layer, secondary_key(f, m, false), assets.white(), SamplerKind::Nearest, s.blend, clip);
     if (s.lit && !screen) list.set_lit(nullptr);
+    list.set_material(assets.sprite_material(s.material, s.materialParams));  // may load it: on this thread
     QuadEmitter em{list, m, screen, pack_color(color1), kModeTextured, 0};
     // Bounding box [bx0,bx1] x [by0,by1] in local units (y up; screen space flips it): pivot (0,0) = bottom-left.
     float bx0 = -s.pivot.x * s.size.x, bx1 = bx0 + s.size.x;
@@ -754,6 +755,8 @@ void gather_tilemaps_and_text(World& world, Frame& f) {
         QuadList& list = f.world;
         list.begin_item(tm.layer, secondary_key(f, m, false), tex, SamplerKind::Nearest);
         if (tm.lit) list.set_lit(tm.normalMap.empty() ? nullptr : assets.texture(tm.normalMap));
+        // One material for the whole component; the bands below only hold quads that join this item (add_quads_of).
+        list.set_material(assets.sprite_material(tm.material, tm.materialParams));
         float texW = float(std::max(1, tex->width)), texH = float(std::max(1, tex->height));
         bool cull = !f.cam.perspective;
         Rect view = f.cam.visible;
@@ -973,7 +976,8 @@ void gather_tilemaps_and_text(World& world, Frame& f) {
             m.at(3, 1) = std::round((m.at(3, 1) - oy) * k) / k + oy;
         }
         f.stats->textGlyphs += emit_text(pick(t.space), m, screen, lay, t.color * textTint, *f.fonts, assets, t.layer,
-                                         secondary_key(f, m, false), clip, t.visibleCharacters, textTint);
+                                         secondary_key(f, m, false), clip, t.visibleCharacters, textTint,
+                                         assets.sprite_material(t.material, t.materialParams));
     });
 }
 
@@ -999,9 +1003,12 @@ namespace {
 
 // Whether what an entity draws can be copied from the quads another camera made: not when it follows a Parallax layer (its matrix
 // holds the shift of the camera that drew it, and its repeat the camera's rectangle) or shows a render target's texture (the
-// target's own camera sees the checker where the others see the target).
-bool camera_independent(const World& world, Entity e, bool screen, const std::string& tex, const std::string& tex2) {
-    return !screen && !world.has<Parallax>(e) && !Assets::is_target_id(tex) && !Assets::is_target_id(tex2);
+// target's own camera sees the checker where the others see the target), nor when a texture of its material's params does (the
+// same rule: the material's use holds the texture that the camera which resolved it was shown).
+bool camera_independent(const World& world, Entity e, bool screen, const std::string& tex, const std::string& tex2,
+                        const Json& materialParams) {
+    return !screen && !world.has<Parallax>(e) && !Assets::is_target_id(tex) && !Assets::is_target_id(tex2) &&
+           !Assets::params_name_target(materialParams);
 }
 
 }  // namespace
@@ -1052,7 +1059,7 @@ void Scene2D::gather_sprites(World& world, Frame& f) {
             p.pivot = sprite_effective_pivot(s, *anim, animator_plan(f, *anim, s.texture));
         p.slotIndex = e.index;
         if (sl.state == State::Todo) {
-            if (camera_independent(world, e, screen, s.texture, p.lit ? s.normalMap : std::string()))
+            if (camera_independent(world, e, screen, s.texture, p.lit ? s.normalMap : std::string(), s.materialParams))
                 p.share = true;
             else
                 sl.state = State::Direct;
@@ -1190,7 +1197,7 @@ void Scene2D::gather_shapes(World& world, Frame& f) {
         if (screen) return;  // a screen-space Shape2D is built by the one frame that draws the screen
         if (!counted) {
             sl.state = State::Skip;  // whatever stopped it drawing (inactive, transparent) holds for every camera
-        } else if (camera_independent(world, e, false, std::string(), std::string())) {
+        } else if (camera_independent(world, e, false, std::string(), std::string(), s.materialParams)) {
             sl.state = State::Share;
             sl.donor = &list;
             sl.first = std::uint32_t(first);

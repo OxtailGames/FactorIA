@@ -5,12 +5,14 @@
 namespace fa::render {
 
 int emit_text(QuadList& list, const Mat4& m, bool screen, const TextLayout& lay, Color color, Fonts& fonts,
-              Assets& assets, int layer, float secondary, const Rect& clip, int visible, Color tint) {
+              Assets& assets, int layer, float secondary, const Rect& clip, int visible, Color tint,
+              const MaterialRef& material) {
     const auto shown = [visible](std::int32_t grapheme) { return visible < 0 || grapheme < visible; };
     int drawn = 0;
     for (const TextQuad& q : lay.quads) drawn += shown(q.grapheme) ? 1 : 0;
     if (drawn > 0) {
         list.begin_item(layer, secondary, fonts.atlas(), SamplerKind::Linear, BlendMode::Alpha, clip);
+        list.set_material(material);
         QuadEmitter em{list, m, screen, pack_color(color), kModeGlyph, 0};
         const std::uint32_t base = em.color;
         for (const TextQuad& q : lay.quads) {

@@ -715,6 +715,13 @@ public:
     // before the first frame, such as an entity's bounds, only gets the checker).
     void set_drawing(bool on) { drawing_ = on; }
     static bool is_target_id(const std::string& path) { return path.rfind("target:", 0) == 0; }
+    // Whether a material's overrides (materialParams) hold a texture path that names a render target ("target:<name>").
+    static bool params_name_target(const Json& params) {
+        if (!params.is_object()) return false;
+        for (auto& [k, v] : params.items())
+            if (v.is_string() && is_target_id(v.get<std::string>())) return true;
+        return false;
+    }
     MeshAsset* mesh(const std::string& name);  // never null (cube placeholder on failure)
     // The procedural meshes ("mesh:N" ids of MeshRenderer.mesh, fa/scene/mesh_store.h) are looked up in `store`, the store of the
     // world being drawn: call this before mesh() once per frame. It frees the GPU copy of every mesh that left the store (destroyed,
@@ -731,9 +738,21 @@ public:
     // material did not build or is not of kind "sprite" (one warning). An empty path gives an empty ref. Call it on the
     // thread that gathers (it may load the material and its textures), never from the jobs that emit quads: hand the ref to
     // them and let them call QuadList::set_material.
+    // The answers are kept for the frame by path and values: a second item with the same material and equal `overrides` costs one
+    // hash-map find and a comparison, not the path normalization, the packing and the hash. `overrides` must live (and keep its
+    // values) until the next begin_material_frame()/drop_material_cache(): it is a component's own field, never a temporary.
     MaterialRef sprite_material(const std::string& path, const Json& overrides);
-    // Once per drawn frame, before the first gather: uses no item asked for during the last two frames are dropped.
+    // Once per drawn frame, before the first gather: uses no item asked for during the last two frames are dropped, and the
+    // per-frame answers of sprite_material() are forgotten.
     void begin_material_frame();
+    // Forgets the per-frame answers of sprite_material() (a gather outside a drawn frame, such as a capture, may see components
+    // that changed since the last frame).
+    void drop_material_cache() { materialVariants_.clear(); }
+    // How many times sprite_material() did the whole lookup (not answered from the per-frame cache) since the last
+    // begin_material_frame(): RenderStats::materialResolves.
+    std::uint32_t material_resolves() const { return materialResolves_; }
+    // Puts the count back (a capture of one entity's subtree must not change the numbers of the frame drawn before it).
+    void set_material_resolves(std::uint32_t n) { materialResolves_ = n; }
     // How a material gets its twin (empty = read `<path>.<dialect>.shader` through fa::fs). Kept across clear().
     void set_shader_compiler(ShaderCompiler compiler) { shaderCompiler_ = std::move(compiler); }
     bool has_loaded(const std::string& path) const;
@@ -833,6 +852,16 @@ private:
     std::uint64_t meshStoreSerial_ = 0;
     std::unordered_map<std::string, std::unique_ptr<MaterialAsset>> materials_;
     std::uint64_t useTick_ = 0;  // drawn frames counted by begin_material_frame (MaterialUse::tick)
+    // sprite_material()'s answers of this frame: by material path, then by the values (a pointer to the first component's params
+    // with them: nothing is copied; at most kMaxMaterialVariants distinct sets per path).
+    struct MaterialVariant {
+        const Json* params;
+        MaterialRef ref;
+    };
+    static constexpr std::size_t kMaxMaterialVariants = 16;
+    std::unordered_map<std::string, std::vector<MaterialVariant>> materialVariants_;
+    std::uint32_t materialResolves_ = 0;
+    MaterialRef resolve_sprite_material(const std::string& path, const Json& overrides);
     ShaderCompiler shaderCompiler_;
 };
 

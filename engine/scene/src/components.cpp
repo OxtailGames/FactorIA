@@ -151,8 +151,16 @@ TypeBuilder<T>& ui_box_fields(TypeBuilder<T>& b) {
                "image gives "
                "panels of any size. [0, 0, 0, 0] (default) stretches the whole image. When the widget is smaller than "
                "left + right (or top + bottom) the borders shrink proportionally.")
-        .asset_field("material", static_cast<std::string T::*>(&UiBox::material), "material",
-                     material_doc_2d("widget", "the widget's background image (the 9-slice rectangle)").c_str())
+        .asset_field(
+            "material", static_cast<std::string T::*>(&UiBox::material), "material",
+            material_doc_2d("widget",
+                            "the widget's background quads and nothing else: its `texture` drawn as a 9-slice, or the "
+                            "solid `color` rectangle. The label of a Button, Toggle or TextField, the Button icon, "
+                            "the Slider knob and fill, the Toggle mark, the TextField caret, the focus ring, the "
+                            "bars and lines of a Chart, the picture of a Video or CameraView, the Captions text, "
+                            "and the disc or knob of a TouchStick or TouchButton (its background only when it has "
+                            "a `texture`) stay on the built-in shader, and so does a tooltip")
+                .c_str())
         .field("materialParams", static_cast<Json T::*>(&UiBox::materialParams), material_params_doc_2d().c_str())
         .field("tooltip", static_cast<Json T::*>(&UiBox::tooltip), kTooltipDoc)
         .field("draggable", static_cast<Json T::*>(&UiBox::draggable), kDraggableDoc)
@@ -1374,7 +1382,12 @@ void register_builtin_components(TypeRegistry& r) {
                "nothing. Default false.")
         .asset_field(
             "material", &Text::material, "material",
-            material_doc_2d("Text", "the glyphs (the glyph coverage is part of the alpha it receives)").c_str())
+            material_doc_2d(
+                "Text",
+                "the glyph quads (the glyph coverage is part of the alpha it receives; the glyph atlas is the "
+                "main texture, so `fa_sample_main(uv)` reads the glyph coverage, not a picture of the text). The "
+                "pictures of a rich text (`[icon:name]`) keep the built-in shader")
+                .c_str())
         .field("materialParams", &Text::materialParams, material_params_doc_2d().c_str());
 
     r.add<Tilemap>("Tilemap",
@@ -1503,7 +1516,12 @@ void register_builtin_components(TypeRegistry& r) {
                "solidTiles. Editing a tile at run time (set_tile) moves the shadows on the next frame. The tilemap "
                "needs no "
                "`lit` itself to cast. Default false.")
-        .asset_field("material", &Tilemap::material, "material", material_doc_2d("Tilemap", "every tile").c_str())
+        .asset_field(
+            "material", &Tilemap::material, "material",
+            material_doc_2d("Tilemap",
+                            "every tile (one material for the whole Tilemap: all its tiles draw as one batch; give "
+                            "another layer its own Tilemap to give it another material)")
+                .c_str())
         .field("materialParams", &Tilemap::materialParams, material_params_doc_2d().c_str());
 
     r.add<ParticleEmitter>(
@@ -1787,7 +1805,10 @@ void register_builtin_components(TypeRegistry& r) {
                "and the same number "
                "always the same one, on every platform. Read when the emitter first appears.")
         .asset_field("material", &ParticleEmitter::material, "material",
-                     material_doc_2d("ParticleEmitter", "every particle and its trail").c_str())
+                     material_doc_2d("ParticleEmitter",
+                                     "every particle and its trail (one material per emitter: all its particles batch "
+                                     "together, whatever their colour, size or age)")
+                         .c_str())
         .field("materialParams", &ParticleEmitter::materialParams, material_params_doc_2d().c_str());
 
     // --------------------------------------------------------------- 3D ---

@@ -32,6 +32,7 @@ Json RenderStats::to_json() const {
                 {"lights2dShadowed", lights2dShadowed},
                 {"materials", materials},
                 {"materialFallbacks", materialFallbacks},
+                {"materialResolves", materialResolves},
                 {"sortKeyFallbacks", sortKeyFallbacks},
                 {"cpuMs", std::round(cpuMs * 1000.0) / 1000.0}};
 }
@@ -483,6 +484,7 @@ PostPassTimes post_pass_times(const RenderStats& st) {
 RenderStats Renderer::stats(bool passTimes) const {
     if (!impl_) return RenderStats{};
     RenderStats s = impl_->stats;
+    if (impl_->assets) s.materialResolves = int(impl_->assets->material_resolves());
     if (passTimes && impl_->passTimesPending) impl_->pass_times(s.passes, s.jobs);
     return s;
 }
@@ -904,6 +906,7 @@ void Renderer::Impl::render(World& world, float dt) {
         gpuFrames.clear();
     }
     stats = RenderStats{};
+    materialsCounted.clear();
     anyFrameRendered = true;
     transient_targets().pool.begin_frame();  // the bloom levels of the frame graphs below come from this pool
 
@@ -911,7 +914,7 @@ void Renderer::Impl::render(World& world, float dt) {
     lastCams = collect_cameras(world);
     refresh_logic_cameras(world);
     assets->set_drawing(true);
-    targetSelf.clear();
+    set_target_self({});
     collect_targets(
         world);          // before any gather: the textures "target:<name>" exist when a Sprite or a mesh asks for them
     ++shadowCache.tick;  // one per drawn frame, not per camera: every camera of this frame keeps the rows it reads
@@ -979,7 +982,7 @@ void Renderer::Impl::render(World& world, float dt) {
             FA_ASSERT(targetFrames.size() < targetFrames.capacity(),
                       "targetFrames would reallocate under Scene2D's donors");
             Frame& fr = targetFrames.emplace_back();
-            targetSelf = tc.name;
+            set_target_self(tc.name);
             const Vec2 size{float(tc.w), float(tc.h)};
             fr.cam = build_camera(world, tc.entity, &size, true);
             fr.wantWorld = true;
@@ -997,7 +1000,7 @@ void Renderer::Impl::render(World& world, float dt) {
                 fr.shadowKey = 0;
             }
             scene2d.gather_particles(world, fr);
-            targetSelf.clear();
+            set_target_self({});
         }
         viewFrames.clear();
         std::size_t viewCount = 0;
@@ -1222,9 +1225,9 @@ void Renderer::Impl::render(World& world, float dt) {
         JobPlan plan;
         plan.name = "target:" + tc.name;
         plan.shows = keys_of(targetDeps[std::size_t(i)]);
-        targetSelf = tc.name;
+        set_target_self(tc.name);
         plan_view_job(world, targetFrames[std::size_t(i)], *it->second, tc.key, plan);
-        targetSelf.clear();
+        set_target_self({});
         ++stats.renderTargets;
     }
 
