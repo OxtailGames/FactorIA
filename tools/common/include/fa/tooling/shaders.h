@@ -50,6 +50,11 @@ inline constexpr int kMaterialVsFirstView = kMaterialFsFirstView + kMaterialMaxT
 // this many vec4 (12 floats) per instance, so the main program of a skinned mesh (11 attributes + 3 + 2 declared channels)
 // stays within the 16 vertex attributes sokol and every backend allow.
 inline constexpr int kMaterialMaxInstanceVec4 = 3;
+// A mesh material in "full" mode (its own vertex and fragment stage) draws at most this many passes per mesh part, and its stages
+// may declare this many `varying`s (GLES3 and WebGL2 guarantee 15 vec4 varyings; the engine's three flat instance varyings
+// take the other three).
+inline constexpr int kMaterialMaxPasses = 4;
+inline constexpr int kMaterialMaxVaryings = 12;
 // A sprite material's textures (kind "sprite") are read by fragment() at view kMaterialSpriteFirstView + i and sampler
 // kMaterialSpriteFirstSampler + i: the 2D program's own four views and three samplers come first (render_internal.h has the same numbers).
 inline constexpr int kMaterialSpriteFirstView = 4, kMaterialSpriteFirstSampler = 3;
@@ -133,6 +138,17 @@ struct MaterialBuffer {
     int binding = 0;  // the storage buffer binding of the shader (alphabetical order of the buffers)
 };
 
+// One draw of a full-mode mesh material (docs/shaders/SHADERS_FULL.md): the fixed-function state of that pass. Drawn in array order for
+// every mesh part, each with its own programs.
+struct MaterialPass {
+    std::string
+        name;  // identifier; the pass's programs get `#define FA_PASS_<NAME>` (upper case) and `FA_PASS <index>`
+    std::string cull = "back";   // "back" | "front" | "none": the faces that are not drawn
+    bool depthTest = true;       // compare with the depth buffer (less or equal)
+    bool depthWrite = true;      // write the depth buffer (default: no when the pass blends)
+    std::string blend = "none";  // "none" | "alpha" | "additive" | "multiply"
+};
+
 struct MaterialDef {
     std::string path;  // project-relative path of the .material.json
     std::string doc;
@@ -144,6 +160,13 @@ struct MaterialDef {
     bool doubleSided = false;
     std::vector<MaterialParam> params;  // alphabetical (the packing order of the uniform block); includes implicit ones
     std::vector<MaterialTexture> textures;  // alphabetical (view bindings 6.., sampler bindings 2..)
+    // Kind "mesh" only. true = "mode": "full": the file holds the vertex and the fragment stage (`@common`, `@vertex`, `@fragment`
+    // sections, each with its own main()) instead of a surface() snippet; passes (at least one, default one "main" pass), shadow
+    // ("depth" = the engine's depth-only program, "custom" = this material's pass 0 with FA_SHADOW_PASS defined, "none").
+    bool full = false;
+    std::string shadow = "depth";
+    bool prepass = true;  // draws in the engine's depth and normal prepass (the mesh as the MeshRenderer has it)
+    std::vector<MaterialPass> passes;
     std::vector<std::string>
         vertexAttributes;  // kind "mesh" only: extra mesh channels vertex() reads (material_vertex_attribute_names()), sorted
     // Kind "compute" only: the local workgroup size the shader declares ([x, y, z], x*y*z at most
@@ -216,6 +239,8 @@ struct GeneratedShader {
     bool hasLight = false;    // lighting "custom": the snippet defines light()
     bool hasAmbient = false;  // lighting "custom": the snippet defines ambient()
     bool hasCompute = false;  // the snippet defines compute() (kind "compute")
+    std::string
+        stateKey;  // twin fields that the top file does not hold (a full material's passes): part of the cache key
     std::vector<std::string>
         programs;  // post: "post". Sprite: "quad", "quad_plain". Sky: "sky". Compute: "compute". Mesh: "mesh", "mesh_skin", with vertex() or "clip" "shadow", "shadow_skin", and "prepass", "prepass_skin"
     std::vector<std::string>
@@ -275,7 +300,8 @@ struct ShaderCompileResult {
 // SOKOL_SHDC and, on Windows, that Windows Defender may have quarantined sokol-shdc.exe as a false positive.
 std::string sokol_shdc_missing_hint(const SetupContext& context);
 // SHA-256 of the template files of a material kind (fa::material_template_hash: the value this build of the renderer checks
-// twins against); "" when the kind has no template or none is bundled.
+// twins against); "" when the kind has no template or none is bundled. "mesh-full" is the template of a full-mode mesh material
+// (fa::mesh_full_template_hash).
 std::string shader_template_hash(const std::string& kind = "mesh");
 // Compiles the material at `materialPath` (project-relative) for the dialects asked. Fails (Error) when sokol-shdc is needed
 // and not found, or cannot be started; everything the author can fix is in result.errors.

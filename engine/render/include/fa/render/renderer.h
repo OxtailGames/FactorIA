@@ -118,6 +118,8 @@ std::optional<MaterialKind> material_kind_from_name(std::string_view name);
 std::string material_template_hash(MaterialKind kind);
 // material_template_hash(MaterialKind::Mesh).
 std::string mesh_template_hash();
+// The template hash of a mesh material in "full" mode (mesh_common.glsl and mesh_full_common.glsl): the value of its twins' "template".
+std::string mesh_full_template_hash();
 
 struct RendererDesc {
     int designWidth = 1280;

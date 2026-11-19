@@ -55,6 +55,22 @@ std::string kind_refusal(const std::string& kind);
 // The snippet's text with CRs removed (the line numbers stay those of the file).
 std::string normalize_snippet(std::string_view snippet);
 
+// The text that follows `@block fa_user` in the top file of a mesh or sprite material: the material's uniform blocks (one per stage),
+// the instanced-param globals, the declared channels and the textures (a mesh material's twice, once per stage, renamed with
+// #define in the vertex stage). `vsUndefs` gets the #undef lines that end those renames: they go after the author's code.
+std::string material_prologue(const MaterialDef& material, std::string& vsUndefs);
+
+// ---- full-mode mesh materials (shaders_full.cpp) ----
+// The problems of a full-mode shader file that need no compiler: sections, main(), varyings, reserved names. `source` is the
+// normalized file, `stripped` the same with the comments blanked.
+std::vector<ShaderIssue> precheck_full(const MaterialDef& material, const std::string& source,
+                                       const std::string& stripped);
+// What a full-mode twin carries next to the programs: {"full": true, "shadow": ..., "passes": [{name, cull, depthTest, depthWrite,
+// blend, program, programSkin}]}.
+Json full_twin_fields(const MaterialDef& m);
+// The name of the program of pass `pass` ("mesh" and "mesh_skin" for the first, "pass1", "pass1_skin"... after it).
+std::string full_program_name(int pass, bool skinned);
+
 // ---- compute materials (shaders_compute.cpp) ----
 // The rule for the names of params, textures and buffers (Checker::check_name of shaders_material.cpp): reports an error and
 // returns false when `name` cannot be used; `what` is "param", "texture"...
@@ -74,6 +90,9 @@ Json compute_twin_fields(const MaterialDef& m);
 }  // namespace fa::shaders_detail
 
 namespace fa {
+// The top file of a full-mode mesh material (shaders_full.cpp): the prologue, then per pass the vertex and fragment programs built
+// from the author's sections.
+GeneratedShader generate_full_shader(const MaterialDef& material, std::string_view source);
 // The top file of a "compute" material: params block, buffers, textures, local size, the snippet, compute_common.glsl.
 GeneratedShader generate_compute_shader(const MaterialDef& material, std::string_view snippet);
 }  // namespace fa
