@@ -225,6 +225,7 @@ bool Editor::open_graph_document(const std::string& rel, bool startGraph, bool d
         u.openError.clear();
         return false;
     }
+    const std::string before = m.path();
     const bool ok = m.open(rel, startGraph);
     u.openError = ok ? std::string() : m.error();
     u.pendingOpen = ok ? std::string() : rel;  // the "Start a graph" button of a material that has none
@@ -232,7 +233,8 @@ bool Editor::open_graph_document(const std::string& rel, bool startGraph, bool d
         u.selectedLink = -1;
         u.drag = GraphUi::Drag::None;
         u.viewApplied = false;
-        graph_reset_entry_ui();  // the New param form and a rename in progress belong to the material that was open
+        if (m.path() != before)
+            graph_reset_entry_ui();  // the New param form and a rename in progress belong to the material that was open
         if (u.preview) u.preview->set_document(m.material_json(), m.revision(), m.path());
     } else {
         // a failed open changes nothing: the document that was open stays, with its edits
@@ -426,6 +428,8 @@ void Editor::graph_save(bool force, bool overwriteExternal) {
     }
     if (out.needsForce) {
         u.askForce = true;
+        u.forceOverwritesExternal =
+            overwriteExternal;  // Overwrite of the file was answered already: the next question is only about the snippet
         return;
     }
     if (!out.ok) {
@@ -457,14 +461,12 @@ void Editor::draw_graph_toolbar(GraphModel& m) {
     FitRow row;
     row.next("New graph material");
     if (ImGui::Button("New graph material")) {
-        std::string rel;
-        for (int i = 1; i < 1000; ++i) {
-            rel = i == 1 ? "assets/materials/graph.material.json"
-                         : std::format("assets/materials/graph{}.material.json", i);
-            std::error_code ec;
-            if (!std::filesystem::exists(std::filesystem::path(projectDir_) / rel, ec)) break;
-        }
-        if (m.is_open() && m.dirty()) {
+        const std::string rel = m.new_material_name();  // free for the material and for its shaders/<name>.surface.glsl
+        if (rel.empty()) {
+            notify("Cannot name a new graph material: assets/materials already holds graph.material.json to graph999 "
+                   "(or a shader snippet of those names). Rename or delete some.",
+                   1);
+        } else if (m.is_open() && m.dirty()) {
             u.askDiscard = true;
             u.pendingOpen = rel;
             u.pendingStart = true;
@@ -546,7 +548,8 @@ void Editor::draw_graph_questions(GraphModel& m) {
     if (ImGui::BeginPopupModal("The file changed on disk", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
         ImGui::PushTextWrapPos(ImGui::GetFontSize() * 30.0f);
         ImGui::Text("%s was changed outside the editor (or deleted) since this graph was read. Saving now replaces "
-                    "that change with this graph.",
+                    "that change with this graph; a deleted file is written again from this graph and the "
+                    "material's other keys as they were read. Reload needs the file to exist.",
                     m.title().c_str());
         ImGui::PopTextWrapPos();
         if (ImGui::Button("Overwrite")) {
@@ -558,7 +561,7 @@ void Editor::draw_graph_questions(GraphModel& m) {
         ImGui::SameLine();
         if (ImGui::Button("Reload##conflict")) {
             ImGui::CloseCurrentPopup();
-            m.reload();
+            if (!m.reload()) notify("Cannot read " + m.path() + " again: " + m.error(), 1);
         }
         at_track("gr:conflict:reload");
         hint("Takes the file as it is on disk; the edits not saved yet are lost.");
@@ -574,7 +577,7 @@ void Editor::draw_graph_questions(GraphModel& m) {
             "snippet again from the graph and the hand edits are lost.");
         ImGui::PopTextWrapPos();
         if (ImGui::Button("Overwrite")) {
-            graph_save(true);
+            graph_save(true, u.forceOverwritesExternal);
             ImGui::CloseCurrentPopup();
         }
         at_track("gr:force");

@@ -6,9 +6,11 @@
 #include "fa/core/command.h"
 #include "fa/tooling/material_graph.h"
 #include "fa/tooling/shaders.h"
+#include "shaders_internal.h"
 #include "test_helpers.h"
 
 using namespace fa;
+namespace stdfs = std::filesystem;
 
 namespace {
 
@@ -276,9 +278,21 @@ TEST_CASE("material.param.delete: an unused param goes, a used one is refused wi
     REQUIRE_FALSE(unknown.ok);
     CHECK(unknown.error["code"] == "not_found");
     REQUIRE(p.call("material.texture.create", R"({"name":"maskMap"})").ok);
+    p.generate();  // graphHash now follows "textures" in the file
     auto delTex = p.call("material.texture.delete", R"({"name":"maskMap"})");
     REQUIRE_MESSAGE(delTex.ok, failure(delTex));
-    CHECK_FALSE(p.doc().contains("textures"));
+    // the last one leaves the section empty where it was: a create afterwards does not add the key at the end of the file
+    CHECK(p.doc()["textures"].empty());
+    auto order = [&] {
+        std::string keys;
+        const Json d = p.doc();
+        for (auto it = d.begin(); it != d.end(); ++it) keys += it.key() + " ";
+        return keys;
+    };
+    const std::string keysBefore = order();
+    REQUIRE(p.call("material.texture.create", R"({"name":"again"})").ok);
+    CHECK(order() == keysBefore);
+    CHECK(p.doc()["textures"].contains("again"));
 }
 
 TEST_CASE("material.param|texture.create takes an index, and delete returns the one to put the entry back at") {
@@ -383,6 +397,12 @@ TEST_CASE("material.param.rename and delete warn when a snippet they leave alone
     auto d2 = q.call("material.param.delete", R"({"name":"spare"})");
     REQUIRE_MESSAGE(d2.ok, failure(d2));
     CHECK(d2.result["snippet"]["state"] == "none");
+    REQUIRE(d2.result["warnings"].size() == 1);
+    const std::string warning = d2.result["warnings"][0]["message"].get<std::string>();
+    CHECK(warning.find("hand-written snippet") != std::string::npos);
+    CHECK(warning.find(kSnippet) != std::string::npos);
+    CHECK(warning.find("\"spare\"") != std::string::npos);
+    CHECK_FALSE(d2.result["warnings"][0]["hint"].get<std::string>().empty());
 }
 
 TEST_CASE("a graph that is null is an error with a pointer, not a hand-written snippet") {
@@ -394,13 +414,18 @@ TEST_CASE("a graph that is null is an error with a pointer, not a hand-written s
         {"material.graph.generate", "{}"},
         {"material.param.rename", R"({"name":"dissolve","newName":"x"})"},
         {"material.param.create", R"({"name":"x","type":"float"})"}};
+    // the JSON pointer of the error, from the data the command returns (not from the wording of a sentence)
+    auto points_at_graph = [](const CommandResult& r) {
+        return r.error.is_object() && r.error.contains("data") && r.error["data"].is_object() &&
+               r.error["data"].value("pointer", std::string()) == "/graph";
+    };
     for (const auto& [name, args] : calls) {
         auto r = p.call(name, args);
         INFO(name);
         REQUIRE_FALSE(r.ok);
         INFO(r.error.dump());
         CHECK(r.error["code"] != "no_graph");
-        CHECK(r.error["message"].get<std::string>().find("/graph") != std::string::npos);
+        CHECK(points_at_graph(r));
     }
     auto v = p.call("material.graph.validate", Json::object());
     REQUIRE(v.ok);
@@ -410,7 +435,10 @@ TEST_CASE("a graph that is null is an error with a pointer, not a hand-written s
     Project q;
     auto g = q.call("material.graph.generate", Json::parse(R"({"graph":null})"));
     REQUIRE_FALSE(g.ok);
-    CHECK(g.error["message"].get<std::string>().find("/graph") != std::string::npos);
+    INFO(g.error.dump());
+    // the argument is checked by the command's input schema before the handler runs: its error names the argument, whatever its wording
+    CHECK(g.error["code"] == "invalid_arguments");
+    CHECK(g.error["message"].get<std::string>().find("graph") != std::string::npos);
 }
 
 TEST_CASE("a bare number for a vecN constant of a graph is refused with the form, a float input takes one") {
@@ -458,4 +486,45 @@ TEST_CASE("material paths: ..x is inside the project, ../x is not; shader.compil
     doc.erase("graphHash");
     p.write(kMat, doc.dump(2));
     CHECK(material_snippet_state(p.dir.str(), kMat).empty());
+}
+
+TEST_CASE("a material path of the wrong shape is refused the same on every OS") {
+    Project p;
+    CommandRegistry shaders;
+    register_shader_commands(shaders, p.dir.str());
+    // "c:x" is a drive path to Windows only by the host's own path rules: refused on POSIX too, with the shape named
+    for (const char* bad :
+         {"c:x.material.json", "C:/x.material.json", "materials\\dissolve.material.json", "~/x.material.json"}) {
+        for (const char* name : {"shader.compile", "material.info"}) {
+            auto r = shaders.call(name, Json::object({{"material", bad}}));
+            INFO(name << " " << bad);
+            REQUIRE_FALSE(r.ok);
+            CHECK(r.error["code"] == "invalid_argument");
+        }
+        auto g = p.registry.call("material.graph.validate", Json::object({{"material", bad}}));
+        INFO(bad);
+        REQUIRE_FALSE(g.ok);
+        CHECK(g.error["code"] == "invalid_argument");
+    }
+    CHECK(shaders_detail::material_path_shape_problem("materials/dissolve.material.json").empty());
+    CHECK(shaders_detail::material_path_shape_problem("..x.material.json").empty());
+    CHECK(shaders_detail::material_path_shape_problem("~tmp.material.json").empty());
+    CHECK_FALSE(shaders_detail::material_path_shape_problem("a/../x.material.json").empty());
+}
+
+TEST_CASE("a snippet that is there and cannot be read is 'unreadable', never 'does not exist yet'") {
+    Project p;
+    // a folder in the place of the file: a read fails on every OS (no permission tricks, which a root user ignores)
+    stdfs::create_directories(p.dir.path / kSnippet);
+    CHECK(material_snippet_state(p.dir.str(), kMat) == "unreadable");
+    auto v = p.registry.call("material.graph.validate", Json::object({{"material", kMat}}));
+    REQUIRE_MESSAGE(v.ok, failure(v));
+    CHECK(v.result["snippet"]["state"] == "unreadable");
+    const std::string why = v.result["snippet"]["error"].get<std::string>();
+    CHECK(why.find(kSnippet) != std::string::npos);
+    CHECK(why.find("folder") != std::string::npos);
+    auto g = p.registry.call("material.graph.generate", Json::object({{"material", kMat}, {"force", true}}));
+    REQUIRE_FALSE(g.ok);
+    CHECK(g.error["message"].get<std::string>().find("cannot read the snippet") != std::string::npos);
+    CHECK(stdfs::is_directory(p.dir.path / kSnippet));  // nothing replaced it
 }
