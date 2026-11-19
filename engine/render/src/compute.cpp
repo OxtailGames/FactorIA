@@ -1014,6 +1014,7 @@ std::uint64_t Compute::max_json_pixels(int id) const {
 
 Result<Json> Compute::read_image(int id, int x, int y, int width, int height) {
     State& s = *s_;
+    s.lastReadBytes = 0;  // a read refused before it reaches the GPU leaves 0 (compute.h)
     std::string why;
     if (!available(&why)) return refused(why);
     auto it = s.imgs.find(id);
@@ -1056,7 +1057,6 @@ Result<Json> Compute::read_image(int id, int x, int y, int width, int height) {
     // Only the rectangle comes off the GPU (a region copy on every backend): reading a corner of a large image holds a corner.
     std::vector<std::uint8_t> raw;
     std::string error;
-    s.lastReadBytes = 0;
     if (!render::readback_storage_image(im.gpu.image, im.format, x, y, width, height, raw, &error))
         return make_error("compute.read_image: " + error,
                           "This is a graphics driver problem on this backend; report it.");

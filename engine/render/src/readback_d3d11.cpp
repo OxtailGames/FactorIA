@@ -138,9 +138,9 @@ bool readback_storage_image(sg_image image, sg_pixel_format format, int x, int y
     }
     const std::size_t row = std::size_t(width) * pixel;
     out.resize(row * std::size_t(height));
-    for (int y = 0; y < height; ++y)  // D3D rows are top-down, like the rows an imageStore writes
-        std::memcpy(&out[std::size_t(y) * row],
-                    static_cast<const std::uint8_t*>(map.pData) + std::size_t(y) * map.RowPitch, row);
+    for (int r = 0; r < height; ++r)  // D3D rows are top-down, like the rows an imageStore writes
+        std::memcpy(&out[std::size_t(r) * row],
+                    static_cast<const std::uint8_t*>(map.pData) + std::size_t(r) * map.RowPitch, row);
     ctx->Unmap(staging, 0);
     staging->Release();
     return true;
