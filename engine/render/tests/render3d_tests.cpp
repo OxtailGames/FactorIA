@@ -1156,13 +1156,13 @@ TEST_CASE("materials: a twin of another kind than its material is refused with t
     {  // a material of a kind that cannot be drawn yet
         ErrorLog log;
         const Image img =
-            draw("kindsky",
-                 R"({"format": "factoria.material/1", "kind": "sky", "shader": "shaders/empty.surface.glsl"})", *twin);
+            draw("kindpost",
+                 R"({"format": "factoria.material/1", "kind": "post", "shader": "shaders/empty.surface.glsl"})", *twin);
         CHECK(img.pixel(160, 90).g < 0.1f);
         REQUIRE(log.messages().size() == 1);
-        CHECK(log.messages()[0].find("kind \"sky\"") != std::string::npos);
+        CHECK(log.messages()[0].find("kind \"post\"") != std::string::npos);
         CHECK(log.messages()[0].find("cannot draw yet") != std::string::npos);
-        CHECK(log.messages()[0].find("sky materials arrive with M72.1") != std::string::npos);
+        CHECK(log.messages()[0].find("post materials arrive with M72.2") != std::string::npos);
     }
     {  // a kind that does not exist
         ErrorLog log;
@@ -1212,6 +1212,209 @@ TEST_CASE("3D mesh template: a material's emission driven by fa_time is the same
     CHECK(c.r > 0.85f);
     CHECK(c.g > 0.15f);
     expect_golden(a, "3d_fa_time_emission");
+}
+
+// Sky materials (SceneSettings.skyMaterial) ---------------------------------------------------------------------------------
+namespace {
+// A camera looking slightly down at a cube: the top of the frame is sky, the middle is the mesh.
+void add_sky_scene(World& w, const char* skyMaterial, const Json& params = Json()) {
+    add_camera(w, {0, 1.5f, 4}, {0, 0, 0});
+    add_mesh(w, "cube", {0, 0, 0}, Color::hex(0xc08040), {1.5f, 1.5f, 1.5f});
+    add_light(w, LightType::Directional, {0, 5, 0}, {-50, 30, 0}, 0.8f);
+    w.settings().skyMaterial = skyMaterial;
+    if (!params.is_null()) w.settings().skyMaterialParams = params;
+}
+}  // namespace
+
+TEST_CASE("sky materials: a material whose sky() is empty draws exactly the built-in sky") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    MaterialScope scope;
+    ErrorLog log;
+    auto frame = [&](const char* material) {
+        World w;
+        add_sky_scene(w, material);
+        w.settings().skyColor = Color::hex(0x3060c0);
+        w.settings().horizonColor = Color::hex(0xe0b080);
+        return g.render(w);
+    };
+    const Image builtIn = frame("");
+    const auto builtInCalls = g.renderer.stats().drawCalls;
+    const Image material = frame("materials/skyempty.material.json");
+    CHECK(log.messages().empty());
+    CHECK(g.renderer.stats().materialFallbacks.empty());
+    CHECK(g.renderer.stats().drawCalls == builtInCalls);  // the sky is one draw either way
+    CHECK(diff_images(builtIn, material, 0.0f).maxError == 0.0);
+    // the sky is really in the picture: the top of the frame is not the clear colour of a frame without a sky
+    CHECK(builtIn.pixel(160, 2).b > 0.3f);
+}
+
+TEST_CASE(
+    "sky materials: a gradient sky replaces the background, skyMaterialParams change it and the meshes keep their "
+    "light") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    MaterialScope scope;
+    ErrorLog log;
+    auto frame = [&](const char* material, const Json& params = Json()) {
+        World w;
+        add_sky_scene(w, material, params);
+        return g.render(w);
+    };
+    const Image builtIn = frame("");
+    const Image red = frame("materials/skygrad.material.json");
+    const Image green =
+        frame("materials/skygrad.material.json", Json::object({{"zenith", Json::array({0.0, 1.0, 0.0, 1.0})}}));
+    CHECK(log.messages().empty());
+    CHECK(diff_images(builtIn, red, 4.0f / 255.0f).meanError > 0.01);
+    CHECK(diff_images(red, green, 4.0f / 255.0f).meanError > 0.01);
+    const Color top = red.pixel(160, 2);  // the default zenith [0.9, 0.2, 0.1], the default ground [0.1, 0.1, 0.6]
+    CHECK(top.r > top.b);
+    const Color topGreen = green.pixel(160, 2);
+    CHECK(topGreen.g > topGreen.r);
+    // the cube in the middle is the same pixel as with the built-in sky: only the background is the material's
+    const Color a = builtIn.pixel(160, 90), b = red.pixel(160, 90);
+    CHECK(a.r == b.r);
+    CHECK(a.g == b.g);
+    CHECK(a.b == b.b);
+}
+
+TEST_CASE("sky materials: SkyInput.time follows the engine clock and is the same after the same fixed steps") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    MaterialScope scope;
+    auto frame = [&](int steps) {
+        World w;
+        add_sky_scene(w, "materials/skytime.material.json");
+        for (int i = 0; i < steps; ++i) w.advance_clock(1.0 / 60.0);
+        return g.render(w);
+    };
+    const Image start = frame(0);
+    const Image a = frame(45);
+    const Image b = frame(45);
+    CHECK(diff_images(a, b, 0.0f).maxError == 0.0);
+    CHECK(diff_images(start, a, 4.0f / 255.0f).meanError > 0.01);
+}
+
+TEST_CASE("sky materials: a texture of the material is bound from view 0") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    MaterialScope scope;
+    ErrorLog log;
+    auto frame = [&](const char* material) {
+        World w;
+        add_sky_scene(w, material);
+        return g.render(w);
+    };
+    const Image builtIn = frame("");
+    const Image textured = frame("materials/skytex.material.json");
+    CHECK(log.messages().empty());
+    CHECK(diff_images(builtIn, textured, 4.0f / 255.0f).meanError > 0.01);
+    // the checker has dark and light cells: the sky is not one flat colour
+    float lo = 1.0f, hi = 0.0f;
+    for (int x = 0; x < 320; x += 4) {
+        const float v = textured.pixel(x, 2).r;
+        lo = std::min(lo, v);
+        hi = std::max(hi, v);
+    }
+    CHECK(hi - lo > 0.1f);
+}
+
+TEST_CASE("sky materials: a material that does not compile, or is not a sky, shows the built-in sky and logs once") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    MaterialScope scope;
+    REQUIRE(
+        fs::write_text("materials/brokensky.material.json",
+                       R"({"format": "factoria.material/1", "kind": "sky", "shader": "shaders/brokensky.sky.glsl"})")
+            .ok());
+    g.renderer.set_shader_compiler([](const std::string& material, const std::string& dialect) -> Result<Json> {
+        if (material.find("brokensky") == std::string::npos)  // every other material is the fixture's empty mesh one
+            return load_json_file("materials/empty.material.json." + dialect + ".shader");
+        return make_error(
+            "shaders/brokensky.sky.glsl:2:5: error: 'colour' : no such field in structure 'SkySurface'\n  "
+            "hint: did you mean color?",
+            "did you mean color?");
+    });
+    auto frame = [&](const char* material) {
+        World w;
+        add_sky_scene(w, material);
+        return g.render(w);
+    };
+    const Image builtIn = frame("");
+    {
+        ErrorLog log;
+        Image img;
+        for (int i = 0; i < 3; ++i) img = frame("materials/brokensky.material.json");
+        CHECK(diff_images(builtIn, img, 0.0f).maxError == 0.0);  // the gradient, not magenta
+        CHECK(log.count("brokensky.sky.glsl:2:5") == 1);
+        REQUIRE(g.renderer.stats().materialFallbacks.size() == 1);
+        CHECK(g.renderer.stats().materialFallbacks[0] == "materials/brokensky.material.json");
+    }
+    {  // a mesh material is not a sky: said once, with the way out
+        ErrorLog log;
+        Image img;
+        for (int i = 0; i < 3; ++i) img = frame("materials/empty.material.json");
+        CHECK(diff_images(builtIn, img, 0.0f).maxError == 0.0);
+        REQUIRE(log.messages().size() == 1);
+        CHECK(log.messages()[0].find("is a \"mesh\" material, not a \"sky\" one") != std::string::npos);
+        CHECK(log.messages()[0].find("\"kind\": \"sky\"") != std::string::npos);
+        REQUIRE(g.renderer.stats().materialFallbacks.size() == 1);
+        CHECK(g.renderer.stats().materialFallbacks[0] == "materials/empty.material.json");
+    }
+    {  // a path that does not exist
+        ErrorLog log;
+        const Image img = frame("materials/nowhere.material.json");
+        CHECK(diff_images(builtIn, img, 0.0f).maxError == 0.0);
+        CHECK_FALSE(log.messages().empty());
+    }
+}
+
+TEST_CASE("sky materials: hot reload swaps the sky, keeps the last good one on a broken edit and recovers") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    MaterialScope scope;
+    const std::string dialect = g.renderer.shader_dialect();
+    REQUIRE(fs::write_text("materials/hotsky.material.json",
+                           R"({"format": "factoria.material/1", "kind": "sky", "shader": "shaders/hotsky.txt",
+                               "params": {"zenith": {"type": "color", "default": [0.9, 0.2, 0.1, 1.0], "doc": "Up."},
+                                          "ground": {"type": "color", "default": [0.1, 0.1, 0.6, 1.0], "doc": "Down."}}})")
+                .ok());
+    // Stands in for the tooling: the snippet on disk names the fixture twin to use, or is broken.
+    g.renderer.set_shader_compiler([dialect](const std::string&, const std::string&) -> Result<Json> {
+        auto snippet = fs::read_text("shaders/hotsky.txt");
+        if (!snippet.ok()) return snippet.error();
+        if (*snippet == "broken")
+            return make_error("shaders/hotsky.txt:1:1: error: 'broken' : undeclared identifier",
+                              "Write skygrad or skyempty.");
+        return load_json_file("materials/" + *snippet + ".material.json." + dialect + ".shader");
+    });
+    auto frame = [&]() {
+        World w;
+        add_sky_scene(w, "materials/hotsky.material.json");
+        return g.render(w);
+    };
+    ErrorLog log;
+    REQUIRE(fs::write_text("shaders/hotsky.txt", "skygrad").ok());
+    const Image gradient = frame();
+    REQUIRE(fs::write_text("shaders/hotsky.txt", "skyempty").ok());
+    g.renderer.reload_asset("shaders/hotsky.txt");
+    const Image plain = frame();
+    CHECK(diff_images(gradient, plain, 4.0f / 255.0f).meanError > 0.01);
+    CHECK(log.messages().empty());
+
+    REQUIRE(fs::write_text("shaders/hotsky.txt", "broken").ok());
+    g.renderer.reload_asset("shaders/hotsky.txt");
+    const Image kept = frame();
+    frame();
+    CHECK(diff_images(plain, kept, 0.0f).maxError == 0.0);
+    CHECK(log.count("shaders/hotsky.txt:1:1") == 1);
+    CHECK(g.renderer.stats().materialFallbacks.empty());
+
+    REQUIRE(fs::write_text("shaders/hotsky.txt", "skygrad").ok());
+    g.renderer.reload_asset("shaders/hotsky.txt");
+    const Image back = frame();
+    CHECK(diff_images(gradient, back, 0.0f).maxError == 0.0);
 }
 
 // ---- per-instance params and declared vertex channels (materials/inst and materials/chan) ----

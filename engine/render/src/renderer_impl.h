@@ -179,6 +179,9 @@ struct Renderer::Impl {
     // hit tests ask these (camera_for), so an answer never depends on alpha. Empty = lastCams.
     std::vector<CameraInfo> logicCams;
     bool warnedNoLight = false;
+    // SceneSettings.skyMaterial: the last material that could not draw the sky and was reported (one log line per material).
+    std::string warnedSkyMaterial;
+    MaterialAsset* sky_material(const SceneSettings& ss);
     std::string
         warnedViewport;  // the last "bad Camera.viewport" problem logged (a viewport a script sets live is clamped)
     std::unordered_set<std::uint64_t>

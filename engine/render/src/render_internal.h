@@ -394,8 +394,11 @@ constexpr int kMaxMaterialParams = 16,
 //          light_tex, shadow_tex) and samplers 0-2 (smp, light_smp, shadow_smp) are the engine's, so a material's textures are
 //          views 4..7 and samplers 3..6 (kMaterialSprite*): none collides with the 2D slots, and 4 + 4 views stay far below
 //          the 16 texture units GLES3 and WebGL2 guarantee.
+//   sky    (sky_common.glsl): uniform blocks vertex 0 sky_vs_params, fragment 1 sky_fs_params; the engine binds no texture, so a
+//          material's textures are views 0..3 and samplers 0..3 (kMaterialSky*), all in the fragment stage (no vertex()).
 constexpr int kMaterialFirstView = 6, kMaterialFirstSampler = 2, kMaterialUbVertex = 4, kMaterialUbFragment = 5;
 constexpr int kMaterialSpriteFirstView = 4, kMaterialSpriteFirstSampler = 3;
+constexpr int kMaterialSkyFirstView = 0, kMaterialSkyFirstSampler = 0;
 // A mesh material texture is bound twice: the fragment stage reads it at kMaterialFirstView + i, the vertex stage (vertex() may sample
 // it) at kMaterialVsFirstView + i, with the samplers likewise (fa/tooling/shaders.h kMaterialVsFirstView, the generator's top
 // file). Each program declares only the slots its stages use, and a draw binds only those.
@@ -481,7 +484,7 @@ struct MaterialRef {
 struct MaterialAsset {
     std::string path;                        // the .material.json
     std::string snippet;                     // its `shader` file (a change of it reloads the material)
-    MaterialKind kind = MaterialKind::Mesh;  // its "kind": Mesh, Sprite (built) or Compute (Compute::dispatch)
+    MaterialKind kind = MaterialKind::Mesh;  // its "kind": Mesh, Sprite and Sky (drawn) or Compute (Compute::dispatch)
     std::vector<MaterialBufferDef> buffers;  // Compute: the storage buffers, in binding order
     int workgroup[3]{64, 1, 1};              // Compute: the threads of one workgroup
     std::string lighting = "pbr", alphaMode = "opaque";
@@ -496,11 +499,11 @@ struct MaterialAsset {
         0;  // changes when the set of instanced names does (a cached hash of the overrides is then stale)
     MeshExtras extras() const { return {instanceVec4, uv1, color1}; }
     std::vector<MaterialTextureDef> textures;  // in the order of the twin's "textures" (views 6+i, samplers 2+i)
-    MaterialProgram
-        programs[kMaxMaterialPrograms];      // by MaterialProgramId for a mesh material; a sprite one: quad, quad_plain
-    bool ok = false;                         // false = drawn with the error material
-    std::string error;                       // the last build error (kept while an older good build still draws)
-    int generation = 0;                      // counts successful builds
+    MaterialProgram programs
+        [kMaxMaterialPrograms];  // by MaterialProgramId for a mesh material; a sprite one: quad, quad_plain; a sky one: sky
+    bool ok = false;             // false = drawn with the error material
+    std::string error;           // the last build error (kept while an older good build still draws)
+    int generation = 0;          // counts successful builds
     std::unordered_set<std::string> warned;  // params already complained about
     // (mesh, part, channel) triples already logged as lacking a declared vertex channel: checked before the message is built,
     // as the draw asks once per part, batch and pass of every frame. Cleared when the material builds again.
@@ -531,12 +534,16 @@ Result<MaterialProgram> make_material_program(const std::string& label, const Js
 
 // Packs the params of `m` (defaults overlaid by `overrides`, a MeshRenderer.materialParams object) into one vec4 each.
 // A value of the wrong shape or an unknown name is warned about once per material and keeps the default.
-void pack_material_params(MaterialAsset& m, const Json& overrides, float out[kMaxMaterialParams][4]);
+// `field` and `holder` say where `overrides` came from, for the warnings ("materialParams.speed of a component using ...";
+// the sky passes "skyMaterialParams" and "SceneSettings").
+void pack_material_params(MaterialAsset& m, const Json& overrides, float out[kMaxMaterialParams][4],
+                          const char* field = "materialParams", const char* holder = "a component");
 // Packs the instanced params of `m` for one instance: `m.instanceVec4` * 4 floats at `out` (defaults overlaid by `overrides`;
 // the unused floats of a vec4 are 0). Warns once per material about a value of the wrong shape, like pack_material_params.
 void pack_instance_params(MaterialAsset& m, const Json& overrides, float* out);
 // The texture bound as texture `i` of `m`: the override path in `overrides` (loaded by `assets`), else the default.
-TextureAsset* material_texture(MaterialAsset& m, int i, const Json& overrides, Assets& assets);
+TextureAsset* material_texture(MaterialAsset& m, int i, const Json& overrides, Assets& assets,
+                               const char* field = "materialParams", const char* holder = "a component");
 
 // ---------------------------------------------------------------------------
 // Batches (CPU side, before upload)
@@ -955,8 +962,10 @@ public:
                               MeshExtras extras = {}) {
         return mesh_pipeline(scene_target_format(), blended, doubleSided, skinned, shader, extras);
     }
-    sg_pipeline sky_pipeline(const TargetFormat& format);
+    // `shader`: the program of a sky material (id 0 = the built-in gradient).
+    sg_pipeline sky_pipeline(const TargetFormat& format, sg_shader shader = {});
     sg_pipeline sky_pipeline() { return sky_pipeline(scene_target_format()); }
+    sg_pipeline sky_pipeline(sg_shader shader) { return sky_pipeline(scene_target_format(), shader); }
 
     // The format the game target (and the CameraView and render-target passes drawn with it) writes into:
     // scene_format(), the depth-stencil format and the game target's sample count. A change of scene_format() (the

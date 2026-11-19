@@ -62,11 +62,14 @@ const std::vector<const char*>& material_program_names(MaterialKind kind) {
                                                   "shadow_skin", "prepass",   "prepass_skin"};
     // Sprite: quad (every mode of quad_common.glsl) and quad_plain (a batch of plain textured quads); a material has both.
     static const std::vector<const char*> sprite = {"quad", "quad_plain"};
+    // Sky: the one program of sky_common.glsl.
+    static const std::vector<const char*> sky = {"sky"};
     static const std::vector<const char*> compute = {"compute"};
     static const std::vector<const char*> none;
     switch (kind) {
         case MaterialKind::Mesh: return mesh;
         case MaterialKind::Sprite: return sprite;
+        case MaterialKind::Sky: return sky;
         case MaterialKind::Compute: return compute;
         default: return none;
     }
@@ -290,8 +293,9 @@ Result<MaterialProgram> make_material_program(const std::string& label, const Js
 
 namespace {
 // The value of param `p` for an entity: the default overlaid by `overrides[p.name]`; a value of the wrong shape is warned about
-// once per material and keeps the default.
-void param_value(MaterialAsset& m, const MaterialParamDef& p, const Json& overrides, float out[4]) {
+// once per material and keeps the default. `field` and `holder` name where `overrides` came from, for the warning.
+void param_value(MaterialAsset& m, const MaterialParamDef& p, const Json& overrides, float out[4], const char* field,
+                 const char* holder) {
     std::memcpy(out, p.def, sizeof(p.def));
     auto it = overrides.is_object() ? overrides.find(p.name) : overrides.end();
     if (it == overrides.end()) return;
@@ -300,8 +304,7 @@ void param_value(MaterialAsset& m, const MaterialParamDef& p, const Json& overri
         for (const Json& c : *it) good = good && c.is_number();
     if (!good) {
         if (m.warned.insert(p.name).second)
-            FA_WARN("render", "materialParams.{} of a component using '{}' must be {} (the default is kept)", p.name,
-                    m.path,
+            FA_WARN("render", "{}.{} of {} using '{}' must be {} (the default is kept)", field, p.name, holder, m.path,
                     p.components == 1 ? std::string("a number")
                                       : "an array of " + std::to_string(p.components) + " numbers, like " +
                                             (p.components == 2   ? "[0.5, 1]"
@@ -316,9 +319,10 @@ void param_value(MaterialAsset& m, const MaterialParamDef& p, const Json& overri
 }
 }  // namespace
 
-void pack_material_params(MaterialAsset& m, const Json& overrides, float out[kMaxMaterialParams][4]) {
+void pack_material_params(MaterialAsset& m, const Json& overrides, float out[kMaxMaterialParams][4], const char* field,
+                          const char* holder) {
     const int n = std::min<int>(int(m.params.size()), kMaxMaterialParams);
-    for (int i = 0; i < n; ++i) param_value(m, m.params[std::size_t(i)], overrides, out[i]);
+    for (int i = 0; i < n; ++i) param_value(m, m.params[std::size_t(i)], overrides, out[i], field, holder);
     if (overrides.is_object() && !overrides.empty()) {
         std::vector<std::string> names;
         for (const auto& p : m.params) names.push_back(p.name);
@@ -326,9 +330,8 @@ void pack_material_params(MaterialAsset& m, const Json& overrides, float out[kMa
         for (const auto& t : m.textures) names.push_back(t.name);
         for (auto it = overrides.begin(); it != overrides.end(); ++it)
             if (std::find(names.begin(), names.end(), it.key()) == names.end() && m.warned.insert(it.key()).second)
-                FA_WARN("render",
-                        "materialParams.{} of a component using '{}' is not a param or texture of that material. {}",
-                        it.key(), m.path, did_you_mean(it.key(), names));
+                FA_WARN("render", "{}.{} of {} using '{}' is not a param or texture of that material. {}", field,
+                        it.key(), holder, m.path, did_you_mean(it.key(), names));
     }
 }
 
@@ -337,21 +340,22 @@ void pack_instance_params(MaterialAsset& m, const Json& overrides, float* out) {
     for (int i = 0; i < floats; ++i) out[i] = 0.0f;
     for (const MaterialParamDef& p : m.instanced) {
         float v[4];
-        param_value(m, p, overrides, v);
+        param_value(m, p, overrides, v, "materialParams", "a component");
         for (int c = 0; c < p.components; ++c) out[p.vec4 * 4 + p.offset + c] = v[c];
     }
 }
 
-TextureAsset* material_texture(MaterialAsset& m, int i, const Json& overrides, Assets& assets) {
+TextureAsset* material_texture(MaterialAsset& m, int i, const Json& overrides, Assets& assets, const char* field,
+                               const char* holder) {
     const MaterialTextureDef& t = m.textures[std::size_t(i)];
     auto it = overrides.is_object() ? overrides.find(t.name) : overrides.end();
     if (it == overrides.end()) return t.defaultTex;
     if (it->is_string()) return assets.texture(it->get<std::string>());
     if (m.warned.insert(t.name).second)
         FA_WARN("render",
-                "materialParams.{} of a component using '{}' must be a texture path like \"assets/wood.png\" (the "
-                "default texture is kept)",
-                t.name, m.path);
+                "{}.{} of {} using '{}' must be a texture path like \"assets/wood.png\" (the default texture is "
+                "kept)",
+                field, t.name, holder, m.path);
     return t.defaultTex;
 }
 
@@ -476,12 +480,12 @@ Result<void> Assets::build_material_checked(MaterialAsset& m) {
     }
     if (material_program_names(kind).empty()) {
         // The package of each kind is the one the tooling names (shaders_generate.cpp kind_refusal).
-        const char* package = kind == MaterialKind::Post ? "M72.2" : "M72.1";
+        const char* package = "M72.2";  // only post is left: compute has its program, sky and sprite are drawn
         return make_error(
             "material '" + m.path + "' has kind \"" + material_kind_name(kind) +
                 "\", which this factoria version cannot draw yet: " + material_kind_name(kind) +
                 " materials arrive with " + package,
-            "Only \"mesh\" and \"sprite\" materials are drawn, and \"compute\" ones run with the compute.* commands "
+            "\"mesh\", \"sprite\" and \"sky\" materials are drawn, \"compute\" ones run with the compute.* commands "
             "(docs/design/CUSTOM_SHADERS.md, "
             "\"Kinds (M72)\").");
     }

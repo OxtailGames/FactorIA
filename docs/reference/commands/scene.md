@@ -407,11 +407,11 @@ Add a component to an entity (if missing) and set the given fields.
 
 Capabilities: read, state
 
-`fields` is a partial object; unspecified fields keep their value. A value outside a field's range (see api.components) is refused, and a bad field changes nothing: errors name the field, the allowed values and the range. A field with free-form JSON content (Script.props) is REPLACED as a whole by default; with `merge` true `fields` is an RFC 7386 JSON merge-patch instead: an object for such a field is merged into the current one recursively (keys you do not mention stay, a null value deletes the key), and a null for any other field resets it to its default. Example: scene.set_component {"id":"player","component":"Sprite","fields":{"color":"red"}}; change one prop and keep the rest: scene.set_component {"id":"level","component":"Script","fields":{"props":{"levelIndex":3,"oldProp":null}},"merge":true}
+`fields` is a partial object; unspecified fields keep their value. A value outside a field's range (see api.components) is refused, and a bad field changes nothing: errors name the field, the allowed values and the range. A field with free-form JSON content (Script.props) is REPLACED as a whole by default; with `merge` true `fields` is an RFC 7386 JSON merge-patch instead: an object for such a field is merged into the current one recursively (keys you do not mention stay, a null value deletes the key), and a null for any other field resets it to its default. Example: scene.set_component {"id":"player","component":"Sprite","fields":{"color":"red"}}; change one prop and keep the rest: scene.set_component {"id":"level","component":"Script","fields":{"props":{"levelIndex":3,"oldProp":null}},"merge":true}. The scene's own settings are the component "SceneSettings", written with NO `id`: scene.set_component {"component":"SceneSettings","fields":{"skyMaterial":"materials/dusk.material.json"}}.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `id` | string | yes | Entity id (or name). |
+| `id` | string | no | Entity id (or name). Required for every component except SceneSettings, which belongs to the scene: leave it out. |
 | `component` | string | yes | Component name, e.g. Transform, Sprite, RigidBody2D. |
 | `fields` | object | no | Field name -> value. |
 | `merge` | boolean | no | true = read `fields` as an RFC 7386 JSON merge-patch: objects (Script.props) merge into the current value recursively, null deletes a key (or resets a plain field to its default). false = every given field is replaced as a whole. Default false. |

@@ -779,6 +779,35 @@ Result<void> patch_component(World& world, Entity e, const TypeInfo& type, const
     return {};
 }
 
+Result<void> patch_settings(World& world, const Json& fields) {
+    const TypeInfo* st = TypeRegistry::global().find("SceneSettings");
+    if (!st) return make_error("SceneSettings is not registered", "This is an engine bug: report it.");
+    if (!fields.is_object())
+        return make_error("SceneSettings patch must be a JSON object",
+                          "Example: {\"skyMaterial\": \"materials/dusk.material.json\"}.");
+    DefaultObject backup(*st);
+    st->copy_assign(backup.get(), &world.settings());
+    std::vector<std::string> names;
+    for (const FieldInfo& f : st->fields) names.push_back(f.name);
+    for (auto it = fields.begin(); it != fields.end(); ++it) {
+        const FieldInfo* f = st->field(it.key());
+        if (!f) {
+            st->copy_assign(&world.settings(), backup.get());  // all-or-nothing
+            return make_error("SceneSettings has no field '" + it.key() + "'", did_you_mean(it.key(), names));
+        }
+        Result<void> r;
+        if (f->readOnly || f->kind == FieldKind::Entity)
+            r = make_error("The field cannot be set here", "Use api.components to see which fields can be written.");
+        else
+            r = field_from_json(*f, &world.settings(), it.value());
+        if (!r) {
+            st->copy_assign(&world.settings(), backup.get());  // all-or-nothing
+            return make_error("SceneSettings." + it.key() + ": " + r.error().message, r.error().hint);
+        }
+    }
+    return {};
+}
+
 // --------------------------------------------------------------- entities --
 namespace {
 std::size_t subtree_size(const World& world, Entity e) {
