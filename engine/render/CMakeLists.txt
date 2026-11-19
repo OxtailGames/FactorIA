@@ -14,12 +14,14 @@ fa_embed_files(fa_render fa_render_fonts embedded_fonts
 # also checks the shaders out with LF). Each kind hashes only its own files, so editing the sprite template leaves every
 # mesh twin valid. THE LISTS ARE EXPLICIT and must equal template_file_names() of tools/common/src/shaders_generate.cpp (a
 # test compares both). The mesh list is the file set the hash was computed from before kinds existed, so its value did not
-# change. "compute" has no template yet (M72.4): its hash is empty.
+# change.
 set(FA_TEMPLATE_FILES_MESH mesh_common.glsl)
-set(FA_TEMPLATE_FILES_SPRITE quad_common.glsl)
+# The sprite template @includes color_space.glsl and light_shadow.glsl (the other programs that use them include them too), so a
+# change to either one changes the sprite hash.
+set(FA_TEMPLATE_FILES_SPRITE color_space.glsl light_shadow.glsl quad_common.glsl)
 set(FA_TEMPLATE_FILES_SKY sky_common.glsl)
 set(FA_TEMPLATE_FILES_POST post_common.glsl)
-set(FA_TEMPLATE_FILES_COMPUTE "")
+set(FA_TEMPLATE_FILES_COMPUTE compute_common.glsl)
 set(FA_TEMPLATE_DEFINITIONS "")
 foreach(kind MESH SPRITE SKY POST COMPUTE)
     set(list "")
@@ -36,7 +38,10 @@ foreach(kind MESH SPRITE SKY POST COMPUTE)
     else()
         string(SHA256 FA_TEMPLATE_HASH_${kind} "${list}")
     endif()
-    list(APPEND FA_TEMPLATE_DEFINITIONS "FA_TEMPLATE_HASH_${kind}=\"${FA_TEMPLATE_HASH_${kind}}\"")
+    # A kind without a template (compute) defines nothing: an empty quoted define is not portable (material_template_hash returns {}).
+    if(NOT list STREQUAL "")
+        list(APPEND FA_TEMPLATE_DEFINITIONS "FA_TEMPLATE_HASH_${kind}=\"${FA_TEMPLATE_HASH_${kind}}\"")
+    endif()
 endforeach()
 set_source_files_properties(src/custom_shader.cpp PROPERTIES COMPILE_DEFINITIONS "${FA_TEMPLATE_DEFINITIONS}")
 

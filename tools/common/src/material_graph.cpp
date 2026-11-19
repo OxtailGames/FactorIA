@@ -1,6 +1,7 @@
 // Checking the graph of a material and generating its snippet (fa/tooling/material_graph.h). The checks come first and say where
 // (a JSON pointer into the material file), what is wrong and how to fix it; a graph that passes them always generates GLSL.
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <functional>
 #include <map>
@@ -96,6 +97,9 @@ struct Node {
     std::vector<int> outComps;
     int state = 0;  // 0 new, 1 being resolved, 2 resolved
     bool set(std::size_t port) const { return inLink[port] >= 0 || constComps[port] > 0; }
+    // A param or texture node whose param or texture was not found: its own error is reported, and it has no type, so the
+    // links that leave it are not checked (they would only repeat the error as a "type mismatch").
+    bool failed() const { return type && !type->ref.empty() && ref.empty(); }
 };
 
 // What the checks learn and the generator uses.
@@ -147,11 +151,19 @@ struct Analyser {
                   "`material.graph.nodes` lists the node types.");
             return false;
         }
-        static const std::vector<std::string> known = {"nodes", "links"};
+        static const std::vector<std::string> known = {"version", "nodes", "links", "editor"};
         for (auto it = graph.begin(); it != graph.end(); ++it)
             if (std::find(known.begin(), known.end(), it.key()) == known.end())
                 error("/graph/" + escape_token(it.key()), "unknown key \"" + it.key() + "\"",
                       did_you_mean(it.key(), known));
+        if (auto v = graph.find("version");
+            v != graph.end() && !(v->is_number_integer() && v->get<long long>() == kGraphVersion))
+            error("/graph/version",
+                  "this build reads graph version " + std::to_string(kGraphVersion) + ", got " +
+                      describe_json_value(*v),
+                  "Write \"version\": " + std::to_string(kGraphVersion) +
+                      " (or leave it out); a newer graph needs a newer FactorIA.");
+        check_editor_object(graph, "/graph");
         const auto& supported = graph_supported_kinds();
         if (std::find(supported.begin(), supported.end(), kind) == supported.end())
             error("/kind",
@@ -190,6 +202,16 @@ struct Analyser {
         return 0;
     }
 
+    // "editor" (graph and nodes): free-form data of the editor (canvas zoom and pan, collapsed nodes, comments, groups). Nothing
+    // reads it but the editor: the snippet does not depend on it, and it only has to be an object.
+    void check_editor_object(const Json& j, const std::string& base) {
+        auto e = j.find("editor");
+        if (e != j.end() && !e->is_object())
+            error(base + "/editor", "expected an object, got " + describe_json_value(*e),
+                  "\"editor\" is free-form data for the node editor (zoom, pan, comments): write an object, or remove "
+                  "it.");
+    }
+
     void read_nodes() {
         auto it = graph.find("nodes");
         if (it == graph.end() || !it->is_array() || it->empty()) {
@@ -219,7 +241,7 @@ struct Analyser {
                 "Write {\"id\": \"noise1\", \"type\": \"noise.fbm\", \"pos\": [0, 0], \"inputs\": {\"scale\": 6.0}}.");
             return;
         }
-        static const std::vector<std::string> known = {"id", "type", "pos", "inputs", "param", "texture"};
+        static const std::vector<std::string> known = {"id", "type", "pos", "inputs", "param", "texture", "editor"};
         for (auto it = j.begin(); it != j.end(); ++it)
             if (std::find(known.begin(), known.end(), it.key()) == known.end())
                 error(base + "/" + escape_token(it.key()), "unknown key \"" + it.key() + "\"",
@@ -245,6 +267,7 @@ struct Analyser {
                 n.id = id;
             }
         }
+        check_editor_object(j, base);
         // pos
         if (auto p = j.find("pos"); p != j.end()) {
             if (!p->is_array() || p->size() != 2 || !(*p)[0].is_number() || !(*p)[1].is_number())
@@ -517,6 +540,7 @@ struct Analyser {
             const Link& l = a.links[li];
             const Node& s = a.nodes[l.from];
             const GraphPort& port = n.type->inputs[p];
+            if (s.failed()) continue;
             const int src = s.outComps[l.fromPort];
             if (s.type->type == "math.split" && l.fromPort >= s.genN)
                 error(link_pointer(l.index) + "/from",
@@ -588,8 +612,22 @@ struct Analyser {
     // The variables of the nodes may not collide with the material's params and textures.
     void check_names() {
         std::set<std::string> taken;
-        for (const MaterialParam& p : material.params) taken.insert(p.name);
+        // gn_ names the helper functions the generator pastes (gn_hash22...): a param or texture of that name would clash with
+        // one of them in a way that depends on which nodes the graph draws.
+        auto reserved = [&](const std::string& name, const char* section, const char* noun) {
+            if (name.rfind("gn_", 0) != 0) return;
+            error(std::string("/") + section + "/" + escape_token(name),
+                  std::string("the ") + noun + " name \"" + name +
+                      "\" starts with gn_, which the node graph keeps for its GLSL helper functions",
+                  "Rename the " + std::string(noun) + " (and the nodes that name it), e.g. \"" + name.substr(3) +
+                      "\".");
+        };
+        for (const MaterialParam& p : material.params) {
+            taken.insert(p.name);
+            reserved(p.name, "params", "param");
+        }
         for (const MaterialTexture& t : material.textures) {
+            reserved(t.name, "textures", "texture");
             taken.insert(t.name);
             taken.insert(t.name + "_smp");
         }
@@ -782,6 +820,29 @@ GraphCheck check_material_graph(const Json& graph, const MaterialDef& material, 
     Analyser an{graph, material, kind, check, {}, {}, {}};
     an.run();
     return check;
+}
+
+MaterialGraphReport check_material_document(const Json& doc, const std::string& projectDir, const std::string& path) {
+    MaterialGraphReport r;
+    MaterialParse mp = parse_material(doc, projectDir, path);
+    r.material = std::move(mp.material);
+    r.errors = std::move(mp.errors);
+    if (auto k = doc.find("kind"); k != doc.end() && k->is_string()) r.kind = k->get<std::string>();
+    auto graph = doc.find("graph");
+    r.hasGraph = graph != doc.end();
+    if (!r.hasGraph) return r;
+    // parse_material ran the graph check already (its errors are in r.errors); the second run gives the warnings and the snippet.
+    GeneratedGraph g = generate_graph_snippet(*graph, r.material, r.kind);
+    r.warnings = std::move(g.check.warnings);
+    if (r.errors.empty() && g.check.ok()) {
+        r.snippet = std::move(g.snippet);
+        r.hash = std::move(g.hash);
+        r.usedNodes = std::move(g.usedNodes);
+        r.hasVertex = g.hasVertex;
+    } else if (r.errors.empty()) {
+        r.errors = std::move(g.check.errors);
+    }
+    return r;
 }
 
 GeneratedGraph generate_graph_snippet(const Json& graph, const MaterialDef& material, const std::string& kind) {

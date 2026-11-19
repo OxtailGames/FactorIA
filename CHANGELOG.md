@@ -18,6 +18,16 @@ Older versions, one file per minor version with its patch releases: [0.30](chang
   **Games with custom materials must re-export again:** the mesh template changed (no built-in mesh looks different), so
   the compiled shader files an older export shipped are refused, with the re-export hint, until the game is exported
   again.
+- **Compute materials (M72.4):** `"kind": "compute"` makes a `*.material.json` a GPU program over storage buffers: its snippet
+  defines `void compute(in ComputeInput i)`, and the file declares `workgroupSize` (a multiple of 32, at most 256) and
+  `buffers` (arrays of `float`, `vecN`, `int` and `uint` fields, std430), plus `params` and `textures` as for meshes.
+  `shader.compile`, `factoria validate` and `factoria export` compile it to the HLSL 5, GLSL 4.30 and Metal twins and
+  `material.info` lists the platforms it runs on (`runsOn`, `notOn`); an Android or Web export warns that it has no shader
+  there. The new commands `compute.create_buffer`, `compute.write_buffer`, `compute.dispatch`, `compute.read_buffer`,
+  `compute.destroy_buffer` and `compute.list_buffers` (and `Renderer::compute()` in C++) create buffers, run a material over
+  them and read the result back. On GLES3, WebGL2, macOS OpenGL 4.1 and without graphics they fail with the code
+  `unavailable`, naming the backend (`render.supports computeShaders`). Storage images are not available yet.
+
 - **Material kinds (M72 base):** `*.material.json` takes an optional `"kind"`: `"mesh"` (default, what materials were so far),
   `"sprite"`, `"sky"`, `"post"` or `"compute"`. Only mesh materials compile and draw; `shader.compile`, `factoria validate`
   and the renderer refuse the others with an error that names the package that brings them, and `shader.compile` and
@@ -25,6 +35,27 @@ Older versions, one file per minor version with its patch releases: [0.30](chang
   a change to one template no longer makes the twins of the other kinds stale; the mesh hash did not change, so no export
   needs to be redone. The skeletons `quad_common.glsl`, `sky_common.glsl` and `post_common.glsl` declare each kind's snippet
   contract; nothing draws with them yet.
+- **Sprite materials, the template and the tooling (M72.1):** `"kind": "sprite"` compiles. The 2D quad shader is now a
+  template (`quad_common.glsl`) with a hook: a snippet defines `void fragment(in QuadInput i, inout QuadSurface s)` (and
+  optionally `void vertex(inout QuadVertex v)`), `s.color` arrives holding what the engine draws for the item (texture,
+  circle, glyph, lit picture, SDF shape) and the flash, the multiply conversion and the fog apply to what the snippet
+  leaves. `QuadInput` carries `uv`, the tint, the world position, `screen_uv`, the time, the mode and a reserved
+  `custom`. `shader.compile`, `material.info` (programs `quad` and `quad_plain`), `factoria validate` and
+  `factoria export` (`<name>.material.json.<dialect>.shader`) work for it; `alphaMode: "clip"` is an error on a sprite.
+  The engine's own pixels do not change (an empty `fragment()` is the built-in program). The renderer draws a `Sprite` with the
+  compiled programs (next bullet); docs/SHADERS.md has the contract, the slots and an example with a dissolve and a
+  hit flash. The sprite template hash covers `quad_common.glsl`, `color_space.glsl` and `light_shadow.glsl`.
+  A sprite material cannot name a param or texture after a name of the 2D program (`color`, `uv`, `tex`, `smp`, `lit`,
+  `params`...: the error names the JSON pointer and a rename), `noise` is refused for every kind (sokol-shdc cannot compile
+  a texture called that) and a sprite `vertex()` cannot sample a material texture.
+- **Sprites draw with their material (M72.1):** a `Sprite` with `material` (and `materialParams`) is drawn by the
+  compiled `quad` / `quad_plain` programs of a `"kind": "sprite"` material, with the engine's blend and depth state. Sprites
+  with the same material and equal values share a draw call; a different value, another material or no material splits the
+  batch, and the draw order is unchanged. `fa_time` and `fa_target` are filled. A material that did not build (or is of
+  another kind) draws the sprite magenta with the built-in shader and shows in `materialFallbacks`; a hot reload rebuilds it
+  and a failed one keeps the last good version. A material with an empty `fragment()` draws the same pixels as none.
+  `Shape2D`, `Tilemap`, `Text`, particles and UI keep the engine's shader until the next package.
+
 - **Custom lighting and textures in `vertex()` (M72.3):** a mesh material with `"lighting": "custom"` defines
   `vec3 light(in SurfaceInput i, in Surface s, in LightSample l)`, which the engine's light loop calls once per light
   (the engine still picks the lights and applies attenuation, shadows, emission and fog), and optionally `ambient()`:
@@ -44,7 +75,17 @@ Older versions, one file per minor version with its patch releases: [0.30](chang
   keeps the hand-written code. The library has 46 node types: constants, params, textures, uv, time, vertex colour and
   position and normal inputs, math, value, gradient, voronoi and fractal noise, dissolve, flow maps, fresnel, triplanar and
   parallax occlusion, and an output node (surface fields and a vertex offset). `material.graph.nodes` lists them and
-  `material.graph.validate` checks a graph with the JSON pointer of every problem. The editor canvas follows in a later release.
+  `material.graph.validate` checks a graph with the JSON pointer of every problem. The editor's canvas is the Graph panel (below).
+
+- **Graph panel (M72.5):** View > Graph edits the node graph of a material on a canvas: drag nodes, link ports with the mouse
+  (a link that would make a cycle or a type that does not fit is refused with the checker's sentence), a searchable palette
+  of the library, copy, cut, paste and duplicate (the text pastes into another material), a lit sphere, cube or quad preview
+  of the material the graph generates (compiled on a worker thread), the problems
+  list, and Save, which runs `material.graph.generate` and asks before it overwrites a hand-edited snippet. Open a material
+  by double-clicking it in the Project panel, with **Edit graph** in the Inspector, or start one with **New graph material**.
+  Every kept edit is one step of the editor's Undo. The graph format takes an optional `version` and `editor` objects (the
+  panel's own data, never part of the snippet); `material.graph.validate` and `generate` take an inline `graph`, names starting
+  with `gn_` are refused for params and textures, and a link no longer reports a type mismatch again further down the chain.
 
 ## 0.31.0
 

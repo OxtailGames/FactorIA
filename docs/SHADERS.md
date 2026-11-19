@@ -26,8 +26,8 @@ The loop for an AI (or a person):
 | `format` | Always `"factoria.material/1"`. Required. |
 | `shader` | Project-relative path of the snippet, e.g. `"shaders/pulse.surface.glsl"`. Required. |
 | `doc` | What the material looks like and is for. Shown by `material.info`. |
-| `kind` | What the material is for: `"mesh"` (default; the surface of a `MeshRenderer`, what this page describes), or the reserved `"sprite"`, `"sky"`, `"post"` and `"compute"`. Only `"mesh"` compiles today: `shader.compile` refuses the others with an error on `/kind` that names the engine milestone package that will bring them (sprite and sky: M72.1, post: M72.2, compute: M72.4). |
-| `lighting` | `"pbr"` (default): the engine's lighting, fog and sky reflection. `"unlit"`: the surface albedo is drawn as it is, plus emission and fog. `"custom"`: your snippet defines `light()` (and optionally `ambient()`), which the engine's light loop calls once per light instead of its own shading (see "Custom lighting" below); shadows, attenuation, emission and fog stay the engine's. |
+| `kind` | What the material is for: `"mesh"` (default; the surface of a `MeshRenderer`, what this page describes), or `"sprite"` (a 2D item: `Sprite`, `Shape2D`, `Tilemap`, `Text`, particles; [below](#materials-on-sprites-shapes-tiles-text-and-particles)), `"compute"` (a program that runs on the GPU over storage buffers; [Compute materials](#compute-materials)), or the reserved `"sky"` and `"post"`. `"mesh"`, `"sprite"` and `"compute"` compile: `shader.compile` refuses the others with an error on `/kind` that names the engine milestone package that will bring them (sky: M72.1, post: M72.2). |
+| `lighting` | `"pbr"` (default): the engine's lighting, fog and sky reflection. `"unlit"`: the surface albedo is drawn as it is, plus emission and fog. `"custom"` (mesh materials only): your snippet defines `light()` (and optionally `ambient()`), which the engine's light loop calls once per light instead of its own shading (see "Custom lighting" below); shadows, attenuation, emission and fog stay the engine's. |
 | `alphaMode` | `"opaque"` (default): alpha is ignored. `"clip"`: fragments with `alpha` below `alphaCutoff` are discarded, also in the shadow pass. `"blend"`: drawn with the blended meshes, far to near. |
 | `doubleSided` | `true` draws back faces too. Default `false`. |
 | `params` | Typed parameters the snippet reads (below). |
@@ -151,7 +151,9 @@ even when both stages read it. Example 9 below displaces a plane with a height m
 ## Per-instance params and vertex channels
 
 **A value per entity in one draw.** Mark a param `"instanced": true` and entities that differ only in that param still
-share one instanced draw call: a thousand grass blades each with their own tint, a crowd with a color each.
+share one instanced draw call: a thousand grass blades each with their own tint, a crowd with a color each. Both this and
+`vertexAttributes` are for **mesh** materials only: a sprite, sky or compute material with an `instanced` param or a
+`vertexAttributes` is refused (`/params/<name>/instanced`, `/vertexAttributes`) rather than reading 0.
 
 ```json
 "params": {
@@ -182,7 +184,8 @@ and `vertex()` sees two read-only globals, `vec2 vertex_uv1` and `vec4 vertex_co
 `surface()` cannot read them directly. The channels exist only in **glTF meshes** that have `TEXCOORD_1` / `COLOR_1`
 (a `COLOR_1` of 3 or 4 components); procedural meshes and the built-in primitives (`cube`, `plane`...) have neither. A mesh part without a declared
 channel is drawn **magenta** (the error material) and the log says, once per material and mesh, which material, mesh,
-part and glTF attribute are missing: add the channel to the model or remove it from `vertexAttributes`. A material that
+part and glTF attribute are missing (for a built-in primitive it says so and suggests a glTF that has the channel): add
+the channel to the model or remove it from `vertexAttributes`. A material that
 declares none gets the attributes it always had.
 
 The renderer's test fixtures `materials/inst.material.json` (per-entity `tint` and `raise`, a per-draw `boost`) and
@@ -282,7 +285,7 @@ A material can be built from nodes instead of GLSL. Add a `"graph"` to the `.mat
 writes the snippet named by `shader` from it, so a graph and the code stay one document: the generated GLSL is plain, readable
 text (one line per node, with a comment naming the node id) that compiles through the same path as a hand-written snippet
 (`shader.compile`, `factoria validate`, hot reload, export). A graph needs no editor: an AI or a person writes the JSON, and
-the editor's canvas (a later release) edits the same JSON.
+the editor's Graph panel (View > Graph, [EDITOR.md](EDITOR.md)) edits the same JSON and runs the same commands, so both can take turns on one file.
 
 ```json
 "graph": {
@@ -314,6 +317,10 @@ the editor's canvas (a later release) edits the same JSON.
 - **Links.** `"from": "nodeId.output"`, `"to": "nodeId.input"`; an input takes one link. Types are `float`, `vec2`, `vec3`,
   `vec4`: a float widens to any size by itself, anything else needs `math.split` and `math.combine`. Math nodes take a float or
   a vector (the size their linked inputs agree on).
+- **`editor` and `version`.** The graph takes an optional `"version"` (the format; 1 today, anything else is refused) and the
+  graph and each node an optional `"editor"` object, where the Graph panel keeps what only it needs (the view's zoom and
+  pan, comments), which only has to be an object. The generator never reads `editor`, so it does not change the snippet or the
+  hash, and the commands keep it as written.
 - **Library** (`material.graph.nodes` has every input, output and doc): constants (`const.float`, `const.vec2`, `const.vec3`,
   `const.vec4`, `const.color`), `param`, `uv`, `time`, `vertex.color`, `position.world`, `position.view`, `normal.world`,
   `view.dir`, `texture`, `texture.normal`, `triplanar`, `parallax` (occlusion mapping), math (`add`, `sub`, `mul`, `div`, `min`,
@@ -329,7 +336,9 @@ the editor's canvas (a later release) edits the same JSON.
   pointer, what is wrong and the fix: unknown node type with a "did you mean", a link to a node or port that does not exist,
   a type mismatch, a cycle, a missing output, a node used in the vertex path that needs the fragment stage), and
   `material.graph.generate {material, force?, dryRun?}`, which writes the snippet and `graphHash`. Run `shader.compile`
-  afterwards.
+  afterwards. Both also take `graph` (a graph object) in place of the one the file holds, to check a graph that is not saved yet, or to
+  store it in the material and generate from it in one call (the Graph panel's problems list and Save work this way). A param or texture name that starts with `gn_`
+  is refused: the generator keeps that prefix for its GLSL helper functions.
 
 **The hand-edit rule.** `graphHash` is the SHA-256 of the snippet the generator wrote (line endings ignored). When you
 generate again, the command first compares the snippet on disk with it: if they differ, someone edited the generated code
@@ -409,7 +418,8 @@ void surface(in SurfaceInput i, inout Surface s) {
 
 `"clip"` discards fragments whose `s.alpha` is below `alphaCutoff` (0.5), in the shadow too, so the holes cast no
 shadow. Animate `amount` from a script from 0 (whole) to 1 (gone). With a noise texture instead of the hash, declare it in
-`textures` and use `texture(sampler2D(noise, noise_smp), i.uv).r` as `n`.
+`textures` (name it `mask`, not `noise`: sokol-shdc cannot compile a texture called `noise`, and the material is refused) and
+use `texture(sampler2D(mask, mask_smp), i.uv).r` as `n`.
 
 File `materials/dissolve.material.json`:
 
@@ -701,14 +711,216 @@ void surface(in SurfaceInput i, inout Surface s) {
 }
 ```
 
+## Materials on sprites, shapes, tiles, text and particles
+
+`"kind": "sprite"` makes a material for the 2D quad pipeline: everything the engine draws as textured or shaded quads
+(`Sprite`, `Shape2D`, `Tilemap`, `Text` glyphs, particles and trails, UI images). The file, the params, the textures, the
+compiler, the cache, `factoria validate` and `factoria export` are the ones described above; the snippet and what it
+starts from differ.
+
+**What is built.** The template, the compiler and the tooling: `shader.compile`, `material.info` (programs `quad` and
+`quad_plain`), `factoria validate` and `factoria export` (`<name>.material.json.<dialect>.shader`) work for a sprite
+material. The renderer draws it for a **`Sprite`** (its `material` and `materialParams` fields): the item is drawn with the
+material's compiled programs. `Shape2D`, `Tilemap`, `Text`, particles and UI images still draw with the engine's own shader
+(their `material` fields are listed by `docs.components`; the draw for them is the next package of the same milestone), so
+check a material on those with `shader.compile` and `factoria validate`.
+
+**What the renderer does with a sprite material.** Sprites with the same material and equal param values share a draw call;
+a different value, another material or a sprite without one starts a new batch (the draw order is the same as without
+materials). `fa_time` is the engine clock and `fa_target` the size of the render target, in both programs. A material that
+did not build, or that is not of kind `"sprite"`, draws the sprite in magenta (its alpha stays) with the engine's own shader
+and logs the compile error once; the error log (`game.logs`) says why, `materialFallbacks` in the render stats names it, and the previous version of a
+material stays in use when a hot reload of its shader fails.
+
+**The snippet** is plain GLSL 450 like the mesh one, with these entry points:
+
+- `void fragment(in QuadInput i, inout QuadSurface s)` (**required**), run per fragment.
+- `void vertex(inout QuadVertex v)` (optional), run per vertex, before the transform to the screen.
+
+```glsl
+struct QuadInput {              // read-only, per fragment
+    vec2 uv;                    // texture coordinates (atlas coordinates for a sprite of a sheet); modes 1, 2, 3, 7: the position in the shape's box, [-1,1] covers it
+    vec4 color;                 // the tint (vertex colour: linear in a linear scene)
+    vec2 world_pos;             // world position (x, y) of the fragment
+    vec2 screen_uv;             // position in the render target, 0..1, y running DOWN on every backend
+    float time;                 // seconds of game time (the same as fa_time.x)
+    float mode;                 // what is drawn: 0 texture, 1 circle, 2 ring, 3 soft particle, 4 glyph, 5/6 lit, 7 SDF shape
+    vec4 custom;                // reserved: zero for now
+};
+struct QuadSurface { vec4 color; };                      // straight (not premultiplied) RGBA
+struct QuadVertex { vec3 world_pos; vec2 uv; vec4 color; };
+```
+
+**What `s.color` holds.** `fragment()` arrives with `s.color` already holding what the engine would draw for the item,
+so an empty `fragment()` draws exactly the engine's own pixels, and a snippet changes only what it needs:
+
+| `i.mode` | `s.color` on arrival |
+|---|---|
+| 0 | the main texture times the tint |
+| 1, 2, 3 | the circle, the ring or the soft particle: tint colour, the alpha holding the coverage |
+| 4 | a glyph: the tint, the alpha holding the glyph's coverage |
+| 5, 6 (and the `+16` modes of lit items) | the picture already shaded by the 2D lights |
+| 7 | the rounded rectangle, circle, outline or gradient of a `Shape2D` (its coverage, gradient and dithering included) |
+
+What `fragment()` leaves in `s.color` goes through the engine's last steps: the `flash` of [GAME_FEEL.md](GAME_FEEL.md),
+the conversion of a `multiply` blend and the fog. `fa_sample_main(uv)` samples the item's main texture in the colour space
+of the scene (for a snippet that wants to look the picture up somewhere else); `fa_scene_rgb(c)` takes an sRGB colour of
+yours (a param of type `color`) to the scene's colour space. `fa_time` and the names of the engine's own 2D program are the
+engine's: a sprite material is refused (error at `/params/<name>` or `/textures/<name>`, with a rename suggestion) when a
+param or texture takes one of them. That is every unprefixed name of `quad_common.glsl`, `color_space.glsl` and
+`light_shadow.glsl`: the vertex inputs and varyings (`position`, `color`, `uv`, `params`, `xform`...), the textures and
+samplers (`tex`, `smp`, `normal_tex`, `light_tex`...), the uniform blocks and their members (`lit`, `ambient`,
+`light_pos`...) and the helper functions (`tex_color`, `shape_color`, `scene_rgb`, `light_shadow`...), plus `fragment`,
+`QuadInput`, `QuadSurface` and `QuadVertex`. (A mesh material may have a `color` param; the sprite program already has
+one.) A snippet's own variables and functions must avoid them too: the compiler's hint then says the name is taken by
+the engine's 2D program.
+
+**The lean program.** The renderer draws a batch of plain textured quads (no lights, no multiply, nothing but mode 0)
+with a lean program, `quad_plain`; every other batch uses `quad`. Both compile from your snippet, so `fragment()` must
+not depend on anything the lean program has not: `i.mode` is 0 in it.
+
+**Slots.** The engine's own bindings come first, so a material's textures start after them: sampler and texture views
+0 to 3 (`tex`, `normal_tex`, `light_tex`, `shadow_tex`) and samplers 0 to 2 are the engine's; your textures are views 4
+to 7 and samplers 3 to 6 (at most 4 textures, as for a mesh), the params block is binding 5 (4 in the vertex stage). A
+mesh material starts at view 6 and sampler 2: the numbers are not interchangeable, but `kind` decides them and you never
+write them. The slots are listed in `engine/render/src/render_internal.h` (`kMaterialSpriteFirstView`).
+
+**What is different from a mesh material.**
+
+- `alphaMode: "clip"` is an error: a sprite is always blended by the engine. Write `if (s.color.a < 0.5) discard;` where
+  you want a cut-out. `lighting` `"pbr"` and `"unlit"` and `doubleSided` mean nothing here and are ignored; `"custom"` is an
+  error (there is no `light()` hook in the 2D pipeline).
+- `vertex()` cannot sample a texture of the material (a mesh material's can, see "Textures in `vertex()`"): the 2D pipeline
+  binds a material's textures to the fragment stage only, and the compiler says so.
+- The compiled twin carries `programs.quad` and `programs.quad_plain` and the key `"kind": "sprite"`; its `template` is
+  the hash of the sprite template (a change of the template recompiles sprite materials only).
+- Errors name `fragment()` and `QuadInput`: `i.colour` says `did you mean color?` and lists the fields.
+
+### 10. Dissolve and hit flash on a sprite
+
+A noise dissolve that glows along its edge (`amount`: 0 whole, 1 gone) and a flash to white (`flash`: 0 none, 1 white),
+both driven from a script as the game wants. The snippet starts from what the sprite would draw, so the picture, the
+tint and the lights of the sprite keep working.
+
+File `materials/sprite-dissolve.material.json`:
+
+```json
+{
+  "format": "factoria.material/1",
+  "kind": "sprite",
+  "doc": "A sprite that burns away along a noise pattern, with a flash to white for hits.",
+  "shader": "shaders/sprite-dissolve.fragment.glsl",
+  "params": {
+    "amount": { "type": "float", "default": 0.0, "min": 0.0, "max": 1.0, "doc": "How much is gone: 0 whole, 1 nothing left." },
+    "edgeColor": { "type": "color", "default": [1.0, 0.5, 0.1, 1.0], "doc": "Color of the glowing edge." },
+    "edgeWidth": { "type": "float", "default": 0.08, "min": 0.0, "max": 0.5, "doc": "Width of the glowing edge, in noise units (0..1)." },
+    "flash": { "type": "float", "default": 0.0, "min": 0.0, "max": 1.0, "doc": "Hit flash: 0 none, 1 the whole sprite white." },
+    "scale": { "type": "float", "default": 8.0, "min": 1.0, "max": 60.0, "doc": "Size of the noise: noise cells per UV unit." }
+  }
+}
+```
+
+File `shaders/sprite-dissolve.fragment.glsl`:
+
+```glsl
+float hash(vec2 p) {
+    return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453);
+}
+
+float value_noise(vec2 p) {
+    vec2 c = floor(p);
+    vec2 f = fract(p);
+    f = f * f * (3.0 - 2.0 * f);
+    return mix(mix(hash(c), hash(c + vec2(1.0, 0.0)), f.x),
+               mix(hash(c + vec2(0.0, 1.0)), hash(c + vec2(1.0, 1.0)), f.x), f.y);
+}
+
+void fragment(in QuadInput i, inout QuadSurface s) {
+    float n = value_noise(i.uv * scale);
+    if (n < amount) discard;
+    float edge = 1.0 - smoothstep(0.0, max(edgeWidth, 0.001), n - amount);
+    s.color.rgb = mix(s.color.rgb, fa_scene_rgb(edgeColor.rgb), edge * step(0.001, amount));
+    s.color.rgb = mix(s.color.rgb, vec3(1.0), flash);
+}
+```
+
+A texture works as for a mesh material, sampled with `texture(sampler2D(mask, mask_smp), i.uv)`; name it anything but
+a name of the engine's program (`tex`, `smp`, `normal_tex`... are refused).
+
+## Compute materials
+
+A material with `"kind": "compute"` is a program that runs on the GPU over **storage buffers** and draws nothing: particle
+simulations, flocking, flow fields, anything that updates many elements at once. Its snippet defines one function, called
+once per thread:
+
+```glsl
+void compute(in ComputeInput i) {
+    uint k = i.global_id.x;
+    items.data[k].value = items.data[k].value * factor;
+}
+```
+
+`ComputeInput` is read-only: `global_id` (the thread's index over the whole dispatch), `local_id` (inside its workgroup),
+`group_id` (the workgroup's index) and `local_index` (`local_id` flattened). All but the last are `uvec3`.
+
+The file (`materials/<name>.material.json`) takes these keys besides `format`, `kind`, `doc` and `shader` (which names the
+snippet, e.g. `shaders/boids.compute.glsl`); `lighting`, `alphaMode` and `doubleSided` do not apply to a compute material (it draws nothing) and are refused with an error:
+
+| Key | Meaning |
+|---|---|
+| `workgroupSize` | The threads of one workgroup, `[x, y, z]` (y and z default to 1; default `[64, 1, 1]`). The product must be a multiple of 32 and at most 256: `[64]`, `[128]`, `[8, 8]`, `[16, 16]`; z is at most 64 (Direct3D 11 and OpenGL limit it). A dispatch counts workgroups, not threads. |
+| `buffers` | The storage buffers: `{"name": {"doc": "...", "access": "readWrite" or "read", "fields": [{"name": "pos", "type": "vec2", "doc": "..."}]}}`. At most 4 buffers of at most 16 fields each. A field is `float`, `vec2`, `vec3`, `vec4`, `int` or `uint`. The buffer is an array of elements made of the fields, laid out as std430 (a `vec3` takes 12 bytes but aligns to 16: prefer `vec4`); the snippet reads and writes `<name>.data[index].<field>`. |
+| `params` | As for a mesh material (at most 16, each a variable of the snippet). A dispatch gives their values. |
+| `textures` | As for a mesh material: read in the snippet like in a mesh snippet. A dispatch gives the path of each texture in `params`. |
+
+A buffer in the file only describes the element; the buffer itself is created at run time with `compute.create_buffer`.
+**Storage images** (a compute shader that writes a texture) are not available yet: write the result to a buffer.
+
+Errors point at the place: `/workgroupSize: 8 threads (8 x 1 x 1), which is not a multiple of 32`, `/buffers/items/fields/0/type:
+unknown field type "flaot" (did you mean "float"?)`, a snippet without `compute(in ComputeInput i)` says so with the file and
+line.
+
+### Running one
+
+The `compute.*` commands (also `fa.call("compute.dispatch", ...)` in a script, and MCP/CLI) work on buffers by id:
+
+| Command | What it does |
+|---|---|
+| `compute.create_buffer` | `{material, buffer, count, initial?}`: a buffer of `count` elements shaped like the material's `buffer`; `initial` is an array of `{field: value}` objects for the first elements, the rest is zero. Returns `{id, count, stride, bytes}`. |
+| `compute.write_buffer` | `{buffer, elements, first?}`: overwrites elements from `first` with `{field: value}` objects (a field left out is written as 0). |
+| `compute.dispatch` | `{material, buffers, params?, groups?}`: runs the material once. `buffers` maps each buffer name of the material to an id; `params` gives values and texture paths; `groups` is `[x, y, z]` workgroups (default `[1, 1, 1]`). Dispatches run in the order they are made. |
+| `compute.read_buffer` | `{buffer, first?, count?}`: the current contents as `{field: value}` objects (a `vecN` is an array, floats have 7 significant digits, a NaN or infinity is `null`). It waits for the GPU, so use it to check a result, not every frame. |
+| `compute.destroy_buffer` | `{buffer}`: frees it. |
+| `compute.list_buffers` | The live buffers, and `available` / `status`. |
+
+From C++ the same is `Renderer::compute()` (`fa/render/compute.h`: `create_buffer`, `write_buffer`, `dispatch`, `read_buffer`).
+
+Limits, all counts and never time: 64 buffers, 256 MiB each and 1 GiB in all, at most 65535 workgroups per dimension and
+1048576 elements converted per write or read call. A request over one is refused with the number it hit.
+
+### Where it runs
+
+Compute needs a graphics API with compute shaders: **Windows** (D3D11), **Linux** (OpenGL 4.3 or newer), **macOS**
+(Metal) and **iOS** (Metal). It does not exist on **Android** (OpenGL ES 3.0) or the **web** (WebGL2), nor on a macOS
+that falls back to OpenGL 4.1. `render.supports computeShaders` says it for the running computer; there, every
+`compute.*` command that needs the GPU fails with the code `unavailable`, naming the backend, so a game can check first and
+use a CPU path instead. Nothing crashes and nothing is skipped silently. A compute material put on a `MeshRenderer` is
+drawn with the error material and the log says why.
+
+`factoria export` writes a twin for each platform that runs compute (`*.material.json.hlsl5.shader`, `.glsl430.shader`,
+`.metal_macos.shader`, `.metal_ios.shader`) and a warning for each platform that does not, which the Android and Web
+exports show. `material.info` lists `runsOn`.
+
 ## Not available yet
 
 - **Full vertex and fragment shaders** (your own `main`, several passes): the snippet always runs inside the engine's
-  mesh shader. Of the vertex layout only `uv1` and `color1` can be added (`vertexAttributes`), and only glTF meshes have them.
+  mesh or quad shader. Of a mesh material's vertex layout only `uv1` and `color1` can be added (`vertexAttributes`), and
+  only glTF meshes have them.
 - **Your own light loop** (which lights are chosen, how many, their order, the shadow map): `"custom"` lighting only
   shades each light the engine hands over. Image-based lighting (the sky reflection) is off in a custom material and
   cannot be called from `light()`.
-- Materials for `Sprite`, `Shape2D`, particles, the sky and post-processing; compute shaders.
+- Materials for the sky and post-processing; compute storage images and compute on Android and the web; textures sampled in the `vertex()` of a sprite material (a mesh
+  material can); per-instance params and vertex channels in a sprite, sky or compute material (mesh only).
 
 If a game needs one of these, write it in the game's `ENGINE_FEEDBACK.json` (see [ENGINE_FEEDBACK.md](ENGINE_FEEDBACK.md)):
 that is how it gets built.

@@ -1,6 +1,6 @@
 // Custom materials, the tooling half (docs/design/CUSTOM_SHADERS.md): reads and checks `*.material.json`
 // (schemas/material.schema.json), generates the sokol-shdc top file around the author's GLSL snippet and the engine's mesh
-// template (engine/render/shaders/*_common.glsl, embedded), runs sokol-shdc, maps its errors back to the snippet, and keeps
+// template of its kind (engine/render/shaders/*_common.glsl, embedded), runs sokol-shdc, maps its errors back to the snippet, and keeps
 // the result as one JSON "twin" per dialect (`factoria.shader/1`). Commands: "shader.compile", "material.info", and the node-graph ones in fa/tooling/material_graph.h;
 // `factoria validate` compiles every material for every dialect; `factoria export` ships the twins of the target's dialects
 // (<material>.json.<slang>.shader) in place of the snippets (tools/common/src/export_shaders.cpp).
@@ -50,6 +50,15 @@ inline constexpr int kMaterialVsFirstView = kMaterialFsFirstView + kMaterialMaxT
 // this many vec4 (12 floats) per instance, so the main program of a skinned mesh (11 attributes + 3 + 2 declared channels)
 // stays within the 16 vertex attributes sokol and every backend allow.
 inline constexpr int kMaterialMaxInstanceVec4 = 3;
+// A sprite material's textures (kind "sprite") are fragment-stage only, at view kMaterialSpriteFirstView + i and sampler
+// kMaterialSpriteFirstSampler + i: the 2D program's own four views and three samplers come first (render_internal.h has the same numbers).
+inline constexpr int kMaterialSpriteFirstView = 4, kMaterialSpriteFirstSampler = 3;
+inline constexpr int kComputeMaxBuffers = 4;        // storage buffers of one compute material
+inline constexpr int kComputeMaxBufferFields = 16;  // fields of one buffer element
+// x*y*z of the workgroup size: WebGPU's default limit, a floor on every GPU (D3D11 and Metal allow 1024).
+inline constexpr int kComputeMaxWorkgroupInvocations = 256;
+inline constexpr int kComputeMaxWorkgroupZ =
+    64;  // z of the workgroup: Direct3D 11 numthreads and the OpenGL guaranteed minimum
 inline constexpr const char* kMaterialFormat = "factoria.material/1";
 inline constexpr const char* kShaderTwinFormat = "factoria.shader/1";
 inline constexpr const char* kMaterialAlphaCutoff = "alphaCutoff";
@@ -97,19 +106,42 @@ struct MaterialTexture {
     std::string doc;
 };
 
+// One field of an element of a compute material's storage buffer (kind "compute", "buffers").
+struct MaterialBufferField {
+    std::string name;
+    std::string type;  // "float" | "vec2" | "vec3" | "vec4" | "int" | "uint"
+    std::string doc;
+    int offset = 0;  // bytes from the start of an element (std430), filled in by parse_material
+};
+
+// A storage buffer a compute material declares: an array of structs the snippet reads and writes as `<name>.data[i].<field>`.
+struct MaterialBuffer {
+    std::string name;
+    std::string access = "readWrite";  // "readWrite" | "read" (the shader only reads it)
+    std::string doc;
+    std::vector<MaterialBufferField> fields;  // in the order written: it is the memory layout
+    int stride = 0;   // bytes of one element (std430: a multiple of 16 when it holds a vec3 or vec4)
+    int binding = 0;  // the storage buffer binding of the shader (alphabetical order of the buffers)
+};
+
 struct MaterialDef {
     std::string path;  // project-relative path of the .material.json
     std::string doc;
     std::string shader;  // project-relative path of the snippet
     std::string kind =
-        "mesh";  // "mesh" | "sprite" | "sky" | "post" | "compute" (fa::material_kind_names()); only mesh compiles
-    std::string lighting = "pbr";      // "pbr" | "unlit" | "custom" (the snippet defines light())
+        "mesh";  // "mesh" | "sprite" | "sky" | "post" | "compute" (fa::material_kind_names()); mesh, sprite and compute compile
+    std::string lighting = "pbr";      // "pbr" | "unlit" | "custom" (a mesh material whose snippet defines light())
     std::string alphaMode = "opaque";  // "opaque" | "clip" | "blend"
     bool doubleSided = false;
     std::vector<MaterialParam> params;  // alphabetical (the packing order of the uniform block); includes implicit ones
     std::vector<MaterialTexture> textures;  // alphabetical (view bindings 6.., sampler bindings 2..)
     std::vector<std::string>
-        vertexAttributes;  // extra mesh channels vertex() reads (material_vertex_attribute_names()), sorted
+        vertexAttributes;  // kind "mesh" only: extra mesh channels vertex() reads (material_vertex_attribute_names()), sorted
+    // Kind "compute" only: the local workgroup size the shader declares ([x, y, z], x*y*z at most
+    // kComputeMaxWorkgroupInvocations) and its storage buffers (alphabetical, bindings 0..; the textures of a compute material
+    // bind after them).
+    int workgroupSize[3] = {64, 1, 1};
+    std::vector<MaterialBuffer> buffers;
     // The node graph the snippet is generated from (fa/tooling/material_graph.h); null = the snippet is hand-written. graphHash
     // is the hash of the snippet material.graph.generate wrote ("" = never generated).
     Json graph;
@@ -149,6 +181,13 @@ const std::vector<std::string>& shader_dialects();
 // The dialects of some platforms (union, no duplicates, in shader_dialects() order); empty = all. An unknown platform is an
 // error with a "did you mean".
 Result<std::vector<std::string>> shader_dialects_for(const std::vector<std::string>& platforms);
+// The dialects a material of `kind` is compiled for: shader_dialects() for every kind except "compute", which has no glsl300es
+// (GLES3 and WebGL2, hence Android and the web, have no compute shaders).
+std::vector<std::string> shader_dialects_of_kind(const std::string& kind);
+// The platforms a material of `kind` runs on (shader_platforms() order): all of them, except "compute": windows (D3D11), linux
+// (OpenGL 4.3 or newer), macos and ios (Metal). The GPU must still support it (render.supports computeShaders): an OpenGL
+// driver older than 4.3 does not.
+std::vector<std::string> shader_platforms_of_kind(const std::string& kind);
 // The dialect the running machine's renderer uses (hlsl5 on Windows, glsl430 on Linux, metal_macos on macOS).
 std::string host_shader_dialect(const SetupContext& context = {});
 
@@ -158,23 +197,24 @@ std::string host_shader_dialect(const SetupContext& context = {});
 
 struct GeneratedShader {
     std::string kind =
-        "mesh";       // the material's kind (its template files and template hash); only "mesh" is generated so far
+        "mesh";       // the material's kind (its template files and template hash): "mesh", "sprite" or "compute"
     std::string top;  // the sokol-shdc input
     std::vector<int>
         snippetLine;  // per line of `top` (index = line - 1): the 1-based line of the snippet it holds, 0 = generated
     bool hasVertex = false;   // the snippet defines vertex()
-    bool hasSurface = false;  // the snippet defines surface()
+    bool hasSurface = false;  // the snippet defines surface() (a sprite material: fragment())
     bool hasLight = false;    // lighting "custom": the snippet defines light()
     bool hasAmbient = false;  // lighting "custom": the snippet defines ambient()
+    bool hasCompute = false;  // the snippet defines compute() (kind "compute")
     std::vector<std::string>
-        programs;  // "mesh", "mesh_skin", with vertex() or "clip" "shadow", "shadow_skin", and "prepass", "prepass_skin"
+        programs;  // sprite: "quad", "quad_plain". Mesh: "mesh", "mesh_skin", with vertex() or "clip" "shadow", "shadow_skin", and "prepass", "prepass_skin"
     std::vector<std::string>
-        defines;  // for --defines: FA_HAS_VERTEX, FA_ALPHA_CLIP, FA_CUSTOM_LIGHT, FA_HAS_AMBIENT, FA_INST_1..3 (the vec4
-                  // of per-instance data), FA_CH_UV1, FA_CH_COLOR1 (declared vertexAttributes)
+        defines;  // for --defines: FA_MATERIAL (sprite), FA_HAS_VERTEX, FA_ALPHA_CLIP, FA_CUSTOM_LIGHT, FA_HAS_AMBIENT (mesh),
+                  // FA_INST_1..3 (the vec4 of per-instance data), FA_CH_UV1, FA_CH_COLOR1 (declared vertexAttributes)
 };
 
 // Builds the top file of the design: the material block(s) in alphabetical order, the textures, the snippet (surface() only
-// in the fragment stage, vertex() only in the vertex stage, everything else in both), `@include mesh_common.glsl` and the
+// in the fragment stage, vertex() only in the vertex stage, everything else in both), `@include mesh_common.glsl` (a sprite material: quad_common.glsl) and the
 // programs. Comments are ignored when looking for vertex() and surface().
 GeneratedShader generate_material_shader(const MaterialDef& material, std::string_view snippet);
 
@@ -211,6 +251,9 @@ struct ShaderCompileOptions {
 struct ShaderCompileResult {
     bool ok = false;
     std::vector<std::string> dialects;  // the dialects asked for (all compiled when ok)
+    // The dialects asked for that the kind of the material has no shader for (a compute material and glsl300es): not in
+    // `dialects` nor in `twins`, which may then be empty with ok true.
+    std::vector<std::string> skippedDialects;
     std::vector<ShaderIssue> errors;
     std::map<std::string, Json> twins;  // slang -> the factoria.shader/1 document (only when ok)
     int cacheHits = 0;                  // dialects served from .factoria/shader-cache

@@ -323,6 +323,9 @@ void Editor::draw_project_tile(const BrowserFile& f, ImVec2 size) {
         open_music_document(f.path);
     if (hovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left) && f.type == "vfx")
         open_particle_document(f.path);
+    if (hovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left) && ends_with(f.path, ".material.json") &&
+        graph_file_has_graph(projectDir_, f.path))
+        open_graph_document(f.path);
     if (hovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left) && ends_with(f.path, ".model.json"))
         open_model_document(f.path);
     if (hovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left) && ends_with(f.path, ".anim.json") &&

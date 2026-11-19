@@ -107,9 +107,12 @@ void MaterialHashCache::end_frame() {
 }
 
 void MaterialHashCache::hashes(Entity e, const Json* params, const Json* colors, std::size_t& paramsHash,
-                               std::size_t& colorsHash) {
+                               std::size_t& colorsHash, const MaterialAsset* material) {
     Entry* en = touch(e);
-    refresh(*en, params, colors);
+    // As RenderScene::build does: the instanced params of the entity's material are not part of the params hash.
+    refresh(*en, params, colors,
+            params && material && !material->instancedNames.empty() ? &material->instancedNames : nullptr,
+            params && material ? material->instancedKey : 0);
     paramsHash = en->paramsHash;
     colorsHash = en->colorsHash;
 }
@@ -142,6 +145,19 @@ void RenderScene::build(World& world, Assets& assets, Entity scopeRoot, bool wan
         sm.mesh = assets.mesh(mr.mesh);
         sm.tex = mr.texture.empty() ? nullptr : assets.texture(mr.texture);
         sm.material = mr.material.empty() ? nullptr : assets.material(mr.material);
+        if (sm.material && sm.material->ok && sm.material->kind != MaterialKind::Mesh) {
+            // A mesh is drawn with the programs of a mesh material only: a sprite material (quad programs) would be bound to a
+            // vertex layout it was not made for, and a compute material has no draw program. The mesh is drawn with the
+            // engine's own shader.
+            if (sm.material->warned.insert("\x01kind").second)
+                FA_WARN(
+                    "render",
+                    "MeshRenderer.material '{}' is a \"{}\" material: only \"mesh\" materials draw a MeshRenderer, so "
+                    "the engine's own shader is used (a \"sprite\" material is for the 2D quad pipeline, a \"compute\" "
+                    "one for the compute.* commands)",
+                    mr.material, material_kind_name(sm.material->kind));
+            sm.material = nullptr;
+        }
         sm.normalTex = mr.normalMap.empty() ? nullptr : assets.texture(mr.normalMap);
         sm.hasLods = !mr.lods.empty();
         sm.liveTextures = Assets::is_target_id(mr.texture) || Assets::is_target_id(mr.normalMap);

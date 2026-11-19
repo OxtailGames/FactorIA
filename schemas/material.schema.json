@@ -10,10 +10,10 @@
     "$schema": { "type": "string", "description": "Optional schema reference for editors." },
     "format": { "const": "factoria.material/1", "description": "File format identifier. Always \"factoria.material/1\"." },
     "doc": { "type": "string", "description": "What the material looks like and what it is for (shown by material.info)." },
-    "kind": { "enum": ["mesh", "sprite", "sky", "post", "compute"], "default": "mesh", "description": "What the material is for; each kind has its own template and snippet contract. \"mesh\" (the default): the surface of a MeshRenderer, the only kind that compiles so far. \"sprite\" (the 2D quad path: Sprite, Shape2D, Tilemap, Text, particles, UI images; M72.1), \"sky\" (M72.1), \"post\" (a pass of the post-processing stack; M72.2) and \"compute\" (M72.4) are reserved: a material with one of them is refused with the package that brings it." },
-    "shader": { "type": "string", "description": "Project-relative path of the GLSL snippet (generated from `graph` when the material has one) that defines `void surface(in SurfaceInput i, inout Surface s)` and optionally `void vertex(inout VertexData v)`, e.g. \"shaders/water.surface.glsl\"." },
+    "kind": { "enum": ["mesh", "sprite", "sky", "post", "compute"], "default": "mesh", "description": "What the material is for; each kind has its own template and snippet contract. \"mesh\" (the default): the surface of a MeshRenderer. \"sprite\": the 2D quad path (Sprite, Shape2D, Tilemap, Text, particles, UI images), a fragment() and an optional vertex() snippet (docs/SHADERS.md). \"sky\" (M72.1) and \"post\" (a pass of the post-processing stack; M72.2) are reserved: a material with one of them is refused with the package that brings it. \"compute\": a program that runs on the GPU over storage buffers and draws nothing: it defines `void compute(in ComputeInput i)` and declares `workgroupSize` and `buffers` (lighting, alphaMode and doubleSided do not apply to it and are refused); it runs on Windows (D3D11), Linux (OpenGL 4.3+), macOS (Metal) and iOS, not on Android or the web (docs/SHADERS.md, \"Compute materials\")." },
+    "shader": { "type": "string", "description": "Project-relative path of the GLSL snippet (generated from `graph` when the material has one) that defines `void surface(in SurfaceInput i, inout Surface s)` (a sprite material: `void fragment(in QuadInput i, inout QuadSurface s)`) and optionally `void vertex(inout VertexData v)` (sprite: `void vertex(inout QuadVertex v)`), e.g. \"shaders/water.surface.glsl\"." },
     "lighting": { "enum": ["pbr", "unlit", "custom"], "default": "pbr", "description": "\"pbr\": the engine's Cook-Torrance lighting, fog and sky reflection. \"unlit\": the surface albedo is drawn as it is (plus emission and fog). \"custom\": the snippet defines `vec3 light(in SurfaceInput i, in Surface s, in LightSample l)`, which the engine's light loop calls once per light (shadows and attenuation already applied in the LightSample), and optionally `vec3 ambient(in SurfaceInput i, in Surface s, vec3 ambientColor)`; the engine keeps the light selection, shadows, emission and fog and drops the sky reflection." },
-    "alphaMode": { "enum": ["opaque", "clip", "blend"], "default": "opaque", "description": "\"opaque\": alpha is ignored. \"clip\": fragments with alpha below the float param `alphaCutoff` (added automatically, default 0.5; declare it yourself to change default, range or doc) are discarded, in the shadow pass too. \"blend\": drawn with the blended meshes, far to near." },
+    "alphaMode": { "enum": ["opaque", "clip", "blend"], "default": "opaque", "description": "\"opaque\": alpha is ignored. \"clip\": fragments with alpha below the float param `alphaCutoff` (added automatically, default 0.5; declare it yourself to change default, range or doc) are discarded, in the shadow pass too. \"blend\": drawn with the blended meshes, far to near. A \"sprite\" material is always blended by the engine: \"clip\" is an error there (write discard in fragment())." },
     "doubleSided": { "type": "boolean", "default": false, "description": "Draw back faces too." },
     "params": {
       "type": "object",
@@ -28,7 +28,7 @@
           "min": { "type": "number", "description": "Smallest sensible value (the editor slider's start); also checked against the default." },
           "max": { "type": "number", "description": "Largest sensible value (the editor slider's end); also checked against the default." },
           "doc": { "type": "string", "minLength": 1, "description": "What the parameter does and its unit. Required: AIs read it through material.info." },
-          "instanced": { "type": "boolean", "default": false, "description": "true: every entity's value (MeshRenderer.materialParams) travels in the instance buffer next to the model matrix, so entities with different values stay in ONE instanced draw; the snippet reads it by the same name in surface() and vertex(), in the shadow and depth prepass too. Not part of the uniform block (the 16 params do not count it). At most 3 vec4 (12 floats) per instance for all instanced params together; floats and small vectors share a vec4. false: one value per draw, entities with different values draw separately." }
+          "instanced": { "type": "boolean", "default": false, "description": "Mesh materials only (other kinds refuse it). true: every entity's value (MeshRenderer.materialParams) travels in the instance buffer next to the model matrix, so entities with different values stay in ONE instanced draw; the snippet reads it by the same name in surface() and vertex(), in the shadow and depth prepass too. Not part of the uniform block (the 16 params do not count it). At most 3 vec4 (12 floats) per instance for all instanced params together; floats and small vectors share a vec4. false: one value per draw, entities with different values draw separately." }
         }
       }
     },
@@ -36,11 +36,11 @@
       "type": "array",
       "uniqueItems": true,
       "items": { "enum": ["uv1", "color1"] },
-      "description": "Extra channels of the mesh vertex() reads: \"uv1\" (glTF TEXCOORD_1) as `vec2 vertex_uv1`, \"color1\" (glTF COLOR_1) as `vec4 vertex_color1`. Only vertex() sees them (fold them into v.uv, v.color or the position); a mesh without the channel is refused with an error naming the material and the mesh. Procedural meshes have neither."
+      "description": "Mesh materials only (other kinds refuse it). Extra channels of the mesh vertex() reads: \"uv1\" (glTF TEXCOORD_1) as `vec2 vertex_uv1`, \"color1\" (glTF COLOR_1) as `vec4 vertex_color1`. Only vertex() sees them (fold them into v.uv, v.color or the position); a mesh without the channel is refused with an error naming the material and the mesh. Procedural meshes have neither."
     },
     "textures": {
       "type": "object",
-      "description": "Textures the snippet samples in the fragment stage (at most 4). In GLSL: `texture(sampler2D(name, name_smp), uv)`. Same naming rules as params.",
+      "description": "Textures the snippet samples in the fragment stage (at most 4). In GLSL: `texture(sampler2D(name, name_smp), uv)` (in a compute material the stage is compute, which has no derivatives: `textureLod(sampler2D(name, name_smp), uv, 0.0)`). Same naming rules as params.",
       "additionalProperties": {
         "type": "object",
         "required": ["doc"],
@@ -52,12 +52,51 @@
         }
       }
     },
+    "workgroupSize": {
+      "type": "array",
+      "items": { "type": "integer", "minimum": 1, "maximum": 256 },
+      "minItems": 1,
+      "maxItems": 3,
+      "default": [64, 1, 1],
+      "description": "Compute materials only: the threads of one workgroup [x, y, z] (y and z default to 1). The product is a multiple of 32 and at most 256 (64, [8, 8], [16, 16]); z is at most 64 (Direct3D 11 and OpenGL limit it). A dispatch counts workgroups, not threads: dispatch ceil(work / x) groups."
+    },
+    "buffers": {
+      "type": "object",
+      "description": "Compute materials only: the storage buffers the snippet reads and writes (at most 4; sorted by name, bound in that order). Each is an array of elements made of `fields`, laid out as std430; the snippet reads `<name>.data[i].<field>`. Same naming rules as params (the element type is called <name>_item).",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["fields"],
+        "additionalProperties": false,
+        "properties": {
+          "doc": { "type": "string", "description": "What the buffer holds (shown by material.info)." },
+          "access": { "enum": ["readWrite", "read"], "default": "readWrite", "description": "\"readWrite\": the snippet may read and write it. \"read\": the snippet only reads it (a GLSL readonly buffer)." },
+          "fields": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 16,
+            "description": "What one element holds, in order.",
+            "items": {
+              "type": "object",
+              "required": ["name", "type"],
+              "additionalProperties": false,
+              "properties": {
+                "name": { "type": "string", "description": "A GLSL identifier that does not start with fa_, unique in the buffer." },
+                "type": { "enum": ["float", "vec2", "vec3", "vec4", "int", "uint"], "description": "The GLSL type, 4 bytes per component. vec3 takes 12 bytes but aligns to 16 (std430): prefer vec4, or put a float after it." },
+                "doc": { "type": "string", "description": "What the field holds." }
+              }
+            }
+          }
+        }
+      }
+    },
     "graph": {
       "type": "object",
       "description": "Optional node graph the snippet named by `shader` is GENERATED from (`material.graph.generate`; docs/SHADERS.md, \"Node graphs\"). Without it the snippet is hand-written. `material.graph.nodes` lists the node types. Params and textures the nodes name are this material's own `params` and `textures`.",
       "additionalProperties": false,
       "required": ["nodes"],
       "properties": {
+        "version": { "const": 1, "default": 1, "description": "The graph format version (1). Leave it out for version 1; a newer graph needs a newer FactorIA." },
+        "editor": { "type": "object", "description": "Free-form data of the node editor (canvas zoom and pan, comments, groups). The generated snippet ignores it; any keys are allowed." },
         "nodes": {
           "type": "array",
           "minItems": 1,
@@ -72,7 +111,8 @@
               "pos": { "type": "array", "items": { "type": "number" }, "minItems": 2, "maxItems": 2, "description": "[x, y] where the editor draws the node. The generated snippet does not depend on it." },
               "inputs": { "type": "object", "description": "Constants for inputs that have no link: a number, or an array of 2 to 4 numbers. An input with neither reads its default." },
               "param": { "type": "string", "description": "For type \"param\": the name of one of the material's params." },
-              "texture": { "type": "string", "description": "For the texture nodes: the name of one of the material's textures." }
+              "texture": { "type": "string", "description": "For the texture nodes: the name of one of the material's textures." },
+              "editor": { "type": "object", "description": "Free-form data of the node editor for this node (collapsed, comment...). The generated snippet ignores it; any keys are allowed." }
             }
           }
         },

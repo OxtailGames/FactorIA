@@ -26,6 +26,9 @@ TEST_CASE("shader template: the bundled files are engine/render/shaders/*_common
         const std::string name = e.path().filename().string();
         if (name.ends_with("_common.glsl")) onDisk.push_back("engine/render/shaders/" + name);
     }
+    // and the files the templates @include (the sprite template reads the colour-space and 2D shadow helpers)
+    for (const char* included : {"color_space.glsl", "light_shadow.glsl"})
+        onDisk.push_back(std::string("engine/render/shaders/") + included);
     std::sort(onDisk.begin(), onDisk.end());
     REQUIRE_FALSE(onDisk.empty());
     CHECK(bundled_list("engine/render/shaders/") == onDisk);
@@ -75,17 +78,18 @@ TEST_CASE(
     CHECK(shader_template_hash("mesh") != shader_template_hash("sprite"));
     CHECK(shader_template_hash("sprite") != shader_template_hash("sky"));
     CHECK(shader_template_hash("sky") != shader_template_hash("post"));
-    CHECK(shader_template_hash("compute").empty());  // no template until M72.4
+    CHECK(shader_template_hash("post") != shader_template_hash("compute"));
+    CHECK_FALSE(shader_template_hash("compute").empty());
     CHECK(shader_template_hash("nonsense").empty());
 }
 
 TEST_CASE("shader template: every kind's contract structs are read from its own template") {
     const std::vector<std::pair<std::string, std::vector<std::string>>> expected = {
         {"mesh", {"SurfaceInput", "Surface", "VertexData", "LightSample"}},
-        {"sprite", {"QuadInput", "QuadSurface"}},
+        {"sprite", {"QuadInput", "QuadSurface", "QuadVertex"}},
         {"sky", {"SkyInput", "SkySurface"}},
         {"post", {"PostInput", "PostSurface"}},
-        {"compute", {}}};
+        {"compute", {"ComputeInput"}}};
     for (const auto& [kind, structs] : expected) {
         CAPTURE(kind);
         const auto& found = shaders_detail::contract_structs(kind);
@@ -96,4 +100,7 @@ TEST_CASE("shader template: every kind's contract structs are read from its own 
         }
     }
     CHECK(shaders_detail::contract_structs("mesh")[0].second.size() == 7);  // SurfaceInput is what it was
+    // QuadInput: uv, color, world_pos, screen_uv, time, mode, custom
+    CHECK(shaders_detail::contract_structs("sprite")[0].second.size() == 7);
+    CHECK(shaders_detail::contract_structs("sprite")[2].second.size() == 3);  // QuadVertex: world_pos, uv, color
 }

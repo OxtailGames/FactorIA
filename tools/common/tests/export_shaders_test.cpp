@@ -33,6 +33,16 @@ const char* kSnippet = R"(void surface(in SurfaceInput i, inout Surface s) {
     s.albedo = tint.rgb;
 }
 )";
+const char* kSpriteMaterial = R"({
+  "format": "factoria.material/1",
+  "kind": "sprite",
+  "shader": "shaders/flash.fragment.glsl",
+  "params": { "flash": { "type": "float", "default": 0.0, "doc": "Hit flash, 0..1." } }
+})";
+const char* kSpriteSnippet = R"(void fragment(in QuadInput i, inout QuadSurface s) {
+    s.color.rgb = mix(s.color.rgb, vec3(1.0), flash);
+}
+)";
 // Line 2 uses a name that does not exist.
 const char* kBrokenSnippet = R"(void surface(in SurfaceInput i, inout Surface s) {
     s.albedo = tnt.rgb;
@@ -81,10 +91,15 @@ struct FakeShdc {
             const auto at = std::find(o.argv.begin(), o.argv.end(), "--slang");
             if (at == o.argv.end() || at + 1 == o.argv.end()) return Error{"no --slang", ""};
             const stdfs::path work(o.workingDir);
+            // a sprite material's top file includes quad_common.glsl and declares the programs quad and quad_plain
+            const bool sprite =
+                testing::read_all(work / "top.glsl").find("@include quad_common.glsl") != std::string::npos;
+            const std::vector<const char*> programs =
+                sprite ? std::vector<const char*>{"quad", "quad_plain"} : std::vector<const char*>{"mesh", "mesh_skin"};
             std::string yaml = "shaders:\n";
             for (const std::string& slang : split(*(at + 1), ':')) {
                 yaml += "  -\n    slang: " + slang + "\n    programs:\n";
-                for (const char* program : {"mesh", "mesh_skin"}) {
+                for (const char* program : programs) {
                     yaml += std::string("      -\n        name: ") + program + "\n";
                     for (const char* stage : {"vertex", "fragment"}) {
                         const std::string file = "out/" + slang + "_" + program + "_" + stage + ".src";
@@ -169,6 +184,30 @@ TEST_CASE("export shaders: a folder holds the twins of the platform's dialects a
     CHECK(f.shdc.calls == 1);
     REQUIRE(export_project(f.options("linux")).ok());
     CHECK(f.shdc.calls == 1);
+}
+
+TEST_CASE("export shaders: a sprite material ships its twin like a mesh one, with the programs quad and quad_plain") {
+    Fixture f;
+    testing::write_all(stdfs::path(f.proj) / "materials/flash.material.json", kSpriteMaterial);
+    testing::write_all(stdfs::path(f.proj) / "shaders/flash.fragment.glsl", kSpriteSnippet);
+    auto r = export_project(f.options("linux"));
+    REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
+    const stdfs::path game = f.tmp.sub("out/shader-test-linux/game");
+    CHECK(shader_files(files_below(game)) ==
+          std::vector<std::string>{"flash.material.json.glsl430.shader", "gem.material.json.glsl430.shader"});
+    CHECK_FALSE(stdfs::exists(game / "shaders"));
+    auto twin = parse_json(testing::read_all(game / "materials/flash.material.json.glsl430.shader"));
+    REQUIRE(twin.ok());
+    CHECK((*twin)["kind"] == "sprite");
+    CHECK((*twin)["template"] == shader_template_hash("sprite"));
+    CHECK((*twin)["programs"].contains("quad"));
+    CHECK((*twin)["programs"].contains("quad_plain"));
+    CHECK((*twin)["programs"]["quad_plain"]["vs"] == "// glsl430 quad_plain vertex\n");
+    // the mesh material next to it keeps its own
+    auto gem = parse_json(testing::read_all(game / "materials/gem.material.json.glsl430.shader"));
+    REQUIRE(gem.ok());
+    CHECK_FALSE(gem->contains("kind"));
+    CHECK((*gem)["template"] == shader_template_hash("mesh"));
 }
 
 TEST_CASE("export shaders: game.pak of a release, the APK assets and the web pack hold exactly their dialects") {
@@ -259,4 +298,50 @@ TEST_CASE("real sokol-shdc: an android export ships the glsl300es twin it compil
     auto twin = parse_json(testing::read_all(assets / "materials/gem.material.json.glsl300es.shader"));
     REQUIRE(twin.ok());
     CHECK((*twin)["programs"]["mesh"]["fs"].get<std::string>().find("#version 300 es") != std::string::npos);
+}
+
+// Compute materials (M72.4): which platforms get a twin, and what an export for the others says.
+namespace {
+void add_compute_material(Fixture& f) {
+    testing::write_all(stdfs::path(f.proj) / "materials/move.material.json", R"({
+  "format": "factoria.material/1", "kind": "compute", "shader": "shaders/move.compute.glsl",
+  "buffers": { "items": { "fields": [ { "name": "v", "type": "float" } ] } }
+})");
+    testing::write_all(stdfs::path(f.proj) / "shaders/move.compute.glsl",
+                       "void compute(in ComputeInput i) { items.data[i.global_id.x].v += 1.0; }\n");
+}
+}  // namespace
+
+TEST_CASE("export shaders: a compute material exported for android or the web says it has no shader there") {
+    for (const char* platform : {"android", "web"}) {
+        INFO(platform);
+        Fixture g;
+        add_compute_material(g);
+        auto r = export_project(g.options(platform));
+        REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
+        bool warned = false;
+        for (const std::string& w : r->warnings)
+            if (w.find("move.material.json has no shader for") != std::string::npos &&
+                w.find("render.supports computeShaders") != std::string::npos && w.find("windows") != std::string::npos)
+                warned = true;
+        CHECK_MESSAGE(warned, "no warning about the compute material");
+        for (const std::string& s : shader_files(files_below(g.tmp.sub(std::string("out/shader-test-") + platform))))
+            CHECK(s.find("move.material.json") == std::string::npos);  // no twin of the compute material
+    }
+}
+
+TEST_CASE("real sokol-shdc: a compute material exported for windows and linux ships its dialect") {
+    FA_SKIP_WITHOUT_SHDC(SetupContext{}, "sokol-shdc is not installed (SOKOL_SHDC, next to factoria, or `factoria "
+                                         "setup shaders`): skipped here, runs in CI");
+    for (const char* platform : {"windows", "linux"}) {
+        INFO(platform);
+        Fixture f;
+        f.setup = SetupContext{};
+        add_compute_material(f);
+        auto r = export_project(f.options(platform, true));
+        REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
+        const std::string dialect = std::string(platform) == "windows" ? "hlsl5" : "glsl430";
+        CHECK(has(shader_files(r->packed), "move.material.json." + dialect + ".shader"));
+        for (const std::string& w : r->warnings) CHECK(w.find("move.material.json") == std::string::npos);
+    }
 }

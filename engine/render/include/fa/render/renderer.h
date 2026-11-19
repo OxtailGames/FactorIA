@@ -45,6 +45,7 @@
 namespace fa {
 
 class Renderer;
+class Compute;
 namespace render {
 class Gpu;
 class FrameGraph;
@@ -157,9 +158,9 @@ struct RenderStats {
     int lights2dDropped = 0;  // Light2D lights left out: off-view ones, then the ones over the 256 of the budget
     int lights2dShadowed =
         0;  // of lights2d, the point lights whose castShadows is in effect (a Tilemap with occludesLight; at most 32)
-    int materials = 0;  // distinct custom materials (MeshRenderer.material) drawn with their own shaders
+    int materials = 0;  // distinct custom materials (MeshRenderer or Sprite material) drawn with their own shaders
     std::vector<std::string>
-        materialFallbacks;  // materials drawn with the unlit magenta error material because they failed to build (see asset_report)
+        materialFallbacks;  // materials drawn as the magenta error material (mesh) or magenta quads (sprite) because they failed to build (see asset_report)
     // How many times, since the renderer was made, the 3D scene it builds (one per frame, and one per capture_world of an
     // entity's subtree) had more distinct meshes, textures, materials or pipelines than a sort key holds, so its opaque meshes
     // were sorted by the slower comparator instead. The picture is the same; 0 is normal. Unlike the other counters this one is
@@ -285,6 +286,9 @@ public:
     // The graphics backend in use: "metal", "d3d11", "glcore", "gles3", "dummy", or "unknown" for a sokol backend the
     // engine never builds (what game.device.gpuBackend reports).
     static const char* backend_name();
+    // The compute side of the renderer (storage buffers, dispatches of "kind": "compute" materials; available() says whether
+    // this backend can). Usable once init() succeeded; its buffers end with shutdown().
+    Compute& compute() { return *compute_; }
     int target_width() const;
     int target_height() const;
 
@@ -545,6 +549,7 @@ private:
     friend void render::renderer_force_output(Renderer& r, const HdrOutputInfo* info);
     friend bool render::renderer_read_floats(Renderer& r, bool present, std::vector<float>& out, std::string* error);
     std::unique_ptr<Impl> impl_;
+    std::unique_ptr<Compute> compute_;  // storage buffers and dispatches of compute materials (fa/render/compute.h)
     std::vector<std::string> fallbackFonts_;
     RichTextStyle richStyle_;
     float textScale_ = 1.0f;
