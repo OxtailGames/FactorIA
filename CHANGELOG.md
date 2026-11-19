@@ -82,6 +82,17 @@ Older versions, one file per minor version with its patch releases: [0.30](chang
   reorders, removes and edits the params of a pass, one undo step each; hot reload swaps the shader. The picture is read
   with a half-texel clamp at the edge of the camera's rectangle (a split screen never reads the neighbour's pixels).
   docs/shaders/SHADERS_POST.md.
+- **Post passes between the screen effects (M72.2):** a custom pass can now sit after the tonemap and between the colour
+  grading, vignette, sharpen, outline, posterize and film grain: `"after:tonemap"`, `"after:colorGrading"`, `"after:vignette"`,
+  `"after:sharpen"`, `"after:outline"`, `"after:posterize"`, `"after:filmGrain"` (and the matching `"before:..."`, and
+  `"before:colorFilter"`). There the pass reads the display-referred picture the effects before it made (tonemapped,
+  sRGB-encoded; values above 1 survive on an HDR output) and the final pass is drawn in two pieces around it, only where an
+  entry sits: a frame without one draws the same single pass as before. The editor's Position list offers the new places.
+  `after:pixelate`, `before:pixelate` and `after:colorFilter` are refused with the reason. A camera and its volumes draw at
+  most 32 custom passes; the entries past that are dropped and the log says so once (it was silent). The `postMaterials` row of
+  `render.supports` says that the feature needs nothing of the GPU and only a pass that reads the depth or the normals needs
+  `sampledDepth`.
+  docs/shaders/SHADERS_POST.md.
 - **Custom lighting and textures in `vertex()` (M72.3):** a mesh material with `"lighting": "custom"` defines
   `vec3 light(in SurfaceInput i, in Surface s, in LightSample l)`, which the engine's light loop calls once per light
   (the engine still picks the lights and applies attenuation, shadows, emission and fog), and optionally `ambient()`:

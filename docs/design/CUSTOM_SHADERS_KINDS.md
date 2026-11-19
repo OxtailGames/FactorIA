@@ -103,13 +103,16 @@ program declares it (the snippet calls `fa_depth` or `fa_normal`), which is what
 - **The entry.** `PostProcess.customPasses` (a flat `Json` field: the stack keeps its flat component) holds `{material,
   materialParams, enabled, position, name}` entries; `fa/render/post_custom.h` is the one parser (`parse_custom_post_passes`, used by
   `postprocess.set`, the resolve and the report) and the one position table. A position names a built-in effect and a side;
-  each row maps to a `PostSlot` (`Main`, `AfterSsr`, `AfterShafts`, `AfterDof`, `AfterBloom`), the places `build_graph` has. A later
-  package adds places (the display-referred ones) as new slots and new rows: no key of the entry changes.
+  each row maps to a `PostSlot`: the scene-linear places (`Main`, `AfterSsr`, `AfterShafts`, `AfterDof`, `AfterBloom`) and the
+  display-referred ones between the screen effects of `post.glsl` (`AfterTonemap`, `AfterGrading`, `AfterVignette`, `AfterSharpen`,
+  `AfterOutline`, `AfterPosterize`, `AfterGrain`; `post_slot_is_ldr`), the places `build_graph` has.
 - **The frame graph.** `renderer_custom_post.cpp` (`CustomPost::add_passes`, called by `build_graph` at each slot) reads the
   picture through the graph (`game` imported resource), runs the entries of the slot in array order over the camera's rectangle,
   and ping-pongs between two transients of the picture's format (`custom-<slot>-pass<k>`); the last pass draws back into the
   rectangle of the picture with the bloom's destination rules (MSAA, hud over bloom), and a lone pass is copied back
-  (`SceneFx::copy_into`). The depth and normals are requested (`needsDepth`, `needsNormals`) only when a planned pass reads them.
+  (`SceneFx::copy_into`). A display-referred slot cuts the final pass of `post.glsl` there (`PostSlice`, "Cut final pass" in
+  ARCHITECTURE_RENDERING_POST.md) and runs the entries on the image between two pieces, with `linear` false. The depth and normals are requested
+  (`needsDepth`, `needsNormals`) only when a planned pass reads them.
 - **Failures.** `make_custom_post_plan` asks `Assets::post_material` and a pass whose material did not build, is not a post
   material, is missing or needs a prepass the GPU lacks is dropped from the plan: `materialFallbacks` gets its path and the log
   one warning per `path|reason` (`warnedCustomPass`, cleared on a scene change). A hot reload swaps the material's programs as for

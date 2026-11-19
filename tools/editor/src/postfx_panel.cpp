@@ -413,7 +413,7 @@ void Editor::draw_postfx_custom(const Json& list, const Json& resolved) {
         ImGui::TreeNodeEx("##customnode", ImGuiTreeNodeFlags_SpanAvailWidth, "Custom passes (%zu)", count);
     at_track("postfx:custom");
     tip("Your own full-screen passes: kind \"post\" materials drawn between the built-in effects "
-        "(PostProcess.customPasses; docs/SHADERS.md, \"Post-process materials\"). Every change below is one "
+        "(PostProcess.customPasses; docs/shaders/SHADERS_POST.md). Every change below is one "
         "postprocess.set call and one undo step.");
     if (section)
         postFx_.open.insert("custom");
@@ -460,7 +460,7 @@ void Editor::draw_postfx_custom(const Json& list, const Json& resolved) {
                 if (ImGui::Selectable(file.c_str()))
                     postfx_edit(Json::object({{"customPasses", custom_pass_add(list, file)}}), true);
             if (cache.second.empty())
-                ImGui::TextDisabled("No materials in the project (docs/SHADERS.md, \"Post-process materials\").");
+                ImGui::TextDisabled("No materials in the project (docs/shaders/SHADERS_POST.md).");
             ImGui::EndCombo();
         }
         ImGui::EndDisabled();
@@ -468,7 +468,7 @@ void Editor::draw_postfx_custom(const Json& list, const Json& resolved) {
         tip_always(count >= std::size_t(render::kMaxCustomPostPasses)
                        ? "A stack holds at most 8 custom passes: remove one first."
                        : "Adds a pass at the end of the list, at the default position (before the tonemap). The "
-                         "material must have \"kind\": \"post\" (docs/SHADERS.md, \"Post-process materials\").");
+                         "material must have \"kind\": \"post\" (docs/shaders/SHADERS_POST.md).");
     }
     if (count == 0) ImGui::TextDisabled("No custom passes on this edit target.");
 
@@ -547,10 +547,11 @@ void Editor::draw_postfx_custom(const Json& list, const Json& resolved) {
                 ImGui::EndCombo();
             }
             at_track("postfx:custom:position:" + idx);
-            tip("Where in the frame the pass runs: before or after a built-in effect. The positions before the "
-                "exposure, the "
-                "lens effects, the tonemap and the colour grading are the same place (scene-linear colour, after the "
-                "bloom).");
+            tip("Where in the frame the pass runs: before or after a built-in effect. Up to \"before:tonemap\" the "
+                "pass reads scene-linear colour (the positions before the exposure, the lens effects and the tonemap "
+                "are the same place, after the bloom); from \"after:tonemap\" on it reads the display-referred, "
+                "sRGB-encoded picture between two screen effects (the colour grading, vignette, sharpen, outline, "
+                "posterize, film grain), and the final pass is drawn in two pieces there.");
             // Material.
             ImGui::SetNextItemWidth(260);
             if (ImGui::BeginCombo("Material", material.empty() ? "(none)" : material.c_str())) {

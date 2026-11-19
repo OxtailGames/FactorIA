@@ -141,8 +141,10 @@ void Editor::at_section_G2(AtScript& at) {
     // Custom passes (post materials): add through the panel's edit path, open the section, reorder and remove with its buttons,
     // undo every one. The materials need not exist: the panel lists the entry and says it is skipped.
     step(3, [this, depth0] {
-        const Json two = custom_pass_add(custom_pass_add(Json::array(), "materials/one.material.json"),
-                                         "materials/two.material.json");
+        // The second one sits at a place between the screen effects (display-referred): the command takes it.
+        const Json two = custom_pass_set(custom_pass_add(custom_pass_add(Json::array(), "materials/one.material.json"),
+                                                         "materials/two.material.json"),
+                                         1, "position", "after:vignette");
         at_check(postfx_edit(Json::object({{"customPasses", two}})),
                  "adding two custom passes from the panel (postprocess.set) is accepted: " + postFx_.error);
         at_check(undo_depth() == *depth0 + 1, "...as one undo step");
@@ -163,6 +165,9 @@ void Editor::at_section_G2(AtScript& at) {
         at_check(p && p->customPasses.is_array() && p->customPasses.size() == 2 &&
                      p->customPasses[0].value("material", std::string()) == "materials/two.material.json",
                  "Down swaps the two passes");
+        at_check(p && p->customPasses.is_array() && !p->customPasses.empty() &&
+                     p->customPasses[0].value("position", std::string()) == "after:vignette",
+                 "...and the position \"after:vignette\" (between the screen effects) went with its pass");
         at_check(undo_depth() == *depth0 + 2, "...as one undo step");
         pendingFocus_ = "Post-processing";
     });

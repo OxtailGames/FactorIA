@@ -1,4 +1,4 @@
-// Post-process materials (M72.2, docs/SHADERS.md "Post-process materials"): the entries of PostProcess.customPasses are drawn as full-screen
+// Post-process materials (M72.2, docs/shaders/SHADERS_POST.md): the entries of PostProcess.customPasses are drawn as full-screen
 // passes of the post stack by the compiled program of a kind "post" material (src/renderer_custom_post.cpp, shaders/post_common.glsl). The
 // fixtures are tests/data/materials/*post_*: their twins are committed for the backends the render tests run on
 // (tools/common/tests/shaders_fixtures_test.cpp keeps them current).
@@ -108,10 +108,11 @@ Json tint(double r, double g, double b) { return Json::object({{"tint", Json::ar
 struct Scene2d {
     World w;
     Entity cam = kNullEntity;
+    Entity sprite = kNullEntity;
     Scene2d() {
         cam = make(w, "cam");
         w.add<Camera>(cam).clearColor = Color::black();
-        Entity e = make(w, "sprite", {0, 0, 0});
+        Entity e = sprite = make(w, "sprite", {0, 0, 0});
         auto& s = w.add<Sprite>(e);
         s.size = {60, 40};
         s.color = Color{1, 1, 1, 1};
@@ -454,5 +455,189 @@ TEST_CASE("post materials: a camera of a split screen draws its pass over its ow
     near(img.pixel(240, 90), 1.0f, 1.0f, 1.0f);   // the right camera's, not
     near(img.pixel(10, 10), 0, 0, 0);
     near(img.pixel(310, 170), 0, 0, 0);
+    CHECK(log.messages().empty());
+}
+
+// ---- the places between the screen effects (display-referred; the final pass is cut there) -------------------------------------
+
+namespace {
+
+// How many passes of the frame draw the final pass of post.glsl, whole or in pieces: "post" and "post-part<k>" (job/ prefix kept).
+int final_pieces(const std::vector<std::string>& order) {
+    int n = 0;
+    for (const std::string& s : order) {
+        const std::size_t slash = s.rfind('/');
+        const std::string leaf = slash == std::string::npos ? s : s.substr(slash + 1);
+        if (leaf == "post" || leaf.rfind("post-part", 0) == 0) ++n;
+    }
+    return n;
+}
+
+// The index of the last piece of the final pass (the one that draws to the picture's destination).
+int last_final_piece(const std::vector<std::string>& order) {
+    for (int i = int(order.size()) - 1; i >= 0; --i) {
+        const std::string& s = order[std::size_t(i)];
+        const std::size_t slash = s.rfind('/');
+        if ((slash == std::string::npos ? s : s.substr(slash + 1)) == "post") return i;
+    }
+    return -1;
+}
+
+}  // namespace
+
+TEST_CASE("post materials: a frame with no custom pass keeps its one final pass, a display-referred entry cuts it") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    MaterialScope scope;
+    ProblemLog log;
+    Scene2d s;
+    PostProcess& p = s.post();
+    p.vignetteEnabled = true;
+    p.vignetteIntensity = 0.5f;
+    p.sharpenEnabled = true;
+    p.posterizeEnabled = true;
+    p.posterizeLevels = 16;
+    g.render(s.w);
+    std::vector<std::string> order = graph_order(g);
+    CHECK(final_pieces(order) == 1);
+    CHECK(count_of(order, "post-part") == 0);
+    const std::size_t plain = order.size();
+
+    // A pass before the tonemap (scene-linear) does not cut it either: more passes for the custom pass, the same final pass.
+    s.passes({entry(kTint, "before:tonemap")});
+    g.render(s.w);
+    order = graph_order(g);
+    CHECK(final_pieces(order) == 1);
+    CHECK(count_of(order, "post-part") == 0);
+    CHECK(order.size() > plain);
+
+    // Between two effects: the final pass is drawn in two pieces, the custom pass between them.
+    s.passes({entry(kTint, "after:vignette")});
+    g.render(s.w);
+    order = graph_order(g);
+    CHECK(final_pieces(order) == 2);
+    const int part = index_of(order, "post-part0");
+    const int pass = index_of(order, "custom-vignette-pass0");
+    REQUIRE(part >= 0);
+    REQUIRE(pass >= 0);
+    CHECK(part < pass);
+
+    // Dropping the entry gives the old graph back, pass for pass.
+    s.passes({});
+    g.render(s.w);
+    CHECK(graph_order(g).size() == plain);
+    CHECK(log.messages().empty());
+}
+
+TEST_CASE("post materials: every display-referred position cuts the final pass once, with the effects before it in the "
+          "first piece") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    MaterialScope scope;
+    ProblemLog log;
+    const char* positions[] = {"after:tonemap", "after:colorGrading", "after:vignette", "after:sharpen",
+                               "after:outline", "after:posterize",    "after:filmGrain"};
+    const char* names[] = {"tonemap", "grading", "vignette", "sharpen", "outline", "posterize", "grain"};
+    for (int i = 0; i < 7; ++i) {
+        INFO(positions[i]);
+        Scene2d s;
+        PostProcess& p = s.post();
+        p.tonemapEnabled = true;
+        p.colorGradingEnabled = true;
+        p.vignetteEnabled = true;
+        p.vignetteIntensity = 0.1f;
+        p.sharpenEnabled = true;
+        p.outlineEnabled = true;
+        p.outlineMode = OutlineMode::Sprite;
+        p.posterizeEnabled = true;
+        p.posterizeLevels = 64;
+        p.filmGrainEnabled = true;
+        p.filmGrainIntensity = 0.01f;
+        s.passes({entry(kTint, positions[i])});
+        const Image img = g.render(s.w);
+        const std::vector<std::string> order = graph_order(g);
+        const int custom = index_of(order, std::string("custom-") + names[i] + "-pass0");
+        REQUIRE(custom >= 0);
+        CHECK(final_pieces(order) == 2);  // one cut at the place: the effects before it, the effects after it
+        CHECK(index_of(order, "post-part0") < custom);
+        CHECK(custom < last_final_piece(order));
+        // The sprite's white is tinted red-ish whatever the place; the black around it stays dark.
+        const Color c = img.pixel(160, 90);
+        CHECK(c.r > c.g + 0.3f);
+        CHECK(std::fabs(c.g - c.b) < 0.1f);
+        CHECK(img.pixel(40, 20).r < 0.2f);
+    }
+    CHECK(log.messages().empty());
+}
+
+TEST_CASE(
+    "post materials: a display-referred pass reads what the effects before it made, the ones after it read its own") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    MaterialScope scope;
+    ProblemLog log;
+    // The vignette paints the corners white: a tint before it is painted over, a tint after it tints the white too.
+    auto corner = [&](const char* position) {
+        Scene2d s;
+        PostProcess& p = s.post();
+        p.vignetteEnabled = true;
+        p.vignetteIntensity = 1.0f;
+        p.vignetteSmoothness = 0.2f;
+        p.vignetteRoundness = 0.0f;
+        p.vignetteColor = Color{1, 1, 1, 1};
+        s.passes({entry(kTint, position, tint(1.0, 0.5, 0.5))});
+        return g.render(s.w).pixel(1, 1);
+    };
+    near(corner("before:vignette"), 1.0f, 1.0f, 1.0f);
+    near(corner("after:vignette"), 1.0f, 0.5f, 0.5f);
+
+    // The posterize cuts a 0.6 grey to a hard 1 (two levels): a tint before it is rounded away, a tint after it stays.
+    auto grey = [&](const char* position) {
+        Scene2d s;
+        s.w.get<Sprite>(s.sprite)->color = Color{0.6f, 0.6f, 0.6f, 1};
+        PostProcess& p = s.post();
+        p.posterizeEnabled = true;
+        p.posterizeLevels = 2;
+        s.passes({entry(kTint, position, tint(0.9, 0.9, 0.9))});
+        return g.render(s.w).pixel(160, 90);
+    };
+    near(grey("before:posterize"), 1.0f, 1.0f, 1.0f);
+    near(grey("after:posterize"), 0.9f, 0.9f, 0.9f);
+
+    // The grading's saturation 0 makes every channel the same: a tint before it is greyed, a tint after it is not.
+    auto graded = [&](const char* position) {
+        Scene2d s;
+        PostProcess& p = s.post();
+        p.colorGradingEnabled = true;
+        p.colorGradingSaturation = 0.0f;
+        s.passes({entry(kTint, position, tint(1.0, 0.4, 0.4))});
+        return g.render(s.w).pixel(160, 90);
+    };
+    const Color before = graded("after:tonemap");
+    CHECK(std::fabs(before.r - before.g) < 0.05f);
+    const Color after = graded("after:colorGrading");
+    CHECK(after.r > after.g + 0.3f);
+    CHECK(log.messages().empty());
+}
+
+TEST_CASE("post materials: entries at several display-referred places all run, in the order of the places") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    MaterialScope scope;
+    ProblemLog log;
+    Scene2d s;
+    PostProcess& p = s.post();
+    p.vignetteEnabled = true;
+    p.vignetteIntensity = 0.1f;
+    p.posterizeEnabled = true;
+    p.posterizeLevels = 64;
+    // A disabled entry among them draws nothing; the stack order does not matter between different places.
+    s.passes({entry(kTint, "after:posterize", tint(0.5, 1, 1)), entry(kTint, "after:tonemap", tint(1, 0.5, 1)),
+              entry(kTint, "after:vignette", tint(1, 1, 0.5), false), entry(kTint, "after:vignette", tint(1, 1, 0.5))});
+    const Image img = g.render(s.w);
+    near(img.pixel(160, 90), 0.5f, 0.5f, 0.5f);
+    const std::vector<std::string> order = graph_order(g);
+    CHECK(index_of(order, "custom-tonemap-pass0") < index_of(order, "custom-vignette-pass0"));
+    CHECK(index_of(order, "custom-vignette-pass0") < index_of(order, "custom-posterize-pass0"));
     CHECK(log.messages().empty());
 }

@@ -41,7 +41,20 @@ const CustomPostPosition kCustomPostPositions[] = {
     {"before:lensDistortion", PostSlot::AfterBloom},
     {"before:chromaticAberration", PostSlot::AfterBloom},
     {"before:tonemap", PostSlot::AfterBloom},
-    {"before:colorGrading", PostSlot::AfterBloom},
+    {"after:tonemap", PostSlot::AfterTonemap},
+    {"before:colorGrading", PostSlot::AfterTonemap},
+    {"after:colorGrading", PostSlot::AfterGrading},
+    {"before:vignette", PostSlot::AfterGrading},
+    {"after:vignette", PostSlot::AfterVignette},
+    {"before:sharpen", PostSlot::AfterVignette},
+    {"after:sharpen", PostSlot::AfterSharpen},
+    {"before:outline", PostSlot::AfterSharpen},
+    {"after:outline", PostSlot::AfterOutline},
+    {"before:posterize", PostSlot::AfterOutline},
+    {"after:posterize", PostSlot::AfterPosterize},
+    {"before:filmGrain", PostSlot::AfterPosterize},
+    {"after:filmGrain", PostSlot::AfterGrain},
+    {"before:colorFilter", PostSlot::AfterGrain},
 };
 const int kCustomPostPositionCount = int(sizeof(kCustomPostPositions) / sizeof(kCustomPostPositions[0]));
 
@@ -69,10 +82,13 @@ std::string why_refused(std::string_view side, std::string_view effect) {
     if (post_effect_is_hdr(e) && side == "after" && e != PostEffect::Bloom)
         return at + " is not a place: the exposure, the lens effects and the radial blur run fused in the final pass, "
                     "after the bloom. A custom pass goes before them, e.g. \"before:tonemap\" (or \"after:bloom\").";
-    return at +
-           " is not available yet: the effects after the tonemap work on the display-referred picture, and a custom "
-           "pass there is not supported in this version. Use \"before:tonemap\" (scene-linear colour, before the "
-           "tonemap) instead.";
+    if (e == PostEffect::Pixelate)
+        return at +
+               " is not a place: the pixelate is not a step of its own, it moves the position every display effect "
+               "reads (the picture is blocky before and after them). A custom pass goes around the effects it is made "
+               "for, e.g. \"after:outline\" or \"before:posterize\".";
+    return at + " is not a place: the colour filter is the last thing the frame draws, so a custom pass goes before it "
+                "(\"before:colorFilter\").";
 }
 
 }  // namespace
@@ -83,7 +99,7 @@ Result<CustomPostPass> parse_custom_post_pass(const Json& entry, std::string_vie
         return make_error(
             at + ": a custom pass is an object, got " + std::string(entry.type_name()) + ".",
             "Write {\"material\": \"materials/vignette.material.json\", \"position\": \"before:tonemap\"}; "
-            "the material is a kind \"post\" material (docs/SHADERS.md, \"Post-process materials\").");
+            "the material is a kind \"post\" material (docs/shaders/SHADERS_POST.md).");
     std::vector<std::string> keys;
     for (std::string_view k : kEntryKeys) keys.emplace_back(k);
     for (auto it = entry.begin(); it != entry.end(); ++it) {

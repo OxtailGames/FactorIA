@@ -4,13 +4,14 @@
 // PostInput i, inout PostSurface s)), then `@include post_common.glsl` and declares the program:
 //   @program post vs fs
 // The pass draws one full-screen triangle over ONE camera's rectangle of the picture (a split screen runs the pass once per
-// camera). It reads the picture as the passes before it left it (linear HDR colour, before the exposure and the tone mapping
-// unless the material is placed after them) and writes the result of its pixel.
+// camera). It reads the picture as the passes before it left it and writes the result of its pixel. Placed before the tonemap the
+// picture is linear HDR colour (before the exposure and the tone mapping); placed after it (position "after:tonemap" and the places
+// between the screen effects) it is the display-referred, sRGB-encoded picture the effects before it made (docs/shaders/SHADERS_POST.md).
 //
 // Every engine name of this file starts with fa_ (the snippet declares none), so a param or texture of a material is free to
 // take any name that is not a GLSL keyword. A snippet may use the contract below and these helpers:
 //   vec4  fa_scene_color(vec2 uv)   the picture at uv (0..1 over the camera's rectangle, origin top left, y down on every backend),
-//                                   linear, clamped to the rectangle, bilinear
+//                                   clamped to the rectangle, bilinear (linear light before the tonemap, display-referred after)
 //   float fa_depth(vec2 uv)         the linear view depth in world units (the distance along the camera's forward axis); 60000
 //                                   where no mesh was drawn (the sky, a sprite). Reading it makes the renderer draw the depth
 //                                   and normal prepass for the camera
@@ -27,7 +28,7 @@
 //
 // The pass output is sanitised like the final pass of post.glsl: a NaN or Inf becomes 0, a negative colour 0 and a finite one is kept up to 65504.
 
-// The snippet contract (docs/SHADERS.md, "Post-process materials").
+// The snippet contract (docs/shaders/SHADERS_POST.md).
 @block fa_post_types
 struct PostInput {              // read-only, per pixel
     vec2 uv;                    // 0..1 over the camera's rectangle, origin top left, y down on every backend
@@ -36,7 +37,7 @@ struct PostInput {              // read-only, per pixel
     float time;                 // seconds of game time since the scene started (the same as fa_time.x)
 };
 struct PostSurface {            // what the pass writes
-    vec4 color;                 // linear RGBA; arrives holding the picture at this pixel
+    vec4 color;                 // RGBA of the picture's colour space; arrives holding the picture at this pixel
 };
 @end
 
@@ -97,7 +98,7 @@ vec3 fa_normal(vec2 uv) {
     return normalize(n);
 }
 // An sRGB colour of the author (a param of type color) in the colour space of the picture: decoded to linear light in a linear
-// scene, as it is in a gamma scene.
+// scene before the tonemap, as it is in a gamma scene and at the display-referred places (the picture is sRGB-encoded there).
 vec3 fa_scene_rgb(vec3 c) {
     if (fa_a.y < 0.5) return c;
     vec3 lo = c / 12.92;
