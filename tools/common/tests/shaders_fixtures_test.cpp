@@ -29,7 +29,7 @@ TEST_CASE("real sokol-shdc: the committed twins of the renderer's fixture materi
           "skygrad",    "skytime",      "skytex",       "post_empty",   "post_tint",   "post_uv",      "post_depth",
           "post_tex",   "post_history", "full_flat",    "full_outline", "full_lights", "full_chan",    "full_inst",
           "full_alt",   "full_xray",    "lightloop",    "skylit",       "full_sky",    "scale",        "field",
-          "skyquad",    "skysun",       "meshbuf_fill", "meshbuf",      "full_meshbuf"}) {
+          "skyquad",    "skysun",       "meshbuf_fill", "meshbuf",      "meshbuf2",    "full_meshbuf"}) {
         const std::string material = std::string("materials/") + name + ".material.json";
         ShaderCompileOptions options;
         options.setup = context;

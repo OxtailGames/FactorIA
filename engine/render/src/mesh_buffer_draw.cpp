@@ -1,7 +1,6 @@
 #include "mesh_buffer_draw.h"
 
 #include <algorithm>
-#include <cmath>
 #include <cstring>
 #include <string>
 
@@ -13,8 +12,8 @@ namespace fa::render {
 namespace {
 
 // Reports a failure once per entity and material (Assets::note_failure keys on the path), and marks the use as skipped.
-MeshBufferUse& fail(MeshBufferUse& use, Assets& assets, const MeshItem& mi, const std::string& pointer, std::string message,
-                    const std::string& hint) {
+MeshBufferUse& fail(MeshBufferUse& use, Assets& assets, const MeshItem& mi, const std::string& pointer,
+                    std::string message, const std::string& hint) {
     use.skip = true;
     const std::string entity = std::to_string(mi.entity.bits());
     // What Assets::build_material forgets when the material builds again: its path, " on ", then what is wrong. The message is part
@@ -23,8 +22,7 @@ MeshBufferUse& fail(MeshBufferUse& use, Assets& assets, const MeshItem& mi, cons
         (mi.material ? mi.material->path : std::string("MeshRenderer")) + " on entity " + entity + ": " + message;
     const bool pointed = message.compare(0, pointer.size(), pointer) == 0;  // ComputeDrawAccess::bind names it already
     assets.note_failure("material-mesh", path,
-                        "entity " + entity + ", MeshRenderer" + (pointed ? "" : pointer + ": ") + message,
-                        hint);
+                        "entity " + entity + ", MeshRenderer" + (pointed ? "" : pointer + ": ") + message, hint);
     return use;
 }
 
@@ -40,7 +38,8 @@ MeshBufferUse resolve_mesh_buffers(Assets& assets, Compute* compute, const MeshI
             fail(use, assets, mi, "/instances",
                  "instances is " + std::to_string(mi.mr->instances) + " but the material " +
                      (mi.material ? "'" + mi.material->path + "' declares no \"buffers\"" : std::string("is not set")),
-                 "Set MeshRenderer.material to a mesh material that declares \"buffers\" (docs/shaders/SHADERS_COMPUTE.md, "
+                 "Set MeshRenderer.material to a mesh material that declares \"buffers\" "
+                 "(docs/shaders/SHADERS_COMPUTE.md, "
                  "\"Drawing from a compute buffer\"), or set instances to 0.");
         return use;
     }
@@ -48,8 +47,10 @@ MeshBufferUse resolve_mesh_buffers(Assets& assets, Compute* compute, const MeshI
     use.count = int(std::min<std::size_t>(mat->buffers.size(), kMaxMeshBuffers));
     const MeshRenderer& mr = *mi.mr;
     if (!compute) {
-        fail(use, assets, mi, "/material", "the renderer has no compute support to read the buffers of '" + mat->path + "'",
-             "Use a material without \"buffers\" (docs/shaders/SHADERS_COMPUTE.md, \"Drawing from a compute buffer\").");
+        fail(
+            use, assets, mi, "/material",
+            "the renderer has no compute support to read the buffers of '" + mat->path + "'",
+            "Use a material without \"buffers\" (docs/shaders/SHADERS_COMPUTE.md, \"Drawing from a compute buffer\").");
         return use;
     }
     // The instance count: 0 draws once (the entity as a normal mesh); N draws N instances, each reading its own element.
@@ -60,15 +61,15 @@ MeshBufferUse resolve_mesh_buffers(Assets& assets, Compute* compute, const MeshI
         return use;
     }
     const std::uint64_t need = std::uint64_t(std::max<std::int32_t>(mr.instances, 1));
-    std::uint64_t largest = 0;
     for (int i = 0; i < use.count; ++i) {
         const MaterialBufferDef& def = mat->buffers[std::size_t(i)];
         const std::string pointer = "/materialParams/" + def.name;
-        const Json* v = mr.materialParams.is_object() ? &mr.materialParams : nullptr;
-        const auto it = v ? v->find(def.name) : Json::const_iterator();
-        if (!v || it == v->end()) {
+        const bool isObject = mr.materialParams.is_object();
+        const Json::const_iterator it = isObject ? mr.materialParams.find(def.name) : Json::const_iterator();
+        if (!isObject || it == mr.materialParams.end()) {
             fail(use, assets, mi, pointer,
-                 "'" + mat->path + "' reads the buffer '" + def.name + "' but materialParams does not give its compute buffer id",
+                 "'" + mat->path + "' reads the buffer '" + def.name +
+                     "' but materialParams does not give its compute buffer id",
                  "Set materialParams." + def.name + " to the id compute.create_buffer returned.");
             return use;
         }
@@ -89,16 +90,18 @@ MeshBufferUse resolve_mesh_buffers(Assets& assets, Compute* compute, const MeshI
             fail(use, assets, mi, pointer, bound.error().message, bound.error().hint);
             return use;
         }
+        // Every buffer the material reads must hold one element per instance: the shader may index any of them with
+        // fa_instance_index, and a read past the end of a storage buffer is undefined.
+        if (bound->count < need) {
+            fail(use, assets, mi, "/instances",
+                 "instances is " + std::to_string(need) + " but the buffer '" + def.name + "' (" + pointer + ", id " +
+                     std::to_string(id) + ") holds " + std::to_string(bound->count) + " elements",
+                 "Make every buffer of the material for at least " + std::to_string(need) +
+                     " elements (compute.create_buffer count) or lower instances; a buffer smaller than instances is "
+                     "read past its end.");
+            return use;
+        }
         use.views[i] = bound->view;
-        largest = std::max(largest, bound->count);
-    }
-    if (largest < need) {
-        fail(use, assets, mi, "/instances",
-             "instances is " + std::to_string(need) + " but the largest buffer the material reads holds " +
-                 std::to_string(largest) + " elements",
-             "Make a buffer for at least " + std::to_string(need) +
-                 " elements (compute.create_buffer count) or lower instances; a buffer smaller than instances is read past its end.");
-        return use;
     }
     use.instances = int(need);
     return use;
@@ -108,7 +111,8 @@ void bind_mesh_buffers(sg_bindings& b, const MeshBufferUse& use, const MaterialP
     for (int i = 0; i < use.count; ++i) {
         const int vertexSlot = kMeshBufferFirstView + i;
         const int fragmentSlot = kMeshBufferFirstView + use.count + i;
-        if (vertexSlot < SG_MAX_VIEW_BINDSLOTS && ((prog.viewMask >> vertexSlot) & 1u)) b.views[vertexSlot] = use.views[i];
+        if (vertexSlot < SG_MAX_VIEW_BINDSLOTS && ((prog.viewMask >> vertexSlot) & 1u))
+            b.views[vertexSlot] = use.views[i];
         if (fragmentSlot < SG_MAX_VIEW_BINDSLOTS && ((prog.viewMask >> fragmentSlot) & 1u))
             b.views[fragmentSlot] = use.views[i];
     }

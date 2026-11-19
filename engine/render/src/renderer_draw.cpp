@@ -1975,6 +1975,7 @@ void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
                 }
                 const MeshBufferUse mbu = resolve_mesh_buffers(*assets, compute, mi);  // mesh_buffer_draw.h
                 if (mbu.skip) continue;
+                bool anyDrawn = false;  // a material with buffers that has no program for this mesh draws nothing
                 for (auto& part : mi.mesh->parts) {
                     const bool skinned = mi.anim && part.skinVb.id;
                     const PartDraw pd = part_draw(ctx, mi, part);
@@ -1986,6 +1987,8 @@ void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
                     // A full-shader material draws the part once per pass, in order, each with its own program and state.
                     const int passCount =
                         pd.mat && pd.mat->full ? int(pd.mat->passes.size()) : (mbu.active && !pd.mat ? 0 : 1);
+                    if (passCount == 0) continue;  // nothing is drawn for this part: it is not in the stats either
+                    anyDrawn = true;
                     for (int pass = 0; pass < passCount; ++pass) {
                         const MaterialProgram* prog =
                             pd.mat ? &pd.mat->programs[pass_program_slot(pass, skinned)] : nullptr;
@@ -2021,8 +2024,10 @@ void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
                     }
                     stats.triangles += part.indexCount / 3 * (mbu.active ? mbu.instances : int(batch.mainCount));
                 }
-                stats.meshes += int(batch.mainCount);
-                ++stats.meshBatches;
+                if (anyDrawn || !mbu.active) {
+                    stats.meshes += int(batch.mainCount);
+                    ++stats.meshBatches;
+                }
             }
         };
         draw_meshes(opaqueBatches, opaque, false);

@@ -114,7 +114,7 @@ struct VertexData {          // vertex(): world space, after instancing and skin
 |---|---|---|
 | `fa_time` | `surface()` and `vertex()` | `vec4`; `fa_time.x` is the seconds of simulated time since the scene started, the engine clock that also steps `SpriteAnimator` and particles. It is deterministic: headless runs and screenshots repeat. A `float` loses sub-millisecond precision after hours of play, so prefer periodic functions (`sin(fa_time.x * 6.2831853 * cyclesPerSecond)`). |
 | `fa_camera_pos` | `surface()` only | `vec4`; `.xyz` is the camera position in world space. |
-| `fa_instance_index` | `vertex()` | `int`, 0 to `MeshRenderer.instances` - 1: the instance of a mesh drawn from compute buffers. |
+| `fa_instance_index` | `vertex()` | `int`: the instance of a mesh drawn from compute buffers ([how](shaders/SHADERS_COMPUTE.md#drawing-from-a-compute-buffer)). |
 | `fa_tangent_normal(i, n)` | `surface()` | A tangent-space normal `n` (-1..1, e.g. a normal-map texel times 2 minus 1) turned into a world-space normal. Assign it to `s.normal`. |
 
 Params are globals named like the JSON keys (`strength`, `tint.rgb`). Textures are sampled with the **separate** texture
@@ -985,7 +985,7 @@ helpers, the positions, the commands and what happens when a pass cannot be draw
 `"kind": "compute"` makes a program that runs on the GPU over storage buffers and draws nothing (particle simulations, flocking,
 flow fields). You run it with the `compute.*` commands. The snippet contract, the buffers and their std430 layout, the commands
 and where it runs (not Android or the web, whose GPU API has no compute; the page gives the CPU path) are on the page
-[Compute materials](shaders/SHADERS_COMPUTE.md), which also shows a mesh material with `buffers` drawing `MeshRenderer.instances` from them.
+[Compute materials](shaders/SHADERS_COMPUTE.md).
 
 ## Full shaders and passes
 

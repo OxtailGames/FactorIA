@@ -55,6 +55,7 @@ struct Scope {
     ~Scope() {
         for (const Json& b : g.renderer.compute().list()) (void)g.renderer.compute().destroy_buffer(b["id"].get<int>());
         ComputeTestAccess::set_backend(g.renderer.compute(), -1);
+        ComputeTestAccess::set_binding_limit(g.renderer.compute(), -1);
         g.renderer.clear_asset_cache();
     }
     Compute& compute() { return g.renderer.compute(); }
@@ -175,7 +176,8 @@ TEST_CASE("mesh buffers: a compute material writes N positions and the mesh draw
     CHECK(s.g.renderer.stats().materialFallbacks.empty());
 }
 
-TEST_CASE("mesh buffers: the instance count and positions follow the buffer, with no CPU round trip (GPU culling by a flag)") {
+TEST_CASE("mesh buffers: the instance count and positions follow the buffer, with no CPU round trip (GPU culling by a "
+          "flag)") {
     Scope s;
     std::string why;
     if (!s.compute().available(&why)) {
@@ -196,7 +198,8 @@ TEST_CASE("mesh buffers: the instance count and positions follow the buffer, wit
     CHECK(log.total() == 0);
 }
 
-TEST_CASE("mesh buffers: a full shader reads the buffer in its vertex and fragment stage, with its own shadow program") {
+TEST_CASE(
+    "mesh buffers: a full shader reads the buffer in its vertex and fragment stage, with its own shadow program") {
     Scope s;
     std::string why;
     if (!s.compute().available(&why)) {
@@ -323,6 +326,101 @@ TEST_CASE("mesh buffers: a missing, destroyed or wrong buffer is a teaching erro
     CHECK(count_runs(frame(Json::object({{"points", id}}), 5)) == 0);
     CHECK(log.count("no compute buffer") == 1);
     CHECK(s.g.renderer.stats().materialFallbacks.empty());  // the material itself is fine
+}
+
+TEST_CASE("mesh buffers: every buffer the material reads must hold one element per instance") {
+    Scope s;
+    std::string why;
+    if (!s.compute().available(&why)) {
+        skip_without_compute("the short second buffer is not run", why);
+        return;
+    }
+    const int points = make_buffer(s.compute(), 8);
+    const int shortOne = make_buffer(s.compute(), 3);
+    const int extra = make_buffer(s.compute(), 8);
+    fill(s.compute(), points, 5);
+    fill(s.compute(), shortOne, 3);
+    fill(s.compute(), extra, 5);
+    auto frame = [&](int second, int instances) {
+        World w;
+        add_camera(w, {0, 0, 4});
+        add_instanced(w, "materials/meshbuf2.material.json", Json::object({{"points", points}, {"extra", second}}),
+                      instances);
+        return s.g.render(w);
+    };
+    ErrorLog log;
+    // `points` holds 8 elements, `extra` only 3: five instances would read `extra` past its end.
+    CHECK(count_runs(frame(shortOne, 5)) == 0);
+    CHECK(count_runs(frame(shortOne, 5)) == 0);
+    CHECK(log.count("/instances") == 1);
+    CHECK(log.count("the buffer 'extra'") == 1);
+    CHECK(log.count("holds 3 elements") == 1);
+    CHECK(s.g.renderer.stats().meshes == 0);
+    CHECK(s.g.renderer.stats().triangles == 0);
+    // Three instances fit both, and so do five with a second buffer of 8.
+    CHECK(count_runs(frame(shortOne, 3)) == 3);
+    CHECK(count_runs(frame(extra, 5)) == 5);
+    CHECK(log.count("/instances") == 1);
+}
+
+TEST_CASE("mesh buffers: two entities with the same buffer and the same params are two draws, never one batch") {
+    Scope s;
+    std::string why;
+    if (!s.compute().available(&why)) {
+        skip_without_compute("the batch isolation is not run", why);
+        return;
+    }
+    const int id = make_buffer(s.compute(), 8);
+    fill(s.compute(), id, 3);
+    World w;
+    add_camera(w, {0, 0, 6});
+    add_instanced(w, kMesh, Json::object({{"points", id}}), 3, {0, 1, 0});
+    add_instanced(w, kMesh, Json::object({{"points", id}}), 3, {0, -1, 0});
+    s.g.render(w);
+    const RenderStats& st = s.g.renderer.stats();
+    CHECK(st.meshes == 2);
+    CHECK(st.meshBatches == 2);
+    CHECK(st.drawCalls >= 2);
+    CHECK(st.triangles == 2 * 3 * 12);  // two entities, three instances of a 12-triangle cube
+}
+
+TEST_CASE("mesh buffers: a driver with too few storage buffer bindings refuses the material at load and says so") {
+    Scope s;
+    std::string why;
+    if (!s.compute().available(&why)) {
+        skip_without_compute("the binding limit is not run", why);
+        return;
+    }
+    const int points = make_buffer(s.compute(), 8);
+    const int extra = make_buffer(s.compute(), 8);
+    fill(s.compute(), points, 5);
+    auto draw = [&](const char* material, Json params) {
+        s.g.renderer.clear_asset_cache();
+        install_materials();
+        World w;
+        add_camera(w, {0, 0, 4});
+        add_instanced(w, material, std::move(params), 5);
+        return count_runs(s.g.render(w));
+    };
+    // A driver that offers 2 bindings: one buffer takes 2 (vertex and fragment copy), two take 4.
+    ComputeTestAccess::set_binding_limit(s.compute(), 2);
+    {
+        ErrorLog log;
+        CHECK(draw(kMesh, Json::object({{"points", points}})) == 5);
+        CHECK(log.count("storage buffer bindings") == 0);
+    }
+    {
+        ErrorLog log;
+        CHECK(draw("materials/meshbuf2.material.json", Json::object({{"points", points}, {"extra", extra}})) == 0);
+        CHECK(log.count("takes 4 storage buffer bindings") >= 1);
+        CHECK(log.count("offers 2") >= 1);
+        CHECK(log.count("Declare at most 1 buffers") >= 1);
+        CHECK(s.g.renderer.stats().materialFallbacks.size() == 1);  // the error material, never a crash
+    }
+    ComputeTestAccess::set_binding_limit(s.compute(), 4);  // 2 buffers need 4: fine
+    CHECK(draw("materials/meshbuf2.material.json", Json::object({{"points", points}, {"extra", extra}})) == 5);
+    ComputeTestAccess::set_binding_limit(s.compute(), -1);
+    s.g.renderer.clear_asset_cache();
 }
 
 TEST_CASE("mesh buffers: instances on a material without buffers draws nothing and says why") {

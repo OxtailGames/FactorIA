@@ -801,6 +801,11 @@ public:
     using StorageBufferGate = std::function<bool(std::string* backend, std::string* reason)>;
     void set_storage_buffer_gate(StorageBufferGate g) { bufferGate_ = std::move(g); }
     bool storage_buffers_available(std::string* backend, std::string* reason) const;
+    // How many storage buffer bindings one shader stage may use: OpenGL's GL_MAX_SHADER_STORAGE_BUFFER_BINDINGS (GL 4.3 only
+    // guarantees 8, many drivers give 16), what sokol_gfx reports as sg_limits.max_storage_buffer_bindings_per_stage. A test
+    // sets another number (>= 0) to reach the refusal; -1 = the real one. Other backends number buffers by slot with no such limit.
+    void set_storage_binding_limit_override(int limit) { storageBindingLimit_ = limit; }
+    int storage_binding_limit(bool* limited) const;
     static bool is_compute_id(const std::string& path) { return path.rfind("compute:", 0) == 0; }
     // True while Renderer::render() runs: only then does a target id nobody renders into count as a failure (a query made
     // before the first frame, such as an entity's bounds, only gets the checker).
@@ -942,6 +947,7 @@ private:
     TargetResolver targetResolver_;
     ComputeImageResolver computeResolver_;
     StorageBufferGate bufferGate_;
+    int storageBindingLimit_ = -1;
     bool drawing_ = false;
     std::unique_ptr<MeshAsset> placeholderMesh_;
     std::vector<Failure> failures_;

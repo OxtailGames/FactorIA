@@ -1,6 +1,7 @@
 #include "render_scene.h"
 
 #include <algorithm>
+#include <cmath>
 #include <functional>
 
 #include "fa/core/log.h"
@@ -212,8 +213,11 @@ void RenderScene::build(World& world, Assets& assets, Entity scopeRoot, bool wan
                 // A mesh drawn from compute buffers (mesh_buffer_draw.h) is a batch of its own (the entity is part of what batches
                 // differ by), has no lod levels, and is culled by MeshRenderer.instanceBounds: its instances are where the buffer
                 // puts them, so the mesh's own box says nothing.
-                sm.paramsHash =
-                    (sm.paramsHash ^ (sm.entity.bits() + 0x9e3779b97f4a7c15ull + (sm.paramsHash << 6))) | 1u;
+                std::uint64_t mixed = sm.paramsHash ^ (sm.entity.bits() * 0x9e3779b97f4a7c15ull);
+                mixed ^= mixed >> 32;  // two entities differ in the low bits: spread them before the hash is compared
+                mixed *= 0xd6e8feb86659fd93ull;
+                mixed ^= mixed >> 32;
+                sm.paramsHash = std::size_t(mixed ? mixed : 1);
                 sm.hasLods = false;
                 const float h = std::isfinite(mr.instanceBounds) ? mr.instanceBounds : 0.0f;
                 sm.noCull = !(h > 0.0f);
