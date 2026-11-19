@@ -14,8 +14,8 @@ namespace fa::editor {
 // A titled group of SceneSettings fields, in the order the panel draws them.
 struct SettingsGroup {
     std::string title;
-    std::string hint;                       // what the group is for, the tooltip of its header
-    std::vector<const FieldInfo*> fields;   // reflection order inside the group
+    std::string hint;                      // what the group is for, the tooltip of its header
+    std::vector<const FieldInfo*> fields;  // reflection order inside the group
 };
 
 // The fields of `type` (SceneSettings) the panel shows, put in groups: Sky, Fog, Lighting, Physics, Music, Output. A field no

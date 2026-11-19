@@ -6,6 +6,28 @@ Older versions, one file per minor version with its patch releases: [0.30](chang
 
 ## Unreleased
 
+- **Per-instance params and vertex channels for mesh materials (M72.3):** a material param marked `"instanced": true`
+  takes a value per entity inside one instanced draw call: 100 entities with 100 different `tint` values are one draw, and
+  the snippet reads `tint` by its name in `vertex()` and `surface()` (also in the shadow and depth prepass programs, so a
+  vertex moved by an instanced value casts its moved shadow). The values travel in the instance buffer, at most 3 vec4
+  (12 floats) per material; more is an error on `/params` that lists them. A param that is not instanced still splits the
+  batch. `"vertexAttributes": ["uv1", "color1"]` lets `vertex()` read a glTF mesh's second UV set and second vertex-color
+  set (`vertex_uv1`, `vertex_color1`); a mesh part without a declared channel (any procedural mesh or built-in primitive)
+  is drawn magenta and logged once with the material, the mesh and the glTF attribute. A material that uses neither gets
+  the attributes it had. `material.info` and the twins list `instanced`, `instanceVec4` and `vertexAttributes`.
+  **Games with custom materials must re-export again:** the mesh template changed (no built-in mesh looks different), so
+  the compiled shader files an older export shipped are refused, with the re-export hint, until the game is exported
+  again.
+- **Compute materials (M72.4):** `"kind": "compute"` makes a `*.material.json` a GPU program over storage buffers: its snippet
+  defines `void compute(in ComputeInput i)`, and the file declares `workgroupSize` (a multiple of 32, at most 256) and
+  `buffers` (arrays of `float`, `vecN`, `int` and `uint` fields, std430), plus `params` and `textures` as for meshes.
+  `shader.compile`, `factoria validate` and `factoria export` compile it to the HLSL 5, GLSL 4.30 and Metal twins and
+  `material.info` lists the platforms it runs on (`runsOn`, `notOn`); an Android or Web export warns that it has no shader
+  there. The new commands `compute.create_buffer`, `compute.write_buffer`, `compute.dispatch`, `compute.read_buffer`,
+  `compute.destroy_buffer` and `compute.list_buffers` (and `Renderer::compute()` in C++) create buffers, run a material over
+  them and read the result back. On GLES3, WebGL2, macOS OpenGL 4.1 and without graphics they fail with the code
+  `unavailable`, naming the backend (`render.supports computeShaders`). Storage images are not available yet.
+
 - **Material kinds (M72 base):** `*.material.json` takes an optional `"kind"`: `"mesh"` (default, what materials were so far),
   `"sprite"`, `"sky"`, `"post"` or `"compute"`. Only mesh materials compile and draw; `shader.compile`, `factoria validate`
   and the renderer refuse the others with an error that names the package that brings them, and `shader.compile` and
@@ -20,12 +42,19 @@ Older versions, one file per minor version with its patch releases: [0.30](chang
   leaves. `QuadInput` carries `uv`, the tint, the world position, `screen_uv`, the time, the mode and a reserved
   `custom`. `shader.compile`, `material.info` (programs `quad` and `quad_plain`), `factoria validate` and
   `factoria export` (`<name>.material.json.<dialect>.shader`) work for it; `alphaMode: "clip"` is an error on a sprite.
-  The engine's own pixels do not change (an empty `fragment()` is the built-in program). The renderer draws with the
-  compiled programs in a later package; docs/SHADERS.md has the contract, the slots and an example with a dissolve and a
+  The engine's own pixels do not change (an empty `fragment()` is the built-in program). The renderer draws a `Sprite` with the
+  compiled programs (next bullet); docs/SHADERS.md has the contract, the slots and an example with a dissolve and a
   hit flash. The sprite template hash covers `quad_common.glsl`, `color_space.glsl` and `light_shadow.glsl`.
   A sprite material cannot name a param or texture after a name of the 2D program (`color`, `uv`, `tex`, `smp`, `lit`,
   `params`...: the error names the JSON pointer and a rename), `noise` is refused for every kind (sokol-shdc cannot compile
   a texture called that) and a sprite `vertex()` cannot sample a material texture.
+- **Sprites draw with their material (M72.1):** a `Sprite` with `material` (and `materialParams`) is drawn by the
+  compiled `quad` / `quad_plain` programs of a `"kind": "sprite"` material, with the engine's blend and depth state. Sprites
+  with the same material and equal values share a draw call; a different value, another material or no material splits the
+  batch, and the draw order is unchanged. `fa_time` and `fa_target` are filled. A material that did not build (or is of
+  another kind) draws the sprite magenta with the built-in shader and shows in `materialFallbacks`; a hot reload rebuilds it
+  and a failed one keeps the last good version. A material with an empty `fragment()` draws the same pixels as none.
+  `Shape2D`, `Tilemap`, `Text`, particles and UI keep the engine's shader until the next package.
 
 - **Custom lighting and textures in `vertex()` (M72.3):** a mesh material with `"lighting": "custom"` defines
   `vec3 light(in SurfaceInput i, in Surface s, in LightSample l)`, which the engine's light loop calls once per light

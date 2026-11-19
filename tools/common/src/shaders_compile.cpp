@@ -425,6 +425,12 @@ void outside_snippet(ShaderIssue& issue, const std::string& where, const std::st
         issue.hint = std::string("The engine calls ") + token +
                      "() from its template, so the snippet must define it with exactly this signature: " +
                      signatures(ctx.material) + ".";
+    else if (ctx.material.kind == "compute")
+        issue.hint =
+            "A compute snippet defines `void compute(in ComputeInput i)` and reads its buffers as "
+            "<buffer>.data[i]; do not declare names starting with fa_ or main(). A workgroupSize whose product "
+            "is not a multiple of 32 is refused by the compiler: use [64], [32, 2] or [8, 8]. "
+            "docs/SHADERS.md, \"Compute materials\".";
     else if (token == "main")
         issue.hint = std::string("The engine owns main(): the snippet defines ") + fragment_entry(ctx.material) +
                      "() (and vertex()) and must not define main. Remove it.";
@@ -498,7 +504,16 @@ std::vector<ShaderIssue> map_diagnostics(const std::vector<Diagnostic>& diags, c
 std::vector<ShaderIssue> precheck_snippet(const MaterialDef& material, const GeneratedShader& g,
                                           const std::string& snippet, const std::string& stripped) {
     std::vector<ShaderIssue> out;
-    if (!g.hasSurface) {
+    if (material.kind == "compute" && !g.hasCompute) {
+        ShaderIssue i;
+        i.file = material.shader;
+        i.message = "the snippet defines no compute() function";
+        i.hint =
+            "Define it as `void compute(in ComputeInput i) { ... }`: it runs once per thread, i.global_id.x is the "
+            "thread's index over the whole dispatch. The buffers are <name>.data[i], the params are globals. The "
+            "snippet must not define main.";
+        out.push_back(std::move(i));
+    } else if (material.kind != "compute" && !g.hasSurface) {
         ShaderIssue i;
         i.file = material.shader;
         i.message = std::string("the snippet defines no ") + fragment_entry(material) + "() function";
@@ -635,8 +650,17 @@ Result<std::map<std::string, Json>> build_twins(const stdfs::path& work, const s
         return make_error("the reflection file of sokol-shdc has no \"shaders\" list",
                           "Install the pinned sokol-shdc (`factoria setup shaders`).");
     Json paramNames = Json::array(), textureNames = Json::array();
-    for (const MaterialParam& p : material.params) paramNames.push_back(p.name);
+    // The uniform block holds the params that are not instanced; the instanced ones travel in the instance buffer, laid out as
+    // "instanced" says (a twin without these keys has none: older twins stay valid).
+    for (const MaterialParam& p : material.params)
+        if (!p.instanced) paramNames.push_back(p.name);
     for (const MaterialTexture& t : material.textures) textureNames.push_back(t.name);
+    const InstanceLayout instLayout = instance_layout(material.params);
+    Json instancedSlots = Json::array(), vertexAttributes = Json::array();
+    for (const InstanceSlot& s : instLayout.slots)
+        instancedSlots.push_back(
+            Json::object({{"name", s.name}, {"vec4", s.vec4}, {"offset", s.offset}, {"components", s.components}}));
+    for (const std::string& a : material.vertexAttributes) vertexAttributes.push_back(a);
 
     std::map<std::string, Json> twins;
     bool vertexTextureReported = false;
@@ -652,11 +676,33 @@ Result<std::map<std::string, Json>> build_twins(const stdfs::path& work, const s
         // A twin without "kind" is a mesh twin: mesh twins stay as they were before M72, so no committed or exported one is
         // made stale by the kinds.
         if (material.kind != "mesh") twin["kind"] = material.kind;
+        if (instLayout.vec4Count > 0) {
+            twin["instanced"] = instancedSlots;
+            twin["instanceVec4"] = instLayout.vec4Count;
+        }
+        if (!vertexAttributes.empty()) twin["vertexAttributes"] = vertexAttributes;
+        if (material.kind == "compute") {
+            const Json computeFields = shaders_detail::compute_twin_fields(material);
+            twin["workgroupSize"] = computeFields["workgroupSize"];
+            twin["buffers"] = computeFields["buffers"];
+        }
         Json programs = Json::object();
         for (const Json& prog : shader.value("programs", Json::array())) {
             const std::string name = prog.value("name", std::string());
             Json reflection = prog;
             reflection.erase("name");
+            if (material.kind == "compute") {  // one compute function ("cs") instead of a vertex and a fragment one
+                const Json cf = prog.value("compute_func", Json::object());
+                reflection["compute_func"] = func_reflection(cf);
+                const std::string csText = read_output_file(work, cf.value("path", std::string()));
+                if (csText.empty())
+                    return make_error(
+                        "sokol-shdc did not write the " + slang + " source of program '" + name + "'",
+                        "Run sokol-shdc by hand on the generated top file (`factoria call shader.compile` "
+                        "prints its errors).");
+                programs[name] = Json::object({{"cs", csText}, {"reflection", std::move(reflection)}});
+                continue;
+            }
             const Json vf = prog.value("vertex_func", Json::object()), ff = prog.value("fragment_func", Json::object());
             reflection["vertex_func"] = func_reflection(vf);
             reflection["fragment_func"] = func_reflection(ff);
@@ -749,16 +795,26 @@ Result<ShaderCompileResult> compile_material(const std::string& projectDir, cons
         res.errors.push_back(std::move(i));
     }
     if (!mp.ok()) return res;
+    if (res.material.kind == "compute") {  // no glsl300es twin: GLES3 and WebGL2 have no compute shaders
+        const std::vector<std::string> has = shader_dialects_of_kind("compute");
+        if (options.dialects.empty()) {  // "every dialect" means every dialect the kind has
+            res.dialects = has;
+        } else {
+            std::vector<std::string> kept;
+            for (const std::string& d : res.dialects)
+                (std::find(has.begin(), has.end(), d) != has.end() ? kept : res.skippedDialects).push_back(d);
+            res.dialects = std::move(kept);
+        }
+    }
     if (!kind_is_compiled(res.material.kind)) {  // the other kinds are filled in by their M72 packages
         ShaderIssue i;
         i.file = materialPath;
         i.pointer = "/kind";
         i.message = kind_refusal(res.material.kind);
-        i.hint =
-            "Only \"mesh\" (the default kind), \"sprite\" and \"sky\" materials compile now. Remove \"kind\" to use "
-            "the "
-            "material on a MeshRenderer, or set it to \"sprite\" for Sprite, Shape2D, Tilemap, Text or particles, or "
-            "to \"sky\" for SceneSettings.skyMaterial.";
+        i.hint = "Only \"mesh\" (the default kind), \"sprite\", \"sky\" and \"compute\" materials compile now. Remove "
+                 "\"kind\" to use the material on a MeshRenderer, or set it to \"sprite\" for Sprite, Shape2D, "
+                 "Tilemap, Text "
+                 "or particles, to \"sky\" for SceneSettings.skyMaterial, or to \"compute\" for compute.*.";
         res.errors.push_back(std::move(i));
         return res;
     }

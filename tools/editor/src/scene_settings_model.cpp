@@ -17,7 +17,8 @@ struct GroupSpec {
 const std::vector<GroupSpec>& group_specs() {
     static const std::vector<GroupSpec> specs = {
         {"Sky",
-         "What a 3D camera paints behind the scene: a two-colour gradient, or a sky material (a *.material.json of kind "
+         "What a 3D camera paints behind the scene: a two-colour gradient, or a sky material (a *.material.json of "
+         "kind "
          "\"sky\") with its own params. Reflections and the ambient light always follow the two colours.",
          {"skyColor", "horizonColor", "skyMaterial", "skyMaterialParams"}},
         {"Fog", "Distance fog: its colour and how fast it thickens (0 = no fog).", {"fogColor", "fogDensity"}},
@@ -44,9 +45,8 @@ std::vector<SettingsGroup> settings_groups(const TypeInfo& type) {
         g.hint = spec.hint;
         for (const FieldInfo& f : type.fields) {
             if (!f.serialized) continue;
-            const bool named = std::find_if(spec.fields.begin(), spec.fields.end(), [&](const char* name) {
-                                   return f.name == name;
-                               }) != spec.fields.end();
+            const bool named = std::find_if(spec.fields.begin(), spec.fields.end(),
+                                            [&](const char* name) { return f.name == name; }) != spec.fields.end();
             if (!named) continue;
             g.fields.push_back(&f);
             placed.push_back(&f);

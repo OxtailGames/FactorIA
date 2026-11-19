@@ -57,9 +57,7 @@ struct Session {
     }
     World& world() { return engine.world(); }
     CommandResult call(const std::string& name, const Json& args) { return engine.commands().call(name, args); }
-    Json values() {
-        return settings_values(*TypeRegistry::global().find("SceneSettings"), &world().settings());
-    }
+    Json values() { return settings_values(*TypeRegistry::global().find("SceneSettings"), &world().settings()); }
 };
 
 const TypeInfo& settings_type() {
@@ -127,7 +125,8 @@ TEST_CASE("scene settings model: what the panel says about the sky material") {
     CHECK(other.level == Level::Warning);
     CHECK(other.text.find("sprite") != std::string::npos);
     CHECK(other.text.find("sky") != std::string::npos);
-    const SkyMaterialNote failed = sky_material_note("m.material.json", Json::object({{"kind", "sky"}}), "", "line 3: oops");
+    const SkyMaterialNote failed =
+        sky_material_note("m.material.json", Json::object({{"kind", "sky"}}), "", "line 3: oops");
     CHECK(failed.level == Level::Error);
     CHECK(failed.text.find("line 3: oops") != std::string::npos);
     const SkyMaterialNote ok = sky_material_note("m.material.json", Json::object({{"kind", "sky"}}), "", "");
@@ -153,14 +152,16 @@ TEST_CASE("scene.set_component on SceneSettings: set, merge, reset, refusals") {
                 .ok);
     CHECK(s.world().settings().skyMaterialParams == Json::object({{"b", 2}}));
     REQUIRE(s.call("scene.set_component", settings_reset_args("skyMaterialParams")).ok);
-    const bool paramsGone = s.world().settings().skyMaterialParams.is_null() || s.world().settings().skyMaterialParams.empty();
+    const bool paramsGone =
+        s.world().settings().skyMaterialParams.is_null() || s.world().settings().skyMaterialParams.empty();
     CHECK(paramsGone);
 
     // An unknown field is refused with a suggestion and changes nothing, also next to a valid one.
     const Json before = s.values();
-    r = s.call("scene.set_component",
-               Json::object({{"component", "SceneSettings"},
-                             {"fields", Json::object({{"fogDensity", 0.5}, {"skyColour", Json::array({0, 0, 0, 1})}})}}));
+    r = s.call(
+        "scene.set_component",
+        Json::object({{"component", "SceneSettings"},
+                      {"fields", Json::object({{"fogDensity", 0.5}, {"skyColour", Json::array({0, 0, 0, 1})}})}}));
     CHECK(!r.ok);
     CHECK(r.error.dump().find("skyColour") != std::string::npos);
     CHECK(r.error.dump().find("skyColor") != std::string::npos);  // did you mean
@@ -169,13 +170,15 @@ TEST_CASE("scene.set_component on SceneSettings: set, merge, reset, refusals") {
     // A value of the wrong type is refused, names the field, and changes nothing (the field before it included).
     r = s.call("scene.set_component",
                Json::object({{"component", "SceneSettings"},
-                             {"fields", Json::object({{"fogColor", Json::array({0.1, 0.2, 0.3, 1.0})}, {"fogDensity", "thick"}})}}));
+                             {"fields", Json::object({{"fogColor", Json::array({0.1, 0.2, 0.3, 1.0})},
+                                                      {"fogDensity", "thick"}})}}));
     CHECK(!r.ok);
     CHECK(r.error.dump().find("fogDensity") != std::string::npos);
     CHECK(s.values() == before);
 
     // An empty id counts as none (the Inspector's helpers spell the id out, empty for the scene), also for the undo plan.
-    const Json emptyId = Json::object({{"id", ""}, {"component", "SceneSettings"}, {"fields", Json::object({{"fogDensity", 0.75}})}});
+    const Json emptyId =
+        Json::object({{"id", ""}, {"component", "SceneSettings"}, {"fields", Json::object({{"fogDensity", 0.75}})}});
     REQUIRE(plan_undo(s.world(), "scene.set_component", emptyId).has_value());
     r = s.call("scene.set_component", emptyId);
     REQUIRE_MESSAGE(r.ok, r.error.dump());
@@ -184,8 +187,9 @@ TEST_CASE("scene.set_component on SceneSettings: set, merge, reset, refusals") {
     CHECK(s.values() == before);  // back to what it was
 
     // An id names an entity: SceneSettings is not on one.
-    r = s.call("scene.set_component",
-               Json::object({{"id", "hero"}, {"component", "SceneSettings"}, {"fields", Json::object({{"fogDensity", 1}})}}));
+    r = s.call(
+        "scene.set_component",
+        Json::object({{"id", "hero"}, {"component", "SceneSettings"}, {"fields", Json::object({{"fogDensity", 1}})}}));
     CHECK(!r.ok);
     CHECK(s.values() == before);
 }
@@ -231,8 +235,8 @@ TEST_CASE("undo plan of SceneSettings: the inverse puts back exactly the fields 
     // A merged params edit is undone to the whole object it had.
     REQUIRE(s.call("scene.set_component", settings_edit_args("skyMaterialParams", Json::object({{"a", 1}}), true)).ok);
     const Json withA = s.values();
-    const std::optional<UndoPlan> merged =
-        plan_undo(s.world(), "scene.set_component", settings_edit_args("skyMaterialParams", Json::object({{"b", 2}}), true));
+    const std::optional<UndoPlan> merged = plan_undo(
+        s.world(), "scene.set_component", settings_edit_args("skyMaterialParams", Json::object({{"b", 2}}), true));
     REQUIRE(merged.has_value());
     for (const UndoCommand& c : merged->forward) REQUIRE(s.call(c.cmd, c.args).ok);
     CHECK(s.world().settings().skyMaterialParams == Json::object({{"a", 1}, {"b", 2}}));

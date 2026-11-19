@@ -60,7 +60,8 @@ bool is_reserved_word(std::string_view s) {
         "sizeof", "cast", "namespace", "using",
         // names of the snippet contract
         "main", "surface", "vertex", "Surface", "SurfaceInput", "VertexData", "LightSample", "QuadInput", "QuadSurface",
-        "QuadVertex", "fragment", "SkyInput", "SkySurface", "PostInput", "PostSurface",
+        "QuadVertex", "fragment", "SkyInput", "SkySurface", "PostInput", "PostSurface", "compute", "ComputeInput",
+        "vertex_uv1", "vertex_color1",
         // a name sokol-shdc cannot take for a texture ("no binding found for texture ''")
         "noise"};
     return words.count(s) > 0;
@@ -107,7 +108,7 @@ const std::vector<std::string>& template_file_names(const std::string& kind) {
         {"sprite", {"color_space.glsl", "light_shadow.glsl", "quad_common.glsl"}},
         {"sky", {"color_space.glsl", "sky_common.glsl"}},
         {"post", {"post_common.glsl"}},
-        {"compute", {}}};
+        {"compute", {"compute_common.glsl"}}};
     static const std::vector<std::string> none;
     auto it = names.find(kind);
     return it == names.end() ? none : it->second;
@@ -132,7 +133,7 @@ const std::vector<std::pair<std::string, std::vector<std::string>>>& contract_st
         {"sprite", {"QuadInput", "QuadSurface", "QuadVertex"}},
         {"sky", {"SkyInput", "SkySurface"}},
         {"post", {"PostInput", "PostSurface"}},
-        {"compute", {}}};
+        {"compute", {"ComputeInput"}}};
     static const std::map<std::string, Structs> byKind = [] {
         std::map<std::string, Structs> result;
         for (const auto& [kindName, wantedList] : wantedByKind) {
@@ -329,11 +330,13 @@ const std::set<std::string, std::less<>>& template_globals(const std::string& ki
     return it == byKind.end() ? none : it->second;
 }
 
-bool kind_is_compiled(const std::string& kind) { return kind == "mesh" || kind == "sprite" || kind == "sky"; }
+bool kind_is_compiled(const std::string& kind) {
+    return kind == "mesh" || kind == "sprite" || kind == "sky" || kind == "compute";
+}
 
 std::string kind_refusal(const std::string& kind) {
-    // Sprite and sky are compiled (M72.1).
-    const char* package = kind == "post" ? "M72.2" : kind == "compute" ? "M72.4" : "M72.1";
+    // Mesh, sprite, sky and compute are compiled; post arrives with M72.2.
+    const char* package = "M72.2";
     return "kind \"" + kind + "\" is not compiled yet: " + kind + " materials arrive with " + package;
 }
 
@@ -471,6 +474,7 @@ std::string block_members(const std::vector<MaterialParam>& params) {
 }  // namespace
 
 GeneratedShader generate_material_shader(const MaterialDef& material, std::string_view snippetText) {
+    if (material.kind == "compute") return generate_compute_shader(material, snippetText);
     GeneratedShader g;
     g.kind = material.kind;
     const bool sprite = material.kind == "sprite", sky = material.kind == "sky";
@@ -490,6 +494,13 @@ GeneratedShader generate_material_shader(const MaterialDef& material, std::strin
         g.hasAmbient = g.hasAmbient || f.isAmbient;
     }
 
+    // The params of the uniform block (one value per draw) and the instanced ones (a value per instance, read from the instance
+    // buffer into plain globals before vertex() and surface() run, so the snippet reads them by the same name).
+    std::vector<MaterialParam> blockParams;
+    for (const MaterialParam& p : material.params)
+        if (!p.instanced) blockParams.push_back(p);
+    const InstanceLayout instLayout = instance_layout(material.params);
+
     TopFile t{g};
     t.generated("@module fa_mat\n@block fa_user\n");
     // The material block lives in one stage: a sokol uniform block slot belongs to one stage, so the vertex stage gets its own
@@ -497,14 +508,34 @@ GeneratedShader generate_material_shader(const MaterialDef& material, std::strin
     // take the slots after the engine's own (mesh: views 6.., samplers 2..; sprite: views 4.., samplers 3..; kMaterial* of
     // engine/render/src/render_internal.h).
     t.generated("#ifdef GL_VERTEX_SHADER\n");
-    if (!material.params.empty())
-        t.generated("layout(binding=4) uniform fa_material_vs {\n" + block_members(material.params) + "};\n");
+    if (!blockParams.empty())
+        t.generated("layout(binding=4) uniform fa_material_vs {\n" + block_members(blockParams) + "};\n");
     // Helpers that sample a texture or discard still compile in the vertex stage.
     t.generated("#define texture(s, uv) textureLod(s, uv, 0.0)\n#define discard\n");
     t.generated("#else\n");
-    if (!material.params.empty())
-        t.generated("layout(binding=5) uniform fa_material {\n" + block_members(material.params) + "};\n");
+    if (!blockParams.empty())
+        t.generated("layout(binding=5) uniform fa_material {\n" + block_members(blockParams) + "};\n");
     t.generated("#endif\n");
+    if (instLayout.vec4Count > 0) {
+        static const char* kLetters = "xyzw";
+        std::string globals, unpack;
+        for (const InstanceSlot& s : instLayout.slots) {
+            const std::string type = s.components == 1 ? "float" : "vec" + std::to_string(s.components);
+            globals += type + " " + s.name + ";\n";
+            const std::string from = "fa_d" + std::to_string(s.vec4);
+            unpack += "    " + s.name + " = " + from +
+                      (s.components == 4 ? "" : "." + std::string(kLetters + s.offset, std::size_t(s.components))) +
+                      ";\n";
+        }
+        t.generated("// Instanced params: set from the instance buffer before vertex() and surface() run.\n" + globals +
+                    "void fa_instance_unpack(vec4 fa_d0, vec4 fa_d1, vec4 fa_d2) {\n" + unpack + "}\n");
+    }
+    if (std::find(material.vertexAttributes.begin(), material.vertexAttributes.end(), "uv1") !=
+        material.vertexAttributes.end())
+        t.generated("#ifdef GL_VERTEX_SHADER\nvec2 vertex_uv1;\n#endif\n");
+    if (std::find(material.vertexAttributes.begin(), material.vertexAttributes.end(), "color1") !=
+        material.vertexAttributes.end())
+        t.generated("#ifdef GL_VERTEX_SHADER\nvec4 vertex_color1;\n#endif\n");
     std::string vsDefines, vsUndefs, vsDecls, fsDecls;
     if (sprite || sky) {
         // A sprite material's textures are declared once, in the fragment stage (views 4.., samplers 3..): the 2D pipeline binds
@@ -577,6 +608,11 @@ GeneratedShader generate_material_shader(const MaterialDef& material, std::strin
     if (custom && g.hasAmbient) g.defines.push_back("FA_HAS_AMBIENT");
     // A sprite is blended by the engine: alphaMode "clip" (the mesh template's alpha test) adds nothing to it.
     if (clip && material.kind == "mesh") g.defines.push_back("FA_ALPHA_CLIP");
+    // The instance data and the declared mesh channels (the template declares the matching vertex attributes after the
+    // instance matrix, see mesh_common.glsl): flags, since a #define inside fa_user would come after the declarations.
+    if (instLayout.vec4Count > 0) g.defines.push_back("FA_INST_" + std::to_string(std::min(instLayout.vec4Count, 3)));
+    for (const std::string& a : material.vertexAttributes)
+        g.defines.push_back(a == "uv1" ? "FA_CH_UV1" : "FA_CH_COLOR1");
     return g;
 }
 

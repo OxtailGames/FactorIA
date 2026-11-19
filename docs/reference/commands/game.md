@@ -2,6 +2,108 @@
 
 # Commands: game
 
+## `compute.create_buffer` (modifies state)
+
+Not released yet (on main after 0.31.0).
+
+Makes a GPU storage buffer shaped like one buffer of a compute material; returns its id.
+
+Capabilities: read, state
+
+A zero-filled buffer of `count` elements, each laid out like the element of the material's buffer `buffer` (its "buffers" entry: fields of float, vec2, vec3, vec4, int, uint). `initial` fills the first elements. The buffer lives until compute.destroy_buffer or the end of the game, whatever the scene (it is not part of one). Returns {id, count, stride, bytes}. Example: compute.create_buffer {"material":"materials/boids.material.json","buffer":"boids","count":1000,"initial":[{"pos":[0,0],"vel":[1,0]}]}
+
+Limits: 64 live buffers, 256 MiB each, 1 GiB in all; over one is `invalid_argument` with the number it hit. Errors: `unavailable` on a backend without compute shaders (GLES3, WebGL2, macOS OpenGL 4.1: the message names the backend and what to do; ask render.supports computeShaders first) or without graphics; `invalid_argument` for a material that is not a compute material or does not build, an unknown buffer name (did you mean), and an `initial` value that does not fit a field (the message has its JSON pointer).
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `material` | string | yes | Project-relative path of the compute material, e.g. materials/boids.material.json. |
+| `buffer` | string | yes | Name of one of the material's buffers (its "buffers" entry). |
+| `count` | integer | yes | Number of elements (at most 256 MiB / the element stride). |
+| `initial` | array | no | Optional {field: value} objects for the first elements (a vecN field is an array); fields left out are 0. |
+
+## `compute.destroy_buffer` (modifies state)
+
+Not released yet (on main after 0.31.0).
+
+Frees a compute storage buffer.
+
+Capabilities: read, state
+
+Destroys the GPU buffer; its id is not used again. Returns {destroyed: id}. Example: compute.destroy_buffer {"buffer":1}
+
+Errors: `invalid_argument` for an id that is not alive (compute.list_buffers lists the live ones).
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `buffer` | integer | yes | Buffer id from compute.create_buffer. |
+
+## `compute.dispatch` (modifies state)
+
+Not released yet (on main after 0.31.0).
+
+Runs a compute material once over its storage buffers.
+
+Capabilities: read, state
+
+`groups` counts WORKGROUPS of the material's workgroupSize threads each, not threads: ceil(work / workgroupSize.x) for a one-dimensional job. `buffers` gives a buffer id for every buffer of the material; `params` its param values and texture paths (like MeshRenderer.materialParams; what is left out keeps the material's default). The call returns when the work is recorded; compute.read_buffer waits for it. Returns {dispatched: [x, y, z]}. Example: compute.dispatch {"material":"materials/boids.material.json","buffers":{"boids":1},"params":{"speed":2},"groups":[16,1,1]}
+
+Each dimension of `groups` is 1 to 65535. A buffer must have been made for the same buffer of the same material (same layout), and one buffer cannot be bound twice. Errors: `unavailable` without compute (see compute.create_buffer); `invalid_argument` for a missing or unknown buffer or param (did you mean), a value of the wrong type, or groups out of range.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `material` | string | yes | Project-relative path of the compute material. |
+| `buffers` | object | yes | The material's buffer name -> buffer id from compute.create_buffer; every buffer of the material. |
+| `params` | object | no | {param: number or array} and {texture: path}; left out keeps the material's default. |
+| `groups` | array | no | Workgroups in x, y, z; a missing dimension is 1. Default [1,1,1]. |
+
+## `compute.list_buffers`
+
+Not released yet (on main after 0.31.0).
+
+Lists the live compute storage buffers and whether this backend runs compute.
+
+Capabilities: read
+
+Returns {available, status, buffers: [{id, material, buffer, count, stride, bytes}]}. `available` is the answer of render.supports computeShaders; when it is false `status` says which backend cannot and what to do, and `buffers` is empty. Example: compute.list_buffers {}
+
+Without graphics (graphics=false) `available` is false too.
+
+## `compute.read_buffer`
+
+Not released yet (on main after 0.31.0).
+
+Reads elements of a compute storage buffer back to the game (waits for the GPU).
+
+Capabilities: read
+
+Submits the recorded GPU work, waits for it and returns `count` elements from `first` as an array of {field: value} objects: a vecN field is an array, floats have 7 significant digits, a NaN or infinity is null. A read back stalls the frame: do it for a result you need, not every frame. Example: compute.read_buffer {"buffer":1,"first":0,"count":10}
+
+At most 1048576 elements in one call (read a large buffer in parts). Errors: `unavailable` without compute (see compute.create_buffer); `invalid_argument` for an unknown buffer id or a range outside the buffer.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `buffer` | integer | yes | Buffer id from compute.create_buffer. |
+| `first` | integer | no | Index of the first element to read. Default 0. |
+| `count` | integer | no | Number of elements to read. Default: from `first` to the end (at most 1048576). |
+
+## `compute.write_buffer` (modifies state)
+
+Not released yet (on main after 0.31.0).
+
+Overwrites elements of a compute storage buffer with values from the game.
+
+Capabilities: read, state
+
+Writes `elements` ({field: value} objects) from element `first` on; a field left out is written as 0, the other elements stay as the GPU left them. Returns {written}. Example: compute.write_buffer {"buffer":1,"first":0,"elements":[{"pos":[0,0],"vel":[1,0]}]}
+
+At most 1048576 elements in one call. Errors: `unavailable` without compute (see compute.create_buffer); `invalid_argument` for an unknown buffer id (compute.list_buffers), a range outside the buffer, or a value that does not fit its field (the message has its JSON pointer).
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `buffer` | integer | yes | Buffer id from compute.create_buffer. |
+| `first` | integer | no | Index of the first element to overwrite. Default 0. |
+| `elements` | array | yes | {field: value} objects, one per element. |
+
 ## `game.click` (modifies state)
 
 Since 0.4.0.

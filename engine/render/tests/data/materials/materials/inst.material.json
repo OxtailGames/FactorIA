@@ -1,0 +1,10 @@
+{
+  "format": "factoria.material/1",
+  "doc": "Test fixture: per-instance tint and lift (instanced params, read in surface() and vertex(), also in the shadow pass) and a per-draw boost.",
+  "shader": "shaders/inst.surface.glsl",
+  "params": {
+    "tint": { "type": "color", "default": [1.0, 1.0, 1.0, 1.0], "instanced": true, "doc": "Emission color; its alpha scales the strength. One value per entity." },
+    "raise": { "type": "float", "default": 0.0, "instanced": true, "doc": "World-space lift of every vertex in meters. One value per entity." },
+    "boost": { "type": "float", "default": 1.0, "min": 0.0, "max": 4.0, "doc": "Multiplies the tint. One value per draw: entities with different values draw separately." }
+  }
+}

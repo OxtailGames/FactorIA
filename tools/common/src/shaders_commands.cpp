@@ -48,7 +48,18 @@ Json param_json(const MaterialParam& p) {
     if (p.max) j["max"] = *p.max;
     j["doc"] = p.doc;
     if (p.implicit) j["implicit"] = true;
+    if (p.instanced) j["instanced"] = true;
     return j;
+}
+
+// runsOn / notOn: the platforms a material of `kind` has shaders for (shader_platforms_of_kind) and the ones it has none for.
+void add_platforms(Json& out, const std::string& kind) {
+    const std::vector<std::string> runsOn = shader_platforms_of_kind(kind);
+    std::vector<std::string> notOn;
+    for (const std::string& p : shader_platforms())
+        if (std::find(runsOn.begin(), runsOn.end(), p) == runsOn.end()) notOn.push_back(p);
+    out["runsOn"] = Json(runsOn);
+    out["notOn"] = Json(notOn);
 }
 
 const char* const kSnippetContract =
@@ -78,14 +89,18 @@ void register_shader_commands(CommandRegistry& registry, const std::string& proj
             "metal_ios and metal_sim for macOS and iOS, glsl300es for Android and web). Some errors exist in "
             "one dialect only (a gradient inside a loop is fine in GLSL and refused by HLSL), so compile for "
             "the platforms you ship. Returns {ok, material, dialects, errors: [{file, line, column, message, "
-            "hint, source}], cached, kind}: `kind` is \"mesh\" (default), \"sprite\" or \"sky\"; the other kinds are "
-            "refused "
-            "at /kind. A snippet error is mapped to the line of your snippet, with the "
+            "hint, source}], cached, kind, runsOn, notOn, skippedDialects}: `kind` is \"mesh\" (default), \"sprite\", "
+            "\"sky\" or \"compute\"; the other kinds are refused at /kind. A "
+            "snippet error is mapped to the line of your snippet, with the "
             "offending line in `source` and a fix in `hint` (an unknown field of Surface gets \"did you mean "
             "albedo?\", texture(waves, uv) gets the separate-sampler form); a mistake in the material file "
             "has a JSON `pointer` instead of a line. Fix the file and call again until ok, then look at the "
             "result with game.screenshot. Results are cached in .factoria/shader-cache by content, so an "
             "unchanged material compiles instantly." FA_COMMAND_DETAILS
+            "A compute material (a snippet defining void compute(in ComputeInput i) over storage buffers, run by "
+            "compute.dispatch) has no shader for android and web (GLES3 and WebGL2 have no compute shaders): `runsOn` "
+            "and `notOn` list the platforms the kind has shaders for, asking for those platforms compiles nothing and "
+            "lists glsl300es in `skippedDialects`. "
             "Needs sokol-shdc: the factoria downloads carry it next to factoria; otherwise `factoria setup "
             "shaders` installs it, or set SOKOL_SHDC." +
             std::string(kSnippetContract) +
@@ -117,6 +132,13 @@ void register_shader_commands(CommandRegistry& registry, const std::string& proj
                                      {"errors", issues_json(result->errors)},
                                      {"cached", result->cacheHits},
                                      {"kind", result->material.kind}});
+            add_platforms(out, result->material.kind);
+            out["skippedDialects"] = Json(result->skippedDialects);
+            if (!result->skippedDialects.empty())
+                out["note"] = "The " + result->material.kind + " material has no shader for " +
+                              join(result->skippedDialects, ", ") + ": it runs on " +
+                              join(shader_platforms_of_kind(result->material.kind), ", ") +
+                              " only (GLES3 and WebGL2 have no compute shaders).";
             if (!result->errors.empty()) {
                 std::string text;
                 for (const ShaderIssue& i : result->errors) text += (text.empty() ? "" : "\n") + i.to_string();
@@ -134,21 +156,30 @@ void register_shader_commands(CommandRegistry& registry, const std::string& proj
                        "docs, textures, programs and compile state.";
         info.description =
             "Reads a *.material.json (schemas/material.schema.json) and returns {material, doc, kind, shader, "
-            "lighting, alphaMode, doubleSided, params: [{name, type, default, min?, max?, doc, implicit?}], "
-            "textures: [{name, default, sampler, doc}], programs, compile: {state, dialect, toolFound, hint?}}. "
-            "`kind` is \"mesh\" (default), \"sprite\", \"sky\", \"post\" or \"compute\"; the last two report "
-            "programs [] and compile.state \"unsupported\" with the package that brings them in compile.hint. "
+            "lighting, alphaMode, doubleSided, params: [{name, type, default, min?, max?, doc, implicit?, "
+            "instanced?}], "
+            "textures: [{name, default, sampler, doc}], vertexAttributes?, programs, compile: {state, dialect, "
+            "toolFound, hint?}}. "
+            "`kind` is \"mesh\" (default), \"sprite\", \"sky\", \"post\" or \"compute\"; post reports "
+            "programs [] and compile.state \"unsupported\" with the package that brings it in compile.hint. "
             "params are listed in the order of the uniform block (alphabetical); `implicit` marks "
             "alphaCutoff, which alphaMode \"clip\" adds by itself. "
+            "compile.state is \"compiled\" when the cache holds this exact material for this machine's "
+            "dialect, else \"not_compiled\" (run shader.compile); nothing is compiled by this command. "
+            "A material file with errors returns them (JSON pointer, message, fix). Example: "
+            "{\"material\": \"materials/water.material.json\"}" FA_COMMAND_DETAILS
             "`lighting` is \"pbr\", \"unlit\" or \"custom\" (the snippet defines light(), the engine's light loop "
             "calls it once per light). "
             "`programs` are the shader programs the material makes: mesh, mesh_skin, prepass and prepass_skin, plus "
             "shadow and shadow_skin when the snippet defines vertex() or the alpha mode is clip; a sprite "
             "material makes quad and quad_plain, a sky material one program, sky. "
-            "compile.state is \"compiled\" when the cache holds this exact material for this machine's "
-            "dialect, else \"not_compiled\" (run shader.compile); nothing is compiled by this command. "
-            "A material file with errors returns them (JSON pointer, message, fix). Example: "
-            "{\"material\": \"materials/water.material.json\"}";
+            "A compute material also returns workgroupSize [x, y, z] and buffers [{name, binding, access, stride, "
+            "doc, fields: [{name, type, offset, doc}]}] (std430 layout); `runsOn` and `notOn` list the platforms the "
+            "kind has shaders for (compute: not android or web). "
+            "`instanced` marks a mesh param whose value every entity gives itself inside ONE instanced draw (it "
+            "travels in the instance buffer instead of the uniform block); `vertexAttributes` lists the extra mesh "
+            "channels (uv1, color1) vertex() reads as vertex_uv1 and vertex_color1 (docs/SHADERS.md, \"The material "
+            "file\").";
         info.inputSchema = Json::parse(R"({
           "type":"object","required":["material"],
           "properties":{"material":{"type":"string","description":"Project-relative path of the material, e.g. materials/water.material.json."}}})");
@@ -191,6 +222,26 @@ void register_shader_commands(CommandRegistry& registry, const std::string& proj
                                      {"params", params},
                                      {"textures", textures},
                                      {"programs", Json(g.programs)}});
+            if (!m.vertexAttributes.empty()) out["vertexAttributes"] = Json(m.vertexAttributes);
+            if (supported) add_platforms(out, m.kind);
+            if (m.kind == "compute") {
+                const Json fields = shaders_detail::compute_twin_fields(m);
+                out["workgroupSize"] = fields["workgroupSize"];
+                Json buffers = Json::array();
+                for (const MaterialBuffer& b : m.buffers) {
+                    Json bf = Json::array();
+                    for (const MaterialBufferField& f : b.fields)
+                        bf.push_back(
+                            Json::object({{"name", f.name}, {"type", f.type}, {"offset", f.offset}, {"doc", f.doc}}));
+                    buffers.push_back(Json::object({{"name", b.name},
+                                                    {"binding", b.binding},
+                                                    {"access", b.access},
+                                                    {"stride", b.stride},
+                                                    {"doc", b.doc},
+                                                    {"fields", bf}}));
+                }
+                out["buffers"] = buffers;
+            }
             out["compile"] = Json::object({{"state", !supported ? "unsupported"
                                                      : compiled ? "compiled"
                                                                 : "not_compiled"},
