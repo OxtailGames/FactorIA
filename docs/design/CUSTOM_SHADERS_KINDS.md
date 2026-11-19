@@ -141,7 +141,7 @@ The history (`fa_history(uv)`, `fa_history_valid` = `fa_a.z`) is view 6 (`kMater
 read through sampler 0 with the same `fa_flip_uv` as the scratch images; like the prepass it is bound only when the program declares it
 (sokol-shdc drops an unused texture), and the precheck in `shaders_compile.cpp` refuses `fa_history` as a texture, `fa_history_valid(...)` as
 a call and either in another kind. Which image is bound, and when it is valid, is the renderer's (`renderer_custom_post.cpp`, `CustomPost`).
-`lighting`, `alphaMode` and `doubleSided` are refused for the kind; a graph is not generated for it.
+`lighting`, `alphaMode` and `doubleSided` are refused for the kind; a graph is generated for it like for the other kinds (`kind: post`, snippet `<name>.post.glsl`, the `post.*` nodes: [SHADERS_POST.md](../shaders/SHADERS_POST.md), "Node graphs").
 
 - **The entry.** `PostProcess.customPasses` (a flat `Json` field: the stack keeps its flat component) holds `{material,
   materialParams, enabled, position, name}` entries; `fa/render/post_custom.h` is the one parser (`parse_custom_post_passes`, used by

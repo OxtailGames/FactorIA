@@ -106,12 +106,12 @@ public:
     // A new material `rel` with a one-node graph (the output), written through material.graph.generate; opens it. Never overwrites (the file is
     // published with a hard link, which fails when the name exists, even when another process made it a moment ago), and when the write of the
     // snippet fails the files it made are removed and the document that was open stays.
-    // Refused (nothing is written) when the snippet it would write (shaders/<name>.surface.glsl, .fragment.glsl for a sprite) is already a
-    // file: that one is somebody's. `kind` is the material kind of the graph (graph_supported_kinds(): "mesh" or "sprite"); a sprite
-    // material is written with "kind": "sprite" and the output node of a sprite.
+    // Refused (nothing is written) when the snippet it would write (shaders/<name>.surface.glsl, .fragment.glsl for a sprite, .post.glsl for a post pass) is already a
+    // file: that one is somebody's. `kind` is the material kind of the graph (graph_supported_kinds(): "mesh", "sprite" or "post"); a
+    // sprite or post material is written with its "kind" and the output node of that kind.
     GraphEditOutcome create(const std::string& rel, const std::string& kind = "mesh");
-    // The first free `assets/materials/graph[N].material.json` (`sprite_graph[N]` for a sprite) whose snippet `shaders/<name>.surface.glsl`
-    // (`.fragment.glsl`) is free too (a hand-written snippet of that name is never taken over), for the New graph material button. Empty
+    // The first free `assets/materials/graph[N].material.json` (`sprite_graph[N]` for a sprite, `post_graph[N]` for a post pass) whose snippet `shaders/<name>.surface.glsl`
+    // (`.fragment.glsl`, `.post.glsl`) is free too (a hand-written snippet of that name is never taken over), for the New graph material button. Empty
     // when a thousand names are taken.
     std::string new_material_name(const std::string& kind = "mesh") const;
     void close();

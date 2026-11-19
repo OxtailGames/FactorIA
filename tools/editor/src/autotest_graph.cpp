@@ -548,10 +548,20 @@ void Editor::at_section_G3(AtScript& at) {
                    "the mesh preview to finish compiling");
         step(2, [this] {
             graph_close_document();
-            graph_.newKind = "sprite";
+            at_check(graph_.newKind == "mesh", "the kind box starts on Mesh");
         });
         wait_until([this] { return at_visible("gr:new") && at_visible("gr:newkind"); },
                    "the New graph material buttons");
+        // the kind is chosen in the combo next to the button, as a user does
+        click_widget("gr:newkind");
+        wait_until([this] { return at_visible("gr:newkind:sprite") && at_visible("gr:newkind:post"); },
+                   "the kinds of the New graph material combo (Mesh, Sprite and Post)");
+        click_widget("gr:newkind:sprite");
+        step(3, [this] {
+            at_check(graph_.newKind == "sprite", "choosing Sprite in the combo sets the kind of the new material");
+            at_check(at_visible("gr:new") && at_visible("gr:newkind"),
+                     "the New graph material row (the combo too) stays on screen at this window's size");
+        });
         click_widget("gr:new");
         wait_until(
             [this, spriteRel] {
@@ -623,9 +633,76 @@ void Editor::at_section_G3(AtScript& at) {
             at_check(at_visible("gr:preview"), "...and the panel shows it");
         });
 
+        // ---- a post graph: the kind Post of the same combo makes one with post.scene linked to the output, the palette has the post nodes and
+        // none of the 3D ones, a node is added, the snippet is the post() of the post template, and the preview says why it draws nothing
+        const std::string postRel = "assets/materials/post_graph.material.json";
+        const std::string postSnippet = "shaders/post_graph.post.glsl";
+        wait_until([this] { return !graph_.preview || !graph_.preview->busy(); },
+                   "the sprite preview to finish compiling");
+        step(2, [this] { graph_close_document(); });
+        wait_until([this] { return at_visible("gr:new") && at_visible("gr:newkind"); },
+                   "the New graph material buttons");
+        click_widget("gr:newkind");
+        wait_until([this] { return at_visible("gr:newkind:post"); }, "the kinds of the New graph material combo");
+        click_widget("gr:newkind:post");
+        step(3, [this] {
+            at_check(graph_.newKind == "post", "choosing Post in the combo sets the kind of the new material");
+        });
+        click_widget("gr:new");
+        wait_until(
+            [this, postRel] {
+                return graph_.model && graph_.model->is_open() && graph_.model->path() == postRel &&
+                       at_visible("gr:canvas") && graph_.canvasW > 150 && graph_.canvasH > 100;
+            },
+            "the Graph panel to open the new post material");
+        step(3, [this, postRel, postSnippet, read_text] {
+            GraphModel& m = *graph_.model;
+            const Json file = Json::parse(read_text(postRel), nullptr, false);
+            at_check(!file.is_discarded() && file.value("kind", std::string()) == "post" &&
+                         file.value("shader", std::string()) == postSnippet && file.contains("graph"),
+                     "New graph material with the kind Post wrote a post material with a graph");
+            const std::string text = read_text(postSnippet);
+            at_check(text.find("void post(in PostInput i, inout PostSurface s)") != std::string::npos &&
+                         text.find("fa_scene_color(") != std::string::npos,
+                     "...and its snippet is the post() of the post template, reading the picture");
+            at_check(m.report().kind == "post" && !m.has_errors() && m.node_count() == 2 && m.link_count() == 1,
+                     "...it checks: post.scene linked into the output of a post pass");
+            bool hasPost = false, has3d = false;
+            for (const GraphNodeType* t : m.palette("")) {
+                hasPost = hasPost || t->type == "post.history";
+                has3d = has3d || t->type == "fresnel" || t->type == "normal.world" || t->type == "sprite.color";
+            }
+            at_check(hasPost && !has3d, "the palette lists post.history and not fresnel, normal.world or sprite.color");
+            const GraphEditOutcome refused = m.add_node("sprite.color", Vec2{0.0f, 0.0f});
+            at_check(!refused.ok && refused.error.find("post") != std::string::npos && m.node_count() == 2,
+                     "a sprite node cannot be added to a post graph: " + refused.error);
+            const GraphEditOutcome added = m.add_node("noise.fbm", Vec2{0.0f, 0.0f});
+            graph_edited(added);
+            const GraphEditOutcome linked = added.ok ? m.connect(added.id + ".value", "out.rgb") : added;
+            graph_edited(linked);
+            at_check(added.ok && linked.ok && !m.has_errors() && m.node_count() == 3,
+                     "a noise node is added and linked into the rgb of the output: " + linked.error);
+        });
+        wait_until([this] { return graph_.preview && graph_.preview->state() == PreviewState::Unsupported; },
+                   "the preview to say it has no picture for a post material");
+        step(3, [this] {
+            at_check(graph_.preview->message().find("PostProcess.customPasses") != std::string::npos,
+                     "the preview says why there is no picture and where to see the material: " +
+                         graph_.preview->message());
+        });
+        click_widget("gr:save");  // Save generates the snippet again, now with the noise node in it
+        step(4, [this, postRel, postSnippet, read_text] {
+            const Json file = Json::parse(read_text(postRel), nullptr, false);
+            at_check(!file.is_discarded() && file["graph"]["nodes"].size() == 3 && !graph_.model->dirty(),
+                     "Save wrote the post graph with its three nodes");
+            at_check(read_text(postSnippet).find("(noise.fbm)") != std::string::npos &&
+                         graph_.model->snippet_state() == "in_sync",
+                     "...and generated its post() with the noise node in it");
+        });
+
         // the preview compiles on a worker thread: its files go only after it has finished
         wait_until([this] { return !graph_.preview || !graph_.preview->busy(); }, "the preview to finish compiling");
-        step(2, [this, dir, spriteRel, spriteSnippet] {
+        step(2, [this, dir, spriteRel, spriteSnippet, postRel, postSnippet] {
             showGraph_ = false;
             graph_close_document();
             graph_.newKind = "mesh";
@@ -633,6 +710,8 @@ void Editor::at_section_G3(AtScript& at) {
             stdfs::remove_all(stdfs::path(projectDir_) / dir, ec);
             stdfs::remove(stdfs::path(projectDir_) / spriteRel, ec);
             stdfs::remove(stdfs::path(projectDir_) / spriteSnippet, ec);
+            stdfs::remove(stdfs::path(projectDir_) / postRel, ec);
+            stdfs::remove(stdfs::path(projectDir_) / postSnippet, ec);
             std::error_code ec2;
             stdfs::remove_all(stdfs::path(projectDir_) / ".factoria/material-preview", ec2);
             project_files_changed();

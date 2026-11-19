@@ -51,7 +51,7 @@ struct GraphUi {
     bool pendingCreate = false;        // ...which is a new material to make, not an existing one
     std::string pendingKind = "mesh";  // ...and the kind of that new material
     std::string newKind =
-        "mesh";  // the kind the New graph material button makes ("mesh" or "sprite", the combo next to it)
+        "mesh";  // the kind the New graph material button makes ("mesh", "sprite" or "post", the combo next to it)
 
     // ---- the preview's picture
     struct Texture {
