@@ -839,8 +839,8 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
          "the renderer cannot see (a camera switch inside one scene). Nothing is freed: the images stay for the next "
          "frame. "
          "Result: {reset: \"all\" or the camera}. Example: render.reset_post_history {}" FA_COMMAND_DETAILS
-         "A camera without such passes is accepted and nothing changes. Errors: `not_found` for an `entity` that does "
-         "not "
+         "A camera without such passes is accepted and nothing changes. Errors: `invalid_arguments` for an `entity` "
+         "that is not a string; `not_found` for an `entity` that does not "
          "exist; `unavailable` without graphics (graphics=false). The same is Renderer::reset_post_history in C++.",
          parse_schema(R"({"type":"object","properties":{
                "entity":{"type":"string","description":"The camera (id or name). Default: every camera."}}})"),
@@ -848,13 +848,22 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
         [&I](const Json& a) {
             check_args_known(a, {"entity"}, "render.reset_post_history");
             const bool one = a.is_object() && a.contains("entity") && !a["entity"].is_null();
+            if (one &&
+                !a["entity"].is_string())  // never a get<string> on another type: it would throw out of the handler
+                throw CommandError("invalid_arguments",
+                                   std::string("render.reset_post_history: `entity` is a string (the camera's id or "
+                                               "name), got ") +
+                                       a["entity"].type_name() + ".",
+                                   "Pass the camera as \"entity\": \"Main Camera\", or leave `entity` out to reset "
+                                   "every camera. scene.list_entities shows the ids.");
             const Entity camera = one ? need_entity(I.world, a, "entity") : kNullEntity;
+            const std::string cameraName = one ? a["entity"].get<std::string>() : std::string("all");
             if (!I.renderer || !I.renderer->initialized())
                 throw CommandError("unavailable",
                                    "No renderer: the engine runs with graphics=false, so no pass keeps a history.",
                                    "Run with graphics (headless needs Mesa/EGL on Linux), not graphics=false.");
             I.renderer->reset_post_history(one ? camera.bits() : 0);
-            return Json::object({{"reset", one ? a["entity"].get<std::string>() : std::string("all")}});
+            return Json::object({{"reset", cameraName}});
         });
 
     // Capabilities (capability.h): what each command does outside the engine's memory.

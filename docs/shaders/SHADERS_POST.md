@@ -100,7 +100,8 @@ prepass. A scene with no mesh in view gives 60000 and `vec3(0)` everywhere. A GP
   before the sharpen, that picture is already blocky, so the sharpen finds no difference inside a block and only works on the
   edges between blocks.
 - At most **32 entries** are drawn together for a camera and its volumes (8 per `PostProcess`); the entries after those are not
-  drawn and the log says so once.
+  drawn and the log says so once, naming the first entry left out (its place in `customPasses` and its material) and, for every
+  other one left out that cannot be read, its own pointer and what is wrong with it.
 - A volume (a `PostProcess` that is not on a camera) adds its entries after the camera's own when its strength (weight times
   influence) is at least 0.5, the rule of every switch of a volume.
 - A split screen draws each camera's list over its own rectangle of the picture.
@@ -116,9 +117,12 @@ The previous version of a material stays in use when a hot reload of its shader 
 **Cost.** Every enabled pass is one full-screen draw of the rectangle (and a copy when it is the only one: the picture is read
 and written in two images), plus the prepass when it is read. A display-referred place adds the cost of the cut: the final pass
 is drawn in two pieces, so the picture is written and read once more per cut (places with no effect between them share one cut).
-The pieces go through images of the picture's size and the scene's format (a float format when the scene has one, so 8 bytes a
-pixel, about 66 MB at 4K): one image when the camera has one cut, two when it has two or more. They are made when a frame needs
-them and freed after 120 frames in which no camera has a cut. A pass that calls `fa_history` keeps two images of its camera's rectangle in the picture's format (see "History").
+The pieces go through images of the picture's size in the format the display picture has (a float format when the scene has one,
+so 8 bytes a pixel, about 66 MB at 4K; otherwise 8 bits, with R11G11B10 and sRGB scenes holding it in plain RGBA8), and in a float
+format when the window shows HDR and the GPU can render to one (RGBA16F), so a pass that writes above paper white keeps it between
+the pieces: one image when the camera has one cut, two when it has two or more. They are made when a frame needs them and freed
+after 120 frames in which no camera has a cut. A pass that calls `fa_history` keeps two images of its camera's rectangle in the
+picture's format (see "History").
 Start with one or two passes; sample the picture a few times per pixel, not dozens.
 
 **Editor.** View > Post-processing has a "Custom passes" section: add a material from the project, switch a pass on or off,
@@ -185,10 +189,16 @@ on every backend (`uv` 0..1, origin top left), so a trail is never mirrored.
 **When the history starts again.** `fa_history_valid` is false, and `fa_history(uv)` returns the picture, in the first frame of a
 pass; when the camera's rectangle changes size (a resize, a split-screen layout, the render scale) or the picture's format changes;
 when the camera was not drawn in the frame before (a new camera, one switched off for a frame, a `primary` that was `false`); at a
-**cut** the renderer sees (another scene or a reload of it, the world's clock going back or jumping by more than 8 ticks); and after
+**cut** the renderer sees (another scene or a reload of it, the world's clock going back or jumping by more than 8 ticks, see below); and after
 `render.reset_post_history` (`{"entity": "camera"}` for one camera, nothing for all), which you call at a cut it cannot see: a
 camera teleported inside one scene, or moved to another place by a script. A frame that is not one of the game's (a
 `capture_world` of another world, such as a thumbnail) neither reads nor writes any history, so it never disturbs a running trail.
+
+**A slow game starts the history again every frame.** The clock test counts simulation ticks between two drawn frames, and a jump of
+more than 8 ticks is a cut. At the default 60 ticks a second, a game that draws fewer than about 7.5 frames a second (more than 8
+ticks between frames) never sees a valid history: every frame is the first of its trail, `fa_history_valid` stays false and
+`fa_history(uv)` gives the picture, so the effect looks as if it were off. It is deliberate (a long gap is a seek or a stall, not
+a trail), and a frame that is slow once only costs one restart.
 
 **What is kept apart.** Each camera has its own history for each pass: two cameras of a split screen never read each other's, and
 two entries of the same material in a list are two histories. A pass that is not the last of its chain hands its history image to the
@@ -201,7 +211,9 @@ at 4K, per pass and camera) and one sample more per `fa_history` call. They are 
 after the last frame that planned the pass (frames, not seconds: it does not depend on the speed of the machine). The histories of a
 renderer take at most 1 GiB (256 MiB on the web); a pass that does not fit, or whose images the GPU refuses, is **drawn without its
 history** (`fa_history_valid` stays false) and the log says why once, with the way out (a lower render scale, fewer passes that keep
-a history). Changing the size of the game target frees all of them.
+a history). A pass whose images the GPU refused is not asked again every frame: it tries again when the camera's rectangle or the
+picture's format changes, and when the game target is made again; one that went over the budget tries again at once the frame
+another pass has freed its images. Changing the size of the game target frees all of them.
 
 **Errors.** `fa_history` used as a texture, `fa_history_valid(...)` called as a function, or either in a material that is not
 `"kind": "post"` are refused by `factoria validate` and `shader.compile` before sokol-shdc runs, with the line and the fix. A mistyped

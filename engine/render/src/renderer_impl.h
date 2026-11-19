@@ -105,8 +105,8 @@ struct Renderer::Impl {
     bool filterActive = false;
     // The two images the final pass goes through when a custom pass sits between its stages (PostSlice, post_custom.h's display-referred
     // places): the piece before a cut writes one, the passes of the cut work on it, the piece after reads it and writes the other one
-    // (or the destination). Made on first use at the size of the picture, in the scene's format (a float image keeps what is above
-    // white); a frame without such a pass never makes them.
+    // (or the destination). Made on first use at the size of the picture, in Gpu::ldr_cut_format (the display format; a float one with an HDR
+    // output, which keeps what is above white); a frame without such a pass never makes them.
     Target ldrMid[2];
     bool ldrWarned = false;  // making them failed: said once
     // They are made when a frame needs them (one for a single cut, two for more) and freed after kLdrIdleFrames frames without use.

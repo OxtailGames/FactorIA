@@ -818,6 +818,18 @@ int render::renderer_post_history_images(Renderer& r) {
     return r.impl_ ? r.impl_->customPost.history_image_count() : 0;
 }
 
+void render::renderer_set_post_history_budget(Renderer& r, std::uint64_t bytes) {
+    if (r.impl_) r.impl_->customPost.set_history_budget(bytes);
+}
+void render::renderer_refuse_post_history(Renderer& r, bool refuse) {
+    if (r.impl_) r.impl_->customPost.set_history_refused(refuse);
+}
+int render::renderer_post_history_attempts(Renderer& r) { return r.impl_ ? r.impl_->customPost.history_attempts() : 0; }
+
+int render::renderer_ldr_cut_format(Renderer& r) {
+    return r.impl_ && r.impl_->ldrMid[0].valid() ? int(r.impl_->ldrMid[0].format.color) : 0;
+}
+
 void Renderer::update(World& world) {
     if (!initialized()) return;
     Impl& im = *impl_;

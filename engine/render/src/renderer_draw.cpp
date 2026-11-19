@@ -542,13 +542,12 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
         if (fr.cam.postStack && fr.cam.postStack->has_custom())
             pp.custom = make_custom_post_plan(*fr.cam.postStack, *assets, stats.materialFallbacks, warnedCustomPass);
         // What the passes that read their own output of the frame before need to know (renderer_custom_post.h, CustomHistoryFrame).
-        pp.custom.history = {camKey,
-                             histJob,
-                             postSerial,
-                             frameSerial,
-                             std::hash<std::string>{}(world.scene_path()) * 1099511628211ull + world.scene_generation(),
-                             pp.prevValid,
-                             framePost};
+        // The scene's hash only matters to a pass that keeps a history: a frame without one does not hash the path.
+        const std::uint64_t sceneKey =
+            pp.custom.any_history()
+                ? std::hash<std::string>{}(world.scene_path()) * 1099511628211ull + world.scene_generation()
+                : 0;
+        pp.custom.history = {camKey, histJob, postSerial, frameSerial, sceneKey, pp.prevValid, framePost};
         // The passes after the tonemap cut the final pass in pieces, which go through two images of their own; without those the passes
         // are not drawn (logged once) and the final pass stays whole.
         if (pp.custom.any()) pp.settle_custom();
@@ -2458,8 +2457,9 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
             const Target& pic = onMid ? ldrMid[at.mid] : gameTarget;
             const BloomTarget to = onMid ? BloomTarget{pic.colorAtt, sg_view{}, 1} : game_dst();
             customPost.add_passes(graph, transient_targets(), gpu, sceneFx, c->postPlan.custom, slots, c->postPlan.rect,
-                                  physW, physH, at.res, pic.texView, to, gpu.scene_format(), c->postPlan.prepass, false,
-                                  fr.time, &stats.drawCalls, stats.materialFallbacks, c->plan.name);
+                                  physW, physH, at.res, pic.texView, to, onMid ? pic.format.color : gpu.scene_format(),
+                                  c->postPlan.prepass, false, fr.time, &stats.drawCalls, stats.materialFallbacks,
+                                  c->plan.name);
         };
         auto declare = [&](const DrawContext* c, const std::string& job, const char* name, const PostPlan& use,
                            AutoExposure* exposure, ResourceId evRes, const PostRect& rect) {
