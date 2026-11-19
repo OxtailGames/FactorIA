@@ -11,6 +11,7 @@
 
 #include "fa/core/profiler.h"
 #include "frame_graph.h"
+#include "renderer_test_access.h"
 
 using namespace fa;
 using namespace fa::test;

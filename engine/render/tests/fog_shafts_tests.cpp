@@ -16,6 +16,7 @@
 #include "render_features.h"
 #include "render_internal.h"
 #include "renderer_fog.h"
+#include "renderer_test_access.h"
 
 using namespace fa;
 using namespace fa::test;

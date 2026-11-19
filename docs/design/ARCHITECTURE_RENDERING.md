@@ -251,7 +251,7 @@ decides, and the game event `ui.viewPointer` goes out like the other ui.* events
   draws no glow until the size or the format changes, so a failed creation is not retried every frame.
   `FrameGraph::set_import_handle` rebinds an imported resource to another image without a new compile. Not graph passes
   yet: the read-back copies. The render tests reach the graph of the last frame and the pool's counters through
-  `render::renderer_frame_graph` and `render::renderer_transient_stats`. *What a pass cost:* `execute` times every
+  `render::renderer_frame_graph` and `render::renderer_transient_stats` (the test accessors live in `src/renderer_test_access.h`, behind the one friend `RendererTestAccess`; the public `renderer.h` has none). *What a pass cost:* `execute` times every
   callback with the steady clock (`PassStats::cpuMs`, also when it throws) and calls the `PassHooks` of the graph around
   it (`FrameGraph::set_pass_hooks`, kept by `clear()` and `release_callbacks()`); the renderer sets them once. The
   `begin` hook starts a GPU timestamp pair of `GpuTimer` and the `end` hook closes it and adds a zone `<job>/<pass>` to

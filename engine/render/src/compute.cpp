@@ -64,6 +64,8 @@ struct Compute::State {
     std::uint64_t lastReadBytes =
         0;                     // the bytes the last read_image took from the GPU (Compute::last_read_image_bytes)
     int backendOverride = -1;  // tests: a render::FeatureBackend to answer as
+    int computeOverride =
+        -1;  // tests: 0 = the GPU of that backend has no compute (OpenGL 4.1), 1 = it has; -1 = by backend
     int loadOverride =
         0;  // tests: 1 = answer as a GPU that can imageLoad an r32f image only, 2 = one that cannot imageLoad any
 
@@ -433,6 +435,7 @@ render::FeatureEnv backend_env(const State& s) {
         env.backend = render::FeatureBackend(s.backendOverride);
         env.compute = env.backend == render::FeatureBackend::Gl || env.backend == render::FeatureBackend::D3d11 ||
                       env.backend == render::FeatureBackend::Metal;
+        if (s.computeOverride >= 0) env.compute = s.computeOverride != 0;
     }
     return env;
 }
@@ -499,6 +502,7 @@ Result<ComputeDrawAccess::Bound> ComputeDrawAccess::bind(Compute& c, int id, con
 }
 
 void ComputeTestAccess::set_backend(Compute& c, int backend) { c.s_->backendOverride = backend; }
+void ComputeTestAccess::set_compute_capable(Compute& c, int mode) { c.s_->computeOverride = mode; }
 void ComputeTestAccess::set_binding_limit(Compute& c, int limit) {
     if (c.s_->assets) c.s_->assets->set_storage_binding_limit_override(limit);
 }

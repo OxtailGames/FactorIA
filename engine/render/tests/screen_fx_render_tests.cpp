@@ -13,6 +13,7 @@
 #include "frame_graph.h"
 #include "post_fx.h"
 #include "render_internal.h"
+#include "renderer_test_access.h"
 
 #include "fa/scene/screen_fx.h"
 
