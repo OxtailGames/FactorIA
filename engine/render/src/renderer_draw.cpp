@@ -83,6 +83,8 @@ struct Renderer::Impl::DrawContext {
     Group gClear, gWorld, gDebugWorld, gScreen, gDebugScreen;
     std::size_t lineFirst = 0;
     sg_buffer vbuf{};
+    sg_buffer
+        vinst{};  // the instanced params of the sprite-material batches, per vertex (vertex buffer 1 of their pipelines)
     Mat4 screenProj;
     // upload_instances
     sg_buffer mainInst{}, shadowInst{};
@@ -798,7 +800,7 @@ void Renderer::Impl::cull_and_batch(DrawContext& ctx) {
 
 // ---- flatten quads into one vertex stream ----
 // Reads: fr (world, debugWorld, screen, debugScreen quad lists, debugLines, camera clear colour), ctx.clearByQuad, targetW/H.
-// Writes: `stream`, ctx.gClear / gWorld / gDebugWorld / gScreen / gDebugScreen, ctx.lineFirst, ctx.vbuf (transient buffer),
+// Writes: `stream`, `instStream`, ctx.gClear / gWorld / gDebugWorld / gScreen / gDebugScreen, ctx.lineFirst, ctx.vbuf, ctx.vinst (transient buffers),
 // ctx.screenProj.
 void Renderer::Impl::build_quad_stream(DrawContext& ctx) {
     Frame& fr = ctx.fr;
@@ -812,6 +814,7 @@ void Renderer::Impl::build_quad_stream(DrawContext& ctx) {
     auto& lineFirst = ctx.lineFirst;
     auto& vbuf = ctx.vbuf;
     stream.clear();
+    instStream.clear();
     if (clearByQuad) {
         // The camera's clear colour over its viewport: one opaque quad over the unit square, which the viewport maps to the
         // camera's rectangle (see main_pass).
@@ -821,12 +824,12 @@ void Renderer::Impl::build_quad_stream(DrawContext& ctx) {
         QuadEmitter em{clearList, Mat4::identity(), false, pack_color(fr.cam.clearColor), kModeTextured, 0};
         em.rect(0, 0, 1, 1, 0, 0, 1, 1);
         clearList.end_item();
-        clearList.flatten(stream, gClear.batches);
+        clearList.flatten(stream, gClear.batches, &instStream);
     }
-    fr.world.flatten(stream, gWorld.batches);
-    fr.debugWorld.flatten(stream, gDebugWorld.batches);
-    fr.screen.flatten(stream, gScreen.batches);
-    fr.debugScreen.flatten(stream, gDebugScreen.batches);
+    fr.world.flatten(stream, gWorld.batches, &instStream);
+    fr.debugWorld.flatten(stream, gDebugWorld.batches, &instStream);
+    fr.screen.flatten(stream, gScreen.batches, &instStream);
+    fr.debugScreen.flatten(stream, gDebugScreen.batches, &instStream);
     lineFirst = stream.size();
     stream.insert(stream.end(), fr.debugLines.begin(), fr.debugLines.end());
 
@@ -835,6 +838,13 @@ void Renderer::Impl::build_quad_stream(DrawContext& ctx) {
         sg_write_buffer_desc wd{};
         wd.src.data = {stream.data(), stream.size() * sizeof(Vertex2D)};
         wd.dst.buffer = vbuf;
+        sg_write_buffer_transient(&wd);
+    }
+    if (!instStream.empty()) {
+        ctx.vinst = gpu.acquire_transient(instStream.size() * sizeof(float));
+        sg_write_buffer_desc wd{};
+        wd.src.data = {instStream.data(), instStream.size() * sizeof(float)};
+        wd.dst.buffer = ctx.vinst;
         sg_write_buffer_transient(&wd);
     }
 
@@ -1568,9 +1578,13 @@ void Renderer::Impl::draw_group(DrawContext& ctx, const std::vector<QuadBatch>& 
             count_material(use->material);
         }
         const sg_shader programShader = prog ? prog->shader : sg_shader{};
-        sg_apply_pipeline(format
-                              ? gpu.quad_pipeline(*format, depthTest, false, qb.blend, plain, qb.opaque, programShader)
-                              : gpu.quad_pipeline(depthTest, false, qb.blend, plain, qb.opaque, programShader));
+        // The instanced params of the material travel in vertex buffer 1, one value per vertex, written by flatten() for exactly the
+        // batches of such a use. A use made before a hot reload that changed them has no matching data: skipped for this frame.
+        const int instVec4 = prog ? use->instVec4 : 0;
+        if (instVec4 != (prog ? use->material->instanceVec4 : 0) || (instVec4 > 0 && !ctx.vinst.id)) continue;
+        sg_apply_pipeline(
+            format ? gpu.quad_pipeline(*format, depthTest, false, qb.blend, plain, qb.opaque, programShader, instVec4)
+                   : gpu.quad_pipeline(depthTest, false, qb.blend, plain, qb.opaque, programShader, instVec4));
         if (fogOn) {
             const float to = qb.blend == BlendMode::Multiply ? 1.0f : qb.blend == BlendMode::Additive ? 0.0f : -1.0f;
             for (int c = 0; c < 3; ++c) {
@@ -1609,6 +1623,11 @@ void Renderer::Impl::draw_group(DrawContext& ctx, const std::vector<QuadBatch>& 
             sg_bindings b{};
             b.vertex_buffers[0] = vbuf;
             b.vertex_buffer_offsets[0] = int((qb.firstQuad + done) * 4 * sizeof(Vertex2D));
+            if (instVec4 > 0) {
+                b.vertex_buffers[kQuadInstBuffer] = ctx.vinst;
+                b.vertex_buffer_offsets[kQuadInstBuffer] =
+                    int((qb.instFirst + std::size_t(done) * 4 * std::size_t(instVec4) * 4) * sizeof(float));
+            }
             b.index_buffer = gpu.quad_index_buffer();
             b.views[VIEW_quad_tex] = qb.tex->gpu_view();
             b.views[VIEW_quad_normal_tex] = (qb.lit && qb.normal ? qb.normal : assets->white())->gpu_view();
@@ -1620,8 +1639,11 @@ void Renderer::Impl::draw_group(DrawContext& ctx, const std::vector<QuadBatch>& 
             if (prog) {  // the material's textures follow the engine's views and samplers; only what the program declares
                 const MaterialAsset& mat = *use->material;
                 for (std::size_t i = 0; i < mat.textures.size() && i < std::size_t(kMaxMaterialTextures); ++i) {
+                    // Bound for both stages; the program takes the slots it declares (vertex() may sample the texture too).
                     b.views[kMaterialSpriteFirstView + int(i)] = use->textures[i]->gpu_view();
                     b.samplers[kMaterialSpriteFirstSampler + int(i)] = gpu.sampler(mat.textures[i].sampler);
+                    b.views[kMaterialSpriteVsFirstView + int(i)] = use->textures[i]->gpu_view();
+                    b.samplers[kMaterialSpriteVsFirstSampler + int(i)] = gpu.sampler(mat.textures[i].sampler);
                 }
                 for (int i = 0; i < SG_MAX_VIEW_BINDSLOTS; ++i)
                     if (!((prog->viewMask >> i) & 1u)) b.views[i] = {};

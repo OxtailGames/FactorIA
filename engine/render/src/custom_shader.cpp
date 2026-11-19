@@ -762,20 +762,28 @@ MaterialRef Assets::resolve_sprite_material(const std::string& path, const Json&
         mix(key.params, nParams * sizeof(key.params[0]));
         mix(key.textures, nTextures * sizeof(key.textures[0]));
     }
+    MaterialRef ref;
     auto [first, last] = m->uses.equal_range(hash);
     for (auto it = first; it != last; ++it) {
         MaterialUse& u = *it->second;
         if (u.error == error && std::memcmp(u.params, key.params, nParams * sizeof(key.params[0])) == 0 &&
             std::memcmp(u.textures, key.textures, nTextures * sizeof(key.textures[0])) == 0) {
             u.tick = tick;
-            return {&u};
+            ref.use = &u;
+            break;
         }
     }
-    key.tick = tick;
-    auto made = std::make_unique<MaterialUse>(key);
-    MaterialUse* out = made.get();
-    m->uses.emplace(hash, std::move(made));
-    return {out};
+    if (!ref.use) {
+        key.tick = tick;
+        // The instanced params are not part of the key: sprites that differ only in them share the use (and the batch).
+        key.instVec4 = error ? 0 : m->instanceVec4;
+        auto made = std::make_unique<MaterialUse>(key);
+        ref.use = made.get();
+        m->uses.emplace(hash, std::move(made));
+    }
+    // This item's own values of the instanced params travel with its quads (QuadList::set_material).
+    if (ref.use->instVec4 > 0) pack_instance_params(*m, overrides, ref.inst);
+    return ref;
 }
 
 void Assets::begin_material_frame() {

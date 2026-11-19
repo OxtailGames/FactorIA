@@ -324,7 +324,9 @@ void draw_emitter(const World& world, const Frame& f, const DrawItem& item, cons
                 const std::uint32_t pc = pack_color(colour);
                 auto v = [&](float sx, float sy, float uu, float vv) {
                     const Vec3 q = pos + r * (sx * h) + u * (sy * h);
-                    return Vertex2D{q.x, q.y, q.z, uu, vv, pc, mode, 0};
+                    // halfW is the shape size of mode 7 and unused by modes 0 and 3: it carries the particle's life (0..1) to the
+                    // fragment shader, where a sprite material reads it as QuadInput.life.
+                    return Vertex2D{q.x, q.y, q.z, uu, vv, pc, mode, 0, 0u, std::clamp(t, 0.0f, 1.0f)};
                 };
                 list.quad(v(-1, 1, a.x, a.y), v(-1, -1, a.x, b.y), v(1, -1, b.x, b.y), v(1, 1, b.x, a.y));
             }
