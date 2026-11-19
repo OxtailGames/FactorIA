@@ -6,6 +6,14 @@ Older versions, one file per minor version with its patch releases: [0.30](chang
 
 ## Unreleased
 
+- **Graph panel polish (M72):** Save looks at the file first: when it changed on disk since the editor read it, a window asks
+  Overwrite, Reload or Cancel instead of replacing it. New graph material publishes the file whole and removes it again if the
+  snippet cannot be written. The editor's own writes (a param default, a new param) no longer hide an outside change from the
+  poll. Each preview stages its compile in files of its own and closing the panel waits at most two seconds for it. What the
+  material commands say (a snippet not written again, `warnings` on rename and delete) is shown in the status, Undo of a param or
+  texture delete puts it back at its place, and closing or opening a graph clears the forms. The Graph autotest no longer relies on
+  fixed delays, and the editor autotest always uses its own clipboard.
+
 - **Material tools polish (M72):** `shader.compile` and `factoria validate` tell you to run `material.graph.generate` when the
   snippet of a graph material is missing or older than its graph. `material.param.create` and `material.texture.create` take
   an optional `index` (where in `params`/`textures` to insert; the order of textures decides the slots) and the matching

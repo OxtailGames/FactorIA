@@ -65,8 +65,8 @@ if(FA_BUILD_TESTS)
             # The sections of the autotest (src/autotest_sections.h) in four ctest entries that ctest -j runs at the same time,
             # each in its own window, temp project and output folder (test-output/editor/<entry>, uploaded by CI on failure).
             # Balanced by the frames each section draws (the table a run prints at the end: about 750 per entry); E, F, M5 and N
-            # are in one entry (they once shared the system clipboard; the autotest has a private one now, clipboard.cpp). FA_EDITOR_AUTOTEST=1 alone still plays every section in one
-            # window, and FA_EDITOR_AUTOTEST_SECTIONS=K,M only those (docs/EDITOR.md).
+            # stay together in one entry only for that balance of frames. FA_EDITOR_AUTOTEST=1 alone still plays every section
+            # in one window, and FA_EDITOR_AUTOTEST_SECTIONS=K,M only those (docs/EDITOR.md).
             set(editor_autotest_entries
                 "1:I,J,Q,R,U,X,Z,M3,P3,X2"
                 "2:S,A,G,G2,H,L,V,B2,C2,E2,G3,Q3"

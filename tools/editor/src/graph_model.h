@@ -45,6 +45,9 @@ struct GraphStep {
     bool texture = false;
     std::string name, newName;
     Json entry;
+    // create and delete: where the entry sits in the file's "params" / "textures" (the command's `index`), so the undo of a delete puts it back
+    // in the same place (the order of "textures" decides the slots) and the redo of a create does too. -1: at the end.
+    int index = -1;
 };
 
 struct GraphEditOutcome {
@@ -53,13 +56,19 @@ struct GraphEditOutcome {
     int step = 0;                    // the undo step recorded (0 = nothing changed, or a gesture is open)
     std::string id;                  // add_node / paste: the id of the (first) node made
     std::vector<std::string> nodes;  // delete_entry refused because nodes read it: their ids
+    // A param or texture command that went through but left something the user has to know (the snippet it had to write again was not
+    // written, or still names the old identifier): the sentences of the command, also in status(). Empty when all is well.
+    std::string note;
 };
 
 struct GraphSaveOutcome {
     bool ok = false;
     bool needsForce = false;  // the snippet was edited by hand (or no generator wrote it): ask, then save(true)
-    bool written = false;     // the snippet or the material file changed on disk
-    std::string state;        // the snippet's state before the save ("missing", "graph_changed", "hand_edited"...)
+    // The file changed on disk since the editor read it (or wrote it itself): nothing was written. Ask (Overwrite / Reload / Cancel); Overwrite is
+    // save(force, true), Reload is reload().
+    bool externalChange = false;
+    bool written = false;  // the snippet or the material file changed on disk
+    std::string state;     // the snippet's state before the save ("missing", "graph_changed", "hand_edited"...)
     std::string error;
 };
 
@@ -94,7 +103,9 @@ public:
     // Opens a *.material.json. A material with no graph is refused unless `startGraph` (the editor then starts an empty one, a draft the first Save
     // writes). False: error() says why.
     bool open(const std::string& rel, bool startGraph = false);
-    // A new material `rel` with a one-node graph (the output), written through material.graph.generate; opens it. Never overwrites.
+    // A new material `rel` with a one-node graph (the output), written through material.graph.generate; opens it. Never overwrites (the file is
+    // published with a hard link, which fails when the name exists, even when another process made it a moment ago), and when the write of the
+    // snippet fails the files it made are removed and the document that was open stays.
     GraphEditOutcome create(const std::string& rel);
     void close();
     bool is_open() const { return !rel_.empty(); }
@@ -202,8 +213,10 @@ public:
     // by material.graph.validate. Call it when a document is opened and after a save, never every frame.
     const std::string& snippet_state() const { return snippetState_; }
     void refresh_snippet_state();
-    // Saves: material.graph.generate {material, graph, force}. Refused (needsForce) when the snippet was edited by hand and `force` is false.
-    GraphSaveOutcome save(bool force);
+    // Saves: material.graph.generate {material, graph, force}. Refused (needsForce) when the snippet was edited by hand and `force` is false, and
+    // (externalChange) when the file changed on disk behind the editor and `overwriteExternal` is false: the poll runs every 20 frames, so save looks
+    // at the file itself.
+    GraphSaveOutcome save(bool force, bool overwriteExternal = false);
     // The file changed on disk behind our back (not by save): true once, when a poll finds it. With nothing unsaved the graph is read again.
     bool poll_external();
     bool external_conflict() const { return conflict_; }  // changed on disk while the graph has unsaved edits
@@ -249,9 +262,13 @@ private:
     std::string write_param_default(const std::string& name, const Json& value, Json* previous, bool* written);
     // One of the six param/texture commands with the graph held here; on success takes the file's params, textures and hash (and the graph the
     // command changed) into the document. Returns "" or what went wrong (readers: the nodes that kept it from being deleted).
+    // lastNote_ gets what the command said that the user must know (snippet.error, warnings); the callers copy it to the outcome and to status().
     std::string run_entry_command(const std::string& op, bool texture, const Json& args, Json* result,
                                   std::vector<std::string>* readers);
-    void take_entries_from_file(const Json* newGraph);
+    // `externalPending`: the file already differed from stamp_ before our write (an outside change not polled yet): stamp_ stays, so the next
+    // poll finds it. Otherwise stamp_ takes the stamp of the file as read here, when no one wrote it between the two stats around the read.
+    void take_entries_from_file(const Json* newGraph, bool externalPending);
+    bool external_pending() const { return is_open() && stamp() != stamp_; }
     std::string apply_entry_step(const GraphStep& s, bool forward);
 
     std::string projectDir_;
@@ -266,6 +283,7 @@ private:
     std::uint64_t revision_ = 1;
     std::uint64_t savedRevision_ = 1;
     Stamp stamp_;
+    std::string lastNote_;
     bool conflict_ = false;
     bool gesture_ = false;
     Json gestureBefore_;
