@@ -81,6 +81,14 @@ Json starter_graph() {
 })");
 }
 
+// Where the command put (create) or found (delete) the entry in the file's order; -1 when it said nothing (an older command).
+int entry_index(const Json& result) {
+    if (!result.is_object()) return -1;
+    auto it = result.find("index");
+    return it != result.end() && it->is_number_integer() ? int(std::clamp<long long>(it->get<long long>(), -1, 100000))
+                                                         : -1;
+}
+
 }  // namespace
 
 // The graph without what the generator ignores and a save adds ("version", "editor"): two graphs that differ only there are one graph.
@@ -243,29 +251,61 @@ GraphEditOutcome GraphModel::create(const std::string& rel) {
     if (!ends_with(to_lower(rel), ".material.json")) return fail("'" + rel + "' must end in .material.json.");
     auto abs = resolve_project_path(projectDir_, rel);
     if (!abs.ok()) return fail(abs.error().message);
+    if (!call_) return fail("The Graph panel has no command line to write through.");
+    const stdfs::path file = *abs;
+    const std::string already =
+        "'" + rel + "' already exists: open it instead, or pick another name (nothing is overwritten).";
     std::error_code ec;
-    if (stdfs::exists(*abs, ec))
-        return fail("'" + rel + "' already exists: open it instead, or pick another name (nothing is overwritten).");
-    std::string stem = stdfs::path(rel).filename().string();
+    if (stdfs::exists(file, ec)) return fail(already);
+    std::string stem = fs::path_to_utf8(file.filename());
     stem = stem.substr(0, stem.size() - std::string(".material.json").size());
     Json doc = Json::object();
     doc["format"] = kMaterialFormat;
     doc["doc"] = "A material made of nodes: edit it in the Graph panel (View > Graph).";
     doc["shader"] = "shaders/" + stem + ".surface.glsl";
-    doc["graph"] = starter_graph();
-    if (auto w = fs::write_text(abs->generic_string(), doc.dump(2) + "\n"); !w.ok())
+    Json graph = starter_graph();
+    graph["version"] = kGraphVersion;
+    // The snippet the generator will write: noted before, so a failure removes only what this call made.
+    bool snippetExisted = true;
+    stdfs::path snippetFile;
+    if (auto sn = resolve_project_path(projectDir_, doc["shader"].get<std::string>()); sn.ok()) {
+        snippetFile = *sn;
+        snippetExisted = stdfs::exists(snippetFile, ec);
+    }
+    // Published whole and never over a file: the text goes to a sibling first, then a hard link gives it its name, which fails when the name is taken
+    // (even by a file another process made since the check above). A volume without hard links falls back to a look and a rename.
+    stdfs::path tmp = file;
+    tmp += ".new.tmp";
+    if (auto w = fs::write_text(fs::path_to_utf8(tmp), doc.dump(2) + "\n"); !w.ok())
         return fail("Cannot write " + rel + ": " + w.error().message + " " + w.error().hint);
-    if (!open(rel)) {
+    std::error_code link;
+    stdfs::create_hard_link(tmp, file, link);
+    if (link && link != std::errc::file_exists) {
+        link.clear();
+        if (stdfs::exists(file, ec))
+            link = std::make_error_code(std::errc::file_exists);
+        else
+            stdfs::rename(tmp, file, link);
+    }
+    std::error_code rm;
+    stdfs::remove(tmp, rm);
+    if (link) return fail(link == std::errc::file_exists ? already : "Cannot write " + rel + ": " + link.message());
+    auto undo_files = [&] {
+        std::error_code e;
+        stdfs::remove(file, e);
+        if (!snippetExisted && !snippetFile.empty()) stdfs::remove(snippetFile, e);
+    };
+    const CommandResult made = call_("material.graph.generate", Json::object({{"material", rel}, {"graph", graph}}));
+    if (!made.ok) {
+        undo_files();
+        return fail("Cannot write the shader snippet of " + rel + ": " + command_error_text(made.error));
+    }
+    if (!open(rel)) {  // (the document that was open stays: open changes nothing when it fails)
         const std::string why = error_;
-        std::error_code rm;
-        stdfs::remove(*abs, rm);
+        undo_files();
         return fail(why);
     }
-    const GraphSaveOutcome saved = save(false);
-    if (!saved.ok) {
-        out.ok = false;
-        out.error = saved.error;
-    }
+    status_ = "Made " + rel + " and its snippet.";
     return out;
 }
 
@@ -309,6 +349,8 @@ Json GraphModel::current_param_default(const std::string& name) const {
 
 std::string GraphModel::write_param_default(const std::string& name, const Json& value, Json* previous, bool* written) {
     if (!call_) return "The Graph panel has no command line to write through.";
+    const bool externalPending =
+        external_pending();  // an outside change the poll has not seen yet must stay visible to it
     const CommandResult r =
         call_("material.param.set_default", Json::object({{"material", rel_}, {"param", name}, {"value", value}}));
     if (!r.ok) return command_error_text(r.error);
@@ -317,7 +359,7 @@ std::string GraphModel::write_param_default(const std::string& name, const Json&
     if (previous && previous->is_null()) *previous = current_param_default(name);
     if (!doc_["params"].is_object() || !doc_["params"][name].is_object()) return "";
     doc_["params"][name]["default"] = value;
-    stamp_ = stamp();  // the file changed by our own hand: not an external edit
+    if (!externalPending) stamp_ = stamp();  // the file changed by our own hand: not an external edit
     ++revision_;
     ++savedRevision_;
     return "";
@@ -361,8 +403,9 @@ std::vector<std::string> GraphModel::entry_readers(bool texture, const std::stri
 
 // The file was changed by one of the material.param.* / material.texture.* commands: take its params, textures and what they changed in the
 // graph (`newGraph`, the in-memory graph the command followed) as the editor's own document.
-void GraphModel::take_entries_from_file(const Json* newGraph) {
+void GraphModel::take_entries_from_file(const Json* newGraph, bool externalPending) {
     auto abs = resolve_project_path(projectDir_, rel_);
+    const Stamp before = stamp();
     if (abs.ok()) {
         auto text = fs::read_text(abs->generic_string());
         const Json parsed = text.ok() ? Json::parse(*text, nullptr, false) : Json();
@@ -379,7 +422,10 @@ void GraphModel::take_entries_from_file(const Json* newGraph) {
         }
     }
     if (newGraph) graph_ = *newGraph;
-    stamp_ = stamp();  // the file changed by our own hand: not an external edit
+    // The file changed by our own hand: not an external edit. The stamp is the one of the file as it was when it was read here (the same before and
+    // after the read); a file written by someone else in between, or before our command, keeps its old stamp and the next poll reports it.
+    const Stamp after = stamp();
+    if (!externalPending && before == after) stamp_ = after;
     ++savedRevision_;
     touch();
     refresh_snippet_state();
@@ -388,6 +434,8 @@ void GraphModel::take_entries_from_file(const Json* newGraph) {
 std::string GraphModel::run_entry_command(const std::string& op, bool texture, const Json& args, Json* result,
                                           std::vector<std::string>* readers) {
     if (!call_) return "The Graph panel has no command line to write through.";
+    lastNote_.clear();
+    const bool externalPending = external_pending();
     Json a = args;
     a["material"] = rel_;
     if (op != "create" && graph_.is_object()) a["graph"] = graph_;
@@ -403,7 +451,31 @@ std::string GraphModel::run_entry_command(const std::string& op, bool texture, c
     const Json* newGraph = r.result.is_object() && r.result.contains("graph") && r.result["graph"].is_object()
                                ? &r.result["graph"]
                                : nullptr;
-    take_entries_from_file(newGraph);
+    take_entries_from_file(newGraph, externalPending);
+    // What the command says besides "done": the snippet it had to write again and could not, and the snippets that still use the old name.
+    if (r.result.is_object()) {
+        std::string note;
+        auto add = [&](const std::string& text) {
+            if (text.empty()) return;
+            if (!note.empty()) note += " ";
+            note += text;
+        };
+        auto sn = r.result.find("snippet");
+        if (sn != r.result.end() && sn->is_object()) {
+            const std::string err = sn->value("error", std::string());
+            if (!err.empty()) add("The shader snippet was not written again: " + std::string(trim(err)));
+        }
+        auto w = r.result.find("warnings");
+        if (w != r.result.end() && w->is_array())
+            for (const Json& item : *w)
+                if (item.is_object()) {
+                    std::string text = item.value("message", std::string());
+                    const std::string hintText = item.value("hint", std::string());
+                    if (!hintText.empty()) text += (text.empty() || text.back() == '.' ? " " : ". ") + hintText;
+                    add(text);
+                }
+        lastNote_ = note;
+    }
     return "";
 }
 
@@ -423,10 +495,12 @@ GraphEditOutcome GraphModel::add_entry(bool texture, const std::string& name, co
     s.texture = texture;
     s.name = name;
     s.entry = result.is_object() ? result.value("entry", Json()) : Json();
+    s.index = entry_index(result);
     GraphEditOutcome out;
     out.step = s.id;
+    out.note = lastNote_;
     steps_[s.id] = std::move(s);
-    status_.clear();
+    status_ = lastNote_;
     return out;
 }
 
@@ -447,8 +521,9 @@ GraphEditOutcome GraphModel::rename_entry(bool texture, const std::string& name,
     s.newName = newName;
     GraphEditOutcome out;
     out.step = s.id;
+    out.note = lastNote_;
     steps_[s.id] = std::move(s);
-    status_.clear();
+    status_ = lastNote_;
     return out;
 }
 
@@ -471,10 +546,12 @@ GraphEditOutcome GraphModel::delete_entry(bool texture, const std::string& name)
     s.texture = texture;
     s.name = name;
     s.entry = result.is_object() ? result.value("entry", Json()) : Json();
+    s.index = entry_index(result);
     GraphEditOutcome out;
     out.step = s.id;
+    out.note = lastNote_;
     steps_[s.id] = std::move(s);
-    status_.clear();
+    status_ = lastNote_;
     return out;
 }
 
@@ -487,6 +564,7 @@ std::string GraphModel::apply_entry_step(const GraphStep& s, bool forward) {
     if (op == "create") {
         args = s.entry.is_object() ? s.entry : Json::object();
         args["name"] = s.name;
+        if (s.index >= 0) args["index"] = s.index;  // the place it had: the undo of a delete, the redo of a create
     } else if (op == "delete") {
         args["name"] = s.name;
     } else {
@@ -1011,7 +1089,7 @@ Json GraphModel::graph_for_save() const {
     return g;
 }
 
-GraphSaveOutcome GraphModel::save(bool force) {
+GraphSaveOutcome GraphModel::save(bool force, bool overwriteExternal) {
     GraphSaveOutcome out;
     if (!is_open()) {
         out.error = "No material is open in the Graph panel.";
@@ -1026,6 +1104,19 @@ GraphSaveOutcome GraphModel::save(bool force) {
         out.error = "The graph has errors (" + e.pointer + ": " + e.message +
                     "). Fix them first: nothing is written while the graph does not check.";
         return out;
+    }
+    if (!overwriteExternal) {
+        // The poll runs every 20 frames and a change can come in between: look at the file now.
+        const Stamp now = stamp();
+        if (conflict_ || now != stamp_) {
+            conflict_ = true;
+            stamp_ = now;
+            out.externalChange = true;
+            out.error = rel_ + " changed on disk (or was deleted) since the editor read it. Nothing was written: "
+                               "choose Overwrite to replace the "
+                               "file with this graph, or Reload to take the file as it is.";
+            return out;
+        }
     }
     Json args = Json::object({{"material", rel_}, {"graph", graph_for_save()}});
     if (force) args["force"] = true;
@@ -1124,7 +1215,7 @@ bool GraphModel::apply_step(int id, bool forward) {
             status_ = err;
             return false;
         }
-        status_.clear();
+        status_ = lastNote_;
         return true;
     }
     if (!s->param.empty()) {  // a param default: the file's value must be the one the step expects

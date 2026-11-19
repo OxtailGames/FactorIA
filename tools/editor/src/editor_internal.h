@@ -685,7 +685,8 @@ public:
     void graph_edited(const GraphEditOutcome& out);  // after an edit: the undo entry, a toast for an error
     void graph_apply_undo(const Json& entry, bool forward);
     void graph_collect_steps();  // drops the undo steps no stack entry points to
-    void graph_save(bool force);
+    void graph_save(bool force, bool overwriteExternal = false);
+    void graph_reset_entry_ui();  // graph_panel.cpp: the params/textures forms of the document that was open
     void graph_close_document();
     void graph_release_textures();
     void

@@ -614,6 +614,143 @@ TEST_CASE("graph model: a file that lost its graph is said once, not at every po
     CHECK(m.error().empty());
 }
 
+TEST_CASE("graph model: Save does not replace a file that changed on disk unless it is told to") {
+    GraphProject p;
+    p.open();
+    GraphModel& m = *p.model;
+    REQUIRE(m.set_input("noise", "scale", 2.0).ok);  // an unsaved edit
+    Json outside = Json::parse(kDissolve);
+    outside["graph"]["nodes"][0]["inputs"]["scale"] = 12.0;
+    outside["doc"] = "Changed by someone else, with a longer text so the size differs.";
+    const std::string theirs = outside.dump(2);
+    p.write(kMat, theirs);
+    // no poll ran (the panel polls every 20 frames): save looks at the file itself
+    const GraphSaveOutcome refused = m.save(false);
+    CHECK_FALSE(refused.ok);
+    CHECK(refused.externalChange);
+    CHECK_FALSE(refused.written);
+    CHECK(refused.error.find("Overwrite") != std::string::npos);
+    CHECK(p.read(kMat) == theirs);  // nothing was written
+    CHECK(m.external_conflict());
+    CHECK(m.dirty());
+    CHECK(m.input_value("noise", "scale") == 2.0);
+    // asking again without choosing is refused again
+    CHECK(m.save(false).externalChange);
+    // Overwrite: the graph as edited replaces the file
+    const GraphSaveOutcome forced = m.save(false, true);
+    CHECK_MESSAGE(forced.ok, forced.error);
+    CHECK_FALSE(forced.externalChange);
+    CHECK(Json::parse(p.read(kMat))["graph"]["nodes"][0]["inputs"]["scale"] == 2.0);
+    CHECK_FALSE(m.external_conflict());
+    CHECK_FALSE(m.dirty());
+    CHECK(m.save(false).ok);  // our own write is not an outside change
+
+    // Reload is the other answer: the file as it is, the edits gone
+    REQUIRE(m.set_input("noise", "scale", 3.0).ok);
+    p.write(kMat, theirs);
+    CHECK(m.save(false).externalChange);
+    REQUIRE(m.reload());
+    CHECK(m.input_value("noise", "scale") == 12.0);
+    CHECK_FALSE(m.external_conflict());
+    REQUIRE(m.set_input("noise", "scale", 4.0).ok);
+    // the other file has no graphHash for the snippet on disk, so the snippet is asked to be rewritten
+    const GraphSaveOutcome last = m.save(true);
+    CHECK_MESSAGE(last.ok, last.error);
+}
+
+TEST_CASE("graph model: our own writes do not hide an outside change the poll has not seen") {
+    GraphProject p;
+    p.open();
+    GraphModel& m = *p.model;
+    Json outside = Json::parse(kDissolve);
+    outside["doc"] = "Changed by someone else, with a longer text so the size differs.";
+    p.write(kMat, outside.dump(2));
+    // a default written through the panel (the file is read-modified-written by the command) must not take the outside change for ours
+    REQUIRE(m.set_param_default("dissolve", Json(0.4)).ok);
+    CHECK(m.poll_external());
+    CHECK(m.material_json().value("doc", std::string()).find("someone else") != std::string::npos);
+    CHECK_FALSE(m.poll_external());  // once
+
+    Json again = Json::parse(p.read(kMat));
+    again["doc"] = "Changed again by someone else, with an even longer text than before.";
+    p.write(kMat, again.dump(2));
+    REQUIRE(m.add_entry(false, "glow", Json::object({{"type", "float"}, {"default", 0.5}})).ok);
+    CHECK(m.poll_external());  // a param made through the panel does not swallow it either
+    CHECK_FALSE(m.poll_external());
+}
+
+TEST_CASE(
+    "graph model: a new material is published whole, never over a file, and leaves nothing behind when it fails") {
+    GraphProject p;
+    p.open();
+    GraphModel& m = *p.model;
+    const std::string before = p.read(kMat);
+    // an existing file is never touched, and no stray temporary stays next to it
+    const GraphEditOutcome same = m.create(kMat);
+    CHECK_FALSE(same.ok);
+    CHECK(same.error.find("already exists") != std::string::npos);
+    CHECK(p.read(kMat) == before);
+    CHECK(m.path() == kMat);
+    CHECK_FALSE(stdfs::exists(p.dir / "materials/dissolve.material.json.new.tmp"));
+    // the snippet cannot be written (its name is a folder): the material file it made is removed again, the open document stays
+    stdfs::create_directories(p.dir / "shaders/broken.surface.glsl");
+    const GraphEditOutcome broken = m.create("materials/broken.material.json");
+    CHECK_FALSE(broken.ok);
+    CHECK_FALSE(broken.error.empty());
+    CHECK_FALSE(stdfs::exists(p.dir / "materials/broken.material.json"));
+    CHECK_FALSE(stdfs::exists(p.dir / "materials/broken.material.json.new.tmp"));
+    CHECK(stdfs::is_directory(p.dir / "shaders/broken.surface.glsl"));  // not ours: left alone
+    CHECK(m.path() == kMat);
+    CHECK(m.node_count() == 4);
+    // and a good one still works afterwards, with no temporary left
+    const GraphEditOutcome good = m.create("materials/fine.material.json");
+    CHECK_MESSAGE(good.ok, good.error);
+    CHECK(m.path() == "materials/fine.material.json");
+    CHECK_FALSE(stdfs::exists(p.dir / "materials/fine.material.json.new.tmp"));
+}
+
+TEST_CASE("graph model: undo of a delete puts the param back in its place; what the command warns about is shown") {
+    GraphProject p;
+    p.open();
+    GraphModel& m = *p.model;
+    for (const char* name : {"zeta", "alpha", "mid"})
+        REQUIRE(m.add_entry(false, name, Json::object({{"type", "float"}, {"default", 0.5}})).ok);
+    auto order = [&] {
+        std::vector<std::string> names;
+        const Json file = Json::parse(p.read(kMat));  // kept alive: items() only refers to it
+        for (const auto& item : file["params"].items()) names.push_back(item.key());
+        return names;
+    };
+    CHECK(order() == std::vector<std::string>{"dissolve", "zeta", "alpha", "mid"});
+    const GraphEditOutcome gone = m.delete_entry(false, "alpha");
+    REQUIRE_MESSAGE(gone.ok, gone.error);
+    CHECK(order() == std::vector<std::string>{"dissolve", "zeta", "mid"});
+    REQUIRE(m.apply_step(gone.step, false));
+    CHECK(order() == std::vector<std::string>{"dissolve", "zeta", "alpha", "mid"});  // not at the end
+    REQUIRE(m.apply_step(gone.step, true));
+    CHECK(order() == std::vector<std::string>{"dissolve", "zeta", "mid"});
+
+    // a snippet nobody generates that still uses the old name: the rename goes through and says so
+    p.write("shaders/dissolve.surface.glsl", "void main() { float x = zeta; }\n");
+    const GraphEditOutcome renamed = m.rename_entry(false, "zeta", "omega");
+    REQUIRE_MESSAGE(renamed.ok, renamed.error);
+    CHECK(renamed.note.find("zeta") != std::string::npos);
+    CHECK(m.status() == renamed.note);
+    // an edit that has nothing to say clears it
+    const GraphEditOutcome quiet = m.add_entry(false, "calm", Json::object({{"type", "float"}, {"default", 0.5}}));
+    REQUIRE(quiet.ok);
+    CHECK(quiet.note.empty());
+    CHECK(m.status().empty());
+}
+
+TEST_CASE("graph preview: every instance stages its compile in files of its own") {
+    GraphProject p;
+    GraphPreview a(p.dir.generic_string());
+    GraphPreview b(p.dir.generic_string());
+    CHECK(a.stage_material_path() != b.stage_material_path());
+    CHECK(a.stage_material_path().find("stage-") != std::string::npos);
+}
+
 TEST_CASE("graph model: the saved version is the graph as last read from the file; a draft has none") {
     GraphProject p;
     p.open();
