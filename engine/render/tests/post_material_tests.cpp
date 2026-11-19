@@ -498,7 +498,6 @@ TEST_CASE("post materials: a camera of a split screen draws its pass over its ow
 }
 
 // ---- the places between the screen effects (display-referred; the final pass is cut there)
-// -------------------------------------
 
 namespace {
 
@@ -744,7 +743,6 @@ TEST_CASE("post plan: the cuts of the final pass, and an outline that cannot be 
 }
 
 // ---- history: a pass that reads its own output of the frame before (fa_history)
-// --------------------------------------------------
 
 namespace {
 
@@ -961,7 +959,6 @@ TEST_CASE("post history: the images are freed after kHistoryIdleFrames frames no
 }
 
 // ---- the cut final pass: its images, a split screen, the multisampled HUD chain, a gamma scene
-// ----------------------------------
 
 namespace {
 
@@ -1173,7 +1170,6 @@ TEST_CASE("post materials: a cut final pass in a gamma scene changes no colour, 
 }
 
 // ---- history: what a frame that is not the game's, a budget, a refusal, a second job and a reload do
-// ----------------------------
 
 namespace {
 

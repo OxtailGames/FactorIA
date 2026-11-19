@@ -1870,8 +1870,7 @@ void Renderer::Impl::draw_group(DrawContext& ctx, const std::vector<QuadBatch>& 
                         "the material '" + use->material->path +
                             "' declares \"buffers\" (it is drawn from compute buffers), but a Shape2D, Tilemap, Text, "
                             "ParticleEmitter or UiBox uses it: only a Sprite can draw from buffers, so that item is "
-                            "not "
-                            "drawn",
+                            "not drawn",
                         "Use a material without \"buffers\" for this item, or draw it with a Sprite whose instances is "
                         "set (docs/shaders/SHADERS_COMPUTE.md, \"Sprites from a compute buffer\").");
                 continue;

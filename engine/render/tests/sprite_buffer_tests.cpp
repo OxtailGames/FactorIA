@@ -8,9 +8,11 @@
 #include "fa/render/compute.h"
 #include "test_util.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdlib>
 #include <fstream>
+#include <functional>
 #include <iterator>
 #include <memory>
 #include <mutex>
