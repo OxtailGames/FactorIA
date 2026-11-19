@@ -181,7 +181,8 @@ void register_shader_commands(CommandRegistry& registry, const std::string& proj
             "programSkin}], and its `programs` list one program and one skinned program per pass (mesh, mesh_skin, "
             "pass1, pass1_skin, ...), then shadow and shadow_skin for \"custom\", then prepass and prepass_skin. "
             "A compute material also returns workgroupSize [x, y, z] and buffers [{name, binding, access, stride, "
-            "doc, fields: [{name, type, offset, doc}]}] (std430 layout); `runsOn` and `notOn` list the platforms the "
+            "doc, fields: [{name, type, offset, doc}]}] (std430 layout) and images [{name, binding, format, access, "
+            "width, height, doc}]; `runsOn` and `notOn` list the platforms the "
             "kind has shaders for (compute: not android or web). "
             "`instanced` marks a mesh or sprite param whose value every entity (sprite: every quad) gives itself "
             "inside ONE draw (it travels in the instance data instead of the uniform block); `instanceLayout` "
@@ -275,6 +276,16 @@ void register_shader_commands(CommandRegistry& registry, const std::string& proj
                                                     {"fields", bf}}));
                 }
                 out["buffers"] = buffers;
+                Json images = Json::array();
+                for (const MaterialImage& im : m.images)
+                    images.push_back(Json::object({{"name", im.name},
+                                                   {"binding", im.binding},
+                                                   {"format", im.format},
+                                                   {"access", im.access},
+                                                   {"width", im.width},
+                                                   {"height", im.height},
+                                                   {"doc", im.doc}}));
+                out["images"] = images;
             }
             out["compile"] = Json::object({{"state", compiled ? "compiled" : "not_compiled"},
                                            {"dialect", dialect},

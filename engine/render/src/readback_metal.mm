@@ -70,6 +70,43 @@ bool readback_rgba16f(sg_image image, int width, int height, std::vector<float>&
     }
 }
 
+bool readback_storage_image(sg_image image, sg_pixel_format format, int width, int height, std::vector<std::uint8_t>& out,
+                            std::string* error) {
+    @autoreleasepool {
+    const sg_mtl_image_info info = sg_mtl_query_image_info(image);
+    id<MTLTexture> tex = (__bridge id<MTLTexture>)info.tex[info.active_slot];
+    id<MTLCommandQueue> queue = (__bridge id<MTLCommandQueue>)sg_mtl_command_queue();
+    id<MTLDevice> device = (__bridge id<MTLDevice>)sg_mtl_device();
+    if (!tex || !queue || !device) {
+        if (error) *error = "readback: no Metal texture for the storage image";
+        return false;
+    }
+    const NSUInteger pixel = NSUInteger(sg_query_pixelformat(format).bytes_per_pixel);
+    if (pixel == 0 || NSUInteger(width) > tex.width || NSUInteger(height) > tex.height) {
+        if (error) *error = "readback: the storage image does not have the size or format asked for";
+        return false;
+    }
+    const NSUInteger bytesPerRow = NSUInteger(width) * pixel, bytes = bytesPerRow * NSUInteger(height);
+    // The caller committed the sokol command buffer that holds the dispatches; this blit goes after it on the same queue.
+    id<MTLBuffer> buf = [device newBufferWithLength:bytes options:MTLResourceStorageModeShared];
+    if (!buf) {
+        if (error) *error = "readback: Metal could not allocate " + std::to_string(bytes) + " bytes to read into";
+        return false;
+    }
+    id<MTLCommandBuffer> cmd = [queue commandBuffer];
+    id<MTLBlitCommandEncoder> blit = [cmd blitCommandEncoder];
+    [blit copyFromTexture:tex sourceSlice:0 sourceLevel:0 sourceOrigin:MTLOriginMake(0, 0, 0)
+               sourceSize:MTLSizeMake(NSUInteger(width), NSUInteger(height), 1) toBuffer:buf destinationOffset:0
+        destinationBytesPerRow:bytesPerRow destinationBytesPerImage:bytes];
+    [blit endEncoding];
+    [cmd commit];
+    [cmd waitUntilCompleted];
+    out.resize(std::size_t(bytes));
+    std::memcpy(out.data(), [buf contents], std::size_t(bytes));
+    return true;
+    }
+}
+
 bool readback_buffer(sg_buffer buffer, std::size_t offset, std::size_t bytes, std::vector<std::uint8_t>& out,
                      std::string* error) {
     @autoreleasepool {

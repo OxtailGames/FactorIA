@@ -560,9 +560,9 @@ MaterialParse parse_material(const Json& doc, const std::string& projectDir, con
         return std::move(c.out);
     }
     static const std::vector<std::string> topKeys = {
-        "$schema",          "format", "doc",      "kind",   "shader",    "lighting",      "alphaMode",
-        "doubleSided",      "params", "textures", "graph",  "graphHash", "workgroupSize", "buffers",
-        "vertexAttributes", "mode",   "passes",   "shadow", "prepass"};
+        "$schema",     "format",           "doc",      "kind",   "shader",    "lighting",      "alphaMode",
+        "doubleSided", "params",           "textures", "graph",  "graphHash", "workgroupSize", "buffers",
+        "images",      "vertexAttributes", "mode",     "passes", "shadow",    "prepass"};
     for (auto it = doc.begin(); it != doc.end(); ++it)
         if (std::find(topKeys.begin(), topKeys.end(), it.key()) == topKeys.end())
             c.error("/" + escape_token(it.key()), "unknown key \"" + it.key() + "\"", did_you_mean(it.key(), topKeys));

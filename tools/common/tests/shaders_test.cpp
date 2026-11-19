@@ -870,6 +870,121 @@ TEST_CASE("compute material: shader.compile and material.info list where it runs
 }
 
 // ---------------------------------------------------------------------------------------------------------------
+// Storage images of a compute material (M72.17)
+// ---------------------------------------------------------------------------------------------------------------
+
+const char* const kImageMaterial = R"({
+  "format": "factoria.material/1",
+  "kind": "compute",
+  "shader": "shaders/paint.compute.glsl",
+  "workgroupSize": [8, 8],
+  "textures": { "palette": { "doc": "Colours." } },
+  "buffers": { "seeds": { "access": "read", "fields": [ { "name": "v", "type": "vec4" } ] } },
+  "images": {
+    "heat": { "doc": "Heat.", "format": "r32f", "access": "readWrite", "size": [64, 32] },
+    "albedo": { "doc": "Colour.", "format": "rgba8", "size": [128] },
+    "plain": {}
+  }
+})";
+
+TEST_CASE("compute images: declared with a format, an access and a size, sorted by name, bound after the buffers") {
+    const auto r = parse(kImageMaterial);
+    REQUIRE(r.ok());
+    const MaterialDef& m = r.material;
+    REQUIRE(m.images.size() == 3);
+    CHECK(m.images[0].name == "albedo");
+    CHECK(m.images[0].format == "rgba8");
+    CHECK(m.images[0].access == "write");  // the default
+    CHECK(m.images[0].width == 128);
+    CHECK(m.images[0].height == 128);  // one number is a square
+    CHECK(m.images[0].binding == 1);   // after the one buffer
+    CHECK(m.images[1].name == "heat");
+    CHECK(m.images[1].format == "r32f");
+    CHECK(m.images[1].access == "readWrite");
+    CHECK(m.images[1].width == 64);
+    CHECK(m.images[1].height == 32);
+    CHECK(m.images[1].binding == 2);
+    CHECK(m.images[2].name == "plain");
+    CHECK(m.images[2].format == "rgba8");  // the defaults of an empty entry
+    CHECK(m.images[2].width == kComputeDefaultImageSize);
+    CHECK(m.images[2].binding == 3);
+    const Json schema = Json::parse(*bundled_read("schemas/material.schema.json"));
+    CHECK(validate_json(Json::parse(kImageMaterial), schema).empty());
+}
+
+TEST_CASE("compute images: errors name the JSON pointer, the problem and the fix") {
+    const std::string head = R"({"format":"factoria.material/1","kind":"compute","shader":"s.glsl","images":)";
+    auto bad = parse((head + R"({"a":{"format":"rgb8"}}})").c_str());
+    CHECK(has_error(bad, "/images/a/format", "unknown image format \"rgb8\""));
+    CHECK(has_error(bad, "/images/a/format", "rgba8, rgba16f, r32f, rgba32f"));
+    bad = parse((head + R"({"a":{"format":"rgba16"}}})").c_str());
+    CHECK(has_error(bad, "/images/a/format", "Did you mean"));
+    bad = parse((head + R"({"a":{"access":"read"}}})").c_str());
+    CHECK(has_error(bad, "/images/a/access", "cannot be read-only"));
+    CHECK(has_error(bad, "/images/a/access", "declare it a texture"));
+    bad = parse((head + R"({"a":{"access":"readwrite"}}})").c_str());
+    CHECK(has_error(bad, "/images/a/access", "unknown access \"readwrite\""));
+    CHECK(has_error(bad, "/images/a/access", "readWrite"));
+    bad = parse((head + R"({"a":{"size":[0,4]}}})").c_str());
+    CHECK(has_error(bad, "/images/a/size/0", "whole number from 1 to 8192"));
+    bad = parse((head + R"({"a":{"size":[9000]}}})").c_str());
+    CHECK(has_error(bad, "/images/a/size/0", "whole number from 1 to 8192"));
+    bad = parse((head + R"({"a":{"size":[1,2,3]}}})").c_str());
+    CHECK(has_error(bad, "/images/a/size", "expected an array of 1 or 2 integers"));
+    bad = parse((head + R"({"a":{"size":"big"}}})").c_str());
+    CHECK(has_error(bad, "/images/a/size", "expected an array of 1 or 2 integers"));
+    bad = parse((head + R"({"a":{"fromat":"rgba8"}}})").c_str());
+    CHECK(has_error(bad, "/images/a/fromat", "unknown key"));
+    CHECK(has_error(bad, "/images/a/fromat", "format"));
+    bad = parse((head + R"({"a":3}})").c_str());
+    CHECK(has_error(bad, "/images/a", "expected an object"));
+    bad = parse((head + R"([]})").c_str());
+    CHECK(has_error(bad, "/images", "expected an object"));
+    // more images than the storage image bindings every GPU with compute guarantees
+    bad = parse((head + R"({"a":{},"b":{},"c":{},"d":{},"e":{}}})").c_str());
+    CHECK(has_error(bad, "/images", "5 images, at most 4"));
+    // the namespace is shared with the buffers, params and textures
+    bad = parse(R"({"format":"factoria.material/1","kind":"compute","shader":"s.glsl",
+        "textures":{"a":{}},"images":{"a":{}}})");
+    CHECK_FALSE(bad.errors.empty());
+    // a material of another kind has no storage images
+    bad = parse(R"({"format":"factoria.material/1","shader":"s.glsl","images":{}})");
+    CHECK(has_error(bad, "/images", "belongs to compute materials"));
+}
+
+TEST_CASE("compute images: the generated top file declares each image where the shader compiler numbers it") {
+    const auto r = parse(kImageMaterial);
+    REQUIRE(r.ok());
+    const auto g = generate_material_shader(r.material, "void compute(in ComputeInput i) {}\n");
+    CHECK(g.top.find("layout(binding=1, rgba8) uniform writeonly image2D albedo;") != std::string::npos);
+    CHECK(g.top.find("layout(binding=2, r32f) uniform image2D heat;") != std::string::npos);  // readWrite: no writeonly
+    CHECK(g.top.find("layout(binding=3, rgba8) uniform writeonly image2D plain;") != std::string::npos);
+    // the textures come after the buffers and the images
+    CHECK(g.top.find("layout(binding=4) uniform texture2D palette;") != std::string::npos);
+    CHECK(g.top.find("layout(binding=0) uniform sampler palette_smp;") != std::string::npos);
+    CHECK(g.snippetLine.size() == std::size_t(std::count(g.top.begin(), g.top.end(), '\n')));
+}
+
+TEST_CASE("compute images: material.info lists them with their format, access and size") {
+    Project p;
+    p.write("materials/paint.material.json", kImageMaterial);
+    p.write("shaders/paint.compute.glsl", "void compute(in ComputeInput i) {}\n");
+    FakeShdc shdc;
+    CommandRegistry registry;
+    register_shader_commands(registry, p.str(), shdc.context(p.str()));
+    auto info = registry.call("material.info", Json::parse(R"({"material":"materials/paint.material.json"})"));
+    REQUIRE(info.ok);
+    REQUIRE(info.result["images"].size() == 3);
+    CHECK(info.result["images"][0]["name"] == "albedo");
+    CHECK(info.result["images"][0]["format"] == "rgba8");
+    CHECK(info.result["images"][0]["access"] == "write");
+    CHECK(info.result["images"][1]["name"] == "heat");
+    CHECK(info.result["images"][1]["access"] == "readWrite");
+    CHECK(info.result["images"][1]["width"] == 64);
+    CHECK(info.result["images"][1]["height"] == 32);
+}
+
+// ---------------------------------------------------------------------------------------------------------------
 // The YAML reader
 // ---------------------------------------------------------------------------------------------------------------
 
