@@ -22,8 +22,8 @@ void note_fallback(std::vector<std::string>& fallbacks, const std::string& path)
 
 // The fragment block of post_common.glsl (fa_post_params, binding 1).
 struct PostParamsBlock {
-    float a
-        [4];  // x = 1 on OpenGL (render targets are bottom-up), y = 1 in a linear scene, z = 1 when the history holds the frame before
+    // x = 1 on OpenGL (render targets are bottom-up), y = 1 in a linear scene, z = 1 when the history holds the frame before
+    float a[4];
     float rc[4];    // the rectangle of the source image the pass reads, as fractions: xy corner, zw size
     float size[4];  // xy = the camera's rectangle in pixels, zw = 1 / that
     float time[4];  // x = seconds of game time
@@ -47,8 +47,8 @@ struct PixelRect {
 
 // One full-screen triangle with the material's program into `pd`. `src`: the picture so far; `prepass`: bound only when the program
 // declares it. `history`: the pass's own output of the frame before (bound only when the program declares it; when there is none, the
-// picture stands in: fa_history_valid is false then and the shader does not read it). `part`: the rectangle of the destination the pass covers (null: all of it). False (nothing drawn) when the target is gone or
-// the program has no pipeline for this format.
+// picture stands in: fa_history_valid is false then and the shader does not read it). `part`: the rectangle of the destination the
+// pass covers (null: all of it). False (nothing drawn) when the target is gone or the program has no pipeline for this format.
 bool draw_post(Gpu& gpu, const PassDesc& pd, const PassData& d, sg_view src, sg_view prepass, sg_view history,
                const PixelRect* part) {
     if (!pd.color.id || !src.id) return false;
@@ -173,6 +173,7 @@ CustomPostPlan make_custom_post_plan(const PostStack& stack, Assets& assets, std
 void CustomPost::forget_targets() {
     failed_.clear();
     probed_.clear();
+    historyRefused_.clear();
     warnedTargets_ = false;
     release_history();
 }
@@ -189,6 +190,8 @@ std::uint64_t history_bytes(int w, int h, sg_pixel_format format) {
 }
 
 }  // namespace
+
+std::uint64_t CustomPost::history_budget() const { return historyBudget_ ? historyBudget_ : kHistoryBudgetBytes; }
 
 void CustomPost::release_history() {
     for (auto& entry : history_)
@@ -223,6 +226,12 @@ int CustomPost::history_image_count() const {
 std::shared_ptr<CustomPost::HistorySlot> CustomPost::plan_history(const CustomHistoryFrame& hf, const HistoryKey& key,
                                                                   int w, int h, sg_pixel_format format,
                                                                   const std::string& label) {
+    // The GPU refused the images of this pass in this shape before: not asked again every frame (a resize or a format change, or
+    // forget_targets, lets it try again). The budget is not remembered: it is a sum of what the other slots hold now.
+    if (const auto it = historyRefused_.find(key); it != historyRefused_.end()) {
+        if (it->second == std::make_tuple(w, h, format)) return nullptr;
+        historyRefused_.erase(it);
+    }
     std::shared_ptr<HistorySlot> slot;
     if (const auto it = history_.find(key); it != history_.end()) slot = it->second;
     const bool fits =
@@ -236,7 +245,10 @@ std::shared_ptr<CustomPost::HistorySlot> CustomPost::plan_history(const CustomHi
         if (!slot) slot = std::make_shared<HistorySlot>();
         for (Target& t : slot->img) destroy_target(t);
         slot->wrote = false;
-        bool ok = used + wanted <= kHistoryBudgetBytes;
+        const std::uint64_t budget = history_budget();
+        const bool inBudget = used + wanted <= budget;
+        bool ok = inBudget;
+        if (ok) ++historyAttempts_;
         for (int i = 0; i < 2 && ok; ++i) {
             TargetDesc d;
             d.label = i == 0 ? "post-history-0" : "post-history-1";
@@ -244,11 +256,15 @@ std::shared_ptr<CustomPost::HistorySlot> CustomPost::plan_history(const CustomHi
             d.height = h;
             d.colorFormat = format;
             slot->img[i] = make_target(d);
-            ok = slot->img[i].valid();
+            ok = slot->img[i].valid() && !refuseHistory_;
         }
         if (!ok) {
             for (Target& t : slot->img) destroy_target(t);
             history_.erase(key);
+            if (inBudget) {  // the GPU said no
+                if (historyRefused_.size() >= kMaxProbed) historyRefused_.erase(historyRefused_.begin());
+                historyRefused_[key] = std::make_tuple(w, h, format);
+            }
             if (!warnedHistory_) {
                 warnedHistory_ = true;
                 FA_ERROR("render",
@@ -257,7 +273,7 @@ std::shared_ptr<CustomPost::HistorySlot> CustomPost::plan_history(const CustomHi
                          "most {} MB, or the GPU refused them); it is drawn without its history (fa_history_valid is "
                          "false). Hint: "
                          "lower the render scale or the number of passes that call fa_history.",
-                         label, w, h, kHistoryBudgetBytes >> 20);
+                         label, w, h, budget >> 20);
             }
             return nullptr;
         }

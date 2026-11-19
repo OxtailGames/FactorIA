@@ -1012,6 +1012,12 @@ private:
 constexpr sg_pixel_format kSceneDepthFormat = SG_PIXELFORMAT_DEPTH_STENCIL;
 
 // Pipelines, samplers, shaders, static buffers, transient buffer pool.
+// The format of the images between the pieces of a cut final pass (Gpu::ldr_cut_format), from what the GPU can do: `display` is
+// Gpu::display_format(); `half` and `full` say whether RGBA16F and RGBA32F can be rendered to and sampled with filtering. Without an
+// HDR output, or with a display format that is already float, the display format; else the first float format the GPU can use, and
+// the display format when it can use none.
+sg_pixel_format pick_ldr_cut_format(sg_pixel_format display, bool hdrOutput, bool half, bool full);
+
 class Gpu {
 public:
     Gpu() = default;
@@ -1154,6 +1160,12 @@ public:
         return sceneFormat_ == SG_PIXELFORMAT_SRGB8A8 || sceneFormat_ == SG_PIXELFORMAT_RG11B10F ? SG_PIXELFORMAT_RGBA8
                                                                                                  : sceneFormat_;
     }
+    // The format of the images a final pass cut by display-referred custom passes goes through (Renderer::Impl::ldrMid): they hold
+    // DISPLAY values like display_format(), so never the scene's own SRGB8A8 (the GPU would encode them again) or R11G11B10 (no alpha,
+    // banding). With an HDR output (`hdrOutput`) and a display format that cannot go above 1, a float format the GPU renders to and
+    // samples with filtering (RGBA16F, else RGBA32F) when there is one, so a pass that writes above paper white keeps it between the
+    // pieces. The choice is pick_ldr_cut_format.
+    sg_pixel_format ldr_cut_format(bool hdrOutput) const;
     // The scene is held in linear light (SceneSettings.colorSpace "linear"). set_linear returns true when scene_format() changed:
     // the caller (Renderer::Impl::sync_color_space) then makes the game target again. The pipelines made so far stay in the
     // cache under their own format key; the ones for the new format are made on first use, and nothing is flushed.
