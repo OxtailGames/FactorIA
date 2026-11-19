@@ -399,9 +399,9 @@ struct Renderer::Impl {
     void plan_view_job(World& world, Frame& fr, ViewTarget& target, std::uint64_t key, JobPlan plan);
     // The drawing of Renderer::capture_world and capture_camera: `frames` frames (the passes that keep a history see the frame before
     // it) of the world seen by `ci` into an image of w x h pixels, read back into `out` (straight alpha). `withCustom`: the camera's custom passes are drawn, over `historyCamera`'s
-    // history, which the frames start again. `scale`, `subject`: see Renderer::WorldCapture.
+    // history, which the frames start again and which is freed at the end. `premultiplied`: the colour in the picture is premultiplied by its alpha and is made straight (capture_world); false leaves it as drawn. `scale`, `subject`: see Renderer::WorldCapture.
     bool capture_view(World& world, CameraInfo ci, int w, int h, float scale, Entity subject, int frames,
-                      bool withCustom, std::uint64_t historyCamera, Image& out, std::string* error);
+                      bool withCustom, std::uint64_t historyCamera, bool premultiplied, Image& out, std::string* error);
     std::uint64_t captureSerial =
         0;  // the frames of captures that keep a history: a history is valid when its frame came right before
 

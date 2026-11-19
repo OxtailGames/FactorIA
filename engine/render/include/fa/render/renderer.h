@@ -428,7 +428,7 @@ public:
     // the camera and of the volumes it is in, each at its `position`; fa_depth and fa_normal get the camera's prepass) run over it. No
     // other effect of the stack is drawn (no bloom, tonemap, ...): the picture is the scene as the camera draws it plus those passes.
     // Like capture_world it needs no frame drawn first and changes neither stats() nor the picture of the frame; the histories of the
-    // camera's passes (fa_history) belong to the capture and start clean at every call, so the same world gives the same picture. False
+    // camera's passes (fa_history) belong to the capture, start clean at every call and are freed when it ends, so the same world gives the same picture. The alpha is what the picture holds (the camera's clear has alpha 1, a pass writes its own): straight, never un-premultiplied. False
     // + *error when the entity is not a Camera of the world, the size is not 1 .. kMaxWorldCaptureSide, or frames is outside its range.
     bool capture_camera(World& world, const CameraCapture& spec, Image& out, std::string* error = nullptr);
 

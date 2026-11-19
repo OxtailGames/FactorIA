@@ -458,7 +458,7 @@ display output.
   would depend on the frame rate, and a 32-bit target cannot be filtered or rendered on WebGL2 and iOS) with the engine's frame dt;
   a first frame, new targets or a frame in which the passes were not declared (`lastSerial_ + 1 != serial`, where `serial` is
   `Impl::postSerial`, the count of the game's frames: `capture_world` calls `begin_frame_graph(false)` and does not advance it, so
-  a capture neither resets the exposure nor, with `framePost` false, reads or writes the motion-blur matrices) take the target at once;
+  a capture neither resets the exposure nor, with `framePost` false, reads or writes the motion-blur matrices; `capture_camera` too) take the target at once;
   a target that cannot be made leaves the exposure manual for 300 frames (`kRetryFrames`) and then tries again, dt 0 leaves it as it is, and it needs the
   RGBA16F scene format (else one warning and the exposure stays manual). The legacy fields: `build_camera` builds an implicit
   `PostProcess` from the sanitised `Camera.bloom*` and `colorFilter` (knee 0, no dirt) and `resolve_post_stack` uses it when the
@@ -506,7 +506,7 @@ display output.
   picture's format, one slot per camera (`CustomHistoryFrame::camera`), job (two views of one camera), material path and ordinal (two entries
   of one material). `plan_history` runs when the frame is built: it makes or re-makes the images (size or format change; a 1 GiB budget,
   256 MiB on wasm32, or a refused image leaves the pass without history and logs once) and decides `valid`: the slot wrote in the frame
-  before (`serial + 1 == postSerial`, which a `capture_world` does not advance), the scene hash (path and `scene_generation`) is the
+  before (`serial + 1 == postSerial`, which a capture does not advance; `capture_camera` keeps its histories under `kCaptureHistoryBit | camera bits` (renderer_present.cpp), valid when `captureSerial`, which counts the frames of every capture, is one before and the frame is not the first of the call, and frees them when it ends), the scene hash (path and `scene_generation`) is the
   same and the camera was continuous (`PostPlan::prevValid`: drawn in the frame before, no world-clock jump). The pass draws into
   `img[write]` and reads `img[read]`, both imported into the graph (`<prefix>-history<k>-in/-out`), so the order and liveness come from
   the graph; the image it wrote is also the picture the next pass reads, so the only extra draw is the copy into the picture when it is the

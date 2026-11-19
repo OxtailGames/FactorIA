@@ -1274,8 +1274,18 @@ bool Editor::graph_try_on_camera(const std::string& material) {
         notify("Cannot add " + material + " to the camera: " + err, 1);
         return false;
     }
-    notify("Added " + material + " to the PostProcess of camera '" + w.id_of(camera) + "' (Edit > Undo takes it off).",
-           0);
+    std::string msg =
+        "Added " + material + " to the PostProcess of camera '" + w.id_of(camera) + "' (Edit > Undo takes it off).";
+    const PostProcess* now = w.get<PostProcess>(camera);
+    const bool off = now && !now->enabled;
+    // Not drawn while the component is off: nothing changes in the Scene view until it is on.
+    if (off)
+        msg =
+            "Added " + material + " to the PostProcess of camera '" + w.id_of(camera) +
+            "', but that PostProcess is disabled, so nothing shows yet: turn on its Enabled checkbox in the Inspector.";
+    // In Play the world is the running copy: the change is lost when Play stops.
+    if (play_state() != PlayState::Edit) msg += " The game is running: the change is lost when you stop it.";
+    notify(msg, off ? 1 : 0);
     return true;
 }
 

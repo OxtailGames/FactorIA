@@ -1,0 +1,6 @@
+{
+  "format": "factoria.material/1",
+  "kind": "post",
+  "doc": "Test fixture: writes alpha 0.5 and leaves the colour.",
+  "shader": "shaders/post_alpha.post.glsl"
+}

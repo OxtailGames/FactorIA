@@ -177,7 +177,7 @@ bool Renderer::capture_world(World& world, const WorldCapture& spec, Image& out,
     ci.visible = Rect{cx - ci.halfW, cy - ci.halfH, ci.halfW * 2.0f, ci.halfH * 2.0f};
     ci.clear = true;
     ci.clearColor = Color{0, 0, 0, 0};
-    return im.capture_view(world, std::move(ci), w, h, spec.scale, spec.subject, 1, false, 0, out, error);
+    return im.capture_view(world, std::move(ci), w, h, spec.scale, spec.subject, 1, false, 0, true, out, error);
 }
 
 // The histories of a capture are kept under the camera's bits with this bit set: the game's cameras (their bits alone, and bit 0 would be "every
@@ -192,8 +192,7 @@ bool Renderer::capture_camera(World& world, const CameraCapture& spec, Image& ou
     if (!initialized()) return fail("Renderer is not initialized");
     Impl& im = *impl_;
     if (!world.alive(spec.camera) || !world.get<Camera>(spec.camera))
-        return fail(
-            "the entity is not a Camera of this world. Pass the entity of an entity that has a Camera component");
+        return fail("the entity is not a Camera of this world: pass an entity that has a Camera component");
     if (spec.width < 1 || spec.height < 1 || spec.width > kMaxWorldCaptureSide || spec.height > kMaxWorldCaptureSide)
         return fail("the picture would be " + std::to_string(spec.width) + " x " + std::to_string(spec.height) +
                     " pixels; each side must be between 1 and " + std::to_string(kMaxWorldCaptureSide));
@@ -209,11 +208,12 @@ bool Renderer::capture_camera(World& world, const CameraCapture& spec, Image& ou
     im.postBypass = bypass;
     const bool custom = ci.postStack && ci.postStack->has_custom();
     return im.capture_view(world, std::move(ci), spec.width, spec.height, 1.0f, kNullEntity, custom ? spec.frames : 1,
-                           custom, kCaptureHistoryBit | spec.camera.bits(), out, error);
+                           custom, kCaptureHistoryBit | spec.camera.bits(), false, out, error);
 }
 
 bool Renderer::Impl::capture_view(World& world, CameraInfo ci, int w, int h, float scale, Entity subject, int frames,
-                                  bool withCustom, std::uint64_t historyCamera, Image& out, std::string* error) {
+                                  bool withCustom, std::uint64_t historyCamera, bool premultiplied, Image& out,
+                                  std::string* error) {
     auto fail = [&](std::string message) {
         if (error) *error = std::move(message);
         return false;
@@ -304,9 +304,12 @@ bool Renderer::Impl::capture_view(World& world, CameraInfo ci, int w, int h, flo
     // The RGBA8 copy of a big picture (a 4K capture is 64 MB) is not worth keeping: only the game target's size is asked for again.
     if (readW != physW || readH != physH) free_read_image();
     restore();
+    // The capture's history slots are not the game's to pay for until they idle out: freed by key now.
+    if (withCustom) customPost.release_history_of(historyCamera);
     if (!ok) return fail("reading the picture back from the GPU failed: " + readError);
-    // The pass blended onto a transparent background, so the colour is premultiplied by alpha; texture fields expect straight alpha.
-    for (std::size_t i = 0; i + 3 < px.size(); i += 4) {
+    // capture_world blended onto a transparent background, so the colour is premultiplied by alpha; texture fields expect straight alpha.
+    // capture_camera's picture is not (the camera's clear has alpha 1 and a custom pass writes the alpha it means): left as drawn.
+    for (std::size_t i = 0; premultiplied && i + 3 < px.size(); i += 4) {
         const unsigned a = px[i + 3];
         if (a == 0 || a == 255) continue;
         for (int c = 0; c < 3; ++c)
