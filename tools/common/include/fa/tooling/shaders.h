@@ -50,9 +50,12 @@ inline constexpr int kMaterialVsFirstView = kMaterialFsFirstView + kMaterialMaxT
 // this many vec4 (12 floats) per instance, so the main program of a skinned mesh (11 attributes + 3 + 2 declared channels)
 // stays within the 16 vertex attributes sokol and every backend allow.
 inline constexpr int kMaterialMaxInstanceVec4 = 3;
-// A sprite material's textures (kind "sprite") are fragment-stage only, at view kMaterialSpriteFirstView + i and sampler
+// A sprite material's textures (kind "sprite") are read by fragment() at view kMaterialSpriteFirstView + i and sampler
 // kMaterialSpriteFirstSampler + i: the 2D program's own four views and three samplers come first (render_internal.h has the same numbers).
 inline constexpr int kMaterialSpriteFirstView = 4, kMaterialSpriteFirstSampler = 3;
+// ... and the same textures for the vertex stage (vertex() may sample them as fa_vs_<name>): views and samplers after the fragment ones.
+inline constexpr int kMaterialSpriteVsFirstView = kMaterialSpriteFirstView + kMaterialMaxTextures,
+                     kMaterialSpriteVsFirstSampler = kMaterialSpriteFirstSampler + kMaterialMaxTextures;
 // A sky material's textures (kind "sky") are fragment-stage only too, and the sky program binds no texture of its own, so they are views
 // 0.. and samplers 0.. (render_internal.h has the same numbers).
 inline constexpr int kMaterialSkyFirstView = 0, kMaterialSkyFirstSampler = 0;

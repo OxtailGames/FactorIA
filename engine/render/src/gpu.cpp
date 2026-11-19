@@ -419,7 +419,7 @@ sg_pipeline Gpu::find_or_make(PipelineKey key, const TargetFormat& format, const
 }
 
 sg_pipeline Gpu::quad_pipeline(const TargetFormat& format, bool depthTest, bool lines, BlendMode blend, bool plain,
-                               bool opaque, sg_shader shader) {
+                               bool opaque, sg_shader shader, int instanceVec4) {
     PipelineKey key{0x100u | (depthTest ? 1u : 0u) | (lines ? 2u : 0u) | (std::uint32_t(blend) << 2) |
                         (plain ? 0x10u : 0u) | (opaque ? 0x20u : 0u),
                     shader.id};
@@ -432,6 +432,25 @@ sg_pipeline Gpu::quad_pipeline(const TargetFormat& format, bool depthTest, bool 
     d.layout.attrs[ATTR_quad_quad_color2_0].format = SG_VERTEXFORMAT_UBYTE4N;
     d.layout.attrs[ATTR_quad_quad_shape_half0].format = SG_VERTEXFORMAT_FLOAT2;
     d.layout.attrs[ATTR_quad_quad_shape_rs0].format = SG_VERTEXFORMAT_HALF2;
+    if (instanceVec4 > 0) {
+        // sokol computes the offsets of every attribute or of none: with the second buffer they are given, as Vertex2D has them.
+        static_assert(sizeof(Vertex2D) == 48, "the offsets below are those of Vertex2D");
+        d.layout.attrs[ATTR_quad_quad_position].offset = 0;
+        d.layout.attrs[ATTR_quad_quad_texcoord0].offset = 12;
+        d.layout.attrs[ATTR_quad_quad_color0].offset = 20;
+        d.layout.attrs[ATTR_quad_quad_params0].offset = 24;
+        d.layout.attrs[ATTR_quad_quad_color2_0].offset = 32;
+        d.layout.attrs[ATTR_quad_quad_shape_half0].offset = 36;
+        d.layout.attrs[ATTR_quad_quad_shape_rs0].offset = 44;
+        d.layout.buffers[0].stride = int(sizeof(Vertex2D));
+        const int n = std::min(instanceVec4, kMaxInstanceVec4);
+        d.layout.buffers[kQuadInstBuffer].stride = n * 16;
+        for (int i = 0; i < n; ++i) {
+            d.layout.attrs[kQuadInstAttr + i].format = SG_VERTEXFORMAT_FLOAT4;
+            d.layout.attrs[kQuadInstAttr + i].buffer_index = kQuadInstBuffer;
+            d.layout.attrs[kQuadInstAttr + i].offset = i * 16;
+        }
+    }
     d.primitive_type = lines ? SG_PRIMITIVETYPE_LINES : SG_PRIMITIVETYPE_TRIANGLES;
     d.index_type = lines ? SG_INDEXTYPE_NONE : SG_INDEXTYPE_UINT16;
     d.depth.compare = depthTest ? SG_COMPAREFUNC_LESS_EQUAL : SG_COMPAREFUNC_ALWAYS;

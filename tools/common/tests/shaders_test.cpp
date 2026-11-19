@@ -991,20 +991,20 @@ TEST_CASE("sprite material: errors name fragment() and the sprite contract; alph
     auto light = parse(R"({"format":"factoria.material/1","kind":"sprite","shader":"s.glsl","lighting":"custom"})");
     CHECK(has_error(light, "/lighting"));
 
-    // a sprite's vertex() cannot sample a material texture (no vertex-stage views in the 2D pipeline): refused
-    // before sokol-shdc runs, with the texture named
+    // a sprite's vertex() samples a material texture through its own vertex-stage view and sampler (slots 8.. and 7..,
+    // after the fragment stage's 4.. and 3..), the same way a mesh material does
     const std::string sampling =
         std::string(kSpriteSnippet) +
         "void vertex(inout QuadVertex v) { v.world_pos.y += texture(sampler2D(mask, mask_smp), vec2(0.5)).r; }\n";
-    p.write("shaders/dissolve2d.fragment.glsl", sampling);
-    shdc.calls = 0;
-    r = compile_material(p.str(), "materials/dissolve2d.material.json", options);
-    REQUIRE(r.ok());
-    CHECK_FALSE(r->ok);
-    REQUIRE_FALSE(r->errors.empty());
-    CHECK(r->errors[0].message.find("vertex() of a sprite material cannot sample the texture \"mask\"") !=
-          std::string::npos);
-    CHECK(shdc.calls == 0);
+    const MaterialParse vsParse = read_material(p.str(), "materials/dissolve2d.material.json");
+    REQUIRE(vsParse.ok());
+    const GeneratedShader gv = generate_material_shader(vsParse.material, sampling);
+    CHECK(gv.hasVertex);
+    CHECK(gv.top.find("#define mask fa_vs_mask") != std::string::npos);
+    CHECK(gv.top.find("layout(binding=8) uniform texture2D mask;") != std::string::npos);
+    CHECK(gv.top.find("layout(binding=7) uniform sampler mask_smp;") != std::string::npos);
+    CHECK(gv.top.find("layout(binding=4) uniform texture2D mask;") != std::string::npos);
+    CHECK(gv.top.find("layout(binding=3) uniform sampler mask_smp;") != std::string::npos);
 }
 
 TEST_CASE("sprite material: compile writes a twin with the sprite template hash and the programs quad and quad_plain") {
@@ -2512,15 +2512,68 @@ TEST_CASE("vertexAttributes: the names are checked with their pointer, did you m
                     "/vertexAttributes", "expected an array"));
 }
 
-TEST_CASE("instanced params and vertexAttributes are refused in every kind but mesh, with the pointer and the fix") {
-    for (const char* kind : {"sprite", "compute", "sky"}) {
+TEST_CASE("instanced params: a sprite material takes them with the mesh limits, and the error names the pointer") {
+    const std::string head = R"({"format":"factoria.material/1","shader":"s.glsl","kind":"sprite")";
+    const auto ok = parse(
+        (head + R"(,"params":{"tint":{"type":"color","default":[1,1,1,1],"instanced":true,"doc":"d"}}})").c_str());
+    CHECK(ok.ok());
+    const InstanceLayout layout = instance_layout(ok.material.params);
+    CHECK(layout.vec4Count == 1);
+    // four vec4 per sprite are too many, as for a mesh
+    const auto four = parse((head + R"(,"params":{
+        "a":{"type":"color","default":[1,1,1,1],"instanced":true,"doc":"d"},
+        "b":{"type":"color","default":[1,1,1,1],"instanced":true,"doc":"d"},
+        "c":{"type":"color","default":[1,1,1,1],"instanced":true,"doc":"d"},
+        "d":{"type":"color","default":[1,1,1,1],"instanced":true,"doc":"d"}}})")
+                                .c_str());
+    CHECK_FALSE(four.ok());
+    CHECK(has_error(four, "/params", "4 vec4"));
+    CHECK(has_error(four, "/params", "Make some of them not instanced"));
+    // vertexAttributes are the mesh's: a sprite has no channels to read
+    const auto chan = parse((head + R"(,"vertexAttributes":["uv1"]})").c_str());
+    CHECK(has_error(chan, "/vertexAttributes", "only mesh materials"));
+    // the generator gives the sprite programs the per-quad stream, and a material without instanced params none of it
+    Project p;
+    p.add_sprite();
+    const std::string src = std::string(kSpriteSnippet);
+    const GeneratedShader plain =
+        generate_material_shader(read_material(p.str(), "materials/dissolve2d.material.json").material, src);
+    for (const std::string& d : plain.defines) CHECK(d.rfind("FA_INST_", 0) != 0);
+    CHECK(plain.top.find("fa_instance_unpack") == std::string::npos);
+    const GeneratedShader inst = generate_material_shader(
+        ok.material, "void fragment(in QuadInput i, inout QuadSurface s) { s.color.rgb = tint.rgb; }\n");
+    CHECK(std::find(inst.defines.begin(), inst.defines.end(), "FA_INST_1") != inst.defines.end());
+    CHECK(inst.top.find("fa_instance_unpack(vec4 fa_d0, vec4 fa_d1, vec4 fa_d2)") != std::string::npos);
+    CHECK(inst.top.find("tint = fa_d0;") != std::string::npos);
+    // material.info reports the layout for a sprite as for a mesh
+    p.write("materials/quads.material.json",
+            R"({"format":"factoria.material/1","kind":"sprite","shader":"shaders/quads.fragment.glsl","params":{
+        "tint":{"type":"color","default":[1,1,1,1],"instanced":true,"doc":"d"},
+        "wave":{"type":"float","default":0,"instanced":true,"doc":"d"}}})");
+    p.write("shaders/quads.fragment.glsl",
+            "void fragment(in QuadInput i, inout QuadSurface s) { s.color.rgb *= tint.rgb * wave; }\n");
+    FakeShdc shdc;
+    CommandRegistry registry;
+    register_shader_commands(registry, p.str(), shdc.context(p.str()));
+    auto info = registry.call("material.info", Json::parse(R"({"material":"materials/quads.material.json"})"));
+    REQUIRE(info.ok);
+    CHECK(info.result["kind"] == "sprite");
+    REQUIRE(info.result.contains("instanceLayout"));
+    CHECK(info.result["instanceLayout"]["vec4"] == 2);
+    CHECK(info.result["instanceLayout"]["slots"].size() == 2);
+}
+
+TEST_CASE(
+    "instanced params and vertexAttributes are refused in every kind but mesh and sprite, with the pointer and the "
+    "fix") {
+    for (const char* kind : {"compute", "sky"}) {
         CAPTURE(kind);
         const std::string head =
             std::string(R"({"format":"factoria.material/1","shader":"s.glsl","kind":")") + kind + "\"";
         const auto inst = parse(
             (head + R"(,"params":{"tint":{"type":"color","default":[1,1,1,1],"instanced":true,"doc":"d"}}})").c_str());
         CHECK_FALSE(inst.ok());
-        CHECK(has_error(inst, "/params/tint/instanced", "only mesh materials"));
+        CHECK(has_error(inst, "/params/tint/instanced", "only mesh and sprite materials"));
         CHECK(has_error(inst, "/params/tint/instanced", "Remove \"instanced\""));
         const auto chan = parse((head + R"(,"vertexAttributes":["uv1"]})").c_str());
         CHECK_FALSE(chan.ok());

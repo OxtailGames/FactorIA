@@ -159,7 +159,8 @@ void register_shader_commands(CommandRegistry& registry, const std::string& proj
             "Reads a *.material.json (schemas/material.schema.json) and returns {material, doc, kind, shader, "
             "lighting, alphaMode, doubleSided, params: [{name, type, default, min?, max?, doc, implicit?, "
             "instanced?}], "
-            "textures: [{name, default, sampler, doc}], vertexAttributes?, programs, compile: {state, dialect, "
+            "textures: [{name, default, sampler, doc}], vertexAttributes?, instanceLayout?, programs, compile: {state, "
+            "dialect, "
             "toolFound, hint?}}. "
             "`kind` is \"mesh\" (default), \"sprite\", \"sky\", \"post\" or \"compute\". "
             "params are listed in the order of the uniform block (alphabetical); `implicit` marks "
@@ -176,8 +177,9 @@ void register_shader_commands(CommandRegistry& registry, const std::string& proj
             "A compute material also returns workgroupSize [x, y, z] and buffers [{name, binding, access, stride, "
             "doc, fields: [{name, type, offset, doc}]}] (std430 layout); `runsOn` and `notOn` list the platforms the "
             "kind has shaders for (compute: not android or web). "
-            "`instanced` marks a mesh param whose value every entity gives itself inside ONE instanced draw (it "
-            "travels in the instance buffer instead of the uniform block); `vertexAttributes` lists the extra mesh "
+            "`instanced` marks a mesh or sprite param whose value every entity (sprite: every quad) gives itself "
+            "inside ONE draw (it travels in the instance data instead of the uniform block); `instanceLayout` "
+            "{vec4, slots: [{name, vec4, offset, components}]} says where; `vertexAttributes` lists the extra mesh "
             "channels (uv1, color1) vertex() reads as vertex_uv1 and vertex_color1 (docs/SHADERS.md, \"The material "
             "file\").";
         info.inputSchema = Json::parse(R"({
@@ -221,6 +223,13 @@ void register_shader_commands(CommandRegistry& registry, const std::string& proj
                                      {"textures", textures},
                                      {"programs", Json(g.programs)}});
             if (!m.vertexAttributes.empty()) out["vertexAttributes"] = Json(m.vertexAttributes);
+            if (const InstanceLayout layout = instance_layout(m.params); layout.vec4Count > 0) {
+                Json slots = Json::array();
+                for (const InstanceSlot& s : layout.slots)
+                    slots.push_back(Json::object(
+                        {{"name", s.name}, {"vec4", s.vec4}, {"offset", s.offset}, {"components", s.components}}));
+                out["instanceLayout"] = Json::object({{"vec4", layout.vec4Count}, {"slots", slots}});
+            }
             add_platforms(out, m.kind);
             if (m.kind == "compute") {
                 const Json fields = shaders_detail::compute_twin_fields(m);

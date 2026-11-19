@@ -6,6 +6,18 @@ Older versions, one file per minor version with its patch releases: [0.30](chang
 
 ## Unreleased
 
+- **Per-sprite values and vertex textures in sprite materials (M72.1):** a sprite material's param marked
+  `"instanced": true` takes its value per quad: 100 sprites, shapes, tiles, glyphs or particles of one material with 100
+  different `tint` values are one batch and one draw call, and the snippet reads `tint` by its name in `fragment()` and
+  `vertex()`. Same rules as a mesh (at most 3 vec4, the error on `/params` lists them); a param that is not instanced
+  still splits the batch; sky and compute materials still refuse `instanced` (`/params/<name>/instanced`). The values travel in a second
+  vertex buffer (the four corners of a quad carry the same values: up to 192 bytes per quad at 3 vec4) and reach
+  `fragment()` as `flat` varyings. A particle's instanced values are its emitter's `materialParams`, and the new
+  `QuadInput.life` is how far the particle is through its life (0 for everything else; `QuadInput.custom` stays
+  reserved). The `vertex()` of a sprite material can now sample the material's textures (mip 0, the same names as in
+  `fragment()`). `material.info` reports `instanceLayout` for a sprite. **Games with sprite materials must re-export:** the
+  sprite template changed (the engine's own sprites look the same), so older compiled twins are refused with the re-export
+  hint until `factoria export` or `shader.compile` writes them again.
 - **Per-instance params and vertex channels for mesh materials (M72.3):** a material param marked `"instanced": true`
   takes a value per entity inside one instanced draw call: 100 entities with 100 different `tint` values are one draw, and
   the snippet reads `tint` by its name in `vertex()` and `surface()` (also in the shadow and depth prepass programs, so a

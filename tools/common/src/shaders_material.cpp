@@ -583,32 +583,34 @@ MaterialParse parse_material(const Json& doc, const std::string& projectDir, con
               [](const MaterialParam& a, const MaterialParam& b) { return a.name < b.name; });
     std::sort(m.textures.begin(), m.textures.end(),
               [](const MaterialTexture& a, const MaterialTexture& b) { return a.name < b.name; });
-    if (m.kind != "mesh") {
-        // The instance buffer and the extra mesh channels exist only in the mesh pipeline: in any other kind the snippet
-        // would silently read 0, so the file is refused.
+    // The instance buffer exists in the mesh pipeline (a value per entity) and the 2D quad pipeline (a value per quad); the extra
+    // mesh channels only in the mesh pipeline. In any other kind the snippet would silently read 0, so the file is refused.
+    const bool instancing = m.kind == "mesh" || m.kind == "sprite";
+    if (!instancing) {
         for (const MaterialParam& p : m.params)
             if (p.instanced)
                 c.error("/params/" + escape_token(p.name) + "/instanced",
-                        "only mesh materials support instanced params, and this material is kind \"" + m.kind + "\"",
+                        "only mesh and sprite materials support instanced params, and this material is kind \"" +
+                            m.kind + "\"",
                         "Remove \"instanced\" from this param (a " + m.kind +
-                            " material gets one value per draw from materialParams), or change \"kind\" to \"mesh\".");
-        if (doc.contains("vertexAttributes"))
-            c.error("/vertexAttributes",
-                    "only mesh materials support vertexAttributes, and this material is kind \"" + m.kind + "\"",
-                    "Remove \"vertexAttributes\": only a mesh has the uv1 and color1 channels a material can read.");
+                            " material gets one value per draw from its params), or change \"kind\" to \"mesh\" or "
+                            "\"sprite\".");
     }
+    if (m.kind != "mesh" && doc.contains("vertexAttributes"))
+        c.error("/vertexAttributes",
+                "only mesh materials support vertexAttributes, and this material is kind \"" + m.kind + "\"",
+                "Remove \"vertexAttributes\": only a mesh has the uv1 and color1 channels a material can read.");
     if (const InstanceLayout layout = instance_layout(m.params);
-        m.kind == "mesh" && layout.vec4Count > kMaterialMaxInstanceVec4) {
+        instancing && layout.vec4Count > kMaterialMaxInstanceVec4) {
         std::string names;
         for (const MaterialParam& p : m.params)
             if (p.instanced) names += (names.empty() ? "" : ", ") + p.name + " (" + p.type + ")";
-        c.error(
-            "/params",
-            "the instanced params need " + std::to_string(layout.vec4Count) + " vec4 per instance, at most " +
-                std::to_string(kMaterialMaxInstanceVec4) + " (12 floats): " + names,
-            "Make some of them not instanced (entities with different values then split the batch), or use fewer "
-            "components: floats and small vectors share a vec4 (a vec3 and a float fit in one), a vec4 takes a whole "
-            "one.");
+        c.error("/params",
+                "the instanced params need " + std::to_string(layout.vec4Count) + " vec4 per instance, at most " +
+                    std::to_string(kMaterialMaxInstanceVec4) + " (12 floats): " + names,
+                std::string("Make some of them not instanced (") + (m.kind == "sprite" ? "sprites" : "entities") +
+                    " with different values then split the batch), or use fewer components: floats and small vectors "
+                    "share a vec4 (a vec3 and a float fit in one), a vec4 takes a whole one.");
     }
     if (auto v = doc.find("vertexAttributes"); v != doc.end() && m.kind == "mesh") {
         const auto& names = material_vertex_attribute_names();

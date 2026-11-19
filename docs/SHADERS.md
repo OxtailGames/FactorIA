@@ -151,9 +151,10 @@ even when both stages read it. Example 9 below displaces a plane with a height m
 ## Per-instance params and vertex channels
 
 **A value per entity in one draw.** Mark a param `"instanced": true` and entities that differ only in that param still
-share one instanced draw call: a thousand grass blades each with their own tint, a crowd with a color each. Both this and
-`vertexAttributes` are for **mesh** materials only: a sprite, sky or compute material with an `instanced` param or a
-`vertexAttributes` is refused (`/params/<name>/instanced`, `/vertexAttributes`) rather than reading 0.
+share one instanced draw call: a thousand grass blades each with their own tint, a crowd with a color each. `instanced`
+works in **mesh** and **sprite** materials (a sprite's values are per quad, see "Materials on sprites, shapes, tiles, text
+and particles"); `vertexAttributes` is for mesh materials only. A sky or compute material with an `instanced` param, or a
+sprite with `vertexAttributes`, is refused (`/params/<name>/instanced`, `/vertexAttributes`) rather than reading 0.
 
 ```json
 "params": {
@@ -736,8 +737,10 @@ UI text is drawn through the same glyph quads as `Text`, but only the `Text` com
 Check a material on any of these with `shader.compile` and `factoria validate`; `material.info` lists its params.
 
 **What the renderer does with a sprite material.** Sprites with the same material and equal param values share a draw call;
-a different value, another material or a sprite without one starts a new batch (the draw order is the same as without
-materials). `fa_time` is the engine clock and `fa_target` the size of the render target (the image the pass draws into, which is the
+a different value of a param that is not `"instanced"`, another material or a sprite without one starts a new batch (the
+draw order is the same as without materials). Params marked `"instanced": true` ("Per-instance params and vertex
+channels") travel with each quad instead, so sprites, shapes, tiles, glyphs and particles of one material with a hundred
+different instanced values are still one batch. `fa_time` is the engine clock and `fa_target` the size of the render target (the image the pass draws into, which is the
 camera's rectangle, not the whole screen, in the coverage pass of the sprite outline effect), in both programs. The 2D quads of a frame look their material up once
 per distinct material and set of `materialParams` values, not once per component, quad or particle (`materialResolves` in the render stats and in `game.render_stats` counts the lookups). A material whose params name a render target (`"mask": "target:page"`) is looked up again for the camera that renders into that target, which gets the missing-texture checker instead of the image it is writing, and its items are not copied between cameras. A material that
 did not build, or that is not of kind `"sprite"`, draws the sprite in magenta (its alpha stays) with the engine's own shader
@@ -757,7 +760,8 @@ struct QuadInput {              // read-only, per fragment
     vec2 screen_uv;             // position in the render target, 0..1, y running DOWN on every backend
     float time;                 // seconds of game time (the same as fa_time.x)
     float mode;                 // what is drawn: 0 texture, 1 circle, 2 ring, 3 soft particle, 4 glyph, 5/6 lit, 7 SDF shape
-    vec4 custom;                // reserved: zero for now
+    vec4 custom;                // reserved: zero (per-sprite values are the material's instanced params, read by name)
+    float life;                 // particles: 0 at birth to 1 at the end of the life; 0 for everything else
 };
 struct QuadSurface { vec4 color; };                      // straight (not premultiplied) RGBA
 struct QuadVertex { vec3 world_pos; vec2 uv; vec4 color; };
@@ -793,7 +797,8 @@ not depend on anything the lean program has not: `i.mode` is 0 in it.
 
 **Slots.** The engine's own bindings come first, so a material's textures start after them: sampler and texture views
 0 to 3 (`tex`, `normal_tex`, `light_tex`, `shadow_tex`) and samplers 0 to 2 are the engine's; your textures are views 4
-to 7 and samplers 3 to 6 (at most 4 textures, as for a mesh), the params block is binding 5 (4 in the vertex stage). A
+to 7 and samplers 3 to 6 (at most 4 textures, as for a mesh; the vertex stage reads them at views 8 to 11 and samplers 7
+to 10), the params block is binding 5 (4 in the vertex stage). A
 mesh material starts at view 6 and sampler 2: the numbers are not interchangeable, but `kind` decides them and you never
 write them. The slots are listed in `engine/render/src/render_internal.h` (`kMaterialSpriteFirstView`).
 
@@ -802,8 +807,10 @@ write them. The slots are listed in `engine/render/src/render_internal.h` (`kMat
 - `alphaMode: "clip"` is an error: a sprite is always blended by the engine. Write `if (s.color.a < 0.5) discard;` where
   you want a cut-out. `lighting` `"pbr"` and `"unlit"` and `doubleSided` mean nothing here and are ignored; `"custom"` is an
   error (there is no `light()` hook in the 2D pipeline).
-- `vertex()` cannot sample a texture of the material (a mesh material's can, see "Textures in `vertex()`"): the 2D pipeline
-  binds a material's textures to the fragment stage only, and the compiler says so.
+- `vertex()` samples the material's textures as a mesh material's does ("Textures in `vertex()`": mip 0, the same names).
+- An `instanced` param is a per-quad value (at most 3 vec4, same rules as a mesh); the snippet reads it by name in
+  `fragment()` and `vertex()`. A particle's instanced values are its emitter's `materialParams`, and `i.life` is the
+  particle's age over its lifetime (0 in a trail). Each quad carries its own copy (up to 192 bytes at 3 vec4) in a second vertex buffer.
 - The compiled twin carries `programs.quad` and `programs.quad_plain` and the key `"kind": "sprite"`; its `template` is
   the hash of the sprite template (a change of the template recompiles sprite materials only).
 - Errors name `fragment()` and `QuadInput`: `i.colour` says `did you mean color?` and lists the fields.
@@ -972,9 +979,9 @@ and where it runs (not Android or the web) are on the page [Compute materials](s
   shades each light the engine hands over. Image-based lighting (the sky reflection) is off in a custom material and
   cannot be called from `light()`.
 - Compute storage images and compute on Android and the web; a sky material that also
-  drives the ambient and reflection light of the meshes (they follow `skyColor` and `horizonColor`); textures sampled in
-  the `vertex()` of a sprite material (a mesh material can); per-instance params and vertex channels in a sprite, sky or
-  compute material (mesh only).
+  drives the ambient and reflection light of the meshes (they follow `skyColor` and `horizonColor`); per-instance params
+  in a sky or compute material and vertex channels (`vertexAttributes`) in a sprite, sky or compute material (a mesh
+  has them).
 - **Post passes** after the tonemap (on the display picture) and a post pass that needs the previous frame (a feedback or
   trail effect); a pass sees the depth and normals of mesh geometry only (not of sprites).
 
