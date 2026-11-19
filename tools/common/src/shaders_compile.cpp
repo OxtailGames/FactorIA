@@ -318,22 +318,25 @@ std::string declared_by_other_material(const std::string& name, const MapContext
     return {};
 }
 
-// Every fa_ name the template files of the kind mention.
-std::vector<std::string> engine_names_of(const std::string& kind) {
-    std::set<std::string> found;
-    static const std::regex re(R"(\bfa_\w+)");
-    for (const auto& [file, content] : template_files(kind)) {
-        const std::string text = blank_comments(content);
-        for (auto it = std::sregex_iterator(text.begin(), text.end(), re); it != std::sregex_iterator(); ++it)
-            found.insert(it->str());
-    }
-    return std::vector<std::string>(found.begin(), found.end());
-}
-
+// The fa_ names a snippet of the kind may use, as the docs list them (docs/SHADERS.md "Engine values", the sprite, sky, post and
+// full-shader pages): the "did you mean" of an unknown fa_ name suggests these, never an internal name of the templates (fa_in,
+// fa_quad_types...) that the author may not use.
 const std::vector<std::string>& engine_names(const MaterialDef& material) {
-    static const std::vector<std::string> mesh = engine_names_of("mesh"), sprite = engine_names_of("sprite"),
-                                          sky = engine_names_of("sky"), post = engine_names_of("post"),
-                                          full = engine_names_of("mesh-full");
+    static const std::vector<std::string> mesh = {"fa_time", "fa_camera_pos", "fa_tangent_normal"},
+                                          sprite = {"fa_time", "fa_target", "fa_sample_main", "fa_scene_rgb"},
+                                          sky = {"fa_time", "fa_scene_rgb"},
+                                          post = {"fa_scene_color", "fa_depth",         "fa_normal", "fa_history",
+                                                  "fa_history_valid", "fa_scene_rgb", "fa_time"},
+                                          full = {"fa_ambient",       "fa_apply_fog",    "fa_base_color",
+                                                  "fa_base_sample",   "fa_camera_pos",   "fa_color",
+                                                  "fa_emissive",      "fa_env_brdf",     "fa_env_horizon",
+                                                  "fa_env_sky",       "fa_environment",  "fa_frag_color",
+                                                  "fa_light",         "fa_light_count",  "fa_light_vp",
+                                                  "fa_linear_to_srgb", "fa_model",       "fa_normal",
+                                                  "fa_position",      "fa_shadow",       "fa_shadow_coord",
+                                                  "fa_sky_reflection", "fa_srgb_to_linear", "fa_tangent",
+                                                  "fa_texcoord",      "fa_uv_scale",     "fa_view_proj",
+                                                  "fa_world_direction", "fa_world_position"};
     return material.full         ? full
            : is_post(material)   ? post
            : is_sprite(material) ? sprite
@@ -418,6 +421,28 @@ std::pair<std::size_t, std::size_t> body_of(const std::string& stripped, const s
     return {0, 0};
 }
 
+// True when snippet line `line` (1-based) lies inside an entry point that only the fragment stage compiles (surface(), fragment(),
+// sky(), post(), light(), ambient(), lighting()). Anywhere else (a helper of the snippet, vertex()) the line is compiled into the
+// vertex stage too.
+bool in_fragment_entry(const MapContext& ctx, int line) {
+    if (line <= 0) return false;
+    for (const char* name : {"surface", "fragment", "sky", "post", "light", "ambient", "lighting"}) {
+        const std::regex re(std::string("\\b\\w+\\s+") + name + "\\s*\\(");
+        std::smatch m;
+        if (!std::regex_search(ctx.stripped, m, re)) continue;
+        std::size_t p = ctx.stripped.find('{', std::size_t(m.position(0)));
+        if (p == std::string::npos) continue;
+        const std::size_t begin = p;
+        for (int depth = 0; p < ctx.stripped.size(); ++p) {
+            depth += ctx.stripped[p] == '{' ? 1 : ctx.stripped[p] == '}' ? -1 : 0;
+            if (depth == 0) break;
+        }
+        if (line >= line_of(ctx.stripped, begin) && line <= line_of(ctx.stripped, std::min(p, ctx.stripped.size() - 1)))
+            return true;
+    }
+    return false;
+}
+
 std::string signatures(const MaterialDef& material) {
     if (is_post(material))
         return "void post(in PostInput i, inout PostSurface s) { ... }  (required; a post material has no vertex())";
@@ -436,7 +461,9 @@ const char* fragment_entry(const MaterialDef& material) {
     return is_post(material) ? "post" : is_sprite(material) ? "fragment" : is_sky(material) ? "sky" : "surface";
 }
 
-std::string undeclared_hint(const std::string& token, const MapContext& ctx) {
+// `line` is where the error is in the snippet (0 when unknown); `callFailed` says the compiler found no overload for a call of
+// `token` (the name exists, its arguments or its stage do not fit) instead of an unknown name.
+std::string undeclared_hint(const std::string& token, const MapContext& ctx, int line = 0, bool callFailed = false) {
     // A field written without its struct (a full shader has no snippet functions to put it in).
     const auto contract = ctx.material.full ? decltype(contract_of(ctx.material)){} : contract_of(ctx.material);
     for (const auto& [n, fields] : contract)
@@ -455,8 +482,12 @@ std::string undeclared_hint(const std::string& token, const MapContext& ctx) {
         // A custom mesh material: the documented lighting functions come first (the template has helpers of its own).
         if (!ctx.material.full && ctx.material.kind == "mesh" && ctx.material.lighting == "custom") {
             const auto& names = lighting_api();
-            if (std::find(names.begin(), names.end(), token) != names.end())
-                // The name exists: the stage that failed does not have it (a helper of the snippet is compiled into both stages).
+            if (std::find(names.begin(), names.end(), token) != names.end()) {
+                // The name exists. Called from an entry point of the fragment stage, the arguments are wrong; anywhere else the
+                // stage that failed does not have it (a helper of the snippet is compiled into both stages).
+                if (callFailed && in_fragment_entry(ctx, line))
+                    return "`" + token + "` exists, but this call does not match its signature: " +
+                           lighting_signature(token) + ".";
                 return "`" + token +
                        "` is declared in the fragment stage only, and a function of the snippet that is not light(), "
                        "ambient(), "
@@ -466,10 +497,16 @@ std::string undeclared_hint(const std::string& token, const MapContext& ctx) {
                        "GL_FRAGMENT_SHADER "
                        "... #endif. Its signature: " +
                        lighting_signature(token) + ".";
+            }
             const std::string api = closest_match(token, lighting_api());
             if (!api.empty())
                 return "did you mean " + api + "? The lighting functions are " + join(lighting_api(), ", ") + ".";
         }
+        // The sprite template declares the main texture in the fragment stage only; fa_scene_rgb() exists in both.
+        if (!ctx.material.full && is_sprite(ctx.material) && token == "fa_sample_main")
+            return "`fa_sample_main` samples the main texture, which is bound in the fragment stage only: call it from "
+                   "fragment(), not from vertex() or from a helper that vertex() calls (a helper of the snippet is "
+                   "compiled into both stages). Its signature: vec4 fa_sample_main(vec2 p).";
         const std::string best = closest_match(token, engine_names(ctx.material));
         return best.empty()
                    ? std::string("No engine value is called ") + token +
@@ -548,9 +585,9 @@ std::string undeclared_hint(const std::string& token, const MapContext& ctx) {
 }
 
 std::string hint_for(const std::string& message, const std::string& token, const std::string& source,
-                     const MapContext& ctx) {
+                     const MapContext& ctx, int line) {
     if (message.find("no such field in structure") != std::string::npos) return field_hint(token, source, ctx);
-    if (message.find("undeclared identifier") != std::string::npos) return undeclared_hint(token, ctx);
+    if (message.find("undeclared identifier") != std::string::npos) return undeclared_hint(token, ctx, line, false);
     if (message.find("no matching overloaded function found") != std::string::npos && token.rfind("texture", 0) == 0) {
         // texture(waves, uv) on a separate texture.
         for (const MaterialTexture& t : ctx.material.textures) {
@@ -564,7 +601,7 @@ std::string hint_for(const std::string& message, const std::string& token, const
     }
     // A function of the engine that is spelled wrong (glslang says "no matching overloaded function" for an unknown name).
     if (message.find("no matching overloaded function found") != std::string::npos && token.rfind("fa_", 0) == 0)
-        return undeclared_hint(token, ctx);
+        return undeclared_hint(token, ctx, line, true);
     if (message.find("redefinition") != std::string::npos && token.rfind("fa_", 0) == 0)
         return prefix_rule(ctx.material);
     if (message.find("redefinition") != std::string::npos) {
@@ -658,7 +695,7 @@ std::vector<ShaderIssue> map_diagnostics(const std::vector<Diagnostic>& diags, c
                 if (p == std::string::npos) p = 0;
             }
             issue.column = int(p) + 1;
-            issue.hint = hint_for(d.message, token, issue.source, ctx);
+            issue.hint = hint_for(d.message, token, issue.source, ctx, sl);
         } else if (base == "top.glsl") {
             outside_snippet(issue, "in the generated declarations of the material", token, ctx);
         } else if (!d.file.empty()) {
@@ -947,8 +984,7 @@ std::string read_output_file(const stdfs::path& work, const std::string& rel) {
 
 // The twins of the requested slangs from sokol-shdc's reflection YAML and the source files it points to.
 Result<std::map<std::string, Json>> build_twins(const stdfs::path& work, const std::string& yamlText,
-                                                const MaterialDef& material, const std::vector<std::string>& slangs,
-                                                std::vector<ShaderIssue>& issues) {
+                                                const MaterialDef& material, const std::vector<std::string>& slangs) {
     auto yaml = parse_shdc_yaml(yamlText);
     if (!yaml.ok()) return yaml.error();
     if (!yaml->is_object() || !yaml->contains("shaders") || !(*yaml)["shaders"].is_array())
@@ -968,7 +1004,6 @@ Result<std::map<std::string, Json>> build_twins(const stdfs::path& work, const s
     for (const std::string& a : material.vertexAttributes) vertexAttributes.push_back(a);
 
     std::map<std::string, Json> twins;
-    bool vertexTextureReported = false;
     for (const Json& shader : (*yaml)["shaders"]) {
         const std::string slang = shader.value("slang", std::string());
         if (std::find(slangs.begin(), slangs.end(), slang) == slangs.end()) continue;
@@ -1022,24 +1057,6 @@ Result<std::map<std::string, Json>> build_twins(const stdfs::path& work, const s
                 return make_error("sokol-shdc did not write the " + slang + " source of program '" + name + "'",
                                   "Run sokol-shdc by hand on the generated top file (`factoria call shader.compile` "
                                   "prints its errors).");
-            if (!vertexTextureReported)
-                for (const Json& view : prog.value("views", Json::array())) {
-                    const Json tex = view.value("texture", Json::object());
-                    const std::string tname = tex.value("name", std::string());
-                    if (tex.value("stage", std::string()) == "vertex" &&
-                        std::any_of(material.textures.begin(), material.textures.end(),
-                                    [&](const MaterialTexture& t) { return t.name == tname; })) {
-                        ShaderIssue i;
-                        i.file = material.shader;
-                        i.message = "the texture '" + tname +
-                                    "' is sampled in vertex(), but textures can only be read in the fragment stage";
-                        i.hint = std::string("Read textures in ") + fragment_entry(material) +
-                                 "(), or compute the displacement from fa_time and params in vertex(). Vertex-stage "
-                                 "textures are not supported yet.";
-                        issues.push_back(std::move(i));
-                        vertexTextureReported = true;
-                    }
-                }
             programs[name] = Json::object({{"vs", vsText}, {"fs", fsText}, {"reflection", std::move(reflection)}});
         }
         twin["programs"] = std::move(programs);
@@ -1223,7 +1240,7 @@ Result<ShaderCompileResult> compile_material(const std::string& projectDir, cons
         return make_error(
             "sokol-shdc succeeded but wrote no reflection file",
             "The pinned sokol-shdc writes it with --format bare_yaml; reinstall it with `factoria setup shaders`.");
-    auto twins = build_twins(work.path, yamlText, res.material, missing, res.errors);
+    auto twins = build_twins(work.path, yamlText, res.material, missing);
     if (!twins.ok()) return twins.error();
     if (!res.errors.empty()) return res;
     for (auto& [slang, twin] : *twins) {
