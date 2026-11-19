@@ -3,7 +3,8 @@
 A **material** gives some meshes their own look: a pulsing gem, dissolving armor, water, grass in the wind, a rim glow.
 You write a small GLSL **snippet** and a **material file** that names it and declares its parameters. The engine injects
 the snippet into its own mesh shader, so instancing, skinning, lights, shadows, fog and sky reflections keep working.
-You never write a vertex shader, a fragment shader or a `main`.
+You never write a vertex shader, a fragment shader or a `main`, unless you ask for it with a
+[full shader](#full-shaders-and-passes).
 
 The loop for an AI (or a person):
 
@@ -33,6 +34,7 @@ The loop for an AI (or a person):
 | `params` | Typed parameters the snippet reads (below). |
 | `textures` | Textures the snippet samples (below). |
 | `vertexAttributes` | Extra mesh channels `vertex()` reads: `["uv1"]` (glTF `TEXCOORD_1`), `["color1"]` (glTF `COLOR_1`) or both (see "Per-instance params and vertex channels" below). Default none. |
+| `mode` | `"snippet"` (default) or `"full"`: the file holds your own vertex and fragment stages and `passes`, `shadow` and `prepass` apply ([Full shaders and passes](#full-shaders-and-passes)). |
 | `graph` | Optional [node graph](#node-graphs) the snippet is generated from. |
 | `graphHash` | Written by `material.graph.generate`: the hash of the snippet it generated. Do not write it by hand. |
 
@@ -339,7 +341,10 @@ the editor's Graph panel (View > Graph, [EDITOR.md](EDITOR.md)) edits the same J
   `material.graph.generate {material, force?, dryRun?}`, which writes the snippet and `graphHash`. Run `shader.compile`
   afterwards. Both also take `graph` (a graph object) in place of the one the file holds, to check a graph that is not saved yet, or to
   store it in the material and generate from it in one call (the Graph panel's problems list and Save work this way). A param or texture name that starts with `gn_`
-  is refused: the generator keeps that prefix for its GLSL helper functions.
+  is refused: the generator keeps that prefix for its GLSL helper functions. The generator keeps the id of the node that wrote each
+  line of the snippet (the C++ `GeneratedGraph::lineNodes`), which the editor uses to paint a compiler error on its node.
+  `material.param.set_default {material, param, value}` writes one param's `default`
+  (checked like the file; nothing else changes, no snippet is generated).
 
 **The hand-edit rule.** `graphHash` is the SHA-256 of the snippet the generator wrote (line endings ignored). When you
 generate again, the command first compares the snippet on disk with it: if they differ, someone edited the generated code
@@ -975,11 +980,16 @@ on the page [Post-process materials](shaders/SHADERS_POST.md).
 flow fields). You run it with the `compute.*` commands. The snippet contract, the buffers and their std430 layout, the commands
 and where it runs (not Android or the web) are on the page [Compute materials](shaders/SHADERS_COMPUTE.md).
 
+## Full shaders and passes
+
+When a snippet cannot say it (a second pass, your own `main`, your own light loop), a mesh material can be a **full
+shader**: `"mode": "full"`, a file with a `@vertex` and a `@fragment` section, and `"passes"` (up to four, each with its
+own `cull`, depth test and write, and `blend`, drawn in array order). Skinning and instancing keep working. The names the
+engine gives you, the shadow and SSAO rules and worked examples (an inked outline, an x-ray, a custom light loop) are on
+the page [Full shaders and passes](shaders/SHADERS_FULL.md) (`factoria docs read shaders-full`).
+
 ## Not available yet
 
-- **Full vertex and fragment shaders** (your own `main`, several passes): the snippet always runs inside the engine's
-  mesh or quad shader. Of a mesh material's vertex layout only `uv1` and `color1` can be added (`vertexAttributes`), and
-  only glTF meshes have them.
 - **Your own light loop** (which lights are chosen, how many, their order, the shadow map): `"custom"` lighting only
   shades each light the engine hands over. Image-based lighting (the sky reflection) is off in a custom material and
   cannot be called from `light()`.
@@ -987,8 +997,8 @@ and where it runs (not Android or the web) are on the page [Compute materials](s
   drives the ambient and reflection light of the meshes (they follow `skyColor` and `horizonColor`); per-instance params
   in a sky or compute material and vertex channels (`vertexAttributes`) in a sprite, sky or compute material (a mesh
   has them).
-- **Post passes** after the tonemap (on the display picture) and a post pass that needs the previous frame (a feedback or
-  trail effect); a pass sees the depth and normals of mesh geometry only (not of sprites).
+- **Post passes** that need the previous frame (a feedback or trail effect); a pass sees the depth and normals of mesh geometry
+  only (not of sprites).
 
 If a game needs one of these, write it in the game's `ENGINE_FEEDBACK.json` (see [ENGINE_FEEDBACK.md](ENGINE_FEEDBACK.md)):
 that is how it gets built.

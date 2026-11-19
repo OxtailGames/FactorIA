@@ -244,9 +244,10 @@ Json compute_json_float(float v) {
     if (!std::isfinite(v)) return Json(nullptr);
     char text[48];
     const auto written = std::to_chars(text, text + sizeof text, v, std::chars_format::general, 7);
-    double out = double(v);
-    if (written.ec == std::errc()) std::from_chars(text, written.ptr, out);
-    return Json(out);
+    if (written.ec != std::errc()) return Json(double(v));
+    // Parsed by the JSON library (no locale); std::from_chars of a float is missing from iOS 16 and older libc++.
+    Json parsed = Json::parse(std::string(text, written.ptr), nullptr, false);
+    return parsed.is_number() ? parsed : Json(double(v));
 }
 
 void Compute::detach() {
@@ -424,6 +425,15 @@ Result<void> Compute::write_buffer(int id, std::uint64_t first, const Json& elem
     return {};
 }
 
+std::uint64_t Compute::max_json_elements(int id) const {
+    auto it = s_->bufs.find(id);
+    if (it == s_->bufs.end()) return kMaxComputeJsonElements;
+    std::uint64_t perElement = 0;
+    for (const MaterialBufferFieldDef& f : it->second.fields) perElement += std::uint64_t(f.components);
+    perElement = std::max<std::uint64_t>(perElement, 1);
+    return std::min(kMaxComputeJsonElements, kMaxComputeJsonValues / perElement);
+}
+
 Result<Json> Compute::read_buffer(int id, std::uint64_t first, std::uint64_t count) {
     State& s = *s_;
     std::string why;
@@ -447,9 +457,9 @@ Result<Json> Compute::read_buffer(int id, std::uint64_t first, std::uint64_t cou
                           "Keep first + count within " + std::to_string(b.count) + ".");
     if (count == 0) return Json::array();
     // A read back waits for the GPU, and on Metal the recorded work is only submitted by sg_commit (Renderer::capture does the
-    // same). Committing outside a pass is allowed in a frame too (the editor commits once per UI frame): only a call made while
-    // a pass is open is wrong, and in_pass() above refuses it. So there is no "inFrame" error: the frame's later draws just
-    // start a new sokol frame's worth of work (note_commit lets begin_frame reuse its transient buffers).
+    // same). sg_commit is legal anywhere outside a pass, also between begin_frame and end_frame (the editor commits once per UI
+    // frame); a call inside a pass was refused by in_pass() above, so no "inFrame" error exists. After the commit the draws of
+    // the rest of the frame go on as usual: note_commit() only tells the renderer its transient buffers may restart.
     if (!s.gpu->committed()) {
         sg_commit();
         s.gpu->note_commit();

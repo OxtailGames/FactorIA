@@ -9,6 +9,7 @@
 #include "fa/core/fs.h"
 #include "fa/tooling/material_graph.h"
 #include "graph_model.h"
+#include "graph_preview.h"
 
 using namespace fa;
 using namespace fa::editor;
@@ -417,4 +418,131 @@ TEST_CASE(
     CHECK(p.model->node_count() == 4);
     CHECK(p.model->node_index("noise") == 0);
     CHECK(p.model->node_type("out") != nullptr);
+}
+
+TEST_CASE("graph model: Set as default writes the file at once, is one undo step, and leaves the unsaved graph alone") {
+    GraphProject p;
+    p.open();
+    const GraphEditOutcome added = p.model->add_node("math.add", Vec2{10, 10});
+    REQUIRE(added.ok);
+    REQUIRE(p.model->dirty());
+    const std::uint64_t savedRev = p.model->saved_revision();
+
+    const GraphEditOutcome set = p.model->set_param_default("dissolve", Json(0.4));
+    REQUIRE_MESSAGE(set.ok, set.error);
+    CHECK(set.step > 0);
+    CHECK(p.model->saved_revision() != savedRev);
+    CHECK(p.read(kMat).find("0.4") != std::string::npos);
+    CHECK(p.model->dirty());  // the new node is still unsaved
+    CHECK(p.model->node_count() == 5);
+    CHECK_FALSE(p.model->poll_external());     // our own write is not an outside change
+    auto default_of = [&](const char* name) {  // the parsed default (the clip material has an implicit alphaCutoff too)
+        for (const MaterialParam& param : p.model->report().material.params)
+            if (param.name == name) return param.defaultValue.get<double>();
+        return -1.0;
+    };
+    CHECK(default_of("dissolve") == doctest::Approx(0.4));
+    // the saved version has the new default and the graph as it was in the file
+    const Json saved = p.model->saved_material_json();
+    REQUIRE(saved.is_object());
+    CHECK(saved["params"]["dissolve"]["default"].get<double>() == doctest::Approx(0.4));
+    CHECK(saved["graph"]["nodes"].size() == 4);
+
+    // the same value again writes nothing and makes no step
+    const GraphEditOutcome again = p.model->set_param_default("dissolve", Json(0.4));
+    CHECK(again.ok);
+    CHECK(again.step == 0);
+
+    // undo and redo go through the command too
+    REQUIRE(p.model->apply_step(set.step, false));
+    CHECK(p.read(kMat).find("0.4") == std::string::npos);
+    CHECK(default_of("dissolve") == doctest::Approx(0.0));
+    REQUIRE(p.model->apply_step(set.step, true));
+    CHECK(p.read(kMat).find("0.4") != std::string::npos);
+
+    // a file that changed behind our back: the step refuses
+    p.write(kMat, std::string(kDissolve));
+    REQUIRE(p.model->reload());
+    CHECK_FALSE(p.model->apply_step(set.step, false));
+    CHECK_FALSE(p.model->status().empty());
+
+    // refused values: the checker's message, nothing written
+    const GraphEditOutcome tooBig = p.model->set_param_default("dissolve", Json(7.0));
+    CHECK_FALSE(tooBig.ok);
+    const GraphEditOutcome unknown = p.model->set_param_default("dissolv", Json(0.1));
+    CHECK_FALSE(unknown.ok);
+    CHECK(unknown.error.find("dissolve") != std::string::npos);
+}
+
+TEST_CASE("graph model: the saved version is the graph as last read from the file; a draft has none") {
+    GraphProject p;
+    p.open();
+    CHECK(p.model->has_saved());
+    const std::uint64_t first = p.model->saved_revision();
+    REQUIRE(p.model->add_node("math.add", Vec2{10, 10}).ok);
+    CHECK(p.model->saved_revision() == first);  // an edit is not a new saved version
+    CHECK(p.model->saved_material_json()["graph"]["nodes"].size() == 4);
+    REQUIRE(p.model->save(false).ok);
+    CHECK(p.model->saved_revision() != first);
+    CHECK(p.model->saved_material_json()["graph"]["nodes"].size() == 5);
+
+    p.write("materials/plain.material.json",
+            R"({"format":"factoria.material/1","shader":"shaders/plain.surface.glsl"})");
+    REQUIRE(p.model->open("materials/plain.material.json", true));
+    CHECK_FALSE(p.model->has_saved());
+    CHECK(p.model->saved_material_json().is_null());
+}
+
+TEST_CASE("graph preview: which kinds it draws, which it says why not") {
+    CHECK(preview_plan("mesh").kind == PreviewKind::Mesh);
+    CHECK(preview_plan("sprite").kind == PreviewKind::Sprite);
+    for (const char* kind : {"sky", "post", "compute"}) {
+        const PreviewPlan plan = preview_plan(kind);
+        CHECK(plan.kind == PreviewKind::None);
+        CHECK_FALSE(plan.reason.empty());
+    }
+    CHECK(preview_plan("sky").reason.find("skyMaterial") != std::string::npos);
+    CHECK(preview_plan("hologram").kind == PreviewKind::Unknown);
+}
+
+TEST_CASE("graph preview: overrides keep only the params that still exist, with the right number of components") {
+    const Json material = Json::parse(R"({"params":{
+        "a":{"type":"float","default":0.5},
+        "b":{"type":"vec2","default":[0,0]},
+        "c":{"type":"vec3","default":[0,0,0]},
+        "tint":{"type":"color","default":[1,1,1,1]}}})");
+    const Json overrides = Json::parse(R"({"a":0.25,"b":[1,2],"c":[1,2],"tint":[1,0,0,1],"gone":3,"d":"x"})");
+    const Json kept = GraphPreview::fitting_overrides(overrides, material);
+    CHECK(kept.contains("a"));
+    CHECK(kept.contains("b"));
+    CHECK_FALSE(kept.contains("c"));  // vec3 needs three numbers
+    CHECK(kept.contains("tint"));
+    CHECK_FALSE(kept.contains("gone"));  // no such param any more
+    CHECK_FALSE(kept.contains("d"));
+    CHECK(GraphPreview::fitting_overrides(overrides, Json::object()).empty());
+}
+
+TEST_CASE("graph preview: compile errors on a node's line name the node, the others stay out") {
+    const std::vector<std::string> lineNodes = {"", "", "noise", "noise", "", "burn", "out"};
+    ShaderIssue onNode;
+    onNode.line = 4;
+    onNode.message = "undeclared identifier";
+    onNode.hint = "declare it";
+    ShaderIssue onHelper;
+    onHelper.line = 1;
+    onHelper.message = "bad helper";
+    ShaderIssue ofFile;  // a JSON error of the material: no line
+    ofFile.message = "bad json";
+    ShaderIssue outside;
+    outside.line = 99;
+    outside.message = "past the end";
+    const ShaderIssue second = onNode;  // the same line twice: one entry
+    const std::vector<PreviewNodeError> errors =
+        map_compile_errors({onNode, onHelper, ofFile, outside, second}, lineNodes);
+    REQUIRE(errors.size() == 1);
+    CHECK(errors[0].node == "noise");
+    CHECK(errors[0].line == 4);
+    CHECK(errors[0].message.find("undeclared identifier") != std::string::npos);
+    CHECK(errors[0].message.find("declare it") != std::string::npos);
+    CHECK(map_compile_errors({}, lineNodes).empty());
 }

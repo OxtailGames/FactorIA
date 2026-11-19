@@ -515,6 +515,53 @@ sg_pipeline Gpu::mesh_pipeline(const TargetFormat& format, bool blended, bool do
     return find_or_make(key, format, d);
 }
 
+sg_pipeline Gpu::full_pipeline(const TargetFormat& format, const MaterialPassState& state, bool skinned,
+                               sg_shader shader, MeshExtras extras) {
+    PipelineKey key{0x1000u | (skinned ? 1u : 0u) | (unsigned(state.cull) << 1) | (state.depthTest ? 8u : 0u) |
+                        (state.depthWrite ? 16u : 0u) | (unsigned(state.blend) << 5),
+                    shader.id};
+    sg_pipeline_desc d{};
+    d.shader = shader;
+    d.layout.attrs[ATTR_mesh_mesh_fa_position].format = SG_VERTEXFORMAT_FLOAT3;
+    d.layout.attrs[ATTR_mesh_mesh_fa_normal].format = SG_VERTEXFORMAT_FLOAT3;
+    d.layout.attrs[ATTR_mesh_mesh_fa_texcoord0].format = SG_VERTEXFORMAT_FLOAT2;
+    d.layout.attrs[ATTR_mesh_mesh_fa_tangent].format = SG_VERTEXFORMAT_FLOAT4;
+    d.layout.attrs[ATTR_mesh_mesh_fa_color].format = SG_VERTEXFORMAT_UBYTE4N;
+    set_instance_layout(d, ATTR_mesh_mesh_fa_inst_m0);
+    if (skinned) set_skin_layout(d, ATTR_mesh_mesh_skin_fa_joints, ATTR_mesh_mesh_skin_fa_weights);
+    set_extra_layout(d, skinned ? kExtraAttrBaseSkinned : kExtraAttrBase, extras);
+    d.index_type = SG_INDEXTYPE_UINT32;
+    d.depth.compare = state.depthTest ? SG_COMPAREFUNC_LESS_EQUAL : SG_COMPAREFUNC_ALWAYS;
+    d.depth.write_enabled = state.depthWrite;
+    if (state.blend != 0) {
+        d.colors[0].blend.enabled = true;
+        switch (state.blend) {
+            case 2:  // additive: dst + src.rgb * src.a
+                d.colors[0].blend.src_factor_rgb = SG_BLENDFACTOR_SRC_ALPHA;
+                d.colors[0].blend.dst_factor_rgb = SG_BLENDFACTOR_ONE;
+                d.colors[0].blend.src_factor_alpha = SG_BLENDFACTOR_ZERO;
+                d.colors[0].blend.dst_factor_alpha = SG_BLENDFACTOR_ONE;
+                break;
+            case 3:  // multiply: dst * src.rgb
+                d.colors[0].blend.src_factor_rgb = SG_BLENDFACTOR_DST_COLOR;
+                d.colors[0].blend.dst_factor_rgb = SG_BLENDFACTOR_ZERO;
+                d.colors[0].blend.src_factor_alpha = SG_BLENDFACTOR_ZERO;
+                d.colors[0].blend.dst_factor_alpha = SG_BLENDFACTOR_ONE;
+                break;
+            default:  // alpha
+                d.colors[0].blend.src_factor_rgb = SG_BLENDFACTOR_SRC_ALPHA;
+                d.colors[0].blend.dst_factor_rgb = SG_BLENDFACTOR_ONE_MINUS_SRC_ALPHA;
+                d.colors[0].blend.src_factor_alpha = SG_BLENDFACTOR_ONE;
+                d.colors[0].blend.dst_factor_alpha = SG_BLENDFACTOR_ONE_MINUS_SRC_ALPHA;
+                break;
+        }
+    }
+    d.cull_mode = state.cull == 0 ? SG_CULLMODE_NONE : state.cull == 2 ? SG_CULLMODE_FRONT : SG_CULLMODE_BACK;
+    d.face_winding = SG_FACEWINDING_CCW;
+    d.label = "mesh-full";
+    return find_or_make(key, format, d);
+}
+
 sg_pipeline Gpu::sky_pipeline(const TargetFormat& format, sg_shader shader) {
     PipelineKey key{0x300u, shader.id};
     sg_pipeline_desc d{};

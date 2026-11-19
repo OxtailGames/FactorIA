@@ -7,6 +7,7 @@
 #include <cstdio>
 #include <filesystem>
 #include <format>
+#include <map>
 #include <set>
 #include <string>
 
@@ -203,8 +204,10 @@ GraphModel& Editor::graph_ensure_model() {
 void Editor::graph_release_textures() {
     GraphUi& u = graph_;
     if (u.picture.image || u.picture.view) ui::destroy_texture(u.picture.image, u.picture.view);
+    if (u.savedPicture.image || u.savedPicture.view) ui::destroy_texture(u.savedPicture.image, u.savedPicture.view);
     for (const GraphUi::Dead& d : u.graveyard) ui::destroy_texture(d.image, d.view);
     u.picture = GraphUi::Texture{};
+    u.savedPicture = GraphUi::Texture{};
     u.graveyard.clear();
 }
 
@@ -229,7 +232,7 @@ bool Editor::open_graph_document(const std::string& rel, bool startGraph, bool d
         u.selectedLink = -1;
         u.drag = GraphUi::Drag::None;
         u.viewApplied = false;
-        if (u.preview) u.preview->set_document(m.material_json(), m.revision());
+        if (u.preview) u.preview->set_document(m.material_json(), m.revision(), m.path());
     } else {
         // a failed open changes nothing: the document that was open stays, with its edits
         if (!m.is_open() && u.preview) u.preview->clear();
@@ -374,7 +377,14 @@ void Editor::draw_graph_panel() {
         return;
     }
 
-    u.preview->set_document(m.material_json(), m.revision());
+    u.preview->set_document(m.material_json(), m.revision(), m.path());
+    if (u.savedPushedPath != m.path() || u.savedPushedRevision != m.saved_revision()) {
+        // the version in the file changed (a save, a reload, a default): the preview compares against it
+        u.savedPushedPath = m.path();
+        u.savedPushedRevision = m.saved_revision();
+        const Json saved = m.saved_material_json();
+        u.preview->set_saved_document(saved.is_null() ? nullptr : &saved, m.saved_revision());
+    }
     const ImVec2 avail = ImGui::GetContentRegionAvail();
     const float rightW = std::clamp(avail.x * 0.36f, 210.0f, 320.0f);
     const float leftW = std::max(160.0f, avail.x - rightW - ImGui::GetStyle().ItemSpacing.x);
@@ -713,6 +723,9 @@ void Editor::draw_graph_canvas(GraphModel& m) {
             for (const GraphIssue& is : m.node_issues(b.id))
                 tip += std::string("\n") + (is.warning ? "Warning: " : "Error: ") + is.issue.message +
                        (is.issue.hint.empty() ? std::string() : " " + is.issue.hint);
+            if (u.preview && u.preview->state() == PreviewState::Error)
+                for (const PreviewNodeError& e : u.preview->node_errors())
+                    if (e.node == b.id) tip += "\nShader compiler: " + e.message;
         } else if (hit.kind == Hit::Link) {
             tip = "A link. Click to select it, Delete cuts it.";
             for (const GraphIssue& is : m.link_issues(hit.link))
@@ -952,6 +965,10 @@ void Editor::draw_graph_canvas(GraphModel& m) {
     const float fs = ImGui::GetFontSize() * std::clamp(zoom, 0.55f, 1.4f);
     ImFont* font = ImGui::GetFont();
     const bool labels = zoom >= 0.5f;
+    // the nodes whose generated code the shader compiler refused (the preview maps its error lines to nodes)
+    std::map<std::string, const PreviewNodeError*> shaderErrors;
+    if (u.preview && u.preview->state() == PreviewState::Error)
+        for (const PreviewNodeError& e : u.preview->node_errors()) shaderErrors.emplace(e.node, &e);
     for (const Box& b : boxes) {
         const ImVec2 a = S(b.x, b.y), c = S(b.x + b.w, b.y + b.h);
         if (c.x < p0.x || a.x > p1.x || c.y < p0.y || a.y > p1.y) continue;
@@ -972,6 +989,16 @@ void Editor::draw_graph_canvas(GraphModel& m) {
         if (bad && sel)
             dl->AddRect(ImVec2(a.x - 2, a.y - 2), ImVec2(c.x + 2, c.y + 2), IM_COL32(255, 255, 255, 200), r + 2.0f, 0,
                         1.0f);
+        if (auto fe = shaderErrors.find(b.id);
+            fe != shaderErrors.end()) {  // red, with the compiler's message under the node
+            dl->AddRectFilled(a, c, IM_COL32(220, 40, 40, 70), r);
+            dl->AddRect(a, c, IM_COL32(255, 50, 50, 255), r, 0, 3.0f);
+            if (labels) {
+                std::string msg = "shader: " + fe->second->message;
+                if (msg.size() > 90) msg = msg.substr(0, 90) + "...";
+                dl->AddText(font, fs, ImVec2(a.x, c.y + 3.0f * zoom), IM_COL32(255, 120, 110, 255), msg.c_str());
+            }
+        }
         if (labels) {
             const std::string title = b.type ? b.type->type : b.id + " (unknown type)";
             dl->AddText(font, fs, ImVec2(a.x + 8.0f * zoom, a.y + (kHeaderH * zoom - fs) * 0.5f),
@@ -1122,18 +1149,34 @@ void Editor::draw_graph_side(GraphModel& m) {
 
     // ---- the preview
     ImGui::TextUnformatted("Preview");
-    const float w = std::clamp(ImGui::GetContentRegionAvail().x - 4.0f, 96.0f, 300.0f);
-    if (pv.image_serial() != u.picture.serial && !pv.image().empty()) {
-        if (put_texture(u.picture, u.graveyard, pv.image(), uiFrame_)) u.picture.serial = pv.image_serial();
+    const bool comparing = pv.compare() && pv.has_saved();
+    const float full = std::clamp(ImGui::GetContentRegionAvail().x - 4.0f, 96.0f, 300.0f);
+    const float w = comparing ? std::max(64.0f, (full - ImGui::GetStyle().ItemSpacing.x) * 0.5f) : full;
+    // one picture of the preview into its own texture and onto the panel (a texture is made again only when the picture changed)
+    auto picture = [&](const char* id, GraphUi::Texture& tex, const Image& img, std::uint64_t serial) {
+        if (serial != tex.serial && !img.empty()) {
+            if (put_texture(tex, u.graveyard, img, uiFrame_)) tex.serial = serial;
+        }
+        const ImVec2 q0 = ImGui::GetCursorScreenPos();
+        ImGui::InvisibleButton(id, ImVec2(w, w));
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        dl->AddRectFilled(q0, ImVec2(q0.x + w, q0.y + w), IM_COL32(40, 42, 48, 255));
+        if (tex.view && !img.empty())
+            dl->AddImage(ImTextureRef(ImTextureID(ui::texture_from_view(tex.view, true))), q0,
+                         ImVec2(q0.x + w, q0.y + w));
+    };
+    if (comparing) {
+        ImGui::TextDisabled("Saved");
+        ImGui::SameLine(w + ImGui::GetStyle().ItemSpacing.x);
+        ImGui::TextDisabled("Current");
+        picture("##gpreviewsaved", u.savedPicture, pv.saved_image(), pv.saved_image_serial());
+        at_track("gr:preview:saved");
+        hint("The graph as last saved in the file, drawn with the same shape and the same param values as the current "
+             "one.");
+        ImGui::SameLine();
     }
-    const ImVec2 q0 = ImGui::GetCursorScreenPos();
-    ImGui::InvisibleButton("##gpreview", ImVec2(w, w));
+    picture("##gpreview", u.picture, pv.image(), pv.image_serial());
     at_track("gr:preview");
-    ImDrawList* dl = ImGui::GetWindowDrawList();
-    dl->AddRectFilled(q0, ImVec2(q0.x + w, q0.y + w), IM_COL32(40, 42, 48, 255));
-    if (u.picture.view)
-        dl->AddImage(ImTextureRef(ImTextureID(ui::texture_from_view(u.picture.view, true))), q0,
-                     ImVec2(q0.x + w, q0.y + w));
     hint("The material as it is now, drawn by the engine's renderer (not as saved). It follows the edits a moment "
          "after they stop.");
     switch (pv.state()) {
@@ -1141,30 +1184,61 @@ void Editor::draw_graph_side(GraphModel& m) {
         case PreviewState::Compiling: ImGui::TextDisabled("compiling the shader..."); break;
         case PreviewState::Ready: ImGui::TextDisabled("up to date"); break;
         case PreviewState::NoRenderer: ImGui::TextWrapped("%s", pv.message().c_str()); break;
+        case PreviewState::Unsupported:
+            ImGui::TextColored(kWarn, "This kind of material has no preview.");
+            at_track("gr:preview:unsupported");
+            ImGui::PushTextWrapPos(0.0f);
+            ImGui::TextUnformatted(pv.message().c_str());
+            ImGui::PopTextWrapPos();
+            break;
         case PreviewState::Error:
             ImGui::TextColored(kBad, "The preview is behind: the graph does not build.");
             at_track("gr:preview:error");
             ImGui::PushTextWrapPos(0.0f);
             ImGui::TextUnformatted(pv.message().c_str());
             ImGui::PopTextWrapPos();
+            if (!pv.node_errors().empty())
+                ImGui::TextDisabled("%d node(s) marked red on the canvas.", int(pv.node_errors().size()));
             break;
         case PreviewState::Empty: break;
     }
-    PreviewShape shape = pv.shape();
-    FitRow row;
-    for (const auto& [label, s] : {std::pair<const char*, PreviewShape>{"Sphere", PreviewShape::Sphere},
-                                   {"Cube", PreviewShape::Cube},
-                                   {"Quad", PreviewShape::Quad}}) {
-        if (ImGui::RadioButton(label, shape == s)) pv.set_shape(s);
-        at_track(std::string("gr:shape:") + label);
-        row.next("Quad");
+    if (comparing && pv.saved_state() == PreviewState::Error) {
+        ImGui::TextColored(kBad, "The saved version does not build.");
+        ImGui::PushTextWrapPos(0.0f);
+        ImGui::TextUnformatted(pv.saved_message().c_str());
+        ImGui::PopTextWrapPos();
+    } else if (comparing &&
+               (pv.saved_state() == PreviewState::Waiting || pv.saved_state() == PreviewState::Compiling)) {
+        ImGui::TextDisabled("the saved version is compiling...");
     }
-    ImGui::NewLine();
+    // a sprite material is drawn on a flat quad of its own: the mesh shapes do not apply
+    if (pv.drawing() == PreviewKind::Sprite) {
+        ImGui::TextDisabled("A sprite material is drawn on a 2D quad (its texture, or a grey checker).");
+    } else {
+        PreviewShape shape = pv.shape();
+        FitRow row;
+        for (const auto& [label, s] : {std::pair<const char*, PreviewShape>{"Sphere", PreviewShape::Sphere},
+                                       {"Cube", PreviewShape::Cube},
+                                       {"Quad", PreviewShape::Quad}}) {
+            if (ImGui::RadioButton(label, shape == s)) pv.set_shape(s);
+            at_track(std::string("gr:shape:") + label);
+            row.next("Quad");
+        }
+        ImGui::NewLine();
+    }
     bool anim = pv.animated();
     if (ImGui::Checkbox("Animate", &anim)) pv.set_animated(anim);
     at_track("gr:animate");
     hint("Draws the preview again every few frames, for a graph that reads the time.");
+    ImGui::SameLine();
+    bool cmp = pv.compare();
+    if (ImGui::Checkbox("Compare", &cmp)) pv.set_compare(cmp);
+    at_track("gr:compare");
+    hint("Draws the last saved version of the graph next to the current one, to see what the edits changed.");
+    if (pv.compare() && !pv.has_saved())
+        ImGui::TextDisabled("This graph was never saved: there is no saved version to compare with.");
     ImGui::Separator();
+    draw_graph_params(m);
 
     // ---- the selected node
     const std::set<std::string>& sel = m.selection();
@@ -1221,6 +1295,94 @@ void Editor::draw_graph_side(GraphModel& m) {
     };
     list(rep.errors, false);
     list(rep.warnings, true);
+}
+
+void Editor::draw_graph_params(GraphModel& m) {
+    GraphPreview& pv = *graph_.preview;
+    std::vector<const MaterialParam*> params;
+    for (const MaterialParam& p : m.report().material.params)
+        if (!p.implicit) params.push_back(&p);
+    if (params.empty()) return;
+    ImGui::TextUnformatted("Params");
+    hint("The values of the material's params in the preview. Moving a slider changes the PREVIEW only (the file is "
+         "not touched); "
+         "\"Set as default\" writes the value as the param's default in the file (one undo step).");
+    const bool any = pv.param_overrides().is_object() && !pv.param_overrides().empty();
+    if (any) {
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Reset values##gparams")) pv.reset_params();
+        at_track("gr:params:reset");
+        hint("Back to the defaults the file has, in the preview.");
+    }
+    for (const MaterialParam* p : params) {
+        const int n = std::clamp(p->components(), 1, 4);
+        Json overValue;  // a copy: set_param below may remove the entry it came from
+        if (pv.param_overrides().is_object()) {
+            auto o = pv.param_overrides().find(p->name);
+            if (o != pv.param_overrides().end()) overValue = *o;
+        }
+        const bool over = !overValue.is_null();
+        // the value shown: the override, else the default (zeros when the file gives none)
+        const Json& source = over ? overValue : p->defaultValue;
+        float v[4] = {0, 0, 0, 0};
+        if (source.is_number()) {
+            v[0] = source.get<float>();
+        } else if (source.is_array()) {
+            for (int i = 0; i < n && i < int(source.size()); ++i)
+                if (source[std::size_t(i)].is_number()) v[i] = source[std::size_t(i)].get<float>();
+        }
+        ImGui::PushID(p->name.c_str());
+        if (over)
+            ImGui::TextColored(kWarn, "%s (preview only)", p->name.c_str());
+        else
+            ImGui::TextUnformatted(p->name.c_str());
+        if (!p->doc.empty()) hint(p->doc);
+        ImGui::SetNextItemWidth(-FLT_MIN);
+        bool changed = false;
+        const float lo = p->min ? float(*p->min) : (p->max ? -1e9f : 0.0f);
+        const float hi = p->max ? float(*p->max) : (p->min ? 1e9f : 0.0f);
+        const bool bounded = p->min && p->max;
+        if (p->type == "color") {
+            changed = ImGui::ColorEdit4("##v", v, ImGuiColorEditFlags_Float);
+        } else if (n == 1) {
+            changed = bounded ? ImGui::SliderFloat("##v", v, lo, hi) : ImGui::DragFloat("##v", v, 0.01f, lo, hi);
+        } else if (n == 2) {
+            changed = bounded ? ImGui::SliderFloat2("##v", v, lo, hi) : ImGui::DragFloat2("##v", v, 0.01f, lo, hi);
+        } else if (n == 3) {
+            changed = bounded ? ImGui::SliderFloat3("##v", v, lo, hi) : ImGui::DragFloat3("##v", v, 0.01f, lo, hi);
+        } else {
+            changed = bounded ? ImGui::SliderFloat4("##v", v, lo, hi) : ImGui::DragFloat4("##v", v, 0.01f, lo, hi);
+        }
+        at_track("gr:param:" + p->name);
+        // the value as JSON, to 4 decimals (it may be written into the file)
+        auto json_value = [&]() {
+            auto r4 = [](float x) { return std::round(double(x) * 10000.0) / 10000.0; };
+            if (n == 1) return Json(r4(v[0]));
+            Json a = Json::array();
+            for (int i = 0; i < n; ++i) a.push_back(r4(v[i]));
+            return a;
+        };
+        if (changed) {
+            const Json now = json_value();
+            pv.set_param(p->name, now == p->defaultValue ? Json() : now);  // back at the default: no override
+        }
+        if (over) {
+            if (ImGui::SmallButton("Reset##gparam")) pv.set_param(p->name, Json());
+            at_track("gr:param:reset:" + p->name);
+            hint("Back to the default the file has, in the preview.");
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Set as default##gparam")) {
+                const GraphEditOutcome out = m.set_param_default(p->name, overValue);
+                graph_edited(out);
+                if (out.ok) pv.set_param(p->name, Json());
+            }
+            at_track("gr:param:default:" + p->name);
+            hint("Writes this value as the param's default in " + m.path() +
+                 " now (the graph's unsaved edits stay unsaved). Undo takes it back.");
+        }
+        ImGui::PopID();
+    }
+    ImGui::Separator();
 }
 
 void Editor::draw_graph_node_inspector(GraphModel& m, const std::string& id) {

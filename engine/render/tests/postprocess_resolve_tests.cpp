@@ -383,6 +383,39 @@ TEST_CASE("custom post passes: every position maps to a place, in frame order, a
     CHECK(std::find(names.begin(), names.end(), std::string(kCustomPostDefaultPosition)) != names.end());
 }
 
+TEST_CASE("custom post passes: the display-referred places parse, the ones that are no place say why") {
+    const std::pair<const char*, PostSlot> places[] = {
+        {"after:tonemap", PostSlot::AfterTonemap},      {"before:colorGrading", PostSlot::AfterTonemap},
+        {"after:colorGrading", PostSlot::AfterGrading}, {"before:vignette", PostSlot::AfterGrading},
+        {"after:vignette", PostSlot::AfterVignette},    {"before:sharpen", PostSlot::AfterVignette},
+        {"after:sharpen", PostSlot::AfterSharpen},      {"before:outline", PostSlot::AfterSharpen},
+        {"after:outline", PostSlot::AfterOutline},      {"before:posterize", PostSlot::AfterOutline},
+        {"after:posterize", PostSlot::AfterPosterize},  {"before:filmGrain", PostSlot::AfterPosterize},
+        {"after:filmGrain", PostSlot::AfterGrain},      {"before:colorFilter", PostSlot::AfterGrain},
+    };
+    for (const auto& [name, slot] : places) {
+        INFO(name);
+        auto r = parse_custom_post_pass(Json::object({{"material", "m"}, {"position", name}}), "/p");
+        REQUIRE(r.ok());
+        CHECK(r->slot == slot);
+        CHECK(post_slot_is_ldr(r->slot));
+    }
+    CHECK_FALSE(post_slot_is_ldr(PostSlot::AfterBloom));
+    // The pixelate and the colour filter are no places; the message says what to write instead and no text says the
+    // display-referred places do not exist.
+    for (const char* name : {"before:pixelate", "after:pixelate", "after:colorFilter"}) {
+        INFO(name);
+        auto bad = parse_custom_post_pass(Json::object({{"material", "m"}, {"position", name}}), "/p");
+        REQUIRE_FALSE(bad.ok());
+        CHECK(bad.error().message.find("/p/position") != std::string::npos);
+        CHECK(bad.error().hint.find("is not a place") != std::string::npos);
+        CHECK(bad.error().hint.find(std::string(name).find("pixelate") != std::string::npos
+                                        ? "after:outline"
+                                        : "before:colorFilter") != std::string::npos);
+        CHECK(bad.error().hint.find("not supported") == std::string::npos);
+    }
+}
+
 TEST_CASE("resolve_post_stack: custom passes of the camera and of volumes, in order; an unreadable entry is reported") {
     Scene s;
     s.world.add<PostProcess>(s.cam);
@@ -419,6 +452,22 @@ TEST_CASE("resolve_post_stack: custom passes of the camera and of volumes, in or
     st = s.resolve();
     CHECK(st.custom.empty());
     CHECK_FALSE(st.customErrors.empty());
+}
+
+TEST_CASE(
+    "resolve_post_stack: the custom passes of camera and volumes together stop at 32, and the stack says so once") {
+    Scene s;
+    s.world.add<PostProcess>(s.cam);
+    Json eight = Json::array();
+    for (int i = 0; i < kMaxCustomPostPasses; ++i)
+        eight.push_back(Json::object({{"material", "m" + std::to_string(i)}}));
+    s.world.get<PostProcess>(s.cam)->customPasses = eight;
+    for (const char* id : {"v0", "v1", "v2", "v3", "v4"}) s.pp(s.volume(id)).customPasses = eight;
+    const PostStack st = s.resolve();
+    CHECK(st.custom.size() == std::size_t(4 * kMaxCustomPostPasses));
+    REQUIRE(st.customErrors.size() == 1);
+    CHECK(st.customErrors[0].message.find("32") != std::string::npos);
+    CHECK_FALSE(st.customErrors[0].hint.empty());
 }
 
 TEST_CASE("resolve_post_stack: the camera's own stack goes first, volumes are applied over it") {

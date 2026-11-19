@@ -1,7 +1,13 @@
 // The pure edits of PostProcess.customPasses behind the Post-processing panel (postfx_custom.h), and the same edits through
 // postprocess.set: each is one call, one undo step.
 #include "doctest.h"
+
+#include <algorithm>
+#include <string>
+#include <vector>
+
 #include "fa/core/json.h"
+#include "fa/render/post_custom.h"
 #include "postfx_custom.h"
 
 using namespace fa;
@@ -67,4 +73,20 @@ TEST_CASE("postfx custom passes: the label is the name, else the file name of th
     CHECK(custom_pass_label(Json::parse(R"({"material":"a/b/x.material.json","name":"My pass"})")) == "My pass");
     CHECK(custom_pass_label(Json::parse(R"({"enabled":true})")) == "(no material)");
     CHECK(custom_pass_label(Json()) == "(no material)");
+}
+
+TEST_CASE("postfx custom passes: the Position combo offers the places between the screen effects, and each is a valid "
+          "position") {
+    const std::vector<std::string> names = render::custom_post_position_names();
+    for (const char* wanted :
+         {"before:tonemap", "after:tonemap", "after:colorGrading", "after:vignette", "after:sharpen", "after:outline",
+          "after:posterize", "after:filmGrain", "before:colorFilter"})
+        CHECK(std::find(names.begin(), names.end(), wanted) != names.end());
+    Json list = custom_pass_add(Json::array(), "materials/a.material.json");
+    for (const std::string& name : names) {
+        INFO(name);
+        const Json set = custom_pass_set(list, 0, "position", name);
+        auto parsed = render::parse_custom_post_pass(set[0], "/customPasses/0");
+        CHECK(parsed.ok());
+    }
 }

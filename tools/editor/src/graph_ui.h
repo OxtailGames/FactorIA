@@ -52,6 +52,10 @@ struct GraphUi {
         int w = 0, h = 0;
         std::uint64_t serial = ~0ULL;
     } picture;
+    Texture savedPicture;  // the last saved version of the graph (Compare)
+    // The saved document the preview was last given (the material's path and the model's saved_revision()): a new one is pushed when either changes.
+    std::string savedPushedPath;
+    std::uint64_t savedPushedRevision = 0;
     struct Dead {
         std::uint32_t image, view;
         std::uint64_t frame;

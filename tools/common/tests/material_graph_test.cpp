@@ -952,3 +952,116 @@ TEST_CASE("graph check: params and textures named gn_ are refused with the fix")
     for (const MaterialIssue& e : r.errors)
         if (e.pointer == "/params/gn_amount") CHECK(e.hint.find("Rename") != std::string::npos);
 }
+
+TEST_CASE("graph line map: every line of a node or the output names the node that wrote it") {
+    Project p;
+    const MaterialGraphReport r = check_material_document(p.doc(), p.dir.str(), "materials/dissolve.material.json");
+    REQUIRE(r.errors.empty());
+    const std::string& snippet = r.snippet;
+    const std::size_t lines = std::size_t(std::count(snippet.begin(), snippet.end(), '\n'));
+    REQUIRE(r.lineNodes.size() == lines);  // one entry per line
+    // a node line ends with "// <id> (<type>)", an output line with "// <id> (output)": the map and the marker agree
+    std::size_t start = 0;
+    std::set<std::string> named;
+    for (int line = 1; start < snippet.size(); ++line) {
+        const std::size_t end = snippet.find('\n', start);
+        const std::string text = snippet.substr(start, end - start);
+        start = end + 1;
+        const std::string owner = graph_node_at_line(r.lineNodes, line);
+        if (owner.empty()) continue;
+        named.insert(owner);
+        const std::size_t marker = text.rfind("// ");
+        REQUIRE(marker != std::string::npos);
+        CHECK_MESSAGE(text.compare(marker + 3, owner.size() + 2, owner + " (") == 0,
+                      "line " << line << " is mapped to " << owner << ": " << text);
+    }
+    CHECK(named == std::set<std::string>{"amount", "burn", "noise", "out"});
+    // outside the snippet: no node
+    CHECK(graph_node_at_line(r.lineNodes, 0).empty());
+    CHECK(graph_node_at_line(r.lineNodes, int(lines) + 1).empty());
+}
+
+TEST_CASE("graph line map: a vertexOffset graph maps the vertex function's lines too") {
+    Json doc = Json::parse(kDissolveMaterial);
+    doc["graph"]["nodes"][3]["inputs"]["vertexOffset"] = Json::parse("[0.0, 0.1, 0.0]");
+    const MaterialGraphReport r = check_material_document(doc);
+    REQUIRE(r.errors.empty());
+    REQUIRE(r.hasVertex);
+    const std::size_t lines = std::size_t(std::count(r.snippet.begin(), r.snippet.end(), '\n'));
+    CHECK(r.lineNodes.size() == lines);
+    int vertexLine = 0, line = 0;
+    std::size_t start = 0;
+    while (start < r.snippet.size()) {
+        const std::size_t end = r.snippet.find('\n', start);
+        ++line;
+        if (r.snippet.substr(start, end - start).find("v.world_pos +=") != std::string::npos) vertexLine = line;
+        start = end + 1;
+    }
+    REQUIRE(vertexLine > 0);
+    CHECK(graph_node_at_line(r.lineNodes, vertexLine) == "out");
+    // the surface() function after it is still mapped (the blank line between the two has no node)
+    CHECK(graph_node_at_line(r.lineNodes, line - 1) == "out");
+}
+
+TEST_CASE("material.param.set_default writes one default, checks the value, and says what it replaced") {
+    Project p;
+    const std::string before = p.read("materials/dissolve.material.json");
+    auto dry =
+        p.call("material.param.set_default",
+               R"({"material":"materials/dissolve.material.json","param":"dissolve","value":0.4,"dryRun":true})");
+    REQUIRE_MESSAGE(dry.ok, failure(dry));
+    CHECK(dry.result["written"] == false);
+    CHECK(p.read("materials/dissolve.material.json") == before);
+
+    auto set = p.call("material.param.set_default",
+                      R"({"material":"materials/dissolve.material.json","param":"dissolve","value":0.4})");
+    REQUIRE_MESSAGE(set.ok, failure(set));
+    CHECK(set.result["written"] == true);
+    CHECK(set.result["previous"] == 0.0);
+    CHECK(p.doc()["params"]["dissolve"]["default"] == 0.4);
+    CHECK(p.doc()["graph"] == Json::parse(kDissolveMaterial)["graph"]);  // the graph is untouched
+
+    // the same value again writes nothing; `previous` takes the change back
+    auto again = p.call("material.param.set_default",
+                        R"({"material":"materials/dissolve.material.json","param":"dissolve","value":0.4})");
+    REQUIRE(again.ok);
+    CHECK(again.result["written"] == false);
+    auto back = p.registry.call("material.param.set_default", Json{{"material", "materials/dissolve.material.json"},
+                                                                   {"param", "dissolve"},
+                                                                   {"value", set.result["previous"]}});
+    REQUIRE(back.ok);
+    CHECK(p.doc()["params"]["dissolve"]["default"] == 0.0);
+
+    // a value of the wrong shape or outside min..max is refused with the pointer, and nothing changes
+    const std::string now = p.read("materials/dissolve.material.json");
+    auto wrong = p.call("material.param.set_default",
+                        R"({"material":"materials/dissolve.material.json","param":"dissolve","value":[1,2]})");
+    REQUIRE_FALSE(wrong.ok);
+    CHECK(wrong.error["message"].get<std::string>().find("/params/dissolve/default") != std::string::npos);
+    auto range = p.call("material.param.set_default",
+                        R"({"material":"materials/dissolve.material.json","param":"dissolve","value":7})");
+    REQUIRE_FALSE(range.ok);
+    CHECK(range.error["message"].get<std::string>().find("/params/dissolve/default") != std::string::npos);
+    CHECK(range.error["hint"].is_string());
+    CHECK_FALSE(range.error["hint"].get<std::string>().empty());
+    // a param that is not an object ({"a": 5}) is an error of the command, never an exception
+    p.write("materials/odd.material.json",
+            R"({"format":"factoria.material/1","shader":"shaders/odd.surface.glsl","params":{"a":5}})");
+    p.write("shaders/odd.surface.glsl", "void surface(inout SurfaceOut s) {}\n");
+    const std::string odd = p.read("materials/odd.material.json");
+    auto notObject =
+        p.call("material.param.set_default", R"({"material":"materials/odd.material.json","param":"a","value":1})");
+    REQUIRE_FALSE(notObject.ok);
+    // (the material check of load_material refuses it first, with the pointer; the command's own is_object check is a second guard)
+    CHECK(notObject.error["code"].get<std::string>() == "invalid_material");
+    CHECK(notObject.error["message"].get<std::string>().find("/params/a") != std::string::npos);
+    CHECK_FALSE(notObject.error["hint"].get<std::string>().empty());
+    CHECK(p.read("materials/odd.material.json") == odd);
+    // a param the file does not have: did you mean
+    auto unknown = p.call("material.param.set_default",
+                          R"({"material":"materials/dissolve.material.json","param":"disolve","value":0.1})");
+    REQUIRE_FALSE(unknown.ok);
+    CHECK(unknown.error["code"].get<std::string>() == "not_found");
+    CHECK(unknown.error["hint"].get<std::string>().find("dissolve") != std::string::npos);
+    CHECK(p.read("materials/dissolve.material.json") == now);
+}
