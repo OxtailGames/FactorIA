@@ -45,6 +45,12 @@ The file has up to three sections, each started by a line with only `@common`, `
 - `@vertex`: the vertex stage; it defines `void main()` and writes `gl_Position`.
 - `@fragment`: the fragment stage; it defines `void main()` and writes `fa_frag_color`.
 
+Your `@vertex` stage runs in the passes of the material (`passes`) and, with `"shadow": "custom"`, in the shadow map. It is
+not seen by the depth and normal prepass (the engine's own program draws the mesh as the `MeshRenderer` has it; `"prepass":
+false` keeps the material out of it) nor by the `"depth"` shadow (the default). A vertex your shader moves is moved in the
+picture but not there: SSAO, fog and the other screen effects see the mesh at its original place. See "Shadows" and "SSAO
+and the prepass".
+
 `@vertex` and `@fragment` are both required, and code before the first section is an error. Code in `@common` is
 compiled in both stages (use `#ifdef FA_PASS_...` for what differs). A `main()` in `@common` is refused.
 
@@ -103,6 +109,9 @@ is no per-pass sort key: the order of the array is the order of the draws.
 
 Culling is the pass's own `cull`: a glTF material's `doubleSided` is ignored in a full material, so a pass that must show
 both faces says `"cull": "none"`.
+
+Each pass is its own draw call, and `render.stats` counts it as one in `drawCalls` and its triangles in `triangles`: a part drawn
+in three passes is three draw calls and three times its triangles (the glTF part is not counted once).
 
 A material with at least one `blend` pass is drawn with the other blended meshes, far to near by the entity's distance to
 the camera, and all its passes draw there, in array order. A material whose passes do not blend is opaque: it is batched

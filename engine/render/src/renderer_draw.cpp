@@ -6,6 +6,7 @@
 #include <bit>
 #include <functional>
 #include <iterator>
+#include <optional>
 #include <string>
 
 #include "shaders/prepass_view.glsl.h"
@@ -118,6 +119,10 @@ struct Renderer::Impl::DrawContext {
     bool envActive = false, envBake = false;
     std::uint64_t envKey = 0;
     SkyDraw envSky;
+    // The textures plan_env resolved for the sky of the job, while the job's own render target was the checker: the sky of the main
+    // pass draws with them (resolving them again when the pass runs would bind the target the pass writes). Valid for skyPlannedMat.
+    TextureAsset* skyPlanned[kMaxMaterialTextures]{};
+    MaterialAsset* skyPlannedMat = nullptr;
     // build_graph: the occlusion image the main pass applies after the opaque meshes (valid when the "ssao-*" passes were declared).
     SsaoApply ssaoApply;
     // light_pass
@@ -916,8 +921,9 @@ void Renderer::Impl::cull_and_batch(DrawContext& ctx) {
     build_batches(blended, false, blendedBatches, mainMats, shadowMats);
     ctx.mainExtraData.clear();
     ctx.shadowExtraData.clear();
-    pack_instance_extras(opaque, opaqueBatches, ctx.mainExtraData, ctx.shadowExtraData);
-    pack_instance_extras(blended, blendedBatches, ctx.mainExtraData, ctx.shadowExtraData);
+    instanceParams.begin_frame(frameSerial);
+    pack_instance_extras(opaque, opaqueBatches, ctx.mainExtraData, ctx.shadowExtraData, &instanceParams);
+    pack_instance_extras(blended, blendedBatches, ctx.mainExtraData, ctx.shadowExtraData, &instanceParams);
 }
 
 // ---- flatten quads into one vertex stream ----
@@ -1094,12 +1100,15 @@ static_assert(
 // environment decides it for the frame; a later job whose sky differs draws its meshes with the gradient (they share the cubes).
 void Renderer::Impl::plan_env(DrawContext& ctx) {
     ctx.envActive = ctx.envBake = false;
+    ctx.skyPlannedMat = nullptr;
     const Frame& fr = ctx.fr;
     if (!ctx.doMainPass || !fr.wantWorld || fr.cam.studio) return;
     MaterialAsset* mat = sky_material(ctx.ss);
     if (!mat) return;
     SkyDraw sky;
     fill_sky(*this, ctx, mat, sky);
+    ctx.skyPlannedMat = mat;
+    std::copy(std::begin(sky.in.textures), std::end(sky.in.textures), ctx.skyPlanned);
     sky.time = 0.0f;  // only an animated sky sees the time, quantized below
     std::int64_t step = 0;
     if (mat->animated) {
@@ -1129,15 +1138,32 @@ void Renderer::Impl::plan_env(DrawContext& ctx) {
     if (mat->usesSun)  // a sky that never reads the sun is not baked again when the sun turns
         for (float c : sky.sun) mixf(c);
     mix(sky.linear ? 1 : 0);
+    const bool pictureJob = !ctx.plan.view;
     if (envFrame != frameSerial) {
         envFrame = frameSerial;
         envFrameOk = skyEnv.ready(gpu);
         envFrameKey = h;
+        envFrameView = !pictureJob;
+        envJobs.clear();
         if (envFrameOk) ctx.envBake = !skyEnv.baked() || skyEnv.key() != h;
     } else if (envFrameKey != h) {
-        return;
+        // Jobs of the picture (a camera of the game's frame) are planned after the render targets and views, which would otherwise
+        // fix the key with a sky of their own (a material texture "target:<own>" is the checker for the camera that renders into
+        // it, so their key differs) and leave the main camera with the gradient. The picture wins: the jobs that took the first
+        // key lose the environment (their passes read the job's fields when they run), and this job bakes its own.
+        if (!pictureJob || !envFrameView) return;
+        for (DrawContext* other : envJobs) {
+            other->envActive = other->envBake = false;
+            other->fuScene.fa_env_sky[3] = 0.0f;
+            other->fuBlend.fa_env_sky[3] = 0.0f;
+        }
+        envJobs.clear();
+        envFrameKey = h;
+        envFrameView = false;
+        if (envFrameOk) ctx.envBake = !skyEnv.baked() || skyEnv.key() != h;
     }
     if (!envFrameOk) return;
+    envJobs.push_back(&ctx);
     ctx.envActive = true;
     ctx.envKey = h;
     ctx.envSky = sky;
@@ -1939,6 +1965,8 @@ void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
             // follow the sky that is drawn here when it is a material (plan_env bakes it), else skyColor and horizonColor.
             SkyDraw sky;
             fill_sky(*this, ctx, sky_material(ss), sky);
+            if (sky.mat && sky.mat == ctx.skyPlannedMat)
+                std::copy(std::begin(ctx.skyPlanned), std::end(ctx.skyPlanned), sky.in.textures);
             draw_sky(*this, sky, fr.cam.invViewProj.m, fr.cam.position, nullptr);
             ++stats.drawCalls;
         }
@@ -1971,6 +1999,11 @@ void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
                             mi.material->path);  // built, but this mesh lacks a declared channel
                     // A full-shader material draws the part once per pass, in order, each with its own program and state.
                     const int passCount = pd.mat && pd.mat->full ? int(pd.mat->passes.size()) : 1;
+                    // The palette and the fragment parameters belong to the part, not to the pass: made by the first pass that
+                    // declares the block, reused by the others.
+                    bool paletteMade = false, fragmentMade = false;
+                    mesh_fa_skin_t palette{};
+                    mesh_fa_mesh_fs_params_t fragmentParams{};
                     for (int pass = 0; pass < passCount; ++pass) {
                         const MaterialProgram* prog =
                             pd.mat ? &pd.mat->programs[pass_program_slot(pass, skinned)] : nullptr;
@@ -1993,16 +2026,27 @@ void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
                         sg_apply_bindings(&b);
                         // A full shader declares only the blocks it reads (the compiler drops an unused one).
                         if (declares(prog, UB_mesh_fa_mesh_vs_params)) apply_uniforms(UB_mesh_fa_mesh_vs_params, vu);
-                        if (skinned && declares(prog, UB_mesh_fa_skin))
-                            apply_uniforms(UB_mesh_fa_skin, pack_palette(palette_of(*mi.anim, part.skin)));
-                        if (declares(prog, UB_mesh_fa_mesh_fs_params))
-                            apply_uniforms(UB_mesh_fa_mesh_fs_params, fill_fs(ctx, mi, part, pd, isBlend));
+                        if (skinned && declares(prog, UB_mesh_fa_skin)) {
+                            if (!paletteMade) {
+                                palette = pack_palette(palette_of(*mi.anim, part.skin));
+                                paletteMade = true;
+                            }
+                            apply_uniforms(UB_mesh_fa_skin, palette);
+                        }
+                        if (declares(prog, UB_mesh_fa_mesh_fs_params)) {
+                            if (!fragmentMade) {
+                                fragmentParams = fill_fs(ctx, mi, part, pd, isBlend);
+                                fragmentMade = true;
+                            }
+                            apply_uniforms(UB_mesh_fa_mesh_fs_params, fragmentParams);
+                        }
                         if (declares(prog, UB_mesh_fa_lights)) apply_uniforms(UB_mesh_fa_lights, lightUniforms);
                         if (prog) apply_material_params(*prog, inputs);
                         sg_draw(0, part.indexCount, int(batch.mainCount));
                         ++stats.drawCalls;
+                        // Per pass drawn, like drawCalls: a part a full shader draws in 3 passes is 3 times its triangles.
+                        stats.triangles += part.indexCount / 3 * int(batch.mainCount);
                     }
-                    stats.triangles += part.indexCount / 3 * int(batch.mainCount);
                 }
                 stats.meshes += int(batch.mainCount);
                 ++stats.meshBatches;
@@ -2178,6 +2222,7 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
         envRes = shared(sharedEnv, "sky-env", skyEnv.image_id(), envDesc);
         if (ctx.envBake)
             add("sky-env", {}, {envRes}, [this, &ctx](const PassContext&) {
+                if (!ctx.envBake) return;  // the job lost the environment to a camera of the picture (plan_env)
                 const std::uint64_t key = ctx.envKey;
                 const SkyDraw& sky = ctx.envSky;
                 skyEnv.bake(

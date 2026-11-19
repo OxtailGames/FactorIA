@@ -1,0 +1,15 @@
+{
+  "format": "factoria.material/1",
+  "kind": "compute",
+  "doc": "Test fixture: a compute material with a read-write image of a format other than r32f (rgba16f), which a dispatch grows by a constant.",
+  "shader": "shaders/rwhalf.compute.glsl",
+  "workgroupSize": [8, 8],
+  "images": {
+    "acc": {
+      "doc": "Four half floats per pixel that grow by (0.5, 1, 2, 3) on every dispatch (imageLoad then imageStore).",
+      "format": "rgba16f",
+      "access": "readWrite",
+      "size": [8, 8]
+    }
+  }
+}

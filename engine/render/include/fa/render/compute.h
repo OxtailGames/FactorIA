@@ -98,6 +98,9 @@ public:
     // a NaN or infinity is null). width/height 0 = to the right/bottom edge. At most kMaxComputeJsonValues numbers. Submits the
     // recorded work and waits for it.
     Result<Json> read_image(int id, int x, int y, int width, int height);
+    // The bytes the last read_image that reached the GPU took from it: the rectangle's, not the image's (0 when that read failed;
+    // a test reads it to see that a corner of a large image does not hold the whole image).
+    std::uint64_t last_read_image_bytes() const;
     // The most pixels one read_image call converts for image `id` (the number cap over its channels).
     std::uint64_t max_json_pixels(int id) const;
     Result<void> destroy_image(int id);

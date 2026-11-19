@@ -151,12 +151,51 @@ struct MeshBatch {
 void build_batches(std::vector<MeshItem>& items, bool sortByMaterial, std::vector<MeshBatch>& batches,
                    std::vector<Mat4>& mainMats, std::vector<Mat4>& shadowMats);
 
+// The packed per-instance params (pack_instance_params) of each entity, kept between frames: 10 000 instances of one material
+// must not run the param lookup 10 000 times per frame and camera. An entry is valid while the material is the same build
+// (pointer and generation) and MeshRenderer.materialParams equals the copy it was packed from (a JSON comparison, like
+// MaterialHashCache: nothing counts the writes of a component). Entities without overrides share one block per material.
+// One thread at a time (pack_instance_extras runs on the thread that plans the draw).
+class InstanceParamCache {
+public:
+    // Starts the frame `serial` (Renderer::Impl::frameSerial); calling it again for the same serial is a no-op. Entries nobody
+    // asked for in the previous frame are dropped.
+    void begin_frame(std::uint64_t serial);
+    // The `m.instanceVec4 * 4` floats of `mr` for the material `m` (equal to what pack_instance_params writes); the pointer is
+    // valid until the next begin_frame or clear.
+    const float* get(Entity entity, const MeshRenderer& mr, MaterialAsset& m);
+    void clear();
+    std::size_t size() const { return entries_.size(); }
+    // Packs done (not served from the cache) since the cache was made; a test looks at it.
+    std::uint64_t packed() const { return packed_; }
+
+private:
+    struct Entry {
+        Json overrides;  // the materialParams the floats were packed from
+        const MaterialAsset* material = nullptr;
+        int generation = -1;
+        std::vector<float> floats;
+        std::uint64_t seen = 0;
+    };
+    struct Default {
+        int generation = -1;
+        std::vector<float> floats;
+    };
+    std::unordered_map<std::uint64_t, Entry> entries_;  // by Entity::bits()
+    std::unordered_map<const MaterialAsset*, Default> defaults_;
+    std::uint64_t serial_ = ~std::uint64_t(0);
+    std::size_t touched_ = 0;  // distinct entries asked for in this frame
+    std::uint64_t packed_ = 0;
+};
+
 // Packs the per-instance params of every batch whose material has instanced ones (MaterialAsset::instanceVec4, built): appends to
 // `mainData` and `shadowData` the floats of each visible / casting item, in the order build_batches put the matrices, and sets
 // the batch's instanceVec4, mainExtra and shadowExtra. Entities with different values share the batch: the values are not part
 // of the batch key (MaterialHashCache::refresh). Batches of other materials are left alone.
+// `cache` (null = none) keeps the packed values of each entity between frames.
 void pack_instance_extras(const std::vector<MeshItem>& items, std::vector<MeshBatch>& batches,
-                          std::vector<float>& mainData, std::vector<float>& shadowData);
+                          std::vector<float>& mainData, std::vector<float>& shadowData,
+                          InstanceParamCache* cache = nullptr);
 
 struct LightData {
     Vec4 pos, color, dir;

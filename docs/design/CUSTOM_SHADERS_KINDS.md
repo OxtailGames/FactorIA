@@ -109,11 +109,18 @@ Built (M72-P4, per-sprite values): `"instanced": true` params of a sprite materi
   layout) is skipped for that frame. Ten attributes stay under the 16 of GLES3 and WebGL2 and D3D11's 32. Known cost: a
   Tilemap or a Text with an instanced material repeats the same values for every one of its quads (four copies each, like any
   quad); sharing one copy per item would need a per-item stream, which is not done.
-- **Per-frame lookup.** `Assets::sprite_material` keeps its answers of the frame per material path: first by the address of
-  the component's `materialParams` (the usual repeat: the same component, or a particle group), then by a hash of the values
-  (`hash_params`), comparing values in place only on a hash match. There is no cap on distinct sets (instanced values give
-  every sprite its own), and `materialResolves` counts one full lookup per distinct set. The address path relies on the
-  Json being a component's own field that keeps its values until the cache is dropped (`FA_ASSERT` checks it in debug).
+- **Per-frame lookup.** `Assets::sprite_material` (and `post_material`, with a table of its own: the same path asked as a
+  "sprite" and as a "post" material never shares an answer) keeps its answers of the frame per material path. No params at all
+  (null, `{}` or `[]`, the usual case) is one answer per path: nothing is hashed or inserted. Otherwise it looks first at the
+  address of the component's `materialParams` (the same component asked again, or a particle group), then at a hash of the
+  values (`hash_params`), comparing values in place only on a hash match; a hit by value is not entered by address (that would
+  allocate a map node for every sprite of every frame). There is no cap on distinct sets (instanced values give every sprite
+  its own), and `materialResolves` counts one full lookup per distinct set. Two sets with the same keys in another order
+  (`{"a":1,"b":2}` and `{"b":2,"a":1}`) are two sets, because Json keeps the order of the keys: each is looked up once (and
+  both end in the same interned material, so they still draw in one batch). The address path relies on the Json being a
+  component's own field that keeps its values until the cache is dropped; a component written to after it was asked, in the
+  same frame, is found out when its address is asked again (its values no longer match) and is answered for its current values,
+  with one warning in every build (it is not an assertion: a script's mistake must not abort a release game).
   `stats.materials` is deduplicated per frame (`Renderer::Impl::materialsCounted`), not per `draw_group` call.
 - **`fa_target` and `screen_uv`.** Both count the image the pass draws into: the whole game target in the main pass (a
   camera with a viewport only draws into a part of it, so `screen_uv` there is still relative to the whole target), the
