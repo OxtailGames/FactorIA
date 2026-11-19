@@ -6441,17 +6441,17 @@ declare module "factoria" {
     set vertexColors(value: Float32Array | readonly number[]);
     /**
      * Project-relative path of a custom material, a *.material.json file of kind "sprite" (e.g. "materials/wave.material.json"), or "" (default) for the built-in look. The material's fragment() snippet replaces the fragment colour of the sprite's quad (it receives the colour the Sprite would have drawn, texture times `color`, so it can tint, dissolve, outline or distort it) and its optional vertex() snippet moves the vertices. The material declares its params, textures and blend. `material.info` lists them and `shader.compile` compiles the snippets and reports errors with file:line; a material that does not compile draws magenta and logs why. Guide with worked examples: docs/SHADERS.md (`factoria docs read shaders`). (asset path: material)
-     * @since unreleased
+     * @since 0.32.0
      */
     material: string;
     /**
      * Per-entity overrides of the material's params and textures, an object keyed by the name declared in the material file: numbers for float params, arrays for vectors and colors ([r, g, b, a]), project-relative paths for textures. Example: {"glow": [1, 0.2, 0, 1], "mask": "textures/leaf.png"}. Unnamed params keep the material's defaults. Same meaning as MeshRenderer.materialParams. Entities that share the same material and the same params are still drawn in one batch. A param the material declares with "instanced": true is sent with each quad, so entities that differ only in it stay in one batch; any other param that differs draws in a separate batch.  Returns a plain-object COPY; assign a new value to write.
-     * @since unreleased
+     * @since 0.32.0
      */
     materialParams: any;
     /**
      * 0 (default) = the sprite draws its one quad. N > 0 = ONE draw of N quads (GPU particles, 2D crowds), whose data the material reads from compute buffers (the sprite material declares "buffers", and materialParams gives the id of a compute buffer for each: {"particles": 3}; docs/shaders/SHADERS_COMPUTE.md, "Sprites from a compute buffer"). The sprite's own quad (its Transform, size, pivot, texture, region and colour) is the template every instance starts from: the material's vertex() gets the instance number as fa_instance_index (0..N-1) (fragment() gets it too) and moves the corners of the quad to where that instance is (QuadVertex.world_pos, uv, color). Every buffer the material reads must hold at least N elements (otherwise the sprite is not drawn and the log says why), and N is at most 16777216: size the buffers for it. The instances are one item of the sprite's layer, drawn on top of the sprites below it and under those above, and never batched with other sprites. A sprite with instances ignores meshColumns, slice, SpriteSkin and a Parallax repeat (it is its one plain quad). Needs a sprite material with buffers, on Metal, D3D11 or OpenGL 4.3 (not GLES3, WebGL2 or macOS OpenGL); with another material, or none, instances > 0 draws nothing and logs why.
-     * @since unreleased
+     * @since 0.32.0
      */
     instances: number;
   }
@@ -6870,12 +6870,12 @@ declare module "factoria" {
     gradientEase: "linear" | "smoothstep" | "quadIn" | "quadOut" | "quadInOut" | "cubicIn" | "cubicOut" | "cubicInOut" | "quartIn" | "quartOut" | "quartInOut" | "quintIn" | "quintOut" | "quintInOut" | "sineIn" | "sineOut" | "sineInOut" | "expoIn" | "expoOut" | "expoInOut" | "circIn" | "circOut" | "circInOut";
     /**
      * Project-relative path of a custom material, a *.material.json file of kind "sprite" (e.g. "materials/wave.material.json"), or "" (default) for the built-in look. The material's fragment() snippet replaces the fragment colour of the shape (it receives the colour the Shape2D would have drawn, texture times `color`, so it can tint, dissolve, outline or distort it) and its optional vertex() snippet moves the vertices. The material declares its params, textures and blend. `material.info` lists them and `shader.compile` compiles the snippets and reports errors with file:line; a material that does not compile draws magenta and logs why. Guide with worked examples: docs/SHADERS.md (`factoria docs read shaders`). (asset path: material)
-     * @since unreleased
+     * @since 0.32.0
      */
     material: string;
     /**
      * Per-entity overrides of the material's params and textures, an object keyed by the name declared in the material file: numbers for float params, arrays for vectors and colors ([r, g, b, a]), project-relative paths for textures. Example: {"glow": [1, 0.2, 0, 1], "mask": "textures/leaf.png"}. Unnamed params keep the material's defaults. Same meaning as MeshRenderer.materialParams. Entities that share the same material and the same params are still drawn in one batch. A param the material declares with "instanced": true is sent with each quad, so entities that differ only in it stay in one batch; any other param that differs draws in a separate batch.  Returns a plain-object COPY; assign a new value to write.
-     * @since unreleased
+     * @since 0.32.0
      */
     materialParams: any;
   }
@@ -6995,12 +6995,12 @@ declare module "factoria" {
     safeArea: boolean;
     /**
      * Project-relative path of a custom material, a *.material.json file of kind "sprite" (e.g. "materials/wave.material.json"), or "" (default) for the built-in look. The material's fragment() snippet replaces the fragment colour of the glyph quads (the glyph coverage is part of the alpha it receives; the glyph atlas is the main texture, so `fa_sample_main(uv)` reads the glyph coverage, not a picture of the text). The pictures of a rich text (`[icon:name]`) keep the built-in shader (it receives the colour the Text would have drawn, texture times `color`, so it can tint, dissolve, outline or distort it) and its optional vertex() snippet moves the vertices. The material declares its params, textures and blend. `material.info` lists them and `shader.compile` compiles the snippets and reports errors with file:line; a material that does not compile draws magenta and logs why. Guide with worked examples: docs/SHADERS.md (`factoria docs read shaders`). (asset path: material)
-     * @since unreleased
+     * @since 0.32.0
      */
     material: string;
     /**
      * Per-entity overrides of the material's params and textures, an object keyed by the name declared in the material file: numbers for float params, arrays for vectors and colors ([r, g, b, a]), project-relative paths for textures. Example: {"glow": [1, 0.2, 0, 1], "mask": "textures/leaf.png"}. Unnamed params keep the material's defaults. Same meaning as MeshRenderer.materialParams. Entities that share the same material and the same params are still drawn in one batch. A param the material declares with "instanced": true is sent with each quad, so entities that differ only in it stay in one batch; any other param that differs draws in a separate batch.  Returns a plain-object COPY; assign a new value to write.
-     * @since unreleased
+     * @since 0.32.0
      */
     materialParams: any;
   }
@@ -7096,12 +7096,12 @@ declare module "factoria" {
     occludesLight: boolean;
     /**
      * Project-relative path of a custom material, a *.material.json file of kind "sprite" (e.g. "materials/wave.material.json"), or "" (default) for the built-in look. The material's fragment() snippet replaces the fragment colour of every tile (one material for the whole Tilemap: all its tiles draw as one batch; give another layer its own Tilemap to give it another material) (it receives the colour the Tilemap would have drawn, texture times `color`, so it can tint, dissolve, outline or distort it) and its optional vertex() snippet moves the vertices. The material declares its params, textures and blend. `material.info` lists them and `shader.compile` compiles the snippets and reports errors with file:line; a material that does not compile draws magenta and logs why. Guide with worked examples: docs/SHADERS.md (`factoria docs read shaders`). (asset path: material)
-     * @since unreleased
+     * @since 0.32.0
      */
     material: string;
     /**
      * Per-entity overrides of the material's params and textures, an object keyed by the name declared in the material file: numbers for float params, arrays for vectors and colors ([r, g, b, a]), project-relative paths for textures. Example: {"glow": [1, 0.2, 0, 1], "mask": "textures/leaf.png"}. Unnamed params keep the material's defaults. Same meaning as MeshRenderer.materialParams. Entities that share the same material and the same params are still drawn in one batch. A param the material declares with "instanced": true is sent with each quad, so entities that differ only in it stay in one batch; any other param that differs draws in a separate batch.  Returns a plain-object COPY; assign a new value to write.
-     * @since unreleased
+     * @since 0.32.0
      */
     materialParams: any;
   }
@@ -7419,12 +7419,12 @@ declare module "factoria" {
     seed: number;
     /**
      * Project-relative path of a custom material, a *.material.json file of kind "sprite" (e.g. "materials/wave.material.json"), or "" (default) for the built-in look. The material's fragment() snippet replaces the fragment colour of every particle and its trail (one material per emitter: all its particles batch together, whatever their colour, size or age) (it receives the colour the ParticleEmitter would have drawn, texture times `color`, so it can tint, dissolve, outline or distort it) and its optional vertex() snippet moves the vertices. The material declares its params, textures and blend. `material.info` lists them and `shader.compile` compiles the snippets and reports errors with file:line; a material that does not compile draws magenta and logs why. Guide with worked examples: docs/SHADERS.md (`factoria docs read shaders`). (asset path: material)
-     * @since unreleased
+     * @since 0.32.0
      */
     material: string;
     /**
      * Per-entity overrides of the material's params and textures, an object keyed by the name declared in the material file: numbers for float params, arrays for vectors and colors ([r, g, b, a]), project-relative paths for textures. Example: {"glow": [1, 0.2, 0, 1], "mask": "textures/leaf.png"}. Unnamed params keep the material's defaults. Same meaning as MeshRenderer.materialParams. Entities that share the same material and the same params are still drawn in one batch. A param the material declares with "instanced": true is sent with each quad, so entities that differ only in it stay in one batch; any other param that differs draws in a separate batch.  Returns a plain-object COPY; assign a new value to write.
-     * @since unreleased
+     * @since 0.32.0
      */
     materialParams: any;
   }
@@ -7514,12 +7514,12 @@ declare module "factoria" {
     lods: any;
     /**
      * 0 (default) = a normal draw of the mesh. N > 0 = ONE draw of N instances of the mesh, whose data the material reads from compute buffers (the material declares "buffers", and materialParams gives the id of a compute buffer for each: {"particles": 3}; docs/shaders/SHADERS_COMPUTE.md, "Drawing from a compute buffer"). The material's vertex() gets the instance number as fa_instance_index (0..N-1) and places each instance; the entity's Transform is the base every instance is placed relative to (fa_model in a full shader). Every buffer the material reads must hold at least N elements (otherwise the entity is not drawn and the log says why), and N is at most 16777216: size the buffers for it. The instances cast shadows and enter the depth prepass like the mesh does; an entity with instances is drawn on its own and never batched with others. Needs a material with buffers, on Metal, D3D11 or OpenGL 4.3 (not GLES3, WebGL2 or macOS OpenGL); with another material, or none, instances > 0 draws nothing and logs why.
-     * @since unreleased
+     * @since 0.32.0
      */
     instances: number;
     /**
      * For a material with buffers only: the half-extent, in the entity's local metres, of the box around the entity that holds every instance (the instances are placed by the GPU, so the CPU cannot know where they are). The entity is skipped, with its shadows, when that box (scaled by the Transform) is outside the camera's view. 0 (default) = never culled by the camera, always drawn: safe, but it costs GPU time for an entity that is off screen.
-     * @since unreleased
+     * @since 0.32.0
      */
     instanceBounds: number;
   }
@@ -8654,12 +8654,12 @@ declare module "factoria" {
     set slice(value: readonly number[] | { x: number; y: number; z: number; w: number });
     /**
      * Project-relative path of a custom material, a *.material.json file of kind "sprite" (e.g. "materials/wave.material.json"), or "" (default) for the built-in look. The material's fragment() snippet replaces the fragment colour of the widget's background quads and nothing else: its `texture` drawn as a 9-slice, or the solid `color` rectangle. The label of a Button, Toggle or TextField, the Button icon, the Slider knob and fill, the Toggle mark, the TextField caret, the focus ring, the bars and lines of a Chart, the picture of a Video or CameraView, the Captions text, and the disc or knob of a TouchStick or TouchButton (its background only when it has a `texture`) stay on the built-in shader, and so does a tooltip (it receives the colour the widget would have drawn, texture times `color`, so it can tint, dissolve, outline or distort it) and its optional vertex() snippet moves the vertices. The material declares its params, textures and blend. `material.info` lists them and `shader.compile` compiles the snippets and reports errors with file:line; a material that does not compile draws magenta and logs why. Guide with worked examples: docs/SHADERS.md (`factoria docs read shaders`). (asset path: material)
-     * @since unreleased
+     * @since 0.32.0
      */
     material: string;
     /**
      * Per-entity overrides of the material's params and textures, an object keyed by the name declared in the material file: numbers for float params, arrays for vectors and colors ([r, g, b, a]), project-relative paths for textures. Example: {"glow": [1, 0.2, 0, 1], "mask": "textures/leaf.png"}. Unnamed params keep the material's defaults. Same meaning as MeshRenderer.materialParams. Entities that share the same material and the same params are still drawn in one batch. A param the material declares with "instanced": true is sent with each quad, so entities that differ only in it stay in one batch; any other param that differs draws in a separate batch. They apply to the widget's background only (its 9-slice texture or solid color rectangle, the same quads as `material`), not to its text, icons or the picture of a Chart, Video or CameraView. Returns a plain-object COPY; assign a new value to write.
-     * @since unreleased
+     * @since 0.32.0
      */
     materialParams: any;
     /**
@@ -8810,12 +8810,12 @@ declare module "factoria" {
     set slice(value: readonly number[] | { x: number; y: number; z: number; w: number });
     /**
      * Project-relative path of a custom material, a *.material.json file of kind "sprite" (e.g. "materials/wave.material.json"), or "" (default) for the built-in look. The material's fragment() snippet replaces the fragment colour of the widget's background quads and nothing else: its `texture` drawn as a 9-slice, or the solid `color` rectangle. The label of a Button, Toggle or TextField, the Button icon, the Slider knob and fill, the Toggle mark, the TextField caret, the focus ring, the bars and lines of a Chart, the picture of a Video or CameraView, the Captions text, and the disc or knob of a TouchStick or TouchButton (its background only when it has a `texture`) stay on the built-in shader, and so does a tooltip (it receives the colour the widget would have drawn, texture times `color`, so it can tint, dissolve, outline or distort it) and its optional vertex() snippet moves the vertices. The material declares its params, textures and blend. `material.info` lists them and `shader.compile` compiles the snippets and reports errors with file:line; a material that does not compile draws magenta and logs why. Guide with worked examples: docs/SHADERS.md (`factoria docs read shaders`). (asset path: material)
-     * @since unreleased
+     * @since 0.32.0
      */
     material: string;
     /**
      * Per-entity overrides of the material's params and textures, an object keyed by the name declared in the material file: numbers for float params, arrays for vectors and colors ([r, g, b, a]), project-relative paths for textures. Example: {"glow": [1, 0.2, 0, 1], "mask": "textures/leaf.png"}. Unnamed params keep the material's defaults. Same meaning as MeshRenderer.materialParams. Entities that share the same material and the same params are still drawn in one batch. A param the material declares with "instanced": true is sent with each quad, so entities that differ only in it stay in one batch; any other param that differs draws in a separate batch. They apply to the widget's background only (its 9-slice texture or solid color rectangle, the same quads as `material`), not to its text, icons or the picture of a Chart, Video or CameraView. Returns a plain-object COPY; assign a new value to write.
-     * @since unreleased
+     * @since 0.32.0
      */
     materialParams: any;
     /**
@@ -9009,12 +9009,12 @@ declare module "factoria" {
     set slice(value: readonly number[] | { x: number; y: number; z: number; w: number });
     /**
      * Project-relative path of a custom material, a *.material.json file of kind "sprite" (e.g. "materials/wave.material.json"), or "" (default) for the built-in look. The material's fragment() snippet replaces the fragment colour of the widget's background quads and nothing else: its `texture` drawn as a 9-slice, or the solid `color` rectangle. The label of a Button, Toggle or TextField, the Button icon, the Slider knob and fill, the Toggle mark, the TextField caret, the focus ring, the bars and lines of a Chart, the picture of a Video or CameraView, the Captions text, and the disc or knob of a TouchStick or TouchButton (its background only when it has a `texture`) stay on the built-in shader, and so does a tooltip (it receives the colour the widget would have drawn, texture times `color`, so it can tint, dissolve, outline or distort it) and its optional vertex() snippet moves the vertices. The material declares its params, textures and blend. `material.info` lists them and `shader.compile` compiles the snippets and reports errors with file:line; a material that does not compile draws magenta and logs why. Guide with worked examples: docs/SHADERS.md (`factoria docs read shaders`). (asset path: material)
-     * @since unreleased
+     * @since 0.32.0
      */
     material: string;
     /**
      * Per-entity overrides of the material's params and textures, an object keyed by the name declared in the material file: numbers for float params, arrays for vectors and colors ([r, g, b, a]), project-relative paths for textures. Example: {"glow": [1, 0.2, 0, 1], "mask": "textures/leaf.png"}. Unnamed params keep the material's defaults. Same meaning as MeshRenderer.materialParams. Entities that share the same material and the same params are still drawn in one batch. A param the material declares with "instanced": true is sent with each quad, so entities that differ only in it stay in one batch; any other param that differs draws in a separate batch. They apply to the widget's background only (its 9-slice texture or solid color rectangle, the same quads as `material`), not to its text, icons or the picture of a Chart, Video or CameraView. Returns a plain-object COPY; assign a new value to write.
-     * @since unreleased
+     * @since 0.32.0
      */
     materialParams: any;
     /**
@@ -9189,12 +9189,12 @@ declare module "factoria" {
     set slice(value: readonly number[] | { x: number; y: number; z: number; w: number });
     /**
      * Project-relative path of a custom material, a *.material.json file of kind "sprite" (e.g. "materials/wave.material.json"), or "" (default) for the built-in look. The material's fragment() snippet replaces the fragment colour of the widget's background quads and nothing else: its `texture` drawn as a 9-slice, or the solid `color` rectangle. The label of a Button, Toggle or TextField, the Button icon, the Slider knob and fill, the Toggle mark, the TextField caret, the focus ring, the bars and lines of a Chart, the picture of a Video or CameraView, the Captions text, and the disc or knob of a TouchStick or TouchButton (its background only when it has a `texture`) stay on the built-in shader, and so does a tooltip (it receives the colour the widget would have drawn, texture times `color`, so it can tint, dissolve, outline or distort it) and its optional vertex() snippet moves the vertices. The material declares its params, textures and blend. `material.info` lists them and `shader.compile` compiles the snippets and reports errors with file:line; a material that does not compile draws magenta and logs why. Guide with worked examples: docs/SHADERS.md (`factoria docs read shaders`). (asset path: material)
-     * @since unreleased
+     * @since 0.32.0
      */
     material: string;
     /**
      * Per-entity overrides of the material's params and textures, an object keyed by the name declared in the material file: numbers for float params, arrays for vectors and colors ([r, g, b, a]), project-relative paths for textures. Example: {"glow": [1, 0.2, 0, 1], "mask": "textures/leaf.png"}. Unnamed params keep the material's defaults. Same meaning as MeshRenderer.materialParams. Entities that share the same material and the same params are still drawn in one batch. A param the material declares with "instanced": true is sent with each quad, so entities that differ only in it stay in one batch; any other param that differs draws in a separate batch. They apply to the widget's background only (its 9-slice texture or solid color rectangle, the same quads as `material`), not to its text, icons or the picture of a Chart, Video or CameraView. Returns a plain-object COPY; assign a new value to write.
-     * @since unreleased
+     * @since 0.32.0
      */
     materialParams: any;
     /**
@@ -9580,12 +9580,12 @@ declare module "factoria" {
     set slice(value: readonly number[] | { x: number; y: number; z: number; w: number });
     /**
      * Project-relative path of a custom material, a *.material.json file of kind "sprite" (e.g. "materials/wave.material.json"), or "" (default) for the built-in look. The material's fragment() snippet replaces the fragment colour of the widget's background quads and nothing else: its `texture` drawn as a 9-slice, or the solid `color` rectangle. The label of a Button, Toggle or TextField, the Button icon, the Slider knob and fill, the Toggle mark, the TextField caret, the focus ring, the bars and lines of a Chart, the picture of a Video or CameraView, the Captions text, and the disc or knob of a TouchStick or TouchButton (its background only when it has a `texture`) stay on the built-in shader, and so does a tooltip (it receives the colour the widget would have drawn, texture times `color`, so it can tint, dissolve, outline or distort it) and its optional vertex() snippet moves the vertices. The material declares its params, textures and blend. `material.info` lists them and `shader.compile` compiles the snippets and reports errors with file:line; a material that does not compile draws magenta and logs why. Guide with worked examples: docs/SHADERS.md (`factoria docs read shaders`). (asset path: material)
-     * @since unreleased
+     * @since 0.32.0
      */
     material: string;
     /**
      * Per-entity overrides of the material's params and textures, an object keyed by the name declared in the material file: numbers for float params, arrays for vectors and colors ([r, g, b, a]), project-relative paths for textures. Example: {"glow": [1, 0.2, 0, 1], "mask": "textures/leaf.png"}. Unnamed params keep the material's defaults. Same meaning as MeshRenderer.materialParams. Entities that share the same material and the same params are still drawn in one batch. A param the material declares with "instanced": true is sent with each quad, so entities that differ only in it stay in one batch; any other param that differs draws in a separate batch. They apply to the widget's background only (its 9-slice texture or solid color rectangle, the same quads as `material`), not to its text, icons or the picture of a Chart, Video or CameraView. Returns a plain-object COPY; assign a new value to write.
-     * @since unreleased
+     * @since 0.32.0
      */
     materialParams: any;
     /**
@@ -9780,12 +9780,12 @@ declare module "factoria" {
     set slice(value: readonly number[] | { x: number; y: number; z: number; w: number });
     /**
      * Project-relative path of a custom material, a *.material.json file of kind "sprite" (e.g. "materials/wave.material.json"), or "" (default) for the built-in look. The material's fragment() snippet replaces the fragment colour of the widget's background quads and nothing else: its `texture` drawn as a 9-slice, or the solid `color` rectangle. The label of a Button, Toggle or TextField, the Button icon, the Slider knob and fill, the Toggle mark, the TextField caret, the focus ring, the bars and lines of a Chart, the picture of a Video or CameraView, the Captions text, and the disc or knob of a TouchStick or TouchButton (its background only when it has a `texture`) stay on the built-in shader, and so does a tooltip (it receives the colour the widget would have drawn, texture times `color`, so it can tint, dissolve, outline or distort it) and its optional vertex() snippet moves the vertices. The material declares its params, textures and blend. `material.info` lists them and `shader.compile` compiles the snippets and reports errors with file:line; a material that does not compile draws magenta and logs why. Guide with worked examples: docs/SHADERS.md (`factoria docs read shaders`). (asset path: material)
-     * @since unreleased
+     * @since 0.32.0
      */
     material: string;
     /**
      * Per-entity overrides of the material's params and textures, an object keyed by the name declared in the material file: numbers for float params, arrays for vectors and colors ([r, g, b, a]), project-relative paths for textures. Example: {"glow": [1, 0.2, 0, 1], "mask": "textures/leaf.png"}. Unnamed params keep the material's defaults. Same meaning as MeshRenderer.materialParams. Entities that share the same material and the same params are still drawn in one batch. A param the material declares with "instanced": true is sent with each quad, so entities that differ only in it stay in one batch; any other param that differs draws in a separate batch. They apply to the widget's background only (its 9-slice texture or solid color rectangle, the same quads as `material`), not to its text, icons or the picture of a Chart, Video or CameraView. Returns a plain-object COPY; assign a new value to write.
-     * @since unreleased
+     * @since 0.32.0
      */
     materialParams: any;
     /**
@@ -9889,12 +9889,12 @@ declare module "factoria" {
     set slice(value: readonly number[] | { x: number; y: number; z: number; w: number });
     /**
      * Project-relative path of a custom material, a *.material.json file of kind "sprite" (e.g. "materials/wave.material.json"), or "" (default) for the built-in look. The material's fragment() snippet replaces the fragment colour of the widget's background quads and nothing else: its `texture` drawn as a 9-slice, or the solid `color` rectangle. The label of a Button, Toggle or TextField, the Button icon, the Slider knob and fill, the Toggle mark, the TextField caret, the focus ring, the bars and lines of a Chart, the picture of a Video or CameraView, the Captions text, and the disc or knob of a TouchStick or TouchButton (its background only when it has a `texture`) stay on the built-in shader, and so does a tooltip (it receives the colour the widget would have drawn, texture times `color`, so it can tint, dissolve, outline or distort it) and its optional vertex() snippet moves the vertices. The material declares its params, textures and blend. `material.info` lists them and `shader.compile` compiles the snippets and reports errors with file:line; a material that does not compile draws magenta and logs why. Guide with worked examples: docs/SHADERS.md (`factoria docs read shaders`). (asset path: material)
-     * @since unreleased
+     * @since 0.32.0
      */
     material: string;
     /**
      * Per-entity overrides of the material's params and textures, an object keyed by the name declared in the material file: numbers for float params, arrays for vectors and colors ([r, g, b, a]), project-relative paths for textures. Example: {"glow": [1, 0.2, 0, 1], "mask": "textures/leaf.png"}. Unnamed params keep the material's defaults. Same meaning as MeshRenderer.materialParams. Entities that share the same material and the same params are still drawn in one batch. A param the material declares with "instanced": true is sent with each quad, so entities that differ only in it stay in one batch; any other param that differs draws in a separate batch. They apply to the widget's background only (its 9-slice texture or solid color rectangle, the same quads as `material`), not to its text, icons or the picture of a Chart, Video or CameraView. Returns a plain-object COPY; assign a new value to write.
-     * @since unreleased
+     * @since 0.32.0
      */
     materialParams: any;
     /**
@@ -9998,12 +9998,12 @@ declare module "factoria" {
     set slice(value: readonly number[] | { x: number; y: number; z: number; w: number });
     /**
      * Project-relative path of a custom material, a *.material.json file of kind "sprite" (e.g. "materials/wave.material.json"), or "" (default) for the built-in look. The material's fragment() snippet replaces the fragment colour of the widget's background quads and nothing else: its `texture` drawn as a 9-slice, or the solid `color` rectangle. The label of a Button, Toggle or TextField, the Button icon, the Slider knob and fill, the Toggle mark, the TextField caret, the focus ring, the bars and lines of a Chart, the picture of a Video or CameraView, the Captions text, and the disc or knob of a TouchStick or TouchButton (its background only when it has a `texture`) stay on the built-in shader, and so does a tooltip (it receives the colour the widget would have drawn, texture times `color`, so it can tint, dissolve, outline or distort it) and its optional vertex() snippet moves the vertices. The material declares its params, textures and blend. `material.info` lists them and `shader.compile` compiles the snippets and reports errors with file:line; a material that does not compile draws magenta and logs why. Guide with worked examples: docs/SHADERS.md (`factoria docs read shaders`). (asset path: material)
-     * @since unreleased
+     * @since 0.32.0
      */
     material: string;
     /**
      * Per-entity overrides of the material's params and textures, an object keyed by the name declared in the material file: numbers for float params, arrays for vectors and colors ([r, g, b, a]), project-relative paths for textures. Example: {"glow": [1, 0.2, 0, 1], "mask": "textures/leaf.png"}. Unnamed params keep the material's defaults. Same meaning as MeshRenderer.materialParams. Entities that share the same material and the same params are still drawn in one batch. A param the material declares with "instanced": true is sent with each quad, so entities that differ only in it stay in one batch; any other param that differs draws in a separate batch. They apply to the widget's background only (its 9-slice texture or solid color rectangle, the same quads as `material`), not to its text, icons or the picture of a Chart, Video or CameraView. Returns a plain-object COPY; assign a new value to write.
-     * @since unreleased
+     * @since 0.32.0
      */
     materialParams: any;
     /**
@@ -10152,12 +10152,12 @@ declare module "factoria" {
     set slice(value: readonly number[] | { x: number; y: number; z: number; w: number });
     /**
      * Project-relative path of a custom material, a *.material.json file of kind "sprite" (e.g. "materials/wave.material.json"), or "" (default) for the built-in look. The material's fragment() snippet replaces the fragment colour of the widget's background quads and nothing else: its `texture` drawn as a 9-slice, or the solid `color` rectangle. The label of a Button, Toggle or TextField, the Button icon, the Slider knob and fill, the Toggle mark, the TextField caret, the focus ring, the bars and lines of a Chart, the picture of a Video or CameraView, the Captions text, and the disc or knob of a TouchStick or TouchButton (its background only when it has a `texture`) stay on the built-in shader, and so does a tooltip (it receives the colour the widget would have drawn, texture times `color`, so it can tint, dissolve, outline or distort it) and its optional vertex() snippet moves the vertices. The material declares its params, textures and blend. `material.info` lists them and `shader.compile` compiles the snippets and reports errors with file:line; a material that does not compile draws magenta and logs why. Guide with worked examples: docs/SHADERS.md (`factoria docs read shaders`). (asset path: material)
-     * @since unreleased
+     * @since 0.32.0
      */
     material: string;
     /**
      * Per-entity overrides of the material's params and textures, an object keyed by the name declared in the material file: numbers for float params, arrays for vectors and colors ([r, g, b, a]), project-relative paths for textures. Example: {"glow": [1, 0.2, 0, 1], "mask": "textures/leaf.png"}. Unnamed params keep the material's defaults. Same meaning as MeshRenderer.materialParams. Entities that share the same material and the same params are still drawn in one batch. A param the material declares with "instanced": true is sent with each quad, so entities that differ only in it stay in one batch; any other param that differs draws in a separate batch. They apply to the widget's background only (its 9-slice texture or solid color rectangle, the same quads as `material`), not to its text, icons or the picture of a Chart, Video or CameraView. Returns a plain-object COPY; assign a new value to write.
-     * @since unreleased
+     * @since 0.32.0
      */
     materialParams: any;
     /**
@@ -10278,12 +10278,12 @@ declare module "factoria" {
     set slice(value: readonly number[] | { x: number; y: number; z: number; w: number });
     /**
      * Project-relative path of a custom material, a *.material.json file of kind "sprite" (e.g. "materials/wave.material.json"), or "" (default) for the built-in look. The material's fragment() snippet replaces the fragment colour of the widget's background quads and nothing else: its `texture` drawn as a 9-slice, or the solid `color` rectangle. The label of a Button, Toggle or TextField, the Button icon, the Slider knob and fill, the Toggle mark, the TextField caret, the focus ring, the bars and lines of a Chart, the picture of a Video or CameraView, the Captions text, and the disc or knob of a TouchStick or TouchButton (its background only when it has a `texture`) stay on the built-in shader, and so does a tooltip (it receives the colour the widget would have drawn, texture times `color`, so it can tint, dissolve, outline or distort it) and its optional vertex() snippet moves the vertices. The material declares its params, textures and blend. `material.info` lists them and `shader.compile` compiles the snippets and reports errors with file:line; a material that does not compile draws magenta and logs why. Guide with worked examples: docs/SHADERS.md (`factoria docs read shaders`). (asset path: material)
-     * @since unreleased
+     * @since 0.32.0
      */
     material: string;
     /**
      * Per-entity overrides of the material's params and textures, an object keyed by the name declared in the material file: numbers for float params, arrays for vectors and colors ([r, g, b, a]), project-relative paths for textures. Example: {"glow": [1, 0.2, 0, 1], "mask": "textures/leaf.png"}. Unnamed params keep the material's defaults. Same meaning as MeshRenderer.materialParams. Entities that share the same material and the same params are still drawn in one batch. A param the material declares with "instanced": true is sent with each quad, so entities that differ only in it stay in one batch; any other param that differs draws in a separate batch. They apply to the widget's background only (its 9-slice texture or solid color rectangle, the same quads as `material`), not to its text, icons or the picture of a Chart, Video or CameraView. Returns a plain-object COPY; assign a new value to write.
-     * @since unreleased
+     * @since 0.32.0
      */
     materialParams: any;
     /**
@@ -10460,12 +10460,12 @@ declare module "factoria" {
     set slice(value: readonly number[] | { x: number; y: number; z: number; w: number });
     /**
      * Project-relative path of a custom material, a *.material.json file of kind "sprite" (e.g. "materials/wave.material.json"), or "" (default) for the built-in look. The material's fragment() snippet replaces the fragment colour of the widget's background quads and nothing else: its `texture` drawn as a 9-slice, or the solid `color` rectangle. The label of a Button, Toggle or TextField, the Button icon, the Slider knob and fill, the Toggle mark, the TextField caret, the focus ring, the bars and lines of a Chart, the picture of a Video or CameraView, the Captions text, and the disc or knob of a TouchStick or TouchButton (its background only when it has a `texture`) stay on the built-in shader, and so does a tooltip (it receives the colour the widget would have drawn, texture times `color`, so it can tint, dissolve, outline or distort it) and its optional vertex() snippet moves the vertices. The material declares its params, textures and blend. `material.info` lists them and `shader.compile` compiles the snippets and reports errors with file:line; a material that does not compile draws magenta and logs why. Guide with worked examples: docs/SHADERS.md (`factoria docs read shaders`). (asset path: material)
-     * @since unreleased
+     * @since 0.32.0
      */
     material: string;
     /**
      * Per-entity overrides of the material's params and textures, an object keyed by the name declared in the material file: numbers for float params, arrays for vectors and colors ([r, g, b, a]), project-relative paths for textures. Example: {"glow": [1, 0.2, 0, 1], "mask": "textures/leaf.png"}. Unnamed params keep the material's defaults. Same meaning as MeshRenderer.materialParams. Entities that share the same material and the same params are still drawn in one batch. A param the material declares with "instanced": true is sent with each quad, so entities that differ only in it stay in one batch; any other param that differs draws in a separate batch. They apply to the widget's background only (its 9-slice texture or solid color rectangle, the same quads as `material`), not to its text, icons or the picture of a Chart, Video or CameraView. Returns a plain-object COPY; assign a new value to write.
-     * @since unreleased
+     * @since 0.32.0
      */
     materialParams: any;
     /**
@@ -10564,12 +10564,12 @@ declare module "factoria" {
     set slice(value: readonly number[] | { x: number; y: number; z: number; w: number });
     /**
      * Project-relative path of a custom material, a *.material.json file of kind "sprite" (e.g. "materials/wave.material.json"), or "" (default) for the built-in look. The material's fragment() snippet replaces the fragment colour of the widget's background quads and nothing else: its `texture` drawn as a 9-slice, or the solid `color` rectangle. The label of a Button, Toggle or TextField, the Button icon, the Slider knob and fill, the Toggle mark, the TextField caret, the focus ring, the bars and lines of a Chart, the picture of a Video or CameraView, the Captions text, and the disc or knob of a TouchStick or TouchButton (its background only when it has a `texture`) stay on the built-in shader, and so does a tooltip (it receives the colour the widget would have drawn, texture times `color`, so it can tint, dissolve, outline or distort it) and its optional vertex() snippet moves the vertices. The material declares its params, textures and blend. `material.info` lists them and `shader.compile` compiles the snippets and reports errors with file:line; a material that does not compile draws magenta and logs why. Guide with worked examples: docs/SHADERS.md (`factoria docs read shaders`). (asset path: material)
-     * @since unreleased
+     * @since 0.32.0
      */
     material: string;
     /**
      * Per-entity overrides of the material's params and textures, an object keyed by the name declared in the material file: numbers for float params, arrays for vectors and colors ([r, g, b, a]), project-relative paths for textures. Example: {"glow": [1, 0.2, 0, 1], "mask": "textures/leaf.png"}. Unnamed params keep the material's defaults. Same meaning as MeshRenderer.materialParams. Entities that share the same material and the same params are still drawn in one batch. A param the material declares with "instanced": true is sent with each quad, so entities that differ only in it stay in one batch; any other param that differs draws in a separate batch. They apply to the widget's background only (its 9-slice texture or solid color rectangle, the same quads as `material`), not to its text, icons or the picture of a Chart, Video or CameraView. Returns a plain-object COPY; assign a new value to write.
-     * @since unreleased
+     * @since 0.32.0
      */
     materialParams: any;
     /**
@@ -11270,7 +11270,7 @@ declare module "factoria" {
     radialBlurSamples: number;
     /**
      * Your own full-screen passes, drawn by kind "post" materials (docs/shaders/SHADERS_POST.md). An array (at most 8) of {material, materialParams, enabled, position, name}: `material` is the project path of a post *.material.json; `materialParams` overrides its params by name (`material.info` lists them); `enabled` (default true) false keeps the entry in the list but draws nothing; `position` (default "before:tonemap") puts the pass before or after a built-in effect. Scene-linear colour, before the tonemap: "after:ssao", "after:fog", "before:ssr", "after:ssr", "before:sunShafts", "after:sunShafts", "before:depthOfField", "after:motionBlur", "before:bloom", "after:bloom" or "before:" exposure, radialBlur, lensDistortion, chromaticAberration, tonemap (the last ones are the same place). Display-referred (the picture the tonemap made, sRGB-encoded, 0..1; HDR output above 1): "after:tonemap", "before:colorGrading", "after:colorGrading", "before:vignette", "after:vignette", "before:sharpen", "after:sharpen", "before:outline", "after:outline", "before:posterize", "after:posterize", "before:filmGrain", "after:filmGrain" or "before:colorFilter". Entries at the same position run in array order, and each reads the picture the one before wrote. A pass whose material is missing, broken or not a post material is skipped (the log says why once, and `render.stats.materialFallbacks` counts it). A volume adds its entries to the camera's when its weight times its influence is at least 0.5 (at most 32 entries together; the rest are dropped and the log says so once). Edit it with postprocess.set (the whole array) or the editor's Post-processing panel. Returns a plain-object COPY; assign a new value to write.
-     * @since unreleased
+     * @since 0.32.0
      */
     customPasses: any;
   }
@@ -11344,12 +11344,12 @@ declare module "factoria" {
     paperWhiteNits: number;
     /**
      * Project-relative path of a custom material of kind "sky" (a *.material.json), or "" (default) for the skyColor / horizonColor gradient. The material's sky() snippet receives the view direction, the direction of the sun (the scene's directional light of slot 0), the time and the colour the gradient would have drawn, so it can replace or tint it; it draws the background of a perspective camera, opaque. The reflections and the ambient light of the meshes keep following skyColor and horizonColor. `material.info` lists the material's params and `shader.compile` compiles it and reports errors with file:line; a material that does not compile (or is not of kind "sky") shows the gradient and logs why. Guide: docs/SHADERS.md (`factoria docs read shaders`, "Sky materials"). (asset path: material)
-     * @since unreleased
+     * @since 0.32.0
      */
     skyMaterial: string;
     /**
      * Values for the params and textures of skyMaterial, an object keyed by the name declared in the material file: numbers for float params, arrays for vectors and colors ([r, g, b, a]), project-relative paths for textures. Example: {"horizonGlow": [1, 0.4, 0.1, 1], "stars": "textures/stars.png"}. Unnamed params keep the material's defaults. Ignored while skyMaterial is empty. The editor's Scene settings panel shows one control per param of the material. Returns a plain-object COPY; assign a new value to write.
-     * @since unreleased
+     * @since 0.32.0
      */
     skyMaterialParams: any;
   }

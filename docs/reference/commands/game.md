@@ -4,7 +4,7 @@
 
 ## `compute.create_buffer` (modifies state)
 
-Not released yet (on main after 0.31.0).
+Since 0.32.0.
 
 Makes a GPU storage buffer shaped like one buffer of a compute material; returns its id.
 
@@ -23,7 +23,7 @@ Limits: 64 live buffers, 256 MiB each, 1 GiB in all; over one is `invalid_argume
 
 ## `compute.create_image` (modifies state)
 
-Not released yet (on main after 0.31.0).
+Since 0.32.0.
 
 Makes a GPU storage image a compute material writes and a material shows; returns its id.
 
@@ -42,7 +42,7 @@ Limits: 32 live images, 8192 pixels a side (or what the GPU allows), 256 MiB eac
 
 ## `compute.destroy_buffer` (modifies state)
 
-Not released yet (on main after 0.31.0).
+Since 0.32.0.
 
 Frees a compute storage buffer.
 
@@ -58,7 +58,7 @@ Errors: `invalid_argument` for an id that is not alive (compute.list_buffers lis
 
 ## `compute.destroy_image` (modifies state)
 
-Not released yet (on main after 0.31.0).
+Since 0.32.0.
 
 Frees a compute storage image.
 
@@ -74,7 +74,7 @@ Errors: `invalid_argument` for an id that is not alive (compute.list_images list
 
 ## `compute.dispatch` (modifies state)
 
-Not released yet (on main after 0.31.0).
+Since 0.32.0.
 
 Runs a compute material once over its storage buffers.
 
@@ -94,7 +94,7 @@ Each dimension of `groups` is 1 to 65535. A buffer or image must have been made 
 
 ## `compute.list_buffers`
 
-Not released yet (on main after 0.31.0).
+Since 0.32.0.
 
 Lists the live compute storage buffers and whether this backend runs compute.
 
@@ -106,7 +106,7 @@ Without graphics (graphics=false) `available` is false too.
 
 ## `compute.list_images`
 
-Not released yet (on main after 0.31.0).
+Since 0.32.0.
 
 Lists the live compute storage images and whether this backend runs compute.
 
@@ -118,7 +118,7 @@ Without graphics (graphics=false) `available` is false too.
 
 ## `compute.read_buffer`
 
-Not released yet (on main after 0.31.0).
+Since 0.32.0.
 
 Reads elements of a compute storage buffer back to the game (waits for the GPU).
 
@@ -136,7 +136,7 @@ At most 1048576 elements in one call (read a large buffer in parts). Errors: `un
 
 ## `compute.read_image`
 
-Not released yet (on main after 0.31.0).
+Since 0.32.0.
 
 Reads pixels of a compute storage image back to the game (waits for the GPU).
 
@@ -156,7 +156,7 @@ x and y default to 0, and width and height to the right and bottom edge; when bo
 
 ## `compute.resize_image` (modifies state)
 
-Not released yet (on main after 0.31.0).
+Since 0.32.0.
 
 Gives a compute storage image another size (its pixels are lost, its texture id stays).
 
@@ -174,7 +174,7 @@ Same limits as compute.create_image. Errors: `unavailable` without compute; `inv
 
 ## `compute.write_buffer` (modifies state)
 
-Not released yet (on main after 0.31.0).
+Since 0.32.0.
 
 Overwrites elements of a compute storage buffer with values from the game.
 
@@ -466,7 +466,7 @@ Lists the 2D visuals (Sprite, Shape2D, Text, Tilemap, UI widgets) whose drawn bo
 
 ## `render.reset_post_history` (modifies state)
 
-Not released yet (on main after 0.31.0).
+Since 0.32.0.
 
 Start again the history of the custom post passes that read their own output of the frame before (fa_history).
 

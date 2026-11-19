@@ -111,9 +111,9 @@ file: then put this status and the milestones section back).
 
 # Next engine milestones
 
-**What comes next (2026-11-18):** M90 (0.20.0), M91 (0.21.0), M100 (0.22.0), M101 (0.23.0), M97.1 and M97.2 (0.24.0),
-M92 (0.25.0), M93 (0.26.0), M94 (0.27.0), M95 (0.28.0), M96 (0.29.0), M98 (0.30.0, with M97.3-M97.5) and M71 (0.31.0) are
-done. Next M72-M89 in their own order (M72 and M73 build on M71, M75 on M94.4). M99 waits for the user's hardware and
+**What comes next (2026-11-19):** M90 (0.20.0), M91 (0.21.0), M100 (0.22.0), M101 (0.23.0), M97.1 and M97.2 (0.24.0),
+M92 (0.25.0), M93 (0.26.0), M94 (0.27.0), M95 (0.28.0), M96 (0.29.0), M98 (0.30.0, with M97.3-M97.5), M71 (0.31.0) and M72
+(0.32.0) are done. Next M73-M89 in their own order (M73 builds on M71, M75 on M94.4). M99 waits for the user's hardware and
 accounts.
 The reasons are in "M90-M99" and "M100-M101", at the end of this file. Every milestone opens with a triage of the open
 entries of `examples/*`. Update this paragraph when a milestone lands.
@@ -765,21 +765,21 @@ and render targets) and M75 needs M94.4 (broadphase and heightfield collider).
 - M71.5 (M) — DONE in 0.31.0 Tools: a Post-processing panel with live preview and A/B, `postprocess.*` commands, presets (cinematic,
   stylised, clean, retro hooks for M80), goldens per backend, the cost of each effect in the profiler and in docs.
 
-## M72. Custom shaders for everything (L; 5 packages) — the user, 2026-11-06
+## M72. Custom shaders for everything (L; 5 packages) — the user, 2026-11-06 — DONE in 0.32.0
 
 SHADERS.md "Not available yet" becomes empty.
-- M72.1 (L) Materials for `Sprite`, `Shape2D`, `Tilemap`, `Text`, particles and vfx, trails, the sky and UI images: the
+- M72.1 (L) — DONE in 0.32.0 Materials for `Sprite`, `Shape2D`, `Tilemap`, `Text`, particles and vfx, trails, the sky and UI images: the
   same snippet model as meshes (`fragment()`, `vertex()`), batching kept for sprites that share a material, per-sprite
   values through instance data.
-- M72.2 (M) Post-process materials: a custom pass in the M71 stack (reads colour, depth, normals, previous passes),
+- M72.2 (M) — DONE in 0.32.0 Post-process materials: a custom pass in the M71 stack (reads colour, depth, normals, previous passes),
   ordered with the built-in effects. Built (M72-P7a, docs/shaders/SHADERS_POST.md): `PostProcess.customPasses`, positions around the
   built-in effects before the tonemap. Built (M72-P7b): passes on the display picture (positions after the tonemap). Built (M72-P16): a previous-frame input (`fa_history`).
-- M72.3 (L) Full shaders and custom lighting: own `main` and vertex layout, several passes, a custom light loop (toon
+- M72.3 (L) — DONE in 0.32.0 Full shaders and custom lighting: own `main` and vertex layout, several passes, a custom light loop (toon
   ramps, cel bands, hatching), textures in `vertex()`, per-instance values in one instanced draw.
-- M72.4 (L) Compute shaders where the backend has them (D3D11, Metal, GL 4.3, Vulkan/D3D12 with M77): GPU particles,
+- M72.4 (L) — DONE in 0.32.0 Compute shaders where the backend has them (D3D11, Metal, GL 4.3, Vulkan/D3D12 with M77): GPU particles,
   culling, simulation helpers; a clear refusal on GLES3/WebGL2 with the CPU path named (done in M72.4). Storage images
   (a compute material writes a texture that a mesh, sprite or post material shows) are built in M72.17.
-- M72.5 (L) A node graph material editor that writes the same JSON/snippet an AI writes (graph and code stay one
+- M72.5 (L) — DONE in 0.32.0 A node graph material editor that writes the same JSON/snippet an AI writes (graph and code stay one
   document), with live preview on mesh, sprite and quad, and a library of nodes (noise, dissolve, flow, fresnel,
   triplanar, parallax occlusion).
 
@@ -1149,7 +1149,7 @@ drops its workaround in the same package.
 Order (M100, M101, M97.1, M97.2, M92 and M93 are done): M100 then M101, before M92 (M100 is what the game AI meets on
 its first run; M101 was the backlog). M100.1 (the measure) runs first so there is a "before". Then M97.1 and M97.2 (the
 cost of the first step; done in 0.24.0), then M92 (done in 0.25.0), M93 (done in 0.26.0, its ASan+UBSan job first),
-M94, M95, M96, M98 and M71 (done in 0.31.0). M72-M89 follow, in their own order; M87 (the editor AI) after M97.2. A triage of every open
+M94, M95, M96, M98, M71 (done in 0.31.0) and M72 (done in 0.32.0). M73-M89 follow, in their own order; M87 (the editor AI) after M97.2. A triage of every open
 entry of `examples/*` opens each milestone.
 
 **Left open by M101** (done 2026-11-11, 0.23.0; its history is in [done/M101.md](done/M101.md)):
