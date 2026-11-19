@@ -682,9 +682,8 @@ MaterialParse parse_material(const Json& doc, const std::string& projectDir, con
             "Remove \"alphaMode\" (a sky is always opaque; its sky() returns an RGB colour). doubleSided is ignored.");
     else if (m.alphaMode == "clip" && m.kind == "sprite") {
         c.error("/alphaMode", "alphaMode \"clip\" is the mesh template's alpha test; a sprite material has none",
-                "Use \"blend\" (the default look of a sprite) and write `if (s.color.a < 0.5) discard;` in fragment() "
-                "where "
-                "you want a cut-out.");
+                "Remove alphaMode (a sprite is always blended) and write `if (s.color.a < 0.5) discard;` in "
+                "fragment() where you want a cut-out.");
     } else if (m.alphaMode == "clip" && m.kind != "post") {
         auto declared = std::find_if(m.params.begin(), m.params.end(),
                                      [](const MaterialParam& p) { return p.name == kMaterialAlphaCutoff; });

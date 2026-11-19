@@ -152,6 +152,10 @@ void register_shader_commands(CommandRegistry& registry, const std::string& proj
             "has a JSON `pointer` instead of a line. Fix the file and call again until ok, then look at the "
             "result with game.screenshot. Results are cached in .factoria/shader-cache by content, so an "
             "unchanged material compiles instantly." FA_COMMAND_DETAILS
+            "`graph` {state, hint} is returned only when the material has a \"graph\" whose snippet is missing (state "
+            "\"missing\"), older than the graph (\"graph_changed\") or unreadable (\"unreadable\"); `hint` says what "
+            "to run, "
+            "then compile again. "
             "A compute material (a snippet defining void compute(in ComputeInput i) over storage buffers, run by "
             "compute.dispatch) has no shader for android and web (GLES3 and WebGL2 have no compute shaders): `runsOn` "
             "and `notOn` list the platforms the kind has shaders for, asking for those platforms compiles nothing and "
