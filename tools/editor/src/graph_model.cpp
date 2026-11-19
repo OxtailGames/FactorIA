@@ -259,18 +259,28 @@ GraphEditOutcome GraphModel::create(const std::string& rel) {
     if (stdfs::exists(file, ec)) return fail(already);
     std::string stem = fs::path_to_utf8(file.filename());
     stem = stem.substr(0, stem.size() - std::string(".material.json").size());
+    for (auto it = strayTmp_.begin(); it != strayTmp_.end();) {  // what an earlier create could not remove
+        std::error_code gone;
+        stdfs::remove(fs::path_from_utf8(*it), gone);
+        it = gone ? std::next(it) : strayTmp_.erase(it);
+    }
     Json doc = Json::object();
     doc["format"] = kMaterialFormat;
     doc["doc"] = "A material made of nodes: edit it in the Graph panel (View > Graph).";
     doc["shader"] = "shaders/" + stem + ".surface.glsl";
     Json graph = starter_graph();
     graph["version"] = kGraphVersion;
-    // The snippet the generator will write: noted before, so a failure removes only what this call made.
+    // The snippet the generator will write: noted before, so a failure removes only what this call made. A file of that name is somebody's (a
+    // hand-written snippet): the generator would refuse to replace it, so say so before anything is written.
     bool snippetExisted = true;
     stdfs::path snippetFile;
     if (auto sn = resolve_project_path(projectDir_, doc["shader"].get<std::string>()); sn.ok()) {
         snippetFile = *sn;
         snippetExisted = stdfs::exists(snippetFile, ec);
+        if (snippetExisted && !stdfs::is_directory(snippetFile, ec))
+            return fail("'" + doc["shader"].get<std::string>() +
+                        "' already exists (a shader snippet written by hand?) and the new material would "
+                        "use that name. Pick another name for the material; nothing was written.");
     }
     // Published whole and never over a file: the text goes to a sibling first, then a hard link gives it its name, which fails when the name is taken
     // (even by a file another process made since the check above). A volume without hard links falls back to a look and a rename.
@@ -289,6 +299,11 @@ GraphEditOutcome GraphModel::create(const std::string& rel) {
     }
     std::error_code rm;
     stdfs::remove(tmp, rm);
+    if (rm &&
+        stdfs::exists(
+            tmp, ec)) {  // a file open elsewhere (a virus scanner on Windows): tried again below and by the next create
+        strayTmp_.push_back(fs::path_to_utf8(tmp));
+    }
     if (link) return fail(link == std::errc::file_exists ? already : "Cannot write " + rel + ": " + link.message());
     auto undo_files = [&] {
         std::error_code e;
@@ -306,7 +321,33 @@ GraphEditOutcome GraphModel::create(const std::string& rel) {
         return fail(why);
     }
     status_ = "Made " + rel + " and its snippet.";
+    for (auto it = strayTmp_.begin(); it != strayTmp_.end();) {
+        std::error_code gone;
+        stdfs::remove(fs::path_from_utf8(*it), gone);
+        if (!gone) {
+            it = strayTmp_.erase(it);
+        } else {
+            status_ +=
+                " The temporary file " + *it + " could not be removed (" + gone.message() + "): delete it by hand.";
+            ++it;
+        }
+    }
     return out;
+}
+
+std::string GraphModel::new_material_name() const {
+    for (int i = 1; i < 1000; ++i) {
+        const std::string stem = i == 1 ? "graph" : "graph" + std::to_string(i);
+        const std::string rel = "assets/materials/" + stem + ".material.json";
+        std::error_code ec;
+        bool taken = false;
+        for (const std::string& r : {rel, "shaders/" + stem + ".surface.glsl"}) {
+            auto abs = resolve_project_path(projectDir_, r);
+            taken = taken || (abs.ok() && stdfs::exists(*abs, ec));
+        }
+        if (!taken) return rel;
+    }
+    return std::string();
 }
 
 void GraphModel::close() {
@@ -1116,6 +1157,20 @@ GraphSaveOutcome GraphModel::save(bool force, bool overwriteExternal) {
                                "choose Overwrite to replace the "
                                "file with this graph, or Reload to take the file as it is.";
             return out;
+        }
+    }
+    if (overwriteExternal) {
+        // Overwrite on a file that was deleted: material.graph.generate needs the file to exist, so it is written again from the document as it was
+        // read (its own graph replaced by the edited one, which is what Overwrite means). Never when the file is there: that one is replaced by the command.
+        auto abs = resolve_project_path(projectDir_, rel_);
+        std::error_code ec;
+        if (abs.ok() && !stdfs::exists(*abs, ec)) {
+            Json again = doc_;
+            again["graph"] = graph_for_save();
+            if (auto w = fs::write_text(fs::path_to_utf8(*abs), again.dump(2) + "\n"); !w.ok()) {
+                out.error = "Cannot write " + rel_ + " again: " + w.error().message + " " + w.error().hint;
+                return out;
+            }
         }
     }
     Json args = Json::object({{"material", rel_}, {"graph", graph_for_save()}});

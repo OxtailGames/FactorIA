@@ -79,15 +79,30 @@ LoadedMaterial load_material(const std::string& projectDir, const Json& args, bo
 // How the snippet file stands against the graph (the states are listed in the command descriptions).
 struct SnippetState {
     std::string state;
-    std::optional<std::string> existing;  // the file's text, CRs removed; nullopt = no file
+    std::optional<std::string>
+        existing;  // the file's text, CRs removed; nullopt = no file, or one that cannot be read (state "unreadable")
+    std::string readError;  // state "unreadable": why the file that is there cannot be read
 };
 
 SnippetState snippet_state(const std::string& projectDir, const MaterialDef& def, const std::string& hash) {
     SnippetState s;
-    if (auto raw = tooling_detail::read_file(stdfs::path(projectDir) / def.shader))
-        s.existing = shaders_detail::normalize_snippet(*raw);
+    const stdfs::path file = stdfs::path(projectDir) / def.shader;
+    std::error_code ec;
+    const bool there = stdfs::exists(file, ec) ||
+                       ec;  // an error other than "not found" (a folder in the way, no permission) is not "missing"
+    if (there && !ec && stdfs::is_directory(file, ec)) {
+        s.readError = "it is a folder, not a file";
+    } else if (there) {
+        if (auto raw = tooling_detail::read_file(file))
+            s.existing = shaders_detail::normalize_snippet(*raw);
+        else
+            s.readError =
+                ec ? ec.message() : "the file cannot be opened for reading (permissions, or open in another program)";
+    }
     const std::string& recorded = def.graphHash;
-    if (!s.existing)
+    if (!s.readError.empty())
+        s.state = "unreadable";
+    else if (!s.existing)
         s.state = "missing";
     else if (graph_snippet_hash(*s.existing) == hash && recorded == hash)
         s.state = "in_sync";
@@ -285,11 +300,15 @@ void write_patched(const CommandRegistry& registry, const std::string& projectDi
     if (syncSnippet && !oldName.empty() && state != "in_sync" && !m.def.shader.empty()) {
         if (auto raw = tooling_detail::read_file(stdfs::path(projectDir) / m.def.shader);
             raw && names_identifier(shaders_detail::blank_comments(*raw), oldName))
-            warnings.push_back(
-                Json::object({{"message", m.def.shader + " was not generated from the graph (state " + state +
-                                              "), so it was left as it is and may still use \"" + oldName + "\""},
-                              {"hint", "Change the name in the snippet by hand and run shader.compile; with a graph, "
-                                       "material.graph.generate writes the snippet again."}}));
+            warnings.push_back(Json::object(
+                {{"message", m.def.shader +
+                                 (state == "none" ? " is a hand-written snippet (the material has no graph), so it was "
+                                                    "left as it is and may still use \""
+                                                  : " was not generated from the graph (state " + state +
+                                                        "), so it was left as it is and may still use \"") +
+                                 oldName + "\""},
+                 {"hint", "Change the name in the snippet by hand and run shader.compile; with a graph, "
+                          "material.graph.generate writes the snippet again."}}));
     }
     out["warnings"] = warnings;
     Json snippet = Json::object({{"state", state}, {"regenerated", false}});
@@ -581,7 +600,9 @@ void add_entry_commands(CommandRegistry& registry, const std::string& projectDir
             "(`snippet.regenerated`); any other snippet is left alone, and `warnings` says when it still uses the "
             "name. "
             "Scenes and prefabs that set the name in MeshRenderer.materialParams are NOT changed. With dryRun true "
-            "nothing is written; the file is rewritten (2-space JSON, hand formatting is lost). Returns {material, "
+            "nothing is written; the file is rewritten (2-space JSON, hand formatting is lost); the last " +
+            word + " leaves \"" + sec.key +
+            "\" as an empty object where it was. Returns {material, "
             "kind, name, entry, index, removedNodes, written, snippet, warnings[, graph]}; `entry` is the definition "
             "removed and `index` its position: " +
             prefix +
@@ -633,7 +654,7 @@ void add_entry_commands(CommandRegistry& registry, const std::string& projectDir
             const std::vector<std::string> before = names_of(m.doc, sec.key);
             const int index = int(std::find(before.begin(), before.end(), name) - before.begin());
             patched[sec.key].erase(name);
-            if (patched[sec.key].empty()) patched.erase(sec.key);
+            // The last entry leaves the section empty, in its place: a create afterwards fills it there instead of adding the key at the end.
             Json removed = Json::array();
             if (patched.contains("graph") && patched["graph"].is_object())
                 for (const std::string& id : remove_readers(patched["graph"], sec, name)) removed.push_back(id);
@@ -731,7 +752,8 @@ void register_material_graph_commands(CommandRegistry& registry, const std::stri
             "snippet: {path, state}}. state: \"in_sync\", \"graph_changed\" (the snippet is what the previous graph "
             "made: "
             "generate updates it), \"hand_edited\" (the snippet no longer matches graphHash: generate refuses without "
-            "force), \"unmanaged\" (a snippet that no generator wrote), \"hash_missing\", \"missing\" or \"unchecked\" "
+            "force), \"unmanaged\" (a snippet that no generator wrote), \"hash_missing\", \"missing\" (no file), "
+            "\"unreadable\" (a file or folder is there and cannot be read: `snippet.error` says why) or \"unchecked\" "
             "(the graph "
             "has errors). With `graph` (an object like the one in the file) that graph is checked instead of the "
             "file's: the "
@@ -772,8 +794,12 @@ void register_material_graph_commands(CommandRegistry& registry, const std::stri
             out["warnings"] = issues_json(r.warnings);
             Json snippet = Json::object({{"path", r.material.shader}});
             if (r.errors.empty()) {
-                snippet["state"] = snippet_state(projectDir, r.material, r.hash).state;
+                const SnippetState st = snippet_state(projectDir, r.material, r.hash);
+                snippet["state"] = st.state;
                 snippet["hash"] = r.hash;
+                if (!st.readError.empty())
+                    snippet["error"] =
+                        "The snippet " + r.material.shader + " exists but cannot be read: " + st.readError + ".";
             } else {
                 snippet["state"] = "unchecked";
             }
@@ -828,6 +854,13 @@ void register_material_graph_commands(CommandRegistry& registry, const std::stri
                                    "Fix the graph (`material.graph.validate` lists every error).",
                                    Json::object({{"errors", issues_json(g.check.errors)}}));
             const SnippetState st = snippet_state(projectDir, m.def, g.hash);
+            if (st.state == "unreadable")
+                throw CommandError(
+                    "failed", "cannot read the snippet " + m.def.shader + " of " + m.path + ": " + st.readError,
+                    "A file is there, so it is not replaced blind (it may be hand-written). Make it readable "
+                    "(permissions, "
+                    "a program that holds it open, a folder with that name) and run the command again. Nothing was "
+                    "changed.");
             if ((st.state == "hand_edited" || st.state == "unmanaged") && !force)
                 throw CommandError(
                     "hand_edited",

@@ -1,5 +1,6 @@
 // The Graph panel's logic with no window: the model whose edits are one undo step each, whose connects are type-checked by the same checker
 // as material.graph.validate and whose save is material.graph.generate (graph_model.h).
+#include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <set>
@@ -562,7 +563,7 @@ TEST_CASE("graph model: a texture is made and deleted from the panel like a para
     CHECK(Json::parse(p.read(kMat))["textures"].contains("coverMap"));
     const GraphEditOutcome gone = m.delete_entry(true, "coverMap");
     REQUIRE_MESSAGE(gone.ok, gone.error);
-    CHECK_FALSE(Json::parse(p.read(kMat)).contains("textures"));
+    CHECK_FALSE(Json::parse(p.read(kMat))["textures"].contains("coverMap"));  // the empty section stays
     REQUIRE(m.apply_step(gone.step, false));
     CHECK(Json::parse(p.read(kMat))["textures"].contains("coverMap"));
 }
@@ -707,6 +708,106 @@ TEST_CASE(
     CHECK_MESSAGE(good.ok, good.error);
     CHECK(m.path() == "materials/fine.material.json");
     CHECK_FALSE(stdfs::exists(p.dir / "materials/fine.material.json.new.tmp"));
+}
+
+TEST_CASE("graph model: a new material never takes the name of a hand-written snippet, and the button's name is free "
+          "for both") {
+    GraphProject p;
+    GraphModel& m = *p.model;
+    CHECK(m.new_material_name() == "assets/materials/graph.material.json");
+    p.write("shaders/graph.surface.glsl", "// mine\n");  // the snippet of graph.material.json is taken: the next name
+    CHECK(m.new_material_name() == "assets/materials/graph2.material.json");
+    p.write("assets/materials/graph2.material.json", "{}");
+    CHECK(m.new_material_name() == "assets/materials/graph3.material.json");
+    // create() itself: a snippet of that name is somebody's, nothing is written and nothing of it is deleted
+    p.write("shaders/clash.surface.glsl", "// hand-written\n");
+    const GraphEditOutcome clash = m.create("materials/clash.material.json");
+    CHECK_FALSE(clash.ok);
+    CHECK(clash.error.find("shaders/clash.surface.glsl") != std::string::npos);
+    CHECK(clash.error.find("Pick another name") != std::string::npos);
+    CHECK_FALSE(stdfs::exists(p.dir / "materials/clash.material.json"));
+    CHECK(p.read("shaders/clash.surface.glsl") == "// hand-written\n");
+    CHECK(m.new_material_name() == "assets/materials/graph3.material.json");
+    const GraphEditOutcome made = m.create(m.new_material_name());
+    CHECK_MESSAGE(made.ok, made.error);
+}
+
+TEST_CASE(
+    "graph model: Overwrite answered once is not asked again for the snippet, and a deleted file is written again") {
+    GraphProject p;
+    p.open();
+    GraphModel& m = *p.model;
+    REQUIRE(m.save(false).ok);
+    // the snippet is edited by hand and the file is changed by someone else
+    p.write("shaders/dissolve.surface.glsl", p.read("shaders/dissolve.surface.glsl") + "// my tweak\n");
+    Json doc = Json::parse(p.read(kMat));
+    doc["doc"] = "Changed by an AI, and long enough to change the size too.";
+    p.write(kMat, doc.dump(2));
+    REQUIRE(m.add_node("math.add", Vec2{10, 10}).ok);
+    const GraphSaveOutcome conflict = m.save(false);
+    CHECK(conflict.externalChange);
+    // Overwrite of the file: now the snippet is the question
+    const GraphSaveOutcome asked = m.save(false, true);
+    CHECK_FALSE(asked.ok);
+    CHECK(asked.needsForce);
+    CHECK_FALSE(asked.externalChange);
+    // the panel remembers the answer and passes it on: one question each, never the file's again
+    const GraphSaveOutcome forced = m.save(true, true);
+    REQUIRE_MESSAGE(forced.ok, forced.error);
+    CHECK(p.read("shaders/dissolve.surface.glsl").find("my tweak") == std::string::npos);
+
+    // the file was deleted: Overwrite writes it again from the document that was read
+    stdfs::remove(p.dir / kMat);
+    REQUIRE(m.add_node("math.add", Vec2{10, 60}).ok);
+    CHECK(m.save(false).externalChange);
+    const GraphSaveOutcome again = m.save(false, true);
+    REQUIRE_MESSAGE(again.ok, again.error);
+    const Json back = Json::parse(p.read(kMat));
+    CHECK(back["graph"]["nodes"].size() == 6);
+    CHECK(back.contains("graphHash"));
+    CHECK(back["shader"] == "shaders/dissolve.surface.glsl");
+    CHECK(m.snippet_state() == "in_sync");
+}
+
+TEST_CASE("graph preview: errors name the material and the snippet, not the stage files that are gone") {
+    const std::string text = "/p/.factoria/material-preview/stage-1-ab.surface.glsl:5:3: error: bad\n"
+                             "stage-1-ab.material.json: /shader is not a file; stage-1-ab.surface.glsl\n";
+    const std::string out = name_real_files(text, "/p", ".factoria/material-preview/stage-1-ab.material.json",
+                                            ".factoria/material-preview/stage-1-ab.surface.glsl",
+                                            "materials/dissolve.material.json", "shaders/dissolve.surface.glsl");
+    CHECK(out.find("stage-1-ab") == std::string::npos);
+    CHECK(out.find("shaders/dissolve.surface.glsl:5:3: error: bad") != std::string::npos);
+    CHECK(out.find("/p") == std::string::npos);
+}
+
+TEST_CASE("graph preview: stage files an editor left behind are removed once they are old, and nothing else is") {
+    GraphProject p;
+    const stdfs::path dir = p.dir / ".factoria/material-preview";
+    p.write(".factoria/material-preview/stage-7-aa.material.json", "{}");
+    p.write(".factoria/material-preview/stage-7-aa.surface.glsl", "x");
+    p.write(".factoria/material-preview/saved-stage-7-aa.surface.glsl", "x");
+    p.write(".factoria/material-preview/stage-8-bb.surface.glsl",
+            "x");                                                       // a recent one: another editor may be compiling
+    p.write(".factoria/material-preview/preview.material.json", "{}");  // the live copies stay, old or not
+    p.write(".factoria/material-preview/stage-notes.txt", "x");         // not a stage file
+    const auto old = stdfs::file_time_type::clock::now() - std::chrono::hours(2);
+    for (const char* f : {"stage-7-aa.material.json", "stage-7-aa.surface.glsl", "saved-stage-7-aa.surface.glsl",
+                          "preview.material.json", "stage-notes.txt"})
+        stdfs::last_write_time(dir / f, old);
+    CHECK(GraphPreview::remove_stale_stage_files(p.dir.generic_string()) == 3);
+    CHECK_FALSE(stdfs::exists(dir / "stage-7-aa.material.json"));
+    CHECK_FALSE(stdfs::exists(dir / "stage-7-aa.surface.glsl"));
+    CHECK_FALSE(stdfs::exists(dir / "saved-stage-7-aa.surface.glsl"));
+    CHECK(stdfs::exists(dir / "stage-8-bb.surface.glsl"));
+    CHECK(stdfs::exists(dir / "preview.material.json"));
+    CHECK(stdfs::exists(dir / "stage-notes.txt"));
+    // the constructor does it: no error for a project with no such folder, and an old file goes
+    GraphProject q;
+    GraphPreview none(q.dir.generic_string());
+    p.write(".factoria/material-preview/stage-9-cc.material.json", "{}");
+    stdfs::last_write_time(dir / "stage-9-cc.material.json", old);
+    GraphPreview made(p.dir.generic_string());
+    CHECK_FALSE(stdfs::exists(dir / "stage-9-cc.material.json"));
 }
 
 TEST_CASE("graph model: undo of a delete puts the param back in its place; what the command warns about is shown") {
