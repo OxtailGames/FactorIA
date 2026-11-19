@@ -64,8 +64,10 @@ std::string material_params_doc(const char* sharing) {
 
 std::string material_params_doc_2d() {
     return material_params_doc(
-        "Entities that share the same material and the same params are still drawn in one batch; different params "
-        "draw in separate batches.");
+        "Entities that share the same material and the same params are still drawn in one batch. A param the material "
+        "declares with \"instanced\": true is sent with each quad, so entities that differ only in it stay in one "
+        "batch; "
+        "any other param that differs draws in a separate batch.");
 }
 
 std::string material_doc_2d(const char* type, const char* what) {
