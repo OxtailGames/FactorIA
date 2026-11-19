@@ -106,6 +106,10 @@ struct Renderer::Impl {
     // white); a frame without such a pass never makes them.
     Target ldrMid[2];
     bool ldrWarned = false;  // making them failed: said once
+    // They are made when a frame needs them (one for a single cut, two for more) and freed after kLdrIdleFrames frames without use.
+    static constexpr int kLdrIdleFrames = 120;
+    std::uint64_t ldrUsedFrame = ~std::uint64_t(0);  // the frameSerial of the last frame that asked for them
+    int ldrIdle = 0;                                 // frames since
     // The post-processing stack (postprocess.h). hudTarget is the game-like image the final pass writes when screen-space items are drawn
     // over it in display space (made on first use: a frame without exposure, tonemap or linear colour never makes it); the HUD draws into
     // it with the game target's formats and sample count, so the pipelines of the game fit. hudActive: the last frame's picture is in it
@@ -303,7 +307,8 @@ struct Renderer::Impl {
     // frame is then drawn without the stack.
     bool ensure_filter_target();
     bool ensure_hud_target();
-    bool ensure_ldr_targets();  // ldrMid
+    bool ensure_ldr_targets(int count);  // the first `count` of ldrMid
+    void release_idle_ldr_targets();
     // One full-screen pass of post.glsl: `src` (a texture view of the finished picture) through the plan's final pass (`finalPass`: conversion and effects) and the
     // colour filter `filter` into `dst`; `expo` is the adapted exposure or a dummy image. `keepMsaa`: an MSAA destination keeps its
     // multisampled image (a pass that draws over it follows). `rect`: the camera's rectangle of `dst` (whole by default; see

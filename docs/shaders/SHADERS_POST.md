@@ -94,7 +94,9 @@ prepass. A scene with no mesh in view gives 60000 and `vec3(0)` everywhere. A GP
   it into the frame. A frame with no entry there draws the same one pass as always, at the same cost. What runs in the last piece
   is what the frame draws last: a flash or fade overlay, the dither of one 8-bit step (not when the posterize is on) and the
   colour filter. Things to know: the **pixelate** applies to every piece, so the picture is blocky again after your pass, and the
-  **sharpen** after your pass compares a pixel with its neighbours in the picture your pass left.
+  **sharpen** after your pass compares a pixel with its neighbours in the picture your pass left. With the pixelate on and a cut
+  before the sharpen, that picture is already blocky, so the sharpen finds no difference inside a block and only works on the
+  edges between blocks.
 - At most **32 entries** are drawn together for a camera and its volumes (8 per `PostProcess`); the entries after those are not
   drawn and the log says so once.
 - A volume (a `PostProcess` that is not on a camera) adds its entries after the camera's own when its strength (weight times
@@ -111,8 +113,10 @@ The previous version of a material stays in use when a hot reload of its shader 
 
 **Cost.** Every enabled pass is one full-screen draw of the rectangle (and a copy when it is the only one: the picture is read
 and written in two images), plus the prepass when it is read. A display-referred place adds the cost of the cut: the final pass
-is drawn in two pieces, so the picture is written and read once more per place that has an entry (one image of the picture's
-size, kept between frames; places with no effect between them share one cut). Start with one or two passes; sample the picture a few times
+is drawn in two pieces, so the picture is written and read once more per cut (places with no effect between them share one cut).
+The pieces go through images of the picture's size and the scene's format (a float format when the scene has one, so 8 bytes a
+pixel, about 66 MB at 4K): one image when the camera has one cut, two when it has two or more. They are made when a frame needs
+them and freed after 120 frames in which no camera has a cut. Start with one or two passes; sample the picture a few times
 per pixel, not dozens.
 
 **Editor.** View > Post-processing has a "Custom passes" section: add a material from the project, switch a pass on or off,
