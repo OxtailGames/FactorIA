@@ -462,6 +462,10 @@ sg_pipeline Gpu::find_or_make(PipelineKey key, const TargetFormat& format, const
     }
     sg_pipeline_desc desc = request;  // a copy only on a miss (the description is more than 1 KB)
     desc.colors[0].pixel_format = format.color;
+    if (format.color1 != SG_PIXELFORMAT_NONE) {
+        desc.color_count = 2;
+        desc.colors[1].pixel_format = format.color1;
+    }
     desc.depth.pixel_format = format.depth;
     desc.sample_count = format.samples;
     // A pipeline asked for before its lazily made shader exists (a caller that skipped the *_ready() check) is an engine
