@@ -423,6 +423,8 @@
     "MeshRenderer.sheenRoughness": "unreleased",
     "MeshRenderer.specular": "unreleased",
     "MeshRenderer.subsurface": "unreleased",
+    "MeshRenderer.subsurfaceColor": "unreleased",
+    "MeshRenderer.subsurfaceRadius": "unreleased",
     "MeshRenderer.thickness": "unreleased",
     "MeshRenderer.transmission": "unreleased",
     "MusicPlayer": "0.16.0",

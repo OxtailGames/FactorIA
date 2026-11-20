@@ -227,7 +227,12 @@ std::vector<FeatureDef> build_table() {
          "the light "
          "clusters and applied in the mesh shader (M73.5b).",
          nullptr},
-        {"subsurface", "half+depth", "Screen-space subsurface scattering for skin and wax (M73.5)."},
+        {"subsurface", "half+depth",
+         "Screen-space subsurface scattering for skin and wax: the diffuse light of a mesh with "
+         "MeshRenderer.subsurface "
+         "is blurred across the surface with a depth-aware separable profile (radius in metres, per colour channel), "
+         "never the specular light (M73.5).",
+         nullptr},
         {"realtimeGI", "half",
          "Realtime global illumination from a probe grid updated over a few frames, no ray tracing (M73.5)."},
         {"transmission", "half",

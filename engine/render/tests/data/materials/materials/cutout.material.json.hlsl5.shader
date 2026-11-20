@@ -1,7 +1,7 @@
 {
   "format": "factoria.shader/1",
   "engine": "0.32.0",
-  "template": "550ff47e6dc7e71192661fb1e526df6e96f66de981c805742262dd122b44bf86",
+  "template": "21384afe6cb0557eed79a6c482a811939939d99108959ca6157b877697a348a6",
   "slang": "hlsl5",
   "params": [
     "alphaCutoff"

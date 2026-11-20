@@ -679,7 +679,7 @@ TEST_CASE("features: what the engine does not draw yet is false and says planned
 
 TEST_CASE(
     "features: the lighting rows of M73 are planned until their package lands and never claim what is not drawn") {
-    const char* const rows[] = {"reflectionProbes", "subsurface", "realtimeGI", "transmission"};
+    const char* const rows[] = {"reflectionProbes", "realtimeGI", "transmission"};
     const FeatureEnv full = gpu(FeatureBackend::D3d11, true, true, true, true);
     for (const char* n : rows) {
         CAPTURE(n);
@@ -742,6 +742,19 @@ TEST_CASE(
         CHECK_FALSE(supported(gpu(FeatureBackend::Gles3, false), "volumetricFog", &why));
         CHECK(why.find("RGBA16F") != std::string::npos);
         CHECK_FALSE(supported(gpu(FeatureBackend::Gles3, true, true, false), "volumetricFog", &why));
+        CHECK(why.find("depth") != std::string::npos);
+        CHECK(why.find("planned") == std::string::npos);
+    }
+    // The subsurface scattering is drawn (M73.5): it needs RGBA16F targets and a sampled depth (its meshes keep only the surface the prepass sees),
+    // and says so, never "planned".
+    {
+        std::string why;
+        REQUIRE(find_feature("subsurface") >= 0);
+        CHECK(supported(full, "subsurface", &why));
+        CHECK(feature_table()[std::size_t(find_feature("subsurface"))].kind == FeatureKind::Engine);
+        CHECK_FALSE(supported(gpu(FeatureBackend::Gles3, false), "subsurface", &why));
+        CHECK(why.find("RGBA16F") != std::string::npos);
+        CHECK_FALSE(supported(gpu(FeatureBackend::Gles3, true, true, false), "subsurface", &why));
         CHECK(why.find("depth") != std::string::npos);
         CHECK(why.find("planned") == std::string::npos);
     }

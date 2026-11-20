@@ -2045,9 +2045,20 @@ void register_builtin_components(TypeRegistry& r) {
                "the volume does not tint the light. No effect yet: M73.6 brings it.")
         .range(0, 100000)
         .field("subsurface", &MeshRenderer::subsurface,
-               "Strength 0..1 of the screen-space subsurface scattering (skin, wax, marble): light enters the "
-               "surface and leaves it blurred nearby. 0 = none. No effect yet: M73.5 brings it.")
+               "Strength 0..1 of the screen-space subsurface scattering (skin, wax, marble): the diffuse light "
+               "of the surface is blurred over subsurfaceRadius metres, so light that enters the lit side leaves "
+               "the shadow side softly, and the specular stays sharp. 0 (default) = none and no extra cost. Drawn "
+               "for opaque meshes with the engine's own material program; see docs/rendering/RENDERING_LIGHTING.md.")
         .range(0, 1)
+        .field("subsurfaceRadius", &MeshRenderer::subsurfaceRadius,
+               "Metres the diffuse light spreads inside the surface, for the colour channel with the widest "
+               "spread (subsurfaceColor 1): about 0.005..0.02 for skin, 0.02..0.06 for wax. Clamped to 0..0.5. "
+               "Has an effect only when subsurface is above 0.")
+        .range(0, 0.5)
+        .field("subsurfaceColor", &MeshRenderer::subsurfaceColor,
+               "How far each colour channel spreads, relative to subsurfaceRadius: red 1.0 and green and blue "
+               "lower give the red glow of skin (default 1, 0.4, 0.25); white scatters every channel the same "
+               "(marble). Alpha is ignored. Has an effect only when subsurface is above 0.")
         .field("receiveDecals", &MeshRenderer::receiveDecals,
                "true (default): the Decal components whose box reaches this mesh paint it. false: decals skip it "
                "(a character that must stay clean, a mesh drawn by a custom shader that does not call "
