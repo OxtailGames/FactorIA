@@ -226,8 +226,8 @@ std::vector<FeatureDef> build_table() {
          nullptr},
         {"reflectionProbes", "half",
          "Reflection probes: local environment captures, baked or realtime, with box projection and blending between "
-         "probes "
-         "(M73.3)."},
+         "probes (M73.3). ReflectionProbe is captured or loaded into the probe atlas already (render.probes lists it); "
+         "the mesh shader reads the sky's cube until M73.3c makes it read the probes, so this stays planned."},
         {"volumetricFog", "half+depth",
          "Volumetric fog and light shafts: a medium the sun and the point and spot lights (Light.volumetric) shine "
          "through, raymarched at half or quarter resolution and joined to the picture with a depth-aware upsample "

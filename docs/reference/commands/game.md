@@ -498,6 +498,34 @@ Lists the 2D visuals (Sprite, Shape2D, Text, Tilemap, UI widgets) whose drawn bo
 | `position` | array | yes | [x, y] in design pixels (origin top-left). |
 | `max` | integer | no | At most this many hits. Default 20. |
 
+## `render.probe_refresh` (modifies state)
+
+Not released yet (on main after 0.32.0).
+
+Capture a realtime reflection probe again (or every realtime probe) as soon as the frame budget allows.
+
+Capabilities: read, state
+
+Queues one more capture of the ReflectionProbe `entity` (or of every realtime probe when `entity` is left out): the one that an `onDemand` probe waits for, and a way to refresh a `timeSliced` or `everyFrame` probe after the scene around it changed. The capture is made in the next frames, a few cube faces each (render.probes shows `facesDone` and `captures`; the faces per frame are the renderer's budget, 2 by default), so draw a few frames before reading it. Result: {refreshed: [entity ids], skipped: [{entity, reason}]}. Without `entity`, a probe that has no tile yet is listed in `skipped` with the reason; with `entity` it is an error. Example: render.probe_refresh {"entity": "lobby"}
+
+Errors: `invalid_arguments` for an `entity` that is not a string; `not_found` for an `entity` that does not exist; `invalid_argument` when the named entity has no ReflectionProbe or is a baked one; `unavailable` without graphics (graphics=false) or when the named probe has no tile in the atlas. The same is Renderer::probe_refresh in C++.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `entity` | string | no | The probe's entity (id or name). Default: every realtime probe. |
+
+## `render.probes`
+
+Not released yet (on main after 0.32.0).
+
+The reflection probes the renderer keeps: the atlas, each probe's tile, state and last capture.
+
+Capabilities: read
+
+Reads the state of the reflection probes (ReflectionProbe components, docs/design/ARCHITECTURE_PROBES.md) after drawing a frame when none is current. Result: {atlas: {size, format ("RGBA16F" or "RGBA8"), tiles, usedTexels, reservedTexels, capacityTexels, created}, sky: {state, tile, writtenFrame}, faceBudget, frame, passes, overLimit, probes: [{entity, mode, update, state, message?, resolution, importance, tile: {x, y, resolution} or null, captures, lastFrame, facesDone | bakedMap, hash?}]}. `state` is "ready", "pending" (waiting for its first capture), "capturing" (facesDone of 6 faces drawn), "noRoom" (the atlas has no tile for it: `message` says why), "noBake" (a baked probe with no readable bakedMap: run probe.bake) or "failed" (retried after 30 frames). `overLimit` counts the active probes beyond the 256 the renderer keeps (those with the smallest importance): they have no entry in `probes`. A capture is asked again with render.probe_refresh. `lastFrame` counts the frames that had probes. The atlas is not read by the meshes yet. The result is {probes: [], atlas: null} while no ReflectionProbe has been drawn. Errors: `unavailable` without graphics. Example: render.probes {}
+
+The atlas of the realtime and baked probes is one 1024 x 1024 image (8 MB as RGBA16F); `usedTexels` is what the tiles cover and `reservedTexels` what their shelves hold, so a large gap means fragmentation by resolution.
+
 ## `render.reset_post_history` (modifies state)
 
 Since 0.32.0.
