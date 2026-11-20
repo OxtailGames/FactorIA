@@ -18,6 +18,7 @@ layout, the AI integration, the feedback loop and the testing rules; the rest is
 - [Baked lighting: the CPU lightmap baker](ARCHITECTURE_BAKING.md): the triangle BVH, the path tracer, the lightmap and probe API, the determinism rules.
 - [Rendering, the lighting of M73](ARCHITECTURE_RENDERING_LIGHTING.md): the shader files of the mesh program, the texture slots, the feature rows and the new fields.
 - [Volumetric fog and light shafts](ARCHITECTURE_VOLUMETRIC.md): the plan, the march and apply passes, the combination with the analytic fog, the bounds, the stats.
+- [Subsurface scattering](ARCHITECTURE_SUBSURFACE.md): the diffusion profile and its fit, the sss draw, the depth-aware blur and add passes, the fallback, the limits.
 - [Area lights, the LTC tables](ARCHITECTURE_AREA_LIGHTS.md): the fitted Linearly Transformed Cosines tables, the CPU reference of the polygon integral, `ltc.glsl`.
 - [Screen-space effects of the mesh shader](ARCHITECTURE_SCREEN_EFFECTS.md): the screen slot (view 28), the contact shadows' ray march.
 - [Animation, UI, platform, localization, docs](ARCHITECTURE_RUNTIME.md): animation, UI, platform services, localization, headless, docs.

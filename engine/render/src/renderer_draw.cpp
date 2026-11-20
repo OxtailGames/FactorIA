@@ -134,6 +134,9 @@ struct Renderer::Impl::DrawContext {
     // (view 28) of the opaque meshes; screenView is that image, set by main_pass (the transient exists from the graph's execution on).
     bool contactOn = false;
     sg_view screenView{};
+    // M73.5: a mesh of this camera scatters light (MeshRenderer.subsurface) and the camera can draw it (plan_job): the job declares the "sss-draw" pass
+    // (sss_draw_pass), the stack the blur and add passes (SssFx), and the scene uniforms carry the camera's view for the shader's visibility test.
+    bool sssOn = false;
     // plan_outline: this job declares the sprite-coverage pass (PostPlan::coverage) for a sprite outline.
     bool doCoverage = false;
     std::vector<MeshBatch> opaqueBatches, blendedBatches;
@@ -208,6 +211,10 @@ struct Renderer::Impl::DrawContext {
 namespace {
 
 void copy_mat(float* dst, const Mat4& m) { std::memcpy(dst, m.m, sizeof(float) * 16); }
+
+// Does this opaque mesh scatter light (MeshRenderer.subsurface above 0)? Only a mesh drawn by the engine's own program does: a material brings
+// its own lighting, and the sss variant of the shader (mesh_common.glsl, fs_sss) is of the engine's template.
+bool sss_scatters(const MeshItem& mi) { return !mi.material && !mi.mr->unlit && subsurface_of(*mi.mr)[0] > 0.0f; }
 
 // The block the mesh fragment shaders read the sun's cascaded shadow from (fa_shadows of shadow_common.glsl): where each cascade's map is in
 // the atlas image this job draws into (the matrix that takes a world position to the atlas's u, v and a 0..1 depth, the tile's rectangle
@@ -801,8 +808,26 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
     if (draws && !fr.cam.studio)
         for (const LightData& l : ctx.lights) wantContact = wantContact || l.contactLength > 0.0f;
     if (wantContact) ctx.postPlan.needsDepth = true;
+    // Subsurface scattering (M73.5): a camera with an opaque mesh that scatters asks for the prepass (the shader keeps only the surface the camera sees)
+    // and for the images and programs of the passes. A camera that cannot make them draws the meshes as they are.
+    bool wantSss = false;
+    if (draws && !fr.cam.studio)
+        for (const MeshBatch& b : ctx.opaqueBatches)
+            wantSss = wantSss || (b.mainCount > 0 && sss_scatters(ctx.opaque[b.rep]));
+    if (wantSss) {
+        ctx.postPlan.sss = make_sss_plan(fr.cam, ctx.camPx.w, ctx.camPx.h);
+        if (ctx.postPlan.sss.on && sssFx.can_draw(transient_targets(), gpu, ctx.postPlan.sss))
+            ctx.postPlan.needsDepth = true;
+        else
+            ctx.postPlan.sss = SssPlan{};
+    }
     plan_prepass(ctx);
     ctx.contactOn = wantContact && ctx.doPrepass;
+    ctx.sssOn = ctx.postPlan.sss.on && ctx.doPrepass;
+    if (ctx.sssOn)
+        ++stats.subsurfaceCameras;
+    else
+        ctx.postPlan.sss = SssPlan{};
     if (ctx.contactOn) {
         for (const LightData& l : ctx.lights) stats.contactShadowLights += l.contactLength > 0.0f ? 1 : 0;
     } else {
@@ -838,7 +863,7 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
         for (const DrawContext* c : postCams)
             sceneColorFx = sceneColorFx ||
                            ((c->postPlan.ssr.any() || c->postPlan.fogFx.shafts || c->postPlan.sceneFx.any() ||
-                             c->postPlan.vol.on) &&
+                             c->postPlan.vol.on || c->postPlan.sss.on) &&
                             c->doPrepass) ||
                            c->postPlan.custom.any_hdr();
         if (sceneColorFx) {
@@ -1811,8 +1836,9 @@ void Renderer::Impl::scene_uniforms(DrawContext& ctx) {
     if (ctx.localShadowBase >= 0) ctx.shadowU.fa_shadow_lcfg[0] = float(ctx.localShadowBase + 1);
     fuScene.fa_counts[2] = gpu.is_gl() ? 1.0f : 0.0f;
     // The contact shadows' view of the camera (M73.2c; shaders/light_loop.glsl, fa_contact): three rows of the view-projection matrix and the
-    // forward axis, the prepass's size and the distance where the shadows are gone. fa_ct_a.x, which turns them on, is set per draw (fill_fs).
-    if (ctx.contactOn) {
+    // forward axis, the prepass's size and the distance where the shadows are gone. fa_ct_a.x, which turns them on, is set per draw (fill_fs). The
+    // subsurface draw reads the same view for its visibility test against the prepass.
+    if (ctx.contactOn || ctx.sssOn) {
         const Mat4& vp = fr.cam.viewProj;
         const Vec3& fwd = fr.cam.forward;
         for (int c = 0; c < 4; ++c) {
@@ -2666,6 +2692,76 @@ void Renderer::Impl::prepass_pass(DrawContext& ctx, const Target& t) {
     gpu.end_pass();
 }
 
+// The subsurface draw (M73.5, docs/design/ARCHITECTURE_SUBSURFACE.md): the opaque meshes that scatter, drawn again with the sss program of the mesh
+// shader into two images of the camera's size: `a` = the diffuse light the surface sends to the camera and its linear depth, `b` = the scatter radius
+// per colour channel and the strength. The geometry, the instances, the skin, the lightmap and every uniform are the main pass's; only the surface the
+// camera sees counts (the shader tests its depth against `pre`). Reads: ctx.opaque / opaqueBatches, ctx.mainInst, ctx.vuScene, ctx.fuScene,
+// ctx.shadowU. Writes: stats.subsurfaceDraws.
+void Renderer::Impl::sss_draw_pass(DrawContext& ctx, const Target& a, const Target& b, const Target& pre) {
+    if (!a.colorAtt.id || !b.colorAtt.id || !pre.texView.id) return;
+    PassDesc pd = pass_into(a, "sss-draw");
+    pd.format = Gpu::sss_target_format();
+    pd.color1 = b.colorAtt;
+    pd.colorLoad = SG_LOADACTION_CLEAR;  // nothing scatters: no light, depth 0, no strength
+    pd.clearColor = {0.0f, 0.0f, 0.0f, 0.0f};
+    pd.colorStore = SG_STOREACTION_STORE;
+    pd.depthLoad = SG_LOADACTION_CLEAR;
+    pd.clearDepth = 1.0f;
+    gpu.begin_pass(pd);
+    mesh_fa_mesh_vs_params_t vu = ctx.vuScene;
+    for (const MeshBatch& batch : ctx.opaqueBatches) {
+        if (batch.mainCount == 0) continue;
+        const MeshItem& mi = ctx.opaque[batch.rep];
+        if (!sss_scatters(mi)) continue;
+        const MeshBufferUse mbu = resolve_mesh_buffers(*assets, compute, mi);
+        if (mbu.skip || mbu.active) continue;  // a mesh placed by GPU buffers has its own program
+        const std::array<float, 5> sss = subsurface_of(*mi.mr);
+        mesh_fa_sss_params_t su{};
+        su.fa_sss[0] = sss[1] * sss[2];
+        su.fa_sss[1] = sss[1] * sss[3];
+        su.fa_sss[2] = sss[1] * sss[4];
+        su.fa_sss[3] = sss[0];
+        vu.fa_uv_scale[0] = mi.mr->uvScale.x;
+        vu.fa_uv_scale[1] = mi.mr->uvScale.y;
+        for (int k = 0; k < 4; ++k) vu.fa_lm_so[k] = mi.lm.mesh ? mi.lm.scaleOffset[k] : 0.0f;
+        const std::vector<SubMesh>& drawParts = mi.lm.mesh ? mi.lm.mesh->parts : mi.mesh->parts;
+        for (const SubMesh& part : drawParts) {
+            const bool skinned = mi.anim && part.skinVb.id;
+            const PartDraw d = part_draw(ctx, mi, part);
+            if (d.error || d.mat) continue;
+            const MaterialProgram& prog = gpu.sss_program(skinned);
+            const sg_pipeline pipe = gpu.sss_pipeline(part.doubleSided, skinned);
+            if (!pipe.id) continue;
+            sg_apply_pipeline(pipe);
+            sg_bindings bind{};
+            bind.vertex_buffers[0] = part.vb;
+            bind.vertex_buffers[1] = ctx.mainInst;
+            bind.vertex_buffer_offsets[1] = int(batch.mainFirst * kMeshInstanceBytes);
+            if (skinned)
+                bind.vertex_buffers[2] = part.skinVb;
+            else  // like the main pass: the lightmap UV, or zeros
+                bind.vertex_buffers[kUv1Buffer] =
+                    part.uv1Vb.id && mi.lm.mesh ? part.uv1Vb : assets->zero_uv1(std::size_t(part.vertexCount));
+            bind.index_buffer = part.ib;
+            bind.index_buffer_offset = part.ibOffset;
+            bind_textures(ctx, bind, d, &prog, MaterialInputs{}, false, true);
+            bind.views[VIEW_mesh_fa_screen_tex] =
+                pre.texView;  // the shader's visibility test, always (contact shadows read it too)
+            sg_apply_bindings(&bind);
+            apply_uniforms(UB_mesh_fa_mesh_vs_params, vu);
+            if (skinned && prog.has_ub(UB_mesh_fa_skin))
+                apply_uniforms(UB_mesh_fa_skin, pack_palette(palette_of(*mi.anim, part.skin)));
+            if (prog.has_ub(UB_mesh_fa_mesh_fs_params))
+                apply_uniforms(UB_mesh_fa_mesh_fs_params, fill_fs(ctx, mi, part, d));
+            if (prog.has_ub(UB_mesh_fa_shadows)) apply_uniforms(UB_mesh_fa_shadows, ctx.shadowU);
+            if (prog.has_ub(UB_mesh_fa_sss_params)) apply_uniforms(UB_mesh_fa_sss_params, su);
+            sg_draw(0, part.indexCount, int(batch.mainCount));
+            ++stats.subsurfaceDraws;
+        }
+    }
+    gpu.end_pass();
+}
+
 // Paints the prepass (depth or normals, Renderer::set_debug_view) over the game image the main pass drew.
 void Renderer::Impl::prepass_view_pass(DrawContext& ctx, const Target& t) {
     PassDesc dp = pass_into(gameTarget, "prepass-view");
@@ -3349,6 +3445,25 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
                         &stats.drawCalls);
         });
     }
+    // The subsurface draw (M73.5): in this camera's own job, after its shadow and prepass passes (it reads this job's shadow atlas); the blur and the pass that
+    // adds the change to the picture are declared with the post stack, in the last job.
+    if (ctx.sssOn && ctx.postPlan.prepass.valid()) {
+        const ResourceId lightRes_ = graph.create_transient(SssFx::light_desc(ctx.postPlan.sss, plan.name));
+        const ResourceId paramRes = graph.create_transient(SssFx::params_desc(ctx.postPlan.sss, plan.name + "/b"));
+        ctx.postPlan.sssLight = lightRes_;
+        ctx.postPlan.sssParams = paramRes;
+        std::vector<ResourceId> reads{prepassRes};
+        if (ctx.doShadows) reads.push_back(shadowRes);
+        if (ctx.envActive) reads.push_back(envRes);
+        reads.insert(reads.end(), shown.begin(), shown.end());
+        add("sss-draw", std::move(reads), {lightRes_, paramRes},
+            [this, &ctx, lightRes_, paramRes, prepassRes](const PassContext& c) {
+                const Target* at = transient_targets().get(c.handle(lightRes_));
+                const Target* bt = transient_targets().get(c.handle(paramRes));
+                const Target* pt = transient_targets().get(c.handle(prepassRes));
+                if (at && bt && pt) sss_draw_pass(ctx, *at, *bt, *pt);
+            });
+    }
     // The ambient occlusion (renderer_ssao.h): its images are made from the prepass before the main pass, which applies them after the
     // opaque meshes (main_pass). Only a job that draws the world and has the prepass declares them.
     ctx.ssaoApply = SsaoApply{};
@@ -3447,6 +3562,13 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
         }
     };
     custom_slot(PostSlot::Main);
+    // The subsurface scattering of every camera (renderer_subsurface.h): the blur of the light the sss-draw pass left in its images, and the change it makes
+    // added to the camera's rectangle of the picture the main pass drew (the blended meshes are in it, as the fog sees them).
+    for (DrawContext* c : postCams) {
+        if (!c->postPlan.sss.on || !c->postPlan.sssLight.valid() || !c->postPlan.sssParams.valid()) continue;
+        sssFx.add_passes(graph, transient_targets(), gpu, c->postPlan.sss, c->postPlan.sssLight, c->postPlan.sssParams,
+                         c->postPlan.rect, physW, physH, game, game_dst(), &stats.drawCalls, c->plan.name);
+    }
     // The volumetric fog of every camera (renderer_volumetric.h): its march image blended over the camera's rectangle of the picture the main pass drew (the
     // blended meshes are in it), before the reflections, the sun shafts and the rest of the stack.
     for (DrawContext* c : postCams) {

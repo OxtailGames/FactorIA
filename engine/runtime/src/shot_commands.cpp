@@ -675,7 +675,7 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
          "the feature can ever run. `status` is \"supported\", \"planned (<milestone>)\" for an engine feature or "
          "effect the "
          "renderer does not draw (the M73 lighting rows until their step lands; clusteredLights, areaLights, "
-         "lightCookies, iesProfiles, lightmaps, lightProbes and volumetricFog are drawn), or one "
+         "lightCookies, iesProfiles, lightmaps, lightProbes, volumetricFog and subsurface are drawn), or one "
          "sentence that names the backend or the missing "
          "GPU capability. "
          "hdrOutput "

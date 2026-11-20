@@ -351,6 +351,11 @@ void Gpu::shutdown() {
         *s = {};
     }
     prepassState_ = prepassViewState_ = 0;
+    for (sg_shader* s : {&sssShader_, &sssSkinShader_}) {
+        if (s->id) sg_destroy_shader(*s);
+        *s = {};
+    }
+    sssState_ = 0;
     if (light_shader_.id) sg_destroy_shader(light_shader_);
     light_shader_ = {};
     lightState_ = 0;
@@ -462,6 +467,10 @@ sg_pipeline Gpu::find_or_make(PipelineKey key, const TargetFormat& format, const
     }
     sg_pipeline_desc desc = request;  // a copy only on a miss (the description is more than 1 KB)
     desc.colors[0].pixel_format = format.color;
+    if (format.color1 != SG_PIXELFORMAT_NONE) {
+        desc.color_count = 2;
+        desc.colors[1].pixel_format = format.color1;
+    }
     desc.depth.pixel_format = format.depth;
     desc.sample_count = format.samples;
     // A pipeline asked for before its lazily made shader exists (a caller that skipped the *_ready() check) is an engine
@@ -882,6 +891,67 @@ sg_pipeline Gpu::prepass_pipeline(const TargetFormat& format, bool doubleSided, 
     d.face_winding = SG_FACEWINDING_CCW;
     d.label = "prepass";
     return find_or_make(key, format, d);
+}
+
+bool Gpu::sss_ready() {
+    if (sssState_ != 0) return sssState_ > 0;
+    const sg_backend backend = sg_query_backend();
+    sssShader_ = make_shader(mesh_mesh_sss_shader_desc(backend), "mesh_mesh_sss");
+    sssSkinShader_ = make_shader(mesh_mesh_skin_sss_shader_desc(backend), "mesh_mesh_skin_sss");
+    const sg_pixelformat_info fmt = sg_query_pixelformat(SG_PIXELFORMAT_RGBA16F);
+    if (!fmt.render || !fmt.sample || sg_query_shader_state(sssShader_) != SG_RESOURCESTATE_VALID ||
+        sg_query_shader_state(sssSkinShader_) != SG_RESOURCESTATE_VALID) {
+        for (sg_shader* s : {&sssShader_, &sssSkinShader_}) {
+            if (s->id) sg_destroy_shader(*s);
+            *s = {};
+        }
+        sssState_ = -1;
+        FA_ERROR(
+            "render",
+            "Subsurface scattering is unavailable: the GPU cannot render to a half-float image or the shader of the "
+            "scattering meshes failed to compile for this graphics backend (see the sokol log lines above). "
+            "Meshes with MeshRenderer.subsurface draw without it. Hint: update the graphics driver (Mesa: try "
+            "LIBGL_ALWAYS_SOFTWARE=1).");
+        return false;
+    }
+    sssProgram_[0] = program_slots(sssShader_, mesh_mesh_sss_shader_desc(backend));
+    sssProgram_[1] = program_slots(sssSkinShader_, mesh_mesh_skin_sss_shader_desc(backend));
+    sssState_ = 1;
+    return true;
+}
+
+sg_pipeline Gpu::sss_pipeline(bool doubleSided, bool skinned) {
+    if (!sss_ready()) return {};
+    PipelineKey key{0xD80u | (doubleSided ? 2u : 0u) | (skinned ? 4u : 0u)};
+    sg_pipeline_desc d{};
+    d.shader = skinned ? sssSkinShader_ : sssShader_;
+    if (skinned) {
+        d.layout.attrs[ATTR_mesh_mesh_skin_sss_fa_position].format = SG_VERTEXFORMAT_FLOAT3;
+        d.layout.attrs[ATTR_mesh_mesh_skin_sss_fa_normal].format = SG_VERTEXFORMAT_FLOAT3;
+        d.layout.attrs[ATTR_mesh_mesh_skin_sss_fa_texcoord0].format = SG_VERTEXFORMAT_FLOAT2;
+        d.layout.attrs[ATTR_mesh_mesh_skin_sss_fa_tangent].format = SG_VERTEXFORMAT_FLOAT4;
+        d.layout.attrs[ATTR_mesh_mesh_skin_sss_fa_color].format = SG_VERTEXFORMAT_UBYTE4N;
+        set_instance_layout(d, ATTR_mesh_mesh_skin_sss_fa_inst_m0, false);
+        set_skin_layout(d, ATTR_mesh_mesh_skin_sss_fa_joints, ATTR_mesh_mesh_skin_sss_fa_weights);
+    } else {
+        d.layout.attrs[ATTR_mesh_mesh_sss_fa_position].format = SG_VERTEXFORMAT_FLOAT3;
+        d.layout.attrs[ATTR_mesh_mesh_sss_fa_normal].format = SG_VERTEXFORMAT_FLOAT3;
+        d.layout.attrs[ATTR_mesh_mesh_sss_fa_texcoord0].format = SG_VERTEXFORMAT_FLOAT2;
+        d.layout.attrs[ATTR_mesh_mesh_sss_fa_tangent].format = SG_VERTEXFORMAT_FLOAT4;
+        d.layout.attrs[ATTR_mesh_mesh_sss_fa_color].format = SG_VERTEXFORMAT_UBYTE4N;
+        set_instance_layout(d, ATTR_mesh_mesh_sss_fa_inst_m0, false);
+        // Like the engine's own main program: the lightmap UV (vertex buffer 4), which the draw binds as zeros when the mesh has none.
+        MeshExtras lm;
+        lm.uv1 = true;
+        set_extra_layout(d, kExtraAttrBase, lm);
+    }
+    d.index_type = SG_INDEXTYPE_UINT32;
+    d.depth.compare = SG_COMPAREFUNC_LESS_EQUAL;
+    d.depth.write_enabled = true;
+    d.cull_mode = doubleSided ? SG_CULLMODE_NONE : SG_CULLMODE_BACK;
+    d.face_winding = SG_FACEWINDING_CCW;
+    d.label = "mesh-sss";
+    return find_or_make(key, sss_target_format(), d);
 }
 
 bool Gpu::prepass_view_ready() {
