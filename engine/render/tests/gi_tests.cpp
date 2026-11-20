@@ -138,7 +138,8 @@ TEST_CASE("RealtimeGI neighbours: the eight probes around a point weigh 1 and th
     c.spacing = 2.0f;
     const GiLayout g = gi_layout(c, {}, "e").value();  // 3 x 3 x 3 probes at -2, 0, 2
     REQUIRE(g.count == 27);
-    for (Vec3 p : {Vec3{0.3f, -1.2f, 0.7f}, Vec3{-2.0f, -2.0f, -2.0f}, Vec3{5.0f, 5.0f, 5.0f}, Vec3{0.0f, 0.0f, 0.0f}}) {
+    for (Vec3 p :
+         {Vec3{0.3f, -1.2f, 0.7f}, Vec3{-2.0f, -2.0f, -2.0f}, Vec3{5.0f, 5.0f, 5.0f}, Vec3{0.0f, 0.0f, 0.0f}}) {
         const GiNeighbours n = gi_neighbours(g, p);
         float sum = 0.0f;
         for (int i = 0; i < 8; ++i) {

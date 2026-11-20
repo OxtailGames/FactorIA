@@ -131,7 +131,9 @@ Block read_block(Own& o, int block) {
 float dc(const Block& b, int channel) {  // coefficient 0 of the SH row
     return b.rgba[(std::size_t(kGiShRow) * kGiBlockW + 0) * 4 + std::size_t(channel)];
 }
-float meta(const Block& b, int channel) { return b.rgba[(std::size_t(kGiShRow) * kGiBlockW + kGiMetaX) * 4 + std::size_t(channel)]; }
+float meta(const Block& b, int channel) {
+    return b.rgba[(std::size_t(kGiShRow) * kGiBlockW + kGiMetaX) * 4 + std::size_t(channel)];
+}
 // The mean distance the depth map holds toward `d`.
 float depth_toward(const Block& b, Vec3 d) {
     const Vec2 uv = gi_depth_uv(normalize(d));
@@ -158,11 +160,11 @@ TEST_CASE("realtime GI: the probes near a coloured wall are tinted by it and the
     Own o(g);
     REQUIRE(o.ok);
     World w;
-    build_walls(w);
+    const Entity gi = build_walls(w);
     run_frames(o, w, 4);
     const Json report = o.r.gi_report();
     INFO("report: " << report.dump(2));
-    const Json* grid = grid_json(report, "gi");
+    const Json* grid = grid_json(report, w.id_of(gi));
     REQUIRE(grid != nullptr);
     if ((*grid)["state"] == "unsupported") {
         MESSAGE("this GPU cannot blend into RGBA16F: not run");
@@ -215,13 +217,13 @@ TEST_CASE("realtime GI: a frame captures at most probesPerFrame probes and every
     World w;
     dark_world(w);
     add_box(w, "floor", {0, -2, 0}, {10, 0.2f, 10}, Color{0.5f, 0.5f, 0.5f, 1});
-    add_gi(w, {6, 0, 6}, 2.0f, 3);  // 4 x 1 x 4 = 16 probes
+    const Entity gi = add_gi(w, {6, 0, 6}, 2.0f, 3);  // 4 x 1 x 4 = 16 probes
     int previous = 0;
     bool unsupported = false;
     for (int i = 0; i < 14; ++i) {
         o.frame(w);
         const Json report = o.r.gi_report();
-        const Json* grid = grid_json(report, "gi");
+        const Json* grid = grid_json(report, w.id_of(gi));
         REQUIRE(grid != nullptr);
         if ((*grid)["state"] == "unsupported") {
             unsupported = true;
@@ -243,7 +245,7 @@ TEST_CASE("realtime GI: a frame captures at most probesPerFrame probes and every
     }
     // 14 frames at 3 probes: 16 probes captured by the sixth frame at the latest.
     const Json report = o.r.gi_report();
-    const Json* grid = grid_json(report, "gi");
+    const Json* grid = grid_json(report, w.id_of(gi));
     REQUIRE(grid != nullptr);
     CHECK((*grid)["captured"].get<int>() == 16);
     CHECK((*grid)["state"] == "ready");
@@ -271,10 +273,10 @@ TEST_CASE("realtime GI: the same scene leaves the same bytes in the blocks on ev
         Own o(g);
         REQUIRE(o.ok);
         World w;
-        build_walls(w);
+        const Entity gi = build_walls(w);
         run_frames(o, w, 6);
         const Json report = o.r.gi_report();
-        const Json* grid = grid_json(report, "gi");
+        const Json* grid = grid_json(report, w.id_of(gi));
         REQUIRE(grid != nullptr);
         if ((*grid)["state"] == "unsupported") {
             MESSAGE("this GPU cannot blend into RGBA16F: not run");
@@ -305,11 +307,11 @@ TEST_CASE("realtime GI: a probe inside a closed box is reported invalid and the 
     World w;
     dark_world(w);
     add_box(w, "box", {-2, 0, 0}, {3, 3, 3}, Color{1, 1, 1, 1});  // x from -3.5 to -0.5
-    add_gi(w, {4, 0, 0}, 4.0f, 2);                                // probes at x = -2 (inside the box) and x = +2
+    const Entity gi = add_gi(w, {4, 0, 0}, 4.0f, 2);              // probes at x = -2 (inside the box) and x = +2
     run_frames(o, w, 4);
     const Json report = o.r.gi_report();
     INFO("report: " << report.dump(2));
-    const Json* grid = grid_json(report, "gi");
+    const Json* grid = grid_json(report, w.id_of(gi));
     REQUIRE(grid != nullptr);
     if ((*grid)["state"] == "unsupported") {
         MESSAGE("this GPU cannot blend into RGBA16F: not run");
@@ -342,13 +344,13 @@ TEST_CASE("realtime GI: a scene without a RealtimeGI costs nothing and one with 
     add_box(w, "red", {0, 0, -4}, {2, 2, 0.2f}, Color{1, 0, 0, 1});
     const Image before = o.picture(w);
     REQUIRE(!before.empty());
-    CHECK(o.r.gi_report().dump() == "{}");   // no grid
+    CHECK(o.r.gi_report().dump() == "{}");     // no grid
     CHECK(o.r.probe_report().dump() == "{}");  // no atlas: not a pass of the probes ran
 
     const Entity gi = add_gi(w, {6, 0, 6}, 2.0f, 4, {0, 0, -4});
     run_frames(o, w, 3);
     const Json report = o.r.gi_report();
-    const Json* grid = grid_json(report, "gi");
+    const Json* grid = grid_json(report, w.id_of(gi));
     REQUIRE(grid != nullptr);
     if ((*grid)["state"] == "unsupported") {
         MESSAGE("this GPU cannot blend into RGBA16F: only the zero cost was checked");

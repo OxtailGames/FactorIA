@@ -690,6 +690,41 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
         });
 
     I.commands.add(
+        {"render.gi_grid",
+         "The realtime GI's probe grids: probe count, update progress, memory and the probes that are inside geometry.",
+         "Reads the state of the RealtimeGI grids (docs/rendering/RENDERING_LIGHT_PROBES.md, \"Realtime global "
+         "illumination\") after drawing a frame when none is current. Result: {frame, captures, "
+         "capturesPerFrame: [probes captured in each of the last 64 frames, newest last], passes, probeLimit, "
+         "probesPerFrameLimit, atlas: {width, height, format, bytes, blocksUsed}, "
+         "grids: [{entity, state, message?, probes, dimensions: [nx, ny, nz], spacing, origin: [x, y, z], resolution, "
+         "probesPerFrame, firstBlock, captured, progress (0..1), cycles, capturesLastFrame, framesPerCycle, bytes, "
+         "notCaptured, invalidProbes, invalid: [{index, position}] (up to 64)}]}. `state` is \"updating\" (probes "
+         "not captured yet), \"ready\" (every probe captured once; the others are refreshed in turn, "
+         "`framesPerCycle` frames for all), \"invalid\" (the component is wrong: `message` says which field and how "
+         "to fix it), \"noRoom\" (the grids together need more than `probeLimit` probes), \"failed\" (a capture "
+         "could not be drawn, retried after 30 frames) or \"unsupported\" (this GPU cannot blend into RGBA16F "
+         "images). `bytes` is what the grid's blocks take in the atlas. `invalidProbes` counts the probes whose "
+         "rays hit back faces first (the probe is inside a mesh) beyond the component's `backfaceTolerance`: they are "
+         "found by reading the atlas back once, so call this command to look, not every frame. Nothing is shaded "
+         "with the grid yet (M73-P5d-2). The result is {grids: [], atlas: null} while no RealtimeGI has been drawn. "
+         "Errors: `unavailable` without graphics. Example: render.gi_grid {}" FA_COMMAND_DETAILS
+         "A grid costs `probes` x 10 x 11 texels x 8 bytes of the probe atlas (1760 bytes for two probes) and "
+         "`probesPerFrame` x 6 faces of `resolution` x `resolution` texels a frame; the atlas grows by 132 rows "
+         "(about 1 MB) while any RealtimeGI exists.",
+         parse_schema(R"({"type":"object","properties":{}})"), true, "game"},
+        [&engine, &I](const Json& a) {
+            check_args_known(a, {}, "render.gi_grid");
+            if (!I.renderer || !I.renderer->initialized())
+                throw CommandError("unavailable",
+                                   "No renderer: the engine runs with graphics=false, so no GI probes are captured.",
+                                   "Run with graphics (headless needs Mesa/EGL on Linux), not graphics=false.");
+            engine.render_now();
+            Json j = I.renderer->gi_report();
+            if (j.empty()) return Json::object({{"grids", Json::array()}, {"atlas", Json()}});
+            return j;
+        });
+
+    I.commands.add(
         {"render.probe_refresh",
          "Capture a realtime reflection probe again (or every realtime probe) as soon as the frame budget allows.",
          "Queues one more capture of the ReflectionProbe `entity` (or of every realtime probe when `entity` is left "
@@ -1108,6 +1143,7 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
                                                  {"render.supports", capability_sets::reads()},
                                                  {"render.material_cost", capability_sets::reads()},
                                                  {"render.probes", capability_sets::reads()},
+                                                 {"render.gi_grid", capability_sets::reads()},
                                                  {"render.probe_refresh", capability_sets::changes_state()},
                                                  {"render.light_probes", capability_sets::reads()},
                                                  {"render.debug_view", capability_sets::changes_state()},
