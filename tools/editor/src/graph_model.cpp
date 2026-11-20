@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <chrono>
 #include <cmath>
 #include <filesystem>
 
@@ -189,6 +190,18 @@ GraphModel::Stamp GraphModel::stamp() const {
     if (!ec) s.time = std::int64_t(t.time_since_epoch().count());
     const auto sz = stdfs::file_size(*abs, ec);
     if (!ec) s.size = sz;
+    if (!ec && sz <= (1u << 20)) {
+        // A file written within the last second may be written again inside the same file-time step: tell by content.
+        const auto age = stdfs::file_time_type::clock::now() - t;
+        if (age < std::chrono::seconds(1)) {
+            auto text = fs::read_text(fs::path_to_utf8(*abs));
+            if (text.ok()) {
+                std::uint64_t h = 1469598103934665603ull;
+                for (const unsigned char c : *text) h = (h ^ c) * 1099511628211ull;
+                s.hash = h | 1;  // never 0
+            }
+        }
+    }
     return s;
 }
 

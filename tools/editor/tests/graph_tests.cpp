@@ -466,6 +466,22 @@ TEST_CASE("graph model: the file changing on disk is found; unsaved edits are no
     CHECK_FALSE(m.external_conflict());
 }
 
+TEST_CASE("graph model: a second outside write of the same size, right after the first, is still found") {
+    // Windows steps file times by ~15 ms: two writes in one step keep time and size, so a recent file is told by content.
+    GraphProject p;
+    p.open();
+    GraphModel& m = *p.model;
+    Json doc = Json::parse(kDissolve);
+    doc["graph"]["nodes"][0]["inputs"]["scale"] = 12.0;
+    p.write(kMat, doc.dump(2));
+    CHECK(m.poll_external());
+    CHECK(m.input_value("noise", "scale") == 12.0);
+    doc["graph"]["nodes"][0]["inputs"]["scale"] = 13.0;  // same number of characters
+    p.write(kMat, doc.dump(2));
+    CHECK(m.poll_external());
+    CHECK(m.input_value("noise", "scale") == 13.0);
+}
+
 TEST_CASE("graph model: the palette lists the nodes of the material's kind and filters by name, category and doc") {
     GraphProject p;
     p.open();
