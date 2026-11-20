@@ -49,6 +49,22 @@ TEST_CASE("probe octahedral map: encode and decode are inverses over the whole s
     CHECK(z.y == 0.0f);
 }
 
+TEST_CASE("probe capture camera: six right-handed orthonormal faces that look along the six axes") {
+    const Vec3 axes[6] = {{1, 0, 0}, {-1, 0, 0}, {0, 1, 0}, {0, -1, 0}, {0, 0, 1}, {0, 0, -1}};
+    for (int f = 0; f < 6; ++f) {
+        const ProbeFace c = probe_face(f);
+        CHECK(dot(c.fwd, axes[f]) == doctest::Approx(1.0));
+        CHECK(dot(c.fwd, c.up) == doctest::Approx(0.0));
+        CHECK(dot(c.right, c.fwd) == doctest::Approx(0.0));
+        CHECK(length(c.right) == doctest::Approx(1.0));
+        // right x up = -fwd: the camera's third axis points backwards, as every camera of the engine's does
+        const Vec3 back = cross(c.right, c.up);
+        CHECK(dot(back, c.fwd) == doctest::Approx(-1.0));
+    }
+    CHECK(probe_face(-3).fwd.x == 1.0f);
+    CHECK(probe_face(99).fwd.z == -1.0f);
+}
+
 TEST_CASE("probe octahedral map: the border texel is the texel across the edge, so a clamped tap is continuous") {
     // A texel one step beyond the edge decodes to the direction of its neighbour across the fold: the border of a tile computed
     // from the direction equals the mirrored interior texel, so the bilinear tap between the edge and its border is continuous.
