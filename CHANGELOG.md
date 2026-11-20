@@ -6,6 +6,7 @@ Older versions, one file per minor version with its patch releases: [0.32](chang
 
 ## Unreleased
 
+- **Baking polish (M73):** the bake memory estimate counts 320 bytes per triangle, the automatic `rayEpsilon` is at most 1 cm, the next bake deletes the pages and `.probes` files a previous one left behind, `lightmap.bake` is refused while the game runs (`game_running`), the job registry keeps the last 8 finished jobs, `render.light_probes` reports `stale` per group and `unbaked` scene groups (the Lightmap window shows them), the probe gizmo skips probes behind the camera and **View > Show light probes** hides them, probe light is culled by group box, and the Radiance decoder allocates once, after checking the file, with a size limit.
 - **Subsurface scattering (M73.5):** `MeshRenderer.subsurface` (strength 0..1), `subsurfaceRadius` (metres, 0..0.5, the distance that holds 90% of the
   light) and `subsurfaceColor` (the spread of each colour channel) make skin, wax and marble: the diffuse light of the mesh is drawn into an image of its
   own, blurred along x and y with a depth-aware separable profile of our own (four Gaussians fitted to the diffusion profile of skin, the red tail wider

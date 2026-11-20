@@ -5,6 +5,7 @@
 #include <atomic>
 #include <cmath>
 #include <cstdint>
+#include <filesystem>
 #include <map>
 #include <set>
 #include <utility>
@@ -231,19 +232,7 @@ Result<Plan> make_plan(World& world, const std::string& scene, const Options& op
         plan.meshes.push_back(std::move(pm));
     }
     // The light probes (M73.4d): the groups of the active entities, in id order, as positions.
-    {
-        std::vector<std::pair<std::string, Entity>> groupEntities;
-        world.each<LightProbeGroup>([&](Entity e, LightProbeGroup&) {
-            if (world.active_in_hierarchy(e)) groupEntities.emplace_back(world.id_of(e), e);
-        });
-        std::sort(groupEntities.begin(), groupEntities.end(),
-                  [](const auto& a, const auto& b) { return a.first < b.first; });
-        for (const auto& [id, e] : groupEntities) {
-            const Vec3 at = world.world_matrix(e).translation();
-            if (auto r = add_probe_group(plan.probes, id, *world.get<LightProbeGroup>(e), at); !r)
-                return Error{r.error().message, r.error().hint};
-        }
-    }
+    if (auto r = collect_probe_groups(world, plan.probes); !r) return Error{r.error().message, r.error().hint};
     if (receivers == 0 && plan.probes.size() == 0)
         return make_error(
             "nothing to bake: the scene has no active MeshRenderer that receives light into a lightmap and no "
@@ -430,6 +419,44 @@ std::string file_of(const std::string& path) {
 std::string stem_of(const std::string& manifestFile) {
     const std::string tail = ".lightmap.json";
     return manifestFile.size() > tail.size() ? manifestFile.substr(0, manifestFile.size() - tail.size()) : manifestFile;
+}
+
+// True for "<hash8>.<n>.hdr" and "<hash8>.probes": what follows "<stem>.lightmap." in a file this job wrote. The strict shape keeps the
+// sweep of stale files away from the files of another manifest whose stem starts with this one ("main.lightmap.v2.lightmap.json").
+bool is_bake_tail(const std::string& tail) {
+    auto hex8 = [&](std::size_t at) {
+        if (tail.size() < at + 8) return false;
+        for (std::size_t i = at; i < at + 8; ++i)
+            if (!((tail[i] >= '0' && tail[i] <= '9') || (tail[i] >= 'a' && tail[i] <= 'f'))) return false;
+        return true;
+    };
+    if (!hex8(0) || tail.size() < 10 || tail[8] != '.') return false;
+    const std::string rest = tail.substr(9);
+    if (rest == "probes") return true;
+    if (rest.size() < 5 || rest.substr(rest.size() - 4) != ".hdr") return false;
+    const std::string digits = rest.substr(0, rest.size() - 4);
+    return !digits.empty() && std::all_of(digits.begin(), digits.end(), [](char ch) { return ch >= '0' && ch <= '9'; });
+}
+
+// Deletes the pages and probe files of earlier bakes of this manifest that nothing lists any more. A delete that failed before (a page
+// another program held open on Windows) left the file behind with nobody to remove it: this finds it by its name. `keep` are the project
+// paths the manifest just written lists: they are never touched, whatever the names look like. A file that is still open stays for the next bake.
+void sweep_stale_files(const std::string& dirAbs, const std::string& dirProject, const std::string& stem,
+                       const std::set<std::string>& keep) {
+    const std::string prefix = stem + ".lightmap.";
+    std::error_code ec;
+    std::vector<std::string> stale;
+    for (std::filesystem::directory_iterator it(fs::path_from_utf8(dirAbs.empty() ? "." : dirAbs), ec), end;
+         !ec && it != end; it.increment(ec)) {
+        const std::string name = fs::path_to_utf8(it->path().filename());
+        if (name.rfind(prefix, 0) != 0 || !is_bake_tail(name.substr(prefix.size()))) continue;
+        if (keep.count(dirProject + name) != 0) continue;
+        stale.push_back(name);
+    }
+    for (const std::string& name : stale) {
+        std::error_code rec;
+        fs::remove_file(fs::path_from_utf8(dirAbs + name), rec);
+    }
 }
 
 Error write_error(const std::string& what, const std::string& file, const Error& cause) {
@@ -807,6 +834,11 @@ Result<Json> execute(const Plan& plan, const ReportFn& report) {
             std::error_code ec;
             fs::remove_file(fs::path_from_utf8(dirAbs + name), ec);
         }
+    }
+    {
+        std::set<std::string> keep(newPages.begin(), newPages.end());
+        if (!newProbes.empty()) keep.insert(newProbes);
+        sweep_stale_files(dirAbs, dirProject, stem, keep);
     }
     say("writing", 1.0, result.stats.rays);
 

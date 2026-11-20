@@ -730,6 +730,33 @@ TEST_CASE("bvh: a cancelled build returns false and leaves an empty tree; an unc
     flag = false;
     CHECK(tree.build(corners.data(), corners.size() / 3, &flag));
     CHECK(tree.closest({0.1f, 1, 0.1f}, {0, -1, 0}, 10.0f, -1, hit));
+    // The overload that takes the corners over builds the same tree.
+    TriBvh moved;
+    std::vector<Vec3> handOver = corners;
+    CHECK(moved.build(std::move(handOver), &flag));
+    CHECK(moved.triangle_count() == tree.triangle_count());
+    RayHit hit2;
+    CHECK(moved.closest({0.1f, 1, 0.1f}, {0, -1, 0}, 10.0f, -1, hit2));
+    CHECK(hit2.tri == hit.tri);
+    CHECK(hit2.t == hit.t);
+}
+
+TEST_CASE("lightmap bake: the memory estimate counts 320 bytes per triangle") {
+    BakeScene sc;
+    BakeMesh m;
+    m.positions = {{0, 0, 0}, {1, 0, 0}, {0, 1, 0}};
+    m.normals = {{0, 0, 1}, {0, 0, 1}, {0, 0, 1}};
+    for (int i = 0; i < 10000; ++i) m.indices.insert(m.indices.end(), {0, 1, 2});
+    m.materials.assign(10000, 0);
+    sc.meshes.push_back(m);
+    BakeSettings st = fast_settings();
+    st.maxMemoryBytes = 3000000;  // 10000 triangles * 240 B would fit, * 320 B (3.2 MB) does not
+    auto r = validate_bake(sc, st);
+    REQUIRE_FALSE(r.ok());
+    CHECK(r.error().message.find("/maxMemoryBytes") != std::string::npos);
+    st.maxMemoryBytes = 3300000;
+    auto fits = validate_bake(sc, st);  // another rule may refuse this bare scene, but not the budget
+    CHECK((fits.ok() || fits.error().message.find("/maxMemoryBytes") == std::string::npos));
 }
 
 TEST_CASE("lightmap bake: non-finite rotation, soft radius and light sizes are refused with their field") {
@@ -786,6 +813,41 @@ TEST_CASE("lightmap bake: the automatic ray offset follows the texel, not the si
     REQUIRE(r.ok());
     CHECK(texel(r->atlases[0], 32, 32).x < 0.05f);  // under the slab
     CHECK(texel(r->atlases[0], 4, 4).x > 0.9f);     // in the open
+}
+
+TEST_CASE(
+    "sample_probes: the automatic ray offset is capped at 1 cm, so a thin wall in a 1 km world still shadows a probe") {
+    // A probe 1 m under a wall, a point light 3 cm above it (the shadow ray stops 2 * offset before the light), and a triangle 1 km away
+    // that widens the scene: size / 10000 would be 10 cm and the ray would end 17 cm under the wall.
+    auto scene = [](bool withWall) {
+        BakeScene sc;  // black sky: only the light can light the probe
+        if (withWall) sc.meshes.push_back(quad("wall", {-2, -2, 0}, {4, 0, 0}, {0, 4, 0}, {0, 0, 1}, -1, 0, 0, 0, 0));
+        sc.meshes.push_back(quad("far", {1000, 0, 0}, {1, 0, 0}, {0, 0, 1}, {0, 1, 0}, -1, 0, 0, 0, 0));
+        BakeLight light;
+        light.kind = BakeLightKind::Point;
+        light.position = {0, 0, 0.03f};
+        light.range = 10;
+        light.intensity = 4;
+        sc.lights = {light};
+        return sc;
+    };
+    BakeSettings st = fast_settings();
+    st.bounces = 0;
+    st.shadowSamples = 4;
+    st.probeBackfaceTolerance =
+        1.0f;  // the wall's back faces half of the probe's rays: it must not be flagged and zeroed
+    const std::vector<Vec3> probe = {{0, 0, -1}};
+    auto open = sample_probes(scene(false), probe, st);
+    auto walled = sample_probes(scene(true), probe, st);
+    REQUIRE(open.ok());
+    REQUIRE(walled.ok());
+    CHECK((*open)[0].sh.c[0].x > 0.0f);
+    CHECK((*walled)[0].sh.c[0].x == 0.0f);
+    // An explicit offset is taken as it is: 10 cm leaks, which is what the cap protects the automatic value from.
+    st.rayEpsilon = 0.1f;
+    auto leaky = sample_probes(scene(true), probe, st);
+    REQUIRE(leaky.ok());
+    CHECK((*leaky)[0].sh.c[0].x > 0.0f);
 }
 
 // ---- the sky's spherical harmonics (M73-P3e): sh_basis and sh_project_cube are the CPU twin of the pass that bakes the sky's SH -------

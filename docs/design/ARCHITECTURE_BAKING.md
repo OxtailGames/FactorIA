@@ -39,10 +39,10 @@ that replaces it. Emissive surfaces light the others, not themselves.
 ## The algorithm
 
 1. **Validate and budget.** Settings ranges, atlas sizes (`maxAtlasSize`, the texel density cap), indices, finite numbers, UV range,
-   materials, lights and sky. The memory estimate is `texels * 80 + triangles * 240` bytes (probes: 160 per point) in 64-bit
+   materials, lights and sky. The memory estimate is `texels * 80 + triangles * 320` bytes (the flattened triangle data, the BVH's corners and nodes, and a margin) (probes: 160 per point) in 64-bit
    saturating maths (a 32-bit `size_t` on wasm cannot wrap it) and is compared with `maxMemoryBytes` before anything is allocated.
 2. **Flatten.** Corners, shading normals, UVs, face normals (turned to the side the vertex normals point to), materials; the BVH
-   over the triangles that cast shadows; `rayEpsilon` (0 = a ten-thousandth of the scene's size).
+   over the triangles that cast shadows; `rayEpsilon` (0 = a ten-thousandth of the scene's size, at most 1 cm and for a lightmap at most 1/20 of a texel).
 3. **Rasterise each atlas.** A texel belongs to the first triangle (in mesh and triangle order) whose UV triangle covers the texel's
    centre; its barycentric weights place a point on the surface. UVs that overlap are counted (`overlappedTexels`). The covered texels are the work list. The ray budget
    `maxRays` is checked now, before any ray: `texels * (samples * (1 + bounces * (1 + lights)) + shadowSamples * lights)`.
@@ -116,12 +116,16 @@ never in `engine/runtime`. The user page is "Baking" in [RENDERING_LIGHTING.md](
   changes something never overwrites a page a running game still reads. Pages first (a page already there with the same bytes is kept),
   the manifest last, each through the atomic writer of `fa/core/fs.h`; if any write fails the pages this call made are deleted and the
   error names the path with what to do (close the file in the other program, call again, or pass another `path`). After success the older
-  pages of the same stem that no manifest line names are deleted. The cancel flag is not read while writing: a half-written set is
+  pages of the same stem that no manifest line names are deleted, then every file of the stem named like a bake's (`<stem>.lightmap.<8 hex>.<n>.hdr`
+  or `.<8 hex>.probes`) that the new manifest does not use (a page or probe file a previous bake left because it was open on Windows). A file
+  that is still open stays for the next bake. The cancel flag is not read while writing: a half-written set is
   worse than a finished bake.
 - **Jobs.** `bake_start` calls `make_plan` in the handler (so argument errors and "nothing to bake" are immediate), then
   `jobs::submit`s `execute`; the status fields (state, phase, progress, rays) are written by the job under the job's mutex and read by
   `bake_status`, which never waits (with `jobThreads` "inline" the job only runs when `bake_status` is called: `jobs::wait`). A second
-  bake of the same manifest while one runs is refused (`busy`). The registry keeps the last 8 finished jobs. `Engine::Impl::shutdownHooks`
+  bake of the same manifest while one runs is refused (`busy`). The registry keeps the last 8 finished jobs (`unknown_job` for an older one). While the
+  game runs (`Engine::play_world()`, set by the editor) `lightmap.bake` and `bake_start` are refused (`game_running`: the edit would go to the
+  play copy of the scene), and a job that was started before gives `applied: false` with a note. `Engine::Impl::shutdownHooks`
   (run at the start of `Engine::shutdown`) cancels running bakes, so closing the editor never waits for a trace.
 - **Hand-over.** The first `bake_status` that sees `done` sets `SceneSettings.lightmaps` (when `apply` and the engine's current scene is still
   the scene the plan was made for) and calls `Renderer::reload_asset(manifest)`; `handOver` in the answer says what happened. The editor
