@@ -2647,6 +2647,24 @@ With `key` and `mode` returns the scale's notes, intervals, and the triads and s
 | `key` | string | no | Tonic, a note name such as "A" or "Bb". Default C. |
 | `mode` | string | no | Scale name: major, minor, dorian, ... Default major. |
 
+## `probe.bake` (modifies state)
+
+Not released yet (on main after 0.32.0).
+
+Capture a ReflectionProbe once and write its baked page and manifest into the project.
+
+Capabilities: read, state, writeProject
+
+Draws the scene from the probe's position into a cube map (six 90 degree views of the scene, sky included unless the probe's `clear` is color), converts it to the probe's octahedral map, filters the rough levels with the same GGX filter as the sky's reflections and projects the diffuse light onto nine spherical-harmonics coefficients. It writes `<name>.probe.<hash>.hdr` (the page, RGBE) and then `<name>.probe.json` (the manifest: resolution, coefficients, page, hash) atomically, and sets ReflectionProbe.bakedMap to the manifest (`apply`, default true) so a probe in `baked` mode shows it; the renderer reads a changed pair again by itself (hot reload). The ReflectionProbe's resolution, nearPlane, farPlane, clear, clearColor, showTags and hideTags decide what is captured; its intensity is not baked in (it multiplies what the probe shows at run time). The same scene on the same GPU gives the same bytes; another GPU may differ in the last bit of a texel, which is why the page's name holds the hash of its bytes. Needs graphics with RGBA16F render targets (`render.supports floatTargets`). Result: {entity, manifest, page, hash, resolution, bytes, applied, note?}. Example: probe.bake {"entity":"lobby_probe"}
+
+The captured scene is the 3D scene as a camera at the probe's position would draw it (meshes with their materials, lights, shadows). The probe's own entity is not special: hide what must not appear with hideTags. Writes: the page, then the manifest (a file another program holds open cannot be replaced on Windows: close it, or use another `path`). docs/design/ARCHITECTURE_PROBES.md, "Baked probes".
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `entity` | string | yes | The entity with the ReflectionProbe component (id or name). |
+| `path` | string | no | The manifest to write, inside the project, ending in .probe.json (the page goes next to it). Default: next to the open scene, scenes/main.scene.json -> scenes/main.<entity id>.probe.json. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
+| `apply` | boolean | no | Set ReflectionProbe.bakedMap to the manifest when it is done (the scene is not saved: scene.save does). Default true. |
+
 ## `rig.bake` (modifies state)
 
 Since 0.16.0.

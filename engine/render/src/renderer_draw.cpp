@@ -1954,7 +1954,7 @@ void Renderer::Impl::plan_env(DrawContext& ctx) {
             const double t = ctx.world.time();
             st.time = std::isfinite(t) && t > 0.0 ? std::min(t, 1.0e9) : 0.0;
             ctx.physMain = st;
-            ctx.physMainOn = fr.cam.perspective && fr.cam.clear && !ctx.hdriMain;
+            ctx.physMainOn = fr.cam.perspective && fr.cam.clear && !fr.cam.noSky && !ctx.hdriMain;
         }
     } else if (phys) {
         // The picture draws the exact sun and clock; the environment the quantised ones (physical_sky.h), so a run bakes the same
@@ -1969,7 +1969,7 @@ void Renderer::Impl::plan_env(DrawContext& ctx) {
         const double t = ctx.world.time();
         st.time = std::isfinite(t) && t > 0.0 ? std::min(t, 1.0e9) : 0.0;
         ctx.physMain = st;
-        ctx.physMainOn = fr.cam.perspective && fr.cam.clear;
+        ctx.physMainOn = fr.cam.perspective && fr.cam.clear && !fr.cam.noSky;
         const PhysicalSkyState q = sky_quantised(st);
         sky.physical = true;
         sky.sunDisc = false;  // the light is the sun in the environment
@@ -3080,7 +3080,7 @@ void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
 
         // sky. Not for a studio camera (Camera.lighting = studio paints its clearColor). The editor's Viewport has no
         // camera of its own: it shows what the scene's cameras draw, so it draws the sky exactly when the game does.
-        if (fr.wantWorld && fr.cam.perspective && fr.cam.clear && !fr.cam.studio) {
+        if (fr.wantWorld && fr.cam.perspective && fr.cam.clear && !fr.cam.studio && !fr.cam.noSky) {
             // SceneSettings.skyMaterial draws the sky through its own program (same vertex stage, same uniform blocks,
             // plus the material's block and textures); anything wrong with it keeps the gradient. The meshes'
             // reflections and ambient light follow the sky that is drawn here when it is a material (plan_env bakes

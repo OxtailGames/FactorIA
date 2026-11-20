@@ -39,4 +39,6 @@ void register_project_secret_commands(
     Engine& engine,
     Engine::Impl& impl);  // project_secret_commands.cpp: project.create_storage_secret
 
+void register_probe_commands(Engine& engine, Engine::Impl& impl);  // probe_commands.cpp: probe.bake
+
 }  // namespace fa

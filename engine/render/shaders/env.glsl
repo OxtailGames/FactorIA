@@ -19,6 +19,9 @@
 // The sample points come from the R2 sequence (a fixed low-discrepancy pattern) so the same image is drawn on every run and every GPU.
 @module env
 
+// The GGX prefilter and the SH projection are shared with the reflection probes (probe.glsl): their code is env_ggx.glsl.
+@include env_ggx.glsl
+
 @vs vs
 layout(binding=0) uniform env_vs_params {
     vec4 fwd;
@@ -41,13 +44,6 @@ layout(binding=1) uniform env_params {
 };
 in vec3 dir;
 out vec4 frag_color;
-
-const float ENV_PI = 3.14159265;
-
-// Sample i of the R2 sequence, in the unit square.
-vec2 env_r2(int i) {
-    return fract(vec2(0.5) + float(i) * vec2(0.7548776662, 0.5698402910));
-}
 
 vec3 env_tap(vec3 d) {
     return textureLod(samplerCube(env_src, env_smp), d, 0.0).rgb;
@@ -74,13 +70,6 @@ vec3 env_out(vec3 c) {
     }
     return c;
 }
-
-// An orthonormal basis around n: t and b.
-void env_basis(vec3 n, out vec3 t, out vec3 b) {
-    vec3 up = abs(n.y) < 0.999 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0);
-    t = normalize(cross(up, n));
-    b = cross(n, t);
-}
 @end
 
 // ---- copy ---------------------------------------------------------------------------------------------------
@@ -94,30 +83,10 @@ void main() {
 // ---- prefilter: the GGX lobe of a roughness --------------------------------------------------------------------
 @fs fs_prefilter
 @include_block env_common
+@include_block env_math
+@include_block env_ggx
 void main() {
-    vec3 n = normalize(dir);
-    vec3 t, b;
-    env_basis(n, t, b);
-    float alpha = p.x * p.x;
-    float a2 = alpha * alpha;
-    vec3 sum = vec3(0.0);
-    float weight = 0.0;
-    int count = int(p.y);
-    for (int k = 0; k < 128; k++) {
-        if (k >= count) { break; }
-        vec2 u = env_r2(k);
-        float phi = 2.0 * ENV_PI * u.x;
-        float cos_t = sqrt((1.0 - u.y) / (1.0 + (a2 - 1.0) * u.y));
-        float sin_t = sqrt(max(1.0 - cos_t * cos_t, 0.0));
-        vec3 h = t * (sin_t * cos(phi)) + b * (sin_t * sin(phi)) + n * cos_t;
-        vec3 l = 2.0 * dot(n, h) * h - n;   // the view is the normal (the split-sum assumption)
-        float ndl = dot(n, l);
-        if (ndl > 0.0) {
-            sum += env_tap_limited(l) * ndl;
-            weight += ndl;
-        }
-    }
-    frag_color = vec4(env_out((weight > 0.0 ? sum / weight : env_tap_limited(n)) * p.w), 1.0);
+    frag_color = vec4(env_out(env_ggx_filter(normalize(dir), p.x, int(p.y)) * p.w), 1.0);
 }
 @end
 
@@ -137,31 +106,8 @@ void main() {
 // When the cubes are RGBA8 (p.y = 1, a GPU that cannot render to half floats) a coefficient is stored as clamp(c / 4, -1, 1) * 0.5 + 0.5.
 @fs fs_sh
 @include_block env_common
-// The basis of face f as the cube map specification lays it out (renderer_env.cpp, kFaces; `up` is the direction of row 0). Written as
-// a function, not as constant arrays: sokol-shdc leaves the precision of a global constant array at the default, which is mediump on GLSL ES.
-void sh_face(int f, out vec3 fwd, out vec3 right, out vec3 up) {
-    fwd = vec3(0.0, 0.0, -1.0);
-    right = vec3(-1.0, 0.0, 0.0);
-    up = vec3(0.0, 1.0, 0.0);
-    if (f == 0) { fwd = vec3(1.0, 0.0, 0.0); right = vec3(0.0, 0.0, -1.0); }
-    if (f == 1) { fwd = vec3(-1.0, 0.0, 0.0); right = vec3(0.0, 0.0, 1.0); }
-    if (f == 2) { fwd = vec3(0.0, 1.0, 0.0); right = vec3(1.0, 0.0, 0.0); up = vec3(0.0, 0.0, -1.0); }
-    if (f == 3) { fwd = vec3(0.0, -1.0, 0.0); right = vec3(1.0, 0.0, 0.0); up = vec3(0.0, 0.0, 1.0); }
-    if (f == 4) { fwd = vec3(0.0, 0.0, 1.0); right = vec3(1.0, 0.0, 0.0); }
-}
-
-float sh_basis_k(int k, vec3 d) {
-    if (k == 0) { return 0.282094792; }
-    if (k == 1) { return 0.488602512 * d.y; }
-    if (k == 2) { return 0.488602512 * d.z; }
-    if (k == 3) { return 0.488602512 * d.x; }
-    if (k == 4) { return 1.092548431 * d.x * d.y; }
-    if (k == 5) { return 1.092548431 * d.y * d.z; }
-    if (k == 6) { return 0.315391565 * (3.0 * d.z * d.z - 1.0); }
-    if (k == 7) { return 1.092548431 * d.x * d.z; }
-    return 0.546274215 * (d.x * d.x - d.y * d.y);
-}
-
+@include_block env_math
+@include_block env_sh_project
 void main() {
     vec3 result = vec3(0.0);
     // The texel this fragment is, from the direction it looks along (the face +X: dir.x is 1; the same on every backend, whatever the
@@ -170,25 +116,7 @@ void main() {
     int row = int(floor((1.0 - dir.y) * 2.0));
     int k = col + 4 * row;
     if (p.x > 0.5 && k >= 0 && k < 9) {
-        vec3 sum = vec3(0.0);
-        float wsum = 0.0;
-        for (int f = 0; f < 6; f++) {
-            vec3 fwd, right, up;
-            sh_face(f, fwd, right, up);
-            for (int y = 0; y < 16; y++) {
-                for (int x = 0; x < 16; x++) {
-                    float u = (float(x) * 2.0 + 1.0) / 16.0 - 1.0;
-                    float v = 1.0 - (float(y) * 2.0 + 1.0) / 16.0;
-                    vec3 d = fwd + u * right + v * up;
-                    float inv = inversesqrt(dot(d, d));
-                    float w = inv * inv * inv;      // proportional to the solid angle of the texel
-                    vec3 dn = d * inv;
-                    sum += env_tap_limited(dn) * (sh_basis_k(k, dn) * w);
-                    wsum += w;
-                }
-            }
-        }
-        result = sum * (4.0 * ENV_PI / wsum) * p.w;
+        result = env_sh_coefficient(k) * p.w;
     }
     // The cubes are RGBA16F (largest value 65504): a coefficient is at most about 3.6 times the brightest texel, so the largest
     // component is limited to 65000 with the colour kept (a coefficient can be negative).
