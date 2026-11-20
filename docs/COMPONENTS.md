@@ -405,14 +405,14 @@ Draws a 3D mesh with a PBR material (GGX highlights, sky reflections, normal map
 | `lightmapScale` | float | `1.0` | Resolution of this mesh in the baked lightmap, as a multiple of the scene's lightmap density (1 = the scene's). 0 keeps it out of the lightmap. No effect yet: M73.4 brings the lightmaps (docs/rendering/RENDERING_LIGHTING.md). Range 0.0..100.0. (not released yet, on main after 0.32.0) |
 | `contributeGI` | bool | `true` | Whether the surface bounces light onto others in a lightmap bake and in the realtime global illumination. No effect yet: M73.4 brings the bake and M73.5 the realtime GI. (not released yet, on main after 0.32.0) |
 | `receiveGI` | bool | `true` | Whether the surface is lit by the baked lightmap, the light probes and the realtime global illumination. No effect yet: M73.4 brings it. (not released yet, on main after 0.32.0) |
-| `clearcoat` | float | `0.0` | Strength 0..1 of a clear coat layer over the surface (car paint, lacquer; glTF KHR_materials_clearcoat). 0 = none. No effect yet: M73.6 brings it. Range 0.0..1.0. (not released yet, on main after 0.32.0) |
-| `clearcoatRoughness` | float | `0.03` | Roughness 0..1 of the clear coat layer. No effect yet: M73.6 brings it. Range 0.0..1.0. (not released yet, on main after 0.32.0) |
-| `sheenColor` | color | `[0.0,0.0,0.0,1.0]` | Colour of the cloth sheen at grazing angles (velvet, satin; glTF KHR_materials_sheen). Black (default) = no sheen. No effect yet: M73.6 brings it. (not released yet, on main after 0.32.0) |
-| `sheenRoughness` | float | `0.5` | Roughness 0..1 of the sheen layer. No effect yet: M73.6 brings it. Range 0.0..1.0. (not released yet, on main after 0.32.0) |
-| `anisotropy` | float | `0.0` | Stretch -1..1 of the highlight along the tangent direction (brushed metal, hair; glTF KHR_materials_anisotropy); 0 = round highlights. No effect yet: M73.6 brings it. Range -1.0..1.0. (not released yet, on main after 0.32.0) |
-| `anisotropyRotation` | float | `0.0` | Degrees that turn the direction of the anisotropic stretch around the normal. No effect yet: M73.6 brings it. Range -360.0..360.0. (not released yet, on main after 0.32.0) |
-| `specular` | float | `1.0` | Strength 0..1 of the specular reflection of a non-metal surface (glTF KHR_materials_specular); 1 = the usual look. No effect yet: M73.6 brings it. Range 0.0..1.0. (not released yet, on main after 0.32.0) |
-| `ior` | float | `1.5` | Index of refraction, 1..3 (glTF KHR_materials_ior): 1.5 is glass and plastic, 1.33 water, 2.4 diamond. No effect yet: M73.6 brings it. Range 1.0..3.0. (not released yet, on main after 0.32.0) |
+| `clearcoat` | float | `0.0` | Strength 0..1 of a clear coat layer over the surface (car paint, lacquer; glTF KHR_materials_clearcoat). 0 = none. A glTF model with the extension brings its own value; a value here replaces it. Range 0.0..1.0. (not released yet, on main after 0.32.0) |
+| `clearcoatRoughness` | float | `0.03` | Roughness 0..1 of the clear coat layer (the engine keeps it at 0.05 or more). The default 0.03 leaves the model's own value. Range 0.0..1.0. (not released yet, on main after 0.32.0) |
+| `sheenColor` | color | `[0.0,0.0,0.0,1.0]` | Colour of the cloth sheen at grazing angles (velvet, satin; glTF KHR_materials_sheen). Black (default) = no sheen. A colour here replaces the one of a glTF model (KHR_materials_sheen). (not released yet, on main after 0.32.0) |
+| `sheenRoughness` | float | `0.5` | Roughness 0..1 of the sheen layer (the engine keeps it at 0.1 or more). The default 0.5 leaves the model's own value. Range 0.0..1.0. (not released yet, on main after 0.32.0) |
+| `anisotropy` | float | `0.0` | Stretch -1..1 of the highlight along the tangent direction (brushed metal, hair; glTF KHR_materials_anisotropy); 0 = round highlights; negative stretches across the tangent. A value here replaces the model's own. Range -1.0..1.0. (not released yet, on main after 0.32.0) |
+| `anisotropyRotation` | float | `0.0` | Degrees that turn the direction of the anisotropic stretch around the normal. 0 leaves the model's own rotation. Range -360.0..360.0. (not released yet, on main after 0.32.0) |
+| `specular` | float | `1.0` | Strength 0..1 of the specular reflection of a non-metal surface (glTF KHR_materials_specular); 1 = the usual look; 0 removes the reflection, and with ior 1.5 the reflectance at normal incidence is 4% x specular. Another value replaces the model's own. Range 0.0..1.0. (not released yet, on main after 0.32.0) |
+| `ior` | float | `1.5` | Index of refraction, 1..3 (glTF KHR_materials_ior): 1.5 is glass and plastic, 1.33 water, 2.4 diamond. It sets the reflectance of a non-metal at normal incidence, ((ior - 1) / (ior + 1))^2 (1.5 = 4%). Another value replaces the model's own. Range 1.0..3.0. (not released yet, on main after 0.32.0) |
 | `transmission` | float | `0.0` | How much light 0..1 passes through the surface instead of reflecting, as glass does (glTF KHR_materials_transmission). 0 = opaque. No effect yet: M73.6 brings it. Range 0.0..1.0. (not released yet, on main after 0.32.0) |
 | `thickness` | float | `0.0` | Metres the light travels inside the volume of a transmissive surface (glTF KHR_materials_volume). 0 = a thin surface. No effect yet: M73.6 brings it. Range 0.0..1000.0. (not released yet, on main after 0.32.0) |
 | `attenuationColor` | color | `[1.0,1.0,1.0,1.0]` | Colour the light takes after travelling attenuationDistance inside the volume (tinted glass, liquids). No effect yet: M73.6 brings it. (not released yet, on main after 0.32.0) |
@@ -17855,43 +17855,43 @@ declare module "factoria" {
      */
     receiveGI: boolean;
     /**
-     * Strength 0..1 of a clear coat layer over the surface (car paint, lacquer; glTF KHR_materials_clearcoat). 0 = none. No effect yet: M73.6 brings it.
+     * Strength 0..1 of a clear coat layer over the surface (car paint, lacquer; glTF KHR_materials_clearcoat). 0 = none. A glTF model with the extension brings its own value; a value here replaces it.
      * @since unreleased
      */
     clearcoat: number;
     /**
-     * Roughness 0..1 of the clear coat layer. No effect yet: M73.6 brings it.
+     * Roughness 0..1 of the clear coat layer (the engine keeps it at 0.05 or more). The default 0.03 leaves the model's own value.
      * @since unreleased
      */
     clearcoatRoughness: number;
     /**
-     * Colour of the cloth sheen at grazing angles (velvet, satin; glTF KHR_materials_sheen). Black (default) = no sheen. No effect yet: M73.6 brings it.
+     * Colour of the cloth sheen at grazing angles (velvet, satin; glTF KHR_materials_sheen). Black (default) = no sheen. A colour here replaces the one of a glTF model (KHR_materials_sheen).
      * @since unreleased
      */
     get sheenColor(): Color;
     set sheenColor(value: ColorLike);
     /**
-     * Roughness 0..1 of the sheen layer. No effect yet: M73.6 brings it.
+     * Roughness 0..1 of the sheen layer (the engine keeps it at 0.1 or more). The default 0.5 leaves the model's own value.
      * @since unreleased
      */
     sheenRoughness: number;
     /**
-     * Stretch -1..1 of the highlight along the tangent direction (brushed metal, hair; glTF KHR_materials_anisotropy); 0 = round highlights. No effect yet: M73.6 brings it.
+     * Stretch -1..1 of the highlight along the tangent direction (brushed metal, hair; glTF KHR_materials_anisotropy); 0 = round highlights; negative stretches across the tangent. A value here replaces the model's own.
      * @since unreleased
      */
     anisotropy: number;
     /**
-     * Degrees that turn the direction of the anisotropic stretch around the normal. No effect yet: M73.6 brings it.
+     * Degrees that turn the direction of the anisotropic stretch around the normal. 0 leaves the model's own rotation.
      * @since unreleased
      */
     anisotropyRotation: number;
     /**
-     * Strength 0..1 of the specular reflection of a non-metal surface (glTF KHR_materials_specular); 1 = the usual look. No effect yet: M73.6 brings it.
+     * Strength 0..1 of the specular reflection of a non-metal surface (glTF KHR_materials_specular); 1 = the usual look; 0 removes the reflection, and with ior 1.5 the reflectance at normal incidence is 4% x specular. Another value replaces the model's own.
      * @since unreleased
      */
     specular: number;
     /**
-     * Index of refraction, 1..3 (glTF KHR_materials_ior): 1.5 is glass and plastic, 1.33 water, 2.4 diamond. No effect yet: M73.6 brings it.
+     * Index of refraction, 1..3 (glTF KHR_materials_ior): 1.5 is glass and plastic, 1.33 water, 2.4 diamond. It sets the reflectance of a non-metal at normal incidence, ((ior - 1) / (ior + 1))^2 (1.5 = 4%). Another value replaces the model's own.
      * @since unreleased
      */
     ior: number;

@@ -97,6 +97,7 @@ struct Surface {             // what the lighting reads
     float roughness;         // the engine clamps it to 0.05..1
     float occlusion;
     vec3 emission;
+    // + clearcoat, sheen_color, anisotropy...: SHADERS_LIGHTING.md
 };
 struct VertexData {          // vertex(): world space, after instancing and skinning
     vec3 world_pos;

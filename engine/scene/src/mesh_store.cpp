@@ -5,6 +5,7 @@
 #include <cmath>
 #include <cstring>
 #include <format>
+#include <set>
 
 #include "fa/core/fs.h"
 #include "fa/core/json.h"
@@ -687,7 +688,7 @@ std::string relative_uri(const std::string& fromDir, const std::string& target) 
 bool same_material(const MeshMaterial& a, const MeshMaterial& b) {
     return a.name == b.name && a.color == b.color && a.texture == b.texture && a.metallic == b.metallic &&
            a.roughness == b.roughness && a.emissive == b.emissive && a.doubleSided == b.doubleSided &&
-           a.blend == b.blend;
+           a.blend == b.blend && a.layers == b.layers;
 }
 
 }  // namespace
@@ -738,6 +739,7 @@ Result<std::vector<std::uint8_t>> mesh_to_glb(const MeshData& d, const std::stri
     std::vector<const MeshMaterial*> seen;
     std::vector<int> seenIndex;
     std::vector<std::string> imagePaths;
+    std::set<std::string> extensionsUsed;
     for (const MeshSubmesh& sm : d.submeshes) {
         int mat = -1;
         for (std::size_t i = 0; i < seen.size(); ++i)
@@ -776,6 +778,28 @@ Result<std::vector<std::uint8_t>> mesh_to_glb(const MeshData& d, const std::stri
                 jm["emissiveFactor"] = Json::array({m.emissive.r, m.emissive.g, m.emissive.b});
             if (m.blend) jm["alphaMode"] = "BLEND";
             if (m.doubleSided) jm["doubleSided"] = true;
+            // The layer extensions (M73.6), only those the material uses.
+            const MaterialLayers& L = m.layers;
+            Json ext = Json::object();
+            if (L.clearcoat != 0.0f)
+                ext["KHR_materials_clearcoat"] = {{"clearcoatFactor", L.clearcoat},
+                                                  {"clearcoatRoughnessFactor", L.clearcoatRoughness}};
+            if (L.sheenColor != MaterialLayers{}.sheenColor)
+                ext["KHR_materials_sheen"] = {
+                    {"sheenColorFactor", Json::array({L.sheenColor[0], L.sheenColor[1], L.sheenColor[2]})},
+                    {"sheenRoughnessFactor", L.sheenRoughness}};
+            if (L.anisotropy != 0.0f)
+                ext["KHR_materials_anisotropy"] = {{"anisotropyStrength", L.anisotropy},
+                                                   {"anisotropyRotation", L.anisotropyRotation}};
+            if (L.specular != 1.0f || L.specularColor != MaterialLayers{}.specularColor)
+                ext["KHR_materials_specular"] = {
+                    {"specularFactor", L.specular},
+                    {"specularColorFactor", Json::array({L.specularColor[0], L.specularColor[1], L.specularColor[2]})}};
+            if (L.ior != 1.5f) ext["KHR_materials_ior"] = {{"ior", L.ior}};
+            if (!ext.empty()) {
+                for (auto it = ext.begin(); it != ext.end(); ++it) extensionsUsed.insert(it.key());
+                jm["extensions"] = ext;
+            }
             materials.push_back(jm);
             mat = int(materials.size() - 1);
             seen.push_back(&sm.material);
@@ -799,6 +823,11 @@ Result<std::vector<std::uint8_t>> mesh_to_glb(const MeshData& d, const std::stri
     if (!images.empty()) {
         root["images"] = images;
         root["textures"] = textures;
+    }
+    if (!extensionsUsed.empty()) {
+        Json used = Json::array();
+        for (const std::string& e : extensionsUsed) used.push_back(e);
+        root["extensionsUsed"] = used;
     }
     std::string json = root.dump();
     while (json.size() % 4 != 0) json += ' ';

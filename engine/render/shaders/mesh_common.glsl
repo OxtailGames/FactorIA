@@ -50,6 +50,7 @@
 @include light_data.glsl
 @include shadow_common.glsl
 @include light_loop.glsl
+@include brdf_layers.glsl
 
 // The snippet contract (docs/SHADERS.md).
 @block fa_types
@@ -70,6 +71,17 @@ struct Surface {                // what the lighting reads
     float roughness;
     float occlusion;
     vec3 emission;
+    // The material layers of M73.6 (docs/shaders/SHADERS_LIGHTING.md, "Material layers"): what the standard lighting reads, filled from
+    // the MeshRenderer and the glTF material before surface(). The defaults draw as before.
+    float clearcoat;            // 0..1 strength of the clear coat; 0 = none
+    float clearcoat_roughness;  // 0..1 (the engine clamps it to 0.05..1)
+    vec3 sheen_color;           // the cloth sheen's colour; black = none
+    float sheen_roughness;      // 0..1 (clamped to 0.1..1)
+    float anisotropy;           // -1..1: stretch of the highlight along the tangent (negative: across it); 0 = round
+    float anisotropy_rotation;  // radians, turns the stretch direction around the normal
+    float specular;             // 0..1 strength of the dielectric specular (1 = the usual 4% reflectance at ior 1.5)
+    float ior;                  // 1..3 index of refraction: sets the dielectric reflectance at normal incidence
+    vec3 specular_color;        // tint of the dielectric reflectance (KHR_materials_specular), white = none
 };
 struct LightSample {            // light(): one light as the engine's light loop selected it (lighting "custom")
     vec3 direction;             // surface -> light, normalized (a directional light: the direction its light comes from)
@@ -373,6 +385,12 @@ layout(binding=1) uniform fa_mesh_fs_params {
     vec4 fa_env_sky;            // rgb sky color (top of the environment); w = 1 when the baked environment of a sky material is bound
     vec4 fa_env_horizon;        // rgb horizon color; w = the highest mip of fa_env_tex (what roughness 1 reads)
     vec4 fa_time;               // x = seconds of game time since the scene started
+    vec4 fa_layers_a;           // x clearcoat, y clearcoat roughness, z anisotropy, w anisotropy rotation (radians)
+    vec4 fa_layers_b;           // rgb sheen colour, w sheen roughness
+    vec4 fa_layers_c;           // x specular, y ior, z = the layer data packed in the maps: 1 = the occlusion map holds the clear coat
+                                // in g, its roughness in b and the sheen roughness in a; 2 = the metallic-roughness map holds the
+                                // anisotropy strength in r and the specular in a (the importer packs them, see brdf_layers.glsl)
+    vec4 fa_layers_d;           // rgb specular colour (KHR_materials_specular)
 };
 
 // The varyings are declared in the order of the vertex stage's outputs (the instance values first): sokol-shdc matches them
@@ -441,8 +459,32 @@ Surface fa_standard_surface(in SurfaceInput i) {
     mrt.rgb = fa_tex_fix(mrt.rgb, fa_fix_of(fa_maps.w, 64.0));
     s.metallic = clamp(fa_pbr.x * mrt.b, 0.0, 1.0);
     s.roughness = clamp(fa_pbr.y * mrt.g, 0.05, 1.0);
-    s.occlusion = 1.0 + fa_maps.y * (fa_tex_fix(texture(sampler2D(fa_occlusion_tex, fa_smp), i.uv).rrr, fa_fix_of(fa_maps.w, 256.0)).r - 1.0);
+    vec4 occ_t = texture(sampler2D(fa_occlusion_tex, fa_smp), i.uv);
+    vec3 occ_f = fa_tex_fix(occ_t.rgb, fa_fix_of(fa_maps.w, 256.0));
+    s.occlusion = 1.0 + fa_maps.y * (occ_f.r - 1.0);
     s.emission = fa_emissive.rgb + fa_model_emissive.rgb * fa_tex_fix(texture(sampler2D(fa_emissive_tex, fa_smp), i.uv).rgb, fa_fix_of(fa_maps.w, 4.0));
+    // The material layers: the factors of the MeshRenderer / glTF material, times the textures the importer packed into the maps.
+    s.clearcoat = fa_layers_a.x;
+    s.clearcoat_roughness = fa_layers_a.y;
+    s.anisotropy = fa_layers_a.z;
+    s.anisotropy_rotation = fa_layers_a.w;
+    s.sheen_color = fa_layers_b.rgb;
+    s.sheen_roughness = fa_layers_b.w;
+    s.specular = fa_layers_c.x;
+    s.ior = fa_layers_c.y;
+    s.specular_color = fa_layers_d.rgb;
+    float packed_maps = fa_layers_c.z;
+    if (packed_maps > 0.5) {
+        if (mod(packed_maps, 2.0) > 0.5) {
+            s.clearcoat *= occ_f.g;
+            s.clearcoat_roughness *= occ_f.b;
+            s.sheen_roughness *= occ_t.a;
+        }
+        if (packed_maps > 1.5) {
+            s.anisotropy *= mrt.r;
+            s.specular *= mrt.a;
+        }
+    }
     return s;
 }
 @end
@@ -512,12 +554,16 @@ LightSample fa_no_light() {
     return none;
 }
 // What the engine's own lighting adds for the sky: its reflection weighted by the environment BRDF of this surface (s.metallic,
-// s.roughness, s.albedo, s.normal) times s.occlusion.
+// s.roughness, s.albedo, s.normal) times s.occlusion, with the material layers (clear coat, sheen, anisotropy, specular and ior of
+// the Surface) when they are set.
 vec3 fa_sky_light(in SurfaceInput i, in Surface s) {
     float metallic = clamp(s.metallic, 0.0, 1.0);
     float roughness = clamp(s.roughness, 0.05, 1.0);
     vec3 f0 = mix(vec3(0.04), s.albedo, metallic);
-    return fa_sky_reflection(normalize(s.normal), i.view_dir, f0, roughness) * s.occlusion;
+    vec3 n = normalize(s.normal);
+    FaLayers lay = fa_layers_setup(i, s, n, i.view_dir, metallic, roughness, f0);
+    if (lay.on) { return fa_layers_ibl(lay, n, i.view_dir, f0, roughness) * s.occlusion; }
+    return fa_sky_reflection(n, i.view_dir, f0, roughness) * s.occlusion;
 }
 #endif
 @end
@@ -540,6 +586,8 @@ float fa_shadow_factor(vec3 n, vec3 l) {
 }
 
 @include_block fa_env_funcs
+@include_block fa_layers_env
+@include_block fa_layers_light
 @include_block fa_light_shared
 @include_block fa_light_hooks
 @end
@@ -547,6 +595,7 @@ float fa_shadow_factor(vec3 n, vec3 l) {
 @block fa_fs_nolight
 #ifdef FA_CUSTOM_LIGHT
 @include_block fa_env_funcs
+@include_block fa_layers_env
 @include_block fa_light_shared
 @include_block fa_light_hooks_none
 #endif
@@ -611,12 +660,18 @@ void main() {
         float ndv = max(dot(n, v), 1e-4);
         vec3 diffuse_color = s.albedo * (1.0 - metallic);
         vec3 f0 = mix(vec3(0.04), s.albedo, metallic);
+        FaLayers lay = fa_layers_setup(i, s, n, v, metallic, roughness, f0);
         vec3 lit = fa_ambient_light(n) * diffuse_color * s.occlusion;
+        if (lay.on) { lit *= lay.base_scale; }
 #endif
 @include_block fa_light_loop
 #ifndef FA_CUSTOM_LIGHT
-        // Image-based lighting: the sky reflected, weighted by the environment BRDF.
-        lit += fa_sky_reflection(n, v, f0, roughness) * s.occlusion;
+        // Image-based lighting: the sky reflected, weighted by the environment BRDF (with the layers, fa_layers_ibl).
+        if (lay.on) {
+            lit += fa_layers_ibl(lay, n, v, f0, roughness) * s.occlusion;
+        } else {
+            lit += fa_sky_reflection(n, v, f0, roughness) * s.occlusion;
+        }
 #endif
 #endif
         result = lit;
