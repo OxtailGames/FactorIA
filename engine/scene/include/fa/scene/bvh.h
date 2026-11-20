@@ -25,6 +25,8 @@ public:
     // `cancel` (optional) is polled while the tree is built (one atomic load per node): when it is set the build stops, the tree is left
     // unusable (empty()) and the function returns false; true means the tree is complete. A big scene takes seconds to build.
     bool build(const Vec3* corners, std::size_t triangleCount, const std::atomic<bool>* cancel = nullptr);
+    // The same, taking the corners over (moved, not copied: a caller that has just made them avoids holding them twice).
+    bool build(std::vector<Vec3>&& corners, const std::atomic<bool>* cancel = nullptr);
     std::size_t triangle_count() const { return corners_.size() / 3; }
     bool empty() const { return nodes_.empty(); }
     Vec3 bounds_min() const { return lo_; }

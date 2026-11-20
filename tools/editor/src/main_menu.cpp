@@ -221,6 +221,11 @@ menu::MainMenu Editor::build_main_menu(bool native) {
     view.push_back(menu::separator());
     view.push_back(toggle("Show colliders", showColliders_));
     view.push_back(
+        with(toggle("Show light probes", showProbes_), "",
+             "Draws the probes of every LightProbeGroup in the 3D viewport (a sphere coloured by the light it "
+             "baked, grey before a bake or after the group was edited, a red cross inside geometry); "
+             "LightProbeGroup.showGizmo hides one group. The Lightmap panel's \"Show probes\" is the same switch"));
+    view.push_back(
         with(toggle("Show navmesh", showNav_), "",
              "Draws the walkable cells of every NavMesh3D (green; red where a moving obstacle blocks; blue on a "
              "walkable moving body) and its off-mesh links (yellow lines), the ground nav.findPath walks on"));

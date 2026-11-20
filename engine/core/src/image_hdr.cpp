@@ -56,7 +56,8 @@ LineStatus read_line(const std::uint8_t* data, std::size_t size, std::size_t& po
 }
 
 // A positive decimal number ("2.5", "1e-3"), parsed without the C locale (a decimal comma must not change a file's
-// meaning).
+// meaning). Not correctly rounded (up to 18 digits are summed in a double and scaled by repeated *10 or /10, each step
+// rounding), but the same result on every platform and compiler: the EXPOSURE it reads is metadata, so that is what matters.
 std::optional<double> parse_positive_number(std::string_view s) {
     std::size_t lead = 0;
     while (lead < s.size() && (s[lead] == ' ' || s[lead] == '\t')) ++lead;
@@ -234,7 +235,7 @@ bool read_scanline(const std::uint8_t* d, std::size_t n, std::size_t& pos, int w
 namespace {
 
 // Steps 1 to 3 of a file: the signature, the header variables and the resolution line. `pos` ends at the first pixel byte.
-Result<HdrInfo> parse_hdr_header(const std::uint8_t* data, std::size_t size, std::size_t& pos) {
+Result<HdrInfo> parse_hdr_header(const std::uint8_t* data, std::size_t size, std::size_t& pos, std::uint64_t maxBytes) {
     if (!data || size == 0) return hdr_error(0, "the file is empty");
     pos = 0;
     std::string_view line;
@@ -313,11 +314,12 @@ Result<HdrInfo> parse_hdr_header(const std::uint8_t* data, std::size_t size, std
                          "Scale the picture down (an 8192 x 4096 panorama is enough for an environment map).");
     const int w = int(*parsedW), h = int(*parsedH);
     const std::uint64_t bytes = image_float_bytes(w, h, 3);
-    if (bytes > kMaxImageFloatBytes)
+    const std::uint64_t limit = std::min(maxBytes, kMaxImageFloatBytes);
+    if (bytes > limit)
         return hdr_error(resStart,
-                         std::format("the picture is {} x {} pixels: its floats need {} MB, more than the {} MB the "
-                                     "engine allows",
-                                     w, h, bytes / (1024 * 1024), kMaxImageFloatBytes / (1024 * 1024)),
+                         std::format("the picture is {} x {} pixels: its floats need {} MB, more than the {} MB this "
+                                     "read allows",
+                                     w, h, bytes / (1024 * 1024), limit / (1024 * 1024)),
                          "Scale the picture down: an 8192 x 4096 panorama is enough for an environment map.");
     HdrInfo info;
     info.width = w;
@@ -328,19 +330,22 @@ Result<HdrInfo> parse_hdr_header(const std::uint8_t* data, std::size_t size, std
 
 }  // namespace
 
-Result<HdrInfo> hdr_info(const std::uint8_t* data, std::size_t size) {
+Result<HdrInfo> hdr_info(const std::uint8_t* data, std::size_t size, std::uint64_t maxBytes) {
     std::size_t pos = 0;
-    return parse_hdr_header(data, size, pos);
+    return parse_hdr_header(data, size, pos, maxBytes);
 }
 
-Result<ImageF> decode_hdr(const std::uint8_t* data, std::size_t size) {
+Result<ImageF> decode_hdr(const std::uint8_t* data, std::size_t size, std::uint64_t maxBytes) {
     std::size_t pos = 0;
-    auto header = parse_hdr_header(data, size, pos);
+    auto header = parse_hdr_header(data, size, pos, maxBytes);
     if (!header) return header.error();
     const int w = header->width, h = header->height;
     const double exposure = header->exposure;
-    // 4. Pixels. The sizes passed the budget, but the memory is taken row by row as the data proves itself (a few bytes
-    // that claim a huge picture never ask for its memory): the capacity doubles up to the full size, never beyond it.
+    // 4. Pixels, in two passes over the same bytes. The first walks every row into one row buffer and proves the whole
+    // file (a few bytes that claim a huge picture, or a file that goes bad in its last row, never ask for the picture's
+    // memory); the second takes the memory once, at its exact size (no growing buffer, so no moment with an old and a
+    // new copy of it), and converts the rows. What a file makes the decoder write is bounded by `maxBytes`, not by the
+    // file's size: old-style repeat markers make a row of any width out of about 12 bytes.
     ImageF img;
     img.width = w;
     img.height = h;
@@ -348,22 +353,25 @@ Result<ImageF> decode_hdr(const std::uint8_t* data, std::size_t size) {
     img.exposure = float(exposure);
     const std::size_t rowFloats = std::size_t(w) * 3, total = rowFloats * std::size_t(h);
     std::vector<std::uint8_t> row(std::size_t(w) * 4);
+    const std::size_t pixelStart = pos;
+    for (int y = 0; y < h; ++y) {
+        ScanlineFailure fail;
+        if (!read_scanline(data, size, pos, w, row.data(), fail))
+            return hdr_error(fail.offset, std::format("{} (row {} of {})", fail.what, y + 1, h),
+                             "The file is damaged or cut short: download or export it again.");
+    }
     try {
-        for (int y = 0; y < h; ++y) {
-            ScanlineFailure fail;
-            if (!read_scanline(data, size, pos, w, row.data(), fail))
-                return hdr_error(fail.offset, std::format("{} (row {} of {})", fail.what, y + 1, h),
-                                 "The file is damaged or cut short: download or export it again.");
-            const std::size_t need = std::size_t(y + 1) * rowFloats;
-            if (img.data.capacity() < need)
-                img.data.reserve(std::min(total, std::max({need, img.data.capacity() * 2, std::size_t(1) << 20})));
-            img.data.resize(need);
-            float* out = &img.data[std::size_t(y) * rowFloats];
-            for (int x = 0; x < w; ++x) rgbe_to_floats(&row[std::size_t(x) * 4], out + std::size_t(x) * 3);
-        }
+        img.data.resize(total);
     } catch (const std::bad_alloc&) {
         return hdr_error(pos, std::format("out of memory for a {} x {} picture", w, h),
                          "Close other programs or scale the picture down.");
+    }
+    pos = pixelStart;
+    for (int y = 0; y < h; ++y) {
+        ScanlineFailure fail;
+        (void)read_scanline(data, size, pos, w, row.data(), fail);  // proved by the first pass
+        float* out = &img.data[std::size_t(y) * rowFloats];
+        for (int x = 0; x < w; ++x) rgbe_to_floats(&row[std::size_t(x) * 4], out + std::size_t(x) * 3);
     }
     return img;
 }
