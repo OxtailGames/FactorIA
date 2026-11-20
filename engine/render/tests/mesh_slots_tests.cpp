@@ -56,3 +56,19 @@ TEST_CASE("mesh slots: every view of a phase is unique and every name is") {
     std::set<std::string> names;
     for (const MeshFragmentView& v : kMeshFragmentViews) CHECK(names.insert(v.name).second);
 }
+
+TEST_CASE("mesh slots: the screen slot (view 28) is read with texelFetch through the nearest sampler, never a "
+          "filtering one") {
+    // An unfilterable image (the RGBA32F prepass) cannot be paired with the filtering sampler 10: the slot uses the shadow map's nearest
+    // sampler 1, as the light data texture does (M73.2c). M73.6b reads the opaque colour through the same sampler, bilinear by hand.
+    bool found = false;
+    for (const MeshFragmentView& v : kMeshFragmentViews)
+        if (std::string(v.name) == "fa_screen_tex") {
+            found = true;
+            CHECK(v.view == 28);
+            CHECK(v.sampler == 1);
+            CHECK(v.firstPhase == 1);
+        }
+    CHECK(found);
+    CHECK(mesh_fragment_units(1) <= kMeshMaxFragmentUnits);
+}

@@ -143,6 +143,9 @@ struct RenderStats {
     int volumetricCameras = 0;        // cameras that drew the volumetric fog (SceneSettings.volumetricFog)
     int volumetricLights = 0;         // lights (Light.volumetric above 0) whose shafts those cameras drew
     int volumetricLightsDropped = 0;  // lights with volumetric above 0 left out: more than volumetricQuality allows
+    // Contact shadows (M73.2c): lights (Light.contactShadowLength above 0, with SceneSettings.contactShadows on) whose ray the meshes of the
+    // frame march against the depth prepass; 0 when no camera could make the prepass.
+    int contactShadowLights = 0;
     // Projected decals (M73.5b), summed over the views of the frame.
     int decals = 0;  // Decal entities drawn: in a view's decal table, at most 256 per view
     int decalsDropped =
