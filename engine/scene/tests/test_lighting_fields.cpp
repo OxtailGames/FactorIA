@@ -42,7 +42,11 @@ TEST_CASE("lighting fields: every new field is reflected and its doc says what i
             const FieldInfo* f = field_of(type, n);
             REQUIRE(f != nullptr);
             CHECK(f->doc.size() > 40);
-            CHECK(f->doc.find("No effect yet: M73.") != std::string::npos);
+            // innerAngle is drawn since M73.1a: its doc says so instead.
+            if (type == std::string("Light") && n == "innerAngle")
+                CHECK(f->doc.find("Drawn since M73.1a") != std::string::npos);
+            else
+                CHECK(f->doc.find("No effect yet: M73.") != std::string::npos);
             CHECK(f->serialized);
         }
     }

@@ -1,5 +1,6 @@
 // Renderer::Impl, part 3: draw_view_job and draw_job, the passes of one frame's jobs.
 #include "color_space.h"
+#include "light_clusters.h"
 #include "mesh_buffer_draw.h"
 #include "renderer_impl.h"
 #include "sprite_buffer_draw.h"
@@ -111,7 +112,9 @@ struct Renderer::Impl::DrawContext {
     // scene_uniforms
     SceneSettings ss;
     TextureAsset* white = nullptr;
-    mesh_fa_lights_t lightUniforms{};
+    // The light data texture of the job's view (scene_uniforms): bound at view 24 of the mesh programs; the white image while the job
+    // has no lights or draws no mesh.
+    sg_view lightView{};
     mesh_fa_mesh_vs_params_t vuScene{};
     mesh_fa_mesh_fs_params_t fuScene{};
     // fuScene with the camera's stack fog (PostProcess.fog*): the blended meshes fog themselves with it, while the opaque meshes and the sky
@@ -788,6 +791,7 @@ void Renderer::Impl::collect_lights(DrawContext& ctx) {
     auto& lights = ctx.lights;
     auto& shadowLight = ctx.shadowLight;
     auto& lightDirForShadow = ctx.lightDirForShadow;
+    int culledLocal = 0;
     if (fr.wantWorld && !fr.cam.studio)
         world.each<Light>([&](Entity e, Light& l) {
             if (!entity_active(world, e)) return;
@@ -815,9 +819,23 @@ void Renderer::Impl::collect_lights(DrawContext& ctx) {
                     Vec4{col, l.type == LightType::Spot ? 2.0f
                                                         : 1.0f};  // an area light shines like a point light until M73.1
                 ld.dir = Vec4{d, std::cos(radians(l.spotAngle))};
+                // Light.innerAngle: the cone at full strength (0 = the default fade of the outer quarter, light_data.glsl). The inner
+                // cosine stays above the outer one, so the smoothstep has two different edges.
+                if (l.type == LightType::Spot && l.innerAngle > 0.0f)
+                    ld.cosInner = std::min(
+                        std::max(std::cos(radians(std::min(l.innerAngle, l.spotAngle))), ld.dir.w + 1e-3f), 1.0f);
                 // Relevance to the camera: bright and close first (the light's own range scales the fall-off).
                 const float r2 = std::max(l.range * l.range, 1e-4f);
                 ld.score = brightness * r2 / (r2 + length_sq(m.translation() - fr.cam.position));
+                // A local light whose sphere is outside the view lights nothing that is drawn: it takes no place in the table (and no
+                // part of the kMaxLights of the view).
+                const float rg = std::max(l.range, 0.0f);
+                const Vec3 c = m.translation();
+                if (rg > 0.0f && !box_in_frustum(fr.cam.viewProj, ctx.z01, Vec3{c.x - rg, c.y - rg, c.z - rg},
+                                                 Vec3{c.x + rg, c.y + rg, c.z + rg}, Mat4::identity())) {
+                    ++culledLocal;
+                    return;
+                }
             }
             lights.push_back(ld);
         });
@@ -842,10 +860,20 @@ void Renderer::Impl::collect_lights(DrawContext& ctx) {
     }
     // The shadow caster in slot 0, then the other directional lights, then point and spot lights by relevance; what the
     // shader's arrays cannot hold is left out.
-    stats.lightsDropped += select_lights(lights, size_t(kMaxLights));
+    const int droppedNow = select_lights(lights, size_t(kMaxLights));
+    stats.lightsDropped += droppedNow;
+    if (droppedNow > 0 && !warnedLightsDropped) {
+        warnedLightsDropped = true;
+        FA_WARN("render",
+                "{} lights were left out: a view lights at most {} lights at once, {} of them directional (the most "
+                "relevant "
+                "ones are kept). Hint: use fewer lights, or turn some Lights off; stats.lightsDropped counts them.",
+                droppedNow, kMaxLights, kMaxDirectionalLights);
+    }
+    stats.lightsCulled += culledLocal;
     stats.lights += int(lights.size());
     ctx.haveShadowCaster = shadowLight >= 0 && !lights.empty() && lights[0].rank == 0;
-    if (!opaque.empty() && lights.empty() && !warnedNoLight && !plan.view) {
+    if (!opaque.empty() && lights.empty() && culledLocal == 0 && !warnedNoLight && !plan.view) {
         warnedNoLight = true;
         FA_WARN("render", "the scene has MeshRenderer entities but no Light entity: meshes only receive ambient light "
                           "(SceneSettings.ambientLight). Add an entity with a Light component (type Directional) or "
@@ -1024,8 +1052,81 @@ void Renderer::Impl::upload_instances(DrawContext& ctx) {
     ctx.shadowExtra = upload(ctx.shadowExtraData.data(), ctx.shadowExtraData.size() * sizeof(float));
 }
 
+// ---- the lights of the view: the light table and the clusters, in the data texture ----
+// Clustered forward lighting (light_clusters.h): the table of ctx.lights (directional first, then the local lights by relevance) and,
+// when there are local lights, the clusters of the view with each one's list of lights, are packed into one RGBA32F image that the
+// mesh fragment shader reads (shaders/light_data.glsl). The build is a deterministic job (the same lists for any number of threads).
+// Reads: ctx.lights, ctx.fr.cam, ctx.camPx, ctx.opaque / ctx.blended (nothing is built for a job that draws no mesh), gpu. Writes:
+// ctx.lightView, the fa_cl_* fields of ctx.fuScene, stats.lightClusters / lightClusterEntries / lightClusterClipped / lightMaxPerCluster.
+void Renderer::Impl::upload_lights(DrawContext& ctx) {
+    const std::vector<LightData>& lights = ctx.lights;
+    const Frame& fr = ctx.fr;
+    // The "no clusters" value first, so every early return leaves a valid one (fuScene starts zeroed, which is not: the shader would
+    // look up a cluster of a grid with no tiles). A view with no local lights keeps it too.
+    ctx.fuScene.fa_cl_info[0] = -1.0f;
+    ctx.fuScene.fa_cl_info[1] = ctx.fuScene.fa_cl_info[2] = ctx.fuScene.fa_cl_info[3] = 0.0f;
+    if (lights.empty() || (ctx.opaque.empty() && ctx.blended.empty()) || ctx.camPx.w < 1 || ctx.camPx.h < 1) return;
+    int directional = 0;
+    while (directional < int(lights.size()) && lights[std::size_t(directional)].rank < 2) ++directional;
+    ClusterCamera cam;
+    cam.viewProj = fr.cam.viewProj;
+    cam.position = fr.cam.position;
+    cam.forward = fr.cam.forward;
+    cam.widthPx = ctx.camPx.w;
+    cam.heightPx = ctx.camPx.h;
+    // The depth range of the view along its forward axis: the camera's near and far planes, found by unprojecting the middle of the
+    // screen (an orthographic camera's range starts behind it; the clusters start a centimetre in front).
+    {
+        const Vec4 n = fr.cam.queryInvViewProj * Vec4{0, 0, -1, 1}, f = fr.cam.queryInvViewProj * Vec4{0, 0, 1, 1};
+        auto depth_of = [&](const Vec4& p) {
+            if (!(std::fabs(p.w) > 1e-12f)) return -1.0f;
+            const Vec3 w{p.x / p.w, p.y / p.w, p.z / p.w};
+            return dot(fr.cam.forward, w - fr.cam.position);
+        };
+        cam.nearDepth = std::max(depth_of(n), 0.01f);
+        cam.farDepth = depth_of(f);
+        if (!(cam.farDepth > cam.nearDepth)) cam.farDepth = cam.nearDepth * 10000.0f;
+    }
+    ClusterLists lists;
+    const bool clustered = int(lights.size()) > directional;
+    if (clustered) {
+        std::vector<LightSphere> spheres(lights.size());
+        for (std::size_t i = std::size_t(directional); i < lights.size(); ++i)
+            spheres[i] = LightSphere{lights[i].pos.x, lights[i].pos.y, lights[i].pos.z, lights[i].pos.w};
+        build_light_clusters(cam, make_cluster_grid(cam.widthPx, cam.heightPx, cam.nearDepth, cam.farDepth), spheres,
+                             lists);
+        stats.lightClusters += lists.grid.clusters();
+        stats.lightClusterEntries += int(lists.indices.size());
+        stats.lightClusterClipped += int(lists.clippedEntries);
+        stats.lightMaxPerCluster = std::max(stats.lightMaxPerCluster, int(lists.maxPerCluster));
+        if (lists.clippedEntries > 0 && !warnedClusterClipped) {
+            warnedClusterClipped = true;
+            FA_WARN(
+                "render",
+                "{} light-list entries were left out: a cluster of the view holds at most {} lights and a view at most "
+                "{} entries in all, so some pixels miss lights. Hint: give the lights a smaller range or use fewer "
+                "lights "
+                "that overlap; stats.lightClusterClipped counts them.",
+                lists.clippedEntries, kMaxLightsPerCluster, kMaxClusterIndices);
+        }
+    }
+    LightTexture tex;
+    pack_light_texture(lights, directional, cam, clustered ? &lists : nullptr, tex);
+    ctx.lightView = gpu.write_light_image(tex.height, tex.texels.data()).view;
+    mesh_fa_mesh_fs_params_t& fu = ctx.fuScene;
+    const ClusterUniforms& u = tex.uniforms;
+    for (int c = 0; c < 4; ++c) {
+        fu.fa_cl_vpx[c] = u.vpx[c];
+        fu.fa_cl_vpy[c] = u.vpy[c];
+        fu.fa_cl_vpw[c] = u.vpw[c];
+        fu.fa_cl_fwd[c] = u.fwd[c];
+        fu.fa_cl_grid[c] = u.grid[c];
+        fu.fa_cl_info[c] = u.info[c];
+    }
+}
+
 // ---- the scene's uniforms: shared by the main pass and the shadow pass of alphaMode "clip" materials ----
-// Reads: world (settings, time), fr.cam, ctx.lights, ctx.lightVP, gpu. Writes: ctx.ss, ctx.white, ctx.lightUniforms, ctx.vuScene,
+// Reads: world (settings, time), fr.cam, ctx.lights, ctx.lightVP, gpu. Writes: ctx.ss, ctx.white, ctx.lightView, ctx.vuScene,
 // ctx.fuScene.
 void Renderer::Impl::scene_uniforms(DrawContext& ctx) {
     World& world = ctx.world;
@@ -1033,7 +1134,6 @@ void Renderer::Impl::scene_uniforms(DrawContext& ctx) {
     const std::vector<LightData>& lights = ctx.lights;
     const Mat4& lightVP = ctx.lightVP;
     SceneSettings& ss = ctx.ss;
-    mesh_fa_lights_t& lightUniforms = ctx.lightUniforms;
     mesh_fa_mesh_vs_params_t& vuScene = ctx.vuScene;
     mesh_fa_mesh_fs_params_t& fuScene = ctx.fuScene;
     ss = world.settings();
@@ -1054,13 +1154,7 @@ void Renderer::Impl::scene_uniforms(DrawContext& ctx) {
     ss.skyColor = to_scene(ss.skyColor, fr.linear);
     ss.horizonColor = to_scene(ss.horizonColor, fr.linear);
     ctx.white = assets->white();
-    for (std::size_t i = 0; i < lights.size(); ++i) {
-        for (int c = 0; c < 4; ++c) {
-            lightUniforms.fa_light_pos[i][c] = lights[i].pos[c];
-            lightUniforms.fa_light_color[i][c] = lights[i].color[c];
-            lightUniforms.fa_light_dir[i][c] = lights[i].dir[c];
-        }
-    }
+    ctx.lightView = ctx.white->view;
     copy_mat(vuScene.fa_view_proj, fr.cam.viewProj);
     copy_mat(vuScene.fa_light_vp, lightVP);
     vuScene.fa_time[0] = float(world.time());
@@ -1077,7 +1171,11 @@ void Renderer::Impl::scene_uniforms(DrawContext& ctx) {
     fuScene.fa_fog[1] = ss.fogColor.g;
     fuScene.fa_fog[2] = ss.fogColor.b;
     fuScene.fa_fog[3] = ss.fogDensity;
-    fuScene.fa_counts[0] = float(lights.size());
+    // The lights of the view: the light table and the clusters in the data texture (light_clusters.h); fa_counts.x is how many of the
+    // first lights the full-shader API fa_light_count() hands over.
+    fuScene.fa_counts[0] = float(std::min<std::size_t>(lights.size(), 32));
+    upload_lights(ctx);
+    for (int c = 0; c < 4; ++c) lastClusterInfo[c] = fuScene.fa_cl_info[c];
     fuScene.fa_counts[1] = 1.0f / float(kShadowSize);
     fuScene.fa_counts[2] = gpu.is_gl() ? 1.0f : 0.0f;
     fuScene.fa_env_sky[0] = ss.skyColor.r;
@@ -1376,6 +1474,8 @@ void Renderer::Impl::bind_textures(DrawContext& ctx, sg_bindings& b, const PartD
     b.views[VIEW_mesh_fa_emissive_tex] = d.emissive->gpu_view();
     b.samplers[SMP_mesh_fa_smp] = gpu.sampler(SamplerKind::LinearRepeat);
     b.samplers[SMP_mesh_fa_shadow_smp] = gpu.sampler(SamplerKind::Nearest);
+    // The light data of the view (the shadow pass has no lights: any image does for a program that declares the slot).
+    b.views[VIEW_mesh_fa_light_tex] = shadowPass ? white->view : ctx.lightView;
     // The sky environment (renderer_env.h): the baked cubes, or a black one while the meshes use the gradient (every
     // mesh program of the main pass declares the slots; a custom program that does not has them dropped below).
     const bool env = ctx.envActive && skyEnv.baked();
@@ -1489,7 +1589,7 @@ void Renderer::Impl::light_pass(DrawContext& ctx) {
 // ---- shadow pass ----
 // Meshes cast with the engine's depth-only programs, except materials with their own shadow programs (vertex() moves the
 // shadow, alphaMode "clip" cuts holes into it).
-// Reads: ctx.doShadows, ctx.opaque / ctx.blended and their batches, ctx.shadowInst, ctx.vuScene, ctx.lightUniforms,
+// Reads: ctx.doShadows, ctx.opaque / ctx.blended and their batches, ctx.shadowInst, ctx.vuScene,
 // ctx.white and ctx.fuScene (part_draw, bind_textures, fill_fs), the shadow targets.
 // Writes: the shadow map (shadowTarget); stats.drawCalls.
 void Renderer::Impl::shadow_pass(DrawContext& ctx) {
@@ -1499,7 +1599,6 @@ void Renderer::Impl::shadow_pass(DrawContext& ctx) {
     const std::vector<MeshItem>& blended = ctx.blended;
     const sg_buffer shadowInst = ctx.shadowInst;
     const mesh_fa_mesh_vs_params_t& vuScene = ctx.vuScene;
-    const mesh_fa_lights_t& lightUniforms = ctx.lightUniforms;
     PassDesc sp = pass_into(shadowTarget, "shadow");
     sp.colorLoad = SG_LOADACTION_CLEAR;
     sp.clearColor = {1, 1, 1, 1};
@@ -1550,7 +1649,6 @@ void Renderer::Impl::shadow_pass(DrawContext& ctx) {
                 if (prog) {
                     if (prog->has_ub(UB_mesh_fa_mesh_fs_params))
                         apply_uniforms(UB_mesh_fa_mesh_fs_params, fill_fs(ctx, rep, p, pd));
-                    if (prog->has_ub(UB_mesh_fa_lights)) apply_uniforms(UB_mesh_fa_lights, lightUniforms);
                     apply_material_params(*prog, inputs);
                 }
                 sg_draw(0, p.indexCount, mbu.active ? mbu.instances : int(batch.shadowCount));
@@ -1717,7 +1815,6 @@ void Renderer::Impl::prepass_pass(DrawContext& ctx, const Target& t) {
                 apply_uniforms(UB_mesh_fa_skin, pack_palette(palette_of(*mi.anim, part.skin)));
             if (prog->has_ub(UB_mesh_fa_mesh_fs_params))
                 apply_uniforms(UB_mesh_fa_mesh_fs_params, fill_fs(ctx, mi, part, pd0));
-            if (prog->has_ub(UB_mesh_fa_lights)) apply_uniforms(UB_mesh_fa_lights, ctx.lightUniforms);
             apply_material_params(*prog, inputs);
             sg_draw(0, part.indexCount, mbu.active ? mbu.instances : int(batch.mainCount));
             ++stats.drawCalls;
@@ -1986,7 +2083,7 @@ void Renderer::Impl::draw_group(DrawContext& ctx, const std::vector<QuadBatch>& 
 // the HUD over the bloom the bloom adds its glow to it, the HUD pass loads it again, so the HUD is multisampled too and
 // the final resolve contains everything.
 // Reads: plan (first / last / view), fr (camera, wantWorld, wantScreen, debugLines), ctx.z01, msaa, hudAfterBloom,
-// clearByQuad, clearByLoad, partial, camPx, fullPx, ctx.white, ss, fuScene, vuScene, lightUniforms, shadowRowsTex, litMode,
+// clearByQuad, clearByLoad, partial, camPx, fullPx, ctx.white, ss, fuScene, vuScene, lightView, shadowRowsTex, litMode,
 // opaque / blended with their batches, mainInst, the quad groups (gClear, gWorld, gDebugWorld, gScreen, gDebugScreen), vbuf,
 // lineFirst, screenProj, shadowTarget.texView (doShadows) and lightTarget.texView (litMode 1), the game target images.
 // Writes: the game target (gameTarget.colorAtt / resolveAtt / depthAtt); stats (drawCalls, triangles, meshes, meshBatches, materials,
@@ -2014,7 +2111,6 @@ void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
     const std::vector<MeshItem>& blended = ctx.blended;
     const sg_buffer mainInst = ctx.mainInst;
     const mesh_fa_mesh_vs_params_t& vuScene = ctx.vuScene;
-    const mesh_fa_lights_t& lightUniforms = ctx.lightUniforms;
     const bool drawHudInPass = fr.wantScreen && !hudAfterBloom && !ctx.hudAfterPost;
     if (ctx.envActive && !skyEnv.baked()) {  // the bake did not complete: the meshes keep the gradient
         ctx.envActive = false;
@@ -2132,7 +2228,6 @@ void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
                             }
                             apply_uniforms(UB_mesh_fa_mesh_fs_params, fragmentParams);
                         }
-                        if (declares(prog, UB_mesh_fa_lights)) apply_uniforms(UB_mesh_fa_lights, lightUniforms);
                         if (prog) apply_material_params(*prog, inputs);
                         sg_draw(0, part.indexCount, mbu.active ? mbu.instances : int(batch.mainCount));
                         ++stats.drawCalls;

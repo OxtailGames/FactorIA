@@ -198,14 +198,23 @@ void pack_instance_extras(const std::vector<MeshItem>& items, std::vector<MeshBa
                           std::vector<float>& mainData, std::vector<float>& shadowData,
                           InstanceParamCache* cache = nullptr);
 
+// The directional lights of a view: every cluster loops over all of them, so there are at most this many (the shader's light table
+// keeps them first).
+inline constexpr int kMaxDirectionalLights = 32;
+
 struct LightData {
     Vec4 pos, color, dir;
     int rank = 2;     // 0 = shadow-casting directional, 1 = directional, 2 = point/spot
     float score = 0;  // how relevant the light is to the camera (larger = keep first)
+    // A spot's cos(innerAngle) (the cone inside which it is at full strength); 2 = Light.innerAngle 0, the default fade of the
+    // outer quarter of the cone (shaders/light_data.glsl).
+    float cosInner = 2.0f;
 };
 
 // Orders the lights by relevance (the shadow caster first, then directional lights, then point and spot lights by
-// brightness over distance to the camera: `score`) and drops what exceeds `maxCount`. Returns how many were dropped.
-int select_lights(std::vector<LightData>& lights, std::size_t maxCount);
+// brightness over distance to the camera: `score`) and drops what exceeds `maxCount` lights or `maxDirectional` directional ones.
+// Returns how many were dropped.
+int select_lights(std::vector<LightData>& lights, std::size_t maxCount,
+                  std::size_t maxDirectional = std::size_t(kMaxDirectionalLights));
 
 }  // namespace fa::render

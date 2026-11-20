@@ -130,16 +130,16 @@ std::vector<FeatureDef> build_table() {
          "skipped without it."});
     // The lighting of M73 (docs/rendering/RENDERING_LIGHTING.md): every row answers false with "planned (M73)" until its package
     // lands, then drops the `planned` text here. `needs` is what its pass asks of the GPU once built.
+    t.push_back(
+        {"clusteredLights", FeatureKind::Engine, kEveryGpu, "", nullptr,
+         "Clustered forward lighting: up to 1024 lights in view at once (32 of them directional), each fragment "
+         "reading only the lights of its cluster (docs/rendering/RENDERING_LIGHTING.md, \"Many lights\")."});
     struct Planned {
         const char* name;
         const char* needs;
         const char* doc;
     };
     static const Planned kLighting[] = {
-        {"clusteredLights", "",
-         "Clustered forward lighting: hundreds of lights on screen at once (today a mesh is lit by at most 32), each "
-         "fragment "
-         "reading only the lights of its cluster (M73.1)."},
         {"areaLights", "",
          "Rectangle, disc and tube area lights with soft highlights (linearly transformed cosines; M73.1)."},
         {"lightCookies", "", "Light cookies: a texture projected by a spot or point light (M73.1)."},
