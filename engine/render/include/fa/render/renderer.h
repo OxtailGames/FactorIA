@@ -46,6 +46,7 @@ namespace fa {
 
 class Renderer;
 class Compute;
+struct ProbeSet;  // fa/scene/light_probes.h
 // Test accessors (GPU objects, the frame graph, pool counts, history images) live in
 // engine/render/src/renderer_test_access.h: the one friend below opens Impl for the render tests; the public API has no
 // test hooks.
@@ -559,6 +560,14 @@ public:
     // The answer of the `render.supports` command: {backend, backendLabel, features: [{name, kind, supported, status, doc,
     // backends}]}. Empty object before init().
     Json supports_report() const;
+
+    // The baked light probes of the scene's lightmap manifest (SceneSettings.lightmaps, M73.4d), loaded on first use and kept until the files change; null
+    // when the scene has no manifest, it lists no probes or the file did not load (asset_report lists the failure). Valid until the next frame.
+    const ProbeSet* light_probes(World& world);
+    // The answer of the `render.light_probes` command: {lightmaps, baked, probes, invalid, groups: [{id, kind, count, invalid}]} and, for
+    // `entity` (kNullEntity: none), {entity: {id, name, source: "probes" | "lightmap" | "sky", position, coverage, probesUsed, sh, ambient}}: what
+    // that MeshRenderer receives, by the rules of the frame. Needs init().
+    Json light_probes_report(World& world, Entity entity);
 
     // HDR display output (fa/platform/hdr_output.h; docs/RENDERING.md, "HDR output"). Once per frame before present(), on the
     // window's thread: asks the display the window is on and switches the window's swapchain to an HDR format when

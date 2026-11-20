@@ -50,6 +50,7 @@
 #include "fa/runtime/play_session.h"
 #include "fa/scene/bones2d.h"
 #include "fa/scene/bounds.h"
+#include "fa/scene/light_probes.h"
 #include "fa/scene/serialize.h"
 #include "fa/tooling/export.h"  // executable_dir: where the update goes
 #include "fa/tooling/qr.h"
@@ -1116,7 +1117,18 @@ public:
     bool vpFocusNext_ = false;  // focus the Viewport window on its next draw (set when Play starts)
     bool vpMouseCaptured_[3] = {false, false, false};
     bool showColliders_ = true;
-    bool showNav_ = false;               // draw the NavMesh3D walkable cells (Window > Show navmesh)
+    bool showNav_ = false;  // draw the NavMesh3D walkable cells (Window > Show navmesh)
+    // the LightProbeGroup gizmo (probe_gizmo.cpp; the Lightmap panel's "Show probes"): the probes of each group as they are now, by entity id
+    struct ProbeGizmoCache {
+        std::uint64_t key = 0;
+        bool built = false;
+        std::string
+            error;  // non-empty: the group has a mistake (the Inspector and the bake say which); nothing is drawn
+        ProbeSet set;
+    };
+    bool showProbes_ = true;
+    std::map<std::string, ProbeGizmoCache> probeGizmo_;
+    void draw_probe_gizmos(ImDrawList* dl, Renderer& r, const std::function<ImVec2(Vec3)>& project_world);
     std::vector<NavLinkDraw> navLinks_;  // last links drawn (same rule as navCells_)
     std::vector<NavCell>
         navCells_;  // last cells drawn; kept while the mouse is down so a drag does not rebake each frame
