@@ -19,11 +19,14 @@
 #include <string>
 #include <vector>
 
-#include "fa/core/image_float.h"
 #include "fa/core/json.h"
 #include "fa/core/math.h"
 #include "fa/core/types.h"
 #include "fa/scene/lightmap_bake.h"
+
+namespace fa {
+struct ImageF;  // fa/core/image_float.h: not included here, its sRGB functions would clash with the renderer's (color_space.h)
+}
 
 namespace fa::render {
 

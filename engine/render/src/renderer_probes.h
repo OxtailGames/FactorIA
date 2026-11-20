@@ -15,6 +15,7 @@
 #pragma once
 
 #include <cstdint>
+#include <deque>
 #include <map>
 #include <string>
 #include <vector>
@@ -22,6 +23,10 @@
 #include "fa/render/probe.h"
 #include "frame.h"
 #include "render_internal.h"
+
+namespace fa {
+struct ImageF;
+}
 
 namespace fa::render {
 
@@ -56,6 +61,10 @@ public:
 
     // The scratch cubes of `slot` for maps of `resolution` (made again when the resolution changes). False when the GPU refuses them.
     bool prepare_scratch(int slot, int resolution);
+    // Frees the slot's scratch cubes (the synchronous capture's, once it is done).
+    void release_slot(int slot) {
+        if (slot >= 0 && slot < kProbeScratchSlots) destroy_scratch(scratch_[slot]);
+    }
 
     // Copies the picture of capture face `face` (`picture`: an upright 2D view, row 0 = the top, as the face job drew it) into face `face` of
     // the slot's S0.
@@ -102,8 +111,11 @@ struct ProbeEntry {
     Entity entity = kNullEntity;
     std::uint64_t id = 0;  // the allocator's and scheduler's id: the entity's bits
     bool realtime = false;
+    ProbeUpdateKind update = ProbeUpdateKind::TimeSliced;
     int resolution = 0, importance = 0;
-    ProbeTile tile;
+    ProbeTile tile, uploadedTile;  // uploadedTile: where a baked probe's page was last written (a moved tile is written again)
+    float gain = 1.0f;             // ReflectionProbe.intensity
+    std::string name;              // the entity's id in the scene, for the report
     bool placed = false;
     std::string state;       // "ready", "pending", "capturing", "noRoom", "noBake", "failed", "overLimit"
     std::string message;     // why a probe is "failed" or "noBake"
@@ -132,15 +144,20 @@ struct ProbeSystem {
     std::uint64_t skyKey = 0;
     std::uint64_t skyWrittenFrame = 0;
     // This frame's captures: one Frame per face job, kept until the frame graph ran (a job keeps a reference).
-    std::vector<Frame> frames;
+    std::deque<Frame> frames;  // a deque: a job keeps a reference to its Frame
     struct Job {
         std::uint64_t id = 0;
         int slot = 0, face = 0;
         bool last = false;
         std::uint64_t key = 0;  // view_image key of the face picture
+        sg_view picture{};      // the face's image (upright), valid until the frame is done
     };
     std::vector<Job> jobs;
     int drawCalls = 0;  // passes of the probes since the renderer was made (reported)
+    // What probes_plan decided for probes_finish: the baked probes to upload and whether the sky's entry is written.
+    std::vector<std::uint64_t> uploads;
+    bool writeSky = false;
+    std::string skyState;  // "ready", "noSky" (the scene draws no sky material: the meshes keep the gradient), "failed"
 };
 
 }  // namespace fa::render
