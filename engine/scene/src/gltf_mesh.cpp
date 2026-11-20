@@ -173,6 +173,8 @@ Result<GltfMesh> read_gltf_mesh_bytes(const std::vector<std::uint8_t>& bytes, co
             lost(m->specular.specular_texture, "specularTexture");
             lost(m->specular.specular_color_texture, "specularColorTexture");
         }
+        if (m->has_transmission) lost(m->transmission.transmission_texture, "transmissionTexture");
+        if (m->has_volume) lost(m->volume.thickness_texture, "thicknessTexture");
         out.materials.push_back(mm);
         return materialIndex[m] = out.materials.size() - 1;
     };

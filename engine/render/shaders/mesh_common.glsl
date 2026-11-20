@@ -83,6 +83,11 @@ struct Surface {                // what the lighting reads
     float specular;             // 0..1 strength of the dielectric specular (1 = the usual 4% reflectance at ior 1.5)
     float ior;                  // 1..3 index of refraction: sets the dielectric reflectance at normal incidence
     vec3 specular_color;        // tint of the dielectric reflectance (KHR_materials_specular), white = none
+    // Transmission and volume (M73.6b; glass, liquids): what the engine's own lighting reads; a "custom" lighting does not draw them.
+    float transmission;         // 0..1: the share of the diffuse light that passes through the surface (and shows what is behind it); 0 = opaque
+    float thickness;            // metres of the volume behind the surface: how far the light travels inside, bending it and tinting it
+    vec3 attenuation_color;     // the colour the light has after travelling attenuation_distance inside the volume
+    float attenuation_distance; // metres; 0 = the volume does not tint the light
 };
 struct LightSample {            // light(): one light as the engine's light loop selected it (lighting "custom")
     vec3 direction;             // surface -> light, normalized (a directional light: the direction its light comes from)
@@ -397,7 +402,9 @@ layout(binding=14) uniform textureCube fa_env_tex;
 layout(binding=10) uniform sampler fa_env_smp;
 // The screen slot (view 28, read with texelFetch through the nearest sampler 1; M73.2c): in the opaque phase the prepass image (r = linear
 // view depth, a = 1 on an opaque mesh), the source of the contact shadows. Bound by every draw (a white image when none takes contact
-// shadows, which no fragment then reads); M73.6b binds the opaque colour here for the transmissive draws, which have no contact shadows.
+// shadows, which no fragment then reads). In the blended phase of a frame that has a transmissive draw it holds the refraction atlas instead
+// (M73.6b, block fa_transmission of brdf_layers.glsl): the opaque picture of the camera's rectangle and its reduced copies, read by the
+// transmissive draws, which have no contact shadows.
 layout(binding=28) uniform texture2D fa_screen_tex;
 @image_sample_type fa_screen_tex unfilterable_float
 
@@ -444,6 +451,11 @@ layout(binding=1) uniform fa_mesh_fs_params {
     vec4 fa_ct_vpy;             // row 1: clip y
     vec4 fa_ct_vpw;             // row 3: clip w
     vec4 fa_ct_fwd;             // xyz = the camera's forward axis, w = -dot(forward, position): depth = dot(xyz, world) + w
+    // Transmission and volume (M73.6b; brdf_layers.glsl, block fa_transmission). fa_ct_vp*, fa_ct_a.yzw hold the camera's view of the frame
+    // for a transmissive draw too (the atlas has the prepass's size, the camera's rectangle).
+    vec4 fa_tr_a;               // x transmission, y thickness (metres), z attenuation distance (metres, 0 = no tint), w = how the draw is
+                                // made: 0 not transmissive, 1 refracts the atlas bound at view 28, 2 a plain blend (no atlas)
+    vec4 fa_tr_b;               // rgb attenuation colour, w = the levels of the atlas (1 = the picture only)
 };
 
 // The varyings are declared in the order of the vertex stage's outputs (the instance values first): sokol-shdc matches them
@@ -526,6 +538,10 @@ Surface fa_standard_surface(in SurfaceInput i) {
     s.specular = fa_layers_c.x;
     s.ior = fa_layers_c.y;
     s.specular_color = fa_layers_d.rgb;
+    s.transmission = fa_tr_a.x;
+    s.thickness = fa_tr_a.y;
+    s.attenuation_distance = fa_tr_a.z;
+    s.attenuation_color = fa_tr_b.rgb;
     float packed_maps = fa_layers_c.z;
     if (packed_maps > 0.5) {
         if (mod(packed_maps, 2.0) > 0.5) {
@@ -662,6 +678,7 @@ float fa_shadow_factor(vec3 n, vec3 l) {
 @include_block fa_layers_light
 @include_block fa_light_shared
 @include_block fa_contact
+@include_block fa_transmission
 @include_block fa_light_hooks
 @include_block fa_ltc
 @include_block fa_area_light
@@ -728,6 +745,7 @@ void main() {
 #endif
 
     vec3 result;
+    float fa_tr_blend = 0.0;  // fallback draw of a transmissive surface (no atlas): how much of the picture behind the plain blend lets through
     if (fa_emissive.w > 0.5) {
         result = s.albedo;
     } else {
@@ -752,7 +770,9 @@ void main() {
         float alpha = roughness * roughness;
         float a2 = alpha * alpha;
         float ndv = max(dot(n, v), 1e-4);
-        vec3 diffuse_color = s.albedo * (1.0 - metallic);
+        // A transmissive surface lets this share of its diffuse light through (a metal lets none): what shows behind it is added below.
+        float tr = clamp(s.transmission, 0.0, 1.0) * (1.0 - metallic);
+        vec3 diffuse_color = s.albedo * (1.0 - metallic) * (1.0 - tr);
         vec3 f0 = mix(vec3(0.04), s.albedo, metallic);
         FaLayers lay = fa_layers_setup(i, s, n, v, metallic, roughness, f0);
         vec3 lit = fa_indirect_diffuse(n) * diffuse_color * s.occlusion;
@@ -765,6 +785,9 @@ void main() {
             lit += fa_layers_ibl(lay, n, v, f0, roughness) * s.occlusion;
         } else {
             lit += fa_sky_reflection(n, v, f0, roughness) * s.occlusion;
+        }
+        if (tr > 0.0) {
+            lit += fa_transmitted(s, n, v, roughness, f0, lay.on ? lay.f90 : 1.0, lay.on ? lay.base_scale : 1.0, tr, fa_tr_blend);
         }
 #endif
 #endif
@@ -798,6 +821,11 @@ void main() {
             float f = 1.0 - exp(-clamp(tau, 0.0, 80.0));
             result = mix(result, fa_fog.rgb, clamp(f, 0.0, 1.0));
         }
+    }
+    if (fa_tr_blend > 0.0) {
+        // A plain blend where the picture behind is not available: the surface covers it by 1 - the share that passes through.
+        result /= 1.0 - fa_tr_blend;
+        s.alpha *= 1.0 - fa_tr_blend;
     }
     fa_frag_color = vec4(result, s.alpha);
 }

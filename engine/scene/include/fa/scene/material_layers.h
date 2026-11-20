@@ -1,5 +1,5 @@
-// The material layers of a glTF material (M73.6): clear coat, sheen, anisotropy and the dielectric specular. Read from the
-// KHR_materials_clearcoat, _sheen, _anisotropy, _specular and _ior extensions by read_material_layers (gltf_file.h), which the
+// The material layers of a glTF material (M73.6): clear coat, sheen, anisotropy, the dielectric specular, transmission and volume.
+// Read from the KHR_materials_clearcoat, _sheen, _anisotropy, _specular, _ior, _transmission and _volume extensions by read_material_layers (gltf_file.h), which the
 // two glTF readers of the engine call (the model loader of the renderer and the editable-mesh importer, gltf_mesh.cpp).
 #pragma once
 
@@ -19,6 +19,10 @@ struct MaterialLayers {
     float specular = 1.0f;            // 0..1 (specularFactor)
     std::array<float, 3> specularColor{1.0f, 1.0f, 1.0f};  // 0..16 (specularColorFactor)
     float ior = 1.5f;                                      // 1..3 (ior)
+    float transmission = 0.0f;                             // 0..1 (transmissionFactor); 0 = opaque
+    float thickness = 0.0f;                                // metres, 0..1000 (thicknessFactor); 0 = a thin surface
+    std::array<float, 3> attenuationColor{1.0f, 1.0f, 1.0f};  // 0..1 (attenuationColor)
+    float attenuationDistance = 0.0f;  // metres, 0..100000 (attenuationDistance); 0 = no tint (glTF: infinity)
 
     bool operator==(const MaterialLayers&) const = default;
     // True when the material uses any layer or a specular / ior that is not the engine's own.

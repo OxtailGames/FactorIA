@@ -67,6 +67,10 @@ struct PassDesc {
     sg_load_action depthLoad = SG_LOADACTION_DONTCARE;  // CLEAR to `clearDepth`; the depth is never read after the pass
     float clearDepth = 1.0f;
     sg_load_action stencilLoad = SG_LOADACTION_DONTCARE;  // the main passes CLEAR it (to 0)
+    // What the pass does with the depth and the stencil afterwards: the sokol default (DONTCARE) unless a later pass loads them (the main pass,
+    // split in two by a transmissive draw, STOREs them, renderer_xmit.h).
+    sg_store_action depthStore = _SG_STOREACTION_DEFAULT;
+    sg_store_action stencilStore = _SG_STOREACTION_DEFAULT;
 
     // A pass into the window: `swapchain` (not owned: it must outlive the pass) and the formats it really has. sokol
     // accepts 0 for the colour format, the depth format and the sample count of an sg_swapchain and uses the defaults
@@ -97,6 +101,8 @@ struct PassDesc {
         p.action.colors[0].clear_value = clearColor;
         p.action.depth.load_action = depthLoad;
         p.action.depth.clear_value = clearDepth;
+        p.action.depth.store_action = depthStore;
+        p.action.stencil.store_action = stencilStore;
         p.action.stencil.load_action = stencilLoad;
         if (swapchain) {
             p.swapchain = *swapchain;

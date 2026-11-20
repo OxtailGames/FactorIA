@@ -1,3 +1,4 @@
+#include "material_cost.h"
 #include "renderer_impl.h"
 #include "renderer_test_access.h"
 #include "fa/render/compute.h"
@@ -423,6 +424,7 @@ void Renderer::shutdown() {
         }
         im.fonts.reset();
         im.ssr.release();
+        im.xmit.release();
         im.skyEnv.release();
         im.physSky.release();
         im.hdriSky.release();
@@ -715,6 +717,14 @@ Json Renderer::asset_report() const {
     Json j = impl_->assets->report();
     j["fonts"] = impl_->fonts->report();
     return j;
+}
+
+Json Renderer::material_cost(const MeshRenderer& mr) {
+    if (!impl_ || !impl_->assets) return Json::object();
+    const render::MeshAsset* mesh = mr.mesh.empty() ? nullptr : impl_->assets->mesh(mr.mesh);
+    const render::MaterialAsset* material = mr.material.empty() ? nullptr : impl_->assets->material(mr.material);
+    if (material && !material->ok) material = nullptr;
+    return render::material_cost_report(mr, mesh, material, impl_->physW, impl_->physH);
 }
 
 // ---- camera helpers ----
