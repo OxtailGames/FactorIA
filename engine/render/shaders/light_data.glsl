@@ -7,12 +7,23 @@
 // M73.1, clustered forward lighting (docs/design/ARCHITECTURE_RENDERING_LIGHTING.md): the lights of the frame and the list of lights of
 // every cluster of the view are packed by the renderer (src/light_clusters.cpp) into ONE data texture of 1024 RGBA32F texels per row,
 // read with texelFetch (view 24, sampler 1). Texel t is at (t & 1023, t >> 10). The layout, in texels:
-//   [0, 4 * L)                       light n at 4n .. 4n + 3:
-//                                      +0 xyz position (point/spot) or direction TO the light (directional), w range
-//                                      +1 rgb colour * intensity, w type (0 directional, 1 point, 2 spot)
-//                                      +2 xyz spot axis (the direction the light points), w cos(spot half angle)
-//                                      +3 x cos of the inner cone of a spot (2 = the default fade), y z reserved (cookie, IES),
+//   [0, S * L)                       light n at S n .. S n + S - 1, S = 4 normally and 8 (fa_ambient.w) in a view where a light has
+//                                    an area, a cookie or an IES profile (M73.1b); the first four texels:
+//                                      +0 xyz position (point/spot/area) or direction TO the light (directional), w range
+//                                      +1 rgb colour * intensity, w type (0 directional, 1 point, 2 spot, 3 area)
+//                                      +2 xyz the axis the light points along (spot, area, the axis of an IES profile), w cos(spot half angle)
+//                                      +3 x cos of the inner cone of a spot (2 = the default fade), y z reserved,
 //                                         w flags: 1 = Light.mode Baked (its direct light is in the lightmaps, M73.4a), else 0
+//                                    and, when S = 8, the extension texels (zero for a light that has none of the three):
+//                                      +4 xyz the light's right axis, w area: half width (rectangle, tube: half length) or radius (disc);
+//                                         directional cookie: 1 / its width in metres
+//                                      +5 xyz the light's up axis, w area: half height (rectangle), radius (disc) or half thickness (tube);
+//                                         directional cookie: 1 / its height in metres
+//                                      +6 xy the origin in texels of the cookie's tile in the light atlas (a point light's: of its cube of
+//                                         3 x 2 face tiles of 256 texels), z = 1 when there is a cookie,
+//                                         w area shape (0 rectangle, 1 disc, 2 tube)
+//                                      +7 xy the origin of the IES tile, z = 1 when there is a profile, w area: radius of the sphere around
+//                                         the emitter (the range is measured from its surface)
 //   [fa_cl_info.x, + fa_cl_info.w)   one texel per cluster (slice-major, then row, then column): x = slot of its first light index,
 //                                    y = how many local lights it has, z = slot of its first decal index, w = how many decals it has
 //   after the clusters               the light indices, four to a texel (x, y, z, w); slot s is component s & 3 of the s >> 2 th
@@ -30,53 +41,215 @@
 // The directional lights come first in the light table (at most 32) and belong to every cluster; the local lights of a cluster are
 // in ascending index order, so a loop over "directional, then the cluster's list" adds the lights up in the order of the table.
 @block fa_light_data
+// The first texel of light li: 8 texels apart when a light of the view has extension texels (fa_ambient.w = 8; fa_counts.y is the
+// first texel of the decal region), else 4 (fa_ambient.w = 0 or 4).
+int fa_light_base(int li) { return li * (fa_ambient.w > 4.5 ? 8 : 4); }
+
 vec4 fa_light_texel(int t) {
     return texelFetch(sampler2D(FA_LIGHT_TEX, FA_LIGHT_SMP), ivec2(t & 1023, t >> 10), 0);
 }
 
 // The colour times intensity of light li of the table (no attenuation).
-vec3 fa_light_rgb(int li) { return fa_light_texel(li * 4 + 1).rgb; }
-// The type of light li: 0 directional, 1 point, 2 spot.
-float fa_light_type(int li) { return fa_light_texel(li * 4 + 1).w; }
+vec3 fa_light_rgb(int li) { return fa_light_texel(fa_light_base(li) + 1).rgb; }
+// The type of light li: 0 directional, 1 point, 2 spot, 3 area.
+float fa_light_type(int li) { return fa_light_texel(fa_light_base(li) + 1).w; }
 // Whether light li is baked (Light.mode Baked): a lightmapped fragment skips it, its direct light is in the lightmap.
-bool fa_light_baked(int li) { return fa_light_texel(li * 4 + 3).w > 0.5; }
+bool fa_light_baked(int li) { return fa_light_texel(fa_light_base(li) + 3).w > 0.5; }
+
+// The light atlas (light_atlas.h; view 25): the LTC tables, the cookies and the IES profiles in one RGBA16F image. `texel` is a
+// position in texels (the centre of the first texel is (0.5, 0.5)); the lookup is bilinear and never reads a mip.
+vec4 fa_atlas_fetch(vec2 texel) {
+    vec2 size = vec2(textureSize(sampler2D(FA_ATLAS_TEX, FA_ATLAS_SMP), 0));
+    return textureLod(sampler2D(FA_ATLAS_TEX, FA_ATLAS_SMP), texel / size, 0.0);
+}
+
+// A cookie tile (256 x 256 texels with a border that wraps; the picture is the inner 254): `uv` is 0..1 across the picture, v down.
+vec3 fa_cookie_sample(vec2 tile_origin, vec2 uv) {
+    return fa_atlas_fetch(tile_origin + vec2(1.0) + clamp(uv, 0.0, 1.0) * 254.0).rgb;
+}
+
+// An IES tile (66 x 34 texels: 64 x 32 profile, a border that wraps across and clamps down): the intensity, 0..1 of the peak, toward
+// `d`, the direction from the light to the point, given the light's axis (the nadir of the profile), right and up (the horizontal
+// angle 0 is the right axis, it grows toward up).
+float fa_ies_sample(vec2 tile_origin, vec3 d, vec3 axis, vec3 right, vec3 up) {
+    float v = acos(clamp(dot(d, axis), -1.0, 1.0)) * 0.3183098862;
+    float px = dot(d, right);
+    float py = dot(d, up);
+    float h = (px * px + py * py > 1e-10) ? atan(py, px) * 0.1591549431 : 0.0;
+    h -= floor(h);
+    return fa_atlas_fetch(tile_origin + vec2(1.0 + h * 64.0, 1.0 + v * 32.0)).r;
+}
+
+// fa_cube_face(d), the face of a cube a direction falls in, is the block fa_cube_face of shadow_common.glsl, included before this block.
+// The forward and up axes of cube face f: the table of cube_face_basis (local_shadows.cpp); the face's right is forward x up.
+void fa_cube_face_basis(int f, out vec3 fwd, out vec3 up) {
+    if (f == 0) { fwd = vec3(1.0, 0.0, 0.0); up = vec3(0.0, 1.0, 0.0); }
+    else if (f == 1) { fwd = vec3(-1.0, 0.0, 0.0); up = vec3(0.0, 1.0, 0.0); }
+    else if (f == 2) { fwd = vec3(0.0, 1.0, 0.0); up = vec3(0.0, 0.0, 1.0); }
+    else if (f == 3) { fwd = vec3(0.0, -1.0, 0.0); up = vec3(0.0, 0.0, -1.0); }
+    else if (f == 4) { fwd = vec3(0.0, 0.0, 1.0); up = vec3(0.0, 1.0, 0.0); }
+    else { fwd = vec3(0.0, 0.0, -1.0); up = vec3(0.0, 1.0, 0.0); }
+}
+
+// The cookie and profile factors multiply the colour of the light a fragment gets (fa_light_sample sets it, 1 for a light without a
+// cookie): the standard light loop reads it after the sample it asked for.
+vec3 fa_light_tint;
+// 1 while the last fa_light_sample was a light of type 3 (an area light) in a view with extension texels: the standard loop then shades
+// it with the LTC tables (light_loop.glsl) instead of the point-light terms.
+bool fa_light_is_area;
+
+// The point of an area light's emitter a shading point takes its light from (the "representative point", Karis 2013): the closest point
+// of the emitter to the ray `r` (the view reflected about the normal) from `p`, or, when r is zero, to p itself. A rectangle and a disc
+// are the plane of the light (axis `axis`, right `ru`, up `uu`, half sizes hx and hy; the disc's radius is hx) cut by the ray (the
+// ray's plane point when it reaches the plane in front of it, else p's projection) and clamped to the shape; a tube is the segment
+// c +- ru * hx (its thickness does not move the point).
+vec3 fa_area_point(vec3 c, vec3 axis, vec3 ru, vec3 uu, float hx, float hy, float shape, vec3 p, vec3 r) {
+    bool has_ray = dot(r, r) > 0.5;
+    if (shape > 1.5) {
+        vec3 a = c - ru * hx - p;
+        vec3 ld = ru * (2.0 * hx);
+        float len2 = max(dot(ld, ld), 1e-8);
+        float t = clamp(-dot(a, ld) / len2, 0.0, 1.0);
+        if (has_ray) {
+            float rol0 = dot(r, a);
+            float rold = dot(r, ld);
+            float den = len2 - rold * rold;
+            if (abs(den) > 1e-5 * len2) { t = clamp((rol0 * rold - dot(a, ld)) / den, 0.0, 1.0); }
+        }
+        return p + a + ld * t;
+    }
+    vec3 q = p;
+    float denom = dot(r, axis);
+    if (has_ray && abs(denom) > 1e-4) {
+        float tr = dot(c - p, axis) / denom;
+        if (tr > 0.0) { q = p + r * tr; }
+    }
+    vec3 d = q - c;
+    vec2 xy = vec2(dot(d, ru), dot(d, uu));
+    if (shape > 0.5) {
+        float len = length(xy);
+        if (len > hx) { xy *= hx / len; }
+    } else {
+        xy = clamp(xy, vec2(-hx, -hy), vec2(hx, hy));
+    }
+    return c + ru * xy.x + uu * xy.y;
+}
 
 // Light li of the table as seen from a world position, without its shadow: the direction to it, its color times intensity times
-// attenuation, the attenuation, the distance and the type. shadow is 1.
-LightSample fa_light_sample(int li, vec3 world_pos) {
-    vec4 pos = fa_light_texel(li * 4);
-    vec4 col = fa_light_texel(li * 4 + 1);
+// attenuation, the attenuation, the distance and the type. shadow is 1. The cookie and the IES profile are in the colour and the
+// attenuation. An area light (type 3) is a point light at the representative point of its emitter (fa_area_point), seen from the
+// camera: the point closest to the view reflected about `n` (the geometric normal; a zero `n` takes the point closest to the surface),
+// with the colour and attenuation of a point light at its centre, and no light for a surface behind a rectangle or a disc (they shine
+// from their front only). The engine's own lighting shades an area light with the LTC tables instead (light_loop.glsl).
+LightSample fa_light_sample_n(int li, vec3 world_pos, vec3 n) {
+    int base = fa_light_base(li);
+    bool ext = fa_ambient.w > 4.5;
+    vec4 pos = fa_light_texel(base);
+    vec4 col = fa_light_texel(base + 1);
     float type = col.w;
     vec3 l;
     float atten = 1.0;
     float dist = 0.0;
+    fa_light_tint = vec3(1.0);
+    fa_light_is_area = ext && type > 2.5;
     if (type < 0.5) {
         l = normalize(pos.xyz);
+        if (ext) {
+            vec4 e6 = fa_light_texel(base + 6);
+            if (e6.z > 0.5) {
+                // A directional cookie: an orthographic projection along the light, tiled over its world size, anchored at the origin.
+                vec4 e4 = fa_light_texel(base + 4);
+                vec4 e5 = fa_light_texel(base + 5);
+                vec2 uv = vec2(dot(world_pos, e4.xyz) * e4.w, -dot(world_pos, e5.xyz) * e5.w) + vec2(0.5);
+                fa_light_tint = fa_cookie_sample(e6.xy, fract(uv));
+            }
+        }
     } else {
         vec3 to_light = pos.xyz - world_pos;
+        float centre_dist = length(to_light);
+        float reach = centre_dist;
+        bool front = true;
+        if (ext && type > 2.5) {
+            reach = max(centre_dist - fa_light_texel(base + 7).w, 0.0);
+            vec4 e4 = fa_light_texel(base + 4);
+            vec4 e5 = fa_light_texel(base + 5);
+            float shape = fa_light_texel(base + 6).w;
+            vec3 axis = normalize(fa_light_texel(base + 2).xyz);
+            front = shape > 1.5 || dot(axis, to_light) < 0.0;
+            vec3 r = vec3(0.0);
+            vec3 to_cam = fa_camera_pos.xyz - world_pos;
+            if (dot(n, n) > 0.5 && dot(to_cam, to_cam) > 1e-12) { r = reflect(-normalize(to_cam), normalize(n)); }
+            to_light = fa_area_point(pos.xyz, axis, e4.xyz, e5.xyz, e4.w, e5.w, shape, world_pos, r) - world_pos;
+        }
         dist = length(to_light);
         l = to_light / max(dist, 1e-4);
         float range = max(pos.w, 1e-3);
-        float x = clamp(1.0 - (dist / range) * (dist / range), 0.0, 1.0);
-        atten = x * x;
-        if (type > 1.5) {
-            vec4 dir = fa_light_texel(li * 4 + 2);
+        float x = clamp(1.0 - (reach / range) * (reach / range), 0.0, 1.0);
+        atten = front ? x * x : 0.0;
+        if (type > 1.5 && type < 2.5) {
+            vec4 dir = fa_light_texel(base + 2);
             float cos_angle = dot(-l, normalize(dir.xyz));
             float cos_outer = dir.w;
-            float cos_inner = fa_light_texel(li * 4 + 3).x;
+            float cos_inner = fa_light_texel(base + 3).x;
             if (cos_inner > 1.5) { cos_inner = mix(cos_outer, 1.0, 0.25); }
             atten *= smoothstep(cos_outer, cos_inner, cos_angle);
+        }
+        if (ext && type < 1.5) {
+            vec4 e6 = fa_light_texel(base + 6);
+            if (e6.z > 0.5) {
+                // A point light's cookie: a cube of six face tiles (3 x 2 tiles of 256 texels at e6.xy) in the light's own frame
+                // (right e4, up e5, back = right x up), the face chosen as the shadow's cube is (fa_cube_face).
+                vec3 rel = -to_light;
+                vec4 e4 = fa_light_texel(base + 4);
+                vec4 e5 = fa_light_texel(base + 5);
+                vec3 p = vec3(dot(rel, e4.xyz), dot(rel, e5.xyz), dot(rel, cross(e4.xyz, e5.xyz)));
+                int f = fa_cube_face(p);
+                vec3 fwd;
+                vec3 up;
+                fa_cube_face_basis(f, fwd, up);
+                float w = max(dot(p, fwd), 1e-4);
+                vec2 st = vec2(dot(p, cross(fwd, up)), dot(p, up)) / w;
+                vec2 face_origin = vec2(float(f - (f / 3) * 3), float(f / 3)) * 256.0;
+                fa_light_tint = fa_cookie_sample(e6.xy + face_origin, vec2(0.5 + 0.5 * st.x, 0.5 - 0.5 * st.y));
+            }
+            vec4 e7 = fa_light_texel(base + 7);
+            if (e7.z > 0.5) {
+                vec3 axis = normalize(fa_light_texel(base + 2).xyz);
+                atten *= fa_ies_sample(e7.xy, -l, axis, fa_light_texel(base + 4).xyz, fa_light_texel(base + 5).xyz);
+            }
+        } else if (ext && type < 2.5) {
+            vec4 e6 = fa_light_texel(base + 6);
+            vec4 e7 = fa_light_texel(base + 7);
+            if (e6.z > 0.5 || e7.z > 0.5) {
+                vec4 dir = fa_light_texel(base + 2);
+                vec3 axis = normalize(dir.xyz);
+                vec4 e4 = fa_light_texel(base + 4);
+                vec4 e5 = fa_light_texel(base + 5);
+                if (e6.z > 0.5) {
+                    // A spot cookie: a perspective projection through the cone, the cone's edge on the picture's edge.
+                    vec3 rel = -to_light;
+                    float z = dot(rel, axis);
+                    float tan_outer = sqrt(max(1.0 - dir.w * dir.w, 0.0)) / max(dir.w, 1e-3);
+                    float k = 0.5 / max(z * tan_outer, 1e-4);
+                    vec2 uv = vec2(0.5 + dot(rel, e4.xyz) * k, 0.5 - dot(rel, e5.xyz) * k);
+                    fa_light_tint = fa_cookie_sample(e6.xy, uv);
+                }
+                if (e7.z > 0.5) { atten *= fa_ies_sample(e7.xy, -l, axis, e4.xyz, e5.xyz); }
+            }
         }
     }
     LightSample ls;
     ls.direction = l;
     ls.color = col.rgb * atten;
+    if (ext) { ls.color *= fa_light_tint; }
     ls.attenuation = atten;
     ls.shadow = 1.0;
     ls.distance = dist;
-    ls.type = type < 0.5 ? 0 : (type > 1.5 ? 2 : 1);
+    ls.type = type < 0.5 ? 0 : ((type > 1.5 && type < 2.5) ? 2 : 1);
     return ls;
 }
+// The same without a normal (the representative point is the closest to the surface).
+LightSample fa_light_sample(int li, vec3 world_pos) { return fa_light_sample_n(li, world_pos, vec3(0.0)); }
 
 // The cluster of a world position: (slot of its first local light, how many local lights, slot of its first decal, how many decals): the
 // tile of the view it projects to (by the rows of the view-projection matrix the CPU used, so the answer does not depend on the backend's

@@ -21,12 +21,10 @@
 // top-left uv (the one the projection terms work in).
 @module volumetric
 
-// The helpers the shadow include needs. shadow_common.glsl's fa_shadow_local (not called here: vol_shadow_local below is the march's own one-tap copy)
-// reads the light data texture through fa_light_texel, defined further down. When the light loop of the area lights, cookies and IES profiles
-// lands, that fa_shadow_local also calls fa_light_base(int) and fa_cube_face(vec3), which its light_data.glsl defines; this shader does not
-// include light_data.glsl, so whoever integrates second must define both here too (before this include's functions are used) or the module
-// stops compiling. vol_shadow_local itself never assumes the stride of a light's records in the texture: it takes the light's position from the
-// caller (`lp`, from the uniform array) and only the index of its shadow region (lcfg + li).
+// shadow_common.glsl's fa_shadow_local is not called here (vol_shadow_local below is the march's own one-tap copy), but its block must still
+// compile: it reads the light data texture through fa_light_texel, defined further down, and picks a cube face with fa_cube_face (the block
+// of that name, the same selection as the mesh shaders). It takes the light's position as an argument, so it never assumes the stride of a
+// light's texels; vol_shadow_local does the same (`lp`, from the uniform array, and only the index of the shadow region: lcfg + li).
 @include shadow_common.glsl
 
 @vs vs
@@ -85,6 +83,7 @@ vec4 fa_light_texel(int t) {
 }
 // The shadow functions of shadow_common.glsl read this: every position here receives shadows.
 const vec4 fa_pbr = vec4(0.0, 0.0, 1.0, 0.0);
+@include_block fa_cube_face
 @include_block fa_shadow_common
 
 vec2 fl(vec2 s) { return vec2(s.x, mix(s.y, 1.0 - s.y, a.x)); }
@@ -157,9 +156,7 @@ float vol_shadow_local(int li, vec3 lp, vec3 world, vec3 l) {
     }
     int face = 0;
     if (h0.x > 1.5) {  // a cube: the face of the major axis of the direction from the light
-        vec3 d = world - lp;
-        vec3 ad = abs(d);
-        face = (ad.x >= ad.y && ad.x >= ad.z) ? (d.x > 0.0 ? 0 : 1) : (ad.y >= ad.z ? (d.y > 0.0 ? 2 : 3) : (d.z > 0.0 ? 4 : 5));
+        face = fa_cube_face(world - lp);
     }
     int t = rec + 2 + face * 6;
     vec4 r0 = fa_light_texel(t);

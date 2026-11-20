@@ -105,12 +105,14 @@ const std::vector<std::string>& template_file_names(const std::string& kind) {
     // list holds mesh_common.glsl and the lighting files it @includes; the sprite template also @includes the colour-space
     // and 2D shadow helpers, so a change to them changes the sprite hash.
     static const std::map<std::string, std::vector<std::string>> names = {
-        {"mesh", {"mesh_common.glsl", "light_data.glsl", "light_loop.glsl", "shadow_common.glsl", "brdf_layers.glsl"}},
+        {"mesh",
+         {"mesh_common.glsl", "light_data.glsl", "light_loop.glsl", "ltc.glsl", "shadow_common.glsl",
+          "brdf_layers.glsl"}},
         // A mesh material in "full" mode: not a MaterialKind, a second template of the mesh kind (engine/render/CMakeLists.txt,
         // FA_TEMPLATE_FILES_MESH_FULL); the mesh template's files are in both lists, so a change to one makes both hashes change.
         {"mesh-full",
-         {"mesh_common.glsl", "light_data.glsl", "light_loop.glsl", "shadow_common.glsl", "brdf_layers.glsl",
-          "mesh_full_common.glsl"}},
+         {"mesh_common.glsl", "light_data.glsl", "light_loop.glsl", "ltc.glsl", "shadow_common.glsl",
+          "brdf_layers.glsl", "mesh_full_common.glsl"}},
         {"sprite", {"color_space.glsl", "light_shadow.glsl", "quad_common.glsl"}},
         {"sky", {"color_space.glsl", "sky_common.glsl"}},
         {"post", {"post_common.glsl"}},

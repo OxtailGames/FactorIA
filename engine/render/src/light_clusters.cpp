@@ -231,7 +231,10 @@ void pack_light_texture(const std::vector<LightData>& lights, int directional, c
     if (!lists) decals = nullptr;  // the decals are found through the clusters
     if (decals && (decals->records.empty() || decals->lists.first.size() != lists->first.size())) decals = nullptr;
     out.width = kLightTextureWidth;
-    const std::size_t lightTexels = lights.size() * std::size_t(kLightTexels);
+    out.stride = kLightTexels;
+    for (const LightData& l : lights)
+        if (l.hasExt) out.stride = kLightTexelsExt;
+    const std::size_t lightTexels = lights.size() * std::size_t(out.stride);
     const std::size_t clusterTexels = lists ? lists->first.size() : 0;
     const std::size_t indexTexels = lists ? (lists->indices.size() + 3) / 4 : 0;
     const std::size_t shadowTexels = shadows ? local_shadow_region_texels(int(lights.size()), *shadows) : 0;
@@ -247,13 +250,17 @@ void pack_light_texture(const std::vector<LightData>& lights, int directional, c
     float* t = out.texels.data();
     for (std::size_t i = 0; i < lights.size(); ++i) {
         const LightData& l = lights[i];
-        float* p = t + i * 16;
+        float* p = t + i * std::size_t(out.stride) * 4;
         for (int c = 0; c < 4; ++c) {
             p[c] = l.pos[c];
             p[4 + c] = l.color[c];
             p[8 + c] = l.dir[c];
         }
         p[12] = l.cosInner;
+        if (l.hasExt && out.stride == kLightTexelsExt) {
+            for (int k = 0; k < 4; ++k)
+                for (int c = 0; c < 4; ++c) p[16 + k * 4 + c] = l.ext[k][c];
+        }
         p[15] = l.baked ? 1.0f : 0.0f;  // texel +3, w: the flags (1 = Light.mode Baked), see light_data.glsl
     }
     if (shadowTexels > 0) pack_local_shadow_region(int(lights.size()), *shadows, std::size_t(out.shadowBase), t);

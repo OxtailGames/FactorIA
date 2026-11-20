@@ -48,6 +48,7 @@
 // lookup, shared with the full-shader template) and light_loop.glsl (the standard loop and the custom-light hooks). All three are in
 // the template hash of the mesh kind.
 @include light_data.glsl
+@include ltc.glsl
 @include shadow_common.glsl
 @include light_loop.glsl
 @include brdf_layers.glsl
@@ -376,6 +377,12 @@ layout(binding=24) uniform texture2D fa_light_tex;
 @image_sample_type fa_light_tex unfilterable_float
 #define FA_LIGHT_TEX fa_light_tex
 #define FA_LIGHT_SMP fa_shadow_smp
+// The light atlas (light_data.glsl, src/light_atlas.h; view 25): the LTC tables of the area lights, the light cookies and the IES
+// profiles in one RGBA16F image, read bilinearly through the sky's linear clamp sampler (10, declared below). While no light needs it
+// the renderer binds the 1 x 1 white texture and the shader never reads it.
+layout(binding=25) uniform texture2D fa_light_atlas;
+#define FA_ATLAS_TEX fa_light_atlas
+#define FA_ATLAS_SMP fa_env_smp
 // The decal atlas (light_data.glsl, block fa_decals; view 27): the albedo and normal textures of the Decal components, RGBA8 with mips,
 // read with textureLod through the linear clamped sampler 10. Bound with the main pass's other views (a white image while the view has no
 // decals, which no fragment then reads).
@@ -391,7 +398,8 @@ layout(binding=10) uniform sampler fa_env_smp;
 
 layout(binding=1) uniform fa_mesh_fs_params {
     vec4 fa_camera_pos;         // xyz
-    vec4 fa_ambient;            // rgb
+    vec4 fa_ambient;            // rgb; w = texels per light of the light table (4, or 8 while a light of the view has an area, a cookie
+                                // or an IES profile; 0 = 4: M73.1b, light_data.glsl)
     vec4 fa_base_color;
     vec4 fa_emissive;           // rgb MeshRenderer.emissive, w = 1 when unlit
     vec4 fa_model_emissive;     // rgb glTF emissiveFactor (multiplies fa_emissive_tex)
@@ -623,6 +631,7 @@ vec3 fa_sky_light(in SurfaceInput i, in Surface s) {
 // The lightmap varying of the vertex stage (M73.4a, declared last there too: the varyings of the two stages match by order). Declared
 // here, before the light functions, because a baked light is skipped on a lightmapped fragment (fa_light_baked, light_data.glsl).
 in vec3 fa_lm;
+@include_block fa_cube_face
 @include_block fa_light_data
 @include_block fa_decals
 
@@ -640,6 +649,8 @@ float fa_shadow_factor(vec3 n, vec3 l) {
 @include_block fa_layers_light
 @include_block fa_light_shared
 @include_block fa_light_hooks
+@include_block fa_ltc
+@include_block fa_area_light
 @end
 
 @block fa_fs_nolight

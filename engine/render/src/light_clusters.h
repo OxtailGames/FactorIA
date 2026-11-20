@@ -34,6 +34,7 @@ inline constexpr int kDecalTexels = 7;  // texels of one decal in the decal regi
 inline constexpr int kDecalHeaderTexels = 2;     // the region starts with two header texels
 inline constexpr int kLightTextureWidth = 1024;  // texels per row of the data texture (shaders/light_data.glsl)
 inline constexpr int kLightTexels = 4;           // texels of one light in the table
+inline constexpr int kLightTexelsExt = 8;        // ... in a view where a light has an area, a cookie or an IES profile
 
 // The camera of a view as the clusters need it. `viewProj` is the matrix the vertex stage multiplies with (so the tile of a fragment
 // is found with the same numbers on every backend, whatever its window or depth conventions); depths are distances along `forward`.
@@ -141,6 +142,7 @@ struct LightTexture {
     int height = 0;              // rows, a power of two (so the image is made again rarely)
     std::vector<float> texels;   // width * height RGBA32F texels
     std::size_t usedTexels = 0;  // texels that hold data
+    int stride = kLightTexels;  // texels per light: kLightTexelsExt when any light has LightData::hasExt (fa_ambient.w)
     ClusterUniforms uniforms;
     // The first texel of the shadow region of the point and spot lights (local_shadows.h), after the cluster lists; -1 = none. The
     // fragment shader finds it in fa_shadow_lcfg.x (shaders/shadow_common.glsl).

@@ -2,9 +2,9 @@
 
 Part of [FactorIA architecture](ARCHITECTURE.md) (the entry page lists every page). This page is the foundation of area-light
 shading: the tables of Linearly Transformed Cosines (LTC) fitted for the engine's own BRDF, the library that fits them, the CPU
-reference of the polygon integral and the GLSL that will do the same in a fragment shader. Nothing in the renderer reads the tables
-yet (the light component, the textures and the shader hook come in later packages); `engine/render/shaders/ltc.glsl` is in no
-template, so no shader hash changes.
+reference of the polygon integral and the GLSL that does the same in a fragment shader. Since M73.1b the renderer reads the tables:
+they live in the light atlas (the section at the end of this page; docs/design/ARCHITECTURE_RENDERING_LIGHTING.md, "The light atlas") and
+`ltc.glsl` is part of the mesh and full-shader templates, so it is in their hashes.
 
 ## The method
 
@@ -79,5 +79,125 @@ rectangle light through the table against a brute force integral of the BRDF. `l
 Debug build, `ctest -L slow`) fits the whole table again and compares it with the committed header byte for byte.
 
 `engine/render/shaders/ltc.glsl` (`@block fa_ltc`: `fa_ltc_uv`, `fa_ltc_tangent`, `fa_ltc_local`, `fa_ltc_quad`, `fa_ltc_triangle`,
-`fa_ltc_rect`) is the same algorithm as `polygon_integral` with a streaming horizon clip (no arrays). It is validated with
-sokol-shdc for every backend; it does not run in a render yet.
+`fa_ltc_rect`) is the same algorithm as `polygon_integral` with a streaming horizon clip (no arrays). sokol-shdc compiles it for every
+backend, which only proves it is legal GLSL; what proves the numbers are the render tests (`area_light_render_tests.cpp`: a rectangle
+golden, and an area light far away against the point light of the same intensity).
+
+## In the renderer (M73.1b)
+
+- **The tables in the atlas.** The matrix (`a, b, c, d` of M^-1, which has negative entries, so half floats with signs) and the BRDF
+  integrals (magnitude, Fresnel) are two 64 x 64 tiles at the top left of the RGBA16F light atlas (view 25), packed before any cookie or
+  profile; `bake_ltc_tables` writes them from `ltc_tables.h`. `fa_ltc_uv(roughness, N.V)` addresses them with the half-texel inset
+  of the 64 cell grid, and the lookup is bilinear (the sampler of the atlas), as the fit assumes.
+- **Shading** (`light_loop.glsl`: `fa_area_form`, `fa_area_shade`). The shape is a polygon in world space around the light's position
+  (a rectangle from `size`, a disc as an eight-gon of the same radius, a tube as a thin rectangle of its length and thickness), clipped
+  by the light's plane for the one-sided shapes. The diffuse term is the form factor of the polygon with the identity lobe times
+  `diffuse_color`; the specular term is the form factor of the polygon through the table's lobe (`fa_ltc_quad`), times
+  `f0 * magnitude + (1 - f0) * fresnel`. A fragment that sees the emitter from behind gets nothing.
+- **Energy.** The colour of an area light is multiplied by `(pi d^2 + A) / A` (d the distance to the light's centre, A the area of the
+  shape) before the form factor. Far away the form factor is `A cos / d^2 / pi`, so the product is the point light of the same
+  intensity; near the emitter the form factor tends to a bounded value and the product with it stays bounded. The render test measures the
+  rectangle, the disc and the tube at 5 m against a point light and asks for 5 % (it finds under 2 %).
+- **Culling.** `LightData::extent` is the radius of the sphere around the emitter (half the diagonal of a rectangle, the radius of a disc,
+  half the length plus the thickness of a tube); the cluster bound of an area light is its range plus the extent, and the window
+  attenuation counts from the emitter's surface, so a light does not pop at the edge of its cluster.
+- **Precision.** Everything of the area path is `highp` in the GLES3 and WebGL2 output (sokol-shdc qualifies every declaration of the
+  stage; `precision mediump float;` at the top only sets the default of what has no qualifier); `ltc.glsl` guards its divisions with `1e-10`
+  and `1e-24` and adds vectors of hundreds of metres, which fp16 would flush. `light_atlas_tests.cpp` fails when a float, vector or matrix
+  declaration of the generated `mesh_fs_source_glsl300es` is not `highp`, so a `mediump` that someone adds is found by the tests, not by a
+  phone.
+- **What does not use it.** 2D scenes treat the light as a point light (`scene2d.cpp`). A cookie or an IES profile on an area light is
+  ignored with a warning once.
+
+## Representative point, layers, shadows and point cookies (M73.1b-2)
+
+- **Hooks and full shaders.** `fa_light_sample_n(li, pos, n)` (`light_data.glsl`; `fa_light_sample` is `n = 0`) moves an area light to
+  `fa_area_point`: for a tube the closest point of the segment to the reflection ray (the closest point to the surface when there is no
+  normal), for a rectangle or a disc the point where the reflection ray meets the emitter's plane, clamped to the shape (the closest point
+  to the surface when the ray misses). The reflection ray uses the geometric normal handed to `fa_light(n, i)` and the camera. A
+  `lighting()` still gets one direction and colour, so it is the specular highlight that follows the emitter's shape. The colour is the
+  point light's at that point, without the near-field factor of the LTC path (so a hook is brighter than the LTC path close to a large
+  emitter and equal far away); a back-facing rectangle or disc lights nothing. `fa_light`, `fa_light_unshadowed`, `light()` and the
+  light loops of the full shaders all go through it.
+- **Layers.** A material with layers (`lay.on`) takes the LTC path for its BASE layer (`fa_area_layers`: diffuse and the base specular
+  with the layers' f0 and f90); the clear coat, the sheen and the anisotropy lobes (`fa_layers_coat`) are lit from the representative
+  point with the colour of a point light of the same intensity, and anisotropy is not applied to the area term.
+- **Shadows.** An area light with `castShadows` uses the local shadows of M73.2b unchanged: six faces from the emitter's centre (a
+  tube, a disc and a rectangle alike; the faces behind a one-sided emitter are never lit, so they are never read), the range being
+  `range + extent`. PCSS sizes the penumbra from the emitter: `LocalShadow::emitter` is the mean full size in metres (rectangle: width and
+  height; disc: the diameter; tube: length and thickness), written to the record's softness texel as a NEGATIVE number,
+  `-emitter * shadowSoftness` (`fa_shadow_filter` reads a negative `k` as metres, a positive one as the old multiple of the texel). The
+  filter reaches at most 16 texels, so an area light with no `shadowResolution` gets a smaller tile the larger the emitter (512 texels
+  for 0.5 m down to 64), which keeps the widest penumbra it can show proportional to the emitter. Approximation: one centre for all points
+  of the emitter and the mean size for a tube, so the penumbra of a long tube is as wide along its length as across.
+- **Point cookies.** A point light's `cookie` is a cube of six 256 x 256 tiles (3 x 2, a 768 x 512 block, `LightAtlasKind::CookieCube`)
+  baked by `bake_cookie_cube_tile` from the picture read as an EQUIRECTANGULAR panorama (the centre of the picture is the light's forward
+  direction -Z; `cookie_cube_dir` gives the direction of a texel). The lookup picks the face with `fa_cube_face`, the GLSL twin of the CPU's
+  `cube_face_of` that the shadow tiles use: it is a block of its own in `shadow_common.glsl`, included before `fa_light_data` by the mesh templates and by `volumetric.glsl` (whose march picks the face of a point light's shadow with it too), so the three cannot disagree (`fa_shadow_local` takes the light's position as an argument, so `shadow_common.glsl` never needs the stride of the light table); the face bases
+  `fa_cube_face_basis` are `cube_face_basis` written out as a GLSL table, so change them together (the golden `3d_light_cookie_point` and
+  the local-shadow tests show a mismatch). The light's own frame is right, up, back = right x up, so a cookie turns with the entity. A
+  face has 254 texels of picture: a 1024 x 512 or 2048 x 1024 panorama is the useful size.
+
+## Energy, precision and IES in the atlas (M73.1b)
+
+- **Energy.** The area colour is scaled by `(pi d^2 + A) / A` (d the distance to the centre, A the area) before the form factor, so far away the
+  light is a point light of the same intensity (a render test compares them), and near the emitter, where the form factor tends to 1, the
+  result is bounded by the term `pi d^2 / A + 1` instead of growing without a limit. A rectangle and a disc emit from the front only (the polygon
+  is clipped by the light's plane), a tube from all around.
+- **Precision (GLES3, WebGL2).** The generated GLSL ES 3.00 fragment shader begins `precision mediump float;` and sokol-shdc qualifies
+  every declaration `highp`, so the area path runs in full float; it must, because `ltc.glsl` guards its divisions with `1e-24` and `1e-10` and
+  adds vectors a few hundred metres long, which fp16 flushes. `light_atlas_tests.cpp` reads the generated `mesh_fs_source_glsl300es` in
+  `mesh.glsl.h` and fails when a float, vector or matrix declaration of it has no `highp` (the literal tables of the material layers are
+  the one exception). The header of `ltc.glsl` says so; do not write `mediump` or `lowp` in it. (An earlier version of this page said the file was
+  "validated with sokol-shdc": the compile only proves it is legal GLSL, not that its numbers are right; the test and the render goldens are the checks.)
+- **IES** (`ies.h`): our own LM-63 reader (no code from another engine). It reads `IESNA` header lines and keywords, `TILT=NONE` and
+  `TILT=INCLUDE` (the tilt table is read and dropped), the 10 numbers of the lamp line, the angles and the candela table. Photometric type
+  C only (A and B are refused with the type found); the vertical angles must ascend within 0..180, the horizontal ones within
+  0..360 and be one plane or span 0..90, 0..180 or 0..360 (the others are refused naming the range); a candela value is a finite number
+  of at least 0 and the table has some light in it. Every count is checked against the caps (1024 angles per axis, 2^20 values, 4 MB
+  of text) before anything is allocated. `candela_at(h, v)` interpolates bilinearly and folds the symmetry; `ies_bake` samples it on a
+  64 x 32 grid (columns the horizontal angle over the circle, rows the vertical angle over 0..180 at the texel centres) and divides by
+  the table's peak: **the baked value is candela / peak**, so the file only shapes the light. Errors are `name:line: what` with a hint,
+  like the `.cube` reader's. `assets.import` has a `.ies` route (`assets/lights/`, `import_ies` in `tools/common/src/assets_import.cpp`:
+  the same parser, the file copied as it is) and the hot reload lists `.ies`.
+- **Texels of a light** (`light_data.glsl`, header). Texels 0..3 are unchanged. `+4`: xyz the light's right axis, w the half width of a
+  rectangle or tube or the radius of a disc (for a directional cookie, `1 / size.x`); `+5`: xyz the up axis, w the half height of a
+  rectangle, the radius of a disc, the half thickness of a tube (for a directional cookie, `1 / size.y`); `+6`: xy the origin of the cookie
+  tile (a point light's: of its 3 x 2 cube), z 1 when there is one, w the shape (0 rectangle, 1 disc, 2 tube); `+7`: xy the origin of the IES tile, z 1 when there is one, w the
+  extent, the radius of the sphere around the emitter. The light type is 3 for an area light. Other packages that add per-light data in this
+  texture (local shadows, decals, the lightmap) take more texels after `+7` or their own regions, never these.
+
+## The light atlas and the area-light shading (M73.1b)
+
+M73.1b (area lights, cookies, IES profiles; the user page is [RENDERING_LIGHTING.md](../rendering/RENDERING_LIGHTING.md); the LTC tables and
+the fit are in [ARCHITECTURE_AREA_LIGHTS.md](ARCHITECTURE_AREA_LIGHTS.md)). The CPU half is `engine/render/src/light_atlas.h` (`.cpp`) and
+`engine/render/include/fa/render/ies.h` (`src/ies.cpp`), the wiring `collect_lights` and `upload_lights` in `renderer_draw.cpp`, the GPU side
+`light_data.glsl` (`fa_atlas_fetch`, `fa_cookie_sample`, `fa_ies_sample`, the extension texels in `fa_light_sample`) and `light_loop.glsl`
+(`fa_area_light`: `fa_area_form`, `fa_area_shade`, and a branch of the standard loop).
+
+- **One image, no new unit.** The slots of the mesh fragment stage are all spoken for (16 units in the final phase), so the LTC tables
+  share the image with the cookies and the profiles. The image is RGBA16F, 1024 texels wide, a power-of-two rows tall (up to 4096: 32 MB),
+  slot `fa_light_atlas` (view 25, the sky's linear clamp sampler 10), read bilinearly with `textureLod(.., 0)`. Its layout is
+  deterministic (`layout_light_atlas`: the LTC block first, then shelves of tiles, tallest first, ties by kind and path; the same SET of
+  tiles is the same layout in any order; tiles over the 4096 rows are dropped and counted):
+  the LTC matrix (`a, b, c, d` of M^-1) at (0, 0) and the BRDF integrals (magnitude, Fresnel) at (64, 0), each 64 x 64 texels, half floats
+  with signs (the matrix has negative entries); a cookie is a 256 x 256 tile (a point light's: a 768 x 512 cube of six; 254 x 254 of picture, a border that wraps so a tiled
+  directional cookie has no seam, rgb premultiplied by alpha); an IES profile is a 66 x 34 tile (64 x 32 values, a border that wraps across
+  and clamps down). The image is made by `LightAtlas::sync` when a light asks for it (`request_ltc`, `request`), made again when the set of
+  keys changes or `invalidate(path)` says a file changed (the hot reload; the old image is retired and freed a frame later like the
+  shadow atlas', so the frame in flight keeps the one it captured). A view without such a light makes none and binds a dummy.
+- **Texels of a light** (`light_data.glsl`, header): 4, or 8 with an extension `+4 .. +7` (ARCHITECTURE_AREA_LIGHTS.md, same section as above).
+- **Shading.** `fa_light_sample_n(li, pos, n)` (`fa_light_sample` is it with `n = 0`) gives an area light to every path as a point light at
+  the REPRESENTATIVE POINT of its emitter, with the window attenuation measured from the emitter's surface (`reach = dist - extent`); a
+  spot's cookie is a perspective lookup, a directional one an orthographic one tiled with `fract`, a point light's a cube (below), the
+  colour is multiplied by `fa_light_tint`, and an IES profile multiplies the attenuation by the table at the angle from the light's forward
+  axis (vertical) and around it (horizontal). The standard loop (`fa_area_light`) replaces the point-light terms with the LTC polygon
+  integrals, for a material with layers too (`fa_area_layers`): the details, the approximations and the shadows are in
+  ARCHITECTURE_AREA_LIGHTS.md, "Representative point, layers, shadows and point cookies".
+- **Energy, precision, IES:** ARCHITECTURE_AREA_LIGHTS.md, "Energy, precision and IES in the atlas".
+- **Not done, and why.** A cookie or an IES profile on an area light (the renderer warns once), an IES profile on a directional one, and
+  the 2D light, which stays a point.
+- **Tests.** `ies_tests.cpp` (parser, bake, errors; fixtures written for the tests), `light_atlas_tests.cpp` (layout determinism and
+  overlap, half floats, the LTC block texel by texel, the tiles' borders, the 4 and 8 texel light table, the highp scan),
+  `area_light_render_tests.cpp` (goldens `3d_area_light_rect`, `3d_area_light_shadow`, `3d_light_cookie_spot`, `3d_light_cookie_point`, `3d_light_ies`; area against point energy; no change
+  for a scene without the features; the hot reload).
