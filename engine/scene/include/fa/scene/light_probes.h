@@ -88,13 +88,6 @@ struct ProbeLight {
 // fade over one spacing outside a grid's box, single points with weight (1 - d / radius)^2. Deterministic and continuous in `p`.
 ProbeLight probe_light_at(const ProbeSet& set, Vec3 p);
 
-// The renderer looks the probe light up at the centre of a cell of this size (metres) around the point, so every position in a cell
-// gets the same light and a cache keyed by the cell returns exactly what probe_light_at returns for the centre.
-inline constexpr float kProbeCell = 1.0f / 32.0f;
-// The cell holding `p`; false (cell untouched) when `p` is not finite or beyond 1e5 m of the origin: use `p` itself then.
-bool probe_cell_of(Vec3 p, std::int32_t cell[3]);
-Vec3 probe_cell_centre(const std::int32_t cell[3]);
-
 // The group of `in` that `g` (a group of the set `of`) matches: same id and kind and the same layout (a grid: counts, spacing,
 // origin; points: the count and every position within 1 mm). Null when there is none: with `in` the baked set and `of` the scene's
 // (collect_probe_groups), the scene's group was edited after the bake or is new; the other way round, the baked group is stale.

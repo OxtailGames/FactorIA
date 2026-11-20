@@ -170,18 +170,25 @@ struct Registry {
 };
 
 constexpr std::size_t kKeepFinished = 8;
+// A finished bake that has an `apply` still to hand over is kept beyond kKeepFinished (dropping it would lose the SceneSettings.lightmaps
+// the caller asked for), up to this many: a caller that never polls cannot make the registry grow without end.
+constexpr std::size_t kKeepUnhandedApply = 64;
 
 // Forgets the oldest finished jobs beyond kKeepFinished (done, failed or cancelled, whether or not anybody asked for their status: a job
-// nobody polls must not stay for ever). The caller holds Registry::mu and no Job::mu.
+// nobody polls must not stay for ever). A done job with `apply` that was not handed over yet is not counted among them: it stays until
+// somebody asks (at most kKeepUnhandedApply of them, the oldest go first). The caller holds Registry::mu and no Job::mu.
 void prune_finished(Registry& reg) {
-    std::vector<std::pair<Clock::time_point, std::string>> finished;
+    std::vector<std::pair<Clock::time_point, std::string>> finished, pending;
     for (const auto& [id, job] : reg.byId) {
         std::lock_guard jl(job->mu);
-        if (job->state != "running") finished.emplace_back(job->finished, id);
+        if (job->state == "running") continue;
+        const bool owesApply = job->state == "done" && job->apply && !job->handedOver;
+        (owesApply ? pending : finished).emplace_back(job->finished, id);
     }
-    if (finished.size() <= kKeepFinished) return;
     std::sort(finished.begin(), finished.end());
     for (std::size_t i = 0; i + kKeepFinished < finished.size(); ++i) reg.byId.erase(finished[i].second);
+    std::sort(pending.begin(), pending.end());
+    for (std::size_t i = 0; i + kKeepUnhandedApply < pending.size(); ++i) reg.byId.erase(pending[i].second);
 }
 
 // Two spellings of one manifest: the filesystems of Windows and macOS do not tell "Scenes/A.lightmap.json" from "scenes/a.lightmap.json".
@@ -476,12 +483,14 @@ void register_lightmap_commands(Engine& engine, Engine::Impl& I) {
          "pages, texels, rays, skipped, warnings) or `error` and `hint`. The first call that sees a bake done hands it "
          "to the scene (SceneSettings.lightmaps "
          "and the renderer's reload) unless the bake was started with apply false, or the scene changed since; "
-         "`handOver` says what happened (while the editor's game runs it is not applied: Stop would throw it away). "
-         "With no worker thread (runtime.jobThreads 0, or a web build without threads) a job only runs when somebody "
-         "waits for "
-         "it: the first bake_status then blocks until the bake is done and answers done, failed or cancelled, never "
-         "running (in inline mode bake_start itself runs the whole bake). Only the last 8 "
-         "finished jobs are kept, whether or not their status was read. "
+         "`handOver` says what happened (while the editor's game runs it is not applied: Stop would throw it "
+         "away). " FA_COMMAND_DETAILS
+         "With no worker thread (runtime.jobThreads 0, or a web build without threads) a job runs when somebody waits "
+         "for it or at the end of the frame, so the first bake_status blocks until the bake is done and answers done, "
+         "failed or cancelled, never running. With runtime.jobThreads \"inline\" bake_start itself runs the whole "
+         "bake. "
+         "Only the last 8 finished jobs are kept, whether or not their status was read; a done job that still has its "
+         "`apply` to hand over is kept (up to 64) until a status call hands it over. "
          "Example: lightmap.bake_status {\"job\":\"bake:1\"}",
          parse_schema(
              R"({"type":"object","required":["job"],"properties":{"job":{"type":"string","description":"The id lightmap.bake_start returned."},
