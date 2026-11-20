@@ -18,6 +18,7 @@
 namespace fa {
 
 struct LightProbeGroup;
+class World;
 
 inline constexpr int kMaxProbesPerGroup = 16384;  // grid probes of one LightProbeGroup
 inline constexpr int kMaxProbePoints = 256;       // single points of one LightProbeGroup
@@ -40,22 +41,36 @@ struct ProbeGroup {
     Vec3 origin{};
 };
 
+// The box a group's probes can light: a point outside it gets nothing from the group.
+struct ProbeBounds {
+    Vec3 lo{}, hi{};
+};
+
 struct ProbeSet {
     std::vector<ProbeGroup> groups;
     std::vector<Vec3> positions;
     std::vector<ShL2> sh;             // empty before the bake; else one per position (zeros for an invalid probe)
     std::vector<std::uint8_t> valid;  // empty before the bake; else 1 = usable, 0 = inside geometry
+    // One box per group, made by add_probe_group and decode_probe_set; probe_light_at skips a group whose box does not hold the
+    // point. A set built by hand (groups and positions pushed directly) has none and is read without it; call build_bounds()
+    // after changing groups or positions.
+    std::vector<ProbeBounds> bounds;
     std::size_t size() const { return positions.size(); }
     bool baked() const {
         return !positions.empty() && sh.size() == positions.size() && valid.size() == positions.size();
     }
     std::size_t invalid_count() const;
+    void build_bounds();  // rebuilds `bounds` for every group
 };
 
 // Appends the groups of a LightProbeGroup component whose entity is at `worldPosition`: the grid (unless `grid` is false) and the points. Errors
 // name the field (/size, /points/3) and what to change: a count over kMaxProbesPerGroup, a bad point, more than kMaxProbes in the set.
 Result<void> add_probe_group(ProbeSet& set, const std::string& entityId, const LightProbeGroup& component,
                              Vec3 worldPosition);
+
+// The probes the scene asks for now: the LightProbeGroups of the active entities, in id order, each through add_probe_group (what
+// lightmap.bake bakes, and what the stale check compares a baked set with).
+Result<void> collect_probe_groups(World& world, ProbeSet& set);
 
 // The files. `file` only names it in errors. decode checks every count against the size before it allocates anything.
 std::vector<std::uint8_t> encode_probe_set(const ProbeSet& set);
@@ -72,6 +87,18 @@ struct ProbeLight {
 // Trilinear in each grid (corners that are invalid are skipped and the rest renormalised, the coverage falls where too little is left), a
 // fade over one spacing outside a grid's box, single points with weight (1 - d / radius)^2. Deterministic and continuous in `p`.
 ProbeLight probe_light_at(const ProbeSet& set, Vec3 p);
+
+// The renderer looks the probe light up at the centre of a cell of this size (metres) around the point, so every position in a cell
+// gets the same light and a cache keyed by the cell returns exactly what probe_light_at returns for the centre.
+inline constexpr float kProbeCell = 1.0f / 32.0f;
+// The cell holding `p`; false (cell untouched) when `p` is not finite or beyond 1e5 m of the origin: use `p` itself then.
+bool probe_cell_of(Vec3 p, std::int32_t cell[3]);
+Vec3 probe_cell_centre(const std::int32_t cell[3]);
+
+// The group of `in` that `g` (a group of the set `of`) matches: same id and kind and the same layout (a grid: counts, spacing,
+// origin; points: the count and every position within 1 mm). Null when there is none: with `in` the baked set and `of` the scene's
+// (collect_probe_groups), the scene's group was edited after the bake or is new; the other way round, the baked group is stale.
+const ProbeGroup* find_same_probe_group(const ProbeSet& in, const ProbeSet& of, const ProbeGroup& g);
 
 // 64-bit hash of the SH and coverage a point gets, quantised to 1/1024 (a non-finite value is clamped), so equal light gives an equal key (batching, caches). 0 for coverage 0.
 std::uint64_t probe_light_key(const ProbeLight& light);

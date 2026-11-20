@@ -1906,7 +1906,7 @@ Mapping. Light: Baked -> baked (direct light and bounces; in the probes too), Mi
 | `dilatePasses` | integer | no | Texels of gutter filled around each mesh so bilinear filtering does not bleed black. Default 4. |
 | `denoiseRadius` | integer | no | Edge-aware blur radius in texels; 0 turns the denoiser off. Default 2. |
 | `denoiseSigma` | number | no | How different two neighbouring texels may be (relative to their light) and still be blended. Default 0.3. |
-| `rayEpsilon` | number | no | Meters a ray starts off its surface. 0 = automatic: the scene size / 10000, at most 1/20 of a texel. Default 0. |
+| `rayEpsilon` | number | no | Meters a ray starts off its surface. 0 = automatic: the scene size / 10000, at most 1 cm and, for the lightmap, at most 1/20 of a texel. Default 0. |
 | `maxRays` | number | no | The bake is refused when it could trace more rays than this. One core traces roughly 2-10 million rays per second, so 1e9 rays are minutes and the default 5e10 are hours: lower it to give a bake a time limit. Default 50000000000. |
 | `sky` | string ["auto","environment","gradient","ambient","none"] | no | The light from outside: auto = SceneSettings.environmentMap when set, else its ambientLight; environment = the HDRI; gradient = skyColor and horizonColor; ambient = the constant ambientLight; none = black. A physical sky or sky material cannot be evaluated: it falls back as said in the result's warnings. Default "auto". |
 | `apply` | boolean | no | Set SceneSettings.lightmaps to the manifest when the bake is done (the renderer reloads the pages either way). Default true. |
@@ -1947,7 +1947,7 @@ The same bake as lightmap.bake (same arguments and result) on a job thread, so t
 | `dilatePasses` | integer | no | Texels of gutter filled around each mesh so bilinear filtering does not bleed black. Default 4. |
 | `denoiseRadius` | integer | no | Edge-aware blur radius in texels; 0 turns the denoiser off. Default 2. |
 | `denoiseSigma` | number | no | How different two neighbouring texels may be (relative to their light) and still be blended. Default 0.3. |
-| `rayEpsilon` | number | no | Meters a ray starts off its surface. 0 = automatic: the scene size / 10000, at most 1/20 of a texel. Default 0. |
+| `rayEpsilon` | number | no | Meters a ray starts off its surface. 0 = automatic: the scene size / 10000, at most 1 cm and, for the lightmap, at most 1/20 of a texel. Default 0. |
 | `maxRays` | number | no | The bake is refused when it could trace more rays than this. One core traces roughly 2-10 million rays per second, so 1e9 rays are minutes and the default 5e10 are hours: lower it to give a bake a time limit. Default 50000000000. |
 | `sky` | string ["auto","environment","gradient","ambient","none"] | no | The light from outside: auto = SceneSettings.environmentMap when set, else its ambientLight; environment = the HDRI; gradient = skyColor and horizonColor; ambient = the constant ambientLight; none = black. A physical sky or sky material cannot be evaluated: it falls back as said in the result's warnings. Default "auto". |
 | `apply` | boolean | no | Set SceneSettings.lightmaps to the manifest when the bake is done (the renderer reloads the pages either way). Default true. |
@@ -1960,7 +1960,7 @@ The state of a bake job: running with a phase and progress, or done with its res
 
 Capabilities: read, state, writeProject
 
-Result: {job, state (running|done|failed|cancelled), phase (geometry, layout, prepare, rasterize, trace, denoise, dilate, probes, writing), progress 0..1, rays, elapsedSeconds, etaSeconds (once there is enough to estimate), manifest} and, when finished, `result` (the lightmap.bake result: pages, texels, rays, skipped, warnings) or `error` and `hint`. The first call that sees a bake done hands it to the scene (SceneSettings.lightmaps and the renderer's reload) unless the bake was started with apply false, or the scene changed since; `handOver` says what happened. Example: lightmap.bake_status {"job":"bake:1"}
+Result: {job, state (running|done|failed|cancelled), phase (geometry, layout, prepare, rasterize, trace, denoise, dilate, probes, writing), progress 0..1, rays, elapsedSeconds, etaSeconds (once there is enough to estimate), manifest} and, when finished, `result` (the lightmap.bake result: pages, texels, rays, skipped, warnings) or `error` and `hint`. The first call that sees a bake done hands it to the scene (SceneSettings.lightmaps and the renderer's reload) unless the bake was started with apply false, or the scene changed since; `handOver` says what happened (while the editor's game runs it is not applied: Stop would throw it away). With no worker thread (runtime.jobThreads 0, or a web build without threads) a job only runs when somebody waits for it: the first bake_status then blocks until the bake is done and answers done, failed or cancelled, never running (in inline mode bake_start itself runs the whole bake). Only the last 8 finished jobs are kept, whether or not their status was read. Example: lightmap.bake_status {"job":"bake:1"}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|

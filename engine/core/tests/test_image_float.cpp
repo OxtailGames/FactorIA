@@ -503,3 +503,52 @@ TEST_CASE("hdr: hdr_info reads the size and the exposure from the header alone, 
     REQUIRE_FALSE(bad.ok());
     CHECK_FALSE(bad.error().message.empty());
 }
+
+TEST_CASE("hdr: a decode limit refuses a picture from its header; a file bad in its last row makes no pixel buffer") {
+    // 4096 x 2048 floats are 96 MB: inside the default budget, over a 64 MB limit.
+    const Bytes f = file_with("-Y 2048 +X 4096", Bytes{});
+    auto limited = decode_hdr(f.data(), f.size(), std::uint64_t(64) << 20);
+    REQUIRE_FALSE(limited.ok());
+    CHECK(limited.error().message.find("more than the 64 MB") != std::string::npos);
+    CHECK_FALSE(hdr_info(f.data(), f.size(), std::uint64_t(64) << 20).ok());
+    CHECK(hdr_info(f.data(), f.size()).ok());
+    CHECK(hdr_info(f.data(), f.size(), ~std::uint64_t(0)).ok());  // above kMaxImageFloatBytes: the budget itself
+
+    // A real small picture decodes under a small limit, and the buffer is exactly the picture (no spare capacity from growth).
+    Bytes px;
+    append(px, {128, 64, 32, 129});
+    append(px, {1, 1, 1, 255});  // 256 pixels
+    const Bytes ok = file_with("-Y 1 +X 256", px);
+    auto small = decode_hdr(ok.data(), ok.size(), 4096);
+    REQUIRE(small.ok());
+    CHECK(small->data.size() == 256 * 3);
+    CHECK(small->data.capacity() == small->data.size());
+    CHECK_FALSE(decode_hdr(ok.data(), ok.size(), 3071).ok());  // 256 x 1 x 3 floats are 3072 bytes
+
+    // Rows that are right except the last one, which is cut short: the first pass finds it (the error names the row).
+    Bytes rows;
+    for (int y = 0; y < 63; ++y) {
+        append(rows, {128, 64, 32, 129});
+        append(rows, {1, 1, 1, 255});
+    }
+    append(rows, {128, 64, 32, 129});
+    const Bytes badLast = file_with("-Y 64 +X 256", rows);
+    auto r = decode_hdr(badLast.data(), badLast.size());
+    REQUIRE_FALSE(r.ok());
+    CHECK(r.error().message.find("row 64 of 64") != std::string::npos);
+}
+
+TEST_CASE("hdr: the EXPOSURE is deterministic and within a few ulp of its text") {
+    auto exposure_of = [](const std::string& value) {
+        const Bytes f = text("#?RADIANCE\nEXPOSURE=" + value + "\n\n-Y 1 +X 1\n" + std::string("\x80\x80\x80\x81", 4));
+        auto img = decode_hdr(f.data(), f.size());
+        REQUIRE(img.ok());
+        return img->exposure;
+    };
+    CHECK(exposure_of("2") == 2.0f);
+    CHECK(exposure_of("0.5") == 0.5f);
+    CHECK(exposure_of("1e-3") == doctest::Approx(0.001f).epsilon(1e-6));
+    CHECK(exposure_of("0.1") == doctest::Approx(0.1f).epsilon(1e-6));
+    CHECK(exposure_of("3.14159265358979") == doctest::Approx(3.14159265f).epsilon(1e-6));
+    CHECK(exposure_of("0.1") == exposure_of("0.1"));  // the same bits every time
+}

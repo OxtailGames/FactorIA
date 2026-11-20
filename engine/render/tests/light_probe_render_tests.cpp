@@ -284,3 +284,52 @@ TEST_CASE("light probes: instances within a probe group share draws, and the sha
     CHECK(probeLit > plainLit);                                   // the light does differ along the row
     CHECK(probeShadowed - probeLit == plainShadowed - plainLit);  // shadow draws: as without probes
 }
+
+TEST_CASE(
+    "light probes: render.light_probes tells a group edited after the bake (stale) and one added since (unbaked)") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    g.renderer.clear_asset_cache();
+    std::filesystem::create_directories(g.projectDir / "scenes");
+    World w;
+    Entity probes = make(w, "probes", {0, 0, 0});
+    auto& comp = w.add<LightProbeGroup>(probes);
+    comp.size = {6, 4, 6};
+    comp.spacing = 2.0f;
+    // The file holds what the scene asked for at the bake time.
+    ProbeSet baked;
+    REQUIRE(collect_probe_groups(w, baked).ok());
+    REQUIRE(baked.groups.size() == 1);
+    baked.sh.assign(baked.size(), sh_gray_with_x(0.5f, {0, 0, 0}));
+    baked.valid.assign(baked.size(), 1);
+    const std::vector<std::uint8_t> bytes = encode_probe_set(baked);
+    REQUIRE(fs::write_bytes("scenes/stale.lightmap.probes", bytes.data(), bytes.size()).ok());
+    LightmapManifest m;
+    m.uvVersion = kLightmapUvVersion;
+    m.settingsHash = "0123456789abcdef";
+    m.probes.file = "scenes/stale.lightmap.probes";
+    m.probes.count = int(baked.size());
+    REQUIRE(fs::write_text("scenes/stale.lightmap.json", lightmap_manifest_to_json(m).dump(2)).ok());
+    w.settings().lightmaps = "scenes/stale.lightmap.json";
+
+    Json r = g.renderer.light_probes_report(w, kNullEntity);
+    REQUIRE(r["groups"].size() == 1);
+    CHECK(r["groups"][0]["stale"].get<bool>() == false);
+    CHECK(r["unbaked"].size() == 0);
+    // Resized after the bake: the baked group is stale and the scene's one is not in the file.
+    w.get<LightProbeGroup>(probes)->size = {8, 4, 6};
+    r = g.renderer.light_probes_report(w, kNullEntity);
+    CHECK(r["groups"][0]["stale"].get<bool>() == true);
+    REQUIRE(r["unbaked"].size() == 1);
+    CHECK(r["unbaked"][0].get<std::string>() == w.id_of(probes));
+    // Back as baked, plus a second group: the first is fine, the new one is unbaked.
+    w.get<LightProbeGroup>(probes)->size = {6, 4, 6};
+    Entity extra = make(w, "extra", {20, 0, 0});
+    auto& c2 = w.add<LightProbeGroup>(extra);
+    c2.size = {4, 4, 4};
+    c2.spacing = 2.0f;
+    r = g.renderer.light_probes_report(w, kNullEntity);
+    CHECK(r["groups"][0]["stale"].get<bool>() == false);
+    REQUIRE(r["unbaked"].size() == 1);
+    CHECK(r["unbaked"][0].get<std::string>() == w.id_of(extra));
+}

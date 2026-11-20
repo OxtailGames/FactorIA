@@ -231,7 +231,16 @@ void Editor::draw_lightmap_panel() {
     ImGui::Checkbox("Show probes", &showProbes_);
     at_track("lm:showprobes");
     tip("Draw the probes of every LightProbeGroup in the 3D viewport: a sphere coloured by the light it baked, grey "
-        "before the first bake, a red cross for a probe inside geometry. LightProbeGroup.showGizmo hides one group.");
+        "before the first bake or after the group was edited, a red cross for a probe inside geometry. "
+        "LightProbeGroup.showGizmo hides one group; View > Show light probes is the same switch.");
+    if (Renderer* pr = engine_->renderer(); pr && pr->initialized()) {
+        refresh_probe_cache(*pr);
+        if (probeStaleGroups_ > 0)
+            ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.3f, 1.0f),
+                               "%d light probe group%s changed since the last bake (grey in the viewport): bake "
+                               "again to light moving objects with them.",
+                               probeStaleGroups_, probeStaleGroups_ == 1 ? "" : "s");
+    }
 
     ImGui::BeginDisabled(running || play_ != PlayState::Edit);
     if (ImGui::Button("Start")) {
