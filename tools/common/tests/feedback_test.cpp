@@ -590,4 +590,18 @@ TEST_CASE("feedback: collect skips files that are not feedback files unless they
     REQUIRE(alone.ok());
     REQUIRE(alone->json["errors"].size() == 1);
     CHECK(alone->json["errors"][0].get<std::string>().find("ENGINE_FEEDBACK.json") != std::string::npos);
+
+    // A skipped file that is not JSON is named in the notes, not in the errors.
+    CHECK(all->json["notes"].size() == 1);
+    CHECK(all->json["notes"][0].get<std::string>().find("README.md") != std::string::npos);
+
+    // A real ENGINE_FEEDBACK.json without entries gets the plain error, without the "not an ENGINE_FEEDBACK.json" hint.
+    const std::string noEntries = tmp.sub("empty/ENGINE_FEEDBACK.json");
+    REQUIRE(fs::write_text(noEntries, "{\"project\": \"x\"}").ok());
+    auto plain = collect_feedback({noEntries});
+    REQUIRE(plain.ok());
+    REQUIRE(plain->json["errors"].size() == 1);
+    const std::string plainError = plain->json["errors"][0].get<std::string>();
+    CHECK(plainError.find("no \"entries\" array") != std::string::npos);
+    CHECK(plainError.find("This is not an") == std::string::npos);
 }

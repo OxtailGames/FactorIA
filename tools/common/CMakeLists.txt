@@ -106,7 +106,8 @@ if(FA_BUILD_TESTS)
         # (cmake/doctest_main.cpp: --fa-files, --fa-files-exclude). tooling_split_check fails unless the five together list
         # exactly the test cases of the whole executable. ctest -L tooling runs all of them.
         # The table holds only the heavy files, balanced by the seconds their test cases took in the Debug tree of an M5 MacBook
-        # Air (about 22 s per entry of the 111 s in all, 21 to 25 s since M73; Windows and the sanitizers scale it, they do not reorder it much).
+        # Air (about 22 s per entry of the 111 s in all, 21 to 25 s since M73; Windows and the sanitizers scale it, they do
+        # not reorder it much).
         # Refresh it when an entry gets much slower than the others: `fa_test_tooling -r=junit -d=true > tooling.xml` has the
         # seconds of every test case, `classname` is its file; add up each file, put the biggest ones in the lightest entry.
         set(tooling_test_entries
