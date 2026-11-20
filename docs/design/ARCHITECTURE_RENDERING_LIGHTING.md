@@ -171,7 +171,7 @@ M73.2a (cascades of the sun); M73.2b (point and spot) adds tiles to the same atl
 `contactShadows`, `environmentMap`, `reflectionProbes`, `physicalSky`, `lightmaps`, `lightProbes`, `volumetricFog`, `decals`,
 `subsurface`, `realtimeGI`, `clearCoat`, `sheen`, `anisotropy`, `transmission`. Each carries the `needs` its pass will ask of the GPU.
 `needs_met` runs before the planned check, so on a GPU that lacks the capability the answer names the capability, not the plan. The
-package that draws a feature drops its `"M73"` text from the table (`clusteredLights` did in M73.1a and `cascadedShadows` in M73.2a: it needs only `float32`).
+package that draws a feature drops its `"M73"` text from the table (`clusteredLights` did in M73.1a and `cascadedShadows` in M73.2a: it needs only `float32`; `environmentMap` in M73-P3a-2: it needs `half`, the RGBA16F targets the environment cubes are).
 
 ## The new fields
 
@@ -270,3 +270,41 @@ Not done here: clouds that cast per-point shadows on the ground (the sun light i
 perspective of the atmosphere on the meshes (fog is the fog), an observer that moves up through the air, a physical night sky (stars,
 moon). The tests are `engine/render/tests/physical_sky_tests.cpp` (the CPU half, the tables built when they should be, the amortisation,
 four goldens: noon, sunset, overcast, a metal sphere).
+
+## The environment from an HDRI (M73-P3a-2)
+
+`SceneSettings.environmentMap` (user page: RENDERING_LIGHTING.md, "The environment map"). One bake, one set of cubes: the picture is drawn into
+the cube the sky was drawn into, and the prefilter and the irradiance that follow are the sky's. The files:
+
+- `include/fa/render/hdri.h`, `src/hdri.cpp`: the CPU half, shared by the renderer, `assets.import` and `project.validate` so a file one
+  accepts is a file the others load, with the same words when not. `hdri_check` (header only: `hdr_info` in core reads the size and the
+  exposure; layout rule within 1 % of 2:1 with a named wrong layout; the decode budget 8192 x 4096 on 64-bit, 4096 x 2048 on 32-bit; checked
+  before any pixel memory), `hdri_from_bytes` (decode, NaN/negative to 0, box-shrink to `kHdriMaxWidth`, scale texels above `kHdriMaxValue` by
+  one factor for the three channels, convert to half bits, the whole mip chain), `hdri_uv` (the CPU twin of the shader's mapping; a test
+  compares orientation and rotation).
+- `shaders/hdri.glsl` (module `hdri`, one program, generated header committed): a full-screen triangle that rebuilds the world ray from the
+  inverse view-projection, rotates it by minus the rotation, maps it with `atan2` / `asin`, and samples the picture. The mip is computed in the
+  shader from `length(fwidth(dir))`, not from the UV derivatives, so the seam of `atan2` does not pick the smallest mip. The sampler repeats in u
+  and clamps in v. No orientation difference between GL, Metal and D3D11: the ray comes from the same matrix as the physical sky's, not
+  from the texture's row order. `fs_params.p`: rotation (radians), gain, 1 to encode sRGB, width.
+- `src/renderer_hdri.h/.cpp` (`HdriSky`): the program and the pipelines (`ready()` makes them once, logs once when it cannot, as `PhysicalSky`
+  does) and `draw()`. The comment at the top of the header is the one place that states the precedence.
+- `src/assets.cpp` `Assets::hdri(path)`: a cache of `HdriAsset` (the RGBA16F image with its mips; a serial that changes on hot reload, a retry
+  once for a file that is still being written, `note_failure` kind "hdri", counted in `texture_bytes()`); `reload()` and `clear()` drop it.
+  Needs the RGBA16F sample and filter capability: else one error and no map.
+- `shaders/env.glsl` / `src/renderer_env.cpp`: `Environment::set_look(gain, tapLimit)` (two numbers the bake takes when it starts; a slice sequence
+  keeps the look it started with). The level-0 copy, the prefilter and the irradiance multiply by the gain, so the intensity also lights from a
+  sky material or the physical sky; a tap limit of 0 (every sky but an HDRI) leaves the maths as it was, and with gain 1 the multiplications are
+  exact: scenes without an `environmentMap` are bit-identical (their goldens did not change).
+- `src/renderer_draw.cpp` `plan_env`: loads the picture, decides `hdriMain` (the main pass draws the HDRI: it loaded, `environmentBackground`,
+  no `skyMaterial`), builds the key (path hash, the asset's serial, the image id, the rotation rounded, the linear flag, the gain) and calls
+  `set_look`; `decide` compares it as for a sky material, so only a change of map, rotation, intensity or file bakes, in one frame (a whole
+  bake, never sliced: nothing moves slowly). `skyMaterial` still wins the background: `mat` is null while an HDRI lights, so the sky material
+  is drawn by the main pass and not baked.
+
+Highlights: see the user page. The two limits are `kHdriMaxValue` (60000, on the CPU, so the half never overflows to infinity) and `kHdriTapLimit` (64, per
+sample of the blurred levels and the irradiance, in the shader). Not done here: a picture as a light source that casts shadows (the sun of
+the picture does not cast a shadow: place a directional light), several maps blended, a cube map or a mirror-ball file, a map per camera or per
+area (reflection probes, M73.3). The tests are `engine/render/tests/hdri_tests.cpp` (the CPU half, the orientation and the rotation, the
+colour spaces and the intensity, the bake key counted in draw calls, hot reload, a file that cannot be used, precedence, determinism, the golden
+`3d_hdri_spheres`) and `tools/common/tests/assets_hdri_test.cpp` (import, its errors and validate).

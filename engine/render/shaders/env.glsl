@@ -37,6 +37,9 @@ void main() {
 @block env_common
 layout(binding=0) uniform textureCube env_src;
 layout(binding=0) uniform sampler env_smp;
+layout(binding=1) uniform env_params {
+    vec4 p;     // x = roughness (0 .. 1: the prefilter), y = sample count, z = the most a tap of the source may be (0 = no limit), w = brightness
+};
 in vec3 dir;
 out vec4 frag_color;
 
@@ -51,6 +54,17 @@ vec3 env_tap(vec3 d) {
     return textureLod(samplerCube(env_src, env_smp), d, 0.0).rgb;
 }
 
+// A tap with its brightest channel limited to p.z (its colour kept): one very bright texel (the sun of an HDRI) would otherwise be hit by
+// a few of the 32..128 samples of a pixel and not by the pixel next to it, a firefly. 0 = no limit (every sky but an HDRI).
+vec3 env_tap_limited(vec3 d) {
+    vec3 t = env_tap(d);
+    float m = max(max(t.r, t.g), t.b);
+    if (p.z > 0.0 && m > p.z) {
+        t *= p.z / m;
+    }
+    return t;
+}
+
 // An orthonormal basis around n: t and b.
 void env_basis(vec3 n, out vec3 t, out vec3 b) {
     vec3 up = abs(n.y) < 0.999 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0);
@@ -63,16 +77,13 @@ void env_basis(vec3 n, out vec3 t, out vec3 b) {
 @fs fs_copy
 @include_block env_common
 void main() {
-    frag_color = vec4(env_tap(normalize(dir)), 1.0);
+    frag_color = vec4(env_tap(normalize(dir)) * p.w, 1.0);
 }
 @end
 
 // ---- prefilter: the GGX lobe of a roughness --------------------------------------------------------------------
 @fs fs_prefilter
 @include_block env_common
-layout(binding=1) uniform env_params {
-    vec4 p;     // x = roughness (0 .. 1), y = sample count
-};
 void main() {
     vec3 n = normalize(dir);
     vec3 t, b;
@@ -92,20 +103,17 @@ void main() {
         vec3 l = 2.0 * dot(n, h) * h - n;   // the view is the normal (the split-sum assumption)
         float ndl = dot(n, l);
         if (ndl > 0.0) {
-            sum += env_tap(l) * ndl;
+            sum += env_tap_limited(l) * ndl;
             weight += ndl;
         }
     }
-    frag_color = vec4(weight > 0.0 ? sum / weight : env_tap(n), 1.0);
+    frag_color = vec4((weight > 0.0 ? sum / weight : env_tap_limited(n)) * p.w, 1.0);
 }
 @end
 
 // ---- irradiance: the cosine lobe --------------------------------------------------------------------------------
 @fs fs_irradiance
 @include_block env_common
-layout(binding=1) uniform env_params {
-    vec4 p;     // x = 0, y = sample count
-};
 void main() {
     vec3 n = normalize(dir);
     vec3 t, b;
@@ -119,9 +127,9 @@ void main() {
         float cos_t = sqrt(1.0 - u.y);      // cosine-weighted: the mean of the radiance IS the integral of L cos / pi
         float sin_t = sqrt(u.y);
         vec3 l = t * (sin_t * cos(phi)) + b * (sin_t * sin(phi)) + n * cos_t;
-        sum += env_tap(l);
+        sum += env_tap_limited(l);
     }
-    frag_color = vec4(sum / float(max(count, 1)), 1.0);
+    frag_color = vec4(sum / float(max(count, 1)) * p.w, 1.0);
 }
 @end
 

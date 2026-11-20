@@ -27,9 +27,11 @@ namespace fa::assets {
 inline constexpr const char* kManifestFile = "assets.json";
 inline constexpr const char* kManifestFormat = "factoria.assets/1";
 
-enum class AssetKind { Texture, Audio, Model, Font, Video, Other };
-AssetKind kind_of(std::string_view path);  // by extension: .png/.jpg/... texture, .wav/.ogg/.mp3/.qoa audio, ...
-const char* kind_name(AssetKind kind);     // "texture" | "audio" | "model" | "font" | "video" | "other"
+enum class AssetKind { Texture, Audio, Model, Font, Video, Hdri, Other };
+AssetKind kind_of(
+    std::string_view
+        path);  // by extension: .png/.jpg/... texture, .wav/.ogg/.mp3/.qoa audio, .hdr hdri (an environment image: never a texture), ...
+const char* kind_name(AssetKind kind);  // "texture" | "audio" | "model" | "font" | "video" | "hdri" | "other"
 
 // The manifest as loaded through fa::fs, re-read when the file changes on disk (cheap to call every frame). A missing
 // file gives {"format": kManifestFormat}; an unreadable or invalid one logs one warning and gives the same.

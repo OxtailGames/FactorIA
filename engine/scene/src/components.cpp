@@ -4062,17 +4062,30 @@ void register_builtin_components(TypeRegistry& r) {
         .field("contactShadows", &SceneSettings::contactShadows,
                "Short screen-space shadow rays toward the light that add fine shadows where objects touch. Needs a "
                "GPU that can sample the depth (render.supports contactShadows). No effect yet: M73.2 brings it.")
-        .asset_field("environmentMap", &SceneSettings::environmentMap, "texture",
-                     "An HDR image (.hdr, equirectangular) of the surroundings: it is the sky and lights and "
-                     "reflects in every surface. Empty (default) = the sky material or the gradient. No effect yet: "
-                     "M73.3 brings it.")
+        .asset_field(
+            "environmentMap", &SceneSettings::environmentMap, "hdri",
+            "An HDR image (.hdr, equirectangular: twice as wide as it is tall) of the surroundings. It lights and "
+            "reflects in every mesh (image-based lighting, baked on the GPU into the same cubes a sky uses), and "
+            "it is drawn as the background too unless a skyMaterial is set or environmentBackground is off. It "
+            "wins over the sky's own lighting (a skyMaterial or the physical sky) but not over a skyMaterial's "
+            "background. Empty (default) = the sky material, the physical sky or the gradient. Pictures wider "
+            "than 4096 are shrunk when loaded; values are limited to 60000 and one sample of the blur to 64, "
+            "so a sun in the picture does not speckle the reflections. Import one with assets.import; "
+            "render.supports {\"feature\": \"environmentMap\"} says whether the GPU can.")
         .field("environmentIntensity", &SceneSettings::environmentIntensity,
-               "Brightness multiplier of the environment map and the sky's image-based lighting, 0..100. No effect "
-               "yet: M73.3 brings it.")
+               "Brightness multiplier of the environment map (background and lighting) and of the lighting a sky "
+               "material or the physical sky gives, 0..100 (1 default: unchanged). It does not brighten the sky that "
+               "a skyMaterial or the physical sky draws as the background.")
         .range(0, 100)
         .field("environmentRotation", &SceneSettings::environmentRotation,
-               "Degrees the environment map is turned around the up axis. No effect yet: M73.3 brings it.")
+               "Degrees the environment map is turned around the up axis (positive = counter-clockwise seen from "
+               "above: what was at +X ends up at -Z at 90), -360..360. Looking along -Z shows the middle of the "
+               "picture.")
         .range(-360, 360)
+        .field("environmentBackground", &SceneSettings::environmentBackground,
+               "Whether the environment map is also drawn as the background (true, default). False keeps the sky "
+               "material, the physical sky or the gradient as the background and uses the picture for the lighting "
+               "and the reflections only. A skyMaterial that is set always draws the background.")
         .enum_field(
             "skyModel", &SceneSettings::skyModel, {"gradient", "physical"},
             "gradient (default): the skyColor and horizonColor gradient. physical: a sky computed from the sun, the "

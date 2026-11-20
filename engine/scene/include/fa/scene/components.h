@@ -1551,6 +1551,7 @@ struct SceneSettings {
     std::string environmentMap;           // M73.3: HDR image of the surroundings ("" = the sky material or gradient)
     float environmentIntensity = 1.0f;    // M73.3
     float environmentRotation = 0.0f;     // M73.3: degrees around the up axis
+    bool environmentBackground = true;    // M73.3: the environment map is also the background (no sky material set)
     SkyModel skyModel = SkyModel::Gradient;  // M73.3: gradient (the colours above) or physical (sun and atmosphere)
     // The physical sky (skyModel = physical, M73-P3d): read only then. Defaults are a clear mid-day sky.
     float skySunSize = 0.53f;                       // angular diameter of the sun disc, degrees

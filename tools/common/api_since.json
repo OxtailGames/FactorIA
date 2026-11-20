@@ -689,6 +689,7 @@
     "SceneSettings.skyMaterial": "0.32.0",
     "SceneSettings.skyMaterialParams": "0.32.0",
     "SceneSettings.contactShadows": "unreleased",
+    "SceneSettings.environmentBackground": "unreleased",
     "SceneSettings.environmentIntensity": "unreleased",
     "SceneSettings.environmentMap": "unreleased",
     "SceneSettings.environmentRotation": "unreleased",
