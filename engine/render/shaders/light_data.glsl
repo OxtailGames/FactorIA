@@ -11,7 +11,8 @@
 //                                      +0 xyz position (point/spot) or direction TO the light (directional), w range
 //                                      +1 rgb colour * intensity, w type (0 directional, 1 point, 2 spot)
 //                                      +2 xyz spot axis (the direction the light points), w cos(spot half angle)
-//                                      +3 x cos of the inner cone of a spot (2 = the default fade), yzw reserved (cookie, IES)
+//                                      +3 x cos of the inner cone of a spot (2 = the default fade), y z reserved (cookie, IES),
+//                                         w flags: 1 = Light.mode Baked (its direct light is in the lightmaps, M73.4a), else 0
 //   [fa_cl_info.x, + fa_cl_info.w)   one texel per cluster (slice-major, then row, then column): x = slot of its first light index,
 //                                    y = how many local lights it has
 //   after the clusters               the light indices, four to a texel (x, y, z, w); slot s is component s & 3 of the s >> 2 th
@@ -27,6 +28,8 @@ vec4 fa_light_texel(int t) {
 vec3 fa_light_rgb(int li) { return fa_light_texel(li * 4 + 1).rgb; }
 // The type of light li: 0 directional, 1 point, 2 spot.
 float fa_light_type(int li) { return fa_light_texel(li * 4 + 1).w; }
+// Whether light li is baked (Light.mode Baked): a lightmapped fragment skips it, its direct light is in the lightmap.
+bool fa_light_baked(int li) { return fa_light_texel(li * 4 + 3).w > 0.5; }
 
 // Light li of the table as seen from a world position, without its shadow: the direction to it, its color times intensity times
 // attenuation, the attenuation, the distance and the type. shadow is 1.

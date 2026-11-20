@@ -35,6 +35,16 @@ int fa_cl_light(int n) {
 // The same with the shadow of the directional shadow map applied (only the first light, and only when it is directional, is
 // shadowed): what the engine's light loop hands to light(). li is an index of the light table, gn the geometric normal.
 LightSample fa_light_shadowed(int li, vec3 world_pos, vec3 gn) {
+    if (fa_lm.z > 0.5 && fa_light_baked(li)) {  // its direct light is in the lightmap this fragment reads: no light, no shadow lookup
+        LightSample none;
+        none.direction = vec3(0.0, 1.0, 0.0);
+        none.color = vec3(0.0);
+        none.attenuation = 0.0;
+        none.shadow = 1.0;
+        none.distance = 0.0;
+        none.type = int(fa_light_type(li) + 0.5);
+        return none;
+    }
     LightSample ls = fa_light_sample(li, world_pos);
     if (ls.type == 0 && li == 0) {
         ls.shadow = fa_shadow_factor(gn, ls.direction);
@@ -57,7 +67,9 @@ LightSample fa_light(int n, in SurfaceInput i) {
 // Light n without the shadow map read: color has no shadow in it and shadow is 1; the way to treat the shadow apart.
 LightSample fa_light_unshadowed(int n, in SurfaceInput i) {
     if (n < 0 || n >= fa_light_count()) { return fa_no_light(); }
-    return fa_light_sample(fa_cl_light(n), i.world_pos);
+    int li = fa_cl_light(n);
+    if (fa_lm.z > 0.5 && fa_light_baked(li)) { return fa_no_light(); }  // a baked light on a lightmapped fragment
+    return fa_light_sample(li, i.world_pos);
 }
 // The shadow of light n at this fragment: 1 lit, 0 in shadow (a value between at the edge of the shadow). Only the first light
 // (n = 0) when it is directional has a shadow; every other light gives 1.
@@ -79,6 +91,7 @@ float fa_light_shadow(int n, in SurfaceInput i) { return 1.0; }
         int count = fa_cl_ndir + fa_cl_local;
         for (int ln = 0; ln < count; ln++) {
             int li = fa_cl_light(ln);
+            if (fa_lm.z > 0.5 && fa_light_baked(li)) { continue; }  // Light.mode Baked on a lightmapped fragment (before any shadow lookup)
             LightSample ls = fa_light_shadowed(li, i.world_pos, gn);
 #ifdef FA_CUSTOM_LIGHT
             // lighting "custom": the snippet's light() takes the place of the Cook-Torrance term below.

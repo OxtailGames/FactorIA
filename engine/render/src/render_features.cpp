@@ -130,6 +130,16 @@ std::vector<FeatureDef> build_table() {
          "the depth or the normals (fa_depth, fa_normal) needs the sampledDepth feature, and that pass alone is "
          "skipped without it."});
     t.push_back(
+        {"lightmaps", FeatureKind::Engine, kEveryGpu, "", nullptr,
+         "Baked lightmaps (M73.4a): the bake's light of a scene (SceneSettings.lightmaps, the lightmap.bake command) "
+         "is read from "
+         "the lightmap UV of each entity with MeshRenderer.receiveGI and replaces the ambient light on its diffuse "
+         "surface; "
+         "lights with mode baked are left out of those entities. The feature needs nothing of the GPU. A custom "
+         "material "
+         "gets the lightmap only when it declares \"uv1\" in vertexAttributes (docs/rendering/RENDERING_LIGHTING.md, "
+         "\"Lightmaps\")."});
+    t.push_back(
         {"physicalSky", FeatureKind::Engine, kEveryGpu, "half", nullptr,
          "A physically based sky (SceneSettings.skyModel \"physical\"): a sun with a disc, an atmosphere (Rayleigh, "
          "Mie, ozone) and procedural clouds, drawn as the background and baked into the image-based lighting, so "
@@ -179,9 +189,6 @@ std::vector<FeatureDef> build_table() {
          "Reflection probes: local environment captures, baked or realtime, with box projection and blending between "
          "probes "
          "(M73.3)."},
-        {"lightmaps", "",
-         "Baked lightmaps: global illumination computed by a deterministic bake and read from a second UV set "
-         "(M73.4)."},
         {"lightProbes", "", "Light probes: baked spherical-harmonics lighting for moving objects (M73.4)."},
         {"volumetricFog", "half+depth", "Volumetric fog and light shafts per light (M73.5)."},
         {"decals", "depth", "Projected decals drawn over the meshes they touch (M73.5)."},

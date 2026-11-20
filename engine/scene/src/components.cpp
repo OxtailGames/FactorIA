@@ -1970,15 +1970,21 @@ void register_builtin_components(TypeRegistry& r) {
         .range(0, 1000000)
         .field("lightmapScale", &MeshRenderer::lightmapScale,
                "Resolution of this mesh in the baked lightmap, as a multiple of the scene's lightmap density (1 = the "
-               "scene's). 0 keeps it out of the lightmap. No effect yet: M73.4 brings the lightmaps "
-               "(docs/rendering/RENDERING_LIGHTING.md).")
+               "scene's). The lightmap.bake command gives the mesh that many texels per metre of its surface "
+               "(16 per metre times this, capped by the page size); 0 keeps it out of the bake, and an entity the "
+               "bake left out is lit as without a lightmap. Has no effect on its own: the bake writes the result into "
+               "the scene's lightmap manifest (SceneSettings.lightmaps, docs/rendering/RENDERING_LIGHTING.md, "
+               "\"Lightmaps\").")
         .range(0, 100)
         .field("contributeGI", &MeshRenderer::contributeGI,
                "Whether the surface bounces light onto others in a lightmap bake and in the realtime global "
                "illumination. No effect yet: M73.4 brings the bake and M73.5 the realtime GI.")
         .field("receiveGI", &MeshRenderer::receiveGI,
-               "Whether the surface is lit by the baked lightmap, the light probes and the realtime global "
-               "illumination. No effect yet: M73.4 brings it.")
+               "Whether the surface is lit by the baked lightmap (when the manifest of SceneSettings.lightmaps has an "
+               "entry for this entity: the baked irradiance replaces the ambient light and the sky's diffuse "
+               "light, and lights with mode baked are skipped on it). false = the entity ignores its lightmap entry "
+               "and is lit in realtime, and a bake leaves it out as a receiver. The light probes and the realtime "
+               "global illumination (M73.4d, M73.5) read it too.")
         .field("clearcoat", &MeshRenderer::clearcoat,
                "Strength 0..1 of a clear coat layer over the surface (car paint, lacquer; glTF "
                "KHR_materials_clearcoat). 0 = none. A glTF model with the extension brings its own value; a value here "
@@ -2107,9 +2113,11 @@ void register_builtin_components(TypeRegistry& r) {
                "SceneSettings.shadowDistance.")
         .range(0, 100000)
         .enum_field("mode", &Light::mode, {"realtime", "baked", "mixed"},
-                    "realtime (default): lit every frame. baked: its light is computed once into the lightmaps and "
-                    "the light probes and costs nothing at run time. mixed: baked indirect light plus realtime "
-                    "direct light and shadows. No effect yet: M73.4 brings it.")
+                    "realtime (default): lit every frame. baked: its light is computed once into the lightmaps "
+                    "(lightmap.bake) and an entity lit by a lightmap no longer gets it at run time; an entity with no "
+                    "lightmap entry is still lit by it every frame, so nothing goes dark before the bake. mixed: "
+                    "lit every frame like a realtime light, with shadows (its bounce light in the lightmaps and the "
+                    "light probes for moving objects: M73.4c and M73.4d).")
         .field("volumetric", &Light::volumetric,
                "Strength 0..10 of this light's shafts in the volumetric fog (SceneSettings.fogDensity must be above "
                "0). 0 (default) = no shafts. No effect yet: M73.5 brings it.")
@@ -4128,7 +4136,15 @@ void register_builtin_components(TypeRegistry& r) {
         .field("cloudWind", &SceneSettings::cloudWind,
                "Physical sky: metres per second [x, z] the clouds drift along the world axes (beyond 1000 it is "
                "clamped). The drift follows the game clock (never the wall clock), so a replay shows the same sky. "
-               "[0, 0] stands still. Only used with skyModel physical.");
+               "[0, 0] stands still. Only used with skyModel physical.")
+        .asset_field("lightmaps", &SceneSettings::lightmaps, "any",
+                     "The scene's baked lightmap: a *.lightmap.json manifest (written by the lightmap.bake command, "
+                     "next to its .hdr pages) that says, per entity, which rectangle of which page lights it. The "
+                     "renderer loads it with the scene and reloads it when a file changes; an entity listed in it "
+                     "(and with MeshRenderer.receiveGI) is lit by the baked irradiance instead of the ambient "
+                     "light, and lights with mode baked stop lighting it. \"\" (default) = no lightmap. A missing "
+                     "or invalid manifest is reported (render.assets) and the scene is drawn without it. "
+                     "docs/rendering/RENDERING_LIGHTING.md, \"Lightmaps\".");
 }
 
 void ensure_builtin_components() {

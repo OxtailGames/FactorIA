@@ -37,6 +37,8 @@ struct MeshItem {
     std::uint64_t sortKey = 0;   // SortKeyTable: the order of the material fields as one integer (valid when `keyed`)
     bool keyed = false;          // sortKey is set; an unkeyed item is ordered by the comparator (build_batches)
     bool noCull = false;  // never frustum-culled: a mesh material with buffers and no MeshRenderer.instanceBounds
+    // Lit by a baked lightmap (M73.4a): drawn with `lm.mesh->parts` and the page rectangle of its entity, so never batched with another.
+    LightmapUse lm;
 };
 
 // What the sort of the opaque meshes reads of an item (a MeshItem, or a SceneMesh before a camera makes its item).
@@ -50,9 +52,12 @@ struct SortFields {
     const MaterialAsset* material = nullptr;
     std::size_t paramsHash = 0, colorsHash = 0;
     Color flash{0, 0, 0, 0};
+    bool lightmapped =
+        false;  // a batch of its own, like a skinned one: its entity is part of what the batches differ by
 };
 inline SortFields fields_of(const MeshItem& m) {
-    return {m.mesh, m.tex, m.normalTex, m.mr, m.entity, m.anim, m.material, m.paramsHash, m.colorsHash, m.flash};
+    return {m.mesh,       m.tex,   m.normalTex,         m.mr, m.entity, m.anim, m.material, m.paramsHash,
+            m.colorsHash, m.flash, m.lm.mesh != nullptr};
 }
 
 // The 64-bit sort key: four fields, most significant first, each the RANK of the value among those of the frame (never
@@ -220,6 +225,8 @@ struct LightData {
     // A spot's cos(innerAngle) (the cone inside which it is at full strength); 2 = Light.innerAngle 0, the default fade of the
     // outer quarter of the cone (shaders/light_data.glsl).
     float cosInner = 2.0f;
+    bool baked =
+        false;  // Light.mode Baked: its direct light is in the lightmaps, so a lightmapped surface skips it (M73.4a)
 };
 
 // Orders the lights by relevance (the shadow caster first, then directional lights, then point and spot lights by

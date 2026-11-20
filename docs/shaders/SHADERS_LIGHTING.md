@@ -221,6 +221,16 @@ with `EXT_color_buffer_float` or `_half_float`), else RGBA8: the sky is then cla
 sun, loses its brightness in the reflection) and very dark gradients show bands. The sky you see is drawn directly, not from the
 cubes, so it is the same on both.
 
+## Baked lightmaps
+
+On an entity that has a baked lightmap (`SceneSettings.lightmaps`, RENDERING_LIGHTING.md, "Lightmaps") the engine's light
+loop and the light API skip every light of mode `baked`: `fa_light(n, i)` and `fa_light_unshadowed(n, i)` give those lights
+no colour and `light()` is not called for them, so their direct light is not counted twice. The `ambientColor` that
+`ambient()` receives is the baked texel of that fragment (the irradiance divided by pi, like the scene's ambient light) in
+place of the ambient light or the sky's irradiance; the sky's reflection (`fa_sky_light`) stays the sky's. A material with
+`lighting()` writes its own ambient term and gets no lightmap helper. A material that lists `"uv1"` in `vertexAttributes`
+reads the lightmap UV as `uv1` on a lightmapped entity (`receiveGI: false` keeps the model's second set).
+
 ## Errors
 
 Every one is found before sokol-shdc starts, except a misspelled function name, which comes out of sokol-shdc (the message

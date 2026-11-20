@@ -5,6 +5,8 @@
 
 @block fa_user
 void surface(in SurfaceInput i, inout Surface s) {}
+// The engine's own program reads the lightmap UV attribute of every mesh (mesh_common.glsl, fa_extra_attrs).
+#define FA_LM_BUILTIN
 @end
 
 @include mesh_common.glsl

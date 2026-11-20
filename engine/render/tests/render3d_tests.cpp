@@ -785,10 +785,15 @@ TEST_CASE("materials: the shader desc built from a twin equals the generated one
     const Json& program = (*twin)["programs"]["mesh"];
     auto desc = render::material_shader_desc("empty mesh", program, slots);
     REQUIRE(desc.ok());
-    CHECK(describe_desc(*desc) == describe_desc(*mesh_mesh_shader_desc(sg_query_backend())));
+    // The engine's own program also reads the lightmap UV (a uv1 attribute: the template's FA_LM_BUILTIN); a material's twin has it only
+    // when the material declares "uv1".
+    sg_shader_desc builtin = *mesh_mesh_shader_desc(sg_query_backend());
+    builtin.attrs[ATTR_mesh_mesh_fa_attr_uv1] = {};
+    CHECK(describe_desc(*desc) == describe_desc(builtin));
     CHECK(slots.ubMask == 0b10000011);  // vs params, fs params, and the shadows (binding 7); the lights are in view 24
     CHECK(slots.viewMask == (0b111111u | 1u << render::kMaterialEnvView | 1u << render::kMaterialEnvIrrView |
-                             1u << VIEW_mesh_fa_light_tex));  // + the sky environment and the light data
+                             1u << VIEW_mesh_fa_light_tex |
+                             1u << VIEW_mesh_fa_lightmap));  // + the sky environment, the light data and the lightmap
     CHECK(slots.samplerMask == (0b11u | 1u << render::kMaterialEnvSampler));
     CHECK(slots.ubSize[0] == sizeof(mesh_fa_mesh_vs_params_t));
     CHECK(slots.ubSize[1] == sizeof(mesh_fa_mesh_fs_params_t));

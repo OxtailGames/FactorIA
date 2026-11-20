@@ -196,6 +196,7 @@ void pack_light_texture(const std::vector<LightData>& lights, int directional, c
             p[8 + c] = l.dir[c];
         }
         p[12] = l.cosInner;
+        p[15] = l.baked ? 1.0f : 0.0f;  // texel +3, w: the flags (1 = Light.mode Baked), see light_data.glsl
     }
     out.uniforms = ClusterUniforms{};
     out.uniforms.info[2] = float(directional);

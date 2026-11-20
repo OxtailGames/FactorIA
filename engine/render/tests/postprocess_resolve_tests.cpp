@@ -680,8 +680,8 @@ TEST_CASE("features: what the engine does not draw yet is false and says planned
 TEST_CASE(
     "features: the lighting rows of M73 are planned until their package lands and never claim what is not drawn") {
     const char* const rows[] = {"areaLights",     "lightCookies",   "iesProfiles",      "pointShadows", "spotShadows",
-                                "contactShadows", "environmentMap", "reflectionProbes", "lightmaps",    "lightProbes",
-                                "volumetricFog",  "decals",         "subsurface",       "realtimeGI",   "transmission"};
+                                "contactShadows", "environmentMap", "reflectionProbes", "lightProbes",  "volumetricFog",
+                                "decals",         "subsurface",     "realtimeGI",       "transmission"};
     const FeatureEnv full = gpu(FeatureBackend::D3d11, true, true, true, true);
     for (const char* n : rows) {
         CAPTURE(n);
@@ -691,6 +691,10 @@ TEST_CASE(
         CHECK(why == "planned (M73)");
         CHECK(feature_table()[std::size_t(find_feature(n))].kind == FeatureKind::Engine);
     }
+    // M73.4a: the lightmaps are drawn; the row needs nothing of the GPU.
+    REQUIRE(find_feature("lightmaps") >= 0);
+    CHECK(supported(full, "lightmaps"));
+    CHECK(feature_table()[std::size_t(find_feature("lightmaps"))].kind == FeatureKind::Engine);
     // The physical sky is drawn (M73-P3d): it needs RGBA16F targets for its tables and says so when they are missing.
     {
         std::string why;
