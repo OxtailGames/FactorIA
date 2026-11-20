@@ -8,12 +8,11 @@ M73 brings the lighting of a leading engine to FactorIA in six steps: many light
 (M73.3); baked lightmaps and light probes (M73.4); volumetric fog, decals, subsurface scattering and realtime global illumination
 (M73.5); and the material layers clear coat, sheen, anisotropy, specular / IOR and transmission (M73.6; the first four are drawn).
 
-**What is there today (M73.1a, M73.2a): the fields, many lights and the cascaded shadows of the sun.** Every field below is reflected,
+**What is there today (M73.1, M73.2a): the fields, many lights, area lights, cookies, IES profiles and the cascaded shadows of the sun.** Every field below is reflected,
 validated, saved in the scene and read back, and shows up in `docs.components` and in the typings, so a scene, a prefab or a tool can
-set it. The renderer reads `innerAngle`, the shadow fields of the directional light and of the scene (the "Brought by" column says
-`drawn` for them), and lights a view with up to 1024 lights at once (see "Many lights"); it does not read the other fields yet (except the sky fields, `skyModel` and the rows after it, which M73-P3d draws: see "The physical sky"): a
-scene with only those set looks exactly as it does without them, except that a Light of `type: "area"` shines like a point light of
-the same `range` until M73.1b. The doc string of each field says which step brings it.
+set it. The renderer reads `innerAngle`, `shape`, `size`, `cookie` and `ies`, the shadow fields of the directional light and of the scene (the "Brought by" column says
+`drawn` for them), and lights a view with up to 1024 lights at once (see "Many lights" and "Area lights, cookies and IES profiles"); it does not read the other fields yet (except the sky fields, `skyModel` and the rows after it, which M73-P3d draws: see "The physical sky"): a
+scene with only those set looks exactly as it does without them. The doc string of each field says which step brings it.
 The defaults are what the engine did before, so a scene made before M73 loads, looks and saves as it did (a default is never written
 to the file).
 
@@ -39,15 +38,57 @@ range makes the lists long.
 - **Shaders.** `fa_light_count()` and `fa_light(n, i)` of a material's `lighting()` hook give the lights of the pixel's cluster
   (docs/shaders/SHADERS_LIGHTING.md).
 
+## Area lights, cookies and IES profiles (M73.1b)
+
+**Area lights.** `type: "area"` is a rectangle, a disc or a tube (`shape`, `size`) centred on the entity. A rectangle and a disc lie in the
+entity's X and Y axes and emit from their front, the side its forward direction (-Z) points to: the back lights nothing. A tube is a line
+of light along the entity's X axis (`size.x` long, `size.y` thick) and emits all around. The shading is one integral over the whole
+emitter (linearly transformed cosines, with tables fitted for the engine's own specular term), so the highlight is the shape of the
+light, long for a strip and round for a disc, and the diffuse term follows its extent: a panel above a wall lights it softly with no
+hard centre. `intensity` and `color` mean what they do for a point light: far from a surface an area light lights it like a point
+light of the same intensity at its centre (a test compares both to 5 %); near the surface the light is bounded, never infinitely
+bright. `range` is measured from the surface of the emitter, not from its centre. An area light does not cast shadows yet (M73.2b).
+Where it is NOT shaded as an area light it is a point light at its centre: a material with a clear coat, sheen or anisotropy layer,
+a material with its own `lighting()` or `light()` hook, a full shader, and a GPU that cannot filter RGBA16F images (`render.supports
+areaLights` says which).
+
+**Cookies.** `cookie` is a texture (PNG, JPG, TGA, BMP; at most 4096 pixels a side) the light projects, and the picture's colour times
+its alpha multiplies the light's colour: white lets it through, black stops it, a transparent pixel stops it too. A spot light
+projects it through its cone, perspective, the edge of the cone (`spotAngle`) on the edge of the picture. A directional light
+projects it straight along its forward direction and repeats it over the world, one copy every `size` metres along the light's X and
+Y axes, starting at the world origin. A point light would need six faces and a cube lookup the light atlas does not have: its
+`cookie` is not drawn and a warning says so once (use a spot light with a wide `spotAngle`). An area light ignores `cookie`
+and `ies`, with the same warning. A cookie that cannot be read is reported once and the light is drawn without it.
+
+**IES profiles.** `ies` is an `.ies` file (the LM-63 photometric format of lamp makers, type C) on a point or a spot light: the light
+then shines with the measured distribution of that lamp instead of the same amount in every direction. Import one with `assets.import`
+(it lands in `assets/lights/`; a file that is not photometric data, is type A or B, has an unordered or out-of-range angle table, or
+no light in it is refused with the line that is wrong). The nadir of the profile (vertical angle 0) points along the entity's forward
+direction (-Z), so a downlight is a light turned to look down. The table is divided by its largest value, so the file only SHAPES
+the light: `intensity` stays the brightness in the brightest direction, whatever the candela of the lamp. Horizontal symmetry is
+folded as the file says it (one plane, a quarter, a half, the whole circle). The profile is baked to 64 x 32 values and read with
+bilinear filtering, so a sharp edge is a few degrees wide; a file with more than 1024 angles on an axis is refused.
+`assets.import` reports the name, the angle counts and the peak candela; a directional light ignores `ies` (a warning says so once).
+
+**The light atlas.** The tables of the area lights, every cookie (resampled to 254 x 254 texels, tiled with a border) and every profile
+live in ONE RGBA16F image of 1024 texels per row and at most 4096 rows (32 MB), made when a light first asks for it and again when the set
+changes or a file is hot-reloaded. A scene without area lights, cookies or profiles makes no atlas and draws and costs exactly what it did.
+About 60 cookies fit; the ones over that are dropped (the lights are drawn without, and a warning says how many). The same
+packing is used on every backend, in the order of the sorted paths, so the image is the same bytes every time.
+
+**Precision.** The area-light shading runs in full float (`highp`) on every GLES3 and WebGL2 GPU, whatever the default of the fragment stage
+(a test reads the generated shader to check it). The LTC tables are stored in half floats, which is a relative error of about 0.1 %:
+invisible next to the 2 % the fit itself has.
+
 ## Light
 
 | Field | Values | Default | Brought by |
 |---|---|---|---|
-| `type` | `directional`, `point`, `spot`, `area` | `directional` | `area`: M73.1 (a point light until then) |
+| `type` | `directional`, `point`, `spot`, `area` | `directional` | `area`: drawn (M73.1b) |
 | `innerAngle` | 0..89 degrees | 0 | M73.1a (drawn): a spot's full-strength cone; 0 = the cone fades as it does today |
-| `shape`, `size` | `rectangle`, `disc`, `tube`; metres | `rectangle`, [1, 1] | M73.1, area lights only |
-| `cookie` | a texture | none | M73.1 |
-| `ies` | an `.ies` file | none | M73.1 |
+| `shape`, `size` | `rectangle`, `disc`, `tube`; metres | `rectangle`, [1, 1] | drawn (M73.1b): the area light's emitter; a directional cookie's tile |
+| `cookie` | a texture | none | drawn (M73.1b): spot and directional lights (a point light's cookie is not drawn) |
+| `ies` | an `.ies` file | none | drawn (M73.1b): point and spot lights |
 | `castShadows` | bool | false | directional lights: drawn (M73.2a; the first light that casts is the sun); point and spot lights: M73.2b |
 | `shadowResolution` | 0..4096 texels per cascade | 0 (the engine picks: 2048 for one cascade, 1024 for several) | drawn (M73.2a) |
 | `shadowBias`, `shadowNormalBias` | metres, 0..1 | 0 (the engine's own: 1.5 texels of the cascade) | drawn (M73.2a) |
@@ -197,7 +238,7 @@ tangent turned by `anisotropyRotation`); a texture file that cannot be read (`it
 ## Asking what the renderer draws: render.supports
 
 `render.supports` (C++ `Renderer::supports(name)`) answers for each lighting feature below with `false` and the status `planned (M73)`
-until its step lands; then it follows the GPU (`cascadedShadows` does, `physicalSky` is true wherever the GPU renders to RGBA16F and filters it, and `clusteredLights` is `true` on every backend that draws). A game that wants a feature checks it first and falls back, so it never relies on
+until its step lands; then it follows the GPU (`cascadedShadows` does, `areaLights`, `lightCookies` and `iesProfiles` need RGBA16F images that filter, `physicalSky` is true wherever the GPU renders to RGBA16F and filters it, and `clusteredLights` is `true` on every backend that draws). A game that wants a feature checks it first and falls back, so it never relies on
 what is not drawn.
 
 `clusteredLights`, `areaLights`, `lightCookies`, `iesProfiles` (M73.1); `cascadedShadows`, `pointShadows`, `spotShadows`,

@@ -32,11 +32,22 @@ const std::vector<std::string> kMeshFields = {"lightmapScale",       "contribute
 // Drawn since M73.6 (the material layers): their docs say what they do, not that they have no effect.
 const std::vector<std::string> kLayerFields = {"clearcoat",  "clearcoatRoughness", "sheenColor", "sheenRoughness",
                                                "anisotropy", "anisotropyRotation", "specular",   "ior"};
-// The fields a package has made work: their doc string no longer says "No effect yet" (M73.1a: innerAngle; M73.2a: the cascaded shadows of the sun).
-const std::vector<std::string> kDrawn = {"innerAngle",         "shadowResolution", "shadowBias",
-                                         "shadowNormalBias",   "shadowFilter",     "shadowSoftness",
-                                         "shadowDistance",     "shadowCascades",   "shadowCascadeSplit",
-                                         "shadowCascadeBlend", "shadowAtlasSize"};
+// The fields a package has made work: their doc string no longer says "No effect yet" (M73.1a: innerAngle; M73.2a: the cascaded shadows of the sun; M73.1b: shape, size, cookie, ies).
+const std::vector<std::string> kDrawn = {"innerAngle",
+                                         "shadowResolution",
+                                         "shadowBias",
+                                         "shadowNormalBias",
+                                         "shadowFilter",
+                                         "shadowSoftness",
+                                         "shadowDistance",
+                                         "shadowCascades",
+                                         "shadowCascadeSplit",
+                                         "shadowCascadeBlend",
+                                         "shadowAtlasSize",
+                                         "shape",
+                                         "size",
+                                         "cookie",
+                                         "ies"};
 }  // namespace
 
 TEST_CASE("lighting fields: every new field is reflected and its doc says what it does and which package brings it") {

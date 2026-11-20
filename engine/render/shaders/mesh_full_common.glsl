@@ -125,6 +125,11 @@ layout(binding=24) uniform texture2D fa_full_light_tex;
 @image_sample_type fa_full_light_tex unfilterable_float
 #define FA_LIGHT_TEX fa_full_light_tex
 #define FA_LIGHT_SMP fa_full_shadow_smp
+// The light atlas (as mesh_common.glsl's fa_fs_head: view 25, sampler 10): the cookies and IES profiles of the lights a full shader
+// reads through fa_light(). The area lights' LTC shading is the engine's own meshes' (a full shader sees an area light as a point light).
+layout(binding=25) uniform texture2D fa_full_light_atlas;
+#define FA_ATLAS_TEX fa_full_light_atlas
+#define FA_ATLAS_SMP fa_env_smp
 // The baked sky of a sky material (as mesh_common.glsl's fa_fs_head: views 14 and 15, sampler 10; used while fa_env_sky.w is 1).
 layout(binding=14) uniform textureCube fa_env_tex;
 layout(binding=15) uniform textureCube fa_irr_tex;
@@ -145,7 +150,8 @@ layout(binding=1) uniform fa_mesh_fs_params {
     vec4 fa_fog_b;              // the stack's fog (PostProcess.fog*) on a blended mesh: x = fogStart, y = height density,
                                 // z = height base (world y), w = height falloff; all 0 for the scene's own fog
     vec4 fa_fog_c;              // xyz = the camera's forward axis in the world, w = 1 for an orthographic camera (0 otherwise)
-    vec4 fa_counts;             // x = light count, y = unused, z = 1 on OpenGL backends
+    vec4 fa_counts;             // x = light count, y = texels per light of the light table (4, or 8 while a light has an area, a cookie
+                                // or an IES profile), z = 1 on OpenGL backends
     vec4 fa_env_sky;            // rgb sky color (top of the environment); w = 1 when the baked environment of a sky material is bound
     vec4 fa_env_horizon;        // rgb horizon color; w = the highest mip of fa_env_tex (what roughness 1 reads)
     vec4 fa_time;               // x = seconds of game time since the scene started

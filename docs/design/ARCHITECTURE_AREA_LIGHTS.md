@@ -2,9 +2,9 @@
 
 Part of [FactorIA architecture](ARCHITECTURE.md) (the entry page lists every page). This page is the foundation of area-light
 shading: the tables of Linearly Transformed Cosines (LTC) fitted for the engine's own BRDF, the library that fits them, the CPU
-reference of the polygon integral and the GLSL that will do the same in a fragment shader. Nothing in the renderer reads the tables
-yet (the light component, the textures and the shader hook come in later packages); `engine/render/shaders/ltc.glsl` is in no
-template, so no shader hash changes.
+reference of the polygon integral and the GLSL that does the same in a fragment shader. Since M73.1b the renderer reads the tables:
+they live in the light atlas (the section at the end of this page; docs/design/ARCHITECTURE_RENDERING_LIGHTING.md, "The light atlas") and
+`ltc.glsl` is part of the mesh and full-shader templates, so it is in their hashes.
 
 ## The method
 
@@ -79,5 +79,33 @@ rectangle light through the table against a brute force integral of the BRDF. `l
 Debug build, `ctest -L slow`) fits the whole table again and compares it with the committed header byte for byte.
 
 `engine/render/shaders/ltc.glsl` (`@block fa_ltc`: `fa_ltc_uv`, `fa_ltc_tangent`, `fa_ltc_local`, `fa_ltc_quad`, `fa_ltc_triangle`,
-`fa_ltc_rect`) is the same algorithm as `polygon_integral` with a streaming horizon clip (no arrays). It is validated with
-sokol-shdc for every backend; it does not run in a render yet.
+`fa_ltc_rect`) is the same algorithm as `polygon_integral` with a streaming horizon clip (no arrays). sokol-shdc compiles it for every
+backend, which only proves it is legal GLSL; what proves the numbers are the render tests (`area_light_render_tests.cpp`: a rectangle
+golden, and an area light far away against the point light of the same intensity).
+
+## In the renderer (M73.1b)
+
+- **The tables in the atlas.** The matrix (`a, b, c, d` of M^-1, which has negative entries, so half floats with signs) and the BRDF
+  integrals (magnitude, Fresnel) are two 64 x 64 tiles at the top left of the RGBA16F light atlas (view 25), packed before any cookie or
+  profile; `bake_ltc_tables` writes them from `ltc_tables.h`. `fa_ltc_uv(roughness, N.V)` addresses them with the half-texel inset
+  of the 64 cell grid, and the lookup is bilinear (the sampler of the atlas), as the fit assumes.
+- **Shading** (`light_loop.glsl`: `fa_area_form`, `fa_area_shade`). The shape is a polygon in world space around the light's position
+  (a rectangle from `size`, a disc as an eight-gon of the same radius, a tube as a thin rectangle of its length and thickness), clipped
+  by the light's plane for the one-sided shapes. The diffuse term is the form factor of the polygon with the identity lobe times
+  `diffuse_color`; the specular term is the form factor of the polygon through the table's lobe (`fa_ltc_quad`), times
+  `f0 * magnitude + (1 - f0) * fresnel`. A fragment that sees the emitter from behind gets nothing.
+- **Energy.** The colour of an area light is multiplied by `(pi d^2 + A) / A` (d the distance to the light's centre, A the area of the
+  shape) before the form factor. Far away the form factor is `A cos / d^2 / pi`, so the product is the point light of the same
+  intensity; near the emitter the form factor tends to a bounded value and the product with it stays bounded. The render test measures the
+  rectangle, the disc and the tube at 5 m against a point light and asks for 5 % (it finds under 2 %).
+- **Culling.** `LightData::extent` is the radius of the sphere around the emitter (half the diagonal of a rectangle, the radius of a disc,
+  half the length plus the thickness of a tube); the cluster bound of an area light is its range plus the extent, and the window
+  attenuation counts from the emitter's surface, so a light does not pop at the edge of its cluster.
+- **Precision.** Everything of the area path is `highp` in the GLES3 and WebGL2 output (sokol-shdc qualifies every declaration of the
+  stage; `precision mediump float;` at the top only sets the default of what has no qualifier); `ltc.glsl` guards its divisions with `1e-10`
+  and `1e-24` and adds vectors of hundreds of metres, which fp16 would flush. `light_atlas_tests.cpp` fails when a float, vector or matrix
+  declaration of the generated `mesh_fs_source_glsl300es` is not `highp`, so a `mediump` that someone adds is found by the tests, not by a
+  phone.
+- **What does not use it.** A material with layers, a `lighting()` or `light()` hook and the full shaders see an area light as the point
+  light at its centre (the loop of those paths is the user's or the layer's). Area lights have no shadow and ignore `cookie` and `ies`
+  (a warning once per light); 2D scenes treat the light as a point light.

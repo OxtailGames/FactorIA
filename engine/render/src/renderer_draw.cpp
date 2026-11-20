@@ -136,6 +136,8 @@ struct Renderer::Impl::DrawContext {
     // The light data texture of the job's view (scene_uniforms): bound at view 24 of the mesh programs; the white image while the job
     // has no lights or draws no mesh.
     sg_view lightView{};
+    // The light atlas image the lights of this job's view were laid out in (collect_lights); empty = none (view 25 binds the white image).
+    sg_view lightAtlasView{};
     mesh_fa_mesh_vs_params_t vuScene{};
     mesh_fa_mesh_fs_params_t fuScene{};
     // fuScene with the camera's stack fog (PostProcess.fog*): the blended meshes fog themselves with it, while the opaque meshes and the sky
@@ -479,6 +481,7 @@ void Renderer::Impl::begin_frame_graph(bool countPost) {
     if (countPost) ++postSerial;
     trim_shadow_rows();
     free_retired_shadow_targets();  // the frame before has run its graph
+    lightAtlas.free_retired();
     sharedGame = sharedLight = sharedShadow = sharedEnv = sharedSkyLut = ResourceId{};
 }
 
@@ -875,6 +878,14 @@ void Renderer::Impl::collect_lights(DrawContext& ctx) {
     auto& shadowLight = ctx.shadowLight;
     auto& lightDirForShadow = ctx.lightDirForShadow;
     int culledLocal = 0;
+    // The lights that use the light atlas (M73.1b): an area light (the LTC tables), a cookie, an IES profile. Their data texels are
+    // filled once the atlas has been made (below), when the rects of the tiles are known.
+    struct PendingAtlas {
+        std::size_t index;
+        std::string cookie, ies;
+        bool area;
+    };
+    std::vector<PendingAtlas> pendingAtlas;
     if (fr.wantWorld && !fr.cam.studio)
         world.each<Light>([&](Entity e, Light& l) {
             if (!entity_active(world, e)) return;
@@ -897,13 +908,82 @@ void Renderer::Impl::collect_lights(DrawContext& ctx) {
                     ctx.sun = {l.shadowResolution, l.shadowBias,     l.shadowNormalBias,
                                l.shadowSoftness,   l.shadowDistance, l.shadowFilter};
                 }
+                if (!l.ies.empty() && !warnedAreaCookie) {
+                    warnedAreaCookie = true;
+                    FA_WARN("render",
+                            "Light.ies is set on a directional light ('{}'): an IES profile describes a lamp's "
+                            "distribution "
+                            "around a point, so it only shapes point and spot lights. Hint: clear Light.ies, or make "
+                            "the light a "
+                            "point or spot light.",
+                            l.ies);
+                }
+                // A cookie tiled over the world (an orthographic projection along the light): Light.size is the size of one tile.
+                if (!l.cookie.empty()) {
+                    const Vec3 ax = normalize(m.transform_dir(Vec3{1, 0, 0})),
+                               ay = normalize(m.transform_dir(Vec3{0, 1, 0}));
+                    ld.ext[0] = Vec4{ax, 1.0f / std::max(l.size.x, 0.001f)};
+                    ld.ext[1] = Vec4{ay, 1.0f / std::max(l.size.y, 0.001f)};
+                    pendingAtlas.push_back({lights.size(), fs::normalize(l.cookie), {}, false});
+                    lightAtlas.request(LightAtlasKind::Cookie, pendingAtlas.back().cookie);
+                }
             } else {
                 Vec3 d = normalize(m.transform_dir(kForward));
                 ld.pos = Vec4{m.translation(), l.range};
-                ld.color =
-                    Vec4{col, l.type == LightType::Spot ? 2.0f
-                                                        : 1.0f};  // an area light shines like a point light until M73.1
+                ld.color = Vec4{col, l.type == LightType::Spot ? 2.0f : (l.type == LightType::Area ? 3.0f : 1.0f)};
                 ld.dir = Vec4{d, std::cos(radians(l.spotAngle))};
+                const Vec3 ax = normalize(m.transform_dir(Vec3{1, 0, 0})),
+                           ay = normalize(m.transform_dir(Vec3{0, 1, 0}));
+                PendingAtlas pend{lights.size(), {}, {}, l.type == LightType::Area};
+                if (l.type == LightType::Area) {
+                    // The emitter's two half sizes (rectangle: half width and height; disc: the radius twice; tube: half length and
+                    // half thickness) and the radius of the sphere around it, which the range is measured from.
+                    const float hx = std::max(l.size.x, 0.001f) * 0.5f, hy = std::max(l.size.y, 0.001f) * 0.5f;
+                    const float h2 = l.shape == LightShape::Disc ? hx : hy;
+                    ld.ext[0] = Vec4{ax, hx};
+                    ld.ext[1] = Vec4{ay, h2};
+                    ld.ext[2].w = float(int(l.shape));
+                    ld.extent = l.shape == LightShape::Disc ? hx * 1.06f : std::sqrt(hx * hx + h2 * h2);
+                    ld.ext[3].w = ld.extent;
+                    lightAtlas.request_ltc();
+                    if ((!l.cookie.empty() || !l.ies.empty()) && !warnedAreaCookie) {
+                        warnedAreaCookie = true;
+                        FA_WARN("render",
+                                "Light.cookie and Light.ies are set on an area light ('{}'): they shape spot lights (a "
+                                "cookie) and "
+                                "point and spot lights (an IES profile), not area lights, so they are ignored. Hint: "
+                                "clear them "
+                                "or change Light.type.",
+                                l.cookie.empty() ? l.ies : l.cookie);
+                    }
+                } else {
+                    if (!l.cookie.empty()) {
+                        if (l.type == LightType::Point) {
+                            // A point light would project the cookie through a cube of six faces: six 256 x 256 tiles and the cube
+                            // lookup of its own, which the light atlas does not carry (docs/design/ARCHITECTURE_RENDERING_LIGHTING.md).
+                            if (!warnedPointCookie) {
+                                warnedPointCookie = true;
+                                FA_WARN("render",
+                                        "Light.cookie is set on a point light ('{}'), which is not drawn: a cookie "
+                                        "projects through "
+                                        "a spot light's cone or along a directional light. Hint: use a spot light with "
+                                        "a wide "
+                                        "spotAngle, or clear Light.cookie.",
+                                        l.cookie);
+                            }
+                        } else {
+                            pend.cookie = fs::normalize(l.cookie);
+                            lightAtlas.request(LightAtlasKind::Cookie, pend.cookie);
+                        }
+                    }
+                    if (!l.ies.empty()) {
+                        pend.ies = fs::normalize(l.ies);
+                        lightAtlas.request(LightAtlasKind::Ies, pend.ies);
+                    }
+                    ld.ext[0] = Vec4{ax, 0.0f};
+                    ld.ext[1] = Vec4{ay, 0.0f};
+                }
+                if (pend.area || !pend.cookie.empty() || !pend.ies.empty()) pendingAtlas.push_back(std::move(pend));
                 // Light.innerAngle: the cone at full strength (0 = the default fade of the outer quarter, light_data.glsl). The inner
                 // cosine stays above the outer one, so the smoothstep has two different edges.
                 if (l.type == LightType::Spot && l.innerAngle > 0.0f)
@@ -914,16 +994,45 @@ void Renderer::Impl::collect_lights(DrawContext& ctx) {
                 ld.score = brightness * r2 / (r2 + length_sq(m.translation() - fr.cam.position));
                 // A local light whose sphere is outside the view lights nothing that is drawn: it takes no place in the table (and no
                 // part of the kMaxLights of the view).
-                const float rg = std::max(l.range, 0.0f);
+                const float rg = std::max(l.range, 0.0f) + ld.extent;
                 const Vec3 c = m.translation();
                 if (rg > 0.0f && !box_in_frustum(fr.cam.viewProj, ctx.z01, Vec3{c.x - rg, c.y - rg, c.z - rg},
                                                  Vec3{c.x + rg, c.y + rg, c.z + rg}, Mat4::identity())) {
                     ++culledLocal;
+                    if (!pendingAtlas.empty() && pendingAtlas.back().index == lights.size()) pendingAtlas.pop_back();
                     return;
                 }
             }
             lights.push_back(ld);
         });
+    // The light atlas for the lights that use it: made (or made again) when a light asked for something it does not hold yet; each
+    // light then gets the rects of its tiles. Without the atlas (a GPU that cannot filter RGBA16F) an area light shines like a point
+    // light and a cookie or profile is not drawn.
+    if (!pendingAtlas.empty()) {
+        const bool atlasOk =
+            lightAtlas.sync([](const LightAtlasKey& k) { return load_light_atlas_source(k); },
+                            [](const LightAtlasKey&, const std::string& message, const std::string& hint) {
+                                FA_WARN("render", "{}. Hint: {}", message, hint);
+                            });
+        for (const PendingAtlas& pa : pendingAtlas) {
+            LightData& ld = lights[pa.index];
+            const LightAtlasRect* cr =
+                atlasOk && !pa.cookie.empty() ? lightAtlas.rect(LightAtlasKind::Cookie, pa.cookie) : nullptr;
+            const LightAtlasRect* ir =
+                atlasOk && !pa.ies.empty() ? lightAtlas.rect(LightAtlasKind::Ies, pa.ies) : nullptr;
+            if (pa.area && !atlasOk) {  // the point-light fallback
+                ld.color.w = 1.0f;
+                ld.extent = 0.0f;
+                ld.ext[2] = ld.ext[3] = Vec4{};
+                continue;
+            }
+            if (!pa.area && !cr && !ir) continue;
+            ld.hasExt = true;
+            if (cr) ld.ext[2] = Vec4{float(cr->x), float(cr->y), 1.0f, ld.ext[2].w};
+            if (ir) ld.ext[3] = Vec4{float(ir->x), float(ir->y), 1.0f, ld.ext[3].w};
+        }
+        if (atlasOk) ctx.lightAtlasView = lightAtlas.view();
+    }
     // Camera.lighting = studio: the rig of the camera takes the place of the scene's lights. Directions are relative to the camera
     // (right, up, forward), so an item looks the same wherever its stage is: a warm key from the upper left in front, a cool fill
     // from the right, a rim from behind and above.
@@ -1238,7 +1347,9 @@ void Renderer::Impl::upload_lights(DrawContext& ctx) {
     if (clustered) {
         std::vector<LightSphere> spheres(lights.size());
         for (std::size_t i = std::size_t(directional); i < lights.size(); ++i)
-            spheres[i] = LightSphere{lights[i].pos.x, lights[i].pos.y, lights[i].pos.z, lights[i].pos.w};
+            spheres[i] =
+                LightSphere{lights[i].pos.x, lights[i].pos.y, lights[i].pos.z,
+                            lights[i].pos.w + lights[i].extent};  // an area light's range counts from its surface
         build_light_clusters(cam, make_cluster_grid(cam.widthPx, cam.heightPx, cam.nearDepth, cam.farDepth), spheres,
                              lists);
         stats.lightClusters += lists.grid.clusters();
@@ -1260,6 +1371,7 @@ void Renderer::Impl::upload_lights(DrawContext& ctx) {
     pack_light_texture(lights, directional, cam, clustered ? &lists : nullptr, tex);
     ctx.lightView = gpu.write_light_image(tex.height, tex.texels.data()).view;
     mesh_fa_mesh_fs_params_t& fu = ctx.fuScene;
+    fu.fa_counts[1] = float(tex.stride);
     const ClusterUniforms& u = tex.uniforms;
     for (int c = 0; c < 4; ++c) {
         fu.fa_cl_vpx[c] = u.vpx[c];
@@ -1300,6 +1412,7 @@ void Renderer::Impl::scene_uniforms(DrawContext& ctx) {
     ss.horizonColor = to_scene(ss.horizonColor, fr.linear);
     ctx.white = assets->white();
     ctx.lightView = ctx.white->view;
+    // (ctx.lightAtlasView is set by collect_lights, with the rects of the lights.)
     copy_mat(vuScene.fa_view_proj, fr.cam.viewProj);
     copy_mat(vuScene.fa_light_vp, ctx.doShadows && ctx.cascades > 0 ? ctx.fits[0].viewProj : Mat4::identity());
     fill_shadow_block(ctx, gpu.is_gl(), debugView == DebugView::Cascades, ctx.shadowU);
@@ -1722,6 +1835,9 @@ void Renderer::Impl::bind_textures(DrawContext& ctx, sg_bindings& b, const PartD
     b.samplers[SMP_mesh_fa_shadow_smp] = gpu.sampler(SamplerKind::Nearest);
     // The light data of the view (the shadow pass has no lights: any image does for a program that declares the slot).
     b.views[VIEW_mesh_fa_light_tex] = shadowPass ? white->view : ctx.lightView;
+    // The light atlas (LTC tables, cookies, IES profiles): the image the view's lights were laid out in, else the white image (nothing
+    // reads it while no light has the data texture's extension texels).
+    b.views[VIEW_mesh_fa_light_atlas] = (!shadowPass && ctx.lightAtlasView.id) ? ctx.lightAtlasView : white->view;
     // The sky environment (renderer_env.h): the baked cubes, or a black one while the meshes use the gradient (every
     // mesh program of the main pass declares the slots; a custom program that does not has them dropped below).
     const bool env = ctx.envActive && skyEnv.baked();

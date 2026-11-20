@@ -220,6 +220,12 @@ struct LightData {
     // A spot's cos(innerAngle) (the cone inside which it is at full strength); 2 = Light.innerAngle 0, the default fade of the
     // outer quarter of the cone (shaders/light_data.glsl).
     float cosInner = 2.0f;
+    // The extension texels (shaders/light_data.glsl, +4 .. +7): an area light's axes and size, a cookie's or an IES profile's atlas
+    // tile. Only written when `hasExt`; a view where any light has them stores every light with 8 texels (LightTexture::stride).
+    Vec4 ext[4];
+    bool hasExt = false;
+    float extent =
+        0;  // an area light: the radius of the sphere around its emitter (the range is measured from its surface)
 };
 
 // Orders the lights by relevance (the shadow caster first, then directional lights, then point and spot lights by
