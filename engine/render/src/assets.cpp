@@ -1,5 +1,6 @@
 // Texture + mesh caches, procedural primitives and glTF loading.
 #include <algorithm>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <format>
@@ -9,6 +10,7 @@
 #include "fa/core/asset_manifest.h"
 #include "fa/core/load_trace.h"
 #include "fa/core/fs.h"
+#include "fa/core/image_float.h"
 #include "fa/core/log.h"
 #include "fa/core/strings.h"
 #include "fa/render/cube_lut.h"
@@ -736,7 +738,15 @@ void Assets::destroy_texture(TextureAsset& t) {
     t.atlas = nullptr;
 }
 
+void Assets::destroy_mesh_lightmap(MeshAsset& m) {
+    if (!m.lightmap) return;
+    for (sg_buffer* b : {&m.lightmap->vb, &m.lightmap->ib, &m.lightmap->uv, &m.lightmap->color1})
+        if (b->id) sg_destroy_buffer(*b);
+    m.lightmap.reset();
+}
+
 void Assets::destroy_mesh(MeshAsset& m) {
+    destroy_mesh_lightmap(m);
     for (auto& p : m.parts) {
         sg_destroy_buffer(p.vb);
         sg_destroy_buffer(p.ib);
@@ -758,6 +768,11 @@ void Assets::clear() {
     anonymous_.clear();
     for (auto& [k, m] : meshes_) destroy_mesh(*m);
     meshes_.clear();
+    destroy_lightmap_set();
+    lightmapSetPath_.clear();
+    if (zeroUv1_.id) sg_destroy_buffer(zeroUv1_);
+    zeroUv1_ = {};
+    zeroUv1Vertices_ = 0;
     for (auto& [k, pm] : procedural_) destroy_procedural(pm);
     procedural_.clear();
     meshStore_ = nullptr;
@@ -1369,6 +1384,275 @@ MeshAsset* Assets::mesh(const std::string& name) {
 }
 
 // ---------------------------------------------------------------------------
+// Lightmaps (M73.4a)
+// ---------------------------------------------------------------------------
+namespace {
+constexpr std::uint64_t kLightmapMaxGpuBytes = std::uint64_t(1) << 30;  // the pages of one scene, RGBA16F
+
+// The size a Radiance file says it has ("-Y <height> +X <width>", the line after the blank line that ends the header),
+// read without decoding a pixel. False when the header does not have that line (decode_hdr then reports what is wrong).
+bool hdr_header_size(const std::vector<std::uint8_t>& bytes, std::int64_t& width, std::int64_t& height) {
+    const std::size_t limit = std::min<std::size_t>(bytes.size(), 4096);
+    std::size_t lineStart = 0;
+    bool afterBlank = false;
+    for (std::size_t i = 0; i < limit; ++i) {
+        if (bytes[i] != '\n') continue;
+        const std::string line(reinterpret_cast<const char*>(bytes.data()) + lineStart, i - lineStart);
+        lineStart = i + 1;
+        if (afterBlank) {
+            long long h = 0, w = 0;
+            if (std::sscanf(line.c_str(), "-Y %lld +X %lld", &h, &w) != 2 || h <= 0 || w <= 0) return false;
+            width = w;
+            height = h;
+            return true;
+        }
+        afterBlank = line.empty() || line == "\r";
+    }
+    return false;
+}
+}  // namespace
+
+void Assets::destroy_lightmap_set() {
+    if (!lightmapSet_) return;
+    for (LightmapPageGpu& pg : lightmapSet_->pages) {
+        if (pg.view.id) sg_destroy_view(pg.view);
+        if (pg.image.id) sg_destroy_image(pg.image);
+    }
+    lightmapSet_.reset();
+}
+
+const LightmapSetAsset* Assets::lightmaps(const std::string& manifestPath) {
+    if (manifestPath.empty()) {
+        if (lightmapSet_ || !lightmapSetPath_.empty()) {
+            destroy_lightmap_set();
+            lightmapSetPath_.clear();
+        }
+        return nullptr;
+    }
+    if (manifestPath == lightmapSetPath_) return lightmapSet_ && lightmapSet_->ok ? lightmapSet_.get() : nullptr;
+    destroy_lightmap_set();
+    lightmapSetPath_ = manifestPath;
+    failures_.erase(std::remove_if(failures_.begin(), failures_.end(),
+                                   [&](const Failure& f) {
+                                       return f.kind == "lightmap" || f.kind == "lightmap-page" ||
+                                              f.kind == "lightmap-stale";
+                                   }),
+                    failures_.end());
+    lightmapSet_ = std::make_unique<LightmapSetAsset>();
+    lightmapSet_->path = manifestPath;
+    const std::string path = fs::normalize(manifestPath);
+    auto manifest = load_lightmap_manifest(path);
+    if (!manifest) {
+        note_failure("lightmap", manifestPath,
+                     "SceneSettings.lightmaps: " + manifest.error().message +
+                         " The scene is drawn without its lightmap.",
+                     manifest.error().hint);
+        return nullptr;
+    }
+    lightmapSet_->manifest = std::move(*manifest);
+    LightmapSetAsset& set = *lightmapSet_;
+    std::uint64_t total = 0;
+    for (const LightmapPage& pg : set.manifest.pages) total += std::uint64_t(pg.width) * std::uint64_t(pg.height) * 8u;
+    if (total > kLightmapMaxGpuBytes) {
+        note_failure(
+            "lightmap", manifestPath,
+            std::format("{}: the pages hold {} MB of lightmap, more than the {} MB a scene may use. The scene is drawn "
+                        "without its lightmap.",
+                        manifestPath, total >> 20, kLightmapMaxGpuBytes >> 20),
+            "Bake again with a lower density (a smaller MeshRenderer.lightmapScale or a lower texelsPerMeter).");
+        return nullptr;
+    }
+    set.ok = true;
+    set.pages.resize(set.manifest.pages.size());
+    for (std::size_t i = 0; i < set.pages.size(); ++i) {
+        LightmapPageGpu& page = set.pages[i];
+        const LightmapPage& want = set.manifest.pages[i];
+        page.file = want.file;
+        page.width = want.width;
+        page.height = want.height;
+        const std::string ptr = "/pages/" + std::to_string(i) + "/file";
+        // The header says the size before any pixel is decoded: a page that is not the size of the manifest (or whose
+        // size alone is more than a scene may use) is refused without allocating its pixels.
+        auto bytes = fs::read_bytes(fs::normalize(want.file));
+        std::int64_t fileW = 0, fileH = 0;
+        if (bytes && hdr_header_size(*bytes, fileW, fileH) &&
+            (fileW != want.width || fileH != want.height ||
+             std::uint64_t(fileW) * std::uint64_t(fileH) * 8u > kLightmapMaxGpuBytes)) {
+            note_failure(
+                "lightmap-page", want.file,
+                std::format("{}{}: the page '{}' is {}x{} texels but the manifest says {}x{} (a scene may use {} MB "
+                            "of lightmap). Entities on this page are drawn without a lightmap.",
+                            manifestPath, ptr, want.file, fileW, fileH, want.width, want.height,
+                            kLightmapMaxGpuBytes >> 20),
+                "The page and the manifest are from different bakes: bake the lightmap again.");
+            continue;
+        }
+        Result<ImageF> img = bytes ? decode_hdr(bytes->data(), bytes->size()) : Result<ImageF>(bytes.error());
+        if (!img) {
+            note_failure("lightmap-page", want.file,
+                         std::format("{}{}: the lightmap page '{}' could not be read: {} Entities on this page are "
+                                     "drawn without a lightmap.",
+                                     manifestPath, ptr, want.file, img.error().message),
+                         img.error().hint.empty()
+                             ? "Bake the lightmap again (lightmap.bake) or fix the path in the manifest."
+                             : img.error().hint);
+            continue;
+        }
+        if (img->width != want.width || img->height != want.height) {
+            note_failure("lightmap-page", want.file,
+                         std::format("{}{}: the page '{}' is {}x{} texels but the manifest says {}x{}. Entities on "
+                                     "this page are drawn without a "
+                                     "lightmap.",
+                                     manifestPath, ptr, want.file, img->width, img->height, want.width, want.height),
+                         "The page and the manifest are from different bakes: bake the lightmap again.");
+            continue;
+        }
+        std::vector<std::uint16_t> half(std::size_t(img->width) * std::size_t(img->height) * 4);
+        for (std::size_t px = 0; px < half.size() / 4; ++px) {
+            const float* src = &img->data[px * std::size_t(img->channels)];
+            for (int c = 0; c < 3; ++c) half[px * 4 + std::size_t(c)] = float_to_half_bits(src[c]);
+            half[px * 4 + 3] = 0x3C00;  // 1.0
+        }
+        sg_image_desc d{};
+        d.width = img->width;
+        d.height = img->height;
+        d.pixel_format = SG_PIXELFORMAT_RGBA16F;
+        d.data.mip_levels[0] = {half.data(), half.size() * sizeof(std::uint16_t)};
+        d.label = want.file.c_str();
+        page.image = make_image(d);
+        if (sg_query_image_state(page.image) != SG_RESOURCESTATE_VALID) {
+            sg_destroy_image(page.image);
+            page.image = {};
+            note_failure("lightmap-page", want.file,
+                         std::format("{}{}: the GPU rejected the lightmap page '{}' ({}x{} RGBA16F). Entities on this "
+                                     "page are drawn without a lightmap.",
+                                     manifestPath, ptr, want.file, img->width, img->height),
+                         "Bake again with smaller pages (the GPU's largest texture is smaller than this page).");
+            continue;
+        }
+        sg_view_desc vd{};
+        vd.texture.image = page.image;
+        vd.label = want.file.c_str();
+        page.view = sg_make_view(&vd);
+        page.bytes = half.size() * sizeof(std::uint16_t);
+        set.bytes += page.bytes;
+        page.ok = true;
+    }
+    return &set;
+}
+
+bool Assets::lightmap_use(const LightmapSetAsset& set, const std::string& entityId, MeshAsset& mesh,
+                          const std::string& meshName, LightmapUse& out) {
+    const LightmapEntry* e = set.manifest.find(entityId);
+    if (!e || e->page < 0 || std::size_t(e->page) >= set.pages.size()) return false;
+    const LightmapPageGpu& page = set.pages[std::size_t(e->page)];
+    if (!page.ok || mesh.placeholder || MeshStore::is_id(mesh.key)) return false;
+    if (e->mesh != meshName) return false;  // another mesh than the one baked (or a lod level): drawn without
+    if (!mesh.lightmap) {
+        mesh.lightmap = std::make_unique<MeshLightmap>();
+        MeshLightmap& lm = *mesh.lightmap;
+        auto built = build_lightmap_mesh(meshName);
+        if (!built) {
+            note_failure("lightmap-stale", mesh.key,
+                         "lightmap of '" + meshName + "': " + built.error().message +
+                             " Entities with this mesh are drawn without a lightmap.",
+                         built.error().hint);
+        } else if (built->geo.uvKind == "gltf") {
+            lm.parts = mesh.parts;  // its own buffers: TEXCOORD_1 is the lightmap UV
+            lm.ok = !lm.parts.empty() && lm.parts.size() + 1 == built->geo.partFirstIndex.size();
+            if (lm.ok)
+                for (SubMesh& p : lm.parts)
+                    if (!p.uv1Vb.id) lm.ok = false;
+        } else {
+            lm.parts = mesh.parts;
+            lm.ok = !lm.parts.empty() && lm.parts.size() + 1 == built->geo.partFirstIndex.size();
+            if (lm.ok) {
+                const LightmapBuild& b = *built;
+                sg_buffer_desc vb{};
+                vb.data = {b.verts.data(), b.verts.size() * sizeof(MeshVertex)};
+                vb.label = "lightmap-vb";
+                lm.vb = sg_make_buffer(&vb);
+                sg_buffer_desc ib{};
+                ib.usage.index_buffer = true;
+                ib.usage.vertex_buffer = false;
+                ib.data = {b.geo.indices.data(), b.geo.indices.size() * sizeof(std::uint32_t)};
+                ib.label = "lightmap-ib";
+                lm.ib = sg_make_buffer(&ib);
+                std::vector<float> uv;
+                uv.reserve(b.geo.uv.size() * 2);
+                for (const Vec2& t : b.geo.uv) {
+                    uv.push_back(t.x);
+                    uv.push_back(t.y);
+                }
+                sg_buffer_desc ub{};
+                ub.data = {uv.data(), uv.size() * sizeof(float)};
+                ub.label = "lightmap-uv";
+                lm.uv = sg_make_buffer(&ub);
+                if (!b.color1.empty()) {
+                    sg_buffer_desc cb{};
+                    cb.data = {b.color1.data(), b.color1.size() * sizeof(std::uint32_t)};
+                    cb.label = "lightmap-color1";
+                    lm.color1 = sg_make_buffer(&cb);
+                }
+                for (std::size_t i = 0; i < lm.parts.size(); ++i) {
+                    SubMesh& p = lm.parts[i];
+                    p.vb = lm.vb;
+                    p.ib = lm.ib;
+                    p.uv1Vb = lm.uv;
+                    p.color1Vb = lm.color1;
+                    p.skinVb = {};
+                    p.skin = -1;
+                    p.ibOffset = int(b.geo.partFirstIndex[i] * sizeof(std::uint32_t));
+                    p.indexCount = int(b.geo.partFirstIndex[i + 1] - b.geo.partFirstIndex[i]);
+                    p.vertexCount = int(b.verts.size());
+                }
+            }
+        }
+        if (built) {
+            lm.uvKind = built->geo.uvKind;
+            lm.hashHex = lightmap_hash_hex(built->geo.hash);
+            if (!lm.ok)
+                note_failure(
+                    "lightmap-stale", mesh.key,
+                    "lightmap of '" + meshName +
+                        "': the mesh has no usable lightmap UVs (its parts do not match the model file). Entities with "
+                        "this mesh are drawn without a lightmap.",
+                    "Re-import the model, or bake the lightmap again.");
+        }
+    }
+    const MeshLightmap& lm = *mesh.lightmap;
+    if (!lm.ok) return false;
+    if ((!e->meshHash.empty() && e->meshHash != lm.hashHex) || e->uv != lm.uvKind) {
+        note_failure(
+            "lightmap-stale", mesh.key,
+            std::format("the lightmap of '{}' was baked for a different version of the mesh (the manifest says {} UVs "
+                        "and hash {}, the "
+                        "mesh now has {} UVs and hash {}). Entities with this mesh are drawn without a lightmap.",
+                        meshName, e->uv, e->meshHash, lm.uvKind, lm.hashHex),
+            "Bake the lightmap again (lightmap.bake): the model, or the engine's unwrap, changed after the bake.");
+        return false;
+    }
+    out.mesh = &lm;
+    out.page = &page;
+    for (int i = 0; i < 4; ++i) out.scaleOffset[i] = e->scaleOffset[i];
+    return true;
+}
+
+sg_buffer Assets::zero_uv1(std::size_t vertices) {
+    if (vertices <= zeroUv1Vertices_ && zeroUv1_.id) return zeroUv1_;
+    std::size_t cap = std::max<std::size_t>(zeroUv1Vertices_ * 2, 4096);
+    while (cap < vertices) cap *= 2;
+    if (zeroUv1_.id) sg_destroy_buffer(zeroUv1_);
+    std::vector<float> zeros(cap * 2, 0.0f);
+    sg_buffer_desc d{};
+    d.data = {zeros.data(), zeros.size() * sizeof(float)};
+    d.label = "zero-uv1";
+    zeroUv1_ = sg_make_buffer(&d);
+    zeroUv1Vertices_ = cap;
+    return zeroUv1_;
+}
+
+// ---------------------------------------------------------------------------
 // Procedural meshes
 // ---------------------------------------------------------------------------
 void Assets::destroy_procedural(ProceduralMesh& pm) {
@@ -1584,6 +1868,23 @@ void Assets::reload(const std::string& pathIn) {
                                        [&](const Failure& f) { return f.kind == "lut" && f.path == path; }),
                         failures_.end());
     }
+    if (lightmapSet_ || !lightmapSetPath_.empty()) {
+        // The manifest or one of its pages changed (or is rewritten by a bake right now): forget the set, the next
+        // frame reads it again.
+        bool mine = path == fs::normalize(lightmapSetPath_);
+        if (lightmapSet_)
+            for (const LightmapPageGpu& pg : lightmapSet_->pages) mine = mine || path == fs::normalize(pg.file);
+        if (mine) {
+            destroy_lightmap_set();
+            lightmapSetPath_.clear();
+            failures_.erase(std::remove_if(failures_.begin(), failures_.end(),
+                                           [&](const Failure& f) {
+                                               return f.kind == "lightmap" || f.kind == "lightmap-page" ||
+                                                      f.kind == "lightmap-stale";
+                                           }),
+                            failures_.end());
+        }
+    }
     auto m = meshes_.find(path);
     if (m != meshes_.end()) {
         if (m->second->placeholder) m->second->parts.clear();  // shared handles
@@ -1601,6 +1902,9 @@ void Assets::reload(const std::string& pathIn) {
                                        }),
                         failures_.end());
         for (auto& [key, mat] : materials_) mat->missingNoted.clear();
+        failures_.erase(std::remove_if(failures_.begin(), failures_.end(),
+                                       [&](const Failure& f) { return f.kind == "lightmap-stale" && f.path == path; }),
+                        failures_.end());
         load_mesh(path);
     }
     // Meshes referencing a reloaded texture keep pointing at the same TextureAsset (updated in place).

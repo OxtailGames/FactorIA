@@ -527,9 +527,9 @@ void Engine::Impl::poll_hot_reload(bool force) {
     watched = std::move(now);
     for (const std::string& p : changed) {
         const bool songAsset = ends_with(p, ".song.json");
-        const bool renderAsset =
-            ends_with(p, ".material.json") || has_ext(p, {".glsl", ".png", ".jpg", ".jpeg", ".tga", ".bmp", ".ttf",
-                                                          ".otf", ".obj", ".gltf", ".glb", ".cube"});
+        const bool renderAsset = ends_with(p, ".material.json") || ends_with(p, ".lightmap.json") ||
+                                 has_ext(p, {".glsl", ".png", ".jpg", ".jpeg", ".tga", ".bmp", ".ttf", ".otf", ".obj",
+                                             ".gltf", ".glb", ".cube", ".hdr"});
         if (assetsOnly && !renderAsset && !songAsset && !has_ext(p, {".wav", ".ogg", ".mp3", ".qoa"}))
             continue;  // scripts, scenes and locales belong to the host
         if (starts_with(p, "locales/") && has_ext(p, {".json"})) {

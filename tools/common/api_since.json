@@ -692,6 +692,7 @@
     "SceneSettings.environmentIntensity": "unreleased",
     "SceneSettings.environmentMap": "unreleased",
     "SceneSettings.environmentRotation": "unreleased",
+    "SceneSettings.lightmaps": "unreleased",
     "SceneSettings.shadowAtlasSize": "unreleased",
     "SceneSettings.shadowCascadeBlend": "unreleased",
     "SceneSettings.shadowCascadeSplit": "unreleased",
