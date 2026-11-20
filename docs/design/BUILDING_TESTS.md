@@ -134,7 +134,7 @@ is that every input is a result or an error, never a crash, a hang, runaway memo
 (`entity_from_json`), `pak` (`PackReader::open_memory`, the reader of `game.pak`), `mcp_jsonrpc` (`McpServer::handle_message`
 with the read-only capabilities of `factoria mcp --read-only`, over an empty temporary project), `translations`
 (`read_csv`, `read_xliff`) and the decoders of the files a project brings: `image` (`decode_image` and `image_size`:
-PNG, JPG, TGA, BMP, GIF...), `ktx2` (`ktx2_size` and `decode_ktx2`, the CPU transcode of Basis Universal UASTC and ETC1S),
+PNG, JPG, TGA, BMP, GIF...), `hdr` (`decode_hdr` and a re-encode: Radiance RGBE), `ktx2` (`ktx2_size` and `decode_ktx2`, the CPU transcode of Basis Universal UASTC and ETC1S),
 `gltf` (`parse_skeleton` and `read_gltf_mesh_bytes` on a `.glb` or `.gltf`), `font` (`rasterize_text` with a TrueType font
 in memory), `audio` (`decode_audio`; the first input byte picks `.wav`, `.ogg`, `.mp3` or `.qoa`), `midi` (`parse_midi`
 and `write_midi`) and `soundfont` (`Soundfont::from_memory` and one rendered note). Each is one `tools/fuzz/targets/<name>.cpp` that defines

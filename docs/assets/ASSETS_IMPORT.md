@@ -211,6 +211,24 @@ and next steps with the component settings to use. Each written file gets an `as
 Not supported (the error says what to do instead): `.blend` (export glTF from Blender), `.webp` `.gif` `.psb`
 (convert to PNG), `.svg` (`assets.rasterize_svg` makes the PNG), `.flac` `.m4a` `.aac` (convert to OGG or WAV), and SDF/MSDF font atlases.
 
+### Radiance HDR (`.hdr`)
+
+The engine has its own reader and writer of Radiance RGBE files (`fa/core/image_float.h`: `decode_hdr`, `load_hdr`,
+`encode_hdr`, `save_hdr`, on the float image `ImageF`). HDR environment pictures and baked lightmaps use it. `assets.import`
+does not bring a `.hdr` in yet (it is not in the table above): the import of HDRI environments comes with the environment
+lighting. What the reader accepts:
+
+- The `#?RADIANCE` / `#?RGBE` header, `FORMAT=32-bit_rle_rgbe` (or no `FORMAT`), `EXPOSURE` lines (recorded in
+  `ImageF::exposure`, the pixels are not divided by it) and the size line `-Y <height> +X <width>`.
+- Run-length rows (what HDRI tools normally write), flat rows and the old repeat marker.
+- At most 16384 pixels per side and 1 GB of float pixels (8192 x 4096 RGB is 400 MB): a bigger header is refused before
+  any pixel memory is asked for, with a hint to scale the picture down.
+- Another orientation (`+Y`, `-X`...) and `FORMAT=32-bit_rle_xyze` are refused with an error that says how to re-export
+  the file; OpenEXR is not read. A truncated or damaged file is an error that names the byte and row, never a crash.
+
+The writer keeps each pixel as 8-bit mantissas with a shared exponent, so a value is exact to about 0.4% of the largest
+channel of its pixel, which is the precision of the format.
+
 Models do not have to be files: a script can build a mesh at run time with `mesh.create` and keep it as a `.glb` with
 `mesh.save` (a plain `assets/models/` file after that; docs/SCRIPTING.md, "Procedural meshes"). `factoria validate` rejects a
 `mesh:N` id written in a scene or prefab, because the mesh exists only in the running game.

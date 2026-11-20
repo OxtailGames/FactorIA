@@ -6,6 +6,12 @@ Older versions, one file per minor version with its patch releases: [0.31](chang
 
 ## Unreleased
 
+- **Radiance HDR reader and writer (M73.3a, P3a-1):** `fa/core/image_float.h` adds `ImageF`, a float32 RGB or RGBA image (bilinear
+  sampling with clamp or wrap, box resize, sRGB conversion with exposure to and from `Image`) and the engine's own `.hdr`
+  codec: `decode_hdr` / `load_hdr` read run-length, flat and old-style rows and refuse other orientations, XYZE and
+  oversized headers with an error that says what to do; `encode_hdr` / `save_hdr` write run-length rows. Not reachable from
+  scripts or `assets.import` yet; the HDRI environment import builds on it. New fuzz target `hdr`.
+
 ## 0.32.0
 
 Every renderer takes a custom shader: sprites, shapes, tilemaps, text, particles and vfx, the sky and UI images use the same `fragment()`/`vertex()` snippets as meshes, with per-sprite values that keep batching. Post-process materials are passes of the M71 stack, placed around the built-in effects and after the tonemap, and can read the frame before. Mesh materials can be full shaders with their own passes and light loop. Compute materials run on D3D11, Metal and GL 4.3 (a clear refusal on GLES3 and WebGL2) and write buffers and images that meshes and sprites draw thousands of times in one draw. The Graph panel edits node graphs for mesh, sprite and post materials, with a live preview that writes the same JSON and snippet an AI writes.
