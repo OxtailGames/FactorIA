@@ -675,13 +675,14 @@ TEST_CASE("materials: the shader desc built from a twin equals the generated one
     auto desc = render::material_shader_desc("empty mesh", program, slots);
     REQUIRE(desc.ok());
     CHECK(describe_desc(*desc) == describe_desc(*mesh_mesh_shader_desc(sg_query_backend())));
-    CHECK(slots.ubMask == 0b111);  // vs params, fs params, lights
+    CHECK(slots.ubMask == 0b10000111);  // vs params, fs params, lights, and the shadows (binding 7)
     CHECK(slots.viewMask ==
           (0b111111u | 1u << render::kMaterialEnvView | 1u << render::kMaterialEnvIrrView));  // + the sky environment
     CHECK(slots.samplerMask == (0b11u | 1u << render::kMaterialEnvSampler));
     CHECK(slots.ubSize[0] == sizeof(mesh_fa_mesh_vs_params_t));
     CHECK(slots.ubSize[1] == sizeof(mesh_fa_mesh_fs_params_t));
     CHECK(slots.ubSize[2] == sizeof(mesh_fa_lights_t));
+    CHECK(slots.ubSize[7] == sizeof(mesh_fa_shadows_t));
 
     Json broken = program;
     broken["reflection"]["uniform_blocks"][0]["slot"] = 99;

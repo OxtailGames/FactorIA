@@ -2,7 +2,7 @@
 // @includes this file and includes its blocks where they are used.
 //   fa_light_hooks       the shadowed light as the loop hands it to light(), and the lighting API of a "custom" material
 //                        (fa_light_count(), fa_light(n, i), fa_light_unshadowed(), fa_light_shadow()); in fa_fs_light, after
-//                        fa_light_data (light_data.glsl), fa_shadow_pcf (shadow_common.glsl) and fa_light_shared.
+//                        fa_light_data (light_data.glsl), fa_shadow_sun (shadow_common.glsl) and fa_light_shared.
 //   fa_light_hooks_none  the same functions in the shadow and prepass fragment shaders, which have no lights (they only have to
 //                        compile the snippet): fa_fs_nolight.
 //   fa_light_loop        the standard loop, text included in the middle of main() of the main fragment shader (it uses main()'s

@@ -3,6 +3,7 @@
 // byte for byte as before.
 #include <doctest.h>
 
+#include <algorithm>
 #include <string>
 #include <vector>
 
@@ -30,6 +31,10 @@ const std::vector<std::string> kMeshFields = {
     "sheenColor",    "sheenRoughness", "anisotropy", "anisotropyRotation", "specular",
     "ior",           "transmission",   "thickness",  "attenuationColor",   "attenuationDistance",
     "subsurface"};
+// The fields a package has made work: their doc string no longer says "No effect yet" (M73.2a: the cascaded shadows of the sun).
+const std::vector<std::string> kDrawn = {
+    "shadowResolution", "shadowBias",     "shadowNormalBias",   "shadowFilter",       "shadowSoftness",
+    "shadowDistance",   "shadowCascades", "shadowCascadeSplit", "shadowCascadeBlend", "shadowAtlasSize"};
 }  // namespace
 
 TEST_CASE("lighting fields: every new field is reflected and its doc says what it does and which package brings it") {
@@ -42,7 +47,8 @@ TEST_CASE("lighting fields: every new field is reflected and its doc says what i
             const FieldInfo* f = field_of(type, n);
             REQUIRE(f != nullptr);
             CHECK(f->doc.size() > 40);
-            CHECK(f->doc.find("No effect yet: M73.") != std::string::npos);
+            const bool drawn = std::find(kDrawn.begin(), kDrawn.end(), n) != kDrawn.end();
+            CHECK((f->doc.find("No effect yet: M73.") == std::string::npos) == drawn);
             CHECK(f->serialized);
         }
     }
