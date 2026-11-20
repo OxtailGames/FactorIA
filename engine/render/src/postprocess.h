@@ -27,6 +27,7 @@
 #include "renderer_custom_post.h"
 #include "renderer_dof.h"
 #include "renderer_fog.h"
+#include "renderer_volumetric.h"
 #include "transient_targets.h"
 
 namespace fa::render {
@@ -156,6 +157,10 @@ struct PostPlan {
     SceneFxPlan sceneFx;
     // Distance and height fog and sun shafts of this camera (renderer_fog.h): drawn on the scene colour before depth of field; empty when neither is on.
     FogFxPlan fogFx;
+    // The volumetric fog of this camera (renderer_volumetric.h): the march is declared in the camera's own job (it reads the shadow atlas of that job), the apply pass
+    // with the stack after the main pass; `volImage` is the march image between them. Off (vol.on false) when the camera draws no volumetric fog.
+    VolPlan vol;
+    ResourceId volImage;
     // The custom post passes of this camera (renderer_custom_post.h): the materials of PostProcess.customPasses that
     // built, each at its position in the stack. Empty when none. Their prepass bits are set by plan_job (needsDepth /
     // needsNormals) when one reads the depth.

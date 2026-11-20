@@ -33,6 +33,9 @@ Json RenderStats::to_json() const {
                 {"lightClusterEntries", lightClusterEntries},
                 {"lightClusterClipped", lightClusterClipped},
                 {"lightMaxPerCluster", lightMaxPerCluster},
+                {"volumetricCameras", volumetricCameras},
+                {"volumetricLights", volumetricLights},
+                {"volumetricLightsDropped", volumetricLightsDropped},
                 {"decals", decals},
                 {"decalsDropped", decalsDropped},
                 {"decalClusterClipped", decalClusterClipped},
@@ -424,11 +427,13 @@ void Renderer::shutdown() {
         im.hdriSky.release();
         im.sceneFx.release();
         im.fogFx.release();
+        im.volFx.release();
         im.ramps.destroy();
         im.assets.reset();
         im.destroy_targets();
         im.transients.reset();  // its pool destroys the targets it still holds: the context is still open
         im.destroy_light_resources();
+        im.lightAtlas.destroy();  // its images are destroyed with the context still open
         im.destroy_decal_atlas();
         destroy_target(im.shadowTarget);
         im.free_retired_shadow_targets();
@@ -526,6 +531,7 @@ bool Renderer::hdr_scene() const { return impl_ && impl_->gpu.scene_is_float(); 
 
 void Renderer::reload_asset(std::string_view path) {
     if (impl_ && impl_->assets) impl_->assets->reload(std::string(path));
+    if (impl_) impl_->lightAtlas.invalidate(fs::normalize(path));  // a cookie or an IES profile of the light atlas
     invalidate_sprite_outlines(path);  // a SpriteSkin outline traced from the old picture is stale
 }
 void Renderer::set_shader_compiler(ShaderCompiler compiler) {
@@ -538,7 +544,8 @@ std::string Renderer::shader_dialect() const {
 void Renderer::clear_asset_cache() {
     if (!impl_ || !impl_->assets) return;
     impl_->fonts->clear();
-    impl_->instanceParams.clear();  // it points at materials the cache below frees
+    impl_->instanceParams.clear();       // it points at materials the cache below frees
+    impl_->lightAtlas.invalidate_all();  // the project changed: cookies and profiles are read again
     impl_->assets->clear();
 }
 std::uint64_t Renderer::texture_bytes() const {

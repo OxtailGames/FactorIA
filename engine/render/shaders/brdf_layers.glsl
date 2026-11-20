@@ -216,6 +216,18 @@ float fa_v_ashikhmin(float ndl, float ndv) {
     return clamp(1.0 / (4.0 * max(ndl + ndv - ndl * ndv, 1e-4)), 0.0, 1.0);
 }
 
+// The clear coat's lobe for light direction l (half vector h, vdh = v.h): its GGX specular times the coat's own cosine, times
+// coat strength; no light colour. Uses the coat's normal (the geometric one) and roughness; 0 without a coat.
+float fa_layers_coat(in FaLayers L, vec3 l, vec3 h, float vdh) {
+    float cdl = max(dot(L.nc, l), 0.0);
+    float cdh = max(dot(L.nc, h), 0.0);
+    float dd = cdh * cdh * (L.coat_a2 - 1.0) + 1.0;
+    float d_c = L.coat_a2 / (FA_PI * dd * dd);
+    float vis_c = 0.5 / max(mix(2.0 * cdl * L.coat_ndv, cdl + L.coat_ndv, L.coat_alpha), 1e-4);
+    float f_c = 0.04 + 0.96 * pow(clamp(1.0 - vdh, 0.0, 1.0), 5.0);
+    return L.coat * f_c * (d_c * vis_c * FA_PI) * step(0.0001, cdl) * cdl;
+}
+
 // The BRDF of one light with the layers on, times the cosine of the incidence (the coat's own for the coat lobe), to be multiplied by
 // the light's colour and attenuation. Like the plain loop term, the specular carries the factor pi (the lights are not divided by pi).
 // n is the shading normal, h the half vector, ndl, ndv, ndh and vdh their clamped dot products, alpha = roughness^2 and a2 = alpha^2.
@@ -239,15 +251,7 @@ vec3 fa_layers_light(in FaLayers L, vec3 diffuse_color, vec3 f0, vec3 n, vec3 v,
                L.sheen * (fa_d_charlie(L.sheen_alpha, ndh) * fa_v_ashikhmin(ndl, ndv) * FA_PI * lit_ok);
     }
     vec3 result = base * (L.keep * ndl);
-    if (L.coat > 0.0) {
-        float cdl = max(dot(L.nc, l), 0.0);
-        float cdh = max(dot(L.nc, h), 0.0);
-        float dd = cdh * cdh * (L.coat_a2 - 1.0) + 1.0;
-        float d_c = L.coat_a2 / (FA_PI * dd * dd);
-        float vis_c = 0.5 / max(mix(2.0 * cdl * L.coat_ndv, cdl + L.coat_ndv, L.coat_alpha), 1e-4);
-        float f_c = 0.04 + 0.96 * pow(clamp(1.0 - vdh, 0.0, 1.0), 5.0);
-        result += vec3(L.coat * f_c * (d_c * vis_c * FA_PI) * step(0.0001, cdl) * cdl);
-    }
+    if (L.coat > 0.0) { result += vec3(fa_layers_coat(L, l, h, vdh)); }
     return result;
 }
 @end

@@ -156,6 +156,8 @@ struct Renderer::Impl::DrawContext {
     // The light data texture of the job's view (scene_uniforms): bound at view 24 of the mesh programs; the white image while the job
     // has no lights or draws no mesh.
     sg_view lightView{};
+    // The light atlas image the lights of this job's view were laid out in (collect_lights); empty = none (view 25 binds the white image).
+    sg_view lightAtlasView{};
     // The atlas of the decal textures (view 27 of the mesh programs): the renderer's, once this job has decals to draw; else the white image.
     sg_view decalView{};
     mesh_fa_mesh_vs_params_t vuScene{};
@@ -516,6 +518,7 @@ void Renderer::Impl::begin_frame_graph(bool countPost) {
     if (countPost) ++postSerial;
     trim_shadow_rows();
     free_retired_shadow_targets();  // the frame before has run its graph
+    lightAtlas.free_retired();
     free_retired_decal_atlases();
     sharedGame = sharedLight = sharedShadow = sharedEnv = sharedSkyLut = ResourceId{};
 }
@@ -774,8 +777,34 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
     // it.
     if ((draws || (plan.view && plan.customPost)) && ctx.postPlan.custom.reads_prepass())
         ctx.postPlan.needsDepth = ctx.postPlan.needsNormals = true;
+    // The volumetric fog (renderer_volumetric.h): planned here, from the lights and the shadows of this job, so that it asks for the prepass it marches
+    // to. It replaces the analytic fog of its camera (below), so a camera that cannot draw it keeps that.
+    if (draws && !fr.cam.studio) {
+        const SceneSettings& vss = world.settings();
+        ctx.postPlan.vol = make_vol_plan(vss, fr.cam, ctx.lights, fr.linear, ctx.camPx.w, ctx.camPx.h, ctx.doShadows,
+                                         ctx.doShadows && ctx.cascades > 0 && ctx.haveShadowCaster);
+        // Only a camera that can draw it asks for the prepass: on a GPU without RGBA16F, or after a shader failure, no prepass is made for it.
+        if (ctx.postPlan.vol.on) {
+            if (volFx.can_draw(transient_targets(), ctx.postPlan.vol))
+                ctx.postPlan.needsDepth = true;
+            else
+                ctx.postPlan.vol = VolPlan{};
+        }
+    }
     plan_prepass(ctx);
     plan_outline(ctx);
+    // The volumetric fog needs the prepass (its shaders and its image were checked above). A camera that draws it draws no analytic fog: neither the scene's
+    // (ss.fogDensity, scene_uniforms) nor the stack's (fogFx.fog), the two would fog twice; the sun shafts of the stack stay.
+    if (ctx.postPlan.vol.on) {
+        if (ctx.doPrepass) {
+            ctx.postPlan.fogFx.fog = false;
+            ++stats.volumetricCameras;
+            stats.volumetricLights += ctx.postPlan.vol.lightsUsed;
+            stats.volumetricLightsDropped += ctx.postPlan.vol.lightsDropped;
+        } else {
+            ctx.postPlan.vol = VolPlan{};
+        }
+    }
     // The passes need the prepass and their shaders: a camera that cannot draw them keeps the scene's own fog (ss.fogDensity, below).
     if (ctx.postPlan.fogFx.any()) {
         FogFxPlan& ff = ctx.postPlan.fogFx;
@@ -791,10 +820,11 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
     if (plan.last && !plan.view) {
         bool sceneColorFx = false;
         for (const DrawContext* c : postCams)
-            sceneColorFx =
-                sceneColorFx ||
-                ((c->postPlan.ssr.any() || c->postPlan.fogFx.shafts || c->postPlan.sceneFx.any()) && c->doPrepass) ||
-                c->postPlan.custom.any_hdr();
+            sceneColorFx = sceneColorFx ||
+                           ((c->postPlan.ssr.any() || c->postPlan.fogFx.shafts || c->postPlan.sceneFx.any() ||
+                             c->postPlan.vol.on) &&
+                            c->doPrepass) ||
+                           c->postPlan.custom.any_hdr();
         if (sceneColorFx) {
             ctx.hudAfterBloom = true;
             ctx.doMainPass = fr.wantWorld || !ctx.hudAfterBloom;
@@ -916,6 +946,15 @@ void Renderer::Impl::collect_lights(DrawContext& ctx) {
     auto& shadowLight = ctx.shadowLight;
     auto& lightDirForShadow = ctx.lightDirForShadow;
     int culledLocal = 0;
+    // The lights that use the light atlas (M73.1b): an area light (the LTC tables), a cookie, an IES profile. Their data texels are
+    // filled once the atlas has been made (below), when the rects of the tiles are known.
+    struct PendingAtlas {
+        std::size_t index;
+        std::string cookie, ies;
+        bool area;
+        bool cube = false;  // the cookie is a point light's (six faces)
+    };
+    std::vector<PendingAtlas> pendingAtlas;
     if (fr.wantWorld && !fr.cam.studio)
         world.each<Light>([&](Entity e, Light& l) {
             if (!entity_active(world, e)) return;
@@ -938,13 +977,77 @@ void Renderer::Impl::collect_lights(DrawContext& ctx) {
                     ctx.sun = {l.shadowResolution, l.shadowBias,     l.shadowNormalBias,
                                l.shadowSoftness,   l.shadowDistance, l.shadowFilter};
                 }
+                if (!l.ies.empty() && !warnedDirectionalIes) {
+                    warnedDirectionalIes = true;
+                    FA_WARN("render",
+                            "Light.ies is set on a directional light ('{}'): an IES profile describes a lamp's "
+                            "distribution "
+                            "around a point, so it only shapes point and spot lights. Hint: clear Light.ies, or make "
+                            "the light a "
+                            "point or spot light.",
+                            l.ies);
+                }
+                // A cookie tiled over the world (an orthographic projection along the light): Light.size is the size of one tile.
+                if (!l.cookie.empty()) {
+                    const Vec3 ax = normalize(m.transform_dir(Vec3{1, 0, 0})),
+                               ay = normalize(m.transform_dir(Vec3{0, 1, 0}));
+                    ld.ext[0] = Vec4{ax, 1.0f / std::max(l.size.x, 0.001f)};
+                    ld.ext[1] = Vec4{ay, 1.0f / std::max(l.size.y, 0.001f)};
+                    pendingAtlas.push_back({lights.size(), fs::normalize(l.cookie), {}, false});
+                    lightAtlas.request(LightAtlasKind::Cookie, pendingAtlas.back().cookie);
+                }
             } else {
                 Vec3 d = normalize(m.transform_dir(kForward));
                 ld.pos = Vec4{m.translation(), l.range};
-                ld.color =
-                    Vec4{col, l.type == LightType::Spot ? 2.0f
-                                                        : 1.0f};  // an area light shines like a point light until M73.1
+                ld.color = Vec4{col, l.type == LightType::Spot ? 2.0f : (l.type == LightType::Area ? 3.0f : 1.0f)};
                 ld.dir = Vec4{d, std::cos(radians(l.spotAngle))};
+                const Vec3 ax = normalize(m.transform_dir(Vec3{1, 0, 0})),
+                           ay = normalize(m.transform_dir(Vec3{0, 1, 0}));
+                PendingAtlas pend{lights.size(), {}, {}, l.type == LightType::Area};
+                if (l.type == LightType::Area) {
+                    // The emitter's two half sizes (rectangle: half width and height; disc: the radius twice; tube: half length and
+                    // half thickness) and the radius of the sphere around it, which the range is measured from.
+                    const float hx = std::max(l.size.x, 0.001f) * 0.5f, hy = std::max(l.size.y, 0.001f) * 0.5f;
+                    const float h2 = l.shape == LightShape::Disc ? hx : hy;
+                    ld.ext[0] = Vec4{ax, hx};
+                    ld.ext[1] = Vec4{ay, h2};
+                    ld.ext[2].w = float(int(l.shape));
+                    ld.extent = l.shape == LightShape::Disc ? hx * 1.06f : std::sqrt(hx * hx + h2 * h2);
+                    ld.ext[3].w = ld.extent;
+                    lightAtlas.request_ltc();
+                    if (!l.cookie.empty() && !warnedAreaCookie) {
+                        warnedAreaCookie = true;
+                        FA_WARN(
+                            "render",
+                            "Light.cookie is set on an area light ('{}'): a cookie shapes spot, directional and point "
+                            "lights, not area lights, so it is ignored. Hint: clear it or change Light.type.",
+                            l.cookie);
+                    }
+                    if (!l.ies.empty() && !warnedAreaIes) {
+                        warnedAreaIes = true;
+                        FA_WARN(
+                            "render",
+                            "Light.ies is set on an area light ('{}'): an IES profile shapes point and spot lights, "
+                            "not area lights, so it is ignored. Hint: clear it or change Light.type.",
+                            l.ies);
+                    }
+                } else {
+                    if (!l.cookie.empty()) {
+                        // A spot's cookie is one perspective tile; a point light's is a cube of six face tiles baked from an
+                        // equirectangular picture (light_atlas.h), picked by the same face selection as its shadow's cube.
+                        pend.cookie = fs::normalize(l.cookie);
+                        pend.cube = l.type == LightType::Point;
+                        lightAtlas.request(pend.cube ? LightAtlasKind::CookieCube : LightAtlasKind::Cookie,
+                                           pend.cookie);
+                    }
+                    if (!l.ies.empty()) {
+                        pend.ies = fs::normalize(l.ies);
+                        lightAtlas.request(LightAtlasKind::Ies, pend.ies);
+                    }
+                    ld.ext[0] = Vec4{ax, 0.0f};
+                    ld.ext[1] = Vec4{ay, 0.0f};
+                }
+                if (pend.area || !pend.cookie.empty() || !pend.ies.empty()) pendingAtlas.push_back(std::move(pend));
                 if (l.castShadows) {
                     ld.shadow.casts = true;
                     ld.shadow.resolution = l.shadowResolution;
@@ -955,6 +1058,13 @@ void Renderer::Impl::collect_lights(DrawContext& ctx) {
                     ld.shadow.filter =
                         l.shadowFilter == ShadowFilter::Hard ? 1 : (l.shadowFilter == ShadowFilter::Pcss ? 2 : 0);
                     ld.shadow.spotAngle = l.type == LightType::Spot ? l.spotAngle : 0.0f;
+                    // An area light's PCSS light size: the emitter's mean full size (a rectangle's width and height, a disc's
+                    // diameter, a tube's length and thickness); the penumbra then follows the emitter, scaled by shadowSoftness.
+                    if (l.type == LightType::Area)
+                        ld.shadow.emitter =
+                            std::max(l.size.x, 0.001f) * 0.5f +
+                            (l.shape == LightShape::Disc ? std::max(l.size.x, 0.001f) : std::max(l.size.y, 0.001f)) *
+                                0.5f;
                 }
                 // Light.innerAngle: the cone at full strength (0 = the default fade of the outer quarter, light_data.glsl). The inner
                 // cosine stays above the outer one, so the smoothstep has two different edges.
@@ -966,17 +1076,50 @@ void Renderer::Impl::collect_lights(DrawContext& ctx) {
                 ld.score = brightness * r2 / (r2 + length_sq(m.translation() - fr.cam.position));
                 // A local light whose sphere is outside the view lights nothing that is drawn: it takes no place in the table (and no
                 // part of the kMaxLights of the view).
-                const float rg = std::max(l.range, 0.0f);
+                const float rg = std::max(l.range, 0.0f) + ld.extent;
                 const Vec3 c = m.translation();
                 if (rg > 0.0f && !box_in_frustum(fr.cam.viewProj, ctx.z01, Vec3{c.x - rg, c.y - rg, c.z - rg},
                                                  Vec3{c.x + rg, c.y + rg, c.z + rg}, Mat4::identity())) {
                     ++culledLocal;
+                    if (!pendingAtlas.empty() && pendingAtlas.back().index == lights.size()) pendingAtlas.pop_back();
                     return;
                 }
             }
             ld.baked = l.mode == LightMode::Baked;
+            ld.volumetric = std::isfinite(l.volumetric) ? std::clamp(l.volumetric, 0.0f, 10.0f) : 0.0f;
             lights.push_back(ld);
         });
+    // The light atlas for the lights that use it: made (or made again) when a light asked for something it does not hold yet; each
+    // light then gets the rects of its tiles. Without the atlas (a GPU that cannot filter RGBA16F) an area light shines like a point
+    // light and a cookie or profile is not drawn.
+    if (!pendingAtlas.empty()) {
+        const bool atlasOk =
+            lightAtlas.sync([](const LightAtlasKey& k) { return load_light_atlas_source(k); },
+                            [](const LightAtlasKey&, const std::string& message, const std::string& hint) {
+                                FA_WARN("render", "{}. Hint: {}", message, hint);
+                            });
+        for (const PendingAtlas& pa : pendingAtlas) {
+            LightData& ld = lights[pa.index];
+            const LightAtlasRect* cr =
+                atlasOk && !pa.cookie.empty()
+                    ? lightAtlas.rect(pa.cube ? LightAtlasKind::CookieCube : LightAtlasKind::Cookie, pa.cookie)
+                    : nullptr;
+            const LightAtlasRect* ir =
+                atlasOk && !pa.ies.empty() ? lightAtlas.rect(LightAtlasKind::Ies, pa.ies) : nullptr;
+            if (pa.area && !atlasOk) {  // the point-light fallback
+                ld.color.w = 1.0f;
+                ld.extent = 0.0f;
+                ld.shadow.emitter = 0.0f;  // a point light now: its shadow has no emitter size
+                ld.ext[2] = ld.ext[3] = Vec4{};
+                continue;
+            }
+            if (!pa.area && !cr && !ir) continue;
+            ld.hasExt = true;
+            if (cr) ld.ext[2] = Vec4{float(cr->x), float(cr->y), 1.0f, ld.ext[2].w};
+            if (ir) ld.ext[3] = Vec4{float(ir->x), float(ir->y), 1.0f, ld.ext[3].w};
+        }
+        if (atlasOk) ctx.lightAtlasView = lightAtlas.view();
+    }
     // Camera.lighting = studio: the rig of the camera takes the place of the scene's lights. Directions are relative to the camera
     // (right, up, forward), so an item looks the same wherever its stage is: a warm key from the upper left in front, a cool fill
     // from the right, a rim from behind and above.
@@ -1134,7 +1277,7 @@ void Renderer::Impl::shadow_bounds(DrawContext& ctx) {
         const LightData& ld = ctx.lights[i];
         if (ld.rank != 2 || !ld.shadow.casts) continue;
         const Vec3 pos{ld.pos.x, ld.pos.y, ld.pos.z};
-        const float range = ld.pos.w;
+        const float range = ld.pos.w + ld.extent;  // an area light's range is measured from its emitter's surface
         const Vec3 nearest = min(max(pos, bmin), bmax);
         if (!(range > 0.0f) || length_sq(nearest - pos) > range * range) continue;
         // A baked light's shadows are in the lightmaps and a lightmapped surface skips the light, so it takes a map only for the
@@ -1151,6 +1294,14 @@ void Renderer::Impl::shadow_bounds(DrawContext& ctx) {
         in.spotAngle = ld.shadow.spotAngle;
         in.brightness = std::max({ld.color.x, ld.color.y, ld.color.z});
         in.resolution = ld.shadow.resolution;
+        // An area light's PCSS penumbra is as wide as its emitter, and the filter reads at most 16 texels around a pixel: with no
+        // Light.shadowResolution of its own the tile is as coarse as the emitter allows (512 texels per face for 0.5 m, 256 for 1 m,
+        // down to 64), so the widest penumbra the filter reaches grows with the emitter, and the six faces cost little.
+        if (ld.shadow.emitter > 0.0f && in.resolution <= 0 && ld.shadow.filter == 2) {
+            int px = 512;
+            while (px > 64 && float(px) * ld.shadow.emitter > 256.0f) px /= 2;
+            in.resolution = px;
+        }
         in.shadowDistance = ld.shadow.distance;
         ctx.localInputs.push_back(in);
     }
@@ -1221,7 +1372,7 @@ void Renderer::Impl::shadow_bounds(DrawContext& ctx) {
                 tanHalf = std::tan(radians(ld.shadow.spotAngle));
             }
             render::LocalTileFit fit =
-                render::fit_local_tile(pos, fwd, up, tanHalf, atlas.tiles[view].size, ld.pos.w, ctx.z01);
+                render::fit_local_tile(pos, fwd, up, tanHalf, atlas.tiles[view].size, ld.pos.w + ld.extent, ctx.z01);
             ctx.localFits[view - std::size_t(want)] = fit;
             ctx.viewProj[view] = fit.viewProj;
         }
@@ -1261,7 +1412,7 @@ void Renderer::Impl::cull_and_batch(DrawContext& ctx) {
                 const std::size_t v = std::size_t(l.firstTile + f);
                 if (v >= active.size()) continue;
                 active[v] = 1;
-                localViews[v] = {Vec3{ld.pos.x, ld.pos.y, ld.pos.z}, ld.pos.w};
+                localViews[v] = {Vec3{ld.pos.x, ld.pos.y, ld.pos.z}, ld.pos.w + ld.extent};
             }
         }
     }
@@ -1443,6 +1594,7 @@ void Renderer::Impl::upload_lights(DrawContext& ctx) {
     ctx.fuScene.fa_cl_info[0] = -1.0f;
     ctx.fuScene.fa_cl_info[1] = ctx.fuScene.fa_cl_info[2] = ctx.fuScene.fa_cl_info[3] = 0.0f;
     ctx.fuScene.fa_counts[1] = 0.0f;
+    ctx.fuScene.fa_ambient[3] = 0.0f;  // the light table's stride: 0 = 4 texels per light
     if ((lights.empty() && ctx.decals.empty()) || (ctx.opaque.empty() && ctx.blended.empty()) || ctx.camPx.w < 1 ||
         ctx.camPx.h < 1)
         return;
@@ -1487,7 +1639,9 @@ void Renderer::Impl::upload_lights(DrawContext& ctx) {
     if (clustered) {
         std::vector<LightSphere> spheres(lights.size());
         for (std::size_t i = std::size_t(directional); i < lights.size(); ++i)
-            spheres[i] = LightSphere{lights[i].pos.x, lights[i].pos.y, lights[i].pos.z, lights[i].pos.w};
+            spheres[i] =
+                LightSphere{lights[i].pos.x, lights[i].pos.y, lights[i].pos.z,
+                            lights[i].pos.w + lights[i].extent};  // an area light's range counts from its surface
         build_light_clusters(cam, make_cluster_grid(cam.widthPx, cam.heightPx, cam.nearDepth, cam.farDepth), spheres,
                              lists);
         stats.lightClusters += lists.grid.clusters();
@@ -1533,7 +1687,11 @@ void Renderer::Impl::upload_lights(DrawContext& ctx) {
             rec.kind = l.cube ? 2 : 1;
             rec.fade = std::max(ld.shadow.distance, 0.0f);
             rec.filter = ld.shadow.filter;
-            rec.softness = std::tan(0.05f * std::clamp(ld.shadow.softness, 0.0f, 10.0f));
+            // A negative softness is an area light's emitter size in metres (fa_shadow_filter: PCSS sizes the penumbra by the emitter
+            // over the distance to the blocker); otherwise the tangent of the light's angular size.
+            rec.softness = ld.shadow.emitter > 0.0f
+                               ? -ld.shadow.emitter * std::clamp(ld.shadow.softness, 0.0f, 10.0f) - 1e-4f
+                               : std::tan(0.05f * std::clamp(ld.shadow.softness, 0.0f, 10.0f));
             rec.bias = std::clamp(ld.shadow.bias, 0.0f, 1.0f);
             rec.normalBias = std::clamp(ld.shadow.normalBias, 0.0f, 1.0f);
             for (int f = 0; f < l.tiles; ++f) {
@@ -1559,6 +1717,8 @@ void Renderer::Impl::upload_lights(DrawContext& ctx) {
     ctx.lightView = gpu.write_light_image(tex.height, tex.texels.data()).view;
     ctx.fuScene.fa_counts[1] = tex.uniforms.decalBase;
     mesh_fa_mesh_fs_params_t& fu = ctx.fuScene;
+    fu.fa_ambient[3] =
+        float(tex.stride);  // texels per light (light_data.glsl: fa_light_base); fa_counts.y is the decal region
     const ClusterUniforms& u = tex.uniforms;
     for (int c = 0; c < 4; ++c) {
         fu.fa_cl_vpx[c] = u.vpx[c];
@@ -1589,8 +1749,9 @@ void Renderer::Impl::scene_uniforms(DrawContext& ctx) {
         ss.fogDensity = 0.0f;
     }
     // The camera's own fog (PostProcess.fog*, drawn from the depth inside the main pass) replaces the scene's: the two never add up. It is
-    // only planned (fogFx.fog) when its prepass and shader exist, so a frame that cannot draw it keeps the scene's fog.
-    if (ctx.postPlan.fogFx.fog) ss.fogDensity = 0.0f;
+    // only planned (fogFx.fog) when its prepass and shader exist, so a frame that cannot draw it keeps the scene's fog. The volumetric fog
+    // (vol.on, planned the same way) replaces both.
+    if (ctx.postPlan.fogFx.fog || ctx.postPlan.vol.on) ss.fogDensity = 0.0f;
     // Colours the author picked are sRGB values; a linear scene computes with linear light (sky, fog and ambient, below, and the
     // main pass's sky and clear colour read these).
     ss.ambientLight = to_scene(ss.ambientLight, fr.linear);
@@ -1599,6 +1760,7 @@ void Renderer::Impl::scene_uniforms(DrawContext& ctx) {
     ss.horizonColor = to_scene(ss.horizonColor, fr.linear);
     ctx.white = assets->white();
     ctx.lightView = ctx.white->view;
+    // (ctx.lightAtlasView is set by collect_lights, with the rects of the lights.)
     ctx.decalView = ctx.white->view;
     copy_mat(vuScene.fa_view_proj, fr.cam.viewProj);
     copy_mat(vuScene.fa_light_vp, ctx.doShadows && ctx.cascades > 0 ? ctx.fits[0].viewProj : Mat4::identity());
@@ -2072,6 +2234,9 @@ void Renderer::Impl::bind_textures(DrawContext& ctx, sg_bindings& b, const PartD
     b.samplers[SMP_mesh_fa_shadow_smp] = gpu.sampler(SamplerKind::Nearest);
     // The light data of the view (the shadow pass has no lights: any image does for a program that declares the slot).
     b.views[VIEW_mesh_fa_light_tex] = shadowPass ? white->view : ctx.lightView;
+    // The light atlas (LTC tables, cookies, IES profiles): the image the view's lights were laid out in, else the white image (nothing
+    // reads it while no light has the data texture's extension texels).
+    b.views[VIEW_mesh_fa_light_atlas] = (!shadowPass && ctx.lightAtlasView.id) ? ctx.lightAtlasView : white->view;
     b.views[VIEW_mesh_fa_decal_tex] = shadowPass ? white->view : ctx.decalView;
     // The sky environment (renderer_env.h): the baked cube (the reflection and the SH of the ambient), or a black one while the meshes use the gradient (every
     // mesh program of the main pass declares the slots; a custom program that does not has them dropped below).
@@ -3104,6 +3269,24 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
             },
             true);
     }
+    // The march of the volumetric fog (renderer_volumetric.h): in this camera's own job, after its shadow and prepass passes, because it reads the
+    // shadow atlas this job drew (a later job may draw into the shared atlas again). The pass that blends it over the picture is declared with the
+    // post stack, in the last job.
+    if (ctx.postPlan.vol.on && ctx.postPlan.prepass.valid()) {
+        const ResourceId volRes = graph.create_transient(VolumetricFx::image_desc(ctx.postPlan.vol, plan.name));
+        ctx.postPlan.volImage = volRes;
+        std::vector<ResourceId> reads{prepassRes};
+        if (ctx.doShadows) reads.push_back(shadowRes);
+        add("vol-march", std::move(reads), {volRes}, [this, &ctx, volRes, prepassRes](const PassContext& c) {
+            const Target* vt = transient_targets().get(c.handle(volRes));
+            const Target* pt = transient_targets().get(c.handle(prepassRes));
+            if (!vt || !pt) return;
+            const sg_view shadowTex =
+                ctx.doShadows && ctx.shadowTgt.texView.id ? ctx.shadowTgt.texView : ctx.white->view;
+            volFx.march(gpu, ctx.postPlan.vol, *vt, pt->texView, shadowTex, ctx.lightView, ctx.shadowU,
+                        &stats.drawCalls);
+        });
+    }
     // The ambient occlusion (renderer_ssao.h): its images are made from the prepass before the main pass, which applies them after the
     // opaque meshes (main_pass). Only a job that draws the world and has the prepass declares them.
     ctx.ssaoApply = SsaoApply{};
@@ -3202,6 +3385,17 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
         }
     };
     custom_slot(PostSlot::Main);
+    // The volumetric fog of every camera (renderer_volumetric.h): its march image blended over the camera's rectangle of the picture the main pass drew (the
+    // blended meshes are in it), before the reflections, the sun shafts and the rest of the stack.
+    for (DrawContext* c : postCams) {
+        if (!c->postPlan.vol.on || !c->postPlan.prepass.valid() || !c->postPlan.volImage.valid()) continue;
+        const BloomTarget volDst =
+            ctx.hudAfterBloom && ctx.msaa
+                ? BloomTarget{gameTarget.colorAtt, gameTarget.resolveAtt, gpu.sample_count()}
+                : BloomTarget{ctx.msaa ? gameTarget.resolveColorAtt : gameTarget.colorAtt, sg_view{}, 1};
+        volFx.add_apply(graph, transient_targets(), gpu, c->postPlan.vol, c->postPlan.volImage, c->postPlan.rect, physW,
+                        physH, game, volDst, c->postPlan.prepass, &stats.drawCalls, c->plan.name);
+    }
     // Screen-space reflections of every camera (renderer_ssr.h), over its rectangle of the scene colour, on the picture the main pass drew (the ambient occlusion
     // and the fog are already in it), before the sun shafts, the depth of field and the rest of the stack.
     for (DrawContext* c : postCams) {

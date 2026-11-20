@@ -107,6 +107,17 @@ light `0`; a point or spot light that casts has one only while the budget of the
 within the atlas) gives it a map, and its shadow fades out toward its `shadowDistance`. Any other `fa_light_shadow(n, i)` is `1`. A loop
 that wants "the sun" asks `fa_light(0, i)` and checks `.type == 0`.
 
+**Area lights in your own loop.** A light of type `area` (M73.1b) is not a point at its centre for a `lighting()` or `light()` hook or a full
+shader any more: `fa_light`, `fa_light_unshadowed` and `light()` give it as a point light at the **representative point** of its emitter, so
+the highlight follows its shape. For a rectangle or a disc that is where the reflection of the view off the surface (from the geometric
+normal) meets the emitter, clamped to its edge (the closest point of the emitter to the surface when the reflection misses it); for a tube
+it is the point of its axis closest to the reflection ray. `direction`, `distance` and `attenuation` are those of that point (the range is
+counted from the surface of the emitter), `color` is the colour of a point light of the same `intensity`, `type` is `1`, and a rectangle or
+disc seen from behind gives `attenuation` `0`. The hook sees ONE direction, so the diffuse term of a hook is the light of that point, not the
+integral over the emitter that the engine's own loop computes: the standard material shows a panel lighting a wall softly, a `lighting()`
+hook shows the same panel as a bright spot, and it is a little brighter than the engine's near an area light and the same far from it.
+The shadow of an area light that casts (`fa_light_shadow`) is the one of the six faces from its centre. The 2D lights treat an area light as a point.
+
 ## Example: the brightest light only, as a toon, plus the sky
 
 File `materials/brightest.material.json`:
