@@ -17,6 +17,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -85,6 +86,9 @@ struct BakeLight {
     float softRadius = 0;         // point, spot: radius of the sphere the light comes from (meters): soft shadows
     float softAngleDeg = 0;       // directional: angular radius of the sun disc in degrees: soft shadows
     float width = 1, height = 1;  // area: size in meters
+    // area: the direction of `height` (the rectangle's own up, projected onto its plane); width runs along cross(direction, up). (0, 0, 0) = any
+    // (a square or round light does not care; a long one needs it). Must be finite.
+    Vec3 up{0, 0, 0};
 };
 
 // An equirectangular float image of the sky (a Radiance .hdr read by the caller): u = 0.5 + atan2(z, x) / 2 pi, v = acos(y) / pi,
@@ -92,7 +96,7 @@ struct BakeLight {
 struct BakeEquirect {
     int width = 0, height = 0;
     std::vector<float> rgb;
-    float rotationDeg = 0;  // turns the image around +Y
+    float rotationDeg = 0;  // turns the image around +Y (degrees, finite)
 };
 
 // The light that comes from outside the scene: a constant, a gradient or an image. Radiance (not scaled by pi).
@@ -122,15 +126,19 @@ struct BakeSettings {
     int dilatePasses = 4;    // texels of gutter filled around the baked pieces, 0..64
     int denoiseRadius = 2;   // edge-aware blur radius in texels, 0 = off, 0..8
     float denoiseSigma =
-        0.3f;              // how different two neighbours may be (relative to the light) and still be blended, 0.01..10
-    float rayEpsilon = 0;  // the offset of a ray from its surface (meters); 0 = the scene's size / 10000
+        0.3f;  // how different two neighbours may be (relative to the light) and still be blended, 0.01..10
+    float rayEpsilon =
+        0;  // the offset of a ray from its surface (meters); 0 = automatic: the scene's size / 10000, but never more than
+    // 1/20 of a texel (a 1 km scene with 16 texels per meter gets 3 mm, not 10 cm) and never less than size / 500000
     bool shIncludeDirect =
         true;  // sample_irradiance_sh: add the direct light of the Baked lights (a probe is not a lightmap texel)
     // Budgets: the bake refuses (with what to change) before it allocates or traces anything beyond them.
     int maxAtlasSize = 4096;                    // the largest width or height of an atlas (the texel density cap)
     std::uint64_t maxMemoryBytes = 1ull << 30;  // what the bake may allocate (an estimate with a margin)
-    std::uint64_t maxRays =
-        50000000000ull;  // an upper bound on the rays: texels x samples x (bounces + 1) x (lights + 1)
+    // An upper bound on the rays: texels x samples x (bounces + 1) x (lights + 1). The default is a safety net, not a time budget: one core
+    // traces very roughly 2-10 million rays per second in a scene of a few thousand triangles (less with more triangles), the job pool
+    // multiplies that by its workers. So 1e9 rays are minutes, the default 5e10 are hours: lower it to give a bake a time limit.
+    std::uint64_t maxRays = 50000000000ull;
 };
 
 // Mask values of a baked atlas.
@@ -165,12 +173,35 @@ struct BakeResult {
 // Errors name the field with a JSON-pointer-like path ("/meshes/2/lightmapUv") and say what to change. Allocates nothing big.
 Result<void> validate_bake(const BakeScene& scene, const BakeSettings& settings);
 
+// The phases of a bake, in order (the atlas ones repeat for every atlas).
+enum class BakePhase : std::int32_t {
+    Prepare,    // validating, flattening the scene, building the BVH
+    Rasterize,  // which triangle covers which texel of an atlas
+    Trace,      // the rays of the texels
+    Denoise,    // the edge-aware blur
+    Dilate      // the gutter
+};
+// A progress report: `done` of `total` units of the phase (texels for Trace and Denoise, atlases for Rasterize and Dilate, 0 / 0 for Prepare);
+// `atlas` of `atlasCount` is 1-based (0 for Prepare); `rays` counts the rays traced so far, over every atlas.
+struct BakeProgress {
+    BakePhase phase = BakePhase::Prepare;
+    int atlas = 0, atlasCount = 0;
+    std::uint64_t done = 0, total = 0;
+    std::uint64_t rays = 0;
+};
+// Called on the thread that runs the bake, at the start of every phase and after each batch of texels (about 40 per atlas): it must be fast.
+using BakeProgressFn = std::function<void(const BakeProgress&)>;
+
 // Bakes the lightmaps. Progress goes to report_command_progress() ("lightmap bake: atlas 1/2, texels 2048/4096 (50%)") after each batch of
-// texels; a cancelled command (command_cancelled(), checked inside every chunk) ends it with the error "cancelled" and no result.
-Result<BakeResult> bake_lightmap(const BakeScene& scene, const BakeSettings& settings);
+// texels, and to `progress` when given; a cancelled command (command_cancelled()) ends it with the error "cancelled" and no result. Cancel is
+// looked at in every phase: while the BVH is built (once per tree node), while the atlases are rasterized (every 256 triangles), inside every
+// chunk of rays, and while the gutter is filled (every row).
+Result<BakeResult> bake_lightmap(const BakeScene& scene, const BakeSettings& settings,
+                                 const BakeProgressFn& progress = {});
 
 // Fills the empty texels next to filled ones (8 neighbours, their mean) `passes` times, each pass one texel further; the new texels get kBakeDilated.
 // Returns how many it filled. rgb is width * height * 3, mask width * height.
+// Looks at command_cancel_flag() once per row: a cancelled call returns early (the caller sees the flag and discards the result).
 std::size_t dilate_texels(int width, int height, std::vector<float>& rgb, std::vector<std::uint8_t>& mask, int passes);
 
 // The atlas side (a power of two, 16..maxSize) that gives about `texelsPerMeter` on surfaces of `surfaceArea` square meters in total (the

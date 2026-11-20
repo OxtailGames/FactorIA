@@ -4,6 +4,7 @@
 // thickness) and by the lightmap baker (lightmap_bake.h). Both faces of a triangle are hit; a triangle with no area is left out.
 #pragma once
 
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <vector>
@@ -21,7 +22,9 @@ struct RayHit {
 class TriBvh {
 public:
     // `corners` holds three points per triangle (triangle t is corners[3t], corners[3t + 1], corners[3t + 2]); they are copied.
-    void build(const Vec3* corners, std::size_t triangleCount);
+    // `cancel` (optional) is polled while the tree is built (one atomic load per node): when it is set the build stops, the tree is left
+    // unusable (empty()) and the function returns false; true means the tree is complete. A big scene takes seconds to build.
+    bool build(const Vec3* corners, std::size_t triangleCount, const std::atomic<bool>* cancel = nullptr);
     std::size_t triangle_count() const { return corners_.size() / 3; }
     bool empty() const { return nodes_.empty(); }
     Vec3 bounds_min() const { return lo_; }
@@ -40,7 +43,7 @@ private:
         std::uint32_t a = 0, b = 0;  // inner: children; leaf: first (in order_) and count
         bool leaf = false;
     };
-    std::uint32_t build_range(std::uint32_t first, std::uint32_t count);
+    std::uint32_t build_range(std::uint32_t first, std::uint32_t count, const std::atomic<bool>* cancel);
     bool query(Vec3 origin, Vec3 dir, float tmax, std::int32_t skip, bool anyHit, RayHit& hit) const;
     std::vector<Vec3> corners_;
     std::vector<Node> nodes_;

@@ -3,7 +3,7 @@
 Part of [FactorIA architecture](ARCHITECTURE.md) (the entry page lists every page). This page describes the core of the lightmap
 baker of M73.4: `engine/scene/include/fa/scene/lightmap_bake.h` and `bvh.h`, with `src/lightmap_bake.cpp` and `src/bvh.cpp`. It is
 plain data in and float buffers out: no renderer, no file format and no command (the lightmap runtime and the UV generation landed in M73.4a, [ARCHITECTURE_RENDERING_LIGHTING.md](ARCHITECTURE_RENDERING_LIGHTING.md),
-"Lightmaps"; the `lightmap.bake` command that writes Radiance `.hdr` files and the manifest, and the probe grid are later packages that build on this API).
+"Lightmaps"; the `lightmap.bake` commands that write the files are the last section of this page, the probe grid is a later package).
 
 ## The pieces
 
@@ -90,3 +90,42 @@ an `fa::Result` error that names the field, the numbers and what to change, and 
 
 Textured albedo and emission (a material is one color per triangle), seam stitching, importance sampling of a bright sun in an
 HDRI (a very bright small light is noisy; use a directional light for it), and any GPU path (M79).
+
+## The lightmap.bake commands (M73.4c)
+
+`tools/authoring/src/lightmap_bake_job.{h,cpp}` (the bake without the command plumbing) and `lightmap_commands.cpp` (`lightmap.bake`,
+`lightmap.bake_start`, `lightmap.bake_status`, `lightmap.bake_cancel`). They live in `fa_authoring`: they write project files, so they are
+never in `engine/runtime`. The user page is "Baking" in [RENDERING_LIGHTING.md](../rendering/RENDERING_LIGHTING.md).
+
+- **Plan, then execute.** `make_plan` reads the World on the calling (main) thread and makes plain data (`Plan`: meshes sorted by entity id,
+  `BakeLight`s, the sky, the options, a settings hash, warnings), so the job never touches the World again and a scene edit cannot reach it.
+  `execute` runs on a job thread: geometry per mesh name (the unwrap of `fa/render/lightmap_geometry.h`, once per mesh), a square per
+  receiver, the pages, the `BakeScene`, `bake_lightmap`, the writes. It reads the cancel flag of its thread in every stage and reports
+  `(phase, progress 0..1, rays)`; the baker's own progress is mapped into 0.12..0.95.
+- **Mapping.** Baked -> `Baked`, Mixed -> `IndirectOnly`, Realtime left out (a warning names it). Directional/Point/Spot map one to one
+  (the `Light.range` falloff, `falloff` engine or inverse-square, the spot cone, `shadowSoftness` of a PCSS light as its softness). An
+  area light is `BakeLightKind::Area` with its `up` taken from the entity's rotation; Disc and Tube are rectangles (the disc a square of
+  the same area, `0.8862 * size.x` a side; the tube length by thickness) and the tube gets a warning. The sky: `Auto` is the environment map
+  when `SceneSettings.environmentMap` is set, else the ambient colour; the equirect is shrunk to at most 1024 wide and its rotation is
+  `environmentRotation + 90` degrees (the baker's `u = 0.5 + atan2(z, x) / 2pi + rotation / 360` against the renderer's `hdri_uv`; the test
+  "environment rotation versus hdri_uv" holds it). A physical sky or a sky material falls back to the gradient with a warning.
+- **Layout.** Each receiver gets a square of `clamp(ceil(sqrt(area / 0.66) * texelsPerMeter), 8, maxPageSize - gap)` texels (0.66 is the
+  fill of an unwrap's charts); a shelf packer puts them on pages (largest first, ties by id), shrinks each page to what it uses and refuses
+  more than `kLightmapMaxPages` (256) with the fix. `scaleOffset` is rounded to 6 digits.
+- **Files.** Pages are `<stem>.lightmap.<8 hex of hash_bake_result>.<n>.hdr`, so a rebake that changes nothing writes nothing and one that
+  changes something never overwrites a page a running game still reads. Pages first (a page already there with the same bytes is kept),
+  the manifest last, each through the atomic writer of `fa/core/fs.h`; if any write fails the pages this call made are deleted and the
+  error names the path with what to do (close the file in the other program, call again, or pass another `path`). After success the older
+  pages of the same stem that no manifest line names are deleted. The cancel flag is not read while writing: a half-written set is
+  worse than a finished bake.
+- **Jobs.** `bake_start` calls `make_plan` in the handler (so argument errors and "nothing to bake" are immediate), then
+  `jobs::submit`s `execute`; the status fields (state, phase, progress, rays) are written by the job under the job's mutex and read by
+  `bake_status`, which never waits (with `jobThreads` "inline" the job only runs when `bake_status` is called: `jobs::wait`). A second
+  bake of the same manifest while one runs is refused (`busy`). The registry keeps the last 8 finished jobs. `Engine::Impl::shutdownHooks`
+  (run at the start of `Engine::shutdown`) cancels running bakes, so closing the editor never waits for a trace.
+- **Hand-over.** The first `bake_status` that sees `done` sets `SceneSettings.lightmaps` (when `apply` and the engine's current scene is still
+  the scene the plan was made for) and calls `Renderer::reload_asset(manifest)`; `handOver` in the answer says what happened. The editor
+  passes `apply: false` and edits the setting itself with `edit_command` (an undo step, a dirty scene), after checking that its own open
+  scene is still the one the job started on and that the game is not running.
+- **Determinism.** `texelsPerMeter`, the scene and the settings give the same pages with any number of threads (the tests bake with 1 and 4
+  workers and compare the bytes). The settings hash quantises floats to 1e-4.

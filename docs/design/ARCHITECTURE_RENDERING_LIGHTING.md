@@ -442,7 +442,7 @@ colour spaces and the intensity, the bake key counted in draw calls, hot reload,
 ## Lightmaps
 
 M73.4a: the runtime that draws a baked lightmap, and the UVs it needs. The baker core is [ARCHITECTURE_BAKING.md](ARCHITECTURE_BAKING.md);
-the `lightmap.bake` command that writes the files (M73.4c) and the light probes (M73.4d) are later packages. The user page is
+the `lightmap.bake` commands that write the files (M73.4c) are in the same page, "The lightmap.bake commands"; the light probes (M73.4d) are a later package. The user page is
 "Lightmaps" in [RENDERING_LIGHTING.md](../rendering/RENDERING_LIGHTING.md).
 
 **Lightmap UVs** (`fa/render/lightmap_geometry.h`, `fa/scene/lightmap_uv.h`). A mesh's lightmap UV is TEXCOORD_1 of its glTF when every

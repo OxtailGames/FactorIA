@@ -713,6 +713,36 @@ public:
                              std::string* error = nullptr);
     bool scene_settings_reset(const std::string& field, std::string* error = nullptr);
     bool showSceneSettings_ = false;
+
+    // Lightmap panel (lightmap_panel.cpp; View > Lightmap): the options of lightmap.bake_start, a progress bar with the phase of the job,
+    // Cancel (lightmap.bake_cancel), the result of the last bake (pages, texels, time) and its errors with the hint. The bake runs on a
+    // job thread; the panel polls lightmap.bake_status a few times a second (a cheap call, never a wait). The bake is started with
+    // apply false and the panel sets SceneSettings.lightmaps itself through edit_command (one undo step, a dirty scene), only when the
+    // scene it was started on is still the open one and the game is not running. The autotest drives lightmap_start / lightmap_cancel.
+    struct LightmapUi {
+        float texelsPerMeter = 16;
+        int samples = 64;
+        int shadowSamples = 16;
+        int pageSizeIndex = 2;         // kLightmapPageSizes
+        int skyIndex = 0;              // kLightmapSkies
+        std::string path;              // "" = next to the open scene
+        std::string job;               // the running or last job's id ("" = none)
+        std::string scene;             // the scene (scenePath_) the job was started on
+        const void* engine = nullptr;  // the engine whose registry holds the job (another project: the job is gone)
+        std::string state;             // running | done | failed | cancelled | "" (nothing started)
+        std::string phase;
+        double progress = 0, elapsed = 0, eta = -1;
+        std::uint64_t rays = 0;
+        std::string error, hint, note;  // a refused start, a failed or cancelled job, what the hand-over did
+        Json result;                    // the finished job's result (lightmap.bake)
+        double lastPoll = -1;           // time_ of the last lightmap.bake_status
+    };
+    void draw_lightmap_panel();
+    bool lightmap_start(std::string* error = nullptr);
+    void lightmap_cancel();
+    void lightmap_poll();
+    LightmapUi lightmap_;
+    bool showLightmap_ = false;
     // Music panel (music_panel.cpp, music_mixer_panel.cpp; View > Music, or a double click on a *.song.json in the Project panel): a song as a
     // piano roll, a drum grid, an arrangement and a mixer, played by the same transport a game's entity.music uses (an intensity slider fades
     // the layers, a section can be looped). The rules are in music_model.h: every edit it keeps is a command call (music.edit, music.arpeggio,
@@ -1815,6 +1845,7 @@ public:
     void at_section_O3(AtScript& at);  // autotest_model_particles.cpp
     void at_section_G3(AtScript& at);  // autotest_graph.cpp
     void at_section_Q3(AtScript& at);  // autotest_scene_settings.cpp
+    void at_section_L4(AtScript& at);  // autotest_lightmap.cpp
     void at_section_R3(AtScript& at);
     void at_section_A3(AtScript& at);
     void at_section_T2(AtScript& at);  // autotest_play_review.cpp
