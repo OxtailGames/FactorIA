@@ -106,13 +106,13 @@ if(FA_BUILD_TESTS)
         # (cmake/doctest_main.cpp: --fa-files, --fa-files-exclude). tooling_split_check fails unless the five together list
         # exactly the test cases of the whole executable. ctest -L tooling runs all of them.
         # The table holds only the heavy files, balanced by the seconds their test cases took in the Debug tree of an M5 MacBook
-        # Air (about 20 s per entry of the 99 s in all; Windows and the sanitizers scale it, they do not reorder it much).
+        # Air (about 22 s per entry of the 111 s in all, 21 to 25 s since M73; Windows and the sanitizers scale it, they do not reorder it much).
         # Refresh it when an entry gets much slower than the others: `fa_test_tooling -r=junit -d=true > tooling.xml` has the
         # seconds of every test case, `classname` is its file; add up each file, put the biggest ones in the lightest entry.
         set(tooling_test_entries
-            "1:review_sheet_test.cpp,assets_capsules_test.cpp,model_texture_test.cpp,serve_web_test.cpp,admob_tools_test.cpp,msix_test.cpp,perf_test.cpp,assets_sfx_test.cpp"
-            "2:steam_setup_test.cpp,model_doc_test.cpp,sign_macos_store_test.cpp,sign_macos_test.cpp,export_icons_test.cpp,publish_test.cpp,assets_recipe_test.cpp,export_web_test.cpp"
-            "3:export_android_test.cpp,script_instrument_test.cpp,test_export.cpp,feedback_test.cpp,recipe_schema_test.cpp,shaders_test.cpp,export_textures_test.cpp,sign_windows_test.cpp"
+            "1:review_sheet_test.cpp,assets_capsules_test.cpp,model_texture_test.cpp,serve_web_test.cpp,admob_tools_test.cpp,msix_test.cpp,perf_test.cpp,assets_sfx_test.cpp,examples_download_test.cpp,material_graph_test.cpp"
+            "2:steam_setup_test.cpp,model_doc_test.cpp,sign_macos_store_test.cpp,sign_macos_test.cpp,export_icons_test.cpp,publish_test.cpp,assets_recipe_test.cpp,export_web_test.cpp,shaders_fixtures_test.cpp"
+            "3:export_android_test.cpp,script_instrument_test.cpp,test_export.cpp,feedback_test.cpp,recipe_schema_test.cpp,shaders_test.cpp,export_textures_test.cpp,sign_windows_test.cpp,checkpoint_test.cpp"
             "4:music_render_test.cpp,music_test.cpp,feedback_share_test.cpp,efficiency_share_test.cpp,assets_fbx_test.cpp,assets_bake_test.cpp,shaders_docs_test.cpp,assets_animate_test.cpp,efficiency_test.cpp")
         set(tooling_test_names "")
         foreach(tooling_test_file IN LISTS tooling_tests)

@@ -49,3 +49,14 @@ tools/fuzz/corpus/** -text
 
 # Game packs (game.pak): binary archives, byte for byte (the fuzz corpus holds some).
 *.pak binary
+
+# Shader snippets of the tests and examples are hashed into the compiled twins (and into the shader-cache keys), and the
+# twins (*.shader, above) are compared byte for byte: a CRLF snippet from a Windows checkout would change the hash and make
+# every committed twin stale. Fixtures that are compared as text (JSONL, YAML, glTF, the fixture projects' scripts and
+# docs) are LF too. Only the eol is pinned; no file is rewritten.
+*.glsl text eol=lf
+*.jsonl text eol=lf
+tools/common/tests/fixtures/** text eol=lf
+engine/render/tests/data/*.gltf text eol=lf
+tools/cli/tests/fixtures/**/*.js text eol=lf
+tools/cli/tests/fixtures/**/*.md text eol=lf

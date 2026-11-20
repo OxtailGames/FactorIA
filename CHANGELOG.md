@@ -6,6 +6,8 @@ Older versions, one file per minor version with its patch releases: [0.31](chang
 
 ## Unreleased
 
+- **`factoria feedback collect examples/*`** no longer reports "no 'entries' array" for the files of that folder that are not feedback files (`examples.json`, a readme): when several paths are given, a file not called `ENGINE_FEEDBACK.json` that holds no feedback is skipped; named alone it is an error that says what to pass.
+
 ## 0.32.0
 
 Every renderer takes a custom shader: sprites, shapes, tilemaps, text, particles and vfx, the sky and UI images use the same `fragment()`/`vertex()` snippets as meshes, with per-sprite values that keep batching. Post-process materials are passes of the M71 stack, placed around the built-in effects and after the tonemap, and can read the frame before. Mesh materials can be full shaders with their own passes and light loop. Compute materials run on D3D11, Metal and GL 4.3 (a clear refusal on GLES3 and WebGL2) and write buffers and images that meshes and sprites draw thousands of times in one draw. The Graph panel edits node graphs for mesh, sprite and post materials, with a live preview that writes the same JSON and snippet an AI writes.

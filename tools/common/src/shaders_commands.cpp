@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <cctype>
 #include <filesystem>
+#include <regex>
 
 #include "fa/core/strings.h"
 #include "fa/tooling/material_graph.h"
@@ -391,6 +392,33 @@ void validate_materials(const std::string& projectDir, const SetupContext& conte
     options.setup = context;
     for (const std::string& path : materials) {
         ++report.materialsChecked;
+        // fa_instance_index only counts when a Sprite draws its quad several times from compute buffers: in a sprite
+        // material without buffers it is always 0. One warning per material (this loop visits each once).
+        const MaterialParse parsed = read_material(projectDir, path);
+        const MaterialDef& material = parsed.material;
+        if (parsed.ok() && material.kind == "sprite" && material.buffers.empty() && !material.shader.empty()) {
+            if (auto text = tooling_detail::read_file(stdfs::path(projectDir) / material.shader)) {
+                std::string code;  // the snippet without its comments: a note that names the value is no use of it
+                for (std::size_t at = 0; at < text->size();) {
+                    if (text->compare(at, 2, "//") == 0) {
+                        while (at < text->size() && (*text)[at] != '\n') ++at;
+                    } else if (text->compare(at, 2, "/*") == 0) {
+                        const std::size_t end = text->find("*/", at + 2);
+                        at = end == std::string::npos ? text->size() : end + 2;
+                    } else {
+                        code += (*text)[at++];
+                    }
+                }
+                if (std::regex_search(code, std::regex("\\bfa_instance_index\\b")))
+                    report.warnings.push_back(
+                        {material.shader, "",
+                         "this sprite snippet reads fa_instance_index, but the material declares no buffers, so the "
+                         "value is always 0 (a Sprite draws its quad instances times only from compute buffers)",
+                         "Add \"buffers\" to " + path +
+                             " (docs/shaders/SHADERS_COMPUTE.md) and set Sprite.instances, or remove the use of "
+                             "fa_instance_index."});
+            }
+        }
         auto result = compile_material(projectDir, path, options);
         if (!result.ok()) {
             const std::string state = material_snippet_state(projectDir, path);
