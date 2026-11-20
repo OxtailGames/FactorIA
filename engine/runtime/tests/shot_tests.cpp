@@ -11,6 +11,7 @@
 #include "fa/core/screenshot_files.h"
 #include "fa/runtime/engine.h"
 #include "fa/runtime/project.h"
+#include "fa/scene/components.h"
 
 using namespace fa;
 namespace stdfs = std::filesystem;
@@ -378,6 +379,50 @@ TEST_CASE("render.frame_graph: an engine without a renderer says so") {
     auto r = e.commands().call("render.frame_graph", Json::object());
     REQUIRE_FALSE(r.ok);
     CHECK(r.error.dump().find("renderer") != std::string::npos);
+}
+
+TEST_CASE("render.probes: empty without probes, lists a ReflectionProbe with its tile, and says no renderer") {
+    TempProject p("probes-command");
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(headless_cfg(p), nullptr, &err), err);
+    auto& c = e.commands();
+    auto none = c.call("render.probes", Json::object());
+    REQUIRE_MESSAGE(none.ok, none.error.dump());
+    CHECK(none.result["probes"].empty());
+    CHECK(none.result["atlas"].is_null());
+    Entity probe = e.world().create("lobby");
+    auto& rp = e.world().add<ReflectionProbe>(probe);
+    rp.mode = ProbeMode::Realtime;
+    rp.update = ProbeUpdate::EveryFrame;
+    rp.resolution = 64;
+    e.step(3);
+    auto r = c.call("render.probes", Json::object());
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+    REQUIRE(r.result["probes"].size() == 1);
+    const Json& listed = r.result["probes"][0];
+    CHECK(listed["mode"] == "realtime");
+    CHECK(listed["resolution"] == 64);
+    CHECK(r.result["atlas"]["size"] == 1024);
+    // A GPU that can draw the probes' passes captured it and gave it a tile; one that cannot says "failed" and why.
+    if (listed["state"] == "failed") {
+        CHECK(listed["message"].is_string());
+    } else {
+        CHECK(listed["tile"]["resolution"] == 64);
+        CHECK(listed["captures"].get<int>() >= 1);
+    }
+    auto bad = c.call("render.probes", Json{{"entity", "lobby"}});
+    REQUIRE_FALSE(bad.ok);
+    CHECK(bad.error.dump().find("entity") != std::string::npos);
+
+    TempProject q("probes-command-none");
+    Engine headless;
+    EngineConfig cfg = headless_cfg(q);
+    cfg.graphics = false;
+    REQUIRE_MESSAGE(headless.init(cfg, nullptr, &err), err);
+    auto nr = headless.commands().call("render.probes", Json::object());
+    REQUIRE_FALSE(nr.ok);
+    CHECK(nr.error.dump().find("renderer") != std::string::npos);
 }
 
 TEST_CASE("render.debug_view: the schema's enum turns a wrong view into an error with a did-you-mean hint") {
