@@ -679,10 +679,10 @@ TEST_CASE("features: what the engine does not draw yet is false and says planned
 
 TEST_CASE(
     "features: the lighting rows of M73 are planned until their package lands and never claim what is not drawn") {
-    const char* const rows[] = {"areaLights",     "lightCookies",   "iesProfiles",      "pointShadows", "spotShadows",
-                                "contactShadows", "environmentMap", "reflectionProbes", "physicalSky",  "lightmaps",
-                                "lightProbes",    "volumetricFog",  "decals",           "subsurface",   "realtimeGI",
-                                "clearCoat",      "sheen",          "anisotropy",       "transmission"};
+    const char* const rows[] = {"areaLights",  "lightCookies",   "iesProfiles",    "pointShadows",
+                                "spotShadows", "contactShadows", "environmentMap", "reflectionProbes",
+                                "physicalSky", "lightmaps",      "lightProbes",    "volumetricFog",
+                                "decals",      "subsurface",     "realtimeGI",     "transmission"};
     const FeatureEnv full = gpu(FeatureBackend::D3d11, true, true, true, true);
     for (const char* n : rows) {
         CAPTURE(n);
@@ -706,6 +706,19 @@ TEST_CASE(
     CHECK_FALSE(supported(gpu(FeatureBackend::Gles3, true, true, true, false, false), "cascadedShadows", &why));
     CHECK(why.find("R32F") != std::string::npos);
     CHECK(why.find("planned") == std::string::npos);
+}
+
+TEST_CASE("features: the material layers of M73.6 are drawn on every backend") {
+    for (const char* n : {"clearCoat", "sheen", "anisotropy"}) {
+        CAPTURE(n);
+        REQUIRE(find_feature(n) >= 0);
+        CHECK(feature_table()[std::size_t(find_feature(n))].kind == FeatureKind::Engine);
+        for (FeatureBackend b :
+             {FeatureBackend::Gl, FeatureBackend::Gles3, FeatureBackend::D3d11, FeatureBackend::Metal}) {
+            std::string why;
+            CHECK(supported(gpu(b), n, &why));
+        }
+    }
 }
 
 TEST_CASE("features: hdrOutput follows the display the window is on and what the renderer writes there") {

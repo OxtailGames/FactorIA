@@ -1456,6 +1456,55 @@ void Renderer::Impl::note_missing_channel(const MeshItem& mi, const SubMesh& par
                   channel + "), remove \"" + what + "\" from the material's vertexAttributes, or use another mesh.");
 }
 
+// The material layers of one part (fa_layers_a..d): the glTF material's factors, replaced field by field by the MeshRenderer's
+// when that is not at its default (a MeshRenderer field at its default leaves the model's value). Colours: the glTF ones are
+// linear values, the MeshRenderer's go through to_scene like its other colours. A MeshRenderer value outside its range is
+// clamped by the shader's own limits (the doc strings give the ranges); NaN counts as the default.
+static void fill_layers(mesh_fa_mesh_fs_params_t& fu, const MeshRenderer& mr, const SubMesh& part, bool error,
+                        bool linear) {
+    auto num = [](float v, float fallback) { return std::isfinite(v) ? v : fallback; };
+    const MaterialLayers& g = part.layers;
+    static const MeshRenderer defaults;
+    float coat = 0, coatRough = 0, sheenRough = 0, aniso = 0, rotation = 0, spec = 1, ior = 1.5f;
+    float sheen[3] = {0, 0, 0}, specColor[3] = {1, 1, 1};
+    if (!error) {
+        auto pick = [&](float m, float def, float fromModel) { return (num(m, def) != def) ? num(m, def) : fromModel; };
+        coat = std::clamp(pick(mr.clearcoat, defaults.clearcoat, g.clearcoat), 0.0f, 1.0f);
+        coatRough = std::clamp(pick(mr.clearcoatRoughness, defaults.clearcoatRoughness,
+                                    g.clearcoat > 0.0f ? g.clearcoatRoughness : defaults.clearcoatRoughness),
+                               0.0f, 1.0f);
+        const Color sc = to_scene(mr.sheenColor, linear);
+        const bool mrSheen = mr.sheenColor.r > 0.0f || mr.sheenColor.g > 0.0f || mr.sheenColor.b > 0.0f;
+        const bool modelSheen = g.sheenColor != MaterialLayers{}.sheenColor;
+        sheen[0] = mrSheen ? sc.r : g.sheenColor[0];
+        sheen[1] = mrSheen ? sc.g : g.sheenColor[1];
+        sheen[2] = mrSheen ? sc.b : g.sheenColor[2];
+        sheenRough = std::clamp(
+            pick(mr.sheenRoughness, defaults.sheenRoughness, modelSheen ? g.sheenRoughness : defaults.sheenRoughness),
+            0.0f, 1.0f);
+        aniso = std::clamp(pick(mr.anisotropy, 0.0f, g.anisotropy), -1.0f, 1.0f);
+        rotation = num(mr.anisotropyRotation, 0.0f) != 0.0f ? num(mr.anisotropyRotation, 0.0f) * (3.14159265f / 180.0f)
+                                                            : g.anisotropyRotation;
+        spec = std::clamp(pick(mr.specular, 1.0f, g.specular), 0.0f, 1.0f);
+        ior = std::clamp(pick(mr.ior, 1.5f, g.ior), 1.0f, 3.0f);
+        for (int i = 0; i < 3; ++i) specColor[i] = g.specularColor[std::size_t(i)];
+    }
+    fu.fa_layers_a[0] = coat;
+    fu.fa_layers_a[1] = coatRough;
+    fu.fa_layers_a[2] = aniso;
+    fu.fa_layers_a[3] = rotation;
+    fu.fa_layers_b[0] = sheen[0];
+    fu.fa_layers_b[1] = sheen[1];
+    fu.fa_layers_b[2] = sheen[2];
+    fu.fa_layers_b[3] = sheenRough;
+    fu.fa_layers_c[0] = spec;
+    fu.fa_layers_c[1] = ior;
+    fu.fa_layers_c[2] = error ? 0.0f : float(part.layersPacked);
+    fu.fa_layers_c[3] = 0.0f;
+    for (int i = 0; i < 3; ++i) fu.fa_layers_d[i] = specColor[i];
+    fu.fa_layers_d[3] = 0.0f;
+}
+
 // The fragment parameters (fa_mesh_fs_params) of one part (reads ctx.fuScene, or ctx.fuBlend for a blended part, ctx.doShadows).
 mesh_fa_mesh_fs_params_t Renderer::Impl::fill_fs(DrawContext& ctx, const MeshItem& mi, const SubMesh& part,
                                                  const PartDraw& d, bool blended) {
@@ -1500,6 +1549,7 @@ mesh_fa_mesh_fs_params_t Renderer::Impl::fill_fs(DrawContext& ctx, const MeshIte
     fu.fa_maps[3] = float(d.tex->tex_fix(linear, true) + 4 * d.emissive->tex_fix(linear, true) +
                           16 * (d.normal ? d.normal->tex_fix(linear, false) : 0) + 64 * d.mr->tex_fix(linear, false) +
                           256 * d.occlusion->tex_fix(linear, false));
+    fill_layers(fu, mr, part, d.error, linear);
     if (mi.flash.a > 0.0f && !d.error) {
         // A flash (feel.h) needs no shader change: the surface colour fades to nothing and the emission, which both the lit
         // and the unlit path add at the end (fog comes after), carries the flash colour. Lit meshes keep a little

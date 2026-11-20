@@ -129,6 +129,16 @@ std::vector<FeatureDef> build_table() {
          "The feature needs nothing of the GPU (it is on wherever the engine draws); only a pass whose material reads "
          "the depth or the normals (fa_depth, fa_normal) needs the sampledDepth feature, and that pass alone is "
          "skipped without it."});
+    // The material layers of M73.6: drawn by the standard mesh shading on every backend (docs/rendering/RENDERING_LIGHTING.md).
+    t.push_back({"clearCoat", FeatureKind::Engine, kEveryGpu, "", nullptr,
+                 "The clear coat layer of a material: car paint, lacquer (MeshRenderer.clearcoat, glTF "
+                 "KHR_materials_clearcoat): a second specular lobe over the surface that also dims what is under it."});
+    t.push_back({"sheen", FeatureKind::Engine, kEveryGpu, "", nullptr,
+                 "The sheen layer of a material: cloth and velvet (MeshRenderer.sheenColor, glTF "
+                 "KHR_materials_sheen): a soft lobe at grazing angles on a Charlie distribution."});
+    t.push_back({"anisotropy", FeatureKind::Engine, kEveryGpu, "", nullptr,
+                 "Anisotropic highlights: brushed metal, hair (MeshRenderer.anisotropy, glTF "
+                 "KHR_materials_anisotropy), stretched along the mesh's tangent."});
     // The lighting of M73 (docs/rendering/RENDERING_LIGHTING.md): every row answers false with "planned (M73)" until its package
     // lands, then drops the `planned` text here. `needs` is what its pass asks of the GPU once built.
     t.push_back(
@@ -174,9 +184,6 @@ std::vector<FeatureDef> build_table() {
         {"subsurface", "half+depth", "Screen-space subsurface scattering for skin and wax (M73.5)."},
         {"realtimeGI", "half",
          "Realtime global illumination from a probe grid updated over a few frames, no ray tracing (M73.5)."},
-        {"clearCoat", "", "The clear coat layer of a material: car paint, lacquer (MeshRenderer.clearcoat; M73.6)."},
-        {"sheen", "", "The sheen layer of a material: cloth and velvet (MeshRenderer.sheenColor; M73.6)."},
-        {"anisotropy", "", "Anisotropic highlights: brushed metal, hair (MeshRenderer.anisotropy; M73.6)."},
         {"transmission", "half",
          "Transmission and volume: glass and liquids that refract what is behind them (M73.6)."}};
     for (const Planned& p : kLighting) t.push_back({p.name, FeatureKind::Engine, kEveryGpu, p.needs, p.planned, p.doc});
