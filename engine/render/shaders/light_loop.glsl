@@ -272,6 +272,11 @@ vec3 fa_area_layers(in FaLayers L, int li, vec3 world_pos, vec3 n, vec3 v, vec3 
             vec3 h = normalize(l + v);
             float ndh = max(dot(n, h), 0.0);
             float vdh = max(dot(v, h), 0.0);
+#ifdef FA_SSS
+            // The subsurface variant (M73.5) keeps the diffuse term only: Lambert for every light kind (an area light through its
+            // representative direction and attenuation), without the specular lobe and the material layers.
+            lit += diffuse_color * (fa_light_rgb(li) * fa_light_tint) * (ndl * atten);
+#else
             if (fa_light_is_area && !lay.on) {
                 // An area light (M73.1b): the LTC polygon of the light, diffuse and specular, in place of the point-light terms.
                 lit += fa_area_shade(li, i.world_pos, n, v, diffuse_color, f0, 1.0, roughness, ndv, atten);
@@ -293,6 +298,7 @@ vec3 fa_area_layers(in FaLayers L, int li, vec3 world_pos, vec3 n, vec3 v, vec3 
                 vec3 spec = fres * (d_ggx * vis * FA_PI) * step(0.0001, ndl);
                 lit += (diffuse_color + spec) * (fa_light_rgb(li) * fa_light_tint) * (ndl * atten);
             }
+#endif
 #endif
         }
 @end

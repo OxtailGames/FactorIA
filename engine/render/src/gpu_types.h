@@ -23,16 +23,20 @@ struct TargetFormat {
     // The depth(-stencil) attachment's format; NONE for a pass without one.
     sg_pixel_format depth = SG_PIXELFORMAT_NONE;
     int samples = 1;  // the sample count of the attachments (1 = no multisampling)
+    // The second colour attachment's format (multiple render targets); NONE for every pass but the subsurface draw. Last,
+    // so the aggregate initialisers {color, depth, samples} of the other passes keep working.
+    sg_pixel_format color1 = SG_PIXELFORMAT_NONE;
 
     bool operator==(const TargetFormat& o) const {
-        return color == o.color && depth == o.depth && samples == o.samples;
+        return color == o.color && color1 == o.color1 && depth == o.depth && samples == o.samples;
     }
     bool operator!=(const TargetFormat& o) const { return !(*this == o); }
 
-    // A hash of the three fields (std::hash<TargetFormat> uses it): the same on every run, never a pointer or an id.
+    // A hash of the four fields (std::hash<TargetFormat> uses it): the same on every run, never a pointer or an id.
     std::size_t hash() const {
-        std::uint64_t h = 1469598103934665603ull;  // FNV-1a over the three values
-        for (std::uint64_t v : {std::uint64_t(color), std::uint64_t(depth), std::uint64_t(samples)}) {
+        std::uint64_t h = 1469598103934665603ull;  // FNV-1a over the four values
+        for (std::uint64_t v :
+             {std::uint64_t(color), std::uint64_t(color1), std::uint64_t(depth), std::uint64_t(samples)}) {
             h ^= v;
             h *= 1099511628211ull;
         }
@@ -52,6 +56,7 @@ struct PassDesc {
 
     // Where the pass draws. With `swapchain` set the three views are ignored and the pass draws into the window.
     sg_view color{};    // colour attachment 0; an invalid view (id 0) for a depth-only pass (the shadow map has both)
+    sg_view color1{};   // colour attachment 1 (the subsurface draw's second target); id 0 for every other pass
     sg_view resolve{};  // MSAA only: the view `color` is resolved into at the end of the pass; id 0 when not resolving
     sg_view depth{};    // the depth-stencil attachment; id 0 when the pass has none
     const sg_swapchain* swapchain = nullptr;  // present(): the window's swapchain (not owned, valid for the call)
@@ -95,6 +100,11 @@ struct PassDesc {
         p.action.colors[0].load_action = colorLoad;
         p.action.colors[0].store_action = colorStore;
         p.action.colors[0].clear_value = clearColor;
+        if (color1.id) {
+            p.action.colors[1].load_action = colorLoad;
+            p.action.colors[1].store_action = colorStore;
+            p.action.colors[1].clear_value = clearColor;
+        }
         p.action.depth.load_action = depthLoad;
         p.action.depth.clear_value = clearDepth;
         p.action.stencil.load_action = stencilLoad;
@@ -102,6 +112,7 @@ struct PassDesc {
             p.swapchain = *swapchain;
         } else {
             p.attachments.colors[0] = color;
+            p.attachments.colors[1] = color1;
             p.attachments.resolves[0] = resolve;
             p.attachments.depth_stencil = depth;
         }
