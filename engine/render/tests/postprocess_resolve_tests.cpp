@@ -679,7 +679,7 @@ TEST_CASE("features: what the engine does not draw yet is false and says planned
 
 TEST_CASE(
     "features: the lighting rows of M73 are planned until their package lands and never claim what is not drawn") {
-    const char* const rows[] = {"contactShadows", "reflectionProbes", "subsurface", "realtimeGI", "transmission"};
+    const char* const rows[] = {"reflectionProbes", "subsurface", "realtimeGI", "transmission"};
     const FeatureEnv full = gpu(FeatureBackend::D3d11, true, true, true, true);
     for (const char* n : rows) {
         CAPTURE(n);
@@ -688,6 +688,14 @@ TEST_CASE(
         CHECK_FALSE(supported(full, n, &why));
         CHECK(why == "planned (M73)");
         CHECK(feature_table()[std::size_t(find_feature(n))].kind == FeatureKind::Engine);
+    }
+    // contact shadows (M73.2c) are drawn in the mesh shader from the depth prepass: supported where the prepass can be made.
+    {
+        std::string why;
+        REQUIRE(find_feature("contactShadows") >= 0);
+        CHECK(supported(full, "contactShadows", &why));
+        CHECK(why.find("planned") == std::string::npos);
+        CHECK(feature_table()[std::size_t(find_feature("contactShadows"))].kind == FeatureKind::Engine);
     }
     // decals (M73.5b) are drawn in the mesh shader and ask nothing of the GPU: supported everywhere, never "planned".
     CHECK(find_feature("decals") >= 0);
