@@ -577,9 +577,10 @@ inline constexpr MeshFragmentView kMeshFragmentViews[] = {
      "image "
      "cannot pair with): M73.2c (today) the prepass of the opaque phase (r = linear view depth, a = 1 on a mesh) for "
      "the "
-     "contact shadows, a white image while none is drawn or in the blended phase; M73.6b the opaque color for "
-     "transmission "
-     "(read with texelFetch too, any mip, bilinear by hand)"},
+     "contact shadows, a white image while none is drawn; in the blended phase of a frame with a transmissive mesh "
+     "(M73.6b) the "
+     "refraction atlas (renderer_xmit.h): the opaque picture and its halves, read with texelFetch too, bilinear and "
+     "trilinear by hand"},
 };
 inline constexpr int kMeshFragmentViewCount = int(sizeof(kMeshFragmentViews) / sizeof(kMeshFragmentViews[0]));
 
@@ -1386,11 +1387,12 @@ public:
     // `extras` = the per-instance params and declared channels of that custom material (MaterialAsset::extras()):
     // vertex buffers 3, 4 and 5 at the attributes after the matrix (and the joints). The shader id decides the
     // pipeline: a material's programs and its extras change together, so the key does not name them.
+    // `glass` = a blended mesh with transmission: it culls its back faces unless `doubleSided` (a blended mesh draws both faces otherwise).
     sg_pipeline mesh_pipeline(const TargetFormat& format, bool blended, bool doubleSided, bool skinned = false,
-                              sg_shader shader = {}, MeshExtras extras = {});
+                              sg_shader shader = {}, MeshExtras extras = {}, bool glass = false);
     sg_pipeline mesh_pipeline(bool blended, bool doubleSided, bool skinned = false, sg_shader shader = {},
-                              MeshExtras extras = {}) {
-        return mesh_pipeline(scene_target_format(), blended, doubleSided, skinned, shader, extras);
+                              MeshExtras extras = {}, bool glass = false) {
+        return mesh_pipeline(scene_target_format(), blended, doubleSided, skinned, shader, extras, glass);
     }
     // One pass of a full-shader material: the vertex layout of mesh_pipeline with the pass's own cull, depth and blend
     // state.

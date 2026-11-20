@@ -795,6 +795,15 @@ Result<std::vector<std::uint8_t>> mesh_to_glb(const MeshData& d, const std::stri
                 ext["KHR_materials_specular"] = {
                     {"specularFactor", L.specular},
                     {"specularColorFactor", Json::array({L.specularColor[0], L.specularColor[1], L.specularColor[2]})}};
+            if (L.transmission != 0.0f) ext["KHR_materials_transmission"] = {{"transmissionFactor", L.transmission}};
+            if (L.thickness != 0.0f || L.attenuationDistance != 0.0f ||
+                L.attenuationColor != MaterialLayers{}.attenuationColor) {
+                Json vol = {{"thicknessFactor", L.thickness},
+                            {"attenuationColor",
+                             Json::array({L.attenuationColor[0], L.attenuationColor[1], L.attenuationColor[2]})}};
+                if (L.attenuationDistance > 0.0f) vol["attenuationDistance"] = L.attenuationDistance;
+                ext["KHR_materials_volume"] = vol;
+            }
             if (L.ior != 1.5f) ext["KHR_materials_ior"] = {{"ior", L.ior}};
             if (!ext.empty()) {
                 for (auto it = ext.begin(); it != ext.end(); ++it) extensionsUsed.insert(it.key());

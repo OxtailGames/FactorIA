@@ -255,3 +255,102 @@ vec3 fa_layers_light(in FaLayers L, vec3 diffuse_color, vec3 f0, vec3 n, vec3 v,
     return result;
 }
 @end
+
+// Transmission and volume (M73.6b, KHR_materials_transmission / _volume / _ior): what a glass or liquid surface lets through. Only in
+// fa_fs_light (the engine's own lighting; a "custom" lighting draws no transmission). A transmissive draw is a blended-phase draw, so the
+// opaque picture is finished when it runs; the renderer (renderer_xmit.h) copied the camera's rectangle of it into the "refraction atlas" bound
+// at view 28 and reduced it level by level, each level half the size of the one before:
+//
+//   level 0 at (0, 0), the size of the camera's rectangle (fa_ct_a.zw); level 1 at (W, 0); level k >= 2 right under level k - 1.
+//
+// The positions are IMAGE ROWS (row 0 = the image's first row on every backend), and the size of level k is max(floor(size / 2^k), 1): the
+// C++ side (xmit_layout in renderer_xmit.h) computes the same numbers. The atlas is read with texelFetch (the slot is declared unfilterable), so
+// the bilinear and the blend between two levels are done here.
+//
+// The model is the glTF one: the light that goes through is (1 - Fresnel) * baseColor * what is behind the surface, bent and blurred. The ray
+// leaves the surface along refract(-v, n, 1 / ior), travels `thickness` metres inside (the volume is a thin slab of that depth: no ray
+// march, no second interface) and the picture is read where that point is on the screen (the rows of the view-projection matrix of
+// fa_ct_vp*), at the level the roughness asks for (roughness * clamp(2 * ior - 2, 0, 1) of the way down the pyramid: glass of ior 1 bends
+// nothing, so its roughness blurs nothing). Beer-Lambert tints it over the same distance: exp(-ln(1 / attenuationColor) * d / attenuationDistance),
+// so the colour is the one the light has after attenuationDistance metres. What is behind is the OPAQUE picture: another transmissive surface
+// (sorted far to near) does not show up in it. The diffuse light of the surface is scaled by 1 - transmission by the caller.
+@block fa_transmission
+vec2 fa_xm_size(int k) {
+    return max(floor(fa_ct_a.zw / exp2(float(k))), vec2(1.0));
+}
+
+// Where level k starts in the atlas, in pixels.
+vec2 fa_xm_origin(int k) {
+    if (k == 0) { return vec2(0.0); }
+    float y = 0.0;
+    for (int j = 1; j < k; j++) { y += fa_xm_size(j).y; }
+    return vec2(fa_ct_a.z, y);
+}
+
+vec3 fa_xm_texel(vec2 size, vec2 origin, vec2 p) {
+    vec2 q = clamp(p, vec2(0.0), size - 1.0);
+    return texelFetch(sampler2D(fa_screen_tex, fa_shadow_smp), ivec2(origin + q), 0).rgb;
+}
+
+// Level k at uv (0..1 over the camera's rectangle in image rows), bilinear.
+vec3 fa_xm_level(int k, vec2 uv) {
+    vec2 size = fa_xm_size(k);
+    vec2 origin = fa_xm_origin(k);
+    vec2 p = uv * size - 0.5;
+    vec2 f = fract(p);
+    vec2 b = floor(p);
+    vec3 a0 = fa_xm_texel(size, origin, b);
+    vec3 a1 = fa_xm_texel(size, origin, b + vec2(1.0, 0.0));
+    vec3 a2 = fa_xm_texel(size, origin, b + vec2(0.0, 1.0));
+    vec3 a3 = fa_xm_texel(size, origin, b + vec2(1.0, 1.0));
+    return mix(mix(a0, a1, f.x), mix(a2, a3, f.x), f.y);
+}
+
+// The atlas at uv, `lod` levels down (a fraction blends the two levels around it).
+vec3 fa_xm_sample(vec2 uv, float lod) {
+    float top = max(fa_tr_b.w - 1.0, 0.0);
+    float l = clamp(lod, 0.0, top);
+    int k0 = int(floor(l));
+    vec3 c = fa_xm_level(k0, uv);
+    float fr = l - float(k0);
+    if (fr > 0.001 && float(k0) < top) { c = mix(c, fa_xm_level(k0 + 1, uv), fr); }
+    return c;
+}
+
+// What the surface adds to the light of the lobes: the light that goes through it. `f0` and `f90` are the reflectances of the base layer at
+// normal incidence and at grazing angles (the surface's specular reflection takes that share, the rest goes through), `keep` what the layers on
+// top let through (FaLayers.base_scale), `tr` the transmission (already times 1 - metallic). When no atlas is bound (fa_tr_a.w = 2)
+// `blend` gets the share of the picture behind the draw lets through, for the caller to turn into a plain alpha blend (the glass keeps
+// its reflections and darkens what is behind; no refraction).
+vec3 fa_transmitted(in Surface s, vec3 n, vec3 v, float roughness, vec3 f0, float f90, float keep, float tr, inout float blend) {
+    float ndv = max(dot(n, v), 1e-4);
+    vec2 ab = fa_env_brdf(roughness, ndv);
+    vec3 refl = clamp(f0 * ab.x + vec3(f90) * ab.y, 0.0, 1.0);
+    vec3 through = (vec3(1.0) - refl) * s.albedo * (tr * keep);
+    // Beer-Lambert over the distance travelled in the volume.
+    float len = max(s.thickness, 0.0);
+    if (s.attenuation_distance > 0.0 && len > 0.0) {
+        vec3 coef = -log(clamp(s.attenuation_color, vec3(0.0001), vec3(1.0))) / s.attenuation_distance;
+        through *= exp(-coef * len);
+    }
+    if (fa_tr_a.w > 1.5 || fa_tr_a.w < 0.5) {
+        blend = clamp(dot(through, vec3(1.0 / 3.0)), 0.0, 0.98);
+        return vec3(0.0);
+    }
+    // Where the light that went through is on the screen.
+    vec3 world = fa_world_pos;
+    if (len > 0.0) {
+        vec3 rd = refract(-v, n, 1.0 / max(s.ior, 1.0));
+        world += rd * len;
+    }
+    vec4 pv = vec4(world, 1.0);
+    float w = dot(fa_ct_vpw, pv);
+    vec2 uv = vec2(0.5);
+    if (w > 1e-4) {
+        vec2 ndc = vec2(dot(fa_ct_vpx, pv), dot(fa_ct_vpy, pv)) / w;
+        uv = vec2(ndc.x * 0.5 + 0.5, fa_ct_a.y > 0.5 ? ndc.y * 0.5 + 0.5 : 0.5 - ndc.y * 0.5);
+    }
+    float lod = clamp(roughness, 0.0, 1.0) * clamp(2.0 * s.ior - 2.0, 0.0, 1.0) * max(fa_tr_b.w - 1.0, 0.0);
+    return through * fa_xm_sample(clamp(uv, vec2(0.0), vec2(1.0)), lod);
+}
+@end
