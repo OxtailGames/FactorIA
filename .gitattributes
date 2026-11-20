@@ -60,3 +60,6 @@ tools/common/tests/fixtures/** text eol=lf
 engine/render/tests/data/*.gltf text eol=lf
 tools/cli/tests/fixtures/**/*.js text eol=lf
 tools/cli/tests/fixtures/**/*.md text eol=lf
+
+# The generated LTC tables are compared byte for byte with what tools/ltc produces.
+engine/render/src/ltc_tables.h text eol=lf

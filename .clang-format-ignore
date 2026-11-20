@@ -7,3 +7,5 @@ engine/render/src/shaders/*.glsl.h
 **/tests/data/
 **/tests/golden/
 **/tests/fixtures/
+# Written by tools/ltc (fa_ltc_gen).
+engine/render/src/ltc_tables.h
