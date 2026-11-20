@@ -554,7 +554,14 @@ sg_pipeline Gpu::mesh_pipeline(const TargetFormat& format, bool blended, bool do
         SG_VERTEXFORMAT_UBYTE4N;  // vertex color, white without (MeshVertex::color)
     set_instance_layout(d, ATTR_mesh_mesh_fa_inst_m0, shader.id && extras.bufferInst);
     if (skinned) set_skin_layout(d, ATTR_mesh_mesh_skin_fa_joints, ATTR_mesh_mesh_skin_fa_weights);
-    if (shader.id) set_extra_layout(d, skinned ? kExtraAttrBaseSkinned : kExtraAttrBase, extras);
+    if (shader.id) {
+        set_extra_layout(d, skinned ? kExtraAttrBaseSkinned : kExtraAttrBase, extras);
+    } else if (!skinned) {
+        // The engine's own program reads the lightmap UV (uv1, vertex buffer 4) of every mesh: the draw binds the lightmap UV or zeros.
+        MeshExtras lm;
+        lm.uv1 = true;
+        set_extra_layout(d, kExtraAttrBase, lm);
+    }
     d.index_type = SG_INDEXTYPE_UINT32;
     d.depth.compare = SG_COMPAREFUNC_LESS_EQUAL;
     d.depth.write_enabled = !blended;

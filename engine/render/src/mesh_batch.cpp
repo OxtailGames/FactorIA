@@ -51,7 +51,8 @@ auto material_key(const MeshItem& a) {
     return std::make_tuple(a.mesh, a.tex, a.normalTex, r.color.r, r.color.g, r.color.b, r.color.a, r.metallic,
                            r.roughness, r.emissive.r, r.emissive.g, r.emissive.b, r.emissiveStrength, r.unlit,
                            r.receiveShadows, r.uvScale.x, r.uvScale.y, r.normalScale, a.anim, a.material, a.paramsHash,
-                           a.colorsHash, a.flash.r, a.flash.g, a.flash.b, a.flash.a);
+                           a.colorsHash, a.flash.r, a.flash.g, a.flash.b, a.flash.a,
+                           a.lm.mesh ? a.entity.bits() : std::uint64_t(0));
 }
 
 // The order of the batches: the same values, with each asset by its name (path or key) and a skinned item by its
@@ -67,13 +68,14 @@ std::string_view name_of(const MaterialAsset* m) { return m ? std::string_view(m
 auto order_key(const MeshItem& a) {
     const MeshRenderer& r = *a.mr;
     using rjobs::order_float;
-    return std::make_tuple(
-        name_of(a.mesh), name_of(a.tex), name_of(a.normalTex), order_float(r.color.r), order_float(r.color.g),
-        order_float(r.color.b), order_float(r.color.a), order_float(r.metallic), order_float(r.roughness),
-        order_float(r.emissive.r), order_float(r.emissive.g), order_float(r.emissive.b),
-        order_float(r.emissiveStrength), r.unlit, r.receiveShadows, order_float(r.uvScale.x), order_float(r.uvScale.y),
-        order_float(r.normalScale), a.anim ? a.entity.bits() : std::uint64_t(0), name_of(a.material), a.paramsHash,
-        a.colorsHash, order_float(a.flash.r), order_float(a.flash.g), order_float(a.flash.b), order_float(a.flash.a));
+    return std::make_tuple(name_of(a.mesh), name_of(a.tex), name_of(a.normalTex), order_float(r.color.r),
+                           order_float(r.color.g), order_float(r.color.b), order_float(r.color.a),
+                           order_float(r.metallic), order_float(r.roughness), order_float(r.emissive.r),
+                           order_float(r.emissive.g), order_float(r.emissive.b), order_float(r.emissiveStrength),
+                           r.unlit, r.receiveShadows, order_float(r.uvScale.x), order_float(r.uvScale.y),
+                           order_float(r.normalScale), (a.anim || a.lm.mesh) ? a.entity.bits() : std::uint64_t(0),
+                           name_of(a.material), a.paramsHash, a.colorsHash, order_float(a.flash.r),
+                           order_float(a.flash.g), order_float(a.flash.b), order_float(a.flash.a));
 }
 
 // Items that can share one instanced draw have the same mesh, textures and every MeshRenderer value the shader reads.
@@ -255,7 +257,7 @@ SortKeyTable::Rest SortKeyTable::rest_of(const SortFields& f) {
     x.unlit = r.unlit;
     x.receiveShadows = r.receiveShadows;
     x.uvNormal = {order_float(r.uvScale.x), order_float(r.uvScale.y), order_float(r.normalScale)};
-    x.skinEntity = f.anim ? f.entity.bits() : std::uint64_t(0);
+    x.skinEntity = (f.anim || f.lightmapped) ? f.entity.bits() : std::uint64_t(0);
     x.material = name_of(f.material);
     x.paramsHash = f.paramsHash;
     x.colorsHash = f.colorsHash;

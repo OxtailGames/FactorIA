@@ -7523,7 +7523,7 @@ declare module "factoria" {
      */
     instanceBounds: number;
     /**
-     * Resolution of this mesh in the baked lightmap, as a multiple of the scene's lightmap density (1 = the scene's). 0 keeps it out of the lightmap. No effect yet: M73.4 brings the lightmaps (docs/rendering/RENDERING_LIGHTING.md).
+     * Resolution of this mesh in the baked lightmap, as a multiple of the scene's lightmap density (1 = the scene's). The lightmap.bake command gives the mesh that many texels per metre of its surface (16 per metre times this, capped by the page size); 0 keeps it out of the bake, and an entity the bake left out is lit as without a lightmap. Has no effect on its own: the bake writes the result into the scene's lightmap manifest (SceneSettings.lightmaps, docs/rendering/RENDERING_LIGHTING.md, "Lightmaps").
      * @since unreleased
      */
     lightmapScale: number;
@@ -7533,7 +7533,7 @@ declare module "factoria" {
      */
     contributeGI: boolean;
     /**
-     * Whether the surface is lit by the baked lightmap, the light probes and the realtime global illumination. No effect yet: M73.4 brings it.
+     * Whether the surface is lit by the baked lightmap (when the manifest of SceneSettings.lightmaps has an entry for this entity: the baked irradiance replaces the ambient light and the sky's diffuse light, and lights with mode baked are skipped on it). false = the entity ignores its lightmap entry and is lit in realtime, and a bake leaves it out as a receiver. The light probes and the realtime global illumination (M73.4d, M73.5) read it too.
      * @since unreleased
      */
     receiveGI: boolean;
@@ -7693,7 +7693,7 @@ declare module "factoria" {
      */
     shadowDistance: number;
     /**
-     * realtime (default): lit every frame. baked: its light is computed once into the lightmaps and the light probes and costs nothing at run time. mixed: baked indirect light plus realtime direct light and shadows. No effect yet: M73.4 brings it.
+     * realtime (default): lit every frame. baked: its light is computed once into the lightmaps (lightmap.bake) and an entity lit by a lightmap no longer gets it at run time; an entity with no lightmap entry is still lit by it every frame, so nothing goes dark before the bake. mixed: lit every frame like a realtime light, with shadows (its bounce light in the lightmaps and the light probes for moving objects: M73.4c and M73.4d).
      * @since unreleased
      */
     mode: "realtime" | "baked" | "mixed";
@@ -11550,6 +11550,11 @@ declare module "factoria" {
      * @since unreleased
      */
     skyModel: "gradient" | "physical";
+    /**
+     * The scene's baked lightmap: a *.lightmap.json manifest (written by the lightmap.bake command, next to its .hdr pages) that says, per entity, which rectangle of which page lights it. The renderer loads it with the scene and reloads it when a file changes; an entity listed in it (and with MeshRenderer.receiveGI) is lit by the baked irradiance instead of the ambient light, and lights with mode baked stop lighting it. "" (default) = no lightmap. A missing or invalid manifest is reported (render.assets) and the scene is drawn without it. docs/rendering/RENDERING_LIGHTING.md, "Lightmaps". (asset path: any)
+     * @since unreleased
+     */
+    lightmaps: string;
   }
   /** Component views by name, as returned by entity.get(name). */
   export interface Components {
@@ -11657,7 +11662,7 @@ declare module "factoria" {
     Chart: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; material?: string; materialParams?: any; tooltip?: any; draggable?: any; mirror?: boolean; values?: any; kind?: "bar" | "line"; colors?: any; min?: any; max?: any; baseline?: number; showBaseline?: boolean; includeBaseline?: boolean; slots?: number; marks?: any; baselineColor?: ColorLike; markColor?: ColorLike; lineWidth?: number; barGap?: number; padding?: number; showLabels?: boolean; decimals?: number; font?: string; fontSize?: number; textColor?: ColorLike };
     Script: { path?: string; props?: any; enabled?: boolean };
     PostProcess: { enabled?: boolean; shape?: "global" | "box" | "circle" | "sphere"; size?: Vec3Like; blendDistance?: number; priority?: number; weight?: number; tonemapEnabled?: boolean; tonemapMode?: "none" | "neutral" | "aces" | "agx" | "reinhard"; exposureEnabled?: boolean; exposureMode?: "manual" | "auto"; exposureEv?: number; exposureMinEv?: number; exposureMaxEv?: number; exposureAdaptationSpeed?: number; bloomEnabled?: boolean; bloomIntensity?: number; bloomThreshold?: number; bloomKnee?: number; bloomRadius?: number; bloomScreenSpace?: boolean; bloomLensDirt?: string; bloomLensDirtIntensity?: number; colorGradingEnabled?: boolean; colorGradingLift?: ColorLike; colorGradingGamma?: ColorLike; colorGradingGain?: ColorLike; colorGradingTemperature?: number; colorGradingTint?: number; colorGradingSaturation?: number; colorGradingContrast?: number; colorGradingHueShift?: number; colorGradingCurveMaster?: Float32Array; colorGradingCurveRed?: Float32Array; colorGradingCurveGreen?: Float32Array; colorGradingCurveBlue?: Float32Array; colorGradingLut?: string; colorGradingLutContribution?: number; colorFilterEnabled?: boolean; colorFilterMode?: "none" | "greyscale" | "highContrast" | "protanopia" | "deuteranopia" | "tritanopia"; vignetteEnabled?: boolean; vignetteIntensity?: number; vignetteSmoothness?: number; vignetteRoundness?: number; vignetteCenter?: Vec2Like; vignetteColor?: ColorLike; chromaticAberrationEnabled?: boolean; chromaticAberrationIntensity?: number; filmGrainEnabled?: boolean; filmGrainIntensity?: number; filmGrainSize?: number; filmGrainAnimated?: boolean; filmGrainLuminanceResponse?: number; lensDistortionEnabled?: boolean; lensDistortionIntensity?: number; lensDistortionScale?: number; lensDistortionCenter?: Vec2Like; sharpenEnabled?: boolean; sharpenIntensity?: number; outlineEnabled?: boolean; outlineMode?: "depth" | "sprite"; outlineColor?: ColorLike; outlineWidth?: number; outlineDepthThreshold?: number; outlineNormalThreshold?: number; outlineAlphaThreshold?: number; pixelateEnabled?: boolean; pixelateSize?: number; posterizeEnabled?: boolean; posterizeLevels?: number; ssaoEnabled?: boolean; ssaoQuality?: "low" | "medium" | "high" | "ultra"; ssaoIntensity?: number; ssaoRadius?: number; depthOfFieldEnabled?: boolean; depthOfFieldFocusDistance?: number; depthOfFieldTarget?: EntityLike; depthOfFieldFocusSpeed?: number; depthOfFieldFocusRange?: number; depthOfFieldNearBlur?: number; depthOfFieldFarBlur?: number; depthOfFieldBokeh?: boolean; motionBlurEnabled?: boolean; motionBlurIntensity?: number; motionBlurSamples?: number; ssrEnabled?: boolean; ssrIntensity?: number; ssrMaxDistance?: number; ssrThickness?: number; ssrSteps?: number; fogEnabled?: boolean; fogColor?: ColorLike; fogDensity?: number; fogStart?: number; fogHeightDensity?: number; fogHeightBase?: number; fogHeightFalloff?: number; sunShaftsEnabled?: boolean; sunShaftsIntensity?: number; sunShaftsThreshold?: number; sunShaftsLength?: number; sunShaftsColor?: ColorLike; radialBlurEnabled?: boolean; radialBlurIntensity?: number; radialBlurCenter?: Vec2Like; radialBlurSamples?: number; customPasses?: any };
-    SceneSettings: { ambientLight?: ColorLike; gravity2D?: Vec2Like; gravity3D?: Vec3Like; fogColor?: ColorLike; fogDensity?: number; skyColor?: ColorLike; horizonColor?: ColorLike; music?: string; musicVolume?: number; lightScale?: number; colorSpace?: "gamma" | "linear"; hdrOutput?: "off" | "auto"; paperWhiteNits?: number; skyMaterial?: string; skyMaterialParams?: any; shadowCascades?: number; shadowCascadeSplit?: number; shadowCascadeBlend?: number; shadowDistance?: number; shadowAtlasSize?: number; contactShadows?: boolean; environmentMap?: string; environmentIntensity?: number; environmentRotation?: number; skyModel?: "gradient" | "physical" };
+    SceneSettings: { ambientLight?: ColorLike; gravity2D?: Vec2Like; gravity3D?: Vec3Like; fogColor?: ColorLike; fogDensity?: number; skyColor?: ColorLike; horizonColor?: ColorLike; music?: string; musicVolume?: number; lightScale?: number; colorSpace?: "gamma" | "linear"; hdrOutput?: "off" | "auto"; paperWhiteNits?: number; skyMaterial?: string; skyMaterialParams?: any; shadowCascades?: number; shadowCascadeSplit?: number; shadowCascadeBlend?: number; shadowDistance?: number; shadowAtlasSize?: number; contactShadows?: boolean; environmentMap?: string; environmentIntensity?: number; environmentRotation?: number; skyModel?: "gradient" | "physical"; lightmaps?: string };
   }
   /**
    * The native plugins of this game (factoria.json "plugins"): plugins.<plugin>.<function>(...args).
