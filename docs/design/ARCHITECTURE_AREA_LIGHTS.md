@@ -106,6 +106,34 @@ golden, and an area light far away against the point light of the same intensity
   and `1e-24` and adds vectors of hundreds of metres, which fp16 would flush. `light_atlas_tests.cpp` fails when a float, vector or matrix
   declaration of the generated `mesh_fs_source_glsl300es` is not `highp`, so a `mediump` that someone adds is found by the tests, not by a
   phone.
-- **What does not use it.** A material with layers, a `lighting()` or `light()` hook and the full shaders see an area light as the point
-  light at its centre (the loop of those paths is the user's or the layer's). Area lights have no shadow and ignore `cookie` and `ies`
-  (a warning once per light); 2D scenes treat the light as a point light.
+- **What does not use it.** 2D scenes treat the light as a point light (`scene2d.cpp`). A cookie or an IES profile on an area light is
+  ignored with a warning once.
+
+## Representative point, layers, shadows and point cookies (M73.1b-2)
+
+- **Hooks and full shaders.** `fa_light_sample_n(li, pos, n)` (`light_data.glsl`; `fa_light_sample` is `n = 0`) moves an area light to
+  `fa_area_point`: for a tube the closest point of the segment to the reflection ray (the closest point to the surface when there is no
+  normal), for a rectangle or a disc the point where the reflection ray meets the emitter's plane, clamped to the shape (the closest point
+  to the surface when the ray misses). The reflection ray uses the geometric normal handed to `fa_light(n, i)` and the camera. A
+  `lighting()` still gets one direction and colour, so it is the specular highlight that follows the emitter's shape. The colour is the
+  point light's at that point, without the near-field factor of the LTC path (so a hook is brighter than the LTC path close to a large
+  emitter and equal far away); a back-facing rectangle or disc lights nothing. `fa_light`, `fa_light_unshadowed`, `light()` and the
+  light loops of the full shaders all go through it.
+- **Layers.** A material with layers (`lay.on`) takes the LTC path for its BASE layer (`fa_area_layers`: diffuse and the base specular
+  with the layers' f0 and f90); the clear coat, the sheen and the anisotropy lobes (`fa_layers_coat`) are lit from the representative
+  point with the colour of a point light of the same intensity, and anisotropy is not applied to the area term.
+- **Shadows.** An area light with `castShadows` uses the local shadows of M73.2b unchanged: six faces from the emitter's centre (a
+  tube, a disc and a rectangle alike; the faces behind a one-sided emitter are never lit, so they are never read), the range being
+  `range + extent`. PCSS sizes the penumbra from the emitter: `LocalShadow::emitter` is the mean full size in metres (rectangle: width and
+  height; disc: the diameter; tube: length and thickness), written to the record's softness texel as a NEGATIVE number,
+  `-emitter * shadowSoftness` (`fa_shadow_filter` reads a negative `k` as metres, a positive one as the old multiple of the texel). The
+  filter reaches at most 16 texels, so an area light with no `shadowResolution` gets a smaller tile the larger the emitter (512 texels
+  for 0.5 m down to 64), which keeps the widest penumbra it can show proportional to the emitter. Approximation: one centre for all points
+  of the emitter and the mean size for a tube, so the penumbra of a long tube is as wide along its length as across.
+- **Point cookies.** A point light's `cookie` is a cube of six 256 x 256 tiles (3 x 2, a 768 x 512 block, `LightAtlasKind::CookieCube`)
+  baked by `bake_cookie_cube_tile` from the picture read as an EQUIRECTANGULAR panorama (the centre of the picture is the light's forward
+  direction -Z; `cookie_cube_dir` gives the direction of a texel). The lookup picks the face with `fa_cube_face`, the GLSL twin of the CPU's
+  `cube_face_of` that the shadow tiles use (`shadow_common.glsl` calls the same function, so the two cannot disagree); the face bases
+  `fa_cube_face_basis` are `cube_face_basis` written out as a GLSL table, so change them together (the golden `3d_light_cookie_point` and
+  the local-shadow tests show a mismatch). The light's own frame is right, up, back = right x up, so a cookie turns with the entity. A
+  face has 254 texels of picture: a 1024 x 512 or 2048 x 1024 panorama is the useful size.

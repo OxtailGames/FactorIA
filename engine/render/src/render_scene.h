@@ -106,6 +106,7 @@ struct SceneMesh {
     // SortKeyTable key of the item as the scene sees it (a camera redoes it for `special` ones).
     std::uint64_t sortKey = 0;
     bool keyed = false;
+    LightmapUse lm;        // lit by a baked lightmap (SceneSettings.lightmaps, M73.4a); lm.mesh null = not
     bool hasLods = false;  // MeshRenderer.lods: mesh, box and blending are chosen again per camera
     // texture or normalMap is a render target ("target:<name>"): which image that is depends on the job that draws (a
     // camera's own target is the checker in its own frame), so every job resolves the texture again.

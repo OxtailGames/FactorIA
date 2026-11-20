@@ -1072,8 +1072,9 @@ struct MeshRenderer {
     float lightmapScale =
         1.0f;  // M73.4: texels per metre of the lightmap, as a multiple of the scene's density; 0 = not in the lightmap
     bool contributeGI = true;  // M73.4: the surface bounces light onto others in a bake and in the realtime GI
-    bool receiveGI = true;     // M73.4: the surface is lit by the baked lightmap, the probes and the realtime GI
-    float clearcoat = 0.0f;    // M73.6: strength of the clear coat layer (KHR_materials_clearcoat)
+    bool receiveGI =
+        true;  // M73.4: the surface is lit by the baked lightmap (and, later, the probes and the realtime GI)
+    float clearcoat = 0.0f;  // M73.6: strength of the clear coat layer (KHR_materials_clearcoat)
     float clearcoatRoughness = 0.03f;
     Color sheenColor{0, 0, 0, 1};  // M73.6: the cloth sheen layer's colour (KHR_materials_sheen); black = none
     float sheenRoughness = 0.5f;
@@ -1087,6 +1088,21 @@ struct MeshRenderer {
     Color attenuationColor{1, 1, 1, 1};
     float attenuationDistance = 0.0f;  // metres until attenuationColor is reached; 0 = the light is not tinted inside
     float subsurface = 0.0f;           // M73.5: screen-space subsurface scattering, for skin and wax
+    bool receiveDecals = true;         // M73.5b: Decal components project onto this mesh
+    std::int32_t decalLayer = 0;       // M73.5b: 0..15, the layer a Decal's `layers` mask is tested against
+};
+// M73.5b: a texture projected onto the 3D meshes inside the box of the entity (docs/rendering/RENDERING_LIGHTING.md,
+// "Decals"). The box is the entity's world transform applied to the cube [-0.5, 0.5]^3; the decal projects along the
+// entity's forward (-Z) and faces +Z.
+struct Decal {
+    std::string albedo;           // texture painted onto the surface; empty = only `color`
+    std::string normal;           // optional normal map that bends the normal of the surface
+    Color color{1, 1, 1, 1};      // tint multiplied with the albedo (flat paint when there is no texture)
+    float opacity = 1.0f;         // 0..1 strength of the whole decal
+    float normalStrength = 1.0f;  // 0..4 how strongly `normal` bends the surface
+    float angleFade = 60.0f;      // degrees 0..90: fades out where the surface turns away from the decal
+    std::int32_t sortOrder = 0;   // decals draw in ascending order, a larger one on top
+    std::int32_t layers = 0;      // bit mask of the MeshRenderer.decalLayer values that receive it; 0 = every layer
 };
 enum class LightType : std::int32_t { Directional, Point, Spot, Area };
 enum class LightShape : std::int32_t { Rectangle, Disc, Tube };
@@ -1098,7 +1114,7 @@ struct Light {
     float intensity = 1.0f;
     float range = 10.0f;       // point/spot attenuation distance (meters)
     float spotAngle = 30.0f;   // spot cone half-angle (degrees)
-    bool castShadows = false;  // directional only until M73.2b brings point and spot shadows
+    bool castShadows = false;  // directional (cascades), point and spot lights (the shadow atlas, with a budget)
     // The fields below belong to the lighting of M73 (docs/rendering/RENDERING_LIGHTING.md); the doc string of each says whether it is drawn yet
     // (the shadow fields are, since M73.2a) or names the package that brings it.
     float innerAngle =
@@ -1108,7 +1124,7 @@ struct Light {
         1.0f,
         1.0f};  // M73.1b: type area (a tube uses x as its length and y as its thickness); a directional cookie's tile, metres
     std::string
-        cookie;  // M73.1b: texture projected by a spot light (perspective) or a directional one (tiled); not by a point light
+        cookie;  // M73.1b: texture projected by a spot light (perspective), a directional one (tiled) or a point light (equirectangular, a cube of 6 faces)
     std::string ies;  // M73.1b: IES profile (.ies) of a point or spot light's distribution
     std::int32_t shadowResolution =
         0;                          // M73.2: texels of the light's shadow map; 0 = the engine picks from the distance
@@ -1555,6 +1571,8 @@ struct SceneSettings {
     float environmentIntensity = 1.0f;    // M73.3
     float environmentRotation = 0.0f;     // M73.3: degrees around the up axis
     SkyModel skyModel = SkyModel::Gradient;  // M73.3: gradient (the colours above) or physical (sun and atmosphere)
+    std::string
+        lightmaps;  // M73.4: the lightmap manifest of the scene (*.lightmap.json, written by lightmap.bake); "" = none
     // The physical sky (skyModel = physical, M73-P3d): read only then. Defaults are a clear mid-day sky.
     float skySunSize = 0.53f;                       // angular diameter of the sun disc, degrees
     float skyTurbidity = 2.0f;                      // aerosols: 1 = very clean air .. 10 = heavy haze

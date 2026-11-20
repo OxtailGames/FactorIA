@@ -17,6 +17,7 @@
 #include "fa_test_paths.h"
 #include "light_atlas.h"
 #include "light_clusters.h"
+#include "local_shadows.h"
 #include "ltc_tables.h"
 #include "mesh_batch.h"
 
@@ -285,4 +286,43 @@ TEST_CASE(
     CHECK(bad.empty());
     // The atlas texture is read with a highp sampler too.
     CHECK(src.find("highp sampler2D fa_light_atlas_fa_env_smp") != std::string::npos);
+}
+
+TEST_CASE("light atlas: a point light's cookie cube has six face tiles that continue into each other") {
+    // The cube takes 3 x 2 tiles of kCookieTile, one key, and the layout keeps it clear of the LTC block.
+    std::vector<LightAtlasKey> keys{{LightAtlasKind::CookieCube, "assets/c.png"},
+                                    {LightAtlasKind::Cookie, "assets/a.png"}};
+    const LightAtlasLayout l = layout_light_atlas(keys);
+    REQUIRE(l.entries.size() == 2);
+    const LightAtlasRect* cube = l.find(keys[0]);
+    REQUIRE(cube);
+    CHECK(cube->w == kCookieCubeW);
+    CHECK(cube->h == kCookieCubeH);
+    CHECK(cube->x + cube->w <= kLightAtlasWidth);
+    // The face tile of every direction is the one cube_face_of picks, for the points inside a face.
+    for (int f = 0; f < kCubeFaces; ++f)
+        for (float s : {-0.9f, 0.0f, 0.9f})
+            for (float t : {-0.9f, 0.0f, 0.9f}) CHECK(cube_face_of(cookie_cube_dir(f, s, t)) == f);
+    // A picture whose left half is white and right half black: the centre column of the picture is straight ahead (-Z, face 5), the
+    // light's +X (face 0) sees the right half and -X (face 1) the left.
+    Image img;
+    img.width = 64;
+    img.height = 32;
+    img.rgba.resize(std::size_t(64) * 32 * 4, 255);
+    for (int y = 0; y < 32; ++y)
+        for (int x = 32; x < 64; ++x)
+            for (int c = 0; c < 3; ++c) img.rgba[(std::size_t(y) * 64 + std::size_t(x)) * 4 + std::size_t(c)] = 0;
+    const std::vector<std::uint16_t> t = bake_cookie_cube_tile(img);
+    REQUIRE(t.size() == std::size_t(kCookieCubeW) * kCookieCubeH * 4);
+    auto at = [&](int face, int x, int y) {
+        const int ox = (face % 3) * kCookieTile, oy = (face / 3) * kCookieTile;
+        return light_atlas_half_to_float(t[(std::size_t(oy + y) * kCookieCubeW + std::size_t(ox + x)) * 4]);
+    };
+    CHECK(at(0, 128, 128) < 0.1f);  // +X: the right of the picture, black
+    CHECK(at(1, 128, 128) > 0.9f);  // -X: the left, white
+    // A face tile's border continues into the next face instead of wrapping: the +Z face (behind) is the seam of the picture, its left
+    // half white and its right half black, and the border column beyond its right edge is black too.
+    CHECK(std::abs(at(4, 0, 128) - at(4, 1, 128)) < 0.2f);
+    CHECK(std::abs(at(4, kCookieTile - 1, 128) - at(4, kCookieTile - 2, 128)) < 0.2f);
+    CHECK(bake_cookie_cube_tile(img) == t);  // deterministic
 }

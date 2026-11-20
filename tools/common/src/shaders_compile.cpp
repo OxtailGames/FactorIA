@@ -331,6 +331,7 @@ const std::vector<std::string>& engine_names(const MaterialDef& material) {
                                           post = {"fa_scene_color",   "fa_depth",     "fa_normal", "fa_history",
                                                   "fa_history_valid", "fa_scene_rgb", "fa_time"},
                                           full = {"fa_ambient",
+                                                  "fa_apply_decals",
                                                   "fa_apply_fog",
                                                   "fa_base_color",
                                                   "fa_base_sample",

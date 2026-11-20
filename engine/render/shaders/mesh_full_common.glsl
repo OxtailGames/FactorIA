@@ -130,6 +130,10 @@ layout(binding=24) uniform texture2D fa_full_light_tex;
 layout(binding=25) uniform texture2D fa_full_light_atlas;
 #define FA_ATLAS_TEX fa_full_light_atlas
 #define FA_ATLAS_SMP fa_env_smp
+// The decal atlas (light_data.glsl, block fa_decals; view 27, sampler 10): read by fa_apply_decals.
+layout(binding=27) uniform texture2D fa_full_decal_tex;
+#define FA_DECAL_TEX fa_full_decal_tex
+#define FA_DECAL_SMP fa_env_smp
 // The baked sky of a sky material (as mesh_common.glsl's fa_fs_head: views 14 and 15, sampler 10; used while fa_env_sky.w is 1).
 layout(binding=14) uniform textureCube fa_env_tex;
 layout(binding=15) uniform textureCube fa_irr_tex;
@@ -138,7 +142,8 @@ layout(binding=10) uniform sampler fa_env_smp;
 // A copy of mesh_common.glsl's fa_mesh_fs_params (a test compares them): the same CPU struct fills both.
 layout(binding=1) uniform fa_mesh_fs_params {
     vec4 fa_camera_pos;         // xyz
-    vec4 fa_ambient;            // rgb
+    vec4 fa_ambient;            // rgb; w = texels per light of the light table (4, or 8 while a light of the view has an area, a cookie
+                                // or an IES profile; 0 = 4: M73.1b, light_data.glsl)
     vec4 fa_base_color;
     vec4 fa_emissive;           // rgb MeshRenderer.emissive, w = 1 when unlit
     vec4 fa_model_emissive;     // rgb glTF emissiveFactor (multiplies fa_emissive_tex)
@@ -150,8 +155,8 @@ layout(binding=1) uniform fa_mesh_fs_params {
     vec4 fa_fog_b;              // the stack's fog (PostProcess.fog*) on a blended mesh: x = fogStart, y = height density,
                                 // z = height base (world y), w = height falloff; all 0 for the scene's own fog
     vec4 fa_fog_c;              // xyz = the camera's forward axis in the world, w = 1 for an orthographic camera (0 otherwise)
-    vec4 fa_counts;             // x = light count, y = texels per light of the light table (4, or 8 while a light has an area, a cookie
-                                // or an IES profile), z = 1 on OpenGL backends
+    vec4 fa_counts;             // x = light count, y = first texel of the decal region (0 = no decals), z = 1 on OpenGL backends,
+                                // w = what this mesh takes of the decals: 0 = none, else 1 + MeshRenderer.decalLayer
     vec4 fa_env_sky;            // rgb sky color (top of the environment); w = 1 when the baked environment of a sky material is bound
     vec4 fa_env_horizon;        // rgb horizon color; w = the highest mip of fa_env_tex (what roughness 1 reads)
     vec4 fa_time;               // x = seconds of game time since the scene started
@@ -178,6 +183,7 @@ layout(binding=1) uniform fa_mesh_fs_params {
 // The light uniform block and fa_light_sample (light_data.glsl), the same declaration as the engine's own meshes; the shadow lookup
 // fa_shadow_sun (shadow_common.glsl).
 @include_block fa_light_data
+@include_block fa_decals
 @include_block fa_shadow_common
 @include_block fa_user
 
@@ -232,12 +238,15 @@ float fa_shadow(vec4 coord, vec3 n, vec3 l) {
 int fa_light_count() { return min(int(fa_counts.x), 32); }
 // Light li (0 .. fa_light_count() - 1, or an index of fa_cluster_light_index()) as seen from a surface point: the direction to the
 // light, its colour times intensity times attenuation times shadow, the attenuation and the shadow separately, the distance and the
-// type (0 directional, 1 point, 2 spot). `coord` is fa_shadow_coord() of the vertex stage (only the first directional light is
-// shadowed); `gn` the geometric normal.
+// type (0 directional, 1 point, 2 spot). `coord` is fa_shadow_coord() of the vertex stage (the first directional light has the sun's
+// shadow, a point or spot light with a shadow map this frame its own); `gn` the geometric normal.
 LightSample fa_light(int li, vec3 world_pos, vec3 gn, vec4 coord) {
-    LightSample ls = fa_light_sample(li, world_pos);
+    LightSample ls = fa_light_sample_n(li, world_pos, gn);
     if (ls.type == 0 && li == 0) {
         ls.shadow = fa_shadow(coord, gn, ls.direction);
+        ls.color = ls.color * ls.shadow;
+    } else if (ls.type != 0 && ls.attenuation > 0.0) {
+        ls.shadow = fa_shadow_local(li, world_pos, gn, ls.direction);
         ls.color = ls.color * ls.shadow;
     }
     return ls;

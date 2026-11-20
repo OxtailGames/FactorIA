@@ -24,7 +24,9 @@ constexpr int kMaxShadowCascades = 4;
 struct ShadowTileRequest {
     int size = 0;      // texels per side wanted; rounded down to a power of two
     int minSize = 64;  // the least the map may be shrunk to when the atlas is full (a power of two)
-    int priority = 0;  // lower = more important: shrunk and dropped last
+    int priority = 0;  // lower = more important: shrunk and dropped last (within a tier)
+    int tier =
+        0;  // a higher tier is shrunk and dropped before any map of a lower one (the sun is 0, the local lights 1)
 };
 
 struct ShadowTile {
@@ -44,9 +46,11 @@ struct ShadowAtlasLayout {
 int pow2_floor(int v);
 int pow2_ceil(int v);
 
-// Packs `requests` into an atlas of `maxSize` x `maxSize` texels (a power of two). When they do not all fit, the largest map is halved
-// (the least important of equally large ones first) down to its minSize, and when none can shrink the least important map is dropped:
-// a deterministic budget, so a result never depends on timing. `maxSize` below 64 is raised to 64.
+// Packs `requests` into an atlas of `maxSize` x `maxSize` texels (a power of two). When they do not all fit, the budget works on the
+// highest tier that still has a map: its largest map is halved (the least important of equally large ones first) down to its minSize,
+// and when none of that tier can shrink its least important map is dropped; only when a tier is gone, or alone, does the next lower one
+// give way. So the sun (tier 0) keeps its size until every local tile is at its minimum and loses a map last. A deterministic budget:
+// a result never depends on timing. `maxSize` below 64 is raised to 64.
 ShadowAtlasLayout layout_shadow_atlas(int maxSize, const std::vector<ShadowTileRequest>& requests);
 
 // ---------------------------------------------------------------------------

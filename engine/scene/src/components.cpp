@@ -1970,15 +1970,21 @@ void register_builtin_components(TypeRegistry& r) {
         .range(0, 1000000)
         .field("lightmapScale", &MeshRenderer::lightmapScale,
                "Resolution of this mesh in the baked lightmap, as a multiple of the scene's lightmap density (1 = the "
-               "scene's). 0 keeps it out of the lightmap. No effect yet: M73.4 brings the lightmaps "
-               "(docs/rendering/RENDERING_LIGHTING.md).")
+               "scene's). The lightmap.bake command gives the mesh that many texels per metre of its surface "
+               "(16 per metre times this, capped by the page size); 0 keeps it out of the bake, and an entity the "
+               "bake left out is lit as without a lightmap. Has no effect on its own: the bake writes the result into "
+               "the scene's lightmap manifest (SceneSettings.lightmaps, docs/rendering/RENDERING_LIGHTING.md, "
+               "\"Lightmaps\").")
         .range(0, 100)
         .field("contributeGI", &MeshRenderer::contributeGI,
                "Whether the surface bounces light onto others in a lightmap bake and in the realtime global "
                "illumination. No effect yet: M73.4 brings the bake and M73.5 the realtime GI.")
         .field("receiveGI", &MeshRenderer::receiveGI,
-               "Whether the surface is lit by the baked lightmap, the light probes and the realtime global "
-               "illumination. No effect yet: M73.4 brings it.")
+               "Whether the surface is lit by the baked lightmap (when the manifest of SceneSettings.lightmaps has an "
+               "entry for this entity: the baked irradiance replaces the ambient light and the sky's diffuse "
+               "light, and lights with mode baked are skipped on it). false = the entity ignores its lightmap entry "
+               "and is lit in realtime, and a bake leaves it out as a receiver. The light probes and the realtime "
+               "global illumination (M73.4d, M73.5) read it too.")
         .field("clearcoat", &MeshRenderer::clearcoat,
                "Strength 0..1 of a clear coat layer over the surface (car paint, lacquer; glTF "
                "KHR_materials_clearcoat). 0 = none. A glTF model with the extension brings its own value; a value here "
@@ -2035,7 +2041,15 @@ void register_builtin_components(TypeRegistry& r) {
         .field("subsurface", &MeshRenderer::subsurface,
                "Strength 0..1 of the screen-space subsurface scattering (skin, wax, marble): light enters the "
                "surface and leaves it blurred nearby. 0 = none. No effect yet: M73.5 brings it.")
-        .range(0, 1);
+        .range(0, 1)
+        .field("receiveDecals", &MeshRenderer::receiveDecals,
+               "true (default): the Decal components whose box reaches this mesh paint it. false: decals skip it "
+               "(a character that must stay clean, a mesh drawn by a custom shader that does not call "
+               "fa_apply_decals). Drawn since M73.5b.")
+        .field("decalLayer", &MeshRenderer::decalLayer,
+               "0..15: the layer of this mesh for decals. A Decal draws on it when bit decalLayer of its `layers` "
+               "mask is set (a `layers` of 0 matches every layer). Drawn since M73.5b.")
+        .range(0, 15);
 
     r.add<Light>("Light",
                  "A light source for 3D meshes. A directional light shines along the entity's forward direction (-Z "
@@ -2050,7 +2064,9 @@ void register_builtin_components(TypeRegistry& r) {
             "directional: sun-like, infinite distance. point: radiates in all directions. spot: cone along forward. "
             "area: a rectangle, disc or tube (`shape`, `size`) that lights with soft highlights and a diffuse "
             "term that follows its extent (linearly transformed cosines; drawn since M73.1b). Far from a surface it "
-            "lights like a point light of the same `intensity`; near it, it is bounded, never infinitely bright.")
+            "lights like a point light of the same `intensity`; near it, it is bounded, never infinitely bright. "
+            "Materials with a lighting() or light() hook and full shaders get it as the light of one point of the "
+            "emitter (the nearest to the reflection of the view), not the whole shape.")
         .field("color", &Light::color, "Light color.")
         .field("intensity", &Light::intensity, "Brightness multiplier.")
         .range(0, 1000)
@@ -2059,8 +2075,14 @@ void register_builtin_components(TypeRegistry& r) {
         .field("spotAngle", &Light::spotAngle, "Spot only: cone half-angle in degrees.")
         .range(1, 89)
         .field("castShadows", &Light::castShadows,
-               "Cast shadows. Only directional lights cast shadows today (the first one that casts, with cascades: see "
-               "SceneSettings.shadowCascades); the shadows of point and spot lights come with M73.2b.")
+               "Cast shadows (M73.2). A directional light shadows with cascades (the first one that casts: see "
+               "SceneSettings.shadowCascades); a spot light with one perspective map and a point (or area) light with "
+               "six, an area light from the centre of its emitter (with shadowFilter pcss the penumbra is as wide "
+               "as the emitter: see shadowSoftness), "
+               "all in the same atlas (SceneSettings.shadowAtlasSize). The point and spot lights that cast share a "
+               "budget per frame: the most important for the camera (brightness, range, distance) keep their maps, get "
+               "smaller ones when the atlas is full and lose the shadow when even that does not fit (a warning names "
+               "the fix once).")
         .field("innerAngle", &Light::innerAngle,
                "Spot only: half-angle in degrees of the cone inside which the light is at full strength; it fades to "
                "nothing at spotAngle (a larger value is used as spotAngle). 0 (default) = the cone fades as it "
@@ -2083,7 +2105,9 @@ void register_builtin_components(TypeRegistry& r) {
             "projects it through its cone (the edge of the cone is the edge of the picture); a directional "
             "light projects it straight along its forward direction, repeated every `size` metres. Its "
             "colour multiplies the light's (premultiplied by its alpha); the texture is resampled to 254 x 254 "
-            "texels. A point light does not project a cookie (a warning says so once). Area lights ignore it. "
+            "texels. A point light projects it all around: the picture is read as an equirectangular panorama (the "
+            "centre in the light's forward direction), stored as six faces of 254 texels, so 1024 x 512 or more "
+            "is useful. Area lights ignore it (a warning says so once). "
             "Empty = none. Drawn since M73.1b; render.supports lightCookies.")
         .asset_field("ies", &Light::ies, "any",
                      "An IES profile (.ies file, LM-63 photometric type C; import it with assets.import) with the "
@@ -2091,19 +2115,25 @@ void register_builtin_components(TypeRegistry& r) {
                      "points along the entity's forward direction. The table is divided by its peak, so `intensity` "
                      "stays the brightness at the brightest direction and the file only shapes the light. Empty = the "
                      "plain distribution. Drawn since M73.1b; render.supports iesProfiles.")
-        .field("shadowResolution", &Light::shadowResolution,
-               "Texels per side of each cascade's shadow map of this light, 0..4096 (a value under 128 is raised to "
-               "128, rounded down to a power of two). 0 (default) = the engine picks: 2048 for one cascade, 1024 "
-               "for several. When the cascades do not fit the atlas (SceneSettings.shadowAtlasSize) they are "
-               "halved, farthest first, down to 128.")
+        .field(
+            "shadowResolution", &Light::shadowResolution,
+            "Texels per side of each shadow map of this light, 0..4096. Directional: per cascade (a value under 128 "
+            "is raised to 128, rounded down to a power of two); 0 (default) = the engine picks, 2048 for one cascade "
+            "and 1024 for several. Point and spot: per tile (a point light has six, one per face), 64..2048 rounded "
+            "down to a power of two; 0 = from the distance to the camera (1024, 512 per face of a point light, "
+            "smaller as the camera moves away from the light's range). When the maps do not fit the atlas "
+            "(SceneSettings.shadowAtlasSize) the largest are halved, the least important first, down to 128 for "
+            "the sun and 64 for the others.")
         .range(0, 4096)
-        .field("shadowBias", &Light::shadowBias,
-               "Depth offset of the shadow test in metres along the light, 0..1, against shadow acne; it grows with "
-               "the slope of the surface. 0 (default) = the engine's own bias, 1.5 texels of the cascade's map.")
+        .field(
+            "shadowBias", &Light::shadowBias,
+            "Depth offset of the shadow test in metres along the light, 0..1, against shadow acne; it grows with "
+            "the slope of the surface. 0 (default) = the engine's own bias, 1.5 texels of the map (of the tile at the "
+            "surface's distance for a point or spot light).")
         .range(0, 1)
         .field("shadowNormalBias", &Light::shadowNormalBias,
                "Offset along the surface normal, in metres 0..1, against shadow acne on slopes. 0 (default) = the "
-               "engine's own, 1.5 texels of the cascade's map.")
+               "engine's own, 1.5 texels of the map (of the tile at the surface's distance for a point or spot light).")
         .range(0, 1)
         .enum_field("shadowFilter", &Light::shadowFilter, {"pcf", "hard", "pcss"},
                     "How the edge of the shadow is filtered. pcf (default): a small fixed blur. hard: no filtering, "
@@ -2111,21 +2141,75 @@ void register_builtin_components(TypeRegistry& r) {
                     "by shadowSoftness.")
         .field("shadowSoftness", &Light::shadowSoftness,
                "With shadowFilter pcss: the size of the light for the penumbra, 0..10 (1 = the usual: a sun about 6 "
-               "degrees wide). 0 = the narrowest penumbra, a plain PCF of 1.5 texels (use shadowFilter hard for a hard "
-               "shadow).")
+               "degrees wide; for an area light 1 = the size of its emitter, `size`). 0 = the narrowest penumbra, a "
+               "plain PCF of 1.5 texels (use shadowFilter hard for a hard shadow).")
         .range(0, 10)
-        .field("shadowDistance", &Light::shadowDistance,
-               "How far from the camera, in metres, this light draws shadows. 0 (default) = the scene's "
-               "SceneSettings.shadowDistance.")
+        .field(
+            "shadowDistance", &Light::shadowDistance,
+            "How far from the camera, in metres, this light draws shadows. Directional: the end of the last cascade. "
+            "Point and spot: the shadow fades out between 75% of this distance and this distance from the camera, "
+            "and a light farther away than this plus its range gets no map at all (it costs nothing). 0 (default) = "
+            "the scene's SceneSettings.shadowDistance; when that is 0 too, a point or spot light has no limit.")
         .range(0, 100000)
         .enum_field("mode", &Light::mode, {"realtime", "baked", "mixed"},
-                    "realtime (default): lit every frame. baked: its light is computed once into the lightmaps and "
-                    "the light probes and costs nothing at run time. mixed: baked indirect light plus realtime "
-                    "direct light and shadows. No effect yet: M73.4 brings it.")
+                    "realtime (default): lit every frame. baked: its light is computed once into the lightmaps "
+                    "(lightmap.bake) and an entity lit by a lightmap no longer gets it at run time; an entity with no "
+                    "lightmap entry is still lit by it every frame, so nothing goes dark before the bake (with "
+                    "castShadows, a point or spot light of this mode gets a shadow map only while a mesh with no "
+                    "lightmap is within its range: the lightmapped ones skip it). mixed: "
+                    "lit every frame like a realtime light, with shadows (its bounce light in the lightmaps and the "
+                    "light probes for moving objects: M73.4c and M73.4d).")
         .field("volumetric", &Light::volumetric,
                "Strength 0..10 of this light's shafts in the volumetric fog (SceneSettings.fogDensity must be above "
                "0). 0 (default) = no shafts. No effect yet: M73.5 brings it.")
         .range(0, 10);
+
+    r.add<Decal>(
+         "Decal",
+         "A texture projected onto the 3D meshes that stand inside the box of this entity: bullet holes, blood, "
+         "graffiti, dirt, road markings, the cracks of a wall. The box is the Transform's world matrix applied to a "
+         "cube "
+         "of side 1 (scale = size in metres); the decal projects along the entity's forward (-Z), its image is upright "
+         "when seen from +Z (the top of the image is +Y). Every mesh with receiveDecals inside the box takes it, the "
+         "albedo blended over the surface and the normal bent, with no extra geometry and one draw per mesh. Up to "
+         "256 decals are drawn at once (the ones that reach the view). It is drawn by the lit forward shaders only: a "
+         "mesh drawn by a custom shader must call fa_apply_decals (docs/shaders/SHADERS_LIGHTING.md). Not the same as "
+         "the decals of a model's `texturing` section, which bake a picture into the UV texture of one model. The "
+         "textures of all the "
+         "decals share one atlas; see docs/rendering/RENDERING_LIGHTING.md, \"Decals\".",
+         "3D")
+        .asset_field("albedo", &Decal::albedo, "texture",
+                     "The colour texture painted onto the surface (its alpha is the shape of the decal). Empty = the "
+                     "decal is a flat patch of `color` over the whole box. The texture is read as sRGB colour.")
+        .asset_field("normal", &Decal::normal, "texture",
+                     "Optional normal map (tangent space, +Y up, the file is read as linear data) that bends the "
+                     "normal of the surface under the decal (bullet dents, bumpy paint, a raised sticker). Empty = "
+                     "the normal stays.")
+        .field("color", &Decal::color,
+               "Tint multiplied with the albedo texture; its alpha is multiplied with the texture's alpha. White "
+               "(default) leaves the texture as it is.")
+        .field("opacity", &Decal::opacity,
+               "0..1: strength of the whole decal, for fading it out (a bloodstain that dries).")
+        .range(0, 1)
+        .field("normalStrength", &Decal::normalStrength,
+               "0..4: how strongly `normal` bends the surface (1 = the map as painted, 0 = not at all).")
+        .range(0, 4)
+        .field("angleFade", &Decal::angleFade,
+               "Degrees 0..90. The decal is at full strength while the angle between the surface's normal and the "
+               "projector's axis (the decal looks along its local -Z) is under this; beyond it the strength falls as "
+               "cos(angle) / cos(angleFade) and reaches 0 only when the surface is edge-on (90 degrees), so a smaller "
+               "value keeps the decal from smearing along walls seen at a slant. 90 keeps full strength until the "
+               "surface is edge-on. Default 60.")
+        .range(0, 90)
+        .field("sortOrder", &Decal::sortOrder,
+               "Decals are drawn in ascending order of this value (a larger one lands on top of a smaller one); "
+               "equal values keep the order in which the world visits its Decal components (a stable sort). When "
+               "more than 32 decals cover one cluster of the view the lowest values are kept.")
+        .range(-1000000, 1000000)
+        .field("layers", &Decal::layers,
+               "Bit mask 0..65535 of the MeshRenderer.decalLayer values this decal draws on: bit 0 is layer 0, bit 1 "
+               "layer 1, up to bit 15. 0 (default) = every layer.")
+        .range(0, 65535);
 
     r.add<Animator>(
          "Animator",
@@ -4140,7 +4224,15 @@ void register_builtin_components(TypeRegistry& r) {
         .field("cloudWind", &SceneSettings::cloudWind,
                "Physical sky: metres per second [x, z] the clouds drift along the world axes (beyond 1000 it is "
                "clamped). The drift follows the game clock (never the wall clock), so a replay shows the same sky. "
-               "[0, 0] stands still. Only used with skyModel physical.");
+               "[0, 0] stands still. Only used with skyModel physical.")
+        .asset_field("lightmaps", &SceneSettings::lightmaps, "any",
+                     "The scene's baked lightmap: a *.lightmap.json manifest (written by the lightmap.bake command, "
+                     "next to its .hdr pages) that says, per entity, which rectangle of which page lights it. The "
+                     "renderer loads it with the scene and reloads it when a file changes; an entity listed in it "
+                     "(and with MeshRenderer.receiveGI) is lit by the baked irradiance instead of the ambient "
+                     "light, and lights with mode baked stop lighting it. \"\" (default) = no lightmap. A missing "
+                     "or invalid manifest is reported (render.assets) and the scene is drawn without it. "
+                     "docs/rendering/RENDERING_LIGHTING.md, \"Lightmaps\".");
 }
 
 void ensure_builtin_components() {

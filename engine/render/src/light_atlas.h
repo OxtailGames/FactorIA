@@ -4,6 +4,9 @@
 //     (0, 0) and the BRDF integrals (magnitude, fresnel, 0, 0) at (64, 0), each 64 x 64 texels;
 //   - a tile of kCookieTile x kCookieTile for every light cookie (a texture of the project resampled; rgb premultiplied by alpha, the
 //     tile has a 1 texel border that wraps, so a directional cookie tiles without a seam);
+//   - a cube of kCookieCubeW x kCookieCubeH for every point-light cookie: six face tiles of kCookieTile in 3 columns and 2 rows
+//     (face f, in the order of cube_face_basis, at ((f % 3) * kCookieTile, (f / 3) * kCookieTile)), baked from an equirectangular
+//     picture, each tile with a border that continues into the neighbour faces (so the filter has no seam on a cube edge);
 //   - a tile of kIesTileW x kIesTileH for every IES profile (value = candela / the peak, in r, g and b; ies.h; a 1 texel border that
 //     wraps horizontally and clamps vertically).
 // The slots of the fragment stage are all used (16 units), so the tables share the image with the cookies instead of taking a unit.
@@ -23,6 +26,7 @@
 #include <vector>
 
 #include "fa/core/image.h"
+#include "fa/core/math.h"
 #include "fa/render/ies.h"
 #include "sokol_gfx.h"
 
@@ -33,11 +37,14 @@ inline constexpr int kLightAtlasMaxHeight = 4096;  // 32 MB of RGBA16F: about 60
 inline constexpr int kLtcTile = 64;                // the LTC tables: matrix at (0, 0), BRDF at (kLtcTile, 0)
 inline constexpr int kCookieTile = 256;            // texels per side of a cookie tile, border included
 inline constexpr int kCookieInner = kCookieTile - 2;
+inline constexpr int kCookieCubeW = 3 * kCookieTile, kCookieCubeH = 2 * kCookieTile;
 inline constexpr int kIesTileW = kIesBakeWidth + 2, kIesTileH = kIesBakeHeight + 2;
 inline constexpr int kMaxCookieSide =
     4096;  // a cookie image larger than this on a side is refused before it is decoded
 
-enum class LightAtlasKind : std::uint8_t { Cookie = 0, Ies = 1 };
+// Cookie: a spot light's or a directional light's picture (one tile). Ies: a profile. CookieCube: a point light's picture, an
+// equirectangular image baked to the six faces of a cube (the same file as a Cookie key is another key).
+enum class LightAtlasKind : std::uint8_t { Cookie = 0, Ies = 1, CookieCube = 2 };
 
 struct LightAtlasKey {
     LightAtlasKind kind = LightAtlasKind::Cookie;
@@ -73,6 +80,14 @@ float light_atlas_half_to_float(std::uint16_t h);
 // The tile of an image: kCookieTile x kCookieTile RGBA16F (4 halves per texel), the image resampled (a box filter when it is larger,
 // bilinear when smaller) into the inner kCookieInner texels, rgb times alpha, the border wrapped. Row 0 is the top of the image.
 std::vector<std::uint16_t> bake_cookie_tile(const Image& image);
+// The six faces of a point-light cookie from an equirectangular picture (kCookieCubeW x kCookieCubeH RGBA16F, rgb times alpha). The
+// picture is seen from inside the cube in the light's own frame: its centre is straight ahead (the light's forward axis, -Z), the
+// left and right edges meet behind the light, the top is up (+Y) and its right is the light's +X. Face tiles follow cube_face_basis
+// and are bilinear samples of the picture (wrapping around, clamped at the poles).
+std::vector<std::uint16_t> bake_cookie_cube_tile(const Image& image);
+// The direction (not normalized, in the light's frame) of the point (s, t) of face `face`, both -1..1 across the face, t up: the
+// face's forward plus s times its right (forward x up) plus t times its up (cube_face_basis).
+Vec3 cookie_cube_dir(int face, float s, float t);
 // The tile of an IES profile: kIesTileW x kIesTileH RGBA16F, value in rgb and 1 in alpha (ies_bake).
 std::vector<std::uint16_t> bake_ies_tile(const IesProfile& profile);
 // A tile of ones: what a cookie or profile that cannot be loaded leaves (the light is drawn as if it had none).
