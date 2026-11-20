@@ -6,7 +6,7 @@ what the renderer draws of it today.
 M73 brings the lighting of a leading engine to FactorIA in six steps: many lights at once with area lights, cookies and IES profiles
 (M73.1); shadows for every kind of light, in cascades for the sun (M73.2); an HDR environment, reflection probes and a physical sky
 (M73.3); baked lightmaps and light probes (M73.4); volumetric fog, decals, subsurface scattering and realtime global illumination
-(M73.5); and the material layers clear coat, sheen, anisotropy, specular / IOR and transmission (M73.6; the first four are drawn).
+(M73.5); and the material layers clear coat, sheen, anisotropy, specular / IOR and transmission (M73.6).
 
 **What is there today (M73.1, M73.2, M73.5b): the fields, many lights, area lights, cookies, IES profiles, the shadows of the sun, of point lights and of spot lights, and projected decals.** Every field below is reflected,
 validated, saved in the scene and read back, and shows up in `docs.components` and in the typings, so a scene, a prefab or a tool can
@@ -214,8 +214,7 @@ mesh: the ambient light, and what a metal or glossy surface reflects, come from 
 | `sheenColor`, `sheenRoughness` | colour; 0..1 | black, 0.5 | drawn (M73.6a) |
 | `anisotropy`, `anisotropyRotation` | -1..1; degrees | 0, 0 | drawn (M73.6a) |
 | `specular`, `ior` | 0..1; 1..3 | 1, 1.5 | drawn (M73.6a) |
-| `transmission`, `thickness` | 0..1; metres | 0, 0 | M73.6 |
-| `attenuationColor`, `attenuationDistance` | colour; metres | white, 0 | M73.6 |
+| `transmission`, `thickness`, `attenuationColor`, `attenuationDistance` | 0..1; m; colour; m | 0, 0, white, 0 | drawn (M73.6b): [page](RENDERING_TRANSMISSION.md) |
 | `subsurface`, `subsurfaceRadius`, `subsurfaceColor` | 0..1; 0..0.5 m; colour | 0, 0.01, (1, 0.4, 0.25) | drawn (M73.5), see "Subsurface scattering" |
 
 A value outside its range, or a name that is not one of the listed words, is refused where it is written (the scene file on load, the commands that set a component field, a script property write) with the field, the allowed range or words and a "did you mean" for a misspelt word.
@@ -299,7 +298,7 @@ fine detail to the shadow maps and does not replace them.
   contact shadow, and a thin object (thinner than half the ray) lets the light through; the ray stops at the edge of the screen. The
   prepass holds the opaque meshes only, so blended meshes cast none; a blended mesh, a mesh whose material is a full shader (`mode:
   "full"`), and one with `receiveShadows` off get no contact shadow either, and the draws of transmission (M73.6b), which read the
-  screen's colour in the same slot, will get none. Sprites and the 2D renderer are not affected.
+  screen's colour in the same slot, get none. Sprites and the 2D renderer are not affected.
 - **GPUs.** `render.supports` with `{"feature": "contactShadows"}` follows the GPU's depth prepass, like the effects that need depth.
 
 ## The material layers (M73.6a)
@@ -426,6 +425,10 @@ nothing is set (`handOver` says so).
 on a laptop. Start with `texelsPerMeter` 8 and `samples` 16 for a draft, then raise them. The result is the same bits with any number of
 threads and on every run (a seed: `seed`). Cancel is looked at in every phase (the BVH, the layout, the rays, the denoiser, the gutter); a
 cancelled bake changes no file. The rest of the arguments (`bounces`, `denoiseRadius`, `rayEpsilon`, ...) are in the command's schema (`api.commands`).
+
+### Light probes and mixed lights (M73.4d)
+
+A `LightProbeGroup` is baked by the same job (phase `probes`); a mesh with no lightmap gets the probes' light, and a `baked` light no longer lights it twice. See [Light probes and mixed lights](RENDERING_LIGHT_PROBES.md) (`docs.read rendering-light-probes`).
 
 ## Decals (M73.5b)
 
@@ -574,9 +577,9 @@ until its step lands; then it follows the GPU (`cascadedShadows` does, `environm
 what is not drawn.
 
 `clusteredLights`, `areaLights`, `lightCookies`, `iesProfiles` (M73.1); `cascadedShadows`, `pointShadows`, `spotShadows`,
-`contactShadows` (M73.2, M73.2c: drawn; supported where the depth prepass can be made); `environmentMap`, `reflectionProbes`, `physicalSky` (M73.3; `environmentMap` and `physicalSky` are drawn); `lightmaps` (M73.4a), `lightProbes` (M73.4d);
+`contactShadows` (M73.2, M73.2c: drawn; supported where the depth prepass can be made); `environmentMap`, `reflectionProbes`, `physicalSky` (M73.3; `environmentMap` and `physicalSky` are drawn); `lightmaps` (M73.4a, drawn), `lightProbes` (M73.4d, drawn: every backend);
 `volumetricFog` (M73.5, drawn: true wherever the GPU has RGBA16F render targets that blend and filter), `decals` (M73.5b, drawn), `subsurface` (M73.5, drawn: RGBA16F targets and the depth prepass), `realtimeGI` (M73.5); `clearCoat`, `sheen`, `anisotropy` (M73.6a, drawn: they follow the
-backend, which every one supports) and `transmission` (M73.6b).
+backend, which every one supports) and `transmission` (M73.6b, drawn).
 
 A new capability row, `float32Targets`, says whether the GPU can render to and sample R32F and RGBA32F images: the shadow atlas of
 M73.2 is one (the cascaded shadows need it). It is `true` where the GPU reports both formats as renderable and sampleable.

@@ -15,7 +15,8 @@
 //         "meshHash": "00ff...",            // a hash of the mesh's lightmap geometry: another one means the mesh changed since the bake
 //         "page": 0,                        // the index in "pages"
 //         "scaleOffset": [0.25, 0.25, 0.5, 0.0] }   // sx, sy, ox, oy: the page uv of a lightmap uv is uv * (sx, sy) + (ox, oy)
-//     ]
+//     ],
+//     "probes": { "file": "scenes/level.lightmap.3fa2b1c0.probes", "count": 220, "invalid": 4 }   // optional (M73.4d): fa/scene/light_probes.h
 //   }
 //
 // Orientation: a page is a Radiance .hdr whose first row is the top of the image, and page uv (0, 0) is the top-left, so the baker's row 0
@@ -51,12 +52,20 @@ struct LightmapEntry {
     float scaleOffset[4] = {1, 1, 0, 0};  // sx, sy, ox, oy
 };
 
+// The light probes of the bake (M73.4d): the file (fa/scene/light_probes.h) and what the bake found. Empty `file` = no probes.
+struct LightmapProbes {
+    std::string file;  // project-relative path of the .probes file
+    int count = 0;     // probes in the file
+    int invalid = 0;   // probes the bake found inside geometry
+};
+
 struct LightmapManifest {
     int version = kLightmapManifestVersion;
     int uvVersion = 0;
     std::string settingsHash;
     std::vector<LightmapPage> pages;
     std::vector<LightmapEntry> entities;
+    LightmapProbes probes;
     // The entry of an entity, or nullptr. Built by parse_lightmap_manifest (a manifest made by hand calls index()).
     const LightmapEntry* find(const std::string& id) const;
     void index();
