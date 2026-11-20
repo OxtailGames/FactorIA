@@ -102,13 +102,13 @@ yet" from its doc string and updates the tables in RENDERING_LIGHTING.md.
   with the sun) and `sky` (the full-screen draw: the table, the sun disc with limb darkening, the clouds, the encoding to sRGB in a gamma
   scene). Radiance is stored per unit of sun irradiance; `fs_sky` multiplies by the colour of the light, the exposure and pi (the engine's
   lights are not divided by pi). The tables are drawn with `gl_FragCoord / size`, so the image is the same on GL, D3D11 and Metal.
-  Atmosphere maths is `highp` (GLES3 output marks every float `highp`), the tables are RGBA16F.
+  The atmosphere maths needs `highp`: the generated GLSL ES 3.00 fragment shaders default to `precision mediump float;` but sokol-shdc qualifies every float, vector and matrix declaration `highp`, and a test (`physical_sky_tests.cpp`) scans the four programs' GLES3 sources for a declaration without it. The tables are RGBA16F.
 - `src/renderer_sky_phys.h/.cpp` (`PhysicalSky`): owns the shaders, the four images, the pipelines and a sampler; `ready()` makes them on first
   use and refuses (logging once) a GPU without RGBA16F render targets that filter; `update(slot, state)` draws the air tables when
   `sky_air_key` changed and the sky view of the slot when `sky_view_key` (air + the sun's height) changed; `draw()` draws the sky into the open
   pass. Slot 0 is the picture (the sun and the clock of the frame), slot 1 the environment (the quantised ones), so the environment never
   depends on the frame rate.
-- `src/renderer_draw.cpp`: `collect_lights` finds the sun (lights[0] when directional) and multiplies it by the transmittance and cloud
+- `src/renderer_draw.cpp`: `collect_lights` finds the sun (lights[0] after `select_lights`, when directional: the shadow caster, else the brightest directional light) and multiplies it by the transmittance and cloud
   factor (`skyTintsSun`); `plan_env` plans the bake for a physical sky as it does for a sky material, with the key `sky_env_key`; the frame graph
   gets a `sky-view` pass (first job of the frame that shows the sky; the main pass reads its resource) and the `sky-env` pass calls
   `PhysicalSky::update(1)` at the start of a bake.

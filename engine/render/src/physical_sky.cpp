@@ -74,8 +74,8 @@ SkyAir sky_air(double turbidity) {
     a.mieG = 0.8;
     // Ozone: the Chappuis band takes red and green out of the beam (the cross sections of 680, 550 and 440 nm times a column of
     // 300 Dobson units spread over the layer's tent), which is what keeps the zenith of the twilight sky blue.
-    const double cross[3] = {1.5e-21, 3.3e-21, 3.5e-22};  // cm^2
-    const double peak = 8.06e18 / (kSkyOzoneHalfKm * 1.0e5);  // molecules per cm^3 at the centre of the layer
+    const double cross[3] = {1.5e-21, 3.3e-21, 3.5e-22};               // cm^2
+    const double peak = 8.06e18 / (kSkyOzoneHalfKm * 1.0e5);           // molecules per cm^3 at the centre of the layer
     for (int c = 0; c < 3; ++c) a.ozone[c] = cross[c] * peak * 1.0e5;  // per km
     return a;
 }
@@ -100,9 +100,7 @@ void sky_optical_depth(const SkyAir& air, double h, double mu, double tau[3]) {
     }
 }
 
-double sky_sun_visibility(double h, double mu) {
-    return smooth_step(-kSkySunEdge, kSkySunEdge, mu - horizon_mu(h));
-}
+double sky_sun_visibility(double h, double mu) { return smooth_step(-kSkySunEdge, kSkySunEdge, mu - horizon_mu(h)); }
 
 void sky_sun_transmittance(const SkyAir& air, double mu, double out[3]) {
     double tau[3], zen[3];

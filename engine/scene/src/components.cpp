@@ -4059,8 +4059,9 @@ void register_builtin_components(TypeRegistry& r) {
         .enum_field(
             "skyModel", &SceneSettings::skyModel, {"gradient", "physical"},
             "gradient (default): the skyColor and horizonColor gradient. physical: a sky computed from the sun, the "
-            "air and the clouds (the sky* and cloud* fields below). The sun is the first directional light: the one "
-            "with castShadows, else the first; its direction, colour and intensity drive the sky, so turning the "
+            "air and the clouds (the sky* and cloud* fields below). The sun is the directional light the renderer "
+            "puts first: the one with castShadows, else the brightest directional light; its direction, colour and "
+            "intensity drive the sky, so turning the "
             "light turns the sun across it, and the same sky lights and reflects in every mesh (image-based "
             "lighting: rebuilt in one frame after a big change, over three frames while the sun or the clouds move "
             "slowly). Without a directional light the sun stands overhead. A skyMaterial takes the place of the "
@@ -4087,7 +4088,8 @@ void register_builtin_components(TypeRegistry& r) {
                "surface). Only used with skyModel physical.")
         .range(0, 16)
         .field("skyTintsSun", &SceneSettings::skyTintsSun,
-               "Physical sky: true (default) multiplies the colour of the first directional light (the sun) by what "
+               "Physical sky: true (default) multiplies the colour of the sun (the directional light the sky follows) "
+               "by what "
                "the air and the clouds let through, relative to a noon sun: a sun on the horizon turns orange and "
                "dim, a sun behind a thick cloud cover turns weak, and the colour you chose is the colour of the "
                "sun at noon. false keeps the light exactly as authored (the sky still follows its direction). "

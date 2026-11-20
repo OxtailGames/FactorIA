@@ -17,8 +17,11 @@
 // ground only. engine/render/src/physical_sky.cpp has the CPU twin of the transmittance (the colour of the sun light) and the
 // packing of the uniform block `sky_params` (q[0..7], see sky_shader_params()). Constants that appear in both files say so.
 //
-// The atmosphere math stays highp (the generated GLES3 code declares every float highp): at 6360 km one ulp of a float is half a
-// millimetre of a coordinate and the horizon rays depend on it. Altitudes are computed from radii, never from differences of
+// The atmosphere math needs highp: at 6360 km one ulp of a float is half a millimetre of a coordinate and the horizon rays depend on
+// it, and a mediump float (fp16 on a phone) overflows at 6360 squared. sokol-shdc has no precision annotation and writes `precision
+// mediump float;` as the default of a GLSL ES 3.00 fragment shader, but qualifies every declaration of a float, vector or matrix with
+// `highp`: the test "every float of the GLES3 and WebGL2 fragment sources is highp" (tests/physical_sky_tests.cpp) scans the generated
+// sources and fails the day a declaration is not. Write a new declaration of this file with a type that the compiler keeps highp. Altitudes are computed from radii, never from differences of
 // squares, where a cancellation would show.
 @module skyphys
 
