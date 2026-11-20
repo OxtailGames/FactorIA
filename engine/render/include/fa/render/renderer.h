@@ -139,7 +139,11 @@ struct RenderStats {
         0;  // entries left out because a cluster already had 128 lights or the view 524288 entries: a hint to lower the ranges
     int lightMaxPerCluster =
         0;  // the longest list of a cluster (the most lights any one fragment loops over, besides the directional ones)
-    int lights2d = 0;         // Light2D lights shading the 2D visuals (at most 256)
+    // Volumetric fog (M73.5), summed over the cameras of the frame.
+    int volumetricCameras = 0;        // cameras that drew the volumetric fog (SceneSettings.volumetricFog)
+    int volumetricLights = 0;         // lights (Light.volumetric above 0) whose shafts those cameras drew
+    int volumetricLightsDropped = 0;  // lights with volumetric above 0 left out: more than volumetricQuality allows
+    int lights2d = 0;                 // Light2D lights shading the 2D visuals (at most 256)
     int lights2dDropped = 0;  // Light2D lights left out: off-view ones, then the ones over the 256 of the budget
     int lights2dShadowed =
         0;  // of lights2d, the point lights whose castShadows is in effect (a Tilemap with occludesLight; at most 32)

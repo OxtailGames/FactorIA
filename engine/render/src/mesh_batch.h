@@ -245,6 +245,8 @@ struct LightData {
     } shadow;
     bool baked =
         false;  // Light.mode Baked: its direct light is in the lightmaps, so a lightmapped surface skips it (M73.4a)
+    // Light.volumetric (M73.5): the strength of this light's shafts in the volumetric fog; 0 = none.
+    float volumetric = 0.0f;
 };
 
 // Orders the lights by relevance (the shadow caster first, then directional lights, then point and spot lights by

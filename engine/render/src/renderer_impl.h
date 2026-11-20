@@ -32,6 +32,7 @@
 #include "renderer_ssr.h"
 #include "renderer_dof.h"
 #include "renderer_fog.h"
+#include "renderer_volumetric.h"
 #include "renderer_custom_post.h"
 #include "hdr_encode.h"
 #include "postprocess.h"
@@ -98,7 +99,8 @@ struct Renderer::Impl {
     Ssao ssao;   // PostProcess.ssao*: the ambient occlusion passes of each camera (renderer_ssao.h)
     SceneFx
         sceneFx;  // depth of field and motion blur (renderer_dof.h): its shaders, pipelines and the autofocus of each camera
-    FogFx fogFx;  // distance and height fog and sun shafts (renderer_fog.h): its shaders and pipelines
+    FogFx fogFx;         // distance and height fog and sun shafts (renderer_fog.h): its shaders and pipelines
+    VolumetricFx volFx;  // SceneSettings.volumetricFog (renderer_volumetric.h): its shaders and pipelines
     CustomPost
         customPost;  // the passes of PostProcess.customPasses (renderer_custom_post.h): the intermediate images it probed
     Bloom bloom;     // Camera.bloom post-process (its levels are transients of the frame graph, see bloom.h)
