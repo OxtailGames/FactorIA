@@ -65,7 +65,8 @@ range makes the lists long.
 | `shadowDistance` | metres, 0..100000 | 0 (the engine's own fit) | drawn (M73.2a) |
 | `shadowAtlasSize` | 512..8192 texels per side, the most the atlas may have | 4096 | drawn (M73.2a) |
 | `contactShadows` | bool | false | M73.2 (needs a GPU that can sample the depth) |
-| `environmentMap`, `environmentIntensity`, `environmentRotation` | an HDR image; 0..100; degrees | none, 1, 0 | M73.3 |
+| `environmentMap`, `environmentIntensity`, `environmentRotation` | an equirectangular `.hdr` file; 0..100; degrees | none, 1, 0 | drawn (M73-P3a-2, see "The environment map") |
+| `environmentBackground` | bool: draw the map as the background too | true | M73-P3a-2 |
 | `skyModel` | `gradient`, `physical` | `gradient` | M73-P3d (drawn, see "The physical sky") |
 | `lightmaps` | a `.lightmap.json` file | none | M73.4a |
 | `skySunSize`, `skyTurbidity`, `skyExposure` | degrees 0.1..10; 1..10; 0..16 | 0.53, 2, 1 | M73-P3d |
@@ -77,7 +78,7 @@ range makes the lists long.
 `SceneSettings.skyModel = "physical"` replaces the colour gradient with a sky computed from physics: a sun with a disc, an atmosphere
 (Rayleigh scattering of the air, Mie scattering of dust and haze, absorption of ozone, plus an approximation of the light that
 scatters more than once) and a layer of clouds. It is drawn as the background of every perspective camera that clears, and the same
-sky is baked into the image-based lighting, so the reflections of a metal ball and the ambient light of every mesh follow it: a
+sky is baked into the image-based lighting (unless an `environmentMap` is set: that lights instead, see "The environment map"), so the reflections of a metal ball and the ambient light of every mesh follow it: a
 mirror under a blue sky with a few clouds shows both, and a sun that sets turns the whole scene orange and then dark blue.
 
 - **The sun** is the directional light the renderer puts first (its slot 0): the one with `castShadows`, else the brightest directional
@@ -107,6 +108,46 @@ mirror under a blue sky with a few clouds shows both, and a sun that sets turns 
   floats). The Direct3D 11 and OpenGL numbers were not measured on this host.
 - **Where the GPU cannot.** The tables are RGBA16F render targets that filter. Without them `render.supports` answers false for
   `physicalSky` with that reason, and a scene that asks for the physical sky draws the gradient (an error is logged once).
+
+## The environment map (M73-P3a-2)
+
+`SceneSettings.environmentMap` is a Radiance `.hdr` panorama. It is the background of the scene and the image-based lighting of every
+mesh: the ambient light, and what a metal or glossy surface reflects, come from the picture. Import one with
+`assets.import {"source": "C:/art/sky.hdr"}` (it lands in `assets/hdri/`, kind `hdri` in `assets.list`) and set the field to its path.
+
+- **What a file may be.** Equirectangular (latitude-longitude) only: twice as wide as it is tall (1 % off is accepted). A cube cross, a strip of six
+  faces and a mirror-ball light probe are refused by `assets.import` and `project.validate` with the layout named ("square: a light probe")
+  and how to convert it, and at run time the scene is drawn as if the field were empty, with one error in the log. At least 8 x 4.
+  Picture width is capped at 4096 for the GPU: a wider file (up to 8192 x 4096 pixels on a 64-bit target, 4096 x 2048 on WebAssembly and
+  32-bit ones; more is refused from its header before any memory is asked for) is shrunk to 4096 x 2048 when it is loaded, with a box
+  filter. 2048 x 1024 is enough for lighting.
+- **Orientation.** The middle of the picture is straight ahead along -Z, and +X is to its right (the picture is not mirrored). A positive
+  `environmentRotation` turns the environment counter-clockwise seen from above: what was at +X is at -Z for 90. The picture, the
+  reflections and the lighting turn together.
+- **Brightness.** The file's values are linear light; `environmentIntensity` multiplies them (0 to 100). A gamma scene
+  (`colorSpace: gamma`) shows the picture encoded to sRGB as every colour is, a linear scene as it is: the same picture either way.
+- **Who draws what.**
+
+  | | `skyMaterial` set | no `skyMaterial` |
+  |---|---|---|
+  | the background | the sky material (even a broken one: the gradient, never the picture) | the map, when `environmentBackground` is true; else the physical sky or the gradient |
+  | the lighting and reflections | the map | the map |
+
+  Without an `environmentMap` the lighting is baked from the sky that is drawn, the sky material, the physical sky or the gradient, as before.
+  `environmentIntensity` multiplies the lighting of any of them, and the background of the map. The physical sky's `skyTintsSun` tint of the sun
+  light does not change: it follows the sun and the air, not the map, so turn `skyTintsSun` off when the map has its own sun. A scene without
+  `environmentMap` is drawn exactly as before.
+- **Highlights.** A photograph of the sun holds values a million times the sky's. The file's NaN and negative values become 0; a texel above 60000
+  (the half float holds 65504) is scaled down to it with its colour kept, after the shrinking. The bake takes the sky's own number of samples (32 to 128 a
+  pixel, whatever the picture), so the cost does not depend on the file; and so a sun does not leave fireflies, one sample of the blurred levels and of the ambient
+  light is limited to 64 (its brightest channel, colour kept). The mirror level and the background show the picture as it is, except that `environmentIntensity` can push a sun past what the half float holds: after the gain the brightest channel is limited to 65000, colour kept, so a sun never becomes infinity (and a black spot after the tone mapping). The cost: a sun is
+  a little dimmer in the ambient light and in rough reflections than its energy says, sharp in a smooth mirror. Never time- or CPU-dependent: the same file gives the same pixels.
+- **When the lighting is baked.** In one frame, when the map, the rotation or the intensity change, when the file changes on disk (hot
+  reload) and the first time; a frame in which none changed draws only the background. It is the bake of the sky (60 small passes), not a second one:
+  the picture is drawn into the cube the sky is drawn into. Turning `environmentBackground` on and off does not bake.
+- **Where the GPU cannot.** The picture is an RGBA16F texture with its mip chain (a 32-bit float texture does not filter on GLES 3 and WebGL 2 without an
+  extension), and the cubes of the bake are RGBA16F too. Without half-float targets `render.supports` answers false for `environmentMap`, and a scene that sets it
+  draws as without a map (one error in the log). The size is 85 MB for 4096 x 2048, 21 MB for 2048 x 1024.
 
 ## MeshRenderer
 
@@ -319,11 +360,11 @@ For a snippet material the engine applies decals itself (the `surface` hook's re
 ## Asking what the renderer draws: render.supports
 
 `render.supports` (C++ `Renderer::supports(name)`) answers for each lighting feature below with `false` and the status `planned (M73)`
-until its step lands; then it follows the GPU (`cascadedShadows` does, `physicalSky` is true wherever the GPU renders to RGBA16F and filters it, and `clusteredLights` and `decals` are `true` on every backend that draws). A game that wants a feature checks it first and falls back, so it never relies on
+until its step lands; then it follows the GPU (`cascadedShadows` does, `environmentMap` and `physicalSky` are true wherever the GPU renders to RGBA16F and filters it, and `clusteredLights` and `decals` are `true` on every backend that draws). A game that wants a feature checks it first and falls back, so it never relies on
 what is not drawn.
 
 `clusteredLights`, `areaLights`, `lightCookies`, `iesProfiles` (M73.1); `cascadedShadows`, `pointShadows`, `spotShadows`,
-`contactShadows` (M73.2); `environmentMap`, `reflectionProbes`, `physicalSky` (M73.3); `lightmaps` (M73.4a), `lightProbes` (M73.4d);
+`contactShadows` (M73.2); `environmentMap`, `reflectionProbes`, `physicalSky` (M73.3; `environmentMap` and `physicalSky` are drawn); `lightmaps` (M73.4a), `lightProbes` (M73.4d);
 `volumetricFog`, `decals` (M73.5b, drawn), `subsurface`, `realtimeGI` (M73.5); `clearCoat`, `sheen`, `anisotropy` (M73.6a, drawn: they follow the
 backend, which every one supports) and `transmission` (M73.6b).
 

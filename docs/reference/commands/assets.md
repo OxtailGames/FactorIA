@@ -499,6 +499,7 @@ Example: {"source":"C:/art/hero.aseprite","license":"CC0","author":"Ana"}.
 - .obj (with its .mtl and textures): becomes a .gltf with an embedded buffer and the textures next to it; polygons are triangulated, objects/groups/materials become separate meshes, missing normals give flat shading, and the result has the bounds so you can scale it.
 - .fbx: converted to .glb by FBX2glTF ($FACTORIA_FBX2GLTF or PATH) or by Blender (PATH or its install folder). With neither installed the error says where to get them.
 - .cube: a 3D colour lookup table for PostProcess.colorGradingLut, checked and copied to assets/luts/ (LUT_3D_SIZE 2 to 65, the 0 to 1 domain; a malformed file is an error that names the line; a 1D table is refused).
+- .hdr: a Radiance HDR panorama for SceneSettings.environmentMap, checked and copied to assets/hdri/. Only an equirectangular picture (twice as wide as it is tall) is read: a cube cross, a strip of six faces or a mirror-ball light probe is refused with the layout named and how to convert it. A picture wider than 4096 is shrunk for the GPU when it is loaded; one over 8192 x 4096 is refused from its header. A file that is cut short is an error.
 - .mid .midi: becomes a song document (assets/music/<name>.song.json, or `path`): tracks, patterns, sections from markers, drums as grids (music.import_midi has the options `quantize` and `soundfont`; docs/MUSIC.md, "MIDI").
 - .mp4 .mov .webm .mkv .avi .m4v: converted to an MPEG-1 video with MP2 audio in an .mpg (the only video the engine plays, the same on every platform) by ffmpeg, at most 1280 px wide, quality 4, 30 fps when the frame rate is not one MPEG-1 has. ffmpeg is found through $FACTORIA_FFMPEG, PATH or the copy `factoria setup ffmpeg` installs; without it the error names that command. A source with no audio track gives a silent video (the result warns). The result has width, height, fps and duration and the Video component that plays it. An .mpg or .mpeg is checked to be MPEG-1 and copied.
 Files land in assets/ (models in assets/models/, sounds in assets/audio/, fonts in assets/fonts/, videos in assets/video/ by default) or at `path`, which must be under assets/. An existing file is an error unless overwrite is true.
@@ -517,7 +518,7 @@ Files land in assets/ (models in assets/models/, sounds in assets/audio/, fonts 
 
 ## `assets.list`
 
-List project asset files with type and size. Types: texture, audio, font, mesh, script, scene, prefab, material, vfx, other (by file name).
+List project asset files with type and size. Types: texture, audio, font, mesh, script, scene, prefab, material, vfx, hdri, other (by file name).
 
 Capabilities: read
 

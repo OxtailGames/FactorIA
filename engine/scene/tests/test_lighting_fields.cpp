@@ -32,19 +32,19 @@ const std::vector<std::string> kLightFields = {"innerAngle",
                                                "shadowSoftness",
                                                "shadowDistance",
                                                "volumetric"};
-const std::vector<std::string> kSettingsFields = {"shadowCascades", "shadowCascadeSplit",   "shadowCascadeBlend",
-                                                  "shadowDistance", "shadowAtlasSize",      "contactShadows",
-                                                  "environmentMap", "environmentIntensity", "environmentRotation"};
+const std::vector<std::string> kSettingsFields = {
+    "shadowCascades", "shadowCascadeSplit", "shadowCascadeBlend",   "shadowDistance",      "shadowAtlasSize",
+    "contactShadows", "environmentMap",     "environmentIntensity", "environmentRotation", "environmentBackground"};
 const std::vector<std::string> kMeshFields = {"contributeGI",     "transmission",        "thickness",
                                               "attenuationColor", "attenuationDistance", "subsurface"};
 // Drawn since M73.6 (the material layers): their docs say what they do, not that they have no effect.
 const std::vector<std::string> kLayerFields = {"clearcoat",  "clearcoatRoughness", "sheenColor", "sheenRoughness",
                                                "anisotropy", "anisotropyRotation", "specular",   "ior"};
 // The fields a package has made work: their doc string no longer says "No effect yet" (M73.1a: innerAngle; M73.2a: the cascaded shadows of the sun).
-const std::vector<std::string> kDrawn = {"innerAngle",         "shadowResolution", "shadowBias",
-                                         "shadowNormalBias",   "shadowFilter",     "shadowSoftness",
-                                         "shadowDistance",     "shadowCascades",   "shadowCascadeSplit",
-                                         "shadowCascadeBlend", "shadowAtlasSize"};
+const std::vector<std::string> kDrawn = {
+    "innerAngle",      "shadowResolution", "shadowBias",           "shadowNormalBias",    "shadowFilter",
+    "shadowSoftness",  "shadowDistance",   "shadowCascades",       "shadowCascadeSplit",  "shadowCascadeBlend",
+    "shadowAtlasSize", "environmentMap",   "environmentIntensity", "environmentRotation", "environmentBackground"};
 // Fields a package has made work: their doc strings no longer say "No effect yet" (M73.4a: the lightmap runtime).
 const std::vector<std::pair<std::string, std::string>> kLiveFields = {{"Light", "mode"},
                                                                       {"MeshRenderer", "lightmapScale"},
@@ -110,6 +110,7 @@ TEST_CASE("lighting fields: the defaults keep the look of a scene made before M7
     CHECK_FALSE(s.contactShadows);
     CHECK(s.environmentMap.empty());
     CHECK(s.environmentIntensity == 1.0f);
+    CHECK(s.environmentBackground);
     CHECK(s.skyModel == SkyModel::Gradient);
     const MeshRenderer m;
     CHECK(m.contributeGI);

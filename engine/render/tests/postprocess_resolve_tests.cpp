@@ -679,9 +679,8 @@ TEST_CASE("features: what the engine does not draw yet is false and says planned
 
 TEST_CASE(
     "features: the lighting rows of M73 are planned until their package lands and never claim what is not drawn") {
-    const char* const rows[] = {"areaLights",     "lightCookies",     "iesProfiles", "contactShadows",
-                                "environmentMap", "reflectionProbes", "lightProbes", "volumetricFog",
-                                "subsurface",     "realtimeGI",       "transmission"};
+    const char* const rows[] = {"areaLights",  "lightCookies",  "iesProfiles", "contactShadows", "reflectionProbes",
+                                "lightProbes", "volumetricFog", "subsurface",  "realtimeGI",     "transmission"};
     const FeatureEnv full = gpu(FeatureBackend::D3d11, true, true, true, true);
     for (const char* n : rows) {
         CAPTURE(n);
@@ -707,6 +706,16 @@ TEST_CASE(
         CHECK(supported(full, "physicalSky", &why));
         CHECK(feature_table()[std::size_t(find_feature("physicalSky"))].kind == FeatureKind::Engine);
         CHECK_FALSE(supported(gpu(FeatureBackend::Gles3, false), "physicalSky", &why));
+        CHECK(why.find("RGBA16F") != std::string::npos);
+        CHECK(why.find("planned") == std::string::npos);
+    }
+    // The environment map is drawn (M73-P3a-2): an engine feature that needs the RGBA16F targets the environment cubes are made of.
+    {
+        std::string why;
+        REQUIRE(find_feature("environmentMap") >= 0);
+        CHECK(supported(full, "environmentMap", &why));
+        CHECK(feature_table()[std::size_t(find_feature("environmentMap"))].kind == FeatureKind::Engine);
+        CHECK_FALSE(supported(gpu(FeatureBackend::Gles3, false), "environmentMap", &why));
         CHECK(why.find("RGBA16F") != std::string::npos);
         CHECK(why.find("planned") == std::string::npos);
     }
