@@ -59,6 +59,10 @@ struct SkyDraw {
     bool physical = false, sunDisc = false;
     int slot = 0;
     PhysicalSkyState phys;
+    // An HDRI (SceneSettings.environmentMap, renderer_hdri.h) instead of any of the above: its own program draws it.
+    const HdriAsset* hdri = nullptr;
+    float hdriRotation = 0.0f,
+          hdriGain = 1.0f;  // degrees; the brightness (1 while the bake draws it: the bake's gain applies later)
 };
 
 // Holds references to the job's world and frame and a copy of its plan. It lives (Impl::jobContexts) from plan_job until the
@@ -155,6 +159,12 @@ struct Renderer::Impl::DrawContext {
     float physSunDir[3]{0.0f, 1.0f, 0.0f}, physSunColor[3]{1.0f, 1.0f, 1.0f};
     std::uint64_t envKey = 0;
     SkyDraw envSky;
+    // What the next bake of this job does with the sky (Environment::set_look): SceneSettings.environmentIntensity, and the limit
+    // of one sample of the convolutions (an HDRI's, 0 for any other sky).
+    float envGain = 1.0f, envTap = 0.0f;
+    // plan_env: the HDRI the main pass draws as the background (SceneSettings.environmentMap with environmentBackground, no sky material),
+    // null when it draws anything else.
+    const HdriAsset* hdriMain = nullptr;
     // The textures plan_env resolved for the sky of the job, while the job's own render target was the checker: the sky
     // of the main pass draws with them (resolving them again when the pass runs would bind the target the pass writes).
     // Valid for skyPlannedMat.
@@ -337,6 +347,11 @@ void fill_sky(Renderer::Impl& im, const Renderer::Impl::DrawContext& ctx, Materi
 void draw_sky(Renderer::Impl& im, const SkyDraw& d, const float* invViewProj, const Vec3& camPos,
               const TargetFormat* format) {
     Gpu& gpu = im.gpu;
+    if (d.hdri) {
+        const float cam[3] = {camPos.x, camPos.y, camPos.z};
+        im.hdriSky.draw(gpu, *d.hdri, d.hdriRotation, d.hdriGain, !d.linear, invViewProj, cam, format);
+        return;
+    }
     if (d.physical) {
         const float cam[3] = {camPos.x, camPos.y, camPos.z};
         im.physSky.draw(gpu, d.slot, d.phys, d.sunDisc, invViewProj, cam, format);
@@ -1370,12 +1385,23 @@ static_assert(
 void Renderer::Impl::plan_env(DrawContext& ctx) {
     ctx.envActive = ctx.envBake = ctx.envSliced = ctx.physMainOn = false;
     ctx.skyPlannedMat = nullptr;
+    ctx.hdriMain = nullptr;
+    ctx.envTap = 0.0f;
+    // environmentIntensity multiplies the background of an HDRI and the lighting of any sky (a value that is not a number is 1).
+    ctx.envGain =
+        std::isfinite(ctx.ss.environmentIntensity) ? std::clamp(ctx.ss.environmentIntensity, 0.0f, 100.0f) : 1.0f;
     const Frame& fr = ctx.fr;
     if (!ctx.doMainPass || !fr.wantWorld || fr.cam.studio) return;
+    // The environment map (renderer_hdri.h says who decides what): an HDRI that loaded lights the meshes whatever the background is.
+    const HdriAsset* hdri = nullptr;
+    if (!ctx.ss.environmentMap.empty() && hdriSky.ready(gpu)) hdri = assets->hdri(ctx.ss.environmentMap);
+    // It is also the background unless a sky material is set (even one that failed: the gradient shows, as without an HDRI) or
+    // environmentBackground is off.
+    if (hdri && ctx.ss.environmentBackground && ctx.ss.skyMaterial.empty()) ctx.hdriMain = hdri;
     // The physical sky (SceneSettings.skyModel) takes the place of the gradient, never of a sky material.
     const bool phys = ctx.ss.skyModel == SkyModel::Physical && ctx.ss.skyMaterial.empty() && physSky.ready(gpu);
-    MaterialAsset* mat = phys ? nullptr : sky_material(ctx.ss);
-    if (!mat && !phys) return;
+    MaterialAsset* mat = (phys || hdri) ? nullptr : sky_material(ctx.ss);
+    if (!mat && !phys && !hdri) return;
     SkyDraw sky;
     std::uint64_t h = 0xcbf29ce484222325ull;
     auto mix = [&h](std::uint64_t v) {
@@ -1388,7 +1414,31 @@ void Renderer::Impl::plan_env(DrawContext& ctx) {
         mix(u);
     };
     std::uint64_t staticKey = 0;
-    if (phys) {
+    if (hdri) {
+        // The cube starts as the picture itself (rotated, in the scene's colour space, brightness 1): the bake's gain applies it later.
+        sky.hdri = hdri;
+        sky.hdriRotation = ctx.ss.environmentRotation;
+        sky.linear = fr.linear;
+        ctx.envTap = kHdriTapLimit;
+        mix(std::hash<std::string>{}(hdri->path));
+        mix(hdri->serial);
+        mix(hdri->image.id);
+        mixf(std::isfinite(sky.hdriRotation) ? std::clamp(sky.hdriRotation, -360.0f, 360.0f) : 0.0f);
+        mix(sky.linear ? 1 : 0);
+        if (phys) {  // the main pass may still draw the physical sky (environmentBackground off): its state is the frame's
+            PhysicalSkyState st;
+            st.s = physical_sky_settings(ctx.ss);
+            for (int i = 0; i < 3; ++i) {
+                st.sunDir[i] = ctx.physSunDir[i];
+                st.sunColor[i] = ctx.physSunColor[i];
+            }
+            st.linear = fr.linear;
+            const double t = ctx.world.time();
+            st.time = std::isfinite(t) && t > 0.0 ? std::min(t, 1.0e9) : 0.0;
+            ctx.physMain = st;
+            ctx.physMainOn = fr.cam.perspective && fr.cam.clear && !ctx.hdriMain;
+        }
+    } else if (phys) {
         // The picture draws the exact sun and clock; the environment the quantised ones (physical_sky.h), so a run bakes the same
         // images at any frame rate.
         PhysicalSkyState st;
@@ -1435,6 +1485,7 @@ void Renderer::Impl::plan_env(DrawContext& ctx) {
             for (float c : sky.sun) mixf(c);
         mix(sky.linear ? 1 : 0);
     }
+    mixf(ctx.envGain);
     // Whether (and how) this job bakes the cubes for the key h. A sky material is baked whole when its key changes. The physical
     // sky is baked whole the first time, when anything but the sun's direction and the clouds' clock changed, and when the sun
     // moved a degree or more since the last bake started; else it follows the sun in slices, one per frame (renderer_env.h): a
@@ -1445,7 +1496,7 @@ void Renderer::Impl::plan_env(DrawContext& ctx) {
             c.envBake = true;
             return;
         }
-        if (!phys) {
+        if (!phys || hdri) {
             c.envBake = skyEnv.key() != h;
             return;
         }
@@ -2401,7 +2452,12 @@ void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
             // reflections and ambient light follow the sky that is drawn here when it is a material (plan_env bakes
             // it), else skyColor and horizonColor.
             SkyDraw sky;
-            if (ctx.physMainOn) {
+            if (ctx.hdriMain) {
+                sky.hdri = ctx.hdriMain;
+                sky.hdriRotation = ss.environmentRotation;
+                sky.hdriGain = ctx.envGain;
+                sky.linear = fr.linear;
+            } else if (ctx.physMainOn) {
                 sky.physical = true;
                 sky.sunDisc = true;
                 sky.slot = 0;
@@ -2686,6 +2742,7 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
                 // sky needs its environment table for it; the next slices finish the images from the first's.
                 const bool starts = !ctx.envSliced || !skyEnv.busy();
                 if (starts) {
+                    skyEnv.set_look(ctx.envGain, ctx.envTap);
                     if (sky.physical) physSky.update(gpu, sky.slot, sky.phys, &stats.drawCalls);
                     skyEnv.set_tag(sky.physical ? ctx.envStatic : 0,
                                    ctx.envSun);  // a sky of another kind: the next physical bake is whole

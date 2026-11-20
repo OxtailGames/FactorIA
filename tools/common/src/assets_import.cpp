@@ -12,7 +12,9 @@
 #include "music_internal.h"
 #include "fa/core/asset_manifest.h"
 #include "fa/core/strings.h"
+#include "fa/core/image_float.h"
 #include "fa/render/cube_lut.h"
+#include "fa/render/hdri.h"
 #include "fa/tooling/asset_import.h"
 #include "fa/tooling/image_doc.h"
 #include "fa/tooling/project_fs.h"
@@ -119,6 +121,7 @@ std::string default_folder(const std::string& outExt) {
         case assets::AssetKind::Audio: return "assets/audio/";
         case assets::AssetKind::Font: return "assets/fonts/";
         case assets::AssetKind::Video: return "assets/video/";
+        case assets::AssetKind::Hdri: return "assets/hdri/";
         default: return "assets/";
     }
 }
@@ -195,6 +198,29 @@ Result<ImportOutput> import_lut(const ImportRequest& request) {
     if (!lut.ok()) return lut.error();
     ImportOutput out;
     out.details = Json::object({{"size", lut->size}, {"title", lut->title}});
+    out.files.push_back({request.dest, std::move(*bytes)});
+    return out;
+}
+
+// A .hdr Radiance panorama (SceneSettings.environmentMap): checked with the code the renderer loads it with (hdri_check), so a file
+// the renderer would refuse is refused here, with the layout it has named and how to convert it, then the pixels are decoded once
+// to prove the file is not cut short. The file is copied as it is: the renderer shrinks a picture wider than the GPU takes when it
+// loads it.
+Result<ImportOutput> import_hdri(const ImportRequest& request) {
+    auto bytes = read_bytes(request.source);
+    if (!bytes.ok()) return bytes.error();
+    const std::string name = request.source.filename().string();
+    auto check = hdri_check(bytes->data(), bytes->size(), name);
+    if (!check.ok()) return check.error();
+    auto pixels = decode_hdr(bytes->data(), bytes->size());
+    if (!pixels.ok()) return make_error(name + ": " + pixels.error().message, pixels.error().hint);
+    ImportOutput out;
+    out.details = Json::object({{"width", check->width},
+                                {"height", check->height},
+                                {"gpuWidth", check->gpuWidth},
+                                {"gpuHeight", check->gpuHeight},
+                                {"shrunkForTheGpu", check->shrunk()},
+                                {"gpuMegabytes", double(check->gpuBytes >> 20)}});
     out.files.push_back({request.dest, std::move(*bytes)});
     return out;
 }
@@ -567,6 +593,7 @@ const std::map<std::string, Route>& routes() {
                                                    {".otf", {"copy", ".otf", import_copy}},
                                                    {".qoa", {"copy", ".qoa", import_copy}},
                                                    {".cube", {"lut", ".cube", import_lut}},
+                                                   {".hdr", {"hdri", ".hdr", import_hdri}},
                                                    {".mpg", {"video", ".mpg", import_video}},
                                                    {".mpeg", {"video", ".mpeg", import_video}},
                                                    {".mp4", {"video", ".mpg", import_video}},
@@ -602,6 +629,11 @@ std::vector<std::string> default_next_steps(const std::string& path) {
             return {"Play it: audio.play(\"" + path +
                     "\") in a script, an AudioSource \"clip\", or SceneSettings \"music\"."};
         case assets::AssetKind::Font: return {"Use it: a Text with \"font\": \"" + path + "\"."};
+        case assets::AssetKind::Hdri:
+            return {"Use it: SceneSettings \"environmentMap\": \"" + path +
+                    "\" (it lights the meshes and is the background; \"environmentRotation\", \"environmentIntensity\" "
+                    "and \"environmentBackground\" tune it; docs/rendering/RENDERING_LIGHTING.md, \"The environment "
+                    "map\")."};
         case assets::AssetKind::Video:
             return {"Show it: a Video component with \"path\": \"" + path +
                     "\" and a \"size\"; entity.video.play() / seek() / on(\"ended\") in a script."};
@@ -826,6 +858,11 @@ void register_asset_commands(CommandRegistry& registry, const std::string& proje
         "- .cube: a 3D colour lookup table for PostProcess.colorGradingLut, checked and copied to "
         "assets/luts/ (LUT_3D_SIZE 2 to 65, the 0 to 1 domain; a malformed file is an error that names the "
         "line; a 1D table is refused).\n"
+        "- .hdr: a Radiance HDR panorama for SceneSettings.environmentMap, checked and copied to assets/hdri/. "
+        "Only an equirectangular picture (twice as wide as it is tall) is read: a cube cross, a strip of six "
+        "faces or a mirror-ball light probe is refused with the layout named and how to convert it. A picture "
+        "wider than 4096 is shrunk for the GPU when it is loaded; one over 8192 x 4096 is refused from its "
+        "header. A file that is cut short is an error.\n"
         "- .mid .midi: becomes a song document (assets/music/<name>.song.json, or `path`): tracks, patterns, "
         "sections from markers, drums as grids (music.import_midi has the options `quantize` and "
         "`soundfont`; docs/MUSIC.md, \"MIDI\").\n"

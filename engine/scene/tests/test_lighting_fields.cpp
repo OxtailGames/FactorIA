@@ -23,9 +23,9 @@ const FieldInfo* field_of(const char* type, const std::string& name) {
 const std::vector<std::string> kLightFields = {
     "innerAngle",       "shape",        "size",           "cookie",         "ies",  "shadowResolution", "shadowBias",
     "shadowNormalBias", "shadowFilter", "shadowSoftness", "shadowDistance", "mode", "volumetric"};
-const std::vector<std::string> kSettingsFields = {"shadowCascades", "shadowCascadeSplit",   "shadowCascadeBlend",
-                                                  "shadowDistance", "shadowAtlasSize",      "contactShadows",
-                                                  "environmentMap", "environmentIntensity", "environmentRotation"};
+const std::vector<std::string> kSettingsFields = {
+    "shadowCascades", "shadowCascadeSplit", "shadowCascadeBlend",   "shadowDistance",      "shadowAtlasSize",
+    "contactShadows", "environmentMap",     "environmentIntensity", "environmentRotation", "environmentBackground"};
 const std::vector<std::string> kMeshFields = {"lightmapScale",       "contributeGI", "receiveGI",
                                               "transmission",        "thickness",    "attenuationColor",
                                               "attenuationDistance", "subsurface"};
@@ -33,10 +33,10 @@ const std::vector<std::string> kMeshFields = {"lightmapScale",       "contribute
 const std::vector<std::string> kLayerFields = {"clearcoat",  "clearcoatRoughness", "sheenColor", "sheenRoughness",
                                                "anisotropy", "anisotropyRotation", "specular",   "ior"};
 // The fields a package has made work: their doc string no longer says "No effect yet" (M73.1a: innerAngle; M73.2a: the cascaded shadows of the sun).
-const std::vector<std::string> kDrawn = {"innerAngle",         "shadowResolution", "shadowBias",
-                                         "shadowNormalBias",   "shadowFilter",     "shadowSoftness",
-                                         "shadowDistance",     "shadowCascades",   "shadowCascadeSplit",
-                                         "shadowCascadeBlend", "shadowAtlasSize"};
+const std::vector<std::string> kDrawn = {
+    "innerAngle",      "shadowResolution", "shadowBias",           "shadowNormalBias",    "shadowFilter",
+    "shadowSoftness",  "shadowDistance",   "shadowCascades",       "shadowCascadeSplit",  "shadowCascadeBlend",
+    "shadowAtlasSize", "environmentMap",   "environmentIntensity", "environmentRotation", "environmentBackground"};
 }  // namespace
 
 TEST_CASE("lighting fields: every new field is reflected and its doc says what it does and which package brings it") {
@@ -88,6 +88,7 @@ TEST_CASE("lighting fields: the defaults keep the look of a scene made before M7
     CHECK_FALSE(s.contactShadows);
     CHECK(s.environmentMap.empty());
     CHECK(s.environmentIntensity == 1.0f);
+    CHECK(s.environmentBackground);
     CHECK(s.skyModel == SkyModel::Gradient);
     const MeshRenderer m;
     CHECK(m.contributeGI);
