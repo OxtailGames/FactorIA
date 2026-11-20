@@ -30,12 +30,16 @@ constexpr std::size_t kMaxFailed = 16;
 #endif
 
 static_assert(UB_volumetric_vol_vs_params == 0, "the volumetric vertex shader uses uniform slot 0");
-static_assert(UB_volumetric_vol_params == 1 && UB_volumetric_vol_lights == 2 && UB_volumetric_apply_params == 1,
-              "the volumetric fragment shaders use these uniform slots");
-static_assert(VIEW_volumetric_tex_p == 0 && VIEW_volumetric_fa_shadow_tex == 1 && VIEW_volumetric_fa_light_tex == 2 &&
-                  VIEW_volumetric_tex_av == 0 && VIEW_volumetric_tex_ap == 1 && SMP_volumetric_smp_pt == 0 &&
-                  SMP_volumetric_smp_ap == 0,
-              "VolumetricFx binds the images and samplers at these slots");
+static_assert(UB_volumetric_vol_params == 1, "the march's parameters are uniform slot 1");
+static_assert(UB_volumetric_vol_lights == 2, "the march's lights are uniform slot 2");
+static_assert(UB_volumetric_apply_params == 1, "the apply's parameters are uniform slot 1");
+static_assert(VIEW_volumetric_tex_p == 0, "the march reads the prepass at view 0");
+static_assert(VIEW_volumetric_fa_shadow_tex == 1, "the march reads the shadow atlas at view 1");
+static_assert(VIEW_volumetric_fa_light_tex == 2, "the march reads the light data at view 2");
+static_assert(VIEW_volumetric_tex_av == 0, "the apply reads the march image at view 0");
+static_assert(VIEW_volumetric_tex_ap == 1, "the apply reads the prepass at view 1");
+static_assert(SMP_volumetric_smp_pt == 0, "the march's sampler is 0");
+static_assert(SMP_volumetric_smp_ap == 0, "the apply's sampler is 0");
 static_assert(sizeof(volumetric_fa_shadows_t) == sizeof(mesh_fa_shadows_t) &&
                   UB_volumetric_fa_shadows == UB_mesh_fa_shadows,
               "the shadow block of the volumetric march is the one of the mesh shaders");
@@ -49,6 +53,7 @@ bool shines(const LightData& l) {
     return std::isfinite(l.volumetric) && l.volumetric > 0.0f && finite3(l.color.x, l.color.y, l.color.z) &&
            l.color.x + l.color.y + l.color.z > 0.0f && finite3(l.pos.x, l.pos.y, l.pos.z);
 }
+// Area lights (color.w 3) have no shafts: only directional (0), point (1) and spot (2) lights are listed.
 bool is_directional(const LightData& l) { return l.color.w == 0.0f && l.pos.w == 0.0f; }
 
 }  // namespace
@@ -72,9 +77,7 @@ float vol_phase(float g, float cosTheta) {
     return (1.0f - g * g) / (d * std::sqrt(d));
 }
 
-float vol_jitter(int x, int y) {
-    return fract(52.9829189f * fract(float(x) * 0.06711056f + float(y) * 0.00583715f));
-}
+float vol_jitter(int x, int y) { return fract(52.9829189f * fract(float(x) * 0.06711056f + float(y) * 0.00583715f)); }
 
 float vol_density(float density, float base, float falloff, float y) {
     const float u = y - base;
@@ -114,7 +117,8 @@ VolLightPick pick_volumetric_lights(const std::vector<LightData>& lights, int ma
                 pick.directional.push_back(i);
             else
                 ++pick.dropped;
-        } else if (l.color.w >= 1.0f && l.pos.w > 0.0f && std::isfinite(l.pos.w) && std::isfinite(l.dir.w)) {
+        } else if ((l.color.w == 1.0f || l.color.w == 2.0f) && l.pos.w > 0.0f && std::isfinite(l.pos.w) &&
+                   std::isfinite(l.dir.w)) {
             const float score = std::isfinite(l.score) ? std::max(l.score, 0.0f) : 0.0f;
             local.push_back({i, score * l.volumetric});
         }
@@ -158,7 +162,8 @@ VolPlan make_vol_plan(const SceneSettings& ss, const CameraGeometry& cam, const 
     vol_grid_size(rectW, rectH, p.quality.divisor, &p.width, &p.height);
 
     const Mat4& P = cam.proj;
-    const float terms[8] = {P.at(0, 0), P.at(1, 1), P.at(2, 0), P.at(2, 1), P.at(3, 0), P.at(3, 1), P.at(2, 3), P.at(3, 3)};
+    const float terms[8] = {P.at(0, 0), P.at(1, 1), P.at(2, 0), P.at(2, 1),
+                            P.at(3, 0), P.at(3, 1), P.at(2, 3), P.at(3, 3)};
     bool ok = std::fabs(terms[0]) > 1e-12f && std::fabs(terms[1]) > 1e-12f;
     for (int i = 0; i < 8; ++i) {
         ok = ok && std::isfinite(terms[i]);
@@ -198,7 +203,7 @@ VolPlan make_vol_plan(const SceneSettings& ss, const CameraGeometry& cam, const 
         b[0] = l.color.x * l.volumetric;
         b[1] = l.color.y * l.volumetric;
         b[2] = l.color.z * l.volumetric;
-        if (l.color.w > 1.5f) {  // a spot: the cone of fa_light_sample (light_data.glsl)
+        if (l.color.w == 2.0f) {  // a spot: the cone of fa_light_sample (light_data.glsl)
             const float cosOuter = l.dir.w;
             b[3] = l.cosInner > 1.5f ? cosOuter + 0.25f * (1.0f - cosOuter) : l.cosInner;
             c[0] = l.dir.x;
@@ -224,7 +229,9 @@ VolPlan make_vol_plan(const SceneSettings& ss, const CameraGeometry& cam, const 
 
 bool VolumetricFx::gpu_supported() {
     const sg_pixelformat_info f = sg_query_pixelformat(SG_PIXELFORMAT_RGBA16F);
-    return f.render && f.sample;
+    // The rule of the `half` word of the feature rows (render_features.cpp, FeatureEnv::halfTargets), so render.supports("volumetricFog") and the
+    // renderer never disagree.
+    return f.render && f.blend && f.filter;
 }
 
 TransientDesc VolumetricFx::image_desc(const VolPlan& plan, const std::string& job) {
@@ -245,10 +252,11 @@ bool VolumetricFx::ready(Prog prog) {
     if (sg_query_shader_state(s) != SG_RESOURCESTATE_VALID) {
         if (s.id) sg_destroy_shader(s);
         st = -1;
-        FA_ERROR("render",
-                 "The volumetric fog is unavailable: its shader failed to compile for this graphics backend (see the sokol "
-                 "log lines above). The game renders without it. Hint: update the graphics driver (Mesa: try "
-                 "LIBGL_ALWAYS_SOFTWARE=1) or turn SceneSettings.volumetricFog off.");
+        FA_ERROR(
+            "render",
+            "The volumetric fog is unavailable: its shader failed to compile for this graphics backend (see the sokol "
+            "log lines above). The game renders without it. Hint: update the graphics driver (Mesa: try "
+            "LIBGL_ALWAYS_SOFTWARE=1) or turn SceneSettings.volumetricFog off.");
         return false;
     }
     shaders_[int(prog)] = s;
@@ -279,7 +287,8 @@ sg_pipeline VolumetricFx::pipeline(Prog prog, const TargetFormat& format) {
     }
     d.label = prog == Prog::March ? "vol-march" : "vol-apply";
     const sg_pipeline p = sg_make_pipeline(&d);
-    if (sg_query_pipeline_state(p) != SG_RESOURCESTATE_VALID) FA_ERROR("render", "failed to create pipeline '{}'", d.label);
+    if (sg_query_pipeline_state(p) != SG_RESOURCESTATE_VALID)
+        FA_ERROR("render", "failed to create pipeline '{}'", d.label);
     pipelines_.push_back({prog, format, p});
     return p;
 }
@@ -310,9 +319,9 @@ bool VolumetricFx::can_draw(TransientTargets& targets, const VolPlan& plan) {
     if (!gpu_supported()) {
         if (!warnedGpu_) {
             warnedGpu_ = true;
-            FA_WARN("render",
-                    "The volumetric fog needs RGBA16F render targets and this GPU has none: the scene keeps its analytic fog. "
-                    "Hint: render.supports {{\"feature\": \"volumetricFog\"}} tells which GPUs draw it.");
+            FA_WARN("render", "The volumetric fog needs RGBA16F render targets and this GPU has none: the scene keeps "
+                              "its analytic fog. "
+                              "Hint: render.supports {{\"feature\": \"volumetricFog\"}} tells which GPUs draw it.");
         }
         return false;
     }
@@ -328,7 +337,8 @@ bool VolumetricFx::can_draw(TransientTargets& targets, const VolPlan& plan) {
         if (!warnedTargets_) {
             warnedTargets_ = true;
             FA_ERROR("render",
-                     "Volumetric fog: cannot create the {}x{} image it marches into; the scene keeps its analytic fog. Hint: "
+                     "Volumetric fog: cannot create the {}x{} image it marches into; the scene keeps its analytic fog. "
+                     "Hint: "
                      "lower SceneSettings.volumetricQuality or the render scale.",
                      plan.width, plan.height);
         }

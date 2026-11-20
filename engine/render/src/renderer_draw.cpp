@@ -61,6 +61,10 @@ struct SkyDraw {
     bool physical = false, sunDisc = false;
     int slot = 0;
     PhysicalSkyState phys;
+    // An HDRI (SceneSettings.environmentMap, renderer_hdri.h) instead of any of the above: its own program draws it.
+    const HdriAsset* hdri = nullptr;
+    float hdriRotation = 0.0f,
+          hdriGain = 1.0f;  // degrees; the brightness (1 while the bake draws it: the bake's gain applies later)
 };
 
 // Holds references to the job's world and frame and a copy of its plan. It lives (Impl::jobContexts) from plan_job until the
@@ -91,6 +95,9 @@ struct Renderer::Impl::DrawContext {
     // gather_meshes, collect_lights, shadow_bounds, cull_and_batch
     std::vector<MeshItem> opaque, blended;
     std::vector<LightData> lights;
+    // collect_decals: the decals of the view in drawing order, and every texture path the Decals of the world name (sorted, normalised).
+    std::vector<DecalItem> decals;
+    std::vector<std::string> decalPaths;
     int shadowLight = -1;
     Vec3 lightDirForShadow{0, -1, 0};
     bool haveShadowCaster = false;
@@ -149,6 +156,8 @@ struct Renderer::Impl::DrawContext {
     // The light data texture of the job's view (scene_uniforms): bound at view 24 of the mesh programs; the white image while the job
     // has no lights or draws no mesh.
     sg_view lightView{};
+    // The atlas of the decal textures (view 27 of the mesh programs): the renderer's, once this job has decals to draw; else the white image.
+    sg_view decalView{};
     mesh_fa_mesh_vs_params_t vuScene{};
     mesh_fa_mesh_fs_params_t fuScene{};
     // fuScene with the camera's stack fog (PostProcess.fog*): the blended meshes fog themselves with it, while the opaque meshes and the sky
@@ -168,6 +177,13 @@ struct Renderer::Impl::DrawContext {
     float physSunDir[3]{0.0f, 1.0f, 0.0f}, physSunColor[3]{1.0f, 1.0f, 1.0f};
     std::uint64_t envKey = 0;
     SkyDraw envSky;
+    // What the next bake of this job does with the sky (Environment::set_look): SceneSettings.environmentIntensity, and the limit
+    // of one sample of the convolutions (an HDRI's, 0 for any other sky).
+    float envGain = 1.0f, envTap = 0.0f;
+    float envRotation = 0.0f;  // degrees, finite and inside (-360, 360): what the key and both draws of the HDRI use
+    // plan_env: the HDRI the main pass draws as the background (SceneSettings.environmentMap with environmentBackground, no sky material),
+    // null when it draws anything else.
+    const HdriAsset* hdriMain = nullptr;
     // The textures plan_env resolved for the sky of the job, while the job's own render target was the checker: the sky
     // of the main pass draws with them (resolving them again when the pass runs would bind the target the pass writes).
     // Valid for skyPlannedMat.
@@ -353,6 +369,11 @@ void fill_sky(Renderer::Impl& im, const Renderer::Impl::DrawContext& ctx, Materi
 void draw_sky(Renderer::Impl& im, const SkyDraw& d, const float* invViewProj, const Vec3& camPos,
               const TargetFormat* format) {
     Gpu& gpu = im.gpu;
+    if (d.hdri) {
+        const float cam[3] = {camPos.x, camPos.y, camPos.z};
+        im.hdriSky.draw(gpu, *d.hdri, d.hdriRotation, d.hdriGain, !d.linear, invViewProj, cam, format);
+        return;
+    }
     if (d.physical) {
         const float cam[3] = {camPos.x, camPos.y, camPos.z};
         im.physSky.draw(gpu, d.slot, d.phys, d.sunDisc, invViewProj, cam, format);
@@ -495,6 +516,7 @@ void Renderer::Impl::begin_frame_graph(bool countPost) {
     if (countPost) ++postSerial;
     trim_shadow_rows();
     free_retired_shadow_targets();  // the frame before has run its graph
+    free_retired_decal_atlases();
     sharedGame = sharedLight = sharedShadow = sharedEnv = sharedSkyLut = ResourceId{};
 }
 
@@ -723,6 +745,7 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
 
     gather_meshes(ctx);
     collect_lights(ctx);
+    collect_decals(ctx);
     shadow_bounds(ctx);
     cull_and_batch(ctx);
     // Fog and sun shafts (renderer_fog.h), planned before the prepass: the sun is known once the lights are, and shafts alone with no sun in
@@ -757,14 +780,20 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
         const SceneSettings& vss = world.settings();
         ctx.postPlan.vol = make_vol_plan(vss, fr.cam, ctx.lights, fr.linear, ctx.camPx.w, ctx.camPx.h, ctx.doShadows,
                                          ctx.doShadows && ctx.cascades > 0 && ctx.haveShadowCaster);
-        if (ctx.postPlan.vol.on) ctx.postPlan.needsDepth = true;
+        // Only a camera that can draw it asks for the prepass: on a GPU without RGBA16F, or after a shader failure, no prepass is made for it.
+        if (ctx.postPlan.vol.on) {
+            if (volFx.can_draw(transient_targets(), ctx.postPlan.vol))
+                ctx.postPlan.needsDepth = true;
+            else
+                ctx.postPlan.vol = VolPlan{};
+        }
     }
     plan_prepass(ctx);
     plan_outline(ctx);
-    // The volumetric fog needs the prepass, its shaders and its image. A camera that draws it draws no analytic fog: neither the scene's
+    // The volumetric fog needs the prepass (its shaders and its image were checked above). A camera that draws it draws no analytic fog: neither the scene's
     // (ss.fogDensity, scene_uniforms) nor the stack's (fogFx.fog), the two would fog twice; the sun shafts of the stack stay.
     if (ctx.postPlan.vol.on) {
-        if (ctx.doPrepass && volFx.can_draw(transient_targets(), ctx.postPlan.vol)) {
+        if (ctx.doPrepass) {
             ctx.postPlan.fogFx.fog = false;
             ++stats.volumetricCameras;
             stats.volumetricLights += ctx.postPlan.vol.lightsUsed;
@@ -1387,6 +1416,47 @@ void Renderer::Impl::upload_instances(DrawContext& ctx) {
     ctx.shadowExtra = upload(ctx.shadowExtraData.data(), ctx.shadowExtraData.size() * sizeof(float));
 }
 
+// ---- the projected decals of the view (M73.5b) ----
+// The Decals of the world that can touch this view: active, their box inside the camera frustum, in drawing order (SortOrder, then the
+// world's order), at most kMaxDecals (the first in the world's order; the rest counts in stats.decalsDropped and is warned once). Also the
+// paths of every texture the active Decals name, for the atlas (a decal turning into view must not rebuild it). Nothing for a job that draws
+// no mesh, a studio camera or a view that does not draw the world.
+// Reads: world, ctx.fr, ctx.opaque / ctx.blended. Writes: ctx.decals, ctx.decalPaths, stats.decalsDropped, warnedDecalCap.
+void Renderer::Impl::collect_decals(DrawContext& ctx) {
+    ctx.decals.clear();
+    ctx.decalPaths.clear();
+    const Frame& fr = ctx.fr;
+    if (!fr.wantWorld || fr.cam.studio || (ctx.opaque.empty() && ctx.blended.empty())) return;
+    World& world = ctx.world;
+    std::set<std::string> paths;
+    int dropped = 0;
+    static const Vec3 kLo{-0.5f, -0.5f, -0.5f}, kHi{0.5f, 0.5f, 0.5f};
+    world.each<Decal>([&](Entity e, Decal& d) {
+        if (!entity_active(world, e)) return;
+        for (const std::string* p : {&d.albedo, &d.normal})
+            if (!p->empty() && paths.size() < render::kMaxDecalTextures) paths.insert(decal_path_key(*p));
+        const Mat4 m = world.world_matrix(e);
+        if (!box_in_frustum(fr.cam.viewProj, ctx.z01, kLo, kHi, m)) return;
+        if (ctx.decals.size() >= std::size_t(render::kMaxDecals)) {
+            ++dropped;
+            return;
+        }
+        ctx.decals.push_back(DecalItem{m, &d});
+    });
+    std::stable_sort(ctx.decals.begin(), ctx.decals.end(),
+                     [](const DecalItem& a, const DecalItem& b) { return a.decal->sortOrder < b.decal->sortOrder; });
+    ctx.decalPaths.assign(paths.begin(), paths.end());
+    stats.decalsDropped += dropped;
+    if (dropped > 0 && !warnedDecalCap) {
+        warnedDecalCap = true;
+        FA_WARN("render",
+                "More than {} Decals are in view: the first {} (in the order of the world) are drawn and the rest are "
+                "left out. Hint: remove "
+                "decals that have faded, or give them a Lifetime; stats.decalsDropped counts them.",
+                render::kMaxDecals, render::kMaxDecals);
+    }
+}
+
 // ---- the lights of the view: the light table and the clusters, in the data texture ----
 // Clustered forward lighting (light_clusters.h): the table of ctx.lights (directional first, then the local lights by relevance) and,
 // when there are local lights, the clusters of the view with each one's list of lights, are packed into one RGBA32F image that the
@@ -1400,7 +1470,10 @@ void Renderer::Impl::upload_lights(DrawContext& ctx) {
     // look up a cluster of a grid with no tiles). A view with no local lights keeps it too.
     ctx.fuScene.fa_cl_info[0] = -1.0f;
     ctx.fuScene.fa_cl_info[1] = ctx.fuScene.fa_cl_info[2] = ctx.fuScene.fa_cl_info[3] = 0.0f;
-    if (lights.empty() || (ctx.opaque.empty() && ctx.blended.empty()) || ctx.camPx.w < 1 || ctx.camPx.h < 1) return;
+    ctx.fuScene.fa_counts[1] = 0.0f;
+    if ((lights.empty() && ctx.decals.empty()) || (ctx.opaque.empty() && ctx.blended.empty()) || ctx.camPx.w < 1 ||
+        ctx.camPx.h < 1)
+        return;
     int directional = 0;
     while (directional < int(lights.size()) && lights[std::size_t(directional)].rank < 2) ++directional;
     ClusterCamera cam;
@@ -1423,7 +1496,22 @@ void Renderer::Impl::upload_lights(DrawContext& ctx) {
         if (!(cam.farDepth > cam.nearDepth)) cam.farDepth = cam.nearDepth * 10000.0f;
     }
     ClusterLists lists;
-    const bool clustered = int(lights.size()) > directional;
+    // The decals of the view: their textures in the atlas, their records and boxes (nothing when none can be drawn).
+    DecalPack decalPack;
+    if (!ctx.decals.empty()) {
+        // No atlas (every texture failed, or the GPU could not make it) is not "no decals": the atlas then holds no tile, a decal with an
+        // albedo is skipped (counted in decalsDropped) and a decal with only a tint is still drawn.
+        if (!ctx.decalPaths.empty()) ensure_decal_atlas(ctx.decalPaths, fr.linear);
+        std::vector<DecalBox> boxes;
+        int skipped = 0;
+        make_decal_records(ctx.decals, fr.linear, decalPack, boxes, skipped);
+        stats.decalsDropped += skipped;
+        if (!decalPack.records.empty())
+            build_decal_clusters(cam, make_cluster_grid(cam.widthPx, cam.heightPx, cam.nearDepth, cam.farDepth), boxes,
+                                 decalPack.lists);
+    }
+    const bool haveDecals = !decalPack.records.empty();
+    const bool clustered = int(lights.size()) > directional || haveDecals;
     if (clustered) {
         std::vector<LightSphere> spheres(lights.size());
         for (std::size_t i = std::size_t(directional); i < lights.size(); ++i)
@@ -1444,6 +1532,21 @@ void Renderer::Impl::upload_lights(DrawContext& ctx) {
                 "that overlap; stats.lightClusterClipped counts them.",
                 lists.clippedEntries, kMaxLightsPerCluster, kMaxClusterIndices);
         }
+    }
+    if (haveDecals) {
+        stats.decals += int(decalPack.records.size());
+        stats.decalClusterClipped += int(decalPack.lists.clippedEntries);
+        if (decalPack.lists.clippedEntries > 0 && !warnedDecalClipped) {
+            warnedDecalClipped = true;
+            FA_WARN("render",
+                    "{} decal-list entries were left out: a cluster of the view holds at most {} decals and a view at "
+                    "most {} entries in all, "
+                    "so some pixels miss decals. Hint: use fewer decals that overlap, or make them smaller; "
+                    "stats.decalClusterClipped counts "
+                    "them.",
+                    decalPack.lists.clippedEntries, kMaxDecalsPerCluster, kMaxDecalIndices);
+        }
+        ctx.decalView = decal_view_or(ctx.white->view);
     }
     // The shadow records of the point and spot lights that got maps this frame (local_shadows.h): where each tile is in the atlas, its
     // matrix and its depth convention.
@@ -1479,9 +1582,10 @@ void Renderer::Impl::upload_lights(DrawContext& ctx) {
     }
     LightTexture tex;
     pack_light_texture(lights, directional, cam, clustered ? &lists : nullptr, tex,
-                       records.empty() ? nullptr : &records);
+                       records.empty() ? nullptr : &records, haveDecals ? &decalPack : nullptr);
     ctx.localShadowBase = tex.shadowBase;
     ctx.lightView = gpu.write_light_image(tex.height, tex.texels.data()).view;
+    ctx.fuScene.fa_counts[1] = tex.uniforms.decalBase;
     mesh_fa_mesh_fs_params_t& fu = ctx.fuScene;
     const ClusterUniforms& u = tex.uniforms;
     for (int c = 0; c < 4; ++c) {
@@ -1524,6 +1628,7 @@ void Renderer::Impl::scene_uniforms(DrawContext& ctx) {
     ss.horizonColor = to_scene(ss.horizonColor, fr.linear);
     ctx.white = assets->white();
     ctx.lightView = ctx.white->view;
+    ctx.decalView = ctx.white->view;
     copy_mat(vuScene.fa_view_proj, fr.cam.viewProj);
     copy_mat(vuScene.fa_light_vp, ctx.doShadows && ctx.cascades > 0 ? ctx.fits[0].viewProj : Mat4::identity());
     fill_shadow_block(ctx, gpu.is_gl(), debugView == DebugView::Cascades, ctx.shadowU);
@@ -1596,12 +1701,25 @@ static_assert(
 void Renderer::Impl::plan_env(DrawContext& ctx) {
     ctx.envActive = ctx.envBake = ctx.envSliced = ctx.physMainOn = false;
     ctx.skyPlannedMat = nullptr;
+    ctx.hdriMain = nullptr;
+    ctx.envTap = 0.0f;
+    // environmentIntensity multiplies the background of an HDRI and the lighting of any sky (a value that is not a number is 1).
+    ctx.envGain =
+        std::isfinite(ctx.ss.environmentIntensity) ? std::clamp(ctx.ss.environmentIntensity, 0.0f, 100.0f) : 1.0f;
+    // The rotation is made safe once: a script can write any number (NaN, 1e30), and the key and the drawing must agree.
+    ctx.envRotation = std::isfinite(ctx.ss.environmentRotation) ? std::fmod(ctx.ss.environmentRotation, 360.0f) : 0.0f;
     const Frame& fr = ctx.fr;
     if (!ctx.doMainPass || !fr.wantWorld || fr.cam.studio) return;
+    // The environment map (renderer_hdri.h says who decides what): an HDRI that loaded lights the meshes whatever the background is.
+    const HdriAsset* hdri = nullptr;
+    if (!ctx.ss.environmentMap.empty() && hdriSky.ready(gpu)) hdri = assets->hdri(ctx.ss.environmentMap);
+    // It is also the background unless a sky material is set (even one that failed: the gradient shows, as without an HDRI) or
+    // environmentBackground is off.
+    if (hdri && ctx.ss.environmentBackground && ctx.ss.skyMaterial.empty()) ctx.hdriMain = hdri;
     // The physical sky (SceneSettings.skyModel) takes the place of the gradient, never of a sky material.
     const bool phys = ctx.ss.skyModel == SkyModel::Physical && ctx.ss.skyMaterial.empty() && physSky.ready(gpu);
-    MaterialAsset* mat = phys ? nullptr : sky_material(ctx.ss);
-    if (!mat && !phys) return;
+    MaterialAsset* mat = (phys || hdri) ? nullptr : sky_material(ctx.ss);
+    if (!mat && !phys && !hdri) return;
     SkyDraw sky;
     std::uint64_t h = 0xcbf29ce484222325ull;
     auto mix = [&h](std::uint64_t v) {
@@ -1614,7 +1732,31 @@ void Renderer::Impl::plan_env(DrawContext& ctx) {
         mix(u);
     };
     std::uint64_t staticKey = 0;
-    if (phys) {
+    if (hdri) {
+        // The cube starts as the picture itself (rotated, in the scene's colour space, brightness 1): the bake's gain applies it later.
+        sky.hdri = hdri;
+        sky.hdriRotation = ctx.envRotation;
+        sky.linear = fr.linear;
+        ctx.envTap = kHdriTapLimit;
+        mix(std::hash<std::string>{}(hdri->path));
+        mix(hdri->serial);
+        mix(hdri->image.id);
+        mixf(sky.hdriRotation);
+        mix(sky.linear ? 1 : 0);
+        if (phys) {  // the main pass may still draw the physical sky (environmentBackground off): its state is the frame's
+            PhysicalSkyState st;
+            st.s = physical_sky_settings(ctx.ss);
+            for (int i = 0; i < 3; ++i) {
+                st.sunDir[i] = ctx.physSunDir[i];
+                st.sunColor[i] = ctx.physSunColor[i];
+            }
+            st.linear = fr.linear;
+            const double t = ctx.world.time();
+            st.time = std::isfinite(t) && t > 0.0 ? std::min(t, 1.0e9) : 0.0;
+            ctx.physMain = st;
+            ctx.physMainOn = fr.cam.perspective && fr.cam.clear && !ctx.hdriMain;
+        }
+    } else if (phys) {
         // The picture draws the exact sun and clock; the environment the quantised ones (physical_sky.h), so a run bakes the same
         // images at any frame rate.
         PhysicalSkyState st;
@@ -1661,6 +1803,7 @@ void Renderer::Impl::plan_env(DrawContext& ctx) {
             for (float c : sky.sun) mixf(c);
         mix(sky.linear ? 1 : 0);
     }
+    mixf(ctx.envGain);
     // Whether (and how) this job bakes the cubes for the key h. A sky material is baked whole when its key changes. The physical
     // sky is baked whole the first time, when anything but the sun's direction and the clouds' clock changed, and when the sun
     // moved a degree or more since the last bake started; else it follows the sun in slices, one per frame (renderer_env.h): a
@@ -1671,7 +1814,7 @@ void Renderer::Impl::plan_env(DrawContext& ctx) {
             c.envBake = true;
             return;
         }
-        if (!phys) {
+        if (!phys || hdri) {
             c.envBake = skyEnv.key() != h;
             return;
         }
@@ -1840,6 +1983,8 @@ mesh_fa_mesh_fs_params_t Renderer::Impl::fill_fs(DrawContext& ctx, const MeshIte
     const bool doShadows = ctx.doShadows;
     const MeshRenderer& mr = *mi.mr;
     mesh_fa_mesh_fs_params_t fu = fuScene;
+    fu.fa_counts[3] = float(
+        decal_recv(mr));  // 0 = receives no decal, else 1 + MeshRenderer.decalLayer (the view's decals: fa_counts.y)
     const bool unlit = mr.unlit || d.error || (d.mat && d.mat->lighting == "unlit");
     // MeshRenderer.emissiveStrength scales both the component's colour and the model's own emission; a NaN or negative
     // value (a script wrote it) counts as 0, no glow.
@@ -1956,6 +2101,7 @@ void Renderer::Impl::bind_textures(DrawContext& ctx, sg_bindings& b, const PartD
     b.samplers[SMP_mesh_fa_shadow_smp] = gpu.sampler(SamplerKind::Nearest);
     // The light data of the view (the shadow pass has no lights: any image does for a program that declares the slot).
     b.views[VIEW_mesh_fa_light_tex] = shadowPass ? white->view : ctx.lightView;
+    b.views[VIEW_mesh_fa_decal_tex] = shadowPass ? white->view : ctx.decalView;
     // The sky environment (renderer_env.h): the baked cubes, or a black one while the meshes use the gradient (every
     // mesh program of the main pass declares the slots; a custom program that does not has them dropped below).
     const bool env = ctx.envActive && skyEnv.baked();
@@ -2646,7 +2792,12 @@ void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
             // reflections and ambient light follow the sky that is drawn here when it is a material (plan_env bakes
             // it), else skyColor and horizonColor.
             SkyDraw sky;
-            if (ctx.physMainOn) {
+            if (ctx.hdriMain) {
+                sky.hdri = ctx.hdriMain;
+                sky.hdriRotation = ctx.envRotation;
+                sky.hdriGain = ctx.envGain;
+                sky.linear = fr.linear;
+            } else if (ctx.physMainOn) {
                 sky.physical = true;
                 sky.sunDisc = true;
                 sky.slot = 0;
@@ -2939,6 +3090,7 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
                 // sky needs its environment table for it; the next slices finish the images from the first's.
                 const bool starts = !ctx.envSliced || !skyEnv.busy();
                 if (starts) {
+                    skyEnv.set_look(ctx.envGain, ctx.envTap);
                     if (sky.physical) physSky.update(gpu, sky.slot, sky.phys, &stats.drawCalls);
                     skyEnv.set_tag(sky.physical ? ctx.envStatic : 0,
                                    ctx.envSun);  // a sky of another kind: the next physical bake is whole

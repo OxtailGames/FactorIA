@@ -562,7 +562,9 @@ inline constexpr MeshFragmentView kMeshFragmentViews[] = {
      "M73.4a: the page of the baked lightmap of the entity drawn (RGBA16F, one page per draw; a white texel when it "
      "has none), read at its lightmap UV"},
     {"fa_decal_atlas", 27, 10, 1, 2,
-     "M73.5b: the albedo/normal textures of the projected decals (their transforms are in fa_light_data)"},
+     "M73.5b (today): the albedo and normal textures of the projected decals, RGBA8 with mips (their boxes and tiles "
+     "are in "
+     "fa_light_data)"},
     {"fa_screen_tex", 28, 10, 2, 2,
      "M73.2c / M73.6b: the prepass depth for contact shadows, the opaque color for transmission"},
 };
@@ -988,6 +990,19 @@ struct LutAsset {
         false;  // the first read or parse failed: the next ask reads the file once more before it is an error
 };
 
+// An equirectangular .hdr on the GPU (SceneSettings.environmentMap): RGBA16F with its whole mip chain (include/fa/render/hdri.h says what
+// the file goes through). `view` is empty when the file could not be loaded (Assets::hdri then answers null). `serial` is different for every
+// successful load, so a file that is reloaded is a different environment even at the same path.
+struct HdriAsset {
+    std::string path;
+    sg_image image{};
+    sg_view view{};
+    int width = 0, height = 0;  // what the GPU has (mip 0)
+    std::size_t bytes = 0;
+    std::uint64_t serial = 0;
+    bool retryPending = false;  // as LutAsset: the first failure is tried once more on the next ask
+};
+
 // Texture/mesh/font caches keyed by project-relative path.
 class Assets {
 public:
@@ -996,6 +1011,9 @@ public:
     // The LUT of a .cube file, loaded on first use and cached (a failed load too: one logged error, null from then on, until the file
     // changes on disk and reload() forgets it). Null for an empty path, a missing file or a malformed one.
     const LutAsset* lut(const std::string& path);
+    // The HDRI of a .hdr file, loaded on first use and cached like a LUT (a failed load too: one logged error, null from then on, until the
+    // file changes on disk and reload() forgets it). Null for an empty path, a missing or malformed file, or a GPU that cannot filter RGBA16F.
+    const HdriAsset* hdri(const std::string& path);
     TextureAsset* texture(const std::string& path);                // never null (placeholder on failure)
     TextureAsset* white();                                         // 1x1 white
     TextureAsset* placeholder() { return placeholderTex_.get(); }  // the missing-texture checker
@@ -1077,6 +1095,8 @@ public:
     void set_shader_compiler(ShaderCompiler compiler) { shaderCompiler_ = std::move(compiler); }
     bool has_loaded(const std::string& path) const;
     void reload(const std::string& path);
+    // Counts every reload(): the decal atlas (renderer_decals.cpp) holds copies of texture pixels and is rebuilt when it changes.
+    std::uint64_t reload_generation() const { return reloadGeneration_; }
     void clear();
     Json report() const;
     std::size_t texture_bytes() const;  // GPU memory of the loaded textures (packed ones are counted in their atlas)
@@ -1171,6 +1191,9 @@ private:
     std::unordered_map<std::string, std::unique_ptr<TextureAsset>> textures_;
     std::unordered_map<std::string, std::unique_ptr<LutAsset>> luts_;
     void destroy_lut(LutAsset& l);
+    std::unordered_map<std::string, std::unique_ptr<HdriAsset>> hdris_;
+    std::uint64_t hdriSerial_ = 0;
+    void destroy_hdri(HdriAsset& h);
     std::unordered_map<std::string, std::unique_ptr<MeshAsset>> meshes_;
     std::vector<std::unique_ptr<TextureAsset>> anonymous_;  // glTF embedded images
     struct VideoTexture {
@@ -1192,7 +1215,8 @@ private:
     std::unique_ptr<MeshAsset> placeholderMesh_;
     std::vector<Failure> failures_;
     std::unordered_map<std::string, std::string> meshSources_;  // mesh key -> source file (for reload)
-    std::map<std::string, ProceduralMesh> procedural_;          // "mesh:N" -> its GPU copy
+    std::uint64_t reloadGeneration_ = 0;
+    std::map<std::string, ProceduralMesh> procedural_;  // "mesh:N" -> its GPU copy
     const MeshStore* meshStore_ = nullptr;
     std::uint64_t meshStoreSerial_ = 0;
     std::unordered_map<std::string, std::unique_ptr<MaterialAsset>> materials_;

@@ -36,6 +36,9 @@ Json RenderStats::to_json() const {
                 {"volumetricCameras", volumetricCameras},
                 {"volumetricLights", volumetricLights},
                 {"volumetricLightsDropped", volumetricLightsDropped},
+                {"decals", decals},
+                {"decalsDropped", decalsDropped},
+                {"decalClusterClipped", decalClusterClipped},
                 {"lights2d", lights2d},
                 {"lights2dDropped", lights2dDropped},
                 {"lights2dShadowed", lights2dShadowed},
@@ -421,6 +424,7 @@ void Renderer::shutdown() {
         im.ssr.release();
         im.skyEnv.release();
         im.physSky.release();
+        im.hdriSky.release();
         im.sceneFx.release();
         im.fogFx.release();
         im.volFx.release();
@@ -429,6 +433,7 @@ void Renderer::shutdown() {
         im.destroy_targets();
         im.transients.reset();  // its pool destroys the targets it still holds: the context is still open
         im.destroy_light_resources();
+        im.destroy_decal_atlas();
         destroy_target(im.shadowTarget);
         im.free_retired_shadow_targets();
         im.gpu.shutdown();

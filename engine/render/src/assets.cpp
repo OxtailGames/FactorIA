@@ -14,6 +14,7 @@
 #include "fa/core/log.h"
 #include "fa/core/strings.h"
 #include "fa/render/cube_lut.h"
+#include "fa/render/hdri.h"
 #include "fa/scene/gltf_file.h"
 #include "fa/scene/material_layers.h"
 #include "fa/scene/skeleton.h"
@@ -764,6 +765,8 @@ void Assets::clear() {
     textures_.clear();
     for (auto& [k, l] : luts_) destroy_lut(*l);
     luts_.clear();
+    for (auto& [k, h] : hdris_) destroy_hdri(*h);
+    hdris_.clear();
     for (auto& t : anonymous_) destroy_texture(*t);
     anonymous_.clear();
     for (auto& [k, m] : meshes_) destroy_mesh(*m);
@@ -879,6 +882,99 @@ const LutAsset* Assets::lut(const std::string& pathIn) {
                                    [&](const Failure& f) { return f.kind == "lut" && f.path == key; }),
                     failures_.end());
     return &l;
+}
+
+void Assets::destroy_hdri(HdriAsset& h) {
+    if (h.view.id) sg_destroy_view(h.view);
+    if (h.image.id) sg_destroy_image(h.image);
+    h.view = {};
+    h.image = {};
+}
+
+const HdriAsset* Assets::hdri(const std::string& pathIn) {
+    if (pathIn.empty()) return nullptr;
+    std::string key = fs::normalize(pathIn);
+    if (key.empty()) key = pathIn;
+    bool secondTry = false;
+    HdriAsset* slotPtr = nullptr;
+    if (auto it = hdris_.find(key); it != hdris_.end()) {
+        if (it->second->view.id) return it->second.get();
+        if (!it->second->retryPending)
+            return nullptr;  // a failed load stays in the cache: one error, no read every frame
+        it->second->retryPending = false;
+        secondTry = true;
+        slotPtr = it->second.get();
+    } else {
+        auto slot = std::make_unique<HdriAsset>();
+        slotPtr = slot.get();
+        slot->path = key;
+        hdris_[key] = std::move(slot);
+    }
+    HdriAsset& h = *slotPtr;
+    auto fail = [&](const std::string& message, const std::string& hint) -> const HdriAsset* {
+        note_failure("hdri", key, message, hint);
+        return nullptr;
+    };
+    if (!fs::exists(key))
+        return fail("environment map " + missing_hint(key, fs::extension(key)),
+                    "Set SceneSettings.environmentMap to a .hdr file in the project (import one with assets.import).");
+    // The same retry as a LUT: on Windows an editor that saves the .hdr may still be writing it when the hot reload finds it.
+    auto retry_once = [&](const std::string& what) {
+        if (secondTry) return false;
+        h.retryPending = true;
+        FA_WARN("render",
+                "environment map '{}' {}; trying once more on the next frame (a file that is still being written).",
+                key, what);
+        return true;
+    };
+    // Only a file that cannot be read, or whose pixels do not decode, may be one that is still being written: the header and the layout
+    // are the same on the second try, so those errors are final at once (no retry warning before an error that cannot change).
+    auto bytes = fs::read_bytes(key);
+    if (!bytes) {
+        if (retry_once("could not be read: " + bytes.error().message)) return nullptr;
+        return fail("environment map " + bytes.error().message, bytes.error().hint);
+    }
+    if (auto check = hdri_check(bytes->data(), bytes->size(), key); !check)
+        return fail("environment map " + check.error().message, check.error().hint);
+    auto image = hdri_from_bytes(bytes->data(), bytes->size(), key);
+    if (!image) {
+        const std::string message = image.error().message, hint = image.error().hint;
+        if (retry_once("did not load: " + message)) return nullptr;
+        return fail("environment map " + message, hint);
+    }
+    const sg_pixelformat_info fmt = sg_query_pixelformat(SG_PIXELFORMAT_RGBA16F);
+    if (!fmt.sample || !fmt.filter)
+        return fail(
+            std::format("environment map '{}': this GPU cannot filter half-float textures (RGBA16F)", key),
+            "Use a sky material or the gradient on this device; render.supports {\"feature\": \"environmentMap\"} "
+            "says whether the GPU can.");
+    sg_image_desc d{};
+    d.width = image->width;
+    d.height = image->height;
+    d.pixel_format = SG_PIXELFORMAT_RGBA16F;
+    d.num_mipmaps = int(image->mips.size());
+    for (std::size_t i = 0; i < image->mips.size() && i < std::size_t(SG_MAX_MIPMAPS); ++i)
+        d.data.mip_levels[i] = {image->mips[i].data(), image->mips[i].size() * sizeof(std::uint16_t)};
+    d.label = key.c_str();
+    h.image = make_image(d);
+    if (sg_query_image_state(h.image) != SG_RESOURCESTATE_VALID) {
+        destroy_hdri(h);
+        return fail(std::format("environment map '{}': the GPU could not make its {}x{} image", key, image->width,
+                                image->height),
+                    "Use a smaller panorama (2048 x 1024).");
+    }
+    sg_view_desc vd{};
+    vd.texture.image = h.image;
+    vd.label = key.c_str();
+    h.view = sg_make_view(&vd);
+    h.width = image->width;
+    h.height = image->height;
+    h.bytes = std::size_t(image->bytes());
+    h.serial = ++hdriSerial_;
+    failures_.erase(std::remove_if(failures_.begin(), failures_.end(),
+                                   [&](const Failure& f) { return f.kind == "hdri" && f.path == key; }),
+                    failures_.end());
+    return &h;
 }
 
 void Assets::upload_texture(TextureAsset& t, const Image& img, bool mips) {
@@ -1847,6 +1943,7 @@ void Assets::upload_procedural(ProceduralMesh& pm, const MeshStore::Entry& e) {
 }
 
 void Assets::reload(const std::string& pathIn) {
+    ++reloadGeneration_;
     std::string path = fs::normalize(pathIn);
     if (path.empty()) path = pathIn;
     auto t = textures_.find(path);
@@ -1866,6 +1963,14 @@ void Assets::reload(const std::string& pathIn) {
         luts_.erase(l);
         failures_.erase(std::remove_if(failures_.begin(), failures_.end(),
                                        [&](const Failure& f) { return f.kind == "lut" && f.path == path; }),
+                        failures_.end());
+    }
+    if (auto hd = hdris_.find(path);
+        hd != hdris_.end()) {  // forgotten like a LUT: the next frame that names it loads the new file
+        destroy_hdri(*hd->second);
+        hdris_.erase(hd);
+        failures_.erase(std::remove_if(failures_.begin(), failures_.end(),
+                                       [&](const Failure& f) { return f.kind == "hdri" && f.path == path; }),
                         failures_.end());
     }
     if (lightmapSet_ || !lightmapSetPath_.empty()) {
@@ -1923,6 +2028,7 @@ std::size_t Assets::texture_bytes() const {
     for (const auto& [k, v] : videoTextures_) total += v.tex->bytes;
     for (const auto& [k, t] : runtime_) total += t->bytes;
     for (const auto& [k, l] : luts_) total += l->bytes;
+    for (const auto& [k, h] : hdris_) total += h->bytes;
     return total;
 }
 

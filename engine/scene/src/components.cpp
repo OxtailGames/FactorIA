@@ -2041,7 +2041,15 @@ void register_builtin_components(TypeRegistry& r) {
         .field("subsurface", &MeshRenderer::subsurface,
                "Strength 0..1 of the screen-space subsurface scattering (skin, wax, marble): light enters the "
                "surface and leaves it blurred nearby. 0 = none. No effect yet: M73.5 brings it.")
-        .range(0, 1);
+        .range(0, 1)
+        .field("receiveDecals", &MeshRenderer::receiveDecals,
+               "true (default): the Decal components whose box reaches this mesh paint it. false: decals skip it "
+               "(a character that must stay clean, a mesh drawn by a custom shader that does not call "
+               "fa_apply_decals). Drawn since M73.5b.")
+        .field("decalLayer", &MeshRenderer::decalLayer,
+               "0..15: the layer of this mesh for decals. A Decal draws on it when bit decalLayer of its `layers` "
+               "mask is set (a `layers` of 0 matches every layer). Drawn since M73.5b.")
+        .range(0, 15);
 
     r.add<Light>("Light",
                  "A light source for 3D meshes. A directional light shines along the entity's forward direction (-Z "
@@ -2142,6 +2150,53 @@ void register_builtin_components(TypeRegistry& r) {
                "4 directional lights and its most important point and spot lights (4, 8 or 16 by "
                "SceneSettings.volumetricQuality); stats volumetricLightsDropped counts the others.")
         .range(0, 10);
+
+    r.add<Decal>(
+         "Decal",
+         "A texture projected onto the 3D meshes that stand inside the box of this entity: bullet holes, blood, "
+         "graffiti, dirt, road markings, the cracks of a wall. The box is the Transform's world matrix applied to a "
+         "cube "
+         "of side 1 (scale = size in metres); the decal projects along the entity's forward (-Z), its image is upright "
+         "when seen from +Z (the top of the image is +Y). Every mesh with receiveDecals inside the box takes it, the "
+         "albedo blended over the surface and the normal bent, with no extra geometry and one draw per mesh. Up to "
+         "256 decals are drawn at once (the ones that reach the view). It is drawn by the lit forward shaders only: a "
+         "mesh drawn by a custom shader must call fa_apply_decals (docs/shaders/SHADERS_LIGHTING.md). Not the same as "
+         "the decals of a model's `texturing` section, which bake a picture into the UV texture of one model. The "
+         "textures of all the "
+         "decals share one atlas; see docs/rendering/RENDERING_LIGHTING.md, \"Decals\".",
+         "3D")
+        .asset_field("albedo", &Decal::albedo, "texture",
+                     "The colour texture painted onto the surface (its alpha is the shape of the decal). Empty = the "
+                     "decal is a flat patch of `color` over the whole box. The texture is read as sRGB colour.")
+        .asset_field("normal", &Decal::normal, "texture",
+                     "Optional normal map (tangent space, +Y up, the file is read as linear data) that bends the "
+                     "normal of the surface under the decal (bullet dents, bumpy paint, a raised sticker). Empty = "
+                     "the normal stays.")
+        .field("color", &Decal::color,
+               "Tint multiplied with the albedo texture; its alpha is multiplied with the texture's alpha. White "
+               "(default) leaves the texture as it is.")
+        .field("opacity", &Decal::opacity,
+               "0..1: strength of the whole decal, for fading it out (a bloodstain that dries).")
+        .range(0, 1)
+        .field("normalStrength", &Decal::normalStrength,
+               "0..4: how strongly `normal` bends the surface (1 = the map as painted, 0 = not at all).")
+        .range(0, 4)
+        .field("angleFade", &Decal::angleFade,
+               "Degrees 0..90. The decal is at full strength while the angle between the surface's normal and the "
+               "projector's axis (the decal looks along its local -Z) is under this; beyond it the strength falls as "
+               "cos(angle) / cos(angleFade) and reaches 0 only when the surface is edge-on (90 degrees), so a smaller "
+               "value keeps the decal from smearing along walls seen at a slant. 90 keeps full strength until the "
+               "surface is edge-on. Default 60.")
+        .range(0, 90)
+        .field("sortOrder", &Decal::sortOrder,
+               "Decals are drawn in ascending order of this value (a larger one lands on top of a smaller one); "
+               "equal values keep the order in which the world visits its Decal components (a stable sort). When "
+               "more than 32 decals cover one cluster of the view the lowest values are kept.")
+        .range(-1000000, 1000000)
+        .field("layers", &Decal::layers,
+               "Bit mask 0..65535 of the MeshRenderer.decalLayer values this decal draws on: bit 0 is layer 0, bit 1 "
+               "layer 1, up to bit 15. 0 (default) = every layer.")
+        .range(0, 65535);
 
     r.add<Animator>(
          "Animator",
@@ -4090,17 +4145,30 @@ void register_builtin_components(TypeRegistry& r) {
         .field("contactShadows", &SceneSettings::contactShadows,
                "Short screen-space shadow rays toward the light that add fine shadows where objects touch. Needs a "
                "GPU that can sample the depth (render.supports contactShadows). No effect yet: M73.2 brings it.")
-        .asset_field("environmentMap", &SceneSettings::environmentMap, "texture",
-                     "An HDR image (.hdr, equirectangular) of the surroundings: it is the sky and lights and "
-                     "reflects in every surface. Empty (default) = the sky material or the gradient. No effect yet: "
-                     "M73.3 brings it.")
+        .asset_field(
+            "environmentMap", &SceneSettings::environmentMap, "hdri",
+            "An HDR image (.hdr, equirectangular: twice as wide as it is tall) of the surroundings. It lights and "
+            "reflects in every mesh (image-based lighting, baked on the GPU into the same cubes a sky uses), and "
+            "it is drawn as the background too unless a skyMaterial is set or environmentBackground is off. It "
+            "wins over the sky's own lighting (a skyMaterial or the physical sky) but not over a skyMaterial's "
+            "background. Empty (default) = the sky material, the physical sky or the gradient. Pictures wider "
+            "than 4096 are shrunk when loaded; values are limited to 60000 and one sample of the blur to 64, "
+            "so a sun in the picture does not speckle the reflections. Import one with assets.import; "
+            "render.supports {\"feature\": \"environmentMap\"} says whether the GPU can.")
         .field("environmentIntensity", &SceneSettings::environmentIntensity,
-               "Brightness multiplier of the environment map and the sky's image-based lighting, 0..100. No effect "
-               "yet: M73.3 brings it.")
+               "Brightness multiplier of the environment map (background and lighting) and of the lighting a sky "
+               "material or the physical sky gives, 0..100 (1 default: unchanged). It does not brighten the sky that "
+               "a skyMaterial or the physical sky draws as the background.")
         .range(0, 100)
         .field("environmentRotation", &SceneSettings::environmentRotation,
-               "Degrees the environment map is turned around the up axis. No effect yet: M73.3 brings it.")
+               "Degrees the environment map is turned around the up axis (positive = counter-clockwise seen from "
+               "above: what was at +X ends up at -Z at 90), -360..360. Looking along -Z shows the middle of the "
+               "picture.")
         .range(-360, 360)
+        .field("environmentBackground", &SceneSettings::environmentBackground,
+               "Whether the environment map is also drawn as the background (true, default). False keeps the sky "
+               "material, the physical sky or the gradient as the background and uses the picture for the lighting "
+               "and the reflections only. A skyMaterial that is set always draws the background.")
         .enum_field(
             "skyModel", &SceneSettings::skyModel, {"gradient", "physical"},
             "gradient (default): the skyColor and horizonColor gradient. physical: a sky computed from the sun, the "

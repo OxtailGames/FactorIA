@@ -143,7 +143,13 @@ struct RenderStats {
     int volumetricCameras = 0;        // cameras that drew the volumetric fog (SceneSettings.volumetricFog)
     int volumetricLights = 0;         // lights (Light.volumetric above 0) whose shafts those cameras drew
     int volumetricLightsDropped = 0;  // lights with volumetric above 0 left out: more than volumetricQuality allows
-    int lights2d = 0;                 // Light2D lights shading the 2D visuals (at most 256)
+    // Projected decals (M73.5b), summed over the views of the frame.
+    int decals = 0;  // Decal entities drawn: in a view's decal table, at most 256 per view
+    int decalsDropped =
+        0;  // Decals in view that were left out: over the 256 of the view, or their albedo texture could not be used
+    int decalClusterClipped =
+        0;  // decal-list entries lost to the 32 decals per cluster or the 131072 entries per view: 0 is normal
+    int lights2d = 0;         // Light2D lights shading the 2D visuals (at most 256)
     int lights2dDropped = 0;  // Light2D lights left out: off-view ones, then the ones over the 256 of the budget
     int lights2dShadowed =
         0;  // of lights2d, the point lights whose castShadows is in effect (a Tilemap with occludesLight; at most 32)

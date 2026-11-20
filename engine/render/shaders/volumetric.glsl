@@ -1,6 +1,6 @@
 // FactorIA volumetric fog and light shafts (SceneSettings.volumetricFog, Light.volumetric; M73.5): a raymarch of the medium between the camera and
 // the surface of each pixel, at a fraction of the picture's resolution, and a depth-aware upsample that joins it to the picture.
-// docs/design/ARCHITECTURE_RENDERING_LIGHTING.md, "Volumetric fog".
+// docs/design/ARCHITECTURE_VOLUMETRIC.md.
 //
 //   march   prepass (+ shadow atlas, light data texture) -> RGBA16F at 1/2 or 1/4 of the camera's rectangle: rgb = the light the medium scatters
 //           toward the camera along the pixel's ray, a = the fraction of the picture behind it that gets through (transmittance). The ray
@@ -21,6 +21,12 @@
 // top-left uv (the one the projection terms work in).
 @module volumetric
 
+// The helpers the shadow include needs. shadow_common.glsl's fa_shadow_local (not called here: vol_shadow_local below is the march's own one-tap copy)
+// reads the light data texture through fa_light_texel, defined further down. When the light loop of the area lights, cookies and IES profiles
+// lands, that fa_shadow_local also calls fa_light_base(int) and fa_cube_face(vec3), which its light_data.glsl defines; this shader does not
+// include light_data.glsl, so whoever integrates second must define both here too (before this include's functions are used) or the module
+// stops compiling. vol_shadow_local itself never assumes the stride of a light's records in the texture: it takes the light's position from the
+// caller (`lp`, from the uniform array) and only the index of its shadow region (lcfg + li).
 @include shadow_common.glsl
 
 @vs vs
@@ -137,7 +143,7 @@ float local_atten(int k, vec3 p, out vec3 l) {
 
 // The light of a point or spot light that its shadow lets through at p (1 lit): the record of fa_shadow_local (shadow_common.glsl) read with
 // one tap, whatever filter the light has: a fog sample does not need the soft edge and takes a few of them per pixel. `l` points to the light.
-float vol_shadow_local(int li, vec3 world, vec3 l) {
+float vol_shadow_local(int li, vec3 lp, vec3 world, vec3 l) {
     if (fa_shadow_lcfg.x < 0.5) { return 1.0; }
     float at = fa_light_texel(int(fa_shadow_lcfg.x + 0.5) - 1 + li).x;
     if (at < 0.0) { return 1.0; }
@@ -149,7 +155,6 @@ float vol_shadow_local(int li, vec3 world, vec3 l) {
         fade = 1.0 - smoothstep(0.75 * h0.y, h0.y, length(world - fa_shadow_eye.xyz));
         if (fade <= 0.0) { return 1.0; }
     }
-    vec3 lp = fa_light_texel(li * 4).xyz;
     int face = 0;
     if (h0.x > 1.5) {  // a cube: the face of the major axis of the direction from the light
         vec3 d = world - lp;
@@ -239,7 +244,7 @@ void main() {
             vec3 l;
             float att = local_atten(k, p, l);
             if (att <= 0.0) { continue; }
-            float sh = meta.y > 0.5 ? vol_shadow_local(int(meta.x + 0.5), p, l) : 1.0;
+            float sh = meta.y > 0.5 ? vol_shadow_local(int(meta.x + 0.5), loc[4 * k].xyz, p, l) : 1.0;
             float sg = dens_at(p.y);
             sum += col * (att * sh * vol_phase(dot(l, r)) * min(sg * dtl, 1.0) * exp(-tau_at(t, r.y)));
         }

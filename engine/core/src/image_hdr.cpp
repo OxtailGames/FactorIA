@@ -231,9 +231,12 @@ bool read_scanline(const std::uint8_t* d, std::size_t n, std::size_t& pos, int w
 
 }  // namespace
 
-Result<ImageF> decode_hdr(const std::uint8_t* data, std::size_t size) {
+namespace {
+
+// Steps 1 to 3 of a file: the signature, the header variables and the resolution line. `pos` ends at the first pixel byte.
+Result<HdrInfo> parse_hdr_header(const std::uint8_t* data, std::size_t size, std::size_t& pos) {
     if (!data || size == 0) return hdr_error(0, "the file is empty");
-    std::size_t pos = 0;
+    pos = 0;
     std::string_view line;
     auto line_error = [&](LineStatus status, const char* where) {
         if (status == LineStatus::HeaderTooBig)
@@ -316,7 +319,26 @@ Result<ImageF> decode_hdr(const std::uint8_t* data, std::size_t size) {
                                      "engine allows",
                                      w, h, bytes / (1024 * 1024), kMaxImageFloatBytes / (1024 * 1024)),
                          "Scale the picture down: an 8192 x 4096 panorama is enough for an environment map.");
+    HdrInfo info;
+    info.width = w;
+    info.height = h;
+    info.exposure = float(exposure);
+    return info;
+}
 
+}  // namespace
+
+Result<HdrInfo> hdr_info(const std::uint8_t* data, std::size_t size) {
+    std::size_t pos = 0;
+    return parse_hdr_header(data, size, pos);
+}
+
+Result<ImageF> decode_hdr(const std::uint8_t* data, std::size_t size) {
+    std::size_t pos = 0;
+    auto header = parse_hdr_header(data, size, pos);
+    if (!header) return header.error();
+    const int w = header->width, h = header->height;
+    const double exposure = header->exposure;
     // 4. Pixels. The sizes passed the budget, but the memory is taken row by row as the data proves itself (a few bytes
     // that claim a huge picture never ask for its memory): the capacity doubles up to the full size, never beyond it.
     ImageF img;

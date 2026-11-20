@@ -239,7 +239,8 @@ TEST_CASE("volumetric: the optical depth is the integral of the density along th
             acc += double(vol_density(c.density, c.base, c.falloff, c.y0 + c.ry * t)) * double(c.t) / double(n);
         }
         INFO("density " << c.density << " falloff " << c.falloff << " ry " << c.ry);
-        CHECK(vol_optical_depth(c.density, c.base, c.falloff, c.y0, c.ry, c.t) == doctest::Approx(float(acc)).epsilon(0.005));
+        CHECK(vol_optical_depth(c.density, c.base, c.falloff, c.y0, c.ry, c.t) ==
+              doctest::Approx(float(acc)).epsilon(0.005));
     }
     CHECK(vol_optical_depth(0.05f, 0.0f, 0.0f, 0.0f, 0.5f, 0.0f) == 0.0f);
 }
@@ -311,7 +312,8 @@ TEST_CASE("volumetric: the plan is off where nothing can be drawn, and clamps wh
     SceneSettings off = ss;
     off.volumetricFog = false;
     CHECK_FALSE(make_vol_plan(off, cam, none, false, 320, 180, false, false).on);
-    CHECK_FALSE(make_vol_plan(ss, camera_info(false), none, false, 320, 180, false, false).on);  // an orthographic camera
+    CHECK_FALSE(
+        make_vol_plan(ss, camera_info(false), none, false, 320, 180, false, false).on);  // an orthographic camera
     CHECK_FALSE(make_vol_plan(ss, cam, none, false, 0, 180, false, false).on);
     CHECK_FALSE(make_vol_plan(ss, cam, none, false, 320, 0, false, false).on);
     SceneSettings zero = ss;
@@ -359,10 +361,10 @@ TEST_CASE("volumetric: the plan lays the lights out as the shader reads them") {
     std::vector<LightData> lights;
     lights.push_back(directional(2.0f, {0, 1, 0}, 0));
     lights.push_back(point(0.5f));
-    lights.push_back(spot(1.0f, 0.6f));            // the default inner cone
-    lights.push_back(spot(1.0f, 0.6f, 0.9f));      // an inner cone of its own
+    lights.push_back(spot(1.0f, 0.6f));        // the default inner cone
+    lights.push_back(spot(1.0f, 0.6f, 0.9f));  // an inner cone of its own
     lights.back().shadow.casts = true;
-    lights.push_back(directional(0.0f));            // off
+    lights.push_back(directional(0.0f));  // off
     // Shadows drawn and the sun is the caster.
     const VolPlan p = make_vol_plan(ss, cam, lights, false, 320, 180, true, true);
     REQUIRE(p.on);
@@ -433,7 +435,8 @@ TEST_CASE("volumetric: a scene without volumetricFog is the picture it was, and 
     CHECK_FALSE(has_pass(pass_order(g), "vol-"));
 }
 
-TEST_CASE("volumetric: an ambient-only fog fills the view, thicker toward the far wall, and the passes are in the graph") {
+TEST_CASE(
+    "volumetric: an ambient-only fog fills the view, thicker toward the far wall, and the passes are in the graph") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     if (!g.renderer.supports("volumetricFog")) return;
@@ -511,8 +514,8 @@ TEST_CASE("volumetric: the sun's shadows cut a shaft through a gap, and without 
     CHECK(st.volumetricCameras == 1);
     CHECK(st.volumetricLights == 1);
     CHECK(st.shadowCasters >= 2);
-    const float lit = block(shafted, 150, 60, 20, 20);   // the ray along the gap
-    const float shade = block(shafted, 4, 60, 20, 20);   // the rays under a slab
+    const float lit = block(shafted, 150, 60, 20, 20);  // the ray along the gap
+    const float shade = block(shafted, 4, 60, 20, 20);  // the rays under a slab
     CHECK(lit > shade + 0.03f);
     expect_golden(shafted, "3d_volumetric_sun_gap", 0.01);
     // The roof does not shadow the fog when the sun casts no shadows.
@@ -521,7 +524,8 @@ TEST_CASE("volumetric: the sun's shadows cut a shaft through a gap, and without 
     CHECK(block(open, 4, 60, 20, 20) > shade + 0.03f);
 }
 
-TEST_CASE("volumetric: the volumetric fog replaces the analytic fog of the scene, and an orthographic camera keeps it") {
+TEST_CASE(
+    "volumetric: the volumetric fog replaces the analytic fog of the scene, and an orthographic camera keeps it") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     if (!g.renderer.supports("volumetricFog")) return;
