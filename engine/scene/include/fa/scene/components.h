@@ -1099,7 +1099,7 @@ struct Light {
     float intensity = 1.0f;
     float range = 10.0f;       // point/spot attenuation distance (meters)
     float spotAngle = 30.0f;   // spot cone half-angle (degrees)
-    bool castShadows = false;  // directional only until M73.2b brings point and spot shadows
+    bool castShadows = false;  // directional (cascades), point and spot lights (the shadow atlas, with a budget)
     // The fields below belong to the lighting of M73 (docs/rendering/RENDERING_LIGHTING.md); the doc string of each says whether it is drawn yet
     // (the shadow fields are, since M73.2a) or names the package that brings it.
     float innerAngle =

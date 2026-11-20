@@ -177,8 +177,13 @@ std::vector<FeatureDef> build_table() {
          "seams, with PCF or PCSS soft edges), drawn into one shadow atlas of 32-bit float (M73.2a).",
          nullptr},
         {"pointShadows", "float32",
-         "Shadows of point lights, six faces in the shadow atlas, with a budget per frame (M73.2)."},
-        {"spotShadows", "float32", "Shadows of spot lights in the shadow atlas, with a budget per frame (M73.2)."},
+         "Shadows of point lights: six face tiles in the shadow atlas, ranked by importance with a budget per frame, "
+         "PCF, PCSS or hard, faded out by distance (M73.2b).",
+         nullptr},
+        {"spotShadows", "float32",
+         "Shadows of spot lights: one perspective tile in the shadow atlas, with the same budget and filters "
+         "(M73.2b).",
+         nullptr},
         {"contactShadows", "depth",
          "Contact shadows: a short screen-space ray toward the light adds fine shadows where objects touch (M73.2)."},
         {"environmentMap", "half",

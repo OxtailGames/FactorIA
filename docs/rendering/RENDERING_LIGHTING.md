@@ -8,7 +8,7 @@ M73 brings the lighting of a leading engine to FactorIA in six steps: many light
 (M73.3); baked lightmaps and light probes (M73.4); volumetric fog, decals, subsurface scattering and realtime global illumination
 (M73.5); and the material layers clear coat, sheen, anisotropy, specular / IOR and transmission (M73.6; the first four are drawn).
 
-**What is there today (M73.1a, M73.2a): the fields, many lights and the cascaded shadows of the sun.** Every field below is reflected,
+**What is there today (M73.1a, M73.2a, M73.2b): the fields, many lights and the shadows of the sun, of point lights and of spot lights.** Every field below is reflected,
 validated, saved in the scene and read back, and shows up in `docs.components` and in the typings, so a scene, a prefab or a tool can
 set it. The renderer reads `innerAngle`, the shadow fields of the directional light and of the scene (the "Brought by" column says
 `drawn` for them), and lights a view with up to 1024 lights at once (see "Many lights"); it does not read the other fields yet (except the sky fields, `skyModel` and the rows after it, which M73-P3d draws: see "The physical sky"): a
@@ -48,11 +48,11 @@ range makes the lists long.
 | `shape`, `size` | `rectangle`, `disc`, `tube`; metres | `rectangle`, [1, 1] | M73.1, area lights only |
 | `cookie` | a texture | none | M73.1 |
 | `ies` | an `.ies` file | none | M73.1 |
-| `castShadows` | bool | false | directional lights: drawn (M73.2a; the first light that casts is the sun); point and spot lights: M73.2b |
-| `shadowResolution` | 0..4096 texels per cascade | 0 (the engine picks: 2048 for one cascade, 1024 for several) | drawn (M73.2a) |
-| `shadowBias`, `shadowNormalBias` | metres, 0..1 | 0 (the engine's own: 1.5 texels of the cascade) | drawn (M73.2a) |
-| `shadowFilter`, `shadowSoftness` | `pcf`, `hard`, `pcss`; 0..10 | `pcf`, 1 | drawn (M73.2a) |
-| `shadowDistance` | metres, 0..100000 | 0 (the scene's) | drawn (M73.2a) |
+| `castShadows` | bool | false | drawn: the first directional light that casts is the sun (M73.2a); point and spot lights share a budget (M73.2b) |
+| `shadowResolution` | 0..4096 texels per cascade (sun) or per tile (point, spot) | 0 (the engine picks: sun 2048 for one cascade, 1024 for several; point and spot from the distance) | drawn (M73.2a, M73.2b) |
+| `shadowBias`, `shadowNormalBias` | metres, 0..1 | 0 (the engine's own: 1.5 texels of the map) | drawn (M73.2a, M73.2b) |
+| `shadowFilter`, `shadowSoftness` | `pcf`, `hard`, `pcss`; 0..10 | `pcf`, 1 | drawn (M73.2a, M73.2b) |
+| `shadowDistance` | metres, 0..100000 | 0 (the scene's) | drawn (M73.2a, M73.2b: fades out and limits point and spot lights) |
 | `mode` | `realtime`, `baked`, `mixed` | `realtime` | M73.4a: `baked` lights stop lighting lightmapped entities (see "Lightmaps"); `mixed`: M73.4d |
 | `volumetric` | 0..10 | 0 | M73.5 |
 
@@ -148,8 +148,39 @@ farthest cascade is shrunk first (down to 128) and then dropped, the same on eve
 - **Looking at it.** `render.debug_view` with `"cascades"` tints every surface by its cascade (red, green, blue, yellow; grey past the
   last), and `FA_RENDER_DEBUG_VIEW=cascades` does the same for a whole run.
 
-Only the sun casts shadows in this step; point and spot light shadows (M73.2b) and contact shadows (M73.2c, `contactShadows` still has
-no effect) come next, in the same atlas.
+## Shadows of point and spot lights (M73.2b)
+
+A `Light` of type `spot` with `castShadows` has one shadow map, a perspective view along its axis; a `point` light (and an `area` light, which
+shines like one until M73.1b) has six, one per face of a cube. A spot whose `spotAngle` is over 70 degrees takes the six faces too, because one
+view cannot hold it. They live in the same shadow atlas as the cascades of the sun (`SceneSettings.shadowAtlasSize`), so a scene that
+casts from many lights shares one image and one pass.
+
+- **The budget.** The lights that cast are ranked every frame by how much they matter to the camera: their brightness (the largest colour
+  channel times `intensity`) scaled by `range^2 / (range^2 + distance^2)` with the distance from the light to the camera; equal scores keep the
+  order of the scene, so the result depends on the scene only and never on time. A map is `shadowResolution` texels per side (64..2048,
+  rounded down to a power of two); with 0 it is 1024 (512 per face of a cube) while the camera is within the light's `range` and halves each
+  time the camera is twice as far, never under 64. When the atlas is full the largest maps of the point and spot lights are halved, the least
+  important light's first, and when even that is not enough the least important light loses its shadow whole (a point light never has
+  some of its faces only). The sun's cascades keep the size they asked for until every local map is at its minimum (64) and no local
+  light is left to drop: they are shrunk and dropped last. A frame also holds at most 64 maps in all, the sun's cascades included. A baked
+  light (`mode` baked) with `castShadows` gets a map only while a mesh that is not lit by a lightmap (and receives shadows) is within its
+  `range`: its shadows are in the lightmaps, a lightmapped surface skips the light, so the map would only serve the moving objects. A light that loses
+  its shadow is lit as if `castShadows` were off, and the engine warns once, naming the fixes: raise `shadowAtlasSize`, lower
+  `shadowResolution`, set `shadowDistance` or turn `castShadows` off on the lights that matter less.
+- **Distance.** `Light.shadowDistance` (else `SceneSettings.shadowDistance`; 0 in both = no limit) fades the shadow out between 75% and 100%
+  of that distance from the camera, and a light farther than that plus its `range` is not given a map at all: it costs nothing. A light whose
+  range reaches no shadow caster costs nothing either, and a scene without local casters is drawn exactly as before.
+- **Filters and bias.** `pcf`, `hard` and `pcss` work as for the sun, with the same code. `shadowBias` and `shadowNormalBias` are metres;
+  0 picks 1.5 texels of the map at the surface's distance from the light (a texel of a perspective map grows with the distance), which
+  suits most scenes; the slope term of the bias follows how the surface leans against the map's axis, so a surface facing the light
+  at the corner of a cube face does not shadow itself. `shadowSoftness` is the angular size of the light for `pcss` (the penumbra a larger light casts).
+- **Cost.** Each tile is drawn with the casters whose box meets the light's range and the tile's view (a cube face only draws what is in
+  its view), and every one of those draws counts in `stats.drawCalls`; `stats.shadowCasters` counts the meshes that
+  cast into any map. The atlas has only the size the maps of the frame need (at most `shadowAtlasSize`; 4096 x 4096 is 64 MB of `R32F`, plus its depth
+  buffer), and is grown but never shrunk during a run.
+- **GPUs.** `render.supports` with `{"feature": "pointShadows"}` or `{"feature": "spotShadows"}` follows `float32Targets` like the sun's.
+
+Contact shadows (M73.2c, `contactShadows` still has no effect) come next.
 
 ## The material layers (M73.6a)
 

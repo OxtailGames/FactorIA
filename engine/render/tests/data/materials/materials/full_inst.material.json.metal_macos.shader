@@ -1,7 +1,7 @@
 {
   "format": "factoria.shader/1",
   "engine": "0.32.0",
-  "template": "9b526d852a58c0ab7f449c6f4c92253ae077b207eec8f1d2aa311601324d82ff",
+  "template": "5b03bb72e6f95131d2cabc0163239840769e992868dcb22dfd6819c840d03533",
   "slang": "metal_macos",
   "params": [
     "boost"

@@ -7633,7 +7633,7 @@ declare module "factoria" {
      */
     spotAngle: number;
     /**
-     * Cast shadows. Only directional lights cast shadows today (the first one that casts, with cascades: see SceneSettings.shadowCascades); the shadows of point and spot lights come with M73.2b.
+     * Cast shadows (M73.2). A directional light shadows with cascades (the first one that casts: see SceneSettings.shadowCascades); a spot light with one perspective map and a point (or area) light with six, all in the same atlas (SceneSettings.shadowAtlasSize). The point and spot lights that cast share a budget per frame: the most important for the camera (brightness, range, distance) keep their maps, get smaller ones when the atlas is full and lose the shadow when even that does not fit (a warning names the fix once).
      */
     castShadows: boolean;
     /**
@@ -7663,17 +7663,17 @@ declare module "factoria" {
      */
     ies: string;
     /**
-     * Texels per side of each cascade's shadow map of this light, 0..4096 (a value under 128 is raised to 128, rounded down to a power of two). 0 (default) = the engine picks: 2048 for one cascade, 1024 for several. When the cascades do not fit the atlas (SceneSettings.shadowAtlasSize) they are halved, farthest first, down to 128.
+     * Texels per side of each shadow map of this light, 0..4096. Directional: per cascade (a value under 128 is raised to 128, rounded down to a power of two); 0 (default) = the engine picks, 2048 for one cascade and 1024 for several. Point and spot: per tile (a point light has six, one per face), 64..2048 rounded down to a power of two; 0 = from the distance to the camera (1024, 512 per face of a point light, smaller as the camera moves away from the light's range). When the maps do not fit the atlas (SceneSettings.shadowAtlasSize) the largest are halved, the least important first, down to 128 for the sun and 64 for the others.
      * @since unreleased
      */
     shadowResolution: number;
     /**
-     * Depth offset of the shadow test in metres along the light, 0..1, against shadow acne; it grows with the slope of the surface. 0 (default) = the engine's own bias, 1.5 texels of the cascade's map.
+     * Depth offset of the shadow test in metres along the light, 0..1, against shadow acne; it grows with the slope of the surface. 0 (default) = the engine's own bias, 1.5 texels of the map (of the tile at the surface's distance for a point or spot light).
      * @since unreleased
      */
     shadowBias: number;
     /**
-     * Offset along the surface normal, in metres 0..1, against shadow acne on slopes. 0 (default) = the engine's own, 1.5 texels of the cascade's map.
+     * Offset along the surface normal, in metres 0..1, against shadow acne on slopes. 0 (default) = the engine's own, 1.5 texels of the map (of the tile at the surface's distance for a point or spot light).
      * @since unreleased
      */
     shadowNormalBias: number;
@@ -7688,12 +7688,12 @@ declare module "factoria" {
      */
     shadowSoftness: number;
     /**
-     * How far from the camera, in metres, this light draws shadows. 0 (default) = the scene's SceneSettings.shadowDistance.
+     * How far from the camera, in metres, this light draws shadows. Directional: the end of the last cascade. Point and spot: the shadow fades out between 75% of this distance and this distance from the camera, and a light farther away than this plus its range gets no map at all (it costs nothing). 0 (default) = the scene's SceneSettings.shadowDistance; when that is 0 too, a point or spot light has no limit.
      * @since unreleased
      */
     shadowDistance: number;
     /**
-     * realtime (default): lit every frame. baked: its light is computed once into the lightmaps (lightmap.bake) and an entity lit by a lightmap no longer gets it at run time; an entity with no lightmap entry is still lit by it every frame, so nothing goes dark before the bake. mixed: lit every frame like a realtime light, with shadows (its bounce light in the lightmaps and the light probes for moving objects: M73.4c and M73.4d).
+     * realtime (default): lit every frame. baked: its light is computed once into the lightmaps (lightmap.bake) and an entity lit by a lightmap no longer gets it at run time; an entity with no lightmap entry is still lit by it every frame, so nothing goes dark before the bake (with castShadows, a point or spot light of this mode gets a shadow map only while a mesh with no lightmap is within its range: the lightmapped ones skip it). mixed: lit every frame like a realtime light, with shadows (its bounce light in the lightmaps and the light probes for moving objects: M73.4c and M73.4d).
      * @since unreleased
      */
     mode: "realtime" | "baked" | "mixed";

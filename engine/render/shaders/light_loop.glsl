@@ -32,8 +32,9 @@ int fa_cl_light(int n) {
     return fa_cluster_index(fa_cl_slot, n - fa_cl_ndir);
 }
 
-// The same with the shadow of the directional shadow map applied (only the first light, and only when it is directional, is
-// shadowed): what the engine's light loop hands to light(). li is an index of the light table, gn the geometric normal.
+// The same with the shadow applied: the first light when it is directional has the sun's cascaded shadow map, a point or spot light
+// that has a shadow map this frame (Light.castShadows, within the budget) its own one: what the engine's light loop hands to light().
+// li is an index of the light table, gn the geometric normal.
 LightSample fa_light_shadowed(int li, vec3 world_pos, vec3 gn) {
     if (fa_lm.z > 0.5 && fa_light_baked(li)) {  // its direct light is in the lightmap this fragment reads: no light, no shadow lookup
         LightSample none;
@@ -48,6 +49,9 @@ LightSample fa_light_shadowed(int li, vec3 world_pos, vec3 gn) {
     LightSample ls = fa_light_sample(li, world_pos);
     if (ls.type == 0 && li == 0) {
         ls.shadow = fa_shadow_factor(gn, ls.direction);
+        ls.color = ls.color * ls.shadow;
+    } else if (ls.type != 0 && ls.attenuation > 0.0) {
+        ls.shadow = fa_shadow_local(li, world_pos, gn, ls.direction);
         ls.color = ls.color * ls.shadow;
     }
     return ls;
@@ -71,11 +75,15 @@ LightSample fa_light_unshadowed(int n, in SurfaceInput i) {
     if (fa_lm.z > 0.5 && fa_light_baked(li)) { return fa_no_light(); }  // a baked light on a lightmapped fragment
     return fa_light_sample(li, i.world_pos);
 }
-// The shadow of light n at this fragment: 1 lit, 0 in shadow (a value between at the edge of the shadow). Only the first light
-// (n = 0) when it is directional has a shadow; every other light gives 1.
+// The shadow of light n at this fragment: 1 lit, 0 in shadow (a value between at the edge of the shadow). The first light (n = 0) when
+// it is directional has the sun's shadow, a point or spot light with a shadow map this frame its own; every other light gives 1.
 float fa_light_shadow(int n, in SurfaceInput i) {
-    if (n != 0 || fa_light_count() < 1 || fa_cl_ndir < 1) { return 1.0; }
-    return fa_shadow_factor(i.world_normal, normalize(fa_light_texel(0).xyz));
+    if (n < 0 || n >= fa_light_count()) { return 1.0; }
+    if (n == 0 && fa_cl_ndir >= 1) { return fa_shadow_factor(i.world_normal, normalize(fa_light_texel(0).xyz)); }
+    int li = fa_cl_light(n);
+    if (li < fa_cl_ndir) { return 1.0; }
+    vec3 to_light = normalize(fa_light_texel(li * 4).xyz - i.world_pos);
+    return fa_shadow_local(li, i.world_pos, i.world_normal, to_light);
 }
 #endif
 @end

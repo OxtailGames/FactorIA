@@ -213,6 +213,8 @@ struct Renderer::Impl {
     bool warnedNoLight = false;
     bool warnedLightsDropped = false;   // one warning when a view has more lights than it can light
     bool warnedClusterClipped = false;  // one warning when a cluster or view list ran over its limit
+    bool warnedShadowBudget =
+        false;  // one warning when point or spot lights lost their shadow to the atlas or view budget
     // SceneSettings.skyMaterial: the last material that could not draw the sky and was reported (one log line per
     // material).
     std::string warnedSkyMaterial;
