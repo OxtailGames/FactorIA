@@ -679,10 +679,9 @@ TEST_CASE("features: what the engine does not draw yet is false and says planned
 
 TEST_CASE(
     "features: the lighting rows of M73 are planned until their package lands and never claim what is not drawn") {
-    const char* const rows[] = {"areaLights",  "lightCookies",   "iesProfiles",    "pointShadows",
-                                "spotShadows", "contactShadows", "environmentMap", "reflectionProbes",
-                                "physicalSky", "lightmaps",      "lightProbes",    "volumetricFog",
-                                "decals",      "subsurface",     "realtimeGI",     "transmission"};
+    const char* const rows[] = {"areaLights",       "lightCookies", "iesProfiles", "contactShadows", "environmentMap",
+                                "reflectionProbes", "physicalSky",  "lightmaps",   "lightProbes",    "volumetricFog",
+                                "decals",           "subsurface",   "realtimeGI",  "transmission"};
     const FeatureEnv full = gpu(FeatureBackend::D3d11, true, true, true, true);
     for (const char* n : rows) {
         CAPTURE(n);
@@ -701,11 +700,15 @@ TEST_CASE(
     CHECK(supported(full, "float32Targets", &why));
     CHECK_FALSE(supported(gpu(FeatureBackend::Gles3, true, true, true, false, false), "float32Targets", &why));
     CHECK(why.find("R32F") != std::string::npos);
-    // cascadedShadows (M73.2a) is drawn: it needs float32Targets and nothing else, so it says what is missing, never "planned".
-    CHECK(supported(full, "cascadedShadows", &why));
-    CHECK_FALSE(supported(gpu(FeatureBackend::Gles3, true, true, true, false, false), "cascadedShadows", &why));
-    CHECK(why.find("R32F") != std::string::npos);
-    CHECK(why.find("planned") == std::string::npos);
+    // cascadedShadows (M73.2a), pointShadows and spotShadows (M73.2b) are drawn: they need float32Targets and nothing else, so they
+    // say what is missing, never "planned".
+    for (const char* n : {"cascadedShadows", "pointShadows", "spotShadows"}) {
+        CAPTURE(n);
+        CHECK(supported(full, n, &why));
+        CHECK_FALSE(supported(gpu(FeatureBackend::Gles3, true, true, true, false, false), n, &why));
+        CHECK(why.find("R32F") != std::string::npos);
+        CHECK(why.find("planned") == std::string::npos);
+    }
 }
 
 TEST_CASE("features: the material layers of M73.6 are drawn on every backend") {

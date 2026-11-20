@@ -178,12 +178,14 @@ int light_texture_rows(std::size_t texels) {
 }
 
 void pack_light_texture(const std::vector<LightData>& lights, int directional, const ClusterCamera& camera,
-                        const ClusterLists* lists, LightTexture& out) {
+                        const ClusterLists* lists, LightTexture& out, const std::vector<LocalShadowRecord>* shadows) {
     out.width = kLightTextureWidth;
     const std::size_t lightTexels = lights.size() * std::size_t(kLightTexels);
     const std::size_t clusterTexels = lists ? lists->first.size() : 0;
     const std::size_t indexTexels = lists ? (lists->indices.size() + 3) / 4 : 0;
-    out.usedTexels = lightTexels + clusterTexels + indexTexels;
+    const std::size_t shadowTexels = shadows ? local_shadow_region_texels(int(lights.size()), *shadows) : 0;
+    out.shadowBase = shadowTexels > 0 ? static_cast<long long>(lightTexels + clusterTexels + indexTexels) : -1;
+    out.usedTexels = lightTexels + clusterTexels + indexTexels + shadowTexels;
     out.height = light_texture_rows(std::max<std::size_t>(out.usedTexels, 1));
     out.texels.assign(std::size_t(out.width) * std::size_t(out.height) * 4, 0.0f);
     float* t = out.texels.data();
@@ -197,6 +199,7 @@ void pack_light_texture(const std::vector<LightData>& lights, int directional, c
         }
         p[12] = l.cosInner;
     }
+    if (shadowTexels > 0) pack_local_shadow_region(int(lights.size()), *shadows, std::size_t(out.shadowBase), t);
     out.uniforms = ClusterUniforms{};
     out.uniforms.info[2] = float(directional);
     if (!lists) return;

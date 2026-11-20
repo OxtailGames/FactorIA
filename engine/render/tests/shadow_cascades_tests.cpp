@@ -263,10 +263,10 @@ TEST_CASE("shadow atlas: power of two helpers") {
     CHECK(pow2_ceil(1025) == 2048);
 }
 
-TEST_CASE("shadow cascades: a batch lists the casters of each cascade, those whose castMask has the bit") {
+TEST_CASE("shadow cascades: a batch lists the casters of each view, those whose castMask has the bit") {
     MeshRenderer mr;
     std::vector<MeshItem> items(3);
-    const std::uint32_t masks[] = {0b001, 0b110, 0b101};
+    const std::uint64_t masks[] = {0b001, 0b110, std::uint64_t(1) << 40 | 0b001};
     for (std::size_t i = 0; i < items.size(); ++i) {
         items[i].mr = &mr;
         items[i].visible = true;
@@ -275,24 +275,30 @@ TEST_CASE("shadow cascades: a batch lists the casters of each cascade, those who
     }
     std::vector<MeshBatch> batches;
     std::vector<Mat4> mainMats, shadowMats;
-    build_batches(items, true, batches, mainMats, shadowMats, 3);
+    std::vector<ShadowRun> runs;
+    build_batches(items, true, batches, mainMats, shadowMats, &runs);
     REQUIRE(batches.size() == 1);
     const MeshBatch& b = batches[0];
-    CHECK(b.cascadeCount[0] == 2);  // items 0 and 2
-    CHECK(b.cascadeCount[1] == 1);  // item 1
-    CHECK(b.cascadeCount[2] == 2);  // items 1 and 2
+    REQUIRE(b.runCount == 4);  // views 0, 1, 2 and 40, in ascending order
+    const ShadowRun* r = &runs[b.runFirst];
+    CHECK(r[0].view == 0);
+    CHECK(r[0].count == 2);  // items 0 and 2
+    CHECK(r[1].view == 1);
+    CHECK(r[1].count == 1);  // item 1
+    CHECK(r[2].view == 2);
+    CHECK(r[2].count == 1);  // item 1
+    CHECK(r[3].view == 40);
+    CHECK(r[3].count == 1);  // item 2: a view past the 32nd bit
     CHECK(shadowMats.size() == 5);
-    CHECK(b.cascadeFirst[1] == b.cascadeFirst[0] + 2);
-    CHECK(b.cascadeFirst[2] == b.cascadeFirst[1] + 1);
-    CHECK(b.shadowFirst == b.cascadeFirst[0]);
-    CHECK(b.shadowCount == b.cascadeCount[0]);
-    // The default of one cascade lists the casters of the first cascade only.
+    CHECK(r[1].first == r[0].first + 2);
+    CHECK(r[2].first == r[1].first + 1);
+    // Without a vector for the runs the casters are still listed, the batch just keeps no run.
     batches.clear();
     mainMats.clear();
     shadowMats.clear();
     build_batches(items, true, batches, mainMats, shadowMats);
     REQUIRE(batches.size() == 1);
-    CHECK(batches[0].cascadeCount[0] == 2);  // items 0 and 2: the mask has bit 0
+    CHECK(shadowMats.size() == 5);
 }
 
 TEST_CASE("shadow cascades: with no shadow distance the range, the splits and every cascade's size do not change when "
