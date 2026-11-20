@@ -7,6 +7,7 @@ Older versions, one file per minor version with its patch releases: [0.31](chang
 ## Unreleased
 
 - **`factoria feedback collect examples/*`** no longer reports "no 'entries' array" for the files of that folder that are not feedback files (`examples.json`, a readme): when several paths are given, a file not called `ENGINE_FEEDBACK.json` that holds no feedback is skipped; named alone it is an error that says what to pass.
+- **Lightmap baker core (M73.4, no command yet):** `fa/scene/lightmap_bake.h` bakes the diffuse light of lights, a sky and emissive surfaces into lightmap atlases and into spherical-harmonics probes with a deterministic CPU path tracer (the same bits with any number of threads, a public `TriBvh`, progress, cancel and refusals before it allocates); see docs/design/ARCHITECTURE_BAKING.md.
 
 ## 0.32.0
 
