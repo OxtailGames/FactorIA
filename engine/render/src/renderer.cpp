@@ -38,6 +38,8 @@ Json RenderStats::to_json() const {
                 {"volumetricLights", volumetricLights},
                 {"volumetricLightsDropped", volumetricLightsDropped},
                 {"contactShadowLights", contactShadowLights},
+                {"subsurfaceCameras", subsurfaceCameras},
+                {"subsurfaceDraws", subsurfaceDraws},
                 {"decals", decals},
                 {"decalsDropped", decalsDropped},
                 {"decalClusterClipped", decalClusterClipped},
@@ -310,6 +312,7 @@ int Renderer::warm_step(const GfxSwapchain& swapchain, World& world) {
             im.warmGroups.push_back([gpu] {
                 gpu->mesh_pipeline(true, false);
                 gpu->mesh_pipeline(true, true);
+                gpu->mesh_pipeline(true, false, false, {}, {}, true);
                 gpu->quad_pipeline(true, false, BlendMode::Alpha);
             });
             im.warmGroups.push_back([gpu] {
@@ -431,6 +434,7 @@ void Renderer::shutdown() {
         im.sceneFx.release();
         im.fogFx.release();
         im.volFx.release();
+        im.sssFx.release();
         im.ramps.destroy();
         im.assets.reset();
         im.destroy_targets();

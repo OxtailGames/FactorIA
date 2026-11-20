@@ -1361,11 +1361,12 @@ public:
     // `extras` = the per-instance params and declared channels of that custom material (MaterialAsset::extras()):
     // vertex buffers 3, 4 and 5 at the attributes after the matrix (and the joints). The shader id decides the
     // pipeline: a material's programs and its extras change together, so the key does not name them.
+    // `glass` = a blended mesh with transmission: it culls its back faces unless `doubleSided` (a blended mesh draws both faces otherwise).
     sg_pipeline mesh_pipeline(const TargetFormat& format, bool blended, bool doubleSided, bool skinned = false,
-                              sg_shader shader = {}, MeshExtras extras = {});
+                              sg_shader shader = {}, MeshExtras extras = {}, bool glass = false);
     sg_pipeline mesh_pipeline(bool blended, bool doubleSided, bool skinned = false, sg_shader shader = {},
-                              MeshExtras extras = {}) {
-        return mesh_pipeline(scene_target_format(), blended, doubleSided, skinned, shader, extras);
+                              MeshExtras extras = {}, bool glass = false) {
+        return mesh_pipeline(scene_target_format(), blended, doubleSided, skinned, shader, extras, glass);
     }
     // One pass of a full-shader material: the vertex layout of mesh_pipeline with the pass's own cull, depth and blend
     // state.
@@ -1405,6 +1406,17 @@ public:
                                  MeshExtras extras = {}) {
         return prepass_pipeline(prepass_target_format(), doubleSided, skinned, shader, extras);
     }
+    // The subsurface pass (M73.5, mesh_common.glsl fs_sss): the diffuse light of the meshes that scatter into colour 0 (rgb light, a = linear
+    // depth) and their scatter radius and strength into colour 1, both RGBA16F with a depth buffer, never multisampled. The shaders are made
+    // on first use; sss_ready() is false when they cannot be made (the effect is skipped).
+    static TargetFormat sss_target_format() {
+        return {SG_PIXELFORMAT_RGBA16F, SG_PIXELFORMAT_DEPTH, 1, SG_PIXELFORMAT_RGBA16F};
+    }
+    bool sss_ready();
+    // The slots the built-in sss program declares, for a draw that binds only those; after sss_ready().
+    const MaterialProgram& sss_program(bool skinned) const { return sssProgram_[skinned ? 1 : 0]; }
+    // The main pass's vertex layout and culling, no blending, depth written: the draw of the prepass's depth plus the two colours.
+    sg_pipeline sss_pipeline(bool doubleSided, bool skinned);
     // The debug view of the prepass (prepass_view.glsl): a full-screen triangle that draws it as a picture into `format` (the game target's).
     bool prepass_view_ready();
     sg_pipeline prepass_view_pipeline(const TargetFormat& format);
@@ -1621,6 +1633,7 @@ public:
     sg_shader exposure_shaders_[int(ExposureStage::Count)]{};
     sg_shader ssao_shaders_[3]{};  // ao, blur, apply (SsaoStage::View uses the last)
     sg_shader prepassShader_{}, prepassSkinShader_{}, prepassViewShader_{};
+    sg_shader sssShader_{}, sssSkinShader_{};
     sg_shader light_shader_{};
 
 private:
@@ -1641,6 +1654,8 @@ private:
     int exposureState_ = 0;     // same meaning as bloomState_
     int ssaoState_ = 0;         // same meaning as bloomState_
     MaterialProgram prepassProgram_[2];
+    MaterialProgram sssProgram_[2];
+    int sssState_ = 0;          // same meaning as bloomState_ (the built-in subsurface programs)
     int prepassState_ = 0;      // same meaning as bloomState_ (the built-in prepass programs)
     int prepassViewState_ = 0;  // same meaning as bloomState_ (the debug view)
     sg_pixel_format lightFormat_ = SG_PIXELFORMAT_NONE;
