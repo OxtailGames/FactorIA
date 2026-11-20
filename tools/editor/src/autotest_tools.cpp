@@ -312,6 +312,9 @@ void Editor::at_build_tools_script() {
             graph_ = GraphUi{};
             showGraph_ = false;
             showSceneSettings_ = false;  // section Q3: the Scene settings panel is not carried over
+            lightmap_cancel();
+            lightmap_ = LightmapUi{};  // section L4: the Lightmap panel and its job are not carried over
+            showLightmap_ = false;
             reset_auto_play_state();  // section S3: the Play sessions window, its list and a run still going are not carried over
             reset_review_state();  // section R4: the Review window, its sheet, its pictures and a sheet of seeds still being made are not carried over
             showPostFx_ =
@@ -461,6 +464,8 @@ void Editor::at_build_tools_script() {
     at_section_G3(at);
     section("Q3");
     at_section_Q3(at);
+    section("L4");
+    at_section_L4(at);
     section("O3");
     at_section_O3(at);
     section("E4");

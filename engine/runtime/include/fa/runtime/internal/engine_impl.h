@@ -7,6 +7,7 @@
 #pragma once
 
 #include <chrono>
+#include <functional>
 #include <map>
 #include <memory>
 #include <optional>
@@ -189,6 +190,9 @@ struct Engine::Impl {
     // no update of theirs is delivered to the next context.
     void cancel_script_background_loads();
     void drop_pending_async_switch();  // forgets the pending scene change of an async load (records it as cancelled)
+    // Called first thing in Engine::shutdown, before it waits for this engine's jobs: a command that started a long job (the lightmap
+    // bake of tools/authoring) adds one that asks the job to stop, so quitting does not wait for it. Run on the engine's thread, in order.
+    std::vector<std::function<void()>> shutdownHooks;
     std::string currentScene;
     // The current scene is the project's mainScene, loaded at start because no start scene was given (no EngineConfig::scene),
     // and no scene was loaded since. scene.import_ascii refuses `save` without `path` then: see tools/authoring/src/level_commands.cpp.

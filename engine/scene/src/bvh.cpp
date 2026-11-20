@@ -6,7 +6,7 @@
 
 namespace fa {
 
-void TriBvh::build(const Vec3* corners, std::size_t triangleCount) {
+bool TriBvh::build(const Vec3* corners, std::size_t triangleCount, const std::atomic<bool>* cancel) {
     corners_.assign(corners, corners + triangleCount * 3);
     nodes_.clear();
     order_.clear();
@@ -17,16 +17,28 @@ void TriBvh::build(const Vec3* corners, std::size_t triangleCount) {
         centroid_[t] = (a + b + c) / 3.0f;
         if (length(cross(b - a, c - a)) > 0.0f) order_.push_back(std::uint32_t(t));
     }
-    if (order_.empty()) return;
+    if (order_.empty()) return true;
     nodes_.reserve(order_.size() / 2 + 2);
-    build_range(0, std::uint32_t(order_.size()));
+    build_range(0, std::uint32_t(order_.size()), cancel);
+    if (cancel && cancel->load(std::memory_order_relaxed)) {
+        nodes_.clear();
+        order_.clear();
+        return false;
+    }
     lo_ = nodes_[0].lo;
     hi_ = nodes_[0].hi;
+    return true;
 }
 
-std::uint32_t TriBvh::build_range(std::uint32_t first, std::uint32_t count) {
+std::uint32_t TriBvh::build_range(std::uint32_t first, std::uint32_t count, const std::atomic<bool>* cancel) {
     const std::uint32_t self = std::uint32_t(nodes_.size());
     nodes_.emplace_back();
+    if (cancel && count > 4 && cancel->load(std::memory_order_relaxed)) {  // the caller throws the tree away
+        nodes_[self].leaf = true;
+        nodes_[self].a = first;
+        nodes_[self].b = 0;
+        return self;
+    }
     Vec3 lo = corners_[3 * std::size_t(order_[first])], hi = lo;
     Vec3 clo = centroid_[order_[first]], chi = clo;
     for (std::uint32_t k = first; k < first + count; ++k) {
@@ -52,8 +64,8 @@ std::uint32_t TriBvh::build_range(std::uint32_t first, std::uint32_t count) {
         return cl != cr ? cl < cr : l < r;  // a total order: the same tree on every platform
     });
     const std::uint32_t half = count / 2;
-    const std::uint32_t left = build_range(first, half);
-    const std::uint32_t right = build_range(first + half, count - half);
+    const std::uint32_t left = build_range(first, half, cancel);
+    const std::uint32_t right = build_range(first + half, count - half, cancel);
     nodes_[self].a = left;
     nodes_[self].b = right;
     return self;

@@ -1116,6 +1116,8 @@ void Engine::shutdown() {
     end_load_trace();  // also after a failed init
     if (!I.initialized) return;
     I.initialized = false;
+    for (auto& hook : I.shutdownHooks) hook();  // a long job of a command is told to stop before the wait below
+    I.shutdownHooks.clear();
     I.input.stop_all_rumble();  // quit: the window layer sends the stop to the hardware (apply_gamepad_rumble)
     // This engine's jobs run to the end before the systems they may touch go away; its main-thread tasks still queued
     // are dropped. Other engines' jobs keep running: the pool joins its threads when the last engine stops it.
