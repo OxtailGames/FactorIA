@@ -9,6 +9,7 @@
 
 #include "fa/core/det_math.h"
 #include "fa/core/math.h"
+#include "fa/scene/bvh.h"
 #include "fa/scene/model_texture.h"
 
 namespace fa::mt {
@@ -61,16 +62,7 @@ public:
     float nearest(Vec3 origin, Vec3 dir, float tmax, std::int32_t skip) const;
 
 private:
-    struct Node {
-        Vec3 lo, hi;
-        std::uint32_t a = 0, b = 0;  // inner: children; leaf: first (in order_) and count
-        bool leaf = false;
-    };
-    std::uint32_t build_range(std::uint32_t first, std::uint32_t count);
-    const Geo* g_ = nullptr;
-    std::vector<Node> nodes_;
-    std::vector<std::uint32_t> order_;
-    std::vector<Vec3> centroid_;
+    TriBvh tree_;
 };
 
 // Ambient occlusion (1 = open, lower = occluded) and thickness (0..1 of `maxDist`, 1 = thick or open) per texel; NaN where no texel is covered.
