@@ -88,7 +88,7 @@ taken (the P3b package adds no unit; P3c puts the atlas where view 14 is).
 - **Eviction.** When no slot is free a request takes the place of a probe of STRICTLY lower importance (the lowest importance, then
   the one used longest ago, then the largest id). Equal importance never evicts: two probes would push each other out every frame.
   An evicted probe is "noRoom" in the report, and returns by itself when a tile is free. The sky is never evicted.
-- **Budget.** `kProbeMaxCount` = 256 probes are kept; more are "overLimit" (one warning in the log). The texels are bounded by
+- **Budget.** `kProbeMaxCount` = 256 probes are kept; more are not kept (the report's `overLimit` counts them, and there is one warning in the log). The texels are bounded by
   the atlas, so the cost is at most 8 MB plus the scratch cubes (`probe_set_budget` does not change memory).
 - **Release.** A removed `ReflectionProbe` (or its entity) gives its tile back at the next frame; a changed resolution moves it.
 
@@ -114,17 +114,29 @@ Then, in the same frame the sixth face is ready:
 The scratch cubes belong to a SLOT: the scheduler's set of six face images, because the faces of a time-sliced capture accumulate
 in S0 over several frames. There are `kProbeSlots` (2) of them plus one for the SYNCHRONOUS capture (`Renderer::probe_capture`, used
 by `probe.bake` and the tests), which draws its six faces at once into a 512 atlas of its own and so never disturbs a probe under
-way. The scratch cubes of a slot are made again when the resolution changes and freed with the synchronous capture's end.
+way. The scratch cubes of a slot are made again when the resolution changes and freed with the synchronous capture's end. They are made
+when the frame is PLANNED and the filtering of a capture runs at the end of the frame, so the scheduler never gives a slot to a
+probe of another resolution in the call in which the slot's capture completed (the other probe takes the other slot or waits one
+frame; a probe of the same resolution may follow at once, its faces are copied into the cube after the first one's filtering, in the job order).
 
 ## The scheduler (`ProbeScheduler`)
 
 `update` of a realtime probe: `everyFrame` (captures whenever it can: it draws up to its six faces a frame within the budget),
 `timeSliced` (the default: one capture after another as the budget allows) or `onDemand` (once when it appears, and then only after
-`probe_refresh`). The budget is the faces ALL realtime probes may draw in a frame: `kProbeFaceBudget` = 2 by default (a 128 probe
+`probe_refresh`, which is the command `render.probe_refresh`). The budget is the faces ALL realtime probes may draw in a frame: `kProbeFaceBudget` = 2 by default (a 128 probe
 is complete every three frames), `probe_set_budget` clamps it to 1..12. At most `kProbeSlots` probes are under way at once; the
 next waits. Captures under way continue first (in the order of their slots, so a newcomer never starves them); a free slot then goes
 to the due probe that was never captured or was refreshed, then an `everyFrame` one, then the larger importance, the capture
 longest ago and the smaller id, so the work does not depend on the order of the scene. The plan is a function of (probes, budget, frame) alone, never of time or of the CPU.
+
+A face the renderer cannot draw (its probe lost its tile, the scratch or face images cannot be made) is given back with
+`ProbeScheduler::abandon`: the capture starts again from the first face (a capture that `plan()` had completed is undone, and an
+`onDemand` probe still owes its refresh), the rest of its faces in the plan are not drawn, and a real failure (no images) keeps the
+probe out of the plan for `kProbeRetryFrames` (30) frames, `state` "failed" meanwhile. A face that was not drawn never counts as drawn.
+
+The probes of the renderer are keyed by entity bits, which the scene's reload and a switch to another scene reuse. So the renderer
+keeps the `World` and `World::scene_generation()` it planned for; when either changes it forgets every entry and the scheduler's
+state (the atlas stays, and its tiles are given back through the entries), and the probes of the new scene capture from zero.
 
 While a capture is under way the tile keeps the last complete picture (the sixth face's filter overwrites it in one frame), so a
 reader never sees half a capture. `render.probes` shows `facesDone` (0..5) and `captures` for each probe.

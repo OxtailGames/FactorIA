@@ -7838,7 +7838,7 @@ declare module "factoria" {
      */
     hideTags: any;
     /**
-     * Only for mode realtime. everyFrame: the whole capture is redone every frame (6 faces and the filtering: use it for one or two probes). timeSliced (default): one face per frame within the frame budget, a whole update every few frames. onDemand: only when the command render.probes asks for it (refresh); the first capture happens when the probe appears.
+     * Only for mode realtime. A capture is six cube faces and the filtering, and all realtime probes together draw at most the renderer's face budget a frame (2 by default), so a capture takes several frames. everyFrame: a new capture starts as soon as the last one is done, before the probes of the other kinds (use it for one or two probes). timeSliced (default): the probes take turns, the more important and the longest ago captured first. onDemand: captured when the probe appears and then only when the command render.probe_refresh asks for it.
      * @since unreleased
      */
     update: "everyFrame" | "timeSliced" | "onDemand";

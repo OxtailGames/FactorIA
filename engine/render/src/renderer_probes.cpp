@@ -110,6 +110,8 @@ void Renderer::Impl::probes_release() {
     ps.allocator = ProbeAtlasAllocator();
     ps.entries.clear();
     ps.scheduler.set_probes({});
+    ps.world = nullptr;
+    ps.sceneGeneration = 0;
     ps.skyPlaced = false;
     ps.skyTile = ProbeTile{};
     ps.skyKey = 0;
@@ -128,6 +130,15 @@ void Renderer::Impl::probes_plan(World& world) {
     ps.frames.clear();
     ps.uploads.clear();
     ps.writeSky = false;
+    // Entity ids repeat from one scene to the next: another world, or another scene loaded into this one, makes every entry of the
+    // last scene a stranger (an on-demand probe would keep showing the old scene). The atlas and the sky's tile stay.
+    if (ps.world != &world || ps.sceneGeneration != world.scene_generation()) {
+        for (const auto& [id, en] : ps.entries) ps.allocator.release(id);
+        ps.entries.clear();
+        ps.scheduler.set_probes({});
+        ps.world = &world;
+        ps.sceneGeneration = world.scene_generation();
+    }
 
     struct Want {
         Entity e;
@@ -270,7 +281,7 @@ void Renderer::Impl::probes_plan(World& world) {
     std::vector<std::uint64_t> movedAgain;  // realtime probes that lost their tile once and got one: capture again
     for (const Want& w : wants) {
         ProbeEntry& en = ps.entries[w.id];
-        en.message.clear();
+        if (en.state != "failed") en.message.clear();  // a failure keeps its reason until its retry
         // A baked probe holds the resolution of its page, not the component's.
         const ProbeBakeAsset* bake = nullptr;
         if (!en.realtime) {
@@ -306,6 +317,7 @@ void Renderer::Impl::probes_plan(World& world) {
         en.tile = *t;
         en.placed = true;
         if (en.realtime) {
+            if (en.state == "failed" && ps.frame >= en.retryFrame) en.state = "pending";
             specs.push_back(ProbeSpec{en.id, en.update, en.importance, en.resolution});
             if (moved && en.captures > 0) movedAgain.push_back(en.id);
         } else {
@@ -325,29 +337,50 @@ void Renderer::Impl::probes_plan(World& world) {
     // The faces due this frame, each a job of the frame graph.
     const std::vector<ProbeScheduler::Work> work = ps.scheduler.plan(ps.frame);
     int index = 0;
-    for (const ProbeScheduler::Work& wk : work) {
-        auto it = ps.entries.find(wk.id);
-        if (it == ps.entries.end() || !it->second.placed) continue;
-        ProbeEntry& en = it->second;
-        const ReflectionProbe* rp = world.get<ReflectionProbe>(en.entity);
-        if (!rp) continue;
-        if (!ps.gpu.prepare_scratch(wk.slot, en.resolution)) {
+    // A face that cannot be drawn (no tile any more, no images) must not count as drawn: the capture of that probe starts again, and
+    // the rest of its faces in this plan are not drawn either. A real failure is retried after kProbeRetryFrames frames.
+    std::vector<std::uint64_t> abandoned;
+    const auto give_up = [&](ProbeEntry& en, bool failure, const std::string& why) {
+        if (std::find(abandoned.begin(), abandoned.end(), en.id) != abandoned.end()) return;
+        abandoned.push_back(en.id);
+        if (failure) {
             en.state = "failed";
-            en.message = "the scratch cube maps of the capture could not be created (out of GPU memory?)";
+            en.message = why;
+            en.retryFrame = ps.frame + std::uint64_t(kProbeRetryFrames) + 1;
+        }
+    };
+    for (const ProbeScheduler::Work& wk : work) {
+        if (std::find(abandoned.begin(), abandoned.end(), wk.id) != abandoned.end()) continue;
+        auto it = ps.entries.find(wk.id);
+        if (it == ps.entries.end()) {
+            abandoned.push_back(wk.id);
+            continue;
+        }
+        ProbeEntry& en = it->second;
+        const ReflectionProbe* rp = en.placed ? world.get<ReflectionProbe>(en.entity) : nullptr;
+        if (!rp) {  // its tile was taken by a probe that matters more, or the component went away
+            give_up(en, false, std::string());
+            continue;
+        }
+        if (!ps.gpu.prepare_scratch(wk.slot, en.resolution)) {
+            give_up(en, true, "the scratch cube maps of the capture could not be created (out of GPU memory?)");
             continue;
         }
         const std::uint64_t key = kProbeViewKeyBit | std::uint64_t(index);
         TextureAsset* tex = view_image(key, en.resolution, en.resolution, true);
         if (!tex) {
-            en.state = "failed";
-            en.message = "the " + std::to_string(en.resolution) + " x " + std::to_string(en.resolution) +
-                         " image of a capture face could not be created (out of GPU memory?)";
+            give_up(en, true,
+                    "the " + std::to_string(en.resolution) + " x " + std::to_string(en.resolution) +
+                        " image of a capture face could not be created (out of GPU memory?)");
+            continue;
+        }
+        auto vit = viewTargets.find(key);
+        if (vit == viewTargets.end() || !vit->second->main.color.id) {
+            give_up(en, true, "the image of a capture face has no render target (out of GPU memory?)");
             continue;
         }
         Frame& fr = ps.frames.emplace_back();
         probe_face_frame(fr, world, *rp, world.drawn_matrix(en.entity, true).translation(), wk.face, en.resolution);
-        auto vit = viewTargets.find(key);
-        if (vit == viewTargets.end() || !vit->second->main.color.id) continue;
         JobPlan plan;
         plan.name = "probe:" + std::to_string(index);
         plan_view_job(world, fr, *vit->second, key, plan);
@@ -360,6 +393,11 @@ void Renderer::Impl::probes_plan(World& world) {
         job.picture = tex->view;
         ps.jobs.push_back(job);
         ++index;
+    }
+    for (std::uint64_t id : abandoned) {
+        const auto it = ps.entries.find(id);
+        const bool failed = it != ps.entries.end() && it->second.state == "failed";
+        ps.scheduler.abandon(id, ps.frame, failed ? kProbeRetryFrames : 0);
     }
 }
 

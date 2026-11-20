@@ -425,6 +425,7 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`render.inspect`](commands/game.md#renderinspect): Luminance profile of the current picture along a line, with the hard steps (seams, bands) in it. _Since 0.4.0._
 - [`render.output`](commands/game.md#renderoutput): What the game window shows: the standard range or HDR, in which encoding, and what the display can do. _Since 0.31.0._
 - [`render.pick`](commands/game.md#renderpick): Which entities draw a design-space pixel of the picture, topmost first. _Since 0.4.0._
+- [`render.probe_refresh`](commands/game.md#renderprobe_refresh-modifies-state): Capture a realtime reflection probe again (or every realtime probe) as soon as the frame budget allows. _Not released yet._
 - [`render.probes`](commands/game.md#renderprobes): The reflection probes the renderer keeps: the atlas, each probe's tile, state and last capture. _Not released yet._
 - [`render.reset_post_history`](commands/game.md#renderreset_post_history-modifies-state): Start again the history of the custom post passes that read their own output of the frame before (fa_history). _Since 0.32.0._
 - [`render.supports`](commands/game.md#rendersupports): What this renderer can do on this graphics backend and GPU: float targets, linear colour, HDR output, post effects. _Since 0.31.0._
