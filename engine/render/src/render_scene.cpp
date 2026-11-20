@@ -264,13 +264,16 @@ void RenderScene::build(World& world, Assets& assets, Entity scopeRoot, bool wan
                 if (std::isfinite(at.x)) {
                     // probe_light_at is a pure function of the snapped point, so a mesh on a node an earlier mesh of this chunk
                     // already read gets that result (a field of coins is a few lookups): the same value, whatever the order.
-                    const std::int64_t kx = std::int64_t(std::llround(at.x / kProbeSnap)),
-                                       ky = std::int64_t(std::llround(at.y / kProbeSnap)),
-                                       kz = std::int64_t(std::llround(at.z / kProbeSnap));
                     const bool cacheable =
                         std::fabs(at.x) < 1.0e5f && std::fabs(at.y) < 1.0e5f && std::fabs(at.z) < 1.0e5f;
-                    const std::uint64_t key = (std::uint64_t(kx & 0x1fffff) << 42) |
-                                              (std::uint64_t(ky & 0x1fffff) << 21) | std::uint64_t(kz & 0x1fffff);
+                    std::uint64_t key = 0;
+                    if (cacheable) {  // llround of a huge value is undefined, so only a point in range is snapped
+                        const std::int64_t kx = std::int64_t(std::llround(at.x / kProbeSnap)),
+                                           ky = std::int64_t(std::llround(at.y / kProbeSnap)),
+                                           kz = std::int64_t(std::llround(at.z / kProbeSnap));
+                        key = (std::uint64_t(kx & 0x1fffff) << 42) | (std::uint64_t(ky & 0x1fffff) << 21) |
+                              std::uint64_t(kz & 0x1fffff);
+                    }
                     auto hit = cacheable ? probeCache.find(key) : probeCache.end();
                     if (hit != probeCache.end()) {
                         probeLights_[i] = probeLights_[hit->second];

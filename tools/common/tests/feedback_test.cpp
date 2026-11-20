@@ -591,9 +591,12 @@ TEST_CASE("feedback: collect skips files that are not feedback files unless they
     REQUIRE(alone->json["errors"].size() == 1);
     CHECK(alone->json["errors"][0].get<std::string>().find("ENGINE_FEEDBACK.json") != std::string::npos);
 
-    // A skipped file that is not JSON is named in the notes, not in the errors.
-    CHECK(all->json["notes"].size() == 1);
-    CHECK(all->json["notes"][0].get<std::string>().find("README.md") != std::string::npos);
+    // A skipped file is named in the notes, not in the errors: the readme (not JSON) and the index (JSON without entries).
+    const std::string notes = all->json["notes"].dump();
+    CHECK(all->json["notes"].size() == 2);
+    CHECK(notes.find("README.md") != std::string::npos);
+    CHECK(notes.find("examples.json") != std::string::npos);
+    CHECK(notes.find("no \\\"entries\\\" array") != std::string::npos);
 
     // A real ENGINE_FEEDBACK.json without entries gets the plain error, without the "not an ENGINE_FEEDBACK.json" hint.
     const std::string noEntries = tmp.sub("empty/ENGINE_FEEDBACK.json");

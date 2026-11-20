@@ -120,6 +120,22 @@ TEST_CASE("probe.bake: the arguments are checked before anything is drawn") {
     CHECK(p.files() == std::vector<std::string>{"main.scene.json"});
 }
 
+TEST_CASE("probe.bake: while the editor plays it is refused and writes nothing") {
+    TempProject p("play");
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(cfg(p), nullptr, &err), err);
+    auto& c = e.commands();
+    e.set_play_world(true);
+    auto r = c.call("probe.bake", Json{{"entity", "lobby"}});
+    REQUIRE_FALSE(r.ok);
+    CHECK(r.error.dump().find("game_running") != std::string::npos);
+    CHECK(r.error.dump().find("Stop") != std::string::npos);
+    CHECK(p.files() == std::vector<std::string>{"main.scene.json"});
+    e.set_play_world(false);
+    e.shutdown();
+}
+
 TEST_CASE("probe.bake: writes the page and the manifest, is deterministic, and a changed scene replaces the page") {
     TempProject p("bake");
     Engine e;

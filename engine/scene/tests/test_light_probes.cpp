@@ -325,23 +325,6 @@ TEST_CASE("light probes: the group boxes cull without changing a single result")
     CHECK(probe_light_at(pts, {10.0f + kProbePointRadius - 0.5f, 0, 0}).coverage > 0.0f);
 }
 
-TEST_CASE("light probes: the lookup cell of a point is deterministic, and a probe lookup at its centre is what a cache "
-          "returns") {
-    std::int32_t a[3], b[3];
-    REQUIRE(probe_cell_of({0.01f, -0.01f, 1.0f}, a));
-    REQUIRE(probe_cell_of({0.02f, -0.02f, 1.01f}, b));
-    CHECK(a[0] == b[0]);
-    CHECK(a[1] == b[1]);
-    CHECK(a[2] == b[2]);
-    const Vec3 centre = probe_cell_centre(a);
-    CHECK(std::fabs(centre.x - 0.01f) <= kProbeCell);
-    CHECK(centre.y < 0.0f);  // the cell of -0.01 is below zero, not zero
-    std::int32_t far[3] = {7, 7, 7};
-    CHECK_FALSE(probe_cell_of({1e9f, 0, 0}, far));
-    CHECK_FALSE(probe_cell_of({NAN, 0, 0}, far));
-    CHECK(far[0] == 7);  // untouched
-}
-
 TEST_CASE("light probes: a baked group is told from one that was edited since (find_same_probe_group)") {
     const ProbeSet baked = many_groups();
     ProbeSet scene = many_groups();

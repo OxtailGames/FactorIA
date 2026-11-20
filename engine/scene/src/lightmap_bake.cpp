@@ -923,9 +923,9 @@ Result<BakeResult> bake_lightmap(const BakeScene& scene, const BakeSettings& st,
         covered = sat_add(covered, maps.back().work.size());
     }
     if (!(st.rayEpsilon > 0) && covered > 0) {
-        // The automatic offset: size / 10000 (set by prepare), but at most 1/20 of a texel (the offset must stay far below what a texel
-        // resolves: in a 1 km scene 10 cm would leak light through every wall thinner than that) and at least size / 500000 (the float
-        // precision of the positions). The texel size is the mean over the atlases: sqrt(surface area / covered texels).
+        // The automatic offset: prepare set it to size / 10000, capped at kMaxAutoRayEpsilon (1 cm). Here it is lowered to at most 1/20 of
+        // a texel (the offset must stay far below what a texel resolves: 10 cm would leak light through every wall thinner than that), but
+        // never below 1/50 of what prepare set (size / 500000 when the cap did not bind, 0.2 mm when it did). The texel size is the mean over the atlases: sqrt(surface area / covered texels).
         double area = 0;
         for (std::size_t g = 0; g < prep.faceN.size(); ++g) {
             if (prep.atlas[g] < 0 || length_sq(prep.faceN[g]) < 0.5f) continue;
