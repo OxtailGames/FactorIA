@@ -679,8 +679,8 @@ TEST_CASE("features: what the engine does not draw yet is false and says planned
 
 TEST_CASE(
     "features: the lighting rows of M73 are planned until their package lands and never claim what is not drawn") {
-    const char* const rows[] = {"areaLights",  "lightCookies",  "iesProfiles", "contactShadows", "reflectionProbes",
-                                "lightProbes", "volumetricFog", "subsurface",  "realtimeGI",     "transmission"};
+    const char* const rows[] = {"areaLights",  "lightCookies", "iesProfiles", "contactShadows", "reflectionProbes",
+                                "lightProbes", "subsurface",   "realtimeGI",  "transmission"};
     const FeatureEnv full = gpu(FeatureBackend::D3d11, true, true, true, true);
     for (const char* n : rows) {
         CAPTURE(n);
@@ -717,6 +717,18 @@ TEST_CASE(
         CHECK(feature_table()[std::size_t(find_feature("environmentMap"))].kind == FeatureKind::Engine);
         CHECK_FALSE(supported(gpu(FeatureBackend::Gles3, false), "environmentMap", &why));
         CHECK(why.find("RGBA16F") != std::string::npos);
+        CHECK(why.find("planned") == std::string::npos);
+    }
+    // The volumetric fog is drawn (M73.5): it needs RGBA16F targets and a sampled depth, and says so, never "planned".
+    {
+        std::string why;
+        REQUIRE(find_feature("volumetricFog") >= 0);
+        CHECK(supported(full, "volumetricFog", &why));
+        CHECK(feature_table()[std::size_t(find_feature("volumetricFog"))].kind == FeatureKind::Engine);
+        CHECK_FALSE(supported(gpu(FeatureBackend::Gles3, false), "volumetricFog", &why));
+        CHECK(why.find("RGBA16F") != std::string::npos);
+        CHECK_FALSE(supported(gpu(FeatureBackend::Gles3, true, true, false), "volumetricFog", &why));
+        CHECK(why.find("depth") != std::string::npos);
         CHECK(why.find("planned") == std::string::npos);
     }
     // clusteredLights is drawn: it is a feature of the renderer on every GPU, with the row still in the same place.

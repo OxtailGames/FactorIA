@@ -774,8 +774,34 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
     // it.
     if ((draws || (plan.view && plan.customPost)) && ctx.postPlan.custom.reads_prepass())
         ctx.postPlan.needsDepth = ctx.postPlan.needsNormals = true;
+    // The volumetric fog (renderer_volumetric.h): planned here, from the lights and the shadows of this job, so that it asks for the prepass it marches
+    // to. It replaces the analytic fog of its camera (below), so a camera that cannot draw it keeps that.
+    if (draws && !fr.cam.studio) {
+        const SceneSettings& vss = world.settings();
+        ctx.postPlan.vol = make_vol_plan(vss, fr.cam, ctx.lights, fr.linear, ctx.camPx.w, ctx.camPx.h, ctx.doShadows,
+                                         ctx.doShadows && ctx.cascades > 0 && ctx.haveShadowCaster);
+        // Only a camera that can draw it asks for the prepass: on a GPU without RGBA16F, or after a shader failure, no prepass is made for it.
+        if (ctx.postPlan.vol.on) {
+            if (volFx.can_draw(transient_targets(), ctx.postPlan.vol))
+                ctx.postPlan.needsDepth = true;
+            else
+                ctx.postPlan.vol = VolPlan{};
+        }
+    }
     plan_prepass(ctx);
     plan_outline(ctx);
+    // The volumetric fog needs the prepass (its shaders and its image were checked above). A camera that draws it draws no analytic fog: neither the scene's
+    // (ss.fogDensity, scene_uniforms) nor the stack's (fogFx.fog), the two would fog twice; the sun shafts of the stack stay.
+    if (ctx.postPlan.vol.on) {
+        if (ctx.doPrepass) {
+            ctx.postPlan.fogFx.fog = false;
+            ++stats.volumetricCameras;
+            stats.volumetricLights += ctx.postPlan.vol.lightsUsed;
+            stats.volumetricLightsDropped += ctx.postPlan.vol.lightsDropped;
+        } else {
+            ctx.postPlan.vol = VolPlan{};
+        }
+    }
     // The passes need the prepass and their shaders: a camera that cannot draw them keeps the scene's own fog (ss.fogDensity, below).
     if (ctx.postPlan.fogFx.any()) {
         FogFxPlan& ff = ctx.postPlan.fogFx;
@@ -791,10 +817,11 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
     if (plan.last && !plan.view) {
         bool sceneColorFx = false;
         for (const DrawContext* c : postCams)
-            sceneColorFx =
-                sceneColorFx ||
-                ((c->postPlan.ssr.any() || c->postPlan.fogFx.shafts || c->postPlan.sceneFx.any()) && c->doPrepass) ||
-                c->postPlan.custom.any_hdr();
+            sceneColorFx = sceneColorFx ||
+                           ((c->postPlan.ssr.any() || c->postPlan.fogFx.shafts || c->postPlan.sceneFx.any() ||
+                             c->postPlan.vol.on) &&
+                            c->doPrepass) ||
+                           c->postPlan.custom.any_hdr();
         if (sceneColorFx) {
             ctx.hudAfterBloom = true;
             ctx.doMainPass = fr.wantWorld || !ctx.hudAfterBloom;
@@ -975,6 +1002,7 @@ void Renderer::Impl::collect_lights(DrawContext& ctx) {
                 }
             }
             ld.baked = l.mode == LightMode::Baked;
+            ld.volumetric = std::isfinite(l.volumetric) ? std::clamp(l.volumetric, 0.0f, 10.0f) : 0.0f;
             lights.push_back(ld);
         });
     // Camera.lighting = studio: the rig of the camera takes the place of the scene's lights. Directions are relative to the camera
@@ -1589,8 +1617,9 @@ void Renderer::Impl::scene_uniforms(DrawContext& ctx) {
         ss.fogDensity = 0.0f;
     }
     // The camera's own fog (PostProcess.fog*, drawn from the depth inside the main pass) replaces the scene's: the two never add up. It is
-    // only planned (fogFx.fog) when its prepass and shader exist, so a frame that cannot draw it keeps the scene's fog.
-    if (ctx.postPlan.fogFx.fog) ss.fogDensity = 0.0f;
+    // only planned (fogFx.fog) when its prepass and shader exist, so a frame that cannot draw it keeps the scene's fog. The volumetric fog
+    // (vol.on, planned the same way) replaces both.
+    if (ctx.postPlan.fogFx.fog || ctx.postPlan.vol.on) ss.fogDensity = 0.0f;
     // Colours the author picked are sRGB values; a linear scene computes with linear light (sky, fog and ambient, below, and the
     // main pass's sky and clear colour read these).
     ss.ambientLight = to_scene(ss.ambientLight, fr.linear);
@@ -3104,6 +3133,24 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
             },
             true);
     }
+    // The march of the volumetric fog (renderer_volumetric.h): in this camera's own job, after its shadow and prepass passes, because it reads the
+    // shadow atlas this job drew (a later job may draw into the shared atlas again). The pass that blends it over the picture is declared with the
+    // post stack, in the last job.
+    if (ctx.postPlan.vol.on && ctx.postPlan.prepass.valid()) {
+        const ResourceId volRes = graph.create_transient(VolumetricFx::image_desc(ctx.postPlan.vol, plan.name));
+        ctx.postPlan.volImage = volRes;
+        std::vector<ResourceId> reads{prepassRes};
+        if (ctx.doShadows) reads.push_back(shadowRes);
+        add("vol-march", std::move(reads), {volRes}, [this, &ctx, volRes, prepassRes](const PassContext& c) {
+            const Target* vt = transient_targets().get(c.handle(volRes));
+            const Target* pt = transient_targets().get(c.handle(prepassRes));
+            if (!vt || !pt) return;
+            const sg_view shadowTex =
+                ctx.doShadows && ctx.shadowTgt.texView.id ? ctx.shadowTgt.texView : ctx.white->view;
+            volFx.march(gpu, ctx.postPlan.vol, *vt, pt->texView, shadowTex, ctx.lightView, ctx.shadowU,
+                        &stats.drawCalls);
+        });
+    }
     // The ambient occlusion (renderer_ssao.h): its images are made from the prepass before the main pass, which applies them after the
     // opaque meshes (main_pass). Only a job that draws the world and has the prepass declares them.
     ctx.ssaoApply = SsaoApply{};
@@ -3202,6 +3249,17 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
         }
     };
     custom_slot(PostSlot::Main);
+    // The volumetric fog of every camera (renderer_volumetric.h): its march image blended over the camera's rectangle of the picture the main pass drew (the
+    // blended meshes are in it), before the reflections, the sun shafts and the rest of the stack.
+    for (DrawContext* c : postCams) {
+        if (!c->postPlan.vol.on || !c->postPlan.prepass.valid() || !c->postPlan.volImage.valid()) continue;
+        const BloomTarget volDst =
+            ctx.hudAfterBloom && ctx.msaa
+                ? BloomTarget{gameTarget.colorAtt, gameTarget.resolveAtt, gpu.sample_count()}
+                : BloomTarget{ctx.msaa ? gameTarget.resolveColorAtt : gameTarget.colorAtt, sg_view{}, 1};
+        volFx.add_apply(graph, transient_targets(), gpu, c->postPlan.vol, c->postPlan.volImage, c->postPlan.rect, physW,
+                        physH, game, volDst, c->postPlan.prepass, &stats.drawCalls, c->plan.name);
+    }
     // Screen-space reflections of every camera (renderer_ssr.h), over its rectangle of the scene colour, on the picture the main pass drew (the ambient occlusion
     // and the fog are already in it), before the sun shafts, the depth of field and the rest of the stack.
     for (DrawContext* c : postCams) {
