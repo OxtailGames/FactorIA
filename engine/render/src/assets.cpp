@@ -1,5 +1,6 @@
 // Texture + mesh caches, procedural primitives and glTF loading.
 #include <algorithm>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <format>
@@ -14,6 +15,7 @@
 #include "fa/core/strings.h"
 #include "fa/render/cube_lut.h"
 #include "fa/scene/gltf_file.h"
+#include "fa/scene/material_layers.h"
 #include "fa/scene/skeleton.h"
 #include "render_internal.h"
 
@@ -377,7 +379,62 @@ PreparedTextureRef image_ref(const cgltf_image& img, const std::string& dir) {
     return r;
 }
 
-void prepare_material(const cgltf_material* mat, const std::string& dir, PreparedPart& part) {
+// The layers of a glTF material, worked out once per material (the parts that share it share the packed maps).
+struct LayerCache {
+    struct Entry {
+        MaterialLayers layers;
+        int packed = 0;
+        PreparedTextureRef occlusion, metalRough;  // the composites, when packed != 0
+    };
+    std::map<const cgltf_material*, Entry> byMaterial;
+};
+
+// The five layer extensions of `mat`: their factors, and their textures packed into the occlusion and metallic-roughness maps
+// of `part` (pack_layer_textures). Reads the extension once per material; later parts copy the result.
+void prepare_layers(const cgltf_material* mat, const cgltf_data* data, const std::string& path, const std::string& dir,
+                    PreparedPart& part, LayerCache& cache, std::vector<std::string>& warnings) {
+    auto it = cache.byMaterial.find(mat);
+    if (it == cache.byMaterial.end()) {
+        LayerCache::Entry e;
+        const std::string what = std::format(
+            "{}: material '{}'", path, mat->name && *mat->name ? mat->name : std::format("#{}", mat - data->materials));
+        read_material_layers(*mat, what, e.layers, warnings);
+        LayerTextureRefs refs;
+        auto ref = [&](const cgltf_texture_view& v, PreparedTextureRef& out) {
+            if (v.texture && v.texture->image) out = image_ref(*v.texture->image, dir);
+        };
+        if (mat->has_clearcoat) {
+            ref(mat->clearcoat.clearcoat_texture, refs.clearcoat);
+            ref(mat->clearcoat.clearcoat_roughness_texture, refs.clearcoatRoughness);
+            ref(mat->clearcoat.clearcoat_normal_texture, refs.clearcoatNormal);
+        }
+        if (mat->has_sheen) {
+            ref(mat->sheen.sheen_color_texture, refs.sheenColor);
+            ref(mat->sheen.sheen_roughness_texture, refs.sheenRoughness);
+        }
+        if (mat->has_anisotropy) ref(mat->anisotropy.anisotropy_texture, refs.anisotropy);
+        if (mat->has_specular) {
+            ref(mat->specular.specular_texture, refs.specular);
+            ref(mat->specular.specular_color_texture, refs.specularColor);
+        }
+        if (refs.any()) {
+            e.occlusion = part.occlusion;
+            e.metalRough = part.metalRough;
+            e.packed = pack_layer_textures(refs, what, std::format("<gltf-layers:{}:{}>", path, mat - data->materials),
+                                           e.occlusion, e.metalRough, warnings);
+        }
+        it = cache.byMaterial.emplace(mat, std::move(e)).first;
+    }
+    const LayerCache::Entry& e = it->second;
+    part.material.layers = e.layers;
+    part.material.layersPacked = e.packed;
+    if (e.packed & 1) part.occlusion = e.occlusion;
+    if (e.packed & 2) part.metalRough = e.metalRough;
+}
+
+void prepare_material(const cgltf_material* mat, const cgltf_data* data, const std::string& path,
+                      const std::string& dir, PreparedPart& part, LayerCache& cache,
+                      std::vector<std::string>& warnings) {
     if (!mat) return;
     SubMesh& sm = part.material;
     if (mat->name) sm.materialName = mat->name;
@@ -410,6 +467,8 @@ void prepare_material(const cgltf_material* mat, const std::string& dir, Prepare
     float strength = mat->has_emissive_strength ? mat->emissive_strength.emissive_strength : 1.0f;
     sm.emissiveFactor = Color{mat->emissive_factor[0] * strength, mat->emissive_factor[1] * strength,
                               mat->emissive_factor[2] * strength, 1.0f};
+    if (mat->has_clearcoat || mat->has_sheen || mat->has_anisotropy || mat->has_specular || mat->has_ior)
+        prepare_layers(mat, data, path, dir, part, cache, warnings);
 }
 
 // Gives a part of a skinned glTF node its joints and weights (vertex buffer 2). Each part is drawn with the palette of its
@@ -478,6 +537,7 @@ bool decode_gltf(const std::string& path, const std::uint8_t* bytes, std::size_t
     }
     const std::string dir = fs::parent(path);
     std::shared_ptr<const SkeletonAsset> skeleton;
+    LayerCache layerCache;
     out.bmin = {1e30f, 1e30f, 1e30f};
     out.bmax = {-1e30f, -1e30f, -1e30f};
     for (cgltf_size ni = 0; ni < data->nodes_count; ++ni) {
@@ -499,7 +559,7 @@ bool decode_gltf(const std::string& path, const std::uint8_t* bytes, std::size_t
             PreparedPart part;
             if (!read_primitive(prim, world, normalMat, part.verts, part.idx, part.uv1, part.color1)) continue;
             compute_bounds(part.verts, part.material.bmin, part.material.bmax);
-            prepare_material(prim.material, dir, part);
+            prepare_material(prim.material, data, path, dir, part, layerCache, out.warnings);
             prepare_skin(path, skeleton, int(ni), int(pi), part, out.warnings);
             out.bmin = min(out.bmin, part.material.bmin);
             out.bmax = max(out.bmax, part.material.bmax);
@@ -545,6 +605,8 @@ public:
             sm.normalScale = m.normalScale;
             sm.occlusionStrength = m.occlusionStrength;
             sm.hasPbr = m.hasPbr;
+            sm.layers = m.layers;
+            sm.layersPacked = m.layersPacked;
             sm.metallic = m.metallic;
             sm.roughness = m.roughness;
             sm.emissiveFactor = m.emissiveFactor;
@@ -591,8 +653,13 @@ private:
             case PreparedTextureRef::Kind::None: return nullptr;
             case PreparedTextureRef::Kind::Path: return assets_.texture(r.path);
             case PreparedTextureRef::Kind::Image: {
+                // The maps packed from a material's layer textures are shared by the parts that use the material.
+                const bool packed = r.name.rfind("<gltf-layers:", 0) == 0;
+                if (packed)
+                    if (auto it = packedTextures_.find(r.name); it != packedTextures_.end()) return it->second;
                 TextureAsset* t = assets_.make_texture(r.name, r.image, true);
                 embeddedBytes_ += t->bytes;
+                if (packed) packedTextures_[r.name] = t;
                 return t;
             }
             case PreparedTextureRef::Kind::Missing:
@@ -604,6 +671,7 @@ private:
 
     Assets& assets_;
     std::uint64_t embeddedBytes_ = 0;
+    std::unordered_map<std::string, TextureAsset*> packedTextures_;  // by name: <gltf-layers:...>
 };
 
 // ---------------------------------------------------------------------------
@@ -1320,7 +1388,29 @@ MeshAsset* Assets::mesh(const std::string& name) {
 // ---------------------------------------------------------------------------
 namespace {
 constexpr std::uint64_t kLightmapMaxGpuBytes = std::uint64_t(1) << 30;  // the pages of one scene, RGBA16F
+
+// The size a Radiance file says it has ("-Y <height> +X <width>", the line after the blank line that ends the header),
+// read without decoding a pixel. False when the header does not have that line (decode_hdr then reports what is wrong).
+bool hdr_header_size(const std::vector<std::uint8_t>& bytes, std::int64_t& width, std::int64_t& height) {
+    const std::size_t limit = std::min<std::size_t>(bytes.size(), 4096);
+    std::size_t lineStart = 0;
+    bool afterBlank = false;
+    for (std::size_t i = 0; i < limit; ++i) {
+        if (bytes[i] != '\n') continue;
+        const std::string line(reinterpret_cast<const char*>(bytes.data()) + lineStart, i - lineStart);
+        lineStart = i + 1;
+        if (afterBlank) {
+            long long h = 0, w = 0;
+            if (std::sscanf(line.c_str(), "-Y %lld +X %lld", &h, &w) != 2 || h <= 0 || w <= 0) return false;
+            width = w;
+            height = h;
+            return true;
+        }
+        afterBlank = line.empty() || line == "\r";
+    }
+    return false;
 }
+}  // namespace
 
 void Assets::destroy_lightmap_set() {
     if (!lightmapSet_) return;
@@ -1381,7 +1471,23 @@ const LightmapSetAsset* Assets::lightmaps(const std::string& manifestPath) {
         page.width = want.width;
         page.height = want.height;
         const std::string ptr = "/pages/" + std::to_string(i) + "/file";
-        auto img = load_hdr(fs::normalize(want.file));
+        // The header says the size before any pixel is decoded: a page that is not the size of the manifest (or whose
+        // size alone is more than a scene may use) is refused without allocating its pixels.
+        auto bytes = fs::read_bytes(fs::normalize(want.file));
+        std::int64_t fileW = 0, fileH = 0;
+        if (bytes && hdr_header_size(*bytes, fileW, fileH) &&
+            (fileW != want.width || fileH != want.height ||
+             std::uint64_t(fileW) * std::uint64_t(fileH) * 8u > kLightmapMaxGpuBytes)) {
+            note_failure(
+                "lightmap-page", want.file,
+                std::format("{}{}: the page '{}' is {}x{} texels but the manifest says {}x{} (a scene may use {} MB "
+                            "of lightmap). Entities on this page are drawn without a lightmap.",
+                            manifestPath, ptr, want.file, fileW, fileH, want.width, want.height,
+                            kLightmapMaxGpuBytes >> 20),
+                "The page and the manifest are from different bakes: bake the lightmap again.");
+            continue;
+        }
+        Result<ImageF> img = bytes ? decode_hdr(bytes->data(), bytes->size()) : Result<ImageF>(bytes.error());
         if (!img) {
             note_failure("lightmap-page", want.file,
                          std::format("{}{}: the lightmap page '{}' could not be read: {} Entities on this page are "
@@ -1729,6 +1835,7 @@ void Assets::upload_procedural(ProceduralMesh& pm, const MeshStore::Entry& e) {
         sm.materialName = m.name;
         sm.baseColor = m.color;
         sm.hasPbr = m.metallic.has_value() || m.roughness.has_value();
+        sm.layers = m.layers;
         sm.metallic = m.metallic.value_or(0.0f);
         sm.roughness = m.roughness.value_or(0.6f);
         sm.emissiveFactor = Color{m.emissive.r, m.emissive.g, m.emissive.b, 1.0f};
@@ -1762,7 +1869,8 @@ void Assets::reload(const std::string& pathIn) {
                         failures_.end());
     }
     if (lightmapSet_ || !lightmapSetPath_.empty()) {
-        // The manifest or one of its pages changed (or is rewritten by a bake right now): forget the set, the next frame reads it again.
+        // The manifest or one of its pages changed (or is rewritten by a bake right now): forget the set, the next
+        // frame reads it again.
         bool mine = path == fs::normalize(lightmapSetPath_);
         if (lightmapSet_)
             for (const LightmapPageGpu& pg : lightmapSet_->pages) mine = mine || path == fs::normalize(pg.file);

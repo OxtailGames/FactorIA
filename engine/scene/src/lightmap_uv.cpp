@@ -2,7 +2,9 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <format>
+#include <vector>
 
 #include "fa/scene/model_kernel.h"
 #include "fa/scene/model_uv.h"
@@ -38,7 +40,8 @@ Result<LightmapUvResult> generate_lightmap_uv(const std::vector<Vec3>& positions
     m.uvs.assign(positions.size(), Vec2{0, 0});
     m.triParts.assign(indices.size() / 3, 0);
     m.colors.resize(positions.size());
-    for (std::size_t i = 0; i < positions.size(); ++i)  // model_uv_apply keeps the colours: they say which vertex each one came from
+    for (std::size_t i = 0; i < positions.size();
+         ++i)  // model_uv_apply keeps the colours: they say which vertex each one came from
         m.colors[i] = Vec4{float(i & 0xFFFu), float(i >> 12), 0, 1};
     if (normals.empty()) {
         m.normals.assign(positions.size(), Vec3{0, 1, 0});
@@ -83,7 +86,8 @@ Result<LightmapUvResult> generate_lightmap_uv(const std::vector<Vec3>& positions
             return make_error("the unwrap lost the vertex origin it needs", "This is a bug in generate_lightmap_uv.");
         const std::uint32_t src = std::uint32_t(out.colors[i].x + 0.5f) | (std::uint32_t(out.colors[i].y + 0.5f) << 12);
         if (src >= positions.size())
-            return make_error("the unwrap returned a vertex of no input vertex", "This is a bug in generate_lightmap_uv.");
+            return make_error("the unwrap returned a vertex of no input vertex",
+                              "This is a bug in generate_lightmap_uv.");
         res.source[i] = src;
     }
     return res;

@@ -1,5 +1,6 @@
-// M73.4a: the lightmap geometry (UVs) and the runtime that draws a baked lightmap (docs/design/ARCHITECTURE_RENDERING_LIGHTING.md,
-// "Lightmaps"): the page and the manifest next to a scene, the lightmap UV, the lights of mode baked, the files read again on change.
+// M73.4a: the lightmap geometry (UVs) and the runtime that draws a baked lightmap
+// (docs/design/ARCHITECTURE_RENDERING_LIGHTING.md, "Lightmaps"): the page and the manifest next to a scene, the lightmap
+// UV, the lights of mode baked, the files read again on change.
 #include "test_util.h"
 
 #include <algorithm>
@@ -44,7 +45,8 @@ struct LmErrorLog {
     }
     int count(const std::string& needle) const {
         const std::vector<std::string> m = messages();
-        return int(std::count_if(m.begin(), m.end(), [&](const std::string& x) { return x.find(needle) != std::string::npos; }));
+        return int(std::count_if(m.begin(), m.end(),
+                                 [&](const std::string& x) { return x.find(needle) != std::string::npos; }));
     }
 };
 
@@ -74,7 +76,8 @@ Entity add_light(World& w, LightMode mode, float intensity = 1.0f) {
     return e;
 }
 
-// A quad facing +Z (x and y from -1.5 to 1.5) whose second UV set is the whole unit square: v = 0 at its bottom edge, v = 1 at its top.
+// A quad facing +Z (x and y from -1.5 to 1.5) whose second UV set is the whole unit square: v = 0 at its bottom edge,
+// v = 1 at its top.
 void write_uv1_quad(const char* name) {
     const float pos[12] = {-1.5f, -1.5f, 0, 1.5f, -1.5f, 0, 1.5f, 1.5f, 0, -1.5f, 1.5f, 0};
     const float uv1[8] = {0, 0, 1, 0, 1, 1, 0, 1};
@@ -86,7 +89,8 @@ void write_uv1_quad(const char* name) {
     static const char* t = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     std::string b64;
     for (std::size_t i = 0; i < bytes.size(); i += 3) {
-        const std::uint32_t n = (bytes[i] << 16) | (i + 1 < bytes.size() ? bytes[i + 1] << 8 : 0) | (i + 2 < bytes.size() ? bytes[i + 2] : 0);
+        const std::uint32_t n = (bytes[i] << 16) | (i + 1 < bytes.size() ? bytes[i + 1] << 8 : 0) |
+                                (i + 2 < bytes.size() ? bytes[i + 2] : 0);
         b64 += t[(n >> 18) & 63];
         b64 += t[(n >> 12) & 63];
         b64 += i + 1 < bytes.size() ? t[(n >> 6) & 63] : '=';
@@ -126,11 +130,13 @@ struct Placed {
     const char* mesh;
     int page = 0;
     float so[4] = {1, 1, 0, 0};
-    std::string hash = "geometry";  // "geometry": the real hash of the mesh's lightmap geometry; "": not checked; else as given
+    std::string hash =
+        "geometry";  // "geometry": the real hash of the mesh's lightmap geometry; "": not checked; else as given
 };
 
 // Writes scenes/<name>.lightmap.json for the placed entities and sets SceneSettings.lightmaps.
-void write_manifest(World& w, const char* name, const std::vector<std::pair<const char*, int>>& pages, const std::vector<Placed>& placed) {
+void write_manifest(World& w, const char* name, const std::vector<std::pair<const char*, int>>& pages,
+                    const std::vector<Placed>& placed) {
     LightmapManifest m;
     m.uvVersion = kLightmapUvVersion;
     m.settingsHash = "0123456789abcdef";
@@ -156,7 +162,8 @@ float red_minus_blue(const Color& c) { return c.r - c.b; }
 
 }  // namespace
 
-TEST_CASE("lightmap geometry: the primitives unwrap the same way on every call, inside the unit square, with every triangle kept") {
+TEST_CASE("lightmap geometry: the primitives unwrap the same way on every call, inside the unit square, with every "
+          "triangle kept") {
     for (const char* name : {"cube", "sphere", "plane", "cylinder", "capsule", "cone", "quad"}) {
         CAPTURE(std::string(name));
         auto a = render::lightmap_mesh_geometry(name);
@@ -188,7 +195,8 @@ TEST_CASE("lightmap geometry: the primitives unwrap the same way on every call, 
     CHECK(render::lightmap_mesh_geometry("")->uvKind == "generated");
 }
 
-TEST_CASE("lightmap geometry: a model with TEXCOORD_1 keeps it, a missing file and a script mesh are refused with a way out") {
+TEST_CASE("lightmap geometry: a model with TEXCOORD_1 keeps it, a missing file and a script mesh are refused with a "
+          "way out") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     write_uv1_quad("assets/lm_quad.gltf");
@@ -215,14 +223,16 @@ TEST_CASE("lightmap geometry: a model with TEXCOORD_1 keeps it, a missing file a
     CHECK(notModel.error().message.find("primitive") != std::string::npos);
 }
 
-TEST_CASE("lightmap: the page is read with row 0 at v = 0 (the bottom edge of a model whose second UV set is the unit square)") {
+TEST_CASE("lightmap: the page is read with row 0 at v = 0 (the bottom edge of a model whose second UV set is the unit "
+          "square)") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     g.renderer.clear_asset_cache();
     std::filesystem::create_directories(g.projectDir / "scenes");
     write_uv1_quad("assets/lm_quad.gltf");
     // The first rows of the file are red, the last ones blue.
-    write_page("scenes/orient.lightmap.0.hdr", 8, [](int, int y) { return y < 4 ? Vec3{0.8f, 0, 0} : Vec3{0, 0, 0.8f}; });
+    write_page("scenes/orient.lightmap.0.hdr", 8,
+               [](int, int y) { return y < 4 ? Vec3{0.8f, 0, 0} : Vec3{0, 0, 0.8f}; });
     World w;
     add_camera(w, {0, 0, 4}, {0, 0, 0});
     w.settings().ambientLight = Color{0, 0, 0, 1};
@@ -241,7 +251,8 @@ TEST_CASE("lightmap: the page is read with row 0 at v = 0 (the bottom edge of a 
     CHECK(plain.pixel(160, 50).b < 0.05f);
 }
 
-TEST_CASE("lightmap: a lightmapped entity is lit by its page instead of the ambient light, the others are drawn as before") {
+TEST_CASE(
+    "lightmap: a lightmapped entity is lit by its page instead of the ambient light, the others are drawn as before") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     g.renderer.clear_asset_cache();
@@ -266,7 +277,8 @@ TEST_CASE("lightmap: a lightmapped entity is lit by its page instead of the ambi
     CHECK(red_minus_blue(plain.pixel(160 - 38, 90)) < -0.1f);
 }
 
-TEST_CASE("lightmap: a light of mode baked is left out of lightmapped entities only, a mixed or realtime light is not") {
+TEST_CASE(
+    "lightmap: a light of mode baked is left out of lightmapped entities only, a mixed or realtime light is not") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     g.renderer.clear_asset_cache();
@@ -288,15 +300,16 @@ TEST_CASE("lightmap: a light of mode baked is left out of lightmapped entities o
     CHECK(diff_images(noLight, baked, 0.0f).maxError == 0.0);  // the baked light is in the (dark) page, not drawn again
     CHECK(diff_images(noLight, realtime, 0.0f).maxError > 0.1);
     CHECK(diff_images(noLight, mixed, 0.0f).maxError > 0.1);
-    // Without a lightmap entry a baked light still lights the entity as a realtime one: nothing else would, and the golden pictures of
-    // scenes without a bake stay the same.
+    // Without a lightmap entry a baked light still lights the entity as a realtime one: nothing else would, and the
+    // golden pictures of scenes without a bake stay the same.
     const Image bakedNoMap = frame(true, LightMode::Baked, false);
     const Image realtimeNoMap = frame(true, LightMode::Realtime, false);
     CHECK(diff_images(bakedNoMap, realtimeNoMap, 0.0f).maxError == 0.0);
     CHECK(diff_images(noLight, bakedNoMap, 0.0f).maxError > 0.1);
 }
 
-TEST_CASE("lightmap: a manifest that does not load, a mesh that changed and a page that is gone are reported once and the scene is drawn without") {
+TEST_CASE("lightmap: a manifest that does not load, a mesh that changed and a page that is gone are reported once and "
+          "the scene is drawn without") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     g.renderer.clear_asset_cache();
@@ -315,7 +328,8 @@ TEST_CASE("lightmap: a manifest that does not load, a mesh that changed and a pa
     w.settings().ambientLight = Color{0, 0, 0, 1};
     Entity cube = add_mesh(w, "cube", {0, 0, 0}, Color::white(), {1.5f, 1.5f, 1.5f});
     // 1. a manifest with a key that does not exist
-    REQUIRE(fs::write_text("scenes/broken.lightmap.json", R"({"version":1,"uvVersion":1,"pagez":[],"entities":[]})").ok());
+    REQUIRE(
+        fs::write_text("scenes/broken.lightmap.json", R"({"version":1,"uvVersion":1,"pagez":[],"entities":[]})").ok());
     w.settings().lightmaps = "scenes/broken.lightmap.json";
     {
         LmErrorLog log;
@@ -323,12 +337,13 @@ TEST_CASE("lightmap: a manifest that does not load, a mesh that changed and a pa
         frame(w);
         CHECK(log.count("scenes/broken.lightmap.json") == 1);  // once, not per frame
         CHECK(log.count("/pagez") >= 1);
-        CHECK(log.count("pages") >= 1);                        // the did-you-mean
+        CHECK(log.count("pages") >= 1);  // the did-you-mean
         CHECK(img.pixel(160, 90).r < 0.05f);
         CHECK(failures("lightmap") == 1);
     }
     // 2. an entry whose mesh hash is not the mesh's now
-    write_manifest(w, "stale", {{"scenes/bad.lightmap.0.hdr", 4}}, {{cube, "cube", 0, {1, 1, 0, 0}, "00000000deadbeef"}});
+    write_manifest(w, "stale", {{"scenes/bad.lightmap.0.hdr", 4}},
+                   {{cube, "cube", 0, {1, 1, 0, 0}, "00000000deadbeef"}});
     {
         LmErrorLog log;
         const Image img = frame(w);
@@ -379,7 +394,8 @@ TEST_CASE("lightmap: a page or manifest that changes on disk is read again (hot 
     CHECK(log.messages().empty());
 }
 
-TEST_CASE("lightmap: a scene lit by a lightmap renders its golden (two entities share a page, each with its rectangle)") {
+TEST_CASE(
+    "lightmap: a scene lit by a lightmap renders its golden (two entities share a page, each with its rectangle)") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     g.renderer.clear_asset_cache();
@@ -396,7 +412,9 @@ TEST_CASE("lightmap: a scene lit by a lightmap renders its golden (two entities 
     Entity cube = add_mesh(w, "cube", {-1.4f, 0, 0}, Color::hex(0xe0e0e0), {1.5f, 1.5f, 1.5f});
     Entity sphere = add_mesh(w, "sphere", {1.4f, 0, 0}, Color::hex(0xe0e0e0), {1.5f, 1.5f, 1.5f});
     write_manifest(w, "golden", {{"scenes/golden.lightmap.0.hdr", 16}},
-                   {{ground, "plane", 0, {0.5f, 1, 0, 0}}, {cube, "cube", 0, {0.5f, 1, 0, 0}}, {sphere, "sphere", 0, {0.5f, 1, 0.5f, 0}}});
+                   {{ground, "plane", 0, {0.5f, 1, 0, 0}},
+                    {cube, "cube", 0, {0.5f, 1, 0, 0}},
+                    {sphere, "sphere", 0, {0.5f, 1, 0.5f, 0}}});
     LmErrorLog log;
     const Image img = g.render(w);
     CHECK(log.messages().empty());

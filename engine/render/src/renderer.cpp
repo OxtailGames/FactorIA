@@ -28,6 +28,11 @@ Json RenderStats::to_json() const {
                 {"shadowCasters", shadowCasters},
                 {"lights", lights},
                 {"lightsDropped", lightsDropped},
+                {"lightsCulled", lightsCulled},
+                {"lightClusters", lightClusters},
+                {"lightClusterEntries", lightClusterEntries},
+                {"lightClusterClipped", lightClusterClipped},
+                {"lightMaxPerCluster", lightMaxPerCluster},
                 {"lights2d", lights2d},
                 {"lights2dDropped", lights2dDropped},
                 {"lights2dShadowed", lights2dShadowed},
@@ -352,10 +357,11 @@ bool Renderer::init(const RendererDesc& desc, const GfxEnvironment& env, std::st
     Impl& im = *impl_;
     im.desc = desc;
     if (const char* dv = std::getenv("FA_RENDER_DEBUG_VIEW"))
-        im.debugView = std::strcmp(dv, "depth") == 0     ? DebugView::Depth
-                       : std::strcmp(dv, "normals") == 0 ? DebugView::Normals
-                       : std::strcmp(dv, "ao") == 0      ? DebugView::Ao
-                                                         : DebugView::None;
+        im.debugView = std::strcmp(dv, "depth") == 0      ? DebugView::Depth
+                       : std::strcmp(dv, "normals") == 0  ? DebugView::Normals
+                       : std::strcmp(dv, "ao") == 0       ? DebugView::Ao
+                       : std::strcmp(dv, "cascades") == 0 ? DebugView::Cascades
+                                                          : DebugView::None;
     im.adopted = desc.adoptContext && sg_isvalid();
     if (!im.adopted) {
         sg_desc sd = make_sg_desc(env);
@@ -411,6 +417,7 @@ void Renderer::shutdown() {
         im.fonts.reset();
         im.ssr.release();
         im.skyEnv.release();
+        im.physSky.release();
         im.sceneFx.release();
         im.fogFx.release();
         im.ramps.destroy();
@@ -419,6 +426,7 @@ void Renderer::shutdown() {
         im.transients.reset();  // its pool destroys the targets it still holds: the context is still open
         im.destroy_light_resources();
         destroy_target(im.shadowTarget);
+        im.free_retired_shadow_targets();
         im.gpu.shutdown();
         if (!im.adopted)
             sg_shutdown();  // an adopted context stays open for close_context(): the player may still present
@@ -789,6 +797,10 @@ void RendererTestAccess::force_output(Renderer& r, const HdrOutputInfo* info) {
     r.impl_->forcedOutput = info ? *info : HdrOutputInfo{};
 }
 
+void RendererTestAccess::last_cluster_info(Renderer& r, float out[4]) {
+    for (int c = 0; c < 4; ++c) out[c] = r.impl_ ? r.impl_->lastClusterInfo[c] : 0.0f;
+}
+
 bool RendererTestAccess::read_floats(Renderer& r, bool present, std::vector<float>& out, std::string* error) {
     if (!r.initialized()) {
         if (error) *error = "Renderer is not initialized";
@@ -817,6 +829,10 @@ void Renderer::reset_post_history(std::uint64_t camera) {
     if (impl_) impl_->customPost.reset_history(camera);
 }
 
+render::SkyBuilds RendererTestAccess::sky_builds(Renderer& r) {
+    if (!r.impl_) return {};
+    return {r.impl_->physSky.air_builds(), r.impl_->physSky.view_builds(0), r.impl_->physSky.view_builds(1)};
+}
 int RendererTestAccess::post_history_images(Renderer& r) {
     return r.impl_ ? r.impl_->customPost.history_image_count() : 0;
 }

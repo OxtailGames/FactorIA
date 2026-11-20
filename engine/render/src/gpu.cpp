@@ -7,6 +7,7 @@
 #include "fa/core/log.h"
 #include "fa/platform/sokol_logging.h"
 
+#include "light_clusters.h"
 #include "shader_cache.h"
 
 #include "shaders/bloom.glsl.h"
@@ -307,6 +308,12 @@ void Gpu::shutdown() {
     for (auto& t : transient_) sg_destroy_buffer(t.buf);
     transient_.clear();
     transientUsed_ = 0;
+    for (auto& l : lightImages_) {
+        if (l.view.id) sg_destroy_view(l.view);
+        if (l.image.id) sg_destroy_image(l.image);
+    }
+    lightImages_.clear();
+    lightImagesUsed_ = 0;
     for (auto& s : samplers_) {
         sg_destroy_sampler(s);
         s = {};
@@ -1066,6 +1073,32 @@ sg_buffer Gpu::acquire_transient(std::size_t bytes) {
         t.capacity = cap;
     }
     return t.buf;
+}
+
+Gpu::LightImage Gpu::write_light_image(int rows, const float* texels) {
+    if (lightImagesUsed_ >= lightImages_.size()) lightImages_.emplace_back();
+    LightImg& l = lightImages_[lightImagesUsed_++];
+    if (!l.image.id || l.rows != rows) {
+        if (l.view.id) sg_destroy_view(l.view);
+        if (l.image.id) sg_destroy_image(l.image);
+        sg_image_desc d{};
+        d.usage.write_transient = true;
+        d.width = kLightTextureWidth;
+        d.height = rows;
+        d.pixel_format = SG_PIXELFORMAT_RGBA32F;
+        d.label = "light-data";
+        l.image = make_image(d);
+        sg_view_desc vd{};
+        vd.texture.image = l.image;
+        vd.label = "light-data";
+        l.view = sg_make_view(&vd);
+        l.rows = rows;
+    }
+    sg_write_image_desc w{};
+    w.src.data = {texels, std::size_t(kLightTextureWidth) * std::size_t(rows) * 16};
+    w.dst.image = l.image;
+    sg_write_image_transient(&w);
+    return {l.image, l.view};
 }
 
 }  // namespace fa::render

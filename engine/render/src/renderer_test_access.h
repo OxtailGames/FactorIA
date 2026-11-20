@@ -28,6 +28,11 @@ struct ShadowRowsStats {
     int slots = 0, uploads = 0;
 };
 
+// How many times the physical sky drew its tables (renderer_sky_phys.h): the air's, the picture's view and the environment's.
+struct SkyBuilds {
+    int air = 0, view = 0, envView = 0;
+};
+
 }  // namespace render
 
 struct RendererTestAccess {
@@ -42,8 +47,10 @@ struct RendererTestAccess {
     static int post_history_attempts(Renderer& r);
     static void force_post_effects(Renderer& r, std::uint32_t effects);
     static void force_output(Renderer& r, const HdrOutputInfo* info);
+    static void last_cluster_info(Renderer& r, float out[4]);
     static bool read_floats(Renderer& r, bool present, std::vector<float>& out, std::string* error);
     static void set_before_frame_graph(Renderer& r, std::function<void()> hook);
+    static render::SkyBuilds sky_builds(Renderer& r);
 };
 
 namespace render {
@@ -55,6 +62,7 @@ inline Gpu* renderer_gpu(Renderer& r) { return RendererTestAccess::gpu(r); }
 inline const FrameGraph* renderer_frame_graph(Renderer& r) { return RendererTestAccess::frame_graph(r); }
 inline TransientPoolStats renderer_transient_stats(Renderer& r) { return RendererTestAccess::transient_stats(r); }
 inline ShadowRowsStats renderer_shadow_rows_stats(Renderer& r) { return RendererTestAccess::shadow_rows_stats(r); }
+inline SkyBuilds renderer_sky_builds(Renderer& r) { return RendererTestAccess::sky_builds(r); }
 // The images the post passes that read their own output of the frame before (fa_history) hold now.
 inline int renderer_post_history_images(Renderer& r) { return RendererTestAccess::post_history_images(r); }
 // The pixel format (sg_pixel_format as an int) of the images the final pass goes through when display-referred custom
@@ -77,6 +85,9 @@ inline void renderer_force_post_effects(Renderer& r, std::uint32_t effects) {
 }
 // The HDR output: the next frames are drawn and presented as if update_output() had answered `info` (null: back to what
 // it answers), for the render tests of the encodes without an HDR display.
+// fa_cl_info of the last job the renderer drew: x is the first texel of the cluster table or -1 when the view has no
+// clusters, y the depth slices, z the directional lights, w the clusters.
+inline void renderer_last_cluster_info(Renderer& r, float out[4]) { RendererTestAccess::last_cluster_info(r, out); }
 inline void renderer_force_output(Renderer& r, const HdrOutputInfo* info) { RendererTestAccess::force_output(r, info); }
 // The last frame's finished picture as floats (RGBA, top row first): as the final target holds it (`present` false), or
 // through present()'s encode for the output (scRGB, PQ, EDR or sRGB values). False with `error` where the GPU cannot

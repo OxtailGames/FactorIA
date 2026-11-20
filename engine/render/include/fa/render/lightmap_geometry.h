@@ -23,12 +23,13 @@ struct LightmapMeshGeometry {
     // The drawn vertices of every part, one after the other (a generated unwrap splits vertices along the seams of its charts).
     std::vector<Vec3> positions;  // model space
     std::vector<Vec3> normals;
-    std::vector<Vec2> uv;                  // the lightmap UV, inside [0, 1]^2, (0, 0) = top-left of the page
-    std::vector<std::uint32_t> indices;    // three per triangle, into the arrays above
-    std::vector<std::uint32_t> partFirstIndex;  // parts + 1 entries: part p owns indices [partFirstIndex[p], partFirstIndex[p + 1])
-    std::string uvKind;                    // "gltf" (TEXCOORD_1 of the file) or "generated"
-    std::uint64_t hash = 0;                // of the geometry, as lightmap_hash_hex(): the manifest's meshHash
-    double surfaceArea = 0;                // m^2 of the triangles in model space (the bake picks its texel counts from it)
+    std::vector<Vec2> uv;                // the lightmap UV, inside [0, 1]^2, (0, 0) = top-left of the page
+    std::vector<std::uint32_t> indices;  // three per triangle, into the arrays above
+    std::vector<std::uint32_t>
+        partFirstIndex;      // parts + 1 entries: part p owns indices [partFirstIndex[p], partFirstIndex[p + 1])
+    std::string uvKind;      // "gltf" (TEXCOORD_1 of the file) or "generated"
+    std::uint64_t hash = 0;  // of the geometry, as lightmap_hash_hex(): the manifest's meshHash
+    double surfaceArea = 0;  // m^2 of the triangles in model space (the bake picks its texel counts from it)
 };
 
 // Builds the geometry of a MeshRenderer.mesh value: a primitive name ("cube", "sphere", ...) or the project path of a .gltf/.glb.

@@ -1987,33 +1987,41 @@ void register_builtin_components(TypeRegistry& r) {
                "global illumination (M73.4d, M73.5) read it too.")
         .field("clearcoat", &MeshRenderer::clearcoat,
                "Strength 0..1 of a clear coat layer over the surface (car paint, lacquer; glTF "
-               "KHR_materials_clearcoat). 0 = none. No effect yet: M73.6 brings it.")
+               "KHR_materials_clearcoat). 0 = none. A glTF model with the extension brings its own value; a value here "
+               "replaces it.")
         .range(0, 1)
         .field("clearcoatRoughness", &MeshRenderer::clearcoatRoughness,
-               "Roughness 0..1 of the clear coat layer. No effect yet: M73.6 brings it.")
+               "Roughness 0..1 of the clear coat layer (the engine keeps it at 0.05 or more). The default 0.03 leaves "
+               "the model's own value.")
         .range(0, 1)
         .field(
             "sheenColor", &MeshRenderer::sheenColor,
             "Colour of the cloth sheen at grazing angles (velvet, satin; glTF KHR_materials_sheen). Black (default) = "
-            "no sheen. No effect yet: M73.6 brings it.")
+            "no sheen. A colour here replaces the one of a glTF model (KHR_materials_sheen).")
         .field("sheenRoughness", &MeshRenderer::sheenRoughness,
-               "Roughness 0..1 of the sheen layer. No effect yet: M73.6 brings it.")
+               "Roughness 0..1 of the sheen layer (the engine keeps it at 0.1 or more). The default 0.5 leaves the "
+               "model's own value.")
         .range(0, 1)
         .field("anisotropy", &MeshRenderer::anisotropy,
                "Stretch -1..1 of the highlight along the tangent direction (brushed metal, hair; glTF "
-               "KHR_materials_anisotropy); 0 = round highlights. No effect yet: M73.6 brings it.")
+               "KHR_materials_anisotropy); 0 = round highlights; negative stretches across the tangent. A value here "
+               "replaces the model's own.")
         .range(-1, 1)
         .field("anisotropyRotation", &MeshRenderer::anisotropyRotation,
-               "Degrees that turn the direction of the anisotropic stretch around the normal. No effect yet: M73.6 "
-               "brings it.")
+               "Degrees that turn the direction of the anisotropic stretch around the normal. 0 leaves the model's own "
+               "rotation.")
         .range(-360, 360)
         .field("specular", &MeshRenderer::specular,
                "Strength 0..1 of the specular reflection of a non-metal surface (glTF KHR_materials_specular); 1 = the "
-               "usual look. No effect yet: M73.6 brings it.")
+               "usual look; 0 removes the reflection, and with ior 1.5 the reflectance at normal incidence is 4% x "
+               "specular. "
+               "Another value replaces the model's own.")
         .range(0, 1)
         .field("ior", &MeshRenderer::ior,
                "Index of refraction, 1..3 (glTF KHR_materials_ior): 1.5 is glass and plastic, 1.33 water, 2.4 "
-               "diamond. No effect yet: M73.6 brings it.")
+               "diamond. It sets the reflectance of a non-metal at normal incidence, ((ior - 1) / (ior + 1))^2 (1.5 = "
+               "4%). "
+               "Another value replaces the model's own.")
         .range(1, 3)
         .field("transmission", &MeshRenderer::transmission,
                "How much light 0..1 passes through the surface instead of reflecting, as glass does (glTF "
@@ -2038,8 +2046,10 @@ void register_builtin_components(TypeRegistry& r) {
     r.add<Light>("Light",
                  "A light source for 3D meshes. A directional light shines along the entity's forward direction (-Z "
                  "rotated by the Transform), point and spot lights shine from the entity's position, an area light "
-                 "from a rectangle, disc or tube around it. The fields after castShadows belong to the lighting of "
-                 "M73 and have no effect yet (docs/rendering/RENDERING_LIGHTING.md).",
+                 "from a rectangle, disc or tube around it. A view lights with up to 1024 lights at once (32 of them "
+                 "directional): each fragment reads only the lights of its cluster. The fields after castShadows "
+                 "belong to the lighting of M73; the doc string of each says whether the renderer draws it yet "
+                 "(docs/rendering/RENDERING_LIGHTING.md).",
                  "3D")
         .enum_field(
             "type", &Light::type, {"directional", "point", "spot", "area"},
@@ -2054,12 +2064,12 @@ void register_builtin_components(TypeRegistry& r) {
         .field("spotAngle", &Light::spotAngle, "Spot only: cone half-angle in degrees.")
         .range(1, 89)
         .field("castShadows", &Light::castShadows,
-               "Cast shadows. Only directional lights cast shadows today; the shadows of point and spot lights come "
-               "with M73.2.")
+               "Cast shadows. Only directional lights cast shadows today (the first one that casts, with cascades: see "
+               "SceneSettings.shadowCascades); the shadows of point and spot lights come with M73.2b.")
         .field("innerAngle", &Light::innerAngle,
                "Spot only: half-angle in degrees of the cone inside which the light is at full strength; it fades to "
                "nothing at spotAngle (a larger value is used as spotAngle). 0 (default) = the cone fades as it "
-               "does today. No effect yet: M73.1 brings it.")
+               "does today (a smoothstep of the cosine from the edge of the cone inwards). Drawn since M73.1a.")
         .range(0, 89)
         .enum_field("shape", &Light::shape, {"rectangle", "disc", "tube"},
                     "Area lights only: the shape of the emitter. rectangle and disc face the entity's forward "
@@ -2076,29 +2086,31 @@ void register_builtin_components(TypeRegistry& r) {
                      "An IES profile (.ies file) with the measured light distribution of a real lamp. Empty = the "
                      "plain distribution. No effect yet: M73.1 brings it.")
         .field("shadowResolution", &Light::shadowResolution,
-               "Texels per side of this light's shadow map, 0..4096 (a value under 128 is raised to 128, a power of "
-               "two is used). 0 (default) = "
-               "the engine picks from the light's distance to the camera. No effect yet: M73.2 brings it.")
+               "Texels per side of each cascade's shadow map of this light, 0..4096 (a value under 128 is raised to "
+               "128, rounded down to a power of two). 0 (default) = the engine picks: 2048 for one cascade, 1024 "
+               "for several. When the cascades do not fit the atlas (SceneSettings.shadowAtlasSize) they are "
+               "halved, farthest first, down to 128.")
         .range(0, 4096)
         .field("shadowBias", &Light::shadowBias,
-               "Depth offset of the shadow test, 0..1, against shadow acne. 0 (default) = the engine's own bias. No "
-               "effect yet: M73.2 brings it.")
+               "Depth offset of the shadow test in metres along the light, 0..1, against shadow acne; it grows with "
+               "the slope of the surface. 0 (default) = the engine's own bias, 1.5 texels of the cascade's map.")
         .range(0, 1)
         .field("shadowNormalBias", &Light::shadowNormalBias,
                "Offset along the surface normal, in metres 0..1, against shadow acne on slopes. 0 (default) = the "
-               "engine's own. No effect yet: M73.2 brings it.")
+               "engine's own, 1.5 texels of the cascade's map.")
         .range(0, 1)
         .enum_field("shadowFilter", &Light::shadowFilter, {"pcf", "hard", "pcss"},
                     "How the edge of the shadow is filtered. pcf (default): a small fixed blur. hard: no filtering, "
                     "the sharpest and cheapest. pcss: a penumbra that grows with the distance to the caster, sized "
-                    "by shadowSoftness. No effect yet: M73.2 brings it.")
+                    "by shadowSoftness.")
         .field("shadowSoftness", &Light::shadowSoftness,
-               "With shadowFilter pcss: the size of the light for the penumbra, 0..10 (1 = the usual). No effect yet: "
-               "M73.2 brings it.")
+               "With shadowFilter pcss: the size of the light for the penumbra, 0..10 (1 = the usual: a sun about 6 "
+               "degrees wide). 0 = the narrowest penumbra, a plain PCF of 1.5 texels (use shadowFilter hard for a hard "
+               "shadow).")
         .range(0, 10)
         .field("shadowDistance", &Light::shadowDistance,
                "How far from the camera, in metres, this light draws shadows. 0 (default) = the scene's "
-               "SceneSettings.shadowDistance. No effect yet: M73.2 brings it.")
+               "SceneSettings.shadowDistance.")
         .range(0, 100000)
         .enum_field("mode", &Light::mode, {"realtime", "baked", "mixed"},
                     "realtime (default): lit every frame. baked: its light is computed once into the lightmaps "
@@ -4031,24 +4043,29 @@ void register_builtin_components(TypeRegistry& r) {
         .field("skyMaterialParams", &SceneSettings::skyMaterialParams, sky_material_params_doc().c_str())
         .field("shadowCascades", &SceneSettings::shadowCascades,
                "Cascades of the directional light's shadow map, 1..4: each covers a longer stretch from the camera, so "
-               "shadows stay sharp near it. 1 (default) = a single map, as today. No effect yet: M73.2 brings it "
-               "(docs/rendering/RENDERING_LIGHTING.md).")
+               "shadows stay sharp near it. Each is fitted to its slice of the view and keeps its texels still while "
+               "the camera moves (no shimmer). 1 (default) = a single map. A GPU without float32Targets draws no "
+               "shadow (render.supports cascadedShadows; docs/rendering/RENDERING_LIGHTING.md).")
         .range(1, 4)
         .field("shadowCascadeSplit", &SceneSettings::shadowCascadeSplit,
                "Where the cascades split along shadowDistance, 0..1: 0 = evenly spaced, 1 = logarithmic (a lot of "
-               "detail near the camera), 0.5 (default) between. No effect yet: M73.2 brings it.")
+               "detail near the camera), 0.5 (default) between.")
         .range(0, 1)
         .field("shadowCascadeBlend", &SceneSettings::shadowCascadeBlend,
-               "Fraction 0..0.5 of a cascade over which it blends into the next, hiding the seam. No effect yet: "
-               "M73.2 brings it.")
+               "Fraction 0..0.5 of a cascade over which it blends into the next, hiding the seam. 0 = a hard seam.")
         .range(0, 0.5f)
-        .field("shadowDistance", &SceneSettings::shadowDistance,
-               "How far from the camera, in metres, shadows are drawn. 0 (default) = the engine's own fit around the "
-               "view. A light's own shadowDistance overrides it. No effect yet: M73.2 brings it.")
+        .field(
+            "shadowDistance", &SceneSettings::shadowDistance,
+            "How far from the camera, in metres, shadows are drawn. 0 (default) = the engine's own fit around the "
+            "view (the camera's far plane, or what the casters need when that is shorter: the distance to the farthest "
+            "caster corner and a body's length, rounded up, the same whichever way the camera looks). A light's own "
+            "shadowDistance overrides it. The cascades split this stretch.")
         .range(0, 100000)
         .field("shadowAtlasSize", &SceneSettings::shadowAtlasSize,
-               "Texels per side of the shadow atlas that holds every shadow map, 512..8192 (4096 default). A bigger "
-               "atlas costs memory (4096 x 4096 x 4 bytes = 64 MB). No effect yet: M73.2 brings it.")
+               "The most texels per side the shadow atlas that holds every shadow map may have, 512..8192 (4096 "
+               "default; the GPU's own limit also applies). Only the part the maps need is allocated (R32F: four "
+               "bytes a texel, 2048 x 2048 = 16 MB); when they do not fit, the maps shrink, then the least "
+               "important is dropped, the same every frame.")
         .range(512, 8192)
         .field("contactShadows", &SceneSettings::contactShadows,
                "Short screen-space shadow rays toward the light that add fine shadows where objects touch. Needs a "
@@ -4064,10 +4081,62 @@ void register_builtin_components(TypeRegistry& r) {
         .field("environmentRotation", &SceneSettings::environmentRotation,
                "Degrees the environment map is turned around the up axis. No effect yet: M73.3 brings it.")
         .range(-360, 360)
-        .enum_field("skyModel", &SceneSettings::skyModel, {"gradient", "physical"},
-                    "gradient (default): the skyColor and horizonColor gradient. physical: a sun and an atmosphere "
-                    "computed from the directional light, with clouds. A skyMaterial or an environmentMap takes the "
-                    "place of both. No effect yet: M73.3 brings it.")
+        .enum_field(
+            "skyModel", &SceneSettings::skyModel, {"gradient", "physical"},
+            "gradient (default): the skyColor and horizonColor gradient. physical: a sky computed from the sun, the "
+            "air and the clouds (the sky* and cloud* fields below). The sun is the directional light the renderer "
+            "puts first: the one with castShadows, else the brightest directional light; its direction, colour and "
+            "intensity drive the sky, so turning the "
+            "light turns the sun across it, and the same sky lights and reflects in every mesh (image-based "
+            "lighting: rebuilt in one frame after a big change, over three frames while the sun or the clouds move "
+            "slowly). Without a directional light the sun stands overhead. A skyMaterial takes the place of the "
+            "physical sky. render.supports {\"feature\": \"physicalSky\"} says whether the GPU can (it needs RGBA16F "
+            "render targets); where it cannot, the gradient is drawn.")
+        .field("skySunSize", &SceneSettings::skySunSize,
+               "Physical sky: angular diameter of the sun disc in degrees, 0.1..10. 0.53 (default) is the real sun; "
+               "a larger disc is easier to see in a small window. Only used with skyModel physical.")
+        .range(0.1f, 10)
+        .field("skyTurbidity", &SceneSettings::skyTurbidity,
+               "Physical sky: how much dust and haze (aerosols) the air holds, 1..10. 1 is very clean air with a deep "
+               "blue sky, 2 (default) a clear day, 6 and more a hazy white-yellow sky with a big glow around the "
+               "sun. Only used with skyModel physical.")
+        .range(1, 10)
+        .field("skyGroundAlbedo", &SceneSettings::skyGroundAlbedo,
+               "Physical sky: the colour of the ground the atmosphere sees below the horizon (it lights the air near "
+               "the horizon and the lower half of the reflections). Default grey 0.3; snow is 0.8, dark soil 0.15. "
+               "Alpha is ignored. Only used with skyModel physical.")
+        .field("skyExposure", &SceneSettings::skyExposure,
+               "Physical sky: multiplier of the sky's brightness, of the light it gives the meshes (image-based "
+               "lighting) and of the sun disc, 0..16. At 1 (default) the sky is as bright as the sun's light says: "
+               "the sky is scaled by the colour times the intensity of the sun light, so the sky and a surface facing "
+               "the sun keep the proportion they have in a real noon (the sky is much dimmer than the sun-lit "
+               "surface). Only used with skyModel physical.")
+        .range(0, 16)
+        .field("skyTintsSun", &SceneSettings::skyTintsSun,
+               "Physical sky: true (default) multiplies the colour of the sun (the directional light the sky follows) "
+               "by what "
+               "the air and the clouds let through, relative to a noon sun: a sun on the horizon turns orange and "
+               "dim, a sun behind a thick cloud cover turns weak, and the colour you chose is the colour of the "
+               "sun at noon. false keeps the light exactly as authored (the sky still follows its direction). "
+               "Only used with skyModel physical.")
+        .field("cloudCoverage", &SceneSettings::cloudCoverage,
+               "Physical sky: how much of the sky the clouds cover, 0..1. 0 is a clear sky, 0.25 (default) a few "
+               "clouds, 1 a full overcast. The directional light also weakens with it (skyTintsSun), and the "
+               "clouds shade the image-based lighting. Only used with skyModel physical.")
+        .range(0, 1)
+        .field("cloudDensity", &SceneSettings::cloudDensity,
+               "Physical sky: how thick and dark the clouds are, 0..1: 0.2 thin white wisps, 0.6 (default) "
+               "cumulus, 1 heavy grey clouds with dark bellies. Only used with skyModel physical.")
+        .range(0, 1)
+        .field("cloudAltitude", &SceneSettings::cloudAltitude,
+               "Physical sky: height of the cloud layer above the camera ground in metres, 300..12000 (default "
+               "2500). Higher clouds look smaller and finer. The layer follows the viewing direction, not the "
+               "camera position (like a skybox). Only used with skyModel physical.")
+        .range(300, 12000)
+        .field("cloudWind", &SceneSettings::cloudWind,
+               "Physical sky: metres per second [x, z] the clouds drift along the world axes (beyond 1000 it is "
+               "clamped). The drift follows the game clock (never the wall clock), so a replay shows the same sky. "
+               "[0, 0] stands still. Only used with skyModel physical.")
         .asset_field("lightmaps", &SceneSettings::lightmaps, "any",
                      "The scene's baked lightmap: a *.lightmap.json manifest (written by the lightmap.bake command, "
                      "next to its .hdr pages) that says, per entity, which rectangle of which page lights it. The "

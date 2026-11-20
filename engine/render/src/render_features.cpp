@@ -107,9 +107,10 @@ std::vector<FeatureDef> build_table() {
     t.push_back({"computeShaders", FeatureKind::Capability,
                  bit(FeatureBackend::Gl) | bit(FeatureBackend::D3d11) | bit(FeatureBackend::Metal), "compute", nullptr,
                  "Compute shaders and storage buffers (D3D11, Metal, OpenGL 4.3; never GLES3 or WebGL2)."});
-    t.push_back({"float32Targets", FeatureKind::Capability, kEveryGpu, "float32", nullptr,
-                 "Render targets of 32-bit float (R32F and RGBA32F) that can be sampled: what the shadow atlas of the "
-                 "lighting of M73 will be drawn into (one depth value per texel): that atlas will need them."});
+    t.push_back(
+        {"float32Targets", FeatureKind::Capability, kEveryGpu, "float32", nullptr,
+         "Render targets of 32-bit float (R32F and RGBA32F) that can be sampled: what the shadow atlas of the "
+         "lighting of M73 is drawn into (one depth value per texel): without them there is no cascaded shadow."});
     // The engine features built on them.
     t.push_back(
         {"linearColor", FeatureKind::Engine, kEveryGpu, "", nullptr,
@@ -138,25 +139,43 @@ std::vector<FeatureDef> build_table() {
          "material "
          "gets the lightmap only when it declares \"uv1\" in vertexAttributes (docs/rendering/RENDERING_LIGHTING.md, "
          "\"Lightmaps\")."});
+    t.push_back(
+        {"physicalSky", FeatureKind::Engine, kEveryGpu, "half", nullptr,
+         "A physically based sky (SceneSettings.skyModel \"physical\"): a sun with a disc, an atmosphere (Rayleigh, "
+         "Mie, ozone) and procedural clouds, drawn as the background and baked into the image-based lighting, so "
+         "the reflections and the ambient light follow the sun. It needs RGBA16F render targets that filter (its "
+         "look-up tables); without them the gradient sky is drawn."});
+    // The material layers of M73.6: drawn by the standard mesh shading on every backend (docs/rendering/RENDERING_LIGHTING.md).
+    t.push_back({"clearCoat", FeatureKind::Engine, kEveryGpu, "", nullptr,
+                 "The clear coat layer of a material: car paint, lacquer (MeshRenderer.clearcoat, glTF "
+                 "KHR_materials_clearcoat): a second specular lobe over the surface that also dims what is under it."});
+    t.push_back({"sheen", FeatureKind::Engine, kEveryGpu, "", nullptr,
+                 "The sheen layer of a material: cloth and velvet (MeshRenderer.sheenColor, glTF "
+                 "KHR_materials_sheen): a soft lobe at grazing angles on a Charlie distribution."});
+    t.push_back({"anisotropy", FeatureKind::Engine, kEveryGpu, "", nullptr,
+                 "Anisotropic highlights: brushed metal, hair (MeshRenderer.anisotropy, glTF "
+                 "KHR_materials_anisotropy), stretched along the mesh's tangent."});
     // The lighting of M73 (docs/rendering/RENDERING_LIGHTING.md): every row answers false with "planned (M73)" until its package
     // lands, then drops the `planned` text here. `needs` is what its pass asks of the GPU once built.
+    t.push_back(
+        {"clusteredLights", FeatureKind::Engine, kEveryGpu, "", nullptr,
+         "Clustered forward lighting: up to 1024 lights in view at once (32 of them directional), each fragment "
+         "reading only the lights of its cluster (docs/rendering/RENDERING_LIGHTING.md, \"Many lights\")."});
     struct Planned {
         const char* name;
         const char* needs;
         const char* doc;
+        const char* planned = "M73";  // nullptr once the package that draws it has landed
     };
     static const Planned kLighting[] = {
-        {"clusteredLights", "",
-         "Clustered forward lighting: hundreds of lights on screen at once (today a mesh is lit by at most 32), each "
-         "fragment "
-         "reading only the lights of its cluster (M73.1)."},
         {"areaLights", "",
          "Rectangle, disc and tube area lights with soft highlights (linearly transformed cosines; M73.1)."},
         {"lightCookies", "", "Light cookies: a texture projected by a spot or point light (M73.1)."},
         {"iesProfiles", "", "IES profiles: the measured light distribution of a real lamp (M73.1)."},
         {"cascadedShadows", "float32",
-         "Cascaded shadow maps for the directional light: sharp near the camera, stable and blended between cascades "
-         "(M73.2)."},
+         "Cascaded shadow maps for the directional light (1 to 4 cascades fitted to the camera, stable, blended at the "
+         "seams, with PCF or PCSS soft edges), drawn into one shadow atlas of 32-bit float (M73.2a).",
+         nullptr},
         {"pointShadows", "float32",
          "Shadows of point lights, six faces in the shadow atlas, with a budget per frame (M73.2)."},
         {"spotShadows", "float32", "Shadows of spot lights in the shadow atlas, with a budget per frame (M73.2)."},
@@ -170,20 +189,15 @@ std::vector<FeatureDef> build_table() {
          "Reflection probes: local environment captures, baked or realtime, with box projection and blending between "
          "probes "
          "(M73.3)."},
-        {"physicalSky", "half",
-         "A physically based sky with a sun and an atmosphere, and clouds, feeding the image-based lighting (M73.3)."},
         {"lightProbes", "", "Light probes: baked spherical-harmonics lighting for moving objects (M73.4)."},
         {"volumetricFog", "half+depth", "Volumetric fog and light shafts per light (M73.5)."},
         {"decals", "depth", "Projected decals drawn over the meshes they touch (M73.5)."},
         {"subsurface", "half+depth", "Screen-space subsurface scattering for skin and wax (M73.5)."},
         {"realtimeGI", "half",
          "Realtime global illumination from a probe grid updated over a few frames, no ray tracing (M73.5)."},
-        {"clearCoat", "", "The clear coat layer of a material: car paint, lacquer (MeshRenderer.clearcoat; M73.6)."},
-        {"sheen", "", "The sheen layer of a material: cloth and velvet (MeshRenderer.sheenColor; M73.6)."},
-        {"anisotropy", "", "Anisotropic highlights: brushed metal, hair (MeshRenderer.anisotropy; M73.6)."},
         {"transmission", "half",
          "Transmission and volume: glass and liquids that refract what is behind them (M73.6)."}};
-    for (const Planned& p : kLighting) t.push_back({p.name, FeatureKind::Engine, kEveryGpu, p.needs, "M73", p.doc});
+    for (const Planned& p : kLighting) t.push_back({p.name, FeatureKind::Engine, kEveryGpu, p.needs, p.planned, p.doc});
     for (int i = 0; i < kPostEffectCount; ++i)
         t.push_back({kPostEffectOrder[std::size_t(i)].data(), FeatureKind::Effect, kEveryGpu, kEffectRows[i].needs,
                      effect_drawn(PostEffect(i)) ? nullptr : "M71", kEffectRows[i].doc});

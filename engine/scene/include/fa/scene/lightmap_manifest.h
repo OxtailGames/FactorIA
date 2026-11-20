@@ -42,9 +42,9 @@ struct LightmapPage {
 };
 
 struct LightmapEntry {
-    std::string id;    // EntityInfo.id
-    std::string mesh;  // MeshRenderer.mesh when it was baked
-    std::string uv;    // "gltf" or "generated"
+    std::string id;            // EntityInfo.id
+    std::string mesh;          // MeshRenderer.mesh when it was baked
+    std::string uv;            // "gltf" or "generated"
     std::string meshHash;      // 16 hex digits; "" = not checked
     std::string settingsHash;  // of the bake that wrote it; informative
     int page = 0;

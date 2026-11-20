@@ -29,7 +29,7 @@
 //
 // Every engine identifier starts with fa_ (FA_ for constants), so "names starting with fa_ are the engine's" is the one
 // rule a snippet follows. Uniform block bindings: vertex 0 fa_mesh_vs_params, 3 fa_skin (4 is left for the material's
-// vertex-stage block); fragment 1 fa_mesh_fs_params, 2 fa_lights (5 for the material). Views 0-5 and samplers 0-1 are
+// vertex-stage block); fragment 1 fa_mesh_fs_params (5 for the material). Views 0-5 and samplers 0-1 are
 // the engine's, and so are views 14-15 and sampler 10 (the baked sky, fa_fs_head). A material texture is bound twice, so both stages can sample it (a sokol view slot belongs to one stage and
 // sokol-shdc refuses one name in both): the fragment stage reads it at view 6.. and sampler 2.., the vertex stage at view 10..
 // and sampler 6.. under the name fa_vs_<name> (the generator's #define makes the snippet write the plain name in both).
@@ -50,6 +50,7 @@
 @include light_data.glsl
 @include shadow_common.glsl
 @include light_loop.glsl
+@include brdf_layers.glsl
 
 // The snippet contract (docs/SHADERS.md).
 @block fa_types
@@ -70,6 +71,17 @@ struct Surface {                // what the lighting reads
     float roughness;
     float occlusion;
     vec3 emission;
+    // The material layers of M73.6 (docs/shaders/SHADERS_LIGHTING.md, "Material layers"): what the standard lighting reads, filled from
+    // the MeshRenderer and the glTF material before surface(). The defaults draw as before.
+    float clearcoat;            // 0..1 strength of the clear coat; 0 = none
+    float clearcoat_roughness;  // 0..1 (the engine clamps it to 0.05..1)
+    vec3 sheen_color;           // the cloth sheen's colour; black = none
+    float sheen_roughness;      // 0..1 (clamped to 0.1..1)
+    float anisotropy;           // -1..1: stretch of the highlight along the tangent (negative: across it); 0 = round
+    float anisotropy_rotation;  // radians, turns the stretch direction around the normal
+    float specular;             // 0..1 strength of the dielectric specular (1 = the usual 4% reflectance at ior 1.5)
+    float ior;                  // 1..3 index of refraction: sets the dielectric reflectance at normal incidence
+    vec3 specular_color;        // tint of the dielectric reflectance (KHR_materials_specular), white = none
 };
 struct LightSample {            // light(): one light as the engine's light loop selected it (lighting "custom")
     vec3 direction;             // surface -> light, normalized (a directional light: the direction its light comes from)
@@ -197,7 +209,7 @@ void fa_inst_begin() {
 @block fa_vs_common
 layout(binding=0) uniform fa_mesh_vs_params {
     mat4 fa_view_proj;
-    mat4 fa_light_vp;           // directional shadow matrix (world -> light clip)
+    mat4 fa_light_vp;           // the matrix of the shadow pass being drawn (a cascade of the sun; the view matrix in the prepass)
     vec4 fa_uv_scale;           // xy
     vec4 fa_time;               // x = seconds of game time since the scene started
     vec4 fa_lm_so;              // the lightmap rectangle of the entity drawn: page uv = lightmap uv * xy + zw; x = 0 = not lightmapped
@@ -267,8 +279,7 @@ out vec3 fa_world_normal;
 out vec4 fa_world_tangent;
 out vec2 fa_uv;
 out vec4 fa_vertex_color;
-out vec4 fa_shadow_pos;
-out vec3 fa_lm;                 // xy = the page uv of the lightmap, z = 1 when the entity is lightmapped (fa_lm_so.x > 0)
+out vec3 fa_lm;                 // xy = the page uv of the lightmap, z = 1 when the entity is lightmapped (fa_lm_so.x > 0); last, as fa_lm of the fragment stage
 
 // Everything after the model matrix is known: shared by the instanced and the skinned vertex shader.
 void fa_shade_vertex(mat4 model, vec3 position, vec3 normal, vec4 tangent, vec2 texcoord0, vec4 color) {
@@ -282,7 +293,6 @@ void fa_shade_vertex(mat4 model, vec3 position, vec3 normal, vec4 tangent, vec2 
     fa_world_tangent = v.world_tangent;
     fa_uv = v.uv;
     fa_vertex_color = v.color;
-    fa_shadow_pos = fa_light_vp * wp;
     gl_Position = fa_view_proj * wp;
 }
 @end
@@ -358,9 +368,14 @@ layout(binding=0) uniform sampler fa_smp;
 layout(binding=1) uniform sampler fa_shadow_smp;
 @image_sample_type fa_shadow_tex unfilterable_float
 @sampler_type fa_shadow_smp nonfiltering
-// What fa_shadow_pcf (shadow_common.glsl) samples; the full-shader template names its own shadow map differently.
+// What fa_shadow_sun (shadow_common.glsl) samples; the full-shader template names its own shadow map differently.
 #define FA_SHADOW_TEX fa_shadow_tex
 #define FA_SHADOW_SMP fa_shadow_smp
+// The light data texture (light_data.glsl; view 24), read with texelFetch through the shadow map's nearest sampler.
+layout(binding=24) uniform texture2D fa_light_tex;
+@image_sample_type fa_light_tex unfilterable_float
+#define FA_LIGHT_TEX fa_light_tex
+#define FA_LIGHT_SMP fa_shadow_smp
 // The sky of a sky material (SceneSettings.skyMaterial), baked by the renderer (renderer_env.h): the sky prefiltered by roughness (the
 // mips) and its irradiance. Both are views 14 and 15, the sampler 10 (after the material's textures and their vertex-stage copies);
 // bound and used only while fa_env_sky.w is 1.
@@ -382,10 +397,25 @@ layout(binding=1) uniform fa_mesh_fs_params {
     vec4 fa_fog_b;              // the stack's fog (PostProcess.fog*) on a blended mesh: x = fogStart, y = height density,
                                 // z = height base (world y), w = height falloff; all 0 for the scene's own fog
     vec4 fa_fog_c;              // xyz = the camera's forward axis in the world, w = 1 for an orthographic camera (0 otherwise)
-    vec4 fa_counts;             // x = light count, y = shadow texel size, z = 1 on OpenGL backends
+    vec4 fa_counts;             // x = light count, y = unused, z = 1 on OpenGL backends
     vec4 fa_env_sky;            // rgb sky color (top of the environment); w = 1 when the baked environment of a sky material is bound
     vec4 fa_env_horizon;        // rgb horizon color; w = the highest mip of fa_env_tex (what roughness 1 reads)
     vec4 fa_time;               // x = seconds of game time since the scene started
+    // Clustered lighting (M73.1; src/light_clusters.h): the rows of the view-projection matrix that give a fragment's tile, the
+    // camera's forward depth and the grid; all zero (fa_cl_info.x = -1) while the frame has no local lights.
+    vec4 fa_cl_vpx;             // row 0 of the view-projection matrix: clip x of a world position
+    vec4 fa_cl_vpy;             // row 1: clip y
+    vec4 fa_cl_vpw;             // row 3: clip w
+    vec4 fa_cl_fwd;             // xyz = the camera's forward axis, w = -dot(forward, position): depth = dot(xyz, world) + w
+    vec4 fa_cl_grid;            // x = tiles across, y = tiles down, z = depth slices per octave (slices / log2(far / near)), w = near
+    vec4 fa_cl_info;            // x = first texel of the cluster table (-1 = no clusters), y = depth slices, z = directional lights,
+                                // w = clusters (tiles x * tiles y * slices)
+    vec4 fa_layers_a;           // x clearcoat, y clearcoat roughness, z anisotropy, w anisotropy rotation (radians)
+    vec4 fa_layers_b;           // rgb sheen colour, w sheen roughness
+    vec4 fa_layers_c;           // x specular, y ior, z = the layer data packed in the maps: 1 = the occlusion map holds the clear coat
+                                // in g, its roughness in b and the sheen roughness in a; 2 = the metallic-roughness map holds the
+                                // anisotropy strength in r and the specular in a (the importer packs them, see brdf_layers.glsl)
+    vec4 fa_layers_d;           // rgb specular colour (KHR_materials_specular)
 };
 
 // The varyings are declared in the order of the vertex stage's outputs (the instance values first): sokol-shdc matches them
@@ -454,8 +484,32 @@ Surface fa_standard_surface(in SurfaceInput i) {
     mrt.rgb = fa_tex_fix(mrt.rgb, fa_fix_of(fa_maps.w, 64.0));
     s.metallic = clamp(fa_pbr.x * mrt.b, 0.0, 1.0);
     s.roughness = clamp(fa_pbr.y * mrt.g, 0.05, 1.0);
-    s.occlusion = 1.0 + fa_maps.y * (fa_tex_fix(texture(sampler2D(fa_occlusion_tex, fa_smp), i.uv).rrr, fa_fix_of(fa_maps.w, 256.0)).r - 1.0);
+    vec4 occ_t = texture(sampler2D(fa_occlusion_tex, fa_smp), i.uv);
+    vec3 occ_f = fa_tex_fix(occ_t.rgb, fa_fix_of(fa_maps.w, 256.0));
+    s.occlusion = 1.0 + fa_maps.y * (occ_f.r - 1.0);
     s.emission = fa_emissive.rgb + fa_model_emissive.rgb * fa_tex_fix(texture(sampler2D(fa_emissive_tex, fa_smp), i.uv).rgb, fa_fix_of(fa_maps.w, 4.0));
+    // The material layers: the factors of the MeshRenderer / glTF material, times the textures the importer packed into the maps.
+    s.clearcoat = fa_layers_a.x;
+    s.clearcoat_roughness = fa_layers_a.y;
+    s.anisotropy = fa_layers_a.z;
+    s.anisotropy_rotation = fa_layers_a.w;
+    s.sheen_color = fa_layers_b.rgb;
+    s.sheen_roughness = fa_layers_b.w;
+    s.specular = fa_layers_c.x;
+    s.ior = fa_layers_c.y;
+    s.specular_color = fa_layers_d.rgb;
+    float packed_maps = fa_layers_c.z;
+    if (packed_maps > 0.5) {
+        if (mod(packed_maps, 2.0) > 0.5) {
+            s.clearcoat *= occ_f.g;
+            s.clearcoat_roughness *= occ_f.b;
+            s.sheen_roughness *= occ_t.a;
+        }
+        if (packed_maps > 1.5) {
+            s.anisotropy *= mrt.r;
+            s.specular *= mrt.a;
+        }
+    }
     return s;
 }
 @end
@@ -525,12 +579,16 @@ LightSample fa_no_light() {
     return none;
 }
 // What the engine's own lighting adds for the sky: its reflection weighted by the environment BRDF of this surface (s.metallic,
-// s.roughness, s.albedo, s.normal) times s.occlusion.
+// s.roughness, s.albedo, s.normal) times s.occlusion, with the material layers (clear coat, sheen, anisotropy, specular and ior of
+// the Surface) when they are set.
 vec3 fa_sky_light(in SurfaceInput i, in Surface s) {
     float metallic = clamp(s.metallic, 0.0, 1.0);
     float roughness = clamp(s.roughness, 0.05, 1.0);
     vec3 f0 = mix(vec3(0.04), s.albedo, metallic);
-    return fa_sky_reflection(normalize(s.normal), i.view_dir, f0, roughness) * s.occlusion;
+    vec3 n = normalize(s.normal);
+    FaLayers lay = fa_layers_setup(i, s, n, i.view_dir, metallic, roughness, f0);
+    if (lay.on) { return fa_layers_ibl(lay, n, i.view_dir, f0, roughness) * s.occlusion; }
+    return fa_sky_reflection(n, i.view_dir, f0, roughness) * s.occlusion;
 }
 #endif
 @end
@@ -539,20 +597,23 @@ vec3 fa_sky_light(in SurfaceInput i, in Surface s) {
 // the snippet): the light array (light_data.glsl), the shadow coordinate and lookup (shadow_common.glsl), the sky, and the light
 // samples and the custom-light hooks (light_loop.glsl).
 @block fa_fs_light
+// The lightmap varying of the vertex stage (M73.4a, declared last there too: the varyings of the two stages match by order). Declared
+// here, before the light functions, because a baked light is skipped on a lightmapped fragment (fa_light_baked, light_data.glsl).
+in vec3 fa_lm;
 @include_block fa_light_data
-
-in vec4 fa_shadow_pos;
 
 const float FA_PI = 3.14159265;
 
 @include_block fa_shadow_common
 
-// The directional shadow of the fragment: 1 lit, 0 in shadow (fa_shadow_pos is the vertex stage's light-space position).
+// The directional shadow of the fragment: 1 lit, 0 in shadow (the cascaded shadow of shadow_common.glsl at the fragment's world position).
 float fa_shadow_factor(vec3 n, vec3 l) {
-    return fa_shadow_pcf(fa_shadow_pos, n, l);
+    return fa_shadow_sun(fa_world_pos, n, l);
 }
 
 @include_block fa_env_funcs
+@include_block fa_layers_env
+@include_block fa_layers_light
 @include_block fa_light_shared
 @include_block fa_light_hooks
 @end
@@ -560,6 +621,7 @@ float fa_shadow_factor(vec3 n, vec3 l) {
 @block fa_fs_nolight
 #ifdef FA_CUSTOM_LIGHT
 @include_block fa_env_funcs
+@include_block fa_layers_env
 @include_block fa_light_shared
 @include_block fa_light_hooks_none
 #endif
@@ -579,13 +641,14 @@ float fa_shadow_factor(vec3 n, vec3 l) {
 @include_block fa_fs_rest
 
 // The baked lightmap (M73.4a): the page of the entity drawn, an irradiance/pi texel like ambientLight is, read at the lightmap UV the
-// vertex stage passed (declared after fa_shadow_pos, the order of the vertex stage's outputs). Bound (a white texel) on every draw of the
-// engine's program, so a mesh without a lightmap costs one branch on a varying.
-in vec3 fa_lm;
+// vertex stage passed (fa_lm, declared in fa_fs_light). Bound (a white texel) on every draw of the engine's program, so a mesh without
+// a lightmap costs one branch on a varying.
 layout(binding=26) uniform texture2D fa_lightmap;
 
-// The diffuse indirect light toward n: the baked texel of a lightmapped surface, else the ambient light or the sky's irradiance. The
-// specular IBL (fa_sky_reflection) is not part of it: a lightmap holds no direction.
+// The diffuse indirect light toward n: the baked texel of a lightmapped surface, else the ambient light or the sky's irradiance. It
+// replaces fa_ambient_light in every diffuse ambient term, with or without material layers (the layers' base_scale darkens it as it does
+// the ambient light). The specular IBL (fa_sky_reflection, fa_layers_ibl) is not part of it and stays the sky's: a lightmap holds no
+// direction, so the ambient is never counted twice (the texel replaces the diffuse ambient only) and never missing.
 vec3 fa_indirect_diffuse(vec3 n) {
     if (fa_lm.z > 0.5) {
         return textureLod(sampler2D(fa_lightmap, fa_env_smp), fa_lm.xy, 0.0).rgb;
@@ -606,6 +669,7 @@ void main() {
     i.uv = fa_uv;
     i.vertex_color = fa_vertex_color;
     i.view_dir = normalize(fa_camera_pos.xyz - fa_world_pos);
+    fa_cluster_begin(fa_world_pos);
     Surface s = fa_standard_surface(i);
     surface(i, s);
 #ifdef FA_ALPHA_CLIP
@@ -639,17 +703,24 @@ void main() {
         float ndv = max(dot(n, v), 1e-4);
         vec3 diffuse_color = s.albedo * (1.0 - metallic);
         vec3 f0 = mix(vec3(0.04), s.albedo, metallic);
+        FaLayers lay = fa_layers_setup(i, s, n, v, metallic, roughness, f0);
         vec3 lit = fa_indirect_diffuse(n) * diffuse_color * s.occlusion;
+        if (lay.on) { lit *= lay.base_scale; }
 #endif
 @include_block fa_light_loop
 #ifndef FA_CUSTOM_LIGHT
-        // Image-based lighting: the sky reflected, weighted by the environment BRDF.
-        lit += fa_sky_reflection(n, v, f0, roughness) * s.occlusion;
+        // Image-based lighting: the sky reflected, weighted by the environment BRDF (with the layers, fa_layers_ibl).
+        if (lay.on) {
+            lit += fa_layers_ibl(lay, n, v, f0, roughness) * s.occlusion;
+        } else {
+            lit += fa_sky_reflection(n, v, f0, roughness) * s.occlusion;
+        }
 #endif
 #endif
         result = lit;
     }
     result += s.emission;
+    result = fa_shadow_debug(result, i.world_pos);
     if (fa_fog.w > 0.0 || fa_fog_b.y > 0.0) {
         // The same formula as the fog of the post stack (fog.glsl): from fogStart along the view ray, the distance fog
         // (density * length)^2 plus the integral of the height density; the scene's own fog is the case start = 0, no height.

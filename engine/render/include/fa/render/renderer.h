@@ -53,7 +53,7 @@ struct RendererTestAccess;
 
 // What the renderer shows instead of the game picture, to check the depth and normal prepass and the ambient occlusion
 // (Renderer::set_debug_view). Ao paints the occlusion as a grey over the picture, drawn with the camera's own settings or the defaults.
-enum class DebugView : std::uint8_t { None, Depth, Normals, Ao };
+enum class DebugView : std::uint8_t { None, Depth, Normals, Ao, Cascades };
 
 enum class ScaleMode : std::int32_t {
     Fit,          // keep aspect, letterbox (default)
@@ -127,8 +127,18 @@ struct RenderStats {
     int views = 0;  // CameraViews drawn this frame (each one renders its camera into an image first)
     int renderTargets =
         0;  // cameras with Camera.renderTarget drawn into their texture this frame (before the cameras that show them)
-    int lights = 0;           // 3D lights sent to the shader (at most 32); Light2D is counted in lights2d
-    int lightsDropped = 0;    // 3D lights over the limit that were left out (the least relevant ones)
+    int lights =
+        0;  // 3D lights in the light tables of the frame's views (at most 1024 per view, 32 directional); Light2D is counted in lights2d
+    int lightsDropped = 0;  // 3D lights over those limits that were left out (the least relevant ones)
+    int lightsCulled =
+        0;  // point, spot and area lights whose range is outside the camera's view: not in the table, they light nothing drawn
+    // Clustered lighting (M73.1), summed over the views of the frame: the grid is about 64 px tiles by 24 depth slices.
+    int lightClusters = 0;        // clusters of the grids built (a view with local lights builds one)
+    int lightClusterEntries = 0;  // light indices in the lists of those clusters (at most 524288 per view)
+    int lightClusterClipped =
+        0;  // entries left out because a cluster already had 128 lights or the view 524288 entries: a hint to lower the ranges
+    int lightMaxPerCluster =
+        0;  // the longest list of a cluster (the most lights any one fragment loops over, besides the directional ones)
     int lights2d = 0;         // Light2D lights shading the 2D visuals (at most 256)
     int lights2dDropped = 0;  // Light2D lights left out: off-view ones, then the ones over the 256 of the budget
     int lights2dShadowed =
@@ -508,9 +518,9 @@ public:
 
     // Whether this renderer can do `feature` on the backend and GPU it runs on: a capability of the GPU ("floatTargets",
     // "r11g11b10", "sampledDepth", "computeShaders", "float32Targets"), an engine feature ("linearColor", "hdrOutput", and the
-    // lighting rows of M73 such as "cascadedShadows", all planned until their package lands) or a post effect (the
+    // lighting rows of M73 such as "cascadedShadows", planned until their package lands; "clusteredLights" is drawn) or a post effect (the
     // names of kPostEffectOrder: "bloom", "tonemap", ...). False for a name that is not in feature_names(), before init(), on the
-    // headless (dummy) backend, and for what the engine does not draw (the lighting rows of M73 today;
+    // headless (dummy) backend, and for what the engine does not draw (the lighting rows of M73 not yet landed;
     // linearColor is drawn on every GPU): it never claims what the renderer cannot do. "hdrOutput" is true when the display
     // the window showed its last frame on can show HDR in an encoding the renderer writes (EDR on Metal, scRGB or HDR10 on
     // D3D11), whatever the scene's hdrOutput setting. `render.supports` answers the same with the reason.

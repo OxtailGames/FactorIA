@@ -3,6 +3,7 @@
 // byte for byte as before.
 #include <doctest.h>
 
+#include <algorithm>
 #include <string>
 #include <vector>
 
@@ -31,14 +32,19 @@ const std::vector<std::string> kLightFields = {"innerAngle",
                                                "shadowSoftness",
                                                "shadowDistance",
                                                "volumetric"};
-const std::vector<std::string> kSettingsFields = {
-    "shadowCascades", "shadowCascadeSplit", "shadowCascadeBlend",   "shadowDistance",      "shadowAtlasSize",
-    "contactShadows", "environmentMap",     "environmentIntensity", "environmentRotation", "skyModel"};
-const std::vector<std::string> kMeshFields = {"contributeGI",        "clearcoat",      "clearcoatRoughness",
-                                              "sheenColor",          "sheenRoughness", "anisotropy",
-                                              "anisotropyRotation",  "specular",       "ior",
-                                              "transmission",        "thickness",      "attenuationColor",
-                                              "attenuationDistance", "subsurface"};
+const std::vector<std::string> kSettingsFields = {"shadowCascades", "shadowCascadeSplit",   "shadowCascadeBlend",
+                                                  "shadowDistance", "shadowAtlasSize",      "contactShadows",
+                                                  "environmentMap", "environmentIntensity", "environmentRotation"};
+const std::vector<std::string> kMeshFields = {"contributeGI",     "transmission",        "thickness",
+                                              "attenuationColor", "attenuationDistance", "subsurface"};
+// Drawn since M73.6 (the material layers): their docs say what they do, not that they have no effect.
+const std::vector<std::string> kLayerFields = {"clearcoat",  "clearcoatRoughness", "sheenColor", "sheenRoughness",
+                                               "anisotropy", "anisotropyRotation", "specular",   "ior"};
+// The fields a package has made work: their doc string no longer says "No effect yet" (M73.1a: innerAngle; M73.2a: the cascaded shadows of the sun).
+const std::vector<std::string> kDrawn = {"innerAngle",         "shadowResolution", "shadowBias",
+                                         "shadowNormalBias",   "shadowFilter",     "shadowSoftness",
+                                         "shadowDistance",     "shadowCascades",   "shadowCascadeSplit",
+                                         "shadowCascadeBlend", "shadowAtlasSize"};
 // Fields a package has made work: their doc strings no longer say "No effect yet" (M73.4a: the lightmap runtime).
 const std::vector<std::pair<std::string, std::string>> kLiveFields = {{"Light", "mode"},
                                                                       {"MeshRenderer", "lightmapScale"},
@@ -56,7 +62,8 @@ TEST_CASE("lighting fields: every new field is reflected and its doc says what i
             const FieldInfo* f = field_of(type, n);
             REQUIRE(f != nullptr);
             CHECK(f->doc.size() > 40);
-            CHECK(f->doc.find("No effect yet: M73.") != std::string::npos);
+            const bool drawn = std::find(kDrawn.begin(), kDrawn.end(), n) != kDrawn.end();
+            CHECK((f->doc.find("No effect yet: M73.") == std::string::npos) == drawn);
             CHECK(f->serialized);
         }
     }
@@ -64,6 +71,14 @@ TEST_CASE("lighting fields: every new field is reflected and its doc says what i
         CAPTURE(type);
         CAPTURE(name);
         const FieldInfo* f = field_of(type.c_str(), name);
+        REQUIRE(f != nullptr);
+        CHECK(f->doc.size() > 40);
+        CHECK(f->doc.find("No effect yet") == std::string::npos);
+        CHECK(f->serialized);
+    }
+    for (const std::string& n : kLayerFields) {
+        CAPTURE(n);
+        const FieldInfo* f = field_of("MeshRenderer", n);
         REQUIRE(f != nullptr);
         CHECK(f->doc.size() > 40);
         CHECK(f->doc.find("No effect yet") == std::string::npos);
@@ -221,4 +236,56 @@ TEST_CASE("lighting fields: a scene with a bad value reports where, and loads no
     const std::string text = report.summary();
     CHECK(text.find("shadowFilter") != std::string::npos);
     CHECK(text.find("pcss") != std::string::npos);
+}
+
+TEST_CASE(
+    "physical sky fields: reflected with a doc, a clear mid-day default that is never saved, ranges and enum errors") {
+    const std::vector<std::string> names = {"skySunSize",   "skyTurbidity",  "skyGroundAlbedo",
+                                            "skyExposure",  "skyTintsSun",   "cloudCoverage",
+                                            "cloudDensity", "cloudAltitude", "cloudWind"};
+    for (const std::string& n : names) {
+        CAPTURE(n);
+        const FieldInfo* f = field_of("SceneSettings", n);
+        REQUIRE(f != nullptr);
+        CHECK(f->doc.size() > 60);
+        CHECK(f->doc.find("skyModel physical") != std::string::npos);
+        CHECK(f->doc.find("No effect yet") == std::string::npos);
+        CHECK(f->serialized);
+    }
+    const FieldInfo* model = field_of("SceneSettings", "skyModel");
+    REQUIRE(model != nullptr);
+    CHECK(model->doc.find("No effect yet") == std::string::npos);
+
+    const SceneSettings d;
+    CHECK(d.skyModel == SkyModel::Gradient);
+    CHECK(d.cloudCoverage == doctest::Approx(0.25f));
+    CHECK(d.skyTintsSun);
+
+    World w;
+    const Json saved = save_scene(w);
+    for (const std::string& n : names) CHECK_FALSE(saved["settings"].contains(n));
+
+    SceneSettings s;
+    const FieldInfo* turb = field_of("SceneSettings", "skyTurbidity");
+    const Result<void> bad = field_from_json(*turb, &s, Json(11));
+    REQUIRE_FALSE(bad.ok());
+    CHECK(bad.error().message.find("skyTurbidity") != std::string::npos);
+    CHECK(s.skyTurbidity == 2.0f);
+    CHECK_FALSE(field_from_json(*field_of("SceneSettings", "cloudCoverage"), &s, Json(1.5)).ok());
+    CHECK_FALSE(field_from_json(*field_of("SceneSettings", "cloudAltitude"), &s, Json(50)).ok());
+    CHECK_FALSE(field_from_json(*field_of("SceneSettings", "skySunSize"), &s, Json(0.0)).ok());
+    CHECK(field_from_json(*field_of("SceneSettings", "cloudWind"), &s, Json::array({-4.0, 12.0})).ok());
+    CHECK(s.cloudWind.x == -4.0f);
+    CHECK(s.cloudWind.y == 12.0f);
+
+    const Json scene = Json::parse(R"({"format":"factoria.scene/1",
+      "settings":{"skyModel":"physical","skyTurbidity":4,"skyGroundAlbedo":[0.8,0.8,0.85,1],"cloudCoverage":0.9,
+                  "cloudWind":[0,5],"skyTintsSun":false},"entities":[]})");
+    World again;
+    REQUIRE(load_scene(again, scene, "sky.scene.json").ok());
+    CHECK(again.settings().skyModel == SkyModel::Physical);
+    CHECK(again.settings().skyTurbidity == 4.0f);
+    CHECK_FALSE(again.settings().skyTintsSun);
+    CHECK(again.settings().cloudWind.y == 5.0f);
+    CHECK(save_scene(again)["settings"]["cloudCoverage"] == 0.9);
 }

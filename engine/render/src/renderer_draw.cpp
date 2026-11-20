@@ -1,10 +1,14 @@
 // Renderer::Impl, part 3: draw_view_job and draw_job, the passes of one frame's jobs.
 #include "color_space.h"
+#include "light_clusters.h"
+#include "physical_sky.h"
 #include "mesh_buffer_draw.h"
 #include "renderer_impl.h"
+#include "shadow_cascades.h"
 #include "sprite_buffer_draw.h"
 
 #include <algorithm>
+#include <array>
 #include <bit>
 #include <functional>
 #include <iterator>
@@ -52,6 +56,11 @@ struct SkyDraw {
     float skyColor[3]{}, horizonColor[3]{}, sun[3]{0.0f, 1.0f, 0.0f};
     float time = 0.0f;
     bool linear = false;
+    // The physical sky (SceneSettings.skyModel): the engine's own program for it, with its state; `slot` is the table it reads
+    // (0 the picture's, 1 the environment's).
+    bool physical = false, sunDisc = false;
+    int slot = 0;
+    PhysicalSkyState phys;
 };
 
 // Holds references to the job's world and frame and a copy of its plan. It lives (Impl::jobContexts) from plan_job until the
@@ -85,8 +94,21 @@ struct Renderer::Impl::DrawContext {
     int shadowLight = -1;
     Vec3 lightDirForShadow{0, -1, 0};
     bool haveShadowCaster = false;
-    Mat4 lightVP;
     bool doShadows = false;
+    // The sun's shadow (collect_lights, shadow_bounds): the light's own settings, the cascades planned for this job (their maps, where each
+    // sits in the atlas and where each ends), the atlas this job draws into (a copy of the target: a later job may replace the renderer's
+    // when it needs more room) and the block the mesh fragment shaders read (fill_shadow_block).
+    struct SunShadow {
+        int resolution = 0;
+        float bias = 0.0f, normalBias = 0.0f, softness = 1.0f, distance = 0.0f;
+        ShadowFilter filter = ShadowFilter::Pcf;
+    } sun;
+    int cascades = 0;
+    std::array<render::CascadeFit, render::kMaxShadowCascades> fits;
+    std::array<float, render::kMaxShadowCascades + 1> splits{};
+    render::ShadowAtlasLayout atlas;
+    Target shadowTgt;
+    mesh_fa_shadows_t shadowU{};
     // plan_prepass: this job declares the prepass (its image is a transient of the graph, PostPlan::prepass) and, with a debug view on,
     // the pass that paints it over the game image.
     bool doPrepass = false, debugPrepass = false;
@@ -113,11 +135,9 @@ struct Renderer::Impl::DrawContext {
     // scene_uniforms
     SceneSettings ss;
     TextureAsset* white = nullptr;
-    mesh_fa_lights_t lightUniforms{};
-    // lightUniforms with the lights of Light.mode Baked switched off (colour 0): what a lightmapped entity is drawn with, as its lightmap holds
-    // their direct light. Filled only when a baked light exists (anyBakedLight).
-    mesh_fa_lights_t lightUniformsLm{};
-    bool anyBakedLight = false;
+    // The light data texture of the job's view (scene_uniforms): bound at view 24 of the mesh programs; the white image while the job
+    // has no lights or draws no mesh.
+    sg_view lightView{};
     mesh_fa_mesh_vs_params_t vuScene{};
     mesh_fa_mesh_fs_params_t fuScene{};
     // fuScene with the camera's stack fog (PostProcess.fog*): the blended meshes fog themselves with it, while the opaque meshes and the sky
@@ -126,6 +146,15 @@ struct Renderer::Impl::DrawContext {
     // plan_env: the meshes of this job take the baked sky (SceneSettings.skyMaterial): the "sky-env" pass is declared
     // when envBake, and envSky is what it draws (the time quantized, see plan_env).
     bool envActive = false, envBake = false;
+    // The physical sky: envSliced = this frame runs a slice of a bake (renderer_env.h, bake_slice), not a whole one; envStatic and
+    // envSun are what a bake started from this job is tagged with (plan_env); physMainOn = the main pass draws the physical sky
+    // with the state physMain (exact sun and clock, the picture's table), physSunDir / physSunColor = the sun as collect_lights
+    // found it, before the sky tinted its light.
+    bool envSliced = false, physMainOn = false;
+    std::uint64_t envStatic = 0;
+    float envSun[3]{0.0f, 1.0f, 0.0f};
+    PhysicalSkyState physMain;
+    float physSunDir[3]{0.0f, 1.0f, 0.0f}, physSunColor[3]{1.0f, 1.0f, 1.0f};
     std::uint64_t envKey = 0;
     SkyDraw envSky;
     // The textures plan_env resolved for the sky of the job, while the job's own render target was the checker: the sky
@@ -146,6 +175,53 @@ struct Renderer::Impl::DrawContext {
 namespace {
 
 void copy_mat(float* dst, const Mat4& m) { std::memcpy(dst, m.m, sizeof(float) * 16); }
+
+// The block the mesh fragment shaders read the sun's cascaded shadow from (fa_shadows of shadow_common.glsl): where each cascade's map is in
+// the atlas image this job draws into (the matrix that takes a world position to the atlas's u, v and a 0..1 depth, the tile's rectangle
+// a texel smaller, the map's size), where the cascades end along the camera's forward axis, the filter and the biases. Empty (zero
+// cascades: the shader returns light) when the job draws no shadow. `debug`: the cascade debug view tints the picture.
+void fill_shadow_block(const Renderer::Impl::DrawContext& ctx, bool isGl, bool debug, mesh_fa_shadows_t& u) {
+    u = mesh_fa_shadows_t{};
+    const CameraInfo& cam = ctx.fr.cam;
+    u.fa_shadow_eye[0] = cam.position.x;
+    u.fa_shadow_eye[1] = cam.position.y;
+    u.fa_shadow_eye[2] = cam.position.z;
+    u.fa_shadow_eye[3] = debug ? 1.0f : 0.0f;
+    if (!ctx.doShadows || ctx.cascades <= 0 || !ctx.shadowTgt.color.id) return;
+    const int count = ctx.cascades;
+    const int w = ctx.shadowTgt.w, h = ctx.shadowTgt.h;
+    for (int c = 0; c < render::kMaxShadowCascades; ++c) {
+        const std::size_t i = std::size_t(c);
+        u.fa_shadow_split[c] =
+            ctx.splits[std::size_t(std::min(c + 1, count))];  // an unused cascade ends where the last does
+        if (c >= count) continue;
+        const render::ShadowTile& tile = ctx.atlas.tiles[i];
+        copy_mat(u.fa_shadow_mat[c], render::shadow_sample_matrix(ctx.fits[i], tile, w, h, ctx.z01, isGl));
+        const Vec4 r = render::shadow_tile_rect(tile, w, h, isGl);
+        const float tu = 1.0f / float(w), tv = 1.0f / float(h);
+        u.fa_shadow_rect[c][0] = r.x + tu;
+        u.fa_shadow_rect[c][1] = r.y + tv;
+        u.fa_shadow_rect[c][2] = r.z - tu;
+        u.fa_shadow_rect[c][3] = r.w - tv;
+        u.fa_shadow_info[c][0] = ctx.fits[i].texel;
+        u.fa_shadow_info[c][1] = ctx.fits[i].depthRange;
+    }
+    const float soft = std::clamp(ctx.sun.softness, 0.0f, 10.0f);
+    u.fa_shadow_cfg[0] = float(count);
+    u.fa_shadow_cfg[1] = std::clamp(ctx.ss.shadowCascadeBlend, 0.0f, 0.5f);
+    u.fa_shadow_cfg[2] = ctx.sun.filter == ShadowFilter::Hard   ? 1.0f
+                         : ctx.sun.filter == ShadowFilter::Pcss ? 2.0f
+                                                                : 0.0f;
+    u.fa_shadow_cfg[3] = std::tan(0.05f * soft);
+    u.fa_shadow_bias[0] = std::clamp(ctx.sun.bias, 0.0f, 1.0f);
+    u.fa_shadow_bias[1] = std::clamp(ctx.sun.normalBias, 0.0f, 1.0f);
+    u.fa_shadow_bias[2] = 1.0f / float(w);
+    u.fa_shadow_bias[3] = 1.0f / float(h);
+    u.fa_shadow_fwd[0] = cam.forward.x;
+    u.fa_shadow_fwd[1] = cam.forward.y;
+    u.fa_shadow_fwd[2] = cam.forward.z;
+    u.fa_shadow_fwd[3] = ctx.splits[0];
+}
 
 // The joint palette as the shaders read it: kMaxSkinJoints skinning matrices of 3 rows (a vec4 each); unused joints are the
 // identity (fa_skin of mesh_common.glsl, shared by the mesh and shadow programs).
@@ -263,6 +339,11 @@ void fill_sky(Renderer::Impl& im, const Renderer::Impl::DrawContext& ctx, Materi
 void draw_sky(Renderer::Impl& im, const SkyDraw& d, const float* invViewProj, const Vec3& camPos,
               const TargetFormat* format) {
     Gpu& gpu = im.gpu;
+    if (d.physical) {
+        const float cam[3] = {camPos.x, camPos.y, camPos.z};
+        im.physSky.draw(gpu, d.slot, d.phys, d.sunDisc, invViewProj, cam, format);
+        return;
+    }
     const sg_shader shader = d.prog ? d.prog->shader : sg_shader{};
     sg_apply_pipeline(format ? gpu.sky_pipeline(*format, shader) : gpu.sky_pipeline(shader));
     sg_bindings b{};
@@ -399,7 +480,8 @@ void Renderer::Impl::begin_frame_graph(bool countPost) {
     framePost = countPost;
     if (countPost) ++postSerial;
     trim_shadow_rows();
-    sharedGame = sharedLight = sharedShadow = sharedEnv = ResourceId{};
+    free_retired_shadow_targets();  // the frame before has run its graph
+    sharedGame = sharedLight = sharedShadow = sharedEnv = sharedSkyLut = ResourceId{};
 }
 
 // Orders, culls and runs every pass of the frame (frame_graph.h), then drops what the pass callbacks captured: the job contexts
@@ -796,6 +878,7 @@ void Renderer::Impl::collect_lights(DrawContext& ctx) {
     auto& lights = ctx.lights;
     auto& shadowLight = ctx.shadowLight;
     auto& lightDirForShadow = ctx.lightDirForShadow;
+    int culledLocal = 0;
     if (fr.wantWorld && !fr.cam.studio)
         world.each<Light>([&](Entity e, Light& l) {
             if (!entity_active(world, e)) return;
@@ -815,6 +898,8 @@ void Renderer::Impl::collect_lights(DrawContext& ctx) {
                     lightDirForShadow = d;
                     shadowLight = 0;
                     ld.rank = 0;
+                    ctx.sun = {l.shadowResolution, l.shadowBias,     l.shadowNormalBias,
+                               l.shadowSoftness,   l.shadowDistance, l.shadowFilter};
                 }
             } else {
                 Vec3 d = normalize(m.transform_dir(kForward));
@@ -823,9 +908,23 @@ void Renderer::Impl::collect_lights(DrawContext& ctx) {
                     Vec4{col, l.type == LightType::Spot ? 2.0f
                                                         : 1.0f};  // an area light shines like a point light until M73.1
                 ld.dir = Vec4{d, std::cos(radians(l.spotAngle))};
+                // Light.innerAngle: the cone at full strength (0 = the default fade of the outer quarter, light_data.glsl). The inner
+                // cosine stays above the outer one, so the smoothstep has two different edges.
+                if (l.type == LightType::Spot && l.innerAngle > 0.0f)
+                    ld.cosInner = std::min(
+                        std::max(std::cos(radians(std::min(l.innerAngle, l.spotAngle))), ld.dir.w + 1e-3f), 1.0f);
                 // Relevance to the camera: bright and close first (the light's own range scales the fall-off).
                 const float r2 = std::max(l.range * l.range, 1e-4f);
                 ld.score = brightness * r2 / (r2 + length_sq(m.translation() - fr.cam.position));
+                // A local light whose sphere is outside the view lights nothing that is drawn: it takes no place in the table (and no
+                // part of the kMaxLights of the view).
+                const float rg = std::max(l.range, 0.0f);
+                const Vec3 c = m.translation();
+                if (rg > 0.0f && !box_in_frustum(fr.cam.viewProj, ctx.z01, Vec3{c.x - rg, c.y - rg, c.z - rg},
+                                                 Vec3{c.x + rg, c.y + rg, c.z + rg}, Mat4::identity())) {
+                    ++culledLocal;
+                    return;
+                }
             }
             ld.baked = l.mode == LightMode::Baked;
             lights.push_back(ld);
@@ -851,10 +950,44 @@ void Renderer::Impl::collect_lights(DrawContext& ctx) {
     }
     // The shadow caster in slot 0, then the other directional lights, then point and spot lights by relevance; what the
     // shader's arrays cannot hold is left out.
-    stats.lightsDropped += select_lights(lights, size_t(kMaxLights));
+    const int droppedNow = select_lights(lights, size_t(kMaxLights));
+    stats.lightsDropped += droppedNow;
+    if (droppedNow > 0 && !warnedLightsDropped) {
+        warnedLightsDropped = true;
+        FA_WARN("render",
+                "{} lights were left out: a view lights at most {} lights at once, {} of them directional (the most "
+                "relevant "
+                "ones are kept). Hint: use fewer lights, or turn some Lights off; stats.lightsDropped counts them.",
+                droppedNow, kMaxLights, kMaxDirectionalLights);
+    }
+    stats.lightsCulled += culledLocal;
     stats.lights += int(lights.size());
+    // The physical sky (SceneSettings.skyModel): the sun is the light of slot 0 when it is a directional one. The sky is drawn with
+    // the colour the author chose (physSunColor); when skyTintsSun is on, the light itself is what the air and the clouds let
+    // through of it, relative to a noon sun. Never for a studio rig, never when a sky material draws the sky, never when this GPU
+    // cannot make the sky's tables (the gradient is drawn then).
+    {
+        const SceneSettings& wss = world.settings();
+        if (fr.wantWorld && !fr.cam.studio && !lights.empty() && lights[0].color.w == 0.0f && lights[0].pos.w == 0.0f) {
+            LightData& sun = lights[0];
+            ctx.physSunDir[0] = sun.pos.x;
+            ctx.physSunDir[1] = sun.pos.y;
+            ctx.physSunDir[2] = sun.pos.z;
+            ctx.physSunColor[0] = sun.color.x;
+            ctx.physSunColor[1] = sun.color.y;
+            ctx.physSunColor[2] = sun.color.z;
+            if (wss.skyModel == SkyModel::Physical && wss.skyTintsSun && wss.skyMaterial.empty() &&
+                physSky.ready(gpu)) {  // the gradient is not tinted
+                float f[3];
+                sky_sun_light_factor(physical_sky_settings(wss), sun.pos.y, f);
+                sun.color.x *= f[0];
+                sun.color.y *= f[1];
+                sun.color.z *= f[2];
+            }
+        }
+    }
     ctx.haveShadowCaster = shadowLight >= 0 && !lights.empty() && lights[0].rank == 0;
-    if (!opaque.empty() && lights.empty() && !warnedNoLight && !plan.view) {
+    if (!opaque.empty() && lights.empty() && culledLocal == 0 && !warnedNoLight && !plan.view) {
         warnedNoLight = true;
         FA_WARN("render", "the scene has MeshRenderer entities but no Light entity: meshes only receive ambient light "
                           "(SceneSettings.ambientLight). Add an entity with a Light component (type Directional) or "
@@ -863,83 +996,118 @@ void Renderer::Impl::collect_lights(DrawContext& ctx) {
 }
 
 // ---- shadow bounds ----
-// Reads: ctx.haveShadowCaster, ctx.lightDirForShadow, ctx.opaque / ctx.blended (castShadows, mesh part boxes, matrices), gpu
-// (shadows_supported, depth range). Writes: ctx.lightVP, ctx.doShadows; creates the shadow targets.
+// Reads: ctx.haveShadowCaster, ctx.lightDirForShadow, ctx.sun, ctx.opaque / ctx.blended (castShadows, mesh part boxes, matrices), the
+// scene settings (cascades, split, blend, distance, atlas size), fr.cam, gpu (shadows_supported, depth range). Writes: ctx.doShadows,
+// ctx.cascades, ctx.fits, ctx.splits, ctx.atlas, ctx.shadowTgt; creates (or grows) the shadow atlas.
+// The sun's shadow is cut into cascades (shadow_cascades.h): the camera's view between its near plane and the shadow distance is split
+// into 1..4 slices, each fitted by a sphere and drawn into its own tile of the atlas. Everything depends on the camera only through its
+// position, its forward axis and its frustum, and the maps move in whole texels, so a still shadow does not shimmer.
 void Renderer::Impl::shadow_bounds(DrawContext& ctx) {
     const bool haveShadowCaster = ctx.haveShadowCaster;
     auto& opaque = ctx.opaque;
     auto& blended = ctx.blended;
-    auto& lightDirForShadow = ctx.lightDirForShadow;
-    auto& lightVP = ctx.lightVP;
     auto& doShadows = ctx.doShadows;
-    if (haveShadowCaster) {
-        // The world box of each caster's parts as jobs, joined here in the order of the items.
-        Vec3 bmin{1e30f, 1e30f, 1e30f}, bmax{-1e30f, -1e30f, -1e30f};
-        bool any = false;
-        for (auto* list : {&opaque, &blended}) {
-            struct Box {
-                Vec3 lo{1e30f, 1e30f, 1e30f}, hi{-1e30f, -1e30f, -1e30f};
-                bool any = false;
-            };
-            std::vector<Box> boxes(list->size());
-            rjobs::run("render.shadow_bounds", rjobs::split(list->size(), kMeshGrain, kParallelMeshes),
-                       [&](const jobs::Chunk& ch) {
-                           for (std::size_t i = ch.begin; i < ch.end; ++i) {
-                               const MeshItem& mi = (*list)[i];
-                               if (!mi.mr->castShadows) continue;
-                               Box& b = boxes[i];
-                               for (auto& p : mi.mesh->parts) {
-                                   for (int c = 0; c < 8; ++c) {
-                                       Vec3 corner{(c & 1) ? p.bmax.x : p.bmin.x, (c & 2) ? p.bmax.y : p.bmin.y,
-                                                   (c & 4) ? p.bmax.z : p.bmin.z};
-                                       Vec3 w = mi.model.transform_point(corner);
-                                       b.lo = min(b.lo, w);
-                                       b.hi = max(b.hi, w);
-                                       b.any = true;
-                                   }
+    ctx.cascades = 0;
+    if (!haveShadowCaster) return;
+    // The world box of each caster's parts as jobs, joined here in the order of the items.
+    Vec3 bmin{1e30f, 1e30f, 1e30f}, bmax{-1e30f, -1e30f, -1e30f};
+    bool any = false;
+    for (auto* list : {&opaque, &blended}) {
+        struct Box {
+            Vec3 lo{1e30f, 1e30f, 1e30f}, hi{-1e30f, -1e30f, -1e30f};
+            bool any = false;
+        };
+        std::vector<Box> boxes(list->size());
+        rjobs::run("render.shadow_bounds", rjobs::split(list->size(), kMeshGrain, kParallelMeshes),
+                   [&](const jobs::Chunk& ch) {
+                       for (std::size_t i = ch.begin; i < ch.end; ++i) {
+                           const MeshItem& mi = (*list)[i];
+                           if (!mi.mr->castShadows) continue;
+                           Box& b = boxes[i];
+                           for (auto& p : mi.mesh->parts) {
+                               for (int c = 0; c < 8; ++c) {
+                                   Vec3 corner{(c & 1) ? p.bmax.x : p.bmin.x, (c & 2) ? p.bmax.y : p.bmin.y,
+                                               (c & 4) ? p.bmax.z : p.bmin.z};
+                                   Vec3 w = mi.model.transform_point(corner);
+                                   b.lo = min(b.lo, w);
+                                   b.hi = max(b.hi, w);
+                                   b.any = true;
                                }
                            }
-                       });
-            for (const Box& b : boxes) {
-                if (!b.any) continue;
-                bmin = min(bmin, b.lo);
-                bmax = max(bmax, b.hi);
-                any = true;
-            }
-        }
-        if (any && create_shadow_targets()) {
-            Vec3 center = (bmin + bmax) * 0.5f;
-            float radius = std::max(0.5f, length(bmax - bmin) * 0.5f);
-            Vec3 up = std::fabs(lightDirForShadow.y) > 0.99f ? Vec3{0, 0, 1} : Vec3{0, 1, 0};
-            Mat4 lv = Mat4::look_at(center - lightDirForShadow * (radius * 2.0f), center, up);
-            Mat4 lp = Mat4::ortho(-radius, radius, -radius, radius, 0.1f, radius * 4.0f, gpu.depth_zero_to_one());
-            lightVP = lp * lv;
-            doShadows = true;
+                       }
+                   });
+        for (const Box& b : boxes) {
+            if (!b.any) continue;
+            bmin = min(bmin, b.lo);
+            bmax = max(bmax, b.hi);
+            any = true;
         }
     }
+    if (!any) return;
+    const Frame& fr = ctx.fr;
+    const SceneSettings& settings = ctx.world.settings();
+    const int want = std::clamp(int(settings.shadowCascades), 1, render::kMaxShadowCascades);
+    const Vec3 lightDir = normalize(ctx.lightDirForShadow);
+    // The camera's slice of the world: from its near plane to the shadow distance (the light's, else the scene's, else what the casters
+    // need, see plan_cascades).
+    const render::CameraFrustum cf =
+        render::camera_frustum(fr.cam.invViewProj, ctx.z01, fr.cam.position, normalize(fr.cam.forward));
+    const float shadowDist = ctx.sun.distance > 0.0f ? ctx.sun.distance : settings.shadowDistance;
+    // Texels per side of a cascade's map: the light's shadowResolution, else 2048 for one cascade and 1024 for several (the atlas stays
+    // 2048 x 2048 for four).
+    const int tile = ctx.sun.resolution > 0
+                         ? std::clamp(render::pow2_floor(std::max(ctx.sun.resolution, 128)), 128, 4096)
+                         : (want == 1 ? 2048 : 1024);
+    std::vector<render::ShadowTileRequest> requests;
+    for (int c = 0; c < want; ++c) requests.push_back({tile, 128, c});
+    const int atlasMax = std::min(std::clamp(int(settings.shadowAtlasSize), 512, 8192),
+                                  std::max(64, sg_query_limits().max_image_size_2d));
+    ctx.atlas = render::layout_shadow_atlas(atlasMax, requests);
+    std::vector<int> tileSizes;
+    while (int(tileSizes.size()) < want && ctx.atlas.tiles[tileSizes.size()].placed())
+        tileSizes.push_back(ctx.atlas.tiles[tileSizes.size()].size);
+    const int count = int(tileSizes.size());
+    if (count == 0) return;
+    const render::CascadePlan plan =
+        render::plan_cascades(cf, bmin, bmax, lightDir, shadowDist, settings.shadowCascadeSplit,
+                              settings.shadowCascadeBlend, tileSizes, ctx.z01);
+    if (!plan.ok) return;
+    ctx.splits = plan.splits;
+    ctx.fits = plan.fits;
+    // The atlas is the used part of the layout; a placed tile is inside it by construction.
+    if (!create_shadow_targets(ctx.atlas.width, ctx.atlas.height)) return;
+    ctx.shadowTgt = shadowTarget;
+    ctx.cascades = count;
+    doShadows = true;
 }
 
 // ---- cull, then group into instanced batches ----
-// Reads: ctx.doShadows, ctx.lightVP, ctx.z01, items' visible flags. Writes: ctx.opaque / ctx.blended (culled), item `casts`,
-// ctx.opaqueBatches / ctx.blendedBatches, ctx.mainMats / ctx.shadowMats (instance matrices), stats.meshesCulled / shadowCasters.
+// Reads: ctx.doShadows, ctx.cascades, ctx.fits, ctx.z01, items' visible flags. Writes: ctx.opaque / ctx.blended (culled), item `casts` and
+// `castMask` (the cascades whose map holds the item), ctx.opaqueBatches / ctx.blendedBatches, ctx.mainMats / ctx.shadowMats (instance
+// matrices), stats.meshesCulled / shadowCasters.
 void Renderer::Impl::cull_and_batch(DrawContext& ctx) {
     const bool z01 = ctx.z01;
     auto& opaque = ctx.opaque;
     auto& blended = ctx.blended;
-    auto& lightVP = ctx.lightVP;
     auto& doShadows = ctx.doShadows;
     auto& opaqueBatches = ctx.opaqueBatches;
     auto& blendedBatches = ctx.blendedBatches;
     auto& mainMats = ctx.mainMats;
     auto& shadowMats = ctx.shadowMats;
+    const int cascades = doShadows ? ctx.cascades : 0;
     for (auto* list : {&opaque, &blended}) {
         if (doShadows)
             rjobs::run("render.shadow_cull", rjobs::split(list->size(), kMeshGrain, kParallelMeshes),
                        [&](const jobs::Chunk& ch) {
                            for (std::size_t i = ch.begin; i < ch.end; ++i) {
                                MeshItem& mi = (*list)[i];
-                               mi.casts = mi.mr->castShadows &&
-                                          (mi.noCull || box_in_frustum(lightVP, z01, mi.bmin, mi.bmax, mi.model));
+                               mi.castMask = 0;
+                               if (mi.mr->castShadows)
+                                   for (int c = 0; c < cascades; ++c)
+                                       if (mi.noCull || box_in_frustum(ctx.fits[std::size_t(c)].viewProj, z01, mi.bmin,
+                                                                       mi.bmax, mi.model))
+                                           mi.castMask |= 1u << c;
+                               mi.casts = mi.castMask != 0;
                            }
                        });
         for (auto& mi : *list) {
@@ -951,13 +1119,15 @@ void Renderer::Impl::cull_and_batch(DrawContext& ctx) {
             std::remove_if(list->begin(), list->end(), [](const MeshItem& m) { return !m.visible && !m.casts; }),
             list->end());
     }
-    build_batches(opaque, true, opaqueBatches, mainMats, shadowMats);
-    build_batches(blended, false, blendedBatches, mainMats, shadowMats);
+    const int batchCascades = std::max(cascades, 1);
+    build_batches(opaque, true, opaqueBatches, mainMats, shadowMats, batchCascades);
+    build_batches(blended, false, blendedBatches, mainMats, shadowMats, batchCascades);
     ctx.mainExtraData.clear();
     ctx.shadowExtraData.clear();
     instanceParams.begin_frame(frameSerial);
-    pack_instance_extras(opaque, opaqueBatches, ctx.mainExtraData, ctx.shadowExtraData, &instanceParams);
-    pack_instance_extras(blended, blendedBatches, ctx.mainExtraData, ctx.shadowExtraData, &instanceParams);
+    pack_instance_extras(opaque, opaqueBatches, ctx.mainExtraData, ctx.shadowExtraData, &instanceParams, batchCascades);
+    pack_instance_extras(blended, blendedBatches, ctx.mainExtraData, ctx.shadowExtraData, &instanceParams,
+                         batchCascades);
 }
 
 // ---- flatten quads into one vertex stream ----
@@ -1033,16 +1203,87 @@ void Renderer::Impl::upload_instances(DrawContext& ctx) {
     ctx.shadowExtra = upload(ctx.shadowExtraData.data(), ctx.shadowExtraData.size() * sizeof(float));
 }
 
+// ---- the lights of the view: the light table and the clusters, in the data texture ----
+// Clustered forward lighting (light_clusters.h): the table of ctx.lights (directional first, then the local lights by relevance) and,
+// when there are local lights, the clusters of the view with each one's list of lights, are packed into one RGBA32F image that the
+// mesh fragment shader reads (shaders/light_data.glsl). The build is a deterministic job (the same lists for any number of threads).
+// Reads: ctx.lights, ctx.fr.cam, ctx.camPx, ctx.opaque / ctx.blended (nothing is built for a job that draws no mesh), gpu. Writes:
+// ctx.lightView, the fa_cl_* fields of ctx.fuScene, stats.lightClusters / lightClusterEntries / lightClusterClipped / lightMaxPerCluster.
+void Renderer::Impl::upload_lights(DrawContext& ctx) {
+    const std::vector<LightData>& lights = ctx.lights;
+    const Frame& fr = ctx.fr;
+    // The "no clusters" value first, so every early return leaves a valid one (fuScene starts zeroed, which is not: the shader would
+    // look up a cluster of a grid with no tiles). A view with no local lights keeps it too.
+    ctx.fuScene.fa_cl_info[0] = -1.0f;
+    ctx.fuScene.fa_cl_info[1] = ctx.fuScene.fa_cl_info[2] = ctx.fuScene.fa_cl_info[3] = 0.0f;
+    if (lights.empty() || (ctx.opaque.empty() && ctx.blended.empty()) || ctx.camPx.w < 1 || ctx.camPx.h < 1) return;
+    int directional = 0;
+    while (directional < int(lights.size()) && lights[std::size_t(directional)].rank < 2) ++directional;
+    ClusterCamera cam;
+    cam.viewProj = fr.cam.viewProj;
+    cam.position = fr.cam.position;
+    cam.forward = fr.cam.forward;
+    cam.widthPx = ctx.camPx.w;
+    cam.heightPx = ctx.camPx.h;
+    // The depth range of the view along its forward axis: the camera's near and far planes, found by unprojecting the middle of the
+    // screen (an orthographic camera's range starts behind it; the clusters start a centimetre in front).
+    {
+        const Vec4 n = fr.cam.queryInvViewProj * Vec4{0, 0, -1, 1}, f = fr.cam.queryInvViewProj * Vec4{0, 0, 1, 1};
+        auto depth_of = [&](const Vec4& p) {
+            if (!(std::fabs(p.w) > 1e-12f)) return -1.0f;
+            const Vec3 w{p.x / p.w, p.y / p.w, p.z / p.w};
+            return dot(fr.cam.forward, w - fr.cam.position);
+        };
+        cam.nearDepth = std::max(depth_of(n), 0.01f);
+        cam.farDepth = depth_of(f);
+        if (!(cam.farDepth > cam.nearDepth)) cam.farDepth = cam.nearDepth * 10000.0f;
+    }
+    ClusterLists lists;
+    const bool clustered = int(lights.size()) > directional;
+    if (clustered) {
+        std::vector<LightSphere> spheres(lights.size());
+        for (std::size_t i = std::size_t(directional); i < lights.size(); ++i)
+            spheres[i] = LightSphere{lights[i].pos.x, lights[i].pos.y, lights[i].pos.z, lights[i].pos.w};
+        build_light_clusters(cam, make_cluster_grid(cam.widthPx, cam.heightPx, cam.nearDepth, cam.farDepth), spheres,
+                             lists);
+        stats.lightClusters += lists.grid.clusters();
+        stats.lightClusterEntries += int(lists.indices.size());
+        stats.lightClusterClipped += int(lists.clippedEntries);
+        stats.lightMaxPerCluster = std::max(stats.lightMaxPerCluster, int(lists.maxPerCluster));
+        if (lists.clippedEntries > 0 && !warnedClusterClipped) {
+            warnedClusterClipped = true;
+            FA_WARN(
+                "render",
+                "{} light-list entries were left out: a cluster of the view holds at most {} lights and a view at most "
+                "{} entries in all, so some pixels miss lights. Hint: give the lights a smaller range or use fewer "
+                "lights "
+                "that overlap; stats.lightClusterClipped counts them.",
+                lists.clippedEntries, kMaxLightsPerCluster, kMaxClusterIndices);
+        }
+    }
+    LightTexture tex;
+    pack_light_texture(lights, directional, cam, clustered ? &lists : nullptr, tex);
+    ctx.lightView = gpu.write_light_image(tex.height, tex.texels.data()).view;
+    mesh_fa_mesh_fs_params_t& fu = ctx.fuScene;
+    const ClusterUniforms& u = tex.uniforms;
+    for (int c = 0; c < 4; ++c) {
+        fu.fa_cl_vpx[c] = u.vpx[c];
+        fu.fa_cl_vpy[c] = u.vpy[c];
+        fu.fa_cl_vpw[c] = u.vpw[c];
+        fu.fa_cl_fwd[c] = u.fwd[c];
+        fu.fa_cl_grid[c] = u.grid[c];
+        fu.fa_cl_info[c] = u.info[c];
+    }
+}
+
 // ---- the scene's uniforms: shared by the main pass and the shadow pass of alphaMode "clip" materials ----
-// Reads: world (settings, time), fr.cam, ctx.lights, ctx.lightVP, gpu. Writes: ctx.ss, ctx.white, ctx.lightUniforms, ctx.vuScene,
-// ctx.fuScene.
+// Reads: world (settings, time), fr.cam, ctx.lights, the shadow plan (ctx.cascades, fits, atlas, shadowTgt), gpu. Writes: ctx.ss, ctx.white,
+// ctx.lightView, ctx.shadowU, ctx.vuScene, ctx.fuScene.
 void Renderer::Impl::scene_uniforms(DrawContext& ctx) {
     World& world = ctx.world;
     Frame& fr = ctx.fr;
     const std::vector<LightData>& lights = ctx.lights;
-    const Mat4& lightVP = ctx.lightVP;
     SceneSettings& ss = ctx.ss;
-    mesh_fa_lights_t& lightUniforms = ctx.lightUniforms;
     mesh_fa_mesh_vs_params_t& vuScene = ctx.vuScene;
     mesh_fa_mesh_fs_params_t& fuScene = ctx.fuScene;
     ss = world.settings();
@@ -1063,23 +1304,10 @@ void Renderer::Impl::scene_uniforms(DrawContext& ctx) {
     ss.skyColor = to_scene(ss.skyColor, fr.linear);
     ss.horizonColor = to_scene(ss.horizonColor, fr.linear);
     ctx.white = assets->white();
-    for (std::size_t i = 0; i < lights.size(); ++i) {
-        for (int c = 0; c < 4; ++c) {
-            lightUniforms.fa_light_pos[i][c] = lights[i].pos[c];
-            lightUniforms.fa_light_color[i][c] = lights[i].color[c];
-            lightUniforms.fa_light_dir[i][c] = lights[i].dir[c];
-        }
-    }
-    ctx.anyBakedLight = false;
-    for (const LightData& l : lights) ctx.anyBakedLight = ctx.anyBakedLight || l.baked;
-    if (ctx.anyBakedLight) {
-        ctx.lightUniformsLm = lightUniforms;
-        for (std::size_t i = 0; i < lights.size(); ++i)
-            if (lights[i].baked)
-                for (int c = 0; c < 3; ++c) ctx.lightUniformsLm.fa_light_color[i][c] = 0.0f;  // w (the kind) stays
-    }
+    ctx.lightView = ctx.white->view;
     copy_mat(vuScene.fa_view_proj, fr.cam.viewProj);
-    copy_mat(vuScene.fa_light_vp, lightVP);
+    copy_mat(vuScene.fa_light_vp, ctx.doShadows && ctx.cascades > 0 ? ctx.fits[0].viewProj : Mat4::identity());
+    fill_shadow_block(ctx, gpu.is_gl(), debugView == DebugView::Cascades, ctx.shadowU);
     vuScene.fa_time[0] = float(world.time());
     vuScene.fa_time[1] = fr.cam.position.x;  // yzw: the camera position, for the vertex stage of a full-shader material
     vuScene.fa_time[2] = fr.cam.position.y;
@@ -1094,8 +1322,11 @@ void Renderer::Impl::scene_uniforms(DrawContext& ctx) {
     fuScene.fa_fog[1] = ss.fogColor.g;
     fuScene.fa_fog[2] = ss.fogColor.b;
     fuScene.fa_fog[3] = ss.fogDensity;
-    fuScene.fa_counts[0] = float(lights.size());
-    fuScene.fa_counts[1] = 1.0f / float(kShadowSize);
+    // The lights of the view: the light table and the clusters in the data texture (light_clusters.h); fa_counts.x is how many of the
+    // first lights the full-shader API fa_light_count() hands over.
+    fuScene.fa_counts[0] = float(std::min<std::size_t>(lights.size(), 32));
+    upload_lights(ctx);
+    for (int c = 0; c < 4; ++c) lastClusterInfo[c] = fuScene.fa_cl_info[c];
     fuScene.fa_counts[2] = gpu.is_gl() ? 1.0f : 0.0f;
     fuScene.fa_env_sky[0] = ss.skyColor.r;
     fuScene.fa_env_sky[1] = ss.skyColor.g;
@@ -1142,23 +1373,15 @@ static_assert(
 // step's start, so a run draws the same images at any frame rate). The first job of a frame that wants an environment
 // decides it for the frame; a later job whose sky differs draws its meshes with the gradient (they share the cubes).
 void Renderer::Impl::plan_env(DrawContext& ctx) {
-    ctx.envActive = ctx.envBake = false;
+    ctx.envActive = ctx.envBake = ctx.envSliced = ctx.physMainOn = false;
     ctx.skyPlannedMat = nullptr;
     const Frame& fr = ctx.fr;
     if (!ctx.doMainPass || !fr.wantWorld || fr.cam.studio) return;
-    MaterialAsset* mat = sky_material(ctx.ss);
-    if (!mat) return;
+    // The physical sky (SceneSettings.skyModel) takes the place of the gradient, never of a sky material.
+    const bool phys = ctx.ss.skyModel == SkyModel::Physical && ctx.ss.skyMaterial.empty() && physSky.ready(gpu);
+    MaterialAsset* mat = phys ? nullptr : sky_material(ctx.ss);
+    if (!mat && !phys) return;
     SkyDraw sky;
-    fill_sky(*this, ctx, mat, sky);
-    ctx.skyPlannedMat = mat;
-    std::copy(std::begin(sky.in.textures), std::end(sky.in.textures), ctx.skyPlanned);
-    sky.time = 0.0f;  // only an animated sky sees the time, quantized below
-    std::int64_t step = 0;
-    if (mat->animated) {
-        const double t = ctx.world.time();
-        step = std::isfinite(t) && t > 0.0 ? std::int64_t(std::min(t, 1.0e9) / kEnvTimeStep) : 0;
-        sky.time = float(double(step) * kEnvTimeStep);
-    }
     std::uint64_t h = 0xcbf29ce484222325ull;
     auto mix = [&h](std::uint64_t v) {
         h = (h ^ v) * 0x100000001b3ull;
@@ -1169,18 +1392,77 @@ void Renderer::Impl::plan_env(DrawContext& ctx) {
         std::memcpy(&u, &f, sizeof(u));
         mix(u);
     };
-    mix(std::hash<std::string>{}(mat->path));
-    mix(std::uint64_t(mat->generation));
-    mix(mat->programs[0].shader.id);
-    mix(std::uint64_t(step));
-    for (const auto& p : sky.in.params)
-        for (float c : p) mixf(c);
-    for (const TextureAsset* t : sky.in.textures) mix(t ? t->gpu_view().id : 0);
-    for (float c : sky.skyColor) mixf(c);
-    for (float c : sky.horizonColor) mixf(c);
-    if (mat->usesSun)  // a sky that never reads the sun is not baked again when the sun turns
-        for (float c : sky.sun) mixf(c);
-    mix(sky.linear ? 1 : 0);
+    std::uint64_t staticKey = 0;
+    if (phys) {
+        // The picture draws the exact sun and clock; the environment the quantised ones (physical_sky.h), so a run bakes the same
+        // images at any frame rate.
+        PhysicalSkyState st;
+        st.s = physical_sky_settings(ctx.ss);
+        for (int i = 0; i < 3; ++i) {
+            st.sunDir[i] = ctx.physSunDir[i];
+            st.sunColor[i] = ctx.physSunColor[i];
+        }
+        st.linear = fr.linear;
+        const double t = ctx.world.time();
+        st.time = std::isfinite(t) && t > 0.0 ? std::min(t, 1.0e9) : 0.0;
+        ctx.physMain = st;
+        ctx.physMainOn = fr.cam.perspective && fr.cam.clear;
+        const PhysicalSkyState q = sky_quantised(st);
+        sky.physical = true;
+        sky.sunDisc = false;  // the light is the sun in the environment
+        sky.slot = 1;
+        sky.phys = q;
+        staticKey = sky_env_static_key(q);
+        h = sky_env_key(q) ^ 0x9e3779b97f4a7c15ull;
+        for (int i = 0; i < 3; ++i) ctx.envSun[i] = q.sunDir[i];
+        ctx.envStatic = staticKey;
+    } else {
+        fill_sky(*this, ctx, mat, sky);
+        ctx.skyPlannedMat = mat;
+        std::copy(std::begin(sky.in.textures), std::end(sky.in.textures), ctx.skyPlanned);
+        sky.time = 0.0f;  // only an animated sky sees the time, quantized below
+        std::int64_t step = 0;
+        if (mat->animated) {
+            const double t = ctx.world.time();
+            step = std::isfinite(t) && t > 0.0 ? std::int64_t(std::min(t, 1.0e9) / kEnvTimeStep) : 0;
+            sky.time = float(double(step) * kEnvTimeStep);
+        }
+        mix(std::hash<std::string>{}(mat->path));
+        mix(std::uint64_t(mat->generation));
+        mix(mat->programs[0].shader.id);
+        mix(std::uint64_t(step));
+        for (const auto& p : sky.in.params)
+            for (float c : p) mixf(c);
+        for (const TextureAsset* t : sky.in.textures) mix(t ? t->gpu_view().id : 0);
+        for (float c : sky.skyColor) mixf(c);
+        for (float c : sky.horizonColor) mixf(c);
+        if (mat->usesSun)  // a sky that never reads the sun is not baked again when the sun turns
+            for (float c : sky.sun) mixf(c);
+        mix(sky.linear ? 1 : 0);
+    }
+    // Whether (and how) this job bakes the cubes for the key h. A sky material is baked whole when its key changes. The physical
+    // sky is baked whole the first time, when anything but the sun's direction and the clouds' clock changed, and when the sun
+    // moved a degree or more since the last bake started; else it follows the sun in slices, one per frame (renderer_env.h): a
+    // sequence that is running goes on whatever the sky has become meanwhile, and a new one starts when the key differs.
+    auto decide = [&](DrawContext& c) {
+        c.envBake = c.envSliced = false;
+        if (!skyEnv.baked()) {
+            c.envBake = true;
+            return;
+        }
+        if (!phys) {
+            c.envBake = skyEnv.key() != h;
+            return;
+        }
+        const float* ts = skyEnv.tag_sun();
+        const float dx = c.envSun[0] - ts[0], dy = c.envSun[1] - ts[1], dz = c.envSun[2] - ts[2];
+        const bool whole = skyEnv.tag_key() != c.envStatic || dx * dx + dy * dy + dz * dz > kSkyBakeJump * kSkyBakeJump;
+        if (whole) {
+            c.envBake = true;
+        } else if (skyEnv.busy() || skyEnv.key() != h) {
+            c.envBake = c.envSliced = true;
+        }
+    };
     const bool pictureJob = !ctx.plan.view;
     if (envFrame != frameSerial) {
         envFrame = frameSerial;
@@ -1188,7 +1470,7 @@ void Renderer::Impl::plan_env(DrawContext& ctx) {
         envFrameKey = h;
         envFrameView = !pictureJob;
         envJobs.clear();
-        if (envFrameOk) ctx.envBake = !skyEnv.baked() || skyEnv.key() != h;
+        if (envFrameOk) decide(ctx);
     } else if (envFrameKey != h) {
         // Jobs of the picture (a camera of the game's frame) are planned after the render targets and views, which
         // would otherwise fix the key with a sky of their own (a material texture "target:<own>" is the checker for the
@@ -1197,14 +1479,14 @@ void Renderer::Impl::plan_env(DrawContext& ctx) {
         // run), and this job bakes its own.
         if (!pictureJob || !envFrameView) return;
         for (DrawContext* other : envJobs) {
-            other->envActive = other->envBake = false;
+            other->envActive = other->envBake = other->envSliced = false;
             other->fuScene.fa_env_sky[3] = 0.0f;
             other->fuBlend.fa_env_sky[3] = 0.0f;
         }
         envJobs.clear();
         envFrameKey = h;
         envFrameView = false;
-        if (envFrameOk) ctx.envBake = !skyEnv.baked() || skyEnv.key() != h;
+        if (envFrameOk) decide(ctx);
     }
     if (!envFrameOk) return;
     envJobs.push_back(&ctx);
@@ -1281,6 +1563,55 @@ void Renderer::Impl::note_missing_channel(const MeshItem& mi, const SubMesh& par
                   channel + "), remove \"" + what + "\" from the material's vertexAttributes, or use another mesh.");
 }
 
+// The material layers of one part (fa_layers_a..d): the glTF material's factors, replaced field by field by the MeshRenderer's
+// when that is not at its default (a MeshRenderer field at its default leaves the model's value). Colours: the glTF ones are
+// linear values, the MeshRenderer's go through to_scene like its other colours. A MeshRenderer value outside its range is
+// clamped by the shader's own limits (the doc strings give the ranges); NaN counts as the default.
+static void fill_layers(mesh_fa_mesh_fs_params_t& fu, const MeshRenderer& mr, const SubMesh& part, bool error,
+                        bool linear) {
+    auto num = [](float v, float fallback) { return std::isfinite(v) ? v : fallback; };
+    const MaterialLayers& g = part.layers;
+    static const MeshRenderer defaults;
+    float coat = 0, coatRough = 0, sheenRough = 0, aniso = 0, rotation = 0, spec = 1, ior = 1.5f;
+    float sheen[3] = {0, 0, 0}, specColor[3] = {1, 1, 1};
+    if (!error) {
+        auto pick = [&](float m, float def, float fromModel) { return (num(m, def) != def) ? num(m, def) : fromModel; };
+        coat = std::clamp(pick(mr.clearcoat, defaults.clearcoat, g.clearcoat), 0.0f, 1.0f);
+        coatRough = std::clamp(pick(mr.clearcoatRoughness, defaults.clearcoatRoughness,
+                                    g.clearcoat > 0.0f ? g.clearcoatRoughness : defaults.clearcoatRoughness),
+                               0.0f, 1.0f);
+        const Color sc = to_scene(mr.sheenColor, linear);
+        const bool mrSheen = mr.sheenColor.r > 0.0f || mr.sheenColor.g > 0.0f || mr.sheenColor.b > 0.0f;
+        const bool modelSheen = g.sheenColor != MaterialLayers{}.sheenColor;
+        sheen[0] = mrSheen ? sc.r : g.sheenColor[0];
+        sheen[1] = mrSheen ? sc.g : g.sheenColor[1];
+        sheen[2] = mrSheen ? sc.b : g.sheenColor[2];
+        sheenRough = std::clamp(
+            pick(mr.sheenRoughness, defaults.sheenRoughness, modelSheen ? g.sheenRoughness : defaults.sheenRoughness),
+            0.0f, 1.0f);
+        aniso = std::clamp(pick(mr.anisotropy, 0.0f, g.anisotropy), -1.0f, 1.0f);
+        rotation = num(mr.anisotropyRotation, 0.0f) != 0.0f ? num(mr.anisotropyRotation, 0.0f) * (3.14159265f / 180.0f)
+                                                            : g.anisotropyRotation;
+        spec = std::clamp(pick(mr.specular, 1.0f, g.specular), 0.0f, 1.0f);
+        ior = std::clamp(pick(mr.ior, 1.5f, g.ior), 1.0f, 3.0f);
+        for (int i = 0; i < 3; ++i) specColor[i] = g.specularColor[std::size_t(i)];
+    }
+    fu.fa_layers_a[0] = coat;
+    fu.fa_layers_a[1] = coatRough;
+    fu.fa_layers_a[2] = aniso;
+    fu.fa_layers_a[3] = rotation;
+    fu.fa_layers_b[0] = sheen[0];
+    fu.fa_layers_b[1] = sheen[1];
+    fu.fa_layers_b[2] = sheen[2];
+    fu.fa_layers_b[3] = sheenRough;
+    fu.fa_layers_c[0] = spec;
+    fu.fa_layers_c[1] = ior;
+    fu.fa_layers_c[2] = error ? 0.0f : float(part.layersPacked);
+    fu.fa_layers_c[3] = 0.0f;
+    for (int i = 0; i < 3; ++i) fu.fa_layers_d[i] = specColor[i];
+    fu.fa_layers_d[3] = 0.0f;
+}
+
 // The fragment parameters (fa_mesh_fs_params) of one part (reads ctx.fuScene, or ctx.fuBlend for a blended part, ctx.doShadows).
 mesh_fa_mesh_fs_params_t Renderer::Impl::fill_fs(DrawContext& ctx, const MeshItem& mi, const SubMesh& part,
                                                  const PartDraw& d, bool blended) {
@@ -1325,6 +1656,7 @@ mesh_fa_mesh_fs_params_t Renderer::Impl::fill_fs(DrawContext& ctx, const MeshIte
     fu.fa_maps[3] = float(d.tex->tex_fix(linear, true) + 4 * d.emissive->tex_fix(linear, true) +
                           16 * (d.normal ? d.normal->tex_fix(linear, false) : 0) + 64 * d.mr->tex_fix(linear, false) +
                           256 * d.occlusion->tex_fix(linear, false));
+    fill_layers(fu, mr, part, d.error, linear);
     if (mi.flash.a > 0.0f && !d.error) {
         // A flash (feel.h) needs no shader change: the surface colour fades to nothing and the emission, which both the lit
         // and the unlit path add at the end (fog comes after), carries the flash colour. Lit meshes keep a little
@@ -1393,7 +1725,7 @@ void Renderer::Impl::bind_textures(DrawContext& ctx, sg_bindings& b, const PartD
     TextureAsset* white = ctx.white;
     const bool doShadows = ctx.doShadows;
     b.views[VIEW_mesh_fa_tex] = d.tex->gpu_view();
-    b.views[VIEW_mesh_fa_shadow_tex] = (doShadows && !shadowPass) ? shadowTarget.texView : white->view;
+    b.views[VIEW_mesh_fa_shadow_tex] = (doShadows && !shadowPass) ? ctx.shadowTgt.texView : white->view;
     b.views[VIEW_mesh_fa_normal_tex] = (d.normal ? d.normal : white)->gpu_view();
     b.views[VIEW_mesh_fa_mr_tex] = d.mr->gpu_view();
     b.views[VIEW_mesh_fa_occlusion_tex] = d.occlusion->gpu_view();
@@ -1401,6 +1733,8 @@ void Renderer::Impl::bind_textures(DrawContext& ctx, sg_bindings& b, const PartD
     b.views[VIEW_mesh_fa_lightmap] = d.lightmap.id ? d.lightmap : white->view;
     b.samplers[SMP_mesh_fa_smp] = gpu.sampler(SamplerKind::LinearRepeat);
     b.samplers[SMP_mesh_fa_shadow_smp] = gpu.sampler(SamplerKind::Nearest);
+    // The light data of the view (the shadow pass has no lights: any image does for a program that declares the slot).
+    b.views[VIEW_mesh_fa_light_tex] = shadowPass ? white->view : ctx.lightView;
     // The sky environment (renderer_env.h): the baked cubes, or a black one while the meshes use the gradient (every
     // mesh program of the main pass declares the slots; a custom program that does not has them dropped below).
     const bool env = ctx.envActive && skyEnv.baked();
@@ -1514,9 +1848,9 @@ void Renderer::Impl::light_pass(DrawContext& ctx) {
 // ---- shadow pass ----
 // Meshes cast with the engine's depth-only programs, except materials with their own shadow programs (vertex() moves the
 // shadow, alphaMode "clip" cuts holes into it).
-// Reads: ctx.doShadows, ctx.opaque / ctx.blended and their batches, ctx.shadowInst, ctx.vuScene, ctx.lightUniforms,
+// Reads: ctx.doShadows, ctx.opaque / ctx.blended and their batches, ctx.shadowInst, ctx.vuScene,
 // ctx.white and ctx.fuScene (part_draw, bind_textures, fill_fs), the shadow targets.
-// Writes: the shadow map (shadowTarget); stats.drawCalls.
+// Writes: the shadow atlas (ctx.shadowTgt); stats.drawCalls.
 void Renderer::Impl::shadow_pass(DrawContext& ctx) {
     const std::vector<MeshBatch>& opaqueBatches = ctx.opaqueBatches;
     const std::vector<MeshBatch>& blendedBatches = ctx.blendedBatches;
@@ -1524,8 +1858,7 @@ void Renderer::Impl::shadow_pass(DrawContext& ctx) {
     const std::vector<MeshItem>& blended = ctx.blended;
     const sg_buffer shadowInst = ctx.shadowInst;
     const mesh_fa_mesh_vs_params_t& vuScene = ctx.vuScene;
-    const mesh_fa_lights_t& lightUniforms = ctx.lightUniforms;
-    PassDesc sp = pass_into(shadowTarget, "shadow");
+    PassDesc sp = pass_into(ctx.shadowTgt, "shadow");
     sp.colorLoad = SG_LOADACTION_CLEAR;
     sp.clearColor = {1, 1, 1, 1};
     sp.colorStore = SG_STOREACTION_STORE;
@@ -1533,53 +1866,62 @@ void Renderer::Impl::shadow_pass(DrawContext& ctx) {
     sp.clearDepth = 1.0f;
     gpu.begin_pass(sp);
     mesh_fa_mesh_vs_params_t u = vuScene;  // the shadow programs read fa_light_vp (fa_view_proj is unused)
-    for (int pass = 0; pass < 2; ++pass) {
-        const std::vector<MeshBatch>& batches = pass == 0 ? opaqueBatches : blendedBatches;
-        const std::vector<MeshItem>& items = pass == 0 ? opaque : blended;
-        for (const MeshBatch& batch : batches) {
-            if (batch.shadowCount == 0) continue;
-            const MeshItem& rep = items[batch.rep];
-            u.fa_uv_scale[0] = rep.mr->uvScale.x;
-            u.fa_uv_scale[1] = rep.mr->uvScale.y;
-            MaterialAsset* mat = rep.material && rep.material->ok ? rep.material : nullptr;
-            MaterialInputs inputs{};
-            if (mat && (mat->programs[kProgShadow].shader.id || mat->programs[kProgShadowSkin].shader.id))
-                material_inputs(rep, mat, inputs);
-            if (mat && mat->full && mat->shadow == FullShadow::None) continue;      // casts no shadow
-            const MeshBufferUse mbu = resolve_mesh_buffers(*assets, compute, rep);  // mesh_buffer_draw.h
-            if (mbu.skip) continue;
-            for (auto& p : rep.mesh->parts) {
-                const bool skinned = rep.anim && p.skinVb.id;
-                const PartDraw pd = part_draw(ctx, rep, p);
-                const MaterialProgram* prog =
-                    pd.mat ? &mat->programs[skinned ? kProgShadowSkin : kProgShadow] : nullptr;
-                if (prog && !prog->shader.id) prog = nullptr;
-                if (mbu.active && !prog) continue;  // the engine's shadow program cannot place what the buffers place
-                sg_apply_pipeline(prog ? gpu.shadow_pipeline(skinned, prog->shader, true, mat->extras())
-                                       : gpu.shadow_pipeline(skinned));
-                sg_bindings b{};
-                b.vertex_buffers[0] = p.vb;
-                b.vertex_buffers[1] = shadowInst;
-                b.vertex_buffer_offsets[1] = int(batch.shadowFirst * kMeshInstanceBytes);
-                if (skinned) b.vertex_buffers[2] = p.skinVb;
-                if (prog) bind_extras(b, *mat, p, ctx.shadowExtra, batch.shadowExtra);
-                b.index_buffer = p.ib;
-                b.index_buffer_offset = p.ibOffset;
-                if (prog) bind_textures(ctx, b, pd, prog, inputs, true);
-                if (mbu.active) bind_mesh_buffers(b, mbu, *prog);
-                sg_apply_bindings(&b);
-                if (mbu.active) apply_mesh_base_model(*prog, rep.model);
-                if (declares(prog, UB_mesh_fa_mesh_vs_params)) apply_uniforms(UB_mesh_fa_mesh_vs_params, u);
-                if (skinned && declares(prog, UB_mesh_fa_skin))
-                    apply_uniforms(UB_mesh_fa_skin, pack_palette(palette_of(*rep.anim, p.skin)));
-                if (prog) {
-                    if (prog->has_ub(UB_mesh_fa_mesh_fs_params))
-                        apply_uniforms(UB_mesh_fa_mesh_fs_params, fill_fs(ctx, rep, p, pd));
-                    if (prog->has_ub(UB_mesh_fa_lights)) apply_uniforms(UB_mesh_fa_lights, lightUniforms);
-                    apply_material_params(*prog, inputs);
+    // One draw per batch and cascade, each into its own tile of the atlas: the viewport and the scissor are the tile (y from the top).
+    for (int cascade = 0; cascade < ctx.cascades; ++cascade) {
+        const render::ShadowTile& tile = ctx.atlas.tiles[std::size_t(cascade)];
+        sg_apply_viewport(tile.x, tile.y, tile.size, tile.size, true);
+        sg_apply_scissor_rect(tile.x, tile.y, tile.size, tile.size, true);
+        copy_mat(u.fa_light_vp, ctx.fits[std::size_t(cascade)].viewProj);
+        for (int pass = 0; pass < 2; ++pass) {
+            const std::vector<MeshBatch>& batches = pass == 0 ? opaqueBatches : blendedBatches;
+            const std::vector<MeshItem>& items = pass == 0 ? opaque : blended;
+            for (const MeshBatch& batch : batches) {
+                const std::uint32_t count = batch.cascadeCount[cascade], first = batch.cascadeFirst[cascade];
+                if (count == 0) continue;
+                const MeshItem& rep = items[batch.rep];
+                u.fa_uv_scale[0] = rep.mr->uvScale.x;
+                u.fa_uv_scale[1] = rep.mr->uvScale.y;
+                MaterialAsset* mat = rep.material && rep.material->ok ? rep.material : nullptr;
+                MaterialInputs inputs{};
+                if (mat && (mat->programs[kProgShadow].shader.id || mat->programs[kProgShadowSkin].shader.id))
+                    material_inputs(rep, mat, inputs);
+                if (mat && mat->full && mat->shadow == FullShadow::None) continue;      // casts no shadow
+                const MeshBufferUse mbu = resolve_mesh_buffers(*assets, compute, rep);  // mesh_buffer_draw.h
+                if (mbu.skip) continue;
+                for (auto& p : rep.mesh->parts) {
+                    const bool skinned = rep.anim && p.skinVb.id;
+                    const PartDraw pd = part_draw(ctx, rep, p);
+                    const MaterialProgram* prog =
+                        pd.mat ? &mat->programs[skinned ? kProgShadowSkin : kProgShadow] : nullptr;
+                    if (prog && !prog->shader.id) prog = nullptr;
+                    if (mbu.active && !prog)
+                        continue;  // the engine's shadow program cannot place what the buffers place
+                    sg_apply_pipeline(prog ? gpu.shadow_pipeline(skinned, prog->shader, true, mat->extras())
+                                           : gpu.shadow_pipeline(skinned));
+                    sg_bindings b{};
+                    b.vertex_buffers[0] = p.vb;
+                    b.vertex_buffers[1] = shadowInst;
+                    b.vertex_buffer_offsets[1] = int(first * kMeshInstanceBytes);
+                    if (skinned) b.vertex_buffers[2] = p.skinVb;
+                    if (prog) bind_extras(b, *mat, p, ctx.shadowExtra, batch.cascadeExtra[cascade]);
+                    b.index_buffer = p.ib;
+                    b.index_buffer_offset = p.ibOffset;
+                    if (prog) bind_textures(ctx, b, pd, prog, inputs, true);
+                    if (mbu.active) bind_mesh_buffers(b, mbu, *prog);
+                    sg_apply_bindings(&b);
+                    if (mbu.active) apply_mesh_base_model(*prog, rep.model);
+                    if (declares(prog, UB_mesh_fa_mesh_vs_params)) apply_uniforms(UB_mesh_fa_mesh_vs_params, u);
+                    if (skinned && declares(prog, UB_mesh_fa_skin))
+                        apply_uniforms(UB_mesh_fa_skin, pack_palette(palette_of(*rep.anim, p.skin)));
+                    if (prog) {
+                        if (prog->has_ub(UB_mesh_fa_mesh_fs_params))
+                            apply_uniforms(UB_mesh_fa_mesh_fs_params, fill_fs(ctx, rep, p, pd));
+                        if (prog->has_ub(UB_mesh_fa_shadows)) apply_uniforms(UB_mesh_fa_shadows, ctx.shadowU);
+                        apply_material_params(*prog, inputs);
+                    }
+                    sg_draw(0, p.indexCount, mbu.active ? mbu.instances : int(count));
+                    ++stats.drawCalls;
                 }
-                sg_draw(0, p.indexCount, mbu.active ? mbu.instances : int(batch.shadowCount));
-                ++stats.drawCalls;
             }
         }
     }
@@ -1604,7 +1946,8 @@ bool Renderer::Impl::plan_prepass(DrawContext& ctx) {
     ctx.doPrepass = ctx.debugPrepass = false;
     if ((ctx.plan.view && !ctx.plan.customPost) || !ctx.fr.wantWorld || ctx.camPx.w < 1 || ctx.camPx.h < 1)
         return false;
-    if (!(pp.needsDepth || pp.needsNormals || debugView != DebugView::None)) return false;
+    if (!(pp.needsDepth || pp.needsNormals || (debugView != DebugView::None && debugView != DebugView::Cascades)))
+        return false;
     bool anyMesh = false;
     for (const MeshBatch& b : ctx.opaqueBatches) anyMesh = anyMesh || b.mainCount > 0;
     // A custom post pass that reads the depth gets the prepass of a camera with no opaque mesh too: it is cleared to
@@ -1742,7 +2085,7 @@ void Renderer::Impl::prepass_pass(DrawContext& ctx, const Target& t) {
                 apply_uniforms(UB_mesh_fa_skin, pack_palette(palette_of(*mi.anim, part.skin)));
             if (prog->has_ub(UB_mesh_fa_mesh_fs_params))
                 apply_uniforms(UB_mesh_fa_mesh_fs_params, fill_fs(ctx, mi, part, pd0));
-            if (prog->has_ub(UB_mesh_fa_lights)) apply_uniforms(UB_mesh_fa_lights, ctx.lightUniforms);
+            if (prog->has_ub(UB_mesh_fa_shadows)) apply_uniforms(UB_mesh_fa_shadows, ctx.shadowU);
             apply_material_params(*prog, inputs);
             sg_draw(0, part.indexCount, mbu.active ? mbu.instances : int(batch.mainCount));
             ++stats.drawCalls;
@@ -2011,9 +2354,9 @@ void Renderer::Impl::draw_group(DrawContext& ctx, const std::vector<QuadBatch>& 
 // the HUD over the bloom the bloom adds its glow to it, the HUD pass loads it again, so the HUD is multisampled too and
 // the final resolve contains everything.
 // Reads: plan (first / last / view), fr (camera, wantWorld, wantScreen, debugLines), ctx.z01, msaa, hudAfterBloom,
-// clearByQuad, clearByLoad, partial, camPx, fullPx, ctx.white, ss, fuScene, vuScene, lightUniforms, shadowRowsTex, litMode,
+// clearByQuad, clearByLoad, partial, camPx, fullPx, ctx.white, ss, fuScene, vuScene, lightView, shadowRowsTex, litMode,
 // opaque / blended with their batches, mainInst, the quad groups (gClear, gWorld, gDebugWorld, gScreen, gDebugScreen), vbuf,
-// lineFirst, screenProj, shadowTarget.texView (doShadows) and lightTarget.texView (litMode 1), the game target images.
+// lineFirst, screenProj, ctx.shadowTgt.texView (doShadows) and lightTarget.texView (litMode 1), the game target images.
 // Writes: the game target (gameTarget.colorAtt / resolveAtt / depthAtt); stats (drawCalls, triangles, meshes, meshBatches, materials,
 // materialFallbacks).
 void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
@@ -2039,8 +2382,6 @@ void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
     const std::vector<MeshItem>& blended = ctx.blended;
     const sg_buffer mainInst = ctx.mainInst;
     const mesh_fa_mesh_vs_params_t& vuScene = ctx.vuScene;
-    const mesh_fa_lights_t& lightUniforms = ctx.lightUniforms;
-    const mesh_fa_lights_t& lightUniformsLm = ctx.anyBakedLight ? ctx.lightUniformsLm : ctx.lightUniforms;
     const bool drawHudInPass = fr.wantScreen && !hudAfterBloom && !ctx.hudAfterPost;
     if (ctx.envActive && !skyEnv.baked()) {  // the bake did not complete: the meshes keep the gradient
         ctx.envActive = false;
@@ -2073,9 +2414,16 @@ void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
             // reflections and ambient light follow the sky that is drawn here when it is a material (plan_env bakes
             // it), else skyColor and horizonColor.
             SkyDraw sky;
-            fill_sky(*this, ctx, sky_material(ss), sky);
-            if (sky.mat && sky.mat == ctx.skyPlannedMat)
-                std::copy(std::begin(ctx.skyPlanned), std::end(ctx.skyPlanned), sky.in.textures);
+            if (ctx.physMainOn) {
+                sky.physical = true;
+                sky.sunDisc = true;
+                sky.slot = 0;
+                sky.phys = ctx.physMain;
+            } else {
+                fill_sky(*this, ctx, sky_material(ss), sky);
+                if (sky.mat && sky.mat == ctx.skyPlannedMat)
+                    std::copy(std::begin(ctx.skyPlanned), std::end(ctx.skyPlanned), sky.in.textures);
+            }
             draw_sky(*this, sky, fr.cam.invViewProj.m, fr.cam.position, nullptr);
             ++stats.drawCalls;
         }
@@ -2166,8 +2514,7 @@ void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
                             }
                             apply_uniforms(UB_mesh_fa_mesh_fs_params, fragmentParams);
                         }
-                        if (declares(prog, UB_mesh_fa_lights))
-                            apply_uniforms(UB_mesh_fa_lights, mi.lm.mesh ? lightUniformsLm : lightUniforms);
+                        if (declares(prog, UB_mesh_fa_shadows)) apply_uniforms(UB_mesh_fa_shadows, ctx.shadowU);
                         if (prog) apply_material_params(*prog, inputs);
                         sg_draw(0, part.indexCount, mbu.active ? mbu.instances : int(batch.mainCount));
                         ++stats.drawCalls;
@@ -2340,8 +2687,8 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
         add("light-buffer", {}, {lightRes}, [this, &ctx](const PassContext&) { light_pass(ctx); });
     }
     if (ctx.doShadows) {  // no shadow caster, no pass
-        shadowRes = shared(sharedShadow, "shadow-map", shadowTarget.color.id,
-                           import_desc(shadowTarget.w, shadowTarget.h, shadowTarget.format, "shadow-map"));
+        shadowRes = shared(sharedShadow, "shadow-map", ctx.shadowTgt.color.id,
+                           import_desc(ctx.shadowTgt.w, ctx.shadowTgt.h, ctx.shadowTgt.format, "shadow-map"));
         add("shadow", {}, {shadowRes}, [this, &ctx](const PassContext&) { shadow_pass(ctx); });
     }
     // The sky environment (plan_env): the first job that wants it declares the bake, every job that uses it reads it
@@ -2356,13 +2703,34 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
                 if (!ctx.envBake) return;  // the job lost the environment to a camera of the picture (plan_env)
                 const std::uint64_t key = ctx.envKey;
                 const SkyDraw& sky = ctx.envSky;
-                skyEnv.bake(
-                    gpu, key,
-                    [this, &sky](const float* invViewProj, const TargetFormat& format) {
-                        draw_sky(*this, sky, invViewProj, Vec3{0.0f, 0.0f, 0.0f}, &format);
-                    },
-                    &stats.drawCalls);
+                // A bake that starts (a whole one, or the first slice of a sequence) draws the sky of this frame, and the physical
+                // sky needs its environment table for it; the next slices finish the images from the first's.
+                const bool starts = !ctx.envSliced || !skyEnv.busy();
+                if (starts) {
+                    if (sky.physical) physSky.update(gpu, sky.slot, sky.phys, &stats.drawCalls);
+                    skyEnv.set_tag(sky.physical ? ctx.envStatic : 0,
+                                   ctx.envSun);  // a sky of another kind: the next physical bake is whole
+                }
+                const auto draw = [this, &sky](const float* invViewProj, const TargetFormat& format) {
+                    draw_sky(*this, sky, invViewProj, Vec3{0.0f, 0.0f, 0.0f}, &format);
+                };
+                if (ctx.envSliced)
+                    skyEnv.bake_slice(gpu, key, draw, &stats.drawCalls);
+                else
+                    skyEnv.bake(gpu, key, draw, &stats.drawCalls);
             });
+    }
+    // The physical sky's table of the picture: the first job that shows the sky draws it, the others read it.
+    ResourceId skyLutRes;
+    if (ctx.physMainOn) {
+        const TransientDesc lutDesc =
+            import_desc(kSkyViewW, kSkyViewH, TargetFormat{physSky.format(), SG_PIXELFORMAT_NONE, 1}, "sky-view");
+        skyLutRes = shared(sharedSkyLut, "sky-view", physSky.image_id(), lutDesc);
+        if (skyLutFrame != frameSerial) {
+            skyLutFrame = frameSerial;
+            add("sky-view", {}, {skyLutRes},
+                [this, &ctx](const PassContext&) { physSky.update(gpu, 0, ctx.physMain, &stats.drawCalls); });
+        }
     }
     ResourceId prepassRes;
     if (ctx.doPrepass) {  // the image is a transient: the effects that read it list it in their reads
@@ -2396,6 +2764,7 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
         if (ctx.litMode == 1) reads.push_back(lightRes);
         if (ctx.doShadows) reads.push_back(shadowRes);
         if (ctx.envActive) reads.push_back(envRes);
+        if (ctx.physMainOn) reads.push_back(skyLutRes);
         if (!ctx.clearByLoad) reads.push_back(game);  // LOAD: a second camera or the HUD job continues the picture
         reads.insert(reads.end(), shown.begin(), shown.end());
         add(plan.view      ? "view"
