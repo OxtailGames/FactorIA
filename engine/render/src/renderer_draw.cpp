@@ -972,20 +972,10 @@ void Renderer::Impl::shadow_bounds(DrawContext& ctx) {
     const int want = std::clamp(int(settings.shadowCascades), 1, render::kMaxShadowCascades);
     const Vec3 lightDir = normalize(ctx.lightDirForShadow);
     // The camera's slice of the world: from its near plane to the shadow distance (the light's, else the scene's, else what the casters
-    // need: their farthest corner and a body's length more, because a shadow falls past its caster).
+    // need, see plan_cascades).
     const render::CameraFrustum cf =
         render::camera_frustum(fr.cam.invViewProj, ctx.z01, fr.cam.position, normalize(fr.cam.forward));
-    float casterFar = -1e30f;
-    for (int c = 0; c < 8; ++c) {
-        const Vec3 corner{(c & 1) ? bmax.x : bmin.x, (c & 2) ? bmax.y : bmin.y, (c & 4) ? bmax.z : bmin.z};
-        casterFar = std::max(casterFar, dot(corner - cf.position, cf.forward));
-    }
-    const float nearD = cf.nearDist;
-    float shadowDist = ctx.sun.distance > 0.0f ? ctx.sun.distance : settings.shadowDistance;
-    float farD =
-        shadowDist > 0.0f ? std::min(shadowDist, cf.farDist) : std::min(cf.farDist, casterFar + length(bmax - bmin));
-    if (!(farD > nearD + 0.1f)) farD = std::min(cf.farDist, nearD + 0.1f);
-    if (!(farD > nearD)) return;
+    const float shadowDist = ctx.sun.distance > 0.0f ? ctx.sun.distance : settings.shadowDistance;
     // Texels per side of a cascade's map: the light's shadowResolution, else 2048 for one cascade and 1024 for several (the atlas stays
     // 2048 x 2048 for four).
     const int tile = ctx.sun.resolution > 0
@@ -996,32 +986,17 @@ void Renderer::Impl::shadow_bounds(DrawContext& ctx) {
     const int atlasMax = std::min(std::clamp(int(settings.shadowAtlasSize), 512, 8192),
                                   std::max(64, sg_query_limits().max_image_size_2d));
     ctx.atlas = render::layout_shadow_atlas(atlasMax, requests);
-    int count = 0;
-    while (count < want && ctx.atlas.tiles[std::size_t(count)].placed()) ++count;
+    std::vector<int> tileSizes;
+    while (int(tileSizes.size()) < want && ctx.atlas.tiles[tileSizes.size()].placed())
+        tileSizes.push_back(ctx.atlas.tiles[tileSizes.size()].size);
+    const int count = int(tileSizes.size());
     if (count == 0) return;
-    ctx.splits = render::cascade_splits(nearD, farD, count, settings.shadowCascadeSplit);
-    // The same planes the casters shade: the sun's casters in front of the first plane still shade the view, so every map's near plane
-    // goes back to the nearest caster along the light.
-    float casterMin = 1e30f;
-    for (int c = 0; c < 8; ++c) {
-        const Vec3 corner{(c & 1) ? bmax.x : bmin.x, (c & 2) ? bmax.y : bmin.y, (c & 4) ? bmax.z : bmin.z};
-        casterMin = std::min(casterMin, dot(corner, lightDir));
-    }
-    const float blend = std::clamp(settings.shadowCascadeBlend, 0.0f, 0.5f);
-    float prevStart = nearD;
-    for (int c = 0; c < count; ++c) {
-        // A cascade also covers the band before its first plane in which the cascade before it blends into it.
-        float d0 = ctx.splits[std::size_t(c)];
-        if (c > 0) d0 -= blend * (ctx.splits[std::size_t(c)] - prevStart);
-        d0 = std::max(d0, nearD);
-        prevStart = ctx.splits[std::size_t(c)];
-        const render::SliceSphere sp = render::slice_sphere(cf, d0, ctx.splits[std::size_t(c) + 1]);
-        const int px = ctx.atlas.tiles[std::size_t(c)].size;
-        // Rounded up to 6 bits so float noise in the camera does not change the map's size, and two texels of margin for the snapping.
-        const float radius = std::max(0.5f, render::quantize_up(sp.radius, 6)) * float(px) / float(px - 4);
-        const Vec3 centre = cf.position + cf.forward * sp.centreDist;
-        ctx.fits[std::size_t(c)] = render::fit_cascade(centre, radius, lightDir, px, casterMin, ctx.z01);
-    }
+    const render::CascadePlan plan =
+        render::plan_cascades(cf, bmin, bmax, lightDir, shadowDist, settings.shadowCascadeSplit,
+                              settings.shadowCascadeBlend, tileSizes, ctx.z01);
+    if (!plan.ok) return;
+    ctx.splits = plan.splits;
+    ctx.fits = plan.fits;
     // The atlas is the used part of the layout; a placed tile is inside it by construction.
     if (!create_shadow_targets(ctx.atlas.width, ctx.atlas.height)) return;
     ctx.shadowTgt = shadowTarget;

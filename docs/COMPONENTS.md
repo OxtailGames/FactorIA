@@ -440,7 +440,7 @@ A light source for 3D meshes. A directional light shines along the entity's forw
 | `shadowBias` | float | `0.0` | Depth offset of the shadow test in metres along the light, 0..1, against shadow acne; it grows with the slope of the surface. 0 (default) = the engine's own bias, 1.5 texels of the cascade's map. Range 0.0..1.0. (not released yet, on main after 0.32.0) |
 | `shadowNormalBias` | float | `0.0` | Offset along the surface normal, in metres 0..1, against shadow acne on slopes. 0 (default) = the engine's own, 1.5 texels of the cascade's map. Range 0.0..1.0. (not released yet, on main after 0.32.0) |
 | `shadowFilter` | enum: pcf \| hard \| pcss | `"pcf"` | How the edge of the shadow is filtered. pcf (default): a small fixed blur. hard: no filtering, the sharpest and cheapest. pcss: a penumbra that grows with the distance to the caster, sized by shadowSoftness. (not released yet, on main after 0.32.0) |
-| `shadowSoftness` | float | `1.0` | With shadowFilter pcss: the size of the light for the penumbra, 0..10 (1 = the usual: a sun about 6 degrees wide). 0 = a hard shadow. Range 0.0..10.0. (not released yet, on main after 0.32.0) |
+| `shadowSoftness` | float | `1.0` | With shadowFilter pcss: the size of the light for the penumbra, 0..10 (1 = the usual: a sun about 6 degrees wide). 0 = the narrowest penumbra, a plain PCF of 1.5 texels (use shadowFilter hard for a hard shadow). Range 0.0..10.0. (not released yet, on main after 0.32.0) |
 | `shadowDistance` | float | `0.0` | How far from the camera, in metres, this light draws shadows. 0 (default) = the scene's SceneSettings.shadowDistance. Range 0.0..100000.0. (not released yet, on main after 0.32.0) |
 | `mode` | enum: realtime \| baked \| mixed | `"realtime"` | realtime (default): lit every frame. baked: its light is computed once into the lightmaps and the light probes and costs nothing at run time. mixed: baked indirect light plus realtime direct light and shadows. No effect yet: M73.4 brings it. (not released yet, on main after 0.32.0) |
 | `volumetric` | float | `0.0` | Strength 0..10 of this light's shafts in the volumetric fog (SceneSettings.fogDensity must be above 0). 0 (default) = no shafts. No effect yet: M73.5 brings it. Range 0.0..10.0. (not released yet, on main after 0.32.0) |
@@ -1436,7 +1436,7 @@ Scene-wide settings stored under "settings" in the scene file: lighting, fog, gr
 | `shadowCascades` | int | `1` | Cascades of the directional light's shadow map, 1..4: each covers a longer stretch from the camera, so shadows stay sharp near it. Each is fitted to its slice of the view and keeps its texels still while the camera moves (no shimmer). 1 (default) = a single map. A GPU without float32Targets draws no shadow (render.supports cascadedShadows; docs/rendering/RENDERING_LIGHTING.md). Range 1..4. (not released yet, on main after 0.32.0) |
 | `shadowCascadeSplit` | float | `0.5` | Where the cascades split along shadowDistance, 0..1: 0 = evenly spaced, 1 = logarithmic (a lot of detail near the camera), 0.5 (default) between. Range 0.0..1.0. (not released yet, on main after 0.32.0) |
 | `shadowCascadeBlend` | float | `0.1` | Fraction 0..0.5 of a cascade over which it blends into the next, hiding the seam. 0 = a hard seam. Range 0.0..0.5. (not released yet, on main after 0.32.0) |
-| `shadowDistance` | float | `0.0` | How far from the camera, in metres, shadows are drawn. 0 (default) = the engine's own fit around the view (the camera's far plane, or what the casters need when that is shorter). A light's own shadowDistance overrides it. The cascades split this stretch. Range 0.0..100000.0. (not released yet, on main after 0.32.0) |
+| `shadowDistance` | float | `0.0` | How far from the camera, in metres, shadows are drawn. 0 (default) = the engine's own fit around the view (the camera's far plane, or what the casters need when that is shorter: the distance to the farthest caster corner and a body's length, rounded up, the same whichever way the camera looks). A light's own shadowDistance overrides it. The cascades split this stretch. Range 0.0..100000.0. (not released yet, on main after 0.32.0) |
 | `shadowAtlasSize` | int | `4096` | The most texels per side the shadow atlas that holds every shadow map may have, 512..8192 (4096 default; the GPU's own limit also applies). Only the part the maps need is allocated (R32F: four bytes a texel, 2048 x 2048 = 16 MB); when they do not fit, the maps shrink, then the least important is dropped, the same every frame. Range 512..8192. (not released yet, on main after 0.32.0) |
 | `contactShadows` | bool | `false` | Short screen-space shadow rays toward the light that add fine shadows where objects touch. Needs a GPU that can sample the depth (render.supports contactShadows). No effect yet: M73.2 brings it. (not released yet, on main after 0.32.0) |
 | `environmentMap` | asset (texture) | `""` | An HDR image (.hdr, equirectangular) of the surroundings: it is the sky and lights and reflects in every surface. Empty (default) = the sky material or the gradient. No effect yet: M73.3 brings it. (not released yet, on main after 0.32.0) |
@@ -18000,7 +18000,7 @@ declare module "factoria" {
      */
     shadowFilter: "pcf" | "hard" | "pcss";
     /**
-     * With shadowFilter pcss: the size of the light for the penumbra, 0..10 (1 = the usual: a sun about 6 degrees wide). 0 = a hard shadow.
+     * With shadowFilter pcss: the size of the light for the penumbra, 0..10 (1 = the usual: a sun about 6 degrees wide). 0 = the narrowest penumbra, a plain PCF of 1.5 texels (use shadowFilter hard for a hard shadow).
      * @since unreleased
      */
     shadowSoftness: number;
@@ -21833,7 +21833,7 @@ declare module "factoria" {
      */
     shadowCascadeBlend: number;
     /**
-     * How far from the camera, in metres, shadows are drawn. 0 (default) = the engine's own fit around the view (the camera's far plane, or what the casters need when that is shorter). A light's own shadowDistance overrides it. The cascades split this stretch.
+     * How far from the camera, in metres, shadows are drawn. 0 (default) = the engine's own fit around the view (the camera's far plane, or what the casters need when that is shorter: the distance to the farthest caster corner and a body's length, rounded up, the same whichever way the camera looks). A light's own shadowDistance overrides it. The cascades split this stretch.
      * @since unreleased
      */
     shadowDistance: number;

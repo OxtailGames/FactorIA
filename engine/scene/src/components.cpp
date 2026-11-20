@@ -2090,7 +2090,8 @@ void register_builtin_components(TypeRegistry& r) {
                     "by shadowSoftness.")
         .field("shadowSoftness", &Light::shadowSoftness,
                "With shadowFilter pcss: the size of the light for the penumbra, 0..10 (1 = the usual: a sun about 6 "
-               "degrees wide). 0 = a hard shadow.")
+               "degrees wide). 0 = the narrowest penumbra, a plain PCF of 1.5 texels (use shadowFilter hard for a hard "
+               "shadow).")
         .range(0, 10)
         .field("shadowDistance", &Light::shadowDistance,
                "How far from the camera, in metres, this light draws shadows. 0 (default) = the scene's "
@@ -4036,10 +4037,12 @@ void register_builtin_components(TypeRegistry& r) {
         .field("shadowCascadeBlend", &SceneSettings::shadowCascadeBlend,
                "Fraction 0..0.5 of a cascade over which it blends into the next, hiding the seam. 0 = a hard seam.")
         .range(0, 0.5f)
-        .field("shadowDistance", &SceneSettings::shadowDistance,
-               "How far from the camera, in metres, shadows are drawn. 0 (default) = the engine's own fit around the "
-               "view (the camera's far plane, or what the casters need when that is shorter). A light's own "
-               "shadowDistance overrides it. The cascades split this stretch.")
+        .field(
+            "shadowDistance", &SceneSettings::shadowDistance,
+            "How far from the camera, in metres, shadows are drawn. 0 (default) = the engine's own fit around the "
+            "view (the camera's far plane, or what the casters need when that is shorter: the distance to the farthest "
+            "caster corner and a body's length, rounded up, the same whichever way the camera looks). A light's own "
+            "shadowDistance overrides it. The cascades split this stretch.")
         .range(0, 100000)
         .field("shadowAtlasSize", &SceneSettings::shadowAtlasSize,
                "The most texels per side the shadow atlas that holds every shadow map may have, 512..8192 (4096 "

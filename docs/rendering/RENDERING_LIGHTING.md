@@ -75,7 +75,7 @@ farthest cascade is shrunk first (down to 128) and then dropped, the same on eve
   in whole texels: a still shadow stays on the same texels while the camera moves (no shimmer, no crawling edges).
 - **Filters.** `pcf` (default) averages 16 taps of a fixed small disc. `hard` is one tap: the sharpest and cheapest. `pcss` finds the
   casters in front of the receiver and widens the blur with the distance to them (a contact stays sharp, a far shadow gets a wide
-  penumbra); `shadowSoftness` is the light's size (1 = a sun of about 6 degrees, 0 = hard). The sampling pattern is turned per pixel by a
+  penumbra); `shadowSoftness` is the light's size (1 = a sun of about 6 degrees; 0 = the narrowest penumbra, a plain PCF of 1.5 texels: for a hard shadow use `hard`). The sampling pattern is turned per pixel by a
   fixed noise, so a still picture never changes between frames.
 - **Bias.** `shadowBias` is metres along the light and `shadowNormalBias` metres along the surface normal; 0 picks 1.5 texels of the
   cascade, which suits most scenes. A larger value hides acne and peels the shadow off its caster.

@@ -243,4 +243,53 @@ Vec4 shadow_tile_rect(const ShadowTile& tile, int atlasW, int atlasH, bool isGl)
     return Vec4{u0, v0, u1, v1};
 }
 
+float auto_shadow_far(Vec3 cameraPosition, Vec3 casterMin, Vec3 casterMax) {
+    float far2 = 0.0f;
+    for (int c = 0; c < 8; ++c) {
+        const Vec3 corner{(c & 1) ? casterMax.x : casterMin.x, (c & 2) ? casterMax.y : casterMin.y,
+                          (c & 4) ? casterMax.z : casterMin.z};
+        far2 = std::max(far2, length_sq(corner - cameraPosition));
+    }
+    return quantize_up(std::sqrt(far2) + length(casterMax - casterMin), 3);
+}
+
+CascadePlan plan_cascades(const CameraFrustum& cf, Vec3 casterMin, Vec3 casterMax, Vec3 lightDir, float shadowDistance,
+                          float lambda, float blend, const std::vector<int>& tileSizes, bool zeroToOne) {
+    CascadePlan out;
+    const int count = std::min(int(tileSizes.size()), kMaxShadowCascades);
+    if (count < 1) return out;
+    const float nearD = cf.nearDist;
+    float farD = shadowDistance > 0.0f ? std::min(shadowDistance, cf.farDist)
+                                       : std::min(cf.farDist, auto_shadow_far(cf.position, casterMin, casterMax));
+    if (!(farD > nearD + 0.1f)) farD = std::min(cf.farDist, nearD + 0.1f);
+    if (!(farD > nearD)) return out;
+    out.splits = cascade_splits(nearD, farD, count, lambda);
+    // The sun's casters in front of the first plane still shade the view, so every map's near plane goes back to the nearest caster
+    // along the light.
+    const Vec3 ld = normalize(lightDir);
+    float nearestCaster = 1e30f;
+    for (int c = 0; c < 8; ++c) {
+        const Vec3 corner{(c & 1) ? casterMax.x : casterMin.x, (c & 2) ? casterMax.y : casterMin.y,
+                          (c & 4) ? casterMax.z : casterMin.z};
+        nearestCaster = std::min(nearestCaster, dot(corner, ld));
+    }
+    blend = std::clamp(blend, 0.0f, 0.5f);
+    float prevStart = nearD;
+    for (int c = 0; c < count; ++c) {
+        // A cascade also covers the band before its first plane in which the cascade before it blends into it.
+        float d0 = out.splits[std::size_t(c)];
+        if (c > 0) d0 -= blend * (out.splits[std::size_t(c)] - prevStart);
+        d0 = std::max(d0, nearD);
+        prevStart = out.splits[std::size_t(c)];
+        const SliceSphere sp = slice_sphere(cf, d0, out.splits[std::size_t(c) + 1]);
+        const int px = tileSizes[std::size_t(c)];
+        // Rounded up to 6 bits so float noise in the camera does not change the map's size, and two texels of margin for the snapping.
+        const float radius = std::max(0.5f, quantize_up(sp.radius, 6)) * float(px) / float(px - 4);
+        const Vec3 centre = cf.position + cf.forward * sp.centreDist;
+        out.fits[std::size_t(c)] = fit_cascade(centre, radius, ld, px, nearestCaster, zeroToOne);
+    }
+    out.ok = true;
+    return out;
+}
+
 }  // namespace fa::render

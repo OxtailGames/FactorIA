@@ -45,9 +45,12 @@ Entity long_scene(World& w, int cascades, ShadowFilter filter = ShadowFilter::Pc
     add_mesh(w, "plane", {0, -0.5f, -50}, Color::hex(0xb8b8b8), {120, 1, 160});
     const float zs[] = {0, -8, -18, -32, -50, -70};
     for (int i = 0; i < 6; ++i) {
-        const float k = 1.0f + std::fabs(zs[i]) * 0.07f;  // the far ones are bigger, so that their shadows show from here
-        add_mesh(w, "cube", {(i % 2 ? 2.5f : -2.5f) * k, 0.5f + (k - 1) * 1.0f, zs[i]}, Color::hex(0xd8d8d8), {1.5f * k, 2 * k, 1.5f * k});
-        add_mesh(w, "cube", {(i % 2 ? -4.5f : 4.5f) * k, 0.5f + (k - 1) * 1.0f, zs[i] - 3}, Color::hex(0xd8c8b8), {k, 2 * k, k});
+        const float k =
+            1.0f + std::fabs(zs[i]) * 0.07f;  // the far ones are bigger, so that their shadows show from here
+        add_mesh(w, "cube", {(i % 2 ? 2.5f : -2.5f) * k, 0.5f + (k - 1) * 1.0f, zs[i]}, Color::hex(0xd8d8d8),
+                 {1.5f * k, 2 * k, 1.5f * k});
+        add_mesh(w, "cube", {(i % 2 ? -4.5f : 4.5f) * k, 0.5f + (k - 1) * 1.0f, zs[i] - 3}, Color::hex(0xd8c8b8),
+                 {k, 2 * k, k});
     }
     Entity sun = add_sun(w, {-40, -35, 0}, true);
     w.get<Light>(sun)->shadowFilter = filter;
@@ -90,7 +93,8 @@ TEST_CASE("cascaded shadows: four cascades shadow the ground near the camera and
     expect_golden(shadowed, "3d_shadows_cascades");
 }
 
-TEST_CASE("cascaded shadows: the same scene gives the same picture twice, and a cascade costs a pass with its casters") {
+TEST_CASE(
+    "cascaded shadows: the same scene gives the same picture twice, and a cascade costs a pass with its casters") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     if (!g.renderer.supports("cascadedShadows")) return;
@@ -117,7 +121,8 @@ TEST_CASE("cascaded shadows: PCSS widens the edge with the distance to the caste
     w.settings().shadowCascades = 1;
     w.settings().shadowDistance = 30;
     add_mesh(w, "plane", {0, -0.5f, 0}, Color::hex(0xc8c8c8), {20, 1, 20});
-    add_mesh(w, "cube", {-1, 3.5f, 0}, Color::hex(0xd0d0d0), {0.6f, 6, 0.6f});  // a pillar: its shadow gets softer away from the foot
+    add_mesh(w, "cube", {-1, 3.5f, 0}, Color::hex(0xd0d0d0),
+             {0.6f, 6, 0.6f});  // a pillar: its shadow gets softer away from the foot
     Entity sun = add_sun(w, {-35, -50, 0}, true);
     Light* light = w.get<Light>(sun);
     light->shadowSoftness = 4;
@@ -148,7 +153,7 @@ TEST_CASE("cascaded shadows: render.debug_view cascades tints the ground by casc
         if (c.r > c.g + 0.12f && c.r > c.b + 0.12f) lowestRed = std::max(lowestRed, y);
         if (c.g > c.r + 0.08f && c.g > c.b + 0.08f) highestGreen = std::min(highestGreen, y);
     }
-    CHECK(lowestRed >= 140);       // the near ground is the first cascade
-    CHECK(highestGreen < 130);     // the stretch beyond its end is the second
+    CHECK(lowestRed >= 140);    // the near ground is the first cascade
+    CHECK(highestGreen < 130);  // the stretch beyond its end is the second
     CHECK(highestGreen < lowestRed);
 }
