@@ -184,8 +184,13 @@ struct Renderer::Impl {
     bool read_floats(bool present, std::vector<float>& out, std::string* error);
     Target floatTarget;               // the RGBA16F image read_floats draws into (tests only; freed with the targets)
     bool shadowTargetFailed = false;  // the shadow map could not be made: no shadows until a resize
-    Target shadowTarget;  // the shadow map: R32F colour + depth (shadowTarget.texView is what the mesh programs sample)
-    static constexpr int kShadowSize = 2048;
+    // The shadow atlas (shadow_cascades.h): R32F colour + depth (shadowTarget.texView is what the mesh programs sample). It grows to the
+    // part of the atlas a frame uses and never shrinks while the renderer lives. A target a later job of the frame outgrew is kept in
+    // shadowRetired (the earlier jobs of the same frame still draw into it) and freed when the next frame's graph begins.
+    Target shadowTarget;
+    std::vector<Target> shadowRetired;
+    static constexpr std::uint64_t kShadowAtlasMaxBytes = 512ull << 20;  // the most the atlas may take (R32F + depth)
+    bool warnedNoFloat32 = false;  // the "no shadows without float32 targets" warning, once
 
     DebugDraw debug;
     RenderStats stats;
@@ -359,7 +364,8 @@ struct Renderer::Impl {
     // that went above paper white (the copy clamps it).
     bool editor_copy_wanted() const;
     void update_editor_copy();
-    bool create_shadow_targets();
+    bool create_shadow_targets(int width, int height);
+    void free_retired_shadow_targets();
     bool ensure_light_target(float scale);
     sg_view upload_shadow_rows(const Frame& fr);
     void destroy_light_resources();

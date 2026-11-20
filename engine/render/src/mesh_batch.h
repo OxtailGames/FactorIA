@@ -32,10 +32,11 @@ struct MeshItem {
         nullptr;  // set when the mesh is drawn skinned by this Animator's palette: never batched with another
     Vec3 bmin{0, 0, 0}, bmax{0, 0, 0};  // model-space bounds used for culling (the mesh's, or the skinned ones)
     bool visible = true;                // inside the camera frustum: drawn in the main pass
-    bool casts = false;                 // inside the light frustum and castShadows: drawn in the shadow pass
-    std::uint64_t sortKey = 0;  // SortKeyTable: the order of the material fields as one integer (valid when `keyed`)
-    bool keyed = false;         // sortKey is set; an unkeyed item is ordered by the comparator (build_batches)
-    bool noCull = false;        // never frustum-culled: a mesh material with buffers and no MeshRenderer.instanceBounds
+    bool casts = false;                 // inside a shadow map's frustum and castShadows: drawn in the shadow pass
+    std::uint32_t castMask = 1;  // with `casts`: bit c = drawn into cascade c of the sun's shadow (1 = the first only)
+    std::uint64_t sortKey = 0;   // SortKeyTable: the order of the material fields as one integer (valid when `keyed`)
+    bool keyed = false;          // sortKey is set; an unkeyed item is ordered by the comparator (build_batches)
+    bool noCull = false;  // never frustum-culled: a mesh material with buffers and no MeshRenderer.instanceBounds
 };
 
 // What the sort of the opaque meshes reads of an item (a MeshItem, or a SceneMesh before a camera makes its item).
@@ -138,9 +139,17 @@ void skinned_bounds(const std::vector<Mat4>& palette, Vec3 bmin, Vec3 bmax, Vec3
 
 // A run of items drawn with one instanced draw per mesh part. The model matrices of the visible items sit at
 // mainMats[mainFirst .. +mainCount), those of the shadow casters at shadowMats[shadowFirst .. +shadowCount).
+// The most cascades of the sun's shadow a batch lists (render's kMaxShadowCascades, shadow_cascades.h).
+constexpr int kMaxBatchCascades = 4;
+
 struct MeshBatch {
     std::size_t rep = 0;  // index in `items` of the first item (stands for the material of the whole batch)
     std::uint32_t mainFirst = 0, mainCount = 0, shadowFirst = 0, shadowCount = 0;
+    // The casters of each cascade of the sun's shadow: shadowMats[cascadeFirst[c] .. +cascadeCount[c]) (the casters whose castMask has
+    // bit c), and the per-instance params of the same run at shadowData[cascadeExtra[c] ..). shadowFirst, shadowCount and shadowExtra
+    // are those of cascade 0, the only one when there is one shadow map.
+    std::uint32_t cascadeFirst[kMaxBatchCascades] = {}, cascadeCount[kMaxBatchCascades] = {},
+                  cascadeExtra[kMaxBatchCascades] = {};
     // The per-instance params of a material with "instanced" params (pack_instance_params): instanceVec4 vec4 for each
     // instance, at mainData[mainExtra ..) (floats) for the visible items and shadowData[shadowExtra ..) for the
     // casters, in the order of the matrices. instanceVec4 is 0 for a batch without them.
@@ -150,7 +159,7 @@ struct MeshBatch {
 // Groups `items` (sorted in place by material when `sortByMaterial`, otherwise kept in order and only neighbours merge:
 // blended meshes stay far-to-near).
 void build_batches(std::vector<MeshItem>& items, bool sortByMaterial, std::vector<MeshBatch>& batches,
-                   std::vector<Mat4>& mainMats, std::vector<Mat4>& shadowMats);
+                   std::vector<Mat4>& mainMats, std::vector<Mat4>& shadowMats, int cascades = 1);
 
 // The packed per-instance params (pack_instance_params) of each entity, kept between frames: 10 000 instances of one
 // material must not run the param lookup 10 000 times per frame and camera. An entry is valid while the material is the
@@ -196,7 +205,7 @@ private:
 // alone. `cache` (null = none) keeps the packed values of each entity between frames.
 void pack_instance_extras(const std::vector<MeshItem>& items, std::vector<MeshBatch>& batches,
                           std::vector<float>& mainData, std::vector<float>& shadowData,
-                          InstanceParamCache* cache = nullptr);
+                          InstanceParamCache* cache = nullptr, int cascades = 1);
 
 struct LightData {
     Vec4 pos, color, dir;

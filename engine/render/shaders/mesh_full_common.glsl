@@ -89,8 +89,10 @@ vec3 fa_world_direction(vec3 n) {
     float s = dot(c0, cross(c1, c2)) < 0.0 ? -1.0 : 1.0;
     return normalize((cross(c1, c2) * n.x + cross(c2, c0) * n.y + cross(c0, c1) * n.z) * s);
 }
-// The shadow-map coordinate of a world position: pass it in a varying to fa_shadow() of the fragment stage.
-vec4 fa_shadow_coord(vec3 world) { return fa_light_vp * vec4(world, 1.0); }
+// The shadow coordinate of a world position: pass it in a varying to fa_shadow() of the fragment stage. Since M73.2 it is the world
+// position itself (the fragment stage picks the cascade of the sun's shadow and projects it); `fa_light_vp` is still the light's matrix of
+// a pass that casts the shadow of the material.
+vec4 fa_shadow_coord(vec3 world) { return vec4(world, 1.0); }
 @end
 
 @block fa_full_vs_tail
@@ -114,7 +116,7 @@ layout(binding=0) uniform sampler fa_smp;
 layout(binding=1) uniform sampler fa_full_shadow_smp;
 @image_sample_type fa_full_shadow_tex unfilterable_float
 @sampler_type fa_full_shadow_smp nonfiltering
-// What fa_shadow_pcf (shadow_common.glsl) samples. The names differ from mesh_common.glsl's (sokol-shdc wants a texture name to be
+// What fa_shadow_sun (shadow_common.glsl) samples. The names differ from mesh_common.glsl's (sokol-shdc wants a texture name to be
 // unique in the whole top file, and the top of a full material also holds the engine's own programs).
 #define FA_SHADOW_TEX fa_full_shadow_tex
 #define FA_SHADOW_SMP fa_full_shadow_smp
@@ -148,7 +150,7 @@ layout(binding=1) uniform fa_mesh_fs_params {
 @include_block fa_inst_in
 @include_block fa_types
 // The light uniform block and fa_light_sample (light_data.glsl), the same declaration as the engine's own meshes; the shadow lookup
-// fa_shadow_pcf (shadow_common.glsl).
+// fa_shadow_sun (shadow_common.glsl).
 @include_block fa_light_data
 @include_block fa_shadow_common
 @include_block fa_user
@@ -193,10 +195,10 @@ vec4 fa_base_sample(vec2 uv) {
     return t * fa_base_color;
 }
 
-// The fraction of light that reaches a surface (1 = lit) from the directional shadow map: `coord` is fa_shadow_coord() of the
+// The fraction of light that reaches a surface (1 = lit) from the directional light's cascaded shadow: `coord` is fa_shadow_coord() of the
 // vertex stage, n the geometric normal, l the direction to the light. 1 when the MeshRenderer does not receive shadows.
 float fa_shadow(vec4 coord, vec3 n, vec3 l) {
-    return fa_shadow_pcf(coord, n, l);
+    return fa_shadow_sun(coord.xyz / coord.w, n, l);
 }
 
 // The lights of the scene, as the engine's own light loop selects them.

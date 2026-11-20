@@ -1,0 +1,246 @@
+#include "shadow_cascades.h"
+
+#include <algorithm>
+#include <cmath>
+
+namespace fa::render {
+
+int pow2_floor(int v) {
+    if (v < 1) return 0;
+    int p = 1;
+    while (p <= v / 2) p *= 2;
+    return p;
+}
+
+int pow2_ceil(int v) {
+    if (v <= 1) return 1;
+    int p = 1;
+    while (p < v && p < (1 << 30)) p *= 2;
+    return p;
+}
+
+namespace {
+struct Square {
+    int x, y, s;
+};
+
+// Places the maps whose `sizes` entry is > 0 (biggest first, then the more important, then the earlier request): the free square
+// that fits best, split into quarters down to the size wanted. Fills `tiles` (size 0 = no room) and returns how many did not fit.
+int pack_tiles(int maxSize, const std::vector<int>& sizes, const std::vector<int>& priorities,
+               std::vector<ShadowTile>& tiles) {
+    tiles.assign(sizes.size(), ShadowTile{});
+    std::vector<std::size_t> order;
+    for (std::size_t i = 0; i < sizes.size(); ++i)
+        if (sizes[i] > 0) order.push_back(i);
+    std::stable_sort(order.begin(), order.end(), [&](std::size_t a, std::size_t b) {
+        if (sizes[a] != sizes[b]) return sizes[a] > sizes[b];
+        return priorities[a] < priorities[b];
+    });
+    std::vector<Square> freeList{{0, 0, maxSize}};
+    int unplaced = 0;
+    for (std::size_t i : order) {
+        const int want = sizes[i];
+        int best = -1;
+        for (std::size_t k = 0; k < freeList.size(); ++k) {
+            const Square& q = freeList[k];
+            if (q.s < want) continue;
+            if (best < 0) {
+                best = int(k);
+                continue;
+            }
+            const Square& b = freeList[std::size_t(best)];
+            if (q.s < b.s || (q.s == b.s && (q.y < b.y || (q.y == b.y && q.x < b.x)))) best = int(k);
+        }
+        if (best < 0) {
+            ++unplaced;
+            continue;
+        }
+        Square q = freeList[std::size_t(best)];
+        freeList.erase(freeList.begin() + best);
+        while (q.s > want) {
+            const int h = q.s / 2;
+            freeList.push_back({q.x + h, q.y, h});
+            freeList.push_back({q.x, q.y + h, h});
+            freeList.push_back({q.x + h, q.y + h, h});
+            q.s = h;
+        }
+        tiles[i] = ShadowTile{q.x, q.y, want};
+    }
+    return unplaced;
+}
+}  // namespace
+
+ShadowAtlasLayout layout_shadow_atlas(int maxSize, const std::vector<ShadowTileRequest>& requests) {
+    ShadowAtlasLayout out;
+    maxSize = std::max(64, pow2_floor(maxSize));
+    const std::size_t n = requests.size();
+    std::vector<int> sizes(n), mins(n), prio(n);
+    std::vector<bool> alive(n, true);
+    for (std::size_t i = 0; i < n; ++i) {
+        sizes[i] = std::min(pow2_floor(requests[i].size), maxSize);
+        mins[i] = std::min(std::max(1, pow2_floor(requests[i].minSize)), std::max(sizes[i], 1));
+        prio[i] = requests[i].priority;
+        if (sizes[i] <= 0) {
+            alive[i] = false;
+            ++out.dropped;
+        }
+    }
+    for (;;) {
+        std::vector<int> live(n, 0);
+        for (std::size_t i = 0; i < n; ++i) live[i] = alive[i] ? sizes[i] : 0;
+        const int unplaced = pack_tiles(maxSize, live, prio, out.tiles);
+        if (unplaced == 0) break;
+        // The budget: halve the largest map that can still shrink (the least important of equally large ones), else drop the least
+        // important one. Every round shrinks or drops something, so the loop ends.
+        int victim = -1;
+        for (std::size_t i = 0; i < n; ++i) {
+            if (!alive[i] || sizes[i] <= mins[i]) continue;
+            if (victim < 0 || sizes[i] > sizes[std::size_t(victim)] ||
+                (sizes[i] == sizes[std::size_t(victim)] && prio[i] >= prio[std::size_t(victim)]))
+                victim = int(i);
+        }
+        if (victim >= 0) {
+            sizes[std::size_t(victim)] /= 2;
+            ++out.shrunk;
+            continue;
+        }
+        for (std::size_t i = 0; i < n; ++i)
+            if (alive[i] && (victim < 0 || prio[i] >= prio[std::size_t(victim)])) victim = int(i);
+        alive[std::size_t(victim)] = false;
+        ++out.dropped;
+    }
+    if (out.tiles.size() != n) out.tiles.assign(n, ShadowTile{});
+    int right = 0, bottom = 0;
+    for (const ShadowTile& t : out.tiles) {
+        if (!t.placed()) continue;
+        right = std::max(right, t.x + t.size);
+        bottom = std::max(bottom, t.y + t.size);
+    }
+    out.width = right > 0 ? pow2_ceil(right) : 0;
+    out.height = bottom > 0 ? pow2_ceil(bottom) : 0;
+    return out;
+}
+
+std::array<float, kMaxShadowCascades + 1> cascade_splits(float nearD, float farD, int count, float lambda) {
+    std::array<float, kMaxShadowCascades + 1> s;
+    s.fill(farD);
+    count = std::clamp(count, 1, kMaxShadowCascades);
+    lambda = std::clamp(lambda, 0.0f, 1.0f);
+    s[0] = nearD;
+    const bool logOk = nearD > 1e-4f && farD > nearD;
+    for (int i = 1; i < count; ++i) {
+        const float t = float(i) / float(count);
+        const float linear = nearD + (farD - nearD) * t;
+        const float logarithmic = logOk ? nearD * std::pow(farD / nearD, t) : linear;
+        s[std::size_t(i)] = linear + (logarithmic - linear) * (logOk ? lambda : 0.0f);
+    }
+    s[std::size_t(count)] = farD;
+    return s;
+}
+
+float quantize_up(float v, int bits) {
+    if (!(v > 0.0f) || !std::isfinite(v)) return v;
+    int e = 0;
+    const float m = std::frexp(v, &e);  // v = m * 2^e, m in [0.5, 1)
+    const float steps = float(1 << std::clamp(bits, 1, 20));
+    return std::ldexp(std::ceil(m * steps) / steps, e);
+}
+
+CameraFrustum camera_frustum(const Mat4& invViewProj, bool zeroToOne, Vec3 position, Vec3 forward) {
+    CameraFrustum f;
+    f.position = position;
+    f.forward = forward;
+    const float xs[4] = {-1, 1, 1, -1}, ys[4] = {-1, -1, 1, 1};
+    const float zn = zeroToOne ? 0.0f : -1.0f;
+    float dn = 0, df = 0;
+    for (int i = 0; i < 4; ++i) {
+        const Vec4 a = invViewProj * Vec4{xs[i], ys[i], zn, 1.0f};
+        const Vec4 b = invViewProj * Vec4{xs[i], ys[i], 1.0f, 1.0f};
+        f.nearCorner[i] = Vec3{a.x, a.y, a.z} / a.w;
+        f.farCorner[i] = Vec3{b.x, b.y, b.z} / b.w;
+        dn += dot(f.nearCorner[i] - position, forward);
+        df += dot(f.farCorner[i] - position, forward);
+    }
+    f.nearDist = dn * 0.25f;
+    f.farDist = df * 0.25f;
+    return f;
+}
+
+SliceSphere slice_sphere(const CameraFrustum& f, float d0, float d1) {
+    const float span = f.farDist - f.nearDist;
+    auto radial = [&](float d) {  // the largest distance of a corner of the slice at distance d from the camera's axis
+        const float t = span > 1e-6f ? std::clamp((d - f.nearDist) / span, 0.0f, 1.0f) : 0.0f;
+        float r = 0;
+        for (int i = 0; i < 4; ++i) {
+            const Vec3 c = f.nearCorner[i] + (f.farCorner[i] - f.nearCorner[i]) * t - f.position;
+            const Vec3 off = c - f.forward * dot(c, f.forward);
+            r = std::max(r, length(off));
+        }
+        return r;
+    };
+    d1 = std::max(d1, d0);
+    const float r0 = radial(d0), r1 = radial(d1);
+    float c = d0;
+    if (d1 - d0 > 1e-5f) c = (d1 * d1 - d0 * d0 + r1 * r1 - r0 * r0) / (2.0f * (d1 - d0));
+    c = std::clamp(c, d0, d1);
+    SliceSphere s;
+    s.centreDist = c;
+    s.radius = std::max(std::sqrt((d0 - c) * (d0 - c) + r0 * r0), std::sqrt((d1 - c) * (d1 - c) + r1 * r1));
+    return s;
+}
+
+CascadeFit fit_cascade(Vec3 centre, float radius, Vec3 lightDir, int tile, float casterMin, bool zeroToOne) {
+    CascadeFit out;
+    const Vec3 f = normalize(lightDir);
+    const Vec3 upRef = std::fabs(f.y) > 0.99f ? Vec3{0, 0, 1} : Vec3{0, 1, 0};
+    const Vec3 s = normalize(cross(f, upRef));  // the same basis Mat4::look_at builds
+    const Vec3 u = cross(s, f);
+    const float texel = 2.0f * radius / float(std::max(tile, 4));
+    const float cz = dot(centre, f);
+    // The centre moves in whole texels of the map along the light's x and y: the texel grid is fixed in the world, so a still shadow
+    // lands on the same texels whatever the camera does between two steps.
+    const float cx = std::floor(dot(centre, s) / texel + 0.5f) * texel;
+    const float cy = std::floor(dot(centre, u) / texel + 0.5f) * texel;
+    const float margin = std::max(radius * 0.05f, 0.25f);
+    const float front = std::min(cz - radius, casterMin) - margin;
+    const float back = cz + radius;
+    const Vec3 eye = s * cx + u * cy + f * front;
+    out.view = Mat4::look_at(eye, eye + f, upRef);
+    const Mat4 proj = Mat4::ortho(-radius, radius, -radius, radius, 0.0f, back - front, zeroToOne);
+    out.viewProj = proj * out.view;
+    out.centre = s * cx + u * cy + f * cz;
+    out.radius = radius;
+    out.texel = texel;
+    out.depthRange = back - front;
+    return out;
+}
+
+Mat4 shadow_sample_matrix(const CascadeFit& fit, const ShadowTile& tile, int atlasW, int atlasH, bool zeroToOne,
+                          bool isGl) {
+    const float w = float(atlasW), h = float(atlasH), size = float(tile.size);
+    Mat4 t;  // clip x, y, z -> atlas u, v, depth 0..1
+    t.at(0, 0) = 0.5f * size / w;
+    t.at(3, 0) = (float(tile.x) + 0.5f * size) / w;
+    if (isGl) {
+        t.at(1, 1) = 0.5f * size / h;
+        t.at(3, 1) = (h - float(tile.y) - size + 0.5f * size) / h;
+    } else {
+        t.at(1, 1) = -0.5f * size / h;
+        t.at(3, 1) = (float(tile.y) + 0.5f * size) / h;
+    }
+    if (!zeroToOne) {
+        t.at(2, 2) = 0.5f;
+        t.at(3, 2) = 0.5f;
+    }
+    return t * fit.viewProj;
+}
+
+Vec4 shadow_tile_rect(const ShadowTile& tile, int atlasW, int atlasH, bool isGl) {
+    const float w = float(atlasW), h = float(atlasH);
+    const float u0 = float(tile.x) / w, u1 = float(tile.x + tile.size) / w;
+    const float v0 = isGl ? (h - float(tile.y + tile.size)) / h : float(tile.y) / h;
+    const float v1 = isGl ? (h - float(tile.y)) / h : float(tile.y + tile.size) / h;
+    return Vec4{u0, v0, u1, v1};
+}
+
+}  // namespace fa::render
