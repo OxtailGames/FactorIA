@@ -181,6 +181,12 @@ std::vector<FeatureDef> build_table() {
     t.push_back({"iesProfiles", FeatureKind::Engine, kEveryGpu, "half", nullptr,
                  "IES profiles (Light.ies, an .ies file of the project): the measured light distribution of a real "
                  "lamp on a point or spot light, normalised to its peak so Light.intensity stays the brightness."});
+    t.push_back({"lightProbes", FeatureKind::Engine, kEveryGpu, "", nullptr,
+                 "Light probes (M73.4d): the LightProbeGroup components baked by lightmap.bake hold spherical-harmonics "
+                 "lighting that a mesh without a lightmap (a moving object, lightmapScale 0, a skinned mesh) receives "
+                 "in place of the sky's ambient, interpolated on the CPU at the centre of its bounds (or at "
+                 "MeshRenderer.probeAnchor); lights with mode baked light those meshes only through the probes. The "
+                 "feature needs nothing of the GPU (docs/rendering/RENDERING_LIGHTING.md, \"Light probes\")."});
     struct Planned {
         const char* name;
         const char* needs;
@@ -206,7 +212,6 @@ std::vector<FeatureDef> build_table() {
          "Reflection probes: local environment captures, baked or realtime, with box projection and blending between "
          "probes "
          "(M73.3)."},
-        {"lightProbes", "", "Light probes: baked spherical-harmonics lighting for moving objects (M73.4)."},
         {"volumetricFog", "half+depth",
          "Volumetric fog and light shafts: a medium the sun and the point and spot lights (Light.volumetric) shine "
          "through, raymarched at half or quarter resolution and joined to the picture with a depth-aware upsample "

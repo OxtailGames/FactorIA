@@ -107,6 +107,10 @@ struct SceneMesh {
     std::uint64_t sortKey = 0;
     bool keyed = false;
     LightmapUse lm;        // lit by a baked lightmap (SceneSettings.lightmaps, M73.4a); lm.mesh null = not
+    // Baked light probes (M73.4d): what a mesh without a lightmap receives instead of the sky ambient; points into
+    // a vector of the RenderScene (null = no probes reach it, or none are baked), probeKey = probe_light_key of it.
+    const ProbeLight* probe = nullptr;
+    std::uint64_t probeKey = 0;
     bool hasLods = false;  // MeshRenderer.lods: mesh, box and blending are chosen again per camera
     // texture or normalMap is a render target ("target:<name>"): which image that is depends on the job that draws (a
     // camera's own target is the checker in its own frame), so every job resolves the texture again.
@@ -127,10 +131,14 @@ public:
     MaterialHashCache& hash_cache() { return hashes_; }
     // The ranks the meshes' sort keys were made with; valid() is false when a field had more values than its bits hold.
     const SortKeyTable& sort_table() const { return sortTable_; }
+    // True when the scene's lightmap manifest carries baked light probes this frame.
+    bool has_probes() const { return hasProbes_; }
     // Forgets the meshes (the world they point into may go away) but keeps the hash cache.
     void reset() {
         meshes_.clear();
         sortTable_.clear();
+        probeLights_.clear();
+        hasProbes_ = false;
         built_ = false;
     }
     // Frames (builds of the whole world or of a subtree) whose sort keys did not fit (SortKeyTable limits): their opaque
@@ -143,6 +151,8 @@ private:
     MaterialHashCache hashes_;
     SortKeyTable sortTable_;
     // Work buffers of build(), kept between frames.
+    std::vector<ProbeLight> probeLights_;  // SceneMesh::probe points here; sized once per build, only with baked probes
+    bool hasProbes_ = false;
     std::vector<SortFields> fields_;
     std::vector<std::string_view> lodNames_;
     std::vector<std::uint64_t> keys_;
