@@ -50,6 +50,7 @@
 @include light_data.glsl
 @include shadow_common.glsl
 @include light_loop.glsl
+@include brdf_layers.glsl
 
 // The snippet contract (docs/SHADERS.md).
 @block fa_types
@@ -70,6 +71,17 @@ struct Surface {                // what the lighting reads
     float roughness;
     float occlusion;
     vec3 emission;
+    // The material layers of M73.6 (docs/shaders/SHADERS_LIGHTING.md, "Material layers"): what the standard lighting reads, filled from
+    // the MeshRenderer and the glTF material before surface(). The defaults draw as before.
+    float clearcoat;            // 0..1 strength of the clear coat; 0 = none
+    float clearcoat_roughness;  // 0..1 (the engine clamps it to 0.05..1)
+    vec3 sheen_color;           // the cloth sheen's colour; black = none
+    float sheen_roughness;      // 0..1 (clamped to 0.1..1)
+    float anisotropy;           // -1..1: stretch of the highlight along the tangent (negative: across it); 0 = round
+    float anisotropy_rotation;  // radians, turns the stretch direction around the normal
+    float specular;             // 0..1 strength of the dielectric specular (1 = the usual 4% reflectance at ior 1.5)
+    float ior;                  // 1..3 index of refraction: sets the dielectric reflectance at normal incidence
+    vec3 specular_color;        // tint of the dielectric reflectance (KHR_materials_specular), white = none
 };
 struct LightSample {            // light(): one light as the engine's light loop selected it (lighting "custom")
     vec3 direction;             // surface -> light, normalized (a directional light: the direction its light comes from)
@@ -154,7 +166,11 @@ layout(location=FA_X_BASE+1) in vec4 fa_inst_d1;
 #if FA_NINST > 2
 layout(location=FA_X_BASE+2) in vec4 fa_inst_d2;
 #endif
-#ifdef FA_CH_UV1
+// The engine's own mesh program (mesh.glsl's fa_user defines FA_LM_BUILTIN, and only the `vs` program defines FA_LM_PASS) always reads
+// the uv1 buffer: the lightmap UV of a lightmapped entity, zeros otherwise. A custom material that declares "uv1" reads the same buffer
+// (its uv1 is the lightmap UV on a lightmapped entity).
+#if defined(FA_CH_UV1) || (defined(FA_LM_BUILTIN) && defined(FA_LM_PASS))
+#define FA_LM_ATTR
 layout(location=FA_X_BASE+FA_NINST) in vec2 fa_attr_uv1;
 #define FA_NUV1 1
 #else
@@ -196,6 +212,7 @@ layout(binding=0) uniform fa_mesh_vs_params {
     mat4 fa_light_vp;           // the matrix of the shadow pass being drawn (a cascade of the sun; the view matrix in the prepass)
     vec4 fa_uv_scale;           // xy
     vec4 fa_time;               // x = seconds of game time since the scene started
+    vec4 fa_lm_so;              // the lightmap rectangle of the entity drawn: page uv = lightmap uv * xy + zw; x = 0 = not lightmapped
 };
 
 // Drawing from a storage buffer (M72.4): a material with "buffers" defines FA_BUFFER_INST. Its entity is drawn as
@@ -262,6 +279,7 @@ out vec3 fa_world_normal;
 out vec4 fa_world_tangent;
 out vec2 fa_uv;
 out vec4 fa_vertex_color;
+out vec3 fa_lm;                 // xy = the page uv of the lightmap, z = 1 when the entity is lightmapped (fa_lm_so.x > 0); last, as fa_lm of the fragment stage
 
 // Everything after the model matrix is known: shared by the instanced and the skinned vertex shader.
 void fa_shade_vertex(mat4 model, vec3 position, vec3 normal, vec4 tangent, vec2 texcoord0, vec4 color) {
@@ -292,11 +310,17 @@ layout(location=6) in vec4 fa_inst_m1;
 layout(location=7) in vec4 fa_inst_m2;
 layout(location=8) in vec4 fa_inst_m3;
 #define FA_X_BASE 9
+#define FA_LM_PASS
 @include_block fa_extra_attrs
 
 void main() {
     fa_inst_begin();
     fa_shade_vertex(FA_INST_MODEL, fa_position, fa_normal, fa_tangent, fa_texcoord0, fa_color);
+#ifdef FA_LM_ATTR
+    fa_lm = vec3(fa_attr_uv1 * fa_lm_so.xy + fa_lm_so.zw, fa_lm_so.x > 0.0 ? 1.0 : 0.0);
+#else
+    fa_lm = vec3(0.0);
+#endif
 }
 @end
 
@@ -324,6 +348,7 @@ void main() {
     fa_inst_begin();
     fa_shade_vertex(FA_INST_MODEL * fa_skin_matrix(fa_joints, fa_weights),
                     fa_position, fa_normal, fa_tangent, fa_texcoord0, fa_color);
+    fa_lm = vec3(0.0);  // a skinned mesh is never lightmapped
 }
 @end
 
@@ -392,6 +417,12 @@ layout(binding=1) uniform fa_mesh_fs_params {
     vec4 fa_cl_grid;            // x = tiles across, y = tiles down, z = depth slices per octave (slices / log2(far / near)), w = near
     vec4 fa_cl_info;            // x = first texel of the cluster table (-1 = no clusters), y = depth slices, z = directional lights,
                                 // w = clusters (tiles x * tiles y * slices)
+    vec4 fa_layers_a;           // x clearcoat, y clearcoat roughness, z anisotropy, w anisotropy rotation (radians)
+    vec4 fa_layers_b;           // rgb sheen colour, w sheen roughness
+    vec4 fa_layers_c;           // x specular, y ior, z = the layer data packed in the maps: 1 = the occlusion map holds the clear coat
+                                // in g, its roughness in b and the sheen roughness in a; 2 = the metallic-roughness map holds the
+                                // anisotropy strength in r and the specular in a (the importer packs them, see brdf_layers.glsl)
+    vec4 fa_layers_d;           // rgb specular colour (KHR_materials_specular)
 };
 
 // The varyings are declared in the order of the vertex stage's outputs (the instance values first): sokol-shdc matches them
@@ -460,8 +491,32 @@ Surface fa_standard_surface(in SurfaceInput i) {
     mrt.rgb = fa_tex_fix(mrt.rgb, fa_fix_of(fa_maps.w, 64.0));
     s.metallic = clamp(fa_pbr.x * mrt.b, 0.0, 1.0);
     s.roughness = clamp(fa_pbr.y * mrt.g, 0.05, 1.0);
-    s.occlusion = 1.0 + fa_maps.y * (fa_tex_fix(texture(sampler2D(fa_occlusion_tex, fa_smp), i.uv).rrr, fa_fix_of(fa_maps.w, 256.0)).r - 1.0);
+    vec4 occ_t = texture(sampler2D(fa_occlusion_tex, fa_smp), i.uv);
+    vec3 occ_f = fa_tex_fix(occ_t.rgb, fa_fix_of(fa_maps.w, 256.0));
+    s.occlusion = 1.0 + fa_maps.y * (occ_f.r - 1.0);
     s.emission = fa_emissive.rgb + fa_model_emissive.rgb * fa_tex_fix(texture(sampler2D(fa_emissive_tex, fa_smp), i.uv).rgb, fa_fix_of(fa_maps.w, 4.0));
+    // The material layers: the factors of the MeshRenderer / glTF material, times the textures the importer packed into the maps.
+    s.clearcoat = fa_layers_a.x;
+    s.clearcoat_roughness = fa_layers_a.y;
+    s.anisotropy = fa_layers_a.z;
+    s.anisotropy_rotation = fa_layers_a.w;
+    s.sheen_color = fa_layers_b.rgb;
+    s.sheen_roughness = fa_layers_b.w;
+    s.specular = fa_layers_c.x;
+    s.ior = fa_layers_c.y;
+    s.specular_color = fa_layers_d.rgb;
+    float packed_maps = fa_layers_c.z;
+    if (packed_maps > 0.5) {
+        if (mod(packed_maps, 2.0) > 0.5) {
+            s.clearcoat *= occ_f.g;
+            s.clearcoat_roughness *= occ_f.b;
+            s.sheen_roughness *= occ_t.a;
+        }
+        if (packed_maps > 1.5) {
+            s.anisotropy *= mrt.r;
+            s.specular *= mrt.a;
+        }
+    }
     return s;
 }
 @end
@@ -531,12 +586,16 @@ LightSample fa_no_light() {
     return none;
 }
 // What the engine's own lighting adds for the sky: its reflection weighted by the environment BRDF of this surface (s.metallic,
-// s.roughness, s.albedo, s.normal) times s.occlusion.
+// s.roughness, s.albedo, s.normal) times s.occlusion, with the material layers (clear coat, sheen, anisotropy, specular and ior of
+// the Surface) when they are set.
 vec3 fa_sky_light(in SurfaceInput i, in Surface s) {
     float metallic = clamp(s.metallic, 0.0, 1.0);
     float roughness = clamp(s.roughness, 0.05, 1.0);
     vec3 f0 = mix(vec3(0.04), s.albedo, metallic);
-    return fa_sky_reflection(normalize(s.normal), i.view_dir, f0, roughness) * s.occlusion;
+    vec3 n = normalize(s.normal);
+    FaLayers lay = fa_layers_setup(i, s, n, i.view_dir, metallic, roughness, f0);
+    if (lay.on) { return fa_layers_ibl(lay, n, i.view_dir, f0, roughness) * s.occlusion; }
+    return fa_sky_reflection(n, i.view_dir, f0, roughness) * s.occlusion;
 }
 #endif
 @end
@@ -545,6 +604,9 @@ vec3 fa_sky_light(in SurfaceInput i, in Surface s) {
 // the snippet): the light array (light_data.glsl), the shadow coordinate and lookup (shadow_common.glsl), the sky, and the light
 // samples and the custom-light hooks (light_loop.glsl).
 @block fa_fs_light
+// The lightmap varying of the vertex stage (M73.4a, declared last there too: the varyings of the two stages match by order). Declared
+// here, before the light functions, because a baked light is skipped on a lightmapped fragment (fa_light_baked, light_data.glsl).
+in vec3 fa_lm;
 @include_block fa_light_data
 @include_block fa_decals
 
@@ -558,6 +620,8 @@ float fa_shadow_factor(vec3 n, vec3 l) {
 }
 
 @include_block fa_env_funcs
+@include_block fa_layers_env
+@include_block fa_layers_light
 @include_block fa_light_shared
 @include_block fa_light_hooks
 @end
@@ -565,6 +629,7 @@ float fa_shadow_factor(vec3 n, vec3 l) {
 @block fa_fs_nolight
 #ifdef FA_CUSTOM_LIGHT
 @include_block fa_env_funcs
+@include_block fa_layers_env
 @include_block fa_light_shared
 @include_block fa_light_hooks_none
 #endif
@@ -582,6 +647,22 @@ float fa_shadow_factor(vec3 n, vec3 l) {
 @include_block fa_fs_light
 @include_block fa_user
 @include_block fa_fs_rest
+
+// The baked lightmap (M73.4a): the page of the entity drawn, an irradiance/pi texel like ambientLight is, read at the lightmap UV the
+// vertex stage passed (fa_lm, declared in fa_fs_light). Bound (a white texel) on every draw of the engine's program, so a mesh without
+// a lightmap costs one branch on a varying.
+layout(binding=26) uniform texture2D fa_lightmap;
+
+// The diffuse indirect light toward n: the baked texel of a lightmapped surface, else the ambient light or the sky's irradiance. It
+// replaces fa_ambient_light in every diffuse ambient term, with or without material layers (the layers' base_scale darkens it as it does
+// the ambient light). The specular IBL (fa_sky_reflection, fa_layers_ibl) is not part of it and stays the sky's: a lightmap holds no
+// direction, so the ambient is never counted twice (the texel replaces the diffuse ambient only) and never missing.
+vec3 fa_indirect_diffuse(vec3 n) {
+    if (fa_lm.z > 0.5) {
+        return textureLod(sampler2D(fa_lightmap, fa_env_smp), fa_lm.xy, 0.0).rgb;
+    }
+    return fa_ambient_light(n);
+}
 
 out vec4 fa_frag_color;
 
@@ -620,9 +701,9 @@ void main() {
 #ifdef FA_CUSTOM_LIGHT
         s.normal = n;
 #ifdef FA_HAS_AMBIENT
-        vec3 lit = ambient(i, s, fa_ambient_light(n));
+        vec3 lit = ambient(i, s, fa_indirect_diffuse(n));
 #else
-        vec3 lit = fa_ambient_light(n) * s.albedo * s.occlusion;
+        vec3 lit = fa_indirect_diffuse(n) * s.albedo * s.occlusion;
 #endif
 #else
         float metallic = clamp(s.metallic, 0.0, 1.0);
@@ -632,12 +713,18 @@ void main() {
         float ndv = max(dot(n, v), 1e-4);
         vec3 diffuse_color = s.albedo * (1.0 - metallic);
         vec3 f0 = mix(vec3(0.04), s.albedo, metallic);
-        vec3 lit = fa_ambient_light(n) * diffuse_color * s.occlusion;
+        FaLayers lay = fa_layers_setup(i, s, n, v, metallic, roughness, f0);
+        vec3 lit = fa_indirect_diffuse(n) * diffuse_color * s.occlusion;
+        if (lay.on) { lit *= lay.base_scale; }
 #endif
 @include_block fa_light_loop
 #ifndef FA_CUSTOM_LIGHT
-        // Image-based lighting: the sky reflected, weighted by the environment BRDF.
-        lit += fa_sky_reflection(n, v, f0, roughness) * s.occlusion;
+        // Image-based lighting: the sky reflected, weighted by the environment BRDF (with the layers, fa_layers_ibl).
+        if (lay.on) {
+            lit += fa_layers_ibl(lay, n, v, f0, roughness) * s.occlusion;
+        } else {
+            lit += fa_sky_reflection(n, v, f0, roughness) * s.occlusion;
+        }
 #endif
 #endif
         result = lit;

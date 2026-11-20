@@ -2,8 +2,8 @@
 
 Part of [FactorIA architecture](ARCHITECTURE.md) (the entry page lists every page). This page describes the core of the lightmap
 baker of M73.4: `engine/scene/include/fa/scene/lightmap_bake.h` and `bvh.h`, with `src/lightmap_bake.cpp` and `src/bvh.cpp`. It is
-plain data in and float buffers out: no renderer, no file format and no command (the lightmap runtime and the UV2 generation,
-the `lightmap.bake` command that writes Radiance `.hdr` files, and the probe grid are later packages that build on this API).
+plain data in and float buffers out: no renderer, no file format and no command (the lightmap runtime and the UV generation landed in M73.4a, [ARCHITECTURE_RENDERING_LIGHTING.md](ARCHITECTURE_RENDERING_LIGHTING.md),
+"Lightmaps"; the `lightmap.bake` command that writes Radiance `.hdr` files and the manifest, and the probe grid are later packages that build on this API).
 
 ## The pieces
 

@@ -166,7 +166,8 @@ DecalAtlasLayout layout_decal_atlas(std::vector<DecalTexture> textures, int maxS
         tiles[c.tex].y = c.y + kDecalGutter;
     }
     out.tiles = std::move(tiles);
-    std::sort(out.tiles.begin(), out.tiles.end(), [](const DecalTile& a, const DecalTile& b) { return a.path < b.path; });
+    std::sort(out.tiles.begin(), out.tiles.end(),
+              [](const DecalTile& a, const DecalTile& b) { return a.path < b.path; });
     std::sort(out.dropped.begin(), out.dropped.end());
     return out;
 }
@@ -188,7 +189,7 @@ Result<Image> load_project_image(const std::string& pathIn) {
     // The order of Assets::load_texture: the atlas an export packed it into, then the compressed twin, then the file.
     if (const assets::PackedTexture packed = assets::packed_texture(path); !packed.atlas.empty()) {
         auto atlas = load_one(fs::exists(packed.atlas + kTextureTwinExtension) ? packed.atlas + kTextureTwinExtension
-                                                                                 : packed.atlas);
+                                                                               : packed.atlas);
         if (!atlas) return atlas.error();
         if (packed.x < 0 || packed.y < 0 || packed.w < 1 || packed.h < 1 || packed.x + packed.w > atlas->width ||
             packed.y + packed.h > atlas->height)
@@ -200,7 +201,8 @@ Result<Image> load_project_image(const std::string& pathIn) {
         out.rgba.resize(std::size_t(packed.w) * std::size_t(packed.h) * 4);
         for (int y = 0; y < packed.h; ++y)
             std::memcpy(out.rgba.data() + std::size_t(y) * std::size_t(packed.w) * 4,
-                        atlas->rgba.data() + (std::size_t(packed.y + y) * std::size_t(atlas->width) + std::size_t(packed.x)) * 4,
+                        atlas->rgba.data() +
+                            (std::size_t(packed.y + y) * std::size_t(atlas->width) + std::size_t(packed.x)) * 4,
                         std::size_t(packed.w) * 4);
         return out;
     }
@@ -248,7 +250,8 @@ DecalAtlasImage build_decal_atlas(const std::vector<std::string>& paths, const D
         Image tile;
         auto loaded = source.load(t.path);
         if (loaded && !loaded->empty()) {
-            tile = (loaded->width == t.w && loaded->height == t.h) ? std::move(*loaded) : resize_image(*loaded, t.w, t.h);
+            tile =
+                (loaded->width == t.w && loaded->height == t.h) ? std::move(*loaded) : resize_image(*loaded, t.w, t.h);
         } else {
             out.failed.push_back(t.path + ": " + (loaded ? std::string("the image is empty") : loaded.error().message));
         }
@@ -267,7 +270,8 @@ DecalAtlasImage build_decal_atlas(const std::vector<std::string>& paths, const D
             const int sy = std::clamp(y, 0, t.h - 1);
             for (int x = -kDecalGutter; x < t.w + kDecalGutter; ++x) {
                 const int sx = std::clamp(x, 0, t.w - 1);
-                std::memcpy(img.rgba.data() + (std::size_t(t.y + y) * std::size_t(img.width) + std::size_t(t.x + x)) * 4,
+                std::memcpy(img.rgba.data() +
+                                (std::size_t(t.y + y) * std::size_t(img.width) + std::size_t(t.x + x)) * 4,
                             tile.rgba.data() + (std::size_t(sy) * std::size_t(t.w) + std::size_t(sx)) * 4, 4);
             }
         }

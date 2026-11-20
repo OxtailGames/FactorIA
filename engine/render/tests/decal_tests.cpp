@@ -56,7 +56,8 @@ View make_view(int w, int h, bool zeroToOne, Vec3 eye = {0, 0, 0}, Vec3 target =
 DecalBox box_of(const Mat4& world) {
     DecalBox b;
     for (int i = 0; i < 8; ++i)
-        b.corners[i] = world.transform_point(Vec3{(i & 1) ? 0.5f : -0.5f, (i & 2) ? 0.5f : -0.5f, (i & 4) ? 0.5f : -0.5f});
+        b.corners[i] =
+            world.transform_point(Vec3{(i & 1) ? 0.5f : -0.5f, (i & 2) ? 0.5f : -0.5f, (i & 4) ? 0.5f : -0.5f});
     return b;
 }
 
@@ -110,7 +111,8 @@ TEST_CASE("decals: every point inside a decal box is in the decal list of its cl
         for (int n = 0; n < 8000; ++n) {
             const std::size_t i = std::size_t(r.next() * float(d.worlds.size())) % d.worlds.size();
             // A point inside decal i, found in its box space.
-            const Vec3 p = d.worlds[i].transform_point(Vec3{r.range(-0.5f, 0.5f), r.range(-0.5f, 0.5f), r.range(-0.5f, 0.5f)});
+            const Vec3 p =
+                d.worlds[i].transform_point(Vec3{r.range(-0.5f, 0.5f), r.range(-0.5f, 0.5f), r.range(-0.5f, 0.5f)});
             int c = 0;
             if (!cluster_of(tex.uniforms, v.grid, p, c)) continue;
             ++checked;
@@ -132,9 +134,9 @@ TEST_CASE("decals: every point inside a decal box is in the decal list of its cl
 TEST_CASE("decals: a box behind the camera or far outside the view reaches no cluster") {
     const View v = make_view(1280, 720, false);
     std::vector<DecalBox> boxes;
-    boxes.push_back(box_of(Mat4::translate({0, 0, 20}) * Mat4::scale({2, 2, 2})));       // behind
-    boxes.push_back(box_of(Mat4::translate({500, 0, -20}) * Mat4::scale({2, 2, 2})));    // far to the side
-    boxes.push_back(box_of(Mat4::translate({0, 0, -400}) * Mat4::scale({2, 2, 2})));     // beyond the far plane
+    boxes.push_back(box_of(Mat4::translate({0, 0, 20}) * Mat4::scale({2, 2, 2})));     // behind
+    boxes.push_back(box_of(Mat4::translate({500, 0, -20}) * Mat4::scale({2, 2, 2})));  // far to the side
+    boxes.push_back(box_of(Mat4::translate({0, 0, -400}) * Mat4::scale({2, 2, 2})));   // beyond the far plane
     ClusterLists lists;
     build_decal_clusters(v.cam, v.grid, boxes, lists);
     CHECK(lists.lightsAssigned == 0);
@@ -199,7 +201,8 @@ TEST_CASE("decals: a cluster keeps its first 32 decals, a view at most 131072 en
     for (std::size_t c = 0; c < clusters; ++c) {
         CHECK(lists.count[c] <= std::uint32_t(kMaxDecalsPerCluster));
         kept += lists.count[c];
-        for (std::uint32_t k = 0; k < lists.count[c]; ++k) CHECK(lists.indices[lists.first[c] + k] == k);  // the lowest survive
+        for (std::uint32_t k = 0; k < lists.count[c]; ++k)
+            CHECK(lists.indices[lists.first[c] + k] == k);  // the lowest survive
     }
     CHECK(kept == lists.indices.size());
     CHECK(kept + lists.clippedEntries == clusters * 50);
@@ -210,7 +213,8 @@ TEST_CASE("decals: a cluster keeps its first 32 decals, a view at most 131072 en
     CHECK(lists.maxPerCluster == 3);
 }
 
-TEST_CASE("decals: the data texture holds the decal region after the light lists, and a view without decals has the old texels") {
+TEST_CASE("decals: the data texture holds the decal region after the light lists, and a view without decals has the "
+          "old texels") {
     const View v = make_view(640, 360, false);
     LightData sun;
     sun.pos = {0.0f, 1.0f, 0.0f, 0.0f};
@@ -249,7 +253,7 @@ TEST_CASE("decals: the data texture holds the decal region after the light lists
 
     LightTexture plain, withDecals;
     pack_light_texture(table, 1, v.cam, &lights, plain);
-    pack_light_texture(table, 1, v.cam, &lights, withDecals, &pack);
+    pack_light_texture(table, 1, v.cam, &lights, withDecals, nullptr, &pack);
     CHECK(plain.uniforms.decalBase == 0.0f);
     const std::size_t lightTexels = table.size() * std::size_t(kLightTexels);
     const std::size_t clusters = std::size_t(v.grid.clusters());
@@ -264,8 +268,10 @@ TEST_CASE("decals: the data texture holds the decal region after the light lists
     for (std::size_t i = 0; i < base; ++i)
         for (int c = 0; c < 4; ++c) {
             const bool decalSlot = i >= lightTexels && i < lightTexels + clusters && c >= 2;
-            if (!decalSlot) CHECK(texel(withDecals, i, c) == texel(plain, i, c));
-            else CHECK(texel(plain, i, c) == 0.0f);
+            if (!decalSlot)
+                CHECK(texel(withDecals, i, c) == texel(plain, i, c));
+            else
+                CHECK(texel(plain, i, c) == 0.0f);
         }
     for (std::size_t c = 0; c < clusters; ++c) {
         CHECK(texel(withDecals, lightTexels + c, 2) == float(pack.lists.first[c]));
@@ -302,15 +308,32 @@ TEST_CASE("decals: the data texture holds the decal region after the light lists
     // A pack that does not match the grid (or has no record) is ignored: the texels are those of a view without decals.
     DecalPack empty;
     LightTexture ignored;
-    pack_light_texture(table, 1, v.cam, &lights, ignored, &empty);
+    pack_light_texture(table, 1, v.cam, &lights, ignored, nullptr, &empty);
     CHECK(ignored.texels == plain.texels);
     CHECK(ignored.uniforms.decalBase == 0.0f);
     // A view with decals and no lights at all (clusters of an empty light table).
     ClusterLists none;
     build_light_clusters(v.cam, v.grid, {}, none);
     LightTexture decalsOnly;
-    pack_light_texture({}, 0, v.cam, &none, decalsOnly, &pack);
+    pack_light_texture({}, 0, v.cam, &none, decalsOnly, nullptr, &pack);
     CHECK(decalsOnly.uniforms.decalBase == float(clusters));
+    // With a shadow region (M73.2b) the decals come after it: one cursor, lights | clusters | indices | shadows | decals.
+    std::vector<LocalShadowRecord> shadows(1);
+    shadows[0].light = 0;
+    shadows[0].tiles.resize(1);
+    LightTexture both, shadowsOnly;
+    pack_light_texture(table, 1, v.cam, &lights, shadowsOnly, &shadows, nullptr);
+    pack_light_texture(table, 1, v.cam, &lights, both, &shadows, &pack);
+    const std::size_t shadowTexels = local_shadow_region_texels(int(table.size()), shadows);
+    REQUIRE(shadowTexels > 0);
+    CHECK(shadowsOnly.shadowBase == static_cast<long long>(base));
+    CHECK(both.shadowBase == static_cast<long long>(base));
+    CHECK(both.uniforms.decalBase == float(base + shadowTexels));
+    CHECK(both.usedTexels ==
+          base + shadowTexels + kDecalHeaderTexels + 2 * kDecalTexels + (pack.lists.indices.size() + 3) / 4);
+    // The shadow region is untouched by the decals, and the decal header sits right after it.
+    for (std::size_t i = base * 4; i < (base + shadowTexels) * 4; ++i) CHECK(both.texels[i] == shadowsOnly.texels[i]);
+    CHECK(texel(both, base + shadowTexels, 0) == 2.0f);
 }
 
 namespace {
@@ -325,7 +348,8 @@ bool overlap(const DecalTile& a, const DecalTile& b) {
 
 }  // namespace
 
-TEST_CASE("decal atlas: tiles are scaled to 1024, packed without overlap in a power-of-two square, and never depend on the input order") {
+TEST_CASE("decal atlas: tiles are scaled to 1024, packed without overlap in a power-of-two square, and never depend on "
+          "the input order") {
     CHECK_NOTHROW([] {
         int w = 0, h = 0;
         decal_tile_size(4096, 2048, w, h);
@@ -338,8 +362,9 @@ TEST_CASE("decal atlas: tiles are scaled to 1024, packed without overlap in a po
         CHECK(w == 1024);
         CHECK(h == 1);
     }());
-    const std::vector<DecalTexture> input = {{"b/dirt.png", 512, 512}, {"a/crack.png", 256, 256}, {"c/blood.png", 128, 300},
-                                             {"a/crack_n.png", 256, 256}, {"d/huge.png", 4000, 3000}, {"e/tiny.png", 8, 8}};
+    const std::vector<DecalTexture> input = {{"b/dirt.png", 512, 512},   {"a/crack.png", 256, 256},
+                                             {"c/blood.png", 128, 300},  {"a/crack_n.png", 256, 256},
+                                             {"d/huge.png", 4000, 3000}, {"e/tiny.png", 8, 8}};
     DecalAtlasLayout first = layout_decal_atlas(input, 4096);
     REQUIRE(first.tiles.size() == 6);
     CHECK(first.dropped.empty());
@@ -392,7 +417,8 @@ TEST_CASE("decal atlas: tiles are scaled to 1024, packed without overlap in a po
     CHECK(bad.dropped[0] == "x.png");
 }
 
-TEST_CASE("decal atlas: when the tiles do not fit the biggest ones are halved, then the last are left out; both are reported") {
+TEST_CASE("decal atlas: when the tiles do not fit the biggest ones are halved, then the last are left out; both are "
+          "reported") {
     // Four 1024 px tiles need 2048+ px of atlas; with a 1024 limit the biggest are halved until they fit.
     std::vector<DecalTexture> big;
     for (int i = 0; i < 4; ++i) big.push_back({"big" + std::to_string(i) + ".png", 1024, 1024});
@@ -421,7 +447,8 @@ TEST_CASE("decal atlas: when the tiles do not fit the biggest ones are halved, t
     CHECK(again.dropped == full.dropped);
 }
 
-TEST_CASE("decal atlas: build_decal_atlas copies each tile with a gutter that repeats its edge, and names what it could not read") {
+TEST_CASE("decal atlas: build_decal_atlas copies each tile with a gutter that repeats its edge, and names what it "
+          "could not read") {
     DecalSource src;
     src.size = [](const std::string& p) -> Result<ImageSize> {
         if (p == "missing.png") return make_error("file not found: missing.png");
@@ -451,7 +478,9 @@ TEST_CASE("decal atlas: build_decal_atlas copies each tile with a gutter that re
     REQUIRE(built.image.width == built.layout.width);
     REQUIRE(built.image.height == built.layout.height);
     REQUIRE(built.image.rgba.size() == std::size_t(built.image.width) * std::size_t(built.image.height) * 4);
-    auto at = [&](int x, int y) { return built.image.rgba.data() + (std::size_t(y) * std::size_t(built.image.width) + std::size_t(x)) * 4; };
+    auto at = [&](int x, int y) {
+        return built.image.rgba.data() + (std::size_t(y) * std::size_t(built.image.width) + std::size_t(x)) * 4;
+    };
     const DecalTile* a = built.layout.find("a.png");
     REQUIRE(a != nullptr);
     CHECK(a->w == 32);

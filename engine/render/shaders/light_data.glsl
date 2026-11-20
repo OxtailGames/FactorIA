@@ -11,12 +11,21 @@
 //                                      +0 xyz position (point/spot) or direction TO the light (directional), w range
 //                                      +1 rgb colour * intensity, w type (0 directional, 1 point, 2 spot)
 //                                      +2 xyz spot axis (the direction the light points), w cos(spot half angle)
-//                                      +3 x cos of the inner cone of a spot (2 = the default fade), yzw reserved (cookie, IES)
+//                                      +3 x cos of the inner cone of a spot (2 = the default fade), y z reserved (cookie, IES),
+//                                         w flags: 1 = Light.mode Baked (its direct light is in the lightmaps, M73.4a), else 0
 //   [fa_cl_info.x, + fa_cl_info.w)   one texel per cluster (slice-major, then row, then column): x = slot of its first light index,
 //                                    y = how many local lights it has, z = slot of its first decal index, w = how many decals it has
 //   after the clusters               the light indices, four to a texel (x, y, z, w); slot s is component s & 3 of the s >> 2 th
 //                                    texel of this region
-//   from fa_counts.y (0 = none)      the decals of the view (M73.5b, block fa_decals below): two header texels, 7 texels per decal, the
+//   after the light indices          the shadow region of the point and spot lights (M73.2b), only in a frame where one has a shadow
+//                                    map; its first texel is fa_shadow_lcfg.x - 1 (the fa_shadows block, shadow_common.glsl):
+//                                      [base, base + L)  light n: x = the texel of its record, or -1 (no shadow map this frame)
+//                                      then the records: 2 header texels (+0 kind 1 = one tile / 2 = six cube faces, fade distance,
+//                                      filter, softness k; +1 depth bias, normal bias) and 6 texels per tile: the four rows of the
+//                                      matrix world -> (u * w, v * w, -, w) of the atlas texture (w = metres along the tile's axis), the
+//                                      tile's rectangle (umin, vmin, umax, vmax), and (metres per texel at distance 1, near plane,
+//                                      far plane). Written by local_shadows.cpp, read by fa_shadow_local.
+//   from fa_counts.y (0 = none)      (after the shadow region when there is one) the decals of the view (M73.5b, block fa_decals below): two header texels, 7 texels per decal, the
 //                                    decal indices four to a texel
 // The directional lights come first in the light table (at most 32) and belong to every cluster; the local lights of a cluster are
 // in ascending index order, so a loop over "directional, then the cluster's list" adds the lights up in the order of the table.
@@ -29,6 +38,8 @@ vec4 fa_light_texel(int t) {
 vec3 fa_light_rgb(int li) { return fa_light_texel(li * 4 + 1).rgb; }
 // The type of light li: 0 directional, 1 point, 2 spot.
 float fa_light_type(int li) { return fa_light_texel(li * 4 + 1).w; }
+// Whether light li is baked (Light.mode Baked): a lightmapped fragment skips it, its direct light is in the lightmap.
+bool fa_light_baked(int li) { return fa_light_texel(li * 4 + 3).w > 0.5; }
 
 // Light li of the table as seen from a world position, without its shadow: the direction to it, its color times intensity times
 // attenuation, the attenuation, the distance and the type. shadow is 1.
@@ -136,9 +147,11 @@ vec4 fa_decal_tile(vec4 rect, vec2 uv, vec2 atlas, vec2 ddx, vec2 ddy) {
 // face looks, for the angle fade), `albedo` and `normal` (the shading normal, in the world) are changed. Call it once, in uniform control flow
 // (it takes derivatives), before the lights. Nothing happens while the view has no decals or the mesh does not receive them.
 void fa_apply_decals(vec3 world_pos, vec3 geo_normal, inout vec3 albedo, inout vec3 normal) {
+    // The two tests are on uniforms (the view and the draw), so every fragment of a quad takes the same branch and the derivatives below
+    // stay in uniform control flow; the cluster's decal count (per fragment) is only tested after them.
+    if (fa_counts.y < 0.5 || fa_counts.w < 0.5) { return; }
     vec3 dpx = dFdx(world_pos);
     vec3 dpy = dFdy(world_pos);
-    if (fa_counts.y < 0.5 || fa_counts.w < 0.5) { return; }
     vec4 cl = fa_cluster_texel(world_pos);
     int dcount = int(cl.w);
     if (dcount < 1) { return; }

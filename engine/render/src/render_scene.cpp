@@ -140,6 +140,7 @@ void RenderScene::build(World& world, Assets& assets, Entity scopeRoot, bool wan
     // resolved, also one no camera shows (a tag filter, outside every frustum): a broken path warns once even then.
     std::vector<MaterialHashCache::Entry*>& entries = entries_;
     entries.assign(meshes_.size(), nullptr);
+    const LightmapSetAsset* lightmaps = assets.lightmaps(world.settings().lightmaps);
     for (std::size_t i = 0; i < meshes_.size(); ++i) {
         SceneMesh& sm = meshes_[i];
         const MeshRenderer& mr = *sm.mr;
@@ -161,6 +162,14 @@ void RenderScene::build(World& world, Assets& assets, Entity scopeRoot, bool wan
             sm.material = nullptr;
         }
         sm.normalTex = mr.normalMap.empty() ? nullptr : assets.texture(mr.normalMap);
+        // A baked lightmap lights the entity when the manifest lists it (by its stable id) with this very mesh. The engine's own shader
+        // reads it; so does a custom mesh material that declares "uv1" in vertexAttributes (the lightmap UV travels in that channel); a
+        // full-shader material, one drawn from compute buffers and one without the channel do not, and are lit as without a lightmap.
+        const bool materialReads =
+            !sm.material || (sm.material->ok && !sm.material->full && sm.material->buffers.empty() && sm.material->uv1);
+        if (lightmaps && mr.receiveGI && mr.lightmapScale > 0.0f && materialReads)
+            assets.lightmap_use(*lightmaps, world.id_of(sm.entity), *sm.mesh,
+                                mr.mesh.empty() ? std::string("cube") : mr.mesh, sm.lm);
         sm.hasLods = !mr.lods.empty();
         sm.liveTextures = Assets::is_target_id(mr.texture) || Assets::is_target_id(mr.normalMap);
         const bool params = sm.material && mr.materialParams.is_object() && !mr.materialParams.empty();
@@ -208,6 +217,7 @@ void RenderScene::build(World& world, Assets& assets, Entity scopeRoot, bool wan
                 sm.colorsHash = en->colorsHash;
             }
             mesh_cull_bounds(*sm.mesh, world.get<Animator>(sm.entity), sm.bmin, sm.bmax, sm.anim);
+            if (sm.anim) sm.lm = {};  // a skinned mesh is deformed: its baked light would not follow it
             sm.blended = mesh_is_blended(mr, *sm.mesh, sm.material);
             if (sm.material && !sm.material->buffers.empty()) {
                 // A mesh drawn from compute buffers (mesh_buffer_draw.h) is a batch of its own (the entity is part of
@@ -236,8 +246,9 @@ void RenderScene::build(World& world, Assets& assets, Entity scopeRoot, bool wan
     lodNames_.clear();
     for (std::size_t i = 0; i < meshes_.size(); ++i) {
         const SceneMesh& sm = meshes_[i];
-        fields_[i] = {sm.mesh, sm.tex,      sm.normalTex,  sm.mr,         sm.entity,
-                      sm.anim, sm.material, sm.paramsHash, sm.colorsHash, sm.flash};
+        fields_[i] = {sm.mesh,       sm.tex,   sm.normalTex,         sm.mr,
+                      sm.entity,     sm.anim,  sm.material,          sm.paramsHash,
+                      sm.colorsHash, sm.flash, sm.lm.mesh != nullptr};
         if (!sm.hasLods || !sm.mr->lods.is_array()) continue;
         for (const Json& e : sm.mr->lods) {
             if (!e.is_object()) continue;
