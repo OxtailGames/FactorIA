@@ -1,5 +1,5 @@
-// Radiance RGBE (.hdr) reader and writer (fa/core/image_float.h). Format: Greg Ward, "Real Pixels" (Graphics Gems II) and
-// the Radiance file format notes: a text header, a resolution line, then one scanline per row, each pixel 4 bytes
+// Radiance RGBE (.hdr) reader and writer (fa/core/image_float.h). Format: Greg Ward, "Real Pixels" (Graphics Gems II)
+// and the Radiance file format notes: a text header, a resolution line, then one scanline per row, each pixel 4 bytes
 // (R, G, B mantissas and a shared exponent).
 #include <algorithm>
 #include <cmath>
@@ -37,13 +37,14 @@ std::string shown(std::string_view text) {
     return s;
 }
 
-enum class LineStatus { Ok, Truncated, TooLong };
+enum class LineStatus { Ok, Truncated, TooLong, HeaderTooBig };
 
 // One header line from `pos` (without its "\n" and an optional "\r"); `pos` moves past the "\n".
 LineStatus read_line(const std::uint8_t* data, std::size_t size, std::size_t& pos, std::string_view& line) {
     const std::size_t start = pos;
     while (pos < size && data[pos] != '\n') {
-        if (pos - start >= kMaxHeaderLine || pos >= kMaxHeaderBytes) return LineStatus::TooLong;
+        if (pos >= kMaxHeaderBytes) return LineStatus::HeaderTooBig;
+        if (pos - start >= kMaxHeaderLine) return LineStatus::TooLong;
         ++pos;
     }
     if (pos >= size) return LineStatus::Truncated;
@@ -54,15 +55,16 @@ LineStatus read_line(const std::uint8_t* data, std::size_t size, std::size_t& po
     return LineStatus::Ok;
 }
 
-// A positive decimal number ("2.5", "1e-3"), parsed without the C locale (a decimal comma must not change a file's meaning).
+// A positive decimal number ("2.5", "1e-3"), parsed without the C locale (a decimal comma must not change a file's
+// meaning).
 std::optional<double> parse_positive_number(std::string_view s) {
-    std::size_t i = 0;
-    while (i < s.size() && (s[i] == ' ' || s[i] == '\t')) ++i;
+    std::size_t lead = 0;
+    while (lead < s.size() && (s[lead] == ' ' || s[lead] == '\t')) ++lead;
     std::size_t end = s.size();
-    while (end > i && (s[end - 1] == ' ' || s[end - 1] == '\t')) --end;
-    s = s.substr(i, end - i);
+    while (end > lead && (s[end - 1] == ' ' || s[end - 1] == '\t')) --end;
+    s = s.substr(lead, end - lead);
     double mantissa = 0;
-    int exp10 = 0, digits = 0;
+    int decimalExp = 0, digits = 0;
     bool seenDot = false;
     std::size_t k = 0;
     for (; k < s.size(); ++k) {
@@ -73,9 +75,9 @@ std::optional<double> parse_positive_number(std::string_view s) {
             ++digits;
             if (digits <= 18) {
                 mantissa = mantissa * 10 + (ch - '0');
-                if (seenDot) --exp10;
+                if (seenDot) --decimalExp;
             } else if (!seenDot) {
-                ++exp10;  // digits beyond the precision still scale the number
+                ++decimalExp;  // digits beyond the precision still scale the number
             }
         } else {
             break;
@@ -89,14 +91,15 @@ std::optional<double> parse_positive_number(std::string_view s) {
         int e = 0, edigits = 0;
         for (; k < s.size() && s[k] >= '0' && s[k] <= '9'; ++k, ++edigits) e = std::min(e * 10 + (s[k] - '0'), 10000);
         if (edigits == 0) return std::nullopt;
-        exp10 += neg ? -e : e;
+        decimalExp += neg ? -e : e;
     }
     if (k != s.size()) return std::nullopt;
     if (mantissa == 0) return 0.0;
-    // Scaling by 10 one step at a time (not std::pow: no C library maths in code that decides what a file means); beyond
-    // e+-400 the result is infinity or 0 anyway, and a caller refuses both.
+    // Scaling by 10 one step at a time (not std::pow: no C library maths in code that decides what a file means);
+    // beyond e+-400 the result is infinity or 0 anyway, and a caller refuses both.
     double value = mantissa;
-    for (int i = 0, n = std::min(std::abs(exp10), 400); i < n; ++i) value = exp10 >= 0 ? value * 10.0 : value / 10.0;
+    const int steps = std::min(std::abs(decimalExp), 400);
+    for (int step = 0; step < steps; ++step) value = decimalExp >= 0 ? value * 10.0 : value / 10.0;
     return value;
 }
 
@@ -140,16 +143,18 @@ struct ScanlineFailure {
     std::string what;
 };
 
-// Reads one row of `w` RGBE pixels at `pos` into `row` (w * 4 bytes). False with `fail` set on truncated or corrupt data.
-bool read_scanline(const std::uint8_t* d, std::size_t n, std::size_t& pos, int w, std::uint8_t* row, ScanlineFailure& fail) {
+// Reads one row of `w` RGBE pixels at `pos` into `row` (w * 4 bytes). False with `fail` set on truncated or corrupt
+// data.
+bool read_scanline(const std::uint8_t* d, std::size_t n, std::size_t& pos, int w, std::uint8_t* row,
+                   ScanlineFailure& fail) {
     const std::size_t width = std::size_t(w);
     auto truncated = [&](std::size_t at) {
         fail = {at, "the file ends in the middle of a row"};
         return false;
     };
     if (w >= 8 && w <= 32767 && n - pos >= 4 && d[pos] == 2 && d[pos + 1] == 2 && (d[pos + 2] & 0x80) == 0) {
-        // New-style run-length scanline: the marker (2, 2, width high, width low), then each of the four channels in turn
-        // as runs (code > 128: code - 128 copies of the next byte) and literals (code 1..128: that many bytes).
+        // New-style run-length scanline: the marker (2, 2, width high, width low), then each of the four channels in
+        // turn as runs (code > 128: code - 128 copies of the next byte) and literals (code 1..128: that many bytes).
         const std::size_t claimed = (std::size_t(d[pos + 2]) << 8) | d[pos + 3];
         if (claimed != width) {
             fail = {pos, std::format("a run-length row is {} pixels wide but the header says {}", claimed, w)};
@@ -190,8 +195,8 @@ bool read_scanline(const std::uint8_t* d, std::size_t n, std::size_t& pos, int w
         }
         return true;
     }
-    // Flat pixels, with the old-style repeat marker (1, 1, 1, n): n more copies of the pixel before it, and each marker that
-    // follows another is worth 256 times more (n << 8, n << 16).
+    // Flat pixels, with the old-style repeat marker (1, 1, 1, n): n more copies of the pixel before it, and each
+    // marker that follows another is worth 256 times more (n << 8, n << 16).
     std::size_t x = 0;
     unsigned shift = 0;
     while (x < width) {
@@ -227,15 +232,17 @@ bool read_scanline(const std::uint8_t* d, std::size_t n, std::size_t& pos, int w
 }  // namespace
 
 Result<ImageF> decode_hdr(const std::uint8_t* data, std::size_t size) {
-    if (!data || size == 0)
-        return hdr_error(0, "the file is empty");
+    if (!data || size == 0) return hdr_error(0, "the file is empty");
     std::size_t pos = 0;
     std::string_view line;
-    auto line_error = [&](LineStatus st, const char* where) {
-        return st == LineStatus::TooLong
-                   ? hdr_error(pos, std::format("a header line is longer than {} bytes ({}): this is not a Radiance file",
-                                                kMaxHeaderLine, where))
-                   : hdr_error(size, std::format("the file ends inside the header ({})", where));
+    auto line_error = [&](LineStatus status, const char* where) {
+        if (status == LineStatus::HeaderTooBig)
+            return hdr_error(pos, std::format("the header is longer than {} bytes ({}): this is not a Radiance file",
+                                              kMaxHeaderBytes, where));
+        if (status == LineStatus::TooLong)
+            return hdr_error(pos, std::format("a header line is longer than {} bytes ({}): this is not a Radiance file",
+                                              kMaxHeaderLine, where));
+        return hdr_error(size, std::format("the file ends inside the header ({})", where));
     };
 
     // 1. The signature line.
@@ -253,7 +260,8 @@ Result<ImageF> decode_hdr(const std::uint8_t* data, std::size_t size) {
         const std::size_t lineStart = pos;
         st = read_line(data, size, pos, line);
         if (st != LineStatus::Ok) return line_error(st, "before the empty line that ends it");
-        if (pos > kMaxHeaderBytes) return hdr_error(lineStart, std::format("the header is longer than {} bytes", kMaxHeaderBytes));
+        if (pos > kMaxHeaderBytes)
+            return hdr_error(lineStart, std::format("the header is longer than {} bytes", kMaxHeaderBytes));
         if (line.empty()) break;
         if (line[0] == '#') continue;
         if (starts_with(line, "FORMAT=")) {
@@ -285,12 +293,13 @@ Result<ImageF> decode_hdr(const std::uint8_t* data, std::size_t size) {
         return hdr_error(resStart, std::format("the resolution line '{}' is not '-Y <height> +X <width>'", shown(line)),
                          "Re-save the picture as a standard Radiance HDR file: its size line reads '-Y 512 +X 1024'.");
     if (tokens[0] != "-Y" || tokens[2] != "+X")
-        return hdr_error(resStart,
-                         std::format("the orientation '{}' is not supported (the rows must run top to bottom and left "
-                                     "to right: '-Y <height> +X <width>')",
-                                     shown(line)),
-                         "Flip or rotate the picture in your image editor, or re-export it from your HDRI tool with the "
-                         "default orientation, so that its size line reads '-Y <height> +X <width>'.");
+        return hdr_error(
+            resStart,
+            std::format("the orientation '{}' is not supported (the rows must run top to bottom and left "
+                        "to right: '-Y <height> +X <width>')",
+                        shown(line)),
+            "Flip or rotate the picture in your image editor, or re-export it from your HDRI tool with the "
+            "default orientation, so that its size line reads '-Y <height> +X <width>'.");
     const auto parsedH = parse_int(tokens[1]), parsedW = parse_int(tokens[3]);
     if (!parsedH || !parsedW || *parsedH < 1 || *parsedW < 1)
         return hdr_error(resStart, std::format("the size '{}' is not two positive whole numbers", shown(line)));
@@ -359,7 +368,7 @@ void to_rgbe(float r, float g, float b, std::uint8_t out[4]) {
     int e = 0;
     std::frexp(maxc, &e);  // maxc = f * 2^e, f in [0.5, 1)
     e = std::min(e, 127);  // above 2^127 the mantissas saturate at 255: the largest value
-    int m[3];
+    int m[3] = {0, 0, 0};
     auto mantissas = [&] {
         for (int c = 0; c < 3; ++c) m[c] = int(std::lround(std::ldexp(v[c], -e) * 256.0f));
     };
@@ -412,7 +421,8 @@ std::vector<std::uint8_t> encode_hdr(const ImageF& image) {
         return out;
     std::string header = "#?RADIANCE\nFORMAT=32-bit_rle_rgbe\n";
     if (std::isfinite(image.exposure) && image.exposure > 0.0f && image.exposure != 1.0f)
-        header += std::format("EXPOSURE={}\n", image.exposure);
+        header +=
+            std::format("EXPOSURE={}\n", std::clamp(image.exposure, 1.0e-30f, 1.0e30f));  // what decode_hdr accepts
     header += std::format("\n-Y {} +X {}\n", image.height, image.width);
     out.assign(header.begin(), header.end());
     const bool rle = image.width >= 8 && image.width <= 32767;

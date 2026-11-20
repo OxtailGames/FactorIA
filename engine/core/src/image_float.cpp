@@ -31,34 +31,37 @@ float linear_to_srgb(float linear) {
     return linear <= 0.0031308f ? linear * 12.92f : 1.055f * std::pow(linear, 1.0f / 2.4f) - 0.055f;
 }
 
-Result<ImageF> ImageF::create(int width, int height, int channels) {
-    if (width < 1 || height < 1)
-        return make_error(std::format("Cannot create a float image of {} x {} pixels: both sides must be at least 1", width,
-                                      height),
+Result<ImageF> ImageF::create(int newWidth, int newHeight, int channelCount) {
+    if (newWidth < 1 || newHeight < 1)
+        return make_error(std::format("Cannot create a float image of {} x {} pixels: both sides must be at least 1",
+                                      newWidth, newHeight),
                           "Give a positive width and height.");
-    if (width > kMaxImageFloatSide || height > kMaxImageFloatSide)
+    if (newWidth > kMaxImageFloatSide || newHeight > kMaxImageFloatSide)
         return make_error(std::format("Cannot create a float image of {} x {} pixels: the longest side the engine "
                                       "handles is {}",
-                                      width, height, kMaxImageFloatSide),
+                                      newWidth, newHeight, kMaxImageFloatSide),
                           "Scale the image down (an 8192 x 4096 panorama is enough for an environment map).");
-    if (channels != 3 && channels != 4)
-        return make_error(std::format("Cannot create a float image with {} channels: only 3 (RGB) or 4 (RGBA)", channels),
-                          "Use 3 for colour only or 4 for colour and alpha.");
-    const std::uint64_t bytes = image_float_bytes(width, height, channels);
+    if (channelCount != 3 && channelCount != 4)
+        return make_error(
+            std::format("Cannot create a float image with {} channels: only 3 (RGB) or 4 (RGBA)", channelCount),
+            "Use 3 for colour only or 4 for colour and alpha.");
+    const std::uint64_t bytes = image_float_bytes(newWidth, newHeight, channelCount);
     if (bytes > kMaxImageFloatBytes)
         return make_error(std::format("Cannot create a float image of {} x {} pixels with {} channels: it needs {} MB, "
                                       "more than the {} MB the engine allows",
-                                      width, height, channels, bytes / (1024 * 1024), kMaxImageFloatBytes / (1024 * 1024)),
+                                      newWidth, newHeight, channelCount, bytes / (1024 * 1024),
+                                      kMaxImageFloatBytes / (1024 * 1024)),
                           "Scale the image down: halving both sides takes a quarter of the memory.");
     ImageF img;
-    img.width = width;
-    img.height = height;
-    img.channels = channels;
+    img.width = newWidth;
+    img.height = newHeight;
+    img.channels = channelCount;
     try {
         img.data.assign(std::size_t(bytes / sizeof(float)), 0.0f);
     } catch (const std::bad_alloc&) {
-        return make_error(std::format("Cannot create a float image of {} x {} pixels: out of memory", width, height),
-                          "Close other programs or scale the image down.");
+        return make_error(
+            std::format("Cannot create a float image of {} x {} pixels: out of memory", newWidth, newHeight),
+            "Close other programs or scale the image down.");
     }
     return img;
 }
@@ -159,7 +162,8 @@ Result<ImageF> ImageF::resized(int newWidth, int newHeight) const {
     }
     const auto xTaps = make_taps(width, newWidth), yTaps = make_taps(height, newHeight);
     const std::size_t ch = std::size_t(channels);
-    // Horizontal pass into a width' x height strip, then the vertical pass: two passes keep the cost linear in the taps.
+    // Horizontal pass into a width' x height strip, then the vertical pass: two passes keep the cost linear in the
+    // taps.
     auto tmp = ImageF::create(newWidth, height, channels);
     if (!tmp) return tmp.error();
     for (int y = 0; y < height; ++y)
@@ -181,27 +185,27 @@ Result<ImageF> ImageF::resized(int newWidth, int newHeight) const {
     return out;
 }
 
-Result<ImageF> ImageF::from_image(const Image& image, bool srgb, float exposure, int channels) {
+Result<ImageF> ImageF::from_image(const Image& image, bool srgb, float gain, int channelCount) {
     if (image.empty() || image.rgba.size() < std::size_t(image.width) * std::size_t(image.height) * 4)
         return make_error("Cannot convert an empty image to float", "Load or create the image first.");
-    auto out = ImageF::create(image.width, image.height, channels);
+    auto out = ImageF::create(image.width, image.height, channelCount);
     if (!out) return out.error();
     float lut[256];
     for (int i = 0; i < 256; ++i) lut[i] = srgb ? srgb_to_linear(float(i) / 255.0f) : float(i) / 255.0f;
     const std::size_t count = std::size_t(image.width) * std::size_t(image.height);
-    const std::size_t ch = std::size_t(channels);
+    const std::size_t ch = std::size_t(channelCount);
     for (std::size_t i = 0; i < count; ++i) {
         const std::uint8_t* s = &image.rgba[i * 4];
         float* d = &out->data[i * ch];
-        d[0] = lut[s[0]] * exposure;
-        d[1] = lut[s[1]] * exposure;
-        d[2] = lut[s[2]] * exposure;
+        d[0] = lut[s[0]] * gain;
+        d[1] = lut[s[1]] * gain;
+        d[2] = lut[s[2]] * gain;
         if (ch == 4) d[3] = float(s[3]) / 255.0f;
     }
     return out;
 }
 
-Image ImageF::to_image(bool srgb, float exposure) const {
+Image ImageF::to_image(bool srgb, float gain) const {
     Image img;
     if (empty()) return img;
     img.width = width;
@@ -210,7 +214,7 @@ Image ImageF::to_image(bool srgb, float exposure) const {
     const std::size_t count = std::size_t(width) * std::size_t(height);
     const std::size_t ch = std::size_t(channels);
     auto byte = [&](float v) {
-        float c = v * exposure;
+        float c = v * gain;
         if (!(c > 0.0f)) c = 0.0f;  // also NaN
         if (c > 1.0f) c = 1.0f;
         if (srgb) c = linear_to_srgb(c);

@@ -42,7 +42,8 @@ ImageF random_image(int w, int h, int channels, std::uint32_t seed, float range)
     return img;
 }
 
-// RGBE keeps 8 bits of the largest channel of a pixel: every channel is within 1/256 of it (a little more for float rounding).
+// RGBE keeps 8 bits of the largest channel of a pixel: every channel is within 1/256 of it (a little more for float
+// rounding).
 void check_within_rgbe(const ImageF& a, const ImageF& b) {
     REQUIRE(a.width == b.width);
     REQUIRE(a.height == b.height);
@@ -106,12 +107,14 @@ TEST_CASE("hdr: special values: black, tiny, huge, negative, NaN and infinity") 
 
 TEST_CASE("hdr: EXPOSURE is parsed, multiplied, recorded and written back") {
     const Bytes pixels = {128, 64, 32, 129};
-    Bytes file = text("#?RGBE\nSOFTWARE=test\nEXPOSURE=2.5\n# a comment\nEXPOSURE=2\nFORMAT=32-bit_rle_rgbe\n\n-Y 1 +X 1\n");
+    Bytes file =
+        text("#?RGBE\nSOFTWARE=test\nEXPOSURE=2.5\n# a comment\nEXPOSURE=2\nFORMAT=32-bit_rle_rgbe\n\n-Y 1 +X 1\n");
     file.insert(file.end(), pixels.begin(), pixels.end());
     auto img = decode_hdr(file.data(), file.size());
     REQUIRE(img.ok());
     CHECK(img->exposure == doctest::Approx(5.0f));
-    CHECK(img->pixel(0, 0).r == doctest::Approx(1.0f));  // 128 * 2^(129 - 136); the pixels are not divided by the exposure
+    CHECK(img->pixel(0, 0).r ==
+          doctest::Approx(1.0f));  // 128 * 2^(129 - 136); the pixels are not divided by the exposure
     CHECK(img->pixel(0, 0).g == doctest::Approx(0.5f));
     CHECK(img->pixel(0, 0).b == doctest::Approx(0.25f));
     const Bytes again = encode_hdr(*img);
@@ -135,10 +138,10 @@ TEST_CASE("hdr: EXPOSURE is parsed, multiplied, recorded and written back") {
 
 TEST_CASE("hdr: a hand-made flat file (width below 8)") {
     Bytes px;
-    append(px, {128, 64, 0, 129});  // 1.0, 0.5, 0
-    append(px, {0, 0, 0, 0});       // black
-    append(px, {255, 128, 1, 128}); // 255/256, 0.5, 1/256
-    append(px, {10, 20, 30, 0});    // exponent 0: black whatever the mantissas
+    append(px, {128, 64, 0, 129});   // 1.0, 0.5, 0
+    append(px, {0, 0, 0, 0});        // black
+    append(px, {255, 128, 1, 128});  // 255/256, 0.5, 1/256
+    append(px, {10, 20, 30, 0});     // exponent 0: black whatever the mantissas
     const Bytes file = file_with("-Y 1 +X 4", px);
     auto img = decode_hdr(file.data(), file.size());
     REQUIRE(img.ok());
@@ -156,10 +159,10 @@ TEST_CASE("hdr: a hand-made flat file (width below 8)") {
 TEST_CASE("hdr: a hand-made new-style RLE file (runs and literals, one row of 8 and one of 200)") {
     Bytes px;
     append(px, {2, 2, 0, 8});
-    append(px, {128 + 8, 128});                         // R: 8 x 128
-    append(px, {8, 1, 2, 3, 4, 5, 6, 7, 8});            // G: literal of 8
-    append(px, {3, 0, 0, 255, 128 + 5, 7});             // B: literal 3, then a run of 5
-    append(px, {128 + 8, 129});                         // E: 8 x 129
+    append(px, {128 + 8, 128});               // R: 8 x 128
+    append(px, {8, 1, 2, 3, 4, 5, 6, 7, 8});  // G: literal of 8
+    append(px, {3, 0, 0, 255, 128 + 5, 7});   // B: literal 3, then a run of 5
+    append(px, {128 + 8, 129});               // E: 8 x 129
     // Second row, 200 wide: every channel one run of 100 and one literal of 100 (a literal holds at most 128).
     Bytes row2;
     append(row2, {2, 2, 0, 200});
@@ -247,6 +250,32 @@ TEST_CASE("hdr: headers that are refused teach what to do") {
     Bytes longLine = text("#?RADIANCE\n");
     longLine.insert(longLine.end(), 5000, 'a');
     refuse(longLine, "longer");
+    Bytes manyLines = text("#?RADIANCE\n");
+    for (int i = 0; i < 1500; ++i) {
+        const Bytes comment = text("# a comment line of some length\n");
+        manyLines.insert(manyLines.end(), comment.begin(), comment.end());
+    }
+    refuse(manyLines, "header is longer than 16384");
+}
+
+TEST_CASE("hdr: encode_hdr never writes an EXPOSURE that decode_hdr refuses") {
+    for (float exposure : {1.0e35f, 1.0e-35f, 3.0e38f, 1.0e30f, 1.0e-30f}) {
+        ImageF img = random_image(4, 2, 3, 3, 2.0f);
+        img.exposure = exposure;
+        const Bytes bytes = encode_hdr(img);
+        auto back = decode_hdr(bytes.data(), bytes.size());
+        REQUIRE(back.ok());
+        CHECK(back->exposure >= 0.99e-30f);
+        CHECK(back->exposure <= 1.01e30f);
+    }
+    for (float exposure : {0.0f, -2.0f, std::nanf(""), INFINITY}) {  // no usable exposure: no EXPOSURE line
+        ImageF img = random_image(4, 2, 3, 3, 2.0f);
+        img.exposure = exposure;
+        const Bytes bytes = encode_hdr(img);
+        auto back = decode_hdr(bytes.data(), bytes.size());
+        REQUIRE(back.ok());
+        CHECK(back->exposure == 1.0f);
+    }
 }
 
 TEST_CASE("hdr: a header that claims too much is refused before any pixel memory is asked for") {
@@ -316,9 +345,18 @@ TEST_CASE("hdr: corrupt bytes never crash (every byte of a small file replaced b
 
 TEST_CASE("hdr: save_hdr and load_hdr go through the file layer, also under a folder with accents") {
     namespace stdfs = std::filesystem;
-    const stdfs::path oldRoot = fs::project_root();
-    const stdfs::path dir = fs::make_temp_dir("fa_test_hdr").value();
-    fs::set_project_root(dir);
+    // Puts the project root back and removes the folder even when a REQUIRE below ends the test early.
+    struct RootGuard {
+        stdfs::path oldRoot = fs::project_root();
+        stdfs::path dir = fs::make_temp_dir("fa_test_hdr").value();
+        RootGuard() { fs::set_project_root(dir); }
+        ~RootGuard() {
+            fs::set_project_root(oldRoot);
+            std::error_code ec;
+            stdfs::remove_all(dir, ec);
+        }
+    } guard;
+    const stdfs::path& dir = guard.dir;
     const ImageF img = random_image(33, 9, 3, 77, 6.0f);
     const std::string rel = fs::path_to_utf8(stdfs::path(u8"assets/cañón niño/sky.hdr"));
     REQUIRE(save_hdr(img, rel).ok());
@@ -334,10 +372,6 @@ TEST_CASE("hdr: save_hdr and load_hdr go through the file layer, also under a fo
     REQUIRE_FALSE(bad.ok());
     CHECK(bad.error().message.find("assets/bad.hdr") != std::string::npos);
     CHECK_FALSE(save_hdr(ImageF{}, "assets/empty.hdr").ok());
-
-    fs::set_project_root(oldRoot);
-    std::error_code ec;
-    stdfs::remove_all(dir, ec);
 }
 
 TEST_CASE("image_float: sRGB conversion round trips every byte") {
@@ -367,7 +401,8 @@ TEST_CASE("image_float: sRGB conversion round trips every byte") {
         CHECK(back.rgba == img.rgba);
     }
     auto lin = ImageF::from_image(img, true);
-    CHECK(lin->pixel(0, 8).a == doctest::Approx(float(img.rgba[128 * 4 + 3]) / 255.0f));  // pixel 128: alpha stays linear
+    CHECK(lin->pixel(0, 8).a ==
+          doctest::Approx(float(img.rgba[128 * 4 + 3]) / 255.0f));  // pixel 128: alpha stays linear
     CHECK(lin->pixel(0, 8).r == doctest::Approx(srgb_to_linear(128.0f / 255.0f)));
 
     // Exposure scales the colour only; a value above 1 is white; RGB images get an opaque alpha.
@@ -434,7 +469,8 @@ TEST_CASE("image_float: resized averages by area when shrinking and is bilinear 
     float sum = 0;
     for (int x = 0; x < 3; ++x) sum += third->pixel(x, 0).g;
     CHECK(sum == doctest::Approx(3.0f));  // weights sum to 1: a constant stays constant
-    CHECK(third->pixel(0, 0).r == doctest::Approx(2.25f));  // rows: (0 + 1/3) / (4/3) = 0.25 and (4 + 5/3) / (4/3) = 4.25
+    CHECK(third->pixel(0, 0).r ==
+          doctest::Approx(2.25f));  // rows: (0 + 1/3) / (4/3) = 0.25 and (4 + 5/3) / (4/3) = 4.25
 
     auto big = img.resized(8, 4);
     REQUIRE(big.ok());

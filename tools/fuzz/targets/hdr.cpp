@@ -1,6 +1,6 @@
-// fa::decode_hdr (Radiance RGBE) on any bytes: a header that claims a huge picture is an error, not an allocation, a decoded
-// picture holds exactly width x height x 3 finite non-negative floats, and what encode_hdr writes of it decodes again to the
-// same size.
+// fa::decode_hdr (Radiance RGBE) on any bytes: a header that claims a huge picture is an error, not an allocation, a
+// decoded picture holds exactly width x height x 3 finite non-negative floats, and what encode_hdr writes of it
+// decodes again to the same size.
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
