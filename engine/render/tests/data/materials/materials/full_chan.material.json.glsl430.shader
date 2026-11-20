@@ -1,7 +1,7 @@
 {
   "format": "factoria.shader/1",
   "engine": "0.32.0",
-  "template": "988cfc1c160a2406bf9dc799340ab0aac9eeed94208cd8193e37bfb0d2577a5b",
+  "template": "142eb0b65529d068a92ca38457d0560f5a5e559241bda385ede47eaf9b1c4238",
   "slang": "glsl430",
   "params": [],
   "textures": [],
@@ -25,7 +25,7 @@
   ],
   "programs": {
     "mesh": {
-      "vs": "#version 430\n\nuniform vec4 fa_mesh_vs_params[10];\nlayout(location = 9) in vec2 fa_attr_uv1;\nlayout(location = 10) in vec4 fa_attr_color1;\nlayout(location = 0) out vec4 v_color;\nlayout(location = 1) out vec2 v_uv;\nlayout(location = 0) in vec3 fa_position;\nlayout(location = 5) in vec4 fa_inst_m0;\nlayout(location = 6) in vec4 fa_inst_m1;\nlayout(location = 7) in vec4 fa_inst_m2;\nlayout(location = 8) in vec4 fa_inst_m3;\nlayout(location = 1) in vec3 fa_normal;\nlayout(location = 2) in vec2 fa_texcoord0;\nlayout(location = 3) in vec4 fa_tangent;\nlayout(location = 4) in vec4 fa_color;\nvec2 vertex_uv1;\nvec4 vertex_color1;\nmat4 fa_model;\n\nvoid fa_inst_begin()\n{\n    vertex_uv1 = fa_attr_uv1;\n    vertex_color1 = fa_attr_color1;\n}\n\nvec3 fa_world_position(vec3 p)\n{\n    return (fa_model * vec4(p, 1.0)).xyz;\n}\n\nvoid fa_user_main()\n{\n    v_color = vertex_color1;\n    v_uv = vertex_uv1;\n    vec3 param = fa_position;\n    gl_Position = mat4(fa_mesh_vs_params[0], fa_mesh_vs_params[1], fa_mesh_vs_params[2], fa_mesh_vs_params[3]) * vec4(fa_world_position(param), 1.0);\n}\n\nvoid main()\n{\n    fa_inst_begin();\n    fa_model = mat4(fa_inst_m0, fa_inst_m1, fa_inst_m2, fa_inst_m3);\n    fa_user_main();\n}\n\n",
+      "vs": "#version 430\n\nuniform vec4 fa_mesh_vs_params[11];\nlayout(location = 9) in vec2 fa_attr_uv1;\nlayout(location = 10) in vec4 fa_attr_color1;\nlayout(location = 0) out vec4 v_color;\nlayout(location = 1) out vec2 v_uv;\nlayout(location = 0) in vec3 fa_position;\nlayout(location = 5) in vec4 fa_inst_m0;\nlayout(location = 6) in vec4 fa_inst_m1;\nlayout(location = 7) in vec4 fa_inst_m2;\nlayout(location = 8) in vec4 fa_inst_m3;\nlayout(location = 1) in vec3 fa_normal;\nlayout(location = 2) in vec2 fa_texcoord0;\nlayout(location = 3) in vec4 fa_tangent;\nlayout(location = 4) in vec4 fa_color;\nvec2 vertex_uv1;\nvec4 vertex_color1;\nmat4 fa_model;\n\nvoid fa_inst_begin()\n{\n    vertex_uv1 = fa_attr_uv1;\n    vertex_color1 = fa_attr_color1;\n}\n\nvec3 fa_world_position(vec3 p)\n{\n    return (fa_model * vec4(p, 1.0)).xyz;\n}\n\nvoid fa_user_main()\n{\n    v_color = vertex_color1;\n    v_uv = vertex_uv1;\n    vec3 param = fa_position;\n    gl_Position = mat4(fa_mesh_vs_params[0], fa_mesh_vs_params[1], fa_mesh_vs_params[2], fa_mesh_vs_params[3]) * vec4(fa_world_position(param), 1.0);\n}\n\nvoid main()\n{\n    fa_inst_begin();\n    fa_model = mat4(fa_inst_m0, fa_inst_m1, fa_inst_m2, fa_inst_m3);\n    fa_user_main();\n}\n\n",
       "fs": "#version 430\n\nlayout(location = 0) out vec4 fa_frag_color;\nlayout(location = 0) in vec4 v_color;\nlayout(location = 1) in vec2 v_uv;\n\nvoid fa_inst_load()\n{\n}\n\nvoid fa_user_main()\n{\n    fa_frag_color = vec4(v_color.xyz * (v_uv.x * 2.0), 1.0);\n}\n\nvoid main()\n{\n    fa_inst_load();\n    fa_user_main();\n}\n\n",
       "reflection": {
         "vertex_func": {
@@ -106,13 +106,13 @@
           {
             "slot": 0,
             "stage": "vertex",
-            "size": 160,
+            "size": 176,
             "struct_name": "fa_mesh_vs_params",
             "inst_name": "_59",
             "glsl_uniforms": [
               {
                 "type": "vec4",
-                "array_count": 10,
+                "array_count": 11,
                 "offset": 0,
                 "glsl_name": "fa_mesh_vs_params"
               }
@@ -122,7 +122,7 @@
       }
     },
     "mesh_skin": {
-      "vs": "#version 430\n\nuniform vec4 fa_skin[192];\nuniform vec4 fa_mesh_vs_params[10];\nlayout(location = 11) in vec2 fa_attr_uv1;\nlayout(location = 12) in vec4 fa_attr_color1;\nlayout(location = 0) out vec4 v_color;\nlayout(location = 1) out vec2 v_uv;\nlayout(location = 0) in vec3 fa_position;\nlayout(location = 5) in vec4 fa_inst_m0;\nlayout(location = 6) in vec4 fa_inst_m1;\nlayout(location = 7) in vec4 fa_inst_m2;\nlayout(location = 8) in vec4 fa_inst_m3;\nlayout(location = 9) in vec4 fa_joints;\nlayout(location = 10) in vec4 fa_weights;\nlayout(location = 1) in vec3 fa_normal;\nlayout(location = 2) in vec2 fa_texcoord0;\nlayout(location = 3) in vec4 fa_tangent;\nlayout(location = 4) in vec4 fa_color;\nvec2 vertex_uv1;\nvec4 vertex_color1;\nmat4 fa_model;\n\nvoid fa_inst_begin()\n{\n    vertex_uv1 = fa_attr_uv1;\n    vertex_color1 = fa_attr_color1;\n}\n\nmat4 fa_skin_matrix(vec4 joints, vec4 weights)\n{\n    vec4 r0 = vec4(0.0);\n    vec4 r1 = vec4(0.0);\n    vec4 r2 = vec4(0.0);\n    for (int i = 0; i < 4; i++)\n    {\n        int _54 = int((joints[i] * 255.0) + 0.5) * 3;\n        r0 += (fa_skin[_54 * 1 + 0] * weights[i]);\n        r1 += (fa_skin[(_54 + 1) * 1 + 0] * weights[i]);\n        r2 += (fa_skin[(_54 + 2) * 1 + 0] * weights[i]);\n    }\n    return mat4(vec4(r0.x, r1.x, r2.x, 0.0), vec4(r0.y, r1.y, r2.y, 0.0), vec4(r0.z, r1.z, r2.z, 0.0), vec4(r0.w, r1.w, r2.w, 1.0));\n}\n\nvec3 fa_world_position(vec3 p)\n{\n    return (fa_model * vec4(p, 1.0)).xyz;\n}\n\nvoid fa_user_main()\n{\n    v_color = vertex_color1;\n    v_uv = vertex_uv1;\n    vec3 param = fa_position;\n    gl_Position = mat4(fa_mesh_vs_params[0], fa_mesh_vs_params[1], fa_mesh_vs_params[2], fa_mesh_vs_params[3]) * vec4(fa_world_position(param), 1.0);\n}\n\nvoid main()\n{\n    fa_inst_begin();\n    vec4 param = fa_joints;\n    vec4 param_1 = fa_weights;\n    fa_model = mat4(fa_inst_m0, fa_inst_m1, fa_inst_m2, fa_inst_m3) * fa_skin_matrix(param, param_1);\n    fa_user_main();\n}\n\n",
+      "vs": "#version 430\n\nuniform vec4 fa_skin[192];\nuniform vec4 fa_mesh_vs_params[11];\nlayout(location = 11) in vec2 fa_attr_uv1;\nlayout(location = 12) in vec4 fa_attr_color1;\nlayout(location = 0) out vec4 v_color;\nlayout(location = 1) out vec2 v_uv;\nlayout(location = 0) in vec3 fa_position;\nlayout(location = 5) in vec4 fa_inst_m0;\nlayout(location = 6) in vec4 fa_inst_m1;\nlayout(location = 7) in vec4 fa_inst_m2;\nlayout(location = 8) in vec4 fa_inst_m3;\nlayout(location = 9) in vec4 fa_joints;\nlayout(location = 10) in vec4 fa_weights;\nlayout(location = 1) in vec3 fa_normal;\nlayout(location = 2) in vec2 fa_texcoord0;\nlayout(location = 3) in vec4 fa_tangent;\nlayout(location = 4) in vec4 fa_color;\nvec2 vertex_uv1;\nvec4 vertex_color1;\nmat4 fa_model;\n\nvoid fa_inst_begin()\n{\n    vertex_uv1 = fa_attr_uv1;\n    vertex_color1 = fa_attr_color1;\n}\n\nmat4 fa_skin_matrix(vec4 joints, vec4 weights)\n{\n    vec4 r0 = vec4(0.0);\n    vec4 r1 = vec4(0.0);\n    vec4 r2 = vec4(0.0);\n    for (int i = 0; i < 4; i++)\n    {\n        int _54 = int((joints[i] * 255.0) + 0.5) * 3;\n        r0 += (fa_skin[_54 * 1 + 0] * weights[i]);\n        r1 += (fa_skin[(_54 + 1) * 1 + 0] * weights[i]);\n        r2 += (fa_skin[(_54 + 2) * 1 + 0] * weights[i]);\n    }\n    return mat4(vec4(r0.x, r1.x, r2.x, 0.0), vec4(r0.y, r1.y, r2.y, 0.0), vec4(r0.z, r1.z, r2.z, 0.0), vec4(r0.w, r1.w, r2.w, 1.0));\n}\n\nvec3 fa_world_position(vec3 p)\n{\n    return (fa_model * vec4(p, 1.0)).xyz;\n}\n\nvoid fa_user_main()\n{\n    v_color = vertex_color1;\n    v_uv = vertex_uv1;\n    vec3 param = fa_position;\n    gl_Position = mat4(fa_mesh_vs_params[0], fa_mesh_vs_params[1], fa_mesh_vs_params[2], fa_mesh_vs_params[3]) * vec4(fa_world_position(param), 1.0);\n}\n\nvoid main()\n{\n    fa_inst_begin();\n    vec4 param = fa_joints;\n    vec4 param_1 = fa_weights;\n    fa_model = mat4(fa_inst_m0, fa_inst_m1, fa_inst_m2, fa_inst_m3) * fa_skin_matrix(param, param_1);\n    fa_user_main();\n}\n\n",
       "fs": "#version 430\n\nlayout(location = 0) out vec4 fa_frag_color;\nlayout(location = 0) in vec4 v_color;\nlayout(location = 1) in vec2 v_uv;\n\nvoid fa_inst_load()\n{\n}\n\nvoid fa_user_main()\n{\n    fa_frag_color = vec4(v_color.xyz * (v_uv.x * 2.0), 1.0);\n}\n\nvoid main()\n{\n    fa_inst_load();\n    fa_user_main();\n}\n\n",
       "reflection": {
         "vertex_func": {
@@ -230,13 +230,13 @@
           {
             "slot": 0,
             "stage": "vertex",
-            "size": 160,
+            "size": 176,
             "struct_name": "fa_mesh_vs_params",
             "inst_name": "_184",
             "glsl_uniforms": [
               {
                 "type": "vec4",
-                "array_count": 10,
+                "array_count": 11,
                 "offset": 0,
                 "glsl_name": "fa_mesh_vs_params"
               }

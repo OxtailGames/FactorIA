@@ -18,7 +18,9 @@
 #include "fa/core/json.h"
 #include "fa/core/math.h"
 #include "fa/core/video.h"
+#include "fa/render/lightmap_geometry.h"
 #include "fa/render/renderer.h"
+#include "fa/scene/lightmap_manifest.h"
 #include "fa/scene/camera_geometry.h"
 #include "fa/scene/material_layers.h"
 #include "fa/scene/rich_text.h"
@@ -291,12 +293,52 @@ struct SubMesh {
     bool blended = false;
 };
 
+// What a mesh is drawn with when it is lit by a lightmap (made on first use by Assets::lightmap_use, M73.4a): its parts with the lightmap
+// UV as `uv1Vb` (the attribute a material's "uv1" channel reads). A mesh whose glTF has TEXCOORD_1 on every part is drawn with its own
+// buffers (`parts` are copies of MeshAsset::parts); any other is drawn with split vertices (lightmap_geometry.h) in buffers of its own,
+// which every part shares (`ibOffset`).
+struct MeshLightmap {
+    bool ok = false;     // false: the geometry could not be built (reported once); the mesh is drawn without a lightmap
+    std::string uvKind;  // "gltf" or "generated"
+    std::string hashHex;         // lightmap_hash_hex of the geometry: compared with the manifest entry's meshHash
+    std::vector<SubMesh> parts;  // one per part of the mesh, in the same order
+    sg_buffer vb{}, ib{}, uv{}, color1{};  // owned buffers of a generated unwrap (id 0 for a mesh drawn with its own)
+};
+
 struct MeshAsset {
     std::string key;
     std::vector<SubMesh> parts;
     Vec3 bmin{0, 0, 0}, bmax{0, 0, 0};
     bool placeholder = false;
     std::vector<std::string> untraced;  // as TextureAsset::untraced (its parts' textures are reported after it)
+    std::unique_ptr<MeshLightmap>
+        lightmap;  // built by Assets::lightmap_use for a mesh a manifest lists; dropped when the mesh reloads
+};
+
+// One page of the scene's baked lightmap on the GPU: an RGBA16F image of the .hdr (row 0 = v 0 = the file's first row).
+struct LightmapPageGpu {
+    std::string file;
+    int width = 0, height = 0;
+    sg_image image{};
+    sg_view view{};
+    std::size_t bytes = 0;
+    bool ok =
+        false;  // false: the file could not be read (reported once); entities on this page are drawn without a lightmap
+};
+// The scene's lightmap manifest and its pages (SceneSettings.lightmaps), loaded by Assets::lightmaps.
+struct LightmapSetAsset {
+    std::string path;
+    LightmapManifest manifest;
+    std::vector<LightmapPageGpu> pages;
+    bool ok = false;  // false: the manifest did not load (reported once); nothing is lightmapped
+    std::size_t bytes = 0;
+};
+// What one drawn entity needs of the lightmap: its geometry, the page it reads and the rectangle of it (page uv = lightmap uv * (sx, sy)
+// + (ox, oy)). `mesh` null = the entity is not lightmapped.
+struct LightmapUse {
+    const MeshLightmap* mesh = nullptr;
+    const LightmapPageGpu* page = nullptr;
+    float scaleOffset[4] = {1, 1, 0, 0};
 };
 
 // A texture or a glTF model decoded off the main thread for background loading (Renderer::background_work): everything
@@ -519,9 +561,13 @@ inline constexpr MeshFragmentView kMeshFragmentViews[] = {
      "M73.1b (today): one RGBA16F atlas (src/light_atlas.h) with the LTC tables of the area lights in a reserved block "
      "at its top "
      "left (they take no unit of their own), then the light cookies and IES profiles; bilinear, clamped"},
-    {"fa_lightmap", 26, 10, 1, 2, "M73.4a: the baked lightmap atlas (RGBA16F or RGBE8), UV2 of the mesh"},
+    {"fa_lightmap", 26, 10, 1, 2,
+     "M73.4a: the page of the baked lightmap of the entity drawn (RGBA16F, one page per draw; a white texel when it "
+     "has none), read at its lightmap UV"},
     {"fa_decal_atlas", 27, 10, 1, 2,
-     "M73.5b: the albedo/normal textures of the projected decals (their transforms are in fa_light_data)"},
+     "M73.5b (today): the albedo and normal textures of the projected decals, RGBA8 with mips (their boxes and tiles "
+     "are in "
+     "fa_light_data)"},
     {"fa_screen_tex", 28, 10, 2, 2,
      "M73.2c / M73.6b: the prepass depth for contact shadows, the opaque color for transmission"},
 };
@@ -1036,6 +1082,8 @@ public:
     void set_shader_compiler(ShaderCompiler compiler) { shaderCompiler_ = std::move(compiler); }
     bool has_loaded(const std::string& path) const;
     void reload(const std::string& path);
+    // Counts every reload(): the decal atlas (renderer_decals.cpp) holds copies of texture pixels and is rebuilt when it changes.
+    std::uint64_t reload_generation() const { return reloadGeneration_; }
     void clear();
     Json report() const;
     std::size_t texture_bytes() const;  // GPU memory of the loaded textures (packed ones are counted in their atlas)
@@ -1044,6 +1092,19 @@ public:
                       const std::string& hint);
     bool failure_logged(const std::string& kind, const std::string& path) const;
     int texture_count() const { return int(textures_.size()); }
+
+    // The scene's lightmap (SceneSettings.lightmaps, M73.4a): the manifest and its pages, loaded on first use and cached (a failed load too:
+    // one logged error, null from then on, until a file of it changes on disk and reload() forgets it). Null for "" or a manifest that did
+    // not load. Asking with another path drops the set of the old one.
+    const LightmapSetAsset* lightmaps(const std::string& manifestPath);
+    // Whether `entityId` (EntityInfo.id) is lit by a lightmap of `set` when drawn with `mesh` (MeshRenderer.mesh `meshName`): it has an
+    // entry for that mesh, the mesh still has the geometry the bake saw (a changed model is reported once, the entity is drawn without a
+    // lightmap) and its page loaded. Builds the mesh's lightmap vertices on the first ask.
+    bool lightmap_use(const LightmapSetAsset& set, const std::string& entityId, MeshAsset& mesh,
+                      const std::string& meshName, LightmapUse& out);
+    // A buffer of at least `vertices` zero uv pairs: the uv1 attribute of the engine's own mesh program of a mesh that has no lightmap
+    // (the program always declares it). Grows; the buffer of an earlier call may be destroyed by a later one, so ask again every draw.
+    sg_buffer zero_uv1(std::size_t vertices);
 
     // Background loading (Renderer::adopt_background): puts a prepared asset in the cache with its GPU upload, unless it is
     // there already (loaded on first use meanwhile: the prepared one is dropped). `files`: the project files its read and
@@ -1086,6 +1147,13 @@ private:
     void use_placeholder(TextureAsset& t);
     MeshAsset* load_mesh(const std::string& name);
     void destroy_mesh(MeshAsset& m);
+    void destroy_mesh_lightmap(MeshAsset& m);
+    void destroy_lightmap_set();
+    std::unique_ptr<LightmapSetAsset> lightmapSet_;
+    std::string
+        lightmapSetPath_;  // the path lightmapSet_ was asked for (kept when it failed, so a bad manifest is read once)
+    sg_buffer zeroUv1_{};
+    std::size_t zeroUv1Vertices_ = 0;
     struct ProceduralMesh {
         std::unique_ptr<MeshAsset> asset;
         std::uint64_t version = 0;  // MeshStore::Entry::version the GPU copy was made from
@@ -1131,7 +1199,8 @@ private:
     std::unique_ptr<MeshAsset> placeholderMesh_;
     std::vector<Failure> failures_;
     std::unordered_map<std::string, std::string> meshSources_;  // mesh key -> source file (for reload)
-    std::map<std::string, ProceduralMesh> procedural_;          // "mesh:N" -> its GPU copy
+    std::uint64_t reloadGeneration_ = 0;
+    std::map<std::string, ProceduralMesh> procedural_;  // "mesh:N" -> its GPU copy
     const MeshStore* meshStore_ = nullptr;
     std::uint64_t meshStoreSerial_ = 0;
     std::unordered_map<std::string, std::unique_ptr<MaterialAsset>> materials_;
@@ -1165,6 +1234,16 @@ private:
 };
 
 bool build_primitive(const std::string& name, std::vector<MeshVertex>& v, std::vector<std::uint32_t>& idx);
+
+// The lightmap geometry of a mesh plus what drawing it needs (lightmap_geometry.cpp): `geo` as lightmap_mesh_geometry returns it, the
+// vertices to draw (the file's vertices, split along the unwrap's seams when `geo.uvKind` is "generated") and COLOR_1 per drawn vertex when
+// every part has it.
+struct LightmapBuild {
+    LightmapMeshGeometry geo;
+    std::vector<MeshVertex> verts;
+    std::vector<std::uint32_t> color1;
+};
+Result<LightmapBuild> build_lightmap_mesh(const std::string& mesh);
 
 // Font loading, glyph atlas, text layout.
 struct FontFace;

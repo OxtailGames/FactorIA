@@ -103,8 +103,7 @@ bool same(const Batched& a, const Batched& b) {
         return false;
     for (std::size_t i = 0; i < a.batches.size(); ++i) {
         const MeshBatch &x = a.batches[i], &y = b.batches[i];
-        if (x.rep != y.rep || x.mainFirst != y.mainFirst || x.mainCount != y.mainCount ||
-            x.shadowFirst != y.shadowFirst || x.shadowCount != y.shadowCount)
+        if (x.rep != y.rep || x.mainFirst != y.mainFirst || x.mainCount != y.mainCount || x.runCount != y.runCount)
             return false;
     }
     return true;

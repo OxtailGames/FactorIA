@@ -33,6 +33,9 @@ Json RenderStats::to_json() const {
                 {"lightClusterEntries", lightClusterEntries},
                 {"lightClusterClipped", lightClusterClipped},
                 {"lightMaxPerCluster", lightMaxPerCluster},
+                {"decals", decals},
+                {"decalsDropped", decalsDropped},
+                {"decalClusterClipped", decalClusterClipped},
                 {"lights2d", lights2d},
                 {"lights2dDropped", lights2dDropped},
                 {"lights2dShadowed", lights2dShadowed},
@@ -426,6 +429,7 @@ void Renderer::shutdown() {
         im.transients.reset();  // its pool destroys the targets it still holds: the context is still open
         im.destroy_light_resources();
         im.lightAtlas.destroy();  // its images are destroyed with the context still open
+        im.destroy_decal_atlas();
         destroy_target(im.shadowTarget);
         im.free_retired_shadow_targets();
         im.gpu.shutdown();

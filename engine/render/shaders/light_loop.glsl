@@ -32,12 +32,26 @@ int fa_cl_light(int n) {
     return fa_cluster_index(fa_cl_slot, n - fa_cl_ndir);
 }
 
-// The same with the shadow of the directional shadow map applied (only the first light, and only when it is directional, is
-// shadowed): what the engine's light loop hands to light(). li is an index of the light table, gn the geometric normal.
+// The same with the shadow applied: the first light when it is directional has the sun's cascaded shadow map, a point or spot light
+// that has a shadow map this frame (Light.castShadows, within the budget) its own one: what the engine's light loop hands to light().
+// li is an index of the light table, gn the geometric normal.
 LightSample fa_light_shadowed(int li, vec3 world_pos, vec3 gn) {
-    LightSample ls = fa_light_sample(li, world_pos);
+    if (fa_lm.z > 0.5 && fa_light_baked(li)) {  // its direct light is in the lightmap this fragment reads: no light, no shadow lookup
+        LightSample none;
+        none.direction = vec3(0.0, 1.0, 0.0);
+        none.color = vec3(0.0);
+        none.attenuation = 0.0;
+        none.shadow = 1.0;
+        none.distance = 0.0;
+        none.type = int(fa_light_type(li) + 0.5);
+        return none;
+    }
+    LightSample ls = fa_light_sample_n(li, world_pos, gn);
     if (ls.type == 0 && li == 0) {
         ls.shadow = fa_shadow_factor(gn, ls.direction);
+        ls.color = ls.color * ls.shadow;
+    } else if (ls.type != 0 && ls.attenuation > 0.0) {
+        ls.shadow = fa_shadow_local(li, world_pos, gn, ls.direction);
         ls.color = ls.color * ls.shadow;
     }
     return ls;
@@ -57,13 +71,19 @@ LightSample fa_light(int n, in SurfaceInput i) {
 // Light n without the shadow map read: color has no shadow in it and shadow is 1; the way to treat the shadow apart.
 LightSample fa_light_unshadowed(int n, in SurfaceInput i) {
     if (n < 0 || n >= fa_light_count()) { return fa_no_light(); }
-    return fa_light_sample(fa_cl_light(n), i.world_pos);
+    int li = fa_cl_light(n);
+    if (fa_lm.z > 0.5 && fa_light_baked(li)) { return fa_no_light(); }  // a baked light on a lightmapped fragment
+    return fa_light_sample_n(li, i.world_pos, i.world_normal);
 }
-// The shadow of light n at this fragment: 1 lit, 0 in shadow (a value between at the edge of the shadow). Only the first light
-// (n = 0) when it is directional has a shadow; every other light gives 1.
+// The shadow of light n at this fragment: 1 lit, 0 in shadow (a value between at the edge of the shadow). The first light (n = 0) when
+// it is directional has the sun's shadow, a point or spot light with a shadow map this frame its own; every other light gives 1.
 float fa_light_shadow(int n, in SurfaceInput i) {
-    if (n != 0 || fa_light_count() < 1 || fa_cl_ndir < 1) { return 1.0; }
-    return fa_shadow_factor(i.world_normal, normalize(fa_light_texel(0).xyz));
+    if (n < 0 || n >= fa_light_count()) { return 1.0; }
+    if (n == 0 && fa_cl_ndir >= 1) { return fa_shadow_factor(i.world_normal, normalize(fa_light_texel(0).xyz)); }
+    int li = fa_cl_light(n);
+    if (li < fa_cl_ndir) { return 1.0; }
+    vec3 to_light = normalize(fa_light_texel(fa_light_base(li)).xyz - i.world_pos);
+    return fa_shadow_local(li, i.world_pos, i.world_normal, to_light);
 }
 #endif
 @end
@@ -104,7 +124,8 @@ float fa_area_form(vec4 m, float shape, vec3 pc, vec3 ex, vec3 ey) {
 
 // The light of the table li (an area light) shading the surface point: the radiance this light adds, attenuation (window) applied,
 // without the shadow.
-vec3 fa_area_shade(int li, vec3 world_pos, vec3 n, vec3 v, vec3 diffuse_color, vec3 f0, float roughness, float ndv, float window) {
+vec3 fa_area_shade(int li, vec3 world_pos, vec3 n, vec3 v, vec3 diffuse_color, vec3 f0, float f90, float roughness, float ndv,
+                   float window) {
     int base = fa_light_base(li);
     vec4 pos = fa_light_texel(base);
     vec3 col = fa_light_texel(base + 1).rgb;
@@ -136,8 +157,31 @@ vec3 fa_area_shade(int li, vec3 world_pos, vec3 n, vec3 v, vec3 diffuse_color, v
     vec4 m = fa_atlas_fetch(uv);
     vec4 br = fa_atlas_fetch(uv + vec2(FA_LTC_SIZE, 0.0));
     float spec_form = fa_area_form(m, shape, pc, ex, ey);
-    vec3 spec_color = f0 * br.x + (vec3(1.0) - f0) * br.y;
+    vec3 spec_color = f0 * br.x + (vec3(f90) - f0) * br.y;
     return (diffuse_color * diff + spec_color * spec_form) * col * (scale * window);
+}
+
+// The same with the layers of a material on (FaLayers, brdf_layers.glsl): the base layer is the LTC shading above (diffuse and an
+// isotropic GGX specular, its Fresnel up to the layer's f90), scaled by what the coat lets through and by the sheen's albedo scaling;
+// the sheen lobe and the coat's lobe are added as the point-light terms of the representative point of the emitter (`l`, the
+// direction of fa_light_sample_n: the point of the emitter closest to the reflection ray of the geometric normal) with the point
+// light's energy, and anisotropy is not applied. The coat's lobe uses the geometric normal, so the representative point is the right
+// one for it.
+vec3 fa_area_layers(in FaLayers L, int li, vec3 world_pos, vec3 n, vec3 v, vec3 l, vec3 diffuse_color, vec3 f0, float roughness,
+                    float ndv, float window) {
+    vec3 result = fa_area_shade(li, world_pos, n, v, diffuse_color, f0, L.f90, roughness, ndv, window) *
+                  (L.keep * (L.sheen_on ? L.sheen_scale : 1.0));
+    vec3 h = normalize(l + v);
+    float vdh = max(dot(v, h), 0.0);
+    vec3 col = fa_light_rgb(li) * window;
+    if (L.sheen_on) {
+        float ndl = max(dot(n, l), 0.0);
+        float ndh = max(dot(n, h), 0.0);
+        result += L.sheen * col *
+                  (fa_d_charlie(L.sheen_alpha, ndh) * fa_v_ashikhmin(ndl, ndv) * FA_PI * step(0.0001, ndl) * ndl * L.keep);
+    }
+    if (L.coat > 0.0) { result += col * fa_layers_coat(L, l, h, vdh); }
+    return result;
 }
 #endif
 @end
@@ -146,6 +190,7 @@ vec3 fa_area_shade(int li, vec3 world_pos, vec3 n, vec3 v, vec3 diffuse_color, v
         int count = fa_cl_ndir + fa_cl_local;
         for (int ln = 0; ln < count; ln++) {
             int li = fa_cl_light(ln);
+            if (fa_lm.z > 0.5 && fa_light_baked(li)) { continue; }  // Light.mode Baked on a lightmapped fragment (before any shadow lookup)
             LightSample ls = fa_light_shadowed(li, i.world_pos, gn);
 #ifdef FA_CUSTOM_LIGHT
             // lighting "custom": the snippet's light() takes the place of the Cook-Torrance term below.
@@ -159,7 +204,10 @@ vec3 fa_area_shade(int li, vec3 world_pos, vec3 n, vec3 v, vec3 diffuse_color, v
             float vdh = max(dot(v, h), 0.0);
             if (fa_light_is_area && !lay.on) {
                 // An area light (M73.1b): the LTC polygon of the light, diffuse and specular, in place of the point-light terms.
-                lit += fa_area_shade(li, i.world_pos, n, v, diffuse_color, f0, roughness, ndv, atten);
+                lit += fa_area_shade(li, i.world_pos, n, v, diffuse_color, f0, 1.0, roughness, ndv, atten);
+            } else if (fa_light_is_area) {
+                // An area light on a layered material: the LTC base layer, the coat and the sheen from the representative point.
+                lit += fa_area_layers(lay, li, i.world_pos, n, v, l, diffuse_color, f0, roughness, ndv, atten);
             } else if (lay.on) {
                 // A material layer is set (clear coat, sheen, anisotropy, specular, ior): brdf_layers.glsl.
                 lit += fa_layers_light(lay, diffuse_color, f0, n, v, l, h, ndl, ndv, ndh, vdh, alpha, a2) *

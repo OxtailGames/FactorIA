@@ -8,6 +8,7 @@
 
 #include "fa/core/fs.h"
 #include "fa/core/log.h"
+#include "local_shadows.h"
 #include "ltc_tables.h"
 #include "render_internal.h"
 
@@ -22,6 +23,7 @@ const LightAtlasRect* LightAtlasLayout::find(const LightAtlasKey& k) const {
 namespace {
 
 LightAtlasRect tile_size(LightAtlasKind kind) {
+    if (kind == LightAtlasKind::CookieCube) return LightAtlasRect{0, 0, kCookieCubeW, kCookieCubeH};
     return kind == LightAtlasKind::Cookie ? LightAtlasRect{0, 0, kCookieTile, kCookieTile}
                                           : LightAtlasRect{0, 0, kIesTileW, kIesTileH};
 }
@@ -181,6 +183,59 @@ std::vector<std::uint16_t> bake_cookie_tile(const Image& image) {
     return tile;
 }
 
+Vec3 cookie_cube_dir(int face, float s, float t) {
+    const CubeFace b = cube_face_basis(face);
+    const Vec3 right = cross(b.forward, b.up);
+    return b.forward + right * s + b.up * t;
+}
+
+std::vector<std::uint16_t> bake_cookie_cube_tile(const Image& image) {
+    const int n = kCookieInner, t = kCookieTile;
+    std::vector<std::uint16_t> out(std::size_t(kCookieCubeW) * std::size_t(kCookieCubeH) * 4, 0);
+    if (image.empty()) return bake_white_tile(kCookieCubeW, kCookieCubeH);
+    const int sw = image.width, sh = image.height;
+    auto px = [&](int x, int y, float* rgba) {
+        x = ((x % sw) + sw) % sw;  // the picture wraps around the light
+        y = std::clamp(y, 0, sh - 1);
+        const std::uint8_t* p = &image.rgba[(std::size_t(y) * std::size_t(sw) + std::size_t(x)) * 4];
+        const float a = float(p[3]) / 255.0f;
+        rgba[0] = float(p[0]) / 255.0f * a;
+        rgba[1] = float(p[1]) / 255.0f * a;
+        rgba[2] = float(p[2]) / 255.0f * a;
+        rgba[3] = a;
+    };
+    constexpr double kPi = 3.14159265358979323846;
+    for (int f = 0; f < kCubeFaces; ++f) {
+        const int ox = (f % 3) * t, oy = (f / 3) * t;
+        for (int y = 0; y < t; ++y)
+            for (int x = 0; x < t; ++x) {
+                // The tile's border (one texel) lies outside the face by one texel step, on the same plane: it continues into the
+                // neighbour face, so a bilinear read at the edge blends the two.
+                const double s = (double(x - 1) + 0.5) / double(n) * 2.0 - 1.0;
+                const double tt = 1.0 - (double(y - 1) + 0.5) / double(n) * 2.0;
+                const Vec3 d = cookie_cube_dir(f, float(s), float(tt));
+                const double len = std::sqrt(double(d.x) * d.x + double(d.y) * d.y + double(d.z) * d.z);
+                const double lon = std::atan2(double(d.x), -double(d.z));  // 0 straight ahead (-Z), growing toward +X
+                const double lat = std::asin(std::clamp(double(d.y) / len, -1.0, 1.0));
+                const double sx = (0.5 + lon / (2.0 * kPi)) * double(sw) - 0.5;
+                const double sy = (0.5 - lat / kPi) * double(sh) - 0.5;
+                const int x0 = int(std::floor(sx)), y0 = int(std::floor(sy));
+                const float fx = float(sx - double(x0)), fy = float(sy - double(y0));
+                float c00[4], c10[4], c01[4], c11[4];
+                px(x0, y0, c00);
+                px(x0 + 1, y0, c10);
+                px(x0, y0 + 1, c01);
+                px(x0 + 1, y0 + 1, c11);
+                for (int k = 0; k < 4; ++k) {
+                    const float top = c00[k] + (c10[k] - c00[k]) * fx, bot = c01[k] + (c11[k] - c01[k]) * fx;
+                    out[(std::size_t(oy + y) * std::size_t(kCookieCubeW) + std::size_t(ox + x)) * 4 + std::size_t(k)] =
+                        light_atlas_half(top + (bot - top) * fy);
+                }
+            }
+    }
+    return out;
+}
+
 std::vector<std::uint16_t> bake_ies_tile(const IesProfile& profile) {
     const std::vector<float> v = ies_bake(profile);
     const int w = kIesBakeWidth, h = kIesBakeHeight;
@@ -238,10 +293,11 @@ std::vector<std::uint16_t> assemble_light_atlas(const LightAtlasLayout& layout,
 
 LightAtlasSource load_light_atlas_source(const LightAtlasKey& key) {
     LightAtlasSource s;
-    const char* what = key.kind == LightAtlasKind::Cookie ? "light cookie" : "IES profile";
+    const bool isCookie = key.kind != LightAtlasKind::Ies;
+    const char* what = isCookie ? "light cookie" : "IES profile";
     if (!fs::exists(key.path)) {
         s.error = std::format("{} '{}' does not exist", what, key.path);
-        s.hint = key.kind == LightAtlasKind::Cookie
+        s.hint = isCookie
                      ? "Set Light.cookie to a texture in the project (a PNG or JPG; import one with assets.import)."
                      : "Set Light.ies to an .ies file in the project (import one with assets.import).";
         return s;
@@ -309,7 +365,7 @@ void LightAtlas::request(LightAtlasKind kind, const std::string& path) {
 
 bool LightAtlas::invalidate(const std::string& path) {
     bool hit = false;
-    for (auto kind : {LightAtlasKind::Cookie, LightAtlasKind::Ies}) {
+    for (auto kind : {LightAtlasKind::Cookie, LightAtlasKind::Ies, LightAtlasKind::CookieCube}) {
         LightAtlasKey k{kind, path};
         if (keys_.count(k)) {
             tiles_.erase(k);
@@ -347,10 +403,13 @@ bool LightAtlas::sync(const Loader& load, const FailureFn& onFailure) {
         LightAtlasSource src = load(k);
         if (!src.ok) {
             if (onFailure) onFailure(k, src.error, src.hint);
-            tiles_[k] = k.kind == LightAtlasKind::Cookie ? bake_white_tile(kCookieTile, kCookieTile)
-                                                         : bake_white_tile(kIesTileW, kIesTileH);
+            tiles_[k] = k.kind == LightAtlasKind::Cookie       ? bake_white_tile(kCookieTile, kCookieTile)
+                        : k.kind == LightAtlasKind::CookieCube ? bake_white_tile(kCookieCubeW, kCookieCubeH)
+                                                               : bake_white_tile(kIesTileW, kIesTileH);
         } else {
-            tiles_[k] = k.kind == LightAtlasKind::Cookie ? bake_cookie_tile(src.cookie) : bake_ies_tile(src.ies);
+            tiles_[k] = k.kind == LightAtlasKind::Cookie       ? bake_cookie_tile(src.cookie)
+                        : k.kind == LightAtlasKind::CookieCube ? bake_cookie_cube_tile(src.cookie)
+                                                               : bake_ies_tile(src.ies);
         }
     }
     LightAtlasLayout layout = layout_light_atlas(std::vector<LightAtlasKey>(keys_.begin(), keys_.end()));

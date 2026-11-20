@@ -231,3 +231,111 @@ TEST_CASE("light cookies: a file changed on disk is baked again after reload_ass
     const Image fresh = g.render(f.world);
     CHECK(mean_abs_diff(first, fresh) > 0.005);
 }
+
+// An equirectangular picture whose left half is bright and right half dark: seen from the light's frame, the +X side is dark and the
+// -X side bright (the centre of the picture is straight ahead, the -Z axis of the light; the left edge wraps behind it).
+static Image halves(int w, int h) {
+    Image img;
+    img.width = w;
+    img.height = h;
+    img.rgba.resize(std::size_t(w) * std::size_t(h) * 4);
+    for (int y = 0; y < h; ++y)
+        for (int x = 0; x < w; ++x) {
+            const bool on = x < w / 2;
+            std::uint8_t* p = &img.rgba[(std::size_t(y) * std::size_t(w) + std::size_t(x)) * 4];
+            p[0] = p[1] = p[2] = on ? 255 : 12;
+            p[3] = 255;
+        }
+    return img;
+}
+
+TEST_CASE("light cookies: a point light projects its cookie through a cube of six faces, and draws its golden") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    REQUIRE(save_png(halves(256, 128), "assets/cookie_halves.png").ok());
+    Floor f;
+    Light& l = f.add_light("lamp", LightType::Point, 3.0f);
+    l.range = 20.0f;
+    l.intensity = 2.0f;
+    const Image plain = g.render(f.world);
+    f.world.get<Light>(f.world.find("lamp"))->cookie = "assets/cookie_halves.png";
+    const Image img = g.render(f.world);
+    CHECK(expect_golden(img, "3d_light_cookie_point", 0.006).ok());
+    CHECK(mean_abs_diff(plain, img) > 0.01);
+    // The lamp points down (-Y), so the picture's centre is below it: the floor's -X side (picture's left half, past the light's
+    // -Z...) is lit, the +X side is dark. The floor's two sides differ clearly and the plain light is symmetric.
+    const int cy = img.height / 2;
+    const int left = px(img, img.width / 2 - 70, cy, 1), right = px(img, img.width / 2 + 70, cy, 1);
+    CHECK(std::abs(px(plain, img.width / 2 - 70, cy, 1) - px(plain, img.width / 2 + 70, cy, 1)) < 4);
+    CHECK(std::abs(left - right) > 40);
+}
+
+TEST_CASE("area lights: a rectangle light casts a soft shadow of what is under it") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    Floor f;
+    // The light is beside the box so its shadow falls on the floor to the right of it, where the camera (above) sees it.
+    Light& l = f.add_light("panel", LightType::Area, 4.0f, {-1.2f, 0, 0});
+    l.shape = LightShape::Rectangle;
+    l.size = {1.5f, 1.5f};
+    l.intensity = 1.0f;
+    l.range = 20.0f;
+    l.castShadows = true;
+    l.shadowFilter = ShadowFilter::Pcss;
+    l.shadowSoftness = 1.0f;
+    Entity box = make(f.world, "box", {0, 1.5f, 0});
+    f.world.get<Transform>(box)->scale = {0.8f, 0.2f, 0.8f};
+    auto& m = f.world.add<MeshRenderer>(box);
+    m.mesh = "cube";
+    m.color = Color{0.5f, 0.5f, 0.5f, 1};
+    const Image shadowed = g.render(f.world);
+    CHECK(expect_golden(shadowed, "3d_area_light_shadow", 0.006).ok());
+    f.world.get<Light>(f.world.find("panel"))->castShadows = false;
+    const Image open = g.render(f.world);
+    // The shadow falls between 0.08 m and 1.36 m to the right of the middle of the floor (a pixel is 2 * 7 * tan 25 deg / height m).
+    const double perMetre = double(shadowed.height) / (2.0 * 7.0 * std::tan(25.0 * 3.14159265 / 180.0));
+    const int cx = shadowed.width / 2, cy = shadowed.height / 2, sx = cx + int(0.9 * perMetre);
+    CHECK(px(shadowed, sx, cy, 1) < px(open, sx, cy, 1) - 30);
+    CHECK(std::abs(px(shadowed, 12, 12, 1) - px(open, 12, 12, 1)) < 6);
+    // The penumbra follows the emitter: the edge of a bigger rectangle's shadow is softer, its steepest step along a row smaller.
+    auto steepest = [&](const Image& img) {
+        const int x0 = cx + int(0.5 * perMetre), x1 = cx + int(2.6 * perMetre);
+        int best = 0;
+        for (int x = x0; x < x1; ++x) best = std::max(best, std::abs(px(img, x + 1, cy, 1) - px(img, x, cy, 1)));
+        return double(best) / double(px(img, x1, cy, 1));  // relative to the lit floor: a bigger emitter is brighter
+    };
+    const double hard = steepest(shadowed);
+    f.world.get<Light>(f.world.find("panel"))->castShadows = true;
+    f.world.get<Light>(f.world.find("panel"))->size = {3.5f, 3.5f};
+    const Image big = g.render(f.world);
+    MESSAGE("steepest step of the shadow's edge: small emitter " << hard << ", big emitter " << steepest(big));
+    CHECK(steepest(big) < hard);
+}
+
+TEST_CASE("area lights: a layered material (clear coat, sheen) takes the LTC base layer and a coat highlight") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    auto build = [&](float coat, Color sheen) {
+        Floor f;
+        auto* mr = f.world.get<MeshRenderer>(f.floor);
+        mr->roughness = 0.5f;
+        mr->clearcoat = coat;
+        mr->clearcoatRoughness = 0.08f;
+        mr->sheenColor = sheen;
+        Light& l = f.add_light("panel", LightType::Area, 2.0f);
+        l.shape = LightShape::Rectangle;
+        l.size = {3.0f, 1.0f};
+        l.intensity = 2.0f;
+        l.range = 14.0f;
+        return g.render(f.world);
+    };
+    const Image plain = build(0.0f, Color{0, 0, 0, 1});
+    const Image coat = build(1.0f, Color{0, 0, 0, 1});
+    const Image sheen = build(0.0f, Color{0.8f, 0.8f, 0.8f, 1});
+    const int cx = plain.width / 2, cy = plain.height / 2;
+    CHECK(px(plain, cx, cy, 1) >
+          40);  // the base layer is lit (it was black before: the layered path skipped the area light)
+    CHECK(px(coat, cx, cy, 1) > 40);
+    CHECK(mean_abs_diff(plain, coat) > 0.002);   // the coat changes the image (its lobe, and what it lets through)
+    CHECK(mean_abs_diff(plain, sheen) > 0.002);  // the sheen changes it
+}
