@@ -26,6 +26,8 @@ void register_authoring_commands(Engine& engine) {
     // effects, meshes
     register_vfx_review_commands(engine, impl);  // vfx.check, vfx.budget, vfx.filmstrip
     register_mesh_commands(engine, impl);  // mesh.create, mesh.update, mesh.destroy, mesh.save, mesh.list, mesh.info
+    // reflection probes
+    register_probe_commands(engine, impl);  // probe.bake
     // levels
     register_ascii_level_commands(engine, impl);
 }

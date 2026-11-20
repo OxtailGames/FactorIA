@@ -204,8 +204,8 @@ std::vector<FeatureDef> build_table() {
          "Contact shadows: a short screen-space ray toward the light adds fine shadows where objects touch (M73.2)."},
         {"reflectionProbes", "half",
          "Reflection probes: local environment captures, baked or realtime, with box projection and blending between "
-         "probes "
-         "(M73.3)."},
+         "probes (M73.3). ReflectionProbe is captured or loaded into the probe atlas already (render.probes lists it); "
+         "the mesh shader reads the sky's cube until M73.3c makes it read the probes, so this stays planned."},
         {"lightProbes", "", "Light probes: baked spherical-harmonics lighting for moving objects (M73.4)."},
         {"volumetricFog", "half+depth",
          "Volumetric fog and light shafts: a medium the sun and the point and spot lights (Light.volumetric) shine "
