@@ -477,6 +477,7 @@ struct Renderer::Impl {
     void build_quad_stream(DrawContext& ctx);
     void upload_instances(DrawContext& ctx);
     void scene_uniforms(DrawContext& ctx);
+    void upload_lights(DrawContext& ctx);
     // The sky environment of the job (SceneSettings.skyMaterial): sets ctx.envActive / envBake / envKey and the flag of
     // fuScene.
     void plan_env(DrawContext& ctx);
