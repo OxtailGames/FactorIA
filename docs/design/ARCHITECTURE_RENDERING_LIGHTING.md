@@ -313,12 +313,7 @@ the fit are in [ARCHITECTURE_AREA_LIGHTS.md](ARCHITECTURE_AREA_LIGHTS.md)). The 
   and clamps down). The image is made by `LightAtlas::sync` when a light asks for it (`request_ltc`, `request`), made again when the set of
   keys changes or `invalidate(path)` says a file changed (the hot reload; the old image is retired and freed a frame later like the
   shadow atlas', so the frame in flight keeps the one it captured). A view without such a light makes none and binds a dummy.
-- **Texels of a light** (`light_data.glsl`, header). Texels 0..3 are unchanged. `+4`: xyz the light's right axis, w the half width of a
-  rectangle or tube or the radius of a disc (for a directional cookie, `1 / size.x`); `+5`: xyz the up axis, w the half height of a
-  rectangle, the radius of a disc, the half thickness of a tube (for a directional cookie, `1 / size.y`); `+6`: xy the origin of the cookie
-  tile (a point light's: of its 3 x 2 cube), z 1 when there is one, w the shape (0 rectangle, 1 disc, 2 tube); `+7`: xy the origin of the IES tile, z 1 when there is one, w the
-  extent, the radius of the sphere around the emitter. The light type is 3 for an area light. Other packages that add per-light data in this
-  texture (local shadows, decals, the lightmap) take more texels after `+7` or their own regions, never these.
+- **Texels of a light** (`light_data.glsl`, header): 4, or 8 with an extension `+4 .. +7` (ARCHITECTURE_AREA_LIGHTS.md, same section as above).
 - **Shading.** `fa_light_sample_n(li, pos, n)` (`fa_light_sample` is it with `n = 0`) gives an area light to every path as a point light at
   the REPRESENTATIVE POINT of its emitter, with the window attenuation measured from the emitter's surface (`reach = dist - extent`); a
   spot's cookie is a perspective lookup, a directional one an orthographic one tiled with `fract`, a point light's a cube (below), the
@@ -326,26 +321,7 @@ the fit are in [ARCHITECTURE_AREA_LIGHTS.md](ARCHITECTURE_AREA_LIGHTS.md)). The 
   axis (vertical) and around it (horizontal). The standard loop (`fa_area_light`) replaces the point-light terms with the LTC polygon
   integrals, for a material with layers too (`fa_area_layers`): the details, the approximations and the shadows are in
   ARCHITECTURE_AREA_LIGHTS.md, "Representative point, layers, shadows and point cookies".
-- **Energy.** The area colour is scaled by `(pi d^2 + A) / A` (d the distance to the centre, A the area) before the form factor, so far away the
-  light is a point light of the same intensity (a render test compares them), and near the emitter, where the form factor tends to 1, the
-  result is bounded by the term `pi d^2 / A + 1` instead of growing without a limit. A rectangle and a disc emit from the front only (the polygon
-  is clipped by the light's plane), a tube from all around.
-- **Precision (GLES3, WebGL2).** The generated GLSL ES 3.00 fragment shader begins `precision mediump float;` and sokol-shdc qualifies
-  every declaration `highp`, so the area path runs in full float; it must, because `ltc.glsl` guards its divisions with `1e-24` and `1e-10` and
-  adds vectors a few hundred metres long, which fp16 flushes. `light_atlas_tests.cpp` reads the generated `mesh_fs_source_glsl300es` in
-  `mesh.glsl.h` and fails when a float, vector or matrix declaration of it has no `highp` (the literal tables of the material layers are
-  the one exception). The header of `ltc.glsl` says so; do not write `mediump` or `lowp` in it. (An earlier version of this page said the file was
-  "validated with sokol-shdc": the compile only proves it is legal GLSL, not that its numbers are right; the test and the render goldens are the checks.)
-- **IES** (`ies.h`): our own LM-63 reader (no code from another engine). It reads `IESNA` header lines and keywords, `TILT=NONE` and
-  `TILT=INCLUDE` (the tilt table is read and dropped), the 10 numbers of the lamp line, the angles and the candela table. Photometric type
-  C only (A and B are refused with the type found); the vertical angles must ascend within 0..180, the horizontal ones within
-  0..360 and be one plane or span 0..90, 0..180 or 0..360 (the others are refused naming the range); a candela value is a finite number
-  of at least 0 and the table has some light in it. Every count is checked against the caps (1024 angles per axis, 2^20 values, 4 MB
-  of text) before anything is allocated. `candela_at(h, v)` interpolates bilinearly and folds the symmetry; `ies_bake` samples it on a
-  64 x 32 grid (columns the horizontal angle over the circle, rows the vertical angle over 0..180 at the texel centres) and divides by
-  the table's peak: **the baked value is candela / peak**, so the file only shapes the light. Errors are `name:line: what` with a hint,
-  like the `.cube` reader's. `assets.import` has a `.ies` route (`assets/lights/`, `import_ies` in `tools/common/src/assets_import.cpp`:
-  the same parser, the file copied as it is) and the hot reload lists `.ies`.
+- **Energy, precision, IES:** ARCHITECTURE_AREA_LIGHTS.md, "Energy, precision and IES in the atlas".
 - **Not done, and why.** A cookie or an IES profile on an area light (the renderer warns once), an IES profile on a directional one, and
   the 2D light, which stays a point.
 - **Tests.** `ies_tests.cpp` (parser, bake, errors; fixtures written for the tests), `light_atlas_tests.cpp` (layout determinism and
@@ -361,7 +337,7 @@ the fit are in [ARCHITECTURE_AREA_LIGHTS.md](ARCHITECTURE_AREA_LIGHTS.md)). The 
 `contactShadows`, `environmentMap`, `reflectionProbes`, `physicalSky`, `lightmaps`, `lightProbes`, `volumetricFog`, `decals`,
 `subsurface`, `realtimeGI`, `clearCoat`, `sheen`, `anisotropy`, `transmission`. Each carries the `needs` its pass will ask of the GPU.
 `needs_met` runs before the planned check, so on a GPU that lacks the capability the answer names the capability, not the plan. The
-package that draws a feature drops its `"M73"` text from the table (`clusteredLights` did in M73.1a, `cascadedShadows` in M73.2a: it needs only `float32`, `decals` in M73.5b: it needs nothing, and `areaLights`, `lightCookies` and `iesProfiles` in M73.1b: they need `half`, RGBA16F images that filter, the atlas format).
+package that draws a feature drops its `"M73"` text from the table (`clusteredLights` did in M73.1a, `cascadedShadows` in M73.2a: it needs only `float32`, `decals` in M73.5b: it needs nothing, `areaLights`, `lightCookies` and `iesProfiles` in M73.1b: they need `half`, RGBA16F images that filter, the atlas format, and `environmentMap` in M73-P3a-2: it needs `half`, the RGBA16F targets the environment cubes are).
 
 ## The new fields
 
@@ -460,6 +436,44 @@ Not done here: clouds that cast per-point shadows on the ground (the sun light i
 perspective of the atmosphere on the meshes (fog is the fog), an observer that moves up through the air, a physical night sky (stars,
 moon). The tests are `engine/render/tests/physical_sky_tests.cpp` (the CPU half, the tables built when they should be, the amortisation,
 four goldens: noon, sunset, overcast, a metal sphere).
+
+## The environment from an HDRI (M73-P3a-2)
+
+`SceneSettings.environmentMap` (user page: RENDERING_LIGHTING.md, "The environment map"). One bake, one set of cubes: the picture is drawn into
+the cube the sky was drawn into, and the prefilter and the irradiance that follow are the sky's. The files:
+
+- `include/fa/render/hdri.h`, `src/hdri.cpp`: the CPU half, shared by the renderer, `assets.import` and `project.validate` so a file one
+  accepts is a file the others load, with the same words when not. `hdri_check` (header only: `hdr_info` in core reads the size and the
+  exposure; layout rule within 1 % of 2:1 with a named wrong layout; the decode budget 8192 x 4096 on 64-bit, 4096 x 2048 on 32-bit; checked
+  before any pixel memory), `hdri_from_bytes` (decode, NaN/negative to 0, box-shrink to `kHdriMaxWidth`, scale texels above `kHdriMaxValue` by
+  one factor for the three channels, convert to half bits, the whole mip chain), `hdri_uv` (the CPU twin of the shader's mapping; a test
+  compares orientation and rotation).
+- `shaders/hdri.glsl` (module `hdri`, one program, generated header committed): a full-screen triangle that rebuilds the world ray from the
+  inverse view-projection, rotates it by minus the rotation, maps it with `atan2` / `asin`, and samples the picture. The mip is computed in the
+  shader from `length(fwidth(dir))`, not from the UV derivatives, so the seam of `atan2` does not pick the smallest mip. The sampler repeats in u
+  and clamps in v. No orientation difference between GL, Metal and D3D11: the ray comes from the same matrix as the physical sky's, not
+  from the texture's row order. `fs_params.p`: rotation (radians), gain, 1 to encode sRGB, width.
+- `src/renderer_hdri.h/.cpp` (`HdriSky`): the program and the pipelines (`ready()` makes them once, logs once when it cannot, as `PhysicalSky`
+  does) and `draw()`. The comment at the top of the header is the one place that states the precedence.
+- `src/assets.cpp` `Assets::hdri(path)`: a cache of `HdriAsset` (the RGBA16F image with its mips; a serial that changes on hot reload, a retry
+  once for a file that is still being written, `note_failure` kind "hdri", counted in `texture_bytes()`); `reload()` and `clear()` drop it.
+  Needs the RGBA16F sample and filter capability: else one error and no map.
+- `shaders/env.glsl` / `src/renderer_env.cpp`: `Environment::set_look(gain, tapLimit)` (two numbers the bake takes when it starts; a slice sequence
+  keeps the look it started with). The level-0 copy, the prefilter and the irradiance multiply by the gain, so the intensity also lights from a
+  sky material or the physical sky; a tap limit of 0 (every sky but an HDRI) leaves the maths as it was, and with gain 1 the multiplications are
+  exact: scenes without an `environmentMap` are bit-identical (their goldens did not change).
+- `src/renderer_draw.cpp` `plan_env`: loads the picture, decides `hdriMain` (the main pass draws the HDRI: it loaded, `environmentBackground`,
+  no `skyMaterial`), builds the key (path hash, the asset's serial, the image id, the rotation rounded, the linear flag, the gain) and calls
+  `set_look`; `decide` compares it as for a sky material, so only a change of map, rotation, intensity or file bakes, in one frame (a whole
+  bake, never sliced: nothing moves slowly). `skyMaterial` still wins the background: `mat` is null while an HDRI lights, so the sky material
+  is drawn by the main pass and not baked.
+
+Highlights: see the user page. After the gain (`environmentIntensity`, up to 100) `env_out` in env.glsl and the background in hdri.glsl limit the brightest channel to 65000, colour kept, because the cubes and the scene target are RGBA16F (max 65504); the GPU test "a sun at the largest value times a big intensity" guards it (Metal turns an infinity into white, so it is D3D11 and GL that it catches). The two limits are `kHdriMaxValue` (60000, on the CPU, so the half never overflows to infinity before the gain) and `kHdriTapLimit` (64, per
+sample of the blurred levels and the irradiance, in the shader). Not done here: a picture as a light source that casts shadows (the sun of
+the picture does not cast a shadow: place a directional light), several maps blended, a cube map or a mirror-ball file, a map per camera or per
+area (reflection probes, M73.3). The tests are `engine/render/tests/hdri_tests.cpp` (the CPU half, the orientation and the rotation, the
+colour spaces and the intensity, the bake key counted in draw calls, hot reload, a file that cannot be used, precedence, determinism, the golden
+`3d_hdri_spheres`) and `tools/common/tests/assets_hdri_test.cpp` (import, its errors and validate).
 
 ## Lightmaps
 

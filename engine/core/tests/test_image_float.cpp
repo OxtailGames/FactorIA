@@ -487,3 +487,19 @@ TEST_CASE("image_float: resized averages by area when shrinking and is bilinear 
     CHECK_FALSE(img.resized(0, 2).ok());
     CHECK_FALSE(ImageF{}.resized(2, 2).ok());
 }
+
+TEST_CASE("hdr: hdr_info reads the size and the exposure from the header alone, and teaches on a file that is not "
+          "Radiance's") {
+    const std::string text = "#?RADIANCE\nFORMAT=32-bit_rle_rgbe\nEXPOSURE=2\n\n-Y 1024 +X 2048\n";
+    const std::vector<std::uint8_t> head(text.begin(), text.end());  // no pixels at all
+    auto info = hdr_info(head.data(), head.size());
+    REQUIRE(info.ok());
+    CHECK(info->width == 2048);
+    CHECK(info->height == 1024);
+    CHECK(info->exposure == doctest::Approx(2.0f));
+    CHECK_FALSE(decode_hdr(head.data(), head.size()).ok());  // the pixels are what is missing, not the header
+    const std::string junk = "this is not a radiance file, it is a sentence";
+    auto bad = hdr_info(reinterpret_cast<const std::uint8_t*>(junk.data()), junk.size());
+    REQUIRE_FALSE(bad.ok());
+    CHECK_FALSE(bad.error().message.empty());
+}

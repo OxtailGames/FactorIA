@@ -137,3 +137,32 @@ golden, and an area light far away against the point light of the same intensity
   `fa_cube_face_basis` are `cube_face_basis` written out as a GLSL table, so change them together (the golden `3d_light_cookie_point` and
   the local-shadow tests show a mismatch). The light's own frame is right, up, back = right x up, so a cookie turns with the entity. A
   face has 254 texels of picture: a 1024 x 512 or 2048 x 1024 panorama is the useful size.
+
+## Energy, precision and IES in the atlas (M73.1b)
+
+- **Energy.** The area colour is scaled by `(pi d^2 + A) / A` (d the distance to the centre, A the area) before the form factor, so far away the
+  light is a point light of the same intensity (a render test compares them), and near the emitter, where the form factor tends to 1, the
+  result is bounded by the term `pi d^2 / A + 1` instead of growing without a limit. A rectangle and a disc emit from the front only (the polygon
+  is clipped by the light's plane), a tube from all around.
+- **Precision (GLES3, WebGL2).** The generated GLSL ES 3.00 fragment shader begins `precision mediump float;` and sokol-shdc qualifies
+  every declaration `highp`, so the area path runs in full float; it must, because `ltc.glsl` guards its divisions with `1e-24` and `1e-10` and
+  adds vectors a few hundred metres long, which fp16 flushes. `light_atlas_tests.cpp` reads the generated `mesh_fs_source_glsl300es` in
+  `mesh.glsl.h` and fails when a float, vector or matrix declaration of it has no `highp` (the literal tables of the material layers are
+  the one exception). The header of `ltc.glsl` says so; do not write `mediump` or `lowp` in it. (An earlier version of this page said the file was
+  "validated with sokol-shdc": the compile only proves it is legal GLSL, not that its numbers are right; the test and the render goldens are the checks.)
+- **IES** (`ies.h`): our own LM-63 reader (no code from another engine). It reads `IESNA` header lines and keywords, `TILT=NONE` and
+  `TILT=INCLUDE` (the tilt table is read and dropped), the 10 numbers of the lamp line, the angles and the candela table. Photometric type
+  C only (A and B are refused with the type found); the vertical angles must ascend within 0..180, the horizontal ones within
+  0..360 and be one plane or span 0..90, 0..180 or 0..360 (the others are refused naming the range); a candela value is a finite number
+  of at least 0 and the table has some light in it. Every count is checked against the caps (1024 angles per axis, 2^20 values, 4 MB
+  of text) before anything is allocated. `candela_at(h, v)` interpolates bilinearly and folds the symmetry; `ies_bake` samples it on a
+  64 x 32 grid (columns the horizontal angle over the circle, rows the vertical angle over 0..180 at the texel centres) and divides by
+  the table's peak: **the baked value is candela / peak**, so the file only shapes the light. Errors are `name:line: what` with a hint,
+  like the `.cube` reader's. `assets.import` has a `.ies` route (`assets/lights/`, `import_ies` in `tools/common/src/assets_import.cpp`:
+  the same parser, the file copied as it is) and the hot reload lists `.ies`.
+- **Texels of a light** (`light_data.glsl`, header). Texels 0..3 are unchanged. `+4`: xyz the light's right axis, w the half width of a
+  rectangle or tube or the radius of a disc (for a directional cookie, `1 / size.x`); `+5`: xyz the up axis, w the half height of a
+  rectangle, the radius of a disc, the half thickness of a tube (for a directional cookie, `1 / size.y`); `+6`: xy the origin of the cookie
+  tile (a point light's: of its 3 x 2 cube), z 1 when there is one, w the shape (0 rectangle, 1 disc, 2 tube); `+7`: xy the origin of the IES tile, z 1 when there is one, w the
+  extent, the radius of the sphere around the emitter. The light type is 3 for an area light. Other packages that add per-light data in this
+  texture (local shadows, decals, the lightmap) take more texels after `+7` or their own regions, never these.

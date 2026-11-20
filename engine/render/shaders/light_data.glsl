@@ -81,7 +81,7 @@ float fa_ies_sample(vec2 tile_origin, vec3 d, vec3 axis, vec3 right, vec3 up) {
 }
 
 // The face of a cube a direction falls in: the axis of its largest component (ties to the lower face), 0..5 = +X -X +Y -Y +Z -Z. The
-// ONE selection of the shadows of a point light (fa_shadow_local) and of the cookie of a point light (fa_light_sample); the CPU's is
+// ONE selection of the shadows of a point light (fa_shadow_local) and of the cookie of a point light (fa_light_sample_n); the CPU's is
 // cube_face_of (local_shadows.cpp).
 int fa_cube_face(vec3 d) {
     vec3 a = abs(d);
@@ -183,7 +183,8 @@ LightSample fa_light_sample_n(int li, vec3 world_pos, vec3 n) {
             vec3 axis = normalize(fa_light_texel(base + 2).xyz);
             front = shape > 1.5 || dot(axis, to_light) < 0.0;
             vec3 r = vec3(0.0);
-            if (dot(n, n) > 0.5) { r = reflect(-normalize(fa_camera_pos.xyz - world_pos), normalize(n)); }
+            vec3 to_cam = fa_camera_pos.xyz - world_pos;
+            if (dot(n, n) > 0.5 && dot(to_cam, to_cam) > 1e-12) { r = reflect(-normalize(to_cam), normalize(n)); }
             to_light = fa_area_point(pos.xyz, axis, e4.xyz, e5.xyz, e4.w, e5.w, shape, world_pos, r) - world_pos;
         }
         dist = length(to_light);
