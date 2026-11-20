@@ -234,7 +234,7 @@ TEST_CASE("pick_probes: a point is reflected by the probes whose box holds it, b
     CHECK(shares[0] == doctest::Approx(1.0f));
     CHECK(shares[1] == 0.0f);
 
-    CHECK_FALSE(pick_probes(one, {3.5f, 0, 0}).any());   // outside
+    CHECK_FALSE(pick_probes(one, {3.5f, 0, 0}).any());  // outside
     CHECK_FALSE(pick_probes(one, {0, -3.01f, 0}).any());
     // 1 m from the +X face of a band of 2 m: half the weight, quantised to 1/32.
     const ProbePick half = pick_probes(one, {2.0f, 0, 0});
@@ -256,7 +256,8 @@ TEST_CASE("pick_probes: a point is reflected by the probes whose box holds it, b
     CHECK(pick_probes(hard, {2.99f, 0, 0}).steps[0] == kProbeShareSteps);
 }
 
-TEST_CASE("pick_probes: importance, then the smaller box, then the nearer capture, then the id; the first at full weight drops the second") {
+TEST_CASE("pick_probes: importance, then the smaller box, then the nearer capture, then the id; the first at full "
+          "weight drops the second") {
     // Two boxes that overlap around the origin: A is bigger and more important than B; C is a second B-sized box.
     const ProbeVolume big = volume(10, {0, 0, 0}, {4, 4, 4}, 1.0f, 5);
     const ProbeVolume small = volume(11, {0, 0, 0}, {2, 2, 2}, 1.0f, 0);
@@ -306,7 +307,7 @@ TEST_CASE("pick_probes: importance, then the smaller box, then the nearer captur
         std::vector<ProbeVolume> v;
         for (int i = 0; i < 5; ++i) v.push_back(volume(std::uint64_t(30 + i), {0, 0, 0}, {3, 3, 3}, 6.0f, i));
         const ProbePick p = pick_probes(v, {0, 0, 0});
-        CHECK(p.index[0] == 5);  // importance 4
+        CHECK(p.index[0] == 5);   // importance 4
         CHECK(p.steps[0] == 16);  // 3 m deep over a band of 6 m
         CHECK(p.index[1] == 4);
     }
@@ -330,14 +331,16 @@ TEST_CASE("pick_probes: a turned box is tested along its own axes, and a NaN pos
 
 TEST_CASE("pick_probes: at most 511 volumes are looked at") {
     std::vector<ProbeVolume> v;
-    for (int i = 0; i < 600; ++i) v.push_back(volume(std::uint64_t(i + 1), {1000.0f * float(i), 0, 0}, {1, 1, 1}, 0.0f));
+    for (int i = 0; i < 600; ++i)
+        v.push_back(volume(std::uint64_t(i + 1), {1000.0f * float(i), 0, 0}, {1, 1, 1}, 0.0f));
     CHECK(pick_probes(v, {1000.0f * 10, 0, 0}).index[0] == 11);
     CHECK_FALSE(pick_probes(v, {1000.0f * 550, 0, 0}).any());  // the 551st is past the cap
 }
 
 // ---------------------------------------------------------------------------------------------------- GPU tests
 
-TEST_CASE("probe sampling: a mirror sphere inside a red probe's box reflects it, outside every box it reflects the sky") {
+TEST_CASE(
+    "probe sampling: a mirror sphere inside a red probe's box reflects it, outside every box it reflects the sky") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     for (const bool rgba8 : {false, true}) {
@@ -381,7 +384,8 @@ TEST_CASE("probe sampling: a mirror sphere inside a red probe's box reflects it,
     }
 }
 
-TEST_CASE("probe sampling: in the blend band the probe and the sky mix, and the mix follows the distance to the box's face") {
+TEST_CASE(
+    "probe sampling: in the blend band the probe and the sky mix, and the mix follows the distance to the box's face") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     Own o(g);
@@ -397,10 +401,11 @@ TEST_CASE("probe sampling: in the blend band the probe and the sky mix, and the 
         return middle(img);
     };
     Json deepReport, midReport, edgeReport;
-    const Color deep = red_at(0.0f, &deepReport);    // 3 m from the face: all probe
-    const Color mid = red_at(2.0f, &midReport);      // 1 m of a band of 2 m: half and half
-    const Color edge = red_at(2.75f, &edgeReport);   // 0.25 m: an eighth probe
-    INFO("deep " << deep.r << " " << deep.g << ", mid " << mid.r << " " << mid.g << ", edge " << edge.r << " " << edge.g);
+    const Color deep = red_at(0.0f, &deepReport);   // 3 m from the face: all probe
+    const Color mid = red_at(2.0f, &midReport);     // 1 m of a band of 2 m: half and half
+    const Color edge = red_at(2.75f, &edgeReport);  // 0.25 m: an eighth probe
+    INFO("deep " << deep.r << " " << deep.g << ", mid " << mid.r << " " << mid.g << ", edge " << edge.r << " "
+                 << edge.g);
     CHECK(deepReport["probes"][0]["share"].get<double>() == doctest::Approx(1.0));
     REQUIRE(midReport["probes"].size() == 1);
     CHECK(midReport["probes"][0]["share"].get<double>() == doctest::Approx(0.5));
@@ -462,7 +467,8 @@ TEST_CASE("probe sampling: a rough sphere reflects a blurrier probe than a mirro
     CHECK(sr < 0.6f * sm);
 }
 
-TEST_CASE("probe sampling: a probe out of reach changes nothing, a scene with no probe is the sky-only frame byte for byte") {
+TEST_CASE(
+    "probe sampling: a probe out of reach changes nothing, a scene with no probe is the sky-only frame byte for byte") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     Own o(g);
@@ -495,7 +501,8 @@ TEST_CASE("probe sampling: a probe out of reach changes nothing, a scene with no
     CHECK(middle(none).g > 0.04f);
 }
 
-TEST_CASE("probe sampling: the probe a sphere reflects does not split its batch, and a band of weights adds a few draws, not one per mesh") {
+TEST_CASE("probe sampling: the probe a sphere reflects does not split its batch, and a band of weights adds a few "
+          "draws, not one per mesh") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     Own o(g);
@@ -508,7 +515,8 @@ TEST_CASE("probe sampling: the probe a sphere reflects does not split its batch,
         s.sphereScale = 0.3f;
         s.spacing = across ? 0.9f : 0.4f;
         s.blend = 1.0f;
-        s.update = ProbeUpdate::OnDemand;  // captured once: the capture faces are not in the draw calls of the frames that follow
+        s.update = ProbeUpdate::
+            OnDemand;  // captured once: the capture faces are not in the draw calls of the frames that follow
         World w;
         build(w, s);
         o.settled(w, 3);

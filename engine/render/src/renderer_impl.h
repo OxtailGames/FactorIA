@@ -33,6 +33,7 @@
 #include "renderer_env.h"
 #include "renderer_probes.h"
 #include "renderer_ssr.h"
+#include "renderer_xmit.h"
 #include "renderer_dof.h"
 #include "renderer_fog.h"
 #include "renderer_volumetric.h"
@@ -105,6 +106,7 @@ struct Renderer::Impl {
     ProbeSystem
         probes;  // the reflection probes: their atlas, captures and baked pages (renderer_probes.h, renderer_probes.cpp)
     Ssr ssr;     // screen-space reflections (renderer_ssr.h): its shaders and pipelines
+    Xmit xmit;   // the opaque picture the transmissive meshes look through (renderer_xmit.h): its shader and pipelines
     Ssao ssao;   // PostProcess.ssao*: the ambient occlusion passes of each camera (renderer_ssao.h)
     SceneFx
         sceneFx;  // depth of field and motion blur (renderer_dof.h): its shaders, pipelines and the autofocus of each camera
@@ -460,6 +462,10 @@ struct Renderer::Impl {
         bool customPost = false;
         const Target* target = nullptr;
         CustomHistoryFrame history;
+        // A face of a realtime GI capture (renderer_gi.cpp): the job also draws the depth prepass of its camera twice (the front faces, the back
+        // faces) and the "gi-distance" pass turns both into the distance picture `gi->distIndex` of the probe system. `gi->drawn` tells
+        // whether it did (a face with no opaque mesh has no picture: every ray of it is maxDistance long).
+        GiFacePlan* gi = nullptr;
     };
     void render(World& world, float dt);
     void setup_frame(Frame& fr, World& world, float dt);
@@ -489,6 +495,12 @@ struct Renderer::Impl {
     void probes_write_sky();
     // The reflection part of the fragment parameters of one draw: the atlas, the sky's tile and the (up to two) probes the mesh reflects.
     void fill_probe_fs(const DrawContext& ctx, const MeshItem& mi, bool lit, mesh_fa_mesh_fs_params_t& fu);
+    // The realtime GI grids (renderer_gi.cpp), a part of the same frame: gi_plan() runs inside probes_plan() once the atlas exists (it has the
+    // band of probe blocks), gi_finish() inside probes_finish(). gi_collect() reads the RealtimeGI components (cheap when there are none).
+    void gi_collect(World& world);
+    void gi_plan(World& world, bool atlasRemade);
+    void gi_finish();
+    void gi_release();
     // The Frame of capture face `face` of `rp` seen from `position`: a 90 degree camera into an image of `resolution` squared.
     void probe_face_frame(Frame& fr, World& world, const ReflectionProbe& rp, Vec3 position, int face, int resolution);
     void
@@ -567,6 +579,7 @@ struct Renderer::Impl {
     void collect_lights(DrawContext& ctx);
     void shadow_bounds(DrawContext& ctx);
     void cull_and_batch(DrawContext& ctx);
+    void plan_transmission(DrawContext& ctx);
     void build_quad_stream(DrawContext& ctx);
     void upload_instances(DrawContext& ctx);
     void scene_uniforms(DrawContext& ctx);
@@ -591,7 +604,8 @@ struct Renderer::Impl {
     // The depth and normal prepass (M71): plan_prepass decides whether the job has one, prepass_pass draws it into `t` (a transient of
     // the graph), prepass_view_pass paints it over the game image (Renderer::set_debug_view).
     bool plan_prepass(DrawContext& ctx);
-    void prepass_pass(DrawContext& ctx, const Target& t);
+    // `backFaces`: draws the back faces only (the realtime GI's distance pictures).
+    void prepass_pass(DrawContext& ctx, const Target& t, bool backFaces = false);
     // M73.5: the meshes that scatter again with the sss program of the mesh shader, into `a` (diffuse light + depth) and `b` (radius + strength);
     // `pre` is the prepass the shader's visibility test reads.
     void sss_draw_pass(DrawContext& ctx, const Target& a, const Target& b, const Target& pre);

@@ -679,7 +679,7 @@ TEST_CASE("features: what the engine does not draw yet is false and says planned
 
 TEST_CASE(
     "features: the lighting rows of M73 are planned until their package lands and never claim what is not drawn") {
-    const char* const rows[] = {"realtimeGI", "transmission"};
+    const char* const rows[] = {"realtimeGI"};
     const FeatureEnv full = gpu(FeatureBackend::D3d11, true, true, true, true);
     for (const char* n : rows) {
         CAPTURE(n);
@@ -706,6 +706,15 @@ TEST_CASE(
         CHECK(supported(full, "contactShadows", &why));
         CHECK(why.find("planned") == std::string::npos);
         CHECK(feature_table()[std::size_t(find_feature("contactShadows"))].kind == FeatureKind::Engine);
+    }
+    // transmission (M73-P6b) is drawn: the mesh shader refracts an atlas of the opaque colour; where that atlas cannot be made the glass
+    // is a plain blend, which the frame's statistics say, so the row itself needs nothing of the GPU.
+    {
+        std::string why;
+        REQUIRE(find_feature("transmission") >= 0);
+        CHECK(supported(full, "transmission", &why));
+        CHECK(why.find("planned") == std::string::npos);
+        CHECK(feature_table()[std::size_t(find_feature("transmission"))].kind == FeatureKind::Engine);
     }
     // decals (M73.5b) are drawn in the mesh shader and ask nothing of the GPU: supported everywhere, never "planned".
     CHECK(find_feature("decals") >= 0);

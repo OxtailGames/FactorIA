@@ -32,7 +32,8 @@ struct ProbeVolume {
 // The unit box rows of `v` from its centre, axes and half sizes (call after setting them).
 void probe_volume_finish(ProbeVolume& v);
 
-inline constexpr int kProbeShareSteps = 32;  // the shares are multiples of 1 / 32 (the weights are quantised so batches still merge)
+inline constexpr int kProbeShareSteps =
+    32;  // the shares are multiples of 1 / 32 (the weights are quantised so batches still merge)
 
 struct ProbePick {
     std::uint16_t index[2] = {0, 0};  // 1 + the volume's index in the list, 0 = none

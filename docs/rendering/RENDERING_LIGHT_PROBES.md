@@ -71,8 +71,41 @@ meshes with different light are separate draws, so objects spread over a big gri
 cluster. Shadow draws ignore the probe light and batch as without probes. `probeAnchor` on a group of objects lets them share one
 value. A disabled or missing anchor entity counts as none.
 
+## Realtime global illumination
+
+A baked probe never changes. A **`RealtimeGI`** component is the live version, without ray tracing: a grid of probes over a box that the
+renderer captures again while the game runs, a few probes a frame, so a moving light or a door that opens changes the light of a room within
+a second or two. The idea is the one of the DDGI grids of other engines: each probe keeps the diffuse light that reaches it and how far the walls
+around it are (so light does not leak through them), and a capture is blended into the old value so the light does not flicker.
+
+**Status.** Only the data side exists (M73-P5d-1): the grid is captured, kept on the GPU and reported by `render.gi_grid`, but no mesh is shaded with
+it yet, so a scene with a `RealtimeGI` looks exactly like the same scene without it (M73-P5d-2 adds the shading, and with it the extra bounces:
+a capture sees the grid's earlier light only once the meshes use it). `render.supports` lists `realtimeGI` as planned until then.
+
+1. Add a `RealtimeGI` component to an entity. `size` is the box (default 20 x 6 x 20 m, centred on the entity plus `offset`; 0 on an axis is one layer),
+   `spacing` the distance between two probes (2 m: the default box has 11 x 4 x 11 = 484 probes; halving the spacing makes eight times as many).
+   All grids of a scene together may have 1224 probes and a scene keeps 8 grids: a bigger one is listed with state `noRoom` and what to change.
+2. `probesPerFrame` (default 2, at most 32 over all grids) is the cost: each probe draws the scene six times at `resolution` x `resolution` texels
+   (16 or 32). The probes are refreshed in a fixed order, the ones never captured first and then the one captured longest ago, so the same scene
+   gives the same result on every run; a grid of n probes at b a frame is refreshed every ceil(n / b) frames.
+3. `hysteresis` (default 0.9) is the share of the old value a new capture keeps: more is calmer and slower to follow a change.
+   `nearExclusion` and `maxDistance` are the near and far planes of the captures; `showTags` and `hideTags` leave things out of them (the
+   player, particles) as on a Camera.
+4. Look at it with `factoria call render.gi_grid`: per grid the probe count, `captured` and `progress` (how many probes have a first capture),
+   `cycles`, the memory (`bytes` of the grid, and the atlas's), the last frames' captures and the probes that lie **inside geometry**
+   (`invalidProbes`, with their positions: a probe whose rays mostly hit the back of a surface is invalid, and the shading will ignore it, as with
+   baked probes; move the grid or the spacing). A wrong component (a field out of its range, too many probes) has state `invalid` with the field and
+   the fix in `message`.
+
+Cost: a scene without a `RealtimeGI` pays nothing (no pass, no image, the same bytes). With one, the probe atlas grows by 132 rows (about 1 MB) and each
+captured probe adds six tiny passes of the scene plus a few filtering passes; nothing is read back from the GPU while the game runs (only
+`render.gi_grid` reads the markers of the probes). The GPU must be able to blend into RGBA16F images;
+where it cannot (the RGBA8 fallback of the probe atlas) the grid says `unsupported` and nothing is captured. The distances come from the depth prepass
+of the opaque meshes: transparent surfaces and particles show in the light of a capture but not in its distances.
+
 ## Not done yet
 
-Probes are not updated at run time (a moving light or a destroyed wall does not change them: bake again), there is no occlusion of the
+Baked probes are not updated at run time (a moving light or a destroyed wall does not change them: bake again, or use a `RealtimeGI` grid, which
+is not shaded yet), there is no occlusion of the
 probe by geometry between the probe and the object (a probe on the other side of a thin wall still counts: put the grid where the object
 is, or add points), and no reflection from a probe (reflections come from the sky and the reflection probes).

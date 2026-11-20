@@ -20,6 +20,7 @@
 #include <string>
 #include <vector>
 
+#include "fa/render/gi.h"
 #include "fa/render/probe.h"
 #include "frame.h"
 #include "render_internal.h"
@@ -30,8 +31,17 @@ struct ImageF;
 
 namespace fa::render {
 
-inline constexpr int kProbeScratchSlots = kProbeSlots + 1;  // the last one belongs to the synchronous capture
-inline constexpr int kProbeSyncAtlasSize = 512;             // holds one 256 tile (388 x 259)
+inline constexpr int kGiScratchSlot = kProbeSlots + 1;  // the realtime GI's: one probe at a time is filtered through it
+inline constexpr int kProbeScratchSlots =
+    kProbeSlots + 2;                             // kProbeSlots is the synchronous capture's, the one after it the GI's
+inline constexpr int kProbeSyncAtlasSize = 512;  // holds one 256 tile (388 x 259)
+
+// What the plan of a realtime GI capture face tells the graph and gets back (JobPlan::gi, renderer_gi.cpp).
+struct GiFacePlan {
+    int distIndex = 0;          // the distance picture of the ProbeGpu this face's "gi-distance" pass draws
+    float maxDistance = 30.0f;  // GiLayout::maxDistance
+    bool drawn = false;  // out: the job declared the pass (the face had opaque meshes and the GPU made the prepass)
+};
 
 class ProbeGpu {
 public:
@@ -39,7 +49,9 @@ public:
         sg_image image{};
         sg_view tex{};  // what a shader samples
         sg_view att{};  // what a pass draws into
-        int size = 0;
+        int size = 0;   // the width
+        int height =
+            0;  // the atlas is size x height: taller than wide while a RealtimeGI's band of blocks is in it (gi.h)
         bool valid() const { return image.id != 0; }
     };
 
@@ -55,8 +67,8 @@ public:
     // Tests only: the next ready() makes RGBA8 images (call before ready()).
     static void force_rgba8_for_tests(bool force);
 
-    // A cleared square atlas image. False when the GPU refuses it.
-    bool make_atlas(Atlas& atlas, int size, const char* label);
+    // A cleared atlas image of size x height (height 0: square). False when the GPU refuses it.
+    bool make_atlas(Atlas& atlas, int size, const char* label, int height = 0);
     void destroy_atlas(Atlas& atlas);
 
     // The scratch cubes of `slot` for maps of `resolution` (made again when the resolution changes). False when the GPU refuses them.
@@ -83,10 +95,50 @@ public:
     static bool read_region_end(sg_image scratch, int w, int h, bool rgba8, std::vector<float>& out,
                                 std::string* error);
 
+    // ---- the realtime GI (renderer_gi_gpu.cpp) ----
+    // Makes the programs of the GI on first use. False (logged once) when this GPU cannot: it needs RGBA16F images it can blend into.
+    bool gi_ready();
+    // The distance picture `index` (res x res, RGBA16F: r = the distance of the first hit, g = 1 when it is a back face), made when missing.
+    bool dist_image(int index, int res);
+    sg_view dist_view(int index) const;
+    // "gi-distance": the prepass images of one face (front faces, back faces) into the distance picture `index`.
+    void gi_dist(Gpu& gpu, int index, sg_view front, sg_view back, float maxDistance, int* drawCalls);
+    // The face of a GI capture into face `face` of the slot's S0: the colour by direction, the signed distance (negative: a back face) in alpha.
+    // `dist` invalid: the face has no picture and every ray is maxDistance long.
+    void face_gi(Gpu& gpu, int slot, int face, sg_view picture, sg_view dist, float maxDistance, int* drawCalls);
+    // Block `block` of the band (gi.h) from the slot's S0: the SH row, the depth map and the meta texel, each blended into what the block holds
+    // with weight `blend` (1 replaces it: a probe's first capture; 1 - hysteresis afterwards).
+    void filter_gi(Gpu& gpu, Atlas& atlas, int slot, int block, int resolution, float blend, float maxDistance,
+                   int* drawCalls);
+
     void release();
 
 private:
-    enum class Prog { Face, Down, OctCube, OctGgx, Sh, ShCube, Blit, Count };
+    enum class Prog {
+        Face,
+        Down,
+        OctCube,
+        OctGgx,
+        Sh,
+        ShCube,
+        Blit,
+        Count,  // Count: the programs ready() makes
+        FaceGi = Count,
+        GiDist,
+        GiDepth,
+        GiMeta,
+        ShBlend,
+        All  // the ones gi_ready() makes (ShBlend: the Sh program that blends)
+    };
+    struct DistImage {
+        sg_image image{};
+        sg_view att{}, tex{};
+        int size = 0;
+    };
+    void release_gi();
+    int giState_ = 0;  // 0 = not made, 1 = ready, -1 = failed (logged)
+    sg_sampler nearest_{};
+    std::vector<DistImage> dist_;
     struct Scratch {
         int resolution = 0, images = 0;
         sg_image image[kProbeMaxLevels]{};
@@ -100,8 +152,8 @@ private:
 
     int state_ = 0;  // 0 = not made, 1 = ready, -1 = failed (logged)
     sg_pixel_format format_ = SG_PIXELFORMAT_NONE;
-    sg_shader shaders_[int(Prog::Count)]{};
-    sg_pipeline pipelines_[int(Prog::Count)]{};
+    sg_shader shaders_[int(Prog::All)]{};
+    sg_pipeline pipelines_[int(Prog::All)]{};
     sg_sampler sampler_{};
     Scratch scratch_[kProbeScratchSlots];
     bool isGl_ = false;
@@ -129,6 +181,53 @@ struct ProbeEntry {
     std::uint64_t bakedSerial = 0;
     float uploadedGain = 0.0f;
     bool seen = false;  // listed this frame
+};
+
+// What the renderer keeps of one RealtimeGI component (renderer_gi.cpp).
+struct GiGrid {
+    Entity entity = kNullEntity;
+    std::uint64_t id = 0;  // the entity's bits
+    std::string name;      // the entity's id in the scene, for the report
+    bool valid = false;    // the component passed gi_layout
+    std::string error;     // why it did not
+    GiLayout layout;
+    int probesPerFrame = 1;            // RealtimeGI.probesPerFrame
+    int base = -1;                     // the first block of the grid's run (-1: none)
+    std::vector<std::uint64_t> last;   // per probe: the ordinal of its last capture (0 = never)
+    std::vector<std::uint64_t> retry;  // per probe: the gi frame before which it is not tried again
+    std::uint64_t serial = 0;          // captures of the grid since its layout changed
+    int captured = 0;                  // probes captured at least once
+    std::uint64_t cycles = 0;          // times every probe has been captured once more (serial / count)
+    std::string state;                 // "updating", "ready", "invalid", "noRoom", "unsupported"
+    std::string message;
+    bool seen = false;
+    int lastFrameCaptures = 0;  // probes captured in the last gi frame
+    bool dirty = true;          // the record changed (the layout key or the readiness): P5d-2 writes it again
+};
+
+// The realtime GI of a renderer: every grid's state, the blocks of the band, this frame's capture jobs.
+struct GiSystem {
+    std::vector<Entity> wants;  // the active RealtimeGI components of this frame, in entity order
+    std::map<std::uint64_t, GiGrid> grids;
+    GiBlockAllocator blocks;
+    const World* world = nullptr;
+    std::uint64_t sceneGeneration = 0;
+    std::uint64_t frame = 0;  // gi frames begun (a frame that has a grid)
+    struct Job {
+        std::uint64_t grid = 0;
+        int probe = 0, face = 0, distIndex = 0;
+        bool last = false;   // the sixth face of the capture: the block is filtered after it
+        bool first = false;  // the probe's first capture: it replaces the block instead of blending into it
+        sg_view picture{};
+    };
+    std::vector<Job> jobs;
+    std::deque<GiFacePlan> plans;  // one per job: a JobPlan keeps a pointer
+    std::deque<Frame> frames;      // a job keeps a reference to its Frame
+    std::vector<int> perFrame;     // probes captured in each of the last frames (newest last, up to kHistory)
+    static constexpr std::size_t kHistory = 64;
+    std::uint64_t totalCaptures = 0;
+    int drawCalls = 0;
+    bool unsupported = false;  // gi_ready() said no (logged once)
 };
 
 // The probes of a renderer.
@@ -162,6 +261,7 @@ struct ProbeSystem {
     // What probes_plan decided for probes_finish: the baked probes to upload.
     std::vector<std::uint64_t> uploads;
     std::string skyState;  // "ready", "noSky" (the scene draws no sky material: the meshes keep the gradient), "failed"
+    GiSystem gi;           // the RealtimeGI grids (they share the atlas)
 };
 
 }  // namespace fa::render
