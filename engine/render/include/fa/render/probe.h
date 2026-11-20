@@ -41,6 +41,8 @@ inline constexpr std::uint64_t kProbeSkyId = 0;  // the allocator id of the sky;
 inline constexpr int kProbeFaces = 6;
 inline constexpr int kProbeFaceBudget = 2;  // faces the realtime probes may draw per frame, in all
 inline constexpr int kProbeSlots = 2;       // probes with a capture in progress at once
+inline constexpr int kProbeRetryFrames =
+    30;  // frames a probe whose capture could not be drawn waits before it tries again
 inline constexpr int kProbeManifestVersion = 1;
 inline constexpr int kProbeMaxCount = 256;  // probes the renderer keeps (the rest are listed as "over the limit")
 
@@ -173,8 +175,13 @@ public:
     void set_probes(const std::vector<ProbeSpec>& probes);
     // An on-demand probe: capture once more. Any probe: capture again as soon as the budget allows.
     void refresh(std::uint64_t id);
-    // The work of this frame (it assumes the caller does it).
+    // The work of this frame (it assumes the caller does it). A slot whose capture completed in this call is given to another probe
+    // in the same call only when that probe has the same resolution (the slot's images are made for one resolution, and the filter of
+    // the probe that completed has not run yet).
     std::vector<Work> plan(std::uint64_t frame);
+    // The caller could not draw the planned work of `id` this frame: the capture starts again (a capture that plan() completed is
+    // undone), and the probe is not due again for `holdFrames` frames (0: at the next one).
+    void abandon(std::uint64_t id, std::uint64_t frame, int holdFrames);
     Info info(std::uint64_t id) const;
 
 private:
@@ -183,6 +190,10 @@ private:
         Info info;
         int slot = -1;
         bool refresh = false;
+        std::uint64_t holdUntil = 0;  // not due before this frame
+        bool completedNow = false;    // plan() completed its capture in the call being made
+        std::uint64_t prevLastFrame = 0;
+        bool prevRefresh = false;
     };
     std::vector<State> probes_;  // sorted by id
     int budget_ = kProbeFaceBudget;

@@ -119,10 +119,11 @@ struct ProbeEntry {
     float gain = 1.0f;  // ReflectionProbe.intensity
     std::string name;   // the entity's id in the scene, for the report
     bool placed = false;
-    std::string state;    // "ready", "pending", "capturing", "noRoom", "noBake", "failed", "overLimit"
+    std::string state;    // "ready", "pending", "capturing", "noRoom", "noBake", "failed"
     std::string message;  // why a probe is "failed" or "noBake"
     std::uint64_t captures = 0;
-    std::uint64_t lastFrame = 0;  // the renderer's probe frame of the last capture or upload (0 = never)
+    std::uint64_t lastFrame = 0;   // the renderer's probe frame of the last capture or upload (0 = never)
+    std::uint64_t retryFrame = 0;  // a realtime probe that failed is tried again from this probe frame
     // Baked: the manifest the tile was last filled from.
     std::string bakedPath, bakedHash;
     std::uint64_t bakedSerial = 0;
@@ -137,7 +138,9 @@ struct ProbeSystem {
     ProbeAtlasAllocator allocator;
     ProbeScheduler scheduler;
     std::map<std::uint64_t, ProbeEntry> entries;  // by id (the entity's bits): deterministic order
-    std::uint64_t frame = 0;                      // probe frames begun (a frame that has probes)
+    const World* world = nullptr;                 // the world and scene generation the entries belong to
+    std::uint64_t sceneGeneration = 0;
+    std::uint64_t frame = 0;  // probe frames begun (a frame that has probes)
     int overLimit = 0;
     bool overLimitWarned = false;
     // The sky's entry (atlas entry 0).

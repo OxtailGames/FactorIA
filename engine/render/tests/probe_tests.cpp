@@ -365,6 +365,78 @@ TEST_CASE("probe scheduler: a probe that goes away frees its slot, one that chan
     CHECK(s.info(2).facesDone == 0);
 }
 
+TEST_CASE("probe scheduler: a slot is never used for two resolutions in one plan, whatever the budget") {
+    // The renderer makes the scratch images of a slot at the resolution of the probe that draws into it, when it PLANS the frame; the
+    // filtering of a capture that completed in that plan runs after it. So a slot that served one resolution in a plan serves no other.
+    const std::vector<ProbeSpec> probes = {
+        ProbeSpec{1, ProbeUpdateKind::TimeSliced, 0, 128}, ProbeSpec{2, ProbeUpdateKind::TimeSliced, 0, 256},
+        ProbeSpec{3, ProbeUpdateKind::TimeSliced, 0, 64}, ProbeSpec{4, ProbeUpdateKind::EveryFrame, 0, 256}};
+    for (int budget : {1, 2, 3, 4, 5, 7, 12}) {
+        INFO("budget " << budget);
+        ProbeScheduler s;
+        s.set_budget(budget);
+        s.set_probes(probes);
+        for (std::uint64_t frame = 1; frame <= 80; ++frame) {
+            int resolutionOfSlot[kProbeSlots]{};
+            for (const auto& w : s.plan(frame)) {
+                REQUIRE(w.slot >= 0);
+                REQUIRE(w.slot < kProbeSlots);
+                const int resolution = probes[std::size_t(w.id - 1)].resolution;
+                if (resolutionOfSlot[w.slot] == 0) resolutionOfSlot[w.slot] = resolution;
+                CHECK(resolutionOfSlot[w.slot] == resolution);
+            }
+        }
+        for (std::uint64_t id = 1; id <= 4; ++id) CHECK(s.info(id).captures >= 1);
+    }
+}
+
+TEST_CASE("probe scheduler: a face that was not drawn does not advance the capture, and the probe waits to try again") {
+    ProbeScheduler s;
+    s.set_budget(2);
+    s.set_probes({ProbeSpec{1, ProbeUpdateKind::TimeSliced, 0, 128}});
+    auto work = s.plan(1);
+    REQUIRE(work.size() == 2);
+    CHECK(s.info(1).facesDone == 2);
+    s.abandon(1, 1, kProbeRetryFrames);
+    CHECK(s.info(1).facesDone == 0);
+    CHECK(s.info(1).captures == 0);
+    // Nothing for kProbeRetryFrames frames, then the capture starts again from face 0.
+    for (std::uint64_t frame = 2; frame <= 1 + std::uint64_t(kProbeRetryFrames); ++frame) CHECK(s.plan(frame).empty());
+    work = s.plan(2 + std::uint64_t(kProbeRetryFrames));
+    REQUIRE(work.size() == 2);
+    CHECK(work[0].face == 0);
+    CHECK(work[1].face == 1);
+
+    // A hold of 0 retries at the next frame.
+    s.abandon(1, 40, 0);
+    work = s.plan(41);
+    REQUIRE(work.size() == 2);
+    CHECK(work[0].face == 0);
+}
+
+TEST_CASE("probe scheduler: a capture that plan() completed but was not drawn is undone") {
+    ProbeScheduler s;
+    s.set_budget(12);
+    s.set_probes({ProbeSpec{1, ProbeUpdateKind::OnDemand, 0, 64}});
+    auto work = s.plan(1);  // the first capture: all six faces
+    REQUIRE(work.size() == 6);
+    CHECK(s.info(1).captures == 1);
+    CHECK(s.plan(2).empty());  // on demand: nothing since
+    s.refresh(1);
+    work = s.plan(3);
+    REQUIRE(work.size() == 6);
+    CHECK(s.info(1).captures == 2);
+    CHECK(s.info(1).lastFrame == 3);
+    s.abandon(1, 3, 0);  // the faces of the second capture could not be drawn
+    CHECK(s.info(1).captures == 1);
+    CHECK(s.info(1).lastFrame == 1);
+    CHECK(s.info(1).pending);  // the refresh is still owed
+    work = s.plan(4);
+    REQUIRE(work.size() == 6);
+    CHECK(s.info(1).captures == 2);
+    CHECK(s.plan(5).empty());
+}
+
 TEST_CASE("probe manifest: JSON round trip, and an error that names the pointer and the fix") {
     ProbeManifest m;
     m.resolution = 64;

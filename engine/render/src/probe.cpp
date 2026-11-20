@@ -348,9 +348,29 @@ ProbeScheduler::Info ProbeScheduler::info(std::uint64_t id) const {
     return Info{};
 }
 
+void ProbeScheduler::abandon(std::uint64_t id, std::uint64_t frame, int holdFrames) {
+    for (State& s : probes_) {
+        if (s.spec.id != id) continue;
+        if (s.completedNow) {  // plan() counted a capture that was not drawn
+            --s.info.captures;
+            s.info.lastFrame = s.prevLastFrame;
+            s.refresh = s.prevRefresh || s.info.captures == 0;
+            s.completedNow = false;
+        }
+        if (s.slot >= 0) slotBusy_[s.slot] = false;
+        s.slot = -1;
+        s.info.facesDone = 0;
+        if (s.spec.update == ProbeUpdateKind::OnDemand) s.refresh = true;  // it still owes this capture
+        s.holdUntil = frame + std::uint64_t(std::max(holdFrames, 0)) + 1;
+    }
+}
+
 std::vector<ProbeScheduler::Work> ProbeScheduler::plan(std::uint64_t frame) {
     std::vector<Work> work;
     int remaining = budget_;
+    for (State& s : probes_) s.completedNow = false;
+    int freedResolution
+        [kProbeSlots]{};  // the resolution of the capture that completed in this call on the slot (0: none did)
     auto advance = [&](State& s) {
         const int n = std::min(remaining, kProbeFaces - s.info.facesDone);
         for (int i = 0; i < n; ++i) {
@@ -361,9 +381,13 @@ std::vector<ProbeScheduler::Work> ProbeScheduler::plan(std::uint64_t frame) {
         remaining -= n;
         if (s.info.facesDone >= kProbeFaces) {  // complete: the filtering follows in this frame
             s.info.facesDone = 0;
+            s.prevLastFrame = s.info.lastFrame;
+            s.prevRefresh = s.refresh;
+            s.completedNow = true;
             ++s.info.captures;
             s.info.lastFrame = frame;
             slotBusy_[s.slot] = false;
+            freedResolution[s.slot] = s.spec.resolution;
             s.slot = -1;
             s.refresh = false;
         }
@@ -375,10 +399,9 @@ std::vector<ProbeScheduler::Work> ProbeScheduler::plan(std::uint64_t frame) {
     // Then the probes that are due: never captured or asked for first, then the every-frame ones, the more important, the one captured
     // longest ago, the smaller id.
     while (remaining > 0) {
-        int slot = -1;
-        for (int i = 0; i < kProbeSlots && slot < 0; ++i)
-            if (!slotBusy_[i]) slot = i;
-        if (slot < 0) break;
+        bool anyFree = false;
+        for (int i = 0; i < kProbeSlots; ++i) anyFree = anyFree || !slotBusy_[i];
+        if (!anyFree) break;
         State* best = nullptr;
         auto better = [](const State& a, const State& b) {
             const bool an = a.info.captures == 0 || a.refresh, bn = b.info.captures == 0 || b.refresh;
@@ -394,10 +417,19 @@ std::vector<ProbeScheduler::Work> ProbeScheduler::plan(std::uint64_t frame) {
             if (s.slot >= 0) continue;
             const bool due = s.info.captures == 0 || s.refresh || s.spec.update != ProbeUpdateKind::OnDemand;
             // A probe captured this very frame waits for the next one (an every-frame probe is due again every frame, not twice in one).
-            if (!due || s.info.lastFrame == frame) continue;
+            if (!due || s.info.lastFrame == frame || s.holdUntil > frame) continue;
+            // A slot that completed a capture of another resolution in this call cannot be reused yet: its images are made for the
+            // first one, and the filter of that capture reads them after this plan.
+            bool fits = false;
+            for (int i = 0; i < kProbeSlots; ++i)
+                fits = fits || (!slotBusy_[i] && (freedResolution[i] == 0 || freedResolution[i] == s.spec.resolution));
+            if (!fits) continue;
             if (!best || better(s, *best)) best = &s;
         }
         if (!best) break;
+        int slot = -1;
+        for (int i = 0; i < kProbeSlots && slot < 0; ++i)
+            if (!slotBusy_[i] && (freedResolution[i] == 0 || freedResolution[i] == best->spec.resolution)) slot = i;
         best->slot = slot;
         slotBusy_[slot] = true;
         advance(*best);
