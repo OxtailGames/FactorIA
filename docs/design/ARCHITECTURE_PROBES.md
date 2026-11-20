@@ -246,9 +246,12 @@ A block is 10 x 11 texels of the atlas, RGBA16F. Block `b` of the band has its f
 owns a run of consecutive blocks, `baseBlock`; probe `i` of the grid is block `baseBlock + i`).
 
 - Rows 0..9, columns 0..9: the DEPTH MAP: an octahedral map of 8 x 8 interior texels with the one-texel border of probe.h (so 10 x 10).
-  r = the mean distance, g = the mean squared distance (metres, both clamped to `maxDistance`) of the 4 x 4 directions each texel covers.
-  The visibility test is Chebyshev's: `mean = r`, `variance = max(g - r * r, 0)`; a point at distance `d` from the probe is lit by it with
-  weight `variance / (variance + (d - mean)^2)` when `d > mean`, else 1.
+  r = the mean distance, g = the mean squared distance of the 4 x 4 directions each texel covers, NORMALISED: every distance is `d / maxDistance`
+  clamped to 0..1 before it is averaged and squared, so r and g are in 0..1 (in metres, g would be up to 10^6 and overflow RGBA16F above
+  `maxDistance` 255, and a half float's precision at 900 is 0.5). To decode: `mean = r * maxDistance` (metres), `variance = max(g - r * r, 0) *
+  maxDistance^2` (metres squared; `maxDistance` is in the grid's record). The visibility test is Chebyshev's with those: a point at distance `d` from the
+  probe is lit by it with weight `variance / (variance + (d - mean)^2)` when `d > mean`, else 1. Or normalise the point's distance too (`d / maxDistance`) and
+  use r and g as they are, with the variance `max(g - r * r, 0)`. The hysteresis blends the normalised values.
 - Row 10, columns 0..8: the nine coefficients of the SH of the light that reaches the probe: RADIANCE SH in the order of `ShL2` (lightmap_bake.h), RGB in r,
   g, b, no `intensity` applied. The cosine convolution is the one of `sh_irradiance` (bands scaled 1, 2/3, 1/4; `fa_sh_eval` in mesh_common.glsl
   does the same for the sky), and the result is the diffuse light in the units of a sky's (irradiance / pi).
@@ -288,7 +291,7 @@ owns a run of consecutive blocks, `baseBlock`; probe `i` of the grid is block `b
 
 ## Limits and what is not verified
 
-- 256 probes (`kProbeMaxCount`); the atlas 1024 square; the faces per frame 1..12; resolutions 32, 64, 128, 256.
+- 256 probes (`kProbeMaxCount`); the atlas 1024 square (1024 x 1156 while a `RealtimeGI` exists); the faces per frame 1..12; resolutions 32, 64, 128, 256.
 - A probe captures what the frame graph draws: no reflection of another probe (no bounce), no screen-space effect, no transparent
   sorting beyond what a view job does.
 - The GPU tests ran on Metal (the hardware of the developer's Mac), the RGBA8 fallback only forced on Metal. OpenGL, D3D11 and the

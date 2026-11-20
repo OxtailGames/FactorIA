@@ -329,7 +329,8 @@ void main() {
 
 // ---- gi_depth: the depth map of a block --------------------------------------------------------------------------------------------
 // The drawn rectangle is the 10 x 10 texels of the block's depth map (the 8 x 8 interior and its border): each texel is 4 x 4 taps of the cube's
-// alpha (the signed distance), as the mean of |distance| and the mean of its square, p.x = the maximum distance.
+// alpha (the signed distance), as the mean of |distance| and the mean of its square, both of d / p.x (p.x = the maximum distance), so r and g are
+// in 0..1 whatever the maximum distance (metres squared would overflow RGBA16F above 255 m and lose precision long before).
 @fs fs_gi_depth
 layout(binding=0) uniform textureCube probe_gcube;
 layout(binding=0) uniform sampler probe_nsmp;
@@ -350,7 +351,7 @@ void main() {
         for (int i = 0; i < 4; ++i) {
             vec2 e = e0 + ((vec2(float(i), float(j)) + 0.5) / 4.0 - 0.5) * texel;
             float a = abs(textureLod(samplerCube(probe_gcube, probe_nsmp), oct_decode(e), 0.0).a);
-            a = min(a, p.x);
+            a = min(a, p.x) / p.x;  // normalised: d / maxDistance, so both moments are 0..1 and a half float holds them
             m1 += a;
             m2 += a * a;
         }

@@ -7,7 +7,9 @@
 // 1024 x 1156 texels in all, no texture unit more. A probe's BLOCK is 10 x 11 texels:
 //
 //   rows 0..9    the depth map: 8 x 8 octahedral texels with the one-texel border of probe.h (so 10 x 10), texel = (r, g) = (the mean
-//                distance, the mean squared distance) of the directions the texel covers, in metres, clamped to maxDistance
+//                distance, the mean squared distance) of the directions the texel covers, NORMALISED: the distances are d / maxDistance
+//                (clamped to 0..1), so r and g are in 0..1 and a half float holds them at any maxDistance; metres = r * maxDistance, and
+//                the variance in metres squared = (g - r * r) * maxDistance * maxDistance
 //   row 10       texels 0..8: the nine coefficients of the SH of the light that reaches the probe (the radiance projection of probe.h's
 //                SH row, RGB; no gain applied); texel 9: (back-face fraction, 1 once the probe has been captured, 0, 0)
 //
