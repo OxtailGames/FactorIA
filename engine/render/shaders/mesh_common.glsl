@@ -29,7 +29,7 @@
 //
 // Every engine identifier starts with fa_ (FA_ for constants), so "names starting with fa_ are the engine's" is the one
 // rule a snippet follows. Uniform block bindings: vertex 0 fa_mesh_vs_params, 3 fa_skin (4 is left for the material's
-// vertex-stage block); fragment 1 fa_mesh_fs_params, 2 fa_lights (5 for the material). Views 0-5 and samplers 0-1 are
+// vertex-stage block); fragment 1 fa_mesh_fs_params (5 for the material). Views 0-5 and samplers 0-1 are
 // the engine's, and so are views 14-15 and sampler 10 (the baked sky, fa_fs_head). A material texture is bound twice, so both stages can sample it (a sokol view slot belongs to one stage and
 // sokol-shdc refuses one name in both): the fragment stage reads it at view 6.. and sampler 2.., the vertex stage at view 10..
 // and sampler 6.. under the name fa_vs_<name> (the generator's #define makes the snippet write the plain name in both).

@@ -17,21 +17,24 @@
 
 namespace fa::render {
 
-inline constexpr int kClusterTilePx = 64;             // the tiles of the grid are about this many pixels square
-inline constexpr int kClusterSlices = 24;             // exponential depth slices between the camera's near and far planes
-inline constexpr int kMaxClusters = 1 << 16;          // the tiles grow (doubling) until the grid has at most this many clusters
-inline constexpr int kMaxLightsPerCluster = 128;      // a cluster keeps its first 128 lights (ascending light index); the rest are dropped
-inline constexpr std::size_t kMaxClusterIndices = std::size_t(1) << 19;  // list entries of a view; the last clusters lose lights past it
-inline constexpr int kLightTextureWidth = 1024;       // texels per row of the data texture (shaders/light_data.glsl)
-inline constexpr int kLightTexels = 4;                // texels of one light in the table
+inline constexpr int kClusterTilePx = 64;     // the tiles of the grid are about this many pixels square
+inline constexpr int kClusterSlices = 24;     // exponential depth slices between the camera's near and far planes
+inline constexpr int kMaxClusters = 1 << 16;  // the tiles grow (doubling) until the grid has at most this many clusters
+inline constexpr int kMaxLightsPerCluster =
+    128;  // a cluster keeps its first 128 lights (ascending light index); the rest are dropped
+inline constexpr std::size_t kMaxClusterIndices =
+    std::size_t(1) << 19;                        // list entries of a view; the last clusters lose lights past it
+inline constexpr int kLightTextureWidth = 1024;  // texels per row of the data texture (shaders/light_data.glsl)
+inline constexpr int kLightTexels = 4;           // texels of one light in the table
 
 // The camera of a view as the clusters need it. `viewProj` is the matrix the vertex stage multiplies with (so the tile of a fragment
 // is found with the same numbers on every backend, whatever its window or depth conventions); depths are distances along `forward`.
 struct ClusterCamera {
     Mat4 viewProj;
     Vec3 position{0, 0, 0}, forward{0, 0, -1};
-    float nearDepth = 0.1f, farDepth = 1000.0f;  // of the visible volume, along forward (> 0 after make_cluster_camera's clamping)
-    int widthPx = 1, heightPx = 1;               // the viewport in pixels
+    float nearDepth = 0.1f,
+          farDepth = 1000.0f;       // of the visible volume, along forward (> 0 after make_cluster_camera's clamping)
+    int widthPx = 1, heightPx = 1;  // the viewport in pixels
 };
 
 // What the grid of a view is (the numbers the shader receives too).
@@ -51,7 +54,9 @@ int cluster_slice(const ClusterGrid& grid, float depth);
 // The tile (0 .. tiles - 1) of a normalized device coordinate (-1 .. 1). NaN gives 0.
 int cluster_tile(float ndc, int tiles);
 // The index of the cluster of a tile and a slice (slice-major, then row, then column: what the shader computes).
-inline int cluster_index(const ClusterGrid& g, int tx, int ty, int slice) { return (slice * g.tilesY + ty) * g.tilesX + tx; }
+inline int cluster_index(const ClusterGrid& g, int tx, int ty, int slice) {
+    return (slice * g.tilesY + ty) * g.tilesX + tx;
+}
 
 // A local light as a sphere: its position and range. radius <= 0, NaN or infinite: the light belongs to no cluster.
 struct LightSphere {
@@ -64,7 +69,8 @@ struct LightSphere {
 struct ClusterRange {
     int x0 = 0, x1 = -1, y0 = 0, y1 = -1, s0 = 0, s1 = -1;
 };
-bool light_cluster_range(const ClusterCamera& cam, const ClusterGrid& grid, const LightSphere& sphere, ClusterRange& out);
+bool light_cluster_range(const ClusterCamera& cam, const ClusterGrid& grid, const LightSphere& sphere,
+                         ClusterRange& out);
 
 // The lists of a view: per cluster the first slot of its light indices and how many it has; `indices` holds the lists one after the
 // other, each in ascending light index.
@@ -73,10 +79,10 @@ struct ClusterLists {
     std::vector<std::uint32_t> first;
     std::vector<std::uint32_t> count;
     std::vector<std::uint32_t> indices;
-    int lightsAssigned = 0;           // lights that reach at least one cluster
-    std::size_t clippedEntries = 0;   // list entries lost to kMaxLightsPerCluster or kMaxClusterIndices
-    int clippedClusters = 0;          // clusters that lost entries
-    std::size_t maxPerCluster = 0;    // the longest list kept
+    int lightsAssigned = 0;          // lights that reach at least one cluster
+    std::size_t clippedEntries = 0;  // list entries lost to kMaxLightsPerCluster or kMaxClusterIndices
+    int clippedClusters = 0;         // clusters that lost entries
+    std::size_t maxPerCluster = 0;   // the longest list kept
 };
 
 // Assigns the lights (`spheres[n]` is table light n; directional lights have radius 0 and are in every cluster without a list) to the
@@ -90,9 +96,9 @@ struct ClusterUniforms {
 };
 struct LightTexture {
     int width = kLightTextureWidth;
-    int height = 0;                // rows, a power of two (so the image is made again rarely)
-    std::vector<float> texels;     // width * height RGBA32F texels
-    std::size_t usedTexels = 0;    // texels that hold data
+    int height = 0;              // rows, a power of two (so the image is made again rarely)
+    std::vector<float> texels;   // width * height RGBA32F texels
+    std::size_t usedTexels = 0;  // texels that hold data
     ClusterUniforms uniforms;
 };
 // Packs the light table (`lights`, directional first: `directional` of them), and when `lists` is not null the cluster table and the

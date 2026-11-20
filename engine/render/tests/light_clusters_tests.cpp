@@ -127,7 +127,8 @@ TEST_CASE("clusters: the grid has at most 65536 clusters and its slices grow wit
     const ClusterGrid d = make_cluster_grid(100, 100, 5.0f, 5.0f);
     CHECK(std::isfinite(d.slicesPerOctave));
     CHECK(d.slicesPerOctave > 0.0f);
-    const ClusterGrid n = make_cluster_grid(100, 100, std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::infinity());
+    const ClusterGrid n =
+        make_cluster_grid(100, 100, std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::infinity());
     CHECK(std::isfinite(n.slicesPerOctave));
     CHECK(n.nearDepth > 0.0f);
 }
@@ -135,13 +136,13 @@ TEST_CASE("clusters: the grid has at most 65536 clusters and its slices grow wit
 TEST_CASE("clusters: a light that cannot shine in the view reaches no cluster") {
     const View v = make_view(1280, 720, true);
     ClusterRange r;
-    CHECK_FALSE(light_cluster_range(v.cam, v.grid, {0, 0, -10, 0.0f}, r));     // no size
+    CHECK_FALSE(light_cluster_range(v.cam, v.grid, {0, 0, -10, 0.0f}, r));  // no size
     CHECK_FALSE(light_cluster_range(v.cam, v.grid, {0, 0, -10, -1.0f}, r));
     CHECK_FALSE(light_cluster_range(v.cam, v.grid, {0, 0, -10, std::numeric_limits<float>::quiet_NaN()}, r));
     CHECK_FALSE(light_cluster_range(v.cam, v.grid, {std::numeric_limits<float>::quiet_NaN(), 0, -10, 1.0f}, r));
-    CHECK_FALSE(light_cluster_range(v.cam, v.grid, {0, 0, 50, 2.0f}, r));      // behind the camera
-    CHECK_FALSE(light_cluster_range(v.cam, v.grid, {0, 0, -900, 2.0f}, r));    // beyond the far plane
-    CHECK_FALSE(light_cluster_range(v.cam, v.grid, {500, 0, -10, 2.0f}, r));   // far to the side
+    CHECK_FALSE(light_cluster_range(v.cam, v.grid, {0, 0, 50, 2.0f}, r));     // behind the camera
+    CHECK_FALSE(light_cluster_range(v.cam, v.grid, {0, 0, -900, 2.0f}, r));   // beyond the far plane
+    CHECK_FALSE(light_cluster_range(v.cam, v.grid, {500, 0, -10, 2.0f}, r));  // far to the side
     CHECK(light_cluster_range(v.cam, v.grid, {0, 0, -10, 2.0f}, r));
     CHECK(r.x0 <= r.x1);
     CHECK(r.y0 <= r.y1);
@@ -235,8 +236,8 @@ TEST_CASE("clusters: the lists are the same bytes with the pool stopped, inline 
         const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
         if (m.start) jobs::stop();
         // Informational: the cost of the build with 1000 lights (never asserted: it depends on the machine).
-        std::printf("[light clusters] 1000 lights, %dx%d clusters x %d slices, %s: %.2f ms, %zu entries\n", v.grid.tilesX,
-                    v.grid.tilesY, v.grid.slices, m.name, ms, lists.indices.size());
+        std::printf("[light clusters] 1000 lights, %dx%d clusters x %d slices, %s: %.2f ms, %zu entries\n",
+                    v.grid.tilesX, v.grid.tilesY, v.grid.slices, m.name, ms, lists.indices.size());
         CHECK(lists.indices.size() > 1000);
         if (!haveReference) {
             reference = lists;
@@ -278,7 +279,8 @@ TEST_CASE("clusters: a list keeps its first 128 lights, and a view at most 52428
     CHECK(kept + lists.clippedEntries == clusters * 200);
 }
 
-TEST_CASE("clusters: at most 32 lights that cover the view give every cluster the lights in table order, like today's loop") {
+TEST_CASE(
+    "clusters: at most 32 lights that cover the view give every cluster the lights in table order, like today's loop") {
     const View v = make_view(1280, 720, false);
     std::vector<LightSphere> spheres;
     for (int i = 0; i < 20; ++i) spheres.push_back({float(i) * 0.1f, 0, -30, 2000.0f});
@@ -324,7 +326,8 @@ TEST_CASE("clusters: select_lights keeps 32 directional lights first and 1024 li
     CHECK(lights[32].rank == 2);
 }
 
-TEST_CASE("clusters: the data texture holds the light table, the cluster table and the lists in the layout the shader reads") {
+TEST_CASE("clusters: the data texture holds the light table, the cluster table and the lists in the layout the shader "
+          "reads") {
     const View v = make_view(640, 360, false);
     std::vector<LightData> table;
     LightData sun;

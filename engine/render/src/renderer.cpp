@@ -794,6 +794,10 @@ void RendererTestAccess::force_output(Renderer& r, const HdrOutputInfo* info) {
     r.impl_->forcedOutput = info ? *info : HdrOutputInfo{};
 }
 
+void RendererTestAccess::last_cluster_info(Renderer& r, float out[4]) {
+    for (int c = 0; c < 4; ++c) out[c] = r.impl_ ? r.impl_->lastClusterInfo[c] : 0.0f;
+}
+
 bool RendererTestAccess::read_floats(Renderer& r, bool present, std::vector<float>& out, std::string* error) {
     if (!r.initialized()) {
         if (error) *error = "Renderer is not initialized";

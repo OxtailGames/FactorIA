@@ -49,7 +49,7 @@ the helper in `#ifdef GL_FRAGMENT_SHADER ... #endif` (the hooks need no wrapper)
 
 | Function | What it gives |
 |---|---|
-| `fa_light_count()` | How many lights reach this fragment: the directional lights (at most 32) and the local lights whose range reaches the fragment's cluster (clustered lighting, M73.1a). `0` to `1056`, in practice a few. |
+| `fa_light_count()` | How many lights reach this fragment: the directional lights (at most 32) and the local lights whose range reaches the fragment's cluster (clustered lighting, M73.1a). `0` to `160` (32 directional and at most 128 local lights per cluster), in practice a few. |
 | `fa_light(n, i)` | The `LightSample` of light `n` (`0` to `fa_light_count() - 1`) at this fragment, as `light()` receives it: `direction`, `color` (colour times intensity times attenuation times shadow), `attenuation`, `shadow`, `distance`, `type` (0 directional, 1 point, 2 spot). A number out of range gives a sample that lights nothing (`color` and `attenuation` `0`, `shadow` `1`). |
 | `fa_light_unshadowed(n, i)` | The same without the shadow map read: `shadow` is `1` and `color` has no shadow in it. Use it to rank or choose lights without paying for the shadow, or to apply the shadow your own way. |
 | `fa_light_shadow(n, i)` | The shadow of light `n` at this fragment: `1` lit, `0` in shadow, a value between at the edge. Only light `0`, when it is the directional light that casts shadows and the mesh receives them, has a shadow map; every other light answers `1`. |

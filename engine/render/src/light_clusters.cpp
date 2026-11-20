@@ -10,10 +10,13 @@ namespace fa::render {
 
 namespace {
 
-constexpr float kDepthMargin = 2e-3f;  // relative margin of a sphere's depth range: the GPU's log2 and dot differ in the last digits
-constexpr float kDepthPad = 1e-4f;     // and an absolute one, for depths near 0
-constexpr float kTileMarginPx = 2.0f;  // margin of a sphere's tile range, in pixels (a jittered projection, the sample position)
-constexpr float kMinW = 1e-4f;         // a corner of the sphere's box nearer than this to the camera plane makes the range the whole view
+constexpr float kDepthMargin =
+    2e-3f;  // relative margin of a sphere's depth range: the GPU's log2 and dot differ in the last digits
+constexpr float kDepthPad = 1e-4f;  // and an absolute one, for depths near 0
+constexpr float kTileMarginPx =
+    2.0f;  // margin of a sphere's tile range, in pixels (a jittered projection, the sample position)
+constexpr float kMinW =
+    1e-4f;  // a corner of the sphere's box nearer than this to the camera plane makes the range the whole view
 
 bool finite4(float a, float b, float c, float d) {
     return std::isfinite(a) && std::isfinite(b) && std::isfinite(c) && std::isfinite(d);
@@ -66,8 +69,9 @@ bool light_cluster_range(const ClusterCamera& cam, const ClusterGrid& grid, cons
     float x0 = 1e30f, x1 = -1e30f, y0 = 1e30f, y1 = -1e30f;
     bool whole = false;
     for (int c = 0; c < 8 && !whole; ++c) {
-        const Vec4 p = cam.viewProj * Vec4{s.x + ((c & 1) ? s.radius : -s.radius), s.y + ((c & 2) ? s.radius : -s.radius),
-                                           s.z + ((c & 4) ? s.radius : -s.radius), 1.0f};
+        const Vec4 p =
+            cam.viewProj * Vec4{s.x + ((c & 1) ? s.radius : -s.radius), s.y + ((c & 2) ? s.radius : -s.radius),
+                                s.z + ((c & 4) ? s.radius : -s.radius), 1.0f};
         if (!(p.w > kMinW) || !finite4(p.x, p.y, p.w, 0.0f)) {
             whole = true;
             break;
@@ -110,7 +114,8 @@ void build_light_clusters(const ClusterCamera& cam, const ClusterGrid& grid, con
     std::vector<std::uint8_t> reaches(lights, 0);
     constexpr std::size_t kRangeGrain = 128, kRangeMin = 512;
     rjobs::run("render.light_ranges", rjobs::split(lights, kRangeGrain, kRangeMin), [&](const jobs::Chunk& c) {
-        for (std::size_t i = c.begin; i < c.end; ++i) reaches[i] = light_cluster_range(cam, grid, spheres[i], ranges[i]) ? 1 : 0;
+        for (std::size_t i = c.begin; i < c.end; ++i)
+            reaches[i] = light_cluster_range(cam, grid, spheres[i], ranges[i]) ? 1 : 0;
     });
     for (std::size_t i = 0; i < lights; ++i) out.lightsAssigned += reaches[i];
     // 2. How many lights reach each cluster. The clusters of a slice are written by the chunk that owns the slice.
@@ -211,7 +216,8 @@ void pack_light_texture(const std::vector<LightData>& lights, int directional, c
     u.fwd[0] = camera.forward.x;
     u.fwd[1] = camera.forward.y;
     u.fwd[2] = camera.forward.z;
-    u.fwd[3] = -(camera.forward.x * camera.position.x + camera.forward.y * camera.position.y + camera.forward.z * camera.position.z);
+    u.fwd[3] = -(camera.forward.x * camera.position.x + camera.forward.y * camera.position.y +
+                 camera.forward.z * camera.position.z);
     u.grid[0] = float(lists->grid.tilesX);
     u.grid[1] = float(lists->grid.tilesY);
     u.grid[2] = lists->grid.slicesPerOctave;

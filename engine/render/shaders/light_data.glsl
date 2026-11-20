@@ -69,9 +69,14 @@ LightSample fa_light_sample(int li, vec3 world_pos) {
 // (by the rows of the view-projection matrix the CPU used, so the answer does not depend on the backend's window conventions) and the
 // depth slice of its distance along the camera's forward axis. (0, 0) when the frame has no local lights.
 ivec2 fa_cluster_lookup(vec3 world_pos) {
-    if (fa_cl_info.x < 0.0) { return ivec2(0, 0); }
+    // No clusters (info.x < 0), an empty grid, or a position that is not in front of the camera (no NaN path): no local lights.
+    if (fa_cl_info.x < 0.0 || fa_cl_info.w < 1.0 || fa_cl_grid.x < 1.0 || fa_cl_grid.y < 1.0 || fa_cl_info.y < 1.0) {
+        return ivec2(0, 0);
+    }
     vec4 p = vec4(world_pos, 1.0);
-    vec2 ndc = vec2(dot(fa_cl_vpx, p), dot(fa_cl_vpy, p)) / dot(fa_cl_vpw, p);
+    float w = dot(fa_cl_vpw, p);
+    if (!(w > 1e-6)) { return ivec2(0, 0); }
+    vec2 ndc = vec2(dot(fa_cl_vpx, p), dot(fa_cl_vpy, p)) / w;
     int tiles_x = int(fa_cl_grid.x);
     int tiles_y = int(fa_cl_grid.y);
     int tx = clamp(int(floor((ndc.x * 0.5 + 0.5) * fa_cl_grid.x)), 0, tiles_x - 1);
