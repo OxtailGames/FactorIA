@@ -42,9 +42,9 @@ void read_material_layers(const cgltf_material& m, const std::string& what, Mate
     if (m.has_anisotropy) {
         out.anisotropy =
             clamp_reported(m.anisotropy.anisotropy_strength, -1.0f, 1.0f, 0.0f, "anisotropyStrength", what, warnings);
-        out.anisotropyRotation =
-            std::isfinite(m.anisotropy.anisotropy_rotation) ? std::fmod(m.anisotropy.anisotropy_rotation, 6.2831853f)
-                                                           : 0.0f;
+        out.anisotropyRotation = std::isfinite(m.anisotropy.anisotropy_rotation)
+                                     ? std::fmod(m.anisotropy.anisotropy_rotation, 6.2831853f)
+                                     : 0.0f;
     }
     if (m.has_specular) {
         out.specular = clamp_reported(m.specular.specular_factor, 0.0f, 1.0f, 1.0f, "specularFactor", what, warnings);

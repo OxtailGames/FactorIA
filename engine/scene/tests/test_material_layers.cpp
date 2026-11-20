@@ -34,8 +34,8 @@ std::vector<std::uint8_t> triangle_glb(const Json& material, bool withImage) {
                                          {"type", "VEC3"},
                                          {"min", Json::array({0, 0, 0})},
                                          {"max", Json::array({1, 1, 0})}}});
-    doc["meshes"] = Json::array(
-        {Json{{"primitives", Json::array({Json{{"attributes", {{"POSITION", 0}}}, {"material", 0}}})}}});
+    doc["meshes"] =
+        Json::array({Json{{"primitives", Json::array({Json{{"attributes", {{"POSITION", 0}}}, {"material", 0}}})}}});
     doc["nodes"] = Json::array({Json{{"mesh", 0}}});
     doc["scenes"] = Json::array({Json{{"nodes", Json::array({0})}}});
     doc["materials"] = Json::array({material});
@@ -67,19 +67,19 @@ bool any_warning_has(const std::vector<std::string>& w, const std::string& text)
 }  // namespace
 
 TEST_CASE("material layers: each KHR extension is read, clamped with a report, and written back by mesh.save") {
-    Json mat = {{"name", "paint"},
-                {"extensions",
-                 {{"KHR_materials_clearcoat",
-                   {{"clearcoatFactor", 0.5},
-                    {"clearcoatRoughnessFactor", 0.2},
-                    {"clearcoatTexture", {{"index", 0}}},
-                    {"clearcoatNormalTexture", {{"index", 0}}}}},
-                  {"KHR_materials_sheen",
-                   {{"sheenColorFactor", Json::array({0.25, 0.5, 0.75})}, {"sheenRoughnessFactor", 0.625}}},
-                  {"KHR_materials_anisotropy", {{"anisotropyStrength", 0.75}, {"anisotropyRotation", 0.5}}},
-                  {"KHR_materials_specular",
-                   {{"specularFactor", 0.5}, {"specularColorFactor", Json::array({1.0, 0.5, 0.25})}}},
-                  {"KHR_materials_ior", {{"ior", 7.0}}}}}};
+    Json mat = {
+        {"name", "paint"},
+        {"extensions",
+         {{"KHR_materials_clearcoat",
+           {{"clearcoatFactor", 0.5},
+            {"clearcoatRoughnessFactor", 0.2},
+            {"clearcoatTexture", {{"index", 0}}},
+            {"clearcoatNormalTexture", {{"index", 0}}}}},
+          {"KHR_materials_sheen",
+           {{"sheenColorFactor", Json::array({0.25, 0.5, 0.75})}, {"sheenRoughnessFactor", 0.625}}},
+          {"KHR_materials_anisotropy", {{"anisotropyStrength", 0.75}, {"anisotropyRotation", 0.5}}},
+          {"KHR_materials_specular", {{"specularFactor", 0.5}, {"specularColorFactor", Json::array({1.0, 0.5, 0.25})}}},
+          {"KHR_materials_ior", {{"ior", 7.0}}}}}};
     auto glb = triangle_glb(mat, true);
     auto mesh = read_gltf_mesh_bytes(glb, "assets/car.glb");
     REQUIRE(mesh.ok());
@@ -112,7 +112,8 @@ TEST_CASE("material layers: each KHR extension is read, clamped with a report, a
     CHECK(again->materials[0].layers == L);
 }
 
-TEST_CASE("material layers: a material without the extensions, or with the engine's own ior and specular, has no layer") {
+TEST_CASE(
+    "material layers: a material without the extensions, or with the engine's own ior and specular, has no layer") {
     auto none = read_gltf_mesh_bytes(triangle_glb({{"name", "plain"}}, false), "plain.glb");
     REQUIRE(none.ok());
     CHECK(none->materials[0].layers == MaterialLayers{});
@@ -120,8 +121,9 @@ TEST_CASE("material layers: a material without the extensions, or with the engin
     CHECK(none->warnings.empty());
 
     // ior 1.5 and specular 1 are the 4% reflectance the engine always had: not a layer.
-    Json own = {{"name", "own"},
-                {"extensions", {{"KHR_materials_ior", {{"ior", 1.5}}}, {"KHR_materials_specular", {{"specularFactor", 1.0}}}}}};
+    Json own = {
+        {"name", "own"},
+        {"extensions", {{"KHR_materials_ior", {{"ior", 1.5}}}, {"KHR_materials_specular", {{"specularFactor", 1.0}}}}}};
     auto same = read_gltf_mesh_bytes(triangle_glb(own, false), "own.glb");
     REQUIRE(same.ok());
     CHECK_FALSE(same->materials[0].layers.any());
@@ -129,12 +131,13 @@ TEST_CASE("material layers: a material without the extensions, or with the engin
 }
 
 TEST_CASE("material layers: values outside their range are clamped and reported, never passed on") {
-    Json mat = {{"name", "bad"},
-                {"extensions",
-                 {{"KHR_materials_clearcoat", {{"clearcoatFactor", 4.0}, {"clearcoatRoughnessFactor", -1.0}}},
-                  {"KHR_materials_anisotropy", {{"anisotropyStrength", 9.0}}},
-                  {"KHR_materials_specular", {{"specularFactor", 2.0}, {"specularColorFactor", Json::array({100, 1, 1})}}},
-                  {"KHR_materials_ior", {{"ior", 0.5}}}}}};
+    Json mat = {
+        {"name", "bad"},
+        {"extensions",
+         {{"KHR_materials_clearcoat", {{"clearcoatFactor", 4.0}, {"clearcoatRoughnessFactor", -1.0}}},
+          {"KHR_materials_anisotropy", {{"anisotropyStrength", 9.0}}},
+          {"KHR_materials_specular", {{"specularFactor", 2.0}, {"specularColorFactor", Json::array({100, 1, 1})}}},
+          {"KHR_materials_ior", {{"ior", 0.5}}}}}};
     auto mesh = read_gltf_mesh_bytes(triangle_glb(mat, false), "bad.glb");
     REQUIRE(mesh.ok());
     const MaterialLayers& L = mesh->materials[0].layers;

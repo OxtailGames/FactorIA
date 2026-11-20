@@ -143,8 +143,8 @@ int pack_layer_textures(LayerTextureRefs& refs, const std::string& what, const s
     // What is never packed: said first, with what is used instead.
     auto unused = [&](const PreparedTextureRef& r, const char* name, const char* instead) {
         if (r.kind == Kind::None) return;
-        warnings.push_back(std::format("{}: {} '{}' is not used ({}).", what, name,
-                                       r.kind == Kind::Path ? r.path : r.name, instead));
+        warnings.push_back(
+            std::format("{}: {} '{}' is not used ({}).", what, name, r.kind == Kind::Path ? r.path : r.name, instead));
     };
     unused(refs.clearcoatNormal, "clearcoatNormalTexture",
            "the clear coat has no normal map of its own and follows the geometric normal");
@@ -157,8 +157,8 @@ int pack_layer_textures(LayerTextureRefs& refs, const std::string& what, const s
     auto get = [&](const PreparedTextureRef& r, const char* name) -> const Image* {
         const Image* img = src.get(r, label, why);
         if (!img && r.kind != Kind::None)
-            warnings.push_back(std::format("{}: {} '{}' cannot be used ({}); its factor alone is used.", what, name,
-                                           label, why));
+            warnings.push_back(
+                std::format("{}: {} '{}' cannot be used ({}); its factor alone is used.", what, name, label, why));
         return img;
     };
     const Image* coat = get(refs.clearcoat, "clearcoatTexture");
@@ -167,18 +167,20 @@ int pack_layer_textures(LayerTextureRefs& refs, const std::string& what, const s
     const Image* aniso = get(refs.anisotropy, "anisotropyTexture");
     const Image* spec = get(refs.specular, "specularTexture");
     if (aniso)
-        warnings.push_back(std::format("{}: the direction of anisotropyTexture is not used (its blue channel, the strength, "
-                                       "is); the direction is the tangent turned by anisotropyRotation.",
-                                       what));
+        warnings.push_back(
+            std::format("{}: the direction of anisotropyTexture is not used (its blue channel, the strength, "
+                        "is); the direction is the tangent turned by anisotropyRotation.",
+                        what));
 
     // The maps the part has: read again (not owned by `src` when they are paths), so a missing one still reports itself.
     auto base = [&](PreparedTextureRef& own, const char* name, bool& broken) -> const Image* {
         const Image* img = src.get(own, label, why);
         broken = !img && own.kind != Kind::None;
         if (broken)
-            warnings.push_back(std::format("{}: the {} '{}' cannot be read ({}); the layer textures that would share its "
-                                           "map are not used, their factors alone are.",
-                                           what, name, label, why));
+            warnings.push_back(
+                std::format("{}: the {} '{}' cannot be read ({}); the layer textures that would share its "
+                            "map are not used, their factors alone are.",
+                            what, name, label, why));
         return img;
     };
     int packed = 0;
@@ -192,9 +194,10 @@ int pack_layer_textures(LayerTextureRefs& refs, const std::string& what, const s
     };
     auto fits = [&](int w, int h, const char* map) {
         if (std::uint64_t(w) * std::uint64_t(h) <= kMaxLayerPackPixels) return true;
-        warnings.push_back(std::format("{}: the textures packed into the {} map would be {} x {}, over the {} x {} limit; "
-                                       "their factors alone are used.",
-                                       what, map, w, h, 4096, 4096));
+        warnings.push_back(
+            std::format("{}: the textures packed into the {} map would be {} x {}, over the {} x {} limit; "
+                        "their factors alone are used.",
+                        what, map, w, h, 4096, 4096));
         return false;
     };
 

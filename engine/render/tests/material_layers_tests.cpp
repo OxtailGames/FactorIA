@@ -75,7 +75,8 @@ std::string triangle_gltf(const Json& materials, const Json& images, const Json&
     std::memcpy(bin, tri, 36);
     Json doc;
     doc["asset"] = {{"version", "2.0"}};
-    doc["buffers"] = Json::array({Json{{"byteLength", 36}, {"uri", "data:application/octet-stream;base64," + base64(bin, 36)}}});
+    doc["buffers"] =
+        Json::array({Json{{"byteLength", 36}, {"uri", "data:application/octet-stream;base64," + base64(bin, 36)}}});
     doc["bufferViews"] = Json::array({Json{{"buffer", 0}, {"byteOffset", 0}, {"byteLength", 36}}});
     doc["accessors"] = Json::array({Json{{"bufferView", 0},
                                          {"componentType", 5126},
@@ -83,8 +84,8 @@ std::string triangle_gltf(const Json& materials, const Json& images, const Json&
                                          {"type", "VEC3"},
                                          {"min", Json::array({0, 0, 0})},
                                          {"max", Json::array({1, 1, 0})}}});
-    doc["meshes"] = Json::array(
-        {Json{{"primitives", Json::array({Json{{"attributes", {{"POSITION", 0}}}, {"material", 0}}})}}});
+    doc["meshes"] =
+        Json::array({Json{{"primitives", Json::array({Json{{"attributes", {{"POSITION", 0}}}, {"material", 0}}})}}});
     doc["nodes"] = Json::array({Json{{"mesh", 0}}});
     doc["scenes"] = Json::array({Json{{"nodes", Json::array({0})}}});
     doc["materials"] = materials;
@@ -94,7 +95,8 @@ std::string triangle_gltf(const Json& materials, const Json& images, const Json&
 }
 
 bool decode(const std::string& gltfPath, const std::string& text, PreparedMesh& out, std::string& error) {
-    return fa::render::decode_gltf(gltfPath, reinterpret_cast<const std::uint8_t*>(text.data()), text.size(), out, error);
+    return fa::render::decode_gltf(gltfPath, reinterpret_cast<const std::uint8_t*>(text.data()), text.size(), out,
+                                   error);
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -197,7 +199,7 @@ TEST_CASE("layer textures: the anisotropy strength and the specular go into the 
     CHECK(std::lround(px.r * 255) == 180);  // R: anisotropyTexture.B, the strength
     CHECK(std::lround(px.g * 255) == 120);  // G, B: roughness and metallic of the map
     CHECK(std::lround(px.b * 255) == 33);
-    CHECK(std::lround(px.a * 255) == 64);   // A: specularTexture.A
+    CHECK(std::lround(px.a * 255) == 64);  // A: specularTexture.A
     // The direction of the anisotropy texture has no channel: said, with what is used instead.
     CHECK(has(warnings, "assets/brushed.glb: material 'steel': the direction of anisotropyTexture is not used"));
     CHECK(has(warnings, "tangent turned by anisotropyRotation"));
@@ -234,7 +236,8 @@ TEST_CASE("layer textures: the resampling is bilinear in fixed point, the same b
     for (int x = 0; x < 4; ++x) CHECK(int(occlusion.image.rgba[std::size_t(x) * 4 + 1]) == expected[x]);
 }
 
-TEST_CASE("layer textures: what is not packed or cannot be read is named with the file and the material, never dropped") {
+TEST_CASE(
+    "layer textures: what is not packed or cannot be read is named with the file and the material, never dropped") {
     LayerTextureRefs refs;
     refs.clearcoatNormal = image_ref(solid(1, 1, 128, 128, 255, 255), "coat-normal");
     refs.sheenColor = image_ref(solid(1, 1, 255, 0, 0, 255), "sheen-colour");
@@ -252,7 +255,9 @@ TEST_CASE("layer textures: what is not packed or cannot be read is named with th
     CHECK(has(warnings, "follows the geometric normal"));
     CHECK(has(warnings, "sheenColorTexture 'sheen-colour' is not used (sheenColorFactor is used"));
     CHECK(has(warnings, "specularColorTexture 'spec-colour' is not used (specularColorFactor is used"));
-    CHECK(has(warnings, "clearcoatTexture 'assets/missing.png' cannot be used (the file does not exist); its factor alone is used"));
+    CHECK(has(
+        warnings,
+        "clearcoatTexture 'assets/missing.png' cannot be used (the file does not exist); its factor alone is used"));
     CHECK(kMaxLayerPackPixels == 4096ull * 4096ull);
 }
 
@@ -262,22 +267,24 @@ TEST_CASE("layer textures: a glTF model's extensions are read with its textures 
     REQUIRE(save_png(solid(2, 2, 40, 0, 0, 255), "assets/layer_occ.png").ok());
     REQUIRE(save_png(solid(4, 4, 220, 0, 0, 255), "assets/layer_coat.png").ok());
     REQUIRE(save_png(solid(2, 2, 0, 0, 200, 255), "assets/layer_aniso.png").ok());
-    Json mat = {{"name", "lacquer"},
-                {"pbrMetallicRoughness", {{"metallicFactor", 0.0}, {"roughnessFactor", 0.4}}},
-                {"occlusionTexture", {{"index", 0}}},
-                {"extensions",
-                 {{"KHR_materials_clearcoat",
-                   {{"clearcoatFactor", 1.0},
-                    {"clearcoatRoughnessFactor", 0.1},
-                    {"clearcoatTexture", {{"index", 1}}},
-                    {"clearcoatNormalTexture", {{"index", 1}}}}},
-                  {"KHR_materials_anisotropy", {{"anisotropyStrength", 0.5}, {"anisotropyTexture", {{"index", 2}}}}},
-                  {"KHR_materials_sheen", {{"sheenColorFactor", Json::array({1, 0, 0})}, {"sheenRoughnessFactor", 0.3}}},
-                  {"KHR_materials_ior", {{"ior", 2.0}}}}}};
-    const std::string text = triangle_gltf(
-        Json::array({mat}),
-        Json::array({Json{{"uri", "layer_occ.png"}}, Json{{"uri", "layer_coat.png"}}, Json{{"uri", "layer_aniso.png"}}}),
-        Json::array({Json{{"source", 0}}, Json{{"source", 1}}, Json{{"source", 2}}}));
+    Json mat = {
+        {"name", "lacquer"},
+        {"pbrMetallicRoughness", {{"metallicFactor", 0.0}, {"roughnessFactor", 0.4}}},
+        {"occlusionTexture", {{"index", 0}}},
+        {"extensions",
+         {{"KHR_materials_clearcoat",
+           {{"clearcoatFactor", 1.0},
+            {"clearcoatRoughnessFactor", 0.1},
+            {"clearcoatTexture", {{"index", 1}}},
+            {"clearcoatNormalTexture", {{"index", 1}}}}},
+          {"KHR_materials_anisotropy", {{"anisotropyStrength", 0.5}, {"anisotropyTexture", {{"index", 2}}}}},
+          {"KHR_materials_sheen", {{"sheenColorFactor", Json::array({1, 0, 0})}, {"sheenRoughnessFactor", 0.3}}},
+          {"KHR_materials_ior", {{"ior", 2.0}}}}}};
+    const std::string text =
+        triangle_gltf(Json::array({mat}),
+                      Json::array({Json{{"uri", "layer_occ.png"}}, Json{{"uri", "layer_coat.png"}},
+                                   Json{{"uri", "layer_aniso.png"}}}),
+                      Json::array({Json{{"source", 0}}, Json{{"source", 1}}, Json{{"source", 2}}}));
     PreparedMesh mesh;
     std::string error;
     REQUIRE(decode("assets/layered.gltf", text, mesh, error));
@@ -322,12 +329,13 @@ TEST_CASE("layer textures: a texture file that is missing is reported and its fa
     CHECK(mesh.parts[0].material.layers.clearcoat == doctest::Approx(0.8f));
     CHECK(mesh.parts[0].material.layersPacked == 0);
     CHECK(mesh.parts[0].occlusion.kind == Kind::None);
-    CHECK(has(mesh.warnings, "assets/gone.gltf: material 'gone': clearcoatTexture 'assets/no_such_layer.png' cannot be used"));
+    CHECK(has(mesh.warnings,
+              "assets/gone.gltf: material 'gone': clearcoatTexture 'assets/no_such_layer.png' cannot be used"));
     CHECK(has(mesh.warnings, "its factor alone is used"));
 
     PreparedMesh plain;
-    REQUIRE(decode("assets/plain.gltf", triangle_gltf(Json::array({Json{{"name", "plain"}}}), Json::array(), Json::array()), plain,
-                   error));
+    REQUIRE(decode("assets/plain.gltf",
+                   triangle_gltf(Json::array({Json{{"name", "plain"}}}), Json::array(), Json::array()), plain, error));
     CHECK(plain.parts[0].material.layers == MaterialLayers{});
     CHECK(plain.parts[0].material.layersPacked == 0);
     CHECK(plain.warnings.empty());
@@ -350,7 +358,8 @@ TEST_CASE("layers: ior 1.5 and specular 1 are the 4% the engine always had, to t
     CHECK_FALSE(MaterialLayers{}.any());
 }
 
-TEST_CASE("layers: ior and specular set the reflectance at normal incidence, ((ior - 1) / (ior + 1))^2 times specular") {
+TEST_CASE(
+    "layers: ior and specular set the reflectance at normal incidence, ((ior - 1) / (ior + 1))^2 times specular") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     // A black dielectric under a light behind the camera shows only its specular: the middle pixel is proportional to F0.
