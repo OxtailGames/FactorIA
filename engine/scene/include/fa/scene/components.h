@@ -1088,6 +1088,21 @@ struct MeshRenderer {
     Color attenuationColor{1, 1, 1, 1};
     float attenuationDistance = 0.0f;  // metres until attenuationColor is reached; 0 = the light is not tinted inside
     float subsurface = 0.0f;           // M73.5: screen-space subsurface scattering, for skin and wax
+    bool receiveDecals = true;         // M73.5b: Decal components project onto this mesh
+    std::int32_t decalLayer = 0;       // M73.5b: 0..15, the layer a Decal's `layers` mask is tested against
+};
+// M73.5b: a texture projected onto the 3D meshes inside the box of the entity (docs/rendering/RENDERING_LIGHTING.md,
+// "Decals"). The box is the entity's world transform applied to the cube [-0.5, 0.5]^3; the decal projects along the
+// entity's forward (-Z) and faces +Z.
+struct Decal {
+    std::string albedo;           // texture painted onto the surface; empty = only `color`
+    std::string normal;           // optional normal map that bends the normal of the surface
+    Color color{1, 1, 1, 1};      // tint multiplied with the albedo (flat paint when there is no texture)
+    float opacity = 1.0f;         // 0..1 strength of the whole decal
+    float normalStrength = 1.0f;  // 0..4 how strongly `normal` bends the surface
+    float angleFade = 60.0f;      // degrees 0..90: fades out where the surface turns away from the decal
+    std::int32_t sortOrder = 0;   // decals draw in ascending order, a larger one on top
+    std::int32_t layers = 0;      // bit mask of the MeshRenderer.decalLayer values that receive it; 0 = every layer
 };
 enum class LightType : std::int32_t { Directional, Point, Spot, Area };
 enum class LightShape : std::int32_t { Rectangle, Disc, Tube };

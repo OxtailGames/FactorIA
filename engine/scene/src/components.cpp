@@ -2041,7 +2041,15 @@ void register_builtin_components(TypeRegistry& r) {
         .field("subsurface", &MeshRenderer::subsurface,
                "Strength 0..1 of the screen-space subsurface scattering (skin, wax, marble): light enters the "
                "surface and leaves it blurred nearby. 0 = none. No effect yet: M73.5 brings it.")
-        .range(0, 1);
+        .range(0, 1)
+        .field("receiveDecals", &MeshRenderer::receiveDecals,
+               "true (default): the Decal components whose box reaches this mesh paint it. false: decals skip it "
+               "(a character that must stay clean, a mesh drawn by a custom shader that does not call "
+               "fa_apply_decals). Drawn since M73.5b.")
+        .field("decalLayer", &MeshRenderer::decalLayer,
+               "0..15: the layer of this mesh for decals. A Decal draws on it when bit decalLayer of its `layers` "
+               "mask is set (a `layers` of 0 matches every layer). Drawn since M73.5b.")
+        .range(0, 15);
 
     r.add<Light>("Light",
                  "A light source for 3D meshes. A directional light shines along the entity's forward direction (-Z "
@@ -2138,6 +2146,53 @@ void register_builtin_components(TypeRegistry& r) {
                "Strength 0..10 of this light's shafts in the volumetric fog (SceneSettings.fogDensity must be above "
                "0). 0 (default) = no shafts. No effect yet: M73.5 brings it.")
         .range(0, 10);
+
+    r.add<Decal>(
+         "Decal",
+         "A texture projected onto the 3D meshes that stand inside the box of this entity: bullet holes, blood, "
+         "graffiti, dirt, road markings, the cracks of a wall. The box is the Transform's world matrix applied to a "
+         "cube "
+         "of side 1 (scale = size in metres); the decal projects along the entity's forward (-Z), its image is upright "
+         "when seen from +Z (the top of the image is +Y). Every mesh with receiveDecals inside the box takes it, the "
+         "albedo blended over the surface and the normal bent, with no extra geometry and one draw per mesh. Up to "
+         "256 decals are drawn at once (the ones that reach the view). It is drawn by the lit forward shaders only: a "
+         "mesh drawn by a custom shader must call fa_apply_decals (docs/shaders/SHADERS_LIGHTING.md). Not the same as "
+         "the decals of a model's `texturing` section, which bake a picture into the UV texture of one model. The "
+         "textures of all the "
+         "decals share one atlas; see docs/rendering/RENDERING_LIGHTING.md, \"Decals\".",
+         "3D")
+        .asset_field("albedo", &Decal::albedo, "texture",
+                     "The colour texture painted onto the surface (its alpha is the shape of the decal). Empty = the "
+                     "decal is a flat patch of `color` over the whole box. The texture is read as sRGB colour.")
+        .asset_field("normal", &Decal::normal, "texture",
+                     "Optional normal map (tangent space, +Y up, the file is read as linear data) that bends the "
+                     "normal of the surface under the decal (bullet dents, bumpy paint, a raised sticker). Empty = "
+                     "the normal stays.")
+        .field("color", &Decal::color,
+               "Tint multiplied with the albedo texture; its alpha is multiplied with the texture's alpha. White "
+               "(default) leaves the texture as it is.")
+        .field("opacity", &Decal::opacity,
+               "0..1: strength of the whole decal, for fading it out (a bloodstain that dries).")
+        .range(0, 1)
+        .field("normalStrength", &Decal::normalStrength,
+               "0..4: how strongly `normal` bends the surface (1 = the map as painted, 0 = not at all).")
+        .range(0, 4)
+        .field("angleFade", &Decal::angleFade,
+               "Degrees 0..90. The decal is at full strength while the angle between the surface's normal and the "
+               "projector's axis (the decal looks along its local -Z) is under this; beyond it the strength falls as "
+               "cos(angle) / cos(angleFade) and reaches 0 only when the surface is edge-on (90 degrees), so a smaller "
+               "value keeps the decal from smearing along walls seen at a slant. 90 keeps full strength until the "
+               "surface is edge-on. Default 60.")
+        .range(0, 90)
+        .field("sortOrder", &Decal::sortOrder,
+               "Decals are drawn in ascending order of this value (a larger one lands on top of a smaller one); "
+               "equal values keep the order in which the world visits its Decal components (a stable sort). When "
+               "more than 32 decals cover one cluster of the view the lowest values are kept.")
+        .range(-1000000, 1000000)
+        .field("layers", &Decal::layers,
+               "Bit mask 0..65535 of the MeshRenderer.decalLayer values this decal draws on: bit 0 is layer 0, bit 1 "
+               "layer 1, up to bit 15. 0 (default) = every layer.")
+        .range(0, 65535);
 
     r.add<Animator>(
          "Animator",

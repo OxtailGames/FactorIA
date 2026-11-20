@@ -2,6 +2,7 @@
 // choice of the lights that fit the shader.
 #pragma once
 
+#include <algorithm>
 #include <array>
 #include <cstdint>
 #include <string_view>
@@ -41,6 +42,12 @@ struct MeshItem {
     // Lit by a baked lightmap (M73.4a): drawn with `lm.mesh->parts` and the page rectangle of its entity, so never batched with another.
     LightmapUse lm;
 };
+
+// What the decal pass of the shader needs to know of a mesh (MeshRenderer.receiveDecals / decalLayer): 0 = it receives none, else
+// 1 + the layer (0..15). Part of every batch key: two meshes with different values never share a draw.
+inline int decal_recv(const MeshRenderer& mr) {
+    return mr.receiveDecals ? std::clamp<int>(mr.decalLayer, 0, 15) + 1 : 0;
+}
 
 // What the sort of the opaque meshes reads of an item (a MeshItem, or a SceneMesh before a camera makes its item).
 struct SortFields {
@@ -110,6 +117,7 @@ private:
         // clearcoatRoughness, sheenColor rgb, sheenRoughness, anisotropy, anisotropyRotation, specular, ior
         std::array<float, 20> shading;
         bool unlit = false, receiveShadows = true;
+        int decalRecv = 1;              // decal_recv()
         std::array<float, 3> uvNormal;  // uvScale x, y, normalScale
         std::uint64_t skinEntity = 0;   // Entity::bits() of a skinned item, else 0
         std::string_view material;      // by name

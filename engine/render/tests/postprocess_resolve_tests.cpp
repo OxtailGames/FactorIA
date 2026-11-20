@@ -681,7 +681,7 @@ TEST_CASE(
     "features: the lighting rows of M73 are planned until their package lands and never claim what is not drawn") {
     const char* const rows[] = {"areaLights",     "lightCookies",     "iesProfiles", "contactShadows",
                                 "environmentMap", "reflectionProbes", "lightProbes", "volumetricFog",
-                                "decals",         "subsurface",       "realtimeGI",  "transmission"};
+                                "subsurface",     "realtimeGI",       "transmission"};
     const FeatureEnv full = gpu(FeatureBackend::D3d11, true, true, true, true);
     for (const char* n : rows) {
         CAPTURE(n);
@@ -691,6 +691,11 @@ TEST_CASE(
         CHECK(why == "planned (M73)");
         CHECK(feature_table()[std::size_t(find_feature(n))].kind == FeatureKind::Engine);
     }
+    // decals (M73.5b) are drawn in the mesh shader and ask nothing of the GPU: supported everywhere, never "planned".
+    CHECK(find_feature("decals") >= 0);
+    CHECK(supported(full, "decals"));
+    CHECK(supported(gpu(FeatureBackend::Gles3, false, false, false, false, false), "decals"));
+    CHECK(feature_table()[std::size_t(find_feature("decals"))].kind == FeatureKind::Engine);
     // M73.4a: the lightmaps are drawn; the row needs nothing of the GPU.
     REQUIRE(find_feature("lightmaps") >= 0);
     CHECK(supported(full, "lightmaps"));
