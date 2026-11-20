@@ -73,7 +73,7 @@ struct ProbeLight {
 // fade over one spacing outside a grid's box, single points with weight (1 - d / radius)^2. Deterministic and continuous in `p`.
 ProbeLight probe_light_at(const ProbeSet& set, Vec3 p);
 
-// 64-bit hash of the SH and coverage a point gets, quantised, so equal light gives an equal key (batching, caches). 0 for coverage 0.
+// 64-bit hash of the SH and coverage a point gets, quantised to 1/1024 (a non-finite value is clamped), so equal light gives an equal key (batching, caches). 0 for coverage 0.
 std::uint64_t probe_light_key(const ProbeLight& light);
 
 }  // namespace fa

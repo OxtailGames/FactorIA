@@ -347,8 +347,9 @@ std::uint64_t probe_light_key(const ProbeLight& light) {
     if (!(light.coverage > 0)) return 0;
     std::uint64_t h = kLightmapHashSeed;
     auto q = [&](float v) {
-        const std::int64_t i =
-            std::int64_t(std::llround(double(v) * 4096.0));  // 1/4096 of a unit of radiance: far below what shows
+        // 1/1024 of a unit of radiance: far below what shows. Clamped first: a NaN or huge value must not reach llround.
+        const double c = std::isnan(v) ? 0.0 : std::clamp(double(v), -1.0e6, 1.0e6);
+        const std::int64_t i = std::int64_t(std::llround(c * 1024.0));
         h = lightmap_hash_bytes(h, &i, sizeof i);
     };
     q(light.coverage);

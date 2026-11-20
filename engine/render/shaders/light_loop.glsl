@@ -120,6 +120,7 @@ LightSample fa_light_shadowed(int li, vec3 world_pos, vec3 gn) {
         ls.color = ls.color * c;
     }
     ls.attenuation *= keep;  // a Baked light at the edge of the probes: the part the probes do not hold
+    ls.color *= keep;  // a custom light() reads color: it must not get the whole Baked light either
     return ls;
 }
 
@@ -142,6 +143,7 @@ LightSample fa_light_unshadowed(int n, in SurfaceInput i) {
     if (keep <= 0.0) { return fa_no_light(); }  // a baked light on a lightmapped fragment, or inside the probes
     LightSample ls = fa_light_sample_n(li, i.world_pos, i.world_normal);
     ls.attenuation *= keep;
+    ls.color *= keep;
     return ls;
 }
 // The shadow of light n at this fragment: 1 lit, 0 in shadow (a value between at the edge of the shadow). The first light (n = 0) when

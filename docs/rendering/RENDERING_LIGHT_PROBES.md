@@ -62,9 +62,11 @@ for the lights a moving object should cast and receive shadows from: the direct 
 ## Cost
 
 The probes are read on the CPU once per mesh and frame in the culling job (a few dozen float operations); on the GPU the nine coefficients are
-uniforms of the mesh pass, so no texture unit and no extra pass. Two meshes with nearly the same probe light (the same to 1/4096) are
-drawn in the same batch; with different probe light they are separate draws, so a hundred moving objects spread over a big grid are a
-hundred draws instead of a few. `probeAnchor` on a group of objects lets them share one value.
+uniforms of the mesh pass, so no texture unit and no extra pass. The probes are read at the sample point rounded to a 0.25 m lattice, so
+meshes within that distance of each other get the same light and are drawn in one instanced draw (equal light to 1/1024 batches too);
+meshes with different light are separate draws, so objects spread over a big grid with a strong gradient cost more draws than a
+cluster. Shadow draws ignore the probe light and batch as without probes. `probeAnchor` on a group of objects lets them share one
+value. A disabled or missing anchor entity counts as none.
 
 ## Not done yet
 
