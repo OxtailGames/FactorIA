@@ -7,6 +7,7 @@ Older versions, one file per minor version with its patch releases: [0.31](chang
 ## Unreleased
 
 - **Physical sky (M73-P3d):** `SceneSettings.skyModel = "physical"` draws a sky computed from the sun (the light with `castShadows`, else the brightest directional light), the air (Rayleigh, Mie, ozone, multiple scattering) and procedural clouds that drift with the game clock, with a sun disc, and bakes it into the image-based lighting so reflections and ambient light follow it; the sun light is tinted by the air and the clouds (`skyTintsSun`). New settings `skySunSize`, `skyTurbidity`, `skyGroundAlbedo`, `skyExposure`, `skyTintsSun`, `cloudCoverage`, `cloudDensity`, `cloudAltitude`, `cloudWind`; `render.supports physicalSky` is real (it needs RGBA16F render targets). The environment is rebuilt in three slices over three frames while the sun or the clouds move slowly. Docs: docs/rendering/RENDERING_LIGHTING.md, "The physical sky".
+- **Cascaded shadow maps (M73.2a):** the sun's shadow is cut into `SceneSettings.shadowCascades` (1..4) cascades fitted to the camera, stable (no shimmer while the camera moves), blended at the seams (`shadowCascadeBlend`, `shadowCascadeSplit`) and filtered by PCF, hard or PCSS (`Light.shadowFilter`, `shadowSoftness`); `shadowResolution`, `shadowBias`, `shadowNormalBias`, `shadowDistance` and `shadowAtlasSize` now work, in one shadow atlas of 32-bit float that has room for the point and spot maps of M73.2b. `render.supports cascadedShadows` follows `float32Targets`; `render.debug_view cascades` tints the surfaces by cascade. The shadow of a scene with `castShadows` changes a little (a sharper, stable edge); the custom-shader twin files are regenerated (`fa_shadow_coord` is now the world position).
 - **`factoria feedback collect examples/*`** no longer reports "no 'entries' array" for the files of that folder that are not feedback files (`examples.json`, a readme): when several paths are given, a file not called `ENGINE_FEEDBACK.json` that holds no feedback is skipped; named alone it is an error that says what to pass. A file skipped because it is not valid JSON is named in the report's new `notes` list.
 - **`factoria validate`** warns when the snippet of a sprite material without `buffers` reads `fa_instance_index` (it is always 0 there); comments and string literals do not count as a use.
 - **Graph panel:** a file rewritten with the same time and size is found even when the first write was more than a second before the poll.
@@ -18,6 +19,14 @@ Older versions, one file per minor version with its patch releases: [0.31](chang
   scripts or `assets.import` yet; the HDRI environment import builds on it. New fuzz target `hdr`.
 ### M73: 3D lighting of a leading engine
 
+- **Clustered forward lighting (M73.1a):** a view is lit by up to 1024 lights at once (32 directional) instead of 32, on every
+  backend (OpenGL, GLES3, WebGL2, D3D11, Metal). The view is cut into tiles of 64 pixels by 24 depth slices, the CPU builds the light
+  list of each cluster as a deterministic job, and each fragment reads only its cluster's lights from one RGBA32F data texture. A scene
+  with up to 32 lights is pixel-identical. `Light.innerAngle` now works. `game.render_stats` (and `renderStats()`) report
+  `lightsCulled`, `lightClusters`, `lightClusterEntries`, `lightClusterClipped` and `lightMaxPerCluster`; the limits are 128 lights per
+  cluster and 524288 list entries per view. In a snippet material `fa_light_count()` / `fa_light(n, i)` give the lights of the
+  fragment's cluster; a full shader keeps the first 32 of the table and has `fa_cluster_light_count()` / `fa_cluster_light_index()`.
+  `render.supports` answers `true` for `clusteredLights`. docs/rendering/RENDERING_LIGHTING.md, "Many lights".
 - **The base of M73 (P0), no visible change:** the mesh shaders' lights and shadow lookup moved into three shared files
   (`light_data.glsl`, `light_loop.glsl`, `shadow_common.glsl`; the pictures are pixel-identical and the twin fixtures of the
   custom materials were regenerated); the texture slots of the mesh fragment shader are a table with static asserts (at most 16
@@ -29,8 +38,18 @@ Older versions, one file per minor version with its patch releases: [0.31](chang
   `contributeGI`, `receiveGI`, `clearcoat`, `clearcoatRoughness`, `sheenColor`, `sheenRoughness`, `anisotropy`,
   `anisotropyRotation`, `specular`, `ior`, `transmission`, `thickness`, `attenuationColor`, `attenuationDistance`, `subsurface`).
   The defaults keep today's look and are not written to a scene file, so scenes made before load and save as they did; an area
-  light shines like a point light until M73.1. `render.supports` lists 21 lighting features, all `planned (M73)` until their step
+  light shines like a point light until M73.1b. `render.supports` lists 21 lighting features, all `planned (M73)` until their step
   lands, and the capability `float32Targets` (R32F and RGBA32F render and sample). docs/rendering/RENDERING_LIGHTING.md.
+
+- **Material layers (M73.6a):** clear coat, sheen, anisotropy and the dielectric specular (`specular`, `ior`) are drawn on every backend
+  (OpenGL, GLES3, WebGL2, D3D11, Metal) by the standard mesh shading, image-based light included (approximated: docs/rendering/RENDERING_LIGHTING.md,
+  "The material layers"); `MeshRenderer.clearcoat`, `clearcoatRoughness`, `sheenColor`, `sheenRoughness`, `anisotropy`, `anisotropyRotation`,
+  `specular` and `ior` no longer say "No effect yet", `render.supports` answers `clearCoat`, `sheen` and `anisotropy` from the GPU, and a custom
+  material's `Surface` has the same fields. The defaults draw exactly the pictures of before (ior 1.5 and specular 1 are F0 0.04), so no
+  golden image changed. glTF import reads `KHR_materials_clearcoat`, `_sheen`, `_anisotropy`, `_specular` and `_ior`: the factors always, the
+  textures packed into free channels of the occlusion and metallic-roughness maps; what does not fit (the clear coat's normal map, the sheen
+  and specular colour textures, the direction of the anisotropy texture) is named in a warning with the file, the material and what is
+  used instead. Editable meshes keep the factors and write them back to glTF. Every custom material's shader twin was regenerated.
 
 - **LTC tables for area lights (M73, no renderer change yet):** `tools/ltc` fits Linearly Transformed Cosines tables for the engine's own GGX BRDF (deterministic, same bits with any thread count) and writes the committed `engine/render/src/ltc_tables.h`; `engine/render/shaders/ltc.glsl` and a CPU reference integrate polygon lights over them. See docs/design/ARCHITECTURE_AREA_LIGHTS.md.
 

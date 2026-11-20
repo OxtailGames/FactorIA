@@ -47,6 +47,7 @@ struct RendererTestAccess {
     static int post_history_attempts(Renderer& r);
     static void force_post_effects(Renderer& r, std::uint32_t effects);
     static void force_output(Renderer& r, const HdrOutputInfo* info);
+    static void last_cluster_info(Renderer& r, float out[4]);
     static bool read_floats(Renderer& r, bool present, std::vector<float>& out, std::string* error);
     static void set_before_frame_graph(Renderer& r, std::function<void()> hook);
     static render::SkyBuilds sky_builds(Renderer& r);
@@ -84,6 +85,9 @@ inline void renderer_force_post_effects(Renderer& r, std::uint32_t effects) {
 }
 // The HDR output: the next frames are drawn and presented as if update_output() had answered `info` (null: back to what
 // it answers), for the render tests of the encodes without an HDR display.
+// fa_cl_info of the last job the renderer drew: x is the first texel of the cluster table or -1 when the view has no
+// clusters, y the depth slices, z the directional lights, w the clusters.
+inline void renderer_last_cluster_info(Renderer& r, float out[4]) { RendererTestAccess::last_cluster_info(r, out); }
 inline void renderer_force_output(Renderer& r, const HdrOutputInfo* info) { RendererTestAccess::force_output(r, info); }
 // The last frame's finished picture as floats (RGBA, top row first): as the final target holds it (`present` false), or
 // through present()'s encode for the output (scRGB, PQ, EDR or sRGB values). False with `error` where the GPU cannot
