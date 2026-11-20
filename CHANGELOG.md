@@ -26,6 +26,13 @@ Older versions, one file per minor version with its patch releases: [0.31](chang
   cluster and 524288 list entries per view. In a snippet material `fa_light_count()` / `fa_light(n, i)` give the lights of the
   fragment's cluster; a full shader keeps the first 32 of the table and has `fa_cluster_light_count()` / `fa_cluster_light_index()`.
   `render.supports` answers `true` for `clusteredLights`. docs/rendering/RENDERING_LIGHTING.md, "Many lights".
+- **Projected decals (M73.5b):** a `Decal` component paints an albedo (and tint, opacity and a normal map) on the meshes inside its box,
+  projected along its local -Z, lit and shadowed like the surface under it; `angleFade`, `sortOrder` and `layers` control it, and
+  `MeshRenderer.receiveDecals` / `decalLayer` choose which meshes take which decals. The decal boxes are binned into the same cluster
+  grid as the lights, their textures share one atlas, and the mesh shader paints them once before the lights (`fa_apply_decals`; a
+  full shader calls it itself), on every backend. Scenes without decals are pixel-identical. Limits (counts): 256 decals per view, 32 per
+  cluster, 131072 list entries, 512 textures. `game.render_stats` reports `decals`, `decalsDropped`, `decalClusterClipped`;
+  `render.supports` answers `true` for `decals`. docs/rendering/RENDERING_LIGHTING.md, "Decals".
 - **The base of M73 (P0), no visible change:** the mesh shaders' lights and shadow lookup moved into three shared files
   (`light_data.glsl`, `light_loop.glsl`, `shadow_common.glsl`; the pictures are pixel-identical and the twin fixtures of the
   custom materials were regenerated); the texture slots of the mesh fragment shader are a table with static asserts (at most 16
