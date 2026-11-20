@@ -173,6 +173,7 @@ if(FA_BUILD_TOOLS)
     endif()
     add_subdirectory(tools/cli)     # factoria     the single developer binary
     add_subdirectory(tools/bench)   # fa_bench     microbenchmarks with a baseline per machine kind (docs/PERFORMANCE.md)
+    add_subdirectory(tools/ltc)     # fa_ltc       the LTC tables of the area lights: the fit, its generator, the CPU reference
 endif()
 
 # Fuzz targets: ctests that replay their corpus, or libFuzzer programs with FA_FUZZ (docs/design/BUILDING_TESTS.md, "Fuzzing").

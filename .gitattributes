@@ -49,3 +49,4 @@ tools/fuzz/corpus/** -text
 
 # Game packs (game.pak): binary archives, byte for byte (the fuzz corpus holds some).
 *.pak binary
+engine/render/src/ltc_tables.h text eol=lf
