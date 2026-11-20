@@ -679,7 +679,7 @@ TEST_CASE("features: what the engine does not draw yet is false and says planned
 
 TEST_CASE(
     "features: the lighting rows of M73 are planned until their package lands and never claim what is not drawn") {
-    const char* const rows[] = {"reflectionProbes", "realtimeGI"};
+    const char* const rows[] = {"realtimeGI"};
     const FeatureEnv full = gpu(FeatureBackend::D3d11, true, true, true, true);
     for (const char* n : rows) {
         CAPTURE(n);
@@ -689,6 +689,16 @@ TEST_CASE(
         CHECK(why == "planned (M73)");
         CHECK(feature_table()[std::size_t(find_feature(n))].kind == FeatureKind::Engine);
     }
+    // reflection probes (M73-P3c) are sampled by the mesh shader and ask nothing of the GPU (an RGBA8 atlas where half floats cannot be
+    // rendered): supported on every backend that draws, never "planned".
+    for (FeatureBackend b : {FeatureBackend::Gl, FeatureBackend::Gles3, FeatureBackend::WebGl2, FeatureBackend::D3d11,
+                             FeatureBackend::Metal}) {
+        std::string why;
+        REQUIRE(find_feature("reflectionProbes") >= 0);
+        CHECK(supported(gpu(b, false, false, false, false), "reflectionProbes", &why));
+        CHECK(why.find("planned") == std::string::npos);
+    }
+    CHECK(feature_table()[std::size_t(find_feature("reflectionProbes"))].kind == FeatureKind::Engine);
     // contact shadows (M73.2c) are drawn in the mesh shader from the depth prepass: supported where the prepass can be made.
     {
         std::string why;

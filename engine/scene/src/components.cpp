@@ -2255,10 +2255,16 @@ void register_builtin_components(TypeRegistry& r) {
          "Captures the scene around this entity into a small map (an octahedral image: the six directions of a cube "
          "unfolded onto a square) with its blurry versions for rough surfaces and the diffuse light as nine spherical "
          "harmonics, and keeps it in the engine's probe atlas. The box (boxSize, boxOffset) is the region the probe "
-         "lights; where boxes overlap the one with the larger importance wins. A baked probe is written once by the "
+         "lights: a lit mesh inside it reflects the probe (and takes its diffuse light where no lightmap or light "
+         "probe covers it), "
+         "blended with the next probe or the sky in the blendDistance band at the box edge; where boxes overlap the "
+         "one "
+         "with the larger importance wins, a mesh outside every box reflects the sky. A baked probe is written once by "
+         "the "
          "command probe.bake (HDR pages on disk, referenced by bakedMap, reloaded when they change); a realtime probe "
-         "is captured while the game runs, within a budget per frame (update). Nothing reads the atlas yet: the mesh "
-         "shaders sample it from M73.3c on, until then the commands render.probes and probe.bake show and fill it. "
+         "is captured while the game runs, within a budget per frame (update). The command render.probes shows the "
+         "atlas "
+         "and, with `entity`, which probes a mesh reflects. "
          "See docs/rendering/RENDERING_LIGHTING.md, \"Reflection probes\".",
          "3D")
         .enum_field("mode", &ReflectionProbe::mode, {"baked", "realtime"},
@@ -2319,8 +2325,7 @@ void register_builtin_components(TypeRegistry& r) {
         .range(0, 100)
         .field("boxProjection", &ReflectionProbe::boxProjection,
                "True (default): the reflection is corrected for the box (the room's walls are where the box edge "
-               "is), which suits an interior. False: the reflection is the one of an infinitely far environment. "
-               "Used by the mesh shaders from M73.3c.");
+               "is), which suits an interior. False: the reflection is the one of an infinitely far environment.");
 
     r.add<LightProbeGroup>(
          "LightProbeGroup",

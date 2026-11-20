@@ -52,8 +52,8 @@ inline constexpr int kMaterialMaxTextures = 4;
 inline constexpr int kMaterialFsFirstView = 6, kMaterialFsFirstSampler = 2;
 inline constexpr int kMaterialVsFirstView = kMaterialFsFirstView + kMaterialMaxTextures,
                      kMaterialVsFirstSampler = kMaterialFsFirstSampler + kMaterialMaxTextures;
-// The baked sky of a sky material is fragment view kMaterialEnvView (a cube: the prefiltered sky in mips 0..4, its
-// spherical harmonics in mip 5) and sampler kMaterialEnvSampler of every mesh program (the engine's own slots, after the
+// The probe atlas is fragment view kMaterialEnvView (a 2D image: entry 0 is the baked sky of a sky material, the others the reflection
+// probes; octahedral maps with their SH row) and sampler kMaterialEnvSampler of every mesh program (the engine's own slots, after the
 // vertex stage's copies: a material cannot take them). View 15, the irradiance cube it had, is free.
 inline constexpr int kMaterialEnvView = kMaterialVsFirstView + kMaterialMaxTextures,
                      kMaterialEnvSampler = kMaterialVsFirstSampler + kMaterialMaxTextures;

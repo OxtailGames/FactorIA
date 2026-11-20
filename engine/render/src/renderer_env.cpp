@@ -117,7 +117,7 @@ bool Environment::ready(Gpu&) {
         sd.mipmap_filter = SG_FILTER_LINEAR;
         sd.wrap_u = sd.wrap_v = sd.wrap_w = SG_WRAP_CLAMP_TO_EDGE;
         sd.label = "env-sampler";
-        if (!sampler_.id) sampler_ = sg_make_sampler(&sd);  // blank_view() may have made it already: never leak it
+        if (!sampler_.id) sampler_ = sg_make_sampler(&sd);
         for (int i = 0; i < kEnvPyramid; ++i) {
             const int size = kEnvSize >> i;
             const std::string name = "env-s" + std::to_string(i);
@@ -174,31 +174,6 @@ bool Environment::ready(Gpu&) {
 }
 
 sg_pipeline Environment::pipeline(Prog prog) { return pipelines_[int(prog)]; }
-
-sg_view Environment::blank_view(Gpu&) {
-    if (blankTex_.id) return blankTex_;
-    // 1x1 black faces: bound while no sky environment is used, so a program that declares the slot has a valid view.
-    const std::uint8_t px[6 * 4] = {0, 0, 0, 255, 0, 0, 0, 255, 0, 0, 0, 255, 0, 0, 0, 255, 0, 0, 0, 255, 0, 0, 0, 255};
-    sg_image_desc d{};
-    d.type = SG_IMAGETYPE_CUBE;
-    d.width = 1;
-    d.height = 1;
-    d.pixel_format = SG_PIXELFORMAT_RGBA8;
-    d.data.mip_levels[0] = {px, sizeof(px)};
-    d.label = "env-blank";
-    blank_ = make_cube_image(d);
-    blankTex_ = texture_view(blank_, "env-blank");
-    if (!sampler_.id) {
-        sg_sampler_desc sd{};
-        sd.min_filter = SG_FILTER_LINEAR;
-        sd.mag_filter = SG_FILTER_LINEAR;
-        sd.mipmap_filter = SG_FILTER_LINEAR;
-        sd.wrap_u = sd.wrap_v = sd.wrap_w = SG_WRAP_CLAMP_TO_EDGE;
-        sd.label = "env-sampler";
-        sampler_ = sg_make_sampler(&sd);
-    }
-    return blankTex_;
-}
 
 void Environment::draw(Gpu& gpu, Prog prog, sg_view dst, sg_view srcTex, int face, float roughness, float samples,
                        const char* label, int* drawCalls, bool lit) {
@@ -360,10 +335,6 @@ void Environment::release() {
     }
     if (sampler_.id) sg_destroy_sampler(sampler_);
     sampler_ = {};
-    if (blankTex_.id) sg_destroy_view(blankTex_);
-    blankTex_ = {};
-    if (blank_.id) sg_destroy_image(blank_);
-    blank_ = {};
     state_ = 0;
     baked_ = false;
     key_ = 0;
