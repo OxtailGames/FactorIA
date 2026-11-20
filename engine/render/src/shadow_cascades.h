@@ -28,8 +28,8 @@ struct ShadowTileRequest {
 };
 
 struct ShadowTile {
-    int x = 0, y = 0;   // texel of the top left corner (y counts from the top of the image)
-    int size = 0;       // texels per side as placed (0 = dropped: it did not fit)
+    int x = 0, y = 0;  // texel of the top left corner (y counts from the top of the image)
+    int size = 0;      // texels per side as placed (0 = dropped: it did not fit)
     bool placed() const { return size > 0; }
 };
 
@@ -83,12 +83,12 @@ SliceSphere slice_sphere(const CameraFrustum& f, float d0, float d1);
 
 // What one cascade draws with.
 struct CascadeFit {
-    Mat4 view;            // world -> light space (x right, y up, the light looks down -z)
-    Mat4 viewProj;        // world -> clip space of the shadow pass (the depth range of the backend)
-    Vec3 centre{0, 0, 0}; // the centre of the fitted sphere, its x and y snapped to a texel of the map
-    float radius = 0;     // the sphere's radius: the map covers 2 * radius metres on a side
-    float texel = 0;      // metres per texel
-    float depthRange = 1; // metres between the near and the far plane
+    Mat4 view;             // world -> light space (x right, y up, the light looks down -z)
+    Mat4 viewProj;         // world -> clip space of the shadow pass (the depth range of the backend)
+    Vec3 centre{0, 0, 0};  // the centre of the fitted sphere, its x and y snapped to a texel of the map
+    float radius = 0;      // the sphere's radius: the map covers 2 * radius metres on a side
+    float texel = 0;       // metres per texel
+    float depthRange = 1;  // metres between the near and the far plane
 };
 
 // Fits the cascade for a sphere (`centre`, `radius`, as slice_sphere gave them in the world) seen from a light that shines along
@@ -101,9 +101,30 @@ CascadeFit fit_cascade(Vec3 centre, float radius, Vec3 lightDir, int tile, float
 // The matrix that takes a world position to (u, v, depth) in the atlas texture: u and v in 0..1 over the whole atlas of
 // `atlasW` x `atlasH` texels, depth 0..1 over the cascade's depth range, whatever the backend. `isGl`: the texture's v runs bottom up
 // in a render target (OpenGL), top down elsewhere. The tile is in texels, y from the top.
-Mat4 shadow_sample_matrix(const CascadeFit& fit, const ShadowTile& tile, int atlasW, int atlasH, bool zeroToOne, bool isGl);
+Mat4 shadow_sample_matrix(const CascadeFit& fit, const ShadowTile& tile, int atlasW, int atlasH, bool zeroToOne,
+                          bool isGl);
 
 // The rectangle (umin, vmin, umax, vmax) a tile takes in the atlas texture's own coordinates (see shadow_sample_matrix).
 Vec4 shadow_tile_rect(const ShadowTile& tile, int atlasW, int atlasH, bool isGl);
+
+// The far end of the cascaded range when no shadow distance is set: the farthest corner of the casters' box from the camera
+// (Euclidean, so it does not change when the camera turns) and a body's length more, because a shadow falls past its caster, rounded up
+// to 3 bits of mantissa so a moving camera seldom changes it (and with it every split and every cascade's size).
+float auto_shadow_far(Vec3 cameraPosition, Vec3 casterMin, Vec3 casterMax);
+
+// The cascades of one frame: where they split and what each draws with.
+struct CascadePlan {
+    bool ok = false;  // false: the camera's range is empty, nothing to draw
+    std::array<float, kMaxShadowCascades + 1> splits{};
+    std::array<CascadeFit, kMaxShadowCascades> fits;
+};
+
+// Cuts the camera's view into tileSizes.size() cascades (the texels per side of each one's map, from the atlas layout) and fits them
+// to a light that shines along `lightDir`. The range runs from the camera's near plane to `shadowDistance` (0: auto_shadow_far of the
+// casters' world box `casterMin`..`casterMax`), never past the camera's far plane. `lambda` is shadowCascadeSplit, `blend` the share of
+// a cascade that blends into the next. Everything that sets a cascade's size (the range, the splits, the radius) is the same for every
+// orientation of the camera at one position; only the position of a cascade follows the camera.
+CascadePlan plan_cascades(const CameraFrustum& cf, Vec3 casterMin, Vec3 casterMax, Vec3 lightDir, float shadowDistance,
+                          float lambda, float blend, const std::vector<int>& tileSizes, bool zeroToOne);
 
 }  // namespace fa::render

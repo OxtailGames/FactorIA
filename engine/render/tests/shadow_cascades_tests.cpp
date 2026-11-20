@@ -78,7 +78,8 @@ TEST_CASE("shadow cascades: the slice sphere does not depend on where the camera
     }
     // It holds the slice: every corner of the slice is inside the sphere.
     const Vec3 f{0, 0, -1};
-    const CameraFrustum fr = camera_frustum(camera_inverse(pos, pos + f, fov, aspect, 0.1f, 200.0f, true), true, pos, f);
+    const CameraFrustum fr =
+        camera_frustum(camera_inverse(pos, pos + f, fov, aspect, 0.1f, 200.0f, true), true, pos, f);
     const SliceSphere s = slice_sphere(fr, 10.0f, 40.0f);
     const Vec3 c = pos + f * s.centreDist;
     for (float d : {10.0f, 40.0f}) {
@@ -245,7 +246,8 @@ TEST_CASE("shadow atlas: the budget shrinks the largest and least important map 
     CHECK(placed == 4);
 
     // A request of size 0 or a non power of two: 0 is dropped, 1000 is placed as 512.
-    const ShadowAtlasLayout odd = layout_shadow_atlas(2048, {ShadowTileRequest{0, 64, 0}, ShadowTileRequest{1000, 64, 1}});
+    const ShadowAtlasLayout odd =
+        layout_shadow_atlas(2048, {ShadowTileRequest{0, 64, 0}, ShadowTileRequest{1000, 64, 1}});
     CHECK_FALSE(odd.tiles[0].placed());
     CHECK(odd.tiles[1].size == 512);
 }
@@ -291,4 +293,51 @@ TEST_CASE("shadow cascades: a batch lists the casters of each cascade, those who
     build_batches(items, true, batches, mainMats, shadowMats);
     REQUIRE(batches.size() == 1);
     CHECK(batches[0].cascadeCount[0] == 2);  // items 0 and 2: the mask has bit 0
+}
+
+TEST_CASE("shadow cascades: with no shadow distance the range, the splits and every cascade's size do not change when "
+          "the camera turns") {
+    const Vec3 pos{3.0f, 2.0f, 5.0f};
+    const Vec3 boxMin{-40, 0, -90},
+        boxMax{35, 6, 20};  // the casters' world box: the farthest corner is behind the camera's axis
+    const Vec3 sun{-0.4f, -0.8f, -0.3f};
+    const std::vector<int> tiles{1024, 1024, 1024};
+    for (bool z01 : {false, true}) {
+        CAPTURE(z01);
+        CascadePlan first;
+        float firstFar = 0;
+        int n = 0;
+        // Yaw all the way round and a few pitches: the same position, a different forward axis every time.
+        for (int pitch = -40; pitch <= 40; pitch += 40) {
+            for (int yaw = 0; yaw < 360; yaw += 37) {
+                const float ry = radians(float(yaw)), rp = radians(float(pitch));
+                const Vec3 fwd{std::sin(ry) * std::cos(rp), std::sin(rp), -std::cos(ry) * std::cos(rp)};
+                const CameraFrustum cf = camera_frustum(
+                    camera_inverse(pos, pos + fwd, 60.0f, 16.0f / 9.0f, 0.1f, 500.0f, z01), z01, pos, fwd);
+                const CascadePlan plan = plan_cascades(cf, boxMin, boxMax, sun, 0.0f, 0.5f, 0.1f, tiles, z01);
+                REQUIRE(plan.ok);
+                if (n++ == 0) {
+                    first = plan;
+                    firstFar = cf.farDist;
+                    continue;
+                }
+                CAPTURE(yaw);
+                CAPTURE(pitch);
+                CHECK(cf.farDist == doctest::Approx(firstFar).epsilon(2e-3));
+                for (int i = 0; i <= 3; ++i)
+                    CHECK(plan.splits[std::size_t(i)] == doctest::Approx(first.splits[std::size_t(i)]).epsilon(1e-4));
+                for (int c = 0; c < 3; ++c) {
+                    CHECK(plan.fits[std::size_t(c)].radius ==
+                          doctest::Approx(first.fits[std::size_t(c)].radius).epsilon(1e-6));
+                    CHECK(plan.fits[std::size_t(c)].texel ==
+                          doctest::Approx(first.fits[std::size_t(c)].texel).epsilon(1e-6));
+                }
+            }
+        }
+    }
+    // The auto range is the Euclidean distance to the farthest corner and a body's length, rounded up: it never changes with the
+    // direction, and a camera that moves a little rarely changes it.
+    const float far0 = auto_shadow_far(pos, boxMin, boxMax);
+    CHECK(far0 >= length(Vec3{-40, 0, -90} - pos) + length(boxMax - boxMin));
+    CHECK(auto_shadow_far(pos + Vec3{0.05f, 0, 0.05f}, boxMin, boxMax) == far0);
 }

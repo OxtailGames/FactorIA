@@ -89,7 +89,7 @@ M73.2a (cascades of the sun); M73.2b (point and spot) adds tiles to the same atl
   `max_image_size_2d`), grown when a frame needs more and never shrunk. A frame plans every job before the frame graph runs, so a
   grown image retires the old one (`shadowRetired`, freed at the next frame's start) and each job keeps its own copy of the target.
   Allocation is checked against `kShadowAtlasMaxBytes` (512 MB) in 64 bits before it is made. `FA_SHADOW_MAP=invalid` is a test hook that makes the creation fail on a GPU that never would.
-- **Cascades.** `cascade_splits` is the practical scheme (`shadowCascadeSplit` blends even and logarithmic steps; without a positive near
+- **Cascades.** `plan_cascades` cuts the range from the camera's near plane to the shadow distance; with none set the range is `auto_shadow_far` (the Euclidean distance to the farthest caster corner plus the casters' diagonal, rounded up to 3 bits of mantissa), never a distance along the view axis, so turning the camera changes no split and no cascade size. `cascade_splits` is the practical scheme (`shadowCascadeSplit` blends even and logarithmic steps; without a positive near
   distance, an orthographic camera, even steps). Each cascade is the sphere that holds its slice of the camera's frustum
   (`slice_sphere`: independent of the camera's orientation, its radius rounded up by `quantize_up` so float noise does not change the
   size), widened by the blend band of the cascade before it and by two texels of margin on each side. `fit_cascade` snaps the sphere's centre to whole
