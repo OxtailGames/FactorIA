@@ -4073,10 +4073,62 @@ void register_builtin_components(TypeRegistry& r) {
         .field("environmentRotation", &SceneSettings::environmentRotation,
                "Degrees the environment map is turned around the up axis. No effect yet: M73.3 brings it.")
         .range(-360, 360)
-        .enum_field("skyModel", &SceneSettings::skyModel, {"gradient", "physical"},
-                    "gradient (default): the skyColor and horizonColor gradient. physical: a sun and an atmosphere "
-                    "computed from the directional light, with clouds. A skyMaterial or an environmentMap takes the "
-                    "place of both. No effect yet: M73.3 brings it.");
+        .enum_field(
+            "skyModel", &SceneSettings::skyModel, {"gradient", "physical"},
+            "gradient (default): the skyColor and horizonColor gradient. physical: a sky computed from the sun, the "
+            "air and the clouds (the sky* and cloud* fields below). The sun is the directional light the renderer "
+            "puts first: the one with castShadows, else the brightest directional light; its direction, colour and "
+            "intensity drive the sky, so turning the "
+            "light turns the sun across it, and the same sky lights and reflects in every mesh (image-based "
+            "lighting: rebuilt in one frame after a big change, over three frames while the sun or the clouds move "
+            "slowly). Without a directional light the sun stands overhead. A skyMaterial takes the place of the "
+            "physical sky. render.supports {\"feature\": \"physicalSky\"} says whether the GPU can (it needs RGBA16F "
+            "render targets); where it cannot, the gradient is drawn.")
+        .field("skySunSize", &SceneSettings::skySunSize,
+               "Physical sky: angular diameter of the sun disc in degrees, 0.1..10. 0.53 (default) is the real sun; "
+               "a larger disc is easier to see in a small window. Only used with skyModel physical.")
+        .range(0.1f, 10)
+        .field("skyTurbidity", &SceneSettings::skyTurbidity,
+               "Physical sky: how much dust and haze (aerosols) the air holds, 1..10. 1 is very clean air with a deep "
+               "blue sky, 2 (default) a clear day, 6 and more a hazy white-yellow sky with a big glow around the "
+               "sun. Only used with skyModel physical.")
+        .range(1, 10)
+        .field("skyGroundAlbedo", &SceneSettings::skyGroundAlbedo,
+               "Physical sky: the colour of the ground the atmosphere sees below the horizon (it lights the air near "
+               "the horizon and the lower half of the reflections). Default grey 0.3; snow is 0.8, dark soil 0.15. "
+               "Alpha is ignored. Only used with skyModel physical.")
+        .field("skyExposure", &SceneSettings::skyExposure,
+               "Physical sky: multiplier of the sky's brightness, of the light it gives the meshes (image-based "
+               "lighting) and of the sun disc, 0..16. At 1 (default) the sky is as bright as the sun's light says: "
+               "the sky is scaled by the colour times the intensity of the sun light, so the sky and a surface facing "
+               "the sun keep the proportion they have in a real noon (the sky is much dimmer than the sun-lit "
+               "surface). Only used with skyModel physical.")
+        .range(0, 16)
+        .field("skyTintsSun", &SceneSettings::skyTintsSun,
+               "Physical sky: true (default) multiplies the colour of the sun (the directional light the sky follows) "
+               "by what "
+               "the air and the clouds let through, relative to a noon sun: a sun on the horizon turns orange and "
+               "dim, a sun behind a thick cloud cover turns weak, and the colour you chose is the colour of the "
+               "sun at noon. false keeps the light exactly as authored (the sky still follows its direction). "
+               "Only used with skyModel physical.")
+        .field("cloudCoverage", &SceneSettings::cloudCoverage,
+               "Physical sky: how much of the sky the clouds cover, 0..1. 0 is a clear sky, 0.25 (default) a few "
+               "clouds, 1 a full overcast. The directional light also weakens with it (skyTintsSun), and the "
+               "clouds shade the image-based lighting. Only used with skyModel physical.")
+        .range(0, 1)
+        .field("cloudDensity", &SceneSettings::cloudDensity,
+               "Physical sky: how thick and dark the clouds are, 0..1: 0.2 thin white wisps, 0.6 (default) "
+               "cumulus, 1 heavy grey clouds with dark bellies. Only used with skyModel physical.")
+        .range(0, 1)
+        .field("cloudAltitude", &SceneSettings::cloudAltitude,
+               "Physical sky: height of the cloud layer above the camera ground in metres, 300..12000 (default "
+               "2500). Higher clouds look smaller and finer. The layer follows the viewing direction, not the "
+               "camera position (like a skybox). Only used with skyModel physical.")
+        .range(300, 12000)
+        .field("cloudWind", &SceneSettings::cloudWind,
+               "Physical sky: metres per second [x, z] the clouds drift along the world axes (beyond 1000 it is "
+               "clamped). The drift follows the game clock (never the wall clock), so a replay shows the same sky. "
+               "[0, 0] stands still. Only used with skyModel physical.");
 }
 
 void ensure_builtin_components() {

@@ -51,6 +51,7 @@
 #include "shaders/light.glsl.h"
 #include "shaders/mesh.glsl.h"
 #include "shaders/quad.glsl.h"
+#include "renderer_sky_phys.h"
 #include "shaders/sky.glsl.h"
 
 namespace fa {
@@ -90,6 +91,7 @@ struct Renderer::Impl {
     // bloom, the colour filter and present() sample; gameTarget.resolveColorAtt (MSAA) is the resolved image as a colour
     // attachment, which bloom composites into.
     Target gameTarget;
+    PhysicalSky physSky;  // the physical sky's tables and programs (renderer_sky_phys.h)
     Environment
         skyEnv;  // the baked sky that lights the meshes (renderer_env.h; used only with SceneSettings.skyMaterial)
     Ssr ssr;     // screen-space reflections (renderer_ssr.h): its shaders and pipelines
@@ -452,7 +454,10 @@ struct Renderer::Impl {
     bool graphFromCapture = false;  // the graph holds the last capture_world's frame, not the last render()'s
     std::unordered_map<std::uint64_t, JobImage> jobImages;
     // The targets the jobs of the frame share, one resource each (imported when the first job that uses it is declared).
-    ResourceId sharedGame, sharedLight, sharedShadow, sharedEnv;
+    ResourceId sharedGame, sharedLight, sharedShadow, sharedEnv, sharedSkyLut;
+    // The physical sky (SceneSettings.skyModel): its tables are drawn by the first job of a frame that shows the sky
+    // ("sky-view" pass); the later jobs read them.
+    std::uint64_t skyLutFrame = ~std::uint64_t(0);
     // The sky environment of the frame (plan_env): the first job that wants one decides which sky is baked
     // (envFrameKey) and whether the "sky-env" pass is declared; a later job of the frame with another key falls back to
     // the analytic gradient.
