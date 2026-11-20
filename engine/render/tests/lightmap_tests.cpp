@@ -421,3 +421,58 @@ TEST_CASE(
     CHECK(g.renderer.stats().meshes == 3);
     expect_golden(img, "3d_lightmap");
 }
+
+TEST_CASE(
+    "lightmap: with an environmentMap a lightmapped entity keeps the picture's reflection, the page replaces only "
+    "the diffuse ambient light") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    if (!g.renderer.supports("environmentMap")) {
+        MESSAGE("environmentMap is not supported on this GPU: not run");
+        return;
+    }
+    g.renderer.clear_asset_cache();
+    std::filesystem::create_directories(g.projectDir / "scenes");
+    std::filesystem::create_directories(g.projectDir / "assets");
+    {  // a green room: an equirectangular picture is twice as wide as it is tall
+        auto room = ImageF::create(16, 8, 3);
+        REQUIRE(room.ok());
+        for (int y = 0; y < 8; ++y)
+            for (int x = 0; x < 16; ++x) {
+                float* px = room->at(x, y);
+                px[0] = 0.1f;
+                px[1] = 1.0f;
+                px[2] = 0.1f;
+            }
+        REQUIRE(save_hdr(*room, "assets/lm_env.hdr").ok());
+    }
+    write_page("scenes/envlm.lightmap.0.hdr", 4, [](int, int) { return Vec3{0, 0, 0}; });  // a black page
+    auto scene = [&](bool lightmapped) {
+        World w;
+        add_camera(w, {0, 0, 8}, {0, 0, 0});
+        w.settings().ambientLight = Color{0, 0, 0, 1};
+        w.settings().environmentMap = "assets/lm_env.hdr";
+        Entity mirror = add_mesh(w, "sphere", {-1.6f, 0, 0}, Color::white(), {2, 2, 2});
+        w.get<MeshRenderer>(mirror)->metallic = 1.0f;
+        w.get<MeshRenderer>(mirror)->roughness = 0.1f;
+        Entity matte = add_mesh(w, "sphere", {1.6f, 0, 0}, Color::white(), {2, 2, 2});
+        w.get<MeshRenderer>(matte)->metallic = 0.0f;
+        w.get<MeshRenderer>(matte)->roughness = 1.0f;
+        if (lightmapped)
+            write_manifest(w, "envlm", {{"scenes/envlm.lightmap.0.hdr", 4}}, {{mirror, "sphere"}, {matte, "sphere"}});
+        return g.render(w);
+    };
+    LmErrorLog log;
+    const Image plain = scene(false), baked = scene(true);
+    CHECK(log.messages().empty());
+    const int y = 90, xMirror = 160 - 38, xMatte = 160 + 38;
+    // The mirror reflects the picture the same way with or without the page (the page holds no reflection).
+    const Color mp = plain.pixel(xMirror, y), mb = baked.pixel(xMirror, y);
+    CHECK(mp.g > 0.3f);
+    CHECK(std::fabs(mp.g - mb.g) < 0.03f);
+    CHECK(std::fabs(mp.r - mb.r) < 0.03f);
+    // The matte one is lit by the picture's irradiance without the page, and by the (black) page with it.
+    const Color dp = plain.pixel(xMatte, y), db = baked.pixel(xMatte, y);
+    CHECK(dp.g > 0.3f);
+    CHECK(db.g < dp.g * 0.4f);
+}

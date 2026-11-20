@@ -1154,8 +1154,8 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
          "drawn one yet), then returns {drawCalls, sprites, shapes, textGlyphs, particles, meshes, meshesCulled, "
          "meshBatches, "
          "triangles, views, shadowCasters, lights, lightsDropped, lightsCulled, lightClusters, lightClusterEntries, "
-         "lightClusterClipped, lightMaxPerCluster, volumetricCameras, volumetricLights, volumetricLightsDropped, "
-         "lights2d, lights2dDropped, lights2dShadowed, "
+         "lightClusterClipped, lightMaxPerCluster, decals, decalsDropped, decalClusterClipped, volumetricCameras, "
+         "volumetricLights, volumetricLightsDropped, lights2d, lights2dDropped, lights2dShadowed, "
          "materials, materialResolves, materialFallbacks, sortKeyFallbacks, textureMB, "
          "width, height, renderScale}. materialResolves is the 2D material lookups (one per material and params). "
          "sortKeyFallbacks counts, since the renderer started, the times the 3D scene "
@@ -1169,7 +1169,11 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
          "local "
          "lights whose range is outside the view, lightClusters the clusters of the view, lightClusterEntries the "
          "light-list entries they hold, lightMaxPerCluster the longest list and lightClusterClipped the entries lost "
-         "to the limits of 128 lights per cluster and 524288 entries per view: 0 is normal; volumetricCameras the "
+         "to the limits of 128 lights per cluster and 524288 entries per view: 0 is normal; decals the Decal "
+         "components "
+         "drawn, decalsDropped those left out (over 256 per view, or a texture that is unreadable or does not fit the "
+         "atlas) and decalClusterClipped the decal-list entries lost to the 32 per cluster and 131072 per view: 0 is "
+         "normal; volumetricCameras the "
          "cameras that drew the volumetric fog, volumetricLights the lights whose shafts they drew and "
          "volumetricLightsDropped the lights with Light.volumetric above 0 that the quality setting left out); "
          "lights2d "
@@ -2271,7 +2275,7 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
     // ------------------------------------------------------------------- assets
     I.commands.add({"assets.list",
                     "List project asset files with type and size. Types: texture, audio, font, mesh, script, scene, "
-                    "prefab, material, vfx, other (by file name).",
+                    "prefab, material, vfx, hdri, other (by file name).",
                     "Example: assets.list {\"folder\":\"assets\",\"extension\":\".png\"}",
                     parse_schema(R"({"type":"object","properties":{
                "folder":{"type":"string","default":"assets","description":"Project-relative folder."},

@@ -145,6 +145,13 @@ std::vector<FeatureDef> build_table() {
          "Mie, ozone) and procedural clouds, drawn as the background and baked into the image-based lighting, so "
          "the reflections and the ambient light follow the sun. It needs RGBA16F render targets that filter (its "
          "look-up tables); without them the gradient sky is drawn."});
+    t.push_back(
+        {"environmentMap", FeatureKind::Engine, kEveryGpu, "half", nullptr,
+         "An HDR environment image (SceneSettings.environmentMap, an equirectangular .hdr file) as the background and "
+         "the "
+         "image-based lighting of the scene, with intensity and rotation (docs/rendering/RENDERING_LIGHTING.md, "
+         "\"The environment map\"). It needs RGBA16F render targets that filter (the environment bake) and RGBA16F "
+         "textures that filter; without them the sky material, the physical sky or the gradient is used."});
     // The material layers of M73.6: drawn by the standard mesh shading on every backend (docs/rendering/RENDERING_LIGHTING.md).
     t.push_back({"clearCoat", FeatureKind::Engine, kEveryGpu, "", nullptr,
                  "The clear coat layer of a material: car paint, lacquer (MeshRenderer.clearcoat, glTF "
@@ -186,10 +193,6 @@ std::vector<FeatureDef> build_table() {
          nullptr},
         {"contactShadows", "depth",
          "Contact shadows: a short screen-space ray toward the light adds fine shadows where objects touch (M73.2)."},
-        {"environmentMap", "half",
-         "An HDR environment image (a .hdr file) as the sky and the image-based lighting of the scene, with intensity "
-         "and rotation "
-         "(M73.3)."},
         {"reflectionProbes", "half",
          "Reflection probes: local environment captures, baked or realtime, with box projection and blending between "
          "probes "
@@ -200,7 +203,11 @@ std::vector<FeatureDef> build_table() {
          "through, raymarched at half or quarter resolution and joined to the picture with a depth-aware upsample "
          "(SceneSettings.volumetricFog; M73.5).",
          nullptr},
-        {"decals", "depth", "Projected decals drawn over the meshes they touch (M73.5)."},
+        {"decals", "",
+         "Projected decals: a Decal box paints albedo, tint and normal relief on the meshes it touches, found through "
+         "the light "
+         "clusters and applied in the mesh shader (M73.5b).",
+         nullptr},
         {"subsurface", "half+depth", "Screen-space subsurface scattering for skin and wax (M73.5)."},
         {"realtimeGI", "half",
          "Realtime global illumination from a probe grid updated over a few frames, no ray tracing (M73.5)."},

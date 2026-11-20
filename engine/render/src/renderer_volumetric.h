@@ -1,6 +1,6 @@
 // Volumetric fog and light shafts (SceneSettings.volumetricFog, Light.volumetric; M73.5): a medium between the camera and the surfaces, lit by the
 // ambient light, the directional lights and the point and spot lights that ask for it, with the shadows of the shadow atlas cutting shafts into it.
-// docs/design/ARCHITECTURE_RENDERING_LIGHTING.md, "Volumetric fog"; docs/rendering/RENDERING_LIGHTING.md, "Volumetric fog and light shafts".
+// docs/design/ARCHITECTURE_VOLUMETRIC.md; docs/rendering/RENDERING_LIGHTING.md, "Volumetric fog and light shafts".
 //
 //   vol-march   (the camera's own job, after its shadow and prepass passes)  prepass + shadow atlas + light data texture -> RGBA16F image at 1/2 or
 //               1/4 of the camera's rectangle: rgb = the light the medium scatters toward the camera, a = the transmittance. A raymarch with a
@@ -87,14 +87,17 @@ VolLightPick pick_volumetric_lights(const std::vector<LightData>& lights, int ma
 struct VolPlan {
     bool on = false;
     VolQuality quality;
-    int rectW = 0, rectH = 0;  // the camera's rectangle in pixels
+    int rectW = 0, rectH = 0;   // the camera's rectangle in pixels
     int width = 0, height = 0;  // the march image
     float distance = 100.0f, density = 0.0f, heightBase = 0.0f, heightFalloff = 0.0f, anisotropy = 0.0f;
     float albedo[3]{0.5f, 0.6f, 0.7f};   // the colour of the medium, in the scene's colour space
     float ambient[3]{0.0f, 0.0f, 0.0f};  // ambientLight * volumetricAmbient, in the scene's colour space
     int directionalCount = 0, localCount = 0;
-    float directional[kVolMaxDirectional * 2][4]{};  // per light: direction to it + 1 when the sun's shadow applies; colour * strength
-    float local[kVolMaxLocal * 4][4]{};              // per light: position + range; colour * strength + cos(inner); axis + cos(outer) (-2: a point); table index and 1 when its shadow tiles are read
+    float directional[kVolMaxDirectional * 2]
+                     [4]{};  // per light: direction to it + 1 when the sun's shadow applies; colour * strength
+    float local
+        [kVolMaxLocal * 4]
+        [4]{};  // per light: position + range; colour * strength + cos(inner); axis + cos(outer) (-2: a point); table index and 1 when its shadow tiles are read
     int lightsUsed = 0, lightsDropped = 0;
     float proj[8]{};  // P00, P11, P02, P12, P03, P13, P32, P33
     Vec3 eye{0, 0, 0}, right{1, 0, 0}, up{0, 1, 0}, forward{0, 0, -1};
@@ -115,7 +118,7 @@ public:
 
     enum class Prog { March, Apply, Count };
 
-    // Does this GPU render RGBA16F targets (the march image holds light above 1)?
+    // Does this GPU render RGBA16F targets that blend and filter (the march image holds light above 1)? The same rule as render.supports.
     static bool gpu_supported();
     // Can the camera's passes be drawn: the GPU supports it, both programs build and the march image of `plan` can be made (probed once per
     // size and given back to the pool). False (logged once) draws no fog: the camera keeps its analytic one.
