@@ -878,9 +878,9 @@ bool Gpu::prepass_ready() {
 }
 
 sg_pipeline Gpu::prepass_pipeline(const TargetFormat& format, bool doubleSided, bool skinned, sg_shader shader,
-                                  MeshExtras extras) {
+                                  MeshExtras extras, bool cullFront) {
     if (!shader.id && !prepass_ready()) return {};
-    PipelineKey key{0xC00u | (doubleSided ? 2u : 0u) | (skinned ? 4u : 0u), shader.id};
+    PipelineKey key{0xC00u | (doubleSided ? 2u : 0u) | (skinned ? 4u : 0u) | (cullFront ? 8u : 0u), shader.id};
     sg_pipeline_desc d{};
     d.shader = shader.id ? shader : (skinned ? prepassSkinShader_ : prepassShader_);
     d.layout.attrs[ATTR_mesh_prepass_fa_position].format = SG_VERTEXFORMAT_FLOAT3;
@@ -894,7 +894,7 @@ sg_pipeline Gpu::prepass_pipeline(const TargetFormat& format, bool doubleSided, 
     d.index_type = SG_INDEXTYPE_UINT32;
     d.depth.compare = SG_COMPAREFUNC_LESS_EQUAL;
     d.depth.write_enabled = true;
-    d.cull_mode = doubleSided ? SG_CULLMODE_NONE : SG_CULLMODE_BACK;
+    d.cull_mode = cullFront ? SG_CULLMODE_FRONT : (doubleSided ? SG_CULLMODE_NONE : SG_CULLMODE_BACK);
     d.face_winding = SG_FACEWINDING_CCW;
     d.label = "prepass";
     return find_or_make(key, format, d);

@@ -381,6 +381,47 @@ TEST_CASE("render.frame_graph: an engine without a renderer says so") {
     CHECK(r.error.dump().find("renderer") != std::string::npos);
 }
 
+TEST_CASE("render.gi_grid: empty without a RealtimeGI, lists a grid with its probes and says no renderer") {
+    TempProject p("gi-grid-command");
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(headless_cfg(p), nullptr, &err), err);
+    auto& c = e.commands();
+    auto none = c.call("render.gi_grid", Json::object());
+    REQUIRE_MESSAGE(none.ok, none.error.dump());
+    CHECK(none.result["grids"].empty());
+    CHECK(none.result["atlas"].is_null());
+    Entity gi = e.world().create("room");
+    auto& g = e.world().add<RealtimeGI>(gi);
+    g.size = Vec3{4, 0, 4};
+    g.spacing = 2.0f;
+    e.step(3);
+    auto r = c.call("render.gi_grid", Json::object());
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+    REQUIRE(r.result["grids"].size() == 1);
+    const Json& listed = r.result["grids"][0];
+    // A GPU that cannot blend into RGBA16F says "unsupported" and why; one that can lists the 3 x 1 x 3 probes.
+    if (listed["state"] == "unsupported") {
+        CHECK(listed["message"].is_string());
+    } else {
+        CHECK(listed["probes"] == 9);
+        CHECK(listed["captured"].get<int>() >= 1);
+        CHECK(r.result["atlas"]["height"] == 1156);
+    }
+    auto bad = c.call("render.gi_grid", Json{{"entity", "room"}});
+    REQUIRE_FALSE(bad.ok);
+    CHECK(bad.error.dump().find("entity") != std::string::npos);
+
+    TempProject q("gi-grid-command-none");
+    Engine headless;
+    EngineConfig cfg = headless_cfg(q);
+    cfg.graphics = false;
+    REQUIRE_MESSAGE(headless.init(cfg, nullptr, &err), err);
+    auto nr = headless.commands().call("render.gi_grid", Json::object());
+    REQUIRE_FALSE(nr.ok);
+    CHECK(nr.error.dump().find("renderer") != std::string::npos);
+}
+
 TEST_CASE("render.probes: empty without probes, lists a ReflectionProbe with its tile, and says no renderer") {
     TempProject p("probes-command");
     Engine e;
