@@ -1881,6 +1881,91 @@ Then `orphans` (default true, but false with a `dither`, whose pixels would look
 | `frame` | integer | no | Which frame of an animated document whose cel receives the pixel art (0 = the first; default 0). A document with one frame has only frame 0. In a frame after the first the layer's cel is copied on write: the other frames keep what they show. |
 | `onion` | any | no | Preview only: ghost the neighbouring frames, tinted, under the frame in the returned picture. true, or {"before":1,"after":1,"opacity":0.4,"beforeColor":"#ff4040","afterColor":"#4080ff","loop":false}. Frames before are tinted red, frames after blue; the second frame away is half as strong, the third a third. Does not change the document or the bake. |
 
+## `lightmap.bake` (modifies state)
+
+Not released yet (on main after 0.32.0).
+
+Bake the scene's baked and mixed lights and its sky into lightmaps, wait for it, and write the pages and the manifest.
+
+Capabilities: read, state, writeProject
+
+Reads the active MeshRenderers (static geometry that shadows and bounces light; the ones with receiveGI, lightmapScale > 0 and unlit false also get lightmap texels), the Lights with mode baked (direct + bounce light baked) or mixed (only the bounce is baked, the direct light stays realtime) and the sky, then writes `<name>.lightmap.<hash>.<n>.hdr` pages and `<name>.lightmap.json` atomically and sets SceneSettings.lightmaps. A model without a second UV set is unwrapped for you. Blocks until done: a long bake belongs in lightmap.bake_start. The same scene and settings give byte-identical pages on any thread count. Result: {manifest, pages, entities, texels, rays, skipped, warnings, applied}. Example: lightmap.bake {"texelsPerMeter":16,"samples":64}
+
+Mapping. Light: Baked -> baked, Mixed -> indirect only, Realtime is left out; intensity, color, range and spotAngle carry over; Pcss shadowSoftness widens the shadow. An area light is a one-sided rectangle of radiance = intensity (a Disc or Tube becomes a rectangle of the same area). Sky: see `sky`. A MeshRenderer is its color (albedo) and emissive * emissiveStrength; textures are not read; a skinned mesh is baked in its bind pose. A mesh the unwrap cannot handle (a procedural mesh:N, over 250000 triangles) is listed in `skipped`. The result's `warnings` name everything that was approximated. Files: pages are written first, the manifest last; on Windows a file another program holds open cannot be replaced: close it and bake again, or use another `path`. docs/rendering/RENDERING_LIGHTING.md, "Lightmaps".
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | no | The manifest to write, inside the project, ending in .lightmap.json (the pages .hdr go next to it). Default: next to the open scene, scenes/main.scene.json -> scenes/main.lightmap.json. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
+| `texelsPerMeter` | number | no | Lightmap texels per meter of surface at MeshRenderer.lightmapScale 1. 16 is a good start; 64 gives sharp shadows with 16 times the texels. Default 16. |
+| `maxPageSize` | integer | no | The longest side of a page in texels. More meshes than fit make more pages (at most 256). Default 2048. |
+| `samples` | integer | no | Gather rays per texel for the sky, emissive surfaces and bounces. 16 is a draft, 64 smooth. Default 64. |
+| `bounces` | integer | no | Times light is reflected before it reaches a texel. 0 = direct light and sky only. Default 2. |
+| `shadowSamples` | integer | no | Shadow rays per light per texel; soft shadows (Pcss lights, area lights) need more. Default 4. |
+| `seed` | integer | no | The noise pattern. The same seed and scene give the same bytes on any number of threads. Default 0. |
+| `dilatePasses` | integer | no | Texels of gutter filled around each mesh so bilinear filtering does not bleed black. Default 4. |
+| `denoiseRadius` | integer | no | Edge-aware blur radius in texels; 0 turns the denoiser off. Default 2. |
+| `denoiseSigma` | number | no | How different two neighbouring texels may be (relative to their light) and still be blended. Default 0.3. |
+| `rayEpsilon` | number | no | Meters a ray starts off its surface. 0 = automatic: the scene size / 10000, at most 1/20 of a texel. Default 0. |
+| `maxRays` | number | no | The bake is refused when it could trace more rays than this. One core traces roughly 2-10 million rays per second, so 1e9 rays are minutes and the default 5e10 are hours: lower it to give a bake a time limit. Default 50000000000. |
+| `sky` | string ["auto","environment","gradient","ambient","none"] | no | The light from outside: auto = SceneSettings.environmentMap when set, else its ambientLight; environment = the HDRI; gradient = skyColor and horizonColor; ambient = the constant ambientLight; none = black. A physical sky or sky material cannot be evaluated: it falls back as said in the result's warnings. Default "auto". |
+| `apply` | boolean | no | Set SceneSettings.lightmaps to the manifest when the bake is done (the renderer reloads the pages either way). Default true. |
+
+## `lightmap.bake_cancel` (modifies state)
+
+Not released yet (on main after 0.32.0).
+
+Stop a running bake job; no file is changed unless it was already writing them.
+
+Capabilities: read, state
+
+Sets the job's cancel flag: every phase (the BVH build, the texel mapping, the rays, the denoiser, the gutter fill) looks at it within a short time, and the job ends with state cancelled. A job that reached the writing phase finishes (a half-written set would be worse) and ends done. Cancelling a finished or already cancelled job is not an error. Result: lightmap.bake_status's shape. Example: lightmap.bake_cancel {"job":"bake:1"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `job` | string | yes | The id lightmap.bake_start returned. |
+
+## `lightmap.bake_start` (modifies state)
+
+Not released yet (on main after 0.32.0).
+
+Start a lightmap bake in the background and get a job id; poll lightmap.bake_status, stop it with lightmap.bake_cancel.
+
+Capabilities: read, state, writeProject
+
+The same bake as lightmap.bake (same arguments and result) on a job thread, so the editor and an agent stay responsive. The scene is read when you call this: changing the scene while it runs does not change the bake, and a result is only given to the scene it was made for. Call lightmap.bake_status until its state is done, failed or cancelled: that call also hands the result to the scene (SceneSettings.lightmaps and the renderer's reload). Result: {job, state, phase, progress, manifest}. Example: lightmap.bake_start {"path":"scenes/main.lightmap.json"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | no | The manifest to write, inside the project, ending in .lightmap.json (the pages .hdr go next to it). Default: next to the open scene, scenes/main.scene.json -> scenes/main.lightmap.json. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
+| `texelsPerMeter` | number | no | Lightmap texels per meter of surface at MeshRenderer.lightmapScale 1. 16 is a good start; 64 gives sharp shadows with 16 times the texels. Default 16. |
+| `maxPageSize` | integer | no | The longest side of a page in texels. More meshes than fit make more pages (at most 256). Default 2048. |
+| `samples` | integer | no | Gather rays per texel for the sky, emissive surfaces and bounces. 16 is a draft, 64 smooth. Default 64. |
+| `bounces` | integer | no | Times light is reflected before it reaches a texel. 0 = direct light and sky only. Default 2. |
+| `shadowSamples` | integer | no | Shadow rays per light per texel; soft shadows (Pcss lights, area lights) need more. Default 4. |
+| `seed` | integer | no | The noise pattern. The same seed and scene give the same bytes on any number of threads. Default 0. |
+| `dilatePasses` | integer | no | Texels of gutter filled around each mesh so bilinear filtering does not bleed black. Default 4. |
+| `denoiseRadius` | integer | no | Edge-aware blur radius in texels; 0 turns the denoiser off. Default 2. |
+| `denoiseSigma` | number | no | How different two neighbouring texels may be (relative to their light) and still be blended. Default 0.3. |
+| `rayEpsilon` | number | no | Meters a ray starts off its surface. 0 = automatic: the scene size / 10000, at most 1/20 of a texel. Default 0. |
+| `maxRays` | number | no | The bake is refused when it could trace more rays than this. One core traces roughly 2-10 million rays per second, so 1e9 rays are minutes and the default 5e10 are hours: lower it to give a bake a time limit. Default 50000000000. |
+| `sky` | string ["auto","environment","gradient","ambient","none"] | no | The light from outside: auto = SceneSettings.environmentMap when set, else its ambientLight; environment = the HDRI; gradient = skyColor and horizonColor; ambient = the constant ambientLight; none = black. A physical sky or sky material cannot be evaluated: it falls back as said in the result's warnings. Default "auto". |
+| `apply` | boolean | no | Set SceneSettings.lightmaps to the manifest when the bake is done (the renderer reloads the pages either way). Default true. |
+
+## `lightmap.bake_status` (modifies state)
+
+Not released yet (on main after 0.32.0).
+
+The state of a bake job: running with a phase and progress, or done with its result, failed or cancelled.
+
+Capabilities: read, state, writeProject
+
+Result: {job, state (running|done|failed|cancelled), phase (geometry, layout, prepare, rasterize, trace, denoise, dilate, writing), progress 0..1, rays, elapsedSeconds, etaSeconds (once there is enough to estimate), manifest} and, when finished, `result` (the lightmap.bake result: pages, texels, rays, skipped, warnings) or `error` and `hint`. The first call that sees a bake done hands it to the scene (SceneSettings.lightmaps and the renderer's reload) unless the bake was started with apply false, or the scene changed since; `handOver` says what happened. Example: lightmap.bake_status {"job":"bake:1"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `job` | string | yes | The id lightmap.bake_start returned. |
+| `apply` | boolean | no | Overrides the apply of lightmap.bake_start for this hand-over. The editor passes false and edits the setting itself (undo, dirty scene). |
+
 ## `model.bake` (modifies state)
 
 Since 0.16.0.

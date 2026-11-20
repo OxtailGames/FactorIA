@@ -259,6 +259,25 @@ number (volume, pan, a repeat) is one edit when the mouse is released, not one p
 Undo and Redo through the editor's stack, clicks a snare into the drum grid, raises a section's repeat and mutes a track in the mixer (each one undo step), plays and
 checks that the playhead moves, fades the top layer in and out with the Intense and Calm buttons, loops a section, and saves (the mix and the stems exist).
 
+## Lightmap panel
+
+View > Lightmap bakes the open scene's lightmaps: the same bake as the `lightmap.bake_start`, `lightmap.bake_status` and `lightmap.bake_cancel`
+commands (docs/rendering/RENDERING_LIGHTING.md, "Baking"), on a job thread, so the editor keeps drawing and you can keep working.
+
+- **Options.** Texels per meter (16 is a good start; 64 is sharp and 16 times heavier), Samples (gather rays per texel: 16 is a draft, 64 is
+  smooth), Shadow samples, Page size, Sky (`auto`, `environment`, `gradient`, `ambient`, `none`) and the Manifest path (empty: next to the
+  scene, `scenes/main.lightmap.json`). Each has its tooltip.
+- **Start and Cancel.** Start is disabled while a bake runs and while the game plays. The bar shows the phase (geometry, layout, prepare,
+  rasterize, trace, denoise, dilate, writing), the percentage and, after a few seconds, the time left; Cancel stops it within a moment and no
+  file is changed.
+- **The result.** A finished bake lists its pages (file and size), the texels, the meshes, the rays and the time, the skipped entities with
+  their reason, and the warnings (a physical sky that fell back to the gradient, a Tube light baked as a rectangle).
+- **The scene.** The panel starts the bake without `apply` and then sets `SceneSettings.lightmaps` through the editor's own edit path: one undo
+  step, the scene marked as changed (Save keeps it). It does not set it when another scene was opened meanwhile or the game is running; the
+  panel says so and where the files are.
+- **Errors.** A refused start (no mesh to light, a bad option, a manifest outside the project, a bake already running) or a failed one (a file
+  that is open in another program cannot be replaced on Windows) is shown in the panel with what to change; nothing is half written.
+
 ## Scene settings panel
 
 View > Scene settings opens a window with the settings of the open scene, the ones the file keeps under `settings` and the

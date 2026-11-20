@@ -425,6 +425,33 @@ TEST_CASE("lightmap bake: spot and area lights light what they face and nothing 
     CHECK(texel(away->atlases[0], 8, 8).x == 0.0f);
 }
 
+TEST_CASE("lightmap bake: an area light's up vector turns its rectangle (width along cross(direction, up))") {
+    // A 4 m x 0.2 m strip over the middle of the floor. With up = +Z its long side runs along X, with up = +X along Z: the light reaches farther
+    // along the long side, so the two bakes are mirror images of each other (the atlas axes do not matter: the ratio flips).
+    auto ratio = [](Vec3 up) {
+        BakeScene sc = floor_scene(4, 16);
+        BakeLight area;
+        area.kind = BakeLightKind::Area;
+        area.position = {2, 1, 2};
+        area.direction = {0, -1, 0};
+        area.up = up;
+        area.width = 4;
+        area.height = 0.2f;
+        area.intensity = 4;
+        sc.lights = {area};
+        BakeSettings st = fast_settings();
+        st.bounces = 0;
+        st.shadowSamples = 32;
+        auto r = bake_lightmap(sc, st);
+        REQUIRE(r.ok());
+        return texel(r->atlases[0], 1, 8).x / texel(r->atlases[0], 8, 1).x;
+    };
+    const float a = ratio({0, 0, 1}), b = ratio({1, 0, 0});
+    CHECK(((a - 1.0f) * (b - 1.0f)) < 0);
+    CHECK(std::fabs(a * b - 1.0f) < 0.15f);  // mirror images: one ratio is the inverse of the other
+    CHECK(std::fabs(a - 1.0f) > 0.2f);
+}
+
 TEST_CASE("lightmap bake: cancel ends it with 'cancelled', before and in the middle") {
     BakeScene sc = cornell();
     BakeSettings st = fast_settings();
@@ -441,8 +468,9 @@ TEST_CASE("lightmap bake: cancel ends it with 'cancelled', before and in the mid
     {
         CommandCancelScope cancel(&flag);
         CommandProgressScope progress([&](std::string_view m) {
+            if (m.find(", texels ") == std::string_view::npos) return true;  // the phase messages before the rays
             if (messages++ == 0) first = std::string(m);
-            if (messages == 2) flag = true;  // cancel after the second report
+            if (messages == 2) flag = true;  // cancel after the second report of the rays
             return true;
         });
         auto r = bake_lightmap(sc, st);
@@ -628,4 +656,132 @@ TEST_CASE("sample_irradiance_sh: a roof darkens the probe, a light and a bounce 
             CHECK((*again)[i].c[k].x == (*pooled)[i].c[k].x);
             CHECK((*again)[i].c[k].z == (*pooled)[i].c[k].z);
         }
+}
+
+// ---- M73.4c: progress callback, cancel in every phase, the finite checks, the automatic ray offset ----------------------------------
+
+TEST_CASE("lightmap bake: the progress callback names every phase in order and ends at the last texel") {
+    BakeScene sc = cornell();
+    BakeSettings st = fast_settings();
+    st.samples = 4;
+    st.denoiseRadius = 1;
+    st.dilatePasses = 2;
+    std::vector<BakePhase> order;
+    BakeProgress lastTrace;
+    std::uint64_t lastRays = 0;
+    bool raysGrow = true;
+    auto fn = [&](const BakeProgress& p) {
+        if (order.empty() || order.back() != p.phase) order.push_back(p.phase);
+        if (p.phase == BakePhase::Trace) lastTrace = p;
+        raysGrow = raysGrow && p.rays >= lastRays;
+        lastRays = p.rays;
+    };
+    auto r = bake_lightmap(sc, st, fn);
+    REQUIRE(r.ok());
+    REQUIRE(order.size() >= 5);
+    CHECK(order[0] == BakePhase::Prepare);
+    CHECK(order[1] == BakePhase::Rasterize);
+    CHECK(order[2] == BakePhase::Trace);
+    CHECK(order[3] == BakePhase::Denoise);
+    CHECK(order[4] == BakePhase::Dilate);
+    CHECK(lastTrace.done == lastTrace.total);
+    CHECK(lastTrace.total == r->stats.texels);
+    CHECK(lastTrace.atlas == 1);
+    CHECK(lastTrace.atlasCount == 1);
+    CHECK(raysGrow);
+    CHECK(lastRays == r->stats.rays);
+}
+
+TEST_CASE("lightmap bake: a cancel in any phase ends it with 'cancelled'") {
+    const BakePhase phases[] = {BakePhase::Prepare, BakePhase::Rasterize, BakePhase::Trace, BakePhase::Denoise,
+                                BakePhase::Dilate};
+    for (BakePhase phase : phases) {
+        CAPTURE(int(phase));
+        BakeScene sc = cornell();
+        BakeSettings st = fast_settings();
+        st.samples = 4;
+        st.denoiseRadius = 1;
+        st.dilatePasses = 2;
+        std::atomic<bool> flag{false};
+        CommandCancelScope cancel(&flag);
+        auto r = bake_lightmap(sc, st, [&](const BakeProgress& p) {
+            if (p.phase == phase) flag = true;  // the phase has begun: the next look at the flag ends the bake
+        });
+        REQUIRE(!r.ok());
+        CHECK(r.error().message == "cancelled");
+    }
+}
+
+TEST_CASE("bvh: a cancelled build returns false and leaves an empty tree; an uncancelled one is complete") {
+    std::vector<Vec3> corners;
+    for (int i = 0; i < 400; ++i) {
+        const float x = float(i % 20), z = float(i / 20);
+        corners.push_back({x, 0, z});
+        corners.push_back({x + 0.5f, 0, z});
+        corners.push_back({x, 0, z + 0.5f});
+    }
+    TriBvh tree;
+    std::atomic<bool> flag{true};
+    CHECK_FALSE(tree.build(corners.data(), corners.size() / 3, &flag));
+    RayHit hit;
+    CHECK_FALSE(tree.closest({1.1f, 1, 1.1f}, {0, -1, 0}, 10.0f, -1, hit));
+    flag = false;
+    CHECK(tree.build(corners.data(), corners.size() / 3, &flag));
+    CHECK(tree.closest({0.1f, 1, 0.1f}, {0, -1, 0}, 10.0f, -1, hit));
+}
+
+TEST_CASE("lightmap bake: non-finite rotation, soft radius and light sizes are refused with their field") {
+    const float nan = std::nanf(""), inf = 1e30f * 1e30f;
+    BakeSettings st = fast_settings();
+    {
+        BakeScene sc = cornell();
+        sc.sky.image.width = 1;
+        sc.sky.image.height = 1;
+        sc.sky.image.rgb = {1, 1, 1};
+        sc.sky.image.rotationDeg = nan;
+        auto r = bake_lightmap(sc, st);
+        REQUIRE(!r.ok());
+        CHECK(r.error().message.find("/sky/image/rotationDeg") != std::string::npos);
+    }
+    {
+        BakeScene sc = cornell();
+        sc.lights[0].softRadius = inf;
+        auto r = bake_lightmap(sc, st);
+        REQUIRE(!r.ok());
+        CHECK(r.error().message.find("softRadius") != std::string::npos);
+    }
+    {
+        BakeScene sc = cornell();
+        sc.lights[0].width = inf;  // not an area light, but the number is still garbage
+        auto r = bake_lightmap(sc, st);
+        REQUIRE(!r.ok());
+        CHECK(r.error().message.find("width") != std::string::npos);
+    }
+    {
+        BakeScene sc = cornell();
+        sc.lights[0].height = nan;
+        CHECK_FALSE(bake_lightmap(sc, st).ok());
+    }
+}
+
+TEST_CASE("lightmap bake: the automatic ray offset follows the texel, not the size of the world") {
+    // A 4 x 4 m floor at 16 texels per meter (texel 6 cm), a slab 2 cm above it, and a far triangle 1 km away that widens the scene: the
+    // old offset (size / 10000 = 10 cm) started the shadow rays above the slab and lit the floor under it.
+    BakeScene sc;
+    sc.atlases = {{64, 64}};
+    sc.meshes.push_back(quad("floor", {0, 0, 0}, {4, 0, 0}, {0, 0, 4}, {0, 1, 0}, 0, 0, 0, 1, 1));
+    sc.meshes.push_back(quad("slab", {1.5f, 0.02f, 1.5f}, {1, 0, 0}, {0, 0, 1}, {0, 1, 0}, -1, 0, 0, 0, 0));
+    sc.meshes.push_back(quad("far", {1000, 0, 0}, {1, 0, 0}, {0, 0, 1}, {0, 1, 0}, -1, 0, 0, 0, 0));
+    BakeLight sun;
+    sun.kind = BakeLightKind::Directional;
+    sun.direction = {0, -1, 0};
+    sun.intensity = 1;
+    sc.lights = {sun};
+    BakeSettings st = fast_settings();
+    st.samples = 1;
+    st.bounces = 0;
+    auto r = bake_lightmap(sc, st);
+    REQUIRE(r.ok());
+    CHECK(texel(r->atlases[0], 32, 32).x < 0.05f);  // under the slab
+    CHECK(texel(r->atlases[0], 4, 4).x > 0.9f);     // in the open
 }
