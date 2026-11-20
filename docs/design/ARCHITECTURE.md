@@ -20,7 +20,7 @@ layout, the AI integration, the feedback loop and the testing rules; the rest is
 - [Volumetric fog and light shafts](ARCHITECTURE_VOLUMETRIC.md): the plan, the march and apply passes, the combination with the analytic fog, the bounds, the stats.
 - [Subsurface scattering](ARCHITECTURE_SUBSURFACE.md): the diffusion profile and its fit, the sss draw, the depth-aware blur and add passes, the fallback, the limits.
 - [Area lights, the LTC tables](ARCHITECTURE_AREA_LIGHTS.md): the fitted Linearly Transformed Cosines tables, the CPU reference of the polygon integral, `ltc.glsl`.
-- [Screen-space effects of the mesh shader](ARCHITECTURE_SCREEN_EFFECTS.md): the screen slot (view 28), the contact shadows' ray march.
+- [Screen-space effects of the mesh shader](ARCHITECTURE_SCREEN_EFFECTS.md): the screen slot (view 28), the contact shadows' ray march, transmission's refraction atlas and pass split.
 - [Animation, UI, platform, localization, docs](ARCHITECTURE_RUNTIME.md): animation, UI, platform services, localization, headless, docs.
 
 ## Design principles

@@ -19,6 +19,7 @@ namespace fa::render {
 // {extraPasses, phase: "opaque" | "blended", summary, features: [{name, field, active, cost: "extraPass" | "phase" | "shader", extraPasses,
 // note}]}. `mesh` and `material` may be null (the mesh did not load, no material): only the MeshRenderer's own fields count then.
 // `targetW` x `targetH`: the size of the picture the transmission copy would read (0 when unknown: the largest atlas).
-Json material_cost_report(const MeshRenderer& mr, const MeshAsset* mesh, const MaterialAsset* material, int targetW, int targetH);
+Json material_cost_report(const MeshRenderer& mr, const MeshAsset* mesh, const MaterialAsset* material, int targetW,
+                          int targetH);
 
 }  // namespace fa::render

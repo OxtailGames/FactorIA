@@ -6,6 +6,17 @@ Older versions, one file per minor version with its patch releases: [0.32](chang
 
 ## Unreleased
 
+- **Glass and liquids (M73.6b):** `MeshRenderer.transmission` (0..1), `thickness` (metres), `attenuationColor` and `attenuationDistance` now draw: the mesh
+  shows what is behind it, refracted by its `ior` and `thickness`, blurred by its `roughness`, tinted by `color` and by the Beer-Lambert attenuation of its
+  volume. glTF models bring them (`KHR_materials_transmission`, `_volume`, `_ior`; the textures are not used and the import says so). When a visible draw is
+  transmissive the main pass is split once per camera: the opaque picture is copied into a refraction atlas (the camera's rectangle and four half-size
+  reductions, in the colour format of the picture, so HDR values refract unclamped, the filtering done in the shader) and the glass is drawn with the
+  blended meshes, far to near, back faces culled unless `doubleSided`; a frame with no visible transmissive draw copies nothing and is bit for bit what it
+  was. Glass does not see glass, opaque objects in front can leak into the refraction, and full shaders and custom lighting get none (documented). If the
+  copy cannot be made the glass is blended plainly (`game.render_stats` `transmissionPlain`; `render.supports("transmission")` is true). New command
+  `render.material_cost {id}` and a "Render cost" block under the MeshRenderer fields of the Inspector say what a material costs (extra passes, phase,
+  shader-only features) from one source in the renderer. `game.render_stats` reports `transmissiveMeshes` and `transmissionCopies`. Every material twin was
+  regenerated (the mesh template changed). See docs/rendering/RENDERING_TRANSMISSION.md and docs/design/ARCHITECTURE_SCREEN_EFFECTS.md.
 - **Subsurface scattering (M73.5):** `MeshRenderer.subsurface` (strength 0..1), `subsurfaceRadius` (metres, 0..0.5, the distance that holds 90% of the
   light) and `subsurfaceColor` (the spread of each colour channel) make skin, wax and marble: the diffuse light of the mesh is drawn into an image of its
   own, blurred along x and y with a depth-aware separable profile of our own (four Gaussians fitted to the diffusion profile of skin, the red tail wider

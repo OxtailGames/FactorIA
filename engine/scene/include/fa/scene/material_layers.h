@@ -17,10 +17,10 @@ struct MaterialLayers {
     float anisotropy = 0.0f;          // -1..1 stretch of the highlight (anisotropyStrength; glTF allows 0..1)
     float anisotropyRotation = 0.0f;  // radians (anisotropyRotation)
     float specular = 1.0f;            // 0..1 (specularFactor)
-    std::array<float, 3> specularColor{1.0f, 1.0f, 1.0f};  // 0..16 (specularColorFactor)
-    float ior = 1.5f;                                      // 1..3 (ior)
-    float transmission = 0.0f;                             // 0..1 (transmissionFactor); 0 = opaque
-    float thickness = 0.0f;                                // metres, 0..1000 (thicknessFactor); 0 = a thin surface
+    std::array<float, 3> specularColor{1.0f, 1.0f, 1.0f};     // 0..16 (specularColorFactor)
+    float ior = 1.5f;                                         // 1..3 (ior)
+    float transmission = 0.0f;                                // 0..1 (transmissionFactor); 0 = opaque
+    float thickness = 0.0f;                                   // metres, 0..1000 (thicknessFactor); 0 = a thin surface
     std::array<float, 3> attenuationColor{1.0f, 1.0f, 1.0f};  // 0..1 (attenuationColor)
     float attenuationDistance = 0.0f;  // metres, 0..100000 (attenuationDistance); 0 = no tint (glTF: infinity)
 
