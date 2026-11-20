@@ -20,7 +20,8 @@ TEST_CASE("mesh slots: no phase binds more fragment texture units than GLES3 and
     CHECK(kMeshMaxFragmentUnits == 16);
 }
 
-TEST_CASE("mesh slots: the material keeps views 6..9 and samplers 2..5, the new views start after the storage buffers") {
+TEST_CASE(
+    "mesh slots: the material keeps views 6..9 and samplers 2..5, the new views start after the storage buffers") {
     CHECK(mesh_fragment_views_valid());
     int material = 0;
     for (int i = 0; i < kMeshFragmentViewCount; ++i) {
@@ -35,7 +36,8 @@ TEST_CASE("mesh slots: the material keeps views 6..9 and samplers 2..5, the new 
             CHECK(v.sampler == kMaterialFirstSampler + (v.view - kMaterialFirstView));
             ++material;
         }
-        if (v.firstPhase > 0 && v.view != 14) CHECK(v.view >= kMeshNewViewFirst);  // the views of M73 follow the buffers 16..23
+        if (v.firstPhase > 0 && v.view != 14)
+            CHECK(v.view >= kMeshNewViewFirst);  // the views of M73 follow the buffers 16..23
         const bool inBuffers = v.view >= kMeshBufferFirstView && v.view < kMeshBufferFirstView + 2 * kMaxMeshBuffers;
         CHECK_FALSE(inBuffers);
     }

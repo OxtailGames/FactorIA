@@ -107,11 +107,9 @@ std::vector<FeatureDef> build_table() {
     t.push_back({"computeShaders", FeatureKind::Capability,
                  bit(FeatureBackend::Gl) | bit(FeatureBackend::D3d11) | bit(FeatureBackend::Metal), "compute", nullptr,
                  "Compute shaders and storage buffers (D3D11, Metal, OpenGL 4.3; never GLES3 or WebGL2)."});
-    t.push_back(
-        {"float32Targets", FeatureKind::Capability, kEveryGpu, "float32", nullptr,
-         "Render targets of 32-bit float (R32F and RGBA32F) that can be sampled: what the shadow atlas of the "
-         "lighting of M73 is drawn into (one depth value per texel). Without them there are no shadows from the "
-         "renderer's maps."});
+    t.push_back({"float32Targets", FeatureKind::Capability, kEveryGpu, "float32", nullptr,
+                 "Render targets of 32-bit float (R32F and RGBA32F) that can be sampled: what the shadow atlas of the "
+                 "lighting of M73 will be drawn into (one depth value per texel): that atlas will need them."});
     // The engine features built on them.
     t.push_back(
         {"linearColor", FeatureKind::Engine, kEveryGpu, "", nullptr,
