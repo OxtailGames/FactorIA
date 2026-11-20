@@ -19,17 +19,17 @@ const FieldInfo* field_of(const char* type, const std::string& name) {
         if (f.name == name) return &f;
     return nullptr;
 }
-const std::vector<std::string> kLightFields = {"innerAngle", "shape",          "size",           "cookie",
-                                               "ies",        "shadowResolution", "shadowBias",     "shadowNormalBias",
-                                               "shadowFilter", "shadowSoftness", "shadowDistance", "mode",
-                                               "volumetric"};
+const std::vector<std::string> kLightFields = {
+    "innerAngle",       "shape",        "size",           "cookie",         "ies",  "shadowResolution", "shadowBias",
+    "shadowNormalBias", "shadowFilter", "shadowSoftness", "shadowDistance", "mode", "volumetric"};
 const std::vector<std::string> kSettingsFields = {
-    "shadowCascades",   "shadowCascadeSplit",   "shadowCascadeBlend", "shadowDistance", "shadowAtlasSize",
-    "contactShadows",   "environmentMap",       "environmentIntensity", "environmentRotation", "skyModel"};
+    "shadowCascades", "shadowCascadeSplit", "shadowCascadeBlend",   "shadowDistance",      "shadowAtlasSize",
+    "contactShadows", "environmentMap",     "environmentIntensity", "environmentRotation", "skyModel"};
 const std::vector<std::string> kMeshFields = {
-    "lightmapScale", "contributeGI", "receiveGI",     "clearcoat",       "clearcoatRoughness", "sheenColor",
-    "sheenRoughness", "anisotropy",  "anisotropyRotation", "specular",   "ior",                "transmission",
-    "thickness",     "attenuationColor", "attenuationDistance", "subsurface"};
+    "lightmapScale", "contributeGI",   "receiveGI",  "clearcoat",          "clearcoatRoughness",
+    "sheenColor",    "sheenRoughness", "anisotropy", "anisotropyRotation", "specular",
+    "ior",           "transmission",   "thickness",  "attenuationColor",   "attenuationDistance",
+    "subsurface"};
 }  // namespace
 
 TEST_CASE("lighting fields: every new field is reflected and its doc says what it does and which package brings it") {
