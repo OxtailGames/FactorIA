@@ -679,10 +679,9 @@ TEST_CASE("features: what the engine does not draw yet is false and says planned
 
 TEST_CASE(
     "features: the lighting rows of M73 are planned until their package lands and never claim what is not drawn") {
-    const char* const rows[] = {"areaLights",  "lightCookies",   "iesProfiles",    "pointShadows",
-                                "spotShadows", "contactShadows", "environmentMap", "reflectionProbes",
-                                "physicalSky", "lightmaps",      "lightProbes",    "volumetricFog",
-                                "decals",      "subsurface",     "realtimeGI",     "transmission"};
+    const char* const rows[] = {"areaLights",     "lightCookies",   "iesProfiles",      "pointShadows", "spotShadows",
+                                "contactShadows", "environmentMap", "reflectionProbes", "lightmaps",    "lightProbes",
+                                "volumetricFog",  "decals",         "subsurface",       "realtimeGI",   "transmission"};
     const FeatureEnv full = gpu(FeatureBackend::D3d11, true, true, true, true);
     for (const char* n : rows) {
         CAPTURE(n);
@@ -691,6 +690,16 @@ TEST_CASE(
         CHECK_FALSE(supported(full, n, &why));
         CHECK(why == "planned (M73)");
         CHECK(feature_table()[std::size_t(find_feature(n))].kind == FeatureKind::Engine);
+    }
+    // The physical sky is drawn (M73-P3d): it needs RGBA16F targets for its tables and says so when they are missing.
+    {
+        std::string why;
+        REQUIRE(find_feature("physicalSky") >= 0);
+        CHECK(supported(full, "physicalSky", &why));
+        CHECK(feature_table()[std::size_t(find_feature("physicalSky"))].kind == FeatureKind::Engine);
+        CHECK_FALSE(supported(gpu(FeatureBackend::Gles3, false), "physicalSky", &why));
+        CHECK(why.find("RGBA16F") != std::string::npos);
+        CHECK(why.find("planned") == std::string::npos);
     }
     // clusteredLights is drawn: it is a feature of the renderer on every GPU, with the row still in the same place.
     CHECK(find_feature("clusteredLights") >= 0);

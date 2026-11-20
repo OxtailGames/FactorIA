@@ -1520,6 +1520,7 @@ enum class ColorSpace : std::int32_t { Gamma, Linear };
 enum class HdrOutput : std::int32_t { Off, Auto };
 
 // SceneSettings.skyModel: how the sky behind the 3D scene is made when there is no sky material and no environment map.
+// (Physical: renderer_sky_phys.h, docs/rendering/RENDERING_LIGHTING.md, "The physical sky".)
 enum class SkyModel : std::int32_t { Gradient, Physical };
 
 // Scene-wide settings (stored in the scene file under "settings").
@@ -1551,6 +1552,16 @@ struct SceneSettings {
     float environmentIntensity = 1.0f;    // M73.3
     float environmentRotation = 0.0f;     // M73.3: degrees around the up axis
     SkyModel skyModel = SkyModel::Gradient;  // M73.3: gradient (the colours above) or physical (sun and atmosphere)
+    // The physical sky (skyModel = physical, M73-P3d): read only then. Defaults are a clear mid-day sky.
+    float skySunSize = 0.53f;                       // angular diameter of the sun disc, degrees
+    float skyTurbidity = 2.0f;                      // aerosols: 1 = very clean air .. 10 = heavy haze
+    Color skyGroundAlbedo{0.3f, 0.3f, 0.3f, 1.0f};  // colour of the ground the atmosphere sees below the horizon
+    float skyExposure = 1.0f;                       // brightness of the sky and of the light it gives the meshes
+    bool skyTintsSun = true;                        // the directional light takes the colour of the sun through the air
+    float cloudCoverage = 0.25f;                    // 0 = a clear sky .. 1 = overcast
+    float cloudDensity = 0.6f;                      // how opaque and dark the clouds are, 0..1
+    float cloudAltitude = 2500.0f;                  // metres above the observer
+    Vec2 cloudWind{8.0f, 3.0f};                     // metres per second the clouds drift along world x and z
 };
 
 // Registers every component above (plus SceneSettings as a reflected type)

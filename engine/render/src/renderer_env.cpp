@@ -236,9 +236,8 @@ void Environment::draw(Gpu& gpu, Prog prog, sg_view dst, sg_view srcTex, int fac
     if (drawCalls) ++*drawCalls;
 }
 
-void Environment::bake(Gpu& gpu, std::uint64_t key, const SkyDraw& sky, int* drawCalls) {
-    baked_ = false;
-    if (state_ <= 0) return;
+// Part A of a bake: the sky into S0 and the pyramid under it (6 + 18 passes).
+void Environment::bake_sky(Gpu& gpu, const SkyDraw& sky, int* drawCalls) {
     const TargetFormat fmt{format_, SG_PIXELFORMAT_NONE, 1};
     // The sky itself: the material's program into the six faces of S0.
     for (int f = 0; f < 6; ++f) {
@@ -259,23 +258,62 @@ void Environment::bake(Gpu& gpu, std::uint64_t key, const SkyDraw& sky, int* dra
     for (int s = 1; s < kEnvPyramid; ++s)
         for (int f = 0; f < 6; ++f)
             draw(gpu, Prog::Copy, pyramidAtt_[s][f], pyramidTex_[s - 1], f, 0.0f, 0.0f, "env-down", drawCalls);
-    // The prefiltered cube: mip 0 is the sky, mip k the GGX lobe of roughness k / (levels - 1) read from the pyramid
-    // image of about the size of the mip (it never reads the image it draws into).
-    for (int f = 0; f < 6; ++f)
-        draw(gpu, Prog::Copy, preAtt_[0][f], pyramidTex_[0], f, 0.0f, 0.0f, "env-level0", drawCalls);
-    for (int m = 1; m < kEnvLevels; ++m) {
+}
+
+// Part B and C: the levels `first` .. `last` of the prefiltered cube (level 0 is the sky itself, level k the GGX lobe of
+// roughness k / (levels - 1) read from the pyramid image of about the size of the level: it never reads the image it draws
+// into).
+void Environment::bake_levels(Gpu& gpu, int first, int last, int* drawCalls) {
+    for (int m = first; m <= last; ++m) {
+        if (m == 0) {
+            for (int f = 0; f < 6; ++f)
+                draw(gpu, Prog::Copy, preAtt_[0][f], pyramidTex_[0], f, 0.0f, 0.0f, "env-level0", drawCalls);
+            continue;
+        }
         const float roughness = float(m) / float(kEnvLevels - 1);
         const float samples = m <= 2 ? 32.0f : 64.0f;
         for (int f = 0; f < 6; ++f)
             draw(gpu, Prog::Prefilter, preAtt_[m][f], pyramidTex_[std::min(m, kEnvPyramid - 1)], f, roughness, samples,
                  "env-prefilter", drawCalls);
     }
-    // The irradiance: the cosine lobe of the smallest pyramid image.
+}
+
+// The irradiance: the cosine lobe of the smallest pyramid image.
+void Environment::bake_irradiance(Gpu& gpu, int* drawCalls) {
     for (int f = 0; f < 6; ++f)
         draw(gpu, Prog::Irradiance, irrAtt_[f], pyramidTex_[kEnvPyramid - 1], f, 0.0f, 128.0f, "env-irradiance",
              drawCalls);
+}
+
+void Environment::bake(Gpu& gpu, std::uint64_t key, const SkyDraw& sky, int* drawCalls) {
+    baked_ = false;
+    slice_ = 0;
+    if (state_ <= 0) return;
+    bake_sky(gpu, sky, drawCalls);
+    bake_levels(gpu, 0, kEnvLevels - 1, drawCalls);
+    bake_irradiance(gpu, drawCalls);
     baked_ = true;
     key_ = key;
+}
+
+void Environment::bake_slice(Gpu& gpu, std::uint64_t key, const SkyDraw& sky, int* drawCalls) {
+    if (state_ <= 0) return;
+    if (slice_ == 0) {  // a new sequence: the sky of this frame is what it bakes
+        bake_sky(gpu, sky, drawCalls);
+        pendingKey_ = key;
+        slice_ = 1;
+        return;
+    }
+    if (slice_ == 1) {
+        bake_levels(gpu, 0, 2, drawCalls);
+        slice_ = 2;
+        return;
+    }
+    bake_levels(gpu, 3, kEnvLevels - 1, drawCalls);
+    bake_irradiance(gpu, drawCalls);
+    slice_ = 0;
+    baked_ = true;
+    key_ = pendingKey_;
 }
 
 void Environment::destroy_images() {
@@ -327,6 +365,9 @@ void Environment::release() {
     state_ = 0;
     baked_ = false;
     key_ = 0;
+    slice_ = 0;
+    pendingKey_ = 0;
+    tagKey_ = 0;
 }
 
 }  // namespace fa::render
