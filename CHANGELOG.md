@@ -31,6 +31,8 @@ Older versions, one file per minor version with its patch releases: [0.31](chang
   light shines like a point light until M73.1. `render.supports` lists 21 lighting features, all `planned (M73)` until their step
   lands, and the capability `float32Targets` (R32F and RGBA32F render and sample). docs/rendering/RENDERING_LIGHTING.md.
 
+- **LTC tables for area lights (M73, no renderer change yet):** `tools/ltc` fits Linearly Transformed Cosines tables for the engine's own GGX BRDF (deterministic, same bits with any thread count) and writes the committed `engine/render/src/ltc_tables.h`; `engine/render/shaders/ltc.glsl` and a CPU reference integrate polygon lights over them. See docs/design/ARCHITECTURE_AREA_LIGHTS.md.
+
 ## 0.32.0
 
 Every renderer takes a custom shader: sprites, shapes, tilemaps, text, particles and vfx, the sky and UI images use the same `fragment()`/`vertex()` snippets as meshes, with per-sprite values that keep batching. Post-process materials are passes of the M71 stack, placed around the built-in effects and after the tonemap, and can read the frame before. Mesh materials can be full shaders with their own passes and light loop. Compute materials run on D3D11, Metal and GL 4.3 (a clear refusal on GLES3 and WebGL2) and write buffers and images that meshes and sprites draw thousands of times in one draw. The Graph panel edits node graphs for mesh, sprite and post materials, with a live preview that writes the same JSON and snippet an AI writes.
