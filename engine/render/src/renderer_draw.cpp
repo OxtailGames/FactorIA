@@ -32,6 +32,8 @@ struct Renderer::Impl::PartDraw {
     MaterialAsset* mat = nullptr;
     bool error = false;
     TextureAsset *tex = nullptr, *normal = nullptr, *mr = nullptr, *occlusion = nullptr, *emissive = nullptr;
+    sg_view
+        lightmap{};  // the lightmap page of the entity (view 26 of the engine's program); id 0 = none, a white texel is bound
 };
 
 // The packed params and textures of a custom material for one batch (its overrides are the same for every item).
@@ -112,6 +114,10 @@ struct Renderer::Impl::DrawContext {
     SceneSettings ss;
     TextureAsset* white = nullptr;
     mesh_fa_lights_t lightUniforms{};
+    // lightUniforms with the lights of Light.mode Baked switched off (colour 0): what a lightmapped entity is drawn with, as its lightmap holds
+    // their direct light. Filled only when a baked light exists (anyBakedLight).
+    mesh_fa_lights_t lightUniformsLm{};
+    bool anyBakedLight = false;
     mesh_fa_mesh_vs_params_t vuScene{};
     mesh_fa_mesh_fs_params_t fuScene{};
     // fuScene with the camera's stack fog (PostProcess.fog*): the blended meshes fog themselves with it, while the opaque meshes and the sky
@@ -740,6 +746,7 @@ void Renderer::Impl::gather_meshes(DrawContext& ctx) {
         mi.colorsHash = sm.colorsHash;
         mi.sortKey = sm.sortKey;
         mi.keyed = sm.keyed;
+        mi.lm = sm.lm;
         mi.dist = length(sm.model.translation() - fr.cam.position);
         meshBlended.push_back(sm.blended ? 1 : 0);
     }
@@ -754,6 +761,7 @@ void Renderer::Impl::gather_meshes(DrawContext& ctx) {
         const std::string& level = lod_mesh(mr, mi.dist);  // MeshRenderer::lods
         if (level == mr.mesh) continue;
         mi.mesh = assets->mesh(level);
+        mi.lm = {};  // another mesh: the entity was baked for the one the manifest names
         mesh_cull_bounds(*mi.mesh, world.get<Animator>(mi.entity), mi.bmin, mi.bmax, mi.anim);
         meshBlended[i] = mesh_is_blended(mr, *mi.mesh, mi.material) ? 1 : 0;
     }
@@ -819,6 +827,7 @@ void Renderer::Impl::collect_lights(DrawContext& ctx) {
                 const float r2 = std::max(l.range * l.range, 1e-4f);
                 ld.score = brightness * r2 / (r2 + length_sq(m.translation() - fr.cam.position));
             }
+            ld.baked = l.mode == LightMode::Baked;
             lights.push_back(ld);
         });
     // Camera.lighting = studio: the rig of the camera takes the place of the scene's lights. Directions are relative to the camera
@@ -1061,6 +1070,14 @@ void Renderer::Impl::scene_uniforms(DrawContext& ctx) {
             lightUniforms.fa_light_dir[i][c] = lights[i].dir[c];
         }
     }
+    ctx.anyBakedLight = false;
+    for (const LightData& l : lights) ctx.anyBakedLight = ctx.anyBakedLight || l.baked;
+    if (ctx.anyBakedLight) {
+        ctx.lightUniformsLm = lightUniforms;
+        for (std::size_t i = 0; i < lights.size(); ++i)
+            if (lights[i].baked)
+                for (int c = 0; c < 3; ++c) ctx.lightUniformsLm.fa_light_color[i][c] = 0.0f;  // w (the kind) stays
+    }
     copy_mat(vuScene.fa_view_proj, fr.cam.viewProj);
     copy_mat(vuScene.fa_light_vp, lightVP);
     vuScene.fa_time[0] = float(world.time());
@@ -1226,6 +1243,7 @@ Renderer::Impl::PartDraw Renderer::Impl::part_draw(DrawContext& ctx, const MeshI
     d.mr = d.error || !part.mrTex ? white : part.mrTex;
     d.occlusion = d.error || !part.occlusionTex ? white : part.occlusionTex;
     d.emissive = d.error || !part.emissiveTex ? white : part.emissiveTex;
+    if (mi.lm.mesh && mi.lm.page) d.lightmap = mi.lm.page->view;
     return d;
 }
 
@@ -1233,10 +1251,16 @@ void Renderer::Impl::note_missing_channel(const MeshItem& mi, const SubMesh& par
     MaterialAsset& mat = *mi.material;
     const bool uv = std::string(what) == "uv1";
     // Already logged? One hash lookup, no string: this runs for every part of every batch of every pass of every frame.
-    const std::uint64_t key = (std::uint64_t(reinterpret_cast<std::uintptr_t>(mi.mesh)) * 1000003u +
-                               std::uint64_t(&part - mi.mesh->parts.data())) *
-                                  2u +
-                              (uv ? 0u : 1u);
+    // The part's index: it is one of the mesh's parts, or of the parts of its lightmap geometry (the same order).
+    const SubMesh* first =
+        mi.lm.mesh && !mi.lm.mesh->parts.empty() &&
+                std::less_equal<const SubMesh*>()(mi.lm.mesh->parts.data(), &part) &&
+                std::less<const SubMesh*>()(&part, mi.lm.mesh->parts.data() + mi.lm.mesh->parts.size())
+            ? mi.lm.mesh->parts.data()
+            : mi.mesh->parts.data();
+    const std::uint64_t key =
+        (std::uint64_t(reinterpret_cast<std::uintptr_t>(mi.mesh)) * 1000003u + std::uint64_t(&part - first)) * 2u +
+        (uv ? 0u : 1u);
     if (!mat.missingNoted.insert(key).second) return;
     const std::string mesh = mi.mesh->key;
     const std::string channel = uv ? "TEXCOORD_1" : "COLOR_1";
@@ -1247,8 +1271,8 @@ void Renderer::Impl::note_missing_channel(const MeshItem& mi, const SubMesh& par
             (primitive ? "'" + mesh +
                              "' is a built-in primitive (cube, plane, ...), which has only position, normal and uv, "
                              "no TEXCOORD_1 or COLOR_1"
-                       : "part " + std::to_string(&part - mi.mesh->parts.data()) + " of mesh '" + mesh + "' has no " +
-                             channel + " attribute") +
+                       : "part " + std::to_string(&part - first) + " of mesh '" + mesh + "' has no " + channel +
+                             " attribute") +
             ". The meshes using both are drawn magenta.",
         primitive
             ? "Use a glTF model that has " + channel + " (the built-in primitives never do), or remove \"" + what +
@@ -1374,6 +1398,7 @@ void Renderer::Impl::bind_textures(DrawContext& ctx, sg_bindings& b, const PartD
     b.views[VIEW_mesh_fa_mr_tex] = d.mr->gpu_view();
     b.views[VIEW_mesh_fa_occlusion_tex] = d.occlusion->gpu_view();
     b.views[VIEW_mesh_fa_emissive_tex] = d.emissive->gpu_view();
+    b.views[VIEW_mesh_fa_lightmap] = d.lightmap.id ? d.lightmap : white->view;
     b.samplers[SMP_mesh_fa_smp] = gpu.sampler(SamplerKind::LinearRepeat);
     b.samplers[SMP_mesh_fa_shadow_smp] = gpu.sampler(SamplerKind::Nearest);
     // The sky environment (renderer_env.h): the baked cubes, or a black one while the meshes use the gradient (every
@@ -2015,6 +2040,7 @@ void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
     const sg_buffer mainInst = ctx.mainInst;
     const mesh_fa_mesh_vs_params_t& vuScene = ctx.vuScene;
     const mesh_fa_lights_t& lightUniforms = ctx.lightUniforms;
+    const mesh_fa_lights_t& lightUniformsLm = ctx.anyBakedLight ? ctx.lightUniformsLm : ctx.lightUniforms;
     const bool drawHudInPass = fr.wantScreen && !hudAfterBloom && !ctx.hudAfterPost;
     if (ctx.envActive && !skyEnv.baked()) {  // the bake did not complete: the meshes keep the gradient
         ctx.envActive = false;
@@ -2064,6 +2090,9 @@ void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
                 const MeshRenderer& mr = *mi.mr;
                 vu.fa_uv_scale[0] = mr.uvScale.x;
                 vu.fa_uv_scale[1] = mr.uvScale.y;
+                // A lightmapped entity: the rectangle of its page (fa_lm_so.x > 0 switches the lightmap on), its own geometry and no baked lights.
+                for (int k = 0; k < 4; ++k) vu.fa_lm_so[k] = mi.lm.mesh ? mi.lm.scaleOffset[k] : 0.0f;
+                const std::vector<SubMesh>& drawParts = mi.lm.mesh ? mi.lm.mesh->parts : mi.mesh->parts;
                 MaterialInputs inputs{};
                 if (mi.material && mi.material->ok) {
                     material_inputs(mi, mi.material, inputs);
@@ -2075,7 +2104,7 @@ void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
                 const MeshBufferUse mbu = resolve_mesh_buffers(*assets, compute, mi);  // mesh_buffer_draw.h
                 if (mbu.skip) continue;
                 bool anyDrawn = false;  // a material with buffers that has no program for this mesh draws nothing
-                for (auto& part : mi.mesh->parts) {
+                for (const SubMesh& part : drawParts) {
                     const bool skinned = mi.anim && part.skinVb.id;
                     const PartDraw pd = part_draw(ctx, mi, part);
                     if (pd.error && mi.material && mi.material->ok &&
@@ -2109,7 +2138,12 @@ void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
                         b.vertex_buffers[1] = mainInst;
                         b.vertex_buffer_offsets[1] = int(batch.mainFirst * kMeshInstanceBytes);
                         if (skinned) b.vertex_buffers[2] = part.skinVb;
-                        if (pd.mat) bind_extras(b, *pd.mat, part, ctx.mainExtra, batch.mainExtra);
+                        if (pd.mat)
+                            bind_extras(b, *pd.mat, part, ctx.mainExtra, batch.mainExtra);
+                        else if (!skinned)  // the engine's program always reads uv1: the lightmap UV, or zeros
+                            b.vertex_buffers[kUv1Buffer] = part.uv1Vb.id && mi.lm.mesh
+                                                               ? part.uv1Vb
+                                                               : assets->zero_uv1(std::size_t(part.vertexCount));
                         b.index_buffer = part.ib;
                         b.index_buffer_offset = part.ibOffset;
                         bind_textures(ctx, b, pd, prog, inputs, false);
@@ -2132,7 +2166,8 @@ void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
                             }
                             apply_uniforms(UB_mesh_fa_mesh_fs_params, fragmentParams);
                         }
-                        if (declares(prog, UB_mesh_fa_lights)) apply_uniforms(UB_mesh_fa_lights, lightUniforms);
+                        if (declares(prog, UB_mesh_fa_lights))
+                            apply_uniforms(UB_mesh_fa_lights, mi.lm.mesh ? lightUniformsLm : lightUniforms);
                         if (prog) apply_material_params(*prog, inputs);
                         sg_draw(0, part.indexCount, mbu.active ? mbu.instances : int(batch.mainCount));
                         ++stats.drawCalls;

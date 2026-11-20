@@ -29,7 +29,7 @@ to the file).
 | `shadowBias`, `shadowNormalBias` | 0..1 | 0 (the engine's own) | M73.2 |
 | `shadowFilter`, `shadowSoftness` | `pcf`, `hard`, `pcss`; 0..10 | `pcf`, 1 | M73.2 |
 | `shadowDistance` | metres, 0..100000 | 0 (the scene's) | M73.2 |
-| `mode` | `realtime`, `baked`, `mixed` | `realtime` | M73.4 |
+| `mode` | `realtime`, `baked`, `mixed` | `realtime` | M73.4a: `baked` lights stop lighting lightmapped entities (see "Lightmaps"); `mixed`: M73.4d |
 | `volumetric` | 0..10 | 0 | M73.5 |
 
 ## Scene settings
@@ -43,13 +43,14 @@ to the file).
 | `contactShadows` | bool | false | M73.2 (needs a GPU that can sample the depth) |
 | `environmentMap`, `environmentIntensity`, `environmentRotation` | an HDR image; 0..100; degrees | none, 1, 0 | M73.3 |
 | `skyModel` | `gradient`, `physical` | `gradient` | M73.3 |
+| `lightmaps` | a `.lightmap.json` file | none | M73.4a |
 
 ## MeshRenderer
 
 | Field | Values | Default | Brought by |
 |---|---|---|---|
-| `lightmapScale` | 0..100 | 1 | M73.4 |
-| `contributeGI`, `receiveGI` | bool | true, true | M73.4 (bake), M73.5 (realtime GI) |
+| `lightmapScale` | 0..100 | 1 | M73.4a (0 = never lightmapped); the bake's texel density: M73.4c |
+| `contributeGI`, `receiveGI` | bool | true, true | `receiveGI`: M73.4a (false = ignores its lightmap entry); `contributeGI`: M73.4c (bake), M73.5 (realtime GI) |
 | `clearcoat`, `clearcoatRoughness` | 0..1 | 0, 0.03 | M73.6 |
 | `sheenColor`, `sheenRoughness` | colour; 0..1 | black, 0.5 | M73.6 |
 | `anisotropy`, `anisotropyRotation` | -1..1; degrees | 0, 0 | M73.6 |
@@ -60,6 +61,45 @@ to the file).
 
 A value outside its range, or a name that is not one of the listed words, is refused where it is written (the scene file on load, the commands that set a component field, a script property write) with the field, the allowed range or words and a "did you mean" for a misspelt word.
 
+## Lightmaps
+
+A lightmap is light computed once and stored in an image: the diffuse light of the sun, the lights of mode `baked` and the sky, with the
+bounces between surfaces, so a static level looks lit by global illumination for the price of one texture read. M73.4a is the part that
+draws it; the `lightmap.bake` command that writes the files comes with M73.4c, so until then the files are made by tools that use the
+baker (docs/design/ARCHITECTURE_BAKING.md, repository only, not in the binary) or by hand.
+
+**What you set.** `SceneSettings.lightmaps` is the project path of a manifest (`scenes/level.lightmap.json`). It lists, for each entity
+(by its stable id), the mesh it was baked for, the page (a Radiance `.hdr` next to it) and the rectangle of the page that is its
+lightmap. The renderer loads it with the scene and reads it again when a file changes on disk, so a new bake shows up without a restart.
+An entity is lit by its lightmap when it is listed, has `MeshRenderer.receiveGI` on and `lightmapScale` above 0, and is not skinned.
+
+**What it looks like.** The baked light **replaces** the ambient light and the sky's diffuse light on that surface (it already holds
+them); the sky's reflections stay, and so do realtime lights. A light with `mode: "baked"` does not light a lightmapped entity at run time
+(its light is in the page) but does light every entity that has no lightmap entry, so a scene shows no dark objects before it is
+baked. `mode: "mixed"` and `realtime` lights are drawn as always. An entity that is not listed, or whose page or mesh cannot be used,
+is drawn exactly as without lightmaps.
+
+**Lightmap UVs.** A lightmap needs every triangle to have its own place in the unit square. The model's second UV set (glTF
+`TEXCOORD_1`) is used when every part has it (it must be inside 0..1 without overlap: author it that way); any other mesh, the
+primitives included, gets a generated unwrap (xatlas, with a gutter between the charts), the same on every platform and run and kept in
+memory with the mesh (nothing is written next to the model). A mesh with more than 250,000 triangles and no `TEXCOORD_1` cannot be
+unwrapped: give it one or use a lower-poly mesh for the bake. The unwrap splits vertices along the seams of its charts, so a
+lightmapped entity is drawn from vertices of its own, and it is not batched with other entities.
+
+**Files.** The manifest is JSON (`version`, `uvVersion`, `settingsHash`, `pages`, `entities`); a page is a Radiance `.hdr` whose first row
+is the top, with page uv (0, 0) at the top-left; a texel is the irradiance divided by pi (what a white diffuse surface shows) in linear
+colour. The page uv of a lightmap uv is `uv * (sx, sy) + (ox, oy)` of the entity's `scaleOffset`. Mistakes are named with the file and the
+JSON pointer, with what to change, and the scene is drawn without the lightmap: an unknown key, a page that is missing, an entry whose
+mesh is not the one that was baked (the model changed: bake again, `render.assets` lists it as `lightmap-stale`).
+
+**With your own materials.** The engine's own mesh shader and a custom mesh material that lists `"uv1"` in `vertexAttributes` (docs/SHADERS.md) are lightmapped; on a lightmapped entity that material's `uv1` is the lightmap UV, not the model's second UV set, so a
+material that textures with `uv1` should not be on a lightmapped entity (set `receiveGI` to false there). A full-shader material and a
+material that reads compute buffers are never lightmapped. A material that does not list `"uv1"` is not lightmapped either: it has
+no place to get the UV from.
+
+**The texel density.** `lightmap_texels_per_meter` (C++, `fa/scene/lightmap_manifest.h`) gives the density the bake will use for an entity:
+16 texels per metre times `MeshRenderer.lightmapScale`, 0 when the scale is 0.
+
 ## Asking what the renderer draws: render.supports
 
 `render.supports` (C++ `Renderer::supports(name)`) answers for each lighting feature below with `false` and the status `planned (M73)`
@@ -67,7 +107,7 @@ until its step lands; then it follows the GPU. A game that wants a feature check
 what is not drawn.
 
 `clusteredLights`, `areaLights`, `lightCookies`, `iesProfiles` (M73.1); `cascadedShadows`, `pointShadows`, `spotShadows`,
-`contactShadows` (M73.2); `environmentMap`, `reflectionProbes`, `physicalSky` (M73.3); `lightmaps`, `lightProbes` (M73.4);
+`contactShadows` (M73.2); `environmentMap`, `reflectionProbes`, `physicalSky` (M73.3); `lightmaps` (M73.4a), `lightProbes` (M73.4d);
 `volumetricFog`, `decals`, `subsurface`, `realtimeGI` (M73.5); `clearCoat`, `sheen`, `anisotropy`, `transmission` (M73.6).
 
 A new capability row, `float32Targets`, says whether the GPU can render to and sample R32F and RGBA32F images: the shadow atlas of

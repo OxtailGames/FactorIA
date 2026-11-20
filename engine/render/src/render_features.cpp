@@ -128,6 +128,16 @@ std::vector<FeatureDef> build_table() {
          "The feature needs nothing of the GPU (it is on wherever the engine draws); only a pass whose material reads "
          "the depth or the normals (fa_depth, fa_normal) needs the sampledDepth feature, and that pass alone is "
          "skipped without it."});
+    t.push_back(
+        {"lightmaps", FeatureKind::Engine, kEveryGpu, "", nullptr,
+         "Baked lightmaps (M73.4a): the bake's light of a scene (SceneSettings.lightmaps, the lightmap.bake command) "
+         "is read from "
+         "the lightmap UV of each entity with MeshRenderer.receiveGI and replaces the ambient light on its diffuse "
+         "surface; "
+         "lights with mode baked are left out of those entities. The feature needs nothing of the GPU. A custom "
+         "material "
+         "gets the lightmap only when it declares \"uv1\" in vertexAttributes (docs/rendering/RENDERING_LIGHTING.md, "
+         "\"Lightmaps\")."});
     // The lighting of M73 (docs/rendering/RENDERING_LIGHTING.md): every row answers false with "planned (M73)" until its package
     // lands, then drops the `planned` text here. `needs` is what its pass asks of the GPU once built.
     struct Planned {
@@ -162,9 +172,6 @@ std::vector<FeatureDef> build_table() {
          "(M73.3)."},
         {"physicalSky", "half",
          "A physically based sky with a sun and an atmosphere, and clouds, feeding the image-based lighting (M73.3)."},
-        {"lightmaps", "",
-         "Baked lightmaps: global illumination computed by a deterministic bake and read from a second UV set "
-         "(M73.4)."},
         {"lightProbes", "", "Light probes: baked spherical-harmonics lighting for moving objects (M73.4)."},
         {"volumetricFog", "half+depth", "Volumetric fog and light shafts per light (M73.5)."},
         {"decals", "depth", "Projected decals drawn over the meshes they touch (M73.5)."},

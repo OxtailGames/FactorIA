@@ -154,7 +154,11 @@ layout(location=FA_X_BASE+1) in vec4 fa_inst_d1;
 #if FA_NINST > 2
 layout(location=FA_X_BASE+2) in vec4 fa_inst_d2;
 #endif
-#ifdef FA_CH_UV1
+// The engine's own mesh program (mesh.glsl's fa_user defines FA_LM_BUILTIN, and only the `vs` program defines FA_LM_PASS) always reads
+// the uv1 buffer: the lightmap UV of a lightmapped entity, zeros otherwise. A custom material that declares "uv1" reads the same buffer
+// (its uv1 is the lightmap UV on a lightmapped entity).
+#if defined(FA_CH_UV1) || (defined(FA_LM_BUILTIN) && defined(FA_LM_PASS))
+#define FA_LM_ATTR
 layout(location=FA_X_BASE+FA_NINST) in vec2 fa_attr_uv1;
 #define FA_NUV1 1
 #else
@@ -196,6 +200,7 @@ layout(binding=0) uniform fa_mesh_vs_params {
     mat4 fa_light_vp;           // directional shadow matrix (world -> light clip)
     vec4 fa_uv_scale;           // xy
     vec4 fa_time;               // x = seconds of game time since the scene started
+    vec4 fa_lm_so;              // the lightmap rectangle of the entity drawn: page uv = lightmap uv * xy + zw; x = 0 = not lightmapped
 };
 
 // Drawing from a storage buffer (M72.4): a material with "buffers" defines FA_BUFFER_INST. Its entity is drawn as
@@ -263,6 +268,7 @@ out vec4 fa_world_tangent;
 out vec2 fa_uv;
 out vec4 fa_vertex_color;
 out vec4 fa_shadow_pos;
+out vec3 fa_lm;                 // xy = the page uv of the lightmap, z = 1 when the entity is lightmapped (fa_lm_so.x > 0)
 
 // Everything after the model matrix is known: shared by the instanced and the skinned vertex shader.
 void fa_shade_vertex(mat4 model, vec3 position, vec3 normal, vec4 tangent, vec2 texcoord0, vec4 color) {
@@ -294,11 +300,17 @@ layout(location=6) in vec4 fa_inst_m1;
 layout(location=7) in vec4 fa_inst_m2;
 layout(location=8) in vec4 fa_inst_m3;
 #define FA_X_BASE 9
+#define FA_LM_PASS
 @include_block fa_extra_attrs
 
 void main() {
     fa_inst_begin();
     fa_shade_vertex(FA_INST_MODEL, fa_position, fa_normal, fa_tangent, fa_texcoord0, fa_color);
+#ifdef FA_LM_ATTR
+    fa_lm = vec3(fa_attr_uv1 * fa_lm_so.xy + fa_lm_so.zw, fa_lm_so.x > 0.0 ? 1.0 : 0.0);
+#else
+    fa_lm = vec3(0.0);
+#endif
 }
 @end
 
@@ -326,6 +338,7 @@ void main() {
     fa_inst_begin();
     fa_shade_vertex(FA_INST_MODEL * fa_skin_matrix(fa_joints, fa_weights),
                     fa_position, fa_normal, fa_tangent, fa_texcoord0, fa_color);
+    fa_lm = vec3(0.0);  // a skinned mesh is never lightmapped
 }
 @end
 
@@ -565,6 +578,21 @@ float fa_shadow_factor(vec3 n, vec3 l) {
 @include_block fa_user
 @include_block fa_fs_rest
 
+// The baked lightmap (M73.4a): the page of the entity drawn, an irradiance/pi texel like ambientLight is, read at the lightmap UV the
+// vertex stage passed (declared after fa_shadow_pos, the order of the vertex stage's outputs). Bound (a white texel) on every draw of the
+// engine's program, so a mesh without a lightmap costs one branch on a varying.
+in vec3 fa_lm;
+layout(binding=26) uniform texture2D fa_lightmap;
+
+// The diffuse indirect light toward n: the baked texel of a lightmapped surface, else the ambient light or the sky's irradiance. The
+// specular IBL (fa_sky_reflection) is not part of it: a lightmap holds no direction.
+vec3 fa_indirect_diffuse(vec3 n) {
+    if (fa_lm.z > 0.5) {
+        return textureLod(sampler2D(fa_lightmap, fa_env_smp), fa_lm.xy, 0.0).rgb;
+    }
+    return fa_ambient_light(n);
+}
+
 out vec4 fa_frag_color;
 
 void main() {
@@ -599,9 +627,9 @@ void main() {
 #ifdef FA_CUSTOM_LIGHT
         s.normal = n;
 #ifdef FA_HAS_AMBIENT
-        vec3 lit = ambient(i, s, fa_ambient_light(n));
+        vec3 lit = ambient(i, s, fa_indirect_diffuse(n));
 #else
-        vec3 lit = fa_ambient_light(n) * s.albedo * s.occlusion;
+        vec3 lit = fa_indirect_diffuse(n) * s.albedo * s.occlusion;
 #endif
 #else
         float metallic = clamp(s.metallic, 0.0, 1.0);
@@ -611,7 +639,7 @@ void main() {
         float ndv = max(dot(n, v), 1e-4);
         vec3 diffuse_color = s.albedo * (1.0 - metallic);
         vec3 f0 = mix(vec3(0.04), s.albedo, metallic);
-        vec3 lit = fa_ambient_light(n) * diffuse_color * s.occlusion;
+        vec3 lit = fa_indirect_diffuse(n) * diffuse_color * s.occlusion;
 #endif
 @include_block fa_light_loop
 #ifndef FA_CUSTOM_LIGHT

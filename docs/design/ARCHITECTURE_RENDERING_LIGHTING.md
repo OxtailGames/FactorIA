@@ -45,7 +45,7 @@ into a row or changes the table together with the `static_assert`s under it.
 | 14 `fa_probe_atlas` (sampler 10) | M73.3b/c: reflection probes and the sky, octahedral 2D, prefiltered by roughness; replaces the cube | 2 |
 | 24 `fa_light_data` (no sampler, `texelFetch`) | M73.1a, RGBA32F: lights, the clusters' light lists, decals, the sky's spherical harmonics | 1, 2 |
 | 25 `fa_light_atlas` (sampler 10) | M73.1b: cookies and IES profiles, one RGBA8 atlas | 1, 2 |
-| 26 `fa_lightmap` (sampler 10) | M73.4a: the lightmap atlas, UV2 of the mesh | 1, 2 |
+| 26 `fa_lightmap` (sampler 10) | M73.4a: the lightmap page of the entity drawn (RGBA16F, one page per draw; a white texel when it has none), read at its lightmap UV | 1, 2 |
 | 27 `fa_decal_atlas` (sampler 10) | M73.5b: decal textures (their transforms are in `fa_light_data`) | 1, 2 |
 | 28 `fa_screen_tex` (sampler 10) | M73.2c and M73.6b: the prepass depth for contact shadows, the opaque colour for transmission | 2 |
 
@@ -84,3 +84,58 @@ enum checks come from the reflection (`field_from_json`), and a default is not w
 form of an unchanged scene are the same. `LightType` gained `Area` (last, so the numbers of the others do not move); until M73.1 the
 renderer treats it as a point light (`renderer_draw.cpp`, `scene2d.cpp`). The M73.x package that makes a field work removes "No effect
 yet" from its doc string and updates the tables in RENDERING_LIGHTING.md.
+
+## Lightmaps
+
+M73.4a: the runtime that draws a baked lightmap, and the UVs it needs. The baker core is [ARCHITECTURE_BAKING.md](ARCHITECTURE_BAKING.md);
+the `lightmap.bake` command that writes the files (M73.4c) and the light probes (M73.4d) are later packages. The user page is
+"Lightmaps" in [RENDERING_LIGHTING.md](../rendering/RENDERING_LIGHTING.md).
+
+**Lightmap UVs** (`fa/render/lightmap_geometry.h`, `fa/scene/lightmap_uv.h`). A mesh's lightmap UV is TEXCOORD_1 of its glTF when every
+part has it (it must lie in 0..1 without overlap; one outside the square is refused with a message that says so), else an unwrap of the
+whole mesh by `generate_lightmap_uv` (xatlas through `model_uv_apply`, single-threaded, `fa::det` trigonometry: the same bits on every
+platform and run, no seed or setting). The unwrap splits vertices along the seams of its charts, so the drawn mesh is not the file's mesh:
+`build_lightmap_mesh` returns the split vertices (every vertex field copied from the vertex it was split from) and the renderer keeps
+them in buffers of their own next to the mesh (`MeshAsset::lightmap`), built on the first use and dropped when the mesh file reloads.
+Nothing is written next to the model. The primitives (`cube`, `sphere`, ...) are unwrapped the same way. `lightmap_mesh_geometry(mesh)` is the
+GPU-free half the baker calls, so bake and draw use the same vertices. A triangle with no area (a sphere's pole) is not placed by the
+unwrap: its UVs are clamped into the square. `kLightmapUvVersion` is bumped when the unwrap changes what it returns.
+
+**Files.** `SceneSettings.lightmaps` names a manifest (`scenes/level.lightmap.json`, `fa/scene/lightmap_manifest.h`) and the manifest names
+the pages: Radiance `.hdr` images, project-relative, one per atlas. Each entry says which entity (its stable `EntityInfo.id`), which mesh
+and UV kind and hash it was baked for, which page, and the rectangle `scaleOffset = [sx, sy, ox, oy]` of the page it owns: page uv =
+lightmap uv * (sx, sy) + (ox, oy). Page uv (0, 0) is the top-left and the file's first row is the baker's row 0 (v = 0), a texel is
+irradiance / pi in linear colour (what a white diffuse surface shows). `parse_lightmap_manifest` checks the keys (with a "did you mean"),
+sizes, page indices and rectangles, and every error carries the file, the JSON pointer and the fix. Tests pin the orientation twice: the
+scene module (bake row 0 against the file) and `engine/render/tests/lightmap_tests.cpp` (a glTF quad whose second UV set is the unit square).
+
+**Loading.** `Assets::lightmaps(path)` reads the manifest and decodes the pages into RGBA16F images on the first frame of a scene that
+names one, and keeps the result (a failure too, so a broken manifest is reported once, not per frame). Failures are
+`Assets::note_failure` kinds in `render.assets`' `failures`: `lightmap` (manifest), `lightmap-page` (a page that cannot be read) and
+`lightmap-stale` (an entry whose mesh hash or UV kind is not what the mesh gives now: the model changed since the bake). A failed entity or
+page is drawn without a lightmap, as before; the rest of the scene is not touched. The runtime's hot reload watches `*.lightmap.json` and
+`.hdr` files and calls `Assets::reload`, which drops the set and the per-mesh buffers.
+
+**Drawing.** `RenderScene::build` asks for the entity's use (`Assets::lightmap_use`): the entity must be in the manifest, have
+`MeshRenderer.receiveGI` and `lightmapScale > 0`, a mesh that is not skinned, and a material that can take the UV (below). A lightmapped
+item is never batched with another (the entity bits are part of its sort, order and material keys) and is drawn with its own vertex buffers,
+the page bound at view 26 and the rectangle in the vertex uniform `fa_lm_so` (x = 0 means not lightmapped). The vertex stage forwards
+`fa_lm` (page uv, and 1 when lightmapped) and the fragment stage's `fa_indirect_diffuse(n)` returns the texel instead of `fa_ambient_light(n)`:
+the baked irradiance **replaces** the ambient light and the sky's diffuse term of that surface, the specular IBL (`fa_sky_reflection`) stays.
+Lights whose `mode` is `baked` are zeroed on lightmapped entities (a CPU copy of the light uniforms, so the shadow caster slots keep their
+meaning); `mixed` and `realtime` lights are drawn as always, and an entity with no lightmap entry is lit by every light, baked ones
+included: nothing goes dark before the bake. A scene without `SceneSettings.lightmaps` binds a white texel and the pictures are the same as
+before (the goldens did not change).
+
+**Materials.** The engine's own mesh program always has the `uv1` vertex attribute (location 9; a zero buffer, `Assets::zero_uv1`, when the
+entity is not lightmapped). A custom mesh material gets the lightmap only if it lists `"uv1"` in `vertexAttributes` (`FA_CH_UV1`): its `uv1` then
+carries the **lightmap UV** on a lightmapped entity instead of the model's TEXCOORD_1, so a material that textures with the second UV set
+and is lightmapped must not be (give the entity `receiveGI: false`, or read the second set through its own `uv` channel). A full-shader
+material and a material that reads compute buffers are drawn without the lightmap: they have no `fa_lm` varying, the entity is lit as
+before. `FA_LM_BUILTIN` (defined only by `mesh.glsl`) and `FA_LM_PASS` (only the `vs` program) keep the shadow and depth-prepass programs
+from declaring the attribute. The twin fixtures were regenerated for the new vertex layout.
+
+**Decisions.** One page per draw (an entity is one rectangle of one page): batching and the 16-unit budget stay as they were. An entity
+that `MeshRenderer.lods` draws with another mesh than `MeshRenderer.mesh` is lit as without a lightmap while that level is drawn (the
+bake was made for the mesh the manifest names). Skinned meshes are never lightmapped.
+

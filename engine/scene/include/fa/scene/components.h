@@ -1072,8 +1072,9 @@ struct MeshRenderer {
     float lightmapScale =
         1.0f;  // M73.4: texels per metre of the lightmap, as a multiple of the scene's density; 0 = not in the lightmap
     bool contributeGI = true;  // M73.4: the surface bounces light onto others in a bake and in the realtime GI
-    bool receiveGI = true;     // M73.4: the surface is lit by the baked lightmap, the probes and the realtime GI
-    float clearcoat = 0.0f;    // M73.6: strength of the clear coat layer (KHR_materials_clearcoat)
+    bool receiveGI =
+        true;  // M73.4: the surface is lit by the baked lightmap (and, later, the probes and the realtime GI)
+    float clearcoat = 0.0f;  // M73.6: strength of the clear coat layer (KHR_materials_clearcoat)
     float clearcoatRoughness = 0.03f;
     Color sheenColor{0, 0, 0, 1};  // M73.6: the cloth sheen layer's colour (KHR_materials_sheen); black = none
     float sheenRoughness = 0.5f;
@@ -1551,6 +1552,8 @@ struct SceneSettings {
     float environmentIntensity = 1.0f;    // M73.3
     float environmentRotation = 0.0f;     // M73.3: degrees around the up axis
     SkyModel skyModel = SkyModel::Gradient;  // M73.3: gradient (the colours above) or physical (sun and atmosphere)
+    std::string
+        lightmaps;  // M73.4: the lightmap manifest of the scene (*.lightmap.json, written by lightmap.bake); "" = none
 };
 
 // Registers every component above (plus SceneSettings as a reflected type)
