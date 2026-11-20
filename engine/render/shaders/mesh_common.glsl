@@ -431,6 +431,8 @@ layout(binding=1) uniform fa_mesh_fs_params {
                                 // in g, its roughness in b and the sheen roughness in a; 2 = the metallic-roughness map holds the
                                 // anisotropy strength in r and the specular in a (the importer packs them, see brdf_layers.glsl)
     vec4 fa_layers_d;           // rgb specular colour (KHR_materials_specular)
+    vec4 fa_probe_sh[9];        // baked light probes (M73.4d) of a mesh without a lightmap: coefficient k of the SH in [k].xyz (the order of
+                                // ShL2), [0].w = the coverage (0 = no probe reaches the mesh: the sky's ambient, nothing else changes)
 };
 
 // The varyings are declared in the order of the vertex stage's outputs (the instance values first): sokol-shdc matches them
@@ -687,6 +689,14 @@ layout(binding=26) uniform texture2D fa_lightmap;
 vec3 fa_indirect_diffuse(vec3 n) {
     if (fa_lm.z > 0.5) {
         return textureLod(sampler2D(fa_lightmap, fa_env_smp), fa_lm.xy, 0.0).rgb;
+    }
+    float cover = fa_probe_sh[0].w;
+    if (cover > 0.0) {
+        // Baked light probes (M73.4d): a mesh without a lightmap reads the SH its position got on the CPU, blended into the sky's
+        // ambient where the probes only partly reach it.
+        vec3 c[9];
+        for (int k = 0; k < 9; k++) { c[k] = fa_probe_sh[k].xyz; }
+        return mix(fa_ambient_light(n), fa_sh_eval(c, n), clamp(cover, 0.0, 1.0));
     }
     return fa_ambient_light(n);
 }

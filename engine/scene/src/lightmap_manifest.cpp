@@ -17,7 +17,8 @@ namespace fa {
 
 namespace {
 
-const std::vector<std::string> kTopKeys = {"version", "uvVersion", "settingsHash", "pages", "entities"};
+const std::vector<std::string> kTopKeys = {"version", "uvVersion", "settingsHash", "pages", "entities", "probes"};
+const std::vector<std::string> kProbeKeys = {"file", "count", "invalid"};
 const std::vector<std::string> kPageKeys = {"file", "width", "height"};
 const std::vector<std::string> kEntityKeys = {"id", "mesh", "uv", "meshHash", "settingsHash", "page", "scaleOffset"};
 
@@ -201,6 +202,22 @@ Result<LightmapManifest> parse_lightmap_manifest(const Json& json, const std::st
                        "to uv * scale + offset. Bake again.");
         m.entities.push_back(std::move(en));
     }
+    if (const auto pr = json.find("probes"); pr != json.end()) {
+        if (!pr->is_object())
+            return err(file, "/probes", "\"probes\" must be an object",
+                       "{\"file\": \"scenes/level.lightmap.3fa2b1c0.probes\", \"count\": 220, \"invalid\": 4}");
+        if (auto r = check_keys(*pr, kProbeKeys, file, "/probes"); !r) return r.error();
+        const auto f = pr->find("file");
+        if (f == pr->end() || !f->is_string() || f->get<std::string>().empty() ||
+            fs::extension(f->get<std::string>()) != ".probes")
+            return err(file, "/probes/file", "\"file\" is missing or not a .probes path",
+                       "Give the project-relative path of the light probe file (lightmap.bake writes it).");
+        m.probes.file = f->get<std::string>();
+        if (!read_int(*pr, "count", m.probes.count) || m.probes.count < 0 || m.probes.count > 1000000)
+            return err(file, "/probes/count", "\"count\" must be an integer from 0 to 1000000", "Bake again.");
+        if (!read_int(*pr, "invalid", m.probes.invalid) || m.probes.invalid < 0 || m.probes.invalid > m.probes.count)
+            return err(file, "/probes/invalid", "\"invalid\" must be an integer from 0 to count", "Bake again.");
+    }
     m.index();
     return m;
 }
@@ -228,6 +245,9 @@ Json lightmap_manifest_to_json(const LightmapManifest& m) {
         ents.push_back(std::move(o));
     }
     j["entities"] = std::move(ents);
+    if (!m.probes.file.empty())
+        j["probes"] =
+            Json::object({{"file", m.probes.file}, {"count", m.probes.count}, {"invalid", m.probes.invalid}});
     return j;
 }
 

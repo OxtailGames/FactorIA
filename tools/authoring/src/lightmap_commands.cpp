@@ -313,11 +313,15 @@ void register_lightmap_commands(Engine& engine, Engine::Impl& I) {
          "atomically and sets "
          "SceneSettings.lightmaps. A model without a second UV set is unwrapped for you. Blocks until done: a long "
          "bake belongs in lightmap.bake_start. The "
-         "same scene and settings give byte-identical pages on any thread count. Result: {manifest, pages, entities, "
-         "texels, rays, skipped, warnings, "
+         "same scene and settings give byte-identical pages on any thread count. The LightProbeGroups of the scene are "
+         "baked by the same job (phase \"probes\") into `<name>.lightmap.<hash>.probes`, which the manifest lists: "
+         "moving objects read them as their ambient light; a probe inside geometry is flagged invalid and counted. "
+         "Result: {manifest, pages, entities, "
+         "texels, rays, skipped, warnings, probes {file, count, invalid, groups}, "
          "applied}. Example: lightmap.bake {\"texelsPerMeter\":16,\"samples\":64}",
          request_schema(false), false, "assets",
-         "Mapping. Light: Baked -> baked, Mixed -> indirect only, Realtime is left out; intensity, color, range and "
+         "Mapping. Light: Baked -> baked (direct light and bounces; in the probes too), Mixed -> indirect only (the "
+         "realtime light stays; only its bounce is baked into the lightmap and the probes), Realtime is left out; intensity, color, range and "
          "spotAngle carry over; "
          "Pcss shadowSoftness widens the shadow. An area light is a one-sided rectangle of radiance = intensity (a "
          "Disc or Tube becomes a rectangle of "
@@ -441,7 +445,7 @@ void register_lightmap_commands(Engine& engine, Engine::Impl& I) {
         {"lightmap.bake_status",
          "The state of a bake job: running with a phase and progress, or done with its result, failed or cancelled.",
          "Result: {job, state (running|done|failed|cancelled), phase (geometry, layout, prepare, rasterize, trace, "
-         "denoise, dilate, writing), progress "
+         "denoise, dilate, probes, writing), progress "
          "0..1, rays, elapsedSeconds, etaSeconds (once there is enough to estimate), manifest} and, when finished, "
          "`result` (the lightmap.bake result: "
          "pages, texels, rays, skipped, warnings) or `error` and `hint`. The first call that sees a bake done hands it "

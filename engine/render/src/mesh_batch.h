@@ -41,6 +41,10 @@ struct MeshItem {
     bool noCull = false;        // never frustum-culled: a mesh material with buffers and no MeshRenderer.instanceBounds
     // Lit by a baked lightmap (M73.4a): drawn with `lm.mesh->parts` and the page rectangle of its entity, so never batched with another.
     LightmapUse lm;
+    // Baked light probes (M73.4d): the SH the item receives instead of the sky ambient (null = none; points into the RenderScene)
+    // and its quantised key (probe_light_key, 0 = none). Items with different keys never share a draw.
+    const ProbeLight* probe = nullptr;
+    std::uint64_t probeKey = 0;
 };
 
 // What the decal pass of the shader needs to know of a mesh (MeshRenderer.receiveDecals / decalLayer): 0 = it receives none, else
@@ -62,10 +66,11 @@ struct SortFields {
     Color flash{0, 0, 0, 0};
     bool lightmapped =
         false;  // a batch of its own, like a skinned one: its entity is part of what the batches differ by
+    std::uint64_t probeKey = 0;  // probe_light_key: items with other light probe SH are other batches
 };
 inline SortFields fields_of(const MeshItem& m) {
     return {m.mesh,       m.tex,   m.normalTex,         m.mr, m.entity, m.anim, m.material, m.paramsHash,
-            m.colorsHash, m.flash, m.lm.mesh != nullptr};
+            m.colorsHash, m.flash, m.lm.mesh != nullptr, m.probeKey};
 }
 
 // The 64-bit sort key: four fields, most significant first, each the RANK of the value among those of the frame (never
@@ -120,6 +125,7 @@ private:
         int decalRecv = 1;              // decal_recv()
         std::array<float, 3> uvNormal;  // uvScale x, y, normalScale
         std::uint64_t skinEntity = 0;   // Entity::bits() of a skinned item, else 0
+        std::uint64_t probeKey = 0;     // SortFields::probeKey
         std::string_view material;      // by name
         std::size_t paramsHash = 0, colorsHash = 0;
         std::array<float, 4> flash;

@@ -896,6 +896,8 @@ void Renderer::Impl::gather_meshes(DrawContext& ctx) {
         mi.sortKey = sm.sortKey;
         mi.keyed = sm.keyed;
         mi.lm = sm.lm;
+        mi.probe = sm.probe;
+        mi.probeKey = sm.probeKey;
         mi.dist = length(sm.model.translation() - fr.cam.position);
         meshBlended.push_back(sm.blended ? 1 : 0);
     }
@@ -1227,7 +1229,9 @@ void Renderer::Impl::shadow_bounds(DrawContext& ctx) {
                        for (std::size_t i = ch.begin; i < ch.end; ++i) {
                            const MeshItem& mi = (*list)[i];
                            const bool casts = mi.mr->castShadows;
-                           const bool dynamic = mi.mr->receiveShadows && !mi.lm.mesh;
+                           // A receiver the light probes fully cover holds the baked lights in its probes: they do not light it in real time.
+                           const bool dynamic =
+                               mi.mr->receiveShadows && !mi.lm.mesh && !(mi.probe && mi.probe->coverage >= 1.0f);
                            if (!casts && !dynamic) continue;
                            Box& b = boxes[i];
                            for (auto& p : mi.mesh->parts) {
@@ -2156,6 +2160,17 @@ mesh_fa_mesh_fs_params_t Renderer::Impl::fill_fs(DrawContext& ctx, const MeshIte
                           16 * (d.normal ? d.normal->tex_fix(linear, false) : 0) + 64 * d.mr->tex_fix(linear, false) +
                           256 * d.occlusion->tex_fix(linear, false));
     fill_layers(fu, mr, part, d.error, linear);
+    // Baked light probes (M73.4d): the SH the mesh receives (coverage 0 = none: the shader keeps the sky's ambient).
+    for (int k = 0; k < 9; ++k)
+        for (int c = 0; c < 4; ++c) fu.fa_probe_sh[k][c] = 0.0f;
+    if (mi.probe && !unlit && !mi.lm.mesh && !d.error) {
+        for (int k = 0; k < 9; ++k) {
+            fu.fa_probe_sh[k][0] = mi.probe->sh.c[k].x;
+            fu.fa_probe_sh[k][1] = mi.probe->sh.c[k].y;
+            fu.fa_probe_sh[k][2] = mi.probe->sh.c[k].z;
+        }
+        fu.fa_probe_sh[0][3] = std::clamp(mi.probe->coverage, 0.0f, 1.0f);
+    }
     if (mi.flash.a > 0.0f && !d.error) {
         // A flash (feel.h) needs no shader change: the surface colour fades to nothing and the emission, which both the lit
         // and the unlit path add at the end (fog comes after), carries the flash colour. Lit meshes keep a little
