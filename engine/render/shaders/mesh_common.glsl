@@ -42,6 +42,14 @@
 // ambient term are the snippet's too: it picks the lights with fa_light_count() and fa_light(n, i) and may add the sky.
 // Emission and fog stay. The functions of the contract are declared before the snippet (the block fa_fs_light of the main
 // fragment shader; the shadow and prepass fragment shaders get stubs, fa_fs_nolight).
+//
+// The lighting is split over three files this one @includes (docs/design/ARCHITECTURE_RENDERING_LIGHTING.md): light_data.glsl (the
+// light uniform block and the read of one light; the full-shader template includes the same block), shadow_common.glsl (the shadow
+// lookup, shared with the full-shader template) and light_loop.glsl (the standard loop and the custom-light hooks). All three are in
+// the template hash of the mesh kind.
+@include light_data.glsl
+@include shadow_common.glsl
+@include light_loop.glsl
 
 // The snippet contract (docs/SHADERS.md).
 @block fa_types
@@ -337,6 +345,9 @@ layout(binding=0) uniform sampler fa_smp;
 layout(binding=1) uniform sampler fa_shadow_smp;
 @image_sample_type fa_shadow_tex unfilterable_float
 @sampler_type fa_shadow_smp nonfiltering
+// What fa_shadow_pcf (shadow_common.glsl) samples; the full-shader template names its own shadow map differently.
+#define FA_SHADOW_TEX fa_shadow_tex
+#define FA_SHADOW_SMP fa_shadow_smp
 // The sky of a sky material (SceneSettings.skyMaterial), baked by the renderer (renderer_env.h): the sky prefiltered by roughness (the
 // mips) and its irradiance. Both are views 14 and 15, the sampler 10 (after the material's textures and their vertex-stage copies);
 // bound and used only while fa_env_sky.w is 1.
@@ -512,115 +523,32 @@ vec3 fa_sky_light(in SurfaceInput i, in Surface s) {
 @end
 
 // What only the main fragment shader has (the snippet's light(), ambient() and lighting() call these, so the block comes before
-// the snippet): the light array, the shadow coordinate and map, the sky, and the light samples.
+// the snippet): the light array (light_data.glsl), the shadow coordinate and lookup (shadow_common.glsl), the sky, and the light
+// samples and the custom-light hooks (light_loop.glsl).
 @block fa_fs_light
-layout(binding=2) uniform fa_lights {
-    vec4 fa_light_pos[32];      // xyz position (point/spot) or direction TO the light (directional); w range
-    vec4 fa_light_color[32];    // rgb color * intensity; w type (0 directional, 1 point, 2 spot)
-    vec4 fa_light_dir[32];      // xyz spot axis (direction light points); w cos(spot half angle)
-};
+@include_block fa_light_data
 
 in vec4 fa_shadow_pos;
 
 const float FA_PI = 3.14159265;
 
+@include_block fa_shadow_common
+
+// The directional shadow of the fragment: 1 lit, 0 in shadow (fa_shadow_pos is the vertex stage's light-space position).
 float fa_shadow_factor(vec3 n, vec3 l) {
-    if (fa_pbr.z < 0.5) { return 1.0; }
-    vec3 p = fa_shadow_pos.xyz / fa_shadow_pos.w;
-    vec2 suv = p.xy * 0.5 + 0.5;
-    bool is_gl = fa_counts.z > 0.5;
-    if (is_gl) { p.z = p.z * 0.5 + 0.5; } else { suv.y = 1.0 - suv.y; }
-    if (suv.x < 0.0 || suv.x > 1.0 || suv.y < 0.0 || suv.y > 1.0 || p.z > 1.0) { return 1.0; }
-    float bias = fa_pbr.w * (1.0 + 2.0 * (1.0 - clamp(dot(n, l), 0.0, 1.0)));
-    float lit = 0.0;
-    float texel = fa_counts.y;
-    for (int ix = -1; ix <= 1; ix++) {
-        for (int iy = -1; iy <= 1; iy++) {
-            float depth = textureLod(sampler2D(fa_shadow_tex, fa_shadow_smp), suv + vec2(float(ix), float(iy)) * texel, 0.0).r;  // explicit LOD: no gradients inside loops (HLSL X3570)
-            lit += (p.z - bias <= depth) ? 1.0 : 0.0;
-        }
-    }
-    return lit / 9.0;
+    return fa_shadow_pcf(fa_shadow_pos, n, l);
 }
 
 @include_block fa_env_funcs
 @include_block fa_light_shared
-
-// Light li of the array as seen from a world position, without its shadow: the direction to it, its color times intensity times
-// attenuation, the attenuation, the distance and the type. shadow is 1.
-LightSample fa_light_sample(int li, vec3 world_pos) {
-    float type = fa_light_color[li].w;
-    vec3 l;
-    float atten = 1.0;
-    float dist = 0.0;
-    if (type < 0.5) {
-        l = normalize(fa_light_pos[li].xyz);
-    } else {
-        vec3 to_light = fa_light_pos[li].xyz - world_pos;
-        dist = length(to_light);
-        l = to_light / max(dist, 1e-4);
-        float range = max(fa_light_pos[li].w, 1e-3);
-        float x = clamp(1.0 - (dist / range) * (dist / range), 0.0, 1.0);
-        atten = x * x;
-        if (type > 1.5) {
-            float cos_angle = dot(-l, normalize(fa_light_dir[li].xyz));
-            float cos_outer = fa_light_dir[li].w;
-            atten *= smoothstep(cos_outer, mix(cos_outer, 1.0, 0.25), cos_angle);
-        }
-    }
-    LightSample ls;
-    ls.direction = l;
-    ls.color = fa_light_color[li].rgb * atten;
-    ls.attenuation = atten;
-    ls.shadow = 1.0;
-    ls.distance = dist;
-    ls.type = type < 0.5 ? 0 : (type > 1.5 ? 2 : 1);
-    return ls;
-}
-
-// The same with the shadow of the directional shadow map applied (only the first light, and only when it is directional, is
-// shadowed): what the engine's light loop hands to light(). gn is the geometric normal.
-LightSample fa_light_shadowed(int li, vec3 world_pos, vec3 gn) {
-    LightSample ls = fa_light_sample(li, world_pos);
-    if (ls.type == 0 && li == 0) {
-        ls.shadow = fa_shadow_factor(gn, ls.direction);
-        ls.color = fa_light_color[li].rgb * (ls.attenuation * ls.shadow);
-    }
-    return ls;
-}
-
-#ifdef FA_CUSTOM_LIGHT
-// The lighting API of a "custom" material (docs/shaders/SHADERS_LIGHTING.md): usable from light(), ambient() and lighting().
-// How many lights the engine hands over (at most 32): the ones that matter most for this frame, directional first.
-int fa_light_count() { return min(int(fa_counts.x), 32); }
-// Light n (0 .. fa_light_count() - 1) with the shadow applied, as light() receives it. A number outside the range gives a sample
-// that lights nothing (color and attenuation 0, shadow 1).
-LightSample fa_light(int n, in SurfaceInput i) {
-    if (n < 0 || n >= fa_light_count()) { return fa_no_light(); }
-    return fa_light_shadowed(n, i.world_pos, i.world_normal);
-}
-// Light n without the shadow map read: color has no shadow in it and shadow is 1; the way to treat the shadow apart.
-LightSample fa_light_unshadowed(int n, in SurfaceInput i) {
-    if (n < 0 || n >= fa_light_count()) { return fa_no_light(); }
-    return fa_light_sample(n, i.world_pos);
-}
-// The shadow of light n at this fragment: 1 lit, 0 in shadow (a value between at the edge of the shadow). Only the first light
-// (n = 0) when it is directional has a shadow; every other light gives 1.
-float fa_light_shadow(int n, in SurfaceInput i) {
-    if (n != 0 || fa_light_count() < 1 || fa_light_color[0].w > 0.5) { return 1.0; }
-    return fa_shadow_factor(i.world_normal, normalize(fa_light_pos[0].xyz));
-}
-#endif
+@include_block fa_light_hooks
 @end
 
 @block fa_fs_nolight
 #ifdef FA_CUSTOM_LIGHT
 @include_block fa_env_funcs
 @include_block fa_light_shared
-int fa_light_count() { return 0; }
-LightSample fa_light(int n, in SurfaceInput i) { return fa_no_light(); }
-LightSample fa_light_unshadowed(int n, in SurfaceInput i) { return fa_no_light(); }
-float fa_light_shadow(int n, in SurfaceInput i) { return 1.0; }
+@include_block fa_light_hooks_none
 #endif
 @end
 
@@ -685,31 +613,7 @@ void main() {
         vec3 f0 = mix(vec3(0.04), s.albedo, metallic);
         vec3 lit = fa_ambient_light(n) * diffuse_color * s.occlusion;
 #endif
-        int count = int(fa_counts.x);
-        for (int li = 0; li < 32; li++) {
-            if (li >= count) { break; }
-            LightSample ls = fa_light_shadowed(li, i.world_pos, gn);
-#ifdef FA_CUSTOM_LIGHT
-            // lighting "custom": the snippet's light() takes the place of the Cook-Torrance term below.
-            lit += light(i, s, ls);
-#else
-            vec3 l = ls.direction;
-            float ndl = max(dot(n, l), 0.0);
-            float atten = ls.attenuation * ls.shadow;
-            vec3 h = normalize(l + v);
-            float ndh = max(dot(n, h), 0.0);
-            float vdh = max(dot(v, h), 0.0);
-            // Cook-Torrance: GGX distribution, height-correlated Smith visibility (Karis' approximation), Schlick Fresnel.
-            float dd = ndh * ndh * (a2 - 1.0) + 1.0;
-            float d_ggx = a2 / (FA_PI * dd * dd);
-            float vis = 0.5 / max(mix(2.0 * ndl * ndv, ndl + ndv, alpha), 1e-4);
-            vec3 fres = f0 + (1.0 - f0) * pow(1.0 - vdh, 5.0);
-            // Light colors are not divided by pi (a white light of intensity 1 lights a white diffuse surface to 1),
-            // so the specular term carries the matching factor pi.
-            vec3 spec = fres * (d_ggx * vis * FA_PI) * step(0.0001, ndl);
-            lit += (diffuse_color + spec) * fa_light_color[li].rgb * (ndl * atten);
-#endif
-        }
+@include_block fa_light_loop
 #ifndef FA_CUSTOM_LIGHT
         // Image-based lighting: the sky reflected, weighted by the environment BRDF.
         lit += fa_sky_reflection(n, v, f0, roughness) * s.occlusion;

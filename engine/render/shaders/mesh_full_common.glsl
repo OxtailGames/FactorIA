@@ -9,11 +9,13 @@
 // so the author's `void main()` is the entry the engine's own main calls, after it has set up the model matrix (instancing and
 // skinning), the instanced params and the declared mesh channels. Every engine identifier starts with fa_ (FA_ for macros).
 //
-// The declarations of the fragment resources (views 0 and 1, samplers 0 and 1, fa_mesh_fs_params, fa_lights) and the helper
-// functions copied from mesh_common.glsl (fa_shadow, the light sample, the fog, the colour space fixes) are copies, not includes:
-// mesh_common.glsl's fa_fs_surface also declares the engine's own varyings, which a full shader does not have. A test
-// (shader_template_test.cpp) compares the uniform blocks with mesh_common.glsl's, so they cannot drift apart. The sky functions
-// (fa_environment, fa_env_brdf, fa_sky_reflection, fa_ambient_light) are the exception: they are mesh_common.glsl's block fa_env_funcs, included.
+// The declarations of the fragment resources (views 0 and 1, samplers 0 and 1, fa_mesh_fs_params) and the helpers copied from
+// mesh_common.glsl (the fog, the colour space fixes) are copies, not includes: mesh_common.glsl's fa_fs_surface also declares the
+// engine's own varyings, which a full shader does not have. A test (shader_template_test.cpp) compares the uniform block
+// fa_mesh_fs_params with mesh_common.glsl's, so they cannot drift apart. The light uniform block and the light sample
+// (light_data.glsl: fa_light_data), the shadow lookup (shadow_common.glsl: fa_shadow_common) and the sky functions (fa_environment,
+// fa_env_brdf, fa_sky_reflection, fa_ambient_light: fa_env_funcs) are the exception: they are blocks of mesh_common.glsl's files,
+// included here, so the engine's own meshes and a full shader read the lights and the shadow through the same code.
 
 // ---- vertex stage ----
 
@@ -112,6 +114,10 @@ layout(binding=0) uniform sampler fa_smp;
 layout(binding=1) uniform sampler fa_full_shadow_smp;
 @image_sample_type fa_full_shadow_tex unfilterable_float
 @sampler_type fa_full_shadow_smp nonfiltering
+// What fa_shadow_pcf (shadow_common.glsl) samples. The names differ from mesh_common.glsl's (sokol-shdc wants a texture name to be
+// unique in the whole top file, and the top of a full material also holds the engine's own programs).
+#define FA_SHADOW_TEX fa_full_shadow_tex
+#define FA_SHADOW_SMP fa_full_shadow_smp
 // The baked sky of a sky material (as mesh_common.glsl's fa_fs_head: views 14 and 15, sampler 10; used while fa_env_sky.w is 1).
 layout(binding=14) uniform textureCube fa_env_tex;
 layout(binding=15) uniform textureCube fa_irr_tex;
@@ -138,15 +144,13 @@ layout(binding=1) uniform fa_mesh_fs_params {
     vec4 fa_time;               // x = seconds of game time since the scene started
 };
 
-layout(binding=2) uniform fa_lights {
-    vec4 fa_light_pos[32];      // xyz position (point/spot) or direction TO the light (directional); w range
-    vec4 fa_light_color[32];    // rgb color * intensity; w type (0 directional, 1 point, 2 spot)
-    vec4 fa_light_dir[32];      // xyz spot axis (direction light points); w cos(spot half angle)
-};
-
 @include_block fa_inst_flags
 @include_block fa_inst_in
 @include_block fa_types
+// The light uniform block and fa_light_sample (light_data.glsl), the same declaration as the engine's own meshes; the shadow lookup
+// fa_shadow_pcf (shadow_common.glsl).
+@include_block fa_light_data
+@include_block fa_shadow_common
 @include_block fa_user
 
 // The sky the surface reflects and the ambient light (fa_environment, fa_env_brdf, fa_sky_reflection, fa_ambient_light): the same code as
@@ -192,22 +196,7 @@ vec4 fa_base_sample(vec2 uv) {
 // The fraction of light that reaches a surface (1 = lit) from the directional shadow map: `coord` is fa_shadow_coord() of the
 // vertex stage, n the geometric normal, l the direction to the light. 1 when the MeshRenderer does not receive shadows.
 float fa_shadow(vec4 coord, vec3 n, vec3 l) {
-    if (fa_pbr.z < 0.5) { return 1.0; }
-    vec3 p = coord.xyz / coord.w;
-    vec2 suv = p.xy * 0.5 + 0.5;
-    bool is_gl = fa_counts.z > 0.5;
-    if (is_gl) { p.z = p.z * 0.5 + 0.5; } else { suv.y = 1.0 - suv.y; }
-    if (suv.x < 0.0 || suv.x > 1.0 || suv.y < 0.0 || suv.y > 1.0 || p.z > 1.0) { return 1.0; }
-    float bias = fa_pbr.w * (1.0 + 2.0 * (1.0 - clamp(dot(n, l), 0.0, 1.0)));
-    float lit = 0.0;
-    float texel = fa_counts.y;
-    for (int ix = -1; ix <= 1; ix++) {
-        for (int iy = -1; iy <= 1; iy++) {
-            float depth = textureLod(sampler2D(fa_full_shadow_tex, fa_full_shadow_smp), suv + vec2(float(ix), float(iy)) * texel, 0.0).r;
-            lit += (p.z - bias <= depth) ? 1.0 : 0.0;
-        }
-    }
-    return lit / 9.0;
+    return fa_shadow_pcf(coord, n, l);
 }
 
 // The lights of the scene, as the engine's own light loop selects them.
@@ -216,34 +205,11 @@ int fa_light_count() { return min(int(fa_counts.x), 32); }
 // attenuation times shadow, the attenuation and the shadow separately, the distance and the type (0 directional, 1 point,
 // 2 spot). `coord` is fa_shadow_coord() of the vertex stage (only the first directional light is shadowed); `gn` the geometric normal.
 LightSample fa_light(int li, vec3 world_pos, vec3 gn, vec4 coord) {
-    float type = fa_light_color[li].w;
-    vec3 l;
-    float atten = 1.0;
-    float dist = 0.0;
-    if (type < 0.5) {
-        l = normalize(fa_light_pos[li].xyz);
-    } else {
-        vec3 to_light = fa_light_pos[li].xyz - world_pos;
-        dist = length(to_light);
-        l = to_light / max(dist, 1e-4);
-        float range = max(fa_light_pos[li].w, 1e-3);
-        float x = clamp(1.0 - (dist / range) * (dist / range), 0.0, 1.0);
-        atten = x * x;
-        if (type > 1.5) {
-            float cos_angle = dot(-l, normalize(fa_light_dir[li].xyz));
-            float cos_outer = fa_light_dir[li].w;
-            atten *= smoothstep(cos_outer, mix(cos_outer, 1.0, 0.25), cos_angle);
-        }
+    LightSample ls = fa_light_sample(li, world_pos);
+    if (ls.type == 0 && li == 0) {
+        ls.shadow = fa_shadow(coord, gn, ls.direction);
+        ls.color = fa_light_color[li].rgb * (ls.attenuation * ls.shadow);
     }
-    float shadow = 1.0;
-    if (type < 0.5 && li == 0) { shadow = fa_shadow(coord, gn, l); }
-    LightSample ls;
-    ls.direction = l;
-    ls.color = fa_light_color[li].rgb * (atten * shadow);
-    ls.attenuation = atten;
-    ls.shadow = shadow;
-    ls.distance = dist;
-    ls.type = type < 0.5 ? 0 : (type > 1.5 ? 2 : 1);
     return ls;
 }
 

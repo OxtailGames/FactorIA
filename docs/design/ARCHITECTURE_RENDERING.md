@@ -393,12 +393,12 @@ display output.
   effect off never switches it off. A world without a PostProcess costs one count.
 - **What the GPU can do, `Renderer::supports(name)` and the `render.supports` command (`src/render_features.h`).** One table of
   named features: the GPU capabilities `floatTargets` (RGBA16F renders, blends and filters), `r11g11b10`, `sampledDepth`,
-  `computeShaders`; the engine features `linearColor` and `hdrOutput`; and one per effect (the names above). Each row says the
+  `computeShaders`, `float32Targets` (R32F and RGBA32F render and sample: the shadow atlas of M73.2); the engine features `linearColor` and `hdrOutput`; the 21 lighting rows of M73 (`clusteredLights` ... `transmission`, planned "M73" until their package lands: docs/design/ARCHITECTURE_RENDERING_LIGHTING.md); and one per effect (the names above). Each row says the
   backends it can ever run on (GL, GLES3, WebGL2, D3D11, Metal; the headless dummy backend has none), what it needs from the GPU
   (read with `sg_query_pixelformat` / `sg_query_features`), and whether the engine draws it yet. A feature the engine does not draw
-  answers false with the status "planned (<milestone>)" (`effect_drawn` in `render_features.cpp`: today every effect of `kPostEffectOrder` is
-  drawn, so none answers it, and a new effect stays planned until its pass lands). The `needs` words of a row (`half`, `depth`,
-  `r11g11b10`, `compute`) are what the effect asks of the GPU: the depth of field and the sun shafts need `half+depth` (their
+  answers false with the status "planned (<milestone>)" (`effect_drawn` in `render_features.cpp` for the effects: every effect of `kPostEffectOrder` is
+  drawn, so none answers it, and a new effect stays planned until its pass lands; the lighting rows carry `"M73"` in the table). The `needs` words of a row (`half`, `depth`,
+  `r11g11b10`, `compute`, `float32`) are what the effect asks of the GPU: the depth of field and the sun shafts need `half+depth` (their
   half-size images are RGBA16F), so `supports` never claims what the renderer cannot do; `kEffectRows` carries the effect's name and a
   `static_assert` checks it against `kPostEffectOrder`. The editor's post panel calls `Renderer::supports_report()` directly (the same
   table `render.supports` answers), not the command. Compute shaders exist on GL, D3D11 and Metal, never on GLES3 or WebGL2; `hdrOutput` only on D3D11 and Metal.
@@ -517,3 +517,4 @@ display output.
 - **The effects, one bullet each,** are on the page [rendering, the post-processing effects](ARCHITECTURE_RENDERING_POST.md): the grading and lens
 effects, the radial blur and the transient screen effects, the outline, pixelate and posterize, the ambient occlusion, the depth and
 normal prepass, and the depth of field and motion blur.
+- **The lighting of M73** (shader files, texture slot table, feature rows, new fields) is on the page [rendering, the lighting of M73](ARCHITECTURE_RENDERING_LIGHTING.md).

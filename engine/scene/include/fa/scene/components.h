@@ -1067,15 +1067,55 @@ struct MeshRenderer {
         0;  // 0 = one normal draw; N > 0 = N GPU instances read from the material's compute buffers
     float instanceBounds =
         0.0f;  // instances > 0: half-extent (local metres) of the box around the entity; 0 = never culled
+    // The fields below belong to the lighting of M73 (docs/rendering/RENDERING_LIGHTING.md): they are read, written, validated and saved
+    // today, and drawn by the package named in each doc string. Their defaults keep the look of every scene made before M73.
+    float lightmapScale =
+        1.0f;  // M73.4: texels per metre of the lightmap, as a multiple of the scene's density; 0 = not in the lightmap
+    bool contributeGI = true;  // M73.4: the surface bounces light onto others in a bake and in the realtime GI
+    bool receiveGI = true;     // M73.4: the surface is lit by the baked lightmap, the probes and the realtime GI
+    float clearcoat = 0.0f;    // M73.6: strength of the clear coat layer (KHR_materials_clearcoat)
+    float clearcoatRoughness = 0.03f;
+    Color sheenColor{0, 0, 0, 1};  // M73.6: the cloth sheen layer's colour (KHR_materials_sheen); black = none
+    float sheenRoughness = 0.5f;
+    float anisotropy = 0.0f;          // M73.6: stretch of the highlight along the tangent (KHR_materials_anisotropy)
+    float anisotropyRotation = 0.0f;  // degrees, turns the stretch direction around the normal
+    float specular = 1.0f;            // M73.6: strength of the dielectric specular (KHR_materials_specular)
+    float ior = 1.5f;                 // M73.6: index of refraction (KHR_materials_ior)
+    float transmission =
+        0.0f;                // M73.6: how much light passes through instead of reflecting (KHR_materials_transmission)
+    float thickness = 0.0f;  // M73.6: metres the light travels inside (KHR_materials_volume)
+    Color attenuationColor{1, 1, 1, 1};
+    float attenuationDistance = 0.0f;  // metres until attenuationColor is reached; 0 = the light is not tinted inside
+    float subsurface = 0.0f;           // M73.5: screen-space subsurface scattering, for skin and wax
 };
-enum class LightType : std::int32_t { Directional, Point, Spot };
+enum class LightType : std::int32_t { Directional, Point, Spot, Area };
+enum class LightShape : std::int32_t { Rectangle, Disc, Tube };
+enum class ShadowFilter : std::int32_t { Pcf, Hard, Pcss };
+enum class LightMode : std::int32_t { Realtime, Baked, Mixed };
 struct Light {
     LightType type = LightType::Directional;  // directional lights point along the entity's forward (-Z rotated)
     Color color{1, 1, 1, 1};
     float intensity = 1.0f;
     float range = 10.0f;       // point/spot attenuation distance (meters)
     float spotAngle = 30.0f;   // spot cone half-angle (degrees)
-    bool castShadows = false;  // directional only for now
+    bool castShadows = false;  // directional only until M73.2 brings point and spot shadows
+    // The fields below belong to the lighting of M73 (docs/rendering/RENDERING_LIGHTING.md); no effect yet, the doc string of each
+    // names the package that brings it.
+    float innerAngle =
+        0.0f;  // M73.1: spot cone half-angle (degrees) inside which the light is at full strength; 0 = as today
+    LightShape shape = LightShape::Rectangle;  // M73.1: type area only
+    Vec2 size{1.0f, 1.0f};  // M73.1: type area only, metres (a tube uses x as its length and y as its thickness)
+    std::string cookie;     // M73.1: texture projected by a spot or point light
+    std::string ies;        // M73.1: IES profile (.ies) of the light's distribution
+    std::int32_t shadowResolution =
+        0;                          // M73.2: texels of the light's shadow map; 0 = the engine picks from the distance
+    float shadowBias = 0.0f;        // M73.2: depth offset; 0 = the engine's own
+    float shadowNormalBias = 0.0f;  // M73.2: offset along the normal; 0 = the engine's own
+    ShadowFilter shadowFilter = ShadowFilter::Pcf;
+    float shadowSoftness = 1.0f;  // M73.2: penumbra size with shadowFilter pcss
+    float shadowDistance = 0.0f;  // M73.2: how far from the camera the light shadows; 0 = the scene's shadowDistance
+    LightMode mode = LightMode::Realtime;  // M73.4: realtime, baked into lightmaps, or mixed
+    float volumetric = 0.0f;  // M73.5: strength of the light shafts of this light in the volumetric fog; 0 = none
 };
 
 struct ClipRuntime;  // what the Animator keeps while it plays *.anim.json clips (src/clip_animator.h)
@@ -1479,6 +1519,9 @@ enum class ColorSpace : std::int32_t { Gamma, Linear };
 // window's display and the platform allow it (Windows HDR10 / scRGB, macOS EDR), the standard range elsewhere.
 enum class HdrOutput : std::int32_t { Off, Auto };
 
+// SceneSettings.skyModel: how the sky behind the 3D scene is made when there is no sky material and no environment map.
+enum class SkyModel : std::int32_t { Gradient, Physical };
+
 // Scene-wide settings (stored in the scene file under "settings").
 struct SceneSettings {
     Color ambientLight{0.25f, 0.25f, 0.3f, 1.0f};
@@ -1496,6 +1539,18 @@ struct SceneSettings {
     ColorSpace colorSpace = ColorSpace::Gamma;  // gamma (every existing project) or linear lighting (M71)
     HdrOutput hdrOutput = HdrOutput::Off;       // off, or auto: an HDR display where the platform has one
     float paperWhiteNits = 200.0f;              // brightness of white (1.0) on an HDR display, in nits (80 .. 1000)
+    // The fields below belong to the lighting of M73 (docs/rendering/RENDERING_LIGHTING.md): no effect yet, the doc string of each names
+    // the package that brings it. Their defaults keep the look of every scene made before M73.
+    std::int32_t shadowCascades = 1;      // M73.2: cascades of the directional light's shadow map (1 .. 4)
+    float shadowCascadeSplit = 0.5f;      // M73.2: 0 = linear splits, 1 = logarithmic
+    float shadowCascadeBlend = 0.1f;      // M73.2: fraction of a cascade over which it blends into the next
+    float shadowDistance = 0.0f;          // M73.2: how far from the camera shadows are drawn; 0 = the engine's own fit
+    std::int32_t shadowAtlasSize = 4096;  // M73.2: texels per side of the shadow atlas
+    bool contactShadows = false;          // M73.2: screen-space contact shadows
+    std::string environmentMap;           // M73.3: HDR image of the surroundings ("" = the sky material or gradient)
+    float environmentIntensity = 1.0f;    // M73.3
+    float environmentRotation = 0.0f;     // M73.3: degrees around the up axis
+    SkyModel skyModel = SkyModel::Gradient;  // M73.3: gradient (the colours above) or physical (sun and atmosphere)
 };
 
 // Registers every component above (plus SceneSettings as a reflected type)

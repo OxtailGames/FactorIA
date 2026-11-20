@@ -16,6 +16,7 @@ layout, the AI integration, the feedback loop and the testing rules; the rest is
 - [Rendering](ARCHITECTURE_RENDERING.md): coordinates and units, rendering, start-up order and the shader cache, textures, bounds, the PostProcess stack.
 - [Rendering, the post-processing effects](ARCHITECTURE_RENDERING_POST.md): the grading and lens effects, radial blur and transient screen effects, outline, ambient occlusion, prepass, depth of field.
 - [Baked lighting: the CPU lightmap baker](ARCHITECTURE_BAKING.md): the triangle BVH, the path tracer, the lightmap and probe API, the determinism rules.
+- [Rendering, the lighting of M73](ARCHITECTURE_RENDERING_LIGHTING.md): the shader files of the mesh program, the texture slots, the feature rows and the new fields.
 - [Animation, UI, platform, localization, docs](ARCHITECTURE_RUNTIME.md): animation, UI, platform services, localization, headless, docs.
 
 ## Design principles
