@@ -1656,8 +1656,7 @@ void Renderer::Impl::scene_uniforms(DrawContext& ctx) {
 }
 
 static_assert(
-    kMaterialEnvView == VIEW_mesh_fa_env_tex && kMaterialEnvIrrView == VIEW_mesh_fa_irr_tex &&
-        kMaterialEnvSampler == SMP_mesh_fa_env_smp,
+    kMaterialEnvView == VIEW_mesh_fa_env_tex && kMaterialEnvSampler == SMP_mesh_fa_env_smp,
     "the environment slots of mesh_common.glsl and render_internal.h (and tools/common/shaders.h) must agree");
 
 // The sky environment (renderer_env.h) of a job: with SceneSettings.skyMaterial, the meshes light and reflect the sky
@@ -1828,7 +1827,8 @@ void Renderer::Impl::plan_env(DrawContext& ctx) {
     ctx.envActive = true;
     ctx.envKey = h;
     ctx.envSky = sky;
-    ctx.fuScene.fa_env_sky[3] = 1.0f;
+    ctx.fuScene.fa_env_sky[3] =
+        skyEnv.format() == SG_PIXELFORMAT_RGBA8 ? 2.0f : 1.0f;  // 2: the SH is stored 8-bit coded
     ctx.fuScene.fa_env_horizon[3] = float(kEnvLevels - 1);
 }
 
@@ -2073,11 +2073,10 @@ void Renderer::Impl::bind_textures(DrawContext& ctx, sg_bindings& b, const PartD
     // The light data of the view (the shadow pass has no lights: any image does for a program that declares the slot).
     b.views[VIEW_mesh_fa_light_tex] = shadowPass ? white->view : ctx.lightView;
     b.views[VIEW_mesh_fa_decal_tex] = shadowPass ? white->view : ctx.decalView;
-    // The sky environment (renderer_env.h): the baked cubes, or a black one while the meshes use the gradient (every
+    // The sky environment (renderer_env.h): the baked cube (the reflection and the SH of the ambient), or a black one while the meshes use the gradient (every
     // mesh program of the main pass declares the slots; a custom program that does not has them dropped below).
     const bool env = ctx.envActive && skyEnv.baked();
     b.views[kMaterialEnvView] = env ? skyEnv.prefiltered_view() : skyEnv.blank_view(gpu);
-    b.views[kMaterialEnvIrrView] = env ? skyEnv.irradiance_view() : skyEnv.blank_view(gpu);
     b.samplers[kMaterialEnvSampler] = skyEnv.sampler();
     if (!prog) return;
     if (d.mat)
