@@ -581,7 +581,8 @@ public:
 
     // The radiance that comes back along the ray (o, d): what it sees, plus the bounces of light after the first hit.
     // `backHit` (optional) is set to true when the FIRST hit is a back face: the origin is inside a closed surface (a probe in a wall).
-    Vec3 path(Vec3 o, Vec3 d, std::int32_t skip, std::uint64_t key, std::uint64_t& rays, bool* backHit = nullptr) const {
+    Vec3 path(Vec3 o, Vec3 d, std::int32_t skip, std::uint64_t key, std::uint64_t& rays,
+              bool* backHit = nullptr) const {
         Vec3 result{}, T{1, 1, 1};
         if (backHit != nullptr) *backHit = false;
         for (int depth = 1;; ++depth) {
@@ -1122,49 +1123,53 @@ Result<std::vector<ProbeSample>> sample_probes(const BakeScene& scene, const std
     Reporter rep;
     rep.fn = &progress;
     rep.phase = BakePhase::Probes;
-    auto rays = run_batches("light probes", points.size(), 2, [&](std::size_t i, std::uint64_t& r) {
-        const Vec3 P = points[i];
-        const std::uint64_t key = combine(baseKey, i);
-        ShL2 sh;
-        int back = 0;
-        const float weight = 4.0f * kPi / float(st.samples);
-        for (int s = 0; s < st.samples; ++s) {
-            float u1, u2;
-            sample2d(key, std::uint32_t(s), std::uint32_t(st.samples), u1, u2);
-            const Vec3 d = sphere_direction(u1, u2);
-            bool backHit = false;
-            const Vec3 L = tracer.path(P, d, -1, combine(key, 0x10000 + std::uint64_t(s)), r, &backHit);
-            if (backHit) ++back;
-            float y[9];
-            sh_basis(d, y);
-            for (int k = 0; k < 9; ++k) sh.c[k] += L * (y[k] * weight);
-        }
-        if (st.shIncludeDirect) {
-            for (std::size_t li = 0; li < prep.lights.size(); ++li) {
-                const LightRt& l = prep.lights[li];
-                if (!l.direct) continue;
-                const std::uint64_t lkey = combine(key, 0x1000 + li);
-                for (int s = 0; s < st.shadowSamples; ++s) {
-                    float u1, u2;
-                    sample2d(lkey, std::uint32_t(s), std::uint32_t(st.shadowSamples), u1, u2);
-                    Vec3 dir, w;
-                    float dist;
-                    if (!tracer.sample_light(l, P, u1, u2, dir, dist, w)) continue;
-                    ++r;
-                    if (prep.bvh.occluded(P, dir, dist - 2.0f * prep.eps, -1)) continue;
-                    float y[9];
-                    sh_basis(dir, y);
-                    // a delta light of "facing value" w is the radiance pi * w in its direction: irradiance / pi = w max(0, n.l)
-                    const float f = kPi / float(st.shadowSamples);
-                    for (int k = 0; k < 9; ++k) sh.c[k] += w * (y[k] * f);
+    auto rays = run_batches(
+        "light probes", points.size(), 2,
+        [&](std::size_t i, std::uint64_t& r) {
+            const Vec3 P = points[i];
+            const std::uint64_t key = combine(baseKey, i);
+            ShL2 sh;
+            int back = 0;
+            const float weight = 4.0f * kPi / float(st.samples);
+            for (int s = 0; s < st.samples; ++s) {
+                float u1, u2;
+                sample2d(key, std::uint32_t(s), std::uint32_t(st.samples), u1, u2);
+                const Vec3 d = sphere_direction(u1, u2);
+                bool backHit = false;
+                const Vec3 L = tracer.path(P, d, -1, combine(key, 0x10000 + std::uint64_t(s)), r, &backHit);
+                if (backHit) ++back;
+                float y[9];
+                sh_basis(d, y);
+                for (int k = 0; k < 9; ++k) sh.c[k] += L * (y[k] * weight);
+            }
+            if (st.shIncludeDirect) {
+                for (std::size_t li = 0; li < prep.lights.size(); ++li) {
+                    const LightRt& l = prep.lights[li];
+                    if (!l.direct) continue;
+                    const std::uint64_t lkey = combine(key, 0x1000 + li);
+                    for (int s = 0; s < st.shadowSamples; ++s) {
+                        float u1, u2;
+                        sample2d(lkey, std::uint32_t(s), std::uint32_t(st.shadowSamples), u1, u2);
+                        Vec3 dir, w;
+                        float dist;
+                        if (!tracer.sample_light(l, P, u1, u2, dir, dist, w)) continue;
+                        ++r;
+                        if (prep.bvh.occluded(P, dir, dist - 2.0f * prep.eps, -1)) continue;
+                        float y[9];
+                        sh_basis(dir, y);
+                        // a delta light of "facing value" w is the radiance pi * w in its direction: irradiance / pi = w max(0, n.l)
+                        const float f = kPi / float(st.shadowSamples);
+                        for (int k = 0; k < 9; ++k) sh.c[k] += w * (y[k] * f);
+                    }
                 }
             }
-        }
-        ProbeSample& o = out[i];
-        o.backFraction = float(back) / float(st.samples);
-        o.valid = o.backFraction <= st.probeBackfaceTolerance;
-        if (o.valid) o.sh = sh;  // a probe inside geometry sees the dark inside of the wall: it keeps zeros and is flagged
-    }, rep);
+            ProbeSample& o = out[i];
+            o.backFraction = float(back) / float(st.samples);
+            o.valid = o.backFraction <= st.probeBackfaceTolerance;
+            if (o.valid)
+                o.sh = sh;  // a probe inside geometry sees the dark inside of the wall: it keeps zeros and is flagged
+        },
+        rep);
     if (!rays) return rays.error();
     return out;
 }

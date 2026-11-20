@@ -2244,11 +2244,12 @@ void register_builtin_components(TypeRegistry& r) {
          "scale do not turn it. `points` adds single probes. A probe inside a wall or prop (most of its rays hit the "
          "back of a surface) is flagged invalid by the bake and skipped at runtime. Outside every group the object is "
          "lit by the sky's ambient light as before. A group makes at most 16384 grid probes and a scene 65536 in all. "
-         "docs/rendering/RENDERING_LIGHTING.md, \"Light probes\".",
+         "docs/rendering/RENDERING_LIGHTING.md, \"Light probes and mixed lights\".",
          "3D")
-        .field("size", &LightProbeGroup::size,
-               "[x, y, z] metres: the box the grid fills, centred on the entity's world position + offset. 0 on an axis "
-               "makes one layer of probes on that axis (a floor of probes for a flat level). Default [10, 4, 10].")
+        .field(
+            "size", &LightProbeGroup::size,
+            "[x, y, z] metres: the box the grid fills, centred on the entity's world position + offset. 0 on an axis "
+            "makes one layer of probes on that axis (a floor of probes for a flat level). Default [10, 4, 10].")
         .field("spacing", &LightProbeGroup::spacing,
                "Metres between two probes of the grid, 0.25..100. A probe is a ray-traced point: halving the spacing "
                "makes eight times the probes in a box. 1 to 2 m is usual for rooms. The count along an axis is "

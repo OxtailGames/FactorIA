@@ -106,7 +106,7 @@ struct SceneMesh {
     // SortKeyTable key of the item as the scene sees it (a camera redoes it for `special` ones).
     std::uint64_t sortKey = 0;
     bool keyed = false;
-    LightmapUse lm;        // lit by a baked lightmap (SceneSettings.lightmaps, M73.4a); lm.mesh null = not
+    LightmapUse lm;  // lit by a baked lightmap (SceneSettings.lightmaps, M73.4a); lm.mesh null = not
     // Baked light probes (M73.4d): what a mesh without a lightmap receives instead of the sky ambient; points into
     // a vector of the RenderScene (null = no probes reach it, or none are baked), probeKey = probe_light_key of it.
     const ProbeLight* probe = nullptr;
@@ -161,6 +161,10 @@ private:
     Entity scope_;
     bool built_ = false;
 };
+
+// Where a mesh without a lightmap reads the light probes (M73.4d): the MeshRenderer.probeAnchor entity when it is alive, else the centre of the
+// mesh's box (`bmin`..`bmax`, model space) in the world.
+Vec3 probe_point(const World& world, const MeshRenderer& mr, const Mat4& model, Vec3 bmin, Vec3 bmax);
 
 // `e` is drawn inside `scopeRoot` (entity_active of a Frame with that scopeRoot): with none, active in the hierarchy; with
 // one, the root and the descendants whose own flag and whose ancestors' flags below the root are on.

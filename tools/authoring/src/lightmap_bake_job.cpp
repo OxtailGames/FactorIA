@@ -689,10 +689,11 @@ Result<Json> execute(const Plan& plan, const ReportFn& report) {
         }
         result.stats.rays += probeRays;
         if (probeSet.invalid_count() > 0)
-            warnings.push_back(std::to_string(probeSet.invalid_count()) + " of " + std::to_string(probeSet.size()) +
-                               " light probes are inside geometry (most of their rays hit the back of a surface): they "
-                               "are skipped when the objects are lit. Move the LightProbeGroup or its points out of the "
-                               "walls to use them.");
+            warnings.push_back(
+                std::to_string(probeSet.invalid_count()) + " of " + std::to_string(probeSet.size()) +
+                " light probes are inside geometry (most of their rays hit the back of a surface): they "
+                "are skipped when the objects are lit. Move the LightProbeGroup or its points out of the "
+                "walls to use them.");
         if (probeSet.invalid_count() == probeSet.size())
             warnings.push_back("every light probe is inside geometry: moving objects will be lit by the sky's ambient "
                                "light as without probes.");
@@ -760,7 +761,8 @@ Result<Json> execute(const Plan& plan, const ReportFn& report) {
     std::string newProbes;
     if (hasProbes) {
         const std::vector<std::uint8_t> bytes = encode_probe_set(probeSet);
-        const std::string tagP = lightmap_hash_hex(lightmap_hash_bytes(kLightmapHashSeed, bytes.data(), bytes.size())).substr(0, 8);
+        const std::string tagP =
+            lightmap_hash_hex(lightmap_hash_bytes(kLightmapHashSeed, bytes.data(), bytes.size())).substr(0, 8);
         const std::string name = stem + ".lightmap." + tagP + ".probes";
         const std::string abs = dirAbs + name;
         bool same = false;

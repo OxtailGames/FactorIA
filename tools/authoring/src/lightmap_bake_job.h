@@ -56,8 +56,9 @@ struct Plan {
         manifestProject;  // the same as the project spells it ("scenes/main.lightmap.json"): what SceneSettings.lightmaps holds
     std::vector<PlanMesh> meshes;  // sorted by id
     std::vector<BakeLight> lights;
-    ProbeSet probes;  // the LightProbeGroups of the scene as positions (no light yet): baked as the phase "probes" of the same job
-    BakeSky sky;                   // gradient / constant sky; also the fallback
+    ProbeSet
+        probes;  // the LightProbeGroups of the scene as positions (no light yet): baked as the phase "probes" of the same job
+    BakeSky sky;                    // gradient / constant sky; also the fallback
     std::string environmentMap;     // SkyChoice::Environment: the .hdr to load (the job does)
     float environmentScale = 1;     // its multiplier (SceneSettings.environmentIntensity)
     float environmentRotation = 0;  // the baker's rotationDeg (already offset, see lightmap_bake_job.cpp)

@@ -1106,16 +1106,16 @@ struct Decal {
     std::int32_t sortOrder = 0;   // decals draw in ascending order, a larger one on top
     std::int32_t layers = 0;      // bit mask of the MeshRenderer.decalLayer values that receive it; 0 = every layer
 };
-// M73.4d: light probes for moving objects (docs/rendering/RENDERING_LIGHTING.md, "Light probes"). A grid of probes over an axis-aligned box
+// M73.4d: light probes for moving objects (docs/rendering/RENDERING_LIGHTING.md, "Light probes and mixed lights"). A grid of probes over an axis-aligned box
 // of the world (centred on the entity's world position + `offset`; the entity's rotation and scale do not turn it) plus optional single points.
 // lightmap.bake traces the light at every probe and stores it as spherical harmonics next to the lightmap pages.
 struct LightProbeGroup {
     Vec3 size{10.0f, 4.0f, 10.0f};  // metres, the box of the grid; 0 on an axis = one layer of probes on it
     float spacing = 2.0f;           // metres between two probes of the grid, 0.25..100
     Vec3 offset{0.0f, 0.0f, 0.0f};  // metres: the box's centre relative to the entity's world position
-    bool grid = true;  // false = no grid, only `points`
-    Json points =
-        Json::array();  // extra probes [[x, y, z], ...] in world metres, up to 256; they light the objects close to them
+    bool grid = true;               // false = no grid, only `points`
+    Json points = Json::
+        array();  // extra probes [[x, y, z], ...] in world metres, up to 256; they light the objects close to them
     bool showGizmo = true;  // the editor draws the probes of this group as small spheres coloured by their baked light
 };
 enum class LightType : std::int32_t { Directional, Point, Spot, Area };

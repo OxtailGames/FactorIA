@@ -321,7 +321,8 @@ void register_lightmap_commands(Engine& engine, Engine::Impl& I) {
          "applied}. Example: lightmap.bake {\"texelsPerMeter\":16,\"samples\":64}",
          request_schema(false), false, "assets",
          "Mapping. Light: Baked -> baked (direct light and bounces; in the probes too), Mixed -> indirect only (the "
-         "realtime light stays; only its bounce is baked into the lightmap and the probes), Realtime is left out; intensity, color, range and "
+         "realtime light stays; only its bounce is baked into the lightmap and the probes), Realtime is left out; "
+         "intensity, color, range and "
          "spotAngle carry over; "
          "Pcss shadowSoftness widens the shadow. An area light is a one-sided rectangle of radiance = intensity (a "
          "Disc or Tube becomes a rectangle of "

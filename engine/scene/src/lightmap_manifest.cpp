@@ -246,8 +246,7 @@ Json lightmap_manifest_to_json(const LightmapManifest& m) {
     }
     j["entities"] = std::move(ents);
     if (!m.probes.file.empty())
-        j["probes"] =
-            Json::object({{"file", m.probes.file}, {"count", m.probes.count}, {"invalid", m.probes.invalid}});
+        j["probes"] = Json::object({{"file", m.probes.file}, {"count", m.probes.count}, {"invalid", m.probes.invalid}});
     return j;
 }
 

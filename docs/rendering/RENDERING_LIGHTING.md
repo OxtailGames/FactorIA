@@ -427,6 +427,19 @@ on a laptop. Start with `texelsPerMeter` 8 and `samples` 16 for a draft, then ra
 threads and on every run (a seed: `seed`). Cancel is looked at in every phase (the BVH, the layout, the rays, the denoiser, the gutter); a
 cancelled bake changes no file. The rest of the arguments (`bounces`, `denoiseRadius`, `rayEpsilon`, ...) are in the command's schema (`api.commands`).
 
+### Light probes and mixed lights (M73.4d)
+
+A `LightProbeGroup` entity (a grid of probes, plus single points) is baked by the same job, in its own phase `probes`. A mesh with no
+lightmap (a moving object, `receiveGI` on, not `unlit`) gets the blend of the probes around its bounds centre (or `MeshRenderer.probeAnchor`)
+as its ambient and sky-diffuse light instead of the sky's. Without a group a scene is drawn bit for bit as before.
+Full page: [Light probes and mixed lights](RENDERING_LIGHT_PROBES.md) (`docs.read rendering-light-probes`). What a light of each mode does:
+
+| Receiver | `baked` light | `mixed` light | `realtime` light |
+|---|---|---|---|
+| Lightmapped | not lit at run time (in the page) | lit at run time; its bounce is in the page | lit at run time |
+| Moving, inside the probes | not lit at run time (in the probes, by `1 - coverage`) | lit at run time; its bounce is in the probes | lit at run time |
+| Moving, outside the probes | lit at run time | lit at run time | lit at run time |
+
 ## Decals (M73.5b)
 
 A `Decal` component paints a texture on the meshes inside its box, the way a stencil or a sticker does: bullet holes, blood, dirt,
@@ -556,7 +569,7 @@ until its step lands; then it follows the GPU (`cascadedShadows` does, `environm
 what is not drawn.
 
 `clusteredLights`, `areaLights`, `lightCookies`, `iesProfiles` (M73.1); `cascadedShadows`, `pointShadows`, `spotShadows`,
-`contactShadows` (M73.2, M73.2c: drawn; supported where the depth prepass can be made); `environmentMap`, `reflectionProbes`, `physicalSky` (M73.3; `environmentMap` and `physicalSky` are drawn); `lightmaps` (M73.4a), `lightProbes` (M73.4d);
+`contactShadows` (M73.2, M73.2c: drawn; supported where the depth prepass can be made); `environmentMap`, `reflectionProbes`, `physicalSky` (M73.3; `environmentMap` and `physicalSky` are drawn); `lightmaps` (M73.4a, drawn), `lightProbes` (M73.4d, drawn: every backend);
 `volumetricFog` (M73.5, drawn: true wherever the GPU has RGBA16F render targets that blend and filter), `decals` (M73.5b, drawn), `subsurface`, `realtimeGI` (M73.5); `clearCoat`, `sheen`, `anisotropy` (M73.6a, drawn: they follow the
 backend, which every one supports) and `transmission` (M73.6b).
 

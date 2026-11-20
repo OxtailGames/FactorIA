@@ -1,4 +1,4 @@
-// M73.4d: baked light probes at runtime (docs/design/ARCHITECTURE_BAKING.md, "Light probes"): a mesh without a lightmap receives the
+// M73.4d: baked light probes at runtime (docs/design/ARCHITECTURE_BAKING.md, "Light probes and mixed lights"): a mesh without a lightmap receives the
 // probes' SH in place of the sky's ambient, a Baked light lights it only through them, and a scene without probes is drawn as before.
 #include "test_util.h"
 
@@ -95,7 +95,8 @@ float red_minus_blue(const Color& c) { return c.r - c.b; }
 
 }  // namespace
 
-TEST_CASE("light probes: a mesh without a lightmap receives the probes' SH, directionally, in place of the ambient light") {
+TEST_CASE(
+    "light probes: a mesh without a lightmap receives the probes' SH, directionally, in place of the ambient light") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     g.renderer.clear_asset_cache();
@@ -122,8 +123,9 @@ TEST_CASE("light probes: a mesh without a lightmap receives the probes' SH, dire
     CHECK(diff_images(g.render(w2), plain, 0.0f).maxError == 0.0);
 }
 
-TEST_CASE("light probes: outside the grid the sky's ambient stays, a probeAnchor inside brings the probes to a mesh outside, "
-          "and a lightmapped mesh keeps its page") {
+TEST_CASE(
+    "light probes: outside the grid the sky's ambient stays, a probeAnchor inside brings the probes to a mesh outside, "
+    "and a lightmapped mesh keeps its page") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     g.renderer.clear_asset_cache();
@@ -184,7 +186,8 @@ TEST_CASE("light probes: a scene without probes is drawn exactly as before, with
     CHECK(diff_images(g.render(w), plain, 0.0f).maxError == 0.0);
 }
 
-TEST_CASE("light probes: light mode against receiver, a Baked light lights a probe-covered mesh only through its probes") {
+TEST_CASE(
+    "light probes: light mode against receiver, a Baked light lights a probe-covered mesh only through its probes") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     g.renderer.clear_asset_cache();
@@ -207,7 +210,8 @@ TEST_CASE("light probes: light mode against receiver, a Baked light lights a pro
     const Image mixed = frame(true, LightMode::Mixed, 0.0f);
     CHECK(diff_images(dark, baked, 0.0f).maxError == 0.0);
     CHECK(diff_images(dark, realtime, 0.0f).maxError > 0.1);
-    CHECK(diff_images(realtime, mixed, 0.0f).maxError == 0.0);  // Mixed lights everything in real time, its bounce is baked
+    CHECK(diff_images(realtime, mixed, 0.0f).maxError ==
+          0.0);  // Mixed lights everything in real time, its bounce is baked
     // An uncovered receiver (x = 20): no probe reaches it, so nothing holds the Baked light and it is drawn as a realtime one.
     const Image farBaked = frame(true, LightMode::Baked, 20.0f);
     const Image farRealtime = frame(true, LightMode::Realtime, 20.0f);
