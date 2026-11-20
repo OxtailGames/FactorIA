@@ -2194,6 +2194,76 @@ void register_builtin_components(TypeRegistry& r) {
                "layer 1, up to bit 15. 0 (default) = every layer.")
         .range(0, 65535);
 
+    r.add<ReflectionProbe>(
+         "ReflectionProbe",
+         "Captures the scene around this entity into a small map (an octahedral image: the six directions of a cube "
+         "unfolded onto a square) with its blurry versions for rough surfaces and the diffuse light as nine spherical "
+         "harmonics, and keeps it in the engine's probe atlas. The box (boxSize, boxOffset) is the region the probe "
+         "lights; where boxes overlap the one with the larger importance wins. A baked probe is written once by the "
+         "command probe.bake (HDR pages on disk, referenced by bakedMap, reloaded when they change); a realtime probe "
+         "is captured while the game runs, within a budget per frame (update). Nothing reads the atlas yet: the mesh "
+         "shaders sample it from M73.3c on, until then the commands render.probes and probe.bake show and fill it. "
+         "See docs/rendering/RENDERING_LIGHTING.md, \"Reflection probes\".",
+         "3D")
+        .enum_field("mode", &ReflectionProbe::mode, {"baked", "realtime"},
+                    "baked (default): the probe shows what probe.bake wrote to bakedMap (nothing until it is baked; "
+                    "it costs no GPU time while the game runs). realtime: the scene is captured from this position "
+                    "while the game runs, as `update` says.")
+        .field("boxSize", &ReflectionProbe::boxSize,
+               "Size in metres of the box the probe lights, along the entity's local X, Y and Z (the entity's scale "
+               "multiplies it). Each side 0.01..100000. Default [10, 10, 10].")
+        .field("boxOffset", &ReflectionProbe::boxOffset,
+               "Where the centre of the box is, in metres from the entity's origin along its local axes (the capture "
+               "is taken from the origin). Default [0, 0, 0].")
+        .field("blendDistance", &ReflectionProbe::blendDistance,
+               "Metres, 0..1000: the band inside the edge of the box where the probe fades out into the next one. "
+               "Default 1.")
+        .range(0, 1000)
+        .field("importance", &ReflectionProbe::importance,
+               "-1000..1000. Where boxes overlap the probe with the larger importance is drawn on top, and when the "
+               "atlas has no room the probe with the smallest importance is evicted first. Default 0.")
+        .range(-1000, 1000)
+        .field("resolution", &ReflectionProbe::resolution,
+               "Texels per side of the probe's map: 32, 64, 128 (default) or 256 (another value is rounded to the "
+               "nearest of these). A map of 128 costs about 128 KB in RGBA16F with its blurry versions.")
+        .range(32, 256)
+        .field("nearPlane", &ReflectionProbe::nearPlane,
+               "Metres, 0.01..100: the nearest distance the capture draws. Default 0.1.")
+        .range(0.01, 100)
+        .field("farPlane", &ReflectionProbe::farPlane,
+               "Metres, 0.1..100000: the farthest distance the capture draws; farther than this the capture shows "
+               "`clear`. Default 100.")
+        .range(0.1, 100000)
+        .enum_field("clear", &ReflectionProbe::clear, {"sky", "color"},
+                    "What the capture shows where no mesh is drawn: sky (default, the scene's sky) or color "
+                    "(clearColor).")
+        .field("clearColor", &ReflectionProbe::clearColor,
+               "The colour of the empty space with clear color (alpha is ignored; values above 1 are allowed, an "
+               "HDR colour). Default black.")
+        .field("showTags", &ReflectionProbe::showTags,
+               "Culling mask, the allow list: an array of tag names, default [] = capture everything. When it is not "
+               "empty the capture draws only the entities that have one of these tags or a parent that does (as "
+               "Camera.showTags).")
+        .field("hideTags", &ReflectionProbe::hideTags,
+               "Culling mask, the deny list: an entity with one of these tags (or a parent that has) is not in the "
+               "capture (as Camera.hideTags). Default [].")
+        .enum_field("update", &ReflectionProbe::update, {"everyFrame", "timeSliced", "onDemand"},
+                    "Only for mode realtime. everyFrame: the whole capture is redone every frame (6 faces and the "
+                    "filtering: use it for one or two probes). timeSliced (default): one face per frame within the "
+                    "frame budget, a whole update every few frames. onDemand: only when the command "
+                    "render.probes asks for it (refresh); the first capture happens when the probe appears.")
+        .asset_field("bakedMap", &ReflectionProbe::bakedMap, "any",
+                     "Project-relative path of the .probe.json that probe.bake wrote for this probe (it lists the .hdr "
+                     "pages next to it). Empty = not baked. A baked probe whose file is missing or older than its "
+                     "format logs one warning and stays empty; the file is watched and reloaded when it changes.")
+        .field("intensity", &ReflectionProbe::intensity,
+               "0..100: multiplies what the probe reflects and the diffuse light it gives. Default 1.")
+        .range(0, 100)
+        .field("boxProjection", &ReflectionProbe::boxProjection,
+               "True (default): the reflection is corrected for the box (the room's walls are where the box edge "
+               "is), which suits an interior. False: the reflection is the one of an infinitely far environment. "
+               "Used by the mesh shaders from M73.3c.");
+
     r.add<Animator>(
          "Animator",
          "Plays animation clips: the skeletal clips of a skinned glTF model (the model of the MeshRenderer on the "
