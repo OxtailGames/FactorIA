@@ -107,9 +107,10 @@ std::vector<FeatureDef> build_table() {
     t.push_back({"computeShaders", FeatureKind::Capability,
                  bit(FeatureBackend::Gl) | bit(FeatureBackend::D3d11) | bit(FeatureBackend::Metal), "compute", nullptr,
                  "Compute shaders and storage buffers (D3D11, Metal, OpenGL 4.3; never GLES3 or WebGL2)."});
-    t.push_back({"float32Targets", FeatureKind::Capability, kEveryGpu, "float32", nullptr,
-                 "Render targets of 32-bit float (R32F and RGBA32F) that can be sampled: what the shadow atlas of the "
-                 "lighting of M73 will be drawn into (one depth value per texel): that atlas will need them."});
+    t.push_back(
+        {"float32Targets", FeatureKind::Capability, kEveryGpu, "float32", nullptr,
+         "Render targets of 32-bit float (R32F and RGBA32F) that can be sampled: what the shadow atlas of the "
+         "lighting of M73 is drawn into (one depth value per texel): without them there is no cascaded shadow."});
     // The engine features built on them.
     t.push_back(
         {"linearColor", FeatureKind::Engine, kEveryGpu, "", nullptr,
@@ -138,6 +139,7 @@ std::vector<FeatureDef> build_table() {
         const char* name;
         const char* needs;
         const char* doc;
+        const char* planned = "M73";  // nullptr once the package that draws it has landed
     };
     static const Planned kLighting[] = {
         {"areaLights", "",
@@ -145,8 +147,9 @@ std::vector<FeatureDef> build_table() {
         {"lightCookies", "", "Light cookies: a texture projected by a spot or point light (M73.1)."},
         {"iesProfiles", "", "IES profiles: the measured light distribution of a real lamp (M73.1)."},
         {"cascadedShadows", "float32",
-         "Cascaded shadow maps for the directional light: sharp near the camera, stable and blended between cascades "
-         "(M73.2)."},
+         "Cascaded shadow maps for the directional light (1 to 4 cascades fitted to the camera, stable, blended at the "
+         "seams, with PCF or PCSS soft edges), drawn into one shadow atlas of 32-bit float (M73.2a).",
+         nullptr},
         {"pointShadows", "float32",
          "Shadows of point lights, six faces in the shadow atlas, with a budget per frame (M73.2)."},
         {"spotShadows", "float32", "Shadows of spot lights in the shadow atlas, with a budget per frame (M73.2)."},
@@ -176,7 +179,7 @@ std::vector<FeatureDef> build_table() {
         {"anisotropy", "", "Anisotropic highlights: brushed metal, hair (MeshRenderer.anisotropy; M73.6)."},
         {"transmission", "half",
          "Transmission and volume: glass and liquids that refract what is behind them (M73.6)."}};
-    for (const Planned& p : kLighting) t.push_back({p.name, FeatureKind::Engine, kEveryGpu, p.needs, "M73", p.doc});
+    for (const Planned& p : kLighting) t.push_back({p.name, FeatureKind::Engine, kEveryGpu, p.needs, p.planned, p.doc});
     for (int i = 0; i < kPostEffectCount; ++i)
         t.push_back({kPostEffectOrder[std::size_t(i)].data(), FeatureKind::Effect, kEveryGpu, kEffectRows[i].needs,
                      effect_drawn(PostEffect(i)) ? nullptr : "M71", kEffectRows[i].doc});

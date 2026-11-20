@@ -357,10 +357,11 @@ bool Renderer::init(const RendererDesc& desc, const GfxEnvironment& env, std::st
     Impl& im = *impl_;
     im.desc = desc;
     if (const char* dv = std::getenv("FA_RENDER_DEBUG_VIEW"))
-        im.debugView = std::strcmp(dv, "depth") == 0     ? DebugView::Depth
-                       : std::strcmp(dv, "normals") == 0 ? DebugView::Normals
-                       : std::strcmp(dv, "ao") == 0      ? DebugView::Ao
-                                                         : DebugView::None;
+        im.debugView = std::strcmp(dv, "depth") == 0      ? DebugView::Depth
+                       : std::strcmp(dv, "normals") == 0  ? DebugView::Normals
+                       : std::strcmp(dv, "ao") == 0       ? DebugView::Ao
+                       : std::strcmp(dv, "cascades") == 0 ? DebugView::Cascades
+                                                          : DebugView::None;
     im.adopted = desc.adoptContext && sg_isvalid();
     if (!im.adopted) {
         sg_desc sd = make_sg_desc(env);
@@ -424,6 +425,7 @@ void Renderer::shutdown() {
         im.transients.reset();  // its pool destroys the targets it still holds: the context is still open
         im.destroy_light_resources();
         destroy_target(im.shadowTarget);
+        im.free_retired_shadow_targets();
         im.gpu.shutdown();
         if (!im.adopted)
             sg_shutdown();  // an adopted context stays open for close_context(): the player may still present

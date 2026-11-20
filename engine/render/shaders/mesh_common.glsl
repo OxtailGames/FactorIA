@@ -193,7 +193,7 @@ void fa_inst_begin() {
 @block fa_vs_common
 layout(binding=0) uniform fa_mesh_vs_params {
     mat4 fa_view_proj;
-    mat4 fa_light_vp;           // directional shadow matrix (world -> light clip)
+    mat4 fa_light_vp;           // the matrix of the shadow pass being drawn (a cascade of the sun; the view matrix in the prepass)
     vec4 fa_uv_scale;           // xy
     vec4 fa_time;               // x = seconds of game time since the scene started
 };
@@ -262,7 +262,6 @@ out vec3 fa_world_normal;
 out vec4 fa_world_tangent;
 out vec2 fa_uv;
 out vec4 fa_vertex_color;
-out vec4 fa_shadow_pos;
 
 // Everything after the model matrix is known: shared by the instanced and the skinned vertex shader.
 void fa_shade_vertex(mat4 model, vec3 position, vec3 normal, vec4 tangent, vec2 texcoord0, vec4 color) {
@@ -276,7 +275,6 @@ void fa_shade_vertex(mat4 model, vec3 position, vec3 normal, vec4 tangent, vec2 
     fa_world_tangent = v.world_tangent;
     fa_uv = v.uv;
     fa_vertex_color = v.color;
-    fa_shadow_pos = fa_light_vp * wp;
     gl_Position = fa_view_proj * wp;
 }
 @end
@@ -345,7 +343,7 @@ layout(binding=0) uniform sampler fa_smp;
 layout(binding=1) uniform sampler fa_shadow_smp;
 @image_sample_type fa_shadow_tex unfilterable_float
 @sampler_type fa_shadow_smp nonfiltering
-// What fa_shadow_pcf (shadow_common.glsl) samples; the full-shader template names its own shadow map differently.
+// What fa_shadow_sun (shadow_common.glsl) samples; the full-shader template names its own shadow map differently.
 #define FA_SHADOW_TEX fa_shadow_tex
 #define FA_SHADOW_SMP fa_shadow_smp
 // The light data texture (light_data.glsl; view 24), read with texelFetch through the shadow map's nearest sampler.
@@ -374,7 +372,7 @@ layout(binding=1) uniform fa_mesh_fs_params {
     vec4 fa_fog_b;              // the stack's fog (PostProcess.fog*) on a blended mesh: x = fogStart, y = height density,
                                 // z = height base (world y), w = height falloff; all 0 for the scene's own fog
     vec4 fa_fog_c;              // xyz = the camera's forward axis in the world, w = 1 for an orthographic camera (0 otherwise)
-    vec4 fa_counts;             // x = light count, y = shadow texel size, z = 1 on OpenGL backends
+    vec4 fa_counts;             // x = light count, y = unused, z = 1 on OpenGL backends
     vec4 fa_env_sky;            // rgb sky color (top of the environment); w = 1 when the baked environment of a sky material is bound
     vec4 fa_env_horizon;        // rgb horizon color; w = the highest mip of fa_env_tex (what roughness 1 reads)
     vec4 fa_time;               // x = seconds of game time since the scene started
@@ -542,15 +540,13 @@ vec3 fa_sky_light(in SurfaceInput i, in Surface s) {
 @block fa_fs_light
 @include_block fa_light_data
 
-in vec4 fa_shadow_pos;
-
 const float FA_PI = 3.14159265;
 
 @include_block fa_shadow_common
 
-// The directional shadow of the fragment: 1 lit, 0 in shadow (fa_shadow_pos is the vertex stage's light-space position).
+// The directional shadow of the fragment: 1 lit, 0 in shadow (the cascaded shadow of shadow_common.glsl at the fragment's world position).
 float fa_shadow_factor(vec3 n, vec3 l) {
-    return fa_shadow_pcf(fa_shadow_pos, n, l);
+    return fa_shadow_sun(fa_world_pos, n, l);
 }
 
 @include_block fa_env_funcs
@@ -637,6 +633,7 @@ void main() {
         result = lit;
     }
     result += s.emission;
+    result = fa_shadow_debug(result, i.world_pos);
     if (fa_fog.w > 0.0 || fa_fog_b.y > 0.0) {
         // The same formula as the fog of the post stack (fog.glsl): from fogStart along the view ray, the distance fog
         // (density * length)^2 plus the integral of the height density; the scene's own fog is the case start = 0, no height.
