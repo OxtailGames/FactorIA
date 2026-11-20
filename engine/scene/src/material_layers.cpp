@@ -52,6 +52,22 @@ void read_material_layers(const cgltf_material& m, const std::string& what, Mate
             out.specularColor[std::size_t(i)] = clamp_reported(m.specular.specular_color_factor[i], 0.0f, 16.0f, 1.0f,
                                                                "specularColorFactor", what, warnings);
     }
+    if (m.has_transmission)
+        out.transmission =
+            clamp_reported(m.transmission.transmission_factor, 0.0f, 1.0f, 0.0f, "transmissionFactor", what, warnings);
+    if (m.has_volume) {
+        out.thickness =
+            clamp_reported(m.volume.thickness_factor, 0.0f, 1000.0f, 0.0f, "thicknessFactor", what, warnings);
+        for (int i = 0; i < 3; ++i)
+            out.attenuationColor[std::size_t(i)] =
+                clamp_reported(m.volume.attenuation_color[i], 0.0f, 1.0f, 1.0f, "attenuationColor", what, warnings);
+        // glTF's default is infinity (no tint); cgltf reads an absent value as FLT_MAX. The engine's is 0. A value of 0 or less in the file
+        // means no tint too.
+        const float d = m.volume.attenuation_distance;
+        out.attenuationDistance = (std::isnan(d) || std::isinf(d) || d >= 1e30f || d <= 0.0f)
+                                      ? 0.0f
+                                      : clamp_reported(d, 0.0f, 100000.0f, 0.0f, "attenuationDistance", what, warnings);
+    }
     if (m.has_ior) out.ior = clamp_reported(m.ior.ior, 1.0f, 3.0f, 1.5f, "ior", what, warnings);
 }
 

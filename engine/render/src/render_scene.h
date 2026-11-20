@@ -30,8 +30,14 @@ inline const std::vector<Mat4>& palette_of(const Animator& a, int skin) {
 // deformed by that Animator's palette (such an item is never batched with another).
 void mesh_cull_bounds(const MeshAsset& mesh, const Animator* animator, Vec3& bmin, Vec3& bmax, const Animator*& anim);
 
+// Whether `mr` draws `mesh` as a transmissive surface (glass, liquid; M73.6b): MeshRenderer.transmission above 0, or the transmission of a
+// glTF part of the model (KHR_materials_transmission) when the field is 0. A material that is a full shader draws none (it has no template
+// to read the picture behind it with).
+bool mesh_is_transmissive(const MeshRenderer& mr, const MeshAsset& mesh, const MaterialAsset* material);
+
 // Whether `mr` is drawn with the blended meshes (far to near) rather than the opaque ones. The alphaMode of a material
-// decides; without one, a translucent colour or a blended glTF part does.
+// decides; without one, a translucent colour or a blended glTF part does. A transmissive mesh (mesh_is_transmissive) is always one of them:
+// it is drawn after the opaque picture is finished, because it reads it.
 bool mesh_is_blended(const MeshRenderer& mr, const MeshAsset& mesh, const MaterialAsset* material);
 
 // Hashes of MeshRenderer.materialParams and materialColors: items with different overrides never share a draw. They were

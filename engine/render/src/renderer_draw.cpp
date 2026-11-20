@@ -134,6 +134,14 @@ struct Renderer::Impl::DrawContext {
     // (view 28) of the opaque meshes; screenView is that image, set by main_pass (the transient exists from the graph's execution on).
     bool contactOn = false;
     sg_view screenView{};
+    // M73-P6b: a visible blended draw is transmissive. plan_job sets `want` when the copy can be made (renderer_xmit.h); main_pass splits the pass
+    // after the opaque phase, makes the atlas and sets `on` (the blended draws bind `atlasView` at view 28 and refract) and `levels`. `want`
+    // without `on` (the copy failed at run time) draws the plain blend.
+    struct {
+        bool want = false, on = false;
+        int levels = 0;
+        sg_view atlasView{};
+    } xmit;
     // M73.5: a mesh of this camera scatters light (MeshRenderer.subsurface) and the camera can draw it (plan_job): the job declares the "sss-draw" pass
     // (sss_draw_pass), the stack the blur and add passes (SssFx), and the scene uniforms carry the camera's view for the shader's visibility test.
     bool sssOn = false;
@@ -834,6 +842,7 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
         for (LightData& l : ctx.lights) l.contactLength = 0.0f;
     }
     plan_outline(ctx);
+    plan_transmission(ctx);
     // The volumetric fog needs the prepass (its shaders and its image were checked above). A camera that draws it draws no analytic fog: neither the scene's
     // (ss.fogDensity, scene_uniforms) nor the stack's (fogFx.fog), the two would fog twice; the sun shafts of the stack stay.
     if (ctx.postPlan.vol.on) {
@@ -1842,7 +1851,7 @@ void Renderer::Impl::scene_uniforms(DrawContext& ctx) {
     // The contact shadows' view of the camera (M73.2c; shaders/light_loop.glsl, fa_contact): three rows of the view-projection matrix and the
     // forward axis, the prepass's size and the distance where the shadows are gone. fa_ct_a.x, which turns them on, is set per draw (fill_fs). The
     // subsurface draw reads the same view for its visibility test against the prepass.
-    if (ctx.contactOn || ctx.sssOn) {
+    if (ctx.contactOn || ctx.sssOn || ctx.xmit.want) {
         const Mat4& vp = fr.cam.viewProj;
         const Vec3& fwd = fr.cam.forward;
         for (int c = 0; c < 4; ++c) {
@@ -1857,7 +1866,7 @@ void Renderer::Impl::scene_uniforms(DrawContext& ctx) {
         fuScene.fa_ct_a[1] = gpu.is_gl() ? 1.0f : 0.0f;
         fuScene.fa_ct_a[2] = float(ctx.camPx.w);
         fuScene.fa_ct_a[3] = float(ctx.camPx.h);
-        fuScene.fa_ct_b[0] = kContactShadowFadeEnd;
+        fuScene.fa_ct_b[0] = kContactShadowFadeEnd;  // (the atlas of a transmissive draw reads the same rows and size)
     }
     fuScene.fa_env_sky[0] = ss.skyColor.r;
     fuScene.fa_env_sky[1] = ss.skyColor.g;
@@ -2141,6 +2150,7 @@ static void fill_layers(mesh_fa_mesh_fs_params_t& fu, const MeshRenderer& mr, co
     static const MeshRenderer defaults;
     float coat = 0, coatRough = 0, sheenRough = 0, aniso = 0, rotation = 0, spec = 1, ior = 1.5f;
     float sheen[3] = {0, 0, 0}, specColor[3] = {1, 1, 1};
+    float transmission = 0, thickness = 0, attDistance = 0, attColor[3] = {1, 1, 1};
     if (!error) {
         auto pick = [&](float m, float def, float fromModel) { return (num(m, def) != def) ? num(m, def) : fromModel; };
         coat = std::clamp(pick(mr.clearcoat, defaults.clearcoat, g.clearcoat), 0.0f, 1.0f);
@@ -2162,6 +2172,16 @@ static void fill_layers(mesh_fa_mesh_fs_params_t& fu, const MeshRenderer& mr, co
         spec = std::clamp(pick(mr.specular, 1.0f, g.specular), 0.0f, 1.0f);
         ior = std::clamp(pick(mr.ior, 1.5f, g.ior), 1.0f, 3.0f);
         for (int i = 0; i < 3; ++i) specColor[i] = g.specularColor[std::size_t(i)];
+        // Transmission and volume (M73.6b): a MeshRenderer field that is not at its default replaces the model's value, as above.
+        transmission = std::clamp(pick(mr.transmission, defaults.transmission, g.transmission), 0.0f, 1.0f);
+        thickness = std::clamp(pick(mr.thickness, defaults.thickness, g.thickness), 0.0f, 1000.0f);
+        attDistance = std::clamp(pick(mr.attenuationDistance, defaults.attenuationDistance, g.attenuationDistance),
+                                 0.0f, 100000.0f);
+        const Color ac = to_scene(mr.attenuationColor, linear);
+        const bool mrAtt = mr.attenuationColor.r < 1.0f || mr.attenuationColor.g < 1.0f || mr.attenuationColor.b < 1.0f;
+        attColor[0] = std::clamp(mrAtt ? ac.r : g.attenuationColor[0], 0.0f, 1.0f);
+        attColor[1] = std::clamp(mrAtt ? ac.g : g.attenuationColor[1], 0.0f, 1.0f);
+        attColor[2] = std::clamp(mrAtt ? ac.b : g.attenuationColor[2], 0.0f, 1.0f);
     }
     fu.fa_layers_a[0] = coat;
     fu.fa_layers_a[1] = coatRough;
@@ -2177,6 +2197,10 @@ static void fill_layers(mesh_fa_mesh_fs_params_t& fu, const MeshRenderer& mr, co
     fu.fa_layers_c[3] = 0.0f;
     for (int i = 0; i < 3; ++i) fu.fa_layers_d[i] = specColor[i];
     fu.fa_layers_d[3] = 0.0f;
+    fu.fa_tr_a[0] = transmission;
+    fu.fa_tr_a[1] = thickness;
+    fu.fa_tr_a[2] = attDistance;
+    for (int i = 0; i < 3; ++i) fu.fa_tr_b[i] = attColor[i];
 }
 
 // The reflection part of the fragment parameters (mesh_common.glsl fa_atlas, fa_rpa_*, fa_rpb_*; docs/design/ARCHITECTURE_PROBES.md,
@@ -2276,6 +2300,15 @@ mesh_fa_mesh_fs_params_t Renderer::Impl::fill_fs(DrawContext& ctx, const MeshIte
                           16 * (d.normal ? d.normal->tex_fix(linear, false) : 0) + 64 * d.mr->tex_fix(linear, false) +
                           256 * d.occlusion->tex_fix(linear, false));
     fill_layers(fu, mr, part, d.error, linear);
+    // A transmissive draw (M73.6b) reads the refraction atlas at the screen slot, or, with no atlas this frame, is a plain blend (the
+    // shader tells them by fa_tr_a.w). An unlit surface or one that draws a full shader transmits nothing.
+    if (unlit || (d.mat && d.mat->full) || fu.fa_tr_a[0] <= 0.0f) {
+        fu.fa_tr_a[0] = 0.0f;
+        fu.fa_tr_a[3] = 0.0f;
+    } else {
+        fu.fa_tr_a[3] = (blended && ctx.xmit.on) ? 1.0f : 2.0f;
+        fu.fa_tr_b[3] = float(ctx.xmit.levels);
+    }
     // Baked light probes (M73.4d): the SH the mesh receives (coverage 0 = none: the shader keeps the sky's ambient).
     for (int k = 0; k < 9; ++k)
         for (int c = 0; c < 4; ++c) fu.fa_probe_sh[k][c] = 0.0f;
@@ -2369,9 +2402,16 @@ void Renderer::Impl::bind_textures(DrawContext& ctx, sg_bindings& b, const PartD
     // reads it while no light has the data texture's extension texels).
     b.views[VIEW_mesh_fa_light_atlas] = (!shadowPass && ctx.lightAtlasView.id) ? ctx.lightAtlasView : white->view;
     b.views[VIEW_mesh_fa_decal_tex] = shadowPass ? white->view : ctx.decalView;
-    // The screen slot (view 28): the prepass in the opaque phase of a frame with contact shadows, a white image otherwise (no fragment reads it).
-    b.views[VIEW_mesh_fa_screen_tex] =
-        (ctx.contactOn && opaquePhase && !shadowPass && ctx.screenView.id) ? ctx.screenView : white->view;
+    // The screen slot (view 28): the prepass in the opaque phase of a frame with contact shadows; in the blended phase of a frame with a
+    // transmissive draw, the refraction atlas (renderer_xmit.h); a white image otherwise (no fragment reads it).
+    sg_view screenSlot = white->view;
+    if (!shadowPass) {
+        if (opaquePhase && ctx.contactOn && ctx.screenView.id)
+            screenSlot = ctx.screenView;
+        else if (!opaquePhase && ctx.xmit.on && ctx.xmit.atlasView.id)
+            screenSlot = ctx.xmit.atlasView;
+    }
+    b.views[VIEW_mesh_fa_screen_tex] = screenSlot;
     // The sky environment (renderer_env.h): the baked cube (the reflection and the SH of the ambient), or a black one while the meshes use the gradient (every
     // mesh program of the main pass declares the slots; a custom program that does not has them dropped below).
     b.views[kMaterialEnvView] = probes.atlas.valid() ? probes.atlas.tex : white->view;
@@ -2590,9 +2630,12 @@ void Renderer::Impl::shadow_pass(DrawContext& ctx) {
 bool Renderer::Impl::plan_prepass(DrawContext& ctx) {
     const PostPlan& pp = ctx.postPlan;
     ctx.doPrepass = ctx.debugPrepass = false;
-    if ((ctx.plan.view && !ctx.plan.customPost) || !ctx.fr.wantWorld || ctx.camPx.w < 1 || ctx.camPx.h < 1)
+    if ((ctx.plan.view && !ctx.plan.customPost && !ctx.plan.gi) || !ctx.fr.wantWorld || ctx.camPx.w < 1 ||
+        ctx.camPx.h < 1)
         return false;
-    if (!(pp.needsDepth || pp.needsNormals || (debugView != DebugView::None && debugView != DebugView::Cascades)))
+    // A face of a realtime GI capture always has it: the distance of what the probe sees is made from it (renderer_gi.cpp).
+    if (!(ctx.plan.gi || pp.needsDepth || pp.needsNormals ||
+          (debugView != DebugView::None && debugView != DebugView::Cascades)))
         return false;
     bool anyMesh = false;
     for (const MeshBatch& b : ctx.opaqueBatches) anyMesh = anyMesh || b.mainCount > 0;
@@ -2620,8 +2663,31 @@ bool Renderer::Impl::plan_prepass(DrawContext& ctx) {
     }
     transient_targets().pool.release(h);
     ctx.doPrepass = true;
-    ctx.debugPrepass = (debugView == DebugView::Depth || debugView == DebugView::Normals) && gpu.prepass_view_ready();
+    ctx.debugPrepass =
+        !ctx.plan.gi && (debugView == DebugView::Depth || debugView == DebugView::Normals) && gpu.prepass_view_ready();
     return true;
+}
+
+// Transmission (M73-P6b, renderer_xmit.h): counts the visible transmissive meshes of the blended phase; when there is one and the copy of the
+// opaque picture can be made (the shader compiled, the pool makes the atlas and its level images), the main pass splits after the opaque phase
+// (ctx.xmit.want). Without it the draws are blended plainly, with no refraction (the shader's mode 2). A job with no transmissive draw
+// does nothing here, so its frame is the frame without the feature. Reads: ctx.blendedBatches, ctx.blended, ctx.camPx, ctx.fr, ctx.plan.
+// Writes: ctx.xmit.want, stats.transmissiveMeshes, stats.transmissionPlain.
+void Renderer::Impl::plan_transmission(DrawContext& ctx) {
+    ctx.xmit = {};
+    if (!ctx.fr.wantWorld || !ctx.doMainPass || ctx.camPx.w < 1 || ctx.camPx.h < 1) return;
+    int meshes = 0;
+    for (const MeshBatch& b : ctx.blendedBatches) {
+        if (b.mainCount == 0) continue;
+        const MeshItem& mi = ctx.blended[b.rep];
+        if (mesh_is_transmissive(*mi.mr, *mi.mesh, mi.material)) meshes += int(b.mainCount);
+    }
+    if (meshes == 0) return;
+    stats.transmissiveMeshes += meshes;
+    if (xmit.can_make(transient_targets(), gpu, ctx.camPx.w, ctx.camPx.h))
+        ctx.xmit.want = true;
+    else
+        ++stats.transmissionPlain;
 }
 
 // The image the outline reads. Depth mode needs the prepass (plan_prepass made it or said why not, once); sprite mode needs a coverage
@@ -2676,10 +2742,10 @@ void Renderer::Impl::coverage_pass(DrawContext& ctx, const Target& t) {
 
 // Draws the opaque meshes of the job into `t`. Reads: ctx.opaque / opaqueBatches, ctx.mainInst, ctx.vuScene, ctx.fuScene, ctx.fr.cam, the
 // custom prepass programs of the materials. Writes: `t`; stats.drawCalls.
-void Renderer::Impl::prepass_pass(DrawContext& ctx, const Target& t) {
+void Renderer::Impl::prepass_pass(DrawContext& ctx, const Target& t, bool backFaces) {
     const std::vector<MeshBatch>& batches = ctx.opaqueBatches;
     const std::vector<MeshItem>& items = ctx.opaque;
-    PassDesc pd = pass_into(t, "prepass");
+    PassDesc pd = pass_into(t, backFaces ? "prepass-back" : "prepass");
     pd.colorLoad = SG_LOADACTION_CLEAR;  // nothing drawn: far depth, no normal, coverage 0
     pd.clearColor = {PrepassRef::kFarDepth, 0.0f, 0.0f, 0.0f};
     pd.colorStore = SG_STOREACTION_STORE;
@@ -2713,7 +2779,7 @@ void Renderer::Impl::prepass_pass(DrawContext& ctx, const Target& t) {
             if (!custom) bind.mat = nullptr;  // the engine's program has no material textures
             sg_apply_pipeline(gpu.prepass_pipeline(pd.format, part.doubleSided || (pd0.mat && pd0.mat->doubleSided),
                                                    skinned, custom ? custom->shader : sg_shader{},
-                                                   custom ? mat->extras() : MeshExtras{}));
+                                                   custom ? mat->extras() : MeshExtras{}, backFaces));
             sg_bindings b{};
             b.vertex_buffers[0] = part.vb;
             b.vertex_buffers[1] = ctx.mainInst;
@@ -3117,6 +3183,14 @@ void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
         mp.colorStore = (msaa && (plan.last || plan.view) && !hudAfterBloom && !ctx.debugPrepass)
                             ? SG_STOREACTION_DONTCARE
                             : SG_STOREACTION_STORE;
+        const sg_store_action finalStore = mp.colorStore;
+        // A transmissive draw splits the pass after the opaque phase (below): the first half keeps the picture, the depth and the stencil for the
+        // second.
+        if (ctx.xmit.want) {
+            mp.colorStore = SG_STOREACTION_STORE;
+            mp.depthStore = SG_STOREACTION_STORE;
+            mp.stencilStore = SG_STOREACTION_STORE;
+        }
         mp.depthLoad = SG_LOADACTION_CLEAR;
         mp.clearDepth = 1.0f;
         mp.stencilLoad = SG_LOADACTION_CLEAR;
@@ -3205,7 +3279,8 @@ void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
                         else
                             sg_apply_pipeline(gpu.mesh_pipeline(
                                 isBlend, part.doubleSided || (pd.mat && pd.mat->doubleSided), skinned,
-                                prog ? prog->shader : sg_shader{}, pd.mat ? pd.mat->extras() : MeshExtras{}));
+                                prog ? prog->shader : sg_shader{}, pd.mat ? pd.mat->extras() : MeshExtras{},
+                                isBlend && mesh_is_transmissive(mr, *mi.mesh, mi.material)));
                         sg_bindings b{};
                         b.vertex_buffers[0] = part.vb;
                         b.vertex_buffers[1] = mainInst;
@@ -3284,6 +3359,30 @@ void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
                      "Hint: turn PostProcess.fogEnabled off, or lower the render scale if the GPU is out of memory.");
         }
 
+        // Transmission (renderer_xmit.h): the opaque picture is finished here. The pass ends (the multisampled picture is resolved), the picture is
+        // copied into the refraction atlas, and the pass goes on from what it stored (colour, depth, stencil LOAD): the blended meshes, which see
+        // the atlas at view 28, then everything drawn after them. A copy that cannot be made leaves ctx.xmit.on off: the plain blend.
+        XmitImages xmitImages;
+        if (ctx.xmit.want) {
+            gpu.end_pass();
+            const int row = gpu.is_gl() ? gameTarget.h - camPx.y - camPx.h : camPx.y;  // image rows (xmit.h)
+            if (xmit.build(transient_targets(), gpu, gameTarget, camPx.x, row, camPx.w, camPx.h, xmitImages)) {
+                ctx.xmit.on = true;
+                ctx.xmit.levels = xmitImages.levels;
+                ctx.xmit.atlasView = xmitImages.atlasView;
+                ++stats.transmissionCopies;
+            } else {
+                ++stats.transmissionPlain;
+            }
+            PassDesc cp = pass_into(gameTarget, plan.view ? "view-glass" : fr.wantWorld ? "game-glass" : "game-hud");
+            cp.colorLoad = SG_LOADACTION_LOAD;
+            cp.colorStore = finalStore;
+            cp.depthLoad = SG_LOADACTION_LOAD;
+            cp.stencilLoad = SG_LOADACTION_LOAD;
+            gpu.begin_pass(cp);
+            if (partial) apply_view(camPx);
+        }
+
         draw_meshes(blendedBatches, blended, true);
 
         // quad groups
@@ -3318,6 +3417,7 @@ void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
         }
 
         gpu.end_pass();
+        if (xmitImages.atlas) xmit.finish(transient_targets(), xmitImages);
     }  // doMainPass
 }
 
@@ -3475,6 +3575,31 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
                 if (t) prepass_pass(ctx, *t);
             },
             true);
+        // A face of a realtime GI capture: the same prepass with the back faces only, and the pass that turns the two into the face's
+        // distance picture (renderer_gi.cpp). A probe whose first hit is a back face is inside geometry.
+        if (plan.gi) {
+            pdsc.label = plan.name + "/prepass-back";
+            const ResourceId backRes = graph.create_transient(pdsc);
+            add(
+                "prepass-back", {}, {backRes},
+                [this, &ctx, backRes](const PassContext& c) {
+                    const Target* t = transient_targets().get(c.handle(backRes));
+                    if (t) prepass_pass(ctx, *t, true);
+                },
+                true);
+            GiFacePlan* gi = plan.gi;
+            gi->drawn = true;
+            add(
+                "gi-distance", {prepassRes, backRes}, {},
+                [this, prepassRes, backRes, gi](const PassContext& c) {
+                    const Target* front = transient_targets().get(c.handle(prepassRes));
+                    const Target* back = transient_targets().get(c.handle(backRes));
+                    if (front && back && front->texView.id && back->texView.id)
+                        probes.gpu.gi_dist(gpu, gi->distIndex, front->texView, back->texView, gi->maxDistance,
+                                           &probes.gi.drawCalls);
+                },
+                true);
+        }
     }
     // The march of the volumetric fog (renderer_volumetric.h): in this camera's own job, after its shadow and prepass passes, because it reads the
     // shadow atlas this job drew (a later job may draw into the shared atlas again). The pass that blends it over the picture is declared with the

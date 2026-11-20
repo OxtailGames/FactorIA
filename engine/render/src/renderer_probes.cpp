@@ -126,6 +126,7 @@ void Renderer::Impl::probes_release() {
     ps.frames.clear();
     ps.uploads.clear();
     ps.overLimit = 0;
+    gi_release();
 }
 
 void Renderer::Impl::probes_build_volumes(World& world) {
@@ -190,6 +191,7 @@ void Renderer::Impl::probes_plan(World& world) {
     ps.jobs.clear();
     ps.frames.clear();
     ps.uploads.clear();
+    gi_collect(world);  // cheap when the world has no RealtimeGI
     // Entity ids repeat from one scene to the next: another world, or another scene loaded into this one, makes every entry of the
     // last scene a stranger (an on-demand probe would keep showing the old scene). The atlas and the sky's tile stay.
     if (ps.world != &world || ps.sceneGeneration != world.scene_generation()) {
@@ -228,8 +230,9 @@ void Renderer::Impl::probes_plan(World& world) {
     // The sky is entry 0 of the atlas, which the meshes sample (M73-P3c): a scene whose meshes use the baked sky keeps the atlas with no
     // probe in it. The cameras were planned before this call, so envJobs says whether this frame's meshes sample the sky.
     const bool skyWanted = envFrame == frameSerial && !envJobs.empty();
-    if (wants.empty() && !skyWanted) {
-        if (!ps.entries.empty() || ps.atlas.valid() || ps.syncAtlas.valid() || ps.skyPlaced) probes_release();
+    if (wants.empty() && !skyWanted && ps.gi.wants.empty()) {
+        if (!ps.entries.empty() || ps.atlas.valid() || ps.syncAtlas.valid() || ps.skyPlaced || !ps.gi.grids.empty())
+            probes_release();
         probeVolumes.clear();
         return;
     }
@@ -290,7 +293,12 @@ void Renderer::Impl::probes_plan(World& world) {
         fail_all("this GPU cannot draw the probes' passes (see the log)");
         return;
     }
+    // A RealtimeGI needs the band of blocks below the square (gi.h): an atlas made without it is made again, once.
+    const int atlasHeight = ps.gi.wants.empty() ? 0 : kGiAtlasHeight;
+    if (ps.atlas.valid() && ps.atlas.height < atlasHeight) ps.gpu.destroy_atlas(ps.atlas);
+    bool atlasRemade = false;
     if (!ps.atlas.valid()) {
+        atlasRemade = true;
         // A new atlas is empty: nothing in the allocator is in it any more.
         ps.allocator = ProbeAtlasAllocator();
         ps.skyPlaced = false;
@@ -302,7 +310,7 @@ void Renderer::Impl::probes_plan(World& world) {
             en.uploadedGain = 0.0f;
             en.bakedSerial = 0;
         }
-        if (!ps.gpu.make_atlas(ps.atlas, kProbeAtlasSize, "probe-atlas")) {
+        if (!ps.gpu.make_atlas(ps.atlas, kProbeAtlasSize, "probe-atlas", atlasHeight)) {
             fail_all("the " + std::to_string(kProbeAtlasSize) + " x " + std::to_string(kProbeAtlasSize) +
                      " probe atlas could not be created (out of GPU memory?)");
             return;
@@ -465,10 +473,12 @@ void Renderer::Impl::probes_plan(World& world) {
         const bool failed = it != ps.entries.end() && it->second.state == "failed";
         ps.scheduler.abandon(id, ps.frame, failed ? kProbeRetryFrames : 0);
     }
+    gi_plan(world, atlasRemade);
 }
 
 void Renderer::Impl::probes_finish() {
     ProbeSystem& ps = probes;
+    gi_finish();
     if (ps.jobs.empty() && ps.uploads.empty()) {
         ps.frames.clear();
         // The states that follow the scheduler.
@@ -528,7 +538,7 @@ bool Renderer::Impl::probe_read_atlas(int x, int y, int w, int h, std::vector<fl
         if (error) *error = "the renderer has no probe atlas yet (no ReflectionProbe has been drawn)";
         return false;
     }
-    if (x < 0 || y < 0 || w < 1 || h < 1 || x + w > ps.atlas.size || y + h > ps.atlas.size) {
+    if (x < 0 || y < 0 || w < 1 || h < 1 || x + w > ps.atlas.size || y + h > std::max(ps.atlas.height, ps.atlas.size)) {
         if (error) *error = "the rectangle is outside the atlas";
         return false;
     }

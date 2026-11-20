@@ -418,6 +418,18 @@ Returns the frame graph of the last frame the renderer drew and what each of its
 |---|---|---|---|
 | `profileFrames` | integer | no | GPU times need the profiler: when it is off and the backend can time the GPU, switch it on for this call and draw the current state up to this many times, stopping as soon as GPU times arrive; then put it back. 0 = read what is there (gpuMs -1 unless the profiler is already on). Default 8. |
 
+## `render.gi_grid`
+
+Not released yet (on main after 0.32.0).
+
+The realtime GI's probe grids: probe count, update progress, memory and the probes that are inside geometry.
+
+Capabilities: read
+
+Reads the state of the RealtimeGI grids after drawing a frame when none is current. Result: {frame, captures, capturesPerFrame (last 64 frames), probeLimit, atlas: {width, height, format, bytes, blocksUsed}, grids: [{entity, state, message?, probes, dimensions, spacing, origin, resolution, probesPerFrame, captured, progress (0..1), cycles, framesPerCycle, bytes, notCaptured, invalidProbes, invalid: [{index, position}] (up to 64)}]}. `state` is "updating" (probes not captured yet), "ready", "invalid" (`message` names the field and the fix), "noRoom" (more than `probeLimit` probes), "failed" (retried after 30 frames) or "unsupported" (no RGBA16F blending). `invalidProbes` counts the probes inside a mesh (back faces hit beyond `backfaceTolerance`), found by one atlas readback: call this to look, not every frame. Nothing is shaded with the grid yet (M73-P5d-2). {grids: [], atlas: null} while no RealtimeGI was drawn. Errors: `unavailable` without graphics. Example: render.gi_grid {} See docs/rendering/RENDERING_LIGHT_PROBES.md, "Realtime global illumination".
+
+Other result fields: passes, probesPerFrameLimit, capturesLastFrame, firstBlock. A grid costs `probes` x 10 x 11 texels x 8 bytes of the probe atlas (1760 bytes for two probes) and `probesPerFrame` x 6 faces of `resolution` x `resolution` texels a frame; the atlas grows by 132 rows (about 1 MB) while any RealtimeGI exists. `ready` means every probe was captured once; the others are refreshed in turn, `framesPerCycle` frames for all.
+
 ## `render.inspect`
 
 Since 0.4.0.
@@ -452,6 +464,22 @@ A group is `stale` when its LightProbeGroup was edited (moved, resized, other sp
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `entity` | string | no | The MeshRenderer entity (id or name) whose received light to report. Default: only the scene's probes. |
+
+## `render.material_cost`
+
+Not released yet (on main after 0.32.0).
+
+What the material of a mesh entity costs the renderer: its extra passes, its phase and the features that only add shader work.
+
+Capabilities: read
+
+The one list the Inspector's cost view shows: for the MeshRenderer of entity `id` it says which features are on and what each adds to the frame. Returns {id, extraPasses, phase, summary, features: [{name, field, active, cost, extraPasses, note}]}. `phase` is "opaque" or "blended" (blended meshes are drawn after the opaque ones, far to near, without writing depth; a transmissive mesh is one of them). `cost` of a feature is "extraPass" (transmission copies the opaque picture once per camera that sees such a mesh: a pass for each reduced half, one that writes the atlas and the second half of the main pass; a full-shader material draws the mesh once per pass), "phase" (blended: no pass, a different place in the frame) or "shader" (clear coat, sheen, anisotropy: more work per pixel, no pass). `extraPasses` counts the passes of an active feature (0 when it is off), and the top-level one adds them up; the pass count of transmission follows the size of the picture (a small one has fewer halves). The decision is the renderer's own (a MeshRenderer field replaces the model's, a full-shader material gets no layers and no transmission). Example: render.material_cost {"id":"window"}
+
+Errors: `not_found` for an `id` that is not in the scene, `invalid_argument` when the entity has no MeshRenderer, `unavailable` without graphics (graphics=false). It loads the entity's mesh and material when they are not loaded yet. The same answer is Renderer::material_cost in C++.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `id` | string | yes | The id of an entity with a MeshRenderer. |
 
 ## `render.output`
 
@@ -540,7 +568,7 @@ Capabilities: read
 
 Answers from the renderer's table per backend (GL, GLES3, WebGL2, D3D11, Metal, headless) and from what the GPU reports, so a game or a tool can ask before it relies on a feature. Without `feature`: {backend, backendLabel, features: [{name, kind, supported, status, doc, backends}]}; with `feature`: {feature, backend, supported, status}. A feature the renderer does not draw is false with the status "planned (<milestone>)" (the lighting of M73 is, until each part lands): this command never claims what is not drawn. Example: render.supports {"feature":"floatTargets"}
 
-`kind` is capability (a fact of the GPU: floatTargets, r11g11b10, sampledDepth, computeShaders, float32Targets), engine (linearColor, hdrOutput, and the lighting rows of M73: clusteredLights, areaLights, lightCookies, iesProfiles, cascadedShadows, pointShadows, spotShadows, contactShadows, environmentMap, reflectionProbes, physicalSky, lightmaps, lightProbes, volumetricFog, decals, subsurface, realtimeGI, clearCoat, sheen, anisotropy, transmission) or effect (one per PostProcess effect: ssao, ssr, fog, sunShafts, exposure, depthOfField, motionBlur, radialBlur, lensDistortion, chromaticAberration, bloom, tonemap, colorGrading, vignette, sharpen, outline, pixelate, posterize, filmGrain, colorFilter); `backends` says on which backends the feature can ever run. `status` is "supported", "planned (<milestone>)" for an engine feature or effect the renderer does not draw (the M73 lighting rows until their step lands; clusteredLights, areaLights, lightCookies, iesProfiles, lightmaps, lightProbes, reflectionProbes, volumetricFog and subsurface are drawn), or one sentence that names the backend or the missing GPU capability. hdrOutput is true when the display the window showed its last frame on can show HDR in an encoding the renderer writes (EDR on Metal, scRGB or HDR10 on D3D11), whatever the scene asks; its status otherwise says why (the display or the OS setting); render.output says what the window shows. The headless dummy backend (no GPU) answers false to everything; a headless run with Mesa/EGL is a GL or GLES3 backend like any other. Errors: `invalid_argument` for a `feature` that is not in the list (with a did-you-mean); `unavailable` without graphics (graphics=false). The same answer is Renderer::supports(name) in C++.
+`kind` is capability (a fact of the GPU: floatTargets, r11g11b10, sampledDepth, computeShaders, float32Targets), engine (linearColor, hdrOutput, and the lighting rows of M73: clusteredLights, areaLights, lightCookies, iesProfiles, cascadedShadows, pointShadows, spotShadows, contactShadows, environmentMap, reflectionProbes, physicalSky, lightmaps, lightProbes, volumetricFog, decals, subsurface, realtimeGI, clearCoat, sheen, anisotropy, transmission) or effect (one per PostProcess effect: ssao, ssr, fog, sunShafts, exposure, depthOfField, motionBlur, radialBlur, lensDistortion, chromaticAberration, bloom, tonemap, colorGrading, vignette, sharpen, outline, pixelate, posterize, filmGrain, colorFilter); `backends` says on which backends the feature can ever run. `status` is "supported", "planned (<milestone>)" for an engine feature or effect the renderer does not draw (the M73 lighting rows until their step lands; clusteredLights, areaLights, lightCookies, iesProfiles, lightmaps, lightProbes, reflectionProbes, volumetricFog, subsurface and transmission are drawn), or one sentence that names the backend or the missing GPU capability. hdrOutput is true when the display the window showed its last frame on can show HDR in an encoding the renderer writes (EDR on Metal, scRGB or HDR10 on D3D11), whatever the scene asks; its status otherwise says why (the display or the OS setting); render.output says what the window shows. The headless dummy backend (no GPU) answers false to everything; a headless run with Mesa/EGL is a GL or GLES3 backend like any other. Errors: `invalid_argument` for a `feature` that is not in the list (with a did-you-mean); `unavailable` without graphics (graphics=false). The same answer is Renderer::supports(name) in C++.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|

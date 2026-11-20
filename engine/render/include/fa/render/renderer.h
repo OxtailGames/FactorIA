@@ -147,6 +147,12 @@ struct RenderStats {
     // Contact shadows (M73.2c): lights (Light.contactShadowLength above 0, with SceneSettings.contactShadows on) whose ray the meshes of the
     // frame march against the depth prepass; 0 when no camera could make the prepass.
     int contactShadowLights = 0;
+    // Transmission (M73-P6b): visible transmissive mesh instances of the frame (glass, liquids; MeshRenderer.transmission), the copies of the
+    // opaque picture made for them (one per camera with such a draw; 0 means no copy was made: bit-identical to a frame without the feature),
+    // and the cameras whose transmissive meshes were blended plainly, with no refraction, because the copy could not be made.
+    int transmissiveMeshes = 0;
+    int transmissionCopies = 0;
+    int transmissionPlain = 0;
     // Subsurface scattering (M73.5), summed over the cameras of the frame.
     int subsurfaceCameras =
         0;  // cameras that scattered the light of MeshRenderer.subsurface (0 when none could: no prepass, no RGBA16F)
@@ -496,7 +502,12 @@ public:
     // The shader dialect of this renderer's backend (see ShaderCompiler); "" before init().
     std::string shader_dialect() const;
     void clear_asset_cache();
-    Json asset_report() const;            // loaded assets + failures (missing files with hints)
+    Json asset_report() const;  // loaded assets + failures (missing files with hints)
+    // What the material of a MeshRenderer costs the renderer: the extra passes of its features (a transmissive mesh copies the opaque
+    // picture, a full-shader material draws once per pass), its phase and the features that only add fragment work; the command
+    // render.material_cost and the Inspector's cost view show this report (material_cost.h). Loads the mesh and the material when they are
+    // not loaded yet; {} before init().
+    Json material_cost(const MeshRenderer& mr);
     std::uint64_t texture_bytes() const;  // GPU memory of the loaded textures
 
     // Background loading (scene.preload, assets.preload, scene.load {async: true}; docs/PERFORMANCE.md, "Background
@@ -544,6 +555,10 @@ public:
     // What `mesh` reflected in the last frame: {probes: [{entity, share}], sky}; the shares (0..1, in steps of 1/32) of the probes and of the
     // sky add up to 1. A mesh no probe reaches (or one that was not drawn) reflects the sky: {probes: [], sky: 1}. Empty object before init().
     Json probe_mesh_report(Entity mesh) const;
+    // The realtime GI's grids (RealtimeGI; include/fa/render/gi.h, docs/design/ARCHITECTURE_PROBES.md, "Realtime GI: the data side"): the report of
+    // the `render.gi_grid` command: {frame, captures, capturesPerFrame, atlas, grids: [{entity, state, probes, progress, bytes, invalidProbes,
+    // ...}]}. It reads the probes' meta texels back from the GPU (a command, never the frame). Empty object before init() and while no grid exists.
+    Json gi_report();
     // Asks for the probe's next capture as soon as the budget allows (an `onDemand` probe captures only then). False when it is not a
     // realtime probe of this renderer.
     bool probe_refresh(Entity probe);
