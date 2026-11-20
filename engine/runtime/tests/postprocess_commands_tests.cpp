@@ -61,8 +61,9 @@ TEST_CASE("postprocess and render.supports commands are documented and closed") 
     Engine e;
     std::string err;
     REQUIRE_MESSAGE(e.init(cfg(p), nullptr, &err), err);
-    for (const char* name : {"postprocess.get", "postprocess.set", "postprocess.presets", "postprocess.apply_preset",
-                             "render.supports", "render.debug_view", "render.reset_post_history"}) {
+    for (const char* name :
+         {"postprocess.get", "postprocess.set", "postprocess.presets", "postprocess.apply_preset", "render.supports",
+          "render.debug_view", "render.reset_post_history", "render.light_probes"}) {
         INFO(name);
         const CommandInfo* info = e.commands().info(name);
         REQUIRE(info != nullptr);
@@ -73,6 +74,7 @@ TEST_CASE("postprocess and render.supports commands are documented and closed") 
     CHECK(e.commands().info("postprocess.get")->readOnly);
     CHECK(e.commands().info("postprocess.presets")->readOnly);
     CHECK(e.commands().info("render.supports")->readOnly);
+    CHECK(e.commands().info("render.light_probes")->readOnly);
     CHECK_FALSE(e.commands().info("postprocess.set")->readOnly);
     e.shutdown();
 }

@@ -28,6 +28,7 @@ Version marks: an entry added after 0.1.0 ends with "(Since 0.1.x)", and "(Not r
 - [Decal](components/3d.md#decal): A texture projected onto the 3D meshes that stand inside the box of this entity: bullet holes, blood, graffiti, dirt, road markings, the cracks of a wall. _Not released yet._
 - [IK3D](components/3d.md#ik3d): 3D inverse kinematics on the skinned model of the Animator on the same entity (docs/ANIMATION.md, "3D IK"). _Since 0.16.0._
 - [Light](components/3d.md#light): A light source for 3D meshes.
+- [LightProbeGroup](components/3d.md#lightprobegroup): Light probes for moving objects: a grid of points that lightmap.bake fills with the light around them (spherical harmonics, as the direct light of the baked lights, the sky and their bounces). _Not released yet._
 - [MeshRenderer](components/3d.md#meshrenderer): Draws a 3D mesh with a PBR material (GGX highlights, sky reflections, normal maps; glTF materials are read).
 - [ReflectionProbe](components/3d.md#reflectionprobe): Captures the scene around this entity into a small map (an octahedral image: the six directions of a cube unfolded onto a square) with its blurry versions for rough surfaces and the diffuse light as nine spherical harmonics, and keeps it in the engine's probe atlas. _Not released yet._
 
@@ -423,6 +424,7 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`render.debug_view`](commands/game.md#renderdebug_view-modifies-state): Show the depth or the normals of the depth and normal prepass, the ambient occlusion, or the cascades of the sun's shadow, instead of the game picture, or report which view is on. _Since 0.31.0._
 - [`render.frame_graph`](commands/game.md#renderframe_graph): Where the last frame's time went, pass by pass: the frame graph with the CPU and GPU time of every pass. _Since 0.28.0._
 - [`render.inspect`](commands/game.md#renderinspect): Luminance profile of the current picture along a line, with the hard steps (seams, bands) in it. _Since 0.4.0._
+- [`render.light_probes`](commands/game.md#renderlight_probes): The baked light probes of the scene and the light a MeshRenderer receives from them. _Not released yet._
 - [`render.output`](commands/game.md#renderoutput): What the game window shows: the standard range or HDR, in which encoding, and what the display can do. _Since 0.31.0._
 - [`render.pick`](commands/game.md#renderpick): Which entities draw a design-space pixel of the picture, topmost first. _Since 0.4.0._
 - [`render.probe_refresh`](commands/game.md#renderprobe_refresh-modifies-state): Capture a realtime reflection probe again (or every realtime probe) as soon as the frame budget allows. _Not released yet._

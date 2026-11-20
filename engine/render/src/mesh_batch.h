@@ -42,6 +42,10 @@ struct MeshItem {
     bool noCull = false;        // never frustum-culled: a mesh material with buffers and no MeshRenderer.instanceBounds
     // Lit by a baked lightmap (M73.4a): drawn with `lm.mesh->parts` and the page rectangle of its entity, so never batched with another.
     LightmapUse lm;
+    // Baked light probes (M73.4d): the SH the item receives instead of the sky ambient (null = none; points into the RenderScene)
+    // and its quantised key (probe_light_key, 0 = none). Items with different keys never share a draw.
+    const ProbeLight* probe = nullptr;
+    std::uint64_t probeKey = 0;
 };
 
 // What the decal pass of the shader needs to know of a mesh (MeshRenderer.receiveDecals / decalLayer): 0 = it receives none, else
@@ -74,10 +78,11 @@ struct SortFields {
     Color flash{0, 0, 0, 0};
     bool lightmapped =
         false;  // a batch of its own, like a skinned one: its entity is part of what the batches differ by
+    std::uint64_t probeKey = 0;  // probe_light_key: items with other light probe SH are other batches
 };
 inline SortFields fields_of(const MeshItem& m) {
-    return {m.mesh,       m.tex,   m.normalTex,         m.mr, m.entity, m.anim, m.material, m.paramsHash,
-            m.colorsHash, m.flash, m.lm.mesh != nullptr};
+    return {m.mesh,       m.tex,   m.normalTex,          m.mr,      m.entity, m.anim, m.material, m.paramsHash,
+            m.colorsHash, m.flash, m.lm.mesh != nullptr, m.probeKey};
 }
 
 // The 64-bit sort key: four fields, most significant first, each the RANK of the value among those of the frame (never
@@ -133,6 +138,7 @@ private:
         int decalRecv = 1;              // decal_recv()
         std::array<float, 3> uvNormal;  // uvScale x, y, normalScale
         std::uint64_t skinEntity = 0;   // Entity::bits() of a skinned item, else 0
+        std::uint64_t probeKey = 0;     // SortFields::probeKey
         std::string_view material;      // by name
         std::size_t paramsHash = 0, colorsHash = 0;
         std::array<float, 4> flash;
@@ -183,7 +189,10 @@ struct MeshBatch {
     std::uint32_t mainFirst = 0, mainCount = 0;
     // The shadow runs of the batch, one per view that holds a caster of it, in ascending view order: runs[runFirst .. +runCount) of the
     // vector build_batches filled (the one the caller passed).
-    std::uint32_t runFirst = 0, runCount = 0;
+    // Neighbouring batches that differ only in their probe SH (MeshItem::probeKey) share one set of runs, held by the first of
+    // them (the others have runCount 0): the shadow pass never reads the SH. shadowEnd = the end (in `items`) of the casters
+    // of those runs.
+    std::uint32_t runFirst = 0, runCount = 0, shadowEnd = 0;
     // The per-instance params of a material with "instanced" params (pack_instance_params): instanceVec4 vec4 for each
     // instance, at mainData[mainExtra ..) (floats) for the visible items; the casters' are ShadowRun::extra. instanceVec4 is 0
     // for a batch without them.

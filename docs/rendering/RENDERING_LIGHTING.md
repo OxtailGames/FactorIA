@@ -348,10 +348,8 @@ tangent turned by `anisotropyRotation`); a texture file that cannot be read (`it
 
 ## Reflection probes (M73-P3b)
 
-A `ReflectionProbe` entity captures the light around its position (six views of the scene, a mirror picture, four rougher ones and nine
-spherical-harmonics coefficients) into one shared atlas, either while the game runs (`realtime`) or once, with `probe.bake`. Captured and
-stored today, read by the meshes from M73-P3c; `render.probes` shows what the renderer holds. The fields, the commands, the atlas and
-its limits: [RENDERING_PROBES.md](RENDERING_PROBES.md) (`docs.read rendering-probes`).
+A `ReflectionProbe` is captured into one atlas (realtime, or once with `probe.bake`); meshes read it from M73-P3c. Fields, commands and
+limits: [RENDERING_PROBES.md](RENDERING_PROBES.md) (`docs.read rendering-probes`).
 
 ## Lightmaps
 
@@ -433,6 +431,10 @@ nothing is set (`handOver` says so).
 on a laptop. Start with `texelsPerMeter` 8 and `samples` 16 for a draft, then raise them. The result is the same bits with any number of
 threads and on every run (a seed: `seed`). Cancel is looked at in every phase (the BVH, the layout, the rays, the denoiser, the gutter); a
 cancelled bake changes no file. The rest of the arguments (`bounces`, `denoiseRadius`, `rayEpsilon`, ...) are in the command's schema (`api.commands`).
+
+### Light probes and mixed lights (M73.4d)
+
+A `LightProbeGroup` is baked by the same job (phase `probes`); a mesh with no lightmap gets the probes' light, and a `baked` light no longer lights it twice. See [Light probes and mixed lights](RENDERING_LIGHT_PROBES.md) (`docs.read rendering-light-probes`).
 
 ## Decals (M73.5b)
 
@@ -581,7 +583,7 @@ until its step lands; then it follows the GPU (`cascadedShadows` does, `environm
 what is not drawn.
 
 `clusteredLights`, `areaLights`, `lightCookies`, `iesProfiles` (M73.1); `cascadedShadows`, `pointShadows`, `spotShadows`,
-`contactShadows` (M73.2, M73.2c: drawn; supported where the depth prepass can be made); `environmentMap`, `reflectionProbes`, `physicalSky` (M73.3; `environmentMap` and `physicalSky` are drawn; `reflectionProbes` is captured but not yet read by meshes, M73-P3c); `lightmaps` (M73.4a), `lightProbes` (M73.4d);
+`contactShadows` (M73.2, M73.2c: drawn; supported where the depth prepass can be made); `environmentMap`, `reflectionProbes`, `physicalSky` (M73.3; `environmentMap` and `physicalSky` are drawn; `reflectionProbes` is captured, read by meshes from M73-P3c); `lightmaps` (M73.4a, drawn), `lightProbes` (M73.4d, drawn: every backend);
 `volumetricFog` (M73.5, drawn: true wherever the GPU has RGBA16F render targets that blend and filter), `decals` (M73.5b, drawn), `subsurface` (M73.5, drawn: RGBA16F targets and the depth prepass), `realtimeGI` (M73.5); `clearCoat`, `sheen`, `anisotropy` (M73.6a, drawn: they follow the
 backend, which every one supports) and `transmission` (M73.6b).
 

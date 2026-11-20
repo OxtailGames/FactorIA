@@ -1073,7 +1073,9 @@ struct MeshRenderer {
         1.0f;  // M73.4: texels per metre of the lightmap, as a multiple of the scene's density; 0 = not in the lightmap
     bool contributeGI = true;  // M73.4: the surface bounces light onto others in a bake and in the realtime GI
     bool receiveGI =
-        true;  // M73.4: the surface is lit by the baked lightmap (and, later, the probes and the realtime GI)
+        true;  // M73.4: the surface is lit by the baked lightmap, the light probes (M73.4d) and, later, the realtime GI
+    Entity probeAnchor =
+        kNullEntity;  // M73.4d: the entity whose position samples the light probes; empty = the centre of the mesh's bounds
     float clearcoat = 0.0f;  // M73.6: strength of the clear coat layer (KHR_materials_clearcoat)
     float clearcoatRoughness = 0.03f;
     Color sheenColor{0, 0, 0, 1};  // M73.6: the cloth sheen layer's colour (KHR_materials_sheen); black = none
@@ -1132,6 +1134,18 @@ struct ReflectionProbe {
     std::string bakedMap;       // project-relative .probe.json written by probe.bake (the manifest of the pages)
     float intensity = 1.0f;     // multiplies what the probe reflects
     bool boxProjection = true;  // M73.3c: correct the reflection for the box (parallax); stored for the mesh shader
+};
+// M73.4d: light probes for moving objects (docs/rendering/RENDERING_LIGHTING.md, "Light probes and mixed lights"). A grid of probes over an axis-aligned box
+// of the world (centred on the entity's world position + `offset`; the entity's rotation and scale do not turn it) plus optional single points.
+// lightmap.bake traces the light at every probe and stores it as spherical harmonics next to the lightmap pages.
+struct LightProbeGroup {
+    Vec3 size{10.0f, 4.0f, 10.0f};  // metres, the box of the grid; 0 on an axis = one layer of probes on it
+    float spacing = 2.0f;           // metres between two probes of the grid, 0.25..100
+    Vec3 offset{0.0f, 0.0f, 0.0f};  // metres: the box's centre relative to the entity's world position
+    bool grid = true;               // false = no grid, only `points`
+    Json points = Json::
+        array();  // extra probes [[x, y, z], ...] in world metres, up to 256; they light the objects close to them
+    bool showGizmo = true;  // the editor draws the probes of this group as small spheres coloured by their baked light
 };
 enum class LightType : std::int32_t { Directional, Point, Spot, Area };
 enum class LightShape : std::int32_t { Rectangle, Disc, Tube };

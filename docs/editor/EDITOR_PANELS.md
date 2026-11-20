@@ -272,6 +272,7 @@ commands (docs/rendering/RENDERING_LIGHTING.md, "Baking"), on a job thread, so t
   file is changed.
 - **The result.** A finished bake lists its pages (file and size), the texels, the meshes, the rays and the time, the skipped entities with
   their reason, and the warnings (a physical sky that fell back to the gradient, a Tube light baked as a rectangle).
+- **Light probes.** The bake also bakes the `LightProbeGroup` entities of the scene (phase `probes`) and the result says how many probes there are and how many lie inside geometry (ignored). **Show probes** draws them in the 3D viewport: a sphere per probe coloured by the light it baked (grey before the first bake or after the group was edited, a red cross for a probe inside geometry); `LightProbeGroup.showGizmo` hides one group (docs/rendering/RENDERING_LIGHT_PROBES.md).
 - **The scene.** The panel starts the bake without `apply` and then sets `SceneSettings.lightmaps` through the editor's own edit path: one undo
   step, the scene marked as changed (Save keeps it). It does not set it when another scene was opened meanwhile or the game is running; the
   panel says so and where the files are.

@@ -1,6 +1,6 @@
 // Autotest section L4: the Lightmap panel (View > Lightmap, lightmap_panel.cpp). It opens the panel from the menu, clicks Start on a scene
 // with nothing to light (a teaching error and no job), adds a floor, a box and a baked sun, starts a bake too big to finish and cancels it
-// (nothing is written), then bakes a small one to the end: the panel shows its pages and sets SceneSettings.lightmaps as one undo step, which
+// (nothing is written), then bakes a small one to the end with a LightProbeGroup: the panel shows its pages, its probes and sets SceneSettings.lightmaps as one undo step, which
 // Undo takes back. The bakes run on the engine's job threads; every wait is a condition with a 60 s safety net, never a frame count.
 #include <memory>
 #include <system_error>
@@ -111,6 +111,12 @@ void Editor::at_section_L4(AtScript& at) {
 
     // A small bake to the end.
     step(2, [this] {
+        // A LightProbeGroup around the box: the bake adds the "probes" phase and writes the probe file next to the pages.
+        const CommandResult pr = engine_->commands().call(
+            "scene.spawn",
+            Json::parse(
+                R"({"id":"lm_probes","name":"Probes","components":{"Transform":{"position":[0,0,0]},"LightProbeGroup":{"size":[6,2,6],"spacing":3,"offset":[0,1,0]}}})"));
+        at_check(pr.ok, "the autotest adds a LightProbeGroup: " + pr.error.dump());
         lightmap_.texelsPerMeter = 8;
         lightmap_.samples = 16;
         lightmap_.shadowSamples = 4;
@@ -127,6 +133,13 @@ void Editor::at_section_L4(AtScript& at) {
         at_check(lightmap_.state == "done",
                  "the bake finishes (state: " + lightmap_.state + ", error: " + lightmap_.error + ")");
         at_check(at_visible("lm:summary"), "...and the panel lists its pages and texels");
+        const Json probes =
+            lightmap_.result.is_object() ? lightmap_.result.value("probes", Json::object()) : Json::object();
+        at_check(probes.value("count", 0) > 0 && probes.value("invalid", -1) >= 0 && at_visible("lm:probes"),
+                 "...and the probes of the LightProbeGroup, listed in the panel: " + probes.dump());
+        at_check(fs::exists("scenes/main.lightmap.json") && !probes.value("file", std::string()).empty() &&
+                     fs::exists(probes.value("file", std::string())),
+                 "...and the probe file is written next to the manifest");
         at_check(manifest_exists(), "...and the manifest is written");
         at_check(world().settings().lightmaps == "scenes/main.lightmap.json",
                  "...and SceneSettings.lightmaps names it (" + world().settings().lightmaps + ")");

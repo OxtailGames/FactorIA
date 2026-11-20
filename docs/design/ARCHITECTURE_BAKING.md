@@ -3,7 +3,7 @@
 Part of [FactorIA architecture](ARCHITECTURE.md) (the entry page lists every page). This page describes the core of the lightmap
 baker of M73.4: `engine/scene/include/fa/scene/lightmap_bake.h` and `bvh.h`, with `src/lightmap_bake.cpp` and `src/bvh.cpp`. It is
 plain data in and float buffers out: no renderer, no file format and no command (the lightmap runtime and the UV generation landed in M73.4a, [ARCHITECTURE_RENDERING_LIGHTING.md](ARCHITECTURE_RENDERING_LIGHTING.md),
-"Lightmaps"; the `lightmap.bake` commands that write the files are the last section of this page, the probe grid is a later package).
+"Lightmaps"; the `lightmap.bake` commands that write the files are the last section of this page, the light probes are the last section).
 
 ## The pieces
 
@@ -129,3 +129,44 @@ never in `engine/runtime`. The user page is "Baking" in [RENDERING_LIGHTING.md](
   scene is still the one the job started on and that the game is not running.
 - **Determinism.** `texelsPerMeter`, the scene and the settings give the same pages with any number of threads (the tests bake with 1 and 4
   workers and compare the bytes). The settings hash quantises floats to 1e-4.
+
+## Light probes and mixed lights (M73.4d)
+
+User page: [RENDERING_LIGHT_PROBES.md](../rendering/RENDERING_LIGHT_PROBES.md). Code: `engine/scene/{include/fa/scene,src}/light_probes.{h,cpp}` (data, file,
+interpolation), `sample_probes` in `lightmap_bake.cpp`, the `probes` phase in `tools/authoring/src/lightmap_bake_job.cpp`, the runtime in
+`engine/render/src/render_scene.cpp` and `renderer_draw.cpp`, the shaders `mesh_common.glsl` and `light_loop.glsl`.
+
+- **Probe radiance.** `sample_probes(scene, points, settings, progress)` traces `samples` rays per probe (hash seeds from the probe index, never a
+  thread index: the same bytes with 1 and 4 workers), adds the direct light of the `Baked` lights (a probe has no lightmap texel) and the bounce of
+  `IndirectOnly` ones, and projects the radiance to ShL2 (nine RGB coefficients, `c[0] = L * sqrt(4 pi)`). A probe is `valid` unless more than
+  `probeBackfaceTolerance` (0.25) of its rays first hit a back face: it is inside geometry and its SH is zeros. Progress is phase `Probes`.
+- **Groups and file.** `add_probe_group` appends the grid (`axis_count(size, spacing)` per axis, centred at entity position + `offset`) and the
+  points of a component to a `ProbeSet` (`groups`, `positions`, and after the bake `sh` and `valid`). Caps: 16384 grid probes per group, 256
+  points, 65536 probes and 4096 groups per scene, each a refusal naming the field. The file is `FAPR` v1 (little-endian, the groups, then the
+  positions, SH and flags); `decode_probe_set` checks every count against the size before it allocates (wasm32 safe). The job writes it as
+  `<stem>.lightmap.<hash8>.probes` after the pages and before the manifest (the manifest's `probes: {file, count, invalid}`), through the same
+  atomic writer and the same clean-up of old files. A bake with only probes (no receiver mesh) is valid; both empty is "nothing to bake".
+- **Interpolation.** `probe_light_at(set, p)`: per grid, trilinear over the eight corners with the invalid ones left out and renormalised, times a
+  coverage that falls from 1 to 0 over one `spacing` outside the box; a point probe weighs `(1 - d / 5 m)^2`. The groups are summed by weight and
+  the mean SH is `ProbeLight.sh`, with `coverage = min(1, total weight)`. `probe_light_key` quantises SH and coverage to 1/1024 into a hash
+  (0 = none). `probe_point()` snaps the sample point to a 0.25 m lattice, so nearby meshes share one key and one instanced draw;
+  `build_batches` ignores the key for the shadow runs (the shadow pass never reads the SH).
+- **Where the per-draw SH lives.** The nine coefficients are `vec4 fa_probe_sh[9]` at the end of `fa_mesh_fs_params` (and its copy in
+  `mesh_full_common.glsl`, which must stay the same size): `[k].xyz` is coefficient k, `[0].w` the coverage (0 = no probe). No texture unit is
+  added (the mesh fragment shader uses all 16). The CPU computes `probe_light_at` for each `SceneMesh` in the `render.mesh_cull` job
+  (`RenderScene::probeLights_`, sized only when baked probes exist) at `probe_point()`: the `probeAnchor` entity's drawn position when alive and active, else
+  the centre of the mesh's bounds through its model matrix. Eligible: `receiveGI`, not `unlit`, no lightmap, and a material that is null or
+  engine-shaded without compute buffers. `SceneMesh`, `MeshItem` and `SortFields` carry the pointer and `probeKey`, and `probeKey` is part of
+  `material_key`, `order_key` and the `Rest` sort key, so the batcher merges only draws with the same SH. `fill_fs` writes the uniform (zeros when
+  there is none, so a scene without probes feeds the shader the same bits as before).
+- **Shader.** `fa_indirect_diffuse` returns `mix(fa_ambient_light(n), fa_sh_eval(c, n), clamp(cover, 0, 1))` when `cover > 0`; the SH basis and
+  constants are the baker's, so a probe and the sky are interchangeable, and a custom `ambient()` hook sees it.
+- **Mixed and baked lights.** In the bake `Mixed` is `IndirectOnly` (bounce only) and `Baked` is the whole light; nothing else changes for a
+  mixed light at run time. For a `Baked` light the shader's `fa_baked_keep(li)` (`light_loop.glsl`) is 0 on a lightmapped receiver (the old rule),
+  `1 - coverage` on a probe-covered one, 1 elsewhere; `keep <= 0` skips the light with no shadow lookup, otherwise the attenuation is
+  scaled. `renderer_draw.cpp` treats a receiver the probes cover completely like a lightmapped one when it decides whether the shadow maps of
+  baked lights are needed.
+- **Runtime query.** `Renderer::light_probes(world)` (the loaded `ProbeSet`) and `light_probes_report(world, entity)` answer `render.light_probes`;
+  the editor's probe gizmo (`tools/editor/src/probe_gizmo.cpp`) reads the first.
+- **Not done.** No occlusion between a probe and the receiver (a probe through a thin wall counts), no run-time update of the probes, no
+  probe specular (reflections stay with the sky and the reflection probes).

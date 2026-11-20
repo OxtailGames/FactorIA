@@ -17,6 +17,7 @@
 #include "fa/core/json.h"
 #include "fa/core/math.h"
 #include "fa/core/types.h"
+#include "fa/scene/light_probes.h"
 #include "fa/scene/lightmap_bake.h"
 
 namespace fa {
@@ -55,6 +56,8 @@ struct Plan {
         manifestProject;  // the same as the project spells it ("scenes/main.lightmap.json"): what SceneSettings.lightmaps holds
     std::vector<PlanMesh> meshes;  // sorted by id
     std::vector<BakeLight> lights;
+    ProbeSet
+        probes;  // the LightProbeGroups of the scene as positions (no light yet): baked as the phase "probes" of the same job
     BakeSky sky;                    // gradient / constant sky; also the fallback
     std::string environmentMap;     // SkyChoice::Environment: the .hdr to load (the job does)
     float environmentScale = 1;     // its multiplier (SceneSettings.environmentIntensity)
@@ -68,7 +71,7 @@ struct Plan {
 Result<Plan> make_plan(World& world, const std::string& scene, const Options& options, const std::string& manifestAbs,
                        const std::string& manifestProject);
 
-// Called on the baking thread: the phase ("geometry", "layout", "rasterize", "trace", "denoise", "dilate", "writing"), the progress of the whole
+// Called on the baking thread: the phase ("geometry", "layout", "rasterize", "trace", "denoise", "dilate", "probes", "writing"), the progress of the whole
 // bake 0..1, and the rays traced so far.
 using ReportFn = std::function<void(const std::string& phase, double progress, std::uint64_t rays)>;
 

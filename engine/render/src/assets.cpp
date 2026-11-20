@@ -1627,7 +1627,7 @@ const LightmapSetAsset* Assets::lightmaps(const std::string& manifestPath) {
     failures_.erase(std::remove_if(failures_.begin(), failures_.end(),
                                    [&](const Failure& f) {
                                        return f.kind == "lightmap" || f.kind == "lightmap-page" ||
-                                              f.kind == "lightmap-stale";
+                                              f.kind == "lightmap-probes" || f.kind == "lightmap-stale";
                                    }),
                     failures_.end());
     lightmapSet_ = std::make_unique<LightmapSetAsset>();
@@ -1729,6 +1729,25 @@ const LightmapSetAsset* Assets::lightmaps(const std::string& manifestPath) {
         page.bytes = half.size() * sizeof(std::uint16_t);
         set.bytes += page.bytes;
         page.ok = true;
+    }
+    // The light probes (M73.4d) of the same bake: a file that cannot be read leaves the moving objects on the sky's ambient light.
+    if (!set.manifest.probes.file.empty()) {
+        const std::string& file = set.manifest.probes.file;
+        auto probes = load_probe_set(fs::normalize(file));
+        if (!probes) {
+            note_failure("lightmap-probes", file,
+                         manifestPath + "/probes/file: " + probes.error().message +
+                             " Moving objects are lit by the sky's ambient light.",
+                         probes.error().hint);
+        } else if (std::int64_t(probes->size()) != std::int64_t(set.manifest.probes.count)) {
+            note_failure("lightmap-probes", file,
+                         std::format("{}/probes/count: the manifest says {} probes but '{}' holds {}. Moving objects "
+                                     "are lit by the sky's ambient light.",
+                                     manifestPath, set.manifest.probes.count, file, probes->size()),
+                         "The probe file and the manifest are from different bakes: bake the lightmap again.");
+        } else {
+            set.probes = std::move(*probes);
+        }
     }
     return &set;
 }
@@ -2084,15 +2103,18 @@ void Assets::reload(const std::string& pathIn) {
         // The manifest or one of its pages changed (or is rewritten by a bake right now): forget the set, the next
         // frame reads it again.
         bool mine = path == fs::normalize(lightmapSetPath_);
-        if (lightmapSet_)
+        if (lightmapSet_) {
             for (const LightmapPageGpu& pg : lightmapSet_->pages) mine = mine || path == fs::normalize(pg.file);
+            if (!lightmapSet_->manifest.probes.file.empty())
+                mine = mine || path == fs::normalize(lightmapSet_->manifest.probes.file);
+        }
         if (mine) {
             destroy_lightmap_set();
             lightmapSetPath_.clear();
             failures_.erase(std::remove_if(failures_.begin(), failures_.end(),
                                            [&](const Failure& f) {
                                                return f.kind == "lightmap" || f.kind == "lightmap-page" ||
-                                                      f.kind == "lightmap-stale";
+                                                      f.kind == "lightmap-probes" || f.kind == "lightmap-stale";
                                            }),
                             failures_.end());
         }

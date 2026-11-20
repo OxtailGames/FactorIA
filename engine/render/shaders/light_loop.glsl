@@ -64,6 +64,14 @@ float fa_contact_shadow(int li, vec3 world, vec3 gn, vec3 l, float dist) {
 @end
 
 @block fa_light_hooks
+// How much of light li this fragment still takes in realtime (M73.4d). Only a Baked light is ever reduced: its direct light is in the
+// lightmap a lightmapped fragment reads (0) and in the light probes a covered dynamic fragment reads (1 - coverage: fa_probe_sh[0].w);
+// every other light, and every fragment without lightmap or probes, keeps 1 without reading the light table.
+float fa_baked_keep(int li) {
+    float keep = fa_lm.z > 0.5 ? 0.0 : 1.0 - clamp(fa_probe_sh[0].w, 0.0, 1.0);
+    return (keep < 1.0 && fa_light_baked(li)) ? keep : 1.0;
+}
+
 // The cluster of the fragment (fa_cluster_begin, called at the start of main()): how many directional lights there are (they are
 // lights 0 .. fa_cl_ndir - 1 of the table and belong to every cluster) and where the list of the local ones starts.
 int fa_cl_ndir;
@@ -87,7 +95,8 @@ int fa_cl_light(int n) {
 // that has a shadow map this frame (Light.castShadows, within the budget) its own one: what the engine's light loop hands to light().
 // li is an index of the light table, gn the geometric normal.
 LightSample fa_light_shadowed(int li, vec3 world_pos, vec3 gn) {
-    if (fa_lm.z > 0.5 && fa_light_baked(li)) {  // its direct light is in the lightmap this fragment reads: no light, no shadow lookup
+    float keep = fa_baked_keep(li);
+    if (keep <= 0.0) {  // a Baked light whose direct light is in the lightmap or the probes this fragment reads: no light, no shadow lookup
         LightSample none;
         none.direction = vec3(0.0, 1.0, 0.0);
         none.color = vec3(0.0);
@@ -110,6 +119,8 @@ LightSample fa_light_shadowed(int li, vec3 world_pos, vec3 gn) {
         ls.shadow *= c;
         ls.color = ls.color * c;
     }
+    ls.attenuation *= keep;  // a Baked light at the edge of the probes: the part the probes do not hold
+    ls.color *= keep;  // a custom light() reads color: it must not get the whole Baked light either
     return ls;
 }
 
@@ -128,8 +139,12 @@ LightSample fa_light(int n, in SurfaceInput i) {
 LightSample fa_light_unshadowed(int n, in SurfaceInput i) {
     if (n < 0 || n >= fa_light_count()) { return fa_no_light(); }
     int li = fa_cl_light(n);
-    if (fa_lm.z > 0.5 && fa_light_baked(li)) { return fa_no_light(); }  // a baked light on a lightmapped fragment
-    return fa_light_sample_n(li, i.world_pos, i.world_normal);
+    float keep = fa_baked_keep(li);
+    if (keep <= 0.0) { return fa_no_light(); }  // a baked light on a lightmapped fragment, or inside the probes
+    LightSample ls = fa_light_sample_n(li, i.world_pos, i.world_normal);
+    ls.attenuation *= keep;
+    ls.color *= keep;
+    return ls;
 }
 // The shadow of light n at this fragment: 1 lit, 0 in shadow (a value between at the edge of the shadow). The first light (n = 0) when
 // it is directional has the sun's shadow, a point or spot light with a shadow map this frame its own; every other light gives 1. Every
@@ -260,7 +275,7 @@ vec3 fa_area_layers(in FaLayers L, int li, vec3 world_pos, vec3 n, vec3 v, vec3 
         int count = fa_cl_ndir + fa_cl_local;
         for (int ln = 0; ln < count; ln++) {
             int li = fa_cl_light(ln);
-            if (fa_lm.z > 0.5 && fa_light_baked(li)) { continue; }  // Light.mode Baked on a lightmapped fragment (before any shadow lookup)
+            if (fa_baked_keep(li) <= 0.0) { continue; }  // Light.mode Baked on a lightmapped or probe-lit fragment (before any shadow lookup)
             LightSample ls = fa_light_shadowed(li, i.world_pos, gn);
 #ifdef FA_CUSTOM_LIGHT
             // lighting "custom": the snippet's light() takes the place of the Cook-Torrance term below.
