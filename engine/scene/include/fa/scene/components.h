@@ -1098,18 +1098,18 @@ struct Light {
     float intensity = 1.0f;
     float range = 10.0f;       // point/spot attenuation distance (meters)
     float spotAngle = 30.0f;   // spot cone half-angle (degrees)
-    bool castShadows = false;  // directional only until M73.2 brings point and spot shadows
-    // The fields below belong to the lighting of M73 (docs/rendering/RENDERING_LIGHTING.md); no effect yet, the doc string of each
-    // names the package that brings it.
+    bool castShadows = false;  // directional only until M73.2b brings point and spot shadows
+    // The fields below belong to the lighting of M73 (docs/rendering/RENDERING_LIGHTING.md); the doc string of each says whether it is drawn yet
+    // (the shadow fields are, since M73.2a) or names the package that brings it.
     float innerAngle =
-        0.0f;  // M73.1: spot cone half-angle (degrees) inside which the light is at full strength; 0 = as today
+        0.0f;  // M73.1a: spot cone half-angle (degrees) inside which the light is at full strength; 0 = as today
     LightShape shape = LightShape::Rectangle;  // M73.1: type area only
     Vec2 size{1.0f, 1.0f};  // M73.1: type area only, metres (a tube uses x as its length and y as its thickness)
     std::string cookie;     // M73.1: texture projected by a spot or point light
     std::string ies;        // M73.1: IES profile (.ies) of the light's distribution
     std::int32_t shadowResolution =
         0;                          // M73.2: texels of the light's shadow map; 0 = the engine picks from the distance
-    float shadowBias = 0.0f;        // M73.2: depth offset; 0 = the engine's own
+    float shadowBias = 0.0f;        // M73.2a: depth offset in metres; 0 = the engine's own
     float shadowNormalBias = 0.0f;  // M73.2: offset along the normal; 0 = the engine's own
     ShadowFilter shadowFilter = ShadowFilter::Pcf;
     float shadowSoftness = 1.0f;  // M73.2: penumbra size with shadowFilter pcss
@@ -1539,8 +1539,8 @@ struct SceneSettings {
     ColorSpace colorSpace = ColorSpace::Gamma;  // gamma (every existing project) or linear lighting (M71)
     HdrOutput hdrOutput = HdrOutput::Off;       // off, or auto: an HDR display where the platform has one
     float paperWhiteNits = 200.0f;              // brightness of white (1.0) on an HDR display, in nits (80 .. 1000)
-    // The fields below belong to the lighting of M73 (docs/rendering/RENDERING_LIGHTING.md): no effect yet, the doc string of each names
-    // the package that brings it. Their defaults keep the look of every scene made before M73.
+    // The fields below belong to the lighting of M73 (docs/rendering/RENDERING_LIGHTING.md): the doc string of each says whether it is drawn
+    // yet (the shadow fields are, since M73.2a) or names the package that brings it. Their defaults keep the look of every scene made before M73.
     std::int32_t shadowCascades = 1;      // M73.2: cascades of the directional light's shadow map (1 .. 4)
     float shadowCascadeSplit = 0.5f;      // M73.2: 0 = linear splits, 1 = logarithmic
     float shadowCascadeBlend = 0.1f;      // M73.2: fraction of a cascade over which it blends into the next

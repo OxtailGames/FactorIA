@@ -174,7 +174,7 @@ decides, and the game event `ui.viewPointer` goes out like the other ui.* events
   one with a `LightSample l`, and its `ambient(i, s, ambientColor)` once (`FA_HAS_AMBIENT`); or the snippet defines
   `lighting(i, s)` (`FA_HAS_LIGHTING`), the whole loop, and the template declares `fa_light_count()`, `fa_light(n, i)`,
   `fa_light_unshadowed()`, `fa_light_shadow()` and `fa_sky_light()` before the snippet (stubs in the shadow and prepass
-  programs); the cap of 32 lights and their order are `select_lights`' (CUSTOM_SHADERS.md, P14).
+  programs); the cap of 1024 lights (32 directional) and their order are `select_lights`' (CUSTOM_SHADERS.md, P14); a fragment reads the lights of its cluster (ARCHITECTURE_RENDERING_LIGHTING.md, "Clustered lights").
 - *Generator* (`tools/common/src/shaders_generate.cpp`). `generate_material_shader` writes the sokol-shdc top file: the
   params as one alphabetical block (each padded to a `vec4`), the textures, the snippet verbatim with a line table, then
   `@include mesh_common.glsl` and the programs (`mesh`, `mesh_skin`, `prepass`, `prepass_skin`, plus `shadow`, `shadow_skin`
@@ -393,7 +393,7 @@ display output.
   effect off never switches it off. A world without a PostProcess costs one count.
 - **What the GPU can do, `Renderer::supports(name)` and the `render.supports` command (`src/render_features.h`).** One table of
   named features: the GPU capabilities `floatTargets` (RGBA16F renders, blends and filters), `r11g11b10`, `sampledDepth`,
-  `computeShaders`, `float32Targets` (R32F and RGBA32F render and sample: the shadow atlas of M73.2); the engine features `linearColor` and `hdrOutput`; the 21 lighting rows of M73 (`clusteredLights` ... `transmission`, planned "M73" until their package lands: docs/design/ARCHITECTURE_RENDERING_LIGHTING.md); and one per effect (the names above). Each row says the
+  `computeShaders`, `float32Targets` (R32F and RGBA32F render and sample: the shadow atlas of M73.2); the engine features `linearColor` and `hdrOutput`; the 21 lighting rows of M73 (`clusteredLights` ... `transmission`, planned "M73" until their package lands, `clusteredLights` landed with M73.1a: docs/design/ARCHITECTURE_RENDERING_LIGHTING.md); and one per effect (the names above). Each row says the
   backends it can ever run on (GL, GLES3, WebGL2, D3D11, Metal; the headless dummy backend has none), what it needs from the GPU
   (read with `sg_query_pixelformat` / `sg_query_features`), and whether the engine draws it yet. A feature the engine does not draw
   answers false with the status "planned (<milestone>)" (`effect_drawn` in `render_features.cpp` for the effects: every effect of `kPostEffectOrder` is

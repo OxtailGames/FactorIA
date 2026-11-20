@@ -6,7 +6,7 @@
 // Names: the capabilities of the GPU the M71 pipeline relies on (floatTargets, r11g11b10, sampledDepth, computeShaders), the engine
 // features built on them (linearColor, hdrOutput) and one entry per post effect (the names of kPostEffectOrder, fa/scene/postprocess.h).
 // An effect or feature the engine does not draw answers false with the status "planned (<milestone>)" (the `planned` field of its row; the
-// effects are all drawn today, the lighting rows of M73 are planned "M73" until their package lands), so `supports` never claims what the
+// effects are all drawn today, the lighting rows of M73 are planned "M73" until their package lands; clusteredLights landed in M73.1a), so `supports` never claims what the
 // renderer cannot do.
 #pragma once
 

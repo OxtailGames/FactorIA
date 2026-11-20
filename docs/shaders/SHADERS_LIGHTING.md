@@ -49,7 +49,7 @@ the helper in `#ifdef GL_FRAGMENT_SHADER ... #endif` (the hooks need no wrapper)
 
 | Function | What it gives |
 |---|---|
-| `fa_light_count()` | How many lights the engine selected for this frame, `0` to `32`. |
+| `fa_light_count()` | How many lights reach this fragment: the directional lights (at most 32) and the local lights whose range reaches the fragment's cluster (clustered lighting, M73.1a). `0` to `160` (32 directional and at most 128 local lights per cluster), in practice a few. |
 | `fa_light(n, i)` | The `LightSample` of light `n` (`0` to `fa_light_count() - 1`) at this fragment, as `light()` receives it: `direction`, `color` (colour times intensity times attenuation times shadow), `attenuation`, `shadow`, `distance`, `type` (0 directional, 1 point, 2 spot). A number out of range gives a sample that lights nothing (`color` and `attenuation` `0`, `shadow` `1`). |
 | `fa_light_unshadowed(n, i)` | The same without the shadow map read: `shadow` is `1` and `color` has no shadow in it. Use it to rank or choose lights without paying for the shadow, or to apply the shadow your own way. |
 | `fa_light_shadow(n, i)` | The shadow of light `n` at this fragment: `1` lit, `0` in shadow, a value between at the edge. Only light `0`, when it is the directional light that casts shadows and the mesh receives them, has a shadow map; every other light answers `1`. |
@@ -85,8 +85,13 @@ to decide it per pixel (a mask texture for the coat of a paint, the sheen of a c
 ## Which lights, how many, in what order
 
 The lights are chosen once per frame for every mesh (they are not per mesh), by `Light` entities that are active in the
-scene. At most **32** reach the shader: `fa_light_count()` never returns more, and what does not fit is left out
-(`stats.lightsDropped` counts it). The order is the engine's, and it is also the order of `light()`'s calls:
+scene. At most **1024** reach the shader of a view, 32 of them directional, and what does not fit is left out
+(`stats.lightsDropped` counts it; local lights outside the camera's view are left out too, `stats.lightsCulled`). Since M73.1a the
+view is cut into clusters and a fragment sees only the lights that reach its cluster: `fa_light_count()` is the number of those
+(the directional lights, then the local lights in the order below), `fa_light(n, i)` the n-th of them, so a loop over
+`fa_light_count()` is cheap with hundreds of lights in the scene. A cluster keeps at most 128 local lights
+(`stats.lightClusterClipped` counts the rest; see [RENDERING_LIGHTING.md](../rendering/RENDERING_LIGHTING.md), "Many lights"). The
+order is the engine's, and it is also the order of `light()`'s calls:
 
 1. the directional light that casts the shadow (the first directional `Light` with `castShadows` of the scene), alone, in
    slot `0`;
@@ -154,7 +159,11 @@ vec3 ambient(in SurfaceInput i, in Surface s, vec3 ambientColor) {
 A [full shader](SHADERS_FULL.md) has `fa_light_count()` and `fa_light(i, world_pos, geometric_normal, shadow_coord)` (its own
 signature: a full shader has no `SurfaceInput`), and now also `fa_environment(direction, roughness)`, `fa_env_brdf(roughness,
 ndv)` and `fa_sky_reflection(n, v, f0, roughness)`, the same three as above, with `fa_env_sky` and `fa_env_horizon` as the
-sky they read. The order and the cap of the lights are the ones of the section above.
+sky they read. The order and the cap of the lights are the ones of the section above, with one difference: a full shader has
+no surface to ask the cluster of, so its `fa_light_count()` is `min(lights, 32)`, the first lights of the table (the directional
+lights first), and `fa_light(i, ...)` takes an index of the table. For the lights of a position's cluster it has
+`fa_cluster_light_count(world_pos)` and `fa_cluster_light_index(n, world_pos)`: loop `n` over the count and give the index to
+`fa_light`.
 
 ## The sky material lights the meshes
 
