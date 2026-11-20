@@ -94,7 +94,8 @@ inline std::uint32_t pack_vertex_color(float r, float g, float b, float a) {
 
 constexpr int kMaxQuadsPerDraw = 16384;  // 16-bit indices
 // The lights of a view in the light table of the data texture (src/light_clusters.h, shaders/light_data.glsl): the most relevant
-// ones when the scene has more (RenderStats.lightsDropped counts the rest). 4 texels of 16 bytes each: 64 KB at the limit.
+// ones when the scene has more (RenderStats.lightsDropped counts the rest). 4 texels of 16 bytes each (8 when a light has an area, a cookie or
+// a profile): 64 KB (128 KB) at the limit.
 constexpr int kMaxLights = 1024;
 constexpr int kMeshInstanceBytes = 64;  // one Mat4 per instance
 // The vertex buffers beyond the mesh (0), the model matrices (1) and the skin (2) that a custom material's programs may
@@ -556,7 +557,10 @@ inline constexpr MeshFragmentView kMeshFragmentViews[] = {
     {"fa_light_data", 24, 1, 1, 2,
      "M73.1a (today): RGBA32F, texelFetch with the nearest sampler 1: the lights, the clusters' light lists; later the "
      "decals, the sky's SH"},
-    {"fa_light_atlas", 25, 10, 1, 2, "M73.1b: light cookies and IES profiles, one RGBA8 atlas"},
+    {"fa_light_atlas", 25, 10, 1, 2,
+     "M73.1b (today): one RGBA16F atlas (src/light_atlas.h) with the LTC tables of the area lights in a reserved block "
+     "at its top "
+     "left (they take no unit of their own), then the light cookies and IES profiles; bilinear, clamped"},
     {"fa_lightmap", 26, 10, 1, 2,
      "M73.4a: the page of the baked lightmap of the entity drawn (RGBA16F, one page per draw; a white texel when it "
      "has none), read at its lightmap UV"},
