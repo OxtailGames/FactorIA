@@ -17,9 +17,9 @@ float sss_erf(float x) {
     const float s = x < 0.0f ? -1.0f : 1.0f;
     x = std::fabs(x);
     const float t = 1.0f / (1.0f + 0.3275911f * x);
-    const float y = 1.0f - (((((1.061405429f * t - 1.453152027f) * t) + 1.421413741f) * t - 0.284496736f) * t +
-                            0.254829592f) *
-                               t * std::exp(-x * x);
+    const float y =
+        1.0f - (((((1.061405429f * t - 1.453152027f) * t) + 1.421413741f) * t - 0.284496736f) * t + 0.254829592f) * t *
+                   std::exp(-x * x);
     return s * y;
 }
 
