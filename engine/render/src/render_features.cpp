@@ -128,6 +128,13 @@ std::vector<FeatureDef> build_table() {
          "The feature needs nothing of the GPU (it is on wherever the engine draws); only a pass whose material reads "
          "the depth or the normals (fa_depth, fa_normal) needs the sampledDepth feature, and that pass alone is "
          "skipped without it."});
+    t.push_back(
+        {"physicalSky", FeatureKind::Engine, kEveryGpu, "half", nullptr,
+         "A physically based sky (SceneSettings.skyModel \"physical\"): a sun with a disc, an atmosphere (Rayleigh, "
+         "Mie, "
+         "ozone) and procedural clouds, drawn as the background and baked into the image-based lighting, so the "
+         "reflections and the ambient light follow the sun. It needs RGBA16F render targets that filter (its look-up "
+         "tables); without them the gradient sky is drawn."});
     // The lighting of M73 (docs/rendering/RENDERING_LIGHTING.md): every row answers false with "planned (M73)" until its package
     // lands, then drops the `planned` text here. `needs` is what its pass asks of the GPU once built.
     struct Planned {
@@ -160,8 +167,6 @@ std::vector<FeatureDef> build_table() {
          "Reflection probes: local environment captures, baked or realtime, with box projection and blending between "
          "probes "
          "(M73.3)."},
-        {"physicalSky", "half",
-         "A physically based sky with a sun and an atmosphere, and clouds, feeding the image-based lighting (M73.3)."},
         {"lightmaps", "",
          "Baked lightmaps: global illumination computed by a deterministic bake and read from a second UV set "
          "(M73.4)."},

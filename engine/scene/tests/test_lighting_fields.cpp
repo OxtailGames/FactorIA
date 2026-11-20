@@ -22,9 +22,9 @@ const FieldInfo* field_of(const char* type, const std::string& name) {
 const std::vector<std::string> kLightFields = {
     "innerAngle",       "shape",        "size",           "cookie",         "ies",  "shadowResolution", "shadowBias",
     "shadowNormalBias", "shadowFilter", "shadowSoftness", "shadowDistance", "mode", "volumetric"};
-const std::vector<std::string> kSettingsFields = {
-    "shadowCascades", "shadowCascadeSplit", "shadowCascadeBlend",   "shadowDistance",      "shadowAtlasSize",
-    "contactShadows", "environmentMap",     "environmentIntensity", "environmentRotation", "skyModel"};
+const std::vector<std::string> kSettingsFields = {"shadowCascades", "shadowCascadeSplit",   "shadowCascadeBlend",
+                                                  "shadowDistance", "shadowAtlasSize",      "contactShadows",
+                                                  "environmentMap", "environmentIntensity", "environmentRotation"};
 const std::vector<std::string> kMeshFields = {
     "lightmapScale", "contributeGI",   "receiveGI",  "clearcoat",          "clearcoatRoughness",
     "sheenColor",    "sheenRoughness", "anisotropy", "anisotropyRotation", "specular",
@@ -198,4 +198,56 @@ TEST_CASE("lighting fields: a scene with a bad value reports where, and loads no
     const std::string text = report.summary();
     CHECK(text.find("shadowFilter") != std::string::npos);
     CHECK(text.find("pcss") != std::string::npos);
+}
+
+TEST_CASE(
+    "physical sky fields: reflected with a doc, a clear mid-day default that is never saved, ranges and enum errors") {
+    const std::vector<std::string> names = {"skySunSize",   "skyTurbidity",  "skyGroundAlbedo",
+                                            "skyExposure",  "skyTintsSun",   "cloudCoverage",
+                                            "cloudDensity", "cloudAltitude", "cloudWind"};
+    for (const std::string& n : names) {
+        CAPTURE(n);
+        const FieldInfo* f = field_of("SceneSettings", n);
+        REQUIRE(f != nullptr);
+        CHECK(f->doc.size() > 60);
+        CHECK(f->doc.find("skyModel physical") != std::string::npos);
+        CHECK(f->doc.find("No effect yet") == std::string::npos);
+        CHECK(f->serialized);
+    }
+    const FieldInfo* model = field_of("SceneSettings", "skyModel");
+    REQUIRE(model != nullptr);
+    CHECK(model->doc.find("No effect yet") == std::string::npos);
+
+    const SceneSettings d;
+    CHECK(d.skyModel == SkyModel::Gradient);
+    CHECK(d.cloudCoverage == doctest::Approx(0.25f));
+    CHECK(d.skyTintsSun);
+
+    World w;
+    const Json saved = save_scene(w);
+    for (const std::string& n : names) CHECK_FALSE(saved["settings"].contains(n));
+
+    SceneSettings s;
+    const FieldInfo* turb = field_of("SceneSettings", "skyTurbidity");
+    const Result<void> bad = field_from_json(*turb, &s, Json(11));
+    REQUIRE_FALSE(bad.ok());
+    CHECK(bad.error().message.find("skyTurbidity") != std::string::npos);
+    CHECK(s.skyTurbidity == 2.0f);
+    CHECK_FALSE(field_from_json(*field_of("SceneSettings", "cloudCoverage"), &s, Json(1.5)).ok());
+    CHECK_FALSE(field_from_json(*field_of("SceneSettings", "cloudAltitude"), &s, Json(50)).ok());
+    CHECK_FALSE(field_from_json(*field_of("SceneSettings", "skySunSize"), &s, Json(0.0)).ok());
+    CHECK(field_from_json(*field_of("SceneSettings", "cloudWind"), &s, Json::array({-4.0, 12.0})).ok());
+    CHECK(s.cloudWind.x == -4.0f);
+    CHECK(s.cloudWind.y == 12.0f);
+
+    const Json scene = Json::parse(R"({"format":"factoria.scene/1",
+      "settings":{"skyModel":"physical","skyTurbidity":4,"skyGroundAlbedo":[0.8,0.8,0.85,1],"cloudCoverage":0.9,
+                  "cloudWind":[0,5],"skyTintsSun":false},"entities":[]})");
+    World again;
+    REQUIRE(load_scene(again, scene, "sky.scene.json").ok());
+    CHECK(again.settings().skyModel == SkyModel::Physical);
+    CHECK(again.settings().skyTurbidity == 4.0f);
+    CHECK_FALSE(again.settings().skyTintsSun);
+    CHECK(again.settings().cloudWind.y == 5.0f);
+    CHECK(save_scene(again)["settings"]["cloudCoverage"] == 0.9);
 }

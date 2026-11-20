@@ -11546,10 +11546,57 @@ declare module "factoria" {
      */
     environmentRotation: number;
     /**
-     * gradient (default): the skyColor and horizonColor gradient. physical: a sun and an atmosphere computed from the directional light, with clouds. A skyMaterial or an environmentMap takes the place of both. No effect yet: M73.3 brings it.
+     * gradient (default): the skyColor and horizonColor gradient. physical: a sky computed from the sun, the air and the clouds (the sky* and cloud* fields below). The sun is the first directional light: the one with castShadows, else the first; its direction, colour and intensity drive the sky, so turning the light turns the sun across it, and the same sky lights and reflects in every mesh (image-based lighting: rebuilt in one frame after a big change, over three frames while the sun or the clouds move slowly). Without a directional light the sun stands overhead. A skyMaterial takes the place of the physical sky. render.supports {"feature": "physicalSky"} says whether the GPU can (it needs RGBA16F render targets); where it cannot, the gradient is drawn.
      * @since unreleased
      */
     skyModel: "gradient" | "physical";
+    /**
+     * Physical sky: angular diameter of the sun disc in degrees, 0.1..10. 0.53 (default) is the real sun; a larger disc is easier to see in a small window. Only used with skyModel physical.
+     * @since unreleased
+     */
+    skySunSize: number;
+    /**
+     * Physical sky: how much dust and haze (aerosols) the air holds, 1..10. 1 is very clean air with a deep blue sky, 2 (default) a clear day, 6 and more a hazy white-yellow sky with a big glow around the sun. Only used with skyModel physical.
+     * @since unreleased
+     */
+    skyTurbidity: number;
+    /**
+     * Physical sky: the colour of the ground the atmosphere sees below the horizon (it lights the air near the horizon and the lower half of the reflections). Default grey 0.3; snow is 0.8, dark soil 0.15. Alpha is ignored. Only used with skyModel physical.
+     * @since unreleased
+     */
+    get skyGroundAlbedo(): Color;
+    set skyGroundAlbedo(value: ColorLike);
+    /**
+     * Physical sky: multiplier of the sky's brightness, of the light it gives the meshes (image-based lighting) and of the sun disc, 0..16. At 1 (default) the sky is as bright as the sun's light says: the sky is scaled by the colour times the intensity of the sun light, so the sky and a surface facing the sun keep the proportion they have in a real noon (the sky is much dimmer than the sun-lit surface). Only used with skyModel physical.
+     * @since unreleased
+     */
+    skyExposure: number;
+    /**
+     * Physical sky: true (default) multiplies the colour of the first directional light (the sun) by what the air and the clouds let through, relative to a noon sun: a sun on the horizon turns orange and dim, a sun behind a thick cloud cover turns weak, and the colour you chose is the colour of the sun at noon. false keeps the light exactly as authored (the sky still follows its direction). Only used with skyModel physical.
+     * @since unreleased
+     */
+    skyTintsSun: boolean;
+    /**
+     * Physical sky: how much of the sky the clouds cover, 0..1. 0 is a clear sky, 0.25 (default) a few clouds, 1 a full overcast. The directional light also weakens with it (skyTintsSun), and the clouds shade the image-based lighting. Only used with skyModel physical.
+     * @since unreleased
+     */
+    cloudCoverage: number;
+    /**
+     * Physical sky: how thick and dark the clouds are, 0..1: 0.2 thin white wisps, 0.6 (default) cumulus, 1 heavy grey clouds with dark bellies. Only used with skyModel physical.
+     * @since unreleased
+     */
+    cloudDensity: number;
+    /**
+     * Physical sky: height of the cloud layer above the camera ground in metres, 300..12000 (default 2500). Higher clouds look smaller and finer. The layer follows the viewing direction, not the camera position (like a skybox). Only used with skyModel physical.
+     * @since unreleased
+     */
+    cloudAltitude: number;
+    /**
+     * Physical sky: metres per second [x, z] the clouds drift along the world axes (beyond 1000 it is clamped). The drift follows the game clock (never the wall clock), so a replay shows the same sky. [0, 0] stands still. Only used with skyModel physical.
+     * @since unreleased
+     */
+    get cloudWind(): Vec2;
+    set cloudWind(value: Vec2Like);
   }
   /** Component views by name, as returned by entity.get(name). */
   export interface Components {
@@ -11657,7 +11704,7 @@ declare module "factoria" {
     Chart: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; material?: string; materialParams?: any; tooltip?: any; draggable?: any; mirror?: boolean; values?: any; kind?: "bar" | "line"; colors?: any; min?: any; max?: any; baseline?: number; showBaseline?: boolean; includeBaseline?: boolean; slots?: number; marks?: any; baselineColor?: ColorLike; markColor?: ColorLike; lineWidth?: number; barGap?: number; padding?: number; showLabels?: boolean; decimals?: number; font?: string; fontSize?: number; textColor?: ColorLike };
     Script: { path?: string; props?: any; enabled?: boolean };
     PostProcess: { enabled?: boolean; shape?: "global" | "box" | "circle" | "sphere"; size?: Vec3Like; blendDistance?: number; priority?: number; weight?: number; tonemapEnabled?: boolean; tonemapMode?: "none" | "neutral" | "aces" | "agx" | "reinhard"; exposureEnabled?: boolean; exposureMode?: "manual" | "auto"; exposureEv?: number; exposureMinEv?: number; exposureMaxEv?: number; exposureAdaptationSpeed?: number; bloomEnabled?: boolean; bloomIntensity?: number; bloomThreshold?: number; bloomKnee?: number; bloomRadius?: number; bloomScreenSpace?: boolean; bloomLensDirt?: string; bloomLensDirtIntensity?: number; colorGradingEnabled?: boolean; colorGradingLift?: ColorLike; colorGradingGamma?: ColorLike; colorGradingGain?: ColorLike; colorGradingTemperature?: number; colorGradingTint?: number; colorGradingSaturation?: number; colorGradingContrast?: number; colorGradingHueShift?: number; colorGradingCurveMaster?: Float32Array; colorGradingCurveRed?: Float32Array; colorGradingCurveGreen?: Float32Array; colorGradingCurveBlue?: Float32Array; colorGradingLut?: string; colorGradingLutContribution?: number; colorFilterEnabled?: boolean; colorFilterMode?: "none" | "greyscale" | "highContrast" | "protanopia" | "deuteranopia" | "tritanopia"; vignetteEnabled?: boolean; vignetteIntensity?: number; vignetteSmoothness?: number; vignetteRoundness?: number; vignetteCenter?: Vec2Like; vignetteColor?: ColorLike; chromaticAberrationEnabled?: boolean; chromaticAberrationIntensity?: number; filmGrainEnabled?: boolean; filmGrainIntensity?: number; filmGrainSize?: number; filmGrainAnimated?: boolean; filmGrainLuminanceResponse?: number; lensDistortionEnabled?: boolean; lensDistortionIntensity?: number; lensDistortionScale?: number; lensDistortionCenter?: Vec2Like; sharpenEnabled?: boolean; sharpenIntensity?: number; outlineEnabled?: boolean; outlineMode?: "depth" | "sprite"; outlineColor?: ColorLike; outlineWidth?: number; outlineDepthThreshold?: number; outlineNormalThreshold?: number; outlineAlphaThreshold?: number; pixelateEnabled?: boolean; pixelateSize?: number; posterizeEnabled?: boolean; posterizeLevels?: number; ssaoEnabled?: boolean; ssaoQuality?: "low" | "medium" | "high" | "ultra"; ssaoIntensity?: number; ssaoRadius?: number; depthOfFieldEnabled?: boolean; depthOfFieldFocusDistance?: number; depthOfFieldTarget?: EntityLike; depthOfFieldFocusSpeed?: number; depthOfFieldFocusRange?: number; depthOfFieldNearBlur?: number; depthOfFieldFarBlur?: number; depthOfFieldBokeh?: boolean; motionBlurEnabled?: boolean; motionBlurIntensity?: number; motionBlurSamples?: number; ssrEnabled?: boolean; ssrIntensity?: number; ssrMaxDistance?: number; ssrThickness?: number; ssrSteps?: number; fogEnabled?: boolean; fogColor?: ColorLike; fogDensity?: number; fogStart?: number; fogHeightDensity?: number; fogHeightBase?: number; fogHeightFalloff?: number; sunShaftsEnabled?: boolean; sunShaftsIntensity?: number; sunShaftsThreshold?: number; sunShaftsLength?: number; sunShaftsColor?: ColorLike; radialBlurEnabled?: boolean; radialBlurIntensity?: number; radialBlurCenter?: Vec2Like; radialBlurSamples?: number; customPasses?: any };
-    SceneSettings: { ambientLight?: ColorLike; gravity2D?: Vec2Like; gravity3D?: Vec3Like; fogColor?: ColorLike; fogDensity?: number; skyColor?: ColorLike; horizonColor?: ColorLike; music?: string; musicVolume?: number; lightScale?: number; colorSpace?: "gamma" | "linear"; hdrOutput?: "off" | "auto"; paperWhiteNits?: number; skyMaterial?: string; skyMaterialParams?: any; shadowCascades?: number; shadowCascadeSplit?: number; shadowCascadeBlend?: number; shadowDistance?: number; shadowAtlasSize?: number; contactShadows?: boolean; environmentMap?: string; environmentIntensity?: number; environmentRotation?: number; skyModel?: "gradient" | "physical" };
+    SceneSettings: { ambientLight?: ColorLike; gravity2D?: Vec2Like; gravity3D?: Vec3Like; fogColor?: ColorLike; fogDensity?: number; skyColor?: ColorLike; horizonColor?: ColorLike; music?: string; musicVolume?: number; lightScale?: number; colorSpace?: "gamma" | "linear"; hdrOutput?: "off" | "auto"; paperWhiteNits?: number; skyMaterial?: string; skyMaterialParams?: any; shadowCascades?: number; shadowCascadeSplit?: number; shadowCascadeBlend?: number; shadowDistance?: number; shadowAtlasSize?: number; contactShadows?: boolean; environmentMap?: string; environmentIntensity?: number; environmentRotation?: number; skyModel?: "gradient" | "physical"; skySunSize?: number; skyTurbidity?: number; skyGroundAlbedo?: ColorLike; skyExposure?: number; skyTintsSun?: boolean; cloudCoverage?: number; cloudDensity?: number; cloudAltitude?: number; cloudWind?: Vec2Like };
   }
   /**
    * The native plugins of this game (factoria.json "plugins"): plugins.<plugin>.<function>(...args).

@@ -208,3 +208,11 @@ names the material file and the JSON pointer, or the line of the snippet) and te
 | A misspelled name (`fa_sky_ligth`) | `did you mean fa_sky_light?` and the list of the functions. |
 | A helper that calls one of the functions, compiled into the vertex stage | The function is declared in the fragment stage only: its signature, and `#ifdef GL_FRAGMENT_SHADER`. |
 | Neither `light()` nor `lighting()` in a custom material | The signatures of both, and how to go back to `"pbr"`. |
+
+## The physical sky lights the meshes too
+
+With `SceneSettings.skyModel` `"physical"` (and no sky material) the same two cubes are baked from the physical sky, so everything this
+section says about reflection and ambient holds: `fa_environment`, `fa_sky_reflection`, `fa_sky_light` and `fa_ambient_light` read the
+physical sky (the sun disc is not in the cubes: the light is the sun). A sun that moves slowly rebuilds the cubes in three slices over
+three frames, a big change in one frame, so what a mesh sees can be up to two frames behind a fast change (the user page,
+[the physical sky](../rendering/RENDERING_LIGHTING.md#the-physical-sky), says when).
