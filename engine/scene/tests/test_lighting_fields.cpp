@@ -20,18 +20,9 @@ const FieldInfo* field_of(const char* type, const std::string& name) {
         if (f.name == name) return &f;
     return nullptr;
 }
-const std::vector<std::string> kLightFields = {"innerAngle",
-                                               "shape",
-                                               "size",
-                                               "cookie",
-                                               "ies",
-                                               "shadowResolution",
-                                               "shadowBias",
-                                               "shadowNormalBias",
-                                               "shadowFilter",
-                                               "shadowSoftness",
-                                               "shadowDistance",
-                                               "volumetric"};
+const std::vector<std::string> kLightFields = {
+    "innerAngle",       "shape",        "size",           "cookie",        "ies", "shadowResolution", "shadowBias",
+    "shadowNormalBias", "shadowFilter", "shadowSoftness", "shadowDistance"};
 const std::vector<std::string> kSettingsFields = {
     "shadowCascades", "shadowCascadeSplit", "shadowCascadeBlend",   "shadowDistance",      "shadowAtlasSize",
     "contactShadows", "environmentMap",     "environmentIntensity", "environmentRotation", "environmentBackground"};
@@ -64,7 +55,17 @@ const std::vector<std::string> kDrawn = {"innerAngle",
 const std::vector<std::pair<std::string, std::string>> kLiveFields = {{"Light", "mode"},
                                                                       {"MeshRenderer", "lightmapScale"},
                                                                       {"MeshRenderer", "receiveGI"},
-                                                                      {"SceneSettings", "lightmaps"}};
+                                                                      {"SceneSettings", "lightmaps"},
+                                                                      // M73.5: the volumetric fog and the light shafts.
+                                                                      {"Light", "volumetric"},
+                                                                      {"SceneSettings", "volumetricFog"},
+                                                                      {"SceneSettings", "volumetricDensity"},
+                                                                      {"SceneSettings", "volumetricHeightBase"},
+                                                                      {"SceneSettings", "volumetricHeightFalloff"},
+                                                                      {"SceneSettings", "volumetricAnisotropy"},
+                                                                      {"SceneSettings", "volumetricAmbient"},
+                                                                      {"SceneSettings", "volumetricDistance"},
+                                                                      {"SceneSettings", "volumetricQuality"}};
 }  // namespace
 
 TEST_CASE("lighting fields: every new field is reflected and its doc says what it does and which package brings it") {

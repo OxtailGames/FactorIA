@@ -10,6 +10,17 @@
 // fa_shadow_local does the same for a point or spot light: its record in the light data texture (light_data.glsl, "the shadow region")
 // names its tiles, the face of a cube is chosen by the major axis, and the one filter below (fa_shadow_filter) reads the tile.
 // docs/design/ARCHITECTURE_RENDERING_LIGHTING.md, "The shadow atlas".
+// The face of a cube a direction falls in: the axis of its largest component (ties to the lower face), 0..5 = +X -X +Y -Y +Z -Z. The
+// ONE selection of the shadows of a point light (fa_shadow_local), of the cookie of a point light (fa_light_sample_n, light_data.glsl)
+// and of the volumetric march; the CPU's is cube_face_of (local_shadows.cpp). A block of its own, included BEFORE fa_light_data (which
+// needs it) by the mesh templates and by volumetric.glsl, which includes no light_data.
+@block fa_cube_face
+int fa_cube_face(vec3 d) {
+    vec3 a = abs(d);
+    return (a.x >= a.y && a.x >= a.z) ? (d.x > 0.0 ? 0 : 1) : (a.y >= a.z ? (d.y > 0.0 ? 2 : 3) : (d.z > 0.0 ? 4 : 5));
+}
+@end
+
 @block fa_shadow_common
 layout(binding=7) uniform fa_shadows {
     mat4 fa_shadow_mat[4];      // cascade i: world position -> (u, v) in the atlas texture and depth 0..1 over the cascade's depth range
@@ -119,7 +130,8 @@ float fa_shadow_cascade(int ci, vec3 world, vec3 n, vec3 l) {
 // the light data texture: [base + li] = the texel of its record or -1; the record is 2 header texels (kind 1 = one tile, 2 = a cube; the
 // fade distance; the filter; the softness k / the biases) and 6 texels per tile (4 rows of the sample matrix, the tile's rectangle, and
 // metres per texel at distance 1, the near and far plane); a cube's faces are in the order +X -X +Y -Y +Z -Z.
-float fa_shadow_local(int li, vec3 world, vec3 n, vec3 l) {
+// `lpos` is the light's position (its first texel): the caller knows the light's stride, this file does not.
+float fa_shadow_local(int li, vec3 lpos, vec3 world, vec3 n, vec3 l) {
     if (fa_pbr.z < 0.5 || fa_shadow_lcfg.x < 0.5) { return 1.0; }
     float at = fa_light_texel(int(fa_shadow_lcfg.x + 0.5) - 1 + li).x;
     if (at < 0.0) { return 1.0; }
@@ -133,7 +145,7 @@ float fa_shadow_local(int li, vec3 world, vec3 n, vec3 l) {
     }
     int face = 0;
     if (h0.x > 1.5) {  // a cube: the face of the major axis of the direction from the light (the table of cube_face_basis)
-        vec3 d = world - fa_light_texel(fa_light_base(li)).xyz;
+        vec3 d = world - lpos;
         face = fa_cube_face(d);
     }
     int t = rec + 2 + face * 6;
@@ -152,7 +164,7 @@ float fa_shadow_local(int li, vec3 world, vec3 n, vec3 l) {
     // faces the light at a cube face's diagonal has up to 0.5 where the angle between n and l says 0; one square to the axis has 0.
     vec3 axis = r3.xyz;
     float na = clamp(dot(n, axis), -1.0, 1.0);
-    float nr = abs(dot(n, world - fa_light_texel(fa_light_base(li)).xyz)) / pw0;
+    float nr = abs(dot(n, world - lpos)) / pw0;
     float slope = min(sqrt(1.0 - na * na) / max(nr, 0.2), 4.0);
     float nbias = h1.y > 0.0 ? h1.y : 1.5 * texel_m;
     vec4 wp = vec4(world + n * (nbias * sin_t), 1.0);

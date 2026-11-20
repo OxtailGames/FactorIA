@@ -51,7 +51,7 @@ LightSample fa_light_shadowed(int li, vec3 world_pos, vec3 gn) {
         ls.shadow = fa_shadow_factor(gn, ls.direction);
         ls.color = ls.color * ls.shadow;
     } else if (ls.type != 0 && ls.attenuation > 0.0) {
-        ls.shadow = fa_shadow_local(li, world_pos, gn, ls.direction);
+        ls.shadow = fa_shadow_local(li, fa_light_texel(fa_light_base(li)).xyz, world_pos, gn, ls.direction);
         ls.color = ls.color * ls.shadow;
     }
     return ls;
@@ -82,8 +82,8 @@ float fa_light_shadow(int n, in SurfaceInput i) {
     if (n == 0 && fa_cl_ndir >= 1) { return fa_shadow_factor(i.world_normal, normalize(fa_light_texel(0).xyz)); }
     int li = fa_cl_light(n);
     if (li < fa_cl_ndir) { return 1.0; }
-    vec3 to_light = normalize(fa_light_texel(fa_light_base(li)).xyz - i.world_pos);
-    return fa_shadow_local(li, i.world_pos, i.world_normal, to_light);
+    vec3 lpos = fa_light_texel(fa_light_base(li)).xyz;
+    return fa_shadow_local(li, lpos, i.world_pos, i.world_normal, normalize(lpos - i.world_pos));
 }
 #endif
 @end

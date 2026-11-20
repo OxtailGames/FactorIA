@@ -80,13 +80,7 @@ float fa_ies_sample(vec2 tile_origin, vec3 d, vec3 axis, vec3 right, vec3 up) {
     return fa_atlas_fetch(tile_origin + vec2(1.0 + h * 64.0, 1.0 + v * 32.0)).r;
 }
 
-// The face of a cube a direction falls in: the axis of its largest component (ties to the lower face), 0..5 = +X -X +Y -Y +Z -Z. The
-// ONE selection of the shadows of a point light (fa_shadow_local) and of the cookie of a point light (fa_light_sample_n); the CPU's is
-// cube_face_of (local_shadows.cpp).
-int fa_cube_face(vec3 d) {
-    vec3 a = abs(d);
-    return (a.x >= a.y && a.x >= a.z) ? (d.x > 0.0 ? 0 : 1) : (a.y >= a.z ? (d.y > 0.0 ? 2 : 3) : (d.z > 0.0 ? 4 : 5));
-}
+// fa_cube_face(d), the face of a cube a direction falls in, is the block fa_cube_face of shadow_common.glsl, included before this block.
 // The forward and up axes of cube face f: the table of cube_face_basis (local_shadows.cpp); the face's right is forward x up.
 void fa_cube_face_basis(int f, out vec3 fwd, out vec3 up) {
     if (f == 0) { fwd = vec3(1.0, 0.0, 0.0); up = vec3(0.0, 1.0, 0.0); }
@@ -288,6 +282,22 @@ ivec2 fa_cluster_lookup(vec3 world_pos) {
 int fa_cluster_index(int slot, int n) {
     vec4 t = fa_light_texel(int(fa_cl_info.x) + int(fa_cl_info.w) + ((slot + n) >> 2));
     return int(t[(slot + n) & 3]);
+}
+@end
+
+// ---- Spherical harmonics (M73.3a; docs/design/ARCHITECTURE_RENDERING_LIGHTING.md, "The sky's spherical harmonics") ----
+// The diffuse light (irradiance divided by pi) a surface facing n receives from a radiance given as nine RGB coefficients of the real
+// spherical harmonics of bands 0..2 (the order and constants of ShL2 / sh_basis() in fa/scene/lightmap_bake.h: Y00, y, z, x, xy, yz,
+// 3z^2 - 1, xz, x^2 - y^2): the radiance's coefficients times the clamped cosine's (1, 2/3, 1/4 per band; the 1/pi is in them). A radiance
+// of one colour L gives L toward every n. L2 can undershoot below zero on the side opposite a strong light; the result is clamped at 0.
+// The sky's coefficients come from fa_sky_sh_coef (mesh_common.glsl), the light probes of M73.4d read theirs from the light data texture.
+@block fa_sh
+vec3 fa_sh_eval(vec3 c[9], vec3 n) {
+    vec3 r = c[0] * 0.282094792;
+    r += c[1] * (0.325735008 * n.y) + c[2] * (0.325735008 * n.z) + c[3] * (0.325735008 * n.x);
+    r += c[4] * (0.273137108 * n.x * n.y) + c[5] * (0.273137108 * n.y * n.z) + c[6] * (0.078847891 * (3.0 * n.z * n.z - 1.0));
+    r += c[7] * (0.273137108 * n.x * n.z) + c[8] * (0.136568554 * (n.x * n.x - n.y * n.y));
+    return max(r, vec3(0.0));
 }
 @end
 
