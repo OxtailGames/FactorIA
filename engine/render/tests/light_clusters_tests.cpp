@@ -403,3 +403,32 @@ TEST_CASE("clusters: the data texture holds the light table, the cluster table a
     CHECK(light_texture_rows(1025) == 2);
     CHECK(light_texture_rows(3 * 1024 + 1) == 4);
 }
+
+TEST_CASE("clusters: a contact shadow length is in the y of the light's texel of the shadow region, which exists "
+          "without shadow maps") {
+    const View v = make_view(640, 360, false);
+    LightData sun;
+    sun.pos = {0.0f, 1.0f, 0.0f, 0.0f};
+    sun.color = {1.0f, 1.0f, 1.0f, 0.0f};
+    sun.rank = 0;
+    sun.contactLength = 1.25f;
+    LightData lamp = local_light(1.0f, 2.0f, -10.0f, 15.0f);  // no length: 0 in its texel
+    LightData lamp2 = local_light(-1.0f, 0.0f, -12.0f, 4.0f);
+    lamp2.contactLength = 0.5f;
+    LightTexture tex;
+    pack_light_texture({sun, lamp, lamp2}, 1, v.cam, nullptr, tex);
+    REQUIRE(tex.shadowBase >= 0);
+    auto texel = [&](long long t, int c) { return tex.texels[std::size_t(t) * 4 + std::size_t(c)]; };
+    // One texel per light, in the order of the table: x = -1 (no shadow map), y = the length.
+    for (int i = 0; i < 3; ++i) CHECK(texel(tex.shadowBase + i, 0) == -1.0f);
+    CHECK(texel(tex.shadowBase + 0, 1) == 1.25f);
+    CHECK(texel(tex.shadowBase + 1, 1) == 0.0f);
+    CHECK(texel(tex.shadowBase + 2, 1) == 0.5f);
+    CHECK(tex.usedTexels >= std::size_t(tex.shadowBase) + 3);
+    // No light asks for one and no map exists: no region at all, as before M73.2c.
+    sun.contactLength = 0.0f;
+    lamp2.contactLength = 0.0f;
+    LightTexture plain;
+    pack_light_texture({sun, lamp, lamp2}, 1, v.cam, nullptr, plain);
+    CHECK(plain.shadowBase < 0);
+}
