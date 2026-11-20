@@ -562,7 +562,9 @@ inline constexpr MeshFragmentView kMeshFragmentViews[] = {
      "M73.4a: the page of the baked lightmap of the entity drawn (RGBA16F, one page per draw; a white texel when it "
      "has none), read at its lightmap UV"},
     {"fa_decal_atlas", 27, 10, 1, 2,
-     "M73.5b: the albedo/normal textures of the projected decals (their transforms are in fa_light_data)"},
+     "M73.5b (today): the albedo and normal textures of the projected decals, RGBA8 with mips (their boxes and tiles "
+     "are in "
+     "fa_light_data)"},
     {"fa_screen_tex", 28, 10, 2, 2,
      "M73.2c / M73.6b: the prepass depth for contact shadows, the opaque color for transmission"},
 };
@@ -1077,6 +1079,8 @@ public:
     void set_shader_compiler(ShaderCompiler compiler) { shaderCompiler_ = std::move(compiler); }
     bool has_loaded(const std::string& path) const;
     void reload(const std::string& path);
+    // Counts every reload(): the decal atlas (renderer_decals.cpp) holds copies of texture pixels and is rebuilt when it changes.
+    std::uint64_t reload_generation() const { return reloadGeneration_; }
     void clear();
     Json report() const;
     std::size_t texture_bytes() const;  // GPU memory of the loaded textures (packed ones are counted in their atlas)
@@ -1192,7 +1196,8 @@ private:
     std::unique_ptr<MeshAsset> placeholderMesh_;
     std::vector<Failure> failures_;
     std::unordered_map<std::string, std::string> meshSources_;  // mesh key -> source file (for reload)
-    std::map<std::string, ProceduralMesh> procedural_;          // "mesh:N" -> its GPU copy
+    std::uint64_t reloadGeneration_ = 0;
+    std::map<std::string, ProceduralMesh> procedural_;  // "mesh:N" -> its GPU copy
     const MeshStore* meshStore_ = nullptr;
     std::uint64_t meshStoreSerial_ = 0;
     std::unordered_map<std::string, std::unique_ptr<MaterialAsset>> materials_;

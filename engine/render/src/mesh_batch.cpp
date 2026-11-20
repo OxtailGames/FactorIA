@@ -53,7 +53,8 @@ auto material_key(const MeshItem& a) {
                            r.clearcoatRoughness, r.sheenColor.r, r.sheenColor.g, r.sheenColor.b, r.sheenRoughness,
                            r.anisotropy, r.anisotropyRotation, r.specular, r.ior, r.unlit, r.receiveShadows,
                            r.uvScale.x, r.uvScale.y, r.normalScale, a.anim, a.material, a.paramsHash, a.colorsHash,
-                           a.flash.r, a.flash.g, a.flash.b, a.flash.a, a.lm.mesh ? a.entity.bits() : std::uint64_t(0));
+                           a.flash.r, a.flash.g, a.flash.b, a.flash.a, a.lm.mesh ? a.entity.bits() : std::uint64_t(0),
+                           decal_recv(r));
 }
 
 // The order of the batches: the same values, with each asset by its name (path or key) and a skinned item by its
@@ -79,7 +80,7 @@ auto order_key(const MeshItem& a) {
         order_float(r.specular), order_float(r.ior), r.unlit, r.receiveShadows, order_float(r.uvScale.x),
         order_float(r.uvScale.y), order_float(r.normalScale),
         (a.anim || a.lm.mesh) ? a.entity.bits() : std::uint64_t(0), name_of(a.material), a.paramsHash, a.colorsHash,
-        order_float(a.flash.r), order_float(a.flash.g), order_float(a.flash.b), order_float(a.flash.a));
+        order_float(a.flash.r), order_float(a.flash.g), order_float(a.flash.b), order_float(a.flash.a), decal_recv(r));
 }
 
 // Items that can share one instanced draw have the same mesh, textures and every MeshRenderer value the shader reads.
@@ -275,6 +276,7 @@ SortKeyTable::Rest SortKeyTable::rest_of(const SortFields& f) {
                  order_float(r.specular),         order_float(r.ior)};
     x.unlit = r.unlit;
     x.receiveShadows = r.receiveShadows;
+    x.decalRecv = decal_recv(r);
     x.uvNormal = {order_float(r.uvScale.x), order_float(r.uvScale.y), order_float(r.normalScale)};
     x.skinEntity = (f.anim || f.lightmapped) ? f.entity.bits() : std::uint64_t(0);
     x.material = name_of(f.material);
@@ -285,7 +287,7 @@ SortKeyTable::Rest SortKeyTable::rest_of(const SortFields& f) {
     for (float v : x.shading) h = mix(h, bits_of(v));
     for (float v : x.uvNormal) h = mix(h, bits_of(v));
     for (float v : x.flash) h = mix(h, bits_of(v));
-    h = mix(h, std::uint64_t(x.unlit) | std::uint64_t(x.receiveShadows) << 1);
+    h = mix(h, std::uint64_t(x.unlit) | std::uint64_t(x.receiveShadows) << 1 | std::uint64_t(x.decalRecv) << 2);
     h = mix(h, x.skinEntity);
     h = mix(h, std::hash<std::string_view>{}(x.material));
     h = mix(h, x.paramsHash);
@@ -297,8 +299,9 @@ SortKeyTable::Rest SortKeyTable::rest_of(const SortFields& f) {
 // The field order of the old comparator (order_key).
 bool SortKeyTable::rest_less(const Rest& a, const Rest& b) {
     return std::tie(a.shading, a.unlit, a.receiveShadows, a.uvNormal, a.skinEntity, a.material, a.paramsHash,
-                    a.colorsHash, a.flash) < std::tie(b.shading, b.unlit, b.receiveShadows, b.uvNormal, b.skinEntity,
-                                                      b.material, b.paramsHash, b.colorsHash, b.flash);
+                    a.colorsHash, a.flash, a.decalRecv) < std::tie(b.shading, b.unlit, b.receiveShadows, b.uvNormal,
+                                                                   b.skinEntity, b.material, b.paramsHash, b.colorsHash,
+                                                                   b.flash, b.decalRecv);
 }
 
 void SortKeyTable::clear() {

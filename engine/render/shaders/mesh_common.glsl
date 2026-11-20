@@ -376,6 +376,12 @@ layout(binding=24) uniform texture2D fa_light_tex;
 @image_sample_type fa_light_tex unfilterable_float
 #define FA_LIGHT_TEX fa_light_tex
 #define FA_LIGHT_SMP fa_shadow_smp
+// The decal atlas (light_data.glsl, block fa_decals; view 27): the albedo and normal textures of the Decal components, RGBA8 with mips,
+// read with textureLod through the linear clamped sampler 10. Bound with the main pass's other views (a white image while the view has no
+// decals, which no fragment then reads).
+layout(binding=27) uniform texture2D fa_decal_tex;
+#define FA_DECAL_TEX fa_decal_tex
+#define FA_DECAL_SMP fa_env_smp
 // The sky of a sky material (SceneSettings.skyMaterial), baked by the renderer (renderer_env.h): the sky prefiltered by roughness (the
 // mips) and its irradiance. Both are views 14 and 15, the sampler 10 (after the material's textures and their vertex-stage copies);
 // bound and used only while fa_env_sky.w is 1.
@@ -397,7 +403,8 @@ layout(binding=1) uniform fa_mesh_fs_params {
     vec4 fa_fog_b;              // the stack's fog (PostProcess.fog*) on a blended mesh: x = fogStart, y = height density,
                                 // z = height base (world y), w = height falloff; all 0 for the scene's own fog
     vec4 fa_fog_c;              // xyz = the camera's forward axis in the world, w = 1 for an orthographic camera (0 otherwise)
-    vec4 fa_counts;             // x = light count, y = unused, z = 1 on OpenGL backends
+    vec4 fa_counts;             // x = light count, y = first texel of the decal region (0 = no decals), z = 1 on OpenGL backends,
+                                // w = what this mesh takes of the decals: 0 = none, else 1 + MeshRenderer.decalLayer
     vec4 fa_env_sky;            // rgb sky color (top of the environment); w = 1 when the baked environment of a sky material is bound
     vec4 fa_env_horizon;        // rgb horizon color; w = the highest mip of fa_env_tex (what roughness 1 reads)
     vec4 fa_time;               // x = seconds of game time since the scene started
@@ -601,6 +608,7 @@ vec3 fa_sky_light(in SurfaceInput i, in Surface s) {
 // here, before the light functions, because a baked light is skipped on a lightmapped fragment (fa_light_baked, light_data.glsl).
 in vec3 fa_lm;
 @include_block fa_light_data
+@include_block fa_decals
 
 const float FA_PI = 3.14159265;
 
@@ -672,6 +680,8 @@ void main() {
     fa_cluster_begin(fa_world_pos);
     Surface s = fa_standard_surface(i);
     surface(i, s);
+    // The projected decals of the cluster paint the surface before the lights see it (before the discard: it takes derivatives).
+    fa_apply_decals(i.world_pos, i.world_normal, s.albedo, s.normal);
 #ifdef FA_ALPHA_CLIP
     if (s.alpha < alphaCutoff) { discard; }
 #endif

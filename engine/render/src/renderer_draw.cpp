@@ -91,6 +91,9 @@ struct Renderer::Impl::DrawContext {
     // gather_meshes, collect_lights, shadow_bounds, cull_and_batch
     std::vector<MeshItem> opaque, blended;
     std::vector<LightData> lights;
+    // collect_decals: the decals of the view in drawing order, and every texture path the Decals of the world name (sorted, normalised).
+    std::vector<DecalItem> decals;
+    std::vector<std::string> decalPaths;
     int shadowLight = -1;
     Vec3 lightDirForShadow{0, -1, 0};
     bool haveShadowCaster = false;
@@ -149,6 +152,8 @@ struct Renderer::Impl::DrawContext {
     // The light data texture of the job's view (scene_uniforms): bound at view 24 of the mesh programs; the white image while the job
     // has no lights or draws no mesh.
     sg_view lightView{};
+    // The atlas of the decal textures (view 27 of the mesh programs): the renderer's, once this job has decals to draw; else the white image.
+    sg_view decalView{};
     mesh_fa_mesh_vs_params_t vuScene{};
     mesh_fa_mesh_fs_params_t fuScene{};
     // fuScene with the camera's stack fog (PostProcess.fog*): the blended meshes fog themselves with it, while the opaque meshes and the sky
@@ -495,6 +500,7 @@ void Renderer::Impl::begin_frame_graph(bool countPost) {
     if (countPost) ++postSerial;
     trim_shadow_rows();
     free_retired_shadow_targets();  // the frame before has run its graph
+    free_retired_decal_atlases();
     sharedGame = sharedLight = sharedShadow = sharedEnv = sharedSkyLut = ResourceId{};
 }
 
@@ -723,6 +729,7 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
 
     gather_meshes(ctx);
     collect_lights(ctx);
+    collect_decals(ctx);
     shadow_bounds(ctx);
     cull_and_batch(ctx);
     // Fog and sun shafts (renderer_fog.h), planned before the prepass: the sun is known once the lights are, and shafts alone with no sun in
@@ -1365,6 +1372,47 @@ void Renderer::Impl::upload_instances(DrawContext& ctx) {
     ctx.shadowExtra = upload(ctx.shadowExtraData.data(), ctx.shadowExtraData.size() * sizeof(float));
 }
 
+// ---- the projected decals of the view (M73.5b) ----
+// The Decals of the world that can touch this view: active, their box inside the camera frustum, in drawing order (SortOrder, then the
+// world's order), at most kMaxDecals (the first in the world's order; the rest counts in stats.decalsDropped and is warned once). Also the
+// paths of every texture the active Decals name, for the atlas (a decal turning into view must not rebuild it). Nothing for a job that draws
+// no mesh, a studio camera or a view that does not draw the world.
+// Reads: world, ctx.fr, ctx.opaque / ctx.blended. Writes: ctx.decals, ctx.decalPaths, stats.decalsDropped, warnedDecalCap.
+void Renderer::Impl::collect_decals(DrawContext& ctx) {
+    ctx.decals.clear();
+    ctx.decalPaths.clear();
+    const Frame& fr = ctx.fr;
+    if (!fr.wantWorld || fr.cam.studio || (ctx.opaque.empty() && ctx.blended.empty())) return;
+    World& world = ctx.world;
+    std::set<std::string> paths;
+    int dropped = 0;
+    static const Vec3 kLo{-0.5f, -0.5f, -0.5f}, kHi{0.5f, 0.5f, 0.5f};
+    world.each<Decal>([&](Entity e, Decal& d) {
+        if (!entity_active(world, e)) return;
+        for (const std::string* p : {&d.albedo, &d.normal})
+            if (!p->empty() && paths.size() < render::kMaxDecalTextures) paths.insert(decal_path_key(*p));
+        const Mat4 m = world.world_matrix(e);
+        if (!box_in_frustum(fr.cam.viewProj, ctx.z01, kLo, kHi, m)) return;
+        if (ctx.decals.size() >= std::size_t(render::kMaxDecals)) {
+            ++dropped;
+            return;
+        }
+        ctx.decals.push_back(DecalItem{m, &d});
+    });
+    std::stable_sort(ctx.decals.begin(), ctx.decals.end(),
+                     [](const DecalItem& a, const DecalItem& b) { return a.decal->sortOrder < b.decal->sortOrder; });
+    ctx.decalPaths.assign(paths.begin(), paths.end());
+    stats.decalsDropped += dropped;
+    if (dropped > 0 && !warnedDecalCap) {
+        warnedDecalCap = true;
+        FA_WARN("render",
+                "More than {} Decals are in view: the first {} (in the order of the world) are drawn and the rest are "
+                "left out. Hint: remove "
+                "decals that have faded, or give them a Lifetime; stats.decalsDropped counts them.",
+                render::kMaxDecals, render::kMaxDecals);
+    }
+}
+
 // ---- the lights of the view: the light table and the clusters, in the data texture ----
 // Clustered forward lighting (light_clusters.h): the table of ctx.lights (directional first, then the local lights by relevance) and,
 // when there are local lights, the clusters of the view with each one's list of lights, are packed into one RGBA32F image that the
@@ -1378,7 +1426,10 @@ void Renderer::Impl::upload_lights(DrawContext& ctx) {
     // look up a cluster of a grid with no tiles). A view with no local lights keeps it too.
     ctx.fuScene.fa_cl_info[0] = -1.0f;
     ctx.fuScene.fa_cl_info[1] = ctx.fuScene.fa_cl_info[2] = ctx.fuScene.fa_cl_info[3] = 0.0f;
-    if (lights.empty() || (ctx.opaque.empty() && ctx.blended.empty()) || ctx.camPx.w < 1 || ctx.camPx.h < 1) return;
+    ctx.fuScene.fa_counts[1] = 0.0f;
+    if ((lights.empty() && ctx.decals.empty()) || (ctx.opaque.empty() && ctx.blended.empty()) || ctx.camPx.w < 1 ||
+        ctx.camPx.h < 1)
+        return;
     int directional = 0;
     while (directional < int(lights.size()) && lights[std::size_t(directional)].rank < 2) ++directional;
     ClusterCamera cam;
@@ -1401,7 +1452,22 @@ void Renderer::Impl::upload_lights(DrawContext& ctx) {
         if (!(cam.farDepth > cam.nearDepth)) cam.farDepth = cam.nearDepth * 10000.0f;
     }
     ClusterLists lists;
-    const bool clustered = int(lights.size()) > directional;
+    // The decals of the view: their textures in the atlas, their records and boxes (nothing when none can be drawn).
+    DecalPack decalPack;
+    if (!ctx.decals.empty()) {
+        // No atlas (every texture failed, or the GPU could not make it) is not "no decals": the atlas then holds no tile, a decal with an
+        // albedo is skipped (counted in decalsDropped) and a decal with only a tint is still drawn.
+        if (!ctx.decalPaths.empty()) ensure_decal_atlas(ctx.decalPaths, fr.linear);
+        std::vector<DecalBox> boxes;
+        int skipped = 0;
+        make_decal_records(ctx.decals, fr.linear, decalPack, boxes, skipped);
+        stats.decalsDropped += skipped;
+        if (!decalPack.records.empty())
+            build_decal_clusters(cam, make_cluster_grid(cam.widthPx, cam.heightPx, cam.nearDepth, cam.farDepth), boxes,
+                                 decalPack.lists);
+    }
+    const bool haveDecals = !decalPack.records.empty();
+    const bool clustered = int(lights.size()) > directional || haveDecals;
     if (clustered) {
         std::vector<LightSphere> spheres(lights.size());
         for (std::size_t i = std::size_t(directional); i < lights.size(); ++i)
@@ -1422,6 +1488,21 @@ void Renderer::Impl::upload_lights(DrawContext& ctx) {
                 "that overlap; stats.lightClusterClipped counts them.",
                 lists.clippedEntries, kMaxLightsPerCluster, kMaxClusterIndices);
         }
+    }
+    if (haveDecals) {
+        stats.decals += int(decalPack.records.size());
+        stats.decalClusterClipped += int(decalPack.lists.clippedEntries);
+        if (decalPack.lists.clippedEntries > 0 && !warnedDecalClipped) {
+            warnedDecalClipped = true;
+            FA_WARN("render",
+                    "{} decal-list entries were left out: a cluster of the view holds at most {} decals and a view at "
+                    "most {} entries in all, "
+                    "so some pixels miss decals. Hint: use fewer decals that overlap, or make them smaller; "
+                    "stats.decalClusterClipped counts "
+                    "them.",
+                    decalPack.lists.clippedEntries, kMaxDecalsPerCluster, kMaxDecalIndices);
+        }
+        ctx.decalView = decal_view_or(ctx.white->view);
     }
     // The shadow records of the point and spot lights that got maps this frame (local_shadows.h): where each tile is in the atlas, its
     // matrix and its depth convention.
@@ -1457,9 +1538,10 @@ void Renderer::Impl::upload_lights(DrawContext& ctx) {
     }
     LightTexture tex;
     pack_light_texture(lights, directional, cam, clustered ? &lists : nullptr, tex,
-                       records.empty() ? nullptr : &records);
+                       records.empty() ? nullptr : &records, haveDecals ? &decalPack : nullptr);
     ctx.localShadowBase = tex.shadowBase;
     ctx.lightView = gpu.write_light_image(tex.height, tex.texels.data()).view;
+    ctx.fuScene.fa_counts[1] = tex.uniforms.decalBase;
     mesh_fa_mesh_fs_params_t& fu = ctx.fuScene;
     const ClusterUniforms& u = tex.uniforms;
     for (int c = 0; c < 4; ++c) {
@@ -1501,6 +1583,7 @@ void Renderer::Impl::scene_uniforms(DrawContext& ctx) {
     ss.horizonColor = to_scene(ss.horizonColor, fr.linear);
     ctx.white = assets->white();
     ctx.lightView = ctx.white->view;
+    ctx.decalView = ctx.white->view;
     copy_mat(vuScene.fa_view_proj, fr.cam.viewProj);
     copy_mat(vuScene.fa_light_vp, ctx.doShadows && ctx.cascades > 0 ? ctx.fits[0].viewProj : Mat4::identity());
     fill_shadow_block(ctx, gpu.is_gl(), debugView == DebugView::Cascades, ctx.shadowU);
@@ -1817,6 +1900,8 @@ mesh_fa_mesh_fs_params_t Renderer::Impl::fill_fs(DrawContext& ctx, const MeshIte
     const bool doShadows = ctx.doShadows;
     const MeshRenderer& mr = *mi.mr;
     mesh_fa_mesh_fs_params_t fu = fuScene;
+    fu.fa_counts[3] = float(
+        decal_recv(mr));  // 0 = receives no decal, else 1 + MeshRenderer.decalLayer (the view's decals: fa_counts.y)
     const bool unlit = mr.unlit || d.error || (d.mat && d.mat->lighting == "unlit");
     // MeshRenderer.emissiveStrength scales both the component's colour and the model's own emission; a NaN or negative
     // value (a script wrote it) counts as 0, no glow.
@@ -1933,6 +2018,7 @@ void Renderer::Impl::bind_textures(DrawContext& ctx, sg_bindings& b, const PartD
     b.samplers[SMP_mesh_fa_shadow_smp] = gpu.sampler(SamplerKind::Nearest);
     // The light data of the view (the shadow pass has no lights: any image does for a program that declares the slot).
     b.views[VIEW_mesh_fa_light_tex] = shadowPass ? white->view : ctx.lightView;
+    b.views[VIEW_mesh_fa_decal_tex] = shadowPass ? white->view : ctx.decalView;
     // The sky environment (renderer_env.h): the baked cubes, or a black one while the meshes use the gradient (every
     // mesh program of the main pass declares the slots; a custom program that does not has them dropped below).
     const bool env = ctx.envActive && skyEnv.baked();

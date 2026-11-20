@@ -8,10 +8,10 @@ M73 brings the lighting of a leading engine to FactorIA in six steps: many light
 (M73.3); baked lightmaps and light probes (M73.4); volumetric fog, decals, subsurface scattering and realtime global illumination
 (M73.5); and the material layers clear coat, sheen, anisotropy, specular / IOR and transmission (M73.6; the first four are drawn).
 
-**What is there today (M73.1a, M73.2a, M73.2b): the fields, many lights and the shadows of the sun, of point lights and of spot lights.** Every field below is reflected,
+**What is there today (M73.1a, M73.2a, M73.2b, M73.5b): the fields, many lights, the shadows of the sun, of point lights and of spot lights, and projected decals.** Every field below is reflected,
 validated, saved in the scene and read back, and shows up in `docs.components` and in the typings, so a scene, a prefab or a tool can
 set it. The renderer reads `innerAngle`, the shadow fields of the directional light and of the scene (the "Brought by" column says
-`drawn` for them), and lights a view with up to 1024 lights at once (see "Many lights"); it does not read the other fields yet (except the sky fields, `skyModel` and the rows after it, which M73-P3d draws: see "The physical sky"): a
+`drawn` for them), and lights a view with up to 1024 lights at once (see "Many lights"), and draws `Decal` components (see "Decals"); it does not read the other fields yet (except the sky fields, `skyModel` and the rows after it, which M73-P3d draws: see "The physical sky"): a
 scene with only those set looks exactly as it does without them, except that a Light of `type: "area"` shines like a point light of
 the same `range` until M73.1b. The doc string of each field says which step brings it.
 The defaults are what the engine did before, so a scene made before M73 loads, looks and saves as it did (a default is never written
@@ -265,15 +265,66 @@ no place to get the UV from.
 **The texel density.** `lightmap_texels_per_meter` (C++, `fa/scene/lightmap_manifest.h`) gives the density the bake will use for an entity:
 16 texels per metre times `MeshRenderer.lightmapScale`, 0 when the scale is 0.
 
+## Decals (M73.5b)
+
+A `Decal` component paints a texture on the meshes inside its box, the way a stencil or a sticker does: bullet holes, blood, dirt,
+scorch marks, painted signs, a wet patch. It is a **projected** decal: the entity's box (the unit cube scaled and placed by the entity's
+transform) is a projector that looks along its local **-Z** (the way a `Light` or a `Camera` looks) and paints every receiver surface
+inside the box that faces it. Rotate the entity so -Z points at the wall, the floor or the roof.
+
+| Field | Values | Default | Meaning |
+|---|---|---|---|
+| `albedo` | a texture path | none | The colour image. Its alpha says where it paints (a ring, a splat); without it the decal is a solid box of `color`. |
+| `normal` | a texture path | none | A tangent-space normal map: relief that bends the lighting where the decal paints (bumps, scratches, bullet dents). |
+| `color` | colour | white | Multiplies the albedo; its alpha scales the cover. |
+| `opacity` | 0..1 | 1 | How much of the albedo (and of the relief) the decal paints. Fade a decal out by lowering it. |
+| `normalStrength` | 0..4 | 1 | The strength of the relief. 0 is flat. |
+| `angleFade` | 0..90 degrees | 60 | The angle, between the surface's normal and the projector's axis, up to which the decal has full strength. Beyond it the strength falls as `cos(angle) / cos(angleFade)` and reaches 0 only when the surface is edge-on (90 degrees): at the default 60 it is full up to 60 degrees off, half at 75 and 0 at 90. A smaller `angleFade` starts fading sooner and keeps the decal from smearing over walls seen at a slant; 90 keeps full strength until the surface is edge-on. |
+| `sortOrder` | integer | 0 | Decals are painted in ascending `sortOrder`, so a later one paints over an earlier one; equal values keep the order in which the world visits its `Decal` components (a stable sort). The same order decides which decals stay when a cluster is over its 32 (see the limits): the lowest `sortOrder` are kept. |
+| `layers` | 0..65535 | 0 | A bit mask of the **decal layers** it paints: bit n is `MeshRenderer.decalLayer` n. 0 paints every layer. |
+
+On the receiving side `MeshRenderer.receiveDecals` (default true) turns decals off for a mesh, and `MeshRenderer.decalLayer` (0..15,
+default 0) says which layer it belongs to: a decal paints a mesh when the mesh receives decals and its layer is in the decal's `layers`.
+A character that must stay clean, or a floor that takes only the footprints, uses these.
+
+How it looks:
+
+- A decal changes the surface's **albedo** and **normal** before the lights run, so it is lit, shadowed and reflected like the surface
+  under it (a decal on a shiny floor stays shiny; `metallic` and `roughness` are the mesh's). It does not add light by itself.
+- The box ends sharply at its sides (the decal ends at the edge of its picture) and fades over the last tenth of its depth, so a
+  decal does not show a flat cut where the projection ends.
+- Albedo and normal are read with mip levels chosen from how large the decal is on the screen, so a far decal does not sparkle.
+- Decals draw on the opaque and the transparent meshes alike. The depth prepass and the shadow maps do not see them: a decal never
+  casts a shadow and never changes the silhouette.
+- A scene without decals draws the same picture as before (every golden of the engine stayed the same), and costs nothing more.
+
+Limits, all counts (never time): **256 decals** per view (a view with more draws the first 256 in the order of the world and warns
+once; `stats.decalsDropped` counts the rest), **32 decals per cluster of the view** (the first 32 in painting order stay: the lowest `sortOrder`) and **131072** list entries per view
+(`stats.decalClusterClipped` counts what is lost; 0 is normal), and the textures of all decals share **one atlas** of at most 4096 x
+4096 pixels (or the GPU's own limit) and 96 MB: each texture is scaled to at most 1024 pixels on its longer side, and when they do not
+all fit the biggest are halved (down to 16 pixels) and then the last are left out, the same on every run. A decal whose `albedo` cannot be
+read or does not fit is **not drawn** and the engine says which texture once (`stats.decalsDropped` counts it); a `normal` that
+cannot be read just adds no relief. The atlas is rebuilt when a decal names a texture it does not hold, when a texture file is reloaded
+or when the scene's colour space changes (a hitch of a frame; give the decals of a level in the first frame, or keep the set stable).
+
+`stats.decals` is how many decals were drawn. `render.supports` with `{"feature": "decals"}` is true on every GPU.
+
+**Not the same as `texturing`.** A model's `texturing` section (a project's model file) also has "decals": those are baked into the model's
+texture by the CPU when the model is made, one fixed picture. A `Decal` component is live: it moves, fades and is added or removed
+while the game runs, and any mesh in its box receives it.
+
+For a snippet material the engine applies decals itself (the `surface` hook's result is painted over). A **full shader** calls
+`fa_apply_decals` itself, see [SHADERS_LIGHTING.md](../shaders/SHADERS_LIGHTING.md), "Decals".
+
 ## Asking what the renderer draws: render.supports
 
 `render.supports` (C++ `Renderer::supports(name)`) answers for each lighting feature below with `false` and the status `planned (M73)`
-until its step lands; then it follows the GPU (`cascadedShadows` does, `physicalSky` is true wherever the GPU renders to RGBA16F and filters it, and `clusteredLights` is `true` on every backend that draws). A game that wants a feature checks it first and falls back, so it never relies on
+until its step lands; then it follows the GPU (`cascadedShadows` does, `physicalSky` is true wherever the GPU renders to RGBA16F and filters it, and `clusteredLights` and `decals` are `true` on every backend that draws). A game that wants a feature checks it first and falls back, so it never relies on
 what is not drawn.
 
 `clusteredLights`, `areaLights`, `lightCookies`, `iesProfiles` (M73.1); `cascadedShadows`, `pointShadows`, `spotShadows`,
 `contactShadows` (M73.2); `environmentMap`, `reflectionProbes`, `physicalSky` (M73.3); `lightmaps` (M73.4a), `lightProbes` (M73.4d);
-`volumetricFog`, `decals`, `subsurface`, `realtimeGI` (M73.5); `clearCoat`, `sheen`, `anisotropy` (M73.6a, drawn: they follow the
+`volumetricFog`, `decals` (M73.5b, drawn), `subsurface`, `realtimeGI` (M73.5); `clearCoat`, `sheen`, `anisotropy` (M73.6a, drawn: they follow the
 backend, which every one supports) and `transmission` (M73.6b).
 
 A new capability row, `float32Targets`, says whether the GPU can render to and sample R32F and RGBA32F images: the shadow atlas of

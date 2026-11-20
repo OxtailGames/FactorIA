@@ -167,6 +167,28 @@ lights first), and `fa_light(i, ...)` takes an index of the table. For the light
 `fa_light`. `fa_light` shadows a point or spot light that casts (M73.2b) with the same maps as the mesh program, so a full shader that
 loops over the lights gets their shadows with no change.
 
+## Decals
+
+A `Decal` component ([RENDERING_LIGHTING.md](../rendering/RENDERING_LIGHTING.md), "Decals") paints a texture on the meshes inside
+its box. In a **snippet material** the engine does it for you: after `surface()` returns and before the light loop, `light()`,
+`ambient()` or your `lighting()` runs, it calls
+
+```glsl
+void fa_apply_decals(vec3 world_pos, vec3 geo_normal, inout vec3 albedo, inout vec3 normal);
+```
+
+on `s.albedo` and `s.normal` (the position and the geometric normal of the fragment; the decals of the fragment's cluster, in
+`sortOrder`). So your `lighting()` sees the painted albedo and the bent normal and needs nothing: the decal is part of the surface. A
+material cannot call it itself (it would paint twice), and `MeshRenderer.receiveDecals` false (or a `decalLayer` the decal does not list)
+leaves the surface as `surface()` made it.
+
+A **full shader** has no surface hook, so the engine does not call it: include nothing, call `fa_apply_decals(world_pos, geometric_normal,
+albedo, normal)` yourself once, on the colour and the normal you are about to light, before the lights and in the top level of `main()`
+(it takes `dFdx` and `dFdy` of the position to pick the mip level of the decal texture, which GLSL, HLSL and MSL allow only where every
+fragment of a quad runs the same code: not inside an `if` that depends on the fragment, and before any `discard`). The mesh's
+`receiveDecals` and `decalLayer` are honoured by the function. `metallic`, `roughness` and the emission are not changed by a decal. A
+full shader that never calls it ignores decals.
+
 ## The sky material lights the meshes
 
 A scene with a sky material (`SceneSettings.skyMaterial`, [sky materials](../SHADERS.md)) shows that sky and is also lit by
