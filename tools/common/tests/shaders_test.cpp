@@ -1196,6 +1196,19 @@ TEST_CASE("sprite material: validate compiles it next to the mesh materials") {
     CHECK(*(defines + 1) == "FA_MATERIAL");
     for (const auto& e : report.errors) CHECK(e.message.find("is not compiled yet") == std::string::npos);
 
+    // fa_instance_index in a sprite material without buffers is always 0: one warning (a comment that names it is none)
+    for (const auto& w : report.warnings) CHECK(w.message.find("fa_instance_index") == std::string::npos);
+    const std::string usesIndex =
+        std::string(kSpriteSnippet) +
+        "\n// fa_instance_index in a comment\nfloat k() { return float(fa_instance_index); }\n";
+    p.write("shaders/dissolve2d.fragment.glsl", usesIndex);
+    ValidationReport warned;
+    validate_materials(p.str(), shdc.context(p.str()), warned);
+    int indexWarnings = 0;
+    for (const auto& w : warned.warnings)
+        if (w.message.find("fa_instance_index") != std::string::npos) ++indexWarnings;
+    CHECK(indexWarnings == 1);
+
     // a mistake in fragment() is the error of the material's snippet
     const std::string bad = "void fragment(in QuadInput i, inout QuadSurface s) {\n    s.color = tnt;\n}\n";
     p.write("shaders/dissolve2d.fragment.glsl", bad);

@@ -1260,6 +1260,7 @@ const char* kSeverityOrder[] = {"nice-to-have", "minor", "major", "blocker"};
 
 Result<FeedbackReport> collect_feedback(const std::vector<std::string>& paths, const CollectOptions& opts) {
     std::vector<std::string> files;
+    std::set<std::string> otherNamed;  // files named by hand that are not called ENGINE_FEEDBACK.json
     Json errors = Json::array();
     for (const auto& p : paths) {
         std::error_code ec;
@@ -1270,6 +1271,7 @@ Result<FeedbackReport> collect_feedback(const std::vector<std::string>& paths, c
                 errors.push_back("No ENGINE_FEEDBACK.json found in " + p + " (searched 4 levels deep).");
         } else if (stdfs::is_regular_file(p, ec)) {
             files.push_back(p);
+            if (stdfs::path(p).filename().string() != kFeedbackFileName) otherNamed.insert(p);
         } else {
             errors.push_back("Path does not exist: " + p);
         }
@@ -1282,14 +1284,20 @@ Result<FeedbackReport> collect_feedback(const std::vector<std::string>& paths, c
     std::set<std::string> projectSet;
     int total = 0;
     for (const auto& f : files) {
+        // `collect examples/*` hands over every file next to the projects (examples.json, README.md ...): a file that is
+        // not called ENGINE_FEEDBACK.json and is not a feedback file is skipped when other paths were given. Named alone,
+        // it is an error that says what to pass.
+        const bool skippable = otherNamed.count(f) > 0 && paths.size() > 1;
         auto doc = load_feedback(f);
         if (!doc.ok()) {
-            errors.push_back(f + ": " + doc.error().to_string());
+            if (!skippable) errors.push_back(f + ": " + doc.error().to_string());
             continue;
         }
         const Json& d = doc.value();
         if (!d.is_object() || !d.contains("entries") || !d["entries"].is_array()) {
-            errors.push_back(f + ": no \"entries\" array");
+            if (!skippable)
+                errors.push_back(f + ": no \"entries\" array. This is not an " + std::string(kFeedbackFileName) +
+                                 "; pass a project directory or that file.");
             continue;
         }
         std::string project = d.value("project", u8text(stdfs::path(f).parent_path().filename()));
