@@ -1299,7 +1299,10 @@ bool GraphModel::poll_external() {
     const Stamp s = stamp();
     if (s == stamp_) {
         // Compared by content and the file is no longer fresh: nothing can still write it into this file-time step.
-        if (s.settled && s.hash != 0) stamp_.hash = 0;
+        if (s.settled && s.hash != 0)
+            stamp_.hash = 0;
+        else if (stamp_.hash == 0 && s.hash != 0)
+            stamp_.hash = s.hash;  // a fresh file the stored stamp did not hash: keep its content, so no later wildcard
         return false;
     }
     if (dirty()) {
