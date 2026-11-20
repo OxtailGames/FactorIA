@@ -1424,8 +1424,10 @@ public:
     // `shader` = a program of a custom material (its prepass or prepass_skin), default = the built-in one. The vertex layout is the
     // main program's (every attribute), the culling the main pass's: `doubleSided` as for mesh_pipeline. Invalid when the built-in
     // shader cannot be made.
+    // `cullFront`: the BACK faces are drawn instead of the front ones, double-sided or not (the realtime GI's distance pictures: a probe
+    // whose first hit is a back face is inside geometry).
     sg_pipeline prepass_pipeline(const TargetFormat& format, bool doubleSided, bool skinned = false,
-                                 sg_shader shader = {}, MeshExtras extras = {});
+                                 sg_shader shader = {}, MeshExtras extras = {}, bool cullFront = false);
     sg_pipeline prepass_pipeline(bool doubleSided, bool skinned = false, sg_shader shader = {},
                                  MeshExtras extras = {}) {
         return prepass_pipeline(prepass_target_format(), doubleSided, skinned, shader, extras);

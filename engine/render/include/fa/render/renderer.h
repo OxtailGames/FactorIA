@@ -540,6 +540,10 @@ public:
     // The report of the `render.probes` command: {atlas: {size, format, tiles, usedTexels, reservedTexels, ...}, sky: {...}, faceBudget,
     // probes: [{entity, mode, state, tile, captures, lastFrame, ...}]}. Empty object before init() and while no probe exists.
     Json probe_report() const;
+    // The realtime GI's grids (RealtimeGI; include/fa/render/gi.h, docs/design/ARCHITECTURE_PROBES.md, "Realtime GI: the data side"): the report of
+    // the `render.gi_grid` command: {frame, captures, capturesPerFrame, atlas, grids: [{entity, state, probes, progress, bytes, invalidProbes,
+    // ...}]}. It reads the probes' meta texels back from the GPU (a command, never the frame). Empty object before init() and while no grid exists.
+    Json gi_report();
     // Asks for the probe's next capture as soon as the budget allows (an `onDemand` probe captures only then). False when it is not a
     // realtime probe of this renderer.
     bool probe_refresh(Entity probe);

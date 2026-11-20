@@ -460,6 +460,10 @@ struct Renderer::Impl {
         bool customPost = false;
         const Target* target = nullptr;
         CustomHistoryFrame history;
+        // A face of a realtime GI capture (renderer_gi.cpp): the job also draws the depth prepass of its camera twice (the front faces, the back
+        // faces) and the "gi-distance" pass turns both into the distance picture `gi->distIndex` of the probe system. `gi->drawn` tells
+        // whether it did (a face with no opaque mesh has no picture: every ray of it is maxDistance long).
+        GiFacePlan* gi = nullptr;
     };
     void render(World& world, float dt);
     void setup_frame(Frame& fr, World& world, float dt);
@@ -476,6 +480,12 @@ struct Renderer::Impl {
     // atlas, uploads the baked pages and writes the sky's entry.
     void probes_plan(World& world);
     void probes_finish();
+    // The realtime GI grids (renderer_gi.cpp), a part of the same frame: gi_plan() runs inside probes_plan() once the atlas exists (it has the
+    // band of probe blocks), gi_finish() inside probes_finish(). gi_collect() reads the RealtimeGI components (cheap when there are none).
+    void gi_collect(World& world);
+    void gi_plan(World& world, bool atlasRemade);
+    void gi_finish();
+    void gi_release();
     // The Frame of capture face `face` of `rp` seen from `position`: a 90 degree camera into an image of `resolution` squared.
     void probe_face_frame(Frame& fr, World& world, const ReflectionProbe& rp, Vec3 position, int face, int resolution);
     void
@@ -578,7 +588,8 @@ struct Renderer::Impl {
     // The depth and normal prepass (M71): plan_prepass decides whether the job has one, prepass_pass draws it into `t` (a transient of
     // the graph), prepass_view_pass paints it over the game image (Renderer::set_debug_view).
     bool plan_prepass(DrawContext& ctx);
-    void prepass_pass(DrawContext& ctx, const Target& t);
+    // `backFaces`: draws the back faces only (the realtime GI's distance pictures).
+    void prepass_pass(DrawContext& ctx, const Target& t, bool backFaces = false);
     // M73.5: the meshes that scatter again with the sss program of the mesh shader, into `a` (diffuse light + depth) and `b` (radius + strength);
     // `pre` is the prepass the shader's visibility test reads.
     void sss_draw_pass(DrawContext& ctx, const Target& a, const Target& b, const Target& pre);
