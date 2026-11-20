@@ -1524,6 +1524,10 @@ enum class HdrOutput : std::int32_t { Off, Auto };
 // (Physical: renderer_sky_phys.h, docs/rendering/RENDERING_LIGHTING.md, "The physical sky".)
 enum class SkyModel : std::int32_t { Gradient, Physical };
 
+// SceneSettings.volumetricQuality: how many samples the volumetric fog takes and at what resolution (M73.5;
+// docs/rendering/RENDERING_LIGHTING.md, "Volumetric fog and light shafts").
+enum class VolumetricQuality : std::int32_t { Low, Medium, High };
+
 // Scene-wide settings (stored in the scene file under "settings").
 struct SceneSettings {
     Color ambientLight{0.25f, 0.25f, 0.3f, 1.0f};
@@ -1565,6 +1569,15 @@ struct SceneSettings {
     float cloudDensity = 0.6f;                      // how opaque and dark the clouds are, 0..1
     float cloudAltitude = 2500.0f;                  // metres above the observer
     Vec2 cloudWind{8.0f, 3.0f};                     // metres per second the clouds drift along world x and z
+    // The volumetric fog (M73.5): read only with volumetricFog on. The medium's colour is fogColor.
+    bool volumetricFog = false;            // off = nothing changes
+    float volumetricDensity = 0.02f;       // extinction per metre at the height base
+    float volumetricHeightBase = 0.0f;     // world y below which the density is constant
+    float volumetricHeightFalloff = 0.0f;  // per metre above the base; 0 = the same density at every height
+    float volumetricAnisotropy = 0.4f;     // Henyey-Greenstein g: -0.99 (back) .. 0 (even) .. 0.99 (forward)
+    float volumetricAmbient = 1.0f;        // how much of ambientLight the fog scatters
+    float volumetricDistance = 100.0f;     // metres from the camera the medium extends to
+    VolumetricQuality volumetricQuality = VolumetricQuality::Medium;
 };
 
 // Registers every component above (plus SceneSettings as a reflected type)

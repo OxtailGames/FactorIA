@@ -195,7 +195,11 @@ std::vector<FeatureDef> build_table() {
          "probes "
          "(M73.3)."},
         {"lightProbes", "", "Light probes: baked spherical-harmonics lighting for moving objects (M73.4)."},
-        {"volumetricFog", "half+depth", "Volumetric fog and light shafts per light (M73.5)."},
+        {"volumetricFog", "half+depth",
+         "Volumetric fog and light shafts: a medium the sun and the point and spot lights (Light.volumetric) shine "
+         "through, raymarched at half or quarter resolution and joined to the picture with a depth-aware upsample "
+         "(SceneSettings.volumetricFog; M73.5).",
+         nullptr},
         {"decals", "depth", "Projected decals drawn over the meshes they touch (M73.5)."},
         {"subsurface", "half+depth", "Screen-space subsurface scattering for skin and wax (M73.5)."},
         {"realtimeGI", "half",
