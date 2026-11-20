@@ -46,7 +46,7 @@ into a row or changes the table together with the `static_assert`s under it.
 | 15 | free: the irradiance cube is retired (its unit is the screen slot, 28) | 0 |
 | 14 `fa_probe_atlas` (sampler 10) | M73.3b/c: reflection probes and the sky, octahedral 2D, prefiltered by roughness; replaces the cube | 2 |
 | 24 `fa_light_data` (sampler 1, nearest, `texelFetch`) | M73.1a, RGBA32F: the lights and the clusters' light lists, M73.5b the decal records and their cluster lists (landed) | 1, 2 |
-| 25 `fa_light_atlas` (sampler 10) | M73.1b: cookies and IES profiles, one RGBA8 atlas | 1, 2 |
+| 25 `fa_light_atlas` (sampler 10) | M73.1b: ONE RGBA16F atlas: the LTC tables, the cookies and the IES profiles ("The light atlas") | 1, 2 |
 | 26 `fa_lightmap` (sampler 10) | M73.4a: the lightmap page of the entity drawn (RGBA16F, one page per draw; a white texel when it has none), read at its lightmap UV | 1, 2 |
 | 27 `fa_decal_atlas` (sampler 10) | M73.5b (landed): decal textures, RGBA8 with mips (their transforms are in `fa_light_data`); the white image while a view has no decals | 1, 2 |
 | 28 `fa_screen_tex` (sampler 10) | M73.2c and M73.6b: the prepass depth for contact shadows, the opaque colour for transmission | 2 |
@@ -83,10 +83,10 @@ GLES3, WebGL2, D3D11 and Metal. No compute shader, no storage buffer: the build 
 
 - **Layout** (documented at the top of `light_data.glsl`): `[0, 4L)` the light table, four texels per light (position and range, or the
   direction to a directional light; colour times intensity and the type; the spot axis and `cos(outer)`; `cos(inner)`, 2 meaning "the
-  default fade" and three reserved components for the cookie and IES of M73.1b); then one texel per cluster (slot of its first light
+  default fade" and three reserved components); in a view where any light is an area light or has a cookie or an IES profile every light has **eight** texels (`kLightTexelsExt`; the stride is in `fa_ambient.w`, 0 or 4 = four), the extension at `+4 .. +7` ("The light atlas"); then one texel per cluster (slot of its first light
   index, how many lights, and since M73.5b the slot of its first decal index and how many decals: 0, 0 without decals), slice-major, then
   row, then column; then the light indices, four to a texel; then the shadow region of the local lights (M73.2b, only with local shadows), then the decal
-  region (only when the view has decals, see "Decals").
+  region (only when the view has decals, see "Decals"). Light n is at texel `fa_light_base(n)` (`n * stride`); every reader of a light's texels goes through it.
 - **Who is in the table.** The directional lights come first (at most 32, `kMaxDirectionalLights`; the shadow caster is light 0) and
   belong to every cluster, they are not in the lists. Then the local lights in the order of `select_lights` (at most 1024 in all,
   `kMaxLights`). A light list is in ascending table order, so a loop over "the directional lights, then the cluster's list" adds the
@@ -113,8 +113,9 @@ GLES3, WebGL2, D3D11 and Metal. No compute shader, no storage buffer: the build 
 - **Cost.** The cluster build of 1000 lights on a 1920x1080 view (30 x 17 x 24 clusters, about 300000 list entries) takes under a
   millisecond on one core of an M-series Mac (`light_clusters_tests.cpp` prints it); the texture of such a view is 1 MiB of RGBA32F.
   A view with no local light builds no clusters: its texture holds the directional lights only.
-- **Not here yet.** Area lights, cookies and IES profiles (M73.1b) use the reserved texel components; a spot's cone is bounded by its
-  full sphere (a tighter cone bound would only shorten the lists); shadows of local lights are M73.2b.
+- **Not here yet.** A spot's cone is bounded by its full sphere (a tighter cone bound would only shorten the lists); shadows of
+  local lights are M73.2b. An area light's sphere is its range plus the radius of its emitter (`LightData::extent`), so the clusters
+  and the culling see the real extent.
 
 ## The shadow atlas
 
@@ -294,6 +295,13 @@ CPU: `engine/render/src/local_shadows.{h,cpp}` (no GPU; `tests/local_shadows_tes
   same template); the v flip is the `isGl` branch of `local_sample_matrix` (the matrix of both conventions is checked on the CPU in
   `local_shadows_tests.cpp`; the renderer goldens run the backend of the host: Metal on a Mac, D3D11 or llvmpipe on CI).
 
+## The light atlas
+
+M73.1b: ONE RGBA16F image (view 25, `fa_light_atlas`) holds the LTC tables of the area lights, the cookies and the IES profiles, and the
+light table has eight texels per light when a light uses them (the stride is in `fa_ambient.w`). The whole description (layout of the
+image, the texels of a light, shading, shadows, approximations, tests) is in
+[ARCHITECTURE_AREA_LIGHTS.md](ARCHITECTURE_AREA_LIGHTS.md), "The light atlas and the area-light shading".
+
 ## The feature rows
 
 `render_features.cpp` has one row per feature (docs/design/ARCHITECTURE_RENDERING.md, "What the GPU can do"). M73-P0 added `float32Targets`
@@ -302,15 +310,15 @@ CPU: `engine/render/src/local_shadows.{h,cpp}` (no GPU; `tests/local_shadows_tes
 `contactShadows`, `environmentMap`, `reflectionProbes`, `physicalSky`, `lightmaps`, `lightProbes`, `volumetricFog`, `decals`,
 `subsurface`, `realtimeGI`, `clearCoat`, `sheen`, `anisotropy`, `transmission`. Each carries the `needs` its pass will ask of the GPU.
 `needs_met` runs before the planned check, so on a GPU that lacks the capability the answer names the capability, not the plan. The
-package that draws a feature drops its `"M73"` text from the table (`clusteredLights` did in M73.1a and `cascadedShadows` in M73.2a: it needs only `float32`, and `decals` in M73.5b: it needs nothing; `environmentMap` in M73-P3a-2: it needs `half`, the RGBA16F targets the environment cubes are; and `volumetricFog` in M73.5, with `half+depth`).
+package that draws a feature drops its `"M73"` text from the table (`clusteredLights` did in M73.1a, `cascadedShadows` in M73.2a: it needs only `float32`, `decals` in M73.5b: it needs nothing, `areaLights`, `lightCookies` and `iesProfiles` in M73.1b: they need `half`, RGBA16F images that filter, the atlas format, `environmentMap` in M73-P3a-2: it needs `half`, the RGBA16F targets the environment cubes are, and `volumetricFog` in M73.5, with `half+depth`).
 
 ## The new fields
 
 `Light`, `SceneSettings` and `MeshRenderer` (`engine/scene/include/fa/scene/components.h`, registered in `components.cpp`) got the fields
-listed in the user page, each with a doc string that says "No effect yet: M73.x brings it" (the layers of M73.6a are drawn: see "The material layers"). They are plain reflected fields: range and
+listed in the user page, each with a doc string that says "No effect yet: M73.x brings it" (the layers of M73.6a and the area, cookie and IES fields of M73.1b are drawn: see "The material layers" and "The light atlas"). They are plain reflected fields: range and
 enum checks come from the reflection (`field_from_json`), and a default is not written to a scene file, so old scenes and the saved
-form of an unchanged scene are the same. `LightType` gained `Area` (last, so the numbers of the others do not move); until M73.1 the
-renderer treats it as a point light (`renderer_draw.cpp`, `scene2d.cpp`). The M73.x package that makes a field work removes "No effect
+form of an unchanged scene are the same. `LightType` gained `Area` (last, so the numbers of the others do not move); the 3D renderer shades it with the LTC tables since M73.1b, the 2D
+lighting (`scene2d.cpp`) still treats it as a point light. The M73.x package that makes a field work removes "No effect
 yet" from its doc string and updates the tables in RENDERING_LIGHTING.md.
 
 ## The material layers
