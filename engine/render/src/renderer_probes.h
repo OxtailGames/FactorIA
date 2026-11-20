@@ -80,7 +80,8 @@ public:
     // The texels of a rectangle of the atlas as RGBA floats, top row of the rectangle first (RGBA16F only: the atlas as RGBA8 is read as
     // bytes / 255). The work recorded so far must be committed by the caller when the backend needs it (Metal): see Renderer::Impl.
     bool read_region_begin(Gpu& gpu, Atlas& atlas, int x, int y, int w, int h, sg_image& scratch, int* drawCalls);
-    static bool read_region_end(sg_image scratch, int w, int h, bool rgba8, std::vector<float>& out, std::string* error);
+    static bool read_region_end(sg_image scratch, int w, int h, bool rgba8, std::vector<float>& out,
+                                std::string* error);
 
     void release();
 
@@ -113,12 +114,13 @@ struct ProbeEntry {
     bool realtime = false;
     ProbeUpdateKind update = ProbeUpdateKind::TimeSliced;
     int resolution = 0, importance = 0;
-    ProbeTile tile, uploadedTile;  // uploadedTile: where a baked probe's page was last written (a moved tile is written again)
-    float gain = 1.0f;             // ReflectionProbe.intensity
-    std::string name;              // the entity's id in the scene, for the report
+    ProbeTile tile,
+        uploadedTile;   // uploadedTile: where a baked probe's page was last written (a moved tile is written again)
+    float gain = 1.0f;  // ReflectionProbe.intensity
+    std::string name;   // the entity's id in the scene, for the report
     bool placed = false;
-    std::string state;       // "ready", "pending", "capturing", "noRoom", "noBake", "failed", "overLimit"
-    std::string message;     // why a probe is "failed" or "noBake"
+    std::string state;    // "ready", "pending", "capturing", "noRoom", "noBake", "failed", "overLimit"
+    std::string message;  // why a probe is "failed" or "noBake"
     std::uint64_t captures = 0;
     std::uint64_t lastFrame = 0;  // the renderer's probe frame of the last capture or upload (0 = never)
     // Baked: the manifest the tile was last filled from.

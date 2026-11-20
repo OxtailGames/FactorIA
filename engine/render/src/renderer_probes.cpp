@@ -20,7 +20,8 @@ namespace fa {
 
 namespace {
 
-constexpr std::uint64_t kProbeViewKeyBit = 1ull << 61;  // the view_image keys of the probe faces: bit 61 and the job's index
+constexpr std::uint64_t kProbeViewKeyBit = 1ull
+                                           << 61;  // the view_image keys of the probe faces: bit 61 and the job's index
 constexpr std::uint64_t kProbeSyncKey = kProbeViewKeyBit | (1ull << 40);
 
 bool same_tile(const ProbeTile& a, const ProbeTile& b) {
@@ -31,23 +32,21 @@ float sane_gain(float intensity) { return std::isfinite(intensity) ? std::clamp(
 
 ProbeUpdateKind update_kind(ProbeUpdate u) {
     switch (u) {
-    case ProbeUpdate::EveryFrame: return ProbeUpdateKind::EveryFrame;
-    case ProbeUpdate::OnDemand: return ProbeUpdateKind::OnDemand;
-    default: return ProbeUpdateKind::TimeSliced;
+        case ProbeUpdate::EveryFrame: return ProbeUpdateKind::EveryFrame;
+        case ProbeUpdate::OnDemand: return ProbeUpdateKind::OnDemand;
+        default: return ProbeUpdateKind::TimeSliced;
     }
 }
 
 const char* update_name(ProbeUpdateKind k) {
     switch (k) {
-    case ProbeUpdateKind::EveryFrame: return "everyFrame";
-    case ProbeUpdateKind::OnDemand: return "onDemand";
-    default: return "timeSliced";
+        case ProbeUpdateKind::EveryFrame: return "everyFrame";
+        case ProbeUpdateKind::OnDemand: return "onDemand";
+        default: return "timeSliced";
     }
 }
 
-Json tile_json(const ProbeTile& t) {
-    return Json::object({{"x", t.x}, {"y", t.y}, {"resolution", t.resolution}});
-}
+Json tile_json(const ProbeTile& t) { return Json::object({{"x", t.x}, {"y", t.y}, {"resolution", t.resolution}}); }
 
 }  // namespace
 
@@ -171,7 +170,8 @@ void Renderer::Impl::probes_plan(World& world) {
         if (!ps.overLimitWarned) {
             ps.overLimitWarned = true;
             FA_WARN("render",
-                    "The scene has more than {} active ReflectionProbe components: only the {} with the largest importance are kept. "
+                    "The scene has more than {} active ReflectionProbe components: only the {} with the largest "
+                    "importance are kept. "
                     "Hint: give the probes that matter a larger importance, or deactivate the ones nothing reflects",
                     kProbeMaxCount, kProbeMaxCount);
         }
@@ -247,8 +247,8 @@ void Renderer::Impl::probes_plan(World& world) {
     };
     // The sky is entry 0 (a tile of its own, never evicted: nothing is less important than it).
     if (!ps.skyPlaced) {
-        const std::optional<ProbeTile> t = ps.allocator.acquire(kProbeSkyId, kProbeSkyResolution, std::numeric_limits<int>::max(),
-                                                                 ps.frame, &evicted);
+        const std::optional<ProbeTile> t =
+            ps.allocator.acquire(kProbeSkyId, kProbeSkyResolution, std::numeric_limits<int>::max(), ps.frame, &evicted);
         ps.skyPlaced = t.has_value();
         if (t) ps.skyTile = *t;
         ps.skyKey = 0;
@@ -291,12 +291,14 @@ void Renderer::Impl::probes_plan(World& world) {
             }
             en.resolution = probe_resolution(bake->manifest.resolution);
         }
-        const std::optional<ProbeTile> t = ps.allocator.acquire(en.id, en.resolution, en.importance, ps.frame, &evicted);
+        const std::optional<ProbeTile> t =
+            ps.allocator.acquire(en.id, en.resolution, en.importance, ps.frame, &evicted);
         evict();
         if (!t) {
             en.placed = false;
             en.state = "noRoom";
-            en.message = "the atlas has no free " + std::to_string(en.resolution) + " tile and every probe in it matters at least as much";
+            en.message = "the atlas has no free " + std::to_string(en.resolution) +
+                         " tile and every probe in it matters at least as much";
             continue;
         }
         ps.allocator.touch(en.id, ps.frame);
@@ -307,7 +309,8 @@ void Renderer::Impl::probes_plan(World& world) {
             specs.push_back(ProbeSpec{en.id, en.update, en.importance, en.resolution});
             if (moved && en.captures > 0) movedAgain.push_back(en.id);
         } else {
-            const bool stale = en.bakedSerial != bake->serial || !same_tile(en.uploadedTile, en.tile) || en.uploadedGain != en.gain;
+            const bool stale =
+                en.bakedSerial != bake->serial || !same_tile(en.uploadedTile, en.tile) || en.uploadedGain != en.gain;
             if (stale) {
                 ps.uploads.push_back(en.id);
                 en.state = "pending";
@@ -456,10 +459,12 @@ bool Renderer::Impl::probe_sync_capture(World& world, Entity probe, Renderer::Pr
     ProbeSystem& ps = probes;
     if (!ps.gpu.ready()) return fail("this GPU cannot draw the probes' passes (see the log)");
     if (ps.gpu.rgba8())
-        return fail("this GPU cannot render to RGBA16F, and a baked probe holds light above 1 (use a probe that is captured at run time)");
+        return fail("this GPU cannot render to RGBA16F, and a baked probe holds light above 1 (use a probe that is "
+                    "captured at run time)");
     const int resolution = probe_resolution(rp.resolution);
     constexpr int kSlot = kProbeSlots;  // the slot that belongs to the synchronous capture
-    if (!ps.gpu.prepare_scratch(kSlot, resolution)) return fail("the scratch cube maps of the capture could not be created (out of GPU memory?)");
+    if (!ps.gpu.prepare_scratch(kSlot, resolution))
+        return fail("the scratch cube maps of the capture could not be created (out of GPU memory?)");
     if (!ps.syncAtlas.valid() && !ps.gpu.make_atlas(ps.syncAtlas, kProbeSyncAtlasSize, "probe-sync-atlas"))
         return fail("the image the capture is filtered into could not be created (out of GPU memory?)");
 
@@ -517,10 +522,14 @@ bool Renderer::Impl::probe_sync_capture(World& world, Entity probe, Renderer::Pr
     gpu.note_commit();
     std::vector<float> pagePx, shPx;
     std::string readError;
-    if (ok) ok = ProbeGpu::read_region_end(pageImage, pw, ph, false, pagePx, &readError);
-    else if (pageImage.id) sg_destroy_image(pageImage);
-    if (ok) ok = ProbeGpu::read_region_end(shImage, kProbeShCoefficients, 1, false, shPx, &readError);
-    else if (shImage.id) sg_destroy_image(shImage);
+    if (ok)
+        ok = ProbeGpu::read_region_end(pageImage, pw, ph, false, pagePx, &readError);
+    else if (pageImage.id)
+        sg_destroy_image(pageImage);
+    if (ok)
+        ok = ProbeGpu::read_region_end(shImage, kProbeShCoefficients, 1, false, shPx, &readError);
+    else if (shImage.id)
+        sg_destroy_image(shImage);
     cleanup();
     if (!ok) return fail("reading the capture back from the GPU failed: " + readError);
     if (pagePx.size() != std::size_t(pw) * std::size_t(ph) * 4 || shPx.size() < std::size_t(kProbeShCoefficients) * 4)
@@ -571,7 +580,8 @@ Json Renderer::probe_report() const {
     atlas["tiles"] = ps.allocator.count();
     atlas["usedTexels"] = double(ps.allocator.used_texels());
     atlas["reservedTexels"] = double(ps.allocator.reserved_texels());
-    atlas["capacityTexels"] = double(std::uint64_t(ps.allocator.atlas_size()) * std::uint64_t(ps.allocator.atlas_size()));
+    atlas["capacityTexels"] =
+        double(std::uint64_t(ps.allocator.atlas_size()) * std::uint64_t(ps.allocator.atlas_size()));
     atlas["created"] = ps.atlas.valid();
     out["atlas"] = std::move(atlas);
     Json sky = Json::object();

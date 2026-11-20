@@ -33,8 +33,10 @@ const char* kProject = R"({
 })";
 
 std::string wall(const char* id, const char* position, const char* scale, const char* emissive) {
-    return std::string(R"(    { "id": ")") + id + R"(", "components": { "Transform": { "position": )" + position + R"(, "scale": )" + scale +
-           R"( }, "MeshRenderer": { "mesh": "cube", "color": "#000000", "unlit": true, "castShadows": false, "emissive": ")" + emissive +
+    return std::string(R"(    { "id": ")") + id + R"(", "components": { "Transform": { "position": )" + position +
+           R"(, "scale": )" + scale +
+           R"( }, "MeshRenderer": { "mesh": "cube", "color": "#000000", "unlit": true, "castShadows": false, "emissive": ")" +
+           emissive +
            R"(" } } },
 )";
 }
@@ -46,9 +48,12 @@ std::string scene_text(const char* plusX = "#ff0000") {
   "settings": { "ambientLight": "#000000" },
   "entities": [
     { "id": "cam", "components": { "Camera": {} } },
-)") + wall("px", "[3, 0, 0]", "[0.2, 6.4, 6.4]", plusX) + wall("nx", "[-3, 0, 0]", "[0.2, 6.4, 6.4]", "#00ffff") +
-           wall("py", "[0, 3, 0]", "[6.4, 0.2, 6.4]", "#00ff00") + wall("ny", "[0, -3, 0]", "[6.4, 0.2, 6.4]", "#ff00ff") +
-           wall("pz", "[0, 0, 3]", "[6.4, 6.4, 0.2]", "#0000ff") + wall("nz", "[0, 0, -3]", "[6.4, 6.4, 0.2]", "#ffff00") +
+)") + wall("px", "[3, 0, 0]", "[0.2, 6.4, 6.4]", plusX) +
+           wall("nx", "[-3, 0, 0]", "[0.2, 6.4, 6.4]", "#00ffff") +
+           wall("py", "[0, 3, 0]", "[6.4, 0.2, 6.4]", "#00ff00") +
+           wall("ny", "[0, -3, 0]", "[6.4, 0.2, 6.4]", "#ff00ff") +
+           wall("pz", "[0, 0, 3]", "[6.4, 6.4, 0.2]", "#0000ff") +
+           wall("nz", "[0, 0, -3]", "[6.4, 6.4, 0.2]", "#ffff00") +
            R"(    { "id": "lobby", "components": { "Transform": {}, "ReflectionProbe": { "mode": "baked", "resolution": 64, "clear": "color", "clearColor": "#000000", "boxSize": [6, 6, 6] } } },
     { "id": "plain", "components": { "Transform": {} } }
   ]
@@ -69,7 +74,8 @@ struct TempProject {
     }
     std::vector<std::string> files() const {
         std::vector<std::string> out;
-        for (const auto& f : stdfs::directory_iterator(dir / "scenes")) out.push_back(f.path().filename().generic_string());
+        for (const auto& f : stdfs::directory_iterator(dir / "scenes"))
+            out.push_back(f.path().filename().generic_string());
         std::sort(out.begin(), out.end());
         return out;
     }
@@ -132,7 +138,8 @@ TEST_CASE("probe.bake: writes the page and the manifest, is deterministic, and a
     REQUIRE(hash.size() == 16);
     CHECK(first["page"] == "scenes/main.lobby.probe." + hash + ".hdr");
     CHECK(e.world().get<ReflectionProbe>(e.world().find("lobby"))->bakedMap == "scenes/main.lobby.probe.json");
-    CHECK(p.files() == std::vector<std::string>{"main.lobby.probe." + hash + ".hdr", "main.lobby.probe.json", "main.scene.json"});
+    CHECK(p.files() ==
+          std::vector<std::string>{"main.lobby.probe." + hash + ".hdr", "main.lobby.probe.json", "main.scene.json"});
 
     // The manifest reads back, and its page is the .hdr of the right size with the hash of its bytes.
     const std::string manifestText = p.read("scenes/main.lobby.probe.json");
@@ -189,7 +196,8 @@ TEST_CASE("probe.bake: writes the page and the manifest, is deterministic, and a
     REQUIRE_MESSAGE(r.ok, r.error.dump());
     const std::string hash2 = r.result["hash"].get<std::string>();
     CHECK(hash2 != hash);
-    CHECK(p.files() == std::vector<std::string>{"main.lobby.probe." + hash2 + ".hdr", "main.lobby.probe.json", "main.scene.json"});
+    CHECK(p.files() ==
+          std::vector<std::string>{"main.lobby.probe." + hash2 + ".hdr", "main.lobby.probe.json", "main.scene.json"});
 
     // `path` and `apply`: another manifest, the component left alone.
     e.world().get<ReflectionProbe>(e.world().find("lobby"))->bakedMap.clear();

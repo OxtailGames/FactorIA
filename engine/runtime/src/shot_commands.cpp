@@ -651,31 +651,40 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
             return j;
         });
 
-    I.commands.add(
-        {"render.probes",
-         "The reflection probes the renderer keeps: the atlas, each probe's tile, state and last capture.",
-         "Reads the state of the reflection probes (ReflectionProbe components, docs/design/ARCHITECTURE_PROBES.md) after drawing a frame "
-         "when none is current. Result: {atlas: {size, format (\"RGBA16F\" or \"RGBA8\"), tiles, usedTexels, reservedTexels, "
-         "capacityTexels, created}, sky: {state, tile, writtenFrame}, faceBudget, frame, passes, overLimit, probes: [{entity, mode, "
-         "update, state, message?, resolution, importance, tile: {x, y, resolution} or null, captures, lastFrame, facesDone | bakedMap, "
-         "hash?}]}. `state` is \"ready\", \"pending\" (waiting for its first capture), \"capturing\" (facesDone of 6 faces drawn), "
-         "\"noRoom\" (the atlas has no tile for it: `message` says why), \"noBake\" (a baked probe with no readable bakedMap: run "
-         "probe.bake) or \"failed\". `lastFrame` counts the frames that had probes. The atlas is not read by the meshes yet. The result is "
-         "{probes: [], atlas: null} while no ReflectionProbe has been drawn. Errors: `unavailable` without graphics. Example: render.probes {}"
-         FA_COMMAND_DETAILS
-         "The atlas of the realtime and baked probes is one 1024 x 1024 image (8 MB as RGBA16F); `usedTexels` is what the tiles cover and "
-         "`reservedTexels` what their shelves hold, so a large gap means fragmentation by resolution.",
-         parse_schema(R"({"type":"object","properties":{}})"), true, "game"},
-        [&engine, &I](const Json& a) {
-            check_args_known(a, {}, "render.probes");
-            if (!I.renderer || !I.renderer->initialized())
-                throw CommandError("unavailable", "No renderer: the engine runs with graphics=false, so no probes are captured.",
-                                   "Run with graphics (headless needs Mesa/EGL on Linux), not graphics=false.");
-            engine.render_now();
-            Json j = I.renderer->probe_report();
-            if (j.empty()) return Json::object({{"probes", Json::array()}, {"atlas", Json()}});
-            return j;
-        });
+    I.commands.add({"render.probes",
+                    "The reflection probes the renderer keeps: the atlas, each probe's tile, state and last capture.",
+                    "Reads the state of the reflection probes (ReflectionProbe components, "
+                    "docs/design/ARCHITECTURE_PROBES.md) after drawing a frame "
+                    "when none is current. Result: {atlas: {size, format (\"RGBA16F\" or \"RGBA8\"), tiles, "
+                    "usedTexels, reservedTexels, "
+                    "capacityTexels, created}, sky: {state, tile, writtenFrame}, faceBudget, frame, passes, overLimit, "
+                    "probes: [{entity, mode, "
+                    "update, state, message?, resolution, importance, tile: {x, y, resolution} or null, captures, "
+                    "lastFrame, facesDone | bakedMap, "
+                    "hash?}]}. `state` is \"ready\", \"pending\" (waiting for its first capture), \"capturing\" "
+                    "(facesDone of 6 faces drawn), "
+                    "\"noRoom\" (the atlas has no tile for it: `message` says why), \"noBake\" (a baked probe with no "
+                    "readable bakedMap: run "
+                    "probe.bake) or \"failed\". `lastFrame` counts the frames that had probes. The atlas is not read "
+                    "by the meshes yet. The result is "
+                    "{probes: [], atlas: null} while no ReflectionProbe has been drawn. Errors: `unavailable` without "
+                    "graphics. Example: render.probes {}" FA_COMMAND_DETAILS
+                    "The atlas of the realtime and baked probes is one 1024 x 1024 image (8 MB as RGBA16F); "
+                    "`usedTexels` is what the tiles cover and "
+                    "`reservedTexels` what their shelves hold, so a large gap means fragmentation by resolution.",
+                    parse_schema(R"({"type":"object","properties":{}})"), true, "game"},
+                   [&engine, &I](const Json& a) {
+                       check_args_known(a, {}, "render.probes");
+                       if (!I.renderer || !I.renderer->initialized())
+                           throw CommandError(
+                               "unavailable",
+                               "No renderer: the engine runs with graphics=false, so no probes are captured.",
+                               "Run with graphics (headless needs Mesa/EGL on Linux), not graphics=false.");
+                       engine.render_now();
+                       Json j = I.renderer->probe_report();
+                       if (j.empty()) return Json::object({{"probes", Json::array()}, {"atlas", Json()}});
+                       return j;
+                   });
 
     I.commands.add(
         {"render.supports",

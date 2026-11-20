@@ -1327,7 +1327,8 @@ void Renderer::Impl::render(World& world, float dt) {
         for (const ViewRequest& rq : frames[i].views) plan.shows.push_back(rq.key);
         plan_job(world, frames[i], plan);
     }
-    probes_plan(world);  // after the cameras: a probe's faces do not take the sky's bake pass from the picture being drawn
+    probes_plan(
+        world);  // after the cameras: a probe's faces do not take the sky's bake pass from the picture being drawn
     run_frame_graph();
     probes_finish();  // before release_unused_views(): the faces' images are read here
     update_editor_copy();

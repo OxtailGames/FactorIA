@@ -1024,7 +1024,8 @@ struct ProbeBakeAsset {
     bool ok = false;
     std::string error;
     ProbeManifest manifest;
-    std::shared_ptr<const ImageF> page;  // probe_page_width x probe_page_height, RGB linear light (fa/core/image_float.h)
+    std::shared_ptr<const ImageF>
+        page;  // probe_page_width x probe_page_height, RGB linear light (fa/core/image_float.h)
     std::uint64_t serial = 0;
     bool retryPending = false;  // the first failure may be a pair being rewritten: the next ask reads once more
 };

@@ -466,6 +466,18 @@ Lists the 2D visuals (Sprite, Shape2D, Text, Tilemap, UI widgets) whose drawn bo
 | `position` | array | yes | [x, y] in design pixels (origin top-left). |
 | `max` | integer | no | At most this many hits. Default 20. |
 
+## `render.probes`
+
+Not released yet (on main after 0.32.0).
+
+The reflection probes the renderer keeps: the atlas, each probe's tile, state and last capture.
+
+Capabilities: read
+
+Reads the state of the reflection probes (ReflectionProbe components, docs/design/ARCHITECTURE_PROBES.md) after drawing a frame when none is current. Result: {atlas: {size, format ("RGBA16F" or "RGBA8"), tiles, usedTexels, reservedTexels, capacityTexels, created}, sky: {state, tile, writtenFrame}, faceBudget, frame, passes, overLimit, probes: [{entity, mode, update, state, message?, resolution, importance, tile: {x, y, resolution} or null, captures, lastFrame, facesDone | bakedMap, hash?}]}. `state` is "ready", "pending" (waiting for its first capture), "capturing" (facesDone of 6 faces drawn), "noRoom" (the atlas has no tile for it: `message` says why), "noBake" (a baked probe with no readable bakedMap: run probe.bake) or "failed". `lastFrame` counts the frames that had probes. The atlas is not read by the meshes yet. The result is {probes: [], atlas: null} while no ReflectionProbe has been drawn. Errors: `unavailable` without graphics. Example: render.probes {}
+
+The atlas of the realtime and baked probes is one 1024 x 1024 image (8 MB as RGBA16F); `usedTexels` is what the tiles cover and `reservedTexels` what their shelves hold, so a large gap means fragmentation by resolution.
+
 ## `render.reset_post_history` (modifies state)
 
 Since 0.32.0.

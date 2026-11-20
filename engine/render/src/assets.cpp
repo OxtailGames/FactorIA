@@ -985,7 +985,8 @@ const ProbeBakeAsset* Assets::probe_bake(const std::string& pathIn) {
     bool secondTry = false;
     ProbeBakeAsset* slotPtr = nullptr;
     if (auto it = probeBakes_.find(key); it != probeBakes_.end()) {
-        if (it->second->ok || !it->second->retryPending) return it->second.get();  // a failed load stays: one error, no read every frame
+        if (it->second->ok || !it->second->retryPending)
+            return it->second.get();  // a failed load stays: one error, no read every frame
         it->second->retryPending = false;
         secondTry = true;
         slotPtr = it->second.get();
@@ -1004,7 +1005,8 @@ const ProbeBakeAsset* Assets::probe_bake(const std::string& pathIn) {
     };
     if (!fs::exists(key))
         return fail("baked reflection probe " + missing_hint(key, fs::extension(key)),
-                    "Run probe.bake {\"entity\": ...} to bake the probe, or set ReflectionProbe.bakedMap to a *.probe.json of the project.");
+                    "Run probe.bake {\"entity\": ...} to bake the probe, or set ReflectionProbe.bakedMap to a "
+                    "*.probe.json of the project.");
     // A pair being rewritten (probe.bake writes the page, then the manifest; an editor may still hold the file) is read once more on the
     // next frame before it is an error.
     auto retry_once = [&](const std::string& what) {
@@ -1012,8 +1014,10 @@ const ProbeBakeAsset* Assets::probe_bake(const std::string& pathIn) {
         b.retryPending = true;
         b.ok = false;
         b.error = what;
-        FA_WARN("render", "baked reflection probe '{}' {}; trying once more on the next frame (a file that is still being written).", key,
-                what);
+        FA_WARN(
+            "render",
+            "baked reflection probe '{}' {}; trying once more on the next frame (a file that is still being written).",
+            key, what);
         return true;
     };
     auto text = fs::read_text(key);
@@ -1037,21 +1041,27 @@ const ProbeBakeAsset* Assets::probe_bake(const std::string& pathIn) {
                     "Bake the probe again (probe.bake): the manifest names a page that is not in the project.");
     }
     if (probe_hash_hex(*bytes) != manifest->hash) {
-        if (retry_once("page '" + b.pagePath + "' is not the one the manifest was written for (its hash differs)")) return &b;
-        return fail("baked reflection probe '" + key + "': the page '" + b.pagePath + "' does not match the manifest's hash " + manifest->hash,
+        if (retry_once("page '" + b.pagePath + "' is not the one the manifest was written for (its hash differs)"))
+            return &b;
+        return fail("baked reflection probe '" + key + "': the page '" + b.pagePath +
+                        "' does not match the manifest's hash " + manifest->hash,
                     "The page was changed after the bake. Bake the probe again (probe.bake).");
     }
     auto image = decode_hdr(bytes->data(), bytes->size());
     if (!image) {
         if (retry_once("page '" + b.pagePath + "' did not decode: " + image.error().message)) return &b;
-        return fail("baked reflection probe '" + key + "': the page '" + b.pagePath + "': " + image.error().message, image.error().hint);
+        return fail("baked reflection probe '" + key + "': the page '" + b.pagePath + "': " + image.error().message,
+                    image.error().hint);
     }
-    if (image->width != probe_page_width(manifest->resolution) || image->height != probe_page_height(manifest->resolution))
-        return fail(std::format("baked reflection probe '{}': the page is {} x {} texels, a map of resolution {} has {} x {}", key, image->width,
-                                image->height, manifest->resolution, probe_page_width(manifest->resolution),
-                                probe_page_height(manifest->resolution)),
-                    "Bake the probe again (probe.bake).");
-    for (float& v : image->data) v = v > 0.0f ? std::min(v, 65000.0f) : 0.0f;  // NaN and negative are 0; the atlas holds half floats
+    if (image->width != probe_page_width(manifest->resolution) ||
+        image->height != probe_page_height(manifest->resolution))
+        return fail(
+            std::format("baked reflection probe '{}': the page is {} x {} texels, a map of resolution {} has {} x {}",
+                        key, image->width, image->height, manifest->resolution, probe_page_width(manifest->resolution),
+                        probe_page_height(manifest->resolution)),
+            "Bake the probe again (probe.bake).");
+    for (float& v : image->data)
+        v = v > 0.0f ? std::min(v, 65000.0f) : 0.0f;  // NaN and negative are 0; the atlas holds half floats
     b.manifest = std::move(*manifest);
     b.page = std::make_shared<const ImageF>(std::move(*image));
     b.ok = true;
