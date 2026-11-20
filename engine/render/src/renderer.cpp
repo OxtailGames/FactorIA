@@ -614,17 +614,29 @@ Json Renderer::light_probes_report(World& world, Entity entity) {
     j["probes"] = set ? int(set->size()) : 0;
     j["invalid"] = set ? int(set->invalid_count()) : 0;
     Json groups = Json::array();
+    // What the scene's LightProbeGroups ask for now, to tell a baked group that was edited since (stale) from one still as baked.
+    ProbeSet scene;
+    const bool sceneKnown = set && static_cast<bool>(collect_probe_groups(world, scene));
     if (set)
         for (const ProbeGroup& g : set->groups) {
             int bad = 0;
             for (int i = 0; i < g.count; ++i)
                 if (set->baked() && !set->valid[std::size_t(g.first + i)]) ++bad;
-            groups.push_back(Json::object({{"id", g.id},
-                                           {"kind", g.kind == ProbeGroupKind::Grid ? "grid" : "points"},
-                                           {"count", g.count},
-                                           {"invalid", bad}}));
+            Json item = Json::object({{"id", g.id},
+                                      {"kind", g.kind == ProbeGroupKind::Grid ? "grid" : "points"},
+                                      {"count", g.count},
+                                      {"invalid", bad}});
+            if (sceneKnown) item["stale"] = find_same_probe_group(scene, *set, g) == nullptr;
+            groups.push_back(std::move(item));
         }
     j["groups"] = std::move(groups);
+    if (sceneKnown) {
+        // Groups of the scene the file does not hold (added or edited since the bake): they are not lit by probes until the next bake.
+        Json unbaked = Json::array();
+        for (const ProbeGroup& g : scene.groups)
+            if (!find_same_probe_group(*set, scene, g)) unbaked.push_back(g.id);
+        j["unbaked"] = std::move(unbaked);
+    }
     if (entity == kNullEntity) return j;
     Json e =
         Json::object({{"id", world.id_of(entity)},

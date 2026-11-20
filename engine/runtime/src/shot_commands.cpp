@@ -904,7 +904,8 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
          "receives their spherical "
          "harmonics in place of the sky's ambient, interpolated at the centre of its bounds (or at "
          "MeshRenderer.probeAnchor). Without `entity`: "
-         "{lightmaps, baked, probes, invalid, groups: [{id, kind: \"grid\" | \"points\", count, invalid}]}; `invalid` "
+         "{lightmaps, baked, probes, invalid, groups: [{id, kind: \"grid\" | \"points\", count, invalid, stale}], "
+         "unbaked: [ids]}; `invalid` "
          "probes sit inside geometry and are "
          "skipped. With `entity` (a MeshRenderer): also {entity: {id, name, source: \"probes\" | \"lightmap\" | "
          "\"sky\" | \"none\", position, "
@@ -914,6 +915,9 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
          "`sky` means no probe reaches "
          "it. Floats are rounded to 3 digits. Needs graphics. Example: render.light_probes "
          "{\"entity\":\"Player\"}" FA_COMMAND_DETAILS
+         "A group is `stale` when its LightProbeGroup was edited (moved, resized, other spacing or points) since the "
+         "bake; `unbaked` lists the scene's groups the baked file does not hold (added or edited since): bake again "
+         "for both. Both are left out when the scene has no baked probes. "
          "Errors: `invalid_argument` for an `entity` that is not a string; `not_found` for an entity that does not "
          "exist; `unavailable` "
          "without graphics (graphics=false). The same is Renderer::light_probes_report in C++.",

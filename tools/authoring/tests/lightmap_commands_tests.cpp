@@ -667,3 +667,140 @@ TEST_CASE("lightmap.bake: a LightProbeGroup with a mistake stops the bake with i
     CHECK(e.world().settings().lightmaps.empty());
     e.shutdown();
 }
+
+namespace {
+std::size_t count_files(const TempProject& p, const std::string& suffix) {
+    std::size_t n = 0;
+    for (const std::string& f : p.files())
+        if (f.size() > suffix.size() && f.substr(f.size() - suffix.size()) == suffix) ++n;
+    return n;
+}
+}  // namespace
+
+TEST_CASE("lightmap.bake: a page or probe file that could not be deleted (open elsewhere on Windows) is swept by the "
+          "next bake") {
+    const bool before = fs::windows_rules();
+    fs::set_windows_rules(true);
+    const std::string group =
+        R"(, { "id": "probes", "name": "probes", "components": { "Transform": { "position": [0, 1, 0] }, "LightProbeGroup": { "size": [4, 2, 4], "spacing": 2 } } })";
+    TempProject p("sweep", scene_text(group));
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(cfg(p), nullptr, &err), err);
+    auto& c = e.commands();
+    // Files that look like nothing of this manifest's: never touched.
+    std::ofstream(p.dir / "scenes/main.lightmap.v2.0123abcd.0.hdr", std::ios::binary) << "other";
+    std::ofstream(p.dir / "scenes/main.lightmap.notes.txt", std::ios::binary) << "notes";
+    std::ofstream(p.dir / "scenes/main.lightmap.0123abcd.x.hdr", std::ios::binary) << "not a page";
+    REQUIRE(c.call("lightmap.bake", small()).ok);
+    std::string heldPage, heldProbes;
+    for (const std::string& f : p.files()) {
+        if (f.rfind("main.lightmap.", 0) != 0) continue;
+        if (f.size() > 4 && f.substr(f.size() - 4) == ".hdr" && f.find("v2") == std::string::npos &&
+            f.find(".x.") == std::string::npos && heldPage.empty())
+            heldPage = f;
+        if (f.size() > 7 && f.substr(f.size() - 7) == ".probes") heldProbes = f;
+    }
+    REQUIRE_FALSE(heldPage.empty());
+    REQUIRE_FALSE(heldProbes.empty());
+    {
+        // A viewer has both open: the next bake cannot delete them, and leaves them behind.
+        fs::ReadStream holdPage(p.dir / "scenes" / heldPage, std::ios::binary);
+        fs::ReadStream holdProbes(p.dir / "scenes" / heldProbes, std::ios::binary);
+        REQUIRE(holdPage.is_open());
+        REQUIRE(holdProbes.is_open());
+        auto r = c.call("lightmap.bake", small(Json::object({{"seed", 7}})));
+        REQUIRE_MESSAGE(r.ok, r.error.dump());
+        CHECK(stdfs::exists(p.dir / "scenes" / heldPage));  // the orphans
+        CHECK(stdfs::exists(p.dir / "scenes" / heldProbes));
+        CHECK(r.result["probes"]["file"].get<std::string>() != "scenes/" + heldProbes);
+    }
+    // Closed again: the next bake finds them by their names and deletes them, and keeps what its own manifest lists.
+    auto last = c.call("lightmap.bake", small(Json::object({{"seed", 9}})));
+    REQUIRE_MESSAGE(last.ok, last.error.dump());
+    CHECK_FALSE(stdfs::exists(p.dir / "scenes" / heldPage));
+    CHECK_FALSE(stdfs::exists(p.dir / "scenes" / heldProbes));
+    CHECK(count_files(p, ".probes") == 1);
+    CHECK(count_files(p, ".hdr") ==
+          last.result["pages"].size() + 2);  // its pages and the two files that are not its own
+    for (const Json& page : last.result["pages"]) {
+        const std::string file = page.is_string() ? page.get<std::string>() : page["file"].get<std::string>();
+        CHECK(stdfs::exists(p.dir / file));
+    }
+    CHECK(stdfs::exists(p.dir / "scenes" / "main.lightmap.v2.0123abcd.0.hdr"));
+    CHECK(stdfs::exists(p.dir / "scenes" / "main.lightmap.notes.txt"));
+    CHECK(stdfs::exists(p.dir / "scenes" / "main.lightmap.0123abcd.x.hdr"));
+    CHECK(stdfs::exists(p.dir / "scenes" / "main.lightmap.json"));
+    fs::set_windows_rules(before);
+    e.shutdown();
+}
+
+TEST_CASE("lightmap jobs: only the last 8 finished jobs are kept, whether or not anybody asked for their status") {
+    TempProject p("prune");
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(cfg(p, "inline"), nullptr, &err),
+                    err);  // inline: bake_start returns with the job finished, nobody has asked
+    auto& c = e.commands();
+    std::vector<std::string> ids;
+    for (int i = 0; i < 12; ++i) {
+        auto started = c.call("lightmap.bake_start", small());
+        REQUIRE_MESSAGE(started.ok, started.error.dump());
+        ids.push_back(started.result["job"]);
+    }
+    // The oldest are forgotten and say so (no status call has pruned anything: bake_start did); the newest answer.
+    for (int i = 0; i < 3; ++i) {
+        auto old = c.call("lightmap.bake_status", Json::object({{"job", ids[std::size_t(i)]}}));
+        CHECK_FALSE(old.ok);
+        CHECK(old.error.dump().find("finished jobs are kept") != std::string::npos);
+    }
+    for (int i = 10; i < 12; ++i)
+        CHECK(c.call("lightmap.bake_status", Json::object({{"job", ids[std::size_t(i)]}})).ok);
+    e.shutdown();
+}
+
+TEST_CASE("lightmap commands: while the editor plays, a bake is refused and a finished one is not applied to the play "
+          "world") {
+    TempProject p("play");
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(cfg(p), nullptr, &err), err);
+    auto& c = e.commands();
+    // A bake that started before Play and ends while the game runs.
+    auto started = c.call("lightmap.bake_start", small());
+    REQUIRE_MESSAGE(started.ok, started.error.dump());
+    e.set_play_world(true);
+    auto sync = c.call("lightmap.bake", small());
+    REQUIRE_FALSE(sync.ok);
+    CHECK(sync.error.dump().find("game_running") != std::string::npos);
+    CHECK(sync.error.dump().find("Stop") != std::string::npos);
+    auto again = c.call("lightmap.bake_start", small());
+    REQUIRE_FALSE(again.ok);
+    CHECK(again.error.dump().find("game_running") != std::string::npos);
+    const Json done = wait_done(e, started.result["job"]);
+    CHECK(done["state"] == "done");
+    CHECK(done["handOver"]["applied"] == false);
+    CHECK(done["handOver"]["note"].get<std::string>().find("Stop the game") != std::string::npos);
+    CHECK(e.world().settings().lightmaps.empty());  // the play world was not written
+    e.set_play_world(false);
+    auto after = c.call("lightmap.bake", small());
+    CHECK_MESSAGE(after.ok, after.error.dump());
+    CHECK(e.world().settings().lightmaps == "scenes/main.lightmap.json");
+    e.shutdown();
+}
+
+TEST_CASE("lightmap jobs: with no worker threads the bake runs inside bake_start and the first status answers a "
+          "finished job") {
+    TempProject p("inline");
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(cfg(p, "0"), nullptr, &err), err);
+    auto& c = e.commands();
+    auto started = c.call("lightmap.bake_start", small());
+    REQUIRE_MESSAGE(started.ok, started.error.dump());
+    auto status = c.call("lightmap.bake_status", Json::object({{"job", started.result["job"]}}));
+    REQUIRE_MESSAGE(status.ok, status.error.dump());
+    CHECK(status.result["state"] == "done");  // never "running": there is nobody to run it while the caller waits
+    CHECK(status.result["handOver"]["applied"] == true);
+    e.shutdown();
+}
