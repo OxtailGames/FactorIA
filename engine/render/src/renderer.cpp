@@ -420,6 +420,7 @@ void Renderer::shutdown() {
         im.fonts.reset();
         im.ssr.release();
         im.skyEnv.release();
+        im.physSky.release();
         im.sceneFx.release();
         im.fogFx.release();
         im.ramps.destroy();
@@ -832,6 +833,10 @@ void Renderer::reset_post_history(std::uint64_t camera) {
     if (impl_) impl_->customPost.reset_history(camera);
 }
 
+render::SkyBuilds RendererTestAccess::sky_builds(Renderer& r) {
+    if (!r.impl_) return {};
+    return {r.impl_->physSky.air_builds(), r.impl_->physSky.view_builds(0), r.impl_->physSky.view_builds(1)};
+}
 int RendererTestAccess::post_history_images(Renderer& r) {
     return r.impl_ ? r.impl_->customPost.history_image_count() : 0;
 }

@@ -32,12 +32,26 @@ int fa_cl_light(int n) {
     return fa_cluster_index(fa_cl_slot, n - fa_cl_ndir);
 }
 
-// The same with the shadow of the directional shadow map applied (only the first light, and only when it is directional, is
-// shadowed): what the engine's light loop hands to light(). li is an index of the light table, gn the geometric normal.
+// The same with the shadow applied: the first light when it is directional has the sun's cascaded shadow map, a point or spot light
+// that has a shadow map this frame (Light.castShadows, within the budget) its own one: what the engine's light loop hands to light().
+// li is an index of the light table, gn the geometric normal.
 LightSample fa_light_shadowed(int li, vec3 world_pos, vec3 gn) {
+    if (fa_lm.z > 0.5 && fa_light_baked(li)) {  // its direct light is in the lightmap this fragment reads: no light, no shadow lookup
+        LightSample none;
+        none.direction = vec3(0.0, 1.0, 0.0);
+        none.color = vec3(0.0);
+        none.attenuation = 0.0;
+        none.shadow = 1.0;
+        none.distance = 0.0;
+        none.type = int(fa_light_type(li) + 0.5);
+        return none;
+    }
     LightSample ls = fa_light_sample(li, world_pos);
     if (ls.type == 0 && li == 0) {
         ls.shadow = fa_shadow_factor(gn, ls.direction);
+        ls.color = ls.color * ls.shadow;
+    } else if (ls.type != 0 && ls.attenuation > 0.0) {
+        ls.shadow = fa_shadow_local(li, world_pos, gn, ls.direction);
         ls.color = ls.color * ls.shadow;
     }
     return ls;
@@ -57,13 +71,19 @@ LightSample fa_light(int n, in SurfaceInput i) {
 // Light n without the shadow map read: color has no shadow in it and shadow is 1; the way to treat the shadow apart.
 LightSample fa_light_unshadowed(int n, in SurfaceInput i) {
     if (n < 0 || n >= fa_light_count()) { return fa_no_light(); }
-    return fa_light_sample(fa_cl_light(n), i.world_pos);
+    int li = fa_cl_light(n);
+    if (fa_lm.z > 0.5 && fa_light_baked(li)) { return fa_no_light(); }  // a baked light on a lightmapped fragment
+    return fa_light_sample(li, i.world_pos);
 }
-// The shadow of light n at this fragment: 1 lit, 0 in shadow (a value between at the edge of the shadow). Only the first light
-// (n = 0) when it is directional has a shadow; every other light gives 1.
+// The shadow of light n at this fragment: 1 lit, 0 in shadow (a value between at the edge of the shadow). The first light (n = 0) when
+// it is directional has the sun's shadow, a point or spot light with a shadow map this frame its own; every other light gives 1.
 float fa_light_shadow(int n, in SurfaceInput i) {
-    if (n != 0 || fa_light_count() < 1 || fa_cl_ndir < 1) { return 1.0; }
-    return fa_shadow_factor(i.world_normal, normalize(fa_light_texel(0).xyz));
+    if (n < 0 || n >= fa_light_count()) { return 1.0; }
+    if (n == 0 && fa_cl_ndir >= 1) { return fa_shadow_factor(i.world_normal, normalize(fa_light_texel(0).xyz)); }
+    int li = fa_cl_light(n);
+    if (li < fa_cl_ndir) { return 1.0; }
+    vec3 to_light = normalize(fa_light_texel(li * 4).xyz - i.world_pos);
+    return fa_shadow_local(li, i.world_pos, i.world_normal, to_light);
 }
 #endif
 @end
@@ -79,6 +99,7 @@ float fa_light_shadow(int n, in SurfaceInput i) { return 1.0; }
         int count = fa_cl_ndir + fa_cl_local;
         for (int ln = 0; ln < count; ln++) {
             int li = fa_cl_light(ln);
+            if (fa_lm.z > 0.5 && fa_light_baked(li)) { continue; }  // Light.mode Baked on a lightmapped fragment (before any shadow lookup)
             LightSample ls = fa_light_shadowed(li, i.world_pos, gn);
 #ifdef FA_CUSTOM_LIGHT
             // lighting "custom": the snippet's light() takes the place of the Cook-Torrance term below.
@@ -90,15 +111,21 @@ float fa_light_shadow(int n, in SurfaceInput i) { return 1.0; }
             vec3 h = normalize(l + v);
             float ndh = max(dot(n, h), 0.0);
             float vdh = max(dot(v, h), 0.0);
-            // Cook-Torrance: GGX distribution, height-correlated Smith visibility (Karis' approximation), Schlick Fresnel.
-            float dd = ndh * ndh * (a2 - 1.0) + 1.0;
-            float d_ggx = a2 / (FA_PI * dd * dd);
-            float vis = 0.5 / max(mix(2.0 * ndl * ndv, ndl + ndv, alpha), 1e-4);
-            vec3 fres = f0 + (1.0 - f0) * pow(1.0 - vdh, 5.0);
-            // Light colors are not divided by pi (a white light of intensity 1 lights a white diffuse surface to 1),
-            // so the specular term carries the matching factor pi.
-            vec3 spec = fres * (d_ggx * vis * FA_PI) * step(0.0001, ndl);
-            lit += (diffuse_color + spec) * fa_light_rgb(li) * (ndl * atten);
+            if (lay.on) {
+                // A material layer is set (clear coat, sheen, anisotropy, specular, ior): brdf_layers.glsl.
+                lit += fa_layers_light(lay, diffuse_color, f0, n, v, l, h, ndl, ndv, ndh, vdh, alpha, a2) *
+                       (fa_light_rgb(li) * atten);
+            } else {
+                // Cook-Torrance: GGX distribution, height-correlated Smith visibility (Karis' approximation), Schlick Fresnel.
+                float dd = ndh * ndh * (a2 - 1.0) + 1.0;
+                float d_ggx = a2 / (FA_PI * dd * dd);
+                float vis = 0.5 / max(mix(2.0 * ndl * ndv, ndl + ndv, alpha), 1e-4);
+                vec3 fres = f0 + (1.0 - f0) * pow(1.0 - vdh, 5.0);
+                // Light colors are not divided by pi (a white light of intensity 1 lights a white diffuse surface to 1),
+                // so the specular term carries the matching factor pi.
+                vec3 spec = fres * (d_ggx * vis * FA_PI) * step(0.0001, ndl);
+                lit += (diffuse_color + spec) * fa_light_rgb(li) * (ndl * atten);
+            }
 #endif
         }
 @end

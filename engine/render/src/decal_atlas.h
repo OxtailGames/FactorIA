@@ -20,13 +20,15 @@
 
 namespace fa::render {
 
-inline constexpr int kDecalTileMaxSide = 1024;   // a texture is scaled down to at most this many pixels on its longer side
-inline constexpr int kDecalMinSide = 16;         // the smallest a tile is shrunk to when the atlas is full
-inline constexpr int kDecalGutter = 16;          // pixels around a tile that repeat its edge
-inline constexpr int kDecalMaxLod = 4;           // the highest mip level the shader reads (2^4 = the gutter)
+inline constexpr int kDecalTileMaxSide =
+    1024;                                 // a texture is scaled down to at most this many pixels on its longer side
+inline constexpr int kDecalMinSide = 16;  // the smallest a tile is shrunk to when the atlas is full
+inline constexpr int kDecalGutter = 16;   // pixels around a tile that repeat its edge
+inline constexpr int kDecalMaxLod = 4;    // the highest mip level the shader reads (2^4 = the gutter)
 inline constexpr int kDecalAtlasMaxSide = 4096;  // the largest atlas side (the GPU's own limit may be lower)
-inline constexpr std::size_t kDecalAtlasMaxBytes = std::size_t(96) << 20;  // RGBA8 level 0 plus the mips of the largest atlas is 85 MB
-inline constexpr std::size_t kMaxDecalTextures = 512;                      // two per decal (albedo and normal) of the 256 decals
+inline constexpr std::size_t kDecalAtlasMaxBytes = std::size_t(96)
+                                                   << 20;  // RGBA8 level 0 plus the mips of the largest atlas is 85 MB
+inline constexpr std::size_t kMaxDecalTextures = 512;      // two per decal (albedo and normal) of the 256 decals
 
 // A texture to pack: its path and its size in pixels (before any scaling).
 struct DecalTexture {
@@ -42,9 +44,9 @@ struct DecalTile {
 };
 
 struct DecalAtlasLayout {
-    int width = 0, height = 0;           // 0 when no texture fits (or none was asked for)
-    std::vector<DecalTile> tiles;        // the textures that were placed, in path order
-    std::vector<std::string> dropped;    // the paths left out because the atlas was full, in path order
+    int width = 0, height = 0;         // 0 when no texture fits (or none was asked for)
+    std::vector<DecalTile> tiles;      // the textures that were placed, in path order
+    std::vector<std::string> dropped;  // the paths left out because the atlas was full, in path order
     const DecalTile* find(const std::string& path) const;
 };
 
@@ -66,8 +68,8 @@ DecalSource project_decal_source();
 
 struct DecalAtlasImage {
     DecalAtlasLayout layout;
-    Image image;                         // RGBA8, layout.width x layout.height (empty when nothing was placed)
-    std::vector<std::string> failed;     // "<path>: <why>" of the textures that could not be read (left out of the layout)
+    Image image;                      // RGBA8, layout.width x layout.height (empty when nothing was placed)
+    std::vector<std::string> failed;  // "<path>: <why>" of the textures that could not be read (left out of the layout)
 };
 // Reads the textures named by `paths` (sorted, distinct), lays them out and fills the atlas: every tile scaled with resize_image, its gutter
 // repeating the edge. A texture that cannot be read is listed in `failed` and has no tile.

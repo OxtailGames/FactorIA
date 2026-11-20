@@ -163,6 +163,12 @@ layout(binding=1) uniform fa_mesh_fs_params {
     vec4 fa_cl_grid;            // x = tiles across, y = tiles down, z = depth slices per octave (slices / log2(far / near)), w = near
     vec4 fa_cl_info;            // x = first texel of the cluster table (-1 = no clusters), y = depth slices, z = directional lights,
                                 // w = clusters (tiles x * tiles y * slices)
+    vec4 fa_layers_a;           // x clearcoat, y clearcoat roughness, z anisotropy, w anisotropy rotation (radians)
+    vec4 fa_layers_b;           // rgb sheen colour, w sheen roughness
+    vec4 fa_layers_c;           // x specular, y ior, z = the layer data packed in the maps: 1 = the occlusion map holds the clear coat
+                                // in g, its roughness in b and the sheen roughness in a; 2 = the metallic-roughness map holds the
+                                // anisotropy strength in r and the specular in a (the importer packs them, see brdf_layers.glsl)
+    vec4 fa_layers_d;           // rgb specular colour (KHR_materials_specular)
 };
 
 @include_block fa_inst_flags
@@ -226,12 +232,15 @@ float fa_shadow(vec4 coord, vec3 n, vec3 l) {
 int fa_light_count() { return min(int(fa_counts.x), 32); }
 // Light li (0 .. fa_light_count() - 1, or an index of fa_cluster_light_index()) as seen from a surface point: the direction to the
 // light, its colour times intensity times attenuation times shadow, the attenuation and the shadow separately, the distance and the
-// type (0 directional, 1 point, 2 spot). `coord` is fa_shadow_coord() of the vertex stage (only the first directional light is
-// shadowed); `gn` the geometric normal.
+// type (0 directional, 1 point, 2 spot). `coord` is fa_shadow_coord() of the vertex stage (the first directional light has the sun's
+// shadow, a point or spot light with a shadow map this frame its own); `gn` the geometric normal.
 LightSample fa_light(int li, vec3 world_pos, vec3 gn, vec4 coord) {
     LightSample ls = fa_light_sample(li, world_pos);
     if (ls.type == 0 && li == 0) {
         ls.shadow = fa_shadow(coord, gn, ls.direction);
+        ls.color = ls.color * ls.shadow;
+    } else if (ls.type != 0 && ls.attenuation > 0.0) {
+        ls.shadow = fa_shadow_local(li, world_pos, gn, ls.direction);
         ls.color = ls.color * ls.shadow;
     }
     return ls;

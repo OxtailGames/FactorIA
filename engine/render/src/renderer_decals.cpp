@@ -62,7 +62,8 @@ bool Renderer::Impl::ensure_decal_atlas(const std::vector<std::string>& pathsIn,
     for (const std::string& why : built.failed)
         if (warnedDecalTextures.insert(why).second)
             FA_WARN("render",
-                    "Decal texture not used: {}. The decal is drawn without it (the albedo missing: not at all). Hint: check the path in "
+                    "Decal texture not used: {}. The decal is drawn without it (the albedo missing: not at all). Hint: "
+                    "check the path in "
                     "Decal.albedo / Decal.normal.",
                     why);
     if (!built.layout.dropped.empty() && !warnedDecalAtlas) {
@@ -71,7 +72,8 @@ bool Renderer::Impl::ensure_decal_atlas(const std::vector<std::string>& pathsIn,
         for (std::size_t i = 0; i < built.layout.dropped.size() && i < 5; ++i)
             names += (i ? ", " : "") + built.layout.dropped[i];
         FA_WARN("render",
-                "The decal atlas is full: {} texture(s) were left out ({}{}) and their decals are not drawn. The atlas holds at most {}x{} "
+                "The decal atlas is full: {} texture(s) were left out ({}{}) and their decals are not drawn. The atlas "
+                "holds at most {}x{} "
                 "pixels. Hint: use smaller decal textures (each is scaled to at most {} px) or fewer of them.",
                 built.layout.dropped.size(), names, built.layout.dropped.size() > 5 ? ", ..." : "", decal_max_side(),
                 decal_max_side(), render::kDecalTileMaxSide);
@@ -181,7 +183,8 @@ void Renderer::Impl::make_decal_records(const std::vector<DecalItem>& items, boo
         r.layers = d.layers == 0 ? 65535.0f : float(std::clamp(d.layers, 0, 65535));
         render::DecalBox box;
         for (int i = 0; i < 8; ++i)
-            box.corners[i] = it.world.transform_point(Vec3{(i & 1) ? 0.5f : -0.5f, (i & 2) ? 0.5f : -0.5f, (i & 4) ? 0.5f : -0.5f});
+            box.corners[i] =
+                it.world.transform_point(Vec3{(i & 1) ? 0.5f : -0.5f, (i & 2) ? 0.5f : -0.5f, (i & 4) ? 0.5f : -0.5f});
         pack.records.push_back(r);
         boxes.push_back(box);
     }

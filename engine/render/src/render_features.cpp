@@ -129,6 +129,32 @@ std::vector<FeatureDef> build_table() {
          "The feature needs nothing of the GPU (it is on wherever the engine draws); only a pass whose material reads "
          "the depth or the normals (fa_depth, fa_normal) needs the sampledDepth feature, and that pass alone is "
          "skipped without it."});
+    t.push_back(
+        {"lightmaps", FeatureKind::Engine, kEveryGpu, "", nullptr,
+         "Baked lightmaps (M73.4a): the bake's light of a scene (SceneSettings.lightmaps, the lightmap.bake command) "
+         "is read from "
+         "the lightmap UV of each entity with MeshRenderer.receiveGI and replaces the ambient light on its diffuse "
+         "surface; "
+         "lights with mode baked are left out of those entities. The feature needs nothing of the GPU. A custom "
+         "material "
+         "gets the lightmap only when it declares \"uv1\" in vertexAttributes (docs/rendering/RENDERING_LIGHTING.md, "
+         "\"Lightmaps\")."});
+    t.push_back(
+        {"physicalSky", FeatureKind::Engine, kEveryGpu, "half", nullptr,
+         "A physically based sky (SceneSettings.skyModel \"physical\"): a sun with a disc, an atmosphere (Rayleigh, "
+         "Mie, ozone) and procedural clouds, drawn as the background and baked into the image-based lighting, so "
+         "the reflections and the ambient light follow the sun. It needs RGBA16F render targets that filter (its "
+         "look-up tables); without them the gradient sky is drawn."});
+    // The material layers of M73.6: drawn by the standard mesh shading on every backend (docs/rendering/RENDERING_LIGHTING.md).
+    t.push_back({"clearCoat", FeatureKind::Engine, kEveryGpu, "", nullptr,
+                 "The clear coat layer of a material: car paint, lacquer (MeshRenderer.clearcoat, glTF "
+                 "KHR_materials_clearcoat): a second specular lobe over the surface that also dims what is under it."});
+    t.push_back({"sheen", FeatureKind::Engine, kEveryGpu, "", nullptr,
+                 "The sheen layer of a material: cloth and velvet (MeshRenderer.sheenColor, glTF "
+                 "KHR_materials_sheen): a soft lobe at grazing angles on a Charlie distribution."});
+    t.push_back({"anisotropy", FeatureKind::Engine, kEveryGpu, "", nullptr,
+                 "Anisotropic highlights: brushed metal, hair (MeshRenderer.anisotropy, glTF "
+                 "KHR_materials_anisotropy), stretched along the mesh's tangent."});
     // The lighting of M73 (docs/rendering/RENDERING_LIGHTING.md): every row answers false with "planned (M73)" until its package
     // lands, then drops the `planned` text here. `needs` is what its pass asks of the GPU once built.
     t.push_back(
@@ -151,8 +177,13 @@ std::vector<FeatureDef> build_table() {
          "seams, with PCF or PCSS soft edges), drawn into one shadow atlas of 32-bit float (M73.2a).",
          nullptr},
         {"pointShadows", "float32",
-         "Shadows of point lights, six faces in the shadow atlas, with a budget per frame (M73.2)."},
-        {"spotShadows", "float32", "Shadows of spot lights in the shadow atlas, with a budget per frame (M73.2)."},
+         "Shadows of point lights: six face tiles in the shadow atlas, ranked by importance with a budget per frame, "
+         "PCF, PCSS or hard, faded out by distance (M73.2b).",
+         nullptr},
+        {"spotShadows", "float32",
+         "Shadows of spot lights: one perspective tile in the shadow atlas, with the same budget and filters "
+         "(M73.2b).",
+         nullptr},
         {"contactShadows", "depth",
          "Contact shadows: a short screen-space ray toward the light adds fine shadows where objects touch (M73.2)."},
         {"environmentMap", "half",
@@ -163,11 +194,6 @@ std::vector<FeatureDef> build_table() {
          "Reflection probes: local environment captures, baked or realtime, with box projection and blending between "
          "probes "
          "(M73.3)."},
-        {"physicalSky", "half",
-         "A physically based sky with a sun and an atmosphere, and clouds, feeding the image-based lighting (M73.3)."},
-        {"lightmaps", "",
-         "Baked lightmaps: global illumination computed by a deterministic bake and read from a second UV set "
-         "(M73.4)."},
         {"lightProbes", "", "Light probes: baked spherical-harmonics lighting for moving objects (M73.4)."},
         {"volumetricFog", "half+depth", "Volumetric fog and light shafts per light (M73.5)."},
         {"decals", "",
@@ -178,9 +204,6 @@ std::vector<FeatureDef> build_table() {
         {"subsurface", "half+depth", "Screen-space subsurface scattering for skin and wax (M73.5)."},
         {"realtimeGI", "half",
          "Realtime global illumination from a probe grid updated over a few frames, no ray tracing (M73.5)."},
-        {"clearCoat", "", "The clear coat layer of a material: car paint, lacquer (MeshRenderer.clearcoat; M73.6)."},
-        {"sheen", "", "The sheen layer of a material: cloth and velvet (MeshRenderer.sheenColor; M73.6)."},
-        {"anisotropy", "", "Anisotropic highlights: brushed metal, hair (MeshRenderer.anisotropy; M73.6)."},
         {"transmission", "half",
          "Transmission and volume: glass and liquids that refract what is behind them (M73.6)."}};
     for (const Planned& p : kLighting) t.push_back({p.name, FeatureKind::Engine, kEveryGpu, p.needs, p.planned, p.doc});

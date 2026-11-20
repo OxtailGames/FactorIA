@@ -23,7 +23,8 @@ TEST_CASE("decal: the component is reflected and every field says what it does")
     const TypeInfo* t = TypeRegistry::global().find("Decal");
     REQUIRE(t != nullptr);
     CHECK(t->doc.size() > 100);
-    for (const char* n : {"albedo", "normal", "color", "opacity", "normalStrength", "angleFade", "sortOrder", "layers"}) {
+    for (const char* n :
+         {"albedo", "normal", "color", "opacity", "normalStrength", "angleFade", "sortOrder", "layers"}) {
         CAPTURE(n);
         const FieldInfo* f = decal_field("Decal", n);
         REQUIRE(f != nullptr);

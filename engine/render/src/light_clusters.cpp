@@ -226,14 +226,18 @@ int light_texture_rows(std::size_t texels) {
 }
 
 void pack_light_texture(const std::vector<LightData>& lights, int directional, const ClusterCamera& camera,
-                        const ClusterLists* lists, LightTexture& out, const DecalPack* decals) {
+                        const ClusterLists* lists, LightTexture& out, const std::vector<LocalShadowRecord>* shadows,
+                        const DecalPack* decals) {
     if (!lists) decals = nullptr;  // the decals are found through the clusters
     if (decals && (decals->records.empty() || decals->lists.first.size() != lists->first.size())) decals = nullptr;
     out.width = kLightTextureWidth;
     const std::size_t lightTexels = lights.size() * std::size_t(kLightTexels);
     const std::size_t clusterTexels = lists ? lists->first.size() : 0;
     const std::size_t indexTexels = lists ? (lists->indices.size() + 3) / 4 : 0;
-    const std::size_t decalBase = lightTexels + clusterTexels + indexTexels;
+    const std::size_t shadowTexels = shadows ? local_shadow_region_texels(int(lights.size()), *shadows) : 0;
+    out.shadowBase = shadowTexels > 0 ? static_cast<long long>(lightTexels + clusterTexels + indexTexels) : -1;
+    // One cursor, in a fixed order: lights | clusters | light indices | shadows | decals (header, records, decal indices).
+    const std::size_t decalBase = lightTexels + clusterTexels + indexTexels + shadowTexels;
     const std::size_t decalIndexBase =
         decalBase + kDecalHeaderTexels + (decals ? decals->records.size() * kDecalTexels : 0);
     const std::size_t decalIndexTexels = decals ? (decals->lists.indices.size() + 3) / 4 : 0;
@@ -250,7 +254,9 @@ void pack_light_texture(const std::vector<LightData>& lights, int directional, c
             p[8 + c] = l.dir[c];
         }
         p[12] = l.cosInner;
+        p[15] = l.baked ? 1.0f : 0.0f;  // texel +3, w: the flags (1 = Light.mode Baked), see light_data.glsl
     }
+    if (shadowTexels > 0) pack_local_shadow_region(int(lights.size()), *shadows, std::size_t(out.shadowBase), t);
     out.uniforms = ClusterUniforms{};
     out.uniforms.info[2] = float(directional);
     if (!lists) return;

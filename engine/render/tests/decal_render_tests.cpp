@@ -42,7 +42,8 @@ void write_ring(const char* path) {
     img.rgba.resize(std::size_t(size) * size * 4);
     for (int y = 0; y < size; ++y)
         for (int x = 0; x < size; ++x) {
-            const float dx = (float(x) + 0.5f) / float(size) * 2.0f - 1.0f, dy = (float(y) + 0.5f) / float(size) * 2.0f - 1.0f;
+            const float dx = (float(x) + 0.5f) / float(size) * 2.0f - 1.0f,
+                        dy = (float(y) + 0.5f) / float(size) * 2.0f - 1.0f;
             const float r = std::sqrt(dx * dx + dy * dy);
             const float a = std::clamp(1.0f - std::fabs(r - 0.7f) / 0.2f, 0.0f, 1.0f);
             std::uint8_t* p = &img.rgba[(std::size_t(y) * size + std::size_t(x)) * 4];
@@ -61,7 +62,8 @@ void write_bumps(const char* path) {
     img.rgba.resize(std::size_t(size) * size * 4);
     for (int y = 0; y < size; ++y)
         for (int x = 0; x < size; ++x) {
-            const float lx = (float(x % 32) + 0.5f) / 32.0f * 2.0f - 1.0f, ly = -((float(y % 32) + 0.5f) / 32.0f * 2.0f - 1.0f);
+            const float lx = (float(x % 32) + 0.5f) / 32.0f * 2.0f - 1.0f,
+                        ly = -((float(y % 32) + 0.5f) / 32.0f * 2.0f - 1.0f);
             const Vec3 n = lx * lx + ly * ly < 1.0f ? normalize(Vec3{lx * 1.6f, ly * 1.6f, 1.0f}) : Vec3{0, 0, 1};
             std::uint8_t* p = &img.rgba[(std::size_t(y) * size + std::size_t(x)) * 4];
             p[0] = std::uint8_t(std::lround((n.x * 0.5f + 0.5f) * 255.0f));
@@ -231,4 +233,28 @@ TEST_CASE("decals: opacity, angle fade and sort order change what they paint") {
     CHECK(g.renderer.stats().decals == 2);
     CHECK(g.renderer.stats().decalsDropped == 1);
     CHECK(differing(bare, missing, 96, 62, 134, 104) == 0);
+}
+
+TEST_CASE("decals: a decal with only a tint is still drawn when every decal texture fails to load") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    if (!g.renderer.supports("decals")) return;
+    write_textures();
+    World w;
+    const Scene s = make_scene(w, true);
+    // Every texture the decals name is missing: the atlas has no tile (and no image), the two decals with an albedo are left out, the
+    // tinted splash is not.
+    w.get<Decal>(s.front)->albedo = "assets/no_such_decal.png";
+    w.get<Decal>(s.top)->albedo = "assets/no_such_decal.png";
+    w.get<Decal>(s.top)->normal = "assets/no_such_normal.png";
+    const Image img = g.render(w);
+    CHECK(g.renderer.stats().decals == 1);
+    CHECK(g.renderer.stats().decalsDropped == 2);
+    World plain;
+    make_scene(plain, false);
+    const Image bare = g.render(plain);
+    CHECK(differing(bare, img, 0, 0, img.width, img.height) > 100);
+    // The box face and the sphere top are as if there were no decal on them.
+    CHECK(differing(bare, img, 96, 62, 134, 104) == 0);
+    CHECK(differing(bare, img, 175, 60, 222, 105) == 0);
 }

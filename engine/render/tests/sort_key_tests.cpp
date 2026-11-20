@@ -103,8 +103,7 @@ bool same(const Batched& a, const Batched& b) {
         return false;
     for (std::size_t i = 0; i < a.batches.size(); ++i) {
         const MeshBatch &x = a.batches[i], &y = b.batches[i];
-        if (x.rep != y.rep || x.mainFirst != y.mainFirst || x.mainCount != y.mainCount ||
-            x.shadowFirst != y.shadowFirst || x.shadowCount != y.shadowCount)
+        if (x.rep != y.rep || x.mainFirst != y.mainFirst || x.mainCount != y.mainCount || x.runCount != y.runCount)
             return false;
     }
     return true;
@@ -384,4 +383,51 @@ TEST_CASE("sort key: two assets with one name (different pointers) get one rank,
     std::vector<MeshItem> viaKeys = both, viaComparator = both;
     for (MeshItem& m : viaComparator) m.keyed = false;
     CHECK(same(run(viaKeys), run(viaComparator)));
+}
+
+// M73.6a: two MeshRenderers that differ only in a material layer are two draws, never one instanced draw with the
+// representative's layers (the shader reads the layers from the uniform block of the batch's first item).
+TEST_CASE(
+    "batches: items that differ only in a material layer are not merged, by the comparator and by the sort keys") {
+    using Setter = void (*)(MeshRenderer&);
+    const Setter setters[] = {
+        [](MeshRenderer& r) { r.clearcoat = 1.0f; },
+        [](MeshRenderer& r) { r.clearcoatRoughness = 0.5f; },
+        [](MeshRenderer& r) { r.sheenColor = Color{0.5f, 0.0f, 0.0f, 1.0f}; },
+        [](MeshRenderer& r) { r.sheenColor = Color{0.0f, 0.5f, 0.0f, 1.0f}; },
+        [](MeshRenderer& r) { r.sheenColor = Color{0.0f, 0.0f, 0.5f, 1.0f}; },
+        [](MeshRenderer& r) { r.sheenRoughness = 0.9f; },
+        [](MeshRenderer& r) { r.anisotropy = 0.5f; },
+        [](MeshRenderer& r) { r.anisotropyRotation = 30.0f; },
+        [](MeshRenderer& r) { r.specular = 0.5f; },
+        [](MeshRenderer& r) { r.ior = 2.0f; },
+    };
+    for (Setter set : setters) {
+        for (bool keyed : {false, true}) {
+            Pool pool;
+            pool.meshes.emplace_back().key = "sphere";
+            std::vector<MeshItem> items(2);
+            for (std::size_t i = 0; i < 2; ++i) {
+                MeshRenderer& r = pool.renderers.emplace_back();
+                if (i == 1) set(r);
+                items[i].mr = &r;
+                items[i].entity = Entity::from_bits(i + 1);
+                items[i].mesh = &pool.meshes[0];
+                items[i].visible = true;
+                items[i].casts = false;
+            }
+            if (keyed) {
+                SortKeyTable table;
+                REQUIRE(key_all(items, table));
+            }
+            CHECK(run(items).batches.size() == 2);
+            // And the same values are still one batch.
+            items[1].mr = items[0].mr;
+            if (keyed) {
+                SortKeyTable table;
+                REQUIRE(key_all(items, table));
+            }
+            CHECK(run(items).batches.size() == 1);
+        }
+    }
 }
