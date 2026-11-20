@@ -58,7 +58,7 @@ inline SortFields fields_of(const MeshItem& m) {
 // The 64-bit sort key: four fields, most significant first, each the RANK of the value among those of the frame (never
 // an address or an id that changes from one run to the next): the mesh by name, the colour texture, the normal map by
 // name (one name table for both), and "rest" = every other value the batches differ by (MeshRenderer colours and
-// factors, skinning entity, material by name, override hashes, flash), by the tuple the old comparator used. The ranks
+// factors and layers, skinning entity, material by name, override hashes, flash), by the tuple the old comparator used. The ranks
 // keep the order of the values, so sorting the keys (stable) gives the order the comparator gave, and two items have
 // equal keys exactly when they compare equal.
 constexpr unsigned kSortMeshBits = 12, kSortTexBits = 11, kSortNormalBits = 11, kSortRestBits = 30;
@@ -100,7 +100,9 @@ public:
 private:
     // Every value of an item that is not a name above, in the order of the old comparator (floats through order_float).
     struct Rest {
-        std::array<float, 10> shading;  // colour rgba, metallic, roughness, emissive rgb, emissiveStrength
+        // colour rgba, metallic, roughness, emissive rgb, emissiveStrength, then the material layers (M73.6a): clearcoat,
+        // clearcoatRoughness, sheenColor rgb, sheenRoughness, anisotropy, anisotropyRotation, specular, ior
+        std::array<float, 20> shading;
         bool unlit = false, receiveShadows = true;
         std::array<float, 3> uvNormal;  // uvScale x, y, normalScale
         std::uint64_t skinEntity = 0;   // Entity::bits() of a skinned item, else 0

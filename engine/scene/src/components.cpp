@@ -1981,33 +1981,41 @@ void register_builtin_components(TypeRegistry& r) {
                "illumination. No effect yet: M73.4 brings it.")
         .field("clearcoat", &MeshRenderer::clearcoat,
                "Strength 0..1 of a clear coat layer over the surface (car paint, lacquer; glTF "
-               "KHR_materials_clearcoat). 0 = none. No effect yet: M73.6 brings it.")
+               "KHR_materials_clearcoat). 0 = none. A glTF model with the extension brings its own value; a value here "
+               "replaces it.")
         .range(0, 1)
         .field("clearcoatRoughness", &MeshRenderer::clearcoatRoughness,
-               "Roughness 0..1 of the clear coat layer. No effect yet: M73.6 brings it.")
+               "Roughness 0..1 of the clear coat layer (the engine keeps it at 0.05 or more). The default 0.03 leaves "
+               "the model's own value.")
         .range(0, 1)
         .field(
             "sheenColor", &MeshRenderer::sheenColor,
             "Colour of the cloth sheen at grazing angles (velvet, satin; glTF KHR_materials_sheen). Black (default) = "
-            "no sheen. No effect yet: M73.6 brings it.")
+            "no sheen. A colour here replaces the one of a glTF model (KHR_materials_sheen).")
         .field("sheenRoughness", &MeshRenderer::sheenRoughness,
-               "Roughness 0..1 of the sheen layer. No effect yet: M73.6 brings it.")
+               "Roughness 0..1 of the sheen layer (the engine keeps it at 0.1 or more). The default 0.5 leaves the "
+               "model's own value.")
         .range(0, 1)
         .field("anisotropy", &MeshRenderer::anisotropy,
                "Stretch -1..1 of the highlight along the tangent direction (brushed metal, hair; glTF "
-               "KHR_materials_anisotropy); 0 = round highlights. No effect yet: M73.6 brings it.")
+               "KHR_materials_anisotropy); 0 = round highlights; negative stretches across the tangent. A value here "
+               "replaces the model's own.")
         .range(-1, 1)
         .field("anisotropyRotation", &MeshRenderer::anisotropyRotation,
-               "Degrees that turn the direction of the anisotropic stretch around the normal. No effect yet: M73.6 "
-               "brings it.")
+               "Degrees that turn the direction of the anisotropic stretch around the normal. 0 leaves the model's own "
+               "rotation.")
         .range(-360, 360)
         .field("specular", &MeshRenderer::specular,
                "Strength 0..1 of the specular reflection of a non-metal surface (glTF KHR_materials_specular); 1 = the "
-               "usual look. No effect yet: M73.6 brings it.")
+               "usual look; 0 removes the reflection, and with ior 1.5 the reflectance at normal incidence is 4% x "
+               "specular. "
+               "Another value replaces the model's own.")
         .range(0, 1)
         .field("ior", &MeshRenderer::ior,
                "Index of refraction, 1..3 (glTF KHR_materials_ior): 1.5 is glass and plastic, 1.33 water, 2.4 "
-               "diamond. No effect yet: M73.6 brings it.")
+               "diamond. It sets the reflectance of a non-metal at normal incidence, ((ior - 1) / (ior + 1))^2 (1.5 = "
+               "4%). "
+               "Another value replaces the model's own.")
         .range(1, 3)
         .field("transmission", &MeshRenderer::transmission,
                "How much light 0..1 passes through the surface instead of reflecting, as glass does (glTF "

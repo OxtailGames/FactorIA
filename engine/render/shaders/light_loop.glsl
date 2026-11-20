@@ -90,15 +90,21 @@ float fa_light_shadow(int n, in SurfaceInput i) { return 1.0; }
             vec3 h = normalize(l + v);
             float ndh = max(dot(n, h), 0.0);
             float vdh = max(dot(v, h), 0.0);
-            // Cook-Torrance: GGX distribution, height-correlated Smith visibility (Karis' approximation), Schlick Fresnel.
-            float dd = ndh * ndh * (a2 - 1.0) + 1.0;
-            float d_ggx = a2 / (FA_PI * dd * dd);
-            float vis = 0.5 / max(mix(2.0 * ndl * ndv, ndl + ndv, alpha), 1e-4);
-            vec3 fres = f0 + (1.0 - f0) * pow(1.0 - vdh, 5.0);
-            // Light colors are not divided by pi (a white light of intensity 1 lights a white diffuse surface to 1),
-            // so the specular term carries the matching factor pi.
-            vec3 spec = fres * (d_ggx * vis * FA_PI) * step(0.0001, ndl);
-            lit += (diffuse_color + spec) * fa_light_rgb(li) * (ndl * atten);
+            if (lay.on) {
+                // A material layer is set (clear coat, sheen, anisotropy, specular, ior): brdf_layers.glsl.
+                lit += fa_layers_light(lay, diffuse_color, f0, n, v, l, h, ndl, ndv, ndh, vdh, alpha, a2) *
+                       (fa_light_rgb(li) * atten);
+            } else {
+                // Cook-Torrance: GGX distribution, height-correlated Smith visibility (Karis' approximation), Schlick Fresnel.
+                float dd = ndh * ndh * (a2 - 1.0) + 1.0;
+                float d_ggx = a2 / (FA_PI * dd * dd);
+                float vis = 0.5 / max(mix(2.0 * ndl * ndv, ndl + ndv, alpha), 1e-4);
+                vec3 fres = f0 + (1.0 - f0) * pow(1.0 - vdh, 5.0);
+                // Light colors are not divided by pi (a white light of intensity 1 lights a white diffuse surface to 1),
+                // so the specular term carries the matching factor pi.
+                vec3 spec = fres * (d_ggx * vis * FA_PI) * step(0.0001, ndl);
+                lit += (diffuse_color + spec) * fa_light_rgb(li) * (ndl * atten);
+            }
 #endif
         }
 @end
