@@ -421,7 +421,7 @@ Draws a 3D mesh with a PBR material (GGX highlights, sky reflections, normal map
 
 ### Light
 
-A light source for 3D meshes. A directional light shines along the entity's forward direction (-Z rotated by the Transform), point and spot lights shine from the entity's position, an area light from a rectangle, disc or tube around it. The fields after castShadows belong to the lighting of M73 and have no effect yet (docs/rendering/RENDERING_LIGHTING.md).
+A light source for 3D meshes. A directional light shines along the entity's forward direction (-Z rotated by the Transform), point and spot lights shine from the entity's position, an area light from a rectangle, disc or tube around it. A view lights with up to 1024 lights at once (32 of them directional): each fragment reads only the lights of its cluster. The fields after castShadows belong to the lighting of M73; the doc string of each says whether the renderer draws it yet (docs/rendering/RENDERING_LIGHTING.md).
 
 | Field | Type | Default | Description |
 |---|---|---|---|
@@ -430,18 +430,18 @@ A light source for 3D meshes. A directional light shines along the entity's forw
 | `intensity` | float | `1.0` | Brightness multiplier. Range 0.0..1000.0. |
 | `range` | float | `10.0` | Point/spot only: distance in meters where the light fades to zero. Range 0.01..100000.0. |
 | `spotAngle` | float | `30.0` | Spot only: cone half-angle in degrees. Range 1.0..89.0. |
-| `castShadows` | bool | `false` | Cast shadows. Only directional lights cast shadows today; the shadows of point and spot lights come with M73.2. |
-| `innerAngle` | float | `0.0` | Spot only: half-angle in degrees of the cone inside which the light is at full strength; it fades to nothing at spotAngle (a larger value is used as spotAngle). 0 (default) = the cone fades as it does today. No effect yet: M73.1 brings it. Range 0.0..89.0. (not released yet, on main after 0.32.0) |
+| `castShadows` | bool | `false` | Cast shadows. Only directional lights cast shadows today (the first one that casts, with cascades: see SceneSettings.shadowCascades); the shadows of point and spot lights come with M73.2b. |
+| `innerAngle` | float | `0.0` | Spot only: half-angle in degrees of the cone inside which the light is at full strength; it fades to nothing at spotAngle (a larger value is used as spotAngle). 0 (default) = the cone fades as it does today (a smoothstep of the cosine from the edge of the cone inwards). Drawn since M73.1a. Range 0.0..89.0. (not released yet, on main after 0.32.0) |
 | `shape` | enum: rectangle \| disc \| tube | `"rectangle"` | Area lights only: the shape of the emitter. rectangle and disc face the entity's forward direction; a tube is a line of light along the entity's X axis. No effect yet: M73.1 brings it. (not released yet, on main after 0.32.0) |
 | `size` | vec2 | `[1.0,1.0]` | Area lights only: [width, height] in metres of a rectangle, [diameter, -] of a disc (x), [length, thickness] of a tube. No effect yet: M73.1 brings it. Range 0.001..1000.0. (not released yet, on main after 0.32.0) |
 | `cookie` | asset (texture) | `""` | A texture the light projects (window blinds, a leaf canopy, a flashlight's shape): spot lights project it through the cone, point lights through a cube layout. Empty = none. No effect yet: M73.1 brings it. (not released yet, on main after 0.32.0) |
 | `ies` | asset (any) | `""` | An IES profile (.ies file) with the measured light distribution of a real lamp. Empty = the plain distribution. No effect yet: M73.1 brings it. (not released yet, on main after 0.32.0) |
-| `shadowResolution` | int | `0` | Texels per side of this light's shadow map, 0..4096 (a value under 128 is raised to 128, a power of two is used). 0 (default) = the engine picks from the light's distance to the camera. No effect yet: M73.2 brings it. Range 0..4096. (not released yet, on main after 0.32.0) |
-| `shadowBias` | float | `0.0` | Depth offset of the shadow test, 0..1, against shadow acne. 0 (default) = the engine's own bias. No effect yet: M73.2 brings it. Range 0.0..1.0. (not released yet, on main after 0.32.0) |
-| `shadowNormalBias` | float | `0.0` | Offset along the surface normal, in metres 0..1, against shadow acne on slopes. 0 (default) = the engine's own. No effect yet: M73.2 brings it. Range 0.0..1.0. (not released yet, on main after 0.32.0) |
-| `shadowFilter` | enum: pcf \| hard \| pcss | `"pcf"` | How the edge of the shadow is filtered. pcf (default): a small fixed blur. hard: no filtering, the sharpest and cheapest. pcss: a penumbra that grows with the distance to the caster, sized by shadowSoftness. No effect yet: M73.2 brings it. (not released yet, on main after 0.32.0) |
-| `shadowSoftness` | float | `1.0` | With shadowFilter pcss: the size of the light for the penumbra, 0..10 (1 = the usual). No effect yet: M73.2 brings it. Range 0.0..10.0. (not released yet, on main after 0.32.0) |
-| `shadowDistance` | float | `0.0` | How far from the camera, in metres, this light draws shadows. 0 (default) = the scene's SceneSettings.shadowDistance. No effect yet: M73.2 brings it. Range 0.0..100000.0. (not released yet, on main after 0.32.0) |
+| `shadowResolution` | int | `0` | Texels per side of each cascade's shadow map of this light, 0..4096 (a value under 128 is raised to 128, rounded down to a power of two). 0 (default) = the engine picks: 2048 for one cascade, 1024 for several. When the cascades do not fit the atlas (SceneSettings.shadowAtlasSize) they are halved, farthest first, down to 128. Range 0..4096. (not released yet, on main after 0.32.0) |
+| `shadowBias` | float | `0.0` | Depth offset of the shadow test in metres along the light, 0..1, against shadow acne; it grows with the slope of the surface. 0 (default) = the engine's own bias, 1.5 texels of the cascade's map. Range 0.0..1.0. (not released yet, on main after 0.32.0) |
+| `shadowNormalBias` | float | `0.0` | Offset along the surface normal, in metres 0..1, against shadow acne on slopes. 0 (default) = the engine's own, 1.5 texels of the cascade's map. Range 0.0..1.0. (not released yet, on main after 0.32.0) |
+| `shadowFilter` | enum: pcf \| hard \| pcss | `"pcf"` | How the edge of the shadow is filtered. pcf (default): a small fixed blur. hard: no filtering, the sharpest and cheapest. pcss: a penumbra that grows with the distance to the caster, sized by shadowSoftness. (not released yet, on main after 0.32.0) |
+| `shadowSoftness` | float | `1.0` | With shadowFilter pcss: the size of the light for the penumbra, 0..10 (1 = the usual: a sun about 6 degrees wide). 0 = the narrowest penumbra, a plain PCF of 1.5 texels (use shadowFilter hard for a hard shadow). Range 0.0..10.0. (not released yet, on main after 0.32.0) |
+| `shadowDistance` | float | `0.0` | How far from the camera, in metres, this light draws shadows. 0 (default) = the scene's SceneSettings.shadowDistance. Range 0.0..100000.0. (not released yet, on main after 0.32.0) |
 | `mode` | enum: realtime \| baked \| mixed | `"realtime"` | realtime (default): lit every frame. baked: its light is computed once into the lightmaps and the light probes and costs nothing at run time. mixed: baked indirect light plus realtime direct light and shadows. No effect yet: M73.4 brings it. (not released yet, on main after 0.32.0) |
 | `volumetric` | float | `0.0` | Strength 0..10 of this light's shafts in the volumetric fog (SceneSettings.fogDensity must be above 0). 0 (default) = no shafts. No effect yet: M73.5 brings it. Range 0.0..10.0. (not released yet, on main after 0.32.0) |
 
@@ -1433,11 +1433,11 @@ Scene-wide settings stored under "settings" in the scene file: lighting, fog, gr
 | `paperWhiteNits` | float | `200.0` | Only used with hdrOutput auto on an HDR display: the brightness of white (1.0) in nits (cd/m2), 80..1000. 200 is comfortable indoors, 400 and more suits a bright room; the display shows brighter highlights above it. Range 80.0..1000.0. (since 0.31.0) |
 | `skyMaterial` | asset (material) | `""` | Project-relative path of a custom material of kind "sky" (a *.material.json), or "" (default) for the skyColor / horizonColor gradient. The material's sky() snippet receives the view direction, the direction of the sun (the scene's directional light of slot 0), the time and the colour the gradient would have drawn, so it can replace or tint it; it draws the background of a perspective camera, opaque. The reflections and the ambient light of the meshes keep following skyColor and horizonColor. `material.info` lists the material's params and `shader.compile` compiles it and reports errors with file:line; a material that does not compile (or is not of kind "sky") shows the gradient and logs why. Guide: docs/SHADERS.md (`factoria docs read shaders`, "Sky materials"). (since 0.32.0) |
 | `skyMaterialParams` | json | `{}` | Values for the params and textures of skyMaterial, an object keyed by the name declared in the material file: numbers for float params, arrays for vectors and colors ([r, g, b, a]), project-relative paths for textures. Example: {"horizonGlow": [1, 0.4, 0.1, 1], "stars": "textures/stars.png"}. Unnamed params keep the material's defaults. Ignored while skyMaterial is empty. The editor's Scene settings panel shows one control per param of the material. (since 0.32.0) |
-| `shadowCascades` | int | `1` | Cascades of the directional light's shadow map, 1..4: each covers a longer stretch from the camera, so shadows stay sharp near it. 1 (default) = a single map, as today. No effect yet: M73.2 brings it (docs/rendering/RENDERING_LIGHTING.md). Range 1..4. (not released yet, on main after 0.32.0) |
-| `shadowCascadeSplit` | float | `0.5` | Where the cascades split along shadowDistance, 0..1: 0 = evenly spaced, 1 = logarithmic (a lot of detail near the camera), 0.5 (default) between. No effect yet: M73.2 brings it. Range 0.0..1.0. (not released yet, on main after 0.32.0) |
-| `shadowCascadeBlend` | float | `0.1` | Fraction 0..0.5 of a cascade over which it blends into the next, hiding the seam. No effect yet: M73.2 brings it. Range 0.0..0.5. (not released yet, on main after 0.32.0) |
-| `shadowDistance` | float | `0.0` | How far from the camera, in metres, shadows are drawn. 0 (default) = the engine's own fit around the view. A light's own shadowDistance overrides it. No effect yet: M73.2 brings it. Range 0.0..100000.0. (not released yet, on main after 0.32.0) |
-| `shadowAtlasSize` | int | `4096` | Texels per side of the shadow atlas that holds every shadow map, 512..8192 (4096 default). A bigger atlas costs memory (4096 x 4096 x 4 bytes = 64 MB). No effect yet: M73.2 brings it. Range 512..8192. (not released yet, on main after 0.32.0) |
+| `shadowCascades` | int | `1` | Cascades of the directional light's shadow map, 1..4: each covers a longer stretch from the camera, so shadows stay sharp near it. Each is fitted to its slice of the view and keeps its texels still while the camera moves (no shimmer). 1 (default) = a single map. A GPU without float32Targets draws no shadow (render.supports cascadedShadows; docs/rendering/RENDERING_LIGHTING.md). Range 1..4. (not released yet, on main after 0.32.0) |
+| `shadowCascadeSplit` | float | `0.5` | Where the cascades split along shadowDistance, 0..1: 0 = evenly spaced, 1 = logarithmic (a lot of detail near the camera), 0.5 (default) between. Range 0.0..1.0. (not released yet, on main after 0.32.0) |
+| `shadowCascadeBlend` | float | `0.1` | Fraction 0..0.5 of a cascade over which it blends into the next, hiding the seam. 0 = a hard seam. Range 0.0..0.5. (not released yet, on main after 0.32.0) |
+| `shadowDistance` | float | `0.0` | How far from the camera, in metres, shadows are drawn. 0 (default) = the engine's own fit around the view (the camera's far plane, or what the casters need when that is shorter: the distance to the farthest caster corner and a body's length, rounded up, the same whichever way the camera looks). A light's own shadowDistance overrides it. The cascades split this stretch. Range 0.0..100000.0. (not released yet, on main after 0.32.0) |
+| `shadowAtlasSize` | int | `4096` | The most texels per side the shadow atlas that holds every shadow map may have, 512..8192 (4096 default; the GPU's own limit also applies). Only the part the maps need is allocated (R32F: four bytes a texel, 2048 x 2048 = 16 MB); when they do not fit, the maps shrink, then the least important is dropped, the same every frame. Range 512..8192. (not released yet, on main after 0.32.0) |
 | `contactShadows` | bool | `false` | Short screen-space shadow rays toward the light that add fine shadows where objects touch. Needs a GPU that can sample the depth (render.supports contactShadows). No effect yet: M73.2 brings it. (not released yet, on main after 0.32.0) |
 | `environmentMap` | asset (texture) | `""` | An HDR image (.hdr, equirectangular) of the surroundings: it is the sky and lights and reflects in every surface. Empty (default) = the sky material or the gradient. No effect yet: M73.3 brings it. (not released yet, on main after 0.32.0) |
 | `environmentIntensity` | float | `1.0` | Brightness multiplier of the environment map and the sky's image-based lighting, 0..100. No effect yet: M73.3 brings it. Range 0.0..100.0. (not released yet, on main after 0.32.0) |
@@ -4442,7 +4442,9 @@ What the renderer drew in the picture now: draw calls, triangles, lights, shadow
 
 Capabilities: read
 
-Draws a frame first when none was drawn since the last change (a headless run or an on-demand render may not have drawn one yet), then returns {drawCalls, sprites, shapes, textGlyphs, particles, meshes, meshesCulled, meshBatches, triangles, views, shadowCasters, lights, lightsDropped, lights2d, lights2dDropped, lights2dShadowed, materials, materialResolves, materialFallbacks, sortKeyFallbacks, textureMB, width, height, renderScale}. materialResolves is the 2D material lookups (one per material and params). sortKeyFallbacks counts, since the renderer started, the times the 3D scene of a frame (or of a capture of one entity) had more distinct meshes, textures or materials than a sort key holds, so its opaque meshes were sorted by the slower comparator (the picture is the same; 0 is normal; it is not reset each frame, it only grows). For the time of each pass see render.frame_graph. lights and lightsDropped count the 3D lights of the main pass (at most 32); lights2d and lights2dDropped count the Light2D lights (at most 256: the ones that reach the camera view are kept first), lights2dShadowed those with a shadow (castShadows, at most 32). views counts the CameraViews drawn. width and height are the size of the picture in pixels (design size * window.renderScale). Same as game.renderStats() in tests. Needs graphics. Example: game.render_stats {}
+Draws a frame first when none was drawn since the last change (a headless run or an on-demand render may not have drawn one yet), then returns {drawCalls, sprites, shapes, textGlyphs, particles, meshes, meshesCulled, meshBatches, triangles, views, shadowCasters, lights, lightsDropped, lightsCulled, lightClusters, lightClusterEntries, lightClusterClipped, lightMaxPerCluster, lights2d, lights2dDropped, lights2dShadowed, materials, materialResolves, materialFallbacks, sortKeyFallbacks, textureMB, width, height, renderScale}. materialResolves is the 2D material lookups (one per material and params). sortKeyFallbacks counts, since the renderer started, the times the 3D scene of a frame (or of a capture of one entity) had more distinct meshes, textures or materials than a sort key holds, so its opaque meshes were sorted by the slower comparator (the picture is the same; 0 is normal; it is not reset each frame, it only grows). For the time of each pass see render.frame_graph.
+
+lights and lightsDropped count the 3D lights of the main pass (at most 1024, 32 of them directional; lightsDropped are the ones over those limits, lightsCulled the local lights whose range is outside the view, lightClusters the clusters of the view, lightClusterEntries the light-list entries they hold, lightMaxPerCluster the longest list and lightClusterClipped the entries lost to the limits of 128 lights per cluster and 524288 entries per view: 0 is normal); lights2d and lights2dDropped count the Light2D lights (at most 256: the ones that reach the camera view are kept first), lights2dShadowed those with a shadow (castShadows, at most 32). views counts the CameraViews drawn. width and height are the size of the picture in pixels (design size * window.renderScale). Same as game.renderStats() in tests. Needs graphics. Example: game.render_stats {}
 
 ### `game.resume` (modifies state)
 
@@ -7614,17 +7616,17 @@ Uploads the folders project.export wrote (build/export/<game-slug>-windows, -mac
 
 Since 0.31.0.
 
-Show the depth or the normals of the depth and normal prepass, or the ambient occlusion, instead of the game picture, or report which view is on.
+Show the depth or the normals of the depth and normal prepass, the ambient occlusion, or the cascades of the sun's shadow, instead of the game picture, or report which view is on.
 
 Capabilities: read, state
 
-A way to look at the data the depth-based post effects (ssao, depth of field, fog...) read: `depth` paints the prepass depth as a grey (10 / (10 + distance), white next to the camera), `normals` the view-space normal as colours (a surface that faces the camera is blue), black where no opaque mesh was drawn; `ao` paints the ambient occlusion alone as a grey (white = open or no mesh, dark = occluded) over the camera's rectangle, with the camera's own PostProcess ssao settings or, when it has none, the defaults; `none` shows the game again. It is a look at the data for a person or an AI checking a scene, not an effect: it is not saved and a game does not set it. Without `view` it only reports the current one. Result: {view, previous}. The view shows from the next frame (game.step, then game.screenshot). Example: render.debug_view {"view":"depth"}
+A way to look at the data the depth-based post effects (ssao, depth of field, fog...) read: `depth` paints the prepass depth as a grey (10 / (10 + distance), white next to the camera), `normals` the view-space normal as colours (a surface that faces the camera is blue), black where no opaque mesh was drawn; `ao` paints the ambient occlusion alone as a grey (white = open or no mesh, dark = occluded) over the camera's rectangle, with the camera's own PostProcess ssao settings or, when it has none, the defaults; `cascades` tints every mesh by the cascade of the directional light's shadow it falls in (red, green, blue, yellow for the first to the fourth, grey past the last or with no shadow); `none` shows the game again. It is a look at the data for a person or an AI checking a scene, not an effect: it is not saved and a game does not set it. Without `view` it only reports the current one. Result: {view, previous}. The view shows from the next frame (game.step, then game.screenshot). Example: render.debug_view {"view":"depth"}
 
-The environment variable FA_RENDER_DEBUG_VIEW sets the first view at start. The picture changes only on a frame that draws the prepass (a post effect that reads the depth is on, see docs/RENDERING.md, "Depth and normals"). Errors: `invalid_arguments` for a `view` that is not none, depth, normals or ao (with a did-you-mean); `unavailable` without graphics (graphics=false). The same is Renderer::set_debug_view in C++.
+The environment variable FA_RENDER_DEBUG_VIEW sets the first view at start. The picture changes only on a frame that draws the prepass (a post effect that reads the depth is on, see docs/RENDERING.md, "Depth and normals"; `cascades` needs only a directional light with castShadows). Errors: `invalid_arguments` for a `view` that is not none, depth, normals, ao or cascades (with a did-you-mean); `unavailable` without graphics (graphics=false). The same is Renderer::set_debug_view in C++.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `view` | string ["none","depth","normals","ao"] | no | none (the game picture), depth, normals or ao (the ambient occlusion). Omitted: report the current view. |
+| `view` | string ["none","depth","normals","ao","cascades"] | no | none (the game picture), depth, normals, ao (the ambient occlusion) or cascades (the meshes tinted by the cascade of the sun's shadow they fall in). Omitted: report the current view. |
 
 ### `render.frame_graph`
 
@@ -7716,7 +7718,7 @@ Capabilities: read
 
 Answers from the renderer's table per backend (GL, GLES3, WebGL2, D3D11, Metal, headless) and from what the GPU reports, so a game or a tool can ask before it relies on a feature. Without `feature`: {backend, backendLabel, features: [{name, kind, supported, status, doc, backends}]}; with `feature`: {feature, backend, supported, status}. A feature the renderer does not draw is false with the status "planned (<milestone>)" (the lighting of M73 is, until each part lands): this command never claims what is not drawn. Example: render.supports {"feature":"floatTargets"}
 
-`kind` is capability (a fact of the GPU: floatTargets, r11g11b10, sampledDepth, computeShaders, float32Targets), engine (linearColor, hdrOutput, and the lighting rows of M73: clusteredLights, areaLights, lightCookies, iesProfiles, cascadedShadows, pointShadows, spotShadows, contactShadows, environmentMap, reflectionProbes, physicalSky, lightmaps, lightProbes, volumetricFog, decals, subsurface, realtimeGI, clearCoat, sheen, anisotropy, transmission) or effect (one per PostProcess effect: ssao, ssr, fog, sunShafts, exposure, depthOfField, motionBlur, radialBlur, lensDistortion, chromaticAberration, bloom, tonemap, colorGrading, vignette, sharpen, outline, pixelate, posterize, filmGrain, colorFilter); `backends` says on which backends the feature can ever run. `status` is "supported", "planned (<milestone>)" for an engine feature or effect the renderer does not draw (the M73 lighting rows today), or one sentence that names the backend or the missing GPU capability. hdrOutput is true when the display the window showed its last frame on can show HDR in an encoding the renderer writes (EDR on Metal, scRGB or HDR10 on D3D11), whatever the scene asks; its status otherwise says why (the display or the OS setting); render.output says what the window shows. The headless dummy backend (no GPU) answers false to everything; a headless run with Mesa/EGL is a GL or GLES3 backend like any other. Errors: `invalid_argument` for a `feature` that is not in the list (with a did-you-mean); `unavailable` without graphics (graphics=false). The same answer is Renderer::supports(name) in C++.
+`kind` is capability (a fact of the GPU: floatTargets, r11g11b10, sampledDepth, computeShaders, float32Targets), engine (linearColor, hdrOutput, and the lighting rows of M73: clusteredLights, areaLights, lightCookies, iesProfiles, cascadedShadows, pointShadows, spotShadows, contactShadows, environmentMap, reflectionProbes, physicalSky, lightmaps, lightProbes, volumetricFog, decals, subsurface, realtimeGI, clearCoat, sheen, anisotropy, transmission) or effect (one per PostProcess effect: ssao, ssr, fog, sunShafts, exposure, depthOfField, motionBlur, radialBlur, lensDistortion, chromaticAberration, bloom, tonemap, colorGrading, vignette, sharpen, outline, pixelate, posterize, filmGrain, colorFilter); `backends` says on which backends the feature can ever run. `status` is "supported", "planned (<milestone>)" for an engine feature or effect the renderer does not draw (the M73 lighting rows until their step lands; clusteredLights is drawn), or one sentence that names the backend or the missing GPU capability. hdrOutput is true when the display the window showed its last frame on can show HDR in an encoding the renderer writes (EDR on Metal, scRGB or HDR10 on D3D11), whatever the scene asks; its status otherwise says why (the display or the OS setting); render.output says what the window shows. The headless dummy backend (no GPU) answers false to everything; a headless run with Mesa/EGL is a GL or GLES3 backend like any other. Errors: `invalid_argument` for a `feature` that is not in the list (with a did-you-mean); `unavailable` without graphics (graphics=false). The same answer is Renderer::supports(name) in C++.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -17923,7 +17925,7 @@ declare module "factoria" {
     subsurface: number;
   }
   /**
-   * A light source for 3D meshes. A directional light shines along the entity's forward direction (-Z rotated by the Transform), point and spot lights shine from the entity's position, an area light from a rectangle, disc or tube around it. The fields after castShadows belong to the lighting of M73 and have no effect yet (docs/rendering/RENDERING_LIGHTING.md).
+   * A light source for 3D meshes. A directional light shines along the entity's forward direction (-Z rotated by the Transform), point and spot lights shine from the entity's position, an area light from a rectangle, disc or tube around it. A view lights with up to 1024 lights at once (32 of them directional): each fragment reads only the lights of its cluster. The fields after castShadows belong to the lighting of M73; the doc string of each says whether the renderer draws it yet (docs/rendering/RENDERING_LIGHTING.md).
    * 
    * Category: 3D
    */
@@ -17950,11 +17952,11 @@ declare module "factoria" {
      */
     spotAngle: number;
     /**
-     * Cast shadows. Only directional lights cast shadows today; the shadows of point and spot lights come with M73.2.
+     * Cast shadows. Only directional lights cast shadows today (the first one that casts, with cascades: see SceneSettings.shadowCascades); the shadows of point and spot lights come with M73.2b.
      */
     castShadows: boolean;
     /**
-     * Spot only: half-angle in degrees of the cone inside which the light is at full strength; it fades to nothing at spotAngle (a larger value is used as spotAngle). 0 (default) = the cone fades as it does today. No effect yet: M73.1 brings it.
+     * Spot only: half-angle in degrees of the cone inside which the light is at full strength; it fades to nothing at spotAngle (a larger value is used as spotAngle). 0 (default) = the cone fades as it does today (a smoothstep of the cosine from the edge of the cone inwards). Drawn since M73.1a.
      * @since unreleased
      */
     innerAngle: number;
@@ -17980,32 +17982,32 @@ declare module "factoria" {
      */
     ies: string;
     /**
-     * Texels per side of this light's shadow map, 0..4096 (a value under 128 is raised to 128, a power of two is used). 0 (default) = the engine picks from the light's distance to the camera. No effect yet: M73.2 brings it.
+     * Texels per side of each cascade's shadow map of this light, 0..4096 (a value under 128 is raised to 128, rounded down to a power of two). 0 (default) = the engine picks: 2048 for one cascade, 1024 for several. When the cascades do not fit the atlas (SceneSettings.shadowAtlasSize) they are halved, farthest first, down to 128.
      * @since unreleased
      */
     shadowResolution: number;
     /**
-     * Depth offset of the shadow test, 0..1, against shadow acne. 0 (default) = the engine's own bias. No effect yet: M73.2 brings it.
+     * Depth offset of the shadow test in metres along the light, 0..1, against shadow acne; it grows with the slope of the surface. 0 (default) = the engine's own bias, 1.5 texels of the cascade's map.
      * @since unreleased
      */
     shadowBias: number;
     /**
-     * Offset along the surface normal, in metres 0..1, against shadow acne on slopes. 0 (default) = the engine's own. No effect yet: M73.2 brings it.
+     * Offset along the surface normal, in metres 0..1, against shadow acne on slopes. 0 (default) = the engine's own, 1.5 texels of the cascade's map.
      * @since unreleased
      */
     shadowNormalBias: number;
     /**
-     * How the edge of the shadow is filtered. pcf (default): a small fixed blur. hard: no filtering, the sharpest and cheapest. pcss: a penumbra that grows with the distance to the caster, sized by shadowSoftness. No effect yet: M73.2 brings it.
+     * How the edge of the shadow is filtered. pcf (default): a small fixed blur. hard: no filtering, the sharpest and cheapest. pcss: a penumbra that grows with the distance to the caster, sized by shadowSoftness.
      * @since unreleased
      */
     shadowFilter: "pcf" | "hard" | "pcss";
     /**
-     * With shadowFilter pcss: the size of the light for the penumbra, 0..10 (1 = the usual). No effect yet: M73.2 brings it.
+     * With shadowFilter pcss: the size of the light for the penumbra, 0..10 (1 = the usual: a sun about 6 degrees wide). 0 = the narrowest penumbra, a plain PCF of 1.5 texels (use shadowFilter hard for a hard shadow).
      * @since unreleased
      */
     shadowSoftness: number;
     /**
-     * How far from the camera, in metres, this light draws shadows. 0 (default) = the scene's SceneSettings.shadowDistance. No effect yet: M73.2 brings it.
+     * How far from the camera, in metres, this light draws shadows. 0 (default) = the scene's SceneSettings.shadowDistance.
      * @since unreleased
      */
     shadowDistance: number;
@@ -21818,27 +21820,27 @@ declare module "factoria" {
      */
     skyMaterialParams: any;
     /**
-     * Cascades of the directional light's shadow map, 1..4: each covers a longer stretch from the camera, so shadows stay sharp near it. 1 (default) = a single map, as today. No effect yet: M73.2 brings it (docs/rendering/RENDERING_LIGHTING.md).
+     * Cascades of the directional light's shadow map, 1..4: each covers a longer stretch from the camera, so shadows stay sharp near it. Each is fitted to its slice of the view and keeps its texels still while the camera moves (no shimmer). 1 (default) = a single map. A GPU without float32Targets draws no shadow (render.supports cascadedShadows; docs/rendering/RENDERING_LIGHTING.md).
      * @since unreleased
      */
     shadowCascades: number;
     /**
-     * Where the cascades split along shadowDistance, 0..1: 0 = evenly spaced, 1 = logarithmic (a lot of detail near the camera), 0.5 (default) between. No effect yet: M73.2 brings it.
+     * Where the cascades split along shadowDistance, 0..1: 0 = evenly spaced, 1 = logarithmic (a lot of detail near the camera), 0.5 (default) between.
      * @since unreleased
      */
     shadowCascadeSplit: number;
     /**
-     * Fraction 0..0.5 of a cascade over which it blends into the next, hiding the seam. No effect yet: M73.2 brings it.
+     * Fraction 0..0.5 of a cascade over which it blends into the next, hiding the seam. 0 = a hard seam.
      * @since unreleased
      */
     shadowCascadeBlend: number;
     /**
-     * How far from the camera, in metres, shadows are drawn. 0 (default) = the engine's own fit around the view. A light's own shadowDistance overrides it. No effect yet: M73.2 brings it.
+     * How far from the camera, in metres, shadows are drawn. 0 (default) = the engine's own fit around the view (the camera's far plane, or what the casters need when that is shorter: the distance to the farthest caster corner and a body's length, rounded up, the same whichever way the camera looks). A light's own shadowDistance overrides it. The cascades split this stretch.
      * @since unreleased
      */
     shadowDistance: number;
     /**
-     * Texels per side of the shadow atlas that holds every shadow map, 512..8192 (4096 default). A bigger atlas costs memory (4096 x 4096 x 4 bytes = 64 MB). No effect yet: M73.2 brings it.
+     * The most texels per side the shadow atlas that holds every shadow map may have, 512..8192 (4096 default; the GPU's own limit also applies). Only the part the maps need is allocated (R32F: four bytes a texel, 2048 x 2048 = 16 MB); when they do not fit, the maps shrink, then the least important is dropped, the same every frame.
      * @since unreleased
      */
     shadowAtlasSize: number;
@@ -22573,10 +22575,10 @@ declare module "factoria:test" {
      */
     setDevice(overrides: { formFactor?: "desktop" | "phone" | "tablet"; gpuBackend?: string; memoryGB?: number; tier?: "low" | "medium" | "high"; steamDeck?: boolean; handheld?: boolean }): void;
     /**
-     * What the renderer drew in the picture now, drawing a frame first when none has been drawn since the last change (a headless test may not have drawn one; game.state().renderStats stays zero until a frame is drawn). triangles and lights (the 3D lights) count the main pass, lights2d the Light2D lights shading 2D visuals (at most 256: directional first, then the point lights that reach the camera view; lights2dDropped are the ones left out; lights2dShadowed the ones given a shadow, castShadows, at most 32), shadowCasters the meshes drawn into the shadow map, sortKeyFallbacks how many times since the renderer started the 3D scene (a frame, or a capture of one entity) had more distinct meshes, textures or materials than a sort key holds, so its opaque meshes were sorted by the slower comparator (same picture; 0 is normal; it only grows), textureMB the GPU texture memory, width and height the size of the picture (design size * window.renderScale). The numbers perf.measure records and perf.check budgets. Throws without graphics. Example: expect(game.renderStats().triangles).toBeLessThan(200000).
+     * What the renderer drew in the picture now, drawing a frame first when none has been drawn since the last change (a headless test may not have drawn one; game.state().renderStats stays zero until a frame is drawn). triangles and lights (the 3D lights, up to 1024 of the most relevant, 32 of them directional) count the main pass (lightsDropped are the ones over those limits, lightsCulled the local lights whose range is outside the view; lightClusters is the clusters of the view, lightClusterEntries the light-list entries they hold, lightMaxPerCluster the longest list, lightClusterClipped the entries lost to the limits of 128 lights per cluster and 524288 entries per view: 0 is normal), lights2d the Light2D lights shading 2D visuals (at most 256: directional first, then the point lights that reach the camera view; lights2dDropped are the ones left out; lights2dShadowed the ones given a shadow, castShadows, at most 32), shadowCasters the meshes drawn into the shadow map, sortKeyFallbacks how many times since the renderer started the 3D scene (a frame, or a capture of one entity) had more distinct meshes, textures or materials than a sort key holds, so its opaque meshes were sorted by the slower comparator (same picture; 0 is normal; it only grows), textureMB the GPU texture memory, width and height the size of the picture (design size * window.renderScale). The numbers perf.measure records and perf.check budgets. Throws without graphics. Example: expect(game.renderStats().triangles).toBeLessThan(200000).
      * @since 0.3.0
      */
-    renderStats(): { drawCalls: number; sprites: number; shapes: number; textGlyphs: number; particles: number; meshes: number; meshesCulled: number; meshBatches: number; triangles: number; views: number; shadowCasters: number; lights: number; lightsDropped: number; lights2d: number; lights2dDropped: number; lights2dShadowed: number; materials: number; materialFallbacks: string[]; sortKeyFallbacks: number; textureMB: number; width: number; height: number; renderScale: number };
+    renderStats(): { drawCalls: number; sprites: number; shapes: number; textGlyphs: number; particles: number; meshes: number; meshesCulled: number; meshBatches: number; triangles: number; views: number; shadowCasters: number; lights: number; lightsDropped: number; lightsCulled: number; lightClusters: number; lightClusterEntries: number; lightClusterClipped: number; lightMaxPerCluster: number; lights2d: number; lights2dDropped: number; lights2dShadowed: number; materials: number; materialFallbacks: string[]; sortKeyFallbacks: number; textureMB: number; width: number; height: number; renderScale: number };
     /**
      * Pretends the player's system has these accessibility settings: game.accessibility follows at once. Keys left out are the defaults (textScale 1, the others false); textScale is clamped to 0.5 - 4. An unknown key (with a suggestion), a non-boolean or a textScale that is not a number above 0 throws. Reset to the defaults before every test. Example: game.setAccessibility({ textScale: 1.5, reduceMotion: true }).
      * @since 0.2.0

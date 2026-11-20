@@ -679,10 +679,10 @@ TEST_CASE("features: what the engine does not draw yet is false and says planned
 
 TEST_CASE(
     "features: the lighting rows of M73 are planned until their package lands and never claim what is not drawn") {
-    const char* const rows[] = {
-        "clusteredLights", "areaLights",     "lightCookies",   "iesProfiles",      "cascadedShadows", "pointShadows",
-        "spotShadows",     "contactShadows", "environmentMap", "reflectionProbes", "physicalSky",     "lightmaps",
-        "lightProbes",     "volumetricFog",  "decals",         "subsurface",       "realtimeGI",      "transmission"};
+    const char* const rows[] = {"areaLights",  "lightCookies",   "iesProfiles",    "pointShadows",
+                                "spotShadows", "contactShadows", "environmentMap", "reflectionProbes",
+                                "physicalSky", "lightmaps",      "lightProbes",    "volumetricFog",
+                                "decals",      "subsurface",     "realtimeGI",     "transmission"};
     const FeatureEnv full = gpu(FeatureBackend::D3d11, true, true, true, true);
     for (const char* n : rows) {
         CAPTURE(n);
@@ -692,11 +692,17 @@ TEST_CASE(
         CHECK(why == "planned (M73)");
         CHECK(feature_table()[std::size_t(find_feature(n))].kind == FeatureKind::Engine);
     }
+    // clusteredLights is drawn: it is a feature of the renderer on every GPU, with the row still in the same place.
+    CHECK(find_feature("clusteredLights") >= 0);
+    CHECK(supported(full, "clusteredLights"));
+    CHECK(feature_table()[std::size_t(find_feature("clusteredLights"))].kind == FeatureKind::Engine);
     // float32Targets follows the GPU: a GPU whose R32F cannot be sampled answers with what is missing, not with the plan.
     std::string why;
     CHECK(supported(full, "float32Targets", &why));
     CHECK_FALSE(supported(gpu(FeatureBackend::Gles3, true, true, true, false, false), "float32Targets", &why));
     CHECK(why.find("R32F") != std::string::npos);
+    // cascadedShadows (M73.2a) is drawn: it needs float32Targets and nothing else, so it says what is missing, never "planned".
+    CHECK(supported(full, "cascadedShadows", &why));
     CHECK_FALSE(supported(gpu(FeatureBackend::Gles3, true, true, true, false, false), "cascadedShadows", &why));
     CHECK(why.find("R32F") != std::string::npos);
     CHECK(why.find("planned") == std::string::npos);

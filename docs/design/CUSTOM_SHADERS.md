@@ -601,7 +601,7 @@ Built (2026-10-19):
 - `fs` and the clip `shadow_fs` share `@block fa_fs_surface` (engine textures, `fa_mesh_fs_params`, the varyings,
   `fa_standard_surface`); sokol-shdc honours `@include_block` inside `#ifdef`. The clip shadow program declares
   `fa_mesh_fs_params`, `fa_material`, views 0 and 2-5 plus the material's, samplers 0 and the material's, and no
-  `fa_lights` / `fa_shadow_tex`: the renderer records the slots each program declares and binds only those.
+  `fa_light_tex` / `fa_shadow_tex`: the renderer records the slots each program declares and binds only those.
 - Render tests use committed twins (engine/render/tests/data/materials: hlsl5, glsl430 and metal_macos, one per backend
   the render tests run on; the macOS job failed without the Metal ones) because sokol-shdc does not run everywhere; the tests stamp the running engine version into them, and a tooling doctest (real sokol-shdc only)
   fails when they no longer match the template (`FA_UPDATE_FIXTURES=1` rewrites them).
@@ -729,8 +729,9 @@ and its shadow like a mesh standing there).
   starts, `precheck_snippet` refuses: the hook without `"lighting": "custom"` (pointer `/lighting`), the hook together with
   `light()` or `ambient()`, the functions in a `"pbr"` or `"unlit"` material and in `surface()` or `vertex()`; a misspelled
   `fa_` function after the compile gets a did-you-mean over the documented functions first.
-- **Lights.** The cap is the shader's 32 (`kMaxLights`), ordered by `select_lights`: the shadow caster, the other
-  directional lights, then point and spot by relevance to the camera. Only light 0 has a shadow map.
+- **Lights.** Since M73.1a the cap is 1024 lights per view (`kMaxLights`), 32 of them directional, ordered by `select_lights`: the
+  shadow caster, the other directional lights, then point and spot by relevance to the camera; a fragment reads the lights of its
+  cluster (ARCHITECTURE_RENDERING_LIGHTING.md, "Clustered lights"). Only light 0 has a shadow map.
 - **Template hash.** The template text changed, so every committed twin was regenerated (`FA_UPDATE_FIXTURES=1`), with three
   new fixtures: `lightloop` (a toon from the brightest light only, plus the sky), `skylit` (`ambient()` returns
   `fa_sky_light`) and `full_sky` (a full shader that reflects the sky).
