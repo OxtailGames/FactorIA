@@ -102,10 +102,10 @@ TEST_CASE("local shadows: a tile's depth is metres along its axis, and a texel i
             const float metres = fit.nearPlane * fit.farPlane / (fit.farPlane - z * (fit.farPlane - fit.nearPlane));
             CHECK(metres == doctest::Approx(c).epsilon(0.001));
         }
-        // The guard band makes the tile a little wider than the face: 8 texels at each edge of 512.
+        // The guard band makes the tile a little wider than the face: kLocalShadowGuard texels at each edge of 512.
         const Vec4 edge = fit.viewProj * Vec4{pos.x + 10.0f, pos.y, pos.z - 10.0f, 1.0f};
-        CHECK(edge.x / edge.w == doctest::Approx(1.0f * (256.0f - 8.0f) / 256.0f).epsilon(0.001));
-        CHECK(fit.texelCoef == doctest::Approx(2.0f * (256.0f / 248.0f) / 512.0f));
+        CHECK(edge.x / edge.w == doctest::Approx(1.0f * (256.0f - float(kLocalShadowGuard)) / 256.0f).epsilon(0.001));
+        CHECK(fit.texelCoef == doctest::Approx(2.0f * (256.0f / (256.0f - float(kLocalShadowGuard))) / 512.0f));
     }
     // A tile of a spot: the near plane never passes half of the range, a tiny range is still valid.
     const LocalTileFit tiny = fit_local_tile(pos, {0, -1, 0}, {0, 0, 1}, 0.5f, 64, 0.02f, false);
@@ -235,6 +235,34 @@ TEST_CASE(
     // The ones lost are the least important: the farthest from the camera at the origin, the highest table index.
     for (int lostLight : c.lost)
         for (const LocalShadowLight& l : c.lights) CHECK(lostLight > l.light);
+}
+
+TEST_CASE(
+    "local shadows: in a full atlas the local tiles shrink and are dropped before the sun's cascades lose anything") {
+    // Two cascades of 1024 fill the top half of a 2048 atlas. Twelve spots of 512 do not fit the other half (eight would): the spots
+    // shrink, the cascades stay as asked.
+    const std::vector<ShadowTileRequest> sun{{1024, 128, 0}, {1024, 128, 1}};
+    std::vector<LocalShadowInput> in;
+    for (int i = 0; i < 12; ++i) in.push_back(input(i, {float(i), 0, 0}, 10, 30, 1, 512));
+    const LocalShadowPlan a = plan_local_shadows(2048, sun, in, {0, 0, 0});
+    REQUIRE(a.atlas.tiles.size() >= 2);
+    CHECK(a.atlas.tiles[0].size == 1024);
+    CHECK(a.atlas.tiles[1].size == 1024);
+    CHECK(a.lights.size() == 12);
+    CHECK(a.lost.empty());
+    CHECK(a.shrunkLights > 0);
+    // Even the local tiles at their minimum cannot fit beside a sun that takes the whole atlas: every light is lost, the sun is whole.
+    const std::vector<ShadowTileRequest> fullSun{{1024, 128, 0}};
+    const LocalShadowPlan b = plan_local_shadows(1024, fullSun, in, {0, 0, 0});
+    CHECK(b.atlas.tiles[0].size == 1024);
+    CHECK(b.lights.empty());
+    CHECK(b.lost.size() == 12);
+    // With no local light the sun alone is laid out as before (its largest map shrinks first, by priority among equals).
+    const std::vector<ShadowTileRequest> big{{2048, 128, 0}, {2048, 128, 1}};
+    const LocalShadowPlan c = plan_local_shadows(2048, big, {}, {0, 0, 0});
+    CHECK(c.atlas.shrunk > 0);
+    CHECK(c.atlas.dropped == 0);
+    CHECK(c.atlas.tiles[0].size >= c.atlas.tiles[1].size);
 }
 
 TEST_CASE("local shadows: the views of a frame are limited, the less important light past the limit is lost") {

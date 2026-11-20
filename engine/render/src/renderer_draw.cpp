@@ -1,6 +1,7 @@
 // Renderer::Impl, part 3: draw_view_job and draw_job, the passes of one frame's jobs.
 #include "color_space.h"
 #include "light_clusters.h"
+#include "physical_sky.h"
 #include "mesh_buffer_draw.h"
 #include "renderer_impl.h"
 #include "shadow_cascades.h"
@@ -35,6 +36,8 @@ struct Renderer::Impl::PartDraw {
     MaterialAsset* mat = nullptr;
     bool error = false;
     TextureAsset *tex = nullptr, *normal = nullptr, *mr = nullptr, *occlusion = nullptr, *emissive = nullptr;
+    sg_view
+        lightmap{};  // the lightmap page of the entity (view 26 of the engine's program); id 0 = none, a white texel is bound
 };
 
 // The packed params and textures of a custom material for one batch (its overrides are the same for every item).
@@ -53,6 +56,11 @@ struct SkyDraw {
     float skyColor[3]{}, horizonColor[3]{}, sun[3]{0.0f, 1.0f, 0.0f};
     float time = 0.0f;
     bool linear = false;
+    // The physical sky (SceneSettings.skyModel): the engine's own program for it, with its state; `slot` is the table it reads
+    // (0 the picture's, 1 the environment's).
+    bool physical = false, sunDisc = false;
+    int slot = 0;
+    PhysicalSkyState phys;
 };
 
 // Holds references to the job's world and frame and a copy of its plan. It lives (Impl::jobContexts) from plan_job until the
@@ -149,6 +157,15 @@ struct Renderer::Impl::DrawContext {
     // plan_env: the meshes of this job take the baked sky (SceneSettings.skyMaterial): the "sky-env" pass is declared
     // when envBake, and envSky is what it draws (the time quantized, see plan_env).
     bool envActive = false, envBake = false;
+    // The physical sky: envSliced = this frame runs a slice of a bake (renderer_env.h, bake_slice), not a whole one; envStatic and
+    // envSun are what a bake started from this job is tagged with (plan_env); physMainOn = the main pass draws the physical sky
+    // with the state physMain (exact sun and clock, the picture's table), physSunDir / physSunColor = the sun as collect_lights
+    // found it, before the sky tinted its light.
+    bool envSliced = false, physMainOn = false;
+    std::uint64_t envStatic = 0;
+    float envSun[3]{0.0f, 1.0f, 0.0f};
+    PhysicalSkyState physMain;
+    float physSunDir[3]{0.0f, 1.0f, 0.0f}, physSunColor[3]{1.0f, 1.0f, 1.0f};
     std::uint64_t envKey = 0;
     SkyDraw envSky;
     // The textures plan_env resolved for the sky of the job, while the job's own render target was the checker: the sky
@@ -336,6 +353,11 @@ void fill_sky(Renderer::Impl& im, const Renderer::Impl::DrawContext& ctx, Materi
 void draw_sky(Renderer::Impl& im, const SkyDraw& d, const float* invViewProj, const Vec3& camPos,
               const TargetFormat* format) {
     Gpu& gpu = im.gpu;
+    if (d.physical) {
+        const float cam[3] = {camPos.x, camPos.y, camPos.z};
+        im.physSky.draw(gpu, d.slot, d.phys, d.sunDisc, invViewProj, cam, format);
+        return;
+    }
     const sg_shader shader = d.prog ? d.prog->shader : sg_shader{};
     sg_apply_pipeline(format ? gpu.sky_pipeline(*format, shader) : gpu.sky_pipeline(shader));
     sg_bindings b{};
@@ -473,7 +495,7 @@ void Renderer::Impl::begin_frame_graph(bool countPost) {
     if (countPost) ++postSerial;
     trim_shadow_rows();
     free_retired_shadow_targets();  // the frame before has run its graph
-    sharedGame = sharedLight = sharedShadow = sharedEnv = ResourceId{};
+    sharedGame = sharedLight = sharedShadow = sharedEnv = sharedSkyLut = ResourceId{};
 }
 
 // Orders, culls and runs every pass of the frame (frame_graph.h), then drops what the pass callbacks captured: the job contexts
@@ -820,6 +842,7 @@ void Renderer::Impl::gather_meshes(DrawContext& ctx) {
         mi.colorsHash = sm.colorsHash;
         mi.sortKey = sm.sortKey;
         mi.keyed = sm.keyed;
+        mi.lm = sm.lm;
         mi.dist = length(sm.model.translation() - fr.cam.position);
         meshBlended.push_back(sm.blended ? 1 : 0);
     }
@@ -834,6 +857,7 @@ void Renderer::Impl::gather_meshes(DrawContext& ctx) {
         const std::string& level = lod_mesh(mr, mi.dist);  // MeshRenderer::lods
         if (level == mr.mesh) continue;
         mi.mesh = assets->mesh(level);
+        mi.lm = {};  // another mesh: the entity was baked for the one the manifest names
         mesh_cull_bounds(*mi.mesh, world.get<Animator>(mi.entity), mi.bmin, mi.bmax, mi.anim);
         meshBlended[i] = mesh_is_blended(mr, *mi.mesh, mi.material) ? 1 : 0;
     }
@@ -927,6 +951,7 @@ void Renderer::Impl::collect_lights(DrawContext& ctx) {
                     return;
                 }
             }
+            ld.baked = l.mode == LightMode::Baked;
             lights.push_back(ld);
         });
     // Camera.lighting = studio: the rig of the camera takes the place of the scene's lights. Directions are relative to the camera
@@ -962,6 +987,30 @@ void Renderer::Impl::collect_lights(DrawContext& ctx) {
     }
     stats.lightsCulled += culledLocal;
     stats.lights += int(lights.size());
+    // The physical sky (SceneSettings.skyModel): the sun is the light of slot 0 when it is a directional one. The sky is drawn with
+    // the colour the author chose (physSunColor); when skyTintsSun is on, the light itself is what the air and the clouds let
+    // through of it, relative to a noon sun. Never for a studio rig, never when a sky material draws the sky, never when this GPU
+    // cannot make the sky's tables (the gradient is drawn then).
+    {
+        const SceneSettings& wss = world.settings();
+        if (fr.wantWorld && !fr.cam.studio && !lights.empty() && lights[0].color.w == 0.0f && lights[0].pos.w == 0.0f) {
+            LightData& sun = lights[0];
+            ctx.physSunDir[0] = sun.pos.x;
+            ctx.physSunDir[1] = sun.pos.y;
+            ctx.physSunDir[2] = sun.pos.z;
+            ctx.physSunColor[0] = sun.color.x;
+            ctx.physSunColor[1] = sun.color.y;
+            ctx.physSunColor[2] = sun.color.z;
+            if (wss.skyModel == SkyModel::Physical && wss.skyTintsSun && wss.skyMaterial.empty() &&
+                physSky.ready(gpu)) {  // the gradient is not tinted
+                float f[3];
+                sky_sun_light_factor(physical_sky_settings(wss), sun.pos.y, f);
+                sun.color.x *= f[0];
+                sun.color.y *= f[1];
+                sun.color.z *= f[2];
+            }
+        }
+    }
     ctx.haveShadowCaster = shadowLight >= 0 && !lights.empty() && lights[0].rank == 0;
     if (!opaque.empty() && lights.empty() && culledLocal == 0 && !warnedNoLight && !plan.view) {
         warnedNoLight = true;
@@ -998,31 +1047,47 @@ void Renderer::Impl::shadow_bounds(DrawContext& ctx) {
     // The world box of each caster's parts as jobs, joined here in the order of the items.
     Vec3 bmin{1e30f, 1e30f, 1e30f}, bmax{-1e30f, -1e30f, -1e30f};
     bool any = false;
+    // The box of the meshes that are not lit by a lightmap and receive shadows: the receivers a baked light still lights in real time.
+    Vec3 dmin{1e30f, 1e30f, 1e30f}, dmax{-1e30f, -1e30f, -1e30f};
     for (auto* list : {&opaque, &blended}) {
         struct Box {
             Vec3 lo{1e30f, 1e30f, 1e30f}, hi{-1e30f, -1e30f, -1e30f};
-            bool any = false;
+            Vec3 dlo{1e30f, 1e30f, 1e30f}, dhi{-1e30f, -1e30f, -1e30f};
+            bool any = false, dynamic = false;
         };
         std::vector<Box> boxes(list->size());
         rjobs::run("render.shadow_bounds", rjobs::split(list->size(), kMeshGrain, kParallelMeshes),
                    [&](const jobs::Chunk& ch) {
                        for (std::size_t i = ch.begin; i < ch.end; ++i) {
                            const MeshItem& mi = (*list)[i];
-                           if (!mi.mr->castShadows) continue;
+                           const bool casts = mi.mr->castShadows;
+                           const bool dynamic = mi.mr->receiveShadows && !mi.lm.mesh;
+                           if (!casts && !dynamic) continue;
                            Box& b = boxes[i];
                            for (auto& p : mi.mesh->parts) {
                                for (int c = 0; c < 8; ++c) {
                                    Vec3 corner{(c & 1) ? p.bmax.x : p.bmin.x, (c & 2) ? p.bmax.y : p.bmin.y,
                                                (c & 4) ? p.bmax.z : p.bmin.z};
                                    Vec3 w = mi.model.transform_point(corner);
-                                   b.lo = min(b.lo, w);
-                                   b.hi = max(b.hi, w);
-                                   b.any = true;
+                                   if (casts) {
+                                       b.lo = min(b.lo, w);
+                                       b.hi = max(b.hi, w);
+                                       b.any = true;
+                                   }
+                                   if (dynamic) {
+                                       b.dlo = min(b.dlo, w);
+                                       b.dhi = max(b.dhi, w);
+                                       b.dynamic = true;
+                                   }
                                }
                            }
                        }
                    });
         for (const Box& b : boxes) {
+            if (b.dynamic) {
+                dmin = min(dmin, b.dlo);
+                dmax = max(dmax, b.dhi);
+            }
             if (!b.any) continue;
             bmin = min(bmin, b.lo);
             bmax = max(bmax, b.hi);
@@ -1049,6 +1114,12 @@ void Renderer::Impl::shadow_bounds(DrawContext& ctx) {
         const float range = ld.pos.w;
         const Vec3 nearest = min(max(pos, bmin), bmax);
         if (!(range > 0.0f) || length_sq(nearest - pos) > range * range) continue;
+        // A baked light's shadows are in the lightmaps and a lightmapped surface skips the light, so it takes a map only for the
+        // receivers it still lights in real time (meshes with no lightmap): none within its range, no map.
+        if (ld.baked) {
+            const Vec3 near2 = min(max(pos, dmin), dmax);
+            if (dmin.x > dmax.x || length_sq(near2 - pos) > range * range) continue;
+        }
         if (ld.shadow.distance > 0.0f && length(pos - fr.cam.position) - range > ld.shadow.distance) continue;
         render::LocalShadowInput in;
         in.light = int(i);
@@ -1500,23 +1571,15 @@ static_assert(
 // step's start, so a run draws the same images at any frame rate). The first job of a frame that wants an environment
 // decides it for the frame; a later job whose sky differs draws its meshes with the gradient (they share the cubes).
 void Renderer::Impl::plan_env(DrawContext& ctx) {
-    ctx.envActive = ctx.envBake = false;
+    ctx.envActive = ctx.envBake = ctx.envSliced = ctx.physMainOn = false;
     ctx.skyPlannedMat = nullptr;
     const Frame& fr = ctx.fr;
     if (!ctx.doMainPass || !fr.wantWorld || fr.cam.studio) return;
-    MaterialAsset* mat = sky_material(ctx.ss);
-    if (!mat) return;
+    // The physical sky (SceneSettings.skyModel) takes the place of the gradient, never of a sky material.
+    const bool phys = ctx.ss.skyModel == SkyModel::Physical && ctx.ss.skyMaterial.empty() && physSky.ready(gpu);
+    MaterialAsset* mat = phys ? nullptr : sky_material(ctx.ss);
+    if (!mat && !phys) return;
     SkyDraw sky;
-    fill_sky(*this, ctx, mat, sky);
-    ctx.skyPlannedMat = mat;
-    std::copy(std::begin(sky.in.textures), std::end(sky.in.textures), ctx.skyPlanned);
-    sky.time = 0.0f;  // only an animated sky sees the time, quantized below
-    std::int64_t step = 0;
-    if (mat->animated) {
-        const double t = ctx.world.time();
-        step = std::isfinite(t) && t > 0.0 ? std::int64_t(std::min(t, 1.0e9) / kEnvTimeStep) : 0;
-        sky.time = float(double(step) * kEnvTimeStep);
-    }
     std::uint64_t h = 0xcbf29ce484222325ull;
     auto mix = [&h](std::uint64_t v) {
         h = (h ^ v) * 0x100000001b3ull;
@@ -1527,18 +1590,77 @@ void Renderer::Impl::plan_env(DrawContext& ctx) {
         std::memcpy(&u, &f, sizeof(u));
         mix(u);
     };
-    mix(std::hash<std::string>{}(mat->path));
-    mix(std::uint64_t(mat->generation));
-    mix(mat->programs[0].shader.id);
-    mix(std::uint64_t(step));
-    for (const auto& p : sky.in.params)
-        for (float c : p) mixf(c);
-    for (const TextureAsset* t : sky.in.textures) mix(t ? t->gpu_view().id : 0);
-    for (float c : sky.skyColor) mixf(c);
-    for (float c : sky.horizonColor) mixf(c);
-    if (mat->usesSun)  // a sky that never reads the sun is not baked again when the sun turns
-        for (float c : sky.sun) mixf(c);
-    mix(sky.linear ? 1 : 0);
+    std::uint64_t staticKey = 0;
+    if (phys) {
+        // The picture draws the exact sun and clock; the environment the quantised ones (physical_sky.h), so a run bakes the same
+        // images at any frame rate.
+        PhysicalSkyState st;
+        st.s = physical_sky_settings(ctx.ss);
+        for (int i = 0; i < 3; ++i) {
+            st.sunDir[i] = ctx.physSunDir[i];
+            st.sunColor[i] = ctx.physSunColor[i];
+        }
+        st.linear = fr.linear;
+        const double t = ctx.world.time();
+        st.time = std::isfinite(t) && t > 0.0 ? std::min(t, 1.0e9) : 0.0;
+        ctx.physMain = st;
+        ctx.physMainOn = fr.cam.perspective && fr.cam.clear;
+        const PhysicalSkyState q = sky_quantised(st);
+        sky.physical = true;
+        sky.sunDisc = false;  // the light is the sun in the environment
+        sky.slot = 1;
+        sky.phys = q;
+        staticKey = sky_env_static_key(q);
+        h = sky_env_key(q) ^ 0x9e3779b97f4a7c15ull;
+        for (int i = 0; i < 3; ++i) ctx.envSun[i] = q.sunDir[i];
+        ctx.envStatic = staticKey;
+    } else {
+        fill_sky(*this, ctx, mat, sky);
+        ctx.skyPlannedMat = mat;
+        std::copy(std::begin(sky.in.textures), std::end(sky.in.textures), ctx.skyPlanned);
+        sky.time = 0.0f;  // only an animated sky sees the time, quantized below
+        std::int64_t step = 0;
+        if (mat->animated) {
+            const double t = ctx.world.time();
+            step = std::isfinite(t) && t > 0.0 ? std::int64_t(std::min(t, 1.0e9) / kEnvTimeStep) : 0;
+            sky.time = float(double(step) * kEnvTimeStep);
+        }
+        mix(std::hash<std::string>{}(mat->path));
+        mix(std::uint64_t(mat->generation));
+        mix(mat->programs[0].shader.id);
+        mix(std::uint64_t(step));
+        for (const auto& p : sky.in.params)
+            for (float c : p) mixf(c);
+        for (const TextureAsset* t : sky.in.textures) mix(t ? t->gpu_view().id : 0);
+        for (float c : sky.skyColor) mixf(c);
+        for (float c : sky.horizonColor) mixf(c);
+        if (mat->usesSun)  // a sky that never reads the sun is not baked again when the sun turns
+            for (float c : sky.sun) mixf(c);
+        mix(sky.linear ? 1 : 0);
+    }
+    // Whether (and how) this job bakes the cubes for the key h. A sky material is baked whole when its key changes. The physical
+    // sky is baked whole the first time, when anything but the sun's direction and the clouds' clock changed, and when the sun
+    // moved a degree or more since the last bake started; else it follows the sun in slices, one per frame (renderer_env.h): a
+    // sequence that is running goes on whatever the sky has become meanwhile, and a new one starts when the key differs.
+    auto decide = [&](DrawContext& c) {
+        c.envBake = c.envSliced = false;
+        if (!skyEnv.baked()) {
+            c.envBake = true;
+            return;
+        }
+        if (!phys) {
+            c.envBake = skyEnv.key() != h;
+            return;
+        }
+        const float* ts = skyEnv.tag_sun();
+        const float dx = c.envSun[0] - ts[0], dy = c.envSun[1] - ts[1], dz = c.envSun[2] - ts[2];
+        const bool whole = skyEnv.tag_key() != c.envStatic || dx * dx + dy * dy + dz * dz > kSkyBakeJump * kSkyBakeJump;
+        if (whole) {
+            c.envBake = true;
+        } else if (skyEnv.busy() || skyEnv.key() != h) {
+            c.envBake = c.envSliced = true;
+        }
+    };
     const bool pictureJob = !ctx.plan.view;
     if (envFrame != frameSerial) {
         envFrame = frameSerial;
@@ -1546,7 +1668,7 @@ void Renderer::Impl::plan_env(DrawContext& ctx) {
         envFrameKey = h;
         envFrameView = !pictureJob;
         envJobs.clear();
-        if (envFrameOk) ctx.envBake = !skyEnv.baked() || skyEnv.key() != h;
+        if (envFrameOk) decide(ctx);
     } else if (envFrameKey != h) {
         // Jobs of the picture (a camera of the game's frame) are planned after the render targets and views, which
         // would otherwise fix the key with a sky of their own (a material texture "target:<own>" is the checker for the
@@ -1555,14 +1677,14 @@ void Renderer::Impl::plan_env(DrawContext& ctx) {
         // run), and this job bakes its own.
         if (!pictureJob || !envFrameView) return;
         for (DrawContext* other : envJobs) {
-            other->envActive = other->envBake = false;
+            other->envActive = other->envBake = other->envSliced = false;
             other->fuScene.fa_env_sky[3] = 0.0f;
             other->fuBlend.fa_env_sky[3] = 0.0f;
         }
         envJobs.clear();
         envFrameKey = h;
         envFrameView = false;
-        if (envFrameOk) ctx.envBake = !skyEnv.baked() || skyEnv.key() != h;
+        if (envFrameOk) decide(ctx);
     }
     if (!envFrameOk) return;
     envJobs.push_back(&ctx);
@@ -1601,6 +1723,7 @@ Renderer::Impl::PartDraw Renderer::Impl::part_draw(DrawContext& ctx, const MeshI
     d.mr = d.error || !part.mrTex ? white : part.mrTex;
     d.occlusion = d.error || !part.occlusionTex ? white : part.occlusionTex;
     d.emissive = d.error || !part.emissiveTex ? white : part.emissiveTex;
+    if (mi.lm.mesh && mi.lm.page) d.lightmap = mi.lm.page->view;
     return d;
 }
 
@@ -1608,10 +1731,16 @@ void Renderer::Impl::note_missing_channel(const MeshItem& mi, const SubMesh& par
     MaterialAsset& mat = *mi.material;
     const bool uv = std::string(what) == "uv1";
     // Already logged? One hash lookup, no string: this runs for every part of every batch of every pass of every frame.
-    const std::uint64_t key = (std::uint64_t(reinterpret_cast<std::uintptr_t>(mi.mesh)) * 1000003u +
-                               std::uint64_t(&part - mi.mesh->parts.data())) *
-                                  2u +
-                              (uv ? 0u : 1u);
+    // The part's index: it is one of the mesh's parts, or of the parts of its lightmap geometry (the same order).
+    const SubMesh* first =
+        mi.lm.mesh && !mi.lm.mesh->parts.empty() &&
+                std::less_equal<const SubMesh*>()(mi.lm.mesh->parts.data(), &part) &&
+                std::less<const SubMesh*>()(&part, mi.lm.mesh->parts.data() + mi.lm.mesh->parts.size())
+            ? mi.lm.mesh->parts.data()
+            : mi.mesh->parts.data();
+    const std::uint64_t key =
+        (std::uint64_t(reinterpret_cast<std::uintptr_t>(mi.mesh)) * 1000003u + std::uint64_t(&part - first)) * 2u +
+        (uv ? 0u : 1u);
     if (!mat.missingNoted.insert(key).second) return;
     const std::string mesh = mi.mesh->key;
     const std::string channel = uv ? "TEXCOORD_1" : "COLOR_1";
@@ -1622,8 +1751,8 @@ void Renderer::Impl::note_missing_channel(const MeshItem& mi, const SubMesh& par
             (primitive ? "'" + mesh +
                              "' is a built-in primitive (cube, plane, ...), which has only position, normal and uv, "
                              "no TEXCOORD_1 or COLOR_1"
-                       : "part " + std::to_string(&part - mi.mesh->parts.data()) + " of mesh '" + mesh + "' has no " +
-                             channel + " attribute") +
+                       : "part " + std::to_string(&part - first) + " of mesh '" + mesh + "' has no " + channel +
+                             " attribute") +
             ". The meshes using both are drawn magenta.",
         primitive
             ? "Use a glTF model that has " + channel + " (the built-in primitives never do), or remove \"" + what +
@@ -1799,6 +1928,7 @@ void Renderer::Impl::bind_textures(DrawContext& ctx, sg_bindings& b, const PartD
     b.views[VIEW_mesh_fa_mr_tex] = d.mr->gpu_view();
     b.views[VIEW_mesh_fa_occlusion_tex] = d.occlusion->gpu_view();
     b.views[VIEW_mesh_fa_emissive_tex] = d.emissive->gpu_view();
+    b.views[VIEW_mesh_fa_lightmap] = d.lightmap.id ? d.lightmap : white->view;
     b.samplers[SMP_mesh_fa_smp] = gpu.sampler(SamplerKind::LinearRepeat);
     b.samplers[SMP_mesh_fa_shadow_smp] = gpu.sampler(SamplerKind::Nearest);
     // The light data of the view (the shadow pass has no lights: any image does for a program that declares the slot).
@@ -2493,9 +2623,16 @@ void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
             // reflections and ambient light follow the sky that is drawn here when it is a material (plan_env bakes
             // it), else skyColor and horizonColor.
             SkyDraw sky;
-            fill_sky(*this, ctx, sky_material(ss), sky);
-            if (sky.mat && sky.mat == ctx.skyPlannedMat)
-                std::copy(std::begin(ctx.skyPlanned), std::end(ctx.skyPlanned), sky.in.textures);
+            if (ctx.physMainOn) {
+                sky.physical = true;
+                sky.sunDisc = true;
+                sky.slot = 0;
+                sky.phys = ctx.physMain;
+            } else {
+                fill_sky(*this, ctx, sky_material(ss), sky);
+                if (sky.mat && sky.mat == ctx.skyPlannedMat)
+                    std::copy(std::begin(ctx.skyPlanned), std::end(ctx.skyPlanned), sky.in.textures);
+            }
             draw_sky(*this, sky, fr.cam.invViewProj.m, fr.cam.position, nullptr);
             ++stats.drawCalls;
         }
@@ -2510,6 +2647,9 @@ void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
                 const MeshRenderer& mr = *mi.mr;
                 vu.fa_uv_scale[0] = mr.uvScale.x;
                 vu.fa_uv_scale[1] = mr.uvScale.y;
+                // A lightmapped entity: the rectangle of its page (fa_lm_so.x > 0 switches the lightmap on), its own geometry and no baked lights.
+                for (int k = 0; k < 4; ++k) vu.fa_lm_so[k] = mi.lm.mesh ? mi.lm.scaleOffset[k] : 0.0f;
+                const std::vector<SubMesh>& drawParts = mi.lm.mesh ? mi.lm.mesh->parts : mi.mesh->parts;
                 MaterialInputs inputs{};
                 if (mi.material && mi.material->ok) {
                     material_inputs(mi, mi.material, inputs);
@@ -2521,7 +2661,7 @@ void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
                 const MeshBufferUse mbu = resolve_mesh_buffers(*assets, compute, mi);  // mesh_buffer_draw.h
                 if (mbu.skip) continue;
                 bool anyDrawn = false;  // a material with buffers that has no program for this mesh draws nothing
-                for (auto& part : mi.mesh->parts) {
+                for (const SubMesh& part : drawParts) {
                     const bool skinned = mi.anim && part.skinVb.id;
                     const PartDraw pd = part_draw(ctx, mi, part);
                     if (pd.error && mi.material && mi.material->ok &&
@@ -2555,7 +2695,12 @@ void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
                         b.vertex_buffers[1] = mainInst;
                         b.vertex_buffer_offsets[1] = int(batch.mainFirst * kMeshInstanceBytes);
                         if (skinned) b.vertex_buffers[2] = part.skinVb;
-                        if (pd.mat) bind_extras(b, *pd.mat, part, ctx.mainExtra, batch.mainExtra);
+                        if (pd.mat)
+                            bind_extras(b, *pd.mat, part, ctx.mainExtra, batch.mainExtra);
+                        else if (!skinned)  // the engine's program always reads uv1: the lightmap UV, or zeros
+                            b.vertex_buffers[kUv1Buffer] = part.uv1Vb.id && mi.lm.mesh
+                                                               ? part.uv1Vb
+                                                               : assets->zero_uv1(std::size_t(part.vertexCount));
                         b.index_buffer = part.ib;
                         b.index_buffer_offset = part.ibOffset;
                         bind_textures(ctx, b, pd, prog, inputs, false);
@@ -2767,13 +2912,34 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
                 if (!ctx.envBake) return;  // the job lost the environment to a camera of the picture (plan_env)
                 const std::uint64_t key = ctx.envKey;
                 const SkyDraw& sky = ctx.envSky;
-                skyEnv.bake(
-                    gpu, key,
-                    [this, &sky](const float* invViewProj, const TargetFormat& format) {
-                        draw_sky(*this, sky, invViewProj, Vec3{0.0f, 0.0f, 0.0f}, &format);
-                    },
-                    &stats.drawCalls);
+                // A bake that starts (a whole one, or the first slice of a sequence) draws the sky of this frame, and the physical
+                // sky needs its environment table for it; the next slices finish the images from the first's.
+                const bool starts = !ctx.envSliced || !skyEnv.busy();
+                if (starts) {
+                    if (sky.physical) physSky.update(gpu, sky.slot, sky.phys, &stats.drawCalls);
+                    skyEnv.set_tag(sky.physical ? ctx.envStatic : 0,
+                                   ctx.envSun);  // a sky of another kind: the next physical bake is whole
+                }
+                const auto draw = [this, &sky](const float* invViewProj, const TargetFormat& format) {
+                    draw_sky(*this, sky, invViewProj, Vec3{0.0f, 0.0f, 0.0f}, &format);
+                };
+                if (ctx.envSliced)
+                    skyEnv.bake_slice(gpu, key, draw, &stats.drawCalls);
+                else
+                    skyEnv.bake(gpu, key, draw, &stats.drawCalls);
             });
+    }
+    // The physical sky's table of the picture: the first job that shows the sky draws it, the others read it.
+    ResourceId skyLutRes;
+    if (ctx.physMainOn) {
+        const TransientDesc lutDesc =
+            import_desc(kSkyViewW, kSkyViewH, TargetFormat{physSky.format(), SG_PIXELFORMAT_NONE, 1}, "sky-view");
+        skyLutRes = shared(sharedSkyLut, "sky-view", physSky.image_id(), lutDesc);
+        if (skyLutFrame != frameSerial) {
+            skyLutFrame = frameSerial;
+            add("sky-view", {}, {skyLutRes},
+                [this, &ctx](const PassContext&) { physSky.update(gpu, 0, ctx.physMain, &stats.drawCalls); });
+        }
     }
     ResourceId prepassRes;
     if (ctx.doPrepass) {  // the image is a transient: the effects that read it list it in their reads
@@ -2807,6 +2973,7 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
         if (ctx.litMode == 1) reads.push_back(lightRes);
         if (ctx.doShadows) reads.push_back(shadowRes);
         if (ctx.envActive) reads.push_back(envRes);
+        if (ctx.physMainOn) reads.push_back(skyLutRes);
         if (!ctx.clearByLoad) reads.push_back(game);  // LOAD: a second camera or the HUD job continues the picture
         reads.insert(reads.end(), shown.begin(), shown.end());
         add(plan.view      ? "view"

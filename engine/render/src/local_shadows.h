@@ -23,13 +23,16 @@ namespace fa::render {
 // A spot wider than this half angle (degrees) takes the six-face path of the point light: one perspective tile cannot hold it.
 inline constexpr float kMaxSpotTileAngle = 70.0f;
 // The edge of a tile is a guard band of this many texels outside the region the tile is selected for, so the filter of a fragment at
-// the edge of a cube face (or of the cone) reads its own tile's texels and not the clamped last row.
-inline constexpr int kLocalShadowGuard = 8;
+// the edge of a cube face (or of the cone) reads its own tile's texels and not the clamped last row. It covers the widest radius the
+// filter reads (fa_shadow_filter: PCSS searches up to 12 texels and blurs up to 16) plus the texel the rectangle is inset by; the
+// shader does not clamp the radius. A tile under 68 texels (the minimum is 64) takes a quarter of its side as the guard instead: there
+// a fragment at the very edge of the region can read the clamped edge row, a seam of a texel or two on a map the budget made tiny.
+inline constexpr int kLocalShadowGuard = 17;
 inline constexpr int kLocalShadowMinTile = 64;
 inline constexpr int kLocalShadowMaxTile = 2048;
 // Tiles per light: 1 (a spot) or 6 (a point light, a wide spot).
 inline constexpr int kCubeFaces = 6;
-// Priority of the first local light in the atlas layout (the sun's cascades are 0..3: they are shrunk and dropped last).
+// Priority of the first local light in the atlas layout (the sun's cascades are 0..3 of tier 0, the local tiles tier 1: layout_shadow_atlas shrinks and drops every local tile before any cascade).
 inline constexpr int kLocalShadowPriority = 16;
 
 // ---------------------------------------------------------------------------

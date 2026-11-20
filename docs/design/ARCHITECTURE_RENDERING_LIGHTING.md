@@ -47,7 +47,7 @@ into a row or changes the table together with the `static_assert`s under it.
 | 14 `fa_probe_atlas` (sampler 10) | M73.3b/c: reflection probes and the sky, octahedral 2D, prefiltered by roughness; replaces the cube | 2 |
 | 24 `fa_light_data` (sampler 1, nearest, `texelFetch`) | M73.1a, RGBA32F: the lights and the clusters' light lists (landed); later decals, the sky's spherical harmonics | 1, 2 |
 | 25 `fa_light_atlas` (sampler 10) | M73.1b: cookies and IES profiles, one RGBA8 atlas | 1, 2 |
-| 26 `fa_lightmap` (sampler 10) | M73.4a: the lightmap atlas, UV2 of the mesh | 1, 2 |
+| 26 `fa_lightmap` (sampler 10) | M73.4a: the lightmap page of the entity drawn (RGBA16F, one page per draw; a white texel when it has none), read at its lightmap UV | 1, 2 |
 | 27 `fa_decal_atlas` (sampler 10) | M73.5b: decal textures (their transforms are in `fa_light_data`) | 1, 2 |
 | 28 `fa_screen_tex` (sampler 10) | M73.2c and M73.6b: the prepass depth for contact shadows, the opaque colour for transmission | 2 |
 
@@ -127,7 +127,9 @@ M73.2a (cascades of the sun); M73.2b (point and spot) adds tiles to the same atl
 - **Layout.** `layout_shadow_atlas(maxSize, requests)` places square power-of-two tiles with a buddy allocator, biggest first, each in the
   smallest free square that fits, topmost and leftmost first, so equal requests give equal tiles and the used part is a compact block
   at the top left. The budget is deterministic: when the requests do not fit, the largest map that can still shrink is halved (the least
-  important of equal ones; each request has `minSize` and `priority`), then the least important map is dropped. Nothing depends on
+  important of equal ones; each request has `minSize`, `priority` and `tier`), then the least important map is dropped. The budget works on
+  the highest tier that still has a map: the sun is tier 0 and every local tile tier 1, so the cascades keep their asked size until every
+  local tile is at its minimum, and lose a map only once no local tile is left (a request with the default tier is laid out as before). Nothing depends on
   timing. `plan_local_shadows` adds the requests of M73.2b (six tiles per point light, one per spot) to the same call, with priorities after
   the sun's cascades; the sun asks for `shadowCascades` tiles of `shadowResolution` (0 = 2048 for one, 1024 for several), minimum 128, priority = cascade
   index (the farthest shrinks first).
@@ -175,7 +177,9 @@ CPU: `engine/render/src/local_shadows.{h,cpp}` (no GPU; `tests/local_shadows_tes
 - **Tiles.** A spot light is one perspective tile of tangent `tan(spotAngle)`; a point light (and a spot over `kMaxSpotTileAngle` = 70
   degrees) is six face tiles with `cube_face_basis` (+X, -X, +Y, -Y, +Z, -Z, each a 90 degree view). The shader picks the face by the
   largest component of the direction from the light (`cube_face_of`, the same table). A tile is a few texels wider than the region it
-  serves, a guard band of `kLocalShadowGuard` = 8 texels (`tan` is scaled by `half / (half - guard)`), and the filter clamps to the
+  serves, a guard band of `kLocalShadowGuard` = 17 texels, the widest radius `fa_shadow_filter` reads (PCSS searches up to 12, blurs up to 16) plus the
+  texel of the inset (`tan` is scaled by `half / (half - guard)`; a tile under 68 texels takes a quarter of its side, and there the edge row
+  can be read clamped: the shader does not shorten its radius). The filter clamps to the
   tile's rectangle inset by a texel, so a fragment at the edge of a face reads its own face's texels and never the neighbour's.
 - **Views.** View v = tile v of the layout: the sun's cascades take `0..want-1` (`want` requested, `cascades` placed; a cascade that did
   not fit leaves its view unused), then the local lights in importance order. At most `kMaxShadowViews` = 64 views per frame (the
@@ -192,7 +196,14 @@ CPU: `engine/render/src/local_shadows.{h,cpp}` (no GPU; `tests/local_shadows_tes
   perspective projection with near `n = max(0.05, range / 200)` and far `f = range`. The shader turns it into metres along the tile's
   axis, `c = n f / (f - z (f - n))`: the clip w of the projection is that distance, which is also what `dot(row3, world)` of the sample
   matrix gives for the receiver. Bias, the PCF slope and the PCSS search compare in metres. The cleared value 1.0 is `far`. A texel is
-  `texelCoef * distance` metres wide (`texelCoef = 2 tan / tile`), so the automatic bias is 1.5 texels at the receiver's distance.
+  `texelCoef * distance` metres wide (`texelCoef = 2 tan / tile`), so the automatic bias is 1.5 texels at the receiver's distance. The slope of the receiver is measured against the tile's axis, not
+  against the ray to the light: `dw/dtexel = texel_m * sqrt(1 - (n.a)^2) / |n.r|` with `a` the axis (xyz of row 3 of `S`) and `r` the ray
+  from the light divided by the distance along the axis; a surface that faces the light at the diagonal of a cube face has `sin(t) cos(t)` = 0.5 (t = the angle off the axis) where
+  the angle between the normal and the light says 0, and one that is square to the axis (the floor under a lamp, seen by its -Y face) has
+  exactly 0 where that angle would over-bias it. The normal offset still uses the angle to the light.
+- **Baked lights.** `LightData::baked` lights stay in the table for the moving objects; `shadow_bounds` gives one a map only when a mesh that
+  is not lightmapped and receives shadows is within its range (a second box of `shadow_bounds`), because a lightmapped fragment skips the light
+  before any shadow lookup (`fa_light_shadowed`) and its direct shadows are in the lightmap.
 - **The sample matrix** `S = T' * viewProj` (`local_sample_matrix`): `T'` takes clip x, y, w to `(u w, v w, -, w)` of the tile, with the
   v convention of `shadow_sample_matrix` (`isGl`: the render target's v runs bottom up in OpenGL, top down in D3D11 and Metal). The shader
   computes `uv = (S.row0 . p, S.row1 . p) / (S.row3 . p)` and the depth is `S.row3 . p`. The sun's filter code is reused:
@@ -281,3 +292,106 @@ a warning from `prepare_layers`.
 **Tests.** `engine/scene/tests/test_material_layers.cpp` (each extension read, clamped, round-tripped);
 `engine/render/tests/material_layers_tests.cpp` (the packing, `decode_gltf` of small glTF files, the F0 equivalence, a layer that has
 nothing to add draws the plain picture, the golden `3d_material_layers`: a row of spheres per layer).
+
+## The physical sky (M73-P3d)
+
+`SceneSettings.skyModel = physical` (user page: RENDERING_LIGHTING.md, "The physical sky"). The code is four files:
+
+- `src/physical_sky.h/.cpp`: the CPU half, plain `double`/`float` arithmetic with no GPU object (so the tests check it and every machine
+  agrees): the coefficients of the air in km (`sky_air`: Rayleigh from the molecular-scattering formula with the King factor, aerosols
+  from the turbidity-to-optical-depth law, ozone from its cross sections), the optical depth along a ray (`sky_optical_depth`, the same
+  quadratic-step march the GPU table uses), the colour factor of the sun light (`sky_sun_light_factor`: air times the cloud factor, relative
+  to a sun overhead), the clamped settings (`physical_sky_settings`: a script can write any number), the quantisation of the environment's
+  state and the hashes (keys) of each table, and the 8 `vec4` of the shader's block (`sky_shader_params`).
+- `shaders/sky_physical.glsl` (module `skyphys`, four programs): `transmittance` (128 x 64: the optical depth of the air towards the top of
+  the atmosphere, parameterised by the stable horizon cosine `muH = -sqrt(h(2R+h))/(R+h)` so it has no seam at the horizon), `multiscatter`
+  (32 x 32: the second order and onwards as a geometric series, 32 directions x 16 steps, psi = L / (1 - F)), `skyview` (128 x 128: the
+  sky radiance as a function of the elevation, concentrated at the horizon, and the azimuth relative to the sun, so the table does not turn
+  with the sun) and `sky` (the full-screen draw: the table, the sun disc with limb darkening, the clouds, the encoding to sRGB in a gamma
+  scene). Radiance is stored per unit of sun irradiance; `fs_sky` multiplies by the colour of the light, the exposure and pi (the engine's
+  lights are not divided by pi). The tables are drawn with `gl_FragCoord / size`, so the image is the same on GL, D3D11 and Metal.
+  The atmosphere maths needs `highp`: the generated GLSL ES 3.00 fragment shaders default to `precision mediump float;` but sokol-shdc qualifies every float, vector and matrix declaration `highp`, and a test (`physical_sky_tests.cpp`) scans the four programs' GLES3 sources for a declaration without it. The tables are RGBA16F.
+- `src/renderer_sky_phys.h/.cpp` (`PhysicalSky`): owns the shaders, the four images, the pipelines and a sampler; `ready()` makes them on first
+  use and refuses (logging once) a GPU without RGBA16F render targets that filter; `update(slot, state)` draws the air tables when
+  `sky_air_key` changed and the sky view of the slot when `sky_view_key` (air + the sun's height) changed; `draw()` draws the sky into the open
+  pass. Slot 0 is the picture (the sun and the clock of the frame), slot 1 the environment (the quantised ones), so the environment never
+  depends on the frame rate.
+- `src/renderer_draw.cpp`: `collect_lights` finds the sun (lights[0] after `select_lights`, when directional: the shadow caster, else the brightest directional light) and multiplies it by the transmittance and cloud
+  factor (`skyTintsSun`); `plan_env` plans the bake for a physical sky as it does for a sky material, with the key `sky_env_key`; the frame graph
+  gets a `sky-view` pass (first job of the frame that shows the sky; the main pass reads its resource) and the `sky-env` pass calls
+  `PhysicalSky::update(1)` at the start of a bake.
+
+**Bake amortisation.** `Environment` (`renderer_env.h`) bakes in 60 passes: the sky into the cube, the pyramid, the GGX prefilter of the mips,
+the irradiance. `bake_slice` runs them in `kEnvSlices = 3` calls (24, 18, 18 passes), one per frame: the first draws the sky of that moment
+(the later slices finish the images from it, so a sequence never mixes two skies) and the old cubes stay valid until a slice replaces a part.
+`plan_env` decides per frame (`decide`): a whole bake when nothing was baked, when the static key (`sky_env_static_key`: air, sun colour,
+exposure, clouds' shape, linear flag) differs from the tag stored with the last bake, or when the sun's quantised direction is further than
+`kSkyBakeJump` (1/64 of a chord, about a degree) from it; a slice sequence when only the sun (a quarter of a degree steps) or the clouds'
+clock (2 s steps, only for drifting clouds) changed, or while a sequence is running. Everything that picks the work is a deterministic
+count of frames and quantised state, never time or the speed of the machine. The sun disc is left out of the environment bake (the
+light is the sun there: it would count twice).
+
+Not done here: clouds that cast per-point shadows on the ground (the sun light is tinted by the average of the cloud layer), the aerial
+perspective of the atmosphere on the meshes (fog is the fog), an observer that moves up through the air, a physical night sky (stars,
+moon). The tests are `engine/render/tests/physical_sky_tests.cpp` (the CPU half, the tables built when they should be, the amortisation,
+four goldens: noon, sunset, overcast, a metal sphere).
+
+## Lightmaps
+
+M73.4a: the runtime that draws a baked lightmap, and the UVs it needs. The baker core is [ARCHITECTURE_BAKING.md](ARCHITECTURE_BAKING.md);
+the `lightmap.bake` command that writes the files (M73.4c) and the light probes (M73.4d) are later packages. The user page is
+"Lightmaps" in [RENDERING_LIGHTING.md](../rendering/RENDERING_LIGHTING.md).
+
+**Lightmap UVs** (`fa/render/lightmap_geometry.h`, `fa/scene/lightmap_uv.h`). A mesh's lightmap UV is TEXCOORD_1 of its glTF when every
+part has it (it must lie in 0..1 without overlap; one outside the square is refused with a message that says so), else an unwrap of the
+whole mesh by `generate_lightmap_uv` (xatlas through `model_uv_apply`, single-threaded, `fa::det` trigonometry: the same bits on every
+platform and run, no seed or setting). The unwrap splits vertices along the seams of its charts, so the drawn mesh is not the file's mesh:
+`build_lightmap_mesh` returns the split vertices (every vertex field copied from the vertex it was split from) and the renderer keeps
+them in buffers of their own next to the mesh (`MeshAsset::lightmap`), built on the first use and dropped when the mesh file reloads.
+Nothing is written next to the model. The primitives (`cube`, `sphere`, ...) are unwrapped the same way. `lightmap_mesh_geometry(mesh)` is the
+GPU-free half the baker calls, so bake and draw use the same vertices. A triangle with no area (a sphere's pole) is not placed by the
+unwrap: its UVs are clamped into the square. `kLightmapUvVersion` is bumped when the unwrap changes what it returns.
+
+**Files.** `SceneSettings.lightmaps` names a manifest (`scenes/level.lightmap.json`, `fa/scene/lightmap_manifest.h`) and the manifest names
+the pages: Radiance `.hdr` images, project-relative, one per atlas. Each entry says which entity (its stable `EntityInfo.id`), which mesh
+and UV kind and hash it was baked for, which page, and the rectangle `scaleOffset = [sx, sy, ox, oy]` of the page it owns: page uv =
+lightmap uv * (sx, sy) + (ox, oy). Page uv (0, 0) is the top-left and the file's first row is the baker's row 0 (v = 0), a texel is
+irradiance / pi in linear colour (what a white diffuse surface shows). `parse_lightmap_manifest` checks the keys (with a "did you mean"),
+sizes, page indices and rectangles, and every error carries the file, the JSON pointer and the fix. Tests pin the orientation twice: the
+scene module (bake row 0 against the file) and `engine/render/tests/lightmap_tests.cpp` (a glTF quad whose second UV set is the unit square).
+
+**Loading.** `Assets::lightmaps(path)` reads the manifest and decodes the pages into RGBA16F images on the first frame of a scene that
+names one, and keeps the result (a failure too, so a broken manifest is reported once, not per frame). Failures are
+`Assets::note_failure` kinds in `render.assets`' `failures`: `lightmap` (manifest), `lightmap-page` (a page that cannot be read) and
+`lightmap-stale` (an entry whose mesh hash or UV kind is not what the mesh gives now: the model changed since the bake). A failed entity or
+page is drawn without a lightmap, as before; the rest of the scene is not touched. The runtime's hot reload watches `*.lightmap.json` and
+`.hdr` files and calls `Assets::reload`, which drops the set and the per-mesh buffers.
+
+**Drawing.** `RenderScene::build` asks for the entity's use (`Assets::lightmap_use`): the entity must be in the manifest, have
+`MeshRenderer.receiveGI` and `lightmapScale > 0`, a mesh that is not skinned, and a material that can take the UV (below). A lightmapped
+item is never batched with another (the entity bits are part of its sort, order and material keys) and is drawn with its own vertex buffers,
+the page bound at view 26 and the rectangle in the vertex uniform `fa_lm_so` (x = 0 means not lightmapped). The vertex stage forwards
+`fa_lm` (page uv, and 1 when lightmapped; declared last in both stages, after the vertex colour, so the varyings match by order on every backend; the shadow and prepass programs have no `fa_lm`) and the fragment stage's `fa_indirect_diffuse(n)` returns the texel instead of `fa_ambient_light(n)`:
+the baked irradiance **replaces** the ambient light and the sky's diffuse term of that surface, the specular IBL (`fa_sky_reflection`, and
+`fa_layers_ibl` with material layers) stays. A layered material (clear coat, sheen, ...) takes the texel where it took the ambient light
+(`fa_indirect_diffuse(n) * diffuse_color * occlusion`, then times the layers' `base_scale`): the layers' own ambient terms are specular
+(their IBL reflection), so the ambient is not counted twice and not missing.
+Lights whose `mode` is `baked` carry a flag in the light data texture (texel +3, component w: 1 = baked, 0 otherwise, the same texel as
+the spot's inner cone, in the place the cookie/IES reservation left spare: y and z stay reserved) and the cluster loop skips them on a
+lightmapped fragment (`fa_lm.z > 0.5`) before any shadow lookup, so their shadow costs nothing there; `fa_light_shadowed`, which the
+custom-light API (`fa_light()`) goes through, answers "no light" for them too. `mixed` and `realtime` lights are drawn as always, and an entity with no lightmap entry is lit by every light, baked ones
+included: nothing goes dark before the bake. A scene without `SceneSettings.lightmaps` binds a white texel and the pictures are the same as
+before (the goldens did not change).
+
+**Materials.** The engine's own mesh program always has the `uv1` vertex attribute (location 9; a zero buffer, `Assets::zero_uv1`, when the
+entity is not lightmapped). A custom mesh material gets the lightmap only if it lists `"uv1"` in `vertexAttributes` (`FA_CH_UV1`): its `uv1` then
+carries the **lightmap UV** on a lightmapped entity instead of the model's TEXCOORD_1, so a material that textures with the second UV set
+and is lightmapped must not be (give the entity `receiveGI: false`, or read the second set through its own `uv` channel). A full-shader
+material and a material that reads compute buffers are drawn without the lightmap: they have no `fa_lm` varying, the entity is lit as
+before. `FA_LM_BUILTIN` (defined only by `mesh.glsl`) and `FA_LM_PASS` (only the `vs` program) keep the shadow and depth-prepass programs
+from declaring the attribute. The twin fixtures were regenerated for the new vertex layout.
+
+**Decisions.** One page per draw (an entity is one rectangle of one page): batching and the 16-unit budget stay as they were. An entity
+that `MeshRenderer.lods` draws with another mesh than `MeshRenderer.mesh` is lit as without a lightmap while that level is drawn (the
+bake was made for the mesh the manifest names). Skinned meshes are never lightmapped.
+
