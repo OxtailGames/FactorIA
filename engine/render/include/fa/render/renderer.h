@@ -146,6 +146,11 @@ struct RenderStats {
     // Contact shadows (M73.2c): lights (Light.contactShadowLength above 0, with SceneSettings.contactShadows on) whose ray the meshes of the
     // frame march against the depth prepass; 0 when no camera could make the prepass.
     int contactShadowLights = 0;
+    // Subsurface scattering (M73.5), summed over the cameras of the frame.
+    int subsurfaceCameras =
+        0;  // cameras that scattered the light of MeshRenderer.subsurface (0 when none could: no prepass, no RGBA16F)
+    int subsurfaceDraws =
+        0;  // draw calls of the scattering meshes (the sss pass; the main pass draws them too, those are in drawCalls)
     // Projected decals (M73.5b), summed over the views of the frame.
     int decals = 0;  // Decal entities drawn: in a view's decal table, at most 256 per view
     int decalsDropped =

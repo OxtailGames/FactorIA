@@ -683,7 +683,8 @@ float fa_shadow_factor(vec3 n, vec3 l) {
 @include_block fa_fs_rest
 @end
 
-@fs fs
+// The body of the main fragment shader, shared by `fs` and by `fs_sss` (the subsurface variant, which defines FA_SSS first, M73.5).
+@block fa_fs_main
 @include_block fa_fs_head
 @include_block fa_fs_light
 @include_block fa_user
@@ -705,7 +706,19 @@ vec3 fa_indirect_diffuse(vec3 n) {
     return fa_ambient_light(n);
 }
 
+#ifdef FA_SSS
+// The subsurface variant (M73.5, docs/design/ARCHITECTURE_SUBSURFACE.md): two outputs instead of the lit colour. Target 0: rgb = the DIFFUSE
+// light the surface sends toward the camera (no specular, no sky reflection, no emission), a = the linear view depth of the fragment (what the
+// prepass holds; 0 where the fragment does not scatter). Target 1: rgb = the scatter radius of each colour channel in metres, a = the strength,
+// 0 where the fragment does not scatter (an unlit mesh, or a surface the camera does not see: the prepass is at view 28).
+layout(binding=2) uniform fa_sss_params {
+    vec4 fa_sss;                // rgb = radius in metres per colour channel (subsurfaceRadius * subsurfaceColor), a = subsurface (0..1)
+};
+layout(location=0) out vec4 fa_frag_color;
+layout(location=1) out vec4 fa_sss_b;
+#else
 out vec4 fa_frag_color;
+#endif
 
 void main() {
     fa_inst_load();
@@ -728,8 +741,29 @@ void main() {
 #endif
 
     vec3 result;
+#ifdef FA_SSS
+    float fa_sss_on = fa_sss.w;
+    float fa_sss_depth = 0.0;
+    {
+        // Only the surface the camera sees scatters: the fragment's linear depth must be the prepass's at its pixel (view 28 holds it in this
+        // pass), so a mesh behind another one, or behind a wall of the scene, leaves nothing in the image the blur reads.
+        vec4 pv = vec4(i.world_pos, 1.0);
+        float w = max(dot(fa_ct_vpw, pv), 1e-4);
+        vec2 ndc = vec2(dot(fa_ct_vpx, pv), dot(fa_ct_vpy, pv)) / w;
+        vec2 uv = vec2(ndc.x * 0.5 + 0.5, fa_ct_a.y > 0.5 ? ndc.y * 0.5 + 0.5 : 0.5 - ndc.y * 0.5);
+        ivec2 px = clamp(ivec2(uv * fa_ct_a.zw), ivec2(0), ivec2(fa_ct_a.zw) - 1);
+        vec4 scene = texelFetch(sampler2D(fa_screen_tex, fa_shadow_smp), px, 0);
+        fa_sss_depth = dot(fa_ct_fwd.xyz, i.world_pos) + fa_ct_fwd.w;
+        if (scene.a < 0.5 || abs(fa_sss_depth - scene.r) > 0.02 + 0.01 * fa_sss_depth) { fa_sss_on = 0.0; }
+    }
+#endif
     if (fa_emissive.w > 0.5) {
+#ifdef FA_SSS
+        result = vec3(0.0);  // an unlit surface has no diffuse light to scatter
+        fa_sss_on = 0.0;
+#else
         result = s.albedo;
+#endif
     } else {
         vec3 gn = i.world_normal;
         vec3 n = normalize(s.normal);
@@ -759,7 +793,7 @@ void main() {
         if (lay.on) { lit *= lay.base_scale; }
 #endif
 @include_block fa_light_loop
-#ifndef FA_CUSTOM_LIGHT
+#if !defined(FA_CUSTOM_LIGHT) && !defined(FA_SSS)
         // Image-based lighting: the sky reflected, weighted by the environment BRDF (with the layers, fa_layers_ibl).
         if (lay.on) {
             lit += fa_layers_ibl(lay, n, v, f0, roughness) * s.occlusion;
@@ -770,8 +804,10 @@ void main() {
 #endif
         result = lit;
     }
+#ifndef FA_SSS
     result += s.emission;
     result = fa_shadow_debug(result, i.world_pos);
+#endif
     if (fa_fog.w > 0.0 || fa_fog_b.y > 0.0) {
         // The same formula as the fog of the post stack (fog.glsl): from fogStart along the view ray, the distance fog
         // (density * length)^2 plus the integral of the height density; the scene's own fog is the case start = 0, no height.
@@ -796,11 +832,31 @@ void main() {
                 tau += len * max(avg, 0.0);
             }
             float f = 1.0 - exp(-clamp(tau, 0.0, 80.0));
+#ifdef FA_SSS
+            result *= 1.0 - clamp(f, 0.0, 1.0);  // the fog colour is not diffuse light of the surface: only what the fog lets through
+#else
             result = mix(result, fa_fog.rgb, clamp(f, 0.0, 1.0));
+#endif
         }
     }
+#ifdef FA_SSS
+    if (fa_sss_on <= 0.0) { result = vec3(0.0); fa_sss_depth = 0.0; }
+    fa_frag_color = vec4(result, fa_sss_depth);
+    fa_sss_b = vec4(fa_sss.rgb, fa_sss_on);
+#else
     fa_frag_color = vec4(result, s.alpha);
+#endif
 }
+@end
+
+@fs fs
+@include_block fa_fs_main
+@end
+
+// The subsurface variant of `fs` (only the engine's own mesh program has it: mesh.glsl, programs mesh_sss and mesh_skin_sss).
+@fs fs_sss
+#define FA_SSS
+@include_block fa_fs_main
 @end
 
 // Depth-only pass for the directional shadow map. With FA_HAS_VERTEX the material's vertex() runs here too (a wave
