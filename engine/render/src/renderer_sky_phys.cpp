@@ -1,6 +1,8 @@
 #include "renderer_sky_phys.h"
 
+#include <cstdlib>
 #include <cstring>
+#include <string>
 
 #include "fa/core/log.h"
 
@@ -53,7 +55,10 @@ void destroy(sg_image& i) {
 bool PhysicalSky::ready(Gpu&) {
     if (state_ != 0) return state_ > 0;
     // The tables hold optical depths (up to about 20) and radiances: they need a float format that renders and filters.
-    format_ = usable(SG_PIXELFORMAT_RGBA16F) ? SG_PIXELFORMAT_RGBA16F : SG_PIXELFORMAT_NONE;
+    // FA_PHYSICAL_SKY=invalid is a test hook: the GPU "cannot" render the tables, as on a device without filterable RGBA16F.
+    const char* hook = std::getenv("FA_PHYSICAL_SKY");
+    const bool forcedOff = hook && std::string(hook) == "invalid";
+    format_ = !forcedOff && usable(SG_PIXELFORMAT_RGBA16F) ? SG_PIXELFORMAT_RGBA16F : SG_PIXELFORMAT_NONE;
     bool ok = format_ != SG_PIXELFORMAT_NONE;
     if (ok) {
         const sg_backend backend = sg_query_backend();
@@ -108,17 +113,19 @@ bool PhysicalSky::ready(Gpu&) {
     if (!ok) {
         release();
         state_ = -1;
-        FA_ERROR("render", "SceneSettings.skyModel \"physical\" is not available on this graphics backend: the sky tables "
-                           "(RGBA16F render targets that filter) or their shaders could not be made (see the sokol log lines "
-                           "above), so the gradient sky is drawn. Hint: render.supports {{\"feature\": \"physicalSky\"}} tells "
-                           "a script before it sets the model; update the graphics driver (Mesa: try LIBGL_ALWAYS_SOFTWARE=1).");
+        FA_ERROR("render",
+                 "SceneSettings.skyModel \"physical\" is not available on this graphics backend: the sky tables "
+                 "(RGBA16F render targets that filter) or their shaders could not be made (see the sokol log lines "
+                 "above), so the gradient sky is drawn. Hint: render.supports {{\"feature\": \"physicalSky\"}} tells "
+                 "a script before it sets the model; update the graphics driver (Mesa: try LIBGL_ALWAYS_SOFTWARE=1).");
         return false;
     }
     state_ = 1;
     return true;
 }
 
-void PhysicalSky::pass(Gpu& gpu, Prog prog, sg_view target, const char* label, const PhysicalSkyState& st, int* drawCalls) {
+void PhysicalSky::pass(Gpu& gpu, Prog prog, sg_view target, const char* label, const PhysicalSkyState& st,
+                       int* drawCalls) {
     PassDesc pd;
     pd.label = label;
     pd.color = target;

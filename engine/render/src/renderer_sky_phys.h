@@ -43,8 +43,8 @@ public:
 
     // Draws the sky of `slot` as a full-screen triangle into the open pass (the picture of the main camera, or a face of the
     // environment: `format` is then the format of the pass's colour image, `invViewProj` the face's matrix and `camPos` 0).
-    void draw(Gpu& gpu, int slot, const PhysicalSkyState& st, bool sunDisc, const float* invViewProj, const float camPos[3],
-              const TargetFormat* format);
+    void draw(Gpu& gpu, int slot, const PhysicalSkyState& st, bool sunDisc, const float* invViewProj,
+              const float camPos[3], const TargetFormat* format);
 
     // The image the picture's sky view is drawn into: what the frame graph's resource for it imports.
     std::uint64_t image_id() const { return view_[0].id; }
@@ -64,7 +64,8 @@ private:
     int state_ = 0;  // 0 = not made, 1 = ready, -1 = failed (logged)
     sg_pixel_format format_ = SG_PIXELFORMAT_NONE;
     sg_shader shaders_[ProgCount]{};
-    sg_pipeline lutPipelines_[ProgCount]{};  // the three that draw a table (the sky's own pipelines come from Gpu::sky_pipeline)
+    sg_pipeline lutPipelines_
+        [ProgCount]{};  // the three that draw a table (the sky's own pipelines come from Gpu::sky_pipeline)
     sg_sampler sampler_{};
     sg_image trImage_{}, msImage_{}, view_[2]{};
     sg_view trTex_{}, msTex_{}, viewTex_[2]{};

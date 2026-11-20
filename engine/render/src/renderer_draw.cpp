@@ -866,7 +866,8 @@ void Renderer::Impl::collect_lights(DrawContext& ctx) {
     stats.lights += int(lights.size());
     // The physical sky (SceneSettings.skyModel): the sun is the light of slot 0 when it is a directional one. The sky is drawn with
     // the colour the author chose (physSunColor); when skyTintsSun is on, the light itself is what the air and the clouds let
-    // through of it, relative to a noon sun. Never for a studio rig, never when a sky material draws the sky.
+    // through of it, relative to a noon sun. Never for a studio rig, never when a sky material draws the sky, never when this GPU
+    // cannot make the sky's tables (the gradient is drawn then).
     {
         const SceneSettings& wss = world.settings();
         if (fr.wantWorld && !fr.cam.studio && !lights.empty() && lights[0].color.w == 0.0f && lights[0].pos.w == 0.0f) {
@@ -877,7 +878,8 @@ void Renderer::Impl::collect_lights(DrawContext& ctx) {
             ctx.physSunColor[0] = sun.color.x;
             ctx.physSunColor[1] = sun.color.y;
             ctx.physSunColor[2] = sun.color.z;
-            if (wss.skyModel == SkyModel::Physical && wss.skyTintsSun && wss.skyMaterial.empty()) {
+            if (wss.skyModel == SkyModel::Physical && wss.skyTintsSun && wss.skyMaterial.empty() &&
+                physSky.ready(gpu)) {  // the gradient is not tinted
                 float f[3];
                 sky_sun_light_factor(physical_sky_settings(wss), sun.pos.y, f);
                 sun.color.x *= f[0];

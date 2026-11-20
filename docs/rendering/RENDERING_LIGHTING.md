@@ -55,8 +55,8 @@ scatters more than once) and a layer of clouds. It is drawn as the background of
 sky is baked into the image-based lighting, so the reflections of a metal ball and the ambient light of every mesh follow it: a
 mirror under a blue sky with a few clouds shows both, and a sun that sets turns the whole scene orange and then dark blue.
 
-- **The sun** is the first directional light of the scene: the one with `castShadows`, else the first one (the one the renderer puts in
-  its slot 0). Its direction, colour and intensity drive the sky, so turning the light (a day cycle) moves the sun across the sky.
+- **The sun** is the directional light the renderer puts first (its slot 0): the one with `castShadows`, else the brightest directional
+  light (a point or spot light never is the sun). Its direction, colour and intensity drive the sky, so turning the light (a day cycle) moves the sun across the sky.
   Without a directional light the sun stands overhead. The sky is scaled by the colour times the intensity of that light.
 - **The light tints with the sky** (`skyTintsSun`, on by default): the colour of the light is multiplied by what the air lets through of
   a sun at that height, relative to a sun overhead, so a sun on the horizon is orange and weak and a sun below it gives no light, and

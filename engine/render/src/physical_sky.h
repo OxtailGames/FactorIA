@@ -30,8 +30,9 @@ inline constexpr double kSkyOzoneHalfKm = 15.0;
 inline constexpr double kSkyObserverKm = 0.01;
 inline constexpr double kSkyCloudCellKm = 1.5;  // the size of the first octave of the cloud noise, km
 inline constexpr int kSkyCloudPeriod = 256;     // the cloud noise repeats every this many cells (its hash lattice)
-inline constexpr double kSkySunEdge = 0.004;    // the sun's light fades over this much of mu around the horizon (its own width)
-inline constexpr double kSkyCloudTau = 20.0;    // optical thickness of the thickest cloud (CloudDensity 1)
+inline constexpr double kSkySunEdge =
+    0.004;  // the sun's light fades over this much of mu around the horizon (its own width)
+inline constexpr double kSkyCloudTau = 20.0;     // optical thickness of the thickest cloud (CloudDensity 1)
 inline constexpr float kSkySunDiscGain = 40.0f;  // the sun disc is this many times the colour of the light
 // The tables (the shader file sky_physical.glsl repeats these sizes).
 inline constexpr int kSkyTransmittanceW = 128, kSkyTransmittanceH = 64;
@@ -61,10 +62,10 @@ PhysicalSkySettings physical_sky_settings(const SceneSettings& ss);
 
 // The coefficients of the air, per kilometre.
 struct SkyAir {
-    double rayleigh[3];          // scattering = extinction of the molecules, red, green, blue (680, 550, 440 nm)
+    double rayleigh[3];            // scattering = extinction of the molecules, red, green, blue (680, 550, 440 nm)
     double mieScatter, mieAbsorb;  // aerosols at sea level (all wavelengths alike)
-    double mieG;                 // their forward-scattering asymmetry
-    double ozone[3];             // absorption at the peak of the ozone layer
+    double mieG;                   // their forward-scattering asymmetry
+    double ozone[3];               // absorption at the peak of the ozone layer
 };
 // The air for a turbidity (1 = very clean .. 10 = heavy haze): the aerosol optical depth of the zenith is
 // 0.02 * turbidity^1.5 (0.02 clean, 0.057 for 2, 0.63 for 10).

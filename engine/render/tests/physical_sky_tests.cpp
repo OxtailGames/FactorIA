@@ -5,10 +5,14 @@
 #include "test_util.h"
 
 #include <algorithm>
+#include <cctype>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
+#include <fstream>
+#include <iterator>
 #include <limits>
 #include <string>
 #include <vector>
@@ -94,8 +98,9 @@ TEST_CASE("physical sky: the optical depth grows towards the horizon and the sun
     // The visibility of the sun fades over its own width at the horizon of an observer at 10 m.
     CHECK(sky_sun_visibility(kSkyObserverKm, 0.5) == 1.0);
     CHECK(sky_sun_visibility(kSkyObserverKm, -0.5) == 0.0);
-    const double mid_v = sky_sun_visibility(kSkyObserverKm, -std::sqrt(kSkyObserverKm * (2 * kSkyPlanetKm + kSkyObserverKm)) /
-                                                                (kSkyPlanetKm + kSkyObserverKm));
+    const double mid_v =
+        sky_sun_visibility(kSkyObserverKm, -std::sqrt(kSkyObserverKm * (2 * kSkyPlanetKm + kSkyObserverKm)) /
+                                               (kSkyPlanetKm + kSkyObserverKm));
     CHECK(mid_v == doctest::Approx(0.5));
 }
 
@@ -287,7 +292,9 @@ struct SkyScene {
         w.settings().ambientLight = Color{0, 0, 0, 1};
     }
     // The light shines down and away: the sun is at `elevation` above the horizon, on the side `yaw` looks to (180 = -Z).
-    void set_sun(float elevationDeg, float yawDeg = 180.0f) { w.get<Transform>(sun)->rotation = {-elevationDeg, yawDeg, 0}; }
+    void set_sun(float elevationDeg, float yawDeg = 180.0f) {
+        w.get<Transform>(sun)->rotation = {-elevationDeg, yawDeg, 0};
+    }
     Entity mesh(const char* name, Vec3 pos, Color c, Vec3 scale = {1, 1, 1}) {
         Entity e = make(w, name, pos);
         w.get<Transform>(e)->scale = scale;
@@ -322,8 +329,8 @@ TEST_CASE("physical sky: the tables are drawn when the air or the sun's height c
     s.w.settings().skyTurbidity = 5.0f;
     g.render(s.w);
     now = renderer_sky_builds(g.renderer);
-    CHECK(now.air == base.air + 1);  // the air changed: its two tables are drawn again
-    CHECK(now.view == base.view + 1);  // and the views, which were made from the old air
+    CHECK(now.air == base.air + 1);     // the air changed: its two tables are drawn again
+    CHECK(now.view == base.view + 1);   // and the views, which were made from the old air
     s.w.settings().skyExposure = 2.0f;  // the colour is applied when the sky is drawn: no table depends on it
     s.w.settings().cloudCoverage = 0.7f;
     g.render(s.w);
@@ -402,7 +409,8 @@ TEST_CASE("physical sky: the environment is baked whole on a big change and foll
     CHECK(calls() == idle + kEnvPasses);
 }
 
-TEST_CASE("physical sky: drifting clouds bake the environment again every kSkyCloudStep of game time, not at every frame") {
+TEST_CASE(
+    "physical sky: drifting clouds bake the environment again every kSkyCloudStep of game time, not at every frame") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     if (!physical_sky_supported(g)) {
@@ -426,7 +434,7 @@ TEST_CASE("physical sky: drifting clouds bake the environment again every kSkyCl
         g.render(s.w);
         if (calls() > idle + 5) ++bakes;  // a bake or a slice of one
     }
-    CHECK(bakes >= 1 + 4);   // at least a sequence per two seconds...
+    CHECK(bakes >= 1 + 4);               // at least a sequence per two seconds...
     CHECK(bakes <= 5 * kEnvSlices + 2);  // ...and no more than one per step
     // The same game time in smaller frames asks for the same number of sequences: not more.
     SkyScene t(40.0f);
@@ -466,6 +474,124 @@ TEST_CASE("physical sky: the sky model falls back to the gradient where the sky 
     CHECK(diff_images(grad, grad2, 1.0f / 255.0f).meanError < 0.0005);
 }
 
+namespace {
+
+// The declarations of float, vector and matrix type in a GLSL ES 3.00 fragment source that have no `highp` before them. A type
+// followed by `(` is a constructor, not a declaration.
+std::vector<std::string> unqualified_floats(const std::string& src) {
+    std::vector<std::string> bad;
+    static const char* const kTypes[] = {"float", "vec2", "vec3", "vec4", "mat2", "mat3", "mat4"};
+    auto is_word = [](char c) { return std::isalnum(static_cast<unsigned char>(c)) || c == '_'; };
+    for (const char* type : kTypes) {
+        const std::string t = type;
+        for (std::size_t at = src.find(t); at != std::string::npos; at = src.find(t, at + 1)) {
+            if (at > 0 && is_word(src[at - 1])) continue;
+            const std::size_t lineStart = src.rfind('\n', at) == std::string::npos ? 0 : src.rfind('\n', at) + 1;
+            if (src.compare(lineStart, 9, "precision") == 0)
+                continue;  // the default precision statement is not a declaration
+            std::size_t after = at + t.size();
+            if (after < src.size() && is_word(src[after])) continue;
+            while (after < src.size() && src[after] == ' ') ++after;
+            if (after < src.size() && src[after] == '(') continue;  // a constructor
+            std::size_t before = at;
+            while (before > 0 && src[before - 1] == ' ') --before;
+            const bool highp = before >= 5 && src.compare(before - 5, 5, "highp") == 0;
+            if (!highp) bad.push_back(src.substr(lineStart, 80));
+        }
+    }
+    return bad;
+}
+
+}  // namespace
+
+TEST_CASE(
+    "physical sky: every float of the GLES3 and WebGL2 fragment sources is highp (a mobile GPU's mediump is fp16)") {
+    // sokol-shdc writes `precision mediump float;` as the default of a GLSL ES 3.00 fragment shader and qualifies every declaration
+    // (variables, parameters, uniforms, samplers, inputs, outputs) with highp. The atmosphere (6360 km squared overflows fp16) needs that
+    // on a phone. The generated header only holds the GLES3 sources when it is built for GLES3, so this reads its text (the sources are
+    // arrays of hex bytes) and scans the fragment shader of each of the four programs for a declaration without highp.
+    std::ifstream in(std::string(FA_REPO_ROOT) + "/engine/render/src/shaders/sky_physical.glsl.h", std::ios::binary);
+    REQUIRE(in.good());
+    const std::string header((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    int found = 0;
+    for (const char* name : {"transmittance", "multiscatter", "skyview", "sky"}) {
+        const std::string key = std::string("skyphys_fs_") + name + "_source_glsl300es[";
+        const std::size_t at = header.find(key);
+        CAPTURE(key);
+        REQUIRE(at != std::string::npos);
+        const std::size_t open = header.find('{', at), close = header.find('}', open);
+        REQUIRE(close != std::string::npos);
+        std::string src;
+        for (std::size_t i = header.find("0x", open); i != std::string::npos && i < close; i = header.find("0x", i + 2))
+            src.push_back(char(std::strtoul(header.substr(i + 2, 2).c_str(), nullptr, 16)));
+        CHECK(src.find("precision mediump float;") !=
+              std::string::npos);  // the default is what it is: the declarations decide
+        CHECK(src.find("highp") != std::string::npos);
+        const std::vector<std::string> bad = unqualified_floats(src);
+        for (const std::string& l : bad) MESSAGE("not highp: " << l);
+        CHECK(bad.empty());
+        ++found;
+    }
+    CHECK(found == 4);
+}
+
+namespace {
+
+// A renderer of its own (the physical sky's GPU objects are made per renderer): the test hook makes its tables fail.
+struct SkyOwnRenderer {
+    Gfx& g;
+    Renderer r;
+    bool ok = false;
+    std::string error;
+    explicit SkyOwnRenderer(Gfx& gx) : g(gx) {
+        RendererDesc d;
+        d.designWidth = 320;
+        d.designHeight = 180;
+        d.sampleCount = 1;
+        d.headless = true;
+        d.adoptContext = true;
+        ok = r.init(d, g.gpu.environment(), &error);
+    }
+    ~SkyOwnRenderer() { r.shutdown(); }
+    SkyOwnRenderer(const SkyOwnRenderer&) = delete;
+    SkyOwnRenderer& operator=(const SkyOwnRenderer&) = delete;
+    Image draw(World& w) {
+        r.begin_frame();
+        r.render_world(w, 0.0f);
+        r.end_frame();
+        g.gpu.end_frame();
+        Image img;
+        std::string err;
+        const bool captured = r.capture(img, &err);
+        INFO("capture error: " << err);
+        REQUIRE(captured);
+        return img;
+    }
+};
+
+}  // namespace
+
+TEST_CASE("physical sky: where the tables cannot be made the gradient is drawn and the sun light is not tinted") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    EnvGuard hook("FA_PHYSICAL_SKY", "invalid");  // the tables fail on a GPU that never would
+    SkyOwnRenderer own(g);
+    REQUIRE_MESSAGE(own.ok, own.error);
+    // A sun at the horizon: tinted it would be orange and dark, and a lit cube would show it.
+    auto build = [](SkyScene& s, SkyModel model) {
+        s.w.settings().skyModel = model;
+        s.w.settings().ambientLight = Color{0.05f, 0.05f, 0.05f, 1};
+        s.mesh("plane", {0, 0, -6}, Color{0.5f, 0.5f, 0.5f, 1}, {40, 1, 40});
+        s.mesh("cube", {0, 1.0f, -6}, Color::white(), {2, 2, 2});
+    };
+    SkyScene physical(8.0f, 180.0f, 5.0f), gradient(8.0f, 180.0f, 5.0f);
+    build(physical, SkyModel::Physical);
+    build(gradient, SkyModel::Gradient);
+    const Image a = own.draw(physical.w);
+    const Image b = own.draw(gradient.w);
+    CHECK(diff_images(a, b, 1.0f / 255.0f).meanError < 0.0005);
+}
+
 TEST_CASE("physical sky: the pictures: noon, sunset, overcast and a metal sphere that reflects the sky") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
@@ -485,7 +611,7 @@ TEST_CASE("physical sky: the pictures: noon, sunset, overcast and a metal sphere
         const Image img = g.render(s.w);
         expect_golden(img, "3d_physical_sky_noon", wide);
         const Color high = img.pixel(30, 8), low = img.pixel(30, img.height - 30);
-        CHECK(high.b > high.r + 0.05f);  // a blue sky...
+        CHECK(high.b > high.r + 0.05f);                           // a blue sky...
         CHECK(low.r + low.g + low.b > high.r + high.g + high.b);  // ...paler (lighter) towards the horizon
         CHECK(low.r > high.r);
     }
@@ -570,7 +696,8 @@ TEST_CASE("physical sky: the clouds drift with the engine's clock and the same c
     CHECK(diff_images(a0, a1, 3.0f / 255.0f).meanError > 0.002);  // the wind moved the clouds
     b.w.advance_clock(30.0);
     const Image b1 = g.render(b.w);
-    CHECK(diff_images(a1, b1, 1.0f / 255.0f).meanError < 0.0005);  // the same clock, the same picture, however it got there
+    CHECK(diff_images(a1, b1, 1.0f / 255.0f).meanError <
+          0.0005);  // the same clock, the same picture, however it got there
 }
 
 TEST_CASE("physical sky: what the tables and a bake cost (reported, never asserted)") {
@@ -603,7 +730,8 @@ TEST_CASE("physical sky: what the tables and a bake cost (reported, never assert
     const double idle = median_ms(0), air = median_ms(1), slices = median_ms(2), whole = median_ms(3);
     char line[400];
     std::snprintf(line, sizeof line,
-                  "physical sky, frame wall time: unchanged %.2f ms, tables of the air redrawn every frame %.2f ms, a sun that moves "
+                  "physical sky, frame wall time: unchanged %.2f ms, tables of the air redrawn every frame %.2f ms, a "
+                  "sun that moves "
                   "half a degree a frame (sliced bake) %.2f ms, a whole bake every frame %.2f ms",
                   idle, air, slices, whole);
     MESSAGE(line);
