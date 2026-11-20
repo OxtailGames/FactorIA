@@ -41,7 +41,16 @@ void mesh_cull_bounds(const MeshAsset& mesh, const Animator* animator, Vec3& bmi
     }
 }
 
+bool mesh_is_transmissive(const MeshRenderer& mr, const MeshAsset& mesh, const MaterialAsset* material) {
+    if (material && material->full) return false;
+    if (std::isfinite(mr.transmission) && mr.transmission > 0.0f) return true;
+    for (const SubMesh& p : mesh.parts)
+        if (p.layers.transmission > 0.0f) return true;
+    return false;
+}
+
 bool mesh_is_blended(const MeshRenderer& mr, const MeshAsset& mesh, const MaterialAsset* material) {
+    if (mesh_is_transmissive(mr, mesh, material)) return true;
     // The alphaMode of a material decides (blend = drawn far to near with the blended meshes; opaque and clip are not),
     // whatever Color.a or the glTF material say.
     if (material) return material->alphaMode == "blend";

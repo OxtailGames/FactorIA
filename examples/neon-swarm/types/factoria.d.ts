@@ -7585,23 +7585,23 @@ declare module "factoria" {
      */
     ior: number;
     /**
-     * How much light 0..1 passes through the surface instead of reflecting, as glass does (glTF KHR_materials_transmission). 0 = opaque. No effect yet: M73.6 brings it.
+     * How much light 0..1 passes through the surface instead of reflecting, as glass does (glTF KHR_materials_transmission). 0 = opaque. The mesh is drawn after the opaque ones (like a blended mesh) and shows the opaque picture behind it, refracted and blurred by roughness (docs/rendering/RENDERING_TRANSMISSION.md).
      * @since unreleased
      */
     transmission: number;
     /**
-     * Metres the light travels inside the volume of a transmissive surface (glTF KHR_materials_volume). 0 = a thin surface. No effect yet: M73.6 brings it.
+     * Metres the light travels inside the volume of a transmissive surface (glTF KHR_materials_volume). 0 = a thin surface (no tint, no offset of the refraction); the thicker, the more the refraction shifts the picture behind and the more attenuationColor tints it. It is in world metres, not scaled by the entity's scale.
      * @since unreleased
      */
     thickness: number;
     /**
-     * Colour the light takes after travelling attenuationDistance inside the volume (tinted glass, liquids). No effect yet: M73.6 brings it.
+     * Colour the light takes after travelling attenuationDistance inside the volume (tinted glass, liquids), with attenuationDistance. White (default) = no tint.
      * @since unreleased
      */
     get attenuationColor(): Color;
     set attenuationColor(value: ColorLike);
     /**
-     * Metres of travel inside the volume at which the light has the colour attenuationColor. 0 (default) = the volume does not tint the light. No effect yet: M73.6 brings it.
+     * Metres of travel inside the volume at which the light has the colour attenuationColor. 0 (default) = the volume does not tint the light (glTF infinity reads as 0).
      * @since unreleased
      */
     attenuationDistance: number;

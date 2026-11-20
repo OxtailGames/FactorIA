@@ -162,6 +162,17 @@ std::vector<FeatureDef> build_table() {
     t.push_back({"anisotropy", FeatureKind::Engine, kEveryGpu, "", nullptr,
                  "Anisotropic highlights: brushed metal, hair (MeshRenderer.anisotropy, glTF "
                  "KHR_materials_anisotropy), stretched along the mesh's tangent."});
+    t.push_back({"transmission", FeatureKind::Engine, kEveryGpu, "", nullptr,
+                 "Transmission and volume: glass and liquids that refract what is behind them "
+                 "(MeshRenderer.transmission, thickness, "
+                 "attenuationColor, attenuationDistance, glTF KHR_materials_transmission and KHR_materials_volume). A "
+                 "frame with a "
+                 "visible transmissive mesh copies the opaque picture (with a chain of blurred halves for rough glass) "
+                 "and the mesh "
+                 "looks through it; a frame with none copies nothing. When the copy cannot be made (its shader or an "
+                 "image fails), "
+                 "the mesh is a plain blend that darkens and tints what is behind it, with no refraction "
+                 "(docs/rendering/RENDERING_TRANSMISSION.md)."});
     // The lighting of M73 (docs/rendering/RENDERING_LIGHTING.md): every row of the table below answers false with "planned (M73)" until
     // its package lands, then moves up to a row of its own. `needs` is what its pass asks of the GPU once built.
     t.push_back(
@@ -234,9 +245,7 @@ std::vector<FeatureDef> build_table() {
          "never the specular light (M73.5).",
          nullptr},
         {"realtimeGI", "half",
-         "Realtime global illumination from a probe grid updated over a few frames, no ray tracing (M73.5)."},
-        {"transmission", "half",
-         "Transmission and volume: glass and liquids that refract what is behind them (M73.6)."}};
+         "Realtime global illumination from a probe grid updated over a few frames, no ray tracing (M73.5)."}};
     for (const Planned& p : kLighting) t.push_back({p.name, FeatureKind::Engine, kEveryGpu, p.needs, p.planned, p.doc});
     for (int i = 0; i < kPostEffectCount; ++i)
         t.push_back({kPostEffectOrder[std::size_t(i)].data(), FeatureKind::Effect, kEveryGpu, kEffectRows[i].needs,

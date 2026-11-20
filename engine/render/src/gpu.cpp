@@ -558,8 +558,9 @@ sg_pipeline Gpu::quad_pipeline(const TargetFormat& format, bool depthTest, bool 
 }
 
 sg_pipeline Gpu::mesh_pipeline(const TargetFormat& format, bool blended, bool doubleSided, bool skinned,
-                               sg_shader shader, MeshExtras extras) {
-    PipelineKey key{0x200u | (blended ? 1u : 0u) | (doubleSided ? 2u : 0u) | (skinned ? 4u : 0u), shader.id};
+                               sg_shader shader, MeshExtras extras, bool glass) {
+    PipelineKey key{0x200u | (blended ? 1u : 0u) | (doubleSided ? 2u : 0u) | (skinned ? 4u : 0u) | (glass ? 8u : 0u),
+                    shader.id};
     sg_pipeline_desc d{};
     d.shader = shader.id ? shader : (skinned ? meshSkinShader_ : mesh_shader_);
     d.layout.attrs[ATTR_mesh_mesh_fa_position].format = SG_VERTEXFORMAT_FLOAT3;
@@ -588,7 +589,9 @@ sg_pipeline Gpu::mesh_pipeline(const TargetFormat& format, bool blended, bool do
         d.colors[0].blend.src_factor_alpha = SG_BLENDFACTOR_ONE;
         d.colors[0].blend.dst_factor_alpha = SG_BLENDFACTOR_ONE_MINUS_SRC_ALPHA;
     }
-    d.cull_mode = (doubleSided || blended) ? SG_CULLMODE_NONE : SG_CULLMODE_BACK;
+    // A blended mesh draws both faces (no depth write: the order inside it is the index order); a glass mesh (transmission) only the faces that
+    // look at the camera unless it is double sided, because its back faces would refract the picture again over the front ones.
+    d.cull_mode = (doubleSided || (blended && !glass)) ? SG_CULLMODE_NONE : SG_CULLMODE_BACK;
     d.face_winding = SG_FACEWINDING_CCW;
     d.label = "mesh";
     return find_or_make(key, format, d);

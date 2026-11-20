@@ -401,6 +401,13 @@ TEST_CASE(
         [](MeshRenderer& r) { r.anisotropyRotation = 30.0f; },
         [](MeshRenderer& r) { r.specular = 0.5f; },
         [](MeshRenderer& r) { r.ior = 2.0f; },
+        // M73-P6b: transmission and its volume.
+        [](MeshRenderer& r) { r.transmission = 0.5f; },
+        [](MeshRenderer& r) { r.thickness = 0.5f; },
+        [](MeshRenderer& r) { r.attenuationColor = Color{0.5f, 1.0f, 1.0f, 1.0f}; },
+        [](MeshRenderer& r) { r.attenuationColor = Color{1.0f, 0.5f, 1.0f, 1.0f}; },
+        [](MeshRenderer& r) { r.attenuationColor = Color{1.0f, 1.0f, 0.5f, 1.0f}; },
+        [](MeshRenderer& r) { r.attenuationDistance = 2.0f; },
         // M73.5: the subsurface strength, radius and colour of a mesh that scatters are part of the key.
         [](MeshRenderer& r) { r.subsurface = 0.5f; },
         [](MeshRenderer& r) {
