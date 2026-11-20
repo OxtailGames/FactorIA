@@ -478,17 +478,19 @@ TEST_CASE("graph model: a second outside write of the same size, right after the
     std::error_code ec;
     const auto firstTime = stdfs::last_write_time(p.dir / kMat, ec);
     REQUIRE_FALSE(ec);
+    REQUIRE((stdfs::file_time_type::clock::now() - firstTime < std::chrono::milliseconds(900)));  // still fresh
     CHECK(m.poll_external());
     CHECK(m.input_value("noise", "scale") == 12.0);
     doc["graph"]["nodes"][0]["inputs"]["scale"] = 13.0;  // same number of characters
     p.write(kMat, doc.dump(2));
     stdfs::last_write_time(p.dir / kMat, firstTime, ec);  // the very same time stamp, on every OS
     REQUIRE_FALSE(ec);
+    REQUIRE((stdfs::last_write_time(p.dir / kMat, ec) == firstTime));  // forced: the hash is what tells the files apart
     CHECK(m.poll_external());
     CHECK(m.input_value("noise", "scale") == 13.0);
 }
 
-TEST_CASE("graph model: a rewrite that keeps time and size is found, right after and more than a second later") {
+TEST_CASE("graph model: a rewrite that keeps time and size is found when the file was polled fresh and again") {
     GraphProject p;
     p.open();
     GraphModel& m = *p.model;
@@ -498,13 +500,17 @@ TEST_CASE("graph model: a rewrite that keeps time and size is found, right after
     std::error_code ec;
     const auto firstTime = stdfs::last_write_time(p.dir / kMat, ec);
     REQUIRE_FALSE(ec);
-    CHECK(m.poll_external());  // taken while the file is fresh: the stamp holds its hash
+    // The stamp holds the hash only while the file is fresh (< 1 s old) at the polls: make sure of it, so the test
+    // never depends on how fast the host got here.
+    REQUIRE((stdfs::file_time_type::clock::now() - firstTime < std::chrono::milliseconds(900)));
+    CHECK(m.poll_external());
     CHECK(m.input_value("noise", "scale") == 12.0);
-    std::this_thread::sleep_for(std::chrono::milliseconds(1100));
+    CHECK_FALSE(m.poll_external());                      // nothing changed: the hash is kept
     doc["graph"]["nodes"][0]["inputs"]["scale"] = 13.0;  // same number of characters
     p.write(kMat, doc.dump(2));
     stdfs::last_write_time(p.dir / kMat, firstTime, ec);  // the very same time stamp, on every OS
     REQUIRE_FALSE(ec);
+    REQUIRE((stdfs::last_write_time(p.dir / kMat, ec) == firstTime));  // forced: the hash is what tells the files apart
     CHECK(m.poll_external());
     CHECK(m.input_value("noise", "scale") == 13.0);
     CHECK_FALSE(m.poll_external());
