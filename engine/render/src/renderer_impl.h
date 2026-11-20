@@ -186,8 +186,13 @@ struct Renderer::Impl {
     bool read_floats(bool present, std::vector<float>& out, std::string* error);
     Target floatTarget;               // the RGBA16F image read_floats draws into (tests only; freed with the targets)
     bool shadowTargetFailed = false;  // the shadow map could not be made: no shadows until a resize
-    Target shadowTarget;  // the shadow map: R32F colour + depth (shadowTarget.texView is what the mesh programs sample)
-    static constexpr int kShadowSize = 2048;
+    // The shadow atlas (shadow_cascades.h): R32F colour + depth (shadowTarget.texView is what the mesh programs sample). It grows to the
+    // part of the atlas a frame uses and never shrinks while the renderer lives. A target a later job of the frame outgrew is kept in
+    // shadowRetired (the earlier jobs of the same frame still draw into it) and freed when the next frame's graph begins.
+    Target shadowTarget;
+    std::vector<Target> shadowRetired;
+    static constexpr std::uint64_t kShadowAtlasMaxBytes = 512ull << 20;  // the most the atlas may take (R32F + depth)
+    bool warnedNoFloat32 = false;  // the "no shadows without float32 targets" warning, once
 
     DebugDraw debug;
     RenderStats stats;
@@ -206,6 +211,8 @@ struct Renderer::Impl {
     // hit tests ask these (camera_for), so an answer never depends on alpha. Empty = lastCams.
     std::vector<CameraInfo> logicCams;
     bool warnedNoLight = false;
+    bool warnedLightsDropped = false;   // one warning when a view has more lights than it can light
+    bool warnedClusterClipped = false;  // one warning when a cluster or view list ran over its limit
     // SceneSettings.skyMaterial: the last material that could not draw the sky and was reported (one log line per
     // material).
     std::string warnedSkyMaterial;
@@ -361,7 +368,8 @@ struct Renderer::Impl {
     // that went above paper white (the copy clamps it).
     bool editor_copy_wanted() const;
     void update_editor_copy();
-    bool create_shadow_targets();
+    bool create_shadow_targets(int width, int height);
+    void free_retired_shadow_targets();
     bool ensure_light_target(float scale);
     sg_view upload_shadow_rows(const Frame& fr);
     void destroy_light_resources();
@@ -482,6 +490,9 @@ struct Renderer::Impl {
     void build_quad_stream(DrawContext& ctx);
     void upload_instances(DrawContext& ctx);
     void scene_uniforms(DrawContext& ctx);
+    void upload_lights(DrawContext& ctx);
+    // fa_cl_info (what the shader reads of the clusters) of the last job's scene uniforms, for the render tests.
+    float lastClusterInfo[4] = {-1.0f, 0.0f, 0.0f, 0.0f};
     // The sky environment of the job (SceneSettings.skyMaterial): sets ctx.envActive / envBake / envKey and the flag of
     // fuScene.
     void plan_env(DrawContext& ctx);

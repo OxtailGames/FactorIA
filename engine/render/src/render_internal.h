@@ -20,6 +20,7 @@
 #include "fa/core/video.h"
 #include "fa/render/renderer.h"
 #include "fa/scene/camera_geometry.h"
+#include "fa/scene/material_layers.h"
 #include "fa/scene/rich_text.h"
 #include "fa/scene/screen_fx.h"
 #include "fa/scene/world.h"
@@ -90,8 +91,9 @@ inline std::uint32_t pack_vertex_color(float r, float g, float b, float a) {
 }
 
 constexpr int kMaxQuadsPerDraw = 16384;  // 16-bit indices
-constexpr int kMaxLights =
-    32;  // also the size of the light arrays in mesh.glsl (96 vec4s: within the WebGL2 minimum of 224)
+// The lights of a view in the light table of the data texture (src/light_clusters.h, shaders/light_data.glsl): the most relevant
+// ones when the scene has more (RenderStats.lightsDropped counts the rest). 4 texels of 16 bytes each: 64 KB at the limit.
+constexpr int kMaxLights = 1024;
 constexpr int kMeshInstanceBytes = 64;  // one Mat4 per instance
 // The vertex buffers beyond the mesh (0), the model matrices (1) and the skin (2) that a custom material's programs may
 // read (docs/design/CUSTOM_SHADERS.md, "Per-instance params and vertex channels"): the packed per-instance params (up
@@ -275,6 +277,12 @@ struct SubMesh {
     TextureAsset* emissiveTex = nullptr;   // glTF emissiveTexture
     float normalScale = 1.0f;
     float occlusionStrength = 1.0f;
+    // The glTF material layers (KHR_materials_clearcoat, _sheen, _anisotropy, _specular, _ior; M73.6). `layersPacked`: what the
+    // importer packed into the maps the part binds (pack_layer_textures): 1 = the occlusion map also holds the clear coat (g),
+    // its roughness (b) and the sheen roughness (a), 2 = the metallic-roughness map also holds the anisotropy strength (r) and the
+    // specular (a); 3 = both. 0 = those maps are the model's own.
+    MaterialLayers layers;
+    int layersPacked = 0;
     // glTF pbrMetallicRoughness factors, used instead of MeshRenderer.metallic / roughness when `hasPbr`.
     bool hasPbr = false;
     float metallic = 0.0f, roughness = 0.6f;
@@ -310,6 +318,26 @@ struct PreparedTextureRef {  // one texture slot of a glTF material
     Image image;              // Image
     std::string error, hint;  // Missing
 };
+// The textures of the layer extensions of one glTF material, as the file names them (None = the material has none).
+struct LayerTextureRefs {
+    PreparedTextureRef clearcoat, clearcoatRoughness, clearcoatNormal, sheenColor, sheenRoughness, anisotropy, specular,
+        specularColor;
+    bool any() const;
+};
+// Packs the extension textures of a material into the maps a mesh part already binds, because no texture unit is free
+// (docs/design/ARCHITECTURE_RENDERING_LIGHTING.md, "The material layers"): the occlusion map becomes R occlusion (255 when the
+// material has none), G clearcoatTexture.R, B clearcoatRoughnessTexture.G, A sheenRoughnessTexture.A; the metallic-roughness
+// map becomes R anisotropyTexture.B, G and B of metallicRoughnessTexture, A specularTexture.A; a channel with no texture is 255.
+// All the sources of a map are resampled (bilinear, fixed point: the same bytes on every machine) to the largest width and
+// height among them. `occlusion` and `metalRough` are replaced by the composites (kind Image) and the returned bits tell which
+// (1, 2). Nothing is dropped silently: a texture that is not packed (the clear coat's normal map, the sheen colour, the specular
+// colour and the direction of the anisotropy texture: there is no channel for them), one that cannot be read, and a set that is
+// larger than kMaxLayerPackPixels, are named in `warnings` with `what` (file and material) and what is used instead.
+int pack_layer_textures(LayerTextureRefs& refs, const std::string& what, const std::string& compositeName,
+                        PreparedTextureRef& occlusion, PreparedTextureRef& metalRough,
+                        std::vector<std::string>& warnings);
+inline constexpr std::uint64_t kMaxLayerPackPixels = std::uint64_t(4096) * 4096;  // pixels of one packed map
+
 struct PreparedPart {
     std::vector<MeshVertex> verts;
     std::vector<std::uint32_t> idx;
@@ -484,8 +512,9 @@ inline constexpr MeshFragmentView kMeshFragmentViews[] = {
      "its irradiance cube (today); M73.3a replaces it by spherical harmonics in the light data texture"},
     {"fa_probe_atlas", 14, 10, 2, 2,
      "M73.3b/c: reflection probes and the sky, octahedral 2D, prefiltered by roughness (replaces fa_env_tex)"},
-    {"fa_light_data", 24, -1, 1, 2,
-     "M73.1a: RGBA32F, texelFetch: the lights, the clusters' light lists, the decals, the sky's SH"},
+    {"fa_light_data", 24, 1, 1, 2,
+     "M73.1a (today): RGBA32F, texelFetch with the nearest sampler 1: the lights, the clusters' light lists; later the "
+     "decals, the sky's SH"},
     {"fa_light_atlas", 25, 10, 1, 2, "M73.1b: light cookies and IES profiles, one RGBA8 atlas"},
     {"fa_lightmap", 26, 10, 1, 2, "M73.4a: the baked lightmap atlas (RGBA16F or RGBE8), UV2 of the mesh"},
     {"fa_decal_atlas", 27, 10, 1, 2,
@@ -1443,14 +1472,23 @@ public:
     sg_buffer fullscreen_triangle() const { return fsTriangle_; }
     // A write-transient vertex buffer of at least `bytes`, valid for this frame.
     sg_buffer acquire_transient(std::size_t bytes);
+    // The light data texture of one view (light_clusters.h): a write-transient RGBA32F image of kLightTextureWidth x `rows` texels
+    // that holds `texels` (width * rows * 4 floats), written now and valid until the pool restarts like the buffers' (after a
+    // commit). Call it once per view and frame, outside a pass, and bind the view this frame.
+    struct LightImage {
+        sg_image image{};
+        sg_view view{};
+    };
+    LightImage write_light_image(int rows, const float* texels);
     // The pool restarts only after an sg_commit(): sokol forbids writing a buffer once it was bound in the same
     // frame, and a second draw before the commit (editor screenshots, render_now) must not reuse a bound buffer.
     // Many draws without a commit (game.step and tests in the editor, which commits once per UI frame; FB-0005) end
     // the sokol frame here, outside any pass, so the pool stays bounded without rewriting a bound buffer.
     void begin_frame() {
         if ((++pipelineTick_ & 15u) == 0 && pipelines_.size() > pipelineCap_) sweep_pipelines();
-        if (!committed_ && transientUsed_ >= 16) sg_commit();
-        if (committed_ || transientUsed_ >= 16) transientUsed_ = 0;
+        const bool full = transientUsed_ >= 16 || lightImagesUsed_ >= 16;
+        if (!committed_ && full) sg_commit();
+        if (committed_ || full) transientUsed_ = lightImagesUsed_ = 0;
         committed_ = false;
     }
     void note_commit() { committed_ = true; }
@@ -1532,6 +1570,13 @@ private:
     };
     std::vector<Transient> transient_;
     std::size_t transientUsed_ = 0;
+    struct LightImg {
+        sg_image image{};
+        sg_view view{};
+        int rows = 0;
+    };
+    std::vector<LightImg> lightImages_;  // the pool of write_light_image, restarted with transient_
+    std::size_t lightImagesUsed_ = 0;
     bool committed_ = true;
     std::uint64_t frame_ = 0;
     bool listening_ = false;  // count_commit is registered as a commit listener
