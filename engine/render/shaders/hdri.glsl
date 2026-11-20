@@ -42,7 +42,9 @@ void main() {
     float c = cos(p.x);
     float s = sin(p.x);
     vec3 r = vec3(d.x * c - d.z * s, d.y, d.x * s + d.z * c);
-    vec2 uv = vec2(atan(r.x, -r.z) * 0.15915494 + 0.5, 0.5 - asin(clamp(r.y, -1.0, 1.0)) * 0.31830989);
+    // atan(0, 0) is undefined on some mobile GPUs: at the exact poles the direction has no azimuth, and any one will do.
+    float az = (abs(r.x) + abs(r.z) > 1.0e-6) ? atan(r.x, -r.z) : 0.0;
+    vec2 uv = vec2(az * 0.15915494 + 0.5, 0.5 - asin(clamp(r.y, -1.0, 1.0)) * 0.31830989);
     // Texels one pixel spans along the equator: its angle (the change of the unit direction across the pixel) times the texels per radian.
     float footprint = length(fwidth(d)) * p.w * 0.15915494;
     float lod = max(log2(max(footprint, 1.0e-6)), 0.0);
@@ -50,7 +52,13 @@ void main() {
     if (p.z > 0.5) {
         col = fa_linear_to_srgb(col);
     }
-    frag_color = vec4(col * p.y, 1.0);
+    col *= p.y;
+    // The scene's target may be RGBA16F (largest value 65504): the brightest channel is limited with the colour kept, never infinity.
+    float m = max(max(col.r, col.g), col.b);
+    if (m > 65000.0) {
+        col *= 65000.0 / m;
+    }
+    frag_color = vec4(col, 1.0);
 }
 @end
 

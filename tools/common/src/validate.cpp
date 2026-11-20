@@ -261,7 +261,7 @@ void check_asset_value(Ctx& c, const std::string& file, const std::string& point
             } else {
                 // The header is all hdri_check reads: not the whole panorama, which can be hundreds of megabytes.
                 std::ifstream in(stdfs::path(c.dir) / stdfs::path(path), std::ios::binary);
-                std::vector<char> head(4096);
+                std::vector<char> head(16384);  // hdr_info's own header limit
                 in.read(head.data(), std::streamsize(head.size()));
                 auto check =
                     hdri_check(reinterpret_cast<const std::uint8_t*>(head.data()), std::size_t(in.gcount()), path);
