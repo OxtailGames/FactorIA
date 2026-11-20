@@ -302,7 +302,7 @@ CPU: `engine/render/src/local_shadows.{h,cpp}` (no GPU; `tests/local_shadows_tes
 `contactShadows`, `environmentMap`, `reflectionProbes`, `physicalSky`, `lightmaps`, `lightProbes`, `volumetricFog`, `decals`,
 `subsurface`, `realtimeGI`, `clearCoat`, `sheen`, `anisotropy`, `transmission`. Each carries the `needs` its pass will ask of the GPU.
 `needs_met` runs before the planned check, so on a GPU that lacks the capability the answer names the capability, not the plan. The
-package that draws a feature drops its `"M73"` text from the table (`clusteredLights` did in M73.1a and `cascadedShadows` in M73.2a: it needs only `float32`, and `decals` in M73.5b: it needs nothing; `environmentMap` in M73-P3a-2: it needs `half`, the RGBA16F targets the environment cubes are).
+package that draws a feature drops its `"M73"` text from the table (`clusteredLights` did in M73.1a and `cascadedShadows` in M73.2a: it needs only `float32`, and `decals` in M73.5b: it needs nothing; `environmentMap` in M73-P3a-2: it needs `half`, the RGBA16F targets the environment cubes are; and `volumetricFog` in M73.5, with `half+depth`).
 
 ## The new fields
 
@@ -531,4 +531,3 @@ from declaring the attribute. The twin fixtures were regenerated for the new ver
 **Decisions.** One page per draw (an entity is one rectangle of one page): batching and the 16-unit budget stay as they were. An entity
 that `MeshRenderer.lods` draws with another mesh than `MeshRenderer.mesh` is lit as without a lightmap while that level is drawn (the
 bake was made for the mesh the manifest names). Skinned meshes are never lightmapped.
-

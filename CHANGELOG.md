@@ -6,6 +6,14 @@ Older versions, one file per minor version with its patch releases: [0.31](chang
 
 ## Unreleased
 
+- **Volumetric fog and light shafts (M73.5):** `SceneSettings.volumetricFog` fills the view with a medium (`volumetricDensity`,
+  `volumetricDistance`, `volumetricHeightBase` / `volumetricHeightFalloff`, `volumetricAnisotropy`, `volumetricAmbient`, colour `fogColor`) that the
+  ambient light, the sun and the point and spot lights with `Light.volumetric` above 0 shine through; the shadows of the shadow atlas cut the
+  shafts. While a camera draws it, its analytic fog (`fogDensity`, the `PostProcess` fog) is off, so nothing is fogged twice; transparent meshes are
+  fogged like the surface behind them. A half or quarter resolution raymarch with a depth-aware upsample, on every backend with no compute shader;
+  `volumetricQuality` (`low` for phones and the web, `medium`, `high`) bounds the cost, and the jitter depends on the pixel only (no temporal
+  reprojection). A scene without `volumetricFog` is unchanged and compiles nothing. `render.supports("volumetricFog")` is true wherever the GPU has
+  RGBA16F render targets that blend and filter; `game.render_stats` reports `volumetricCameras`, `volumetricLights` and `volumetricLightsDropped`.
 - **Sky ambient light from spherical harmonics (M73-P3e):** the diffuse ambient light of every mesh under a sky material, a physical
   sky or an HDRI now comes from nine RGB coefficients (L2 spherical harmonics) that the renderer projects, in one GPU pass, into a
   4x4 mip of the sky cube it already bakes, instead of from the 32x32 irradiance cube, which is gone (view 15 is free; it is reserved

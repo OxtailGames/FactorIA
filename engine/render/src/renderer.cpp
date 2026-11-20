@@ -33,6 +33,9 @@ Json RenderStats::to_json() const {
                 {"lightClusterEntries", lightClusterEntries},
                 {"lightClusterClipped", lightClusterClipped},
                 {"lightMaxPerCluster", lightMaxPerCluster},
+                {"volumetricCameras", volumetricCameras},
+                {"volumetricLights", volumetricLights},
+                {"volumetricLightsDropped", volumetricLightsDropped},
                 {"decals", decals},
                 {"decalsDropped", decalsDropped},
                 {"decalClusterClipped", decalClusterClipped},
@@ -424,6 +427,7 @@ void Renderer::shutdown() {
         im.hdriSky.release();
         im.sceneFx.release();
         im.fogFx.release();
+        im.volFx.release();
         im.ramps.destroy();
         im.assets.reset();
         im.destroy_targets();

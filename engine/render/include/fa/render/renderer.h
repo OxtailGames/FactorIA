@@ -139,6 +139,10 @@ struct RenderStats {
         0;  // entries left out because a cluster already had 128 lights or the view 524288 entries: a hint to lower the ranges
     int lightMaxPerCluster =
         0;  // the longest list of a cluster (the most lights any one fragment loops over, besides the directional ones)
+    // Volumetric fog (M73.5), summed over the cameras of the frame.
+    int volumetricCameras = 0;        // cameras that drew the volumetric fog (SceneSettings.volumetricFog)
+    int volumetricLights = 0;         // lights (Light.volumetric above 0) whose shafts those cameras drew
+    int volumetricLightsDropped = 0;  // lights with volumetric above 0 left out: more than volumetricQuality allows
     // Projected decals (M73.5b), summed over the views of the frame.
     int decals = 0;  // Decal entities drawn: in a view's decal table, at most 256 per view
     int decalsDropped =

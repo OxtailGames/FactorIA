@@ -2143,8 +2143,12 @@ void register_builtin_components(TypeRegistry& r) {
                     "lit every frame like a realtime light, with shadows (its bounce light in the lightmaps and the "
                     "light probes for moving objects: M73.4c and M73.4d).")
         .field("volumetric", &Light::volumetric,
-               "Strength 0..10 of this light's shafts in the volumetric fog (SceneSettings.fogDensity must be above "
-               "0). 0 (default) = no shafts. No effect yet: M73.5 brings it.")
+               "Strength 0..10 of this light's shafts in the volumetric fog: how much of its light the fog scatters "
+               "towards the camera (1 = as bright as the light makes a white surface). It only matters with "
+               "SceneSettings.volumetricFog on; the light's shadows cut the shafts when castShadows is on. 0 "
+               "(default) = no shafts, and a directional light needs a value above 0 too. A camera scatters up to "
+               "4 directional lights and its most important point and spot lights (4, 8 or 16 by "
+               "SceneSettings.volumetricQuality); stats volumetricLightsDropped counts the others.")
         .range(0, 10);
 
     r.add<Decal>(
@@ -4221,6 +4225,52 @@ void register_builtin_components(TypeRegistry& r) {
                "Physical sky: metres per second [x, z] the clouds drift along the world axes (beyond 1000 it is "
                "clamped). The drift follows the game clock (never the wall clock), so a replay shows the same sky. "
                "[0, 0] stands still. Only used with skyModel physical.")
+        .field("volumetricFog", &SceneSettings::volumetricFog,
+               "Turns on the volumetric fog: a medium the lights shine through, drawn from the camera to the surface "
+               "behind each pixel (or volumetricDistance, in the sky). Lights with volumetric above 0 and the "
+               "ambient light are scattered by it, and the shadows of the sun and of the point and spot lights cut "
+               "shafts into it. Its colour is fogColor. While it is on, the scene's fogDensity and the PostProcess "
+               "fog are off for the cameras that draw it (they would fog twice). Off (default) = nothing changes. "
+               "An orthographic or studio camera, a camera that draws no depth prepass, or a GPU without RGBA16F "
+               "render targets draws no volumetric fog and keeps its analytic one (render.supports {\"feature\": "
+               "\"volumetricFog\"}); a scene with no light and no ambient is a black medium. "
+               "docs/rendering/RENDERING_LIGHTING.md, \"Volumetric fog and light shafts\".")
+        .field("volumetricDensity", &SceneSettings::volumetricDensity,
+               "Volumetric fog: how thick the medium is, as extinction per metre at the height base: the light "
+               "reaching the camera through a distance d is cut by exp(-density * d). 0.02 (default) = clear air "
+               "with shafts, 0.1 = a dense mist, 1 = you see a few metres. 0..10. Only used with volumetricFog.")
+        .range(0, 10)
+        .field("volumetricHeightBase", &SceneSettings::volumetricHeightBase,
+               "Volumetric fog: the world y (metres) below which the density is the full volumetricDensity; above "
+               "it the density fades with volumetricHeightFalloff. Only used with volumetricFog.")
+        .range(-10000, 10000)
+        .field("volumetricHeightFalloff", &SceneSettings::volumetricHeightFalloff,
+               "Volumetric fog: how fast the density drops above volumetricHeightBase, per metre (0.1 = it halves "
+               "every 7 m). 0 (default) = the same density at every height. 0..10. Only used with volumetricFog.")
+        .range(0, 10)
+        .field("volumetricAnisotropy", &SceneSettings::volumetricAnisotropy,
+               "Volumetric fog: which way the fog scatters light, the g of the Henyey-Greenstein phase function, "
+               "-0.99..0.99. 0 = evenly in every direction, above 0 = mostly forward (shafts glow when you look "
+               "towards the light; 0.4 is the default and suits mist), below 0 = mostly back. Only used with "
+               "volumetricFog.")
+        .range(-0.99f, 0.99f)
+        .field("volumetricAmbient", &SceneSettings::volumetricAmbient,
+               "Volumetric fog: how much of ambientLight the fog scatters (it glows even where no light reaches), "
+               "0..10. 1 (default) = ambientLight times fogColor; 0 = the fog is dark where no light reaches. Only "
+               "used with volumetricFog.")
+        .range(0, 10)
+        .field("volumetricDistance", &SceneSettings::volumetricDistance,
+               "Volumetric fog: how far from the camera, in metres, the medium extends, 1..10000. Surfaces beyond "
+               "it are fogged as at this distance, and sky pixels see the fog up to it. The samples are spread over "
+               "the shorter of this and the surface's distance, so a shorter value is sharper. Only used with "
+               "volumetricFog.")
+        .range(1, 10000)
+        .enum_field("volumetricQuality", &SceneSettings::volumetricQuality, {"low", "medium", "high"},
+                    "Volumetric fog quality, the size of the fog image and the samples per pixel: low = a quarter of "
+                    "the picture's size (a 16th of its pixels), 16 steps, at most 4 shaft lights, for mobile and the "
+                    "web; medium (default) = half the size, 32 steps, 8 shaft lights: desktop and a good phone; high "
+                    "= half the size, 48 steps, 16 shaft lights. The cost grows with the steps and the lights, "
+                    "never with the number of lights in the scene. Only used with volumetricFog.")
         .asset_field("lightmaps", &SceneSettings::lightmaps, "any",
                      "The scene's baked lightmap: a *.lightmap.json manifest (written by the lightmap.bake command, "
                      "next to its .hdr pages) that says, per entity, which rectangle of which page lights it. The "
