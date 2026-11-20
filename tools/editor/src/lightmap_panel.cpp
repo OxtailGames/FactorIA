@@ -173,8 +173,8 @@ void Editor::draw_lightmap_panel() {
         return;
     }
     const bool running = lightmap_.state == "running";
-    ImGui::TextWrapped(
-        "Bakes the scene's baked lights, its sky and its lit meshes into lightmap pages next to the scene.");
+    ImGui::TextWrapped("Bakes the scene's baked lights, its sky and its lit meshes into lightmap pages next to the "
+                       "scene, and the light probes of its LightProbeGroups for the objects that move.");
     draw_play_banner(*this);
 
     ImGui::BeginDisabled(running);
@@ -228,6 +228,11 @@ void Editor::draw_lightmap_panel() {
     }
     ImGui::EndDisabled();
 
+    ImGui::Checkbox("Show probes", &showProbes_);
+    at_track("lm:showprobes");
+    tip("Draw the probes of every LightProbeGroup in the 3D viewport: a sphere coloured by the light it baked, grey "
+        "before the first bake, a red cross for a probe inside geometry. LightProbeGroup.showGizmo hides one group.");
+
     ImGui::BeginDisabled(running || play_ != PlayState::Edit);
     if (ImGui::Button("Start")) {
         std::string err;
@@ -275,6 +280,12 @@ void Editor::draw_lightmap_panel() {
                     count_text(double(res.value("rays", std::uint64_t(0)))).c_str(),
                     seconds_text(lightmap_.elapsed).c_str());
         at_track("lm:summary");
+        if (res.contains("probes") && res["probes"].is_object()) {
+            const Json& pr = res["probes"];
+            ImGui::Text("%d light probe(s), %d inside geometry (ignored)", pr.value("count", 0),
+                        pr.value("invalid", 0));
+            at_track("lm:probes");
+        }
         for (const Json& p : pages)
             ImGui::BulletText("%s  %d x %d", p.value("file", std::string()).c_str(), p.value("width", 0),
                               p.value("height", 0));

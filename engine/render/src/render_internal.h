@@ -21,6 +21,7 @@
 #include "fa/render/lightmap_geometry.h"
 #include "fa/render/probe.h"
 #include "fa/render/renderer.h"
+#include "fa/scene/light_probes.h"
 #include "fa/scene/lightmap_manifest.h"
 #include "fa/scene/camera_geometry.h"
 #include "fa/scene/material_layers.h"
@@ -332,6 +333,7 @@ struct LightmapSetAsset {
     std::string path;
     LightmapManifest manifest;
     std::vector<LightmapPageGpu> pages;
+    ProbeSet probes;  // M73.4d: the light probes of the bake (CPU only); probes.baked() false = none
     bool ok = false;  // false: the manifest did not load (reported once); nothing is lightmapped
     std::size_t bytes = 0;
 };

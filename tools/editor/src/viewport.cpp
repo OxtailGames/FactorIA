@@ -410,6 +410,7 @@ void Editor::draw_viewport() {
             }
         }
     }
+    if (!primary_is_ortho()) draw_probe_gizmos(dl, *r, [&](Vec3 p) { return to_vp(r->world_to_screen(p)); });
     // Every selected entity is outlined: the primary (what the Inspector and the gizmo follow) in yellow, the others in orange.
     // selection_peek(): the set is read every frame, so it is not pruned here; an id that is gone is skipped.
     auto draw_outline = [&](Entity sel, bool isPrimary) {

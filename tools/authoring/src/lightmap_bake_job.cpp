@@ -93,6 +93,13 @@ std::string settings_hash(const Plan& p) {
         h.f(l.width);
         h.f(l.height);
     }
+    h.i(std::int64_t(p.probes.groups.size()));
+    for (const ProbeGroup& g : p.probes.groups) {
+        h.s(g.id);
+        h.i(int(g.kind));
+        h.i(g.count);
+    }
+    for (const Vec3& v : p.probes.positions) h.v3(v);
     h.v3(p.sky.zenith);
     h.v3(p.sky.horizon);
     h.v3(p.sky.ground);
@@ -223,12 +230,28 @@ Result<Plan> make_plan(World& world, const std::string& scene, const Options& op
         if (pm.receiver) ++receivers;
         plan.meshes.push_back(std::move(pm));
     }
-    if (receivers == 0)
-        return make_error("nothing to bake: the scene has no active MeshRenderer that receives light into a lightmap",
-                          "A mesh is lit by the lightmap when its MeshRenderer has receiveGI true, lightmapScale above "
-                          "0 and unlit false, and the entity is "
-                          "active. Add a mesh (scene.spawn {\"components\":{\"MeshRenderer\":{\"mesh\":\"cube\"}}}) or "
-                          "set those fields on one.");
+    // The light probes (M73.4d): the groups of the active entities, in id order, as positions.
+    {
+        std::vector<std::pair<std::string, Entity>> groupEntities;
+        world.each<LightProbeGroup>([&](Entity e, LightProbeGroup&) {
+            if (world.active_in_hierarchy(e)) groupEntities.emplace_back(world.id_of(e), e);
+        });
+        std::sort(groupEntities.begin(), groupEntities.end(),
+                  [](const auto& a, const auto& b) { return a.first < b.first; });
+        for (const auto& [id, e] : groupEntities) {
+            const Vec3 at = world.world_matrix(e).translation();
+            if (auto r = add_probe_group(plan.probes, id, *world.get<LightProbeGroup>(e), at); !r)
+                return Error{r.error().message, r.error().hint};
+        }
+    }
+    if (receivers == 0 && plan.probes.size() == 0)
+        return make_error(
+            "nothing to bake: the scene has no active MeshRenderer that receives light into a lightmap and no "
+            "LightProbeGroup",
+            "A mesh is lit by the lightmap when its MeshRenderer has receiveGI true, lightmapScale above "
+            "0 and unlit false, and the entity is "
+            "active. Add a mesh (scene.spawn {\"components\":{\"MeshRenderer\":{\"mesh\":\"cube\"}}}) or "
+            "set those fields on one; or add a LightProbeGroup to bake light probes for moving objects.");
 
     // The lights.
     std::vector<std::pair<std::string, Entity>> lightEntities;
@@ -491,7 +514,8 @@ Result<Json> execute(const Plan& plan, const ReportFn& report) {
         squareOf.back() = squares.size();
         squares.push_back(sq);
     }
-    if (squares.empty())
+    const bool lightmapped = !squares.empty();  // a scene with probes and no lit mesh bakes the probes alone
+    if (!lightmapped && plan.probes.size() == 0)
         return make_error(
             "no mesh of the scene can be lit into a lightmap: " +
                 (skipped.empty() ? std::string("none has surface area") : skipped[0]["reason"].get<std::string>()),
@@ -499,9 +523,12 @@ Result<Json> execute(const Plan& plan, const ReportFn& report) {
 
     // 3. The pages.
     say("layout", 0.1, 0);
-    auto packed = pack_squares(squares, gap, opt.maxPageSize);
-    if (!packed) return packed.error();
-    const std::vector<PageSize> pages = std::move(packed.value());
+    std::vector<PageSize> pages;
+    if (lightmapped) {
+        auto packed = pack_squares(squares, gap, opt.maxPageSize);
+        if (!packed) return packed.error();
+        pages = std::move(packed.value());
+    }
 
     // 4. The scene of the baker.
     BakeScene scene;
@@ -600,6 +627,9 @@ Result<Json> execute(const Plan& plan, const ReportFn& report) {
     double total = 0;
     for (const PageSize& p : pages) total += double(p.width) * double(p.height);
     const bool denoise = st.denoiseRadius > 0;
+    // The progress: the lightmap takes 0.12..lightmapEnd, the probes the rest up to 0.95 (all of it when there is no lightmap).
+    const bool hasProbes = plan.probes.size() > 0;
+    const double lightmapEnd = !hasProbes ? 0.95 : (lightmapped ? 0.70 : 0.12);
     BakeProgressFn progress = [&](const BakeProgress& p) {
         double before = 0;
         for (int a = 0; a + 1 < p.atlas; ++a)
@@ -625,15 +655,49 @@ Result<Json> execute(const Plan& plan, const ReportFn& report) {
                 phase = "dilate";
                 within = 0.97;
                 break;
+            case BakePhase::Probes: phase = "probes"; break;
         }
         const double frac = total > 0 ? (before + mine * within) / total : 0.0;
-        say(phase, 0.12 + 0.83 * frac, p.rays);
+        say(phase, 0.12 + (lightmapEnd - 0.12) * frac, p.rays);
     };
     say("prepare", 0.12, 0);
-    auto baked = bake_lightmap(scene, st, progress);
-    if (!baked) return baked.error();
-    if (cancelled()) return cancelled_error();
-    BakeResult& result = baked.value();
+    BakeResult result;
+    if (lightmapped) {
+        auto baked = bake_lightmap(scene, st, progress);
+        if (!baked) return baked.error();
+        if (cancelled()) return cancelled_error();
+        result = std::move(baked.value());
+    }
+    // The probes: the same scene, seeds and rules; positions from the plan. Valid probes keep their SH, the ones inside geometry are flagged.
+    ProbeSet probeSet = plan.probes;
+    std::uint64_t probeRays = 0;
+    if (hasProbes) {
+        say("probes", lightmapEnd, result.stats.rays);
+        BakeProgressFn probeProgress = [&](const BakeProgress& p) {
+            probeRays = p.rays;
+            const double part = p.total > 0 ? double(p.done) / double(p.total) : 0.0;
+            say("probes", lightmapEnd + (0.95 - lightmapEnd) * part, result.stats.rays + p.rays);
+        };
+        auto sampled = sample_probes(scene, probeSet.positions, st, probeProgress);
+        if (!sampled) return sampled.error();
+        if (cancelled()) return cancelled_error();
+        probeSet.sh.resize(probeSet.size());
+        probeSet.valid.resize(probeSet.size());
+        for (std::size_t i = 0; i < probeSet.size(); ++i) {
+            probeSet.sh[i] = (*sampled)[i].sh;
+            probeSet.valid[i] = (*sampled)[i].valid ? 1 : 0;
+        }
+        result.stats.rays += probeRays;
+        if (probeSet.invalid_count() > 0)
+            warnings.push_back(
+                std::to_string(probeSet.invalid_count()) + " of " + std::to_string(probeSet.size()) +
+                " light probes are inside geometry (most of their rays hit the back of a surface): they "
+                "are skipped when the objects are lit. Move the LightProbeGroup or its points out of the "
+                "walls to use them.");
+        if (probeSet.invalid_count() == probeSet.size())
+            warnings.push_back("every light probe is inside geometry: moving objects will be lit by the sky's ambient "
+                               "light as without probes.");
+    }
     for (std::size_t a = 0; a < result.atlases.size(); ++a)
         if (result.atlases[a].overlappedTexels > 0)
             warnings.push_back(
@@ -653,12 +717,15 @@ Result<Json> execute(const Plan& plan, const ReportFn& report) {
         madeNow;  // the pages this call wrote (not the ones that were already there with the same bytes)
     // The pages the manifest on disk lists: a failed bake never deletes one of them, the game may be reading it.
     std::set<std::string> oldPages;
+    std::string oldProbes;
     if (fs::exists(plan.manifestProject))
-        if (auto old = load_lightmap_manifest(plan.manifestProject); old)
+        if (auto old = load_lightmap_manifest(plan.manifestProject); old) {
             for (const LightmapPage& p : old->pages) oldPages.insert(p.file);
+            oldProbes = old->probes.file;
+        }
     auto remove_made_pages = [&] {
         for (const std::string& page : madeNow)
-            if (!oldPages.count(page)) {
+            if (!oldPages.count(page) && page != oldProbes) {
                 std::error_code ec;
                 fs::remove_file(fs::path_from_utf8(dirAbs + file_of(page)), ec);
             }
@@ -690,6 +757,29 @@ Result<Json> execute(const Plan& plan, const ReportFn& report) {
                                          {"height", at.height},
                                          {"bakedTexels", at.bakedTexels}}));
     }
+    // The light probes: one file named after its own bytes, written after the pages and before the manifest, like them.
+    std::string newProbes;
+    if (hasProbes) {
+        const std::vector<std::uint8_t> bytes = encode_probe_set(probeSet);
+        const std::string tagP =
+            lightmap_hash_hex(lightmap_hash_bytes(kLightmapHashSeed, bytes.data(), bytes.size())).substr(0, 8);
+        const std::string name = stem + ".lightmap." + tagP + ".probes";
+        const std::string abs = dirAbs + name;
+        bool same = false;
+        if (fs::exists(abs))
+            if (auto old = fs::read_bytes(abs); old && *old == bytes) same = true;
+        if (!same) {
+            if (auto w = fs::write_bytes(abs, bytes.data(), bytes.size()); !w) {
+                remove_made_pages();
+                return write_error("cannot write the light probe file", abs, w.error());
+            }
+            madeNow.push_back(dirProject + name);
+        }
+        newProbes = dirProject + name;
+        manifest.probes.file = newProbes;
+        manifest.probes.count = int(probeSet.size());
+        manifest.probes.invalid = int(probeSet.invalid_count());
+    }
     manifest.version = kLightmapManifestVersion;
     manifest.uvVersion = kLightmapUvVersion;
     manifest.settingsHash = plan.settingsHash;
@@ -710,6 +800,14 @@ Result<Json> execute(const Plan& plan, const ReportFn& report) {
         std::error_code ec;
         fs::remove_file(fs::path_from_utf8(dirAbs + name), ec);
     }
+    if (!oldProbes.empty() && oldProbes != newProbes) {  // the probe file of the old bake, by the same rule
+        const std::string name = file_of(oldProbes);
+        if (dir_of(oldProbes) == dirProject && name.rfind(prefix, 0) == 0 && name.size() > 7 &&
+            name.substr(name.size() - 7) == ".probes") {
+            std::error_code ec;
+            fs::remove_file(fs::path_from_utf8(dirAbs + name), ec);
+        }
+    }
     say("writing", 1.0, result.stats.rays);
 
     Json out = Json::object();
@@ -722,6 +820,21 @@ Result<Json> execute(const Plan& plan, const ReportFn& report) {
     out["settingsHash"] = plan.settingsHash;
     out["lights"] = plan.lights.size();
     out["skipped"] = skipped;
+    if (hasProbes) {
+        Json groups = Json::array();
+        for (const ProbeGroup& g : probeSet.groups) {
+            std::int64_t bad = 0;
+            for (std::int32_t i = 0; i < g.count; ++i) bad += probeSet.valid[std::size_t(g.first + i)] == 0 ? 1 : 0;
+            groups.push_back(Json::object({{"id", g.id},
+                                           {"kind", g.kind == ProbeGroupKind::Grid ? "grid" : "points"},
+                                           {"count", g.count},
+                                           {"invalid", bad}}));
+        }
+        out["probes"] = Json::object({{"file", newProbes},
+                                      {"count", probeSet.size()},
+                                      {"invalid", probeSet.invalid_count()},
+                                      {"groups", groups}});
+    }
     Json w = Json::array();
     for (const std::string& s : warnings) w.push_back(s);
     out["warnings"] = w;

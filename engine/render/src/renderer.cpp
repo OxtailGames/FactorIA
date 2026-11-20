@@ -3,6 +3,7 @@
 #include "fa/render/compute.h"
 #include "scene2d.h"
 #include "render_features.h"
+#include "render_scene.h"
 
 #include <cstdlib>
 #include <cstring>
@@ -588,6 +589,93 @@ Json Renderer::supports_report() const {
     render::FeatureEnv env = render::feature_env_from_sokol();
     render::set_hdr_env(env, app_hdr_output().display);
     return render::feature_report(env, backend_name());
+}
+
+const ProbeSet* Renderer::light_probes(World& world) {
+    if (!initialized() || !impl_->assets || world.settings().lightmaps.empty()) return nullptr;
+    const LightmapSetAsset* set = impl_->assets->lightmaps(world.settings().lightmaps);
+    return set && set->probes.size() > 0 ? &set->probes : nullptr;
+}
+
+namespace {
+const double kRoundTo = 1000.0;
+double rounded(double v) { return std::round(v * kRoundTo) / kRoundTo; }
+Json vec3_json(Vec3 v) { return Json::array({rounded(v.x), rounded(v.y), rounded(v.z)}); }
+}  // namespace
+
+Json Renderer::light_probes_report(World& world, Entity entity) {
+    Json j = Json::object();
+    j["lightmaps"] = world.settings().lightmaps;
+    const ProbeSet* set = light_probes(world);
+    j["baked"] = set != nullptr && set->baked();
+    j["probes"] = set ? int(set->size()) : 0;
+    j["invalid"] = set ? int(set->invalid_count()) : 0;
+    Json groups = Json::array();
+    if (set)
+        for (const ProbeGroup& g : set->groups) {
+            int bad = 0;
+            for (int i = 0; i < g.count; ++i)
+                if (set->baked() && !set->valid[std::size_t(g.first + i)]) ++bad;
+            groups.push_back(Json::object({{"id", g.id},
+                                           {"kind", g.kind == ProbeGroupKind::Grid ? "grid" : "points"},
+                                           {"count", g.count},
+                                           {"invalid", bad}}));
+        }
+    j["groups"] = std::move(groups);
+    if (entity == kNullEntity) return j;
+    Json e =
+        Json::object({{"id", world.id_of(entity)},
+                      {"name", world.get<EntityInfo>(entity) ? world.get<EntityInfo>(entity)->name : std::string()}});
+    const MeshRenderer* mr = world.get<MeshRenderer>(entity);
+    if (!mr) {
+        e["source"] = "none";
+        e["note"] = "The entity has no MeshRenderer: only meshes receive light probes.";
+        j["entity"] = std::move(e);
+        return j;
+    }
+    Assets& assets = *impl_->assets;
+    MeshAsset* mesh = assets.mesh(mr->mesh);
+    const Animator* anim = nullptr;
+    Vec3 bmin{0, 0, 0}, bmax{0, 0, 0};
+    mesh_cull_bounds(*mesh, world.get<Animator>(entity), bmin, bmax, anim);
+    const Mat4 model = world.drawn_matrix(entity);
+    const Vec3 at = probe_point(world, *mr, model, bmin, bmax);
+    e["position"] = vec3_json(at);
+    MaterialAsset* material = mr->material.empty() ? nullptr : assets.material(mr->material);
+    if (material && material->ok && material->kind != MaterialKind::Mesh) material = nullptr;
+    const LightmapSetAsset* lightmaps =
+        world.settings().lightmaps.empty() ? nullptr : assets.lightmaps(world.settings().lightmaps);
+    const bool materialReads =
+        !material || (material->ok && !material->full && material->buffers.empty() && material->uv1);
+    LightmapUse lm;
+    if (lightmaps && mr->receiveGI && mr->lightmapScale > 0.0f && materialReads && !anim)
+        assets.lightmap_use(*lightmaps, world.id_of(entity), *mesh, mr->mesh.empty() ? std::string("cube") : mr->mesh,
+                            lm);
+    const bool eligible = set && set->baked() && mr->receiveGI && !mr->unlit && !lm.mesh &&
+                          (!material || (material->ok && !material->full && material->buffers.empty()));
+    ProbeLight light;
+    if (eligible) light = probe_light_at(*set, at);
+    e["source"] = lm.mesh ? "lightmap" : (eligible && light.coverage > 0.0f ? "probes" : "sky");
+    e["coverage"] = rounded(light.coverage);
+    e["probesUsed"] = light.probesUsed;
+    if (eligible && light.coverage > 0.0f) {
+        Json sh = Json::array();
+        for (const Vec3& c : light.sh.c) sh.push_back(vec3_json(c));
+        e["sh"] = std::move(sh);
+        // The diffuse light (irradiance / pi) it gets from the six axis directions: what the probes add to a surface facing that way.
+        Json amb = Json::object();
+        const std::pair<const char*, Vec3> dirs[] = {{"up", {0, 1, 0}},    {"down", {0, -1, 0}},  {"east", {1, 0, 0}},
+                                                     {"west", {-1, 0, 0}}, {"north", {0, 0, -1}}, {"south", {0, 0, 1}}};
+        for (const auto& [name, d] : dirs) amb[name] = vec3_json(sh_irradiance(light.sh, d));
+        e["ambient"] = std::move(amb);
+    } else if (!lm.mesh) {
+        e["note"] = !mr->receiveGI
+                        ? "MeshRenderer.receiveGI is false."
+                        : (!set ? "The scene has no baked light probes (lightmap.bake with a LightProbeGroup)."
+                                : "No probe reaches the mesh: it keeps the sky's ambient.");
+    }
+    j["entity"] = std::move(e);
+    return j;
 }
 
 void Renderer::update_output(const SceneSettings& settings, const std::string& blocked) {
