@@ -6,6 +6,15 @@ Older versions, one file per minor version with its patch releases: [0.31](chang
 
 ## Unreleased
 
+- **Subsurface scattering (M73.5):** `MeshRenderer.subsurface` (strength 0..1), `subsurfaceRadius` (metres, 0..0.5, the distance that holds 90% of the
+  light) and `subsurfaceColor` (the spread of each colour channel) make skin, wax and marble: the diffuse light of the mesh is drawn into an image of its
+  own, blurred along x and y with a depth-aware separable profile of our own (four Gaussians fitted to the diffusion profile of skin, the red tail wider
+  than the blue) and the change is added to the picture. Only the diffuse light is blurred, never the specular light, the sky reflection or the emission;
+  the light never crosses a silhouette or reaches another object. It works with MSAA (the sss images themselves are single-sample), render scale, split
+  screen and HDR, and a scene with no `subsurface` is bit for bit what it was. Opaque meshes of the engine's own shader scatter (not a mesh with `material`,
+  an unlit or a transparent one). Without RGBA16F targets the meshes draw without scattering and `render.supports("subsurface")` says so;
+  `game.render_stats` reports `subsurfaceCameras` and `subsurfaceDraws`. Every material twin was regenerated (the mesh template changed). See
+  docs/rendering/RENDERING_LIGHTING.md, "Subsurface scattering", and docs/design/ARCHITECTURE_SUBSURFACE.md.
 - **Lightmap bake (M73.4c):** `lightmap.bake` (waits), `lightmap.bake_start`, `lightmap.bake_status` and `lightmap.bake_cancel` bake the open scene's `baked` and `mixed` lights, its sky (the environment map, the gradient or the ambient light) and its emissive and lit meshes into Radiance `.hdr` pages and a `.lightmap.json` manifest next to the scene, unwrapping the meshes that have no second UV set, and the renderer reads them at once (`SceneSettings.lightmaps` is set in memory: keep it with `scene.save` in a batch, or write it into the scene). The job reports a phase and progress, can be cancelled in every phase, writes the pages and then the manifest atomically (a file open on Windows gives an error that says what to close) and gives the same bytes with any number of threads. The editor has **View > Lightmap** (options, progress bar, Cancel, a summary of the pages, one undo step for the setting). The baker core now checks its input for NaN and infinity, derives its default ray offset from the texel size (not 10 cm in a kilometer-wide scene) and checks for cancel in the BVH build, the rasterizer, the denoiser and the gutter fill. Disc and Tube area lights are baked as rectangles. Docs: docs/rendering/RENDERING_LIGHTING.md, "Baking".
 - **Contact shadows (M73.2c):** `SceneSettings.contactShadows` and a new `Light.contactShadowLength` (metres, 0 = off, the default) add a
   short screen-space ray from each lit point toward the light, marched in the mesh shader against the depth prepass (12 steps, a thickness

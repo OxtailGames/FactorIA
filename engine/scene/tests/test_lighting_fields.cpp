@@ -27,7 +27,8 @@ const std::vector<std::string> kSettingsFields = {
     "shadowCascades", "shadowCascadeSplit", "shadowCascadeBlend",   "shadowDistance",      "shadowAtlasSize",
     "contactShadows", "environmentMap",     "environmentIntensity", "environmentRotation", "environmentBackground"};
 const std::vector<std::string> kMeshFields = {"contributeGI",     "transmission",        "thickness",
-                                              "attenuationColor", "attenuationDistance", "subsurface"};
+                                              "attenuationColor", "attenuationDistance", "subsurface",
+                                              "subsurfaceRadius", "subsurfaceColor"};
 // Drawn since M73.6 (the material layers): their docs say what they do, not that they have no effect.
 const std::vector<std::string> kLayerFields = {"clearcoat",  "clearcoatRoughness", "sheenColor", "sheenRoughness",
                                                "anisotropy", "anisotropyRotation", "specular",   "ior"};
@@ -51,7 +52,10 @@ const std::vector<std::string> kDrawn = {"innerAngle",
                                          "size",
                                          "cookie",
                                          "ies",
-                                         "contactShadows"};
+                                         "contactShadows",
+                                         "subsurface",
+                                         "subsurfaceRadius",
+                                         "subsurfaceColor"};
 // Fields a package has made work: their doc strings no longer say "No effect yet" (M73.4a: the lightmap runtime).
 const std::vector<std::pair<std::string, std::string>> kLiveFields = {{"Light", "mode"},
                                                                       {"MeshRenderer", "lightmapScale"},
@@ -138,6 +142,8 @@ TEST_CASE("lighting fields: the defaults keep the look of a scene made before M7
     CHECK(m.clearcoat == 0.0f);
     CHECK(m.transmission == 0.0f);
     CHECK(m.subsurface == 0.0f);
+    CHECK(m.subsurfaceRadius == doctest::Approx(0.01f));
+    CHECK(m.subsurfaceColor.r == 1.0f);
     CHECK(m.specular == 1.0f);
     CHECK(m.ior == 1.5f);
     CHECK(m.sheenColor.r == 0.0f);
@@ -178,7 +184,7 @@ TEST_CASE("lighting fields: a scene with every new field saves, loads again and 
                      "receiveGI":false,"clearcoat":0.8,"clearcoatRoughness":0.1,"sheenColor":[1,0,0,1],
                      "sheenRoughness":0.3,"anisotropy":-0.5,"anisotropyRotation":45,"specular":0.5,"ior":1.33,
                      "transmission":0.9,"thickness":0.2,"attenuationColor":[0,1,0,1],"attenuationDistance":3,
-                     "subsurface":0.4}}}]})");
+                     "subsurface":0.4,"subsurfaceRadius":0.03,"subsurfaceColor":[1,0.9,0.6,1]}}}]})");
     const LoadReport report = load_scene(w, scene, "new.scene.json");
     INFO(report.summary());
     REQUIRE(report.ok());

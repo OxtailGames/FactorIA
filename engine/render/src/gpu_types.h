@@ -35,7 +35,8 @@ struct TargetFormat {
     // A hash of the four fields (std::hash<TargetFormat> uses it): the same on every run, never a pointer or an id.
     std::size_t hash() const {
         std::uint64_t h = 1469598103934665603ull;  // FNV-1a over the four values
-        for (std::uint64_t v : {std::uint64_t(color), std::uint64_t(color1), std::uint64_t(depth), std::uint64_t(samples)}) {
+        for (std::uint64_t v :
+             {std::uint64_t(color), std::uint64_t(color1), std::uint64_t(depth), std::uint64_t(samples)}) {
             h ^= v;
             h *= 1099511628211ull;
         }
