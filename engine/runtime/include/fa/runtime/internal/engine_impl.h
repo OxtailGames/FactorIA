@@ -6,6 +6,7 @@
 // it changes with the engine's insides. A game gets its engine through fa/runtime/engine.h.
 #pragma once
 
+#include <atomic>
 #include <chrono>
 #include <functional>
 #include <map>
@@ -194,7 +195,7 @@ struct Engine::Impl {
     // bake of tools/authoring) adds one that asks the job to stop, so quitting does not wait for it. Run on the engine's thread, in order.
     std::vector<std::function<void()>> shutdownHooks;
     std::string currentScene;
-    bool playWorld = false;  // Engine::play_world(): the editor's Play session runs in this world
+    std::atomic<bool> playWorld{false};  // Engine::play_world(): the editor's Play session runs in this world
     // The current scene is the project's mainScene, loaded at start because no start scene was given (no EngineConfig::scene),
     // and no scene was loaded since. scene.import_ascii refuses `save` without `path` then: see tools/authoring/src/level_commands.cpp.
     bool implicitStartScene = false;

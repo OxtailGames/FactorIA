@@ -1057,7 +1057,9 @@ const ProbeBakeAsset* Assets::probe_bake(const std::string& pathIn) {
                         "' does not match the manifest's hash " + manifest->hash,
                     "The page was changed after the bake. Bake the probe again (probe.bake).");
     }
-    auto image = decode_hdr(bytes->data(), bytes->size());
+    auto image = decode_hdr(
+        bytes->data(), bytes->size(),
+        image_float_bytes(probe_page_width(manifest->resolution), probe_page_height(manifest->resolution), 3));
     if (!image) {
         if (retry_once("page '" + b.pagePath + "' did not decode: " + image.error().message)) return &b;
         return fail("baked reflection probe '" + key + "': the page '" + b.pagePath + "': " + image.error().message,
@@ -1690,7 +1692,11 @@ const LightmapSetAsset* Assets::lightmaps(const std::string& manifestPath) {
                 "The page and the manifest are from different bakes: bake the lightmap again.");
             continue;
         }
-        Result<ImageF> img = bytes ? decode_hdr(bytes->data(), bytes->size()) : Result<ImageF>(bytes.error());
+        // The size of the manifest is what this page may take (the header was checked against it above, and against what a scene
+        // may use): a page up to kLightmapMaxPageSize square is legal, whatever the budget of an environment map is.
+        Result<ImageF> img =
+            bytes ? decode_hdr(bytes->data(), bytes->size(), image_float_bytes(want.width, want.height, 3))
+                  : Result<ImageF>(bytes.error());
         if (!img) {
             note_failure("lightmap-page", want.file,
                          std::format("{}{}: the lightmap page '{}' could not be read: {} Entities on this page are "

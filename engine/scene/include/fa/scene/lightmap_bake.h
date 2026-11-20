@@ -128,8 +128,9 @@ struct BakeSettings {
     float denoiseSigma =
         0.3f;  // how different two neighbours may be (relative to the light) and still be blended, 0.01..10
     float rayEpsilon =
-        0;  // the offset of a ray from its surface (meters); 0 = automatic: the scene's size / 10000, but never more than
-    // 1/20 of a texel (a 1 km scene with 16 texels per meter gets 3 mm, not 10 cm) and never less than size / 500000
+        0;  // the offset of a ray from its surface (meters); 0 = automatic: the scene's size / 10000, but never more than 1 cm
+    // (kMaxAutoRayEpsilon), and the lightmap bake lowers that to 1/20 of a texel (a 1 km scene with 16 texels per meter gets 3 mm) but
+    // never below 1/50 of what the cap left (size / 500000, or 0.2 mm when the 1 cm cap applied). A value you set is used as it is.
     bool shIncludeDirect =
         true;  // sample_irradiance_sh: add the direct light of the Baked lights (a probe is not a lightmap texel)
     // sample_probes: a probe is invalid (inside geometry) when more than this fraction of its rays first hit a BACK face (0..1).
