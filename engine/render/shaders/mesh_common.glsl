@@ -389,11 +389,13 @@ layout(binding=25) uniform texture2D fa_light_atlas;
 layout(binding=27) uniform texture2D fa_decal_tex;
 #define FA_DECAL_TEX fa_decal_tex
 #define FA_DECAL_SMP fa_env_smp
-// The sky of a sky material (SceneSettings.skyMaterial), baked by the renderer (renderer_env.h): a cube, view 14, sampler 10 (after the
-// material's textures and their vertex-stage copies), whose mips 0..4 are the sky prefiltered by roughness and whose mip 5 holds the sky's
-// nine spherical-harmonics coefficients, the source of the diffuse ambient (fa_ambient_light); bound and used only while fa_env_sky.w is
-// 1 (2: the cube is RGBA8 and the coefficients are stored as c / 8 + 0.5).
-layout(binding=14) uniform textureCube fa_env_tex;
+// The probe atlas (M73-P3c; renderer_probes.h, docs/design/ARCHITECTURE_PROBES.md): one 2D image, view 14, sampler 10 (after the material's
+// textures and their vertex-stage copies), that holds the sky (the tile at fa_atlas.zw, the sky material's prefiltered radiance and its nine
+// spherical-harmonics coefficients, written by the renderer from the baked sky) and the tile of every ReflectionProbe, each an octahedral map
+// with its levels of roughness and its SH row (probe.h). Bound whenever the sky or a probe exists (a white image otherwise, never read).
+layout(binding=14) uniform texture2D fa_probe_atlas;
+// This template knows the fragment's world position, so a probe's box corrects the reflection (the full-shader template does not).
+#define FA_ENV_PARALLAX 1
 layout(binding=10) uniform sampler fa_env_smp;
 // The screen slot (view 28, read with texelFetch through the nearest sampler 1; M73.2c): in the opaque phase the prepass image (r = linear
 // view depth, a = 1 on an opaque mesh), the source of the contact shadows. Bound by every draw (a white image when none takes contact
@@ -418,8 +420,8 @@ layout(binding=1) uniform fa_mesh_fs_params {
     vec4 fa_fog_c;              // xyz = the camera's forward axis in the world, w = 1 for an orthographic camera (0 otherwise)
     vec4 fa_counts;             // x = light count, y = first texel of the decal region (0 = no decals), z = 1 on OpenGL backends,
                                 // w = what this mesh takes of the decals: 0 = none, else 1 + MeshRenderer.decalLayer
-    vec4 fa_env_sky;            // rgb sky color (top of the environment); w = 1 when the baked environment of a sky material is bound
-    vec4 fa_env_horizon;        // rgb horizon color; w = the highest mip of fa_env_tex (what roughness 1 reads)
+    vec4 fa_env_sky;            // rgb sky color (top of the environment); w = 1 when the sky's tile of the probe atlas holds the baked sky
+    vec4 fa_env_horizon;        // rgb horizon color; w unused
     vec4 fa_time;               // x = seconds of game time since the scene started
     // Clustered lighting (M73.1; src/light_clusters.h): the rows of the view-projection matrix that give a fragment's tile, the
     // camera's forward depth and the grid; all zero (fa_cl_info.x = -1) while the frame has no local lights.
@@ -446,6 +448,19 @@ layout(binding=1) uniform fa_mesh_fs_params {
     vec4 fa_ct_fwd;             // xyz = the camera's forward axis, w = -dot(forward, position): depth = dot(xyz, world) + w
     vec4 fa_probe_sh[9];        // baked light probes (M73.4d) of a mesh without a lightmap: coefficient k of the SH in [k].xyz (the order of
                                 // ShL2), [0].w = the coverage (0 = no probe reaches the mesh: the sky's ambient, nothing else changes)
+    // The reflection probes (M73-P3c; fa_env_funcs): the atlas and the up to two probes this draw reflects, chosen on the CPU from the
+    // mesh's position (render_scene.cpp). The shares add up to at most 1, the rest is the sky; all zero = the sky alone.
+    vec4 fa_atlas;              // x = the atlas' width in texels (the shader reads the size from the image), y = 1 when it is RGBA8 (its SH row is coded), zw = the sky's tile origin (texels)
+    vec4 fa_rpa_tile;           // probe A: xy = its tile's origin in the atlas (texels), z = its resolution, w = its share of the light
+    vec4 fa_rpa_pos;            // xyz = where it captured (world), w = 1 when its box corrects the reflection (box projection)
+    vec4 fa_rpa_bx;             // its box: row i = how the unit box coordinate i grows with the world position (xyz) plus its offset (w);
+    vec4 fa_rpa_by;             // the box is where all three are in [-1, 1]
+    vec4 fa_rpa_bz;
+    vec4 fa_rpb_tile;           // probe B, likewise
+    vec4 fa_rpb_pos;
+    vec4 fa_rpb_bx;
+    vec4 fa_rpb_by;
+    vec4 fa_rpb_bz;
 };
 
 // The varyings are declared in the order of the vertex stage's outputs (the instance values first): sokol-shdc matches them
@@ -545,48 +560,145 @@ Surface fa_standard_surface(in SurfaceInput i) {
 @end
 
 // The sky the surface reflects, shared with the full-shader template (mesh_full_common.glsl includes this block after it has
-// declared fa_env_sky and fa_env_horizon).
+// declared fa_env_sky, fa_env_horizon, fa_atlas and the probe parameters).
 @block fa_env_funcs
 @include_block fa_sh
-// The environment the surface reflects. With a sky material (fa_env_sky.w = 1) it is the sky the material draws, baked into a cube whose
-// mips are prefiltered by roughness: roughness 0 reads mip 0, roughness 1 the last. Without one it is the gradient of skyColor and
-// horizonColor (the horizon color, darker, below the horizon), rougher surfaces seeing a blurrier, flatter version of it (a cheap
-// stand-in for a prefiltered cubemap).
-vec3 fa_environment(vec3 d, float rough) {
-    if (fa_env_sky.w > 0.5) {
-        return textureLod(samplerCube(fa_env_tex, fa_env_smp), d, clamp(rough, 0.0, 1.0) * fa_env_horizon.w).rgb;
+// ---- the probe atlas (M73-P3c) ----
+// Each map is octahedral (probe.cpp oct_encode, whose operations these are): the half of the sphere around +Y is the inner diamond, the
+// other half the four corners, y down the image. A tile is laid out as probe_layout (probe.h) says: level 0 (resolution texels and a
+// one-texel border all round) at the origin, level k >= 1 in a column to its right, the SH row last. Level k holds the scene convolved with
+// the GGX lobe of roughness k / (levels - 1). The border holds the texel across the edge, so a bilinear tap at the edge of a level never
+// reads a neighbour's texels.
+vec2 fa_oct_encode(vec3 d) {
+    float s = abs(d.x) + abs(d.y) + abs(d.z);
+    vec3 p = d / max(s, 1.0e-12);
+    vec2 e = vec2(p.x, p.z);
+    if (p.y < 0.0) {
+        e = vec2((1.0 - abs(p.z)) * (p.x < 0.0 ? -1.0 : 1.0), (1.0 - abs(p.x)) * (p.z < 0.0 ? -1.0 : 1.0));
     }
-    float blur = rough * rough;
-    float h = clamp(d.y * (1.0 - 0.7 * blur), 0.0, 1.0);
-    vec3 up = mix(fa_env_horizon.rgb, fa_env_sky.rgb, pow(h, 0.55));
-    vec3 down = fa_env_horizon.rgb * 0.55;
-    float k = smoothstep(-0.05 - 0.6 * blur, 0.05 + 0.6 * blur, d.y);
-    vec3 e = mix(down, up, k);
-    return mix(e, 0.5 * (fa_env_sky.rgb + fa_env_horizon.rgb) * 0.8, blur * 0.6);
+    return e;
 }
 
-// Coefficient k (0..8, the order of ShL2) of the sky's spherical harmonics: the texel (k & 3, k >> 2) of the face +X of mip 5 of the baked
-// cube (renderer_env.h, env.glsl fs_sh), read at the exact centre of the texel (the direction (1, y, z) of a texel centre is on the +X face
-// at (s, t) = ((c + 0.5) / 4, (r + 0.5) / 4)), so no filtering touches it.
-vec3 fa_sky_sh_coef(int k) {
-    vec3 d = vec3(1.0, 1.0 - float(2 * (k >> 2) + 1) * 0.25, 1.0 - float(2 * (k & 3) + 1) * 0.25);
-    vec3 v = textureLod(samplerCube(fa_env_tex, fa_env_smp), d, 5.0).rgb;
-    if (fa_env_sky.w > 1.5) { v = (v - 0.5) * 8.0; }
+// The atlas' size in texels, read from the image: it is square, or taller than wide while a RealtimeGI's band of blocks is in it (every lookup divides
+// by this, never by a single number).
+vec2 fa_atlas_size() {
+    return vec2(textureSize(sampler2D(fa_probe_atlas, fa_env_smp), 0));
+}
+
+// Level `lv` (0, 1, ...) of the tile at `origin` with `res` texels per side, read in direction coordinate e.
+vec3 fa_probe_level(vec2 origin, float res, int lv, vec2 e) {
+    float size = res / float(1 << lv);
+    float lx = lv == 0 ? 0.0 : res + 2.0;
+    float ly = lv == 0 ? 0.0 : res - res / float(1 << (lv - 1)) + 2.0 * float(lv - 1);
+    vec2 px = origin + vec2(lx, ly) + vec2(1.0) + (e * 0.5 + vec2(0.5)) * size;
+    return textureLod(sampler2D(fa_probe_atlas, fa_env_smp), px / fa_atlas_size(), 0.0).rgb;
+}
+
+// The light the tile sends toward direction d to a surface of the given roughness: the two nearest levels, blended.
+vec3 fa_probe_radiance(vec2 origin, float res, vec3 d, float rough) {
+    float levels = res > 64.5 ? 5.0 : (res > 32.5 ? 4.0 : 3.0);
+    float f = clamp(rough, 0.0, 1.0) * (levels - 1.0);
+    int k = int(min(floor(f), levels - 2.0));
+    float t = f - float(k);
+    vec2 e = fa_oct_encode(d);
+    vec3 a = fa_probe_level(origin, res, k, e);
+    if (t < 0.002) { return a; }
+    return mix(a, fa_probe_level(origin, res, k + 1, e), t);
+}
+
+// Coefficient k (0..8, the order of ShL2) of the tile's spherical harmonics: the texel k of its last row, read at its centre (no filtering).
+vec3 fa_probe_sh_coef(vec2 origin, float res, int k) {
+    vec2 px = origin + vec2(float(k) + 0.5, res + 2.5);
+    vec3 v = textureLod(sampler2D(fa_probe_atlas, fa_env_smp), px / fa_atlas_size(), 0.0).rgb;
+    if (fa_atlas.y > 0.5) { v = (v - 0.5) * 8.0; }  // RGBA8: clamp(c / 4, -1, 1) * 0.5 + 0.5
     return v;
 }
 
-// The ambient light a surface facing n receives: SceneSettings.ambientLight, or with a sky material (and with a physical sky or an HDRI
-// environment) the light of that sky toward n: its radiance as nine spherical-harmonics coefficients (L2), convolved with the clamped
-// cosine and divided by pi (fa_sh_eval), which replaces ambientLight. A sky of one color gives that color from every side; a sky with a
-// bright sun or a bright horizon is smooth (three bands) and never negative. The same value the `ambient()` hook of a custom material
-// receives as `ambientColor` (fa_indirect_diffuse: on a lightmapped surface the baked texel takes its place).
-vec3 fa_ambient_light(vec3 n) {
-    if (fa_env_sky.w > 0.5) {
-        vec3 c[9];
-        for (int k = 0; k < 9; ++k) { c[k] = fa_sky_sh_coef(k); }
-        return fa_sh_eval(c, n);
+#ifdef FA_ENV_PARALLAX
+// Box projection (parallax): the reflection ray from the surface point, followed to the probe's box and read from the probe's own position.
+vec3 fa_probe_box_dir(vec3 d, vec4 posw, vec4 bx, vec4 by, vec4 bz) {
+    if (posw.w < 0.5) { return d; }
+    vec3 pu = vec3(dot(bx.xyz, fa_world_pos) + bx.w, dot(by.xyz, fa_world_pos) + by.w, dot(bz.xyz, fa_world_pos) + bz.w);
+    vec3 du = vec3(dot(bx.xyz, d), dot(by.xyz, d), dot(bz.xyz, d));
+    float tx = du.x > 1.0e-6 ? (1.0 - pu.x) / du.x : (du.x < -1.0e-6 ? (-1.0 - pu.x) / du.x : 1.0e30);
+    float ty = du.y > 1.0e-6 ? (1.0 - pu.y) / du.y : (du.y < -1.0e-6 ? (-1.0 - pu.y) / du.y : 1.0e30);
+    float tz = du.z > 1.0e-6 ? (1.0 - pu.z) / du.z : (du.z < -1.0e-6 ? (-1.0 - pu.z) / du.z : 1.0e30);
+    tx = tx > 0.0 ? tx : 1.0e30;
+    ty = ty > 0.0 ? ty : 1.0e30;
+    tz = tz > 0.0 ? tz : 1.0e30;
+    float t = min(tx, min(ty, tz));
+    if (t > 1.0e29) { return d; }
+    vec3 r = fa_world_pos + d * t - posw.xyz;
+    return dot(r, r) > 1.0e-10 ? normalize(r) : d;
+}
+#endif
+
+// The light of the probe with tile `tile` toward d.
+vec3 fa_probe_environment(vec4 tile, vec4 posw, vec4 bx, vec4 by, vec4 bz, vec3 d, float rough) {
+#ifdef FA_ENV_PARALLAX
+    d = fa_probe_box_dir(d, posw, bx, by, bz);
+#endif
+    return fa_probe_radiance(tile.xy, tile.z, d, rough);
+}
+
+// The environment the surface reflects. The base is the sky: with a sky material (fa_env_sky.w = 1) its tile of the probe atlas, written
+// from the sky the material draws and prefiltered by roughness (roughness 0 reads the first level, 1 the last); without one the gradient
+// of skyColor and horizonColor (the horizon color, darker, below the horizon), rougher surfaces seeing a blurrier, flatter version of it
+// (a cheap stand-in for a prefiltered cubemap). The reflection probes that reach the draw (at most two, with their shares, fa_rpa_tile.w
+// and fa_rpb_tile.w; the sky keeps the rest) replace their share of it.
+vec3 fa_environment(vec3 d, float rough) {
+    float sa = fa_rpa_tile.w, sb = fa_rpb_tile.w;
+    float sky = 1.0 - sa - sb;
+    vec3 outc = vec3(0.0);
+    if (sky > 0.0005) {
+        vec3 base;
+        if (fa_env_sky.w > 0.5) {
+            base = fa_probe_radiance(fa_atlas.zw, 128.0, d, rough);
+        } else {
+            float blur = rough * rough;
+            float h = clamp(d.y * (1.0 - 0.7 * blur), 0.0, 1.0);
+            vec3 up = mix(fa_env_horizon.rgb, fa_env_sky.rgb, pow(h, 0.55));
+            vec3 down = fa_env_horizon.rgb * 0.55;
+            float k = smoothstep(-0.05 - 0.6 * blur, 0.05 + 0.6 * blur, d.y);
+            vec3 e = mix(down, up, k);
+            base = mix(e, 0.5 * (fa_env_sky.rgb + fa_env_horizon.rgb) * 0.8, blur * 0.6);
+        }
+        outc = base * sky;
     }
-    return fa_ambient.rgb;
+    if (sa > 0.0) { outc += fa_probe_environment(fa_rpa_tile, fa_rpa_pos, fa_rpa_bx, fa_rpa_by, fa_rpa_bz, d, rough) * sa; }
+    if (sb > 0.0) { outc += fa_probe_environment(fa_rpb_tile, fa_rpb_pos, fa_rpb_bx, fa_rpb_by, fa_rpb_bz, d, rough) * sb; }
+    return outc;
+}
+
+// The ambient light a surface facing n receives: SceneSettings.ambientLight, or with a sky material (and with a physical sky or an HDRI
+// environment) the light of that sky toward n: its radiance as nine spherical-harmonics coefficients (L2, the SH row of the sky's tile),
+// convolved with the clamped cosine and divided by pi (fa_sh_eval), which replaces ambientLight. A sky of one color gives that color
+// from every side; a sky with a bright sun or a bright horizon is smooth (three bands) and never negative. A reflection probe that
+// reaches the draw gives the SH row of its own tile for its share (the coefficients are blended, the light is one evaluation). The
+// same value the `ambient()` hook of a custom material receives as `ambientColor` (fa_indirect_diffuse: a baked lightmap texel or the
+// light probes of a covered fragment take its place).
+vec3 fa_ambient_light(vec3 n) {
+    float sa = fa_rpa_tile.w, sb = fa_rpb_tile.w;
+    float sky = 1.0 - sa - sb;
+    vec3 amb = vec3(0.0);
+    bool tile = fa_env_sky.w > 0.5;
+    vec3 c[9];
+    for (int k = 0; k < 9; ++k) { c[k] = vec3(0.0); }
+    if (sky > 0.0005) {
+        if (tile) {
+            for (int k = 0; k < 9; ++k) { c[k] = fa_probe_sh_coef(fa_atlas.zw, 128.0, k) * sky; }
+        } else {
+            amb = fa_ambient.rgb * sky;
+        }
+    }
+    if (sa > 0.0) {
+        for (int k = 0; k < 9; ++k) { c[k] += fa_probe_sh_coef(fa_rpa_tile.xy, fa_rpa_tile.z, k) * sa; }
+    }
+    if (sb > 0.0) {
+        for (int k = 0; k < 9; ++k) { c[k] += fa_probe_sh_coef(fa_rpb_tile.xy, fa_rpb_tile.z, k) * sb; }
+    }
+    if (tile || sa > 0.0 || sb > 0.0) { amb += fa_sh_eval(c, n); }
+    return amb;
 }
 
 // Analytic split-sum environment BRDF (Karis, "Physically Based Shading on Mobile"): scale and bias of F0.

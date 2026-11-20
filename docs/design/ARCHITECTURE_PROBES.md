@@ -1,15 +1,16 @@
 Part of [ARCHITECTURE.md](ARCHITECTURE.md).
 
-# Reflection probes: capture and atlas (M73-P3b)
+# Reflection probes: capture, atlas and mesh sampling (M73-P3b, P3c)
 
 What a `ReflectionProbe` becomes in the renderer: the capture of the scene around it, the octahedral map it is stored as, the one
 atlas image that holds the maps of every probe (and of the sky), the scheduler that spreads the captures of the realtime probes over
-the frames, and the files of a baked probe. The user's side (the fields, the commands, what to expect) is in
+the frames, and the files of a baked probe; and how the lit meshes read the atlas (P3c). The user's side (the fields, the commands, what to expect) is in
 [RENDERING_PROBES.md](../rendering/RENDERING_PROBES.md). This page is for whoever changes the renderer.
 
-**State after P3b.** Probes are captured (or loaded from a baked page) into the atlas and listed by `render.probes`. The mesh
-fragment shader does NOT read the atlas yet: meshes still sample the sky's prefiltered cube (fragment view 14). P3c adds the
-sampling, the box projection and the blend between probes, and then retires that cube (the end of this page says what it takes).
+**State after P3c.** Probes are captured (or loaded from a baked page) into the atlas, listed by `render.probes`, and read by the mesh
+fragment shader at view 14 (the sky is the atlas' entry 0): each draw reflects up to two probes picked on the CPU plus the sky, with
+box projection and roughness levels. The sky's prefiltered cube is only the source the "sky-env" pass copies into entry 0. "What the
+meshes read" says how; "What P5d-2 can use" what the next package may build on.
 
 ## Where the code is
 
@@ -19,9 +20,11 @@ sampling, the box projection and the blend between probes, and then retires that
 | The GPU programs (capture copy, pyramid, GGX filter, SH projection, upload blit) | `engine/render/shaders/probe.glsl` and its generated headers |
 | `ProbeGpu` (programs, atlas image, scratch cubes) and the bookkeeping `ProbeSystem` | `src/renderer_probes.h`, `src/renderer_probes_gpu.cpp` |
 | The per-frame plan and finish, the report, the synchronous capture | `src/renderer_probes.cpp` |
+| Which probes a mesh reflects: the pure `pick_probes` and `ProbeVolume` (P3c) | `src/probe_select.{h,cpp}`; `render_scene.cpp` calls it per mesh |
+| The mesh shader's reads (`fa_probe_*`, `fa_environment`, `fa_ambient_light`) and the CPU side of its uniforms (`fill_probe_fs`) | `shaders/mesh_common.glsl`, `mesh_full_common.glsl`; `src/renderer_draw.cpp` |
 | The `render.probes` command | `engine/runtime/src/shot_commands.cpp` |
 | The `probe.bake` command | `tools/authoring/src/probe_commands.cpp` |
-| The tests | `engine/render/tests/probe_tests.cpp` (CPU), `probe_render_tests.cpp` (GPU), `tools/authoring/tests/probe_commands_tests.cpp`, `engine/runtime/tests/shot_tests.cpp` |
+| The tests | `engine/render/tests/probe_tests.cpp` (CPU), `probe_render_tests.cpp` (GPU), `probe_sampling_tests.cpp` (the pick on the CPU; the sampling on the GPU), `tools/authoring/tests/probe_commands_tests.cpp`, `engine/runtime/tests/shot_tests.cpp` |
 
 The CPU half has no GPU in it, so every rule below that is not about pixels (placement, eviction, slicing, files) is tested without one.
 
@@ -68,19 +71,19 @@ ties up). `probe_layout(R)` gives the rectangles:
 
 ## The atlas
 
-One 2D image, `kProbeAtlasSize` = 1024 square, RGBA16F (8 MB), made when the first probe appears and released when the last one is
-removed (`render.probes` then answers an empty report). Every reader of a probe's picture needs exactly one texture and one
+One 2D image, `kProbeAtlasSize` = 1024 square, RGBA16F (8 MB), made when the first probe appears, or when the scene's meshes first use the baked sky (the sky alone keeps it: +8 MB
+with no probe in the scene), and released when neither is left (`render.probes` answers an empty report while no probe exists). Every reader of a probe's picture needs exactly one texture and one
 sampler, which is why a 2D atlas and not cube maps: sokol has no cube arrays, and the mesh fragment shader's sixteen units are all
-taken (the P3b package adds no unit; P3c puts the atlas where view 14 is).
+taken (P3c put the atlas where view 14 was, the sky's cube: the units stay 16 of 16, the sampler is the shared `LinearClamp` one, sampler 10).
 
 - **On a GPU that cannot render to half floats** the atlas is RGBA8 and the captures are what a gamma-coded picture holds. A
   synchronous capture (`probe.bake`) refuses it: the baked page is HDR, so it asks for RGBA16F and says so.
 - **Atlas entry 0 is the sky** (`kProbeSkyId` = 0, `kProbeSkyResolution` = 128, importance `INT_MAX`: never evicted). It is written
   from the environment cube the renderer already bakes (renderer_env.h): the five levels from its prefiltered lods, the SH row from
   its mip 5 (the 4 x 4 mip that the sky's own SH pass already writes, face +X). So meshes that fall back to the sky (where no
-  probe's box reaches) will read the same tile as a probe, and the sky's cube can go once P3c lands. The entry is written when the
-  sky's re-bake keys change, the same frames as the cube. A scene with no sky material has `skyState` "noSky": the meshes keep the
-  gradient, as before.
+  probe's box reaches) read the same tile as a probe. The entry is written at the tail of the "sky-env" pass (`probes_write_sky`) when
+  the sky's re-bake keys change, and by `probes_plan` when the atlas was just made over a baked cube, so no frame draws the tile before
+  it holds the sky. A scene with no sky material has `skyState` "noSky": the meshes keep the gradient, as before (`fa_env_sky.w` = 0).
 - **Allocation** (`ProbeAtlasAllocator`). A tile goes into a SHELF of its own height (a row of equal slots, one resolution per
   shelf), shelves are stacked from the top, and a shelf whose slots are all free is given back. Deterministic: the same requests
   in the same order give the same places on every machine. With every probe at 128 the 1024 atlas holds 5 x 7 = 35 tiles; with
@@ -162,22 +165,71 @@ nothing. A baked probe's page is uploaded to its tile (times `intensity`) by the
 gain changes. States of a baked probe in the report: "ready", "noBake" (no `bakedMap`, or the manifest/page is missing or broken:
 the `message` names the file and the fix), "noRoom".
 
-## What P3c must do
+## What the meshes read (P3c)
 
-1. **Sample the atlas in the mesh fragment shader.** Bind `ProbeSystem::atlas.tex` with `ProbeGpu::sampler()` (clamp, linear) in
-   the place of view 14 (the sky's prefiltered cube); the RGBA8 atlas decodes the SH row as above. Read a tile by its origin and
-   `probe_layout(R)`: level k's interior starts at `(levelX + 1, levelY + 1)` and is `levelSize` texels; the sampled coordinate is
-   `(origin + 1 + (oct_encode(dir) * 0.5 + 0.5) * levelSize) / atlasSize` (the border keeps the bilinear tap inside the level).
-2. **Put the sky through the same tile.** `ProbeSystem::skyTile` is the sky's tile (entry 0); the mesh shader reads it where no
-   probe reaches. Then the sky's cube (`env` prefiltered levels) and its binding are no longer needed by meshes (the SH is
-   already read from the sky's mip 5 of the cube until then: move that read to the tile's SH row too).
-3. **Per-draw selection.** Each draw gets up to two probes (the largest importance, then the smallest box volume, then the nearest
-   centre), their tiles, boxes (`boxSize` x scale, `boxOffset`, entity's matrix), `blendDistance`, `intensity` (already applied in
-   the tile) and `boxProjection`. The renderer keeps `ProbeEntry` (tile, resolution, importance, entity); the box is read from the
-   world each frame, not stored.
-4. **Give the full-shader materials' `lighting()` the same reads** that the sky's cube gave them.
-5. Keep `reflectionProbes` in `render.supports` planned until a draw samples a probe; then flip its row and the test that
-   requires `why == "planned (M73)"` in `postprocess_resolve_tests.cpp`.
+**The binding.** `kMaterialEnvView` (14) / `kMaterialEnvSampler` (10) of every mesh program: the atlas image (`ProbeSystem::atlas.tex`) and
+the shared `LinearClamp` sampler, or a white image while no atlas exists (`bind_textures`). The constants keep the name of the sky's cube
+they once held. The shadow and prepass programs of a clip material bind it too. A capture frame (`Frame::noProbes`) reflects the sky
+only (no bounce).
+
+**The atlas is not always square.** It is 1024 wide and 1024 tall, but P5d-1 makes it taller (1024 x 1156: a band of GI blocks below the
+reflection tiles) while a `RealtimeGI` exists, and square again after. The shader therefore never divides by one number: every lookup
+uses `fa_atlas_size()` (`textureSize` of the bound image), so it is right for any size, and `fa_atlas.x` (the width) is only what the CPU
+wrote for the tests. CPU code that turns texels into a uv or a viewport uses the atlas' width AND height (`ProbeGpu::Atlas`).
+
+**The pick (CPU).** `pick_probes` (`probe_select.cpp`) is a pure function of the probes' boxes (`ProbeVolume`, built once a frame by
+`probes_build_volumes` from the probes that hold a capture, in the entries' id order) and the position of the mesh (the centre of its
+bounds, `render_scene.cpp`). A probe reaches a point inside its box (the entity's matrix, scale included) with the weight
+`clamp(inside / blendDistance, 0, 1)`, `inside` being the smallest distance to a face along the box's own axes, rounded to 1/32; a
+weight of 0 does not reach. The best two are kept: the larger `importance`, the smaller box volume, the nearer capture position, the
+smaller id. B is dropped when A has weight 1. The shares of the light are A = w_A, B = w_B x (1 - w_A) and the sky
+has the rest, so they add up to 1. `ProbePick::key()` (the two indices and weights, 0 = none) is folded into `SceneMesh::probeKey`, the
+same key the baked light probes use, so the batches merge exactly the meshes that reflect the same, and the shadow batches are not
+touched. A mesh no probe reaches has `key() == 0` and the keys it had before. At most 511 volumes are looked at. The scene is built once
+a frame with the volumes of the probes captured in EARLIER frames (`renderer.cpp`), so a probe is read from the frame after its capture is
+complete; `Renderer::probe_mesh_report` (the `entity` argument of `render.probes`) answers from the picks of that build.
+
+**The uniforms (`fa_mesh_fs_params`, 11 vec4 more: the block is 50 vec4, 800 B, it was 39).** `fa_atlas`: x = the
+atlas' size, y = 1 for RGBA8 (its SH row is coded), zw = the sky tile's origin. `fa_rpa_tile` / `fa_rpb_tile`: xy = the tile's origin, z =
+its resolution, w = its share. `fa_rpa_pos` / `fa_rpb_pos`: xyz = the capture position, w = 1 when box projection is on.
+`fa_rpa_bx/by/bz` (likewise `fa_rpb_*`): the three rows of the world -> unit box map (`ProbeVolume::rows`; the box is where all three
+are in [-1, 1]). `fa_env_sky.w` = 1 when the sky's entry holds the baked sky. `fill_probe_fs` writes them per draw, and zeroes the probes of
+an unlit mesh, a capture frame and a probe that is not in the atlas (evicted, or not captured yet): the sky takes its share.
+
+**The reads (GLSL, `fa_env_funcs`).** `fa_oct_encode` (the shader copy of `oct_encode`) -> `fa_probe_level(origin, res, level, e)`, a
+bilinear tap inside level k of the tile (the border texel keeps it from reading a neighbour), `fa_probe_radiance` blends the two levels
+nearest `roughness * (levels - 1)` (levels = 5, 4 or 3 by the tile's resolution, as `probe_layout`), `fa_probe_box_dir` bends the
+direction to the box (`#ifdef FA_ENV_PARALLAX`, defined in the built-in program only: a full-shader material's `lighting()` reads the
+probes without parallax), `fa_probe_sh_coef(origin, res, k)` reads texel k of the SH row. `fa_environment(d, rough)` is
+`sky x (1 - sa - sb) + A x sa + B x sb` (the sky from its tile with `fa_env_sky.w`, else the gradient) and replaces the old cube read, so
+the specular IBL, the clear coat, sheen and anisotropy layers and `fa_sky_light` all see probes. `fa_ambient_light(n)` blends the nine
+SH coefficients of the sky and the probes by the same shares and evaluates once.
+
+**The diffuse precedence** (`fa_indirect_diffuse`): the lightmap texel; else the baked light probes (M73.4d) over the coverage they
+have, mixed with `fa_ambient_light(n)` (the reflection probes' SH and the sky's) for the rest; else `fa_ambient_light(n)`. A lightmapped
+surface keeps its specular reflection of the probes (a lightmap holds no direction), and `fa_baked_keep` (the baked direct lights a mixed
+light must not add again) is untouched: the probes add no direct light, so there is nothing to subtract.
+
+**Cost.** A scene with no probe in reach is the sky-only frame byte for byte (a test compares the two; the extra reads sit behind
+`share > 0` branches); a probe adds no draw call. The atlas stays at 8 MB (4 MB RGBA8), made by the sky alone too. The pick is a
+loop over the probes of the scene per mesh on the scene build (the job split does not change it).
+
+**The editor.** `tools/editor/src/viewport.cpp` draws the box of a selected ReflectionProbe (a perspective view only), and the
+Inspector's `render.probes {entity}` is the way to ask which probes a mesh reflects.
+
+## What P5d-2 can use
+
+- The atlas is one image at fragment view 14 with the unit's sampler 10: anything that stores a map in it as a tile (the GI grid of P5d-1)
+  is read by the same functions given the tile's origin and resolution. `fa_probe_radiance(origin, res, dir, roughness)` and
+  `fa_probe_sh_coef(origin, res, k)` take ANY tile, not only a ReflectionProbe's. The binding needs no change: P6b's transmission
+  keeps its own unit (view 28).
+- To make a draw read another tile, fill `fa_rpa_*` / `fa_rpb_*` in `fill_probe_fs` (a pick with a tile and a share; `fa_rpX_pos.w` = 0
+  skips the parallax) or add vec4s next to them; every fs-params change is mirrored in `mesh_full_common.glsl` (a test compares the
+  two blocks) and costs a regeneration of the shader header and of the fixtures (`FA_UPDATE_FIXTURES=1` through `fa_test_tooling`).
+- Sharing the two picks with a third source means a change to the share rule (`ProbePick::shares`: the sky has what the probes leave) and
+  to the batch key (`ProbePick::key()` has 9 + 6 + 9 + 6 bits, 30 of 32; a larger pick needs a wider key).
+- A probe that is `noRoom` or not yet captured is simply absent from `probeVolumes`, so the sky takes its share: a new source of tiles
+  should follow the same rule (a tile that holds nothing yet is never listed).
 
 ## Limits and what is not verified
 

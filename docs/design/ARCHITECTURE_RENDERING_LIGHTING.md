@@ -42,9 +42,8 @@ into a row or changes the table together with the `static_assert`s under it.
 | 1 `fa_shadow_tex` (1, 1) | the directional shadow map; from M73.2 the shadow atlas (cascades, spot and point faces), same slot, nearest sampler | 0, 1, 2 |
 | 2..5 normal, metallic-roughness, occlusion, emissive (views 2..5, sampler 0) | the material's maps | 0, 1, 2 |
 | 6..9 (samplers 2..5) | the four textures of a custom material | 0, 1, 2 |
-| 14 `fa_env_tex` (sampler 10) | the baked sky, a cube: mips 0..4 prefiltered by roughness, mip 5 the sky's nine spherical-harmonics coefficients (M73-P3e) | 0, 1 |
+| 14 `fa_probe_atlas` (sampler 10) | M73-P3c: ONE 2D atlas, octahedral: entry 0 the baked sky, the others the reflection probes (prefiltered by roughness, an SH row each); the meshes no longer read the sky's cube | 0, 1, 2 |
 | 15 | free: the irradiance cube is retired (its unit is the screen slot, 28) | 0 |
-| 14 `fa_probe_atlas` (sampler 10) | M73.3b/c: reflection probes and the sky, octahedral 2D, prefiltered by roughness; replaces the cube | 2 |
 | 24 `fa_light_data` (sampler 1, nearest, `texelFetch`) | M73.1a, RGBA32F: the lights and the clusters' light lists, M73.5b the decal records and their cluster lists (landed) | 1, 2 |
 | 25 `fa_light_atlas` (sampler 10) | M73.1b: ONE RGBA16F atlas: the LTC tables, the cookies and the IES profiles ("The light atlas") | 1, 2 |
 | 26 `fa_lightmap` (sampler 10) | M73.4a: the lightmap page of the entity drawn (RGBA16F, one page per draw; a white texel when it has none), read at its lightmap UV | 1, 2 |

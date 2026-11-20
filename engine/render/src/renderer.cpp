@@ -1231,7 +1231,10 @@ void Renderer::Impl::render(World& world, float dt) {
     // into the world stay good), before any job. The MeshRenderers that show a render target (texture, normalMap or a texture
     // parameter of the material) are listed from it: who shows what is known from the meshes in view of each camera, below.
     // The scene lists the targets of a mesh only when some camera renders into one.
-    renderScene.build(world, *assets, kNullEntity, !targetCams.empty());
+    probes_build_volumes(
+        world);  // the boxes the meshes pick their reflection probes from (the probes captured in earlier frames)
+    renderScene.build(world, *assets, kNullEntity, !targetCams.empty(), &probeVolumes);
+    probes_note_picks();
     struct MeshRef {
         Entity e;
         const MeshAsset* mesh = nullptr;

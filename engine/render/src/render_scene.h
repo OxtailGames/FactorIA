@@ -110,7 +110,9 @@ struct SceneMesh {
     // Baked light probes (M73.4d): what a mesh without a lightmap receives instead of the sky ambient; points into
     // a vector of the RenderScene (null = no probes reach it, or none are baked), probeKey = probe_light_key of it.
     const ProbeLight* probe = nullptr;
-    std::uint64_t probeKey = 0;
+    std::uint64_t probeKey =
+        0;                 // the light probe key with the reflection pick folded in (they choose different draws too)
+    ProbePick refl;        // the reflection probes that reach the mesh (probe_select.h); none without volumes
     bool hasLods = false;  // MeshRenderer.lods: mesh, box and blending are chosen again per camera
     // texture or normalMap is a render target ("target:<name>"): which image that is depends on the job that draws (a
     // camera's own target is the checker in its own frame), so every job resolves the texture again.
@@ -124,7 +126,9 @@ public:
     // the asset lookups on this thread and the matrices, flashes, boxes and hashes as jobs ("render.mesh_matrices",
     // "render.mesh_cull"). The order is the world's own, whatever the job threads. `wantTargets` also lists, per mesh, the
     // render targets it shows.
-    void build(World& world, Assets& assets, Entity scopeRoot, bool wantTargets);
+    // `probeVolumes`: the boxes of this frame's reflection probes (null or empty = none: every mesh reflects the sky).
+    void build(World& world, Assets& assets, Entity scopeRoot, bool wantTargets,
+               const std::vector<ProbeVolume>* probeVolumes = nullptr);
     const std::vector<SceneMesh>& meshes() const { return meshes_; }
     Entity scope() const { return scope_; }
     bool built() const { return built_; }

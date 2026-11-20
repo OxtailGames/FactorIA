@@ -414,6 +414,19 @@ TEST_CASE("render.probes: empty without probes, lists a ReflectionProbe with its
     auto bad = c.call("render.probes", Json{{"entity", "lobby"}});
     REQUIRE_FALSE(bad.ok);
     CHECK(bad.error.dump().find("entity") != std::string::npos);
+    // With a mesh: which probes it reflected in the last frame (the sky only here: the probe's box is far away from it).
+    Entity ball = e.world().create("ball");
+    e.world().get<Transform>(ball)->position = Vec3{100.0f, 0.0f, 0.0f};
+    e.world().add<MeshRenderer>(ball).mesh = "sphere";
+    e.step(2);
+    auto mine = c.call("render.probes", Json{{"entity", "ball"}});
+    REQUIRE_MESSAGE(mine.ok, mine.error.dump());
+    REQUIRE(mine.result.contains("mesh"));
+    CHECK(mine.result["mesh"]["probes"].empty());
+    CHECK(mine.result["mesh"]["sky"].get<double>() == doctest::Approx(1.0));
+    auto nobody = c.call("render.probes", Json{{"entity", "nobody_here"}});
+    REQUIRE_FALSE(nobody.ok);
+    CHECK(nobody.error.dump().find("nobody_here") != std::string::npos);
 
     TempProject q("probes-command-none");
     Engine headless;

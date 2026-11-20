@@ -46,6 +46,9 @@ struct Frame {
     // whole screen after every camera (Sprite/Shape2D/Text/ParticleEmitter with space "screen", UI, debug text). A game with
     // one camera and the whole screen as its viewport gathers both in one frame.
     bool wantWorld = true, wantScreen = true;
+    // A reflection probe's capture face (Renderer::Impl::probe_face_frame): its meshes reflect the sky only, never another probe
+    // (no bounce: a capture would depend on the order the probes were captured in).
+    bool noProbes = false;
     int targetW = 0, targetH = 0;
     float dt = 0;
     float time = 0;  // World::time(): what a material's fa_time reads in its 2D draws

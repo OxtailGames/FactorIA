@@ -905,8 +905,11 @@ void Renderer::Impl::gather_meshes(DrawContext& ctx) {
     auto& blended = ctx.blended;
     fr.anyFlash = world.feel().any_flash();
     if (!fr.wantWorld) return;
-    if (!renderScene.built() || renderScene.scope() != fr.scopeRoot)
-        renderScene.build(world, *assets, fr.scopeRoot, false);
+    if (!renderScene.built() || renderScene.scope() != fr.scopeRoot) {
+        probes_build_volumes(
+            world);  // the boxes the meshes pick their reflection probes from (fill_probe_fs reads the same list)
+        renderScene.build(world, *assets, fr.scopeRoot, false, &probeVolumes);
+    }
     const std::vector<SceneMesh>& shared = renderScene.meshes();
     // The items this camera draws, in the scene's (the world's) order; `special` are those whose mesh or textures depend on the
     // camera.
@@ -939,6 +942,7 @@ void Renderer::Impl::gather_meshes(DrawContext& ctx) {
         mi.lm = sm.lm;
         mi.probe = sm.probe;
         mi.probeKey = sm.probeKey;
+        mi.refl = sm.refl;
         mi.dist = length(sm.model.translation() - fr.cam.position);
         meshBlended.push_back(sm.blended ? 1 : 0);
     }
@@ -1886,14 +1890,14 @@ void Renderer::Impl::scene_uniforms(DrawContext& ctx) {
 }
 
 static_assert(
-    kMaterialEnvView == VIEW_mesh_fa_env_tex && kMaterialEnvSampler == SMP_mesh_fa_env_smp,
-    "the environment slots of mesh_common.glsl and render_internal.h (and tools/common/shaders.h) must agree");
+    kMaterialEnvView == VIEW_mesh_fa_probe_atlas && kMaterialEnvSampler == SMP_mesh_fa_env_smp,
+    "the probe atlas slots of mesh_common.glsl and render_internal.h (and tools/common/shaders.h) must agree");
 
 // The sky environment (renderer_env.h) of a job: with SceneSettings.skyMaterial, the meshes light and reflect the sky
 // that is seen, baked into two cubes. Reads: ctx.ss, ctx.lights, ctx.fuScene.fa_time (all set), the job's frame.
 // Writes: ctx.envActive (the meshes of this job sample the cubes), ctx.envBake (this job declares the "sky-env" pass,
-// which bakes them), ctx.envKey, ctx.envSky (what the pass draws), the environment flags of ctx.fuScene (fa_env_sky.w,
-// fa_env_horizon.w). The cubes are baked again when their key changes: everything the sky depends on (the material and
+// which bakes them), ctx.envKey, ctx.envSky (what the pass draws). The meshes read the sky from its entry of the probe atlas
+// (the bake pass writes it, probes_write_sky), not from the cubes. The cubes are baked again when their key changes: everything the sky depends on (the material and
 // its build, its params and textures, the colours, the sun when the snippet reads it, the colour space) and, for an
 // animated sky (its snippet reads the time), the game time in steps of kEnvTimeStep seconds (the sky is drawn at the
 // step's start, so a run draws the same images at any frame rate). The first job of a frame that wants an environment
@@ -2057,9 +2061,7 @@ void Renderer::Impl::plan_env(DrawContext& ctx) {
     ctx.envActive = true;
     ctx.envKey = h;
     ctx.envSky = sky;
-    ctx.fuScene.fa_env_sky[3] =
-        skyEnv.format() == SG_PIXELFORMAT_RGBA8 ? 2.0f : 1.0f;  // 2: the SH is stored 8-bit coded
-    ctx.fuScene.fa_env_horizon[3] = float(kEnvLevels - 1);
+    // fa_env_sky.w (the sky's entry of the probe atlas is written) is set per draw by fill_probe_fs.
 }
 
 // Binds the vertex buffers of a custom material's extras (MeshExtras): its per-instance params from `data` (the floats
@@ -2177,6 +2179,52 @@ static void fill_layers(mesh_fa_mesh_fs_params_t& fu, const MeshRenderer& mr, co
     fu.fa_layers_d[3] = 0.0f;
 }
 
+// The reflection part of the fragment parameters (mesh_common.glsl fa_atlas, fa_rpa_*, fa_rpb_*; docs/design/ARCHITECTURE_PROBES.md,
+// "What the meshes read"): where the atlas and the sky's entry are, and the tile, capture position and box of each probe the mesh picked
+// (render_scene.cpp; at most two). A probe that is not in the atlas any more (evicted, its capture not done) is left out and the sky takes
+// its share. A capture face (Frame::noProbes) and an unlit mesh read the sky only.
+void Renderer::Impl::fill_probe_fs(const DrawContext& ctx, const MeshItem& mi, bool lit, mesh_fa_mesh_fs_params_t& fu) {
+    const ProbeSystem& ps = probes;
+    const bool atlas = ps.atlas.valid();
+    fu.fa_atlas[0] = atlas ? float(ps.atlas.size) : 1.0f;
+    fu.fa_atlas[1] = ps.gpu.rgba8() ? 1.0f : 0.0f;
+    const bool sky = atlas && ctx.envActive && ps.skyPlaced && ps.skyWrittenFrame != 0;
+    fu.fa_atlas[2] = sky ? float(ps.skyTile.x) : 0.0f;
+    fu.fa_atlas[3] = sky ? float(ps.skyTile.y) : 0.0f;
+    fu.fa_env_sky[3] = sky ? 1.0f : 0.0f;
+    float* tile[2] = {fu.fa_rpa_tile, fu.fa_rpb_tile};
+    float* pos[2] = {fu.fa_rpa_pos, fu.fa_rpb_pos};
+    float* box[2][3] = {{fu.fa_rpa_bx, fu.fa_rpa_by, fu.fa_rpa_bz}, {fu.fa_rpb_bx, fu.fa_rpb_by, fu.fa_rpb_bz}};
+    for (int k = 0; k < 2; ++k) {
+        for (int c = 0; c < 4; ++c) {
+            tile[k][c] = 0.0f;
+            pos[k][c] = 0.0f;
+            for (int r = 0; r < 3; ++r) box[k][r][c] = 0.0f;
+        }
+    }
+    if (!atlas || !lit || ctx.fr.noProbes || !mi.refl.any()) return;
+    float shares[2];
+    mi.refl.shares(shares);
+    for (int k = 0; k < 2; ++k) {
+        const std::uint16_t idx = mi.refl.index[k];
+        if (!idx || idx > probeVolumes.size() || !(shares[k] > 0.0f)) continue;
+        const ProbeVolume& v = probeVolumes[std::size_t(idx) - 1];
+        const auto it = ps.entries.find(v.id);
+        if (it == ps.entries.end() || !it->second.placed || it->second.captures == 0) continue;
+        const ProbeTile& t = it->second.tile;
+        tile[k][0] = float(t.x);
+        tile[k][1] = float(t.y);
+        tile[k][2] = float(t.resolution);
+        tile[k][3] = shares[k];
+        pos[k][0] = v.position.x;
+        pos[k][1] = v.position.y;
+        pos[k][2] = v.position.z;
+        pos[k][3] = v.projection ? 1.0f : 0.0f;
+        for (int r = 0; r < 3; ++r)
+            for (int c = 0; c < 4; ++c) box[k][r][c] = v.rows[r][c];
+    }
+}
+
 // The fragment parameters (fa_mesh_fs_params) of one part (reads ctx.fuScene, or ctx.fuBlend for a blended part, ctx.doShadows).
 mesh_fa_mesh_fs_params_t Renderer::Impl::fill_fs(DrawContext& ctx, const MeshItem& mi, const SubMesh& part,
                                                  const PartDraw& d, bool blended) {
@@ -2187,6 +2235,7 @@ mesh_fa_mesh_fs_params_t Renderer::Impl::fill_fs(DrawContext& ctx, const MeshIte
     fu.fa_counts[3] = float(
         decal_recv(mr));  // 0 = receives no decal, else 1 + MeshRenderer.decalLayer (the view's decals: fa_counts.y)
     const bool unlit = mr.unlit || d.error || (d.mat && d.mat->lighting == "unlit");
+    fill_probe_fs(ctx, mi, !unlit, fu);
     // MeshRenderer.emissiveStrength scales both the component's colour and the model's own emission; a NaN or negative
     // value (a script wrote it) counts as 0, no glow.
     const float strength = mr.emissiveStrength > 0.0f ? std::min(mr.emissiveStrength, 1000.0f) : 0.0f;
@@ -2325,9 +2374,8 @@ void Renderer::Impl::bind_textures(DrawContext& ctx, sg_bindings& b, const PartD
         (ctx.contactOn && opaquePhase && !shadowPass && ctx.screenView.id) ? ctx.screenView : white->view;
     // The sky environment (renderer_env.h): the baked cube (the reflection and the SH of the ambient), or a black one while the meshes use the gradient (every
     // mesh program of the main pass declares the slots; a custom program that does not has them dropped below).
-    const bool env = ctx.envActive && skyEnv.baked();
-    b.views[kMaterialEnvView] = env ? skyEnv.prefiltered_view() : skyEnv.blank_view(gpu);
-    b.samplers[kMaterialEnvSampler] = skyEnv.sampler();
+    b.views[kMaterialEnvView] = probes.atlas.valid() ? probes.atlas.tex : white->view;
+    b.samplers[kMaterialEnvSampler] = gpu.sampler(SamplerKind::LinearClamp);
     if (!prog) return;
     if (d.mat)
         for (std::size_t i = 0; i < d.mat->textures.size(); ++i) {
@@ -3395,6 +3443,7 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
                     skyEnv.bake_slice(gpu, key, draw, &stats.drawCalls);
                 else
                     skyEnv.bake(gpu, key, draw, &stats.drawCalls);
+                probes_write_sky();  // the meshes read the sky from its entry of the probe atlas
             });
     }
     // The physical sky's table of the picture: the first job that shows the sky draws it, the others read it.

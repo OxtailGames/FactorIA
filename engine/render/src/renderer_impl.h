@@ -476,6 +476,19 @@ struct Renderer::Impl {
     // atlas, uploads the baked pages and writes the sky's entry.
     void probes_plan(World& world);
     void probes_finish();
+    // The boxes of this frame's probes that hold a capture (probe_select.h), built once per frame before the scene's meshes pick theirs
+    // (gather_meshes); kept for fill_fs, which looks the picked probes' tiles up through them. Empty = every mesh reflects the sky.
+    std::vector<ProbeVolume> probeVolumes;
+    void probes_build_volumes(World& world);
+    // The reflection picks of the main scene's meshes that reach a probe (entity bits, pick), kept after the scene is reset: what
+    // Renderer::probe_mesh_report (render.probes with `entity`) answers from. Filled by probes_note_picks() right after the scene is built.
+    std::vector<std::pair<std::uint64_t, ProbePick>> meshPicks;
+    void probes_note_picks();
+    // Writes the sky's entry of the atlas from the baked environment cube when it is not there yet or is out of date (the tail of the
+    // "sky-env" pass, and probes_plan for an atlas that was just made).
+    void probes_write_sky();
+    // The reflection part of the fragment parameters of one draw: the atlas, the sky's tile and the (up to two) probes the mesh reflects.
+    void fill_probe_fs(const DrawContext& ctx, const MeshItem& mi, bool lit, mesh_fa_mesh_fs_params_t& fu);
     // The Frame of capture face `face` of `rp` seen from `position`: a 90 degree camera into an image of `resolution` squared.
     void probe_face_frame(Frame& fr, World& world, const ReflectionProbe& rp, Vec3 position, int face, int resolution);
     void

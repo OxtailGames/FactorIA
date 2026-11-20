@@ -536,10 +536,14 @@ public:
     Json frame_graph_report() const;
 
     // Reflection probes (ReflectionProbe; include/fa/render/probe.h, docs/design/ARCHITECTURE_PROBES.md). The renderer captures the realtime
-    // probes a few faces a frame, uploads the baked ones, and keeps every probe's tile in one atlas image that the meshes do not read yet.
+    // probes a few faces a frame, uploads the baked ones, and keeps every probe's tile in one atlas image that the lit meshes sample
+    // (M73-P3c; the sky is entry 0 of it).
     // The report of the `render.probes` command: {atlas: {size, format, tiles, usedTexels, reservedTexels, ...}, sky: {...}, faceBudget,
     // probes: [{entity, mode, state, tile, captures, lastFrame, ...}]}. Empty object before init() and while no probe exists.
     Json probe_report() const;
+    // What `mesh` reflected in the last frame: {probes: [{entity, share}], sky}; the shares (0..1, in steps of 1/32) of the probes and of the
+    // sky add up to 1. A mesh no probe reaches (or one that was not drawn) reflects the sky: {probes: [], sky: 1}. Empty object before init().
+    Json probe_mesh_report(Entity mesh) const;
     // Asks for the probe's next capture as soon as the budget allows (an `onDemand` probe captures only then). False when it is not a
     // realtime probe of this renderer.
     bool probe_refresh(Entity probe);
