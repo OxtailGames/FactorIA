@@ -240,6 +240,10 @@ void pack_instance_extras(const std::vector<MeshItem>& items, std::vector<MeshBa
 // keeps them first).
 inline constexpr int kMaxDirectionalLights = 32;
 
+// Contact shadows (M73.2c) fade out between half of this distance from the camera and this distance (metres): a pixel of the prepass covers
+// too much of the world there for a ray of a few centimetres.
+inline constexpr float kContactShadowFadeEnd = 40.0f;
+
 struct LightData {
     Vec4 pos, color, dir;
     int rank = 2;     // 0 = shadow-casting directional, 1 = directional, 2 = point/spot
@@ -268,6 +272,9 @@ struct LightData {
         false;  // Light.mode Baked: its direct light is in the lightmaps, so a lightmapped surface skips it (M73.4a)
     // Light.volumetric (M73.5): the strength of this light's shafts in the volumetric fog; 0 = none.
     float volumetric = 0.0f;
+    // Light.contactShadowLength (M73.2c) in metres when SceneSettings.contactShadows is on and the frame draws contact shadows; 0 = none.
+    // Packed in the y of the light's texel of the shadow region of the light data texture (shaders/light_data.glsl).
+    float contactLength = 0.0f;
 };
 
 // Orders the lights by relevance (the shadow caster first, then directional lights, then point and spot lights by

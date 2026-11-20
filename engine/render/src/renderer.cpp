@@ -36,6 +36,7 @@ Json RenderStats::to_json() const {
                 {"volumetricCameras", volumetricCameras},
                 {"volumetricLights", volumetricLights},
                 {"volumetricLightsDropped", volumetricLightsDropped},
+                {"contactShadowLights", contactShadowLights},
                 {"decals", decals},
                 {"decalsDropped", decalsDropped},
                 {"decalClusterClipped", decalClusterClipped},

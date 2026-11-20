@@ -2172,6 +2172,18 @@ void register_builtin_components(TypeRegistry& r) {
                "(default) = no shafts, and a directional light needs a value above 0 too. A camera scatters up to "
                "4 directional lights and its most important point and spot lights (4, 8 or 16 by "
                "SceneSettings.volumetricQuality); stats volumetricLightsDropped counts the others.")
+        .range(0, 10)
+        .field("contactShadowLength", &Light::contactShadowLength,
+               "Metres of the screen-space contact shadow of this light: from every pixel a short ray (12 steps) "
+               "marches toward the light through the depth the camera sees, and what it runs into shadows the light, "
+               "which adds fine shadows where objects touch the floor or each other, closing the gap a shadow map "
+               "leaves at the contact line. 0 (default) = off; 0.1 to 1 is typical, the ray never goes past the "
+               "light. It needs SceneSettings.contactShadows on, a GPU that can render the depth prepass "
+               "(render.supports contactShadows) and a mesh that receives shadows; it multiplies the light's "
+               "shadow, so it also works with a light that has castShadows off. A directional light, a spot and a "
+               "point light have it (an area light marches from its centre). Screen space: only what is in the "
+               "picture casts it, not thin objects or things off screen, and transparent meshes neither cast nor "
+               "receive it. Custom lighting() hooks get it inside fa_light(n, i) and fa_light_shadow(n, i).")
         .range(0, 10);
 
     r.add<Decal>(
@@ -4201,8 +4213,13 @@ void register_builtin_components(TypeRegistry& r) {
                "important is dropped, the same every frame.")
         .range(512, 8192)
         .field("contactShadows", &SceneSettings::contactShadows,
-               "Short screen-space shadow rays toward the light that add fine shadows where objects touch. Needs a "
-               "GPU that can sample the depth (render.supports contactShadows). No effect yet: M73.2 brings it.")
+               "Master switch of the screen-space contact shadows: the lights with Light.contactShadowLength above 0 "
+               "march a short ray toward the light through the depth the camera sees and shadow what it runs into, "
+               "adding fine shadows where objects touch. Off (default) = nothing changes, no depth prepass is made "
+               "for it and the picture is bit-identical. Needs a GPU that can render the depth prepass "
+               "(render.supports contactShadows); on one that cannot, nothing is drawn. Screen space: no "
+               "off-screen casters, no thin objects, and transparent meshes neither cast nor receive it "
+               "(docs/rendering/RENDERING_LIGHTING.md, \"Contact shadows\").")
         .asset_field(
             "environmentMap", &SceneSettings::environmentMap, "hdri",
             "An HDR image (.hdr, equirectangular: twice as wide as it is tall) of the surroundings. It lights and "
