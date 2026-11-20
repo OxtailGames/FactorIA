@@ -159,9 +159,8 @@ struct ProbeSystem {
     };
     std::vector<Job> jobs;
     int drawCalls = 0;  // passes of the probes since the renderer was made (reported)
-    // What probes_plan decided for probes_finish: the baked probes to upload and whether the sky's entry is written.
+    // What probes_plan decided for probes_finish: the baked probes to upload.
     std::vector<std::uint64_t> uploads;
-    bool writeSky = false;
     std::string skyState;  // "ready", "noSky" (the scene draws no sky material: the meshes keep the gradient), "failed"
 };
 

@@ -11,6 +11,7 @@
 #include <utility>
 #include <vector>
 
+#include "probe_select.h"
 #include "render_internal.h"
 
 namespace fa::render {
@@ -45,7 +46,9 @@ struct MeshItem {
     // Baked light probes (M73.4d): the SH the item receives instead of the sky ambient (null = none; points into the RenderScene)
     // and its quantised key (probe_light_key, 0 = none). Items with different keys never share a draw.
     const ProbeLight* probe = nullptr;
-    std::uint64_t probeKey = 0;
+    std::uint64_t probeKey = 0;  // also folds in `refl`: items that reflect other probes never share a draw either
+    // The reflection probes the item reflects (M73-P3c, probe_select.h): up to two, with their shares of the light; none = the sky.
+    ProbePick refl;
 };
 
 // What the decal pass of the shader needs to know of a mesh (MeshRenderer.receiveDecals / decalLayer): 0 = it receives none, else

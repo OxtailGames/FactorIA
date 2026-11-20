@@ -134,9 +134,9 @@ layout(binding=25) uniform texture2D fa_full_light_atlas;
 layout(binding=27) uniform texture2D fa_full_decal_tex;
 #define FA_DECAL_TEX fa_full_decal_tex
 #define FA_DECAL_SMP fa_env_smp
-// The baked sky of a sky material (as mesh_common.glsl's fa_fs_head: view 14, sampler 10; mips 0..4 the reflection, mip 5 the SH of the
-// ambient; used while fa_env_sky.w is 1 or 2).
-layout(binding=14) uniform textureCube fa_env_tex;
+// The probe atlas (as mesh_common.glsl's fa_fs_head: view 14, sampler 10): the sky's tile and the reflection probes' (fa_env_funcs). A full
+// shader has no fragment world position, so a probe's box does not correct its reflection here (FA_ENV_PARALLAX is not defined).
+layout(binding=14) uniform texture2D fa_probe_atlas;
 layout(binding=10) uniform sampler fa_env_smp;
 
 // A copy of mesh_common.glsl's fa_mesh_fs_params (a test compares them): the same CPU struct fills both.
@@ -157,8 +157,8 @@ layout(binding=1) uniform fa_mesh_fs_params {
     vec4 fa_fog_c;              // xyz = the camera's forward axis in the world, w = 1 for an orthographic camera (0 otherwise)
     vec4 fa_counts;             // x = light count, y = first texel of the decal region (0 = no decals), z = 1 on OpenGL backends,
                                 // w = what this mesh takes of the decals: 0 = none, else 1 + MeshRenderer.decalLayer
-    vec4 fa_env_sky;            // rgb sky color (top of the environment); w = 1 when the baked environment of a sky material is bound
-    vec4 fa_env_horizon;        // rgb horizon color; w = the highest mip of fa_env_tex (what roughness 1 reads)
+    vec4 fa_env_sky;            // rgb sky color (top of the environment); w = 1 when the sky's tile of the probe atlas holds the baked sky
+    vec4 fa_env_horizon;        // rgb horizon color; w unused
     vec4 fa_time;               // x = seconds of game time since the scene started
     // Clustered lighting (M73.1; src/light_clusters.h): the rows of the view-projection matrix that give a fragment's tile, the
     // camera's forward depth and the grid; all zero (fa_cl_info.x = -1) while the frame has no local lights.
@@ -184,6 +184,18 @@ layout(binding=1) uniform fa_mesh_fs_params {
     vec4 fa_ct_fwd;
     // Light probes (M73.4d): a full shader has no lighting either; the 9 vec4 keep the block the same size.
     vec4 fa_probe_sh[9];
+    // The reflection probes (M73-P3c): see mesh_common.glsl.
+    vec4 fa_atlas;
+    vec4 fa_rpa_tile;
+    vec4 fa_rpa_pos;
+    vec4 fa_rpa_bx;
+    vec4 fa_rpa_by;
+    vec4 fa_rpa_bz;
+    vec4 fa_rpb_tile;
+    vec4 fa_rpb_pos;
+    vec4 fa_rpb_bx;
+    vec4 fa_rpb_by;
+    vec4 fa_rpb_bz;
 };
 
 @include_block fa_inst_flags

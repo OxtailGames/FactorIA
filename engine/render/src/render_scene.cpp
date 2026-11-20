@@ -137,7 +137,8 @@ Vec3 probe_point(const World& world, const MeshRenderer& mr, const Mat4& model, 
     return {probe_snap(p.x), probe_snap(p.y), probe_snap(p.z)};
 }
 
-void RenderScene::build(World& world, Assets& assets, Entity scopeRoot, bool wantTargets) {
+void RenderScene::build(World& world, Assets& assets, Entity scopeRoot, bool wantTargets,
+                        const std::vector<ProbeVolume>* probeVolumes) {
     meshes_.clear();
     scope_ = scopeRoot;
     built_ = true;
@@ -293,6 +294,18 @@ void RenderScene::build(World& world, Assets& assets, Entity scopeRoot, bool wan
                 if (!sm.noCull) {
                     sm.bmin = {-h, -h, -h};
                     sm.bmax = {h, h, h};
+                }
+            }
+            if (probeVolumes && !probeVolumes->empty() && !mr.unlit) {
+                // The reflection probes of the mesh (M73-P3c): chosen at the centre of its box, a pure function of the position, so the
+                // same scene picks the same whatever the job split. The pick is part of the batch key.
+                const Vec3 at = sm.model.transform_point((sm.bmin + sm.bmax) * 0.5f);
+                sm.refl = pick_probes(*probeVolumes, at);
+                if (sm.refl.any()) {
+                    std::uint64_t k = std::uint64_t(sm.refl.key()) * 0x9e3779b97f4a7c15ull;
+                    k ^= k >> 31;
+                    sm.probeKey = (sm.probeKey ^ k) * 0xff51afd7ed558ccdull + sm.refl.key();
+                    if (sm.probeKey == 0) sm.probeKey = 1;
                 }
             }
         }

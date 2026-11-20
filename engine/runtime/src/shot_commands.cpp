@@ -662,30 +662,52 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
          "probes: [{entity, mode, "
          "update, state, message?, resolution, importance, tile: {x, y, resolution} or null, captures, "
          "lastFrame, facesDone | bakedMap, "
-         "hash?}]}. `state` is \"ready\", \"pending\" (waiting for its first capture), \"capturing\" "
-         "(facesDone of 6 faces drawn), "
-         "\"noRoom\" (the atlas has no tile for it: `message` says why), \"noBake\" (a baked probe with no "
-         "readable bakedMap: run "
-         "probe.bake) or \"failed\" (retried after 30 frames). `overLimit` counts the active probes beyond the "
-         "256 the renderer keeps (those with the smallest importance): they have no entry in `probes`. A "
-         "capture is asked again with render.probe_refresh. `lastFrame` counts the frames that had probes. The atlas "
-         "is not read "
-         "by the meshes yet. The result is "
-         "{probes: [], atlas: null} while no ReflectionProbe has been drawn. Errors: `unavailable` without "
-         "graphics. Example: render.probes {}" FA_COMMAND_DETAILS
-         "The atlas of the realtime and baked probes is one 1024 x 1024 image (8 MB as RGBA16F); "
+         "hash?}]}. `state` is \"ready\", \"pending\", \"capturing\", \"noRoom\", \"noBake\" or \"failed\". "
+         "The lit meshes sample the atlas (the sky is its entry 0, `sky`). The result is "
+         "{probes: [], atlas: null} while no ReflectionProbe has been drawn. With `entity` (a mesh), the result also "
+         "has `mesh: {probes: [{entity, share}], sky}`: which probes that mesh reflected in the last frame and "
+         "how much of its reflection each holds (0..1, steps of 1/32; the probes and the sky add up to 1). "
+         "Errors: `unavailable` without graphics; `invalid_argument` for an `entity` without a MeshRenderer. "
+         "Example: render.probes {} or render.probes {\"entity\": \"sphere\"}. What each state means: "
+         "docs/rendering/RENDERING_PROBES.md, the render.probes item." FA_COMMAND_DETAILS
+         "`state`: \"ready\"; \"pending\" (waiting for its first capture); \"capturing\" (facesDone of 6 faces drawn); "
+         "\"noRoom\" (the atlas has no tile for it: `message` says why); \"noBake\" (a baked probe with no readable "
+         "bakedMap: run probe.bake); \"failed\" (retried after 30 frames). `overLimit` counts the active probes beyond "
+         "the 256 the renderer keeps (those with the smallest importance): they have no entry in `probes`. A capture "
+         "is "
+         "asked again with render.probe_refresh. `lastFrame` counts the frames that had probes. A mesh no probe "
+         "reaches "
+         "reflects the sky. "
+         "The atlas of the realtime and baked probes is one image 1024 texels wide (1024 x 1024, 8 MB as RGBA16F, "
+         "unless "
+         "a RealtimeGI makes it taller); "
          "`usedTexels` is what the tiles cover and "
          "`reservedTexels` what their shelves hold, so a large gap means fragmentation by resolution.",
-         parse_schema(R"({"type":"object","properties":{}})"), true, "game"},
+         parse_schema(R"({"type":"object","properties":{
+               "entity":{"type":"string","description":"A mesh entity (id or name): the result also says which probes it reflects."}}})"),
+         true, "game"},
         [&engine, &I](const Json& a) {
-            check_args_known(a, {}, "render.probes");
+            check_args_known(a, {"entity"}, "render.probes");
+            const bool one = a.is_object() && a.contains("entity") && !a["entity"].is_null();
+            if (one && !a["entity"].is_string())
+                throw CommandError(
+                    "invalid_arguments",
+                    std::string("render.probes: `entity` is a string (the mesh's id or name), got ") +
+                        a["entity"].type_name() + ".",
+                    "Pass \"entity\": \"sphere\", or leave `entity` out. scene.list_entities shows the ids.");
+            const Entity named = one ? need_entity(I.world, a, "entity") : kNullEntity;
+            if (one && !I.world.get<MeshRenderer>(named))
+                throw CommandError("invalid_argument",
+                                   "/entity: '" + I.world.id_of(named) + "' has no MeshRenderer component.",
+                                   "Name the entity that draws the mesh whose reflections you want to see.");
             if (!I.renderer || !I.renderer->initialized())
                 throw CommandError("unavailable",
                                    "No renderer: the engine runs with graphics=false, so no probes are captured.",
                                    "Run with graphics (headless needs Mesa/EGL on Linux), not graphics=false.");
             engine.render_now();
             Json j = I.renderer->probe_report();
-            if (j.empty()) return Json::object({{"probes", Json::array()}, {"atlas", Json()}});
+            if (j.empty()) j = Json::object({{"probes", Json::array()}, {"atlas", Json()}});
+            if (one) j["mesh"] = I.renderer->probe_mesh_report(named);
             return j;
         });
 
@@ -789,7 +811,8 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
          "the feature can ever run. `status` is \"supported\", \"planned (<milestone>)\" for an engine feature or "
          "effect the "
          "renderer does not draw (the M73 lighting rows until their step lands; clusteredLights, areaLights, "
-         "lightCookies, iesProfiles, lightmaps, lightProbes, volumetricFog and subsurface are drawn), or one "
+         "lightCookies, iesProfiles, lightmaps, lightProbes, reflectionProbes, volumetricFog and subsurface are "
+         "drawn), or one "
          "sentence that names the backend or the missing "
          "GPU capability. "
          "hdrOutput "
