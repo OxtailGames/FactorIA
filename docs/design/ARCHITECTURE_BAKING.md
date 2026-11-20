@@ -122,7 +122,7 @@ never in `engine/runtime`. The user page is "Baking" in [RENDERING_LIGHTING.md](
   worse than a finished bake.
 - **Jobs.** `bake_start` calls `make_plan` in the handler (so argument errors and "nothing to bake" are immediate), then
   `jobs::submit`s `execute`; the status fields (state, phase, progress, rays) are written by the job under the job's mutex and read by
-  `bake_status`, which never waits (with `jobThreads` "inline" the job only runs when `bake_status` is called: `jobs::wait`). A second
+  `bake_status`, which waits only when the pool has no worker (`jobThreads` 0: the job runs in that `jobs::wait` or in `jobs::end_frame`); with `jobThreads` "inline" `jobs::submit` runs the whole job inside `bake_start`. A second
   bake of the same manifest while one runs is refused (`busy`). The registry keeps the last 8 finished jobs (`unknown_job` for an older one). While the
   game runs (`Engine::play_world()`, set by the editor) `lightmap.bake` and `bake_start` are refused (`game_running`: the edit would go to the
   play copy of the scene), and a job that was started before gives `applied: false` with a note. `Engine::Impl::shutdownHooks`

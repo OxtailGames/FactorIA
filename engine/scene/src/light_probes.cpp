@@ -402,20 +402,6 @@ ProbeLight probe_light_at(const ProbeSet& set, Vec3 p) {
     return out;
 }
 
-bool probe_cell_of(Vec3 p, std::int32_t cell[3]) {
-    constexpr float kLimit = 1.0e5f;
-    if (!finite3v(p) || std::fabs(p.x) > kLimit || std::fabs(p.y) > kLimit || std::fabs(p.z) > kLimit) return false;
-    cell[0] = std::int32_t(std::floor(p.x / kProbeCell));
-    cell[1] = std::int32_t(std::floor(p.y / kProbeCell));
-    cell[2] = std::int32_t(std::floor(p.z / kProbeCell));
-    return true;
-}
-
-Vec3 probe_cell_centre(const std::int32_t cell[3]) {
-    return {(float(cell[0]) + 0.5f) * kProbeCell, (float(cell[1]) + 0.5f) * kProbeCell,
-            (float(cell[2]) + 0.5f) * kProbeCell};
-}
-
 const ProbeGroup* find_same_probe_group(const ProbeSet& in, const ProbeSet& of, const ProbeGroup& g) {
     auto near = [](Vec3 a, Vec3 b, float tol) {
         return std::fabs(a.x - b.x) <= tol && std::fabs(a.y - b.y) <= tol && std::fabs(a.z - b.z) <= tol;

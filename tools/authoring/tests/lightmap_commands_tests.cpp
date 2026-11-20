@@ -735,7 +735,8 @@ TEST_CASE("lightmap.bake: a page or probe file that could not be deleted (open e
     e.shutdown();
 }
 
-TEST_CASE("lightmap jobs: only the last 8 finished jobs are kept, whether or not anybody asked for their status") {
+TEST_CASE("lightmap jobs: only the last 8 finished jobs are kept, whether or not anybody asked for their status "
+          "(a bake with nothing to apply)") {
     TempProject p("prune");
     Engine e;
     std::string err;
@@ -744,7 +745,7 @@ TEST_CASE("lightmap jobs: only the last 8 finished jobs are kept, whether or not
     auto& c = e.commands();
     std::vector<std::string> ids;
     for (int i = 0; i < 12; ++i) {
-        auto started = c.call("lightmap.bake_start", small());
+        auto started = c.call("lightmap.bake_start", small(Json::object({{"apply", false}})));
         REQUIRE_MESSAGE(started.ok, started.error.dump());
         ids.push_back(started.result["job"]);
     }
@@ -789,8 +790,26 @@ TEST_CASE("lightmap commands: while the editor plays, a bake is refused and a fi
     e.shutdown();
 }
 
-TEST_CASE("lightmap jobs: with no worker threads the bake runs inside bake_start and the first status answers a "
-          "finished job") {
+TEST_CASE("lightmap jobs: a finished bake whose apply nobody handed over yet is not pruned") {
+    TempProject p("keepapply");
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(cfg(p, "inline"), nullptr, &err), err);  // inline: bake_start returns with the job finished
+    auto& c = e.commands();
+    std::vector<std::string> ids;
+    for (int i = 0; i < 12; ++i) {  // more than the 8 finished jobs kept, none consulted, all with apply (the default)
+        auto started = c.call("lightmap.bake_start", small());
+        REQUIRE_MESSAGE(started.ok, started.error.dump());
+        ids.push_back(started.result["job"]);
+    }
+    auto first = c.call("lightmap.bake_status", Json::object({{"job", ids[0]}}));
+    REQUIRE_MESSAGE(first.ok, first.error.dump());
+    CHECK(first.result["handOver"]["applied"] == true);
+    CHECK(e.world().settings().lightmaps == "scenes/main.lightmap.json");
+    e.shutdown();
+}
+
+TEST_CASE("lightmap jobs: with no worker threads the first status answers a finished job") {
     TempProject p("inline");
     Engine e;
     std::string err;
