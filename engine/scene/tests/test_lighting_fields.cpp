@@ -35,7 +35,8 @@ const std::vector<std::string> kLayerFields = {"clearcoat",  "clearcoatRoughness
 const std::vector<std::string> kDrawn = {
     "innerAngle",      "shadowResolution", "shadowBias",           "shadowNormalBias",    "shadowFilter",
     "shadowSoftness",  "shadowDistance",   "shadowCascades",       "shadowCascadeSplit",  "shadowCascadeBlend",
-    "shadowAtlasSize", "environmentMap",   "environmentIntensity", "environmentRotation", "environmentBackground"};
+    "shadowAtlasSize", "environmentMap",   "environmentIntensity", "environmentRotation", "environmentBackground",
+    "contactShadows"};  // M73.2c: drawn
 // Fields a package has made work: their doc strings no longer say "No effect yet" (M73.4a: the lightmap runtime).
 const std::vector<std::pair<std::string, std::string>> kLiveFields = {{"Light", "mode"},
                                                                       {"MeshRenderer", "lightmapScale"},
@@ -50,7 +51,9 @@ const std::vector<std::pair<std::string, std::string>> kLiveFields = {{"Light", 
                                                                       {"SceneSettings", "volumetricAnisotropy"},
                                                                       {"SceneSettings", "volumetricAmbient"},
                                                                       {"SceneSettings", "volumetricDistance"},
-                                                                      {"SceneSettings", "volumetricQuality"}};
+                                                                      {"SceneSettings", "volumetricQuality"},
+                                                                      // M73.2c: the screen-space contact shadows.
+                                                                      {"Light", "contactShadowLength"}};
 }  // namespace
 
 TEST_CASE("lighting fields: every new field is reflected and its doc says what it does and which package brings it") {
@@ -103,6 +106,7 @@ TEST_CASE("lighting fields: the defaults keep the look of a scene made before M7
     CHECK(l.shadowFilter == ShadowFilter::Pcf);
     CHECK(l.mode == LightMode::Realtime);
     CHECK(l.volumetric == 0.0f);
+    CHECK(l.contactShadowLength == 0.0f);
     CHECK(l.cookie.empty());
     CHECK(l.ies.empty());
     const SceneSettings s;

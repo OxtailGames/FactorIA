@@ -388,6 +388,11 @@ layout(binding=27) uniform texture2D fa_decal_tex;
 // 1 (2: the cube is RGBA8 and the coefficients are stored as c / 8 + 0.5).
 layout(binding=14) uniform textureCube fa_env_tex;
 layout(binding=10) uniform sampler fa_env_smp;
+// The screen slot (view 28, read with texelFetch through the nearest sampler 1; M73.2c): in the opaque phase the prepass image (r = linear
+// view depth, a = 1 on an opaque mesh), the source of the contact shadows. Bound by every draw (a white image when none takes contact
+// shadows, which no fragment then reads); M73.6b binds the opaque colour here for the transmissive draws, which have no contact shadows.
+layout(binding=28) uniform texture2D fa_screen_tex;
+@image_sample_type fa_screen_tex unfilterable_float
 
 layout(binding=1) uniform fa_mesh_fs_params {
     vec4 fa_camera_pos;         // xyz
@@ -423,6 +428,14 @@ layout(binding=1) uniform fa_mesh_fs_params {
                                 // in g, its roughness in b and the sheen roughness in a; 2 = the metallic-roughness map holds the
                                 // anisotropy strength in r and the specular in a (the importer packs them, see brdf_layers.glsl)
     vec4 fa_layers_d;           // rgb specular colour (KHR_materials_specular)
+    // Contact shadows (M73.2c; light_loop.glsl, block fa_contact). A draw that takes none has fa_ct_a.x = 0 and the rest is not read.
+    vec4 fa_ct_a;               // x = 1 when this draw takes contact shadows (an opaque mesh that receives shadows, view 28 holds the prepass),
+                                // y = 1 when images are bottom-up (OpenGL), zw = the prepass's size in pixels
+    vec4 fa_ct_b;               // x = the camera distance where the contact shadows are gone (they fade over its last half)
+    vec4 fa_ct_vpx;             // row 0 of the view-projection matrix: clip x of a world position
+    vec4 fa_ct_vpy;             // row 1: clip y
+    vec4 fa_ct_vpw;             // row 3: clip w
+    vec4 fa_ct_fwd;             // xyz = the camera's forward axis, w = -dot(forward, position): depth = dot(xyz, world) + w
 };
 
 // The varyings are declared in the order of the vertex stage's outputs (the instance values first): sokol-shdc matches them
@@ -639,6 +652,7 @@ float fa_shadow_factor(vec3 n, vec3 l) {
 @include_block fa_layers_env
 @include_block fa_layers_light
 @include_block fa_light_shared
+@include_block fa_contact
 @include_block fa_light_hooks
 @end
 

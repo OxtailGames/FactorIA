@@ -793,7 +793,10 @@ TEST_CASE("materials: the shader desc built from a twin equals the generated one
     CHECK(slots.ubMask == 0b10000011);  // vs params, fs params, and the shadows (binding 7); the lights are in view 24
     CHECK(slots.viewMask ==
           (0b111111u | 1u << render::kMaterialEnvView | 1u << VIEW_mesh_fa_light_tex | 1u << VIEW_mesh_fa_decal_tex |
-           1u << VIEW_mesh_fa_lightmap));  // + the sky environment, the light data, the decal atlas and the lightmap
+           1u << VIEW_mesh_fa_lightmap |
+           1u << VIEW_mesh_fa_screen_tex));  // + the sky environment, the light data, the decal atlas, the lightmap and the screen slot
+    // M73.2c: the screen slot (view 28) is the prepass of the contact shadows, read with texelFetch through the nearest sampler 1.
+    CHECK(VIEW_mesh_fa_screen_tex == 28);
     // M73.3a: the irradiance cube (view 15) is gone, its unit is the reserved screen slot, and the program binds fewer than 16 units
     // (the material's four textures of its own are not in this program's mask: they are views 6..9 of the mask above).
     CHECK((slots.viewMask & (1u << 15)) == 0);

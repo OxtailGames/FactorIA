@@ -169,6 +169,13 @@ layout(binding=1) uniform fa_mesh_fs_params {
                                 // in g, its roughness in b and the sheen roughness in a; 2 = the metallic-roughness map holds the
                                 // anisotropy strength in r and the specular in a (the importer packs them, see brdf_layers.glsl)
     vec4 fa_layers_d;           // rgb specular colour (KHR_materials_specular)
+    // Contact shadows (M73.2c): a full shader has none, it only has to keep the block the CPU fills the same size.
+    vec4 fa_ct_a;
+    vec4 fa_ct_b;
+    vec4 fa_ct_vpx;
+    vec4 fa_ct_vpy;
+    vec4 fa_ct_vpw;
+    vec4 fa_ct_fwd;
 };
 
 @include_block fa_inst_flags
