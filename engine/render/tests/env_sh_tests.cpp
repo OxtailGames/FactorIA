@@ -418,7 +418,7 @@ TEST_CASE("sky SH on the GPU: the shaders hold the nine coefficients in highp on
     // The mesh fragment shader's three functions of the ambient: the coefficients read back, the sum and the evaluation.
     const std::string mesh = glsl_source_from_header("mesh.glsl.h", "mesh_fs_source_glsl300es[");
     REQUIRE(!mesh.empty());
-    for (const char* fn : {"fa_sh_eval(", "fa_sky_sh_coef(", "fa_ambient_light("}) {
+    for (const char* fn : {"fa_sh_eval(", "fa_probe_sh_coef(", "fa_ambient_light("}) {
         CAPTURE(fn);
         const std::size_t at = mesh.find(std::string("highp vec3 ") + fn);
         REQUIRE(at != std::string::npos);

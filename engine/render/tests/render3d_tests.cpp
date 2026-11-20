@@ -1860,25 +1860,16 @@ TEST_CASE("sky materials: a turning sun bakes again only a sky whose snippet rea
     }
 }
 
-TEST_CASE("sky materials: a sky that appears after the first frame of meshes makes no second sampler") {
+TEST_CASE("sky materials: a sky that appears after the first frame of meshes renders without fallbacks") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     MaterialScope scope;
-    {  // a frame of meshes without a sky material: the blank cube and the sampler of the environment are made
+    {  // a frame of meshes without a sky material
         World w;
         add_sky_scene(w, "");
         g.render(w);
     }
-    // then the sky: ready() must keep the sampler that blank_view() made (it once made a new one and leaked the first)
-    render::Gpu& gpu = *render::renderer_gpu(g.renderer);
-    render::Environment env;
-    env.blank_view(gpu);
-    const sg_sampler first = env.sampler();
-    REQUIRE(first.id != 0);
-    REQUIRE(env.ready(gpu));
-    CHECK(env.sampler().id == first.id);
-    env.release();
-    {  // and through the renderer
+    {  // then the sky, through the renderer
         World w;
         add_sky_scene(w, "materials/skygrad.material.json");
         w.settings().skyColor = Color{0.47f, 0.48f, 0.49f, 1};

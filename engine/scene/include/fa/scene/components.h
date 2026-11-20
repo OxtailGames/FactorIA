@@ -1110,8 +1110,9 @@ struct Decal {
 };
 // M73.3b: a reflection probe captures the scene around its position into a small octahedral map (and its diffuse
 // spherical harmonics) that fills the engine's probe atlas (docs/rendering/RENDERING_LIGHTING.md, "Reflection probes").
-// The box (boxSize, boxOffset in the entity's local axes) is the region the probe lights; the mesh sampling of the atlas
-// arrives with M73.3c.
+// The box (boxSize, boxOffset in the entity's local axes) is the region the probe lights: a lit mesh inside it reflects the
+// probe (M73-P3c; blended with the next probe or the sky inside blendDistance of the box edge), a mesh outside every box
+// reflects the sky.
 enum class ProbeMode : std::int32_t { Baked, Realtime };
 enum class ProbeClear : std::int32_t { Sky, Color };
 enum class ProbeUpdate : std::int32_t { EveryFrame, TimeSliced, OnDemand };
@@ -1133,7 +1134,7 @@ struct ReflectionProbe {
     ProbeUpdate update = ProbeUpdate::TimeSliced;  // realtime only: every frame, one cube face per frame, or on demand
     std::string bakedMap;       // project-relative .probe.json written by probe.bake (the manifest of the pages)
     float intensity = 1.0f;     // multiplies what the probe reflects
-    bool boxProjection = true;  // M73.3c: correct the reflection for the box (parallax); stored for the mesh shader
+    bool boxProjection = true;  // correct the reflection for the box (parallax): a nearby wall reflects where it is
 };
 // M73.4d: light probes for moving objects (docs/rendering/RENDERING_LIGHTING.md, "Light probes and mixed lights"). A grid of probes over an axis-aligned box
 // of the world (centred on the entity's world position + `offset`; the entity's rotation and scale do not turn it) plus optional single points.

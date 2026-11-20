@@ -30,6 +30,10 @@ bool same_tile(const ProbeTile& a, const ProbeTile& b) {
 
 float sane_gain(float intensity) { return std::isfinite(intensity) ? std::clamp(intensity, 0.0f, 64.0f) : 1.0f; }
 
+Vec3 finite_or(Vec3 v, Vec3 fallback) {
+    return std::isfinite(v.x) && std::isfinite(v.y) && std::isfinite(v.z) ? v : fallback;
+}
+
 ProbeUpdateKind update_kind(ProbeUpdate u) {
     switch (u) {
         case ProbeUpdate::EveryFrame: return ProbeUpdateKind::EveryFrame;
@@ -94,6 +98,7 @@ void Renderer::Impl::probe_face_frame(Frame& fr, World& world, const ReflectionP
     fr.cam = std::move(ci);
     fr.wantWorld = true;
     fr.wantScreen = false;
+    fr.noProbes = true;
     setup_frame(fr, world, 0.0f);
     fr.targetW = fr.targetH = resolution;
     fr.renderScale = 1.0f;
@@ -120,9 +125,65 @@ void Renderer::Impl::probes_release() {
     ps.jobs.clear();
     ps.frames.clear();
     ps.uploads.clear();
-    ps.writeSky = false;
     ps.overLimit = 0;
     gi_release();
+}
+
+void Renderer::Impl::probes_build_volumes(World& world) {
+    probeVolumes.clear();
+    const ProbeSystem& ps = probes;
+    if (ps.entries.empty() || ps.world != &world || ps.sceneGeneration != world.scene_generation()) return;
+    // The entries are a map by id: the same order on every machine, and the volumes' indices (part of the batch keys) follow it.
+    for (const auto& [id, en] : ps.entries) {
+        if (!en.placed || en.captures == 0 || !world.alive(en.entity) || !world.active_in_hierarchy(en.entity))
+            continue;
+        const ReflectionProbe* rp = world.get<ReflectionProbe>(en.entity);
+        if (!rp) continue;
+        const Mat4 m = world.drawn_matrix(en.entity, true);
+        ProbeVolume v;
+        v.id = id;
+        v.position = m.translation();
+        v.center = m.transform_point(finite_or(rp->boxOffset, Vec3{0, 0, 0}));
+        const Vec3 size = finite_or(rp->boxSize, Vec3{10, 10, 10});
+        const float sizes[3] = {std::fabs(size.x), std::fabs(size.y), std::fabs(size.z)};
+        bool ok = std::isfinite(v.position.x) && std::isfinite(v.position.y) && std::isfinite(v.position.z) &&
+                  std::isfinite(v.center.x) && std::isfinite(v.center.y) && std::isfinite(v.center.z);
+        for (int c = 0; c < 3; ++c) {
+            const Vec3 col{m.at(c, 0), m.at(c, 1), m.at(c, 2)};
+            const float len = length(col);
+            if (!(len > 1.0e-6f) || !std::isfinite(len)) {
+                ok = false;
+                break;
+            }
+            v.axis[c] = col * (1.0f / len);
+            v.half[c] = std::clamp(sizes[c] * 0.5f * len, 1.0e-4f, 1.0e6f);
+        }
+        if (!ok) continue;
+        v.blend = std::isfinite(rp->blendDistance) ? std::clamp(rp->blendDistance, 0.0f, 1.0e6f) : 0.0f;
+        v.importance = rp->importance;
+        v.projection = rp->boxProjection;
+        probe_volume_finish(v);
+        probeVolumes.push_back(v);
+    }
+}
+
+void Renderer::Impl::probes_note_picks() {
+    meshPicks.clear();
+    if (probeVolumes.empty()) return;
+    for (const SceneMesh& sm : renderScene.meshes())
+        if (sm.refl.any()) meshPicks.emplace_back(sm.entity.bits(), sm.refl);
+}
+
+void Renderer::Impl::probes_write_sky() {
+    ProbeSystem& ps = probes;
+    if (!ps.atlas.valid() || !ps.skyPlaced || !skyEnv.baked()) return;
+    if (ps.skyWrittenFrame != 0 && skyEnv.key() == ps.skyKey) return;
+    int calls = 0;
+    ps.gpu.write_sky(gpu, ps.atlas, ps.skyTile, skyEnv.prefiltered_view(), skyEnv.sampler(),
+                     skyEnv.format() == SG_PIXELFORMAT_RGBA8, &calls);
+    ps.drawCalls += calls;
+    ps.skyKey = skyEnv.key();
+    ps.skyWrittenFrame = std::max<std::uint64_t>(ps.frame, 1);
 }
 
 void Renderer::Impl::probes_plan(World& world) {
@@ -130,7 +191,6 @@ void Renderer::Impl::probes_plan(World& world) {
     ps.jobs.clear();
     ps.frames.clear();
     ps.uploads.clear();
-    ps.writeSky = false;
     gi_collect(world);  // cheap when the world has no RealtimeGI
     // Entity ids repeat from one scene to the next: another world, or another scene loaded into this one, makes every entry of the
     // last scene a stranger (an on-demand probe would keep showing the old scene). The atlas and the sky's tile stay.
@@ -167,9 +227,13 @@ void Renderer::Impl::probes_plan(World& world) {
             wants.push_back(std::move(w));
         });
     }
-    if (wants.empty() && ps.gi.wants.empty()) {
+    // The sky is entry 0 of the atlas, which the meshes sample (M73-P3c): a scene whose meshes use the baked sky keeps the atlas with no
+    // probe in it. The cameras were planned before this call, so envJobs says whether this frame's meshes sample the sky.
+    const bool skyWanted = envFrame == frameSerial && !envJobs.empty();
+    if (wants.empty() && !skyWanted && ps.gi.wants.empty()) {
         if (!ps.entries.empty() || ps.atlas.valid() || ps.syncAtlas.valid() || ps.skyPlaced || !ps.gi.grids.empty())
             probes_release();
+        probeVolumes.clear();
         return;
     }
     // The most important first (so a probe that matters takes a tile before one that does not), then the smaller id: the same order on
@@ -277,7 +341,9 @@ void Renderer::Impl::probes_plan(World& world) {
     if (ps.skyPlaced) {
         if (skyEnv.baked()) {
             ps.skyState = "ready";
-            if (ps.skyWrittenFrame == 0 || skyEnv.key() != ps.skyKey) ps.writeSky = true;
+            // A new atlas gets the sky that is baked now, so the meshes of this very frame find it; a sky that is baked again is written
+            // by the tail of the "sky-env" pass (probes_write_sky).
+            if (ps.skyWrittenFrame == 0) probes_write_sky();
         } else {
             ps.skyState = "noSky";
         }
@@ -413,7 +479,7 @@ void Renderer::Impl::probes_plan(World& world) {
 void Renderer::Impl::probes_finish() {
     ProbeSystem& ps = probes;
     gi_finish();
-    if (ps.jobs.empty() && ps.uploads.empty() && !ps.writeSky) {
+    if (ps.jobs.empty() && ps.uploads.empty()) {
         ps.frames.clear();
         // The states that follow the scheduler.
         for (auto& [id, en] : ps.entries) {
@@ -451,12 +517,6 @@ void Renderer::Impl::probes_finish() {
             en.state = "failed";
             en.message = "the page of the baked probe could not be uploaded to the atlas (out of GPU memory?)";
         }
-    }
-    if (ps.writeSky && ps.skyPlaced && skyEnv.baked()) {
-        ps.gpu.write_sky(gpu, ps.atlas, ps.skyTile, skyEnv.prefiltered_view(), skyEnv.sampler(),
-                         skyEnv.format() == SG_PIXELFORMAT_RGBA8, &calls);
-        ps.skyKey = skyEnv.key();
-        ps.skyWrittenFrame = ps.frame;
     }
     ps.drawCalls += calls;
     ps.jobs.clear();
@@ -620,7 +680,7 @@ void Renderer::probe_set_budget(int faces) {
 Json Renderer::probe_report() const {
     if (!initialized()) return Json::object();
     const ProbeSystem& ps = impl_->probes;
-    if (ps.entries.empty() && !ps.atlas.valid()) return Json::object();
+    if (ps.entries.empty()) return Json::object();  // the sky alone keeps an atlas for the meshes: that is not a probe
     Json out = Json::object();
     Json atlas = Json::object();
     atlas["size"] = ps.allocator.atlas_size();
@@ -664,6 +724,32 @@ Json Renderer::probe_report() const {
         list.push_back(std::move(p));
     }
     out["probes"] = std::move(list);
+    return out;
+}
+
+Json Renderer::probe_mesh_report(Entity mesh) const {
+    if (!initialized()) return Json::object();
+    const Impl& im = *impl_;
+    const auto round4 = [](float v) { return double(std::lround(v * 10000.0f)) / 10000.0; };
+    Json list = Json::array();
+    float taken = 0.0f;
+    for (const auto& [bits, pick] : im.meshPicks) {
+        if (bits != mesh.bits()) continue;
+        float shares[2];
+        pick.shares(shares);
+        for (int k = 0; k < 2; ++k) {
+            const std::uint16_t idx = pick.index[k];
+            if (!idx || std::size_t(idx) > im.probeVolumes.size() || !(shares[k] > 0.0f)) continue;
+            const auto it = im.probes.entries.find(im.probeVolumes[std::size_t(idx) - 1].id);
+            if (it == im.probes.entries.end()) continue;
+            list.push_back(Json::object({{"entity", it->second.name}, {"share", round4(shares[k])}}));
+            taken += shares[k];
+        }
+        break;
+    }
+    Json out = Json::object();
+    out["probes"] = std::move(list);
+    out["sky"] = round4(std::max(0.0f, 1.0f - taken));
     return out;
 }
 

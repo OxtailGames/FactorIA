@@ -482,6 +482,19 @@ struct Renderer::Impl {
     // atlas, uploads the baked pages and writes the sky's entry.
     void probes_plan(World& world);
     void probes_finish();
+    // The boxes of this frame's probes that hold a capture (probe_select.h), built once per frame before the scene's meshes pick theirs
+    // (gather_meshes); kept for fill_fs, which looks the picked probes' tiles up through them. Empty = every mesh reflects the sky.
+    std::vector<ProbeVolume> probeVolumes;
+    void probes_build_volumes(World& world);
+    // The reflection picks of the main scene's meshes that reach a probe (entity bits, pick), kept after the scene is reset: what
+    // Renderer::probe_mesh_report (render.probes with `entity`) answers from. Filled by probes_note_picks() right after the scene is built.
+    std::vector<std::pair<std::uint64_t, ProbePick>> meshPicks;
+    void probes_note_picks();
+    // Writes the sky's entry of the atlas from the baked environment cube when it is not there yet or is out of date (the tail of the
+    // "sky-env" pass, and probes_plan for an atlas that was just made).
+    void probes_write_sky();
+    // The reflection part of the fragment parameters of one draw: the atlas, the sky's tile and the (up to two) probes the mesh reflects.
+    void fill_probe_fs(const DrawContext& ctx, const MeshItem& mi, bool lit, mesh_fa_mesh_fs_params_t& fu);
     // The realtime GI grids (renderer_gi.cpp), a part of the same frame: gi_plan() runs inside probes_plan() once the atlas exists (it has the
     // band of probe blocks), gi_finish() inside probes_finish(). gi_collect() reads the RealtimeGI components (cheap when there are none).
     void gi_collect(World& world);

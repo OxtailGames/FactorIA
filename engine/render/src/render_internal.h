@@ -501,9 +501,10 @@ constexpr int kMaterialPostHistoryView = kMaterialPostFirstView + kMaxMaterialTe
 // binds only those.
 constexpr int kMaterialVsFirstView = kMaterialFirstView + kMaxMaterialTextures,
               kMaterialVsFirstSampler = kMaterialFirstSampler + kMaxMaterialTextures;
-// The baked sky of a sky material (renderer_env.h, mesh_common.glsl fa_fs_head): one cube, fragment view 14 (mips 0..4 the prefiltered
-// sky, mip 5 its nine spherical-harmonics coefficients, the diffuse ambient), and its sampler sampler 10, after the vertex-stage
-// copies. A draw binds it (a blank cube when there is no sky material). View 15 (the irradiance cube until M73.3a) is free.
+// The probe atlas (renderer_probes.h, mesh_common.glsl fa_fs_head, M73-P3c): one 2D image, fragment view 14 (entry 0 is the baked sky of a sky
+// material, the others the reflection probes and the GI grid; octahedral levels and a row of nine SH coefficients per tile), and its sampler
+// sampler 10 (bilinear, clamp), after the vertex-stage copies. A draw binds it (a white image while no atlas exists). The names keep
+// "Env" from when this slot was the sky's cube. View 15 (the irradiance cube until M73.3a) is free.
 constexpr int kMaterialEnvView = kMaterialVsFirstView + kMaxMaterialTextures,
               kMaterialEnvSampler = kMaterialVsFirstSampler + kMaxMaterialTextures;
 // The read-only storage buffers of a mesh material (fa/tooling/shaders.h kMeshBufferFirstView; M72.4): the vertex stage

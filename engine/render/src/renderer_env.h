@@ -119,14 +119,12 @@ public:
     std::uint64_t tag_key() const { return tagKey_; }
     const float* tag_sun() const { return tagSun_; }
 
-    // The view the mesh programs sample (mips 0..kEnvLevels-1 the reflection, mip kEnvShMip the SH) and its sampler; blank_view() is
-    // a 1x1 black cube, bound while no environment is used (a program that declares the slot needs a valid view).
+    // The view of the prefiltered cube (mips 0..kEnvLevels-1 the reflection, mip kEnvShMip the SH) and its sampler. The meshes do not sample
+    // it any more (M73-P3c): it is the source of the sky's entry of the probe atlas (ProbeGpu::write_sky).
     sg_view prefiltered_view() const { return preTex_; }
     // The image id of the prefiltered cube: what the frame graph's resource for the environment imports
     // (frame_graph.h).
     std::uint64_t image_id() const { return pre_.id; }
-    sg_view blank_view(Gpu& gpu);
-    // (blank_view() makes the sampler too: ask for the view first.)
     sg_sampler sampler() const { return sampler_; }
     // The pixel format of the cubes (RGBA16F or RGBA8).
     // With RGBA8 the SH texels hold clamp(c / 4, -1, 1) * 0.5 + 0.5 (fa_env_sky.w = 2).
@@ -162,8 +160,6 @@ private:
     sg_view preTex_{};
     sg_view preAtt_[kEnvLevels][6]{};
     sg_view shAtt_[6]{};  // the faces of mip kEnvShMip
-    sg_image blank_{};
-    sg_view blankTex_{};
     bool baked_ = false;
     std::uint64_t key_ = 0;
     struct Look {
