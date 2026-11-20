@@ -241,6 +241,12 @@ struct LightData {
     // A spot's cos(innerAngle) (the cone inside which it is at full strength); 2 = Light.innerAngle 0, the default fade of the
     // outer quarter of the cone (shaders/light_data.glsl).
     float cosInner = 2.0f;
+    // The extension texels (shaders/light_data.glsl, +4 .. +7): an area light's axes and size, a cookie's or an IES profile's atlas
+    // tile. Only written when `hasExt`; a view where any light has them stores every light with 8 texels (LightTexture::stride).
+    Vec4 ext[4];
+    bool hasExt = false;
+    float extent =
+        0;  // an area light: the radius of the sphere around its emitter (the range is measured from its surface)
     // The shadow of a point or spot light (Light.castShadows and the fields after it, collect_lights); the sun's are SunShadow.
     struct LocalShadow {
         bool casts = false;
@@ -249,10 +255,13 @@ struct LightData {
         float softness = 1;              // Light.shadowSoftness
         float distance = 0;              // metres from the camera past which the shadow fades out (0 = no limit)
         int filter = 0;                  // 0 pcf, 1 hard, 2 pcss (Light.shadowFilter)
-        float spotAngle = 0;             // a spot's cone half angle in degrees (0 for a point light)
+        float spotAngle = 0;             // a spot's cone half angle in degrees (0 for a point light and an area light)
+        float emitter = 0;  // an area light: its mean full size in metres, the PCSS light size (0 = not an area light)
     } shadow;
     bool baked =
         false;  // Light.mode Baked: its direct light is in the lightmaps, so a lightmapped surface skips it (M73.4a)
+    // Light.volumetric (M73.5): the strength of this light's shafts in the volumetric fog; 0 = none.
+    float volumetric = 0.0f;
 };
 
 // Orders the lights by relevance (the shadow caster first, then directional lights, then point and spot lights by

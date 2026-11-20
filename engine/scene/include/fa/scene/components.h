@@ -1144,10 +1144,13 @@ struct Light {
     // (the shadow fields are, since M73.2a) or names the package that brings it.
     float innerAngle =
         0.0f;  // M73.1a: spot cone half-angle (degrees) inside which the light is at full strength; 0 = as today
-    LightShape shape = LightShape::Rectangle;  // M73.1: type area only
-    Vec2 size{1.0f, 1.0f};  // M73.1: type area only, metres (a tube uses x as its length and y as its thickness)
-    std::string cookie;     // M73.1: texture projected by a spot or point light
-    std::string ies;        // M73.1: IES profile (.ies) of the light's distribution
+    LightShape shape = LightShape::Rectangle;  // M73.1b: type area only
+    Vec2 size{
+        1.0f,
+        1.0f};  // M73.1b: type area (a tube uses x as its length and y as its thickness); a directional cookie's tile, metres
+    std::string
+        cookie;  // M73.1b: texture projected by a spot light (perspective), a directional one (tiled) or a point light (equirectangular, a cube of 6 faces)
+    std::string ies;  // M73.1b: IES profile (.ies) of a point or spot light's distribution
     std::int32_t shadowResolution =
         0;                          // M73.2: texels of the light's shadow map; 0 = the engine picks from the distance
     float shadowBias = 0.0f;        // M73.2a: depth offset in metres; 0 = the engine's own
@@ -1564,6 +1567,10 @@ enum class HdrOutput : std::int32_t { Off, Auto };
 // (Physical: renderer_sky_phys.h, docs/rendering/RENDERING_LIGHTING.md, "The physical sky".)
 enum class SkyModel : std::int32_t { Gradient, Physical };
 
+// SceneSettings.volumetricQuality: how many samples the volumetric fog takes and at what resolution (M73.5;
+// docs/rendering/RENDERING_LIGHTING.md, "Volumetric fog and light shafts").
+enum class VolumetricQuality : std::int32_t { Low, Medium, High };
+
 // Scene-wide settings (stored in the scene file under "settings").
 struct SceneSettings {
     Color ambientLight{0.25f, 0.25f, 0.3f, 1.0f};
@@ -1606,6 +1613,15 @@ struct SceneSettings {
     float cloudDensity = 0.6f;                      // how opaque and dark the clouds are, 0..1
     float cloudAltitude = 2500.0f;                  // metres above the observer
     Vec2 cloudWind{8.0f, 3.0f};                     // metres per second the clouds drift along world x and z
+    // The volumetric fog (M73.5): read only with volumetricFog on. The medium's colour is fogColor.
+    bool volumetricFog = false;            // off = nothing changes
+    float volumetricDensity = 0.02f;       // extinction per metre at the height base
+    float volumetricHeightBase = 0.0f;     // world y below which the density is constant
+    float volumetricHeightFalloff = 0.0f;  // per metre above the base; 0 = the same density at every height
+    float volumetricAnisotropy = 0.4f;     // Henyey-Greenstein g: -0.99 (back) .. 0 (even) .. 0.99 (forward)
+    float volumetricAmbient = 1.0f;        // how much of ambientLight the fog scatters
+    float volumetricDistance = 100.0f;     // metres from the camera the medium extends to
+    VolumetricQuality volumetricQuality = VolumetricQuality::Medium;
 };
 
 // Registers every component above (plus SceneSettings as a reflected type)

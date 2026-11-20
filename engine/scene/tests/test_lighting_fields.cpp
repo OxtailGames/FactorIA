@@ -20,18 +20,9 @@ const FieldInfo* field_of(const char* type, const std::string& name) {
         if (f.name == name) return &f;
     return nullptr;
 }
-const std::vector<std::string> kLightFields = {"innerAngle",
-                                               "shape",
-                                               "size",
-                                               "cookie",
-                                               "ies",
-                                               "shadowResolution",
-                                               "shadowBias",
-                                               "shadowNormalBias",
-                                               "shadowFilter",
-                                               "shadowSoftness",
-                                               "shadowDistance",
-                                               "volumetric"};
+const std::vector<std::string> kLightFields = {
+    "innerAngle",       "shape",        "size",           "cookie",        "ies", "shadowResolution", "shadowBias",
+    "shadowNormalBias", "shadowFilter", "shadowSoftness", "shadowDistance"};
 const std::vector<std::string> kSettingsFields = {
     "shadowCascades", "shadowCascadeSplit", "shadowCascadeBlend",   "shadowDistance",      "shadowAtlasSize",
     "contactShadows", "environmentMap",     "environmentIntensity", "environmentRotation", "environmentBackground"};
@@ -40,16 +31,41 @@ const std::vector<std::string> kMeshFields = {"contributeGI",     "transmission"
 // Drawn since M73.6 (the material layers): their docs say what they do, not that they have no effect.
 const std::vector<std::string> kLayerFields = {"clearcoat",  "clearcoatRoughness", "sheenColor", "sheenRoughness",
                                                "anisotropy", "anisotropyRotation", "specular",   "ior"};
-// The fields a package has made work: their doc string no longer says "No effect yet" (M73.1a: innerAngle; M73.2a: the cascaded shadows of the sun).
-const std::vector<std::string> kDrawn = {
-    "innerAngle",      "shadowResolution", "shadowBias",           "shadowNormalBias",    "shadowFilter",
-    "shadowSoftness",  "shadowDistance",   "shadowCascades",       "shadowCascadeSplit",  "shadowCascadeBlend",
-    "shadowAtlasSize", "environmentMap",   "environmentIntensity", "environmentRotation", "environmentBackground"};
+// The fields a package has made work: their doc string no longer says "No effect yet" (M73.1a: innerAngle; M73.2a: the cascaded shadows of the sun; M73.1b: shape, size, cookie, ies; M73-P3a-2: the environment fields).
+const std::vector<std::string> kDrawn = {"innerAngle",
+                                         "shadowResolution",
+                                         "shadowBias",
+                                         "shadowNormalBias",
+                                         "shadowFilter",
+                                         "shadowSoftness",
+                                         "shadowDistance",
+                                         "shadowCascades",
+                                         "shadowCascadeSplit",
+                                         "shadowCascadeBlend",
+                                         "shadowAtlasSize",
+                                         "environmentMap",
+                                         "environmentIntensity",
+                                         "environmentRotation",
+                                         "environmentBackground",
+                                         "shape",
+                                         "size",
+                                         "cookie",
+                                         "ies"};
 // Fields a package has made work: their doc strings no longer say "No effect yet" (M73.4a: the lightmap runtime).
 const std::vector<std::pair<std::string, std::string>> kLiveFields = {{"Light", "mode"},
                                                                       {"MeshRenderer", "lightmapScale"},
                                                                       {"MeshRenderer", "receiveGI"},
-                                                                      {"SceneSettings", "lightmaps"}};
+                                                                      {"SceneSettings", "lightmaps"},
+                                                                      // M73.5: the volumetric fog and the light shafts.
+                                                                      {"Light", "volumetric"},
+                                                                      {"SceneSettings", "volumetricFog"},
+                                                                      {"SceneSettings", "volumetricDensity"},
+                                                                      {"SceneSettings", "volumetricHeightBase"},
+                                                                      {"SceneSettings", "volumetricHeightFalloff"},
+                                                                      {"SceneSettings", "volumetricAnisotropy"},
+                                                                      {"SceneSettings", "volumetricAmbient"},
+                                                                      {"SceneSettings", "volumetricDistance"},
+                                                                      {"SceneSettings", "volumetricQuality"}};
 }  // namespace
 
 TEST_CASE("lighting fields: every new field is reflected and its doc says what it does and which package brings it") {

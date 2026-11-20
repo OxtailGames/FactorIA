@@ -706,3 +706,26 @@ TEST_CASE("assets.synth_sound: every preset lands near -18 LUFS and passes valid
         CHECK_MESSAGE(issue.message.find("clipped") == std::string::npos, issue.file, ": ", issue.message);
     }
 }
+
+TEST_CASE("assets.import: an .ies lamp profile is checked and copied to assets/lights/, a broken one names its line") {
+    AssetsProject p;
+    const std::string good =
+        "IESNA:LM-63-2002\n[LUMINAIRE] Test downlight\nTILT=NONE\n1 1000 1 5 1 1 2 0.1 0.1 0\n1 1 10\n"
+        "0 22.5 45 67.5 90\n0\n1000 800 400 100 0\n";
+    const std::string source = art(p, "downlight.ies", good);
+    const Json r = p.ok("assets.import", {{"source", source}, {"license", "CC0"}, {"author", "Ana"}});
+    CHECK(r["importer"] == "ies");
+    CHECK(r["path"] == "assets/lights/downlight.ies");
+    CHECK(p.exists("assets/lights/downlight.ies"));
+    CHECK(r["details"]["verticalAngles"] == 5);
+    CHECK(r["details"]["peakCandela"] == 1000);
+
+    std::string bad = good;
+    bad.replace(bad.find("1 1000 1 5 1"), 12, "1 lots 1 5 1");
+    const std::string badSource = art(p, "broken.ies", bad);
+    const CommandResult failed =
+        p.call("assets.import", {{"source", badSource}, {"license", "CC0"}, {"author", "Ana"}});
+    CHECK_FALSE(failed.ok);
+    CHECK(failed.error.dump().find("broken.ies:") != std::string::npos);
+    CHECK_FALSE(p.exists("assets/lights/broken.ies"));
+}
