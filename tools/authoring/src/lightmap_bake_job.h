@@ -49,9 +49,10 @@ struct PlanMesh {
 
 struct Plan {
     Options options;
-    std::string scene;           // Engine::Impl::currentScene when the plan was made: a result applies to this scene only
-    std::string manifestAbs;     // where the manifest is written (absolute, UTF-8)
-    std::string manifestProject; // the same as the project spells it ("scenes/main.lightmap.json"): what SceneSettings.lightmaps holds
+    std::string scene;        // Engine::Impl::currentScene when the plan was made: a result applies to this scene only
+    std::string manifestAbs;  // where the manifest is written (absolute, UTF-8)
+    std::string
+        manifestProject;  // the same as the project spells it ("scenes/main.lightmap.json"): what SceneSettings.lightmaps holds
     std::vector<PlanMesh> meshes;  // sorted by id
     std::vector<BakeLight> lights;
     BakeSky sky;                    // gradient / constant sky; also the fallback

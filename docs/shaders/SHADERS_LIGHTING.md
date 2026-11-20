@@ -56,7 +56,7 @@ the helper in `#ifdef GL_FRAGMENT_SHADER ... #endif` (the hooks need no wrapper)
 | `fa_sky_light(i, s)` | The sky reflection (image-based lighting) the engine adds to a `"pbr"` material, for this surface: from `s.albedo`, `s.metallic`, `s.roughness`, `s.normal` and `s.occlusion` and the direction to the camera, and from the layers of `s` (`clearcoat`, `sheen_color`, `anisotropy`, `specular`, `ior`) when they are set. Add it to what you return, scaled or tinted as you like. |
 | `fa_sky_reflection(n, v, f0, roughness)` | The same term from the parts: normal `n`, direction to the camera `v`, reflectance at normal incidence `f0` (`vec3`: `0.04` for a dielectric, the albedo for a metal) and `roughness`. |
 | `fa_environment(direction, roughness)` | The color of the sky in a world direction, blurrier and flatter when `roughness` grows. With a sky material (below) it reads the sky that is seen. |
-| `fa_ambient_light(n)` | The ambient light a diffuse surface facing the world direction `n` receives: `ambientLight`, or, with a sky material, the light of that sky from every direction (the cosine-weighted average). A `vec3`. |
+| `fa_ambient_light(n)` | The ambient light a diffuse surface facing the world direction `n` receives: `ambientLight`, or, under a sky (a sky material, the physical sky or an environment map), the light of that sky from every direction, as a smooth function of `n` (nine spherical-harmonics coefficients, below). Never negative. A `vec3`. |
 | `fa_env_brdf(roughness, ndv)` | The scale and bias (a `vec2`) of `f0` of the split-sum environment BRDF, `ndv` being `dot(n, v)`. `fa_sky_reflection` is `fa_environment(reflect(-v, n), roughness) * (f0 * ab.x + ab.y)`. |
 
 `fa_ambient` (a `vec4`, `.rgb` is `SceneSettings.ambientLight`) and `fa_camera_pos` are in scope too. Without a sky
@@ -107,6 +107,17 @@ light `0`; a point or spot light that casts has one only while the budget of the
 within the atlas) gives it a map, and its shadow fades out toward its `shadowDistance`. Any other `fa_light_shadow(n, i)` is `1`. A loop
 that wants "the sun" asks `fa_light(0, i)` and checks `.type == 0`.
 
+**Area lights in your own loop.** A light of type `area` (M73.1b) is not a point at its centre for a `lighting()` or `light()` hook or a full
+shader any more: `fa_light`, `fa_light_unshadowed` and `light()` give it as a point light at the **representative point** of its emitter, so
+the highlight follows its shape. For a rectangle or a disc that is where the reflection of the view off the surface (from the geometric
+normal) meets the emitter, clamped to its edge (the closest point of the emitter to the surface when the reflection misses it); for a tube
+it is the point of its axis closest to the reflection ray. `direction`, `distance` and `attenuation` are those of that point (the range is
+counted from the surface of the emitter), `color` is the colour of a point light of the same `intensity`, `type` is `1`, and a rectangle or
+disc seen from behind gives `attenuation` `0`. The hook sees ONE direction, so the diffuse term of a hook is the light of that point, not the
+integral over the emitter that the engine's own loop computes: the standard material shows a panel lighting a wall softly, a `lighting()`
+hook shows the same panel as a bright spot, and it is a little brighter than the engine's near an area light and the same far from it.
+The shadow of an area light that casts (`fa_light_shadow`) is the one of the six faces from its centre. The 2D lights treat an area light as a point.
+
 ## Example: the brightest light only, as a toon, plus the sky
 
 File `materials/brightest.material.json`:
@@ -155,6 +166,11 @@ vec3 ambient(in SurfaceInput i, in Surface s, vec3 ambientColor) {
 }
 ```
 
+What `ambient()` is given: `ambientColor` is the diffuse ambient light toward `s.normal`, the same value as `fa_ambient_light(s.normal)`
+(`ambientLight`, or the sky's) except on a lightmapped entity, where it is the baked texel. It is a light, not a colour of the surface:
+the engine does not multiply it by `s.albedo` or `s.occlusion` (the engine's own ambient term is `ambientColor * albedo * occlusion`), and
+what `ambient()` returns is the whole ambient term, added to what `light()` gives, the emission and the fog.
+
 ## Full shaders
 
 A [full shader](SHADERS_FULL.md) has `fa_light_count()` and `fa_light(i, world_pos, geometric_normal, shadow_coord)` (its own
@@ -198,8 +214,9 @@ it: the engine bakes the sky the material draws into two small cube images, and 
   every custom mesh that calls them) read a cube prefiltered per roughness (128 x 128 per face, 5 mips from mirror to rough).
   A metallic mirror ball under a sky of two colours shows each colour on the side that faces it.
 - **Ambient.** `fa_ambient_light(n)`, which the engine adds as the ambient term of every `"pbr"` mesh and which a custom
-  material reads in `ambient()` or `lighting()`, is the irradiance of that sky (an 8 x 8 cube, cosine-weighted and divided by
-  pi, so a sky of one colour gives that colour). It **replaces** `SceneSettings.ambientLight` for the meshes the sky lights:
+  material reads in `ambient()` or `lighting()`, is the light of that sky toward `n`: the sky's radiance kept as nine spherical-harmonics
+  coefficients (three bands), convolved with the cosine and divided by pi, so a sky of one colour gives that colour and a bright sun or horizon
+  is spread smoothly over the sphere (a sun you want to see in the shading is a directional light). It **replaces** `SceneSettings.ambientLight` for the meshes the sky lights:
   the scene's own ambient is not added to it. `fa_ambient.rgb` keeps being `ambientLight`; write `fa_ambient_light(s.normal)`
   to use the sky's.
 - **What is not changed.** Without a sky material the pixels and the draw calls are the same: no pass bakes anything and no
@@ -251,7 +268,7 @@ On an entity that has a baked lightmap (`SceneSettings.lightmaps`, RENDERING_LIG
 loop and the light API skip every light of mode `baked`: `fa_light(n, i)` and `fa_light_unshadowed(n, i)` give those lights
 no colour and `light()` is not called for them, so their direct light is not counted twice. The `ambientColor` that
 `ambient()` receives is the baked texel of that fragment (the irradiance divided by pi, like the scene's ambient light) in
-place of the ambient light or the sky's irradiance; the sky's reflection (`fa_sky_light`) stays the sky's. A material with
+place of the ambient light or the sky's ambient; the sky's reflection (`fa_sky_light`) stays the sky's. A material with
 `lighting()` writes its own ambient term and gets no lightmap helper. A material that lists `"uv1"` in `vertexAttributes`
 reads the lightmap UV as `uv1` on a lightmapped entity (`receiveGI: false` keeps the model's second set).
 

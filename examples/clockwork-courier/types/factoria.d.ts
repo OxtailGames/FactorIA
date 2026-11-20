@@ -7622,7 +7622,7 @@ declare module "factoria" {
    */
   export interface LightComponent {
     /**
-     * directional: sun-like, infinite distance. point: radiates in all directions. spot: cone along forward. area: a rectangle, disc or tube (`shape`, `size`) that lights with soft highlights; until M73.1 brings it, an area light shines like a point light of the same `range`.
+     * directional: sun-like, infinite distance. point: radiates in all directions. spot: cone along forward. area: a rectangle, disc or tube (`shape`, `size`) that lights with soft highlights and a diffuse term that follows its extent (linearly transformed cosines; drawn since M73.1b). Far from a surface it lights like a point light of the same `intensity`; near it, it is bounded, never infinitely bright. Materials with a lighting() or light() hook and full shaders get it as the light of one point of the emitter (the nearest to the reflection of the view), not the whole shape.
      */
     type: "directional" | "point" | "spot" | "area";
     /**
@@ -7643,7 +7643,7 @@ declare module "factoria" {
      */
     spotAngle: number;
     /**
-     * Cast shadows (M73.2). A directional light shadows with cascades (the first one that casts: see SceneSettings.shadowCascades); a spot light with one perspective map and a point (or area) light with six, all in the same atlas (SceneSettings.shadowAtlasSize). The point and spot lights that cast share a budget per frame: the most important for the camera (brightness, range, distance) keep their maps, get smaller ones when the atlas is full and lose the shadow when even that does not fit (a warning names the fix once).
+     * Cast shadows (M73.2). A directional light shadows with cascades (the first one that casts: see SceneSettings.shadowCascades); a spot light with one perspective map and a point (or area) light with six, an area light from the centre of its emitter (with shadowFilter pcss the penumbra is as wide as the emitter: see shadowSoftness), all in the same atlas (SceneSettings.shadowAtlasSize). The point and spot lights that cast share a budget per frame: the most important for the camera (brightness, range, distance) keep their maps, get smaller ones when the atlas is full and lose the shadow when even that does not fit (a warning names the fix once).
      */
     castShadows: boolean;
     /**
@@ -7652,23 +7652,23 @@ declare module "factoria" {
      */
     innerAngle: number;
     /**
-     * Area lights only: the shape of the emitter. rectangle and disc face the entity's forward direction; a tube is a line of light along the entity's X axis. No effect yet: M73.1 brings it.
+     * Area lights only: the shape of the emitter. rectangle and disc lie in the entity's X and Y axes and emit from their front, the side the entity's forward direction points to (nothing behind); a tube is a line of light along the entity's X axis and emits all around. Drawn since M73.1b.
      * @since unreleased
      */
     shape: "rectangle" | "disc" | "tube";
     /**
-     * Area lights only: [width, height] in metres of a rectangle, [diameter, -] of a disc (x), [length, thickness] of a tube. No effect yet: M73.1 brings it.
+     * [width, height] in metres of a rectangle, [diameter, -] of a disc (x), [length, thickness] of a tube (area lights); of a directional light with a cookie, the metres one copy of the cookie covers along the light's X and Y axes (the cookie repeats over the world, starting at the world origin). Other lights ignore it.
      * @since unreleased
      */
     get size(): Vec2;
     set size(value: Vec2Like);
     /**
-     * A texture the light projects (window blinds, a leaf canopy, a flashlight's shape): spot lights project it through the cone, point lights through a cube layout. Empty = none. No effect yet: M73.1 brings it. (asset path: texture)
+     * A texture the light projects (window blinds, a leaf canopy, a flashlight's shape). A spot light projects it through its cone (the edge of the cone is the edge of the picture); a directional light projects it straight along its forward direction, repeated every `size` metres. Its colour multiplies the light's (premultiplied by its alpha); the texture is resampled to 254 x 254 texels. A point light projects it all around: the picture is read as an equirectangular panorama (the centre in the light's forward direction), stored as six faces of 254 texels, so 1024 x 512 or more is useful. Area lights ignore it (a warning says so once). Empty = none. Drawn since M73.1b; render.supports lightCookies. (asset path: texture)
      * @since unreleased
      */
     cookie: string;
     /**
-     * An IES profile (.ies file) with the measured light distribution of a real lamp. Empty = the plain distribution. No effect yet: M73.1 brings it. (asset path: any)
+     * An IES profile (.ies file, LM-63 photometric type C; import it with assets.import) with the measured light distribution of a real lamp, on a point or spot light. The profile's nadir points along the entity's forward direction. The table is divided by its peak, so `intensity` stays the brightness at the brightest direction and the file only shapes the light. Empty = the plain distribution. Drawn since M73.1b; render.supports iesProfiles. (asset path: any)
      * @since unreleased
      */
     ies: string;
@@ -7693,7 +7693,7 @@ declare module "factoria" {
      */
     shadowFilter: "pcf" | "hard" | "pcss";
     /**
-     * With shadowFilter pcss: the size of the light for the penumbra, 0..10 (1 = the usual: a sun about 6 degrees wide). 0 = the narrowest penumbra, a plain PCF of 1.5 texels (use shadowFilter hard for a hard shadow).
+     * With shadowFilter pcss: the size of the light for the penumbra, 0..10 (1 = the usual: a sun about 6 degrees wide; for an area light 1 = the size of its emitter, `size`). 0 = the narrowest penumbra, a plain PCF of 1.5 texels (use shadowFilter hard for a hard shadow).
      * @since unreleased
      */
     shadowSoftness: number;
@@ -7708,7 +7708,7 @@ declare module "factoria" {
      */
     mode: "realtime" | "baked" | "mixed";
     /**
-     * Strength 0..10 of this light's shafts in the volumetric fog (SceneSettings.fogDensity must be above 0). 0 (default) = no shafts. No effect yet: M73.5 brings it.
+     * Strength 0..10 of this light's shafts in the volumetric fog: how much of its light the fog scatters towards the camera (1 = as bright as the light makes a white surface). It only matters with SceneSettings.volumetricFog on; the light's shadows cut the shafts when castShadows is on. 0 (default) = no shafts, and a directional light needs a value above 0 too. A camera scatters up to 4 directional lights and its most important point and spot lights (4, 8 or 16 by SceneSettings.volumetricQuality); stats volumetricLightsDropped counts the others.
      * @since unreleased
      */
     volumetric: number;
@@ -11662,6 +11662,46 @@ declare module "factoria" {
     get cloudWind(): Vec2;
     set cloudWind(value: Vec2Like);
     /**
+     * Turns on the volumetric fog: a medium the lights shine through, drawn from the camera to the surface behind each pixel (or volumetricDistance, in the sky). Lights with volumetric above 0 and the ambient light are scattered by it, and the shadows of the sun and of the point and spot lights cut shafts into it. Its colour is fogColor. While it is on, the scene's fogDensity and the PostProcess fog are off for the cameras that draw it (they would fog twice). Off (default) = nothing changes. An orthographic or studio camera, a camera that draws no depth prepass, or a GPU without RGBA16F render targets draws no volumetric fog and keeps its analytic one (render.supports {"feature": "volumetricFog"}); a scene with no light and no ambient is a black medium. docs/rendering/RENDERING_LIGHTING.md, "Volumetric fog and light shafts".
+     * @since unreleased
+     */
+    volumetricFog: boolean;
+    /**
+     * Volumetric fog: how thick the medium is, as extinction per metre at the height base: the light reaching the camera through a distance d is cut by exp(-density * d). 0.02 (default) = clear air with shafts, 0.1 = a dense mist, 1 = you see a few metres. 0..10. Only used with volumetricFog.
+     * @since unreleased
+     */
+    volumetricDensity: number;
+    /**
+     * Volumetric fog: the world y (metres) below which the density is the full volumetricDensity; above it the density fades with volumetricHeightFalloff. Only used with volumetricFog.
+     * @since unreleased
+     */
+    volumetricHeightBase: number;
+    /**
+     * Volumetric fog: how fast the density drops above volumetricHeightBase, per metre (0.1 = it halves every 7 m). 0 (default) = the same density at every height. 0..10. Only used with volumetricFog.
+     * @since unreleased
+     */
+    volumetricHeightFalloff: number;
+    /**
+     * Volumetric fog: which way the fog scatters light, the g of the Henyey-Greenstein phase function, -0.99..0.99. 0 = evenly in every direction, above 0 = mostly forward (shafts glow when you look towards the light; 0.4 is the default and suits mist), below 0 = mostly back. Only used with volumetricFog.
+     * @since unreleased
+     */
+    volumetricAnisotropy: number;
+    /**
+     * Volumetric fog: how much of ambientLight the fog scatters (it glows even where no light reaches), 0..10. 1 (default) = ambientLight times fogColor; 0 = the fog is dark where no light reaches. Only used with volumetricFog.
+     * @since unreleased
+     */
+    volumetricAmbient: number;
+    /**
+     * Volumetric fog: how far from the camera, in metres, the medium extends, 1..10000. Surfaces beyond it are fogged as at this distance, and sky pixels see the fog up to it. The samples are spread over the shorter of this and the surface's distance, so a shorter value is sharper. Only used with volumetricFog.
+     * @since unreleased
+     */
+    volumetricDistance: number;
+    /**
+     * Volumetric fog quality, the size of the fog image and the samples per pixel: low = a quarter of the picture's size (a 16th of its pixels), 16 steps, at most 4 shaft lights, for mobile and the web; medium (default) = half the size, 32 steps, 8 shaft lights: desktop and a good phone; high = half the size, 48 steps, 16 shaft lights. The cost grows with the steps and the lights, never with the number of lights in the scene. Only used with volumetricFog.
+     * @since unreleased
+     */
+    volumetricQuality: "low" | "medium" | "high";
+    /**
      * The scene's baked lightmap: a *.lightmap.json manifest (written by the lightmap.bake command, next to its .hdr pages) that says, per entity, which rectangle of which page lights it. The renderer loads it with the scene and reloads it when a file changes; an entity listed in it (and with MeshRenderer.receiveGI) is lit by the baked irradiance instead of the ambient light, and lights with mode baked stop lighting it. "" (default) = no lightmap. A missing or invalid manifest is reported (render.assets) and the scene is drawn without it. docs/rendering/RENDERING_LIGHTING.md, "Lightmaps". (asset path: any)
      * @since unreleased
      */
@@ -11775,7 +11815,7 @@ declare module "factoria" {
     Chart: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; material?: string; materialParams?: any; tooltip?: any; draggable?: any; mirror?: boolean; values?: any; kind?: "bar" | "line"; colors?: any; min?: any; max?: any; baseline?: number; showBaseline?: boolean; includeBaseline?: boolean; slots?: number; marks?: any; baselineColor?: ColorLike; markColor?: ColorLike; lineWidth?: number; barGap?: number; padding?: number; showLabels?: boolean; decimals?: number; font?: string; fontSize?: number; textColor?: ColorLike };
     Script: { path?: string; props?: any; enabled?: boolean };
     PostProcess: { enabled?: boolean; shape?: "global" | "box" | "circle" | "sphere"; size?: Vec3Like; blendDistance?: number; priority?: number; weight?: number; tonemapEnabled?: boolean; tonemapMode?: "none" | "neutral" | "aces" | "agx" | "reinhard"; exposureEnabled?: boolean; exposureMode?: "manual" | "auto"; exposureEv?: number; exposureMinEv?: number; exposureMaxEv?: number; exposureAdaptationSpeed?: number; bloomEnabled?: boolean; bloomIntensity?: number; bloomThreshold?: number; bloomKnee?: number; bloomRadius?: number; bloomScreenSpace?: boolean; bloomLensDirt?: string; bloomLensDirtIntensity?: number; colorGradingEnabled?: boolean; colorGradingLift?: ColorLike; colorGradingGamma?: ColorLike; colorGradingGain?: ColorLike; colorGradingTemperature?: number; colorGradingTint?: number; colorGradingSaturation?: number; colorGradingContrast?: number; colorGradingHueShift?: number; colorGradingCurveMaster?: Float32Array; colorGradingCurveRed?: Float32Array; colorGradingCurveGreen?: Float32Array; colorGradingCurveBlue?: Float32Array; colorGradingLut?: string; colorGradingLutContribution?: number; colorFilterEnabled?: boolean; colorFilterMode?: "none" | "greyscale" | "highContrast" | "protanopia" | "deuteranopia" | "tritanopia"; vignetteEnabled?: boolean; vignetteIntensity?: number; vignetteSmoothness?: number; vignetteRoundness?: number; vignetteCenter?: Vec2Like; vignetteColor?: ColorLike; chromaticAberrationEnabled?: boolean; chromaticAberrationIntensity?: number; filmGrainEnabled?: boolean; filmGrainIntensity?: number; filmGrainSize?: number; filmGrainAnimated?: boolean; filmGrainLuminanceResponse?: number; lensDistortionEnabled?: boolean; lensDistortionIntensity?: number; lensDistortionScale?: number; lensDistortionCenter?: Vec2Like; sharpenEnabled?: boolean; sharpenIntensity?: number; outlineEnabled?: boolean; outlineMode?: "depth" | "sprite"; outlineColor?: ColorLike; outlineWidth?: number; outlineDepthThreshold?: number; outlineNormalThreshold?: number; outlineAlphaThreshold?: number; pixelateEnabled?: boolean; pixelateSize?: number; posterizeEnabled?: boolean; posterizeLevels?: number; ssaoEnabled?: boolean; ssaoQuality?: "low" | "medium" | "high" | "ultra"; ssaoIntensity?: number; ssaoRadius?: number; depthOfFieldEnabled?: boolean; depthOfFieldFocusDistance?: number; depthOfFieldTarget?: EntityLike; depthOfFieldFocusSpeed?: number; depthOfFieldFocusRange?: number; depthOfFieldNearBlur?: number; depthOfFieldFarBlur?: number; depthOfFieldBokeh?: boolean; motionBlurEnabled?: boolean; motionBlurIntensity?: number; motionBlurSamples?: number; ssrEnabled?: boolean; ssrIntensity?: number; ssrMaxDistance?: number; ssrThickness?: number; ssrSteps?: number; fogEnabled?: boolean; fogColor?: ColorLike; fogDensity?: number; fogStart?: number; fogHeightDensity?: number; fogHeightBase?: number; fogHeightFalloff?: number; sunShaftsEnabled?: boolean; sunShaftsIntensity?: number; sunShaftsThreshold?: number; sunShaftsLength?: number; sunShaftsColor?: ColorLike; radialBlurEnabled?: boolean; radialBlurIntensity?: number; radialBlurCenter?: Vec2Like; radialBlurSamples?: number; customPasses?: any };
-    SceneSettings: { ambientLight?: ColorLike; gravity2D?: Vec2Like; gravity3D?: Vec3Like; fogColor?: ColorLike; fogDensity?: number; skyColor?: ColorLike; horizonColor?: ColorLike; music?: string; musicVolume?: number; lightScale?: number; colorSpace?: "gamma" | "linear"; hdrOutput?: "off" | "auto"; paperWhiteNits?: number; skyMaterial?: string; skyMaterialParams?: any; shadowCascades?: number; shadowCascadeSplit?: number; shadowCascadeBlend?: number; shadowDistance?: number; shadowAtlasSize?: number; contactShadows?: boolean; environmentMap?: string; environmentIntensity?: number; environmentRotation?: number; environmentBackground?: boolean; skyModel?: "gradient" | "physical"; skySunSize?: number; skyTurbidity?: number; skyGroundAlbedo?: ColorLike; skyExposure?: number; skyTintsSun?: boolean; cloudCoverage?: number; cloudDensity?: number; cloudAltitude?: number; cloudWind?: Vec2Like; lightmaps?: string };
+    SceneSettings: { ambientLight?: ColorLike; gravity2D?: Vec2Like; gravity3D?: Vec3Like; fogColor?: ColorLike; fogDensity?: number; skyColor?: ColorLike; horizonColor?: ColorLike; music?: string; musicVolume?: number; lightScale?: number; colorSpace?: "gamma" | "linear"; hdrOutput?: "off" | "auto"; paperWhiteNits?: number; skyMaterial?: string; skyMaterialParams?: any; shadowCascades?: number; shadowCascadeSplit?: number; shadowCascadeBlend?: number; shadowDistance?: number; shadowAtlasSize?: number; contactShadows?: boolean; environmentMap?: string; environmentIntensity?: number; environmentRotation?: number; environmentBackground?: boolean; skyModel?: "gradient" | "physical"; skySunSize?: number; skyTurbidity?: number; skyGroundAlbedo?: ColorLike; skyExposure?: number; skyTintsSun?: boolean; cloudCoverage?: number; cloudDensity?: number; cloudAltitude?: number; cloudWind?: Vec2Like; volumetricFog?: boolean; volumetricDensity?: number; volumetricHeightBase?: number; volumetricHeightFalloff?: number; volumetricAnisotropy?: number; volumetricAmbient?: number; volumetricDistance?: number; volumetricQuality?: "low" | "medium" | "high"; lightmaps?: string };
   }
   /**
    * The native plugins of this game (factoria.json "plugins"): plugins.<plugin>.<function>(...args).
@@ -12379,10 +12419,10 @@ declare module "factoria:test" {
      */
     setDevice(overrides: { formFactor?: "desktop" | "phone" | "tablet"; gpuBackend?: string; memoryGB?: number; tier?: "low" | "medium" | "high"; steamDeck?: boolean; handheld?: boolean }): void;
     /**
-     * What the renderer drew in the picture now, drawing a frame first when none has been drawn since the last change (a headless test may not have drawn one; game.state().renderStats stays zero until a frame is drawn). triangles and lights (the 3D lights, up to 1024 of the most relevant, 32 of them directional) count the main pass (lightsDropped are the ones over those limits, lightsCulled the local lights whose range is outside the view; lightClusters is the clusters of the view, lightClusterEntries the light-list entries they hold, lightMaxPerCluster the longest list, lightClusterClipped the entries lost to the limits of 128 lights per cluster and 524288 entries per view: 0 is normal; decals the Decal components drawn, decalsDropped those left out: over 256 per view, or a texture that is unreadable or does not fit the atlas; decalClusterClipped the decal-list entries lost to 32 per cluster and 131072 per view: 0 is normal), lights2d the Light2D lights shading 2D visuals (at most 256: directional first, then the point lights that reach the camera view; lights2dDropped are the ones left out; lights2dShadowed the ones given a shadow, castShadows, at most 32), shadowCasters the meshes drawn into the shadow map, sortKeyFallbacks how many times since the renderer started the 3D scene (a frame, or a capture of one entity) had more distinct meshes, textures or materials than a sort key holds, so its opaque meshes were sorted by the slower comparator (same picture; 0 is normal; it only grows), textureMB the GPU texture memory, width and height the size of the picture (design size * window.renderScale). The numbers perf.measure records and perf.check budgets. Throws without graphics. Example: expect(game.renderStats().triangles).toBeLessThan(200000).
+     * What the renderer drew in the picture now, drawing a frame first when none has been drawn since the last change (a headless test may not have drawn one; game.state().renderStats stays zero until a frame is drawn). triangles and lights (the 3D lights, up to 1024 of the most relevant, 32 of them directional) count the main pass (lightsDropped are the ones over those limits, lightsCulled the local lights whose range is outside the view; lightClusters is the clusters of the view, lightClusterEntries the light-list entries they hold, lightMaxPerCluster the longest list, lightClusterClipped the entries lost to the limits of 128 lights per cluster and 524288 entries per view: 0 is normal; decals the Decal components drawn, decalsDropped those left out: over 256 per view, or a texture that is unreadable or does not fit the atlas; decalClusterClipped the decal-list entries lost to 32 per cluster and 131072 per view: 0 is normal; volumetricCameras the cameras that drew the volumetric fog, volumetricLights the lights whose shafts they drew and volumetricLightsDropped the lights with Light.volumetric above 0 that the quality setting left out), lights2d the Light2D lights shading 2D visuals (at most 256: directional first, then the point lights that reach the camera view; lights2dDropped are the ones left out; lights2dShadowed the ones given a shadow, castShadows, at most 32), shadowCasters the meshes drawn into the shadow map, sortKeyFallbacks how many times since the renderer started the 3D scene (a frame, or a capture of one entity) had more distinct meshes, textures or materials than a sort key holds, so its opaque meshes were sorted by the slower comparator (same picture; 0 is normal; it only grows), textureMB the GPU texture memory, width and height the size of the picture (design size * window.renderScale). The numbers perf.measure records and perf.check budgets. Throws without graphics. Example: expect(game.renderStats().triangles).toBeLessThan(200000).
      * @since 0.3.0
      */
-    renderStats(): { drawCalls: number; sprites: number; shapes: number; textGlyphs: number; particles: number; meshes: number; meshesCulled: number; meshBatches: number; triangles: number; views: number; shadowCasters: number; lights: number; lightsDropped: number; lightsCulled: number; lightClusters: number; lightClusterEntries: number; lightClusterClipped: number; lightMaxPerCluster: number; decals: number; decalsDropped: number; decalClusterClipped: number; lights2d: number; lights2dDropped: number; lights2dShadowed: number; materials: number; materialFallbacks: string[]; sortKeyFallbacks: number; textureMB: number; width: number; height: number; renderScale: number };
+    renderStats(): { drawCalls: number; sprites: number; shapes: number; textGlyphs: number; particles: number; meshes: number; meshesCulled: number; meshBatches: number; triangles: number; views: number; shadowCasters: number; lights: number; lightsDropped: number; lightsCulled: number; lightClusters: number; lightClusterEntries: number; lightClusterClipped: number; lightMaxPerCluster: number; decals: number; decalsDropped: number; decalClusterClipped: number; volumetricCameras: number; volumetricLights: number; volumetricLightsDropped: number; lights2d: number; lights2dDropped: number; lights2dShadowed: number; materials: number; materialFallbacks: string[]; sortKeyFallbacks: number; textureMB: number; width: number; height: number; renderScale: number };
     /**
      * Pretends the player's system has these accessibility settings: game.accessibility follows at once. Keys left out are the defaults (textScale 1, the others false); textScale is clamped to 0.5 - 4. An unknown key (with a suggestion), a non-boolean or a textScale that is not a number above 0 throws. Reset to the defaults before every test. Example: game.setAccessibility({ textScale: 1.5, reduceMotion: true }).
      * @since 0.2.0

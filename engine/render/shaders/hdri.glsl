@@ -1,5 +1,5 @@
 // FactorIA HDRI sky (SceneSettings.environmentMap, M73-P3a-2): an equirectangular picture drawn as the background, and the same program
-// drawn into the faces of a cube as the first step of the environment bake (renderer_env.h: the prefilter and the irradiance convolve
+// drawn into the faces of a cube as the first step of the environment bake (renderer_env.h: the prefilter and the SH pass read
 // that cube, so the picture lights and reflects in the meshes with no second bake). One full-screen triangle, the vertex stage of the
 // engine's own sky (sky_common.glsl): a ray from the camera through the pixel.
 //

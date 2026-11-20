@@ -1634,6 +1634,7 @@ void Editor::build_ui() {
     poll_review();
     poll_platform_settings();
     poll_setup();
+    lightmap_poll();  // every frame, the panel open or not: a finished bake is handed to the scene at once
     draw_main_menu();
 
     const float statusH = ImGui::GetFrameHeight() + 6;

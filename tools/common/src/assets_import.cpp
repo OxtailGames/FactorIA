@@ -14,6 +14,7 @@
 #include "fa/core/strings.h"
 #include "fa/core/image_float.h"
 #include "fa/render/cube_lut.h"
+#include "fa/render/ies.h"
 #include "fa/render/hdri.h"
 #include "fa/tooling/asset_import.h"
 #include "fa/tooling/image_doc.h"
@@ -116,6 +117,7 @@ struct Route {
 
 std::string default_folder(const std::string& outExt) {
     if (outExt == ".cube") return "assets/luts/";
+    if (outExt == ".ies") return "assets/lights/";
     switch (assets::kind_of("x" + outExt)) {
         case assets::AssetKind::Model: return "assets/models/";
         case assets::AssetKind::Audio: return "assets/audio/";
@@ -198,6 +200,30 @@ Result<ImportOutput> import_lut(const ImportRequest& request) {
     if (!lut.ok()) return lut.error();
     ImportOutput out;
     out.details = Json::object({{"size", lut->size}, {"title", lut->title}});
+    out.files.push_back({request.dest, std::move(*bytes)});
+    return out;
+}
+
+// An .ies photometric file (Light.ies): parsed with the reader the renderer uses, so a file that would not draw at run time is refused
+// here with the line that is wrong, then copied as it is.
+Result<ImportOutput> import_ies(const ImportRequest& request) {
+    auto bytes = read_bytes(request.source);
+    if (!bytes.ok()) return bytes.error();
+    if (bytes->size() > kIesMaxFileBytes)
+        return make_error(
+            std::format("'{}' is larger than {} MB, more than a photometric table needs",
+                        request.source.filename().string(), kIesMaxFileBytes >> 20),
+            "An IES file is a few kilobytes of text: this is probably not one. Export the profile again from the "
+            "manufacturer's tool.");
+    const std::string text(bytes->begin(), bytes->end());
+    auto profile = parse_ies(text, request.source.filename().string());
+    if (!profile.ok()) return profile.error();
+    ImportOutput out;
+    out.details = Json::object({{"name", profile->name},
+                                {"verticalAngles", int(profile->vertical.size())},
+                                {"horizontalAngles", int(profile->horizontal.size())},
+                                {"peakCandela", std::round(double(profile->maxCandela))}});
+    if (profile->lampLumens > 0) out.details["lampLumens"] = std::round(profile->lampLumens);
     out.files.push_back({request.dest, std::move(*bytes)});
     return out;
 }
@@ -593,6 +619,7 @@ const std::map<std::string, Route>& routes() {
                                                    {".otf", {"copy", ".otf", import_copy}},
                                                    {".qoa", {"copy", ".qoa", import_copy}},
                                                    {".cube", {"lut", ".cube", import_lut}},
+                                                   {".ies", {"ies", ".ies", import_ies}},
                                                    {".hdr", {"hdri", ".hdr", import_hdri}},
                                                    {".mpg", {"video", ".mpg", import_video}},
                                                    {".mpeg", {"video", ".mpeg", import_video}},
@@ -619,6 +646,11 @@ std::vector<std::string> default_next_steps(const std::string& path) {
     if (to_lower(fs::extension(path)) == ".cube")
         return {"Use it: a PostProcess with \"colorGradingEnabled\": true and \"colorGradingLut\": \"" + path +
                 "\" (\"colorGradingLutContribution\" blends it in; docs/RENDERING.md, \"Colour grading with a LUT\")."};
+    if (to_lower(fs::extension(path)) == ".ies")
+        return {"Use it: a Light (point or spot) with \"ies\": \"" + path +
+                "\". The table is divided by its peak, so \"intensity\" stays the brightness; the profile's nadir "
+                "points along the "
+                "light's forward direction (docs/rendering/RENDERING_LIGHTING.md, \"IES profiles\")."};
     switch (assets::kind_of(path)) {
         case assets::AssetKind::Texture:
             return {"Draw it: a Sprite with \"texture\": \"" + path +
@@ -858,6 +890,9 @@ void register_asset_commands(CommandRegistry& registry, const std::string& proje
         "- .cube: a 3D colour lookup table for PostProcess.colorGradingLut, checked and copied to "
         "assets/luts/ (LUT_3D_SIZE 2 to 65, the 0 to 1 domain; a malformed file is an error that names the "
         "line; a 1D table is refused).\n"
+        "- .ies: an IES photometric file (LM-63, type C) for Light.ies on a point or spot light, checked and copied to "
+        "assets/lights/ (a malformed or unsupported file is an error that names the line; the result has the name, the "
+        "angle counts and the peak candela).\n"
         "- .hdr: a Radiance HDR panorama for SceneSettings.environmentMap, checked and copied to assets/hdri/. "
         "Only an equirectangular picture (twice as wide as it is tall) is read: a cube cross, a strip of six "
         "faces or a mirror-ball light probe is refused with the layout named and how to convert it. A picture "
@@ -880,7 +915,7 @@ void register_asset_commands(CommandRegistry& registry, const std::string& proje
       "type":"object","required":["source"],
       "properties":{
         "source":{"type":"string","description":"The file to import: an absolute path on this machine, or a path relative to the project folder. Not a URL: download it first."},
-        "path":{"type":"string","description":"Where it lands, under assets/ (a path ending in / is a folder). Default: assets/<name>.<ext>, or assets/models/, assets/audio/, assets/fonts/, assets/video/ or assets/luts/ for those kinds. The extension is the importer's output (.png for Aseprite and PSD, .gltf for OBJ, .glb for FBX, .mpg for a video)."},
+        "path":{"type":"string","description":"Where it lands, under assets/ (a path ending in / is a folder). Default: assets/<name>.<ext>, or assets/models/, assets/audio/, assets/fonts/, assets/video/, assets/luts/ or assets/lights/ for those kinds. The extension is the importer's output (.png for Aseprite and PSD, .gltf for OBJ, .glb for FBX, .mpg for a video)."},
         "license":{"type":"string","description":"License or terms of the file, e.g. \"CC0\", \"CC-BY 4.0\", \"bought from itch.io, single project\". Recorded in assets.json."},
         "author":{"type":"string","description":"Who made it. Recorded in assets.json for the credits."},
         "sourceUrl":{"type":"string","description":"Where the file came from (a page URL). Recorded as the provenance source instead of the local path."},

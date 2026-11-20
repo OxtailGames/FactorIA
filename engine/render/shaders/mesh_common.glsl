@@ -48,6 +48,7 @@
 // lookup, shared with the full-shader template) and light_loop.glsl (the standard loop and the custom-light hooks). All three are in
 // the template hash of the mesh kind.
 @include light_data.glsl
+@include ltc.glsl
 @include shadow_common.glsl
 @include light_loop.glsl
 @include brdf_layers.glsl
@@ -376,22 +377,29 @@ layout(binding=24) uniform texture2D fa_light_tex;
 @image_sample_type fa_light_tex unfilterable_float
 #define FA_LIGHT_TEX fa_light_tex
 #define FA_LIGHT_SMP fa_shadow_smp
+// The light atlas (light_data.glsl, src/light_atlas.h; view 25): the LTC tables of the area lights, the light cookies and the IES
+// profiles in one RGBA16F image, read bilinearly through the sky's linear clamp sampler (10, declared below). While no light needs it
+// the renderer binds the 1 x 1 white texture and the shader never reads it.
+layout(binding=25) uniform texture2D fa_light_atlas;
+#define FA_ATLAS_TEX fa_light_atlas
+#define FA_ATLAS_SMP fa_env_smp
 // The decal atlas (light_data.glsl, block fa_decals; view 27): the albedo and normal textures of the Decal components, RGBA8 with mips,
 // read with textureLod through the linear clamped sampler 10. Bound with the main pass's other views (a white image while the view has no
 // decals, which no fragment then reads).
 layout(binding=27) uniform texture2D fa_decal_tex;
 #define FA_DECAL_TEX fa_decal_tex
 #define FA_DECAL_SMP fa_env_smp
-// The sky of a sky material (SceneSettings.skyMaterial), baked by the renderer (renderer_env.h): the sky prefiltered by roughness (the
-// mips) and its irradiance. Both are views 14 and 15, the sampler 10 (after the material's textures and their vertex-stage copies);
-// bound and used only while fa_env_sky.w is 1.
+// The sky of a sky material (SceneSettings.skyMaterial), baked by the renderer (renderer_env.h): a cube, view 14, sampler 10 (after the
+// material's textures and their vertex-stage copies), whose mips 0..4 are the sky prefiltered by roughness and whose mip 5 holds the sky's
+// nine spherical-harmonics coefficients, the source of the diffuse ambient (fa_ambient_light); bound and used only while fa_env_sky.w is
+// 1 (2: the cube is RGBA8 and the coefficients are stored as c / 8 + 0.5).
 layout(binding=14) uniform textureCube fa_env_tex;
-layout(binding=15) uniform textureCube fa_irr_tex;
 layout(binding=10) uniform sampler fa_env_smp;
 
 layout(binding=1) uniform fa_mesh_fs_params {
     vec4 fa_camera_pos;         // xyz
-    vec4 fa_ambient;            // rgb
+    vec4 fa_ambient;            // rgb; w = texels per light of the light table (4, or 8 while a light of the view has an area, a cookie
+                                // or an IES profile; 0 = 4: M73.1b, light_data.glsl)
     vec4 fa_base_color;
     vec4 fa_emissive;           // rgb MeshRenderer.emissive, w = 1 when unlit
     vec4 fa_model_emissive;     // rgb glTF emissiveFactor (multiplies fa_emissive_tex)
@@ -524,6 +532,7 @@ Surface fa_standard_surface(in SurfaceInput i) {
 // The sky the surface reflects, shared with the full-shader template (mesh_full_common.glsl includes this block after it has
 // declared fa_env_sky and fa_env_horizon).
 @block fa_env_funcs
+@include_block fa_sh
 // The environment the surface reflects. With a sky material (fa_env_sky.w = 1) it is the sky the material draws, baked into a cube whose
 // mips are prefiltered by roughness: roughness 0 reads mip 0, roughness 1 the last. Without one it is the gradient of skyColor and
 // horizonColor (the horizon color, darker, below the horizon), rougher surfaces seeing a blurrier, flatter version of it (a cheap
@@ -541,11 +550,26 @@ vec3 fa_environment(vec3 d, float rough) {
     return mix(e, 0.5 * (fa_env_sky.rgb + fa_env_horizon.rgb) * 0.8, blur * 0.6);
 }
 
-// The ambient light a surface facing n receives: SceneSettings.ambientLight, or with a sky material the sky's irradiance toward n (what a
-// diffuse surface sees of the sky, divided by pi: a sky of one color gives that color), which replaces ambientLight.
+// Coefficient k (0..8, the order of ShL2) of the sky's spherical harmonics: the texel (k & 3, k >> 2) of the face +X of mip 5 of the baked
+// cube (renderer_env.h, env.glsl fs_sh), read at the exact centre of the texel (the direction (1, y, z) of a texel centre is on the +X face
+// at (s, t) = ((c + 0.5) / 4, (r + 0.5) / 4)), so no filtering touches it.
+vec3 fa_sky_sh_coef(int k) {
+    vec3 d = vec3(1.0, 1.0 - float(2 * (k >> 2) + 1) * 0.25, 1.0 - float(2 * (k & 3) + 1) * 0.25);
+    vec3 v = textureLod(samplerCube(fa_env_tex, fa_env_smp), d, 5.0).rgb;
+    if (fa_env_sky.w > 1.5) { v = (v - 0.5) * 8.0; }
+    return v;
+}
+
+// The ambient light a surface facing n receives: SceneSettings.ambientLight, or with a sky material (and with a physical sky or an HDRI
+// environment) the light of that sky toward n: its radiance as nine spherical-harmonics coefficients (L2), convolved with the clamped
+// cosine and divided by pi (fa_sh_eval), which replaces ambientLight. A sky of one color gives that color from every side; a sky with a
+// bright sun or a bright horizon is smooth (three bands) and never negative. The same value the `ambient()` hook of a custom material
+// receives as `ambientColor` (fa_indirect_diffuse: on a lightmapped surface the baked texel takes its place).
 vec3 fa_ambient_light(vec3 n) {
     if (fa_env_sky.w > 0.5) {
-        return textureLod(samplerCube(fa_irr_tex, fa_env_smp), n, 0.0).rgb;
+        vec3 c[9];
+        for (int k = 0; k < 9; ++k) { c[k] = fa_sky_sh_coef(k); }
+        return fa_sh_eval(c, n);
     }
     return fa_ambient.rgb;
 }
@@ -607,6 +631,7 @@ vec3 fa_sky_light(in SurfaceInput i, in Surface s) {
 // The lightmap varying of the vertex stage (M73.4a, declared last there too: the varyings of the two stages match by order). Declared
 // here, before the light functions, because a baked light is skipped on a lightmapped fragment (fa_light_baked, light_data.glsl).
 in vec3 fa_lm;
+@include_block fa_cube_face
 @include_block fa_light_data
 @include_block fa_decals
 
@@ -624,6 +649,8 @@ float fa_shadow_factor(vec3 n, vec3 l) {
 @include_block fa_layers_light
 @include_block fa_light_shared
 @include_block fa_light_hooks
+@include_block fa_ltc
+@include_block fa_area_light
 @end
 
 @block fa_fs_nolight

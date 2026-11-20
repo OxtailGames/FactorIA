@@ -8,12 +8,11 @@ M73 brings the lighting of a leading engine to FactorIA in six steps: many light
 (M73.3); baked lightmaps and light probes (M73.4); volumetric fog, decals, subsurface scattering and realtime global illumination
 (M73.5); and the material layers clear coat, sheen, anisotropy, specular / IOR and transmission (M73.6; the first four are drawn).
 
-**What is there today (M73.1a, M73.2a, M73.2b, M73.5b): the fields, many lights, the shadows of the sun, of point lights and of spot lights, and projected decals.** Every field below is reflected,
+**What is there today (M73.1, M73.2, M73.5b): the fields, many lights, area lights, cookies, IES profiles, the shadows of the sun, of point lights and of spot lights, and projected decals.** Every field below is reflected,
 validated, saved in the scene and read back, and shows up in `docs.components` and in the typings, so a scene, a prefab or a tool can
-set it. The renderer reads `innerAngle`, the shadow fields of the directional light and of the scene (the "Brought by" column says
-`drawn` for them), and lights a view with up to 1024 lights at once (see "Many lights"), and draws `Decal` components (see "Decals"); it does not read the other fields yet (except the sky fields, `skyModel` and the rows after it, which M73-P3d draws: see "The physical sky"): a
-scene with only those set looks exactly as it does without them, except that a Light of `type: "area"` shines like a point light of
-the same `range` until M73.1b. The doc string of each field says which step brings it.
+set it. The renderer reads `innerAngle`, `shape`, `size`, `cookie` and `ies`, the shadow fields of the lights and of the scene (the "Brought by" column says
+`drawn` for them), and lights a view with up to 1024 lights at once (see "Many lights" and "Area lights, cookies and IES profiles"), and draws `Decal` components (see "Decals"); it does not read the other fields yet (except the sky fields, `skyModel` and the rows after it, which M73-P3d draws: see "The physical sky"): a
+scene with only those set looks exactly as it does without them. The doc string of each field says which step brings it.
 The defaults are what the engine did before, so a scene made before M73 loads, looks and saves as it did (a default is never written
 to the file).
 
@@ -25,7 +24,7 @@ cluster, and every pixel reads only the lights of its own cluster. A scene with 
 that overlap each pixel cost, so give every light the smallest `range` that looks right (the light fades to zero at `range`): a large
 range makes the lists long.
 
-- **Which lights.** Point, spot and (until M73.1b) area lights whose `range` sphere is outside the camera's view are left out
+- **Which lights.** Point, spot and area lights whose `range` sphere (for an area light, plus the radius of its emitter) is outside the camera's view are left out
   (`lightsCulled` in `game.render_stats`). When more than 1024 lights are in view (or more than 32 are directional) the most
   relevant ones are kept: the shadow-casting sun first, the other directional lights by brightness, then the local lights by brightness
   scaled with the distance to the camera; `lightsDropped` counts the rest.
@@ -39,22 +38,72 @@ range makes the lists long.
 - **Shaders.** `fa_light_count()` and `fa_light(n, i)` of a material's `lighting()` hook give the lights of the pixel's cluster
   (docs/shaders/SHADERS_LIGHTING.md).
 
+## Area lights, cookies and IES profiles (M73.1b)
+
+**Area lights.** `type: "area"` is a rectangle, a disc or a tube (`shape`, `size`) centred on the entity. A rectangle and a disc lie in the
+entity's X and Y axes and emit from their front, the side its forward direction (-Z) points to: the back lights nothing. A tube is a line
+of light along the entity's X axis (`size.x` long, `size.y` thick) and emits all around. The shading is one integral over the whole
+emitter (linearly transformed cosines, with tables fitted for the engine's own specular term), so the highlight is the shape of the
+light, long for a strip and round for a disc, and the diffuse term follows its extent: a panel above a wall lights it softly with no
+hard centre. `intensity` and `color` mean what they do for a point light: far from a surface an area light lights it like a point
+light of the same intensity at its centre (a test compares both to 5 %); near the surface the light is bounded, never infinitely
+bright. `range` is measured from the surface of the emitter, not from its centre. With `castShadows` an area light casts shadows like a
+point light (six faces from its centre, "Shadows of point and spot lights"), and with `shadowFilter: "pcss"` the penumbra is as wide as
+the emitter: a larger `size` gives a softer shadow, `shadowSoftness` scales it. This is an approximation: the shadow is cast from the
+centre of the emitter, so a very large panel close to a wall shows a sharper edge than a true area light would, and the penumbra of a
+tube is as wide along its length as across it. The six faces are cheap, but an area light with `pcss` and no `shadowResolution` gets a
+smaller shadow map the larger it is (down to 64 texels a face), so set `shadowResolution` for a big emitter whose shadow you look at closely.
+A material with a clear coat, sheen or anisotropy layer gets the area light for its base layer and the light of a point at the nearest
+spot of the emitter for the other layers. A material with its own `lighting()` or `light()` hook and a full shader get the light of
+ONE point of the emitter, the one nearest to where the reflection of the view hits it (nearest to the surface when it misses), so the
+highlight follows the shape of the light; they do not integrate the whole emitter. A GPU that cannot filter RGBA16F images
+draws every area light as a point light at its centre (`render.supports areaLights` says which). The 2D lighting treats an area light as a point light.
+
+**Cookies.** `cookie` is a texture (PNG, JPG, TGA, BMP; at most 4096 pixels a side) the light projects, and the picture's colour times
+its alpha multiplies the light's colour: white lets it through, black stops it, a transparent pixel stops it too. A spot light
+projects it through its cone, perspective, the edge of the cone (`spotAngle`) on the edge of the picture. A directional light
+projects it straight along its forward direction and repeats it over the world, one copy every `size` metres along the light's X and
+Y axes, starting at the world origin. A point light projects it all around: the picture is read as an equirectangular panorama
+(longitude across, latitude down, the centre of the picture in the light's forward direction, -Z) and turns with the entity. It is
+stored as a cube of six faces of 254 x 254 texels, so a 1024 x 512 or 2048 x 1024 picture is the size that is useful. An area light
+ignores `cookie` and `ies` (a warning says so once). A cookie that cannot be read is reported once and the light is drawn without it.
+
+**IES profiles.** `ies` is an `.ies` file (the LM-63 photometric format of lamp makers, type C) on a point or a spot light: the light
+then shines with the measured distribution of that lamp instead of the same amount in every direction. Import one with `assets.import`
+(it lands in `assets/lights/`; a file that is not photometric data, is type A or B, has an unordered or out-of-range angle table, or
+no light in it is refused with the line that is wrong). The nadir of the profile (vertical angle 0) points along the entity's forward
+direction (-Z), so a downlight is a light turned to look down. The table is divided by its largest value, so the file only SHAPES
+the light: `intensity` stays the brightness in the brightest direction, whatever the candela of the lamp. Horizontal symmetry is
+folded as the file says it (one plane, a quarter, a half, the whole circle). The profile is baked to 64 x 32 values and read with
+bilinear filtering, so a sharp edge is a few degrees wide; a file with more than 1024 angles on an axis is refused.
+`assets.import` reports the name, the angle counts and the peak candela; a directional light ignores `ies` (a warning says so once).
+
+**The light atlas.** The tables of the area lights, every cookie (resampled to 254 x 254 texels, tiled with a border) and every profile
+live in ONE RGBA16F image of 1024 texels per row and at most 4096 rows (32 MB), made when a light first asks for it and again when the set
+changes or a file is hot-reloaded. A scene without area lights, cookies or profiles makes no atlas and draws and costs exactly what it did.
+About 60 cookies fit (a point light's cube takes the room of six); the ones over that are dropped (the lights are drawn without, and a warning says how many). The same
+packing is used on every backend, in the order of the sorted paths, so the image is the same bytes every time.
+
+**Precision.** The area-light shading runs in full float (`highp`) on every GLES3 and WebGL2 GPU, whatever the default of the fragment stage
+(a test reads the generated shader to check it). The LTC tables are stored in half floats, which is a relative error of about 0.1 %:
+invisible next to the 2 % the fit itself has.
+
 ## Light
 
 | Field | Values | Default | Brought by |
 |---|---|---|---|
-| `type` | `directional`, `point`, `spot`, `area` | `directional` | `area`: M73.1 (a point light until then) |
+| `type` | `directional`, `point`, `spot`, `area` | `directional` | `area`: drawn (M73.1b) |
 | `innerAngle` | 0..89 degrees | 0 | M73.1a (drawn): a spot's full-strength cone; 0 = the cone fades as it does today |
-| `shape`, `size` | `rectangle`, `disc`, `tube`; metres | `rectangle`, [1, 1] | M73.1, area lights only |
-| `cookie` | a texture | none | M73.1 |
-| `ies` | an `.ies` file | none | M73.1 |
+| `shape`, `size` | `rectangle`, `disc`, `tube`; metres | `rectangle`, [1, 1] | drawn (M73.1b): the area light's emitter; a directional cookie's tile |
+| `cookie` | a texture | none | drawn (M73.1b): spot, directional and point lights (a point light's is an equirectangular picture) |
+| `ies` | an `.ies` file | none | drawn (M73.1b): point and spot lights |
 | `castShadows` | bool | false | drawn: the first directional light that casts is the sun (M73.2a); point and spot lights share a budget (M73.2b) |
 | `shadowResolution` | 0..4096 texels per cascade (sun) or per tile (point, spot) | 0 (the engine picks: sun 2048 for one cascade, 1024 for several; point and spot from the distance) | drawn (M73.2a, M73.2b) |
 | `shadowBias`, `shadowNormalBias` | metres, 0..1 | 0 (the engine's own: 1.5 texels of the map) | drawn (M73.2a, M73.2b) |
 | `shadowFilter`, `shadowSoftness` | `pcf`, `hard`, `pcss`; 0..10 | `pcf`, 1 | drawn (M73.2a, M73.2b) |
 | `shadowDistance` | metres, 0..100000 | 0 (the scene's) | drawn (M73.2a, M73.2b: fades out and limits point and spot lights) |
 | `mode` | `realtime`, `baked`, `mixed` | `realtime` | M73.4a: `baked` lights stop lighting lightmapped entities (see "Lightmaps"); `mixed`: M73.4d |
-| `volumetric` | 0..10 | 0 | M73.5 |
+| `volumetric` | 0..10 | 0 | drawn (M73.5): the strength of this light's shafts in the volumetric fog, see "Volumetric fog and light shafts" |
 
 ## Scene settings
 
@@ -69,6 +118,11 @@ range makes the lists long.
 | `environmentBackground` | bool: draw the map as the background too | true | M73-P3a-2 |
 | `skyModel` | `gradient`, `physical` | `gradient` | M73-P3d (drawn, see "The physical sky") |
 | `lightmaps` | a `.lightmap.json` file | none | M73.4a |
+| `volumetricFog` | bool | false | drawn (M73.5, see "Volumetric fog and light shafts") |
+| `volumetricDensity`, `volumetricDistance` | 0..10 per metre; metres 1..10000 | 0.02, 100 | drawn (M73.5) |
+| `volumetricHeightBase`, `volumetricHeightFalloff` | metres; per metre 0..10 | 0, 0 (the same density at every height) | drawn (M73.5) |
+| `volumetricAnisotropy`, `volumetricAmbient` | -0.99..0.99; 0..10 | 0.4, 1 | drawn (M73.5) |
+| `volumetricQuality` | `low`, `medium`, `high` | `medium` | drawn (M73.5) |
 | `skySunSize`, `skyTurbidity`, `skyExposure` | degrees 0.1..10; 1..10; 0..16 | 0.53, 2, 1 | M73-P3d |
 | `skyGroundAlbedo`, `skyTintsSun` | colour; bool | grey 0.3, true | M73-P3d |
 | `cloudCoverage`, `cloudDensity`, `cloudAltitude`, `cloudWind` | 0..1; 0..1; metres 300..12000; metres per second [x, z] | 0.25, 0.6, 2500, [8, 3] | M73-P3d |
@@ -191,8 +245,7 @@ farthest cascade is shrunk first (down to 128) and then dropped, the same on eve
 
 ## Shadows of point and spot lights (M73.2b)
 
-A `Light` of type `spot` with `castShadows` has one shadow map, a perspective view along its axis; a `point` light (and an `area` light, which
-shines like one until M73.1b) has six, one per face of a cube. A spot whose `spotAngle` is over 70 degrees takes the six faces too, because one
+A `Light` of type `spot` with `castShadows` has one shadow map, a perspective view along its axis; a `point` light (and an `area` light, from its centre) has six, one per face of a cube. A spot whose `spotAngle` is over 70 degrees takes the six faces too, because one
 view cannot hold it. They live in the same shadow atlas as the cascades of the sun (`SceneSettings.shadowAtlasSize`), so a scene that
 casts from many lights shares one image and one pass.
 
@@ -399,15 +452,86 @@ while the game runs, and any mesh in its box receives it.
 For a snippet material the engine applies decals itself (the `surface` hook's result is painted over). A **full shader** calls
 `fa_apply_decals` itself, see [SHADERS_LIGHTING.md](../shaders/SHADERS_LIGHTING.md), "Decals".
 
+## Volumetric fog and light shafts (M73.5)
+
+`SceneSettings.volumetricFog = true` fills the space between the camera and what it sees with a medium that the lights shine through:
+the ambient light makes it glow, the sun and the point and spot lights that ask for it draw **shafts** in it, and the shadows of the
+shadow atlas cut those shafts (a sun through a gap in a roof, a spot behind a pillar). The medium's colour is `fogColor`.
+
+- **A light asks for its shafts** with `Light.volumetric` above 0 (0..10, the strength: 1 scatters as much light as a white surface
+  would reflect). A light with 0 never shines in the fog, a directional light included. A light's shadows cut its shafts when it
+  casts them (`castShadows`); a light that casts none still scatters, with no shadows. Which lights are drawn is the camera's own
+  choice: up to 4 directional lights in table order, and of the point and spot lights the 4, 8 or 16 (by `volumetricQuality`) with
+  the highest score times `volumetric` (the score of the clustered lights: brightness over distance to the camera; ties go to the
+  lower table index). `stats.volumetricLightsDropped` counts those left out.
+- **The medium.** Extinction `volumetricDensity` per metre at `volumetricHeightBase` and below it, falling by `exp(-volumetricHeightFalloff * h)` above
+  it (0 = the same density at every height, a flat fog). The light that reaches the camera is scattered with the Henyey-Greenstein
+  phase function of `volumetricAnisotropy` (0 = evenly, towards 1 = forward, a sun in your face; negative = back). The fog scatters
+  `volumetricAmbient` times `ambientLight` everywhere, so it glows even where no light reaches. The medium ends at the surface behind the pixel or at `volumetricDistance`
+  metres, in the sky. How much of the picture shows through is `exp(-optical depth)`, computed in closed form from the density
+  along the ray, so the quality changes the noise of the shafts and never the amount of fog.
+- **One fog, never two.** While a camera draws the volumetric fog, its **analytic fog is off**: `SceneSettings.fogDensity` and the
+  `PostProcess` fog (`fogEnabled`) of that camera do nothing, since they would fog the same distance twice. The sun shafts of the
+  `PostProcess` stack (`sunShaftsEnabled`, a screen-space glow around the sun) are a different effect and still draw; they are
+  not needed once the sun's `volumetric` is on. A camera that cannot draw the volumetric fog (an orthographic or studio camera, no
+  depth prepass, a GPU without RGBA16F render targets, `volumetricDensity` 0) keeps its analytic fog as if the switch were off.
+- **Transparent meshes.** The fog is blended over the finished picture, using the depth of the opaque surfaces, so a blended mesh
+  (alpha below 1, a particle, a sprite, glass) is fogged like the opaque surface behind it, not by its own distance. A pane of glass in
+  front of a wall shows the wall's fog, and a transparent mesh in the middle of the medium does not scatter. This is the price of
+  adding no texture to the mesh shader; in the sky (no opaque surface) a transparent mesh is fogged as far as `volumetricDistance`.
+- **It is not the analytic fog.** The light the medium scatters is `(ambient + sum of lights * phase * volumetric) * fogColor`, so at the same
+  density it looks different from `fogDensity` (which is a flat colour that replaces the surface): with little light the volumetric fog is darker than `fogColor`.
+  A camera that falls back to the analytic fog (an orthographic camera, a GPU without the render targets) therefore shows a visible jump in the look of the same scene.
+- **Off costs nothing.** A scene without `volumetricFog` compiles no shader, adds no pass and no memory, and draws the very same picture as before
+  (the test compares it to the last bit).
+
+**How it is drawn** (every backend, with no compute shader). Two passes in the camera's own job: `vol-march` raymarches the
+medium at half or a quarter of the camera's resolution into an RGBA16F image (the light that reaches the camera, and the
+transmittance), reading the depth prepass, the shadow atlas and the light data texture; `vol-apply` blends that image over the
+picture (`picture * transmittance + light`) after the post material slot and before the reflections, with a depth-aware upsample: each
+pixel of the picture takes its four nearest pixels of the small image, weighted by how near their depth is to its own, so a fog edge never bleeds
+over a silhouette. The picture is not copied and no mesh shader changes. Shadows are read with one tap (the jitter and the upsample soften them): the sun's from the cascaded atlas, a local
+light's from its tile or cube face.
+
+**Quality, by platform.**
+
+| `volumetricQuality` | Fog image | Steps (ambient, sun) | Lights (point, spot) | Samples per light | Meant for |
+|---|---|---|---|---|---|
+| `low` | 1/4 x 1/4 | 16 | 4 | 6 | phones and the web (GLES3, WebGL2) |
+| `medium` (default) | 1/2 x 1/2 | 32 | 8 | 10 | integrated GPUs |
+| `high` | 1/2 x 1/2 | 48 | 16 | 16 | desktop GPUs |
+
+The mapping is a suggestion: the engine never changes the quality by itself, and the same scene draws the same on every
+backend. **The cost** is bounded by the table and never by the scene: a march pixel takes at most `steps` samples for the ambient light and
+the sun plus `lights x samples` for the local lights, and the loops have a fixed top (64 steps, 24 samples, 4 + 16 lights); the number of lights in the scene never
+raises it. At 1920 x 1080 `medium` marches 960 x 540 pixels (a quarter of the picture), `low` 480 x 270 (a sixteenth). The image is RGBA16F
+(8 bytes a pixel: 4 MB for `medium` at 1080p, 1 MB for `low`) and is a transient of the frame graph, shared with other passes of the frame when their sizes match. The profiler shows
+the two passes as `<camera job>/vol-march` and `<camera job>/vol-apply`.
+
+**Determinism.** There is no random number, no clock and no history of earlier frames: the jitter of the samples is interleaved gradient noise of the pixel of
+the fog image, so a still scene is the same picture on every frame and every run (it shows as a fine fixed grain at `low`), and a fast camera has no ghosts. For
+the same reason a replay or a fixed step reproduces the picture.
+
+**Stats** (`game.render_stats`, `Renderer::stats()`, summed over the frame's cameras): `volumetricCameras` (cameras that drew it),
+`volumetricLights` (the lights they scattered) and `volumetricLightsDropped`.
+
+**Limits.** Area lights have no shafts (only directional, point and spot lights are listed). The sun's shadows come from the cascades the camera draws, so a shaft beyond the
+last cascade (further than the shadow distance) is unshadowed. With few steps (`low`) and a long `volumetricDistance` each step is long, so thin shafts and
+small gaps come out coarse and grainy: shorten the distance or raise the quality. Point and spot lights are read from the light data texture the mesh shaders use, so a light the renderer left out of it (more lights than the
+per-camera limit, `stats.lightsDropped`) has no shafts either. The medium has no emission, no per-light color of its own and no local fog volumes. The shadow of the
+sun is read from the cascades the camera draws that frame: a sun with `castShadows` off shines through everything. Light cookies (M73.1)
+are not read yet: the march multiplies each local light by its attenuation and cone in `local_atten` (shaders/volumetric.glsl), which is
+where a cookie lookup goes, with the light's table index at hand.
+
 ## Asking what the renderer draws: render.supports
 
 `render.supports` (C++ `Renderer::supports(name)`) answers for each lighting feature below with `false` and the status `planned (M73)`
-until its step lands; then it follows the GPU (`cascadedShadows` does, `environmentMap` and `physicalSky` are true wherever the GPU renders to RGBA16F and filters it, and `clusteredLights` and `decals` are `true` on every backend that draws). A game that wants a feature checks it first and falls back, so it never relies on
+until its step lands; then it follows the GPU (`cascadedShadows` does, `environmentMap` and `physicalSky` are true wherever the GPU renders to RGBA16F and filters it, `areaLights`, `lightCookies` and `iesProfiles` need RGBA16F images that filter, and `clusteredLights` and `decals` are `true` on every backend that draws). A game that wants a feature checks it first and falls back, so it never relies on
 what is not drawn.
 
 `clusteredLights`, `areaLights`, `lightCookies`, `iesProfiles` (M73.1); `cascadedShadows`, `pointShadows`, `spotShadows`,
 `contactShadows` (M73.2); `environmentMap`, `reflectionProbes`, `physicalSky` (M73.3; `environmentMap` and `physicalSky` are drawn); `lightmaps` (M73.4a), `lightProbes` (M73.4d);
-`volumetricFog`, `decals` (M73.5b, drawn), `subsurface`, `realtimeGI` (M73.5); `clearCoat`, `sheen`, `anisotropy` (M73.6a, drawn: they follow the
+`volumetricFog` (M73.5, drawn: true wherever the GPU has RGBA16F render targets that blend and filter), `decals` (M73.5b, drawn), `subsurface`, `realtimeGI` (M73.5); `clearCoat`, `sheen`, `anisotropy` (M73.6a, drawn: they follow the
 backend, which every one supports) and `transmission` (M73.6b).
 
 A new capability row, `float32Targets`, says whether the GPU can render to and sample R32F and RGBA32F images: the shadow atlas of
