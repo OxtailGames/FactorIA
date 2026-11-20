@@ -239,7 +239,7 @@ Metal only; the OpenGL and Direct3D 11 draws were not run.
 The 2D side of the same idea: a **sprite** material (`"kind": "sprite"`) declares read-only `buffers` exactly as a mesh material
 does (`"access": "read"` is the default, `readWrite` is refused at `/buffers/<name>/access`), and reads `<name>.data[i].<field>`
 in `vertex()`, in a helper and in `fragment()`. Both stages get the instance number as `fa_instance_index` (an `int`, 0 to
-`instances` - 1; in a sprite material without buffers it is 0). `v.world_pos` in `vertex()` starts as the corner of the sprite's
+`instances` - 1; in a sprite material without buffers it is always 0, and `factoria validate` warns when the snippet reads it). `v.world_pos` in `vertex()` starts as the corner of the sprite's
 own quad, placed by its Transform and `size`: that quad is the template every instance starts from, and `vertex()` moves each
 instance itself.
 

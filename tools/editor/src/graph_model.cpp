@@ -192,8 +192,12 @@ GraphModel::Stamp GraphModel::stamp() const {
     if (!ec) s.size = sz;
     if (!ec && sz <= (1u << 20)) {
         // A file written within the last second may be written again inside the same file-time step: tell by content.
+        // So is an older one whose stored stamp has a hash (its time and size still match): poll_external drops that
+        // hash once it has been compared, so a file is read for this once, not at every poll.
         const auto age = stdfs::file_time_type::clock::now() - t;
-        if (age < std::chrono::seconds(1)) {
+        s.settled = age >= std::chrono::seconds(1);
+        const bool sameAsStored = s.time == stamp_.time && s.size == stamp_.size && stamp_.hash != 0;
+        if (!s.settled || sameAsStored) {
             auto text = fs::read_text(fs::path_to_utf8(*abs));
             if (text.ok()) {
                 std::uint64_t h = 1469598103934665603ull;
@@ -1293,7 +1297,11 @@ GraphSaveOutcome GraphModel::save(bool force, bool overwriteExternal) {
 bool GraphModel::poll_external() {
     if (!is_open()) return false;
     const Stamp s = stamp();
-    if (s == stamp_) return false;
+    if (s == stamp_) {
+        // Compared by content and the file is no longer fresh: nothing can still write it into this file-time step.
+        if (s.settled && s.hash != 0) stamp_.hash = 0;
+        return false;
+    }
     if (dirty()) {
         stamp_ = s;
         conflict_ = true;

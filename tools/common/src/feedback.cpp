@@ -1262,6 +1262,7 @@ Result<FeedbackReport> collect_feedback(const std::vector<std::string>& paths, c
     std::vector<std::string> files;
     std::set<std::string> otherNamed;  // files named by hand that are not called ENGINE_FEEDBACK.json
     Json errors = Json::array();
+    Json notes = Json::array();  // what was skipped on purpose and the reader may want to know
     for (const auto& p : paths) {
         std::error_code ec;
         if (stdfs::is_directory(p, ec)) {
@@ -1290,14 +1291,22 @@ Result<FeedbackReport> collect_feedback(const std::vector<std::string>& paths, c
         const bool skippable = otherNamed.count(f) > 0 && paths.size() > 1;
         auto doc = load_feedback(f);
         if (!doc.ok()) {
-            if (!skippable) errors.push_back(f + ": " + doc.error().to_string());
+            if (!skippable)
+                errors.push_back(f + ": " + doc.error().to_string());
+            else
+                notes.push_back(f + ": skipped, it is not called " + std::string(kFeedbackFileName) +
+                                " and cannot be read as JSON (" + doc.error().message + ").");
             continue;
         }
         const Json& d = doc.value();
         if (!d.is_object() || !d.contains("entries") || !d["entries"].is_array()) {
-            if (!skippable)
-                errors.push_back(f + ": no \"entries\" array. This is not an " + std::string(kFeedbackFileName) +
-                                 "; pass a project directory or that file.");
+            if (!skippable) {
+                std::string msg = f + ": no \"entries\" array.";
+                if (stdfs::path(f).filename().string() != kFeedbackFileName)
+                    msg += " This is not an " + std::string(kFeedbackFileName) +
+                           "; pass a project directory or that file.";
+                errors.push_back(msg);
+            }
             continue;
         }
         std::string project = d.value("project", u8text(stdfs::path(f).parent_path().filename()));
@@ -1495,6 +1504,7 @@ Result<FeedbackReport> collect_feedback(const std::vector<std::string>& paths, c
                              {"projects", projects},
                              {"totalEntries", total},
                              {"errors", errors},
+                             {"notes", notes},
                              {"clusters", outClusters},
                              {"efficiency", rank_efficiency(std::move(efficiencyGroups))}});
     (void)kSeverityOrder;
@@ -1513,6 +1523,11 @@ std::string FeedbackReport::markdown() const {
     if (!json["errors"].empty()) {
         o << "## Problems reading files\n\n";
         for (const auto& e : json["errors"]) o << "- " << e.get<std::string>() << "\n";
+        o << "\n";
+    }
+    if (json.contains("notes") && json["notes"].is_array() && !json["notes"].empty()) {
+        o << "## Notes\n\n";
+        for (const auto& n : json["notes"]) o << "- " << n.get<std::string>() << "\n";
         o << "\n";
     }
     if (json["clusters"].empty() && !(json.contains("efficiency") && !json["efficiency"].empty()))

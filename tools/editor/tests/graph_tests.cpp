@@ -4,6 +4,7 @@
 #include <filesystem>
 #include <fstream>
 #include <set>
+#include <thread>
 
 #include "doctest.h"
 #include "fa/core/command.h"
@@ -474,12 +475,39 @@ TEST_CASE("graph model: a second outside write of the same size, right after the
     Json doc = Json::parse(kDissolve);
     doc["graph"]["nodes"][0]["inputs"]["scale"] = 12.0;
     p.write(kMat, doc.dump(2));
+    std::error_code ec;
+    const auto firstTime = stdfs::last_write_time(p.dir / kMat, ec);
+    REQUIRE_FALSE(ec);
     CHECK(m.poll_external());
     CHECK(m.input_value("noise", "scale") == 12.0);
     doc["graph"]["nodes"][0]["inputs"]["scale"] = 13.0;  // same number of characters
     p.write(kMat, doc.dump(2));
+    stdfs::last_write_time(p.dir / kMat, firstTime, ec);  // the very same time stamp, on every OS
+    REQUIRE_FALSE(ec);
     CHECK(m.poll_external());
     CHECK(m.input_value("noise", "scale") == 13.0);
+}
+
+TEST_CASE("graph model: a rewrite that keeps time and size is found, right after and more than a second later") {
+    GraphProject p;
+    p.open();
+    GraphModel& m = *p.model;
+    Json doc = Json::parse(kDissolve);
+    doc["graph"]["nodes"][0]["inputs"]["scale"] = 12.0;
+    p.write(kMat, doc.dump(2));
+    std::error_code ec;
+    const auto firstTime = stdfs::last_write_time(p.dir / kMat, ec);
+    REQUIRE_FALSE(ec);
+    CHECK(m.poll_external());  // taken while the file is fresh: the stamp holds its hash
+    CHECK(m.input_value("noise", "scale") == 12.0);
+    std::this_thread::sleep_for(std::chrono::milliseconds(1100));
+    doc["graph"]["nodes"][0]["inputs"]["scale"] = 13.0;  // same number of characters
+    p.write(kMat, doc.dump(2));
+    stdfs::last_write_time(p.dir / kMat, firstTime, ec);  // the very same time stamp, on every OS
+    REQUIRE_FALSE(ec);
+    CHECK(m.poll_external());
+    CHECK(m.input_value("noise", "scale") == 13.0);
+    CHECK_FALSE(m.poll_external());
 }
 
 TEST_CASE("graph model: the palette lists the nodes of the material's kind and filters by name, category and doc") {
