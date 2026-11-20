@@ -1209,6 +1209,22 @@ TEST_CASE("sprite material: validate compiles it next to the mesh materials") {
         if (w.message.find("fa_instance_index") != std::string::npos) ++indexWarnings;
     CHECK(indexWarnings == 1);
 
+    // a `//` inside a string literal starts no comment, and a longer name is not the value
+    p.write(
+        "shaders/dissolve2d.fragment.glsl",
+        std::string(kSpriteSnippet) +
+            "\n#include \"a//b.glsl\"\nfloat k() { return float(fa_instance_index); }\nfloat fa_instance_index2;\n");
+    ValidationReport literal;
+    validate_materials(p.str(), shdc.context(p.str()), literal);
+    indexWarnings = 0;
+    for (const auto& w : literal.warnings)
+        if (w.message.find("fa_instance_index") != std::string::npos) ++indexWarnings;
+    CHECK(indexWarnings == 1);
+    p.write("shaders/dissolve2d.fragment.glsl", std::string(kSpriteSnippet) + "\nfloat fa_instance_index2;\n");
+    ValidationReport longer;
+    validate_materials(p.str(), shdc.context(p.str()), longer);
+    for (const auto& w : longer.warnings) CHECK(w.message.find("fa_instance_index") == std::string::npos);
+
     // a mistake in fragment() is the error of the material's snippet
     const std::string bad = "void fragment(in QuadInput i, inout QuadSurface s) {\n    s.color = tnt;\n}\n";
     p.write("shaders/dissolve2d.fragment.glsl", bad);
