@@ -320,6 +320,10 @@ void Gpu::shutdown() {
     }
     sg_destroy_buffer(quadIndices_);
     sg_destroy_buffer(fsTriangle_);
+    if (pacerSrc_.id) sg_destroy_buffer(pacerSrc_);
+    if (pacerDst_.id) sg_destroy_buffer(pacerDst_);
+    pacerSrc_ = pacerDst_ = {};
+    pacedFrame_ = 0;
     for (sg_shader* s : {&quad_shader_, &quadPlainShader_, &mesh_shader_, &sky_shader_, &shadow_shader_, &blit_shader_,
                          &blitKeepShader_, &meshSkinShader_, &shadowSkinShader_}) {
         sg_destroy_shader(*s);
@@ -1127,7 +1131,38 @@ sg_pipeline Gpu::light_pipeline(const TargetFormat& format) {
     return find_or_make(key, format, d);
 }
 
+void Gpu::begin_transient_writes() {
+    const sg_backend backend = sg_query_backend();
+    if (backend != SG_BACKEND_METAL_MACOS && backend != SG_BACKEND_METAL_IOS && backend != SG_BACKEND_METAL_SIMULATOR)
+        return;
+    if (inPass_ || pacedFrame_ == frame_ + 1) return;  // in a pass the command buffer exists; once per sokol frame
+    if (!pacerSrc_.id) {
+        const std::uint32_t zero = 0;
+        sg_buffer_desc s{};
+        s.size = sizeof(zero);
+        s.usage.copy_src = true;
+        s.data = {&zero, sizeof(zero)};
+        s.label = "transient-pacer-src";
+        pacerSrc_ = sg_make_buffer(&s);
+        sg_buffer_desc d{};
+        d.size = sizeof(zero);
+        d.usage.copy_dst = true;
+        d.label = "transient-pacer-dst";
+        pacerDst_ = sg_make_buffer(&d);
+    }
+    if (sg_query_buffer_state(pacerSrc_) != SG_RESOURCESTATE_VALID ||
+        sg_query_buffer_state(pacerDst_) != SG_RESOURCESTATE_VALID)
+        return;
+    sg_copy_buffer_to_buffer_desc c{};
+    c.src.buffer = pacerSrc_;
+    c.dst.buffer = pacerDst_;
+    c.size = sizeof(std::uint32_t);
+    sg_copy_buffer_to_buffer(&c);
+    pacedFrame_ = frame_ + 1;
+}
+
 sg_buffer Gpu::acquire_transient(std::size_t bytes) {
+    begin_transient_writes();
     if (transientUsed_ >= transient_.size()) transient_.emplace_back();
     Transient& t = transient_[transientUsed_++];
     if (t.capacity < bytes || !t.buf.id) {
@@ -1146,6 +1181,7 @@ sg_buffer Gpu::acquire_transient(std::size_t bytes) {
 }
 
 Gpu::LightImage Gpu::write_light_image(int rows, const float* texels) {
+    begin_transient_writes();
     if (lightImagesUsed_ >= lightImages_.size()) lightImages_.emplace_back();
     LightImg& l = lightImages_[lightImagesUsed_++];
     if (!l.image.id || l.rows != rows) {
