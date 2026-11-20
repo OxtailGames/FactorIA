@@ -145,6 +145,13 @@ std::vector<FeatureDef> build_table() {
          "Mie, ozone) and procedural clouds, drawn as the background and baked into the image-based lighting, so "
          "the reflections and the ambient light follow the sun. It needs RGBA16F render targets that filter (its "
          "look-up tables); without them the gradient sky is drawn."});
+    t.push_back(
+        {"environmentMap", FeatureKind::Engine, kEveryGpu, "half", nullptr,
+         "An HDR environment image (SceneSettings.environmentMap, an equirectangular .hdr file) as the background and "
+         "the "
+         "image-based lighting of the scene, with intensity and rotation (docs/rendering/RENDERING_LIGHTING.md, "
+         "\"The environment map\"). It needs RGBA16F render targets that filter (the environment bake) and RGBA16F "
+         "textures that filter; without them the sky material, the physical sky or the gradient is used."});
     // The material layers of M73.6: drawn by the standard mesh shading on every backend (docs/rendering/RENDERING_LIGHTING.md).
     t.push_back({"clearCoat", FeatureKind::Engine, kEveryGpu, "", nullptr,
                  "The clear coat layer of a material: car paint, lacquer (MeshRenderer.clearcoat, glTF "
@@ -167,10 +174,10 @@ std::vector<FeatureDef> build_table() {
                  "Rectangle, disc and tube area lights (Light.type area) with soft highlights, shaded with linearly "
                  "transformed cosines; a rectangle and a disc emit from their front, a tube from all around. Without "
                  "RGBA16F images that filter, an area light is drawn as a point light of the same energy."});
-    t.push_back(
-        {"lightCookies", FeatureKind::Engine, kEveryGpu, "half", nullptr,
-         "Light cookies (Light.cookie): a texture projected by a spot light (perspective) or along a "
-         "directional light (orthographic, tiled over Light.size metres). A point light's cookie is not drawn."});
+    t.push_back({"lightCookies", FeatureKind::Engine, kEveryGpu, "half", nullptr,
+                 "Light cookies (Light.cookie): a texture projected by a spot light (perspective), along a "
+                 "directional light (orthographic, tiled over Light.size metres) or all around a point light (an "
+                 "equirectangular panorama, baked into a cube of six faces). An area light ignores its cookie."});
     t.push_back({"iesProfiles", FeatureKind::Engine, kEveryGpu, "half", nullptr,
                  "IES profiles (Light.ies, an .ies file of the project): the measured light distribution of a real "
                  "lamp on a point or spot light, normalised to its peak so Light.intensity stays the brightness."});
@@ -195,10 +202,6 @@ std::vector<FeatureDef> build_table() {
          nullptr},
         {"contactShadows", "depth",
          "Contact shadows: a short screen-space ray toward the light adds fine shadows where objects touch (M73.2)."},
-        {"environmentMap", "half",
-         "An HDR environment image (a .hdr file) as the sky and the image-based lighting of the scene, with intensity "
-         "and rotation "
-         "(M73.3)."},
         {"reflectionProbes", "half",
          "Reflection probes: local environment captures, baked or realtime, with box projection and blending between "
          "probes "

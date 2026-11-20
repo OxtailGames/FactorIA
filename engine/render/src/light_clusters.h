@@ -142,7 +142,7 @@ struct LightTexture {
     int height = 0;              // rows, a power of two (so the image is made again rarely)
     std::vector<float> texels;   // width * height RGBA32F texels
     std::size_t usedTexels = 0;  // texels that hold data
-    int stride = kLightTexels;   // texels per light: kLightTexelsExt when any light has LightData::hasExt (fa_counts.y)
+    int stride = kLightTexels;  // texels per light: kLightTexelsExt when any light has LightData::hasExt (fa_ambient.w)
     ClusterUniforms uniforms;
     // The first texel of the shadow region of the point and spot lights (local_shadows.h), after the cluster lists; -1 = none. The
     // fragment shader finds it in fa_shadow_lcfg.x (shaders/shadow_common.glsl).

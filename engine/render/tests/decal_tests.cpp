@@ -255,7 +255,7 @@ TEST_CASE("decals: the data texture holds the decal region after the light lists
     pack_light_texture(table, 1, v.cam, &lights, plain);
     pack_light_texture(table, 1, v.cam, &lights, withDecals, nullptr, &pack);
     CHECK(plain.uniforms.decalBase == 0.0f);
-    const std::size_t lightTexels = table.size() * std::size_t(kLightTexels);
+    const std::size_t lightTexels = table.size() * std::size_t(plain.stride);
     const std::size_t clusters = std::size_t(v.grid.clusters());
     const std::size_t indexTexels = (lights.indices.size() + 3) / 4;
     CHECK(plain.usedTexels == lightTexels + clusters + indexTexels);

@@ -85,6 +85,14 @@ public:
     // True when the cubes hold a baked sky, and the key it was baked with.
     bool baked() const { return baked_; }
     std::uint64_t key() const { return key_; }
+    // How the next bake (a whole one, or a sequence of slices from its first call) treats the sky it is given: `gain` multiplies
+    // what the meshes read (SceneSettings.environmentIntensity; the sky itself is drawn once, so a change of it is a new key and a
+    // new bake), `tapLimit` (0 = none) limits the brightest channel of one sample of the roughness and irradiance convolutions
+    // (an HDRI's sun, renderer_hdri.h; the mirror level and the sky material's bake have no limit). Defaults: 1 and 0.
+    void set_look(float gain, float tapLimit) {
+        look_.gain = gain;
+        look_.tapLimit = tapLimit;
+    }
     // Bakes the sky: runs kEnvPasses passes (adds them to *drawCalls). `key` is remembered as what the cubes now show.
     // A pass that cannot be made leaves baked() false.
     void bake(Gpu& gpu, std::uint64_t key, const SkyDraw& sky, int* drawCalls);
@@ -128,7 +136,7 @@ public:
 private:
     sg_pipeline pipeline(Prog prog);
     void draw(Gpu& gpu, Prog prog, sg_view dst, sg_view srcTex, int face, float roughness, float samples,
-              const char* label, int* drawCalls);
+              const char* label, int* drawCalls, bool lit = false);
     void destroy_images();
     void bake_sky(Gpu& gpu, const SkyDraw& sky, int* drawCalls);
     void bake_levels(Gpu& gpu, int first, int last, int* drawCalls);
@@ -155,7 +163,11 @@ private:
     sg_view blankTex_{};
     bool baked_ = false;
     std::uint64_t key_ = 0;
-    int slice_ = 0;  // bake_slice: the next call's part (0 = a new sequence, 1, 2)
+    struct Look {
+        float gain = 1.0f, tapLimit = 0.0f;
+    };
+    Look look_, active_;  // what the caller asked for, and what the bake that runs uses (taken when it starts)
+    int slice_ = 0;       // bake_slice: the next call's part (0 = a new sequence, 1, 2)
     std::uint64_t pendingKey_ = 0, tagKey_ = 0;
     float tagSun_[3]{0.0f, 1.0f, 0.0f};
 };

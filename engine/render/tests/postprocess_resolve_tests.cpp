@@ -679,8 +679,8 @@ TEST_CASE("features: what the engine does not draw yet is false and says planned
 
 TEST_CASE(
     "features: the lighting rows of M73 are planned until their package lands and never claim what is not drawn") {
-    const char* const rows[] = {"contactShadows", "environmentMap", "reflectionProbes", "lightProbes",
-                                "volumetricFog",  "subsurface",     "realtimeGI",       "transmission"};
+    const char* const rows[] = {"contactShadows", "reflectionProbes", "lightProbes", "volumetricFog",
+                                "subsurface",     "realtimeGI",       "transmission"};
     const FeatureEnv full = gpu(FeatureBackend::D3d11, true, true, true, true);
     for (const char* n : rows) {
         CAPTURE(n);
@@ -709,8 +709,9 @@ TEST_CASE(
         CHECK(why.find("RGBA16F") != std::string::npos);
         CHECK(why.find("planned") == std::string::npos);
     }
-    // The light atlas rows are drawn (M73.1b): they need RGBA16F images that filter and say so when they are missing.
-    for (const char* n : {"areaLights", "lightCookies", "iesProfiles"}) {
+    // The light atlas rows are drawn (M73.1b) and the environment map (M73-P3a-2): they need RGBA16F images (that filter) and say so when
+    // they are missing.
+    for (const char* n : {"areaLights", "lightCookies", "iesProfiles", "environmentMap"}) {
         CAPTURE(n);
         std::string why;
         REQUIRE(find_feature(n) >= 0);

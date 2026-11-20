@@ -88,6 +88,14 @@ struct ImageF {
 // offset; a size above kMaxImageFloatSide or kMaxImageFloatBytes is refused from the header, before pixel memory is
 // allocated.
 Result<ImageF> decode_hdr(const std::uint8_t* data, std::size_t size);
+// What the header of a .hdr says, read without touching the pixels (the same checks, so the same errors, as decode_hdr's
+// header: only the first bytes of the file are needed, at most 16 KB). The size is within kMaxImageFloatSide and
+// kMaxImageFloatBytes.
+struct HdrInfo {
+    int width = 0, height = 0;
+    float exposure = 1.0f;  // as ImageF::exposure
+};
+Result<HdrInfo> hdr_info(const std::uint8_t* data, std::size_t size);
 // Reads and decodes a .hdr through the engine's file layer (fs::read_bytes: project paths, packs); the error names the
 // file.
 Result<ImageF> load_hdr(std::string_view path);

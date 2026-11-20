@@ -201,7 +201,7 @@ sg_view Environment::blank_view(Gpu&) {
 }
 
 void Environment::draw(Gpu& gpu, Prog prog, sg_view dst, sg_view srcTex, int face, float roughness, float samples,
-                       const char* label, int* drawCalls) {
+                       const char* label, int* drawCalls, bool lit) {
     PassDesc pd;
     pd.label = label;
     pd.color = dst;
@@ -224,13 +224,15 @@ void Environment::draw(Gpu& gpu, Prog prog, sg_view dst, sg_view srcTex, int fac
     }
     sg_range vr{&vu, sizeof(vu)};
     sg_apply_uniforms(UB_env_env_vs_params, &vr);
-    if (prog != Prog::Copy) {
-        env_env_params_t fu{};
-        fu.p[0] = roughness;
-        fu.p[1] = samples;
-        sg_range fr{&fu, sizeof(fu)};
-        sg_apply_uniforms(UB_env_env_params, &fr);
-    }
+    // `lit`: the pass writes a level the meshes read, so it applies the bake's gain (and the convolutions its limit); the pyramid
+    // that the convolutions read is the sky as it is.
+    env_env_params_t fu{};
+    fu.p[0] = roughness;
+    fu.p[1] = samples;
+    fu.p[2] = prog == Prog::Copy ? 0.0f : active_.tapLimit;
+    fu.p[3] = lit ? active_.gain : 1.0f;
+    sg_range fr{&fu, sizeof(fu)};
+    sg_apply_uniforms(UB_env_env_params, &fr);
     sg_draw(0, 3, 1);
     Gpu::end_pass();
     if (drawCalls) ++*drawCalls;
@@ -267,14 +269,14 @@ void Environment::bake_levels(Gpu& gpu, int first, int last, int* drawCalls) {
     for (int m = first; m <= last; ++m) {
         if (m == 0) {
             for (int f = 0; f < 6; ++f)
-                draw(gpu, Prog::Copy, preAtt_[0][f], pyramidTex_[0], f, 0.0f, 0.0f, "env-level0", drawCalls);
+                draw(gpu, Prog::Copy, preAtt_[0][f], pyramidTex_[0], f, 0.0f, 0.0f, "env-level0", drawCalls, true);
             continue;
         }
         const float roughness = float(m) / float(kEnvLevels - 1);
         const float samples = m <= 2 ? 32.0f : 64.0f;
         for (int f = 0; f < 6; ++f)
             draw(gpu, Prog::Prefilter, preAtt_[m][f], pyramidTex_[std::min(m, kEnvPyramid - 1)], f, roughness, samples,
-                 "env-prefilter", drawCalls);
+                 "env-prefilter", drawCalls, true);
     }
 }
 
@@ -282,13 +284,14 @@ void Environment::bake_levels(Gpu& gpu, int first, int last, int* drawCalls) {
 void Environment::bake_irradiance(Gpu& gpu, int* drawCalls) {
     for (int f = 0; f < 6; ++f)
         draw(gpu, Prog::Irradiance, irrAtt_[f], pyramidTex_[kEnvPyramid - 1], f, 0.0f, 128.0f, "env-irradiance",
-             drawCalls);
+             drawCalls, true);
 }
 
 void Environment::bake(Gpu& gpu, std::uint64_t key, const SkyDraw& sky, int* drawCalls) {
     baked_ = false;
     slice_ = 0;
     if (state_ <= 0) return;
+    active_ = look_;
     bake_sky(gpu, sky, drawCalls);
     bake_levels(gpu, 0, kEnvLevels - 1, drawCalls);
     bake_irradiance(gpu, drawCalls);
@@ -299,6 +302,7 @@ void Environment::bake(Gpu& gpu, std::uint64_t key, const SkyDraw& sky, int* dra
 void Environment::bake_slice(Gpu& gpu, std::uint64_t key, const SkyDraw& sky, int* drawCalls) {
     if (state_ <= 0) return;
     if (slice_ == 0) {  // a new sequence: the sky of this frame is what it bakes
+        active_ = look_;
         bake_sky(gpu, sky, drawCalls);
         pendingKey_ = key;
         slice_ = 1;
@@ -368,6 +372,7 @@ void Environment::release() {
     slice_ = 0;
     pendingKey_ = 0;
     tagKey_ = 0;
+    look_ = active_ = Look{};
 }
 
 }  // namespace fa::render

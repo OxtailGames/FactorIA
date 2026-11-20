@@ -54,6 +54,7 @@
 #include "shaders/light.glsl.h"
 #include "shaders/mesh.glsl.h"
 #include "shaders/quad.glsl.h"
+#include "renderer_hdri.h"
 #include "renderer_sky_phys.h"
 #include "shaders/sky.glsl.h"
 
@@ -95,6 +96,7 @@ struct Renderer::Impl {
     // attachment, which bloom composites into.
     Target gameTarget;
     PhysicalSky physSky;  // the physical sky's tables and programs (renderer_sky_phys.h)
+    HdriSky hdriSky;      // the program that draws SceneSettings.environmentMap (renderer_hdri.h)
     Environment
         skyEnv;  // the baked sky that lights the meshes (renderer_env.h; used only with SceneSettings.skyMaterial)
     Ssr ssr;     // screen-space reflections (renderer_ssr.h): its shaders and pipelines
@@ -216,7 +218,9 @@ struct Renderer::Impl {
     bool warnedNoLight = false;
     bool warnedLightsDropped = false;   // one warning when a view has more lights than it can light
     bool warnedClusterClipped = false;  // one warning when a cluster or view list ran over its limit
-    bool warnedAreaCookie = false;      // one warning for a Light.cookie / ies on a kind of light that does not use it
+    bool warnedDirectionalIes = false;  // one warning each for a Light.ies on a directional light,
+    bool warnedAreaCookie = false;      // a Light.cookie on an area light
+    bool warnedAreaIes = false;         // and a Light.ies on an area light (none of them uses it)
     // The light atlas (light_atlas.h; view 25): the LTC tables, the cookies and the IES profiles, made at the first light that needs them.
     LightAtlas lightAtlas;
     // M73.5b, the projected decals (renderer_decals.cpp). A Decal of the view: its world matrix and the component (valid until the
