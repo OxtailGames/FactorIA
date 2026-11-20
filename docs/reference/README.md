@@ -423,6 +423,7 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`render.frame_graph`](commands/game.md#renderframe_graph): Where the last frame's time went, pass by pass: the frame graph with the CPU and GPU time of every pass. _Since 0.28.0._
 - [`render.inspect`](commands/game.md#renderinspect): Luminance profile of the current picture along a line, with the hard steps (seams, bands) in it. _Since 0.4.0._
 - [`render.light_probes`](commands/game.md#renderlight_probes): The baked light probes of the scene and the light a MeshRenderer receives from them. _Not released yet._
+- [`render.material_cost`](commands/game.md#rendermaterial_cost): What the material of a mesh entity costs the renderer: its extra passes, its phase and the features that only add shader work. _Not released yet._
 - [`render.output`](commands/game.md#renderoutput): What the game window shows: the standard range or HDR, in which encoding, and what the display can do. _Since 0.31.0._
 - [`render.pick`](commands/game.md#renderpick): Which entities draw a design-space pixel of the picture, topmost first. _Since 0.4.0._
 - [`render.reset_post_history`](commands/game.md#renderreset_post_history-modifies-state): Start again the history of the custom post passes that read their own output of the frame before (fa_history). _Since 0.32.0._

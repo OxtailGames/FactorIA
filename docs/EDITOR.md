@@ -252,7 +252,9 @@ several entities selected the Inspector shows what they share ([Selecting things
 one widget per param (drag with its `min`/`max`, vectors, a colour picker), an `*` and a **Reset** button when this entity
 overrides the default (written with `scene.set_component` and `merge: true`). Under the material field a material that does
 not compile shows its error with the snippet's file and line; it disappears when the material builds again. Texture params
-of a material are not editable here yet (use the Console or the AI).
+of a material are not editable here yet (use the Console or the AI). **Render cost** under the fields says what the entity's material costs the renderer
+(the answer of `render.material_cost`, asked about twice a second, never computed by the editor): a summary line ("transmission (+6 passes); 6 extra passes
+in all") and the active features, each with its note as a tooltip. [Transmission and the cost view](rendering/RENDERING_TRANSMISSION.md).
 
 **Prefab instances.** An entity a prefab file made (a scene entry with `prefab`, `scene.spawn {prefab}`, a prefab dropped on the
 viewport) shows its prefab under its name: the path, and `Part of prefab <path> (<root id>)` for something below the root. The

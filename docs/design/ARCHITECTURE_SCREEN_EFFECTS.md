@@ -2,27 +2,28 @@
 
 Part of the architecture documentation ([entry page](ARCHITECTURE.md)). The lighting of M73 is described in
 [ARCHITECTURE_RENDERING_LIGHTING.md](ARCHITECTURE_RENDERING_LIGHTING.md); this page holds what the mesh fragment shader reads from the
-frame's own screen, which today is one thing (the contact shadows) and tomorrow two (M73.6b reads the opaque colour in the same slot).
+frame's own screen, which is two things: the contact shadows and the opaque colour that glass refracts (M73.6b).
 
 ## The screen slot (view 28)
 
 `fa_screen_tex` is view 28 of the mesh fragment shader (`kMeshFragmentViews`, `render_internal.h`; phases 1 and 2). It is read with
 `texelFetch` through the nearest sampler 1, like the light data texture: an RGBA32F or RGBA16F prepass is an `unfilterable_float`
 image, which the filtering sampler 10 cannot be paired with. A later reader that wants bilinear filtering (the opaque colour of
-transmission) filters by hand.
+transmission, below) filters by hand.
 
 What the slot holds depends on the phase of the draw (`bind_textures(..., shadowPass, opaquePhase)` in `renderer_draw.cpp`):
 
 | Draw | View 28 |
 |---|---|
 | the opaque phase of the main pass, the frame has a contact shadow | the depth prepass of the frame (`ctx.screenView`): r = linear view depth, gb = octahedral normal, a = 1 on an opaque mesh, 0 on the sky |
-| every other draw (the shadow passes, the blended phase, a frame with no contact shadow) | the white placeholder image: the unit is always bound, the program never reads it |
+| the blended phase of a frame with a visible transmissive draw | the refraction atlas (below): the opaque picture and its reduced copies, a colour image |
+| every other draw (the shadow passes, the blended phase of any other frame, a frame with no contact shadow) | the white placeholder image: the unit is always bound, the program never reads it |
 
 The prepass is the one the post-processing effects that need depth already draw (`PostPlan::prepass`, described under the depth outline in ARCHITECTURE_RENDERING_POST.md); a frame
 with contact shadows and no other user of it draws it for them (`postPlan.needsDepth`), and the main pass lists it among its reads in
 the frame graph. It is never multisampled and has the camera's pixel size (`ctx.camPx`), so a fragment of the main pass reads the
 prepass at its own pixel. The prepass holds the opaque meshes only: no blended draw, so a blended mesh is not a caster; and the draws of
-the blended phase (which includes the transmissive ones of M73.6b, when the slot holds the opaque colour) take no contact shadow.
+the blended phase (which includes the transmissive ones of M73.6b, whose slot holds the opaque colour) take no contact shadow.
 
 ## Contact shadows (M73.2c)
 
@@ -70,3 +71,33 @@ Tests: `engine/render/tests/contact_shadow_render_tests.cpp` (a box on a floor u
 still picture, a longer ray, a point and an area light), `render3d_tests.cpp` (a custom `light()` receives it; the slot of a material's
 program), `mesh_slots_tests.cpp` (the slot table), `light_clusters_tests.cpp` (the region's texels), `postprocess_resolve_tests.cpp`
 (the feature row).
+
+## Transmission and volume (M73.6b)
+
+User page: [RENDERING_TRANSMISSION.md](../rendering/RENDERING_TRANSMISSION.md). Code: `renderer_xmit.{h,cpp}` (the atlas), `shaders/xmit.glsl` (the copy and
+the reductions), `fa_transmission` in `shaders/brdf_layers.glsl` (the read), `plan_transmission` and the main pass in `renderer_draw.cpp`,
+`material_cost.cpp` (the cost view).
+
+**Which draws are transmissive.** `mesh_is_transmissive(mr, mesh, material)` (`render_scene.h`): the MeshRenderer's `transmission` or any part's layer is above 0
+and the material is not a full shader. Such a mesh is also `mesh_is_blended`, so it goes to the blended phase and nowhere else; its pipeline is the blended one
+with back faces culled (`glass`, unless `doubleSided`), because a blended pipeline culls nothing and the inner wall of a closed glass would refract over its front.
+
+**The split.** `plan_transmission` runs once per camera after the visible draws are known: if one is transmissive (`stats.transmissiveMeshes` counts them) and
+`Xmit::can_make` says the images exist, `ctx.xmit.want` is set; otherwise, or when `Xmit::build` fails, the shader mode `fa_tr_a.w` stays 2 (plain blend,
+`transmissionPlain`). With `want`, the main pass is two passes over the same attachments: the opaque phase (sky, opaque meshes, ambient occlusion, fog), `end_pass`, `Xmit::build`, and a
+continuation pass that LOADs colour, depth and stencil (`PassDesc.depthStore` / `stencilStore` keep the first pass's depth and stencil alive) and draws the
+blended phase. A frame with no visible transmissive draw takes the old single pass, so it is bit-identical to a frame without the feature.
+
+**The atlas.** `xmit_layout(w, h)` is pure arithmetic: level 0 at (0, 0), level 1 at (w, 0), levels 2.. stacked under level 1, at most `kXmitMaxLevels` (5), fewer for a
+small picture. The picture is copied (resolving MSAA) into level 0's image, each level is a 4x4 smooth reduction of the one before, and one draw writes every level
+into the atlas, in the colour format of the picture (so HDR values refract unclamped). Images come from `TransientTargets` and go back after the blended
+draws (`Xmit::finish`).
+
+**The read.** `fa_transmission` takes the surface point, moves it along `refract(-v, n, 1 / ior) * thickness` (only with thickness above 0), projects it back to the
+screen, and reads the atlas with `texelFetch`: one bilinear tap in each of the two levels around `roughness * clamp(2 * ior - 2, 0, 1) * (levels - 1)`, blended by
+hand (view 28 is unfilterable, there is no free texture unit). The Beer-Lambert attenuation `exp(-(-ln(attenuationColor) / attenuationDistance) * thickness)` tints
+the result, and the specular reflection takes its share first: the transmitted part is `(1 - F) * transmission * (1 - metallic)`.
+
+**One source of truth for the cost.** `material_cost_report` (`material_cost.cpp`) calls the same predicates as the renderer (`mesh_is_transmissive`,
+`mesh_is_blended`, `xmit_layout`, `subsurface_of`), `Renderer::material_cost` loads the entity's mesh and material and adds the camera's size, and the command
+`render.material_cost` and the editor's inspector show its JSON. The editor never computes a cost; its autotest compares what it shows with a fresh command call.

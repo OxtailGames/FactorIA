@@ -12,8 +12,8 @@
 using namespace fa;
 using namespace fa::test;
 using fa::render::kXmitMaxLevels;
-using fa::render::XmitLayout;
 using fa::render::xmit_layout;
+using fa::render::XmitLayout;
 
 namespace {
 
@@ -136,10 +136,9 @@ TEST_CASE("transmission: the refraction atlas holds the picture and a half-size 
         CHECK(l.level[a].x + l.level[a].w <= l.atlasW);
         CHECK(l.level[a].y + l.level[a].h <= l.atlasH);
         for (int b = a + 1; b < l.levels; ++b) {
-            const bool apart = l.level[a].x + l.level[a].w <= l.level[b].x ||
-                               l.level[b].x + l.level[b].w <= l.level[a].x ||
-                               l.level[a].y + l.level[a].h <= l.level[b].y ||
-                               l.level[b].y + l.level[b].h <= l.level[a].y;
+            const bool apart =
+                l.level[a].x + l.level[a].w <= l.level[b].x || l.level[b].x + l.level[b].w <= l.level[a].x ||
+                l.level[a].y + l.level[a].h <= l.level[b].y || l.level[b].y + l.level[b].h <= l.level[a].y;
             CHECK(apart);
         }
     }

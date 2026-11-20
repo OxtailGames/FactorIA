@@ -414,10 +414,10 @@ Draws a 3D mesh with a PBR material (GGX highlights, sky reflections, normal map
 | `anisotropyRotation` | float | `0.0` | Degrees that turn the direction of the anisotropic stretch around the normal. 0 leaves the model's own rotation. Range -360.0..360.0. (not released yet, on main after 0.32.0) |
 | `specular` | float | `1.0` | Strength 0..1 of the specular reflection of a non-metal surface (glTF KHR_materials_specular); 1 = the usual look; 0 removes the reflection, and with ior 1.5 the reflectance at normal incidence is 4% x specular. Another value replaces the model's own. Range 0.0..1.0. (not released yet, on main after 0.32.0) |
 | `ior` | float | `1.5` | Index of refraction, 1..3 (glTF KHR_materials_ior): 1.5 is glass and plastic, 1.33 water, 2.4 diamond. It sets the reflectance of a non-metal at normal incidence, ((ior - 1) / (ior + 1))^2 (1.5 = 4%). Another value replaces the model's own. Range 1.0..3.0. (not released yet, on main after 0.32.0) |
-| `transmission` | float | `0.0` | How much light 0..1 passes through the surface instead of reflecting, as glass does (glTF KHR_materials_transmission). 0 = opaque. No effect yet: M73.6 brings it. Range 0.0..1.0. (not released yet, on main after 0.32.0) |
-| `thickness` | float | `0.0` | Metres the light travels inside the volume of a transmissive surface (glTF KHR_materials_volume). 0 = a thin surface. No effect yet: M73.6 brings it. Range 0.0..1000.0. (not released yet, on main after 0.32.0) |
-| `attenuationColor` | color | `[1.0,1.0,1.0,1.0]` | Colour the light takes after travelling attenuationDistance inside the volume (tinted glass, liquids). No effect yet: M73.6 brings it. (not released yet, on main after 0.32.0) |
-| `attenuationDistance` | float | `0.0` | Metres of travel inside the volume at which the light has the colour attenuationColor. 0 (default) = the volume does not tint the light. No effect yet: M73.6 brings it. Range 0.0..100000.0. (not released yet, on main after 0.32.0) |
+| `transmission` | float | `0.0` | How much light 0..1 passes through the surface instead of reflecting, as glass does (glTF KHR_materials_transmission). 0 = opaque. The mesh is drawn after the opaque ones (like a blended mesh) and shows the opaque picture behind it, refracted and blurred by roughness (docs/rendering/RENDERING_TRANSMISSION.md). Range 0.0..1.0. (not released yet, on main after 0.32.0) |
+| `thickness` | float | `0.0` | Metres the light travels inside the volume of a transmissive surface (glTF KHR_materials_volume). 0 = a thin surface (no tint, no offset of the refraction); the thicker, the more the refraction shifts the picture behind and the more attenuationColor tints it. It is in world metres, not scaled by the entity's scale. Range 0.0..1000.0. (not released yet, on main after 0.32.0) |
+| `attenuationColor` | color | `[1.0,1.0,1.0,1.0]` | Colour the light takes after travelling attenuationDistance inside the volume (tinted glass, liquids), with attenuationDistance. White (default) = no tint. (not released yet, on main after 0.32.0) |
+| `attenuationDistance` | float | `0.0` | Metres of travel inside the volume at which the light has the colour attenuationColor. 0 (default) = the volume does not tint the light (glTF infinity reads as 0). Range 0.0..100000.0. (not released yet, on main after 0.32.0) |
 | `subsurface` | float | `0.0` | Strength 0..1 of the screen-space subsurface scattering (skin, wax, marble): the diffuse light of the surface is blurred over subsurfaceRadius metres, so light that enters the lit side leaves the shadow side softly, and the specular stays sharp. 0 (default) = none and no extra cost. Drawn for opaque meshes with the engine's own material program; see docs/rendering/RENDERING_LIGHTING.md. Range 0.0..1.0. (not released yet, on main after 0.32.0) |
 | `subsurfaceRadius` | float | `0.01` | Metres the diffuse light spreads inside the surface, for the colour channel with the widest spread (subsurfaceColor 1): about 0.005..0.02 for skin, 0.02..0.06 for wax. Clamped to 0..0.5. Has an effect only when subsurface is above 0. Range 0.0..0.5. (not released yet, on main after 0.32.0) |
 | `subsurfaceColor` | color | `[1.0,0.4,0.25,1.0]` | How far each colour channel spreads, relative to subsurfaceRadius: red 1.0 and green and blue lower give the red glow of skin (default 1, 0.4, 0.25); white scatters every channel the same (marble). Alpha is ignored. Has an effect only when subsurface is above 0. (not released yet, on main after 0.32.0) |
@@ -7825,6 +7825,22 @@ Errors: `invalid_argument` for an `entity` that is not a string; `not_found` for
 |---|---|---|---|
 | `entity` | string | no | The MeshRenderer entity (id or name) whose received light to report. Default: only the scene's probes. |
 
+### `render.material_cost`
+
+Not released yet (on main after 0.32.0).
+
+What the material of a mesh entity costs the renderer: its extra passes, its phase and the features that only add shader work.
+
+Capabilities: read
+
+The one list the Inspector's cost view shows: for the MeshRenderer of entity `id` it says which features are on and what each adds to the frame. Returns {id, extraPasses, phase, summary, features: [{name, field, active, cost, extraPasses, note}]}. `phase` is "opaque" or "blended" (blended meshes are drawn after the opaque ones, far to near, without writing depth; a transmissive mesh is one of them). `cost` of a feature is "extraPass" (transmission copies the opaque picture once per camera that sees such a mesh: a pass for each reduced half, one that writes the atlas and the second half of the main pass; a full-shader material draws the mesh once per pass), "phase" (blended: no pass, a different place in the frame) or "shader" (clear coat, sheen, anisotropy: more work per pixel, no pass). `extraPasses` counts the passes of an active feature (0 when it is off), and the top-level one adds them up; the pass count of transmission follows the size of the picture (a small one has fewer halves). The decision is the renderer's own (a MeshRenderer field replaces the model's, a full-shader material gets no layers and no transmission). Example: render.material_cost {"id":"window"}
+
+Errors: `not_found` for an `id` that is not in the scene, `invalid_argument` when the entity has no MeshRenderer, `unavailable` without graphics (graphics=false). It loads the entity's mesh and material when they are not loaded yet. The same answer is Renderer::material_cost in C++.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `id` | string | yes | The id of an entity with a MeshRenderer. |
+
 ### `render.output`
 
 Since 0.31.0.
@@ -7880,7 +7896,7 @@ Capabilities: read
 
 Answers from the renderer's table per backend (GL, GLES3, WebGL2, D3D11, Metal, headless) and from what the GPU reports, so a game or a tool can ask before it relies on a feature. Without `feature`: {backend, backendLabel, features: [{name, kind, supported, status, doc, backends}]}; with `feature`: {feature, backend, supported, status}. A feature the renderer does not draw is false with the status "planned (<milestone>)" (the lighting of M73 is, until each part lands): this command never claims what is not drawn. Example: render.supports {"feature":"floatTargets"}
 
-`kind` is capability (a fact of the GPU: floatTargets, r11g11b10, sampledDepth, computeShaders, float32Targets), engine (linearColor, hdrOutput, and the lighting rows of M73: clusteredLights, areaLights, lightCookies, iesProfiles, cascadedShadows, pointShadows, spotShadows, contactShadows, environmentMap, reflectionProbes, physicalSky, lightmaps, lightProbes, volumetricFog, decals, subsurface, realtimeGI, clearCoat, sheen, anisotropy, transmission) or effect (one per PostProcess effect: ssao, ssr, fog, sunShafts, exposure, depthOfField, motionBlur, radialBlur, lensDistortion, chromaticAberration, bloom, tonemap, colorGrading, vignette, sharpen, outline, pixelate, posterize, filmGrain, colorFilter); `backends` says on which backends the feature can ever run. `status` is "supported", "planned (<milestone>)" for an engine feature or effect the renderer does not draw (the M73 lighting rows until their step lands; clusteredLights, areaLights, lightCookies, iesProfiles, lightmaps, lightProbes, volumetricFog and subsurface are drawn), or one sentence that names the backend or the missing GPU capability. hdrOutput is true when the display the window showed its last frame on can show HDR in an encoding the renderer writes (EDR on Metal, scRGB or HDR10 on D3D11), whatever the scene asks; its status otherwise says why (the display or the OS setting); render.output says what the window shows. The headless dummy backend (no GPU) answers false to everything; a headless run with Mesa/EGL is a GL or GLES3 backend like any other. Errors: `invalid_argument` for a `feature` that is not in the list (with a did-you-mean); `unavailable` without graphics (graphics=false). The same answer is Renderer::supports(name) in C++.
+`kind` is capability (a fact of the GPU: floatTargets, r11g11b10, sampledDepth, computeShaders, float32Targets), engine (linearColor, hdrOutput, and the lighting rows of M73: clusteredLights, areaLights, lightCookies, iesProfiles, cascadedShadows, pointShadows, spotShadows, contactShadows, environmentMap, reflectionProbes, physicalSky, lightmaps, lightProbes, volumetricFog, decals, subsurface, realtimeGI, clearCoat, sheen, anisotropy, transmission) or effect (one per PostProcess effect: ssao, ssr, fog, sunShafts, exposure, depthOfField, motionBlur, radialBlur, lensDistortion, chromaticAberration, bloom, tonemap, colorGrading, vignette, sharpen, outline, pixelate, posterize, filmGrain, colorFilter); `backends` says on which backends the feature can ever run. `status` is "supported", "planned (<milestone>)" for an engine feature or effect the renderer does not draw (the M73 lighting rows until their step lands; clusteredLights, areaLights, lightCookies, iesProfiles, lightmaps, lightProbes, volumetricFog, subsurface and transmission are drawn), or one sentence that names the backend or the missing GPU capability. hdrOutput is true when the display the window showed its last frame on can show HDR in an encoding the renderer writes (EDR on Metal, scRGB or HDR10 on D3D11), whatever the scene asks; its status otherwise says why (the display or the OS setting); render.output says what the window shows. The headless dummy backend (no GPU) answers false to everything; a headless run with Mesa/EGL is a GL or GLES3 backend like any other. Errors: `invalid_argument` for a `feature` that is not in the list (with a did-you-mean); `unavailable` without graphics (graphics=false). The same answer is Renderer::supports(name) in C++.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -18066,23 +18082,23 @@ declare module "factoria" {
      */
     ior: number;
     /**
-     * How much light 0..1 passes through the surface instead of reflecting, as glass does (glTF KHR_materials_transmission). 0 = opaque. No effect yet: M73.6 brings it.
+     * How much light 0..1 passes through the surface instead of reflecting, as glass does (glTF KHR_materials_transmission). 0 = opaque. The mesh is drawn after the opaque ones (like a blended mesh) and shows the opaque picture behind it, refracted and blurred by roughness (docs/rendering/RENDERING_TRANSMISSION.md).
      * @since unreleased
      */
     transmission: number;
     /**
-     * Metres the light travels inside the volume of a transmissive surface (glTF KHR_materials_volume). 0 = a thin surface. No effect yet: M73.6 brings it.
+     * Metres the light travels inside the volume of a transmissive surface (glTF KHR_materials_volume). 0 = a thin surface (no tint, no offset of the refraction); the thicker, the more the refraction shifts the picture behind and the more attenuationColor tints it. It is in world metres, not scaled by the entity's scale.
      * @since unreleased
      */
     thickness: number;
     /**
-     * Colour the light takes after travelling attenuationDistance inside the volume (tinted glass, liquids). No effect yet: M73.6 brings it.
+     * Colour the light takes after travelling attenuationDistance inside the volume (tinted glass, liquids), with attenuationDistance. White (default) = no tint.
      * @since unreleased
      */
     get attenuationColor(): Color;
     set attenuationColor(value: ColorLike);
     /**
-     * Metres of travel inside the volume at which the light has the colour attenuationColor. 0 (default) = the volume does not tint the light. No effect yet: M73.6 brings it.
+     * Metres of travel inside the volume at which the light has the colour attenuationColor. 0 (default) = the volume does not tint the light (glTF infinity reads as 0).
      * @since unreleased
      */
     attenuationDistance: number;

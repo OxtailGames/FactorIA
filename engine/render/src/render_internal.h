@@ -576,7 +576,8 @@ inline constexpr MeshFragmentView kMeshFragmentViews[] = {
      "image "
      "cannot pair with): M73.2c (today) the prepass of the opaque phase (r = linear view depth, a = 1 on a mesh) for "
      "the "
-     "contact shadows, a white image while none is drawn; in the blended phase of a frame with a transmissive mesh (M73.6b) the "
+     "contact shadows, a white image while none is drawn; in the blended phase of a frame with a transmissive mesh "
+     "(M73.6b) the "
      "refraction atlas (renderer_xmit.h): the opaque picture and its halves, read with texelFetch too, bilinear and "
      "trilinear by hand"},
 };

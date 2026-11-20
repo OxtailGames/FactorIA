@@ -1459,6 +1459,12 @@ public:
     const MaterialInfoEntry& material_info_for(const std::string& path);  // material.info of a material, cached
     Json assetReport_;  // Renderer::asset_report(), refreshed twice a second
     double assetReportAt_ = -1e9;
+    // MeshRenderer "Render cost" block (M73-P6b): the answer of render.material_cost for the inspected entity, asked at most twice a second.
+    // The editor only shows it: the one place that decides the cost is the renderer (material_cost.cpp).
+    std::string renderCostId_;
+    Json renderCost_;
+    double renderCostAt_ = -1e9;
+    void draw_render_cost(const std::string& id);
     std::map<std::string, std::pair<double, std::vector<std::string>>>
         assetFiles_;  // asset type -> files, refreshed every 2 s
 

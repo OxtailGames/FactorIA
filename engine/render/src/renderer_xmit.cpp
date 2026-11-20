@@ -29,8 +29,8 @@ TransientDesc desc_of(int w, int h, sg_pixel_format fmt, const char* label) {
 
 // One full-screen triangle into the rectangle (x, row, w, h) of the pass's target, in image rows. `src`: the source rectangle (image rows) of
 // the image `view` (`imgW` x `imgH`), `reduce`: 4-tap reduction instead of the copy.
-void draw_rect(Gpu& gpu, sg_view view, int imgW, int imgH, int sx, int sy, int sw, int sh, bool reduce, int x, int row, int w,
-               int h) {
+void draw_rect(Gpu& gpu, sg_view view, int imgW, int imgH, int sx, int sy, int sw, int sh, bool reduce, int x, int row,
+               int w, int h) {
     sg_apply_viewport(x, row, w, h, !gpu.is_gl());
     sg_apply_scissor_rect(x, row, w, h, !gpu.is_gl());
     sg_bindings b{};
@@ -89,10 +89,11 @@ bool Xmit::ready() {
         if (shader_.id) sg_destroy_shader(shader_);
         shader_ = {};
         state_ = -1;
-        FA_ERROR("render",
-                 "Transmission (glass, liquids) is drawn without refraction: its copy shader failed to compile for this graphics "
-                 "backend (see the sokol log lines above). Transmissive meshes are blended plainly. Hint: update the graphics "
-                 "driver (Mesa: try LIBGL_ALWAYS_SOFTWARE=1).");
+        FA_ERROR("render", "Transmission (glass, liquids) is drawn without refraction: its copy shader failed to "
+                           "compile for this graphics "
+                           "backend (see the sokol log lines above). Transmissive meshes are blended plainly. Hint: "
+                           "update the graphics "
+                           "driver (Mesa: try LIBGL_ALWAYS_SOFTWARE=1).");
         return false;
     }
     state_ = 1;
@@ -114,7 +115,8 @@ sg_pipeline Xmit::pipeline(const TargetFormat& format) {
     d.face_winding = SG_FACEWINDING_CCW;
     d.label = "xmit-copy";
     const sg_pipeline p = sg_make_pipeline(&d);
-    if (sg_query_pipeline_state(p) != SG_RESOURCESTATE_VALID) FA_ERROR("render", "failed to create pipeline '{}'", d.label);
+    if (sg_query_pipeline_state(p) != SG_RESOURCESTATE_VALID)
+        FA_ERROR("render", "failed to create pipeline '{}'", d.label);
     pipelines_.push_back({format, p});
     return p;
 }
@@ -145,7 +147,8 @@ bool Xmit::can_make(TransientTargets& targets, Gpu& gpu, int w, int h) {
         if (!warnedTargets_) {
             warnedTargets_ = true;
             FA_ERROR("render",
-                     "Transmission: cannot create the refraction images for a {}x{} camera; transmissive meshes are blended plainly "
+                     "Transmission: cannot create the refraction images for a {}x{} camera; transmissive meshes are "
+                     "blended plainly "
                      "without refraction. Hint: lower the render scale or the window size.",
                      w, h);
         }
@@ -156,7 +159,8 @@ bool Xmit::can_make(TransientTargets& targets, Gpu& gpu, int w, int h) {
     return true;
 }
 
-bool Xmit::build(TransientTargets& targets, Gpu& gpu, const Target& game, int x, int row, int w, int h, XmitImages& out) {
+bool Xmit::build(TransientTargets& targets, Gpu& gpu, const Target& game, int x, int row, int w, int h,
+                 XmitImages& out) {
     out = XmitImages{};
     const XmitLayout lay = xmit_layout(w, h);
     if (lay.levels < 1 || !ready() || !game.texView.id) return false;
@@ -188,8 +192,8 @@ bool Xmit::build(TransientTargets& targets, Gpu& gpu, const Target& game, int x,
         if (k == 1)
             draw_rect(gpu, game.texView, game.w, game.h, x, row, w, h, true, 0, 0, lay.level[1].w, lay.level[1].h);
         else
-            draw_rect(gpu, red[k - 1]->texView, red[k - 1]->w, red[k - 1]->h, 0, 0, lay.level[k - 1].w, lay.level[k - 1].h, true, 0,
-                      0, lay.level[k].w, lay.level[k].h);
+            draw_rect(gpu, red[k - 1]->texView, red[k - 1]->w, red[k - 1]->h, 0, 0, lay.level[k - 1].w,
+                      lay.level[k - 1].h, true, 0, 0, lay.level[k].w, lay.level[k].h);
         Gpu::end_pass();
     }
     // The atlas: every level into its rectangle; what no level covers is black.

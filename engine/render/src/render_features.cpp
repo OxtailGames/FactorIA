@@ -163,10 +163,14 @@ std::vector<FeatureDef> build_table() {
                  "Anisotropic highlights: brushed metal, hair (MeshRenderer.anisotropy, glTF "
                  "KHR_materials_anisotropy), stretched along the mesh's tangent."});
     t.push_back({"transmission", FeatureKind::Engine, kEveryGpu, "", nullptr,
-                 "Transmission and volume: glass and liquids that refract what is behind them (MeshRenderer.transmission, thickness, "
-                 "attenuationColor, attenuationDistance, glTF KHR_materials_transmission and KHR_materials_volume). A frame with a "
-                 "visible transmissive mesh copies the opaque picture (with a chain of blurred halves for rough glass) and the mesh "
-                 "looks through it; a frame with none copies nothing. When the copy cannot be made (its shader or an image fails), "
+                 "Transmission and volume: glass and liquids that refract what is behind them "
+                 "(MeshRenderer.transmission, thickness, "
+                 "attenuationColor, attenuationDistance, glTF KHR_materials_transmission and KHR_materials_volume). A "
+                 "frame with a "
+                 "visible transmissive mesh copies the opaque picture (with a chain of blurred halves for rough glass) "
+                 "and the mesh "
+                 "looks through it; a frame with none copies nothing. When the copy cannot be made (its shader or an "
+                 "image fails), "
                  "the mesh is a plain blend that darkens and tints what is behind it, with no refraction "
                  "(docs/rendering/RENDERING_TRANSMISSION.md)."});
     // The lighting of M73 (docs/rendering/RENDERING_LIGHTING.md): every row of the table below answers false with "planned (M73)" until

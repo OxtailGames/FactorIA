@@ -502,7 +502,7 @@ public:
     // The shader dialect of this renderer's backend (see ShaderCompiler); "" before init().
     std::string shader_dialect() const;
     void clear_asset_cache();
-    Json asset_report() const;            // loaded assets + failures (missing files with hints)
+    Json asset_report() const;  // loaded assets + failures (missing files with hints)
     // What the material of a MeshRenderer costs the renderer: the extra passes of its features (a transmissive mesh copies the opaque
     // picture, a full-shader material draws once per pass), its phase and the features that only add fragment work; the command
     // render.material_cost and the Inspector's cost view show this report (material_cost.h). Loads the mesh and the material when they are

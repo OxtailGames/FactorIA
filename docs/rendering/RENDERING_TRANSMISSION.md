@@ -33,6 +33,8 @@ the file, the material and what is used instead. A material that sets no `transm
 - **Roughness.** The scene is read from a chain of half-size copies; the level is `roughness * clamp(2 * ior - 2, 0, 1) * (levels - 1)`, blended between the two
   nearest levels with a bilinear tap each (the filtering is done in the shader, by hand: the picture's image is declared unfilterable because it is
   also the contact shadows' depth image of the opaque phase). A smooth glass (roughness 0) reads the full-size picture.
+- **Faces.** A glass mesh draws only the faces that look at the camera (back faces are culled), unless the entity is `doubleSided`: the inner wall of a
+  closed ball would otherwise refract over its front.
 - **Order.** A transmissive mesh is drawn in the blended phase (with the meshes whose alpha is below 1 and the `blend` materials), far to near, after
   the opaque ones.
 
@@ -76,17 +78,20 @@ cameras, the log says so once per picture size, and the frame is otherwise the n
 same code that plans the frame answers, so the view cannot disagree with what is drawn):
 
 ```json
-{ "id": "…", "extraPasses": 6, "phase": "blended", "summary": "6 extra passes: transmission (copy of the opaque picture), blended phase",
+{ "id": "window", "extraPasses": 6, "phase": "blended",
+  "summary": "transmission (+6 passes); 6 extra passes in all",
   "features": [
-    { "name": "transmission", "field": "transmission", "active": true, "cost": "extraPass", "extraPasses": 6, "note": "…" },
-    { "name": "subsurface", "field": "subsurface", "active": false, "cost": "extraPass", "extraPasses": 0, "note": "…" } ] }
+    { "name": "transmission", "field": "transmission", "active": true, "cost": "extraPass", "extraPasses": 6, "note": "Copies the opaque picture once per camera (…)" },
+    { "name": "blended", "field": "color", "active": false, "cost": "phase", "extraPasses": 0, "note": "Off (opaque, or transmissive: see transmission)." },
+    { "name": "subsurface", "field": "subsurface", "active": false, "cost": "extraPass", "extraPasses": 0, "note": "Off (…)" } ] }
 ```
+(Shortened: the real answer lists every feature below.)
 
 - `features` lists every feature the material can use: `transmission` (the copy and its reductions, shared by every glass mesh of the frame, so the number is
   what the first glass costs), `blended` (the phase, no pass), `multiPass` (a full shader's extra passes), `clearCoat`, `sheen`, `anisotropy` (a longer shader, no
   pass) and `subsurface` (the sss draw, two blurs and the add: [Subsurface scattering](RENDERING_LIGHTING.md)). `cost` is `extraPass`, `phase` or `shader`;
   `active` says whether this entity uses it; `note` says why, in a sentence.
-- `extraPasses` sums the active ones. `summary` is one line the editor shows as it is.
+- `extraPasses` sums the active ones. `summary` is one line the editor shows as it is: each active feature (with its passes), then the total.
 - The editor's inspector shows the same report under the MeshRenderer fields ("Render cost"), refreshed about twice a second; the editor does not compute the
   cost itself.
 - A project without a renderer (the command line without a window) answers `unavailable`.

@@ -2031,12 +2031,15 @@ void register_builtin_components(TypeRegistry& r) {
         .range(1, 3)
         .field("transmission", &MeshRenderer::transmission,
                "How much light 0..1 passes through the surface instead of reflecting, as glass does (glTF "
-               "KHR_materials_transmission). 0 = opaque. The mesh is drawn after the opaque ones (like a blended mesh) and shows "
-               "the opaque picture behind it, refracted and blurred by roughness (docs/rendering/RENDERING_TRANSMISSION.md).")
+               "KHR_materials_transmission). 0 = opaque. The mesh is drawn after the opaque ones (like a blended mesh) "
+               "and shows "
+               "the opaque picture behind it, refracted and blurred by roughness "
+               "(docs/rendering/RENDERING_TRANSMISSION.md).")
         .range(0, 1)
         .field("thickness", &MeshRenderer::thickness,
                "Metres the light travels inside the volume of a transmissive surface (glTF KHR_materials_volume). "
-               "0 = a thin surface (no tint, no offset of the refraction); the thicker, the more the refraction shifts the "
+               "0 = a thin surface (no tint, no offset of the refraction); the thicker, the more the refraction shifts "
+               "the "
                "picture behind and the more attenuationColor tints it. It is in world metres, not scaled by the "
                "entity's scale.")
         .range(0, 1000)
