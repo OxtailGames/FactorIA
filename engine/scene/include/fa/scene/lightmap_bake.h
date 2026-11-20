@@ -132,6 +132,8 @@ struct BakeSettings {
     // 1/20 of a texel (a 1 km scene with 16 texels per meter gets 3 mm, not 10 cm) and never less than size / 500000
     bool shIncludeDirect =
         true;  // sample_irradiance_sh: add the direct light of the Baked lights (a probe is not a lightmap texel)
+    // sample_probes: a probe is invalid (inside geometry) when more than this fraction of its rays first hit a BACK face (0..1).
+    float probeBackfaceTolerance = 0.25f;
     // Budgets: the bake refuses (with what to change) before it allocates or traces anything beyond them.
     int maxAtlasSize = 4096;                    // the largest width or height of an atlas (the texel density cap)
     std::uint64_t maxMemoryBytes = 1ull << 30;  // what the bake may allocate (an estimate with a margin)
@@ -179,7 +181,8 @@ enum class BakePhase : std::int32_t {
     Rasterize,  // which triangle covers which texel of an atlas
     Trace,      // the rays of the texels
     Denoise,    // the edge-aware blur
-    Dilate      // the gutter
+    Dilate,     // the gutter
+    Probes      // the light probes (sample_probes): `done` of `total` probes
 };
 // A progress report: `done` of `total` units of the phase (texels for Trace and Denoise, atlases for Rasterize and Dilate, 0 / 0 for Prepare);
 // `atlas` of `atlasCount` is 1-based (0 for Prepare); `rays` counts the rays traced so far, over every atlas.
@@ -238,5 +241,17 @@ ShL2 sh_project_cube(int size, const float* rgb);
 // bake_lightmap. The scene's atlases are not used (a scene with meshes that have no atlas is fine).
 Result<std::vector<ShL2>> sample_irradiance_sh(const BakeScene& scene, const std::vector<Vec3>& points,
                                                const BakeSettings& settings);
+
+// One baked light probe. `valid` is false when more than settings.probeBackfaceTolerance of its rays first hit a back face: the point is inside
+// a closed mesh (a wall, a prop) and sees nothing useful; its `sh` is then all zeros. `backFraction` is that fraction.
+struct ProbeSample {
+    ShL2 sh;
+    float backFraction = 0;
+    bool valid = true;
+};
+// sample_irradiance_sh plus the validity of each probe, and `progress` (phase Probes, done/total probes) after every batch. Same seeds, same
+// bytes on any thread count.
+Result<std::vector<ProbeSample>> sample_probes(const BakeScene& scene, const std::vector<Vec3>& points,
+                                               const BakeSettings& settings, const BakeProgressFn& progress = {});
 
 }  // namespace fa

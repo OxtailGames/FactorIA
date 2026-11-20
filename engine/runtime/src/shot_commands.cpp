@@ -675,7 +675,7 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
          "the feature can ever run. `status` is \"supported\", \"planned (<milestone>)\" for an engine feature or "
          "effect the "
          "renderer does not draw (the M73 lighting rows until their step lands; clusteredLights, areaLights, "
-         "lightCookies, iesProfiles, volumetricFog and subsurface are drawn), or one "
+         "lightCookies, iesProfiles, lightmaps, lightProbes, volumetricFog and subsurface are drawn), or one "
          "sentence that names the backend or the missing "
          "GPU capability. "
          "hdrOutput "
@@ -718,6 +718,47 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
                                          {"supported", f["supported"]},
                                          {"status", f["status"]}});
             throw CommandError("unavailable", "The renderer reported no feature '" + feature + "'.");
+        });
+
+    I.commands.add(
+        {"render.light_probes", "The baked light probes of the scene and the light a MeshRenderer receives from them.",
+         "Light probes (M73.4d) are the LightProbeGroup components baked by lightmap.bake into the .probes file of the "
+         "scene's lightmap manifest "
+         "(SceneSettings.lightmaps): a mesh without a lightmap (a moving object, lightmapScale 0, a skinned mesh) "
+         "receives their spherical "
+         "harmonics in place of the sky's ambient, interpolated at the centre of its bounds (or at "
+         "MeshRenderer.probeAnchor). Without `entity`: "
+         "{lightmaps, baked, probes, invalid, groups: [{id, kind: \"grid\" | \"points\", count, invalid}]}; `invalid` "
+         "probes sit inside geometry and are "
+         "skipped. With `entity` (a MeshRenderer): also {entity: {id, name, source: \"probes\" | \"lightmap\" | "
+         "\"sky\" | \"none\", position, "
+         "coverage (0..1: how much of the light comes from the probes, the rest from the sky), probesUsed, sh (nine "
+         "[r, g, b] coefficients), "
+         "ambient: {up, down, east, west, north, south} (the diffuse light a surface facing that way gets), note}}; "
+         "`sky` means no probe reaches "
+         "it. Floats are rounded to 3 digits. Needs graphics. Example: render.light_probes "
+         "{\"entity\":\"Player\"}" FA_COMMAND_DETAILS
+         "Errors: `invalid_argument` for an `entity` that is not a string; `not_found` for an entity that does not "
+         "exist; `unavailable` "
+         "without graphics (graphics=false). The same is Renderer::light_probes_report in C++.",
+         parse_schema(R"({"type":"object","properties":{
+               "entity":{"type":"string","description":"The MeshRenderer entity (id or name) whose received light to report. Default: only the scene's probes."}}})"),
+         true, "game"},
+        [&I](const Json& a) {
+            check_args_known(a, {"entity"}, "render.light_probes");
+            const bool one = a.is_object() && a.contains("entity") && !a["entity"].is_null();
+            if (one && !a["entity"].is_string())
+                throw CommandError(
+                    "invalid_argument",
+                    std::string("render.light_probes: `entity` is a string (the entity's id or name), got ") +
+                        a["entity"].type_name() + ".",
+                    "Pass \"entity\": \"Player\", or leave `entity` out. scene.list_entities shows the ids.");
+            const Entity e = one ? need_entity(I.world, a, "entity") : kNullEntity;
+            if (!I.renderer || !I.renderer->initialized())
+                throw CommandError("unavailable",
+                                   "No renderer: the engine runs with graphics=false, so no probe is read.",
+                                   "Run with graphics (headless needs Mesa/EGL on Linux), not graphics=false.");
+            return I.renderer->light_probes_report(I.world, e);
         });
 
     I.commands.add(
@@ -885,6 +926,7 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
                                                  {"render.output", capability_sets::reads()},
                                                  {"render.reset_post_history", capability_sets::changes_state()},
                                                  {"render.supports", capability_sets::reads()},
+                                                 {"render.light_probes", capability_sets::reads()},
                                                  {"render.debug_view", capability_sets::changes_state()},
                                                  {"game.screenshot", capability_sets::changes_state()},
                                                  {"render.inspect", capability_sets::reads()},

@@ -7533,10 +7533,16 @@ declare module "factoria" {
      */
     contributeGI: boolean;
     /**
-     * Whether the surface is lit by the baked lightmap (when the manifest of SceneSettings.lightmaps has an entry for this entity: the baked irradiance replaces the ambient light and the sky's diffuse light, and lights with mode baked are skipped on it). false = the entity ignores its lightmap entry and is lit in realtime, and a bake leaves it out as a receiver. The light probes and the realtime global illumination (M73.4d, M73.5) read it too.
+     * Whether the surface is lit by the baked lightmap (when the manifest of SceneSettings.lightmaps has an entry for this entity: the baked irradiance replaces the ambient light and the sky's diffuse light, and lights with mode baked are skipped on it). false = the entity ignores its lightmap entry and is lit in realtime, and a bake leaves it out as a receiver. A mesh with no lightmap entry (a moving object, lightmapScale 0, a skinned mesh) that stands inside a LightProbeGroup takes the baked probe light as its ambient light; receiveGI false turns that off too. The realtime global illumination (M73.5) reads it as well.
      * @since unreleased
      */
     receiveGI: boolean;
+    /**
+     * The entity whose world position samples the light probes for this mesh (a character's chest, a car's centre). Empty (default) = the centre of the mesh's bounds. Only meshes without a lightmap entry read the probes, see LightProbeGroup. A missing or disabled entity is the same as empty.
+     * @since unreleased
+     */
+    get probeAnchor(): Entity | null;
+    set probeAnchor(value: EntityLike);
     /**
      * Strength 0..1 of a clear coat layer over the surface (car paint, lacquer; glTF KHR_materials_clearcoat). 0 = none. A glTF model with the extension brings its own value; a value here replaces it.
      * @since unreleased
@@ -7777,6 +7783,46 @@ declare module "factoria" {
      * @since unreleased
      */
     layers: number;
+  }
+  /**
+   * Light probes for moving objects: a grid of points that lightmap.bake fills with the light around them (spherical harmonics, as the direct light of the baked lights, the sky and their bounces). A MeshRenderer that has no lightmap of its own (a character, a door, a pickup, anything with lightmapScale 0 or a skinned mesh) reads the probes around it and takes that light as its ambient light, so it is not lit by the flat sky while it walks through a baked room. The grid is axis-aligned in the world: its centre is the entity's world position + `offset`, `size` is the box and `spacing` the distance between probes; the entity's rotation and scale do not turn it. `points` adds single probes. A probe inside a wall or prop (most of its rays hit the back of a surface) is flagged invalid by the bake and skipped at runtime. Outside every group the object is lit by the sky's ambient light as before. A group makes at most 16384 grid probes and a scene 65536 in all. docs/rendering/RENDERING_LIGHTING.md, "Light probes and mixed lights".
+   * 
+   * Category: 3D
+   * @since unreleased
+   */
+  export interface LightProbeGroupComponent {
+    /**
+     * [x, y, z] metres: the box the grid fills, centred on the entity's world position + offset. 0 on an axis makes one layer of probes on that axis (a floor of probes for a flat level). Default [10, 4, 10].
+     * @since unreleased
+     */
+    get size(): Vec3;
+    set size(value: Vec3Like);
+    /**
+     * Metres between two probes of the grid, 0.25..100. A probe is a ray-traced point: halving the spacing makes eight times the probes in a box. 1 to 2 m is usual for rooms. The count along an axis is floor(size / spacing) + 1.
+     * @since unreleased
+     */
+    spacing: number;
+    /**
+     * [x, y, z] metres: where the box's centre is relative to the entity's world position. Lift it so the layers of probes are at the height of the objects' centres, not at their feet.
+     * @since unreleased
+     */
+    get offset(): Vec3;
+    set offset(value: Vec3Like);
+    /**
+     * true (default): the box of `size` is filled with a grid of probes. false: only the single `points` are probes (size, spacing and offset are ignored).
+     * @since unreleased
+     */
+    grid: boolean;
+    /**
+     * Extra single probes: an array of [x, y, z] world positions, up to 256. A manual probe lights the objects within 5 metres of it (the nearer, the stronger), next to the grid's own. Use them for a corridor or a corner the grid is too coarse for. A bad entry is an error when baking. Returns a plain-object COPY; assign a new value to write.
+     * @since unreleased
+     */
+    points: any;
+    /**
+     * The editor draws every probe of this group as a small sphere coloured by the baked light it holds (grey before the first bake, red when the bake found it inside geometry). Not drawn in the game.
+     * @since unreleased
+     */
+    showGizmo: boolean;
   }
   /**
    * Plays animation clips: the skeletal clips of a skinned glTF model (the model of the MeshRenderer on the same entity, or `model`), or, when there is no glTF model, the keyframed 2D clips of `clips` (*.anim.json files that animate fields of this entity and its children: position, rotation.z, color.a, Sprite.region...). One clip at a time with cross-fades, clip events, an optional small state machine (`params`, `states`, `transitions`) and, for 2D clips, `layers`. It runs in the fixed step, so headless runs and replays match. Scripts: entity.animator.play("Run", 0.2), .set("speed", 3), .stop(); events reach world.on(name, ...).
@@ -11744,6 +11790,7 @@ declare module "factoria" {
     MeshRenderer: MeshRendererComponent;
     Light: LightComponent;
     Decal: DecalComponent;
+    LightProbeGroup: LightProbeGroupComponent;
     Animator: AnimatorComponent;
     IK3D: IK3DComponent;
     RigidBody2D: RigidBody2DComponent;
@@ -11796,9 +11843,10 @@ declare module "factoria" {
     Text: { text?: string; key?: string; keyArgs?: any; font?: string; fontSize?: number; lit?: boolean; color?: ColorLike; align?: "left" | "center" | "right" | "start" | "end"; pivot?: Vec2Like; maxWidth?: number; maxHeight?: number; autoShrink?: boolean; minFontSize?: number; maxTextScale?: number; markup?: boolean; bold?: boolean; direction?: "auto" | "ltr" | "rtl"; wordBreak?: "auto" | "normal" | "keepAll"; visibleCharacters?: number; layer?: number; space?: "world" | "screen"; anchor?: Vec2Like; safeArea?: boolean; material?: string; materialParams?: any };
     Tilemap: { tileset?: string; tileSize?: Vec2Like; projection?: "orthogonal" | "isometric"; groundHeight?: number; groundOffset?: number; columns?: number; margin?: number; spacing?: number; width?: number; height?: number; tiles?: Int32Array; solidTiles?: any; terrains?: any; color?: ColorLike; layer?: number; lit?: boolean; normalMap?: string; occludesLight?: boolean; material?: string; materialParams?: any };
     ParticleEmitter: { emitting?: boolean; rate?: number; burst?: number; maxParticles?: number; lifetime?: number; lifetimeVariance?: number; speed?: number; speedVariance?: number; direction?: number; spread?: number; gravity?: Vec3Like; startSize?: number; endSize?: number; startColor?: ColorLike; endColor?: ColorLike; texture?: string; worldSpace?: boolean; is3D?: boolean; layer?: number; blend?: "alpha" | "additive" | "multiply"; autoDestroy?: boolean; space?: "world" | "screen"; anchor?: Vec2Like; safeArea?: boolean; colorGradient?: any; sizeCurve?: any; speedCurve?: any; alphaCurve?: any; sizeVariance?: number; flipbookColumns?: number; flipbookRows?: number; flipbookFrames?: number; flipbookFps?: number; flipbookRandomStart?: boolean; startRotation?: Vec2Like; spin?: Vec2Like; alignToVelocity?: boolean; drag?: number; noiseStrength?: number; noiseScale?: number; noiseSpeed?: number; inheritVelocity?: number; shape?: "point" | "circle" | "box" | "cone" | "edge" | "mesh"; shapeSize?: Vec3Like; shapeFrom?: "volume" | "edge"; shapeDirection?: "direction" | "outward"; shapeMesh?: string; trail?: "none" | "particle" | "emitter"; trailTime?: number; trailWidth?: number; trailWidthCurve?: any; trailGradient?: any; subEmitters?: any; collision?: "none" | "plane" | "tilemap"; collisionPlane?: readonly number[] | { x: number; y: number; z: number; w: number }; collisionTilemap?: EntityLike; collisionBounce?: number; collisionFriction?: number; collisionLifetimeLoss?: number; collisionKill?: boolean; pixelMode?: boolean; pixelSize?: number; palette?: any; seed?: number; material?: string; materialParams?: any };
-    MeshRenderer: { mesh?: string; texture?: string; normalMap?: string; normalScale?: number; color?: ColorLike; metallic?: number; roughness?: number; emissive?: ColorLike; emissiveStrength?: number; unlit?: boolean; castShadows?: boolean; receiveShadows?: boolean; uvScale?: Vec2Like; material?: string; materialParams?: any; materialColors?: any; lods?: any; instances?: number; instanceBounds?: number; lightmapScale?: number; contributeGI?: boolean; receiveGI?: boolean; clearcoat?: number; clearcoatRoughness?: number; sheenColor?: ColorLike; sheenRoughness?: number; anisotropy?: number; anisotropyRotation?: number; specular?: number; ior?: number; transmission?: number; thickness?: number; attenuationColor?: ColorLike; attenuationDistance?: number; subsurface?: number; subsurfaceRadius?: number; subsurfaceColor?: ColorLike; receiveDecals?: boolean; decalLayer?: number };
+    MeshRenderer: { mesh?: string; texture?: string; normalMap?: string; normalScale?: number; color?: ColorLike; metallic?: number; roughness?: number; emissive?: ColorLike; emissiveStrength?: number; unlit?: boolean; castShadows?: boolean; receiveShadows?: boolean; uvScale?: Vec2Like; material?: string; materialParams?: any; materialColors?: any; lods?: any; instances?: number; instanceBounds?: number; lightmapScale?: number; contributeGI?: boolean; receiveGI?: boolean; probeAnchor?: EntityLike; clearcoat?: number; clearcoatRoughness?: number; sheenColor?: ColorLike; sheenRoughness?: number; anisotropy?: number; anisotropyRotation?: number; specular?: number; ior?: number; transmission?: number; thickness?: number; attenuationColor?: ColorLike; attenuationDistance?: number; subsurface?: number; subsurfaceRadius?: number; subsurfaceColor?: ColorLike; receiveDecals?: boolean; decalLayer?: number };
     Light: { type?: "directional" | "point" | "spot" | "area"; color?: ColorLike; intensity?: number; range?: number; spotAngle?: number; castShadows?: boolean; innerAngle?: number; shape?: "rectangle" | "disc" | "tube"; size?: Vec2Like; cookie?: string; ies?: string; shadowResolution?: number; shadowBias?: number; shadowNormalBias?: number; shadowFilter?: "pcf" | "hard" | "pcss"; shadowSoftness?: number; shadowDistance?: number; mode?: "realtime" | "baked" | "mixed"; volumetric?: number; contactShadowLength?: number };
     Decal: { albedo?: string; normal?: string; color?: ColorLike; opacity?: number; normalStrength?: number; angleFade?: number; sortOrder?: number; layers?: number };
+    LightProbeGroup: { size?: Vec3Like; spacing?: number; offset?: Vec3Like; grid?: boolean; points?: any; showGizmo?: boolean };
     Animator: { model?: string; clip?: string; clips?: any; speed?: number; loop?: boolean; playing?: boolean; fade?: number; params?: any; states?: any; transitions?: any; layers?: any; events?: any; state?: string; time?: number; values?: any };
     IK3D: { enabled?: boolean; weight?: number; solvers?: any; pelvis?: string; rayUp?: number; rayDown?: number; groundMask?: number; pelvisSmooth?: number; maxPelvisDrop?: number; maxPelvisRise?: number };
     RigidBody2D: { type?: "static" | "dynamic" | "kinematic"; gravityScale?: number; linearDamping?: number; angularDamping?: number; fixedRotation?: boolean; bullet?: boolean; velocity?: Vec2Like; angularVelocity?: number };

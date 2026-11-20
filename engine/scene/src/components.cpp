@@ -1983,8 +1983,14 @@ void register_builtin_components(TypeRegistry& r) {
                "Whether the surface is lit by the baked lightmap (when the manifest of SceneSettings.lightmaps has an "
                "entry for this entity: the baked irradiance replaces the ambient light and the sky's diffuse "
                "light, and lights with mode baked are skipped on it). false = the entity ignores its lightmap entry "
-               "and is lit in realtime, and a bake leaves it out as a receiver. The light probes and the realtime "
-               "global illumination (M73.4d, M73.5) read it too.")
+               "and is lit in realtime, and a bake leaves it out as a receiver. A mesh with no lightmap entry (a "
+               "moving object, lightmapScale 0, a skinned mesh) that stands inside a LightProbeGroup takes the "
+               "baked probe light as its ambient light; receiveGI false turns that off too. The realtime global "
+               "illumination (M73.5) reads it as well.")
+        .field("probeAnchor", &MeshRenderer::probeAnchor,
+               "The entity whose world position samples the light probes for this mesh (a character's chest, a "
+               "car's centre). Empty (default) = the centre of the mesh's bounds. Only meshes without a lightmap "
+               "entry read the probes, see LightProbeGroup. A missing or disabled entity is the same as empty.")
         .field("clearcoat", &MeshRenderer::clearcoat,
                "Strength 0..1 of a clear coat layer over the surface (car paint, lacquer; glTF "
                "KHR_materials_clearcoat). 0 = none. A glTF model with the extension brings its own value; a value here "
@@ -2237,6 +2243,42 @@ void register_builtin_components(TypeRegistry& r) {
                "Bit mask 0..65535 of the MeshRenderer.decalLayer values this decal draws on: bit 0 is layer 0, bit 1 "
                "layer 1, up to bit 15. 0 (default) = every layer.")
         .range(0, 65535);
+
+    r.add<LightProbeGroup>(
+         "LightProbeGroup",
+         "Light probes for moving objects: a grid of points that lightmap.bake fills with the light around them "
+         "(spherical harmonics, as the direct light of the baked lights, the sky and their bounces). A MeshRenderer "
+         "that has no lightmap of its own (a character, a door, a pickup, anything with lightmapScale 0 or a skinned "
+         "mesh) reads the probes around it and takes that light as its ambient light, so it is not lit by the flat sky "
+         "while it walks through a baked room. The grid is axis-aligned in the world: its centre is the entity's world "
+         "position + `offset`, `size` is the box and `spacing` the distance between probes; the entity's rotation and "
+         "scale do not turn it. `points` adds single probes. A probe inside a wall or prop (most of its rays hit the "
+         "back of a surface) is flagged invalid by the bake and skipped at runtime. Outside every group the object is "
+         "lit by the sky's ambient light as before. A group makes at most 16384 grid probes and a scene 65536 in all. "
+         "docs/rendering/RENDERING_LIGHTING.md, \"Light probes and mixed lights\".",
+         "3D")
+        .field(
+            "size", &LightProbeGroup::size,
+            "[x, y, z] metres: the box the grid fills, centred on the entity's world position + offset. 0 on an axis "
+            "makes one layer of probes on that axis (a floor of probes for a flat level). Default [10, 4, 10].")
+        .field("spacing", &LightProbeGroup::spacing,
+               "Metres between two probes of the grid, 0.25..100. A probe is a ray-traced point: halving the spacing "
+               "makes eight times the probes in a box. 1 to 2 m is usual for rooms. The count along an axis is "
+               "floor(size / spacing) + 1.")
+        .range(0.25, 100)
+        .field("offset", &LightProbeGroup::offset,
+               "[x, y, z] metres: where the box's centre is relative to the entity's world position. Lift it so the "
+               "layers of probes are at the height of the objects' centres, not at their feet.")
+        .field("grid", &LightProbeGroup::grid,
+               "true (default): the box of `size` is filled with a grid of probes. false: only the single `points` "
+               "are probes (size, spacing and offset are ignored).")
+        .field("points", &LightProbeGroup::points,
+               "Extra single probes: an array of [x, y, z] world positions, up to 256. A manual probe lights the "
+               "objects within 5 metres of it (the nearer, the stronger), next to the grid's own. Use them for a "
+               "corridor or a corner the grid is too coarse for. A bad entry is an error when baking.")
+        .field("showGizmo", &LightProbeGroup::showGizmo,
+               "The editor draws every probe of this group as a small sphere coloured by the baked light it holds "
+               "(grey before the first bake, red when the bake found it inside geometry). Not drawn in the game.");
 
     r.add<Animator>(
          "Animator",
