@@ -134,12 +134,12 @@ float dc(const Block& b, int channel) {  // coefficient 0 of the SH row
 float meta(const Block& b, int channel) {
     return b.rgba[(std::size_t(kGiShRow) * kGiBlockW + kGiMetaX) * 4 + std::size_t(channel)];
 }
-// The mean distance the depth map holds toward `d`.
-float depth_toward(const Block& b, Vec3 d) {
+// The mean distance in metres the depth map holds toward `d`: the map stores d / maxDistance (0..1).
+float depth_toward(const Block& b, Vec3 d, float maxDistance) {
     const Vec2 uv = gi_depth_uv(normalize(d));
     const int x = std::clamp(int(std::lround(uv.x)), 1, kGiDepthTexels);
     const int y = std::clamp(int(std::lround(uv.y)), 1, kGiDepthTexels);
-    return b.rgba[(std::size_t(y) * kGiBlockW + std::size_t(x)) * 4];
+    return b.rgba[(std::size_t(y) * kGiBlockW + std::size_t(x)) * 4] * maxDistance;
 }
 
 int first_block(const Json& grid) { return grid["firstBlock"].get<int>(); }
@@ -192,17 +192,65 @@ TEST_CASE("realtime GI: the probes near a coloured wall are tinted by it and the
     CHECK(dc(east, 0) > dc(mid, 0));
     CHECK(dc(west, 1) > dc(mid, 1));
     // Distances: the red wall's face is at x = 5.9, so 1.9 m from the probe at x = 4 toward +X; nothing above: maxDistance.
-    const float toWall = depth_toward(east, {1, 0.1f, 0.1f});
+    const float toWall = depth_toward(east, {1, 0.1f, 0.1f}, 30.0f);
     CHECK(toWall > 1.4f);
     CHECK(toWall < 2.6f);
-    CHECK(depth_toward(east, {-1, 0.1f, 0.1f}) > 8.0f);  // the green wall, 9.9 m away
-    CHECK(depth_toward(east, {0.1f, 1, 0.1f}) > 25.0f);  // the sky: maxDistance (30)
-    // The second moment is at least the square of the first (a variance cannot be negative), up to the half floats' rounding.
+    CHECK(depth_toward(east, {-1, 0.1f, 0.1f}, 30.0f) > 8.0f);  // the green wall, 9.9 m away
+    CHECK(depth_toward(east, {0.1f, 1, 0.1f}, 30.0f) > 25.0f);  // the sky: maxDistance (30)
+    // The moments are normalised (d / maxDistance): both in 0..1, and the second is at least the square of the first (a variance
+    // cannot be negative), up to the half floats' rounding.
     for (int y = 1; y <= kGiDepthTexels; ++y)
         for (int x = 1; x <= kGiDepthTexels; ++x) {
             const std::size_t i = (std::size_t(y) * kGiBlockW + std::size_t(x)) * 4;
-            CHECK(east.rgba[i + 1] >= east.rgba[i] * east.rgba[i] * 0.97f - 0.05f);
+            CHECK(east.rgba[i] >= 0.0f);
+            CHECK(east.rgba[i] <= 1.002f);
+            CHECK(east.rgba[i + 1] <= 1.002f);
+            CHECK(east.rgba[i + 1] >= east.rgba[i] * east.rgba[i] * 0.97f - 0.002f);
         }
+}
+
+TEST_CASE("realtime GI: the depth moments stay finite and right with a maxDistance of 500") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    if (!half_float_gi(g)) {
+        MESSAGE("this GPU has no half-float render targets: not run");
+        return;
+    }
+    Own o(g);
+    REQUIRE(o.ok);
+    World w;
+    dark_world(w);
+    add_box(w, "red", {6, 0, 0}, {0.2f, 12, 12}, Color{1, 0, 0, 1});
+    const Entity gi = add_gi(w, {0, 0, 0}, 4.0f, 1, {4, 0, 0});
+    w.get<RealtimeGI>(gi)->maxDistance = 500.0f;
+    run_frames(o, w, 4);
+    const Json report = o.r.gi_report();
+    INFO("report: " << report.dump(2));
+    const Json* grid = grid_json(report, w.id_of(gi));
+    REQUIRE(grid != nullptr);
+    if ((*grid)["state"] == "unsupported") {
+        MESSAGE("this GPU cannot blend into RGBA16F: not run");
+        return;
+    }
+    CHECK((*grid)["state"] == "ready");
+    const Block b = read_block(o, first_block(*grid));
+    REQUIRE(b.ok);
+    CHECK(meta(b, 1) > 0.5f);
+    for (int y = 1; y <= kGiDepthTexels; ++y)
+        for (int x = 1; x <= kGiDepthTexels; ++x) {
+            const std::size_t i = (std::size_t(y) * kGiBlockW + std::size_t(x)) * 4;
+            CHECK(std::isfinite(b.rgba[i]));
+            CHECK(std::isfinite(b.rgba[i + 1]));
+            CHECK(b.rgba[i] <= 1.002f);
+            CHECK(b.rgba[i + 1] <= 1.002f);
+            CHECK(b.rgba[i + 1] >= b.rgba[i] * b.rgba[i] * 0.97f - 0.002f);
+        }
+    // The red wall's face is at x = 5.9: 1.9 m from the probe at x = 4; nothing above it: maxDistance (500).
+    const float toWall = depth_toward(b, {1, 0.1f, 0.1f}, 500.0f);
+    CHECK(toWall > 1.0f);
+    CHECK(toWall < 4.0f);
+    // The texel of straight up covers about 20 degrees, so a few of its taps still reach the wall's top: the mean is under 500.
+    CHECK(depth_toward(b, {0.1f, 1, 0.1f}, 500.0f) > 400.0f);
 }
 
 TEST_CASE("realtime GI: a frame captures at most probesPerFrame probes and every probe is captured in the end") {
