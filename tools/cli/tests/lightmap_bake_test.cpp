@@ -50,7 +50,8 @@ float luma(const fa::Image& img, int x, int y) {
 
 }  // namespace
 
-TEST_CASE("factoria call lightmap.bake: bakes a project, writes the manifest and the pages, and the runtime loads them") {
+TEST_CASE(
+    "factoria call lightmap.bake: bakes a project, writes the manifest and the pages, and the runtime loads them") {
     const stdfs::path oldRoot = fa::fs::project_root();
     const stdfs::path tmp = fa::fs::make_temp_dir("fa_cli_lightmap_bake").value();
     const std::string project = (tmp / "game").string();
@@ -105,12 +106,15 @@ TEST_CASE("factoria call lightmap.bake: bakes a project, writes the manifest and
         auto img = fa::load_image((tmp / "game" / "shots" / "baked.png").generic_string());
         REQUIRE(img.ok());
         // The floor (8 m) fills 0.69 of the picture's height: 0.086 of the height per meter. The box top is the middle of the picture, its
-        // shadow lies 0.5-1.5 m towards -Z (up in the picture), so its middle is 1 m above the centre; the lit floor is to the left.
+        // shadow lies 0.5-1.5 m towards -Z (up in the picture), so its middle is 1 m above the centre; the lit floor is to the left, 0.1 of the width from the centre (still inside the floor).
         const int w = img->width, h = img->height;
         const float shadow = luma(*img, w / 2, h / 2 - int(0.086f * float(h)));
-        const float lit = luma(*img, w / 2 - int(0.2f * float(w)), h / 2);
+        const float lit = luma(*img, w / 2 - int(0.1f * float(w)), h / 2);
         CHECK_MESSAGE(lit > 0.15f, "the floor is lit: " << lit);
-        CHECK_MESSAGE(shadow < lit * 0.6f, "the box shadow (" << shadow << ") is darker than the lit floor (" << lit << ")");
+        CHECK_MESSAGE(lit - shadow > 0.05f,
+                      "the lit floor (" << lit << ") is clearly brighter than the shadow (" << shadow << ")");
+        CHECK_MESSAGE(shadow < lit * 0.6f,
+                      "the box shadow (" << shadow << ") is darker than the lit floor (" << lit << ")");
     } else {
         MESSAGE("no GPU on this machine: the render part of the test is skipped");
     }

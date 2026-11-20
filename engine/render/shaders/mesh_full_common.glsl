@@ -125,19 +125,25 @@ layout(binding=24) uniform texture2D fa_full_light_tex;
 @image_sample_type fa_full_light_tex unfilterable_float
 #define FA_LIGHT_TEX fa_full_light_tex
 #define FA_LIGHT_SMP fa_full_shadow_smp
+// The light atlas (as mesh_common.glsl's fa_fs_head: view 25, sampler 10): the cookies and IES profiles of the lights a full shader
+// reads through fa_light(). The area lights' LTC shading is the engine's own meshes' (a full shader sees an area light as a point light).
+layout(binding=25) uniform texture2D fa_full_light_atlas;
+#define FA_ATLAS_TEX fa_full_light_atlas
+#define FA_ATLAS_SMP fa_env_smp
 // The decal atlas (light_data.glsl, block fa_decals; view 27, sampler 10): read by fa_apply_decals.
 layout(binding=27) uniform texture2D fa_full_decal_tex;
 #define FA_DECAL_TEX fa_full_decal_tex
 #define FA_DECAL_SMP fa_env_smp
-// The baked sky of a sky material (as mesh_common.glsl's fa_fs_head: views 14 and 15, sampler 10; used while fa_env_sky.w is 1).
+// The baked sky of a sky material (as mesh_common.glsl's fa_fs_head: view 14, sampler 10; mips 0..4 the reflection, mip 5 the SH of the
+// ambient; used while fa_env_sky.w is 1 or 2).
 layout(binding=14) uniform textureCube fa_env_tex;
-layout(binding=15) uniform textureCube fa_irr_tex;
 layout(binding=10) uniform sampler fa_env_smp;
 
 // A copy of mesh_common.glsl's fa_mesh_fs_params (a test compares them): the same CPU struct fills both.
 layout(binding=1) uniform fa_mesh_fs_params {
     vec4 fa_camera_pos;         // xyz
-    vec4 fa_ambient;            // rgb
+    vec4 fa_ambient;            // rgb; w = texels per light of the light table (4, or 8 while a light of the view has an area, a cookie
+                                // or an IES profile; 0 = 4: M73.1b, light_data.glsl)
     vec4 fa_base_color;
     vec4 fa_emissive;           // rgb MeshRenderer.emissive, w = 1 when unlit
     vec4 fa_model_emissive;     // rgb glTF emissiveFactor (multiplies fa_emissive_tex)
@@ -176,6 +182,7 @@ layout(binding=1) uniform fa_mesh_fs_params {
 @include_block fa_types
 // The light uniform block and fa_light_sample (light_data.glsl), the same declaration as the engine's own meshes; the shadow lookup
 // fa_shadow_sun (shadow_common.glsl).
+@include_block fa_cube_face
 @include_block fa_light_data
 @include_block fa_decals
 @include_block fa_shadow_common
@@ -235,12 +242,12 @@ int fa_light_count() { return min(int(fa_counts.x), 32); }
 // type (0 directional, 1 point, 2 spot). `coord` is fa_shadow_coord() of the vertex stage (the first directional light has the sun's
 // shadow, a point or spot light with a shadow map this frame its own); `gn` the geometric normal.
 LightSample fa_light(int li, vec3 world_pos, vec3 gn, vec4 coord) {
-    LightSample ls = fa_light_sample(li, world_pos);
+    LightSample ls = fa_light_sample_n(li, world_pos, gn);
     if (ls.type == 0 && li == 0) {
         ls.shadow = fa_shadow(coord, gn, ls.direction);
         ls.color = ls.color * ls.shadow;
     } else if (ls.type != 0 && ls.attenuation > 0.0) {
-        ls.shadow = fa_shadow_local(li, world_pos, gn, ls.direction);
+        ls.shadow = fa_shadow_local(li, fa_light_texel(fa_light_base(li)).xyz, world_pos, gn, ls.direction);
         ls.color = ls.color * ls.shadow;
     }
     return ls;

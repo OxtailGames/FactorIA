@@ -48,7 +48,9 @@ bool finite_color(const Color& c) { return std::isfinite(c.r) && std::isfinite(c
 struct Hasher {
     std::uint64_t h = kLightmapHashSeed;
     void i(std::int64_t v) { h = lightmap_hash_bytes(h, &v, sizeof v); }
-    void f(double v) { i(std::int64_t(std::llround(v * 1e4))); }  // to a tenth of a millimetre: a rounding in the last digit changes nothing
+    void f(double v) {
+        i(std::int64_t(std::llround(v * 1e4)));
+    }  // to a tenth of a millimetre: a rounding in the last digit changes nothing
     void v3(Vec3 v) {
         f(v.x);
         f(v.y);
@@ -161,7 +163,8 @@ bool map_light(const World& world, Entity e, const Light& l, bool linear, BakeLi
         }
         case LightType::Area: {
             const bool disc = l.shape == LightShape::Disc;
-            if (!std::isfinite(l.size.x) || !(l.size.x > 0) || (!disc && (!std::isfinite(l.size.y) || !(l.size.y > 0)))) {
+            if (!std::isfinite(l.size.x) || !(l.size.x > 0) ||
+                (!disc && (!std::isfinite(l.size.y) || !(l.size.y > 0)))) {
                 why = "its area size must be finite and above 0";
                 return false;
             }
@@ -221,17 +224,19 @@ Result<Plan> make_plan(World& world, const std::string& scene, const Options& op
         plan.meshes.push_back(std::move(pm));
     }
     if (receivers == 0)
-        return make_error(
-            "nothing to bake: the scene has no active MeshRenderer that receives light into a lightmap",
-            "A mesh is lit by the lightmap when its MeshRenderer has receiveGI true, lightmapScale above 0 and unlit false, and the entity is "
-            "active. Add a mesh (scene.spawn {\"components\":{\"MeshRenderer\":{\"mesh\":\"cube\"}}}) or set those fields on one.");
+        return make_error("nothing to bake: the scene has no active MeshRenderer that receives light into a lightmap",
+                          "A mesh is lit by the lightmap when its MeshRenderer has receiveGI true, lightmapScale above "
+                          "0 and unlit false, and the entity is "
+                          "active. Add a mesh (scene.spawn {\"components\":{\"MeshRenderer\":{\"mesh\":\"cube\"}}}) or "
+                          "set those fields on one.");
 
     // The lights.
     std::vector<std::pair<std::string, Entity>> lightEntities;
     world.each<Light>([&](Entity e, Light&) {
         if (world.active_in_hierarchy(e)) lightEntities.emplace_back(world.id_of(e), e);
     });
-    std::sort(lightEntities.begin(), lightEntities.end(), [](const auto& a, const auto& b) { return a.first < b.first; });
+    std::sort(lightEntities.begin(), lightEntities.end(),
+              [](const auto& a, const auto& b) { return a.first < b.first; });
     for (const auto& [id, e] : lightEntities) {
         BakeLight b;
         std::string why;
@@ -242,7 +247,8 @@ Result<Plan> make_plan(World& world, const std::string& scene, const Options& op
             plan.warnings.push_back("light '" + id + "' is left out of the bake: " + why + ".");
         }
         if (l.mode != LightMode::Realtime && l.type == LightType::Area && l.shape == LightShape::Tube)
-            plan.warnings.push_back("light '" + id + "' is a tube: it is baked as a rectangle of the same length and thickness.");
+            plan.warnings.push_back("light '" + id +
+                                    "' is a tube: it is baked as a rectangle of the same length and thickness.");
     }
 
     // The sky.
@@ -265,34 +271,37 @@ Result<Plan> make_plan(World& world, const std::string& scene, const Options& op
         case SkyChoice::Environment:
             if (ss.environmentMap.empty())
                 return make_error("sky \"environment\" needs SceneSettings.environmentMap, which is empty",
-                                  "Set an HDRI (scene.set_settings {\"environmentMap\": \"assets/sky.hdr\"}) or use sky \"auto\", \"gradient\", "
+                                  "Set an HDRI (scene.set_settings {\"environmentMap\": \"assets/sky.hdr\"}) or use "
+                                  "sky \"auto\", \"gradient\", "
                                   "\"ambient\" or \"none\".");
             plan.environmentMap = ss.environmentMap;
-            plan.environmentScale = std::isfinite(ss.environmentIntensity) ? std::max(0.0f, ss.environmentIntensity) : 1.0f;
-            plan.environmentRotation = baker_rotation_for_environment(std::isfinite(ss.environmentRotation) ? ss.environmentRotation : 0.0f);
+            plan.environmentScale =
+                std::isfinite(ss.environmentIntensity) ? std::max(0.0f, ss.environmentIntensity) : 1.0f;
+            plan.environmentRotation =
+                baker_rotation_for_environment(std::isfinite(ss.environmentRotation) ? ss.environmentRotation : 0.0f);
             break;
-        case SkyChoice::Gradient:
-            gradient();
-            break;
+        case SkyChoice::Gradient: gradient(); break;
         case SkyChoice::Ambient: {
             const Vec3 a = scene_rgb(ss.ambientLight, linear);
             plan.sky.zenith = plan.sky.horizon = plan.sky.ground = a;
             plan.sky.intensity = 1.0f;
             if (physical)
-                plan.warnings.push_back(
-                    "the scene uses a physical sky or a sky material, which the bake cannot evaluate: the surfaces get the constant "
-                    "ambientLight of the scene settings. Use sky \"gradient\" for skyColor and horizonColor, or set an environmentMap (an HDRI) "
-                    "to light the bake with a real sky.");
+                plan.warnings.push_back("the scene uses a physical sky or a sky material, which the bake cannot "
+                                        "evaluate: the surfaces get the constant "
+                                        "ambientLight of the scene settings. Use sky \"gradient\" for skyColor and "
+                                        "horizonColor, or set an environmentMap (an HDRI) "
+                                        "to light the bake with a real sky.");
             break;
         }
         case SkyChoice::None:
-        case SkyChoice::Auto:
-            break;
+        case SkyChoice::Auto: break;
     }
     if (choice == SkyChoice::Gradient && physical)
-        plan.warnings.push_back("the scene uses a physical sky or a sky material, which the bake cannot evaluate: it bakes skyColor and horizonColor.");
+        plan.warnings.push_back("the scene uses a physical sky or a sky material, which the bake cannot evaluate: it "
+                                "bakes skyColor and horizonColor.");
     if (plan.lights.empty() && choice == SkyChoice::None)
-        plan.warnings.push_back("the bake has no Baked or Mixed light and no sky: every lightmap will be black (only emissive meshes light it).");
+        plan.warnings.push_back("the bake has no Baked or Mixed light and no sky: every lightmap will be black (only "
+                                "emissive meshes light it).");
     plan.settingsHash = settings_hash(plan);
     return plan;
 }
@@ -364,10 +373,11 @@ Result<std::vector<PageSize>> pack_squares(std::vector<Square>& squares, int gap
         pages[std::size_t(page)].height = std::max(pages[std::size_t(page)].height, y + rowH);
     }
     if (int(pages.size()) > kLightmapMaxPages)
-        return make_error("the bake needs " + std::to_string(pages.size()) + " pages, more than the " + std::to_string(kLightmapMaxPages) +
-                              " a manifest may list",
-                          "Lower texelsPerMeter (or MeshRenderer.lightmapScale of the big meshes) or raise maxPageSize (up to " +
-                              std::to_string(kLightmapMaxPageSize) + ").");
+        return make_error(
+            "the bake needs " + std::to_string(pages.size()) + " pages, more than the " +
+                std::to_string(kLightmapMaxPages) + " a manifest may list",
+            "Lower texelsPerMeter (or MeshRenderer.lightmapScale of the big meshes) or raise maxPageSize (up to " +
+                std::to_string(kLightmapMaxPageSize) + ").");
     return pages;
 }
 
@@ -376,7 +386,8 @@ float round6(double v) { return float(std::llround(v * 1e6) / 1e6); }
 double world_area(const render::LightmapMeshGeometry& g, const Mat4& m) {
     double area = 0;
     for (std::size_t t = 0; t + 2 < g.indices.size(); t += 3) {
-        const Vec3 a = m.transform_point(g.positions[g.indices[t]]), b = m.transform_point(g.positions[g.indices[t + 1]]),
+        const Vec3 a = m.transform_point(g.positions[g.indices[t]]),
+                   b = m.transform_point(g.positions[g.indices[t + 1]]),
                    c = m.transform_point(g.positions[g.indices[t + 2]]);
         area += 0.5 * double(length(cross(b - a, c - a)));
     }
@@ -400,8 +411,10 @@ std::string stem_of(const std::string& manifestFile) {
 
 Error write_error(const std::string& what, const std::string& file, const Error& cause) {
     return make_error(what + " '" + file + "': " + cause.message,
-                      "On Windows a file another program holds open (the editor's image viewer, an antivirus scan) cannot be replaced: close it and run "
-                      "the bake again, or bake to another manifest with `path`. Nothing of the old bake was changed unless the manifest was "
+                      "On Windows a file another program holds open (the editor's image viewer, an antivirus scan) "
+                      "cannot be replaced: close it and run "
+                      "the bake again, or bake to another manifest with `path`. Nothing of the old bake was changed "
+                      "unless the manifest was "
                       "written. " +
                           cause.hint);
 }
@@ -449,8 +462,8 @@ Result<Json> execute(const Plan& plan, const ReportFn& report) {
         const Geometry& g = geos.at(m.mesh);
         if (!g.ok) {
             skipped.push_back(Json::object({{"id", m.id}, {"reason", g.error}}));
-            warnings.push_back("entity '" + m.id + "' is left out of the bake" + (m.receiver ? " (it will not be lit by the lightmap)" : "") +
-                               ": " + g.error);
+            warnings.push_back("entity '" + m.id + "' is left out of the bake" +
+                               (m.receiver ? " (it will not be lit by the lightmap)" : "") + ": " + g.error);
             continue;
         }
         used.push_back(&m);
@@ -458,7 +471,8 @@ Result<Json> execute(const Plan& plan, const ReportFn& report) {
         if (!m.receiver) continue;
         const double area = world_area(g.geo, m.world);
         if (!(area > 1e-9)) {
-            skipped.push_back(Json::object({{"id", m.id}, {"reason", "the mesh has no surface area in the scene (scaled to zero?)"}}));
+            skipped.push_back(Json::object(
+                {{"id", m.id}, {"reason", "the mesh has no surface area in the scene (scaled to zero?)"}}));
             used.pop_back();
             squareOf.pop_back();
             continue;
@@ -467,8 +481,9 @@ Result<Json> execute(const Plan& plan, const ReportFn& report) {
         const double limit = double(opt.maxPageSize - gap);
         int size = int(std::clamp(wanted, double(kMinSquare), limit));
         if (wanted > limit)
-            warnings.push_back("entity '" + m.id + "' needs " + std::to_string(std::int64_t(wanted)) + " texels per side for " +
-                               std::to_string(m.texelsPerMeter) + " texels per meter, over the page size " + std::to_string(opt.maxPageSize) +
+            warnings.push_back("entity '" + m.id + "' needs " + std::to_string(std::int64_t(wanted)) +
+                               " texels per side for " + std::to_string(m.texelsPerMeter) +
+                               " texels per meter, over the page size " + std::to_string(opt.maxPageSize) +
                                ": it is baked at a lower density (raise maxPageSize or lower its lightmapScale).");
         Square sq;
         sq.mesh = used.size() - 1;
@@ -477,9 +492,10 @@ Result<Json> execute(const Plan& plan, const ReportFn& report) {
         squares.push_back(sq);
     }
     if (squares.empty())
-        return make_error("no mesh of the scene can be lit into a lightmap: " +
-                              (skipped.empty() ? std::string("none has surface area") : skipped[0]["reason"].get<std::string>()),
-                          "Fix the first reason above (the `skipped` list of the result names every entity) and bake again.");
+        return make_error(
+            "no mesh of the scene can be lit into a lightmap: " +
+                (skipped.empty() ? std::string("none has surface area") : skipped[0]["reason"].get<std::string>()),
+            "Fix the first reason above (the `skipped` list of the result names every entity) and bake again.");
 
     // 3. The pages.
     say("layout", 0.1, 0);
@@ -541,7 +557,8 @@ Result<Json> execute(const Plan& plan, const ReportFn& report) {
             bm.atlas = sq.page;
             bm.lightmapUv.reserve(g.uv.size());
             for (const Vec2& t : g.uv)
-                bm.lightmapUv.push_back({t.x * entry.scaleOffset[0] + entry.scaleOffset[2], t.y * entry.scaleOffset[1] + entry.scaleOffset[3]});
+                bm.lightmapUv.push_back({t.x * entry.scaleOffset[0] + entry.scaleOffset[2],
+                                         t.y * entry.scaleOffset[1] + entry.scaleOffset[3]});
         }
         scene.meshes.push_back(std::move(bm));
     }
@@ -550,8 +567,11 @@ Result<Json> execute(const Plan& plan, const ReportFn& report) {
     if (!plan.environmentMap.empty()) {
         auto img = load_hdr(plan.environmentMap);
         if (!img) return make_error("the environment map for the bake: " + img.error().message, img.error().hint);
-        if (const std::string problem = hdri_layout_problem(img->width, img->height, plan.environmentMap); !problem.empty())
-            return make_error(problem, "Use an equirectangular .hdr (twice as wide as tall), or bake with sky \"gradient\" or \"ambient\".");
+        if (const std::string problem = hdri_layout_problem(img->width, img->height, plan.environmentMap);
+            !problem.empty())
+            return make_error(
+                problem,
+                "Use an equirectangular .hdr (twice as wide as tall), or bake with sky \"gradient\" or \"ambient\".");
         ImageF pic = std::move(img.value());
         if (pic.width > kSkyMaxWidth) {
             auto small = pic.resized(kSkyMaxWidth, std::max(1, kSkyMaxWidth * pic.height / pic.width));
@@ -566,7 +586,8 @@ Result<Json> execute(const Plan& plan, const ReportFn& report) {
         for (std::size_t i = 0; i < std::size_t(pic.width) * std::size_t(pic.height); ++i)
             for (std::size_t c = 0; c < 3; ++c) {
                 float v = pic.data[i * std::size_t(pic.channels) + c];
-                v = std::isfinite(v) ? std::clamp(v, 0.0f, kHdriMaxValue) : 0.0f;  // what the renderer's copy of the picture holds
+                v = std::isfinite(v) ? std::clamp(v, 0.0f, kHdriMaxValue)
+                                     : 0.0f;  // what the renderer's copy of the picture holds
                 eq.rgb[i * 3 + c] = v;
             }
         scene.sky.image = std::move(eq);
@@ -581,17 +602,29 @@ Result<Json> execute(const Plan& plan, const ReportFn& report) {
     const bool denoise = st.denoiseRadius > 0;
     BakeProgressFn progress = [&](const BakeProgress& p) {
         double before = 0;
-        for (int a = 0; a + 1 < p.atlas; ++a) before += double(pages[std::size_t(a)].width) * double(pages[std::size_t(a)].height);
-        const double mine = p.atlas > 0 ? double(pages[std::size_t(p.atlas - 1)].width) * double(pages[std::size_t(p.atlas - 1)].height) : 0.0;
+        for (int a = 0; a + 1 < p.atlas; ++a)
+            before += double(pages[std::size_t(a)].width) * double(pages[std::size_t(a)].height);
+        const double mine =
+            p.atlas > 0 ? double(pages[std::size_t(p.atlas - 1)].width) * double(pages[std::size_t(p.atlas - 1)].height)
+                        : 0.0;
         const double part = p.total > 0 ? double(p.done) / double(p.total) : 0.0;
         double within = 0;
         const char* phase = "prepare";
         switch (p.phase) {
             case BakePhase::Prepare: phase = "prepare"; break;
             case BakePhase::Rasterize: phase = "rasterize"; break;
-            case BakePhase::Trace: phase = "trace"; within = (denoise ? 0.85 : 0.97) * part; break;
-            case BakePhase::Denoise: phase = "denoise"; within = 0.85 + 0.12 * part; break;
-            case BakePhase::Dilate: phase = "dilate"; within = 0.97; break;
+            case BakePhase::Trace:
+                phase = "trace";
+                within = (denoise ? 0.85 : 0.97) * part;
+                break;
+            case BakePhase::Denoise:
+                phase = "denoise";
+                within = 0.85 + 0.12 * part;
+                break;
+            case BakePhase::Dilate:
+                phase = "dilate";
+                within = 0.97;
+                break;
         }
         const double frac = total > 0 ? (before + mine * within) / total : 0.0;
         say(phase, 0.12 + 0.83 * frac, p.rays);
@@ -603,9 +636,11 @@ Result<Json> execute(const Plan& plan, const ReportFn& report) {
     BakeResult& result = baked.value();
     for (std::size_t a = 0; a < result.atlases.size(); ++a)
         if (result.atlases[a].overlappedTexels > 0)
-            warnings.push_back("page " + std::to_string(a) + ": " + std::to_string(result.atlases[a].overlappedTexels) +
-                               " texels are covered by two triangles of the lightmap UVs (overlapping charts: the first one wins). A model with its own "
-                               "TEXCOORD_1 needs charts that do not overlap; remove TEXCOORD_1 to use the engine's unwrap.");
+            warnings.push_back(
+                "page " + std::to_string(a) + ": " + std::to_string(result.atlases[a].overlappedTexels) +
+                " texels are covered by two triangles of the lightmap UVs (overlapping charts: the first one wins). A "
+                "model with its own "
+                "TEXCOORD_1 needs charts that do not overlap; remove TEXCOORD_1 to use the engine's unwrap.");
 
     // 6. The files. From here on a cancel is not looked at: the pages are written first, the manifest last and atomically, so a reader sees either
     // the old bake or the new one.
@@ -614,6 +649,20 @@ Result<Json> execute(const Plan& plan, const ReportFn& report) {
     const std::string stem = stem_of(file_of(plan.manifestProject));
     const std::string tag = lightmap_hash_hex(hash_bake_result(result)).substr(0, 8);
     std::vector<std::string> newPages;
+    std::vector<std::string>
+        madeNow;  // the pages this call wrote (not the ones that were already there with the same bytes)
+    // The pages the manifest on disk lists: a failed bake never deletes one of them, the game may be reading it.
+    std::set<std::string> oldPages;
+    if (fs::exists(plan.manifestProject))
+        if (auto old = load_lightmap_manifest(plan.manifestProject); old)
+            for (const LightmapPage& p : old->pages) oldPages.insert(p.file);
+    auto remove_made_pages = [&] {
+        for (const std::string& page : madeNow)
+            if (!oldPages.count(page)) {
+                std::error_code ec;
+                fs::remove_file(fs::path_from_utf8(dirAbs + file_of(page)), ec);
+            }
+    };
     Json pageJson = Json::array();
     for (std::size_t a = 0; a < result.atlases.size(); ++a) {
         const BakedAtlas& at = result.atlases[a];
@@ -625,36 +674,29 @@ Result<Json> execute(const Plan& plan, const ReportFn& report) {
         const std::string abs = dirAbs + name;
         bool same = false;
         if (fs::exists(abs))
-            if (auto old = fs::read_bytes(abs); old && *old == bytes) same = true;  // the same bake again: nothing to replace
+            if (auto old = fs::read_bytes(abs); old && *old == bytes)
+                same = true;  // the same bake again: nothing to replace
         if (!same) {
             if (auto w = fs::write_bytes(abs, bytes.data(), bytes.size()); !w) {
-                for (const std::string& done : newPages) {
-                    std::error_code ec;
-                    fs::remove_file(fs::path_from_utf8(dirAbs + file_of(done)), ec);
-                }
+                remove_made_pages();
                 return write_error("cannot write the lightmap page", abs, w.error());
             }
+            madeNow.push_back(dirProject + name);
         }
         newPages.push_back(dirProject + name);
         manifest.pages.push_back(LightmapPage{dirProject + name, at.width, at.height});
-        pageJson.push_back(Json::object({{"file", dirProject + name}, {"width", at.width}, {"height", at.height}, {"bakedTexels", at.bakedTexels}}));
+        pageJson.push_back(Json::object({{"file", dirProject + name},
+                                         {"width", at.width},
+                                         {"height", at.height},
+                                         {"bakedTexels", at.bakedTexels}}));
     }
     manifest.version = kLightmapManifestVersion;
     manifest.uvVersion = kLightmapUvVersion;
     manifest.settingsHash = plan.settingsHash;
     manifest.index();
-    std::set<std::string> oldPages;
-    if (fs::exists(plan.manifestProject))
-        if (auto old = load_lightmap_manifest(plan.manifestProject); old)
-            for (const LightmapPage& p : old->pages) oldPages.insert(p.file);
     const std::string text = dump_json(lightmap_manifest_to_json(manifest)) + "\n";
     if (auto w = fs::write_bytes(plan.manifestAbs, text.data(), text.size()); !w) {
-        // The new pages are not referenced by anything: remove the ones this bake made (not a page that was already there with the same name).
-        for (const std::string& page : newPages)
-            if (!oldPages.count(page)) {
-                std::error_code ec;
-                fs::remove_file(fs::path_from_utf8(dirAbs + file_of(page)), ec);
-            }
+        remove_made_pages();  // nothing references the pages this call made
         return write_error("cannot write the lightmap manifest", plan.manifestAbs, w.error());
     }
     // The pages of the old bake that the new manifest does not list: only files that look like this manifest's own pages are removed.
@@ -662,7 +704,9 @@ Result<Json> execute(const Plan& plan, const ReportFn& report) {
     for (const std::string& old : oldPages) {
         if (std::find(newPages.begin(), newPages.end(), old) != newPages.end()) continue;
         const std::string name = file_of(old);
-        if (dir_of(old) != dirProject || name.rfind(prefix, 0) != 0 || name.size() < 4 || name.substr(name.size() - 4) != ".hdr") continue;
+        if (dir_of(old) != dirProject || name.rfind(prefix, 0) != 0 || name.size() < 4 ||
+            name.substr(name.size() - 4) != ".hdr")
+            continue;
         std::error_code ec;
         fs::remove_file(fs::path_from_utf8(dirAbs + name), ec);
     }

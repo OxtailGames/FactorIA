@@ -41,7 +41,8 @@ const char* kProject = R"({
 std::string scene_text(const std::string& extra = "", const std::string& settings = R"("ambientLight": "#404060")") {
     return R"({
   "format": "factoria.scene/1",
-  "settings": { )" + settings + R"( },
+  "settings": { )" +
+           settings + R"( },
   "entities": [
     { "id": "cam", "name": "Camera", "components": { "Transform": { "position": [0, 2, 6] }, "Camera": { "clearColor": "#202020" } } },
     { "id": "floor", "name": "floor", "components": { "Transform": { "position": [0, -0.1, 0], "scale": [6, 0.2, 6] }, "MeshRenderer": { "mesh": "cube" } } },
@@ -89,7 +90,8 @@ EngineConfig cfg(const TempProject& p, const char* threads = "2") {
 
 // A cheap bake: 4 texels per meter, 8 samples, no denoiser.
 Json small(Json more = Json::object()) {
-    Json a = Json::object({{"texelsPerMeter", 4}, {"samples", 8}, {"shadowSamples", 2}, {"denoiseRadius", 0}, {"maxPageSize", 256}});
+    Json a = Json::object(
+        {{"texelsPerMeter", 4}, {"samples", 8}, {"shadowSamples", 2}, {"denoiseRadius", 0}, {"maxPageSize", 256}});
     for (auto it = more.begin(); it != more.end(); ++it) a[it.key()] = it.value();
     return a;
 }
@@ -176,8 +178,14 @@ TEST_CASE("lightmap.bake: arguments are checked with a JSON pointer and a hint b
     bad(Json::object({{"apply", "yes"}}), "/apply");
     bad(Json::object({{"sky", "environment"}}), "environmentMap");
     // A scene with nothing that receives light.
-    CHECK(c.call("scene.set_component", Json::object({{"id", "floor"}, {"component", "MeshRenderer"}, {"fields", Json::object({{"receiveGI", false}})}})).ok);
-    CHECK(c.call("scene.set_component", Json::object({{"id", "box"}, {"component", "MeshRenderer"}, {"fields", Json::object({{"lightmapScale", 0}})}})).ok);
+    CHECK(c.call("scene.set_component", Json::object({{"id", "floor"},
+                                                      {"component", "MeshRenderer"},
+                                                      {"fields", Json::object({{"receiveGI", false}})}}))
+              .ok);
+    CHECK(c.call("scene.set_component",
+                 Json::object(
+                     {{"id", "box"}, {"component", "MeshRenderer"}, {"fields", Json::object({{"lightmapScale", 0}})}}))
+              .ok);
     bad(Json::object(), "nothing to bake");
 }
 
@@ -211,7 +219,8 @@ TEST_CASE("lightmap jobs: start, poll, finish, and the result is handed to the s
     CHECK(late.result["note"].get<std::string>().find("already ended") != std::string::npos);
 }
 
-TEST_CASE("lightmap jobs: an unknown job, a missing job and a second bake of the same manifest are refused with a hint") {
+TEST_CASE(
+    "lightmap jobs: an unknown job, a missing job and a second bake of the same manifest are refused with a hint") {
     TempProject p("unknown");
     Engine e;
     std::string err;
@@ -227,7 +236,8 @@ TEST_CASE("lightmap jobs: an unknown job, a missing job and a second bake of the
         CHECK(missing.error.dump().find("job") != std::string::npos);
     }
     // A slow bake that is still running refuses a second one for the same manifest, and does not refuse another file.
-    auto first = c.call("lightmap.bake_start", Json::object({{"texelsPerMeter", 64}, {"samples", 3000}, {"maxPageSize", 1024}}));
+    auto first =
+        c.call("lightmap.bake_start", Json::object({{"texelsPerMeter", 64}, {"samples", 3000}, {"maxPageSize", 1024}}));
     REQUIRE_MESSAGE(first.ok, first.error.dump());
     const std::string job = first.result["job"];
     auto second = c.call("lightmap.bake_start", small());
@@ -248,7 +258,8 @@ TEST_CASE("lightmap jobs: cancel stops a running bake, writes nothing and a seco
     REQUIRE_MESSAGE(e.init(cfg(p), nullptr, &err), err);
     auto& c = e.commands();
     // About a thousand million rays: minutes. It is cancelled as soon as it traces.
-    auto started = c.call("lightmap.bake_start", Json::object({{"texelsPerMeter", 64}, {"samples", 3000}, {"maxPageSize", 1024}}));
+    auto started =
+        c.call("lightmap.bake_start", Json::object({{"texelsPerMeter", 64}, {"samples", 3000}, {"maxPageSize", 1024}}));
     REQUIRE_MESSAGE(started.ok, started.error.dump());
     const std::string job = started.result["job"];
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(120);
@@ -373,7 +384,8 @@ TEST_CASE("lightmap.bake: a rebake replaces the old pages, and an unchanged scen
     CHECK(p.read("scenes/main.lightmap.json") != manifest);
 }
 
-TEST_CASE("lightmap.bake: a manifest that cannot be replaced keeps the old bake whole and says how to go on (Windows file rules)") {
+TEST_CASE("lightmap.bake: a manifest that cannot be replaced keeps the old bake whole and says how to go on (Windows "
+          "file rules)") {
     const bool before = fs::windows_rules();
     fs::set_windows_rules(true);
     TempProject p("locked");
@@ -396,7 +408,7 @@ TEST_CASE("lightmap.bake: a manifest that cannot be replaced keeps the old bake 
         CHECK_MESSAGE(text.find("`path`") != std::string::npos, text);
     }
     CHECK(p.read("scenes/main.lightmap.json") == manifest);  // the old manifest is whole
-    CHECK(p.files() == files);                                // and the pages of the failed bake are not left behind
+    CHECK(p.files() == files);                               // and the pages of the failed bake are not left behind
     // The suggested way out works: another manifest name.
     auto other = c.call("lightmap.bake", small(Json::object({{"seed", 3}, {"path", "scenes/second.lightmap.json"}})));
     CHECK_MESSAGE(other.ok, other.error.dump());
@@ -417,8 +429,9 @@ TEST_CASE("lightmap bake plan: lights, the sky and the meshes of the scene are m
     std::string err;
     REQUIRE_MESSAGE(e.init(cfg(p), nullptr, &err), err);
     lightmap_job::Options opt;
-    auto plan = lightmap_job::make_plan(e.world(), std::string("scenes/main.scene.json"), opt, (p.dir / "scenes/main.lightmap.json").generic_string(),
-                                        "scenes/main.lightmap.json");
+    auto plan =
+        lightmap_job::make_plan(e.world(), std::string("scenes/main.scene.json"), opt,
+                                (p.dir / "scenes/main.lightmap.json").generic_string(), "scenes/main.lightmap.json");
     REQUIRE_MESSAGE(plan.ok(), plan.error().message);
     // sun (baked), lamp (mixed), spot, panel: the realtime light and the inactive entity are left out.
     REQUIRE(plan->lights.size() == 4);
@@ -445,7 +458,8 @@ TEST_CASE("lightmap bake plan: lights, the sky and the meshes of the scene are m
             CHECK(l.spotInnerDeg == doctest::Approx(80));  // never wider than the outer cone
             CHECK(l.direction.y == doctest::Approx(-1).epsilon(0.001));
         } else {
-            CHECK(l.width == doctest::Approx(2 * 0.8862).epsilon(0.001));  // a disc of diameter 2 becomes the square of the same area
+            CHECK(l.width == doctest::Approx(2 * 0.8862)
+                                 .epsilon(0.001));  // a disc of diameter 2 becomes the square of the same area
             CHECK(l.height == doctest::Approx(2 * 0.8862).epsilon(0.001));
         }
     }
@@ -467,13 +481,15 @@ TEST_CASE("lightmap bake plan: lights, the sky and the meshes of the scene are m
     CHECK(plan->options.sky == lightmap_job::SkyChoice::Ambient);
     CHECK(plan->sky.zenith.x == doctest::Approx(plan->sky.horizon.x));
     CHECK(plan->sky.zenith.z > plan->sky.zenith.x);  // #404060 is bluish
-    auto again = lightmap_job::make_plan(e.world(), std::string("scenes/main.scene.json"), opt, (p.dir / "scenes/main.lightmap.json").generic_string(),
-                                         "scenes/main.lightmap.json");
+    auto again =
+        lightmap_job::make_plan(e.world(), std::string("scenes/main.scene.json"), opt,
+                                (p.dir / "scenes/main.lightmap.json").generic_string(), "scenes/main.lightmap.json");
     REQUIRE(again.ok());
     CHECK(again->settingsHash == plan->settingsHash);
     opt.settings.seed = 5;
-    auto seeded = lightmap_job::make_plan(e.world(), std::string("scenes/main.scene.json"), opt, (p.dir / "scenes/main.lightmap.json").generic_string(),
-                                          "scenes/main.lightmap.json");
+    auto seeded =
+        lightmap_job::make_plan(e.world(), std::string("scenes/main.scene.json"), opt,
+                                (p.dir / "scenes/main.lightmap.json").generic_string(), "scenes/main.lightmap.json");
     REQUIRE(seeded.ok());
     CHECK(seeded->settingsHash != plan->settingsHash);
     // Gradient sky takes skyColor and horizonColor.
@@ -481,8 +497,9 @@ TEST_CASE("lightmap bake plan: lights, the sky and the meshes of the scene are m
     opt.sky = lightmap_job::SkyChoice::Gradient;
     e.world().settings().skyColor = Color{0, 0, 1, 1};
     e.world().settings().horizonColor = Color{1, 0, 0, 1};
-    auto grad = lightmap_job::make_plan(e.world(), std::string("scenes/main.scene.json"), opt, (p.dir / "scenes/main.lightmap.json").generic_string(),
-                                        "scenes/main.lightmap.json");
+    auto grad =
+        lightmap_job::make_plan(e.world(), std::string("scenes/main.scene.json"), opt,
+                                (p.dir / "scenes/main.lightmap.json").generic_string(), "scenes/main.lightmap.json");
     REQUIRE(grad.ok());
     CHECK(grad->sky.zenith.z == doctest::Approx(1));
     CHECK(grad->sky.horizon.x == doctest::Approx(1));
@@ -490,8 +507,9 @@ TEST_CASE("lightmap bake plan: lights, the sky and the meshes of the scene are m
     // A physical sky cannot be evaluated: the plan says so instead of baking something else silently.
     e.world().settings().skyModel = SkyModel::Physical;
     opt.sky = lightmap_job::SkyChoice::Auto;
-    auto phys = lightmap_job::make_plan(e.world(), std::string("scenes/main.scene.json"), opt, (p.dir / "scenes/main.lightmap.json").generic_string(),
-                                        "scenes/main.lightmap.json");
+    auto phys =
+        lightmap_job::make_plan(e.world(), std::string("scenes/main.scene.json"), opt,
+                                (p.dir / "scenes/main.lightmap.json").generic_string(), "scenes/main.lightmap.json");
     REQUIRE(phys.ok());
     bool said = false;
     for (const std::string& w : phys->warnings) said = said || w.find("physical sky") != std::string::npos;
@@ -521,13 +539,17 @@ TEST_CASE("lightmap bake plan: the environment map is rotated like the renderer 
 }
 
 TEST_CASE("lightmap bake plan: an environment map is used, a missing or malformed one is refused with what to do") {
-    TempProject p("hdri", scene_text("", R"("environmentMap": "assets/sky.hdr", "environmentIntensity": 1.5, "environmentRotation": 30)"));
+    TempProject p(
+        "hdri",
+        scene_text("",
+                   R"("environmentMap": "assets/sky.hdr", "environmentIntensity": 1.5, "environmentRotation": 30)"));
     Engine e;
     std::string err;
     REQUIRE_MESSAGE(e.init(cfg(p), nullptr, &err), err);
     lightmap_job::Options opt;
-    auto plan = lightmap_job::make_plan(e.world(), std::string("scenes/main.scene.json"), opt, (p.dir / "scenes/main.lightmap.json").generic_string(),
-                                        "scenes/main.lightmap.json");
+    auto plan =
+        lightmap_job::make_plan(e.world(), std::string("scenes/main.scene.json"), opt,
+                                (p.dir / "scenes/main.lightmap.json").generic_string(), "scenes/main.lightmap.json");
     REQUIRE_MESSAGE(plan.ok(), plan.error().message);
     CHECK(plan->options.sky == lightmap_job::SkyChoice::Environment);
     CHECK(plan->environmentMap == "assets/sky.hdr");

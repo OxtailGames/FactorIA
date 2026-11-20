@@ -650,7 +650,9 @@ void report_phase(const Reporter& rep, BakePhase phase, int atlas, int atlasCoun
 template <class Fn>
 Result<std::uint64_t> run_batches(const std::string& label, std::size_t count, std::size_t grain, Fn&& fn,
                                   const Reporter& rep = {}) {
-    auto is_cancelled = [] { return cancel_requested(); };
+    // The flag is per thread: read it once here, on the calling thread, and share the pointer with the pool's chunks.
+    const std::atomic<bool>* flag = command_cancel_flag();
+    auto is_cancelled = [flag] { return flag != nullptr && flag->load(std::memory_order_relaxed); };
     if (is_cancelled()) return cancelled_error();
     const std::size_t batch = std::max<std::size_t>(256, (count + 39) / 40);
     std::uint64_t rays = 0;
@@ -800,6 +802,8 @@ Result<void> denoise_atlas(const std::string& label, int width, int height, int 
 
 // ---- spherical harmonics ------------------------------------------------------------------------------------------------------------
 
+}  // namespace
+
 void sh_basis(Vec3 d, float y[9]) {
     y[0] = 0.282094792f;
     y[1] = 0.488602512f * d.y;
@@ -811,6 +815,39 @@ void sh_basis(Vec3 d, float y[9]) {
     y[7] = 1.092548431f * d.x * d.z;
     y[8] = 0.546274215f * (d.x * d.x - d.y * d.y);
 }
+
+ShL2 sh_project_cube(int size, const float* rgb) {
+    // The faces as the cube map specification lays them out (+X -X +Y -Y +Z -Z; row 0 is the top of the face): the direction of a
+    // texel is fwd + u * right + v * up, u and v in -1..1 at its centre, and its solid angle is proportional to (1 + u^2 + v^2)^-1.5.
+    static const float kFwd[6][3] = {{1, 0, 0}, {-1, 0, 0}, {0, 1, 0}, {0, -1, 0}, {0, 0, 1}, {0, 0, -1}};
+    static const float kRight[6][3] = {{0, 0, -1}, {0, 0, 1}, {1, 0, 0}, {1, 0, 0}, {1, 0, 0}, {-1, 0, 0}};
+    static const float kUp[6][3] = {{0, 1, 0}, {0, 1, 0}, {0, 0, -1}, {0, 0, 1}, {0, 1, 0}, {0, 1, 0}};
+    double sum[9][3] = {};
+    double weight = 0.0;
+    const std::size_t faceTexels = std::size_t(size) * std::size_t(size);
+    for (int f = 0; f < 6; ++f)
+        for (int y = 0; y < size; ++y)
+            for (int x = 0; x < size; ++x) {
+                const double u = (2.0 * x + 1.0) / size - 1.0, v = 1.0 - (2.0 * y + 1.0) / size;
+                double d[3];
+                for (int i = 0; i < 3; ++i) d[i] = kFwd[f][i] + u * kRight[f][i] + v * kUp[f][i];
+                const double len = std::sqrt(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
+                const double w = 1.0 / (len * len * len);
+                float basis[9];
+                sh_basis({float(d[0] / len), float(d[1] / len), float(d[2] / len)}, basis);
+                const float* px = rgb + 3 * (std::size_t(f) * faceTexels + std::size_t(y) * size + x);
+                for (int k = 0; k < 9; ++k)
+                    for (int c = 0; c < 3; ++c) sum[k][c] += double(px[c]) * double(basis[k]) * w;
+                weight += w;
+            }
+    ShL2 out;
+    const double norm =
+        weight > 0.0 ? 4.0 * 3.14159265358979323846 / weight : 0.0;  // the weights add up to the sphere's 4 pi
+    for (int k = 0; k < 9; ++k) out.c[k] = {float(sum[k][0] * norm), float(sum[k][1] * norm), float(sum[k][2] * norm)};
+    return out;
+}
+
+namespace {
 
 std::uint64_t ray_estimate(const BakeSettings& st, std::size_t lightCount, std::uint64_t items) {
     // per item: samples x (the gather ray + for each bounce a next ray and a shadow ray per light) + the shadow rays of the direct light

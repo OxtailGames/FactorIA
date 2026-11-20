@@ -222,6 +222,17 @@ struct ShL2 {
 // the clamped cosine (bands scaled 1, 2/3, 1/4). A constant sky of radiance L gives L for every normal.
 Vec3 sh_irradiance(const ShL2& sh, Vec3 normal, int bands = 2);
 
+// The nine real SH basis functions of the order above at a unit direction (`y[k]` multiplies `ShL2::c[k]`). The ONE definition of the basis:
+// the sky's spherical harmonics (render: the diffuse ambient of a sky material, a physical sky or an HDRI; shaders/env.glsl, mesh_common.glsl
+// fa_sh_eval) are computed and evaluated with the same constants, so a probe and the sky are interchangeable.
+void sh_basis(Vec3 direction, float out[9]);
+
+// The projection of a cube map onto ShL2, the CPU twin of the GPU pass that bakes the sky's SH (env.glsl, fs_sh): `rgb` holds the six faces
+// (+X -X +Y -Y +Z -Z, the cube map specification's layout, row 0 at the top), each `size` x `size` texels of three floats, linear radiance.
+// Every texel is weighted by its solid angle and the weights are normalised to the sphere's 4 pi, so a constant sky of radiance L gives
+// c[0] = L * sqrt(4 pi) exactly and sh_irradiance() gives L for every normal.
+ShL2 sh_project_cube(int size, const float* rgb);
+
 // The spherical harmonics of the light around each point, from the same tracer as the lightmap: `samples` directions over the sphere, each
 // traced with the bounces of `settings`; plus the direct light of the Baked lights when settings.shIncludeDirect. Progress and cancel as
 // bake_lightmap. The scene's atlases are not used (a scene with meshes that have no atlas is fine).

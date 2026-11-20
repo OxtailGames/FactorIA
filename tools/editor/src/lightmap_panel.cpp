@@ -1,7 +1,7 @@
 // The Lightmap panel (View > Lightmap): bakes the open scene's baked lights, its sky and its lit meshes into lightmaps, with a progress bar
 // and Cancel. Nothing here bakes: every action is a command (lightmap.bake_start, lightmap.bake_status, lightmap.bake_cancel) that the
-// CLI and MCP run the same way. The job runs on a job thread of the engine, so the editor never waits for it: lightmap_poll asks for the
-// state a few times a second, and the only work it does on the UI thread is the JSON of one small answer.
+// CLI and MCP run the same way. The job runs on a job thread of the engine, so the editor never waits for it: lightmap_poll (called once per frame by
+// Editor::build_ui, panel open or not) asks for the state a few times a second, and the only work it does on the UI thread is the JSON of one small answer.
 //
 // The bake is started with apply false: when it is done the panel sets SceneSettings.lightmaps with scene_settings_edit, so the change is
 // one undo step and the scene is dirty. It does that only when the scene it was started on is still the open one (the engine says so in the
@@ -24,8 +24,7 @@ const char* const kLightmapSkies[] = {"auto", "environment", "gradient", "ambien
 constexpr const char* kLightmapSkyHints[] = {
     "The environment map when the scene has one, else the scene's ambient light.",
     "The scene's environment map (SceneSettings.environmentMap), rotated and scaled like the renderer does.",
-    "The scene's sky gradient colours.",
-    "A flat sky of the scene's ambient light colour.",
+    "The scene's sky gradient colours.", "A flat sky of the scene's ambient light colour.",
     "No light from the sky: only the lights and emitters."};
 
 void tip(const char* text) {
@@ -70,7 +69,8 @@ bool Editor::lightmap_start(std::string* error) {
         return false;
     };
     if (!engine_) return fail("No project is open.", "Open or create a project, then open a 3D scene.");
-    if (play_ != PlayState::Edit) return fail("The game is running.", "Stop the game, then bake: a bake reads the scene as it is saved.");
+    if (play_ != PlayState::Edit)
+        return fail("The game is running.", "Stop the game, then bake: a bake reads the scene as it is saved.");
     if (lightmap_.state == "running") return fail("A bake is already running.", "Cancel it, or wait for it to finish.");
     Json args = Json::object();
     args["texelsPerMeter"] = double(std::clamp(lightmap_.texelsPerMeter, 0.01f, 4096.0f));
@@ -85,8 +85,8 @@ bool Editor::lightmap_start(std::string* error) {
         const std::string text = command_error_text(r.error);
         return fail(r.error.value("message", text), r.error.value("hint", std::string()));
     }
-    lightmap_ = LightmapUi{lightmap_.texelsPerMeter, lightmap_.samples, lightmap_.shadowSamples, lightmap_.pageSizeIndex,
-                           lightmap_.skyIndex,       lightmap_.path};
+    lightmap_ = LightmapUi{lightmap_.texelsPerMeter, lightmap_.samples,  lightmap_.shadowSamples,
+                           lightmap_.pageSizeIndex,  lightmap_.skyIndex, lightmap_.path};
     lightmap_.job = r.result.value("job", std::string());
     lightmap_.scene = scenePath_;
     lightmap_.engine = engine_.get();
@@ -112,7 +112,8 @@ void Editor::lightmap_poll() {
     }
     if (lightmap_.lastPoll >= 0 && time_ - lightmap_.lastPoll < 0.1) return;
     lightmap_.lastPoll = time_;
-    const CommandResult r = engine_->commands().call("lightmap.bake_status", Json::object({{"job", lightmap_.job}, {"apply", false}}));
+    const CommandResult r =
+        engine_->commands().call("lightmap.bake_status", Json::object({{"job", lightmap_.job}, {"apply", false}}));
     if (!r.ok) {
         lightmap_.state = "failed";
         lightmap_.error = r.error.value("message", command_error_text(r.error));
@@ -127,7 +128,8 @@ void Editor::lightmap_poll() {
     lightmap_.eta = s.contains("etaSeconds") ? s.value("etaSeconds", -1.0) : -1.0;
     lightmap_.rays = s.value("rays", std::uint64_t(0));
     if (lightmap_.state == "failed" || lightmap_.state == "cancelled") {
-        lightmap_.error = lightmap_.state == "cancelled" ? "The bake was cancelled; no file was changed." : s.value("error", std::string());
+        lightmap_.error = lightmap_.state == "cancelled" ? "The bake was cancelled; no file was changed."
+                                                         : s.value("error", std::string());
         lightmap_.hint = s.value("hint", std::string());
         return;
     }
@@ -138,17 +140,22 @@ void Editor::lightmap_poll() {
     const std::string manifest = s.value("manifest", std::string());
     const Json hand = s.value("handOver", Json::object());
     if (!hand.contains("settingsChanged")) {
-        lightmap_.note = hand.value("note", std::string("The scene was changed during the bake: SceneSettings.lightmaps was not set."));
+        lightmap_.note = hand.value(
+            "note", std::string("The scene was changed during the bake: SceneSettings.lightmaps was not set."));
     } else if (lightmap_.scene != scenePath_) {
-        lightmap_.note = "Another scene is open now: SceneSettings.lightmaps was not set. Open the baked scene and set it to '" + manifest + "'.";
+        lightmap_.note =
+            "Another scene is open now: SceneSettings.lightmaps was not set. Open the baked scene and set it to '" +
+            manifest + "'.";
     } else if (play_ != PlayState::Edit) {
-        lightmap_.note = "The game is running: SceneSettings.lightmaps was not set. Stop, then set it to '" + manifest + "'.";
+        lightmap_.note =
+            "The game is running: SceneSettings.lightmaps was not set. Stop, then set it to '" + manifest + "'.";
     } else if (world().settings().lightmaps == manifest) {
         lightmap_.note = "The scene already uses '" + manifest + "': the renderer loaded the new pages.";
     } else {
         std::string err;
         if (scene_settings_edit("lightmaps", manifest, false, &err))
-            lightmap_.note = "SceneSettings.lightmaps = '" + manifest + "' (Undo takes it back). Save the scene to keep it.";
+            lightmap_.note =
+                "SceneSettings.lightmaps = '" + manifest + "' (Undo takes it back). Save the scene to keep it.";
         else
             lightmap_.note = "Could not set SceneSettings.lightmaps: " + err;
     }
@@ -165,9 +172,9 @@ void Editor::draw_lightmap_panel() {
         ImGui::End();
         return;
     }
-    lightmap_poll();
     const bool running = lightmap_.state == "running";
-    ImGui::TextWrapped("Bakes the scene's baked lights, its sky and its lit meshes into lightmap pages next to the scene.");
+    ImGui::TextWrapped(
+        "Bakes the scene's baked lights, its sky and its lit meshes into lightmap pages next to the scene.");
     draw_play_banner(*this);
 
     ImGui::BeginDisabled(running);
@@ -183,7 +190,8 @@ void Editor::draw_lightmap_panel() {
             ImGui::TableSetColumnIndex(1);
             ImGui::SetNextItemWidth(-FLT_MIN);
         };
-        row("Texels per meter", "Lightmap texels per meter of surface (times each MeshRenderer.lightmapScale). 16 is a good start; 64 gives sharp shadows with 16 times the texels and a longer bake.");
+        row("Texels per meter", "Lightmap texels per meter of surface (times each MeshRenderer.lightmapScale). 16 is a "
+                                "good start; 64 gives sharp shadows with 16 times the texels and a longer bake.");
         ImGui::DragFloat("##tpm", &lightmap_.texelsPerMeter, 0.5f, 0.5f, 256.0f, "%.1f");
         tip("Lightmap texels per meter of surface. 16 is a good start; 64 is sharp and 16 times heavier.");
         at_track("lm:tpm", !running);
@@ -194,9 +202,11 @@ void Editor::draw_lightmap_panel() {
         ImGui::DragInt("##shadow", &lightmap_.shadowSamples, 1.0f, 1, 256);
         tip("Shadow rays per light per texel: more makes softer, smoother shadows.");
         row("Page size", "The longest side of a page in texels. More meshes than fit make more pages.");
-        if (ImGui::BeginCombo("##page", std::to_string(kLightmapPageSizes[std::clamp(lightmap_.pageSizeIndex, 0, 3)]).c_str())) {
+        if (ImGui::BeginCombo("##page",
+                              std::to_string(kLightmapPageSizes[std::clamp(lightmap_.pageSizeIndex, 0, 3)]).c_str())) {
             for (int i = 0; i < 4; ++i)
-                if (ImGui::Selectable(std::to_string(kLightmapPageSizes[i]).c_str(), i == lightmap_.pageSizeIndex)) lightmap_.pageSizeIndex = i;
+                if (ImGui::Selectable(std::to_string(kLightmapPageSizes[i]).c_str(), i == lightmap_.pageSizeIndex))
+                    lightmap_.pageSizeIndex = i;
             ImGui::EndCombo();
         }
         tip("The longest side of a page in texels. More meshes than fit make more pages.");
@@ -209,9 +219,11 @@ void Editor::draw_lightmap_panel() {
             ImGui::EndCombo();
         }
         tip(kLightmapSkyHints[std::clamp(lightmap_.skyIndex, 0, 4)]);
-        row("Manifest", "Where the manifest is written, inside the project (.lightmap.json); the pages go next to it. Empty: next to the open scene.");
+        row("Manifest", "Where the manifest is written, inside the project (.lightmap.json); the pages go next to it. "
+                        "Empty: next to the open scene.");
         ImGui::InputTextWithHint("##path", "next to the scene", &lightmap_.path);
-        tip("Where the manifest is written, inside the project (.lightmap.json); the pages go next to it. Empty: next to the open scene.");
+        tip("Where the manifest is written, inside the project (.lightmap.json); the pages go next to it. Empty: next "
+            "to the open scene.");
         ImGui::EndTable();
     }
     ImGui::EndDisabled();
@@ -222,7 +234,8 @@ void Editor::draw_lightmap_panel() {
         if (!lightmap_start(&err)) notify("Lightmap bake: " + err, 2);
     }
     at_track("lm:start", !running && play_ == PlayState::Edit);
-    tip("Bake on a job thread: the editor stays usable. A finished bake replaces the pages of the same manifest and sets SceneSettings.lightmaps (one undo step).");
+    tip("Bake on a job thread: the editor stays usable. A finished bake replaces the pages of the same manifest and "
+        "sets SceneSettings.lightmaps (one undo step).");
     ImGui::EndDisabled();
     ImGui::SameLine();
     ImGui::BeginDisabled(!running);
@@ -239,7 +252,9 @@ void Editor::draw_lightmap_panel() {
         if (lightmap_.eta >= 0) overlay += "  about " + seconds_text(lightmap_.eta) + " left";
         ImGui::ProgressBar(float(std::clamp(lightmap_.progress, 0.0, 1.0)), ImVec2(-FLT_MIN, 0), overlay.c_str());
         at_track("lm:progress");
-        if (lightmap_.rays > 0) ImGui::TextDisabled("%s rays traced, %s", count_text(double(lightmap_.rays)).c_str(), seconds_text(lightmap_.elapsed).c_str());
+        if (lightmap_.rays > 0)
+            ImGui::TextDisabled("%s rays traced, %s", count_text(double(lightmap_.rays)).c_str(),
+                                seconds_text(lightmap_.elapsed).c_str());
     }
     if (!lightmap_.error.empty()) {
         ImGui::PushStyleColor(ImGuiCol_Text, lightmap_.state == "cancelled" ? kStatusWarn : kStatusFailed);
@@ -255,14 +270,17 @@ void Editor::draw_lightmap_panel() {
         ImGui::TextUnformatted("Baked.");
         ImGui::PopStyleColor();
         const Json pages = res.value("pages", Json::array());
-        ImGui::Text("%d page(s), %s texels, %d mesh(es), %s rays, %s", int(pages.size()), count_text(res.value("texels", 0.0)).c_str(),
-                    res.value("entities", 0), count_text(double(res.value("rays", std::uint64_t(0)))).c_str(),
+        ImGui::Text("%d page(s), %s texels, %d mesh(es), %s rays, %s", int(pages.size()),
+                    count_text(res.value("texels", 0.0)).c_str(), res.value("entities", 0),
+                    count_text(double(res.value("rays", std::uint64_t(0)))).c_str(),
                     seconds_text(lightmap_.elapsed).c_str());
         at_track("lm:summary");
         for (const Json& p : pages)
-            ImGui::BulletText("%s  %d x %d", p.value("file", std::string()).c_str(), p.value("width", 0), p.value("height", 0));
+            ImGui::BulletText("%s  %d x %d", p.value("file", std::string()).c_str(), p.value("width", 0),
+                              p.value("height", 0));
         for (const Json& sk : res.value("skipped", Json::array()))
-            ImGui::TextDisabled("skipped %s: %s", sk.value("id", std::string()).c_str(), sk.value("reason", std::string()).c_str());
+            ImGui::TextDisabled("skipped %s: %s", sk.value("id", std::string()).c_str(),
+                                sk.value("reason", std::string()).c_str());
         for (const Json& w : res.value("warnings", Json::array())) {
             ImGui::PushStyleColor(ImGuiCol_Text, kStatusWarn);
             ImGui::TextWrapped("%s", w.is_string() ? w.get<std::string>().c_str() : "");

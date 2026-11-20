@@ -791,10 +791,15 @@ TEST_CASE("materials: the shader desc built from a twin equals the generated one
     builtin.attrs[ATTR_mesh_mesh_fa_attr_uv1] = {};
     CHECK(describe_desc(*desc) == describe_desc(builtin));
     CHECK(slots.ubMask == 0b10000011);  // vs params, fs params, and the shadows (binding 7); the lights are in view 24
-    CHECK(slots.viewMask ==
-          (0b111111u | 1u << render::kMaterialEnvView | 1u << render::kMaterialEnvIrrView |
-           1u << VIEW_mesh_fa_light_tex | 1u << VIEW_mesh_fa_decal_tex |
-           1u << VIEW_mesh_fa_lightmap));  // + the sky environment, the light data, the decal atlas and the lightmap
+    CHECK(
+        slots.viewMask ==
+        (0b111111u | 1u << render::kMaterialEnvView | 1u << VIEW_mesh_fa_light_tex | 1u << VIEW_mesh_fa_decal_tex |
+         1u << VIEW_mesh_fa_light_atlas |
+         1u << VIEW_mesh_fa_lightmap));  // + the sky environment, the light data, the light atlas, the decal atlas and the lightmap
+    // M73.3a: the irradiance cube (view 15) is gone, its unit is the reserved screen slot, and the program binds fewer than 16 units
+    // (the material's four textures of its own are not in this program's mask: they are views 6..9 of the mask above).
+    CHECK((slots.viewMask & (1u << 15)) == 0);
+    CHECK(render::mesh_fragment_units(1) <= render::kMeshMaxFragmentUnits);
     CHECK(slots.samplerMask == (0b11u | 1u << render::kMaterialEnvSampler));
     CHECK(slots.ubSize[0] == sizeof(mesh_fa_mesh_vs_params_t));
     CHECK(slots.ubSize[1] == sizeof(mesh_fa_mesh_fs_params_t));
@@ -1131,6 +1136,45 @@ TEST_CASE(
     }
     CHECK(hi - lo <= 4);
     CHECK(lo >= 10);
+}
+
+TEST_CASE("materials: light() gets an area light from the closest point of its emitter, not from its centre") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    MaterialScope scope;
+    ErrorLog log;
+    // A tube 8 m long, 1 m over a floor with the two-band toon (lit above a cosine of 0.5): a point of the floor 2.5 m from the middle of
+    // the tube sees its centre at 68 degrees (the dark band) but the tube straight above it (the lit band).
+    auto frame = [&](LightType type) {
+        World w;
+        Entity cam = make(w, "cam", {0, 6, 0});
+        w.get<Transform>(cam)->rotation = {-90, 0, 0};
+        auto& c = w.add<Camera>(cam);
+        c.projection = Projection::Perspective;
+        c.fov = 60;
+        w.settings().ambientLight = Color{0, 0, 0, 1};
+        Entity f = add_mesh(w, "plane", {0, 0, 0}, Color::white(), {12, 1, 12});
+        w.get<MeshRenderer>(f)->material = "materials/toon.material.json";
+        Entity e = add_light(w, type, {0, 1, 0}, {-90, 0, 0}, 1.0f);
+        Light* l = w.get<Light>(e);
+        l->castShadows = false;
+        l->range = 20.0f;
+        l->shape = LightShape::Tube;
+        l->size = {8.0f, 0.2f};
+        return g.render(w);
+    };
+    const Image area = frame(LightType::Area);
+    const Image point = frame(LightType::Point);
+    CHECK(log.messages().empty());
+    const double perMetre = double(area.height) / (2.0 * 6.0 * std::tan(30.0 * 3.14159265 / 180.0));
+    const int cx = area.width / 2, cy = area.height / 2, side = cx + int(2.5 * perMetre);
+    auto lum = [&](const Image& img, int x) {
+        return double(img.rgba[(std::size_t(cy) * std::size_t(img.width) + std::size_t(x)) * 4 + 1]);
+    };
+    // The point light at the tube's centre: the side of the floor is in the dark band, far under the lit one.
+    CHECK(lum(point, side) < 0.6 * lum(point, cx));
+    // The area light: the closest point of the tube keeps the side in the lit band, like the floor under the middle.
+    CHECK(lum(area, side) > 0.75 * lum(area, cx));
 }
 
 TEST_CASE("materials: the sky (IBL) is one call away from lighting(), ambient() and a full shader") {
@@ -1556,8 +1600,8 @@ TEST_CASE("sky materials: a material whose sky() is empty draws exactly the buil
     CHECK(diff_images(material, again, 0.0f).maxError == 0.0);
     // the sky is really in the picture: the top of the frame is not the clear colour of a frame without a sky
     CHECK(builtIn.pixel(160, 2).b > 0.3f);
-    // A sky of one colour lights the mesh like an ambient light and a gradient of that colour did (the irradiance cube
-    // is divided by pi and the prefiltered one holds the colour): measured on the pixels of the cube (the middle of the
+    // A sky of one colour lights the mesh like an ambient light and a gradient of that colour did (the sky's SH ambient
+    // is the colour itself and the prefiltered cube holds the colour): measured on the pixels of the cube (the middle of the
     // frame), where a difference would be, not diluted by the sky around it.
     const double cubeDiff = rect_mean_diff(builtIn, material, 138, 76, 182, 104);
     MESSAGE("mean difference on the cube: " << cubeDiff);
@@ -1667,7 +1711,7 @@ TEST_CASE("sky materials: a diffuse mesh takes the ambient light of the sky that
     const Image lit = g.render(w);
     const int cx = lit.width / 2, cy = lit.height / 2;
     const Color top = lit.pixel(cx, cy - 34), bottom = lit.pixel(cx, cy + 34);
-    // What the sky lights is a ratio, not an absolute brightness (the irradiance and the filtering differ per driver):
+    // What the sky lights is a ratio, not an absolute brightness (the SH and the filtering differ per driver):
     // the green side is lit and its green is well above its red, the red side the other way round.
     INFO("top " << top.r << " " << top.g << " " << top.b << ", bottom " << bottom.r << " " << bottom.g << " "
                 << bottom.b);
@@ -1682,7 +1726,7 @@ TEST_CASE("sky materials: a diffuse mesh takes the ambient light of the sky that
     const Image dark = g.render(bare);
     const Color d = dark.pixel(cx, cy - 34);
     CHECK(std::max({d.r, d.g, d.b}) < 0.1f);
-    // A sky of one color gives that color as ambient (the irradiance is divided by pi): the same light on every side.
+    // A sky of one color gives that color as ambient (the SH ambient is the radiance, not the irradiance): the same light on every side.
     const Json flat =
         Json::object({{"zenith", Json::array({0.5, 0.5, 0.5, 1.0})}, {"ground", Json::array({0.5, 0.5, 0.5, 1.0})}});
     World uniform;

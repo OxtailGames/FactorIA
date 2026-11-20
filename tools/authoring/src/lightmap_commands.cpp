@@ -23,7 +23,8 @@ namespace fa {
 
 namespace {
 
-using Clock = std::chrono::steady_clock;  // only for the elapsed time and the estimate shown to the user, never for the result
+using Clock =
+    std::chrono::steady_clock;  // only for the elapsed time and the estimate shown to the user, never for the result
 
 Json parse_schema(const char* text) {
     auto r = parse_json(text, "command schema");
@@ -65,27 +66,40 @@ Request read_request(Engine::Impl& I, const Json& a, const char* command) {
     lightmap_job::Options& o = r.options;
     BakeSettings& s = o.settings;
     o.texelsPerMeter =
-        number(a, "texelsPerMeter", 0.01, 4096, 16, false, "Texels per meter of surface: 16 is a good start, 64 for sharp shadows (more pages and a longer bake).");
-    o.maxPageSize = int(number(a, "maxPageSize", 16, kLightmapMaxPageSize, 2048, true, "The longest side of a page: 1024, 2048 or 4096 are usual."));
-    s.samples = int(number(a, "samples", 1, 65536, s.samples, true, "Gather rays per texel: 64 is smooth, 16 is a draft."));
+        number(a, "texelsPerMeter", 0.01, 4096, 16, false,
+               "Texels per meter of surface: 16 is a good start, 64 for sharp shadows (more pages and a longer bake).");
+    o.maxPageSize = int(number(a, "maxPageSize", 16, kLightmapMaxPageSize, 2048, true,
+                               "The longest side of a page: 1024, 2048 or 4096 are usual."));
+    s.samples =
+        int(number(a, "samples", 1, 65536, s.samples, true, "Gather rays per texel: 64 is smooth, 16 is a draft."));
     s.bounces = int(number(a, "bounces", 0, 16, s.bounces, true, "0 = direct light only, 2 is the default."));
-    s.shadowSamples = int(number(a, "shadowSamples", 1, 1024, s.shadowSamples, true, "Shadow rays per light per texel: more = softer, smoother shadows."));
-    s.seed = std::uint32_t(number(a, "seed", 0, 4294967295.0, 0, true, "Another seed is another, equally good, noise."));
-    s.dilatePasses = int(number(a, "dilatePasses", 0, 64, s.dilatePasses, true, "Texels of gutter around each mesh: 4 hides the seams of bilinear filtering."));
+    s.shadowSamples = int(number(a, "shadowSamples", 1, 1024, s.shadowSamples, true,
+                                 "Shadow rays per light per texel: more = softer, smoother shadows."));
+    s.seed =
+        std::uint32_t(number(a, "seed", 0, 4294967295.0, 0, true, "Another seed is another, equally good, noise."));
+    s.dilatePasses = int(number(a, "dilatePasses", 0, 64, s.dilatePasses, true,
+                                "Texels of gutter around each mesh: 4 hides the seams of bilinear filtering."));
     s.denoiseRadius = int(number(a, "denoiseRadius", 0, 8, s.denoiseRadius, true, "0 turns the denoiser off."));
-    s.denoiseSigma = float(number(a, "denoiseSigma", 0.01, 10, s.denoiseSigma, false, "How different two neighbours may be and still be blended."));
-    s.rayEpsilon = float(number(a, "rayEpsilon", 0, 100, 0, false, "Meters; 0 picks it from the scene and the texel size."));
+    s.denoiseSigma = float(number(a, "denoiseSigma", 0.01, 10, s.denoiseSigma, false,
+                                  "How different two neighbours may be and still be blended."));
+    s.rayEpsilon =
+        float(number(a, "rayEpsilon", 0, 100, 0, false, "Meters; 0 picks it from the scene and the texel size."));
     s.maxRays = std::uint64_t(number(a, "maxRays", 1, 1e15, double(s.maxRays), true,
-                                     "A bake over this many rays is refused. One core traces about 2-10 million rays per second, so 1e9 rays are minutes."));
+                                     "A bake over this many rays is refused. One core traces about 2-10 million rays "
+                                     "per second, so 1e9 rays are minutes."));
     if (a.contains("apply") && !a["apply"].is_null()) {
-        if (!a["apply"].is_boolean()) bad("/apply", "must be true or false.", "true (default) sets SceneSettings.lightmaps to the manifest when it is done.");
+        if (!a["apply"].is_boolean())
+            bad("/apply", "must be true or false.",
+                "true (default) sets SceneSettings.lightmaps to the manifest when it is done.");
         r.apply = a["apply"].get<bool>();
     }
     if (a.contains("sky") && !a["sky"].is_null()) {
         const std::string v = a["sky"].is_string() ? a["sky"].get<std::string>() : std::string();
         static const std::vector<std::pair<std::string, lightmap_job::SkyChoice>> names = {
-            {"auto", lightmap_job::SkyChoice::Auto},         {"environment", lightmap_job::SkyChoice::Environment},
-            {"gradient", lightmap_job::SkyChoice::Gradient}, {"ambient", lightmap_job::SkyChoice::Ambient},
+            {"auto", lightmap_job::SkyChoice::Auto},
+            {"environment", lightmap_job::SkyChoice::Environment},
+            {"gradient", lightmap_job::SkyChoice::Gradient},
+            {"ambient", lightmap_job::SkyChoice::Ambient},
             {"none", lightmap_job::SkyChoice::None}};
         bool found = false;
         for (const auto& [n, c] : names)
@@ -97,7 +111,8 @@ Request read_request(Engine::Impl& I, const Json& a, const char* command) {
             std::vector<std::string> list;
             for (const auto& [n, c] : names) list.push_back(n);
             bad("/sky", "\"" + v + "\" is not a sky source. " + did_you_mean(v, list),
-                "One of auto (the environment map when the scene has one, else its ambient light), environment, gradient, ambient, none.");
+                "One of auto (the environment map when the scene has one, else its ambient light), environment, "
+                "gradient, ambient, none.");
         }
     }
     // The manifest path: the caller's, else next to the open scene.
@@ -115,11 +130,13 @@ Request read_request(Engine::Impl& I, const Json& a, const char* command) {
         raw = stem + ".lightmap.json";
     }
     if (!ends_with(to_lower(raw), ".lightmap.json"))
-        bad("/path", "'" + raw + "' does not end in .lightmap.json.", "Name the manifest like scenes/main.lightmap.json: the pages are written next to it.");
+        bad("/path", "'" + raw + "' does not end in .lightmap.json.",
+            "Name the manifest like scenes/main.lightmap.json: the pages are written next to it.");
     r.manifestAbs = resolve_caller_write_path(raw, command);
     r.manifestProject = resolve_caller_project_path(raw, command);
     if (fs::is_absolute(r.manifestProject))
-        bad("/path", "'" + raw + "' is outside the project.", "The manifest and its pages must be inside the project, so the game can load them.");
+        bad("/path", "'" + raw + "' is outside the project.",
+            "The manifest and its pages must be inside the project, so the game can load them.");
     return r;
 }
 
@@ -129,7 +146,7 @@ struct Job {
     std::string id, manifestProject, manifestAbs, scene;
     bool apply = true;
     std::atomic<bool> cancel{false};
-    std::mutex mu;  // guards everything below
+    std::mutex mu;                  // guards everything below
     std::string state = "running";  // running, done, failed, cancelled
     std::string phase = "queued";
     double progress = 0;
@@ -151,6 +168,27 @@ struct Registry {
 
 constexpr std::size_t kKeepFinished = 8;
 
+// Two spellings of one manifest: the filesystems of Windows and macOS do not tell "Scenes/A.lightmap.json" from "scenes/a.lightmap.json".
+bool same_manifest(const std::string& a, const std::string& b) {
+#if defined(_WIN32) || defined(__APPLE__)
+    return to_lower(a) == to_lower(b);
+#else
+    return a == b;
+#endif
+}
+
+// Lock order everywhere: Registry::mu first, then Job::mu. Throws `busy` when a running job writes `manifestProject`.
+void refuse_if_busy(Registry& reg, const std::string& manifestProject) {
+    std::lock_guard lock(reg.mu);
+    for (const auto& [id, other] : reg.byId) {
+        std::lock_guard jl(other->mu);
+        if (other->state == "running" && same_manifest(other->manifestProject, manifestProject))
+            throw CommandError("busy", "a bake of '" + manifestProject + "' is already running (" + id + ").",
+                               "Wait for it (lightmap.bake_status {\"job\":\"" + id +
+                                   "\"}), cancel it (lightmap.bake_cancel), or bake to another `path`.");
+    }
+}
+
 double round_to(double v, double scale) { return std::round(v * scale) / scale; }
 
 // Gives a finished bake to the scene: SceneSettings.lightmaps (when `apply`) and the renderer's reload. Only for the scene the bake was made for.
@@ -158,8 +196,10 @@ Json hand_over(Engine::Impl& I, const std::string& scene, const std::string& man
     Json out = Json::object();
     if (I.currentScene != scene) {
         out["applied"] = false;
-        out["note"] = "the open scene is no longer '" + scene + "', so SceneSettings.lightmaps was not changed; the files are written. Open that scene and set "
-                      "SceneSettings.lightmaps to '" + manifestProject + "'.";
+        out["note"] = "the open scene is no longer '" + scene +
+                      "', so SceneSettings.lightmaps was not changed; the files are written. Open that scene and set "
+                      "SceneSettings.lightmaps to '" +
+                      manifestProject + "'.";
         return out;
     }
     bool changed = false;
@@ -167,10 +207,12 @@ Json hand_over(Engine::Impl& I, const std::string& scene, const std::string& man
         I.world.settings().lightmaps = manifestProject;
         changed = true;
     }
-    if (I.renderer) I.renderer->reload_asset(manifestProject);  // a rebake under the same name: the renderer reads the new pages
+    if (I.renderer)
+        I.renderer->reload_asset(manifestProject);  // a rebake under the same name: the renderer reads the new pages
     out["applied"] = apply;
     out["settingsChanged"] = changed;
-    if (!apply) out["note"] = "apply was false: set SceneSettings.lightmaps to '" + manifestProject + "' to see the bake.";
+    if (!apply)
+        out["note"] = "apply was false: set SceneSettings.lightmaps to '" + manifestProject + "' to see the bake.";
     return out;
 }
 
@@ -182,7 +224,8 @@ Json status_json(const Job& j, std::string_view stateOverride = {}) {
     out["progress"] = round_to(j.progress, 1000);
     out["rays"] = j.rays;
     out["manifest"] = j.manifestProject;
-    const double elapsed = std::chrono::duration<double>((j.state == "running" ? Clock::now() : j.finished) - j.started).count();
+    const double elapsed =
+        std::chrono::duration<double>((j.state == "running" ? Clock::now() : j.finished) - j.started).count();
     out["elapsedSeconds"] = round_to(elapsed, 10);
     if (j.state == "running" && j.progress > 0.02 && elapsed > 1.0)
         out["etaSeconds"] = std::max(0.0, round_to(elapsed * (1.0 - j.progress) / j.progress, 1));
@@ -202,17 +245,22 @@ std::string live_ids(Registry& reg) {
 
 std::shared_ptr<Job> need_job(Registry& reg, const Json& a) {
     if (!a.contains("job") || !a["job"].is_string() || a["job"].get<std::string>().empty())
-        throw CommandError("invalid_argument", "/job: missing.", "Pass the id lightmap.bake_start returned, e.g. {\"job\":\"bake:1\"}.");
+        throw CommandError("invalid_argument", "/job: missing.",
+                           "Pass the id lightmap.bake_start returned, e.g. {\"job\":\"bake:1\"}.");
     const std::string id = a["job"].get<std::string>();
     std::lock_guard lock(reg.mu);
     auto it = reg.byId.find(id);
     if (it == reg.byId.end())
-        throw CommandError("unknown_job", "/job: no bake job '" + id + "'. " + did_you_mean(id, [&] {
-                               std::vector<std::string> v;
-                               for (const auto& [k, j] : reg.byId) v.push_back(k);
-                               return v;
-                           }()),
-                           live_ids(reg) + ". Only the last " + std::to_string(kKeepFinished) + " finished jobs are kept.");
+        throw CommandError("unknown_job",
+                           "/job: no bake job '" + id + "'. " +
+                               did_you_mean(id,
+                                            [&] {
+                                                std::vector<std::string> v;
+                                                for (const auto& [k, j] : reg.byId) v.push_back(k);
+                                                return v;
+                                            }()),
+                           live_ids(reg) + ". Only the last " + std::to_string(kKeepFinished) +
+                               " finished jobs are kept.");
     return it->second;
 }
 
@@ -234,7 +282,8 @@ const char* kRequestProps = R"(
 
 Json request_schema(bool withJob) {
     std::string text = R"({"type":"object","properties":{)";
-    if (withJob) text += R"("job":{"type":"string","description":"The id lightmap.bake_start returned (\"bake:1\")."},)";
+    if (withJob)
+        text += R"("job":{"type":"string","description":"The id lightmap.bake_start returned (\"bake:1\")."},)";
     text += kRequestProps;
     text += "}}";
     return parse_schema(text.c_str());
@@ -254,23 +303,37 @@ void register_lightmap_commands(Engine& engine, Engine::Impl& I) {
 
     I.commands.add(
         {"lightmap.bake",
-         "Bake the scene's baked and mixed lights and its sky into lightmaps, wait for it, and write the pages and the manifest.",
-         "Reads the active MeshRenderers (static geometry that shadows and bounces light; the ones with receiveGI, lightmapScale > 0 and unlit false "
-         "also get lightmap texels), the Lights with mode baked (direct + bounce light baked) or mixed (only the bounce is baked, the direct light stays "
-         "realtime) and the sky, then writes `<name>.lightmap.<hash>.<n>.hdr` pages and `<name>.lightmap.json` atomically and sets "
-         "SceneSettings.lightmaps. A model without a second UV set is unwrapped for you. Blocks until done: a long bake belongs in lightmap.bake_start. The "
-         "same scene and settings give byte-identical pages on any thread count. Result: {manifest, pages, entities, texels, rays, skipped, warnings, "
+         "Bake the scene's baked and mixed lights and its sky into lightmaps, wait for it, and write the pages and the "
+         "manifest.",
+         "Reads the active MeshRenderers (static geometry that shadows and bounces light; the ones with receiveGI, "
+         "lightmapScale > 0 and unlit false "
+         "also get lightmap texels), the Lights with mode baked (direct + bounce light baked) or mixed (only the "
+         "bounce is baked, the direct light stays "
+         "realtime) and the sky, then writes `<name>.lightmap.<hash>.<n>.hdr` pages and `<name>.lightmap.json` "
+         "atomically and sets "
+         "SceneSettings.lightmaps. A model without a second UV set is unwrapped for you. Blocks until done: a long "
+         "bake belongs in lightmap.bake_start. The "
+         "same scene and settings give byte-identical pages on any thread count. Result: {manifest, pages, entities, "
+         "texels, rays, skipped, warnings, "
          "applied}. Example: lightmap.bake {\"texelsPerMeter\":16,\"samples\":64}",
          request_schema(false), false, "assets",
-         "Mapping. Light: Baked -> baked, Mixed -> indirect only, Realtime is left out; intensity, color, range and spotAngle carry over; "
-         "Pcss shadowSoftness widens the shadow. An area light is a one-sided rectangle of radiance = intensity (a Disc or Tube becomes a rectangle of "
-         "the same area). Sky: see `sky`. A MeshRenderer is its color (albedo) and emissive * emissiveStrength; textures are not read; a skinned mesh "
-         "is baked in its bind pose. A mesh the unwrap cannot handle (a procedural mesh:N, over 250000 triangles) is listed in `skipped`. The result's "
-         "`warnings` name everything that was approximated. Files: pages are written first, the manifest last; on Windows a file another program "
-         "holds open cannot be replaced: close it and bake again, or use another `path`. docs/rendering/RENDERING_LIGHTING.md, \"Lightmaps\"."},
-        [&I](const Json& a) {
+         "Mapping. Light: Baked -> baked, Mixed -> indirect only, Realtime is left out; intensity, color, range and "
+         "spotAngle carry over; "
+         "Pcss shadowSoftness widens the shadow. An area light is a one-sided rectangle of radiance = intensity (a "
+         "Disc or Tube becomes a rectangle of "
+         "the same area). Sky: see `sky`. A MeshRenderer is its color (albedo) and emissive * emissiveStrength; "
+         "textures are not read; a skinned mesh "
+         "is baked in its bind pose. A mesh the unwrap cannot handle (a procedural mesh:N, over 250000 triangles) is "
+         "listed in `skipped`. The result's "
+         "`warnings` name everything that was approximated. Files: pages are written first, the manifest last; on "
+         "Windows a file another program "
+         "holds open cannot be replaced: close it and bake again, or use another `path`. "
+         "docs/rendering/RENDERING_LIGHTING.md, \"Lightmaps\"."},
+        [&I, reg](const Json& a) {
             Request req = read_request(I, a, "lightmap.bake");
-            auto plan = lightmap_job::make_plan(I.world, I.currentScene, req.options, req.manifestAbs, req.manifestProject);
+            refuse_if_busy(*reg, req.manifestProject);
+            auto plan =
+                lightmap_job::make_plan(I.world, I.currentScene, req.options, req.manifestAbs, req.manifestProject);
             if (!plan.ok()) throw CommandError("invalid_scene", plan.error().message, plan.error().hint);
             report_command_progress("lightmap bake: starting");
             std::string lastPhase;
@@ -294,26 +357,37 @@ void register_lightmap_commands(Engine& engine, Engine::Impl& I) {
 
     I.commands.add(
         {"lightmap.bake_start",
-         "Start a lightmap bake in the background and get a job id; poll lightmap.bake_status, stop it with lightmap.bake_cancel.",
-         "The same bake as lightmap.bake (same arguments and result) on a job thread, so the editor and an agent stay responsive. The scene is read "
-         "when you call this: changing the scene while it runs does not change the bake, and a result is only given to the scene it was made for. "
-         "Call lightmap.bake_status until its state is done, failed or cancelled: that call also hands the result to the scene (SceneSettings.lightmaps "
-         "and the renderer's reload). Result: {job, state, phase, progress, manifest}. Example: lightmap.bake_start {\"path\":\"scenes/main.lightmap.json\"}",
+         "Start a lightmap bake in the background and get a job id; poll lightmap.bake_status, stop it with "
+         "lightmap.bake_cancel.",
+         "The same bake as lightmap.bake (same arguments and result) on a job thread, so the editor and an agent stay "
+         "responsive. The scene is read "
+         "when you call this: changing the scene while it runs does not change the bake, and a result is only given to "
+         "the scene it was made for. "
+         "Call lightmap.bake_status until its state is done, failed or cancelled: that call also hands the result to "
+         "the scene (SceneSettings.lightmaps "
+         "and the renderer's reload). Result: {job, state, phase, progress, manifest}. Example: lightmap.bake_start "
+         "{\"path\":\"scenes/main.lightmap.json\"}",
          request_schema(false), false, "assets"},
         [&I, reg](const Json& a) {
             Request req = read_request(I, a, "lightmap.bake_start");
-            auto plan = lightmap_job::make_plan(I.world, I.currentScene, req.options, req.manifestAbs, req.manifestProject);
+            auto plan =
+                lightmap_job::make_plan(I.world, I.currentScene, req.options, req.manifestAbs, req.manifestProject);
             if (!plan.ok()) throw CommandError("invalid_scene", plan.error().message, plan.error().hint);
             auto job = std::make_shared<Job>();
             {
-                std::lock_guard lock(reg->mu);
+                std::lock_guard lock(
+                    reg->mu);  // the busy check and the registration are one step: two starts cannot both pass
                 for (const auto& [id, other] : reg->byId) {
                     std::lock_guard jl(other->mu);
-                    if (other->state == "running" && other->manifestProject == req.manifestProject)
-                        throw CommandError("busy", "a bake of '" + req.manifestProject + "' is already running (" + id + ").",
-                                           "Wait for it (lightmap.bake_status {\"job\":\"" + id + "\"}), cancel it (lightmap.bake_cancel), or bake to another `path`.");
+                    if (other->state == "running" && same_manifest(other->manifestProject, req.manifestProject))
+                        throw CommandError("busy",
+                                           "a bake of '" + req.manifestProject + "' is already running (" + id + ").",
+                                           "Wait for it (lightmap.bake_status {\"job\":\"" + id +
+                                               "\"}), cancel it (lightmap.bake_cancel), or bake to another `path`.");
                 }
                 job->id = "bake:" + std::to_string(reg->next++);
+                job->manifestProject =
+                    req.manifestProject;  // set before the job is visible: a second start sees the path at once
                 reg->byId[job->id] = job;
             }
             job->manifestProject = req.manifestProject;
@@ -326,14 +400,16 @@ void register_lightmap_commands(Engine& engine, Engine::Impl& I) {
                 const CommandCancelScope scope(&job->cancel);
                 Result<Json> r = make_error("the bake did not run", "");
                 try {
-                    r = lightmap_job::execute(*shared, [&](const std::string& phase, double progress, std::uint64_t rays) {
-                        std::lock_guard lock(job->mu);
-                        job->phase = phase;
-                        job->progress = std::clamp(progress, 0.0, 1.0);
-                        job->rays = rays;
-                    });
+                    r = lightmap_job::execute(*shared,
+                                              [&](const std::string& phase, double progress, std::uint64_t rays) {
+                                                  std::lock_guard lock(job->mu);
+                                                  job->phase = phase;
+                                                  job->progress = std::clamp(progress, 0.0, 1.0);
+                                                  job->rays = rays;
+                                              });
                 } catch (const std::exception& e) {
-                    r = make_error(std::string("the bake stopped by an exception: ") + e.what(), "Report this with the scene; nothing was changed.");
+                    r = make_error(std::string("the bake stopped by an exception: ") + e.what(),
+                                   "Report this with the scene; nothing was changed.");
                 }
                 std::lock_guard lock(job->mu);
                 job->finished = Clock::now();
@@ -362,27 +438,34 @@ void register_lightmap_commands(Engine& engine, Engine::Impl& I) {
         });
 
     I.commands.add(
-        {"lightmap.bake_status", "The state of a bake job: running with a phase and progress, or done with its result, failed or cancelled.",
-         "Result: {job, state (running|done|failed|cancelled), phase (geometry, layout, prepare, rasterize, trace, denoise, dilate, writing), progress "
-         "0..1, rays, elapsedSeconds, etaSeconds (once there is enough to estimate), manifest} and, when finished, `result` (the lightmap.bake result: "
-         "pages, texels, rays, skipped, warnings) or `error` and `hint`. The first call that sees a bake done hands it to the scene (SceneSettings.lightmaps "
-         "and the renderer's reload) unless the bake was started with apply false, or the scene changed since; `handOver` says what happened. "
+        {"lightmap.bake_status",
+         "The state of a bake job: running with a phase and progress, or done with its result, failed or cancelled.",
+         "Result: {job, state (running|done|failed|cancelled), phase (geometry, layout, prepare, rasterize, trace, "
+         "denoise, dilate, writing), progress "
+         "0..1, rays, elapsedSeconds, etaSeconds (once there is enough to estimate), manifest} and, when finished, "
+         "`result` (the lightmap.bake result: "
+         "pages, texels, rays, skipped, warnings) or `error` and `hint`. The first call that sees a bake done hands it "
+         "to the scene (SceneSettings.lightmaps "
+         "and the renderer's reload) unless the bake was started with apply false, or the scene changed since; "
+         "`handOver` says what happened. "
          "Example: lightmap.bake_status {\"job\":\"bake:1\"}",
-         parse_schema(R"({"type":"object","required":["job"],"properties":{"job":{"type":"string","description":"The id lightmap.bake_start returned."},
+         parse_schema(
+             R"({"type":"object","required":["job"],"properties":{"job":{"type":"string","description":"The id lightmap.bake_start returned."},
             "apply":{"type":"boolean","description":"Overrides the apply of lightmap.bake_start for this hand-over. The editor passes false and edits the setting itself (undo, dirty scene)."}}})"),
          false, "assets"},
         [&I, reg](const Json& a) {
             auto job = need_job(*reg, a);
             // With no worker thread the job only runs when somebody waits for it (inline pool, 0 workers).
             if (!job->handle.done() && jobs::worker_count() == 0) (void)jobs::wait(job->handle);
+            std::unique_lock registryLock(reg->mu);  // Registry::mu, then Job::mu: the one lock order
             std::lock_guard lock(job->mu);
             Json out = status_json(*job);
             if (job->state == "done") {
                 if (!job->handedOver) {
-                    const bool apply = a.contains("apply") && a["apply"].is_boolean() ? a["apply"].get<bool>() : job->apply;
+                    const bool apply =
+                        a.contains("apply") && a["apply"].is_boolean() ? a["apply"].get<bool>() : job->apply;
                     job->handover = hand_over(I, job->scene, job->manifestProject, apply);
                     job->handedOver = true;
-                    std::lock_guard rl(reg->mu);
                     reg->finishedOrder.push_back(job->id);
                     while (reg->finishedOrder.size() > kKeepFinished) {
                         reg->byId.erase(reg->finishedOrder.front());
@@ -393,7 +476,6 @@ void register_lightmap_commands(Engine& engine, Engine::Impl& I) {
             } else if (job->state != "running") {
                 if (!job->handedOver) {
                     job->handedOver = true;
-                    std::lock_guard rl(reg->mu);
                     reg->finishedOrder.push_back(job->id);
                     while (reg->finishedOrder.size() > kKeepFinished) {
                         reg->byId.erase(reg->finishedOrder.front());
@@ -406,10 +488,14 @@ void register_lightmap_commands(Engine& engine, Engine::Impl& I) {
 
     I.commands.add(
         {"lightmap.bake_cancel", "Stop a running bake job; no file is changed unless it was already writing them.",
-         "Sets the job's cancel flag: every phase (the BVH build, the texel mapping, the rays, the denoiser, the gutter fill) looks at it within a short "
-         "time, and the job ends with state cancelled. A job that reached the writing phase finishes (a half-written set would be worse) and ends done. "
-         "Cancelling a finished or already cancelled job is not an error. Result: lightmap.bake_status's shape. Example: lightmap.bake_cancel {\"job\":\"bake:1\"}",
-         parse_schema(R"({"type":"object","required":["job"],"properties":{"job":{"type":"string","description":"The id lightmap.bake_start returned."}}})"),
+         "Sets the job's cancel flag: every phase (the BVH build, the texel mapping, the rays, the denoiser, the "
+         "gutter fill) looks at it within a short "
+         "time, and the job ends with state cancelled. A job that reached the writing phase finishes (a half-written "
+         "set would be worse) and ends done. "
+         "Cancelling a finished or already cancelled job is not an error. Result: lightmap.bake_status's shape. "
+         "Example: lightmap.bake_cancel {\"job\":\"bake:1\"}",
+         parse_schema(
+             R"({"type":"object","required":["job"],"properties":{"job":{"type":"string","description":"The id lightmap.bake_start returned."}}})"),
          false, "assets"},
         [reg](const Json& a) {
             auto job = need_job(*reg, a);
@@ -418,7 +504,8 @@ void register_lightmap_commands(Engine& engine, Engine::Impl& I) {
             if (job->state == "running") {
                 job->cancel.store(true);
                 out = status_json(*job);
-                out["note"] = "cancel requested: the job stops at its next check; poll lightmap.bake_status until the state is cancelled.";
+                out["note"] = "cancel requested: the job stops at its next check; poll lightmap.bake_status until the "
+                              "state is cancelled.";
             } else {
                 out = status_json(*job);
                 out["note"] = "the job already ended (" + job->state + "): nothing to cancel.";

@@ -94,7 +94,8 @@ inline std::uint32_t pack_vertex_color(float r, float g, float b, float a) {
 
 constexpr int kMaxQuadsPerDraw = 16384;  // 16-bit indices
 // The lights of a view in the light table of the data texture (src/light_clusters.h, shaders/light_data.glsl): the most relevant
-// ones when the scene has more (RenderStats.lightsDropped counts the rest). 4 texels of 16 bytes each: 64 KB at the limit.
+// ones when the scene has more (RenderStats.lightsDropped counts the rest). 4 texels of 16 bytes each (8 when a light has an area, a cookie or
+// a profile): 64 KB (128 KB) at the limit.
 constexpr int kMaxLights = 1024;
 constexpr int kMeshInstanceBytes = 64;  // one Mat4 per instance
 // The vertex buffers beyond the mesh (0), the model matrices (1) and the skin (2) that a custom material's programs may
@@ -497,11 +498,10 @@ constexpr int kMaterialPostHistoryView = kMaterialPostFirstView + kMaxMaterialTe
 // binds only those.
 constexpr int kMaterialVsFirstView = kMaterialFirstView + kMaxMaterialTextures,
               kMaterialVsFirstSampler = kMaterialFirstSampler + kMaxMaterialTextures;
-// The baked sky of a sky material (renderer_env.h, mesh_common.glsl fa_fs_head): the prefiltered cube is fragment view
-// 14, the irradiance cube view 15 and their sampler sampler 10, after the vertex-stage copies. A draw binds them (a
-// blank cube when there is no sky material).
+// The baked sky of a sky material (renderer_env.h, mesh_common.glsl fa_fs_head): one cube, fragment view 14 (mips 0..4 the prefiltered
+// sky, mip 5 its nine spherical-harmonics coefficients, the diffuse ambient), and its sampler sampler 10, after the vertex-stage
+// copies. A draw binds it (a blank cube when there is no sky material). View 15 (the irradiance cube until M73.3a) is free.
 constexpr int kMaterialEnvView = kMaterialVsFirstView + kMaxMaterialTextures,
-              kMaterialEnvIrrView = kMaterialEnvView + 1,
               kMaterialEnvSampler = kMaterialVsFirstSampler + kMaxMaterialTextures;
 // The read-only storage buffers of a mesh material (fa/tooling/shaders.h kMeshBufferFirstView; M72.4): the vertex stage
 // reads buffer i at view kMeshBufferFirstView + i, the fragment stage at kMeshBufferFirstView + <buffer count> + i.
@@ -519,12 +519,12 @@ constexpr int kMaxMeshBuffers = 4, kMeshBufferFirstView = 16, kMeshInstanceBaseU
 //   - Views 16..23 are the read-only storage buffers of a mesh material (kMeshBufferFirstView, M72.4; GL 4.3 / Metal / D3D11 only,
 //     they are not texture units). The new views of M73 therefore start at 24.
 //   - Data read with texelFetch needs no sampler (sampler -1). Every linear, clamped atlas shares sampler 10 (today's env sampler).
-//   - Phases: 0 = today, 1 = M73.1, M73.2, M73.4 and M73.5 landed while the sky is still the two cubes, 2 = M73.3 landed: the
-//     irradiance cube is retired by M73.3a (9 spherical-harmonics vec4 in the light data texture), the prefiltered cube by the probe
-//     atlas (same view 14). The screen slot waits for that: contact shadows (M73.2c) and transmission (M73.6b) read it, so they
-//     follow M73.3a, or they pack what they need into another row.
+//   - Phases: 0 = before M73 (12 units), 1 = M73.1, M73.2, M73.4, M73.5 and M73.3a landed (15 units bound + the reserved screen slot = 16): the irradiance cube is retired,
+//     the sky's nine spherical-harmonics coefficients live in mip 5 of the sky cube (view 14, renderer_env.h) and the unit it freed is
+//     the screen slot (view 28), reserved for contact shadows (M73.2c) and transmission (M73.6b); 2 = M73.3b/c landed: the prefiltered
+//     cube is replaced by the probe atlas (same view 14).
 // Reused today's slots: view 1 (the shadow map becomes the shadow atlas, same nearest sampler 1), view 14 (the sky cube becomes the
-// reflection-probe atlas) and sampler 10. Freed: view 15 (the irradiance cube).
+// reflection-probe atlas) and sampler 10. Freed: view 15 (the irradiance cube), for fa_screen_tex.
 inline constexpr int kMeshSamplerSlots = 12, kMeshMaxFragmentUnits = 16;
 inline constexpr int kMeshNewViewFirst = kMeshBufferFirstView + 2 * kMaxMeshBuffers;  // 24: after the storage buffers
 inline constexpr int kMeshLinearClampSampler = 10;
@@ -549,15 +549,18 @@ inline constexpr MeshFragmentView kMeshFragmentViews[] = {
     {"material texture 2", 8, 4, 0, 2, "(see above)"},
     {"material texture 3", 9, 5, 0, 2, "(see above)"},
     {"fa_env_tex", 14, 10, 0, 1,
-     "the baked sky of a sky material, prefiltered cube (today); M73.3 replaces it by the probe atlas"},
-    {"fa_irr_tex", 15, 10, 0, 1,
-     "its irradiance cube (today); M73.3a replaces it by spherical harmonics in the light data texture"},
+     "the baked sky of a sky material: a cube, mips 0..4 the sky prefiltered by roughness, mip 5 its spherical "
+     "harmonics (the diffuse ambient; M73.3a); M73.3b/c replaces it by the probe atlas"},
+    {"fa_irr_tex", 15, 10, 0, 0, "the irradiance cube, retired by M73.3a (spherical harmonics in mip 5 of fa_env_tex)"},
     {"fa_probe_atlas", 14, 10, 2, 2,
      "M73.3b/c: reflection probes and the sky, octahedral 2D, prefiltered by roughness (replaces fa_env_tex)"},
     {"fa_light_data", 24, 1, 1, 2,
      "M73.1a (today): RGBA32F, texelFetch with the nearest sampler 1: the lights, the clusters' light lists; later the "
      "decals, the sky's SH"},
-    {"fa_light_atlas", 25, 10, 1, 2, "M73.1b: light cookies and IES profiles, one RGBA8 atlas"},
+    {"fa_light_atlas", 25, 10, 1, 2,
+     "M73.1b (today): one RGBA16F atlas (src/light_atlas.h) with the LTC tables of the area lights in a reserved block "
+     "at its top "
+     "left (they take no unit of their own), then the light cookies and IES profiles; bilinear, clamped"},
     {"fa_lightmap", 26, 10, 1, 2,
      "M73.4a: the page of the baked lightmap of the entity drawn (RGBA16F, one page per draw; a white texel when it "
      "has none), read at its lightmap UV"},
@@ -565,8 +568,9 @@ inline constexpr MeshFragmentView kMeshFragmentViews[] = {
      "M73.5b (today): the albedo and normal textures of the projected decals, RGBA8 with mips (their boxes and tiles "
      "are in "
      "fa_light_data)"},
-    {"fa_screen_tex", 28, 10, 2, 2,
-     "M73.2c / M73.6b: the prepass depth for contact shadows, the opaque color for transmission"},
+    {"fa_screen_tex", 28, 10, 1, 2,
+     "M73.2c / M73.6b: the prepass depth for contact shadows, the opaque color for transmission (reserved: the unit "
+     "M73.3a freed; no program declares it yet)"},
 };
 inline constexpr int kMeshFragmentViewCount = int(sizeof(kMeshFragmentViews) / sizeof(kMeshFragmentViews[0]));
 
@@ -609,7 +613,6 @@ static_assert(kMeshFragmentViews[0].view == 0 && kMeshFragmentViews[1].view == 1
                   kMeshFragmentViews[9].view == kMaterialFirstView + kMaxMaterialTextures - 1 &&
                   kMeshFragmentViews[6].sampler == kMaterialFirstSampler &&
                   kMeshFragmentViews[10].view == kMaterialEnvView &&
-                  kMeshFragmentViews[11].view == kMaterialEnvIrrView &&
                   kMeshFragmentViews[10].sampler == kMaterialEnvSampler &&
                   kMeshFragmentViews[10].sampler == kMeshLinearClampSampler,
               "kMeshFragmentViews no longer matches today's slots (mesh_common.glsl, fa/tooling/shaders.h)");
