@@ -454,15 +454,24 @@ bool SortKeyTable::key_of(const SortFields& f, std::uint64_t& key) const {
     return pack_sort_key(m, t, nm, std::uint64_t(it - rests_.begin()), key);
 }
 
-int select_lights(std::vector<LightData>& lights, std::size_t maxCount) {
+int select_lights(std::vector<LightData>& lights, std::size_t maxCount, std::size_t maxDirectional) {
     std::stable_sort(lights.begin(), lights.end(), [](const LightData& a, const LightData& b) {
         if (a.rank != b.rank) return a.rank < b.rank;
         // A NaN score (a NaN light position) counts as the lowest, so the order stays a strict weak one.
         return rjobs::order_float(-a.score) < rjobs::order_float(-b.score);
     });
-    if (lights.size() <= maxCount) return 0;
-    const int dropped = int(lights.size() - maxCount);
-    lights.resize(maxCount);
+    int dropped = 0;
+    // The directional lights (rank 0 and 1) come first: the least bright ones past maxDirectional are left out.
+    std::size_t directional = 0;
+    while (directional < lights.size() && lights[directional].rank < 2) ++directional;
+    if (directional > maxDirectional) {
+        lights.erase(lights.begin() + std::ptrdiff_t(maxDirectional), lights.begin() + std::ptrdiff_t(directional));
+        dropped += int(directional - maxDirectional);
+    }
+    if (lights.size() > maxCount) {
+        dropped += int(lights.size() - maxCount);
+        lights.resize(maxCount);
+    }
     return dropped;
 }
 

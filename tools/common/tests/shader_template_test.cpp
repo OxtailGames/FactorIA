@@ -134,8 +134,8 @@ TEST_CASE("shader template: every kind's contract structs are read from its own 
 
 // mesh_full_common.glsl declares its own copy of the fragment uniform block fa_mesh_fs_params of mesh_common.glsl (it cannot include
 // the block that holds it: that one also declares the engine's varyings). The CPU fills both from the same struct, so a member added
-// to one and not to the other would shift every value after it. The light block fa_lights is NOT copied: light_data.glsl declares it
-// once and both templates include that block (M73-P0).
+// to one and not to the other would shift every value after it. The light functions are NOT copied: light_data.glsl declares them
+// once and both templates include that block (M73-P0); the lights themselves are in a data texture (M73.1), not in a uniform block.
 TEST_CASE("shader template: the full-shader template's uniform block is that of mesh_common.glsl, the light block is "
           "shared") {
     auto read = [](const char* name) {
@@ -166,12 +166,17 @@ TEST_CASE("shader template: the full-shader template's uniform block is that of 
         CHECK_FALSE(a.empty());
         CHECK(a == b);
     }
-    // fa_lights: declared in light_data.glsl and nowhere else, with the 32-light layout the CPU fills (kMaxLights)...
-    CHECK_FALSE(block(data, "fa_lights").empty());
-    CHECK(block(data, "fa_lights").find("fa_light_pos[32]") != std::string::npos);
+    // The lights are texels of the data texture (view 24), read by the functions of light_data.glsl: no uniform block of lights is
+    // declared in any template, and the cluster numbers are members of the fragment block of both (the equality above)...
+    CHECK(block(data, "fa_lights").empty());
     CHECK(block(mesh, "fa_lights").empty());
     CHECK(block(full, "fa_lights").empty());
-    // ...and both templates include the block that holds it, after fa_types (LightSample is declared there).
+    CHECK(data.find("texelFetch(sampler2D(FA_LIGHT_TEX, FA_LIGHT_SMP)") != std::string::npos);
+    for (const char* member : {"fa_cl_vpx", "fa_cl_vpy", "fa_cl_vpw", "fa_cl_fwd", "fa_cl_grid", "fa_cl_info"})
+        CHECK(block(mesh, "fa_mesh_fs_params").find(member) != std::string::npos);
+    CHECK(mesh.find("layout(binding=24) uniform texture2D fa_light_tex;") != std::string::npos);
+    CHECK(full.find("layout(binding=24) uniform texture2D fa_full_light_tex;") != std::string::npos);
+    // ...and both templates include the block that holds them, after fa_types (LightSample is declared there).
     const auto includes_in_order = [](const std::string& text, const char* first, const char* second) {
         const std::size_t a = text.find(first), b = text.find(second);
         return a != std::string::npos && b != std::string::npos && a < b;

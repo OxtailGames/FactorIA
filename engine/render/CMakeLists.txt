@@ -95,6 +95,6 @@ endif()
 # The CPU side of the post-processing stack, the feature table and the HDR encodes need no GPU either.
 if(TARGET fa_test_render)
     add_test(NAME render_postprocess_core
-        COMMAND fa_test_render --fa-files=postprocess_resolve_tests.cpp,hdr_encode_tests.cpp,postfx_tests.cpp,mesh_slots_tests.cpp,shadow_cascades_tests.cpp
+        COMMAND fa_test_render --fa-files=postprocess_resolve_tests.cpp,hdr_encode_tests.cpp,postfx_tests.cpp,mesh_slots_tests.cpp,light_clusters_tests.cpp,shadow_cascades_tests.cpp
         WORKING_DIRECTORY ${FA_ROOT})
 endif()
