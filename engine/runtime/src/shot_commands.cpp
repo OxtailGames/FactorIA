@@ -660,15 +660,22 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
          "backendLabel, features: [{name, kind, supported, status, doc, backends}]}; with `feature`: {feature, "
          "backend, "
          "supported, status}. A feature the renderer does not draw is false with the status \"planned (<milestone>)\" "
-         "(none is today): this command never claims what is not drawn. Example: render.supports "
+         "(the lighting of M73 is, until each part lands): this command never claims what is not drawn. Example: "
+         "render.supports "
          "{\"feature\":\"floatTargets\"}" FA_COMMAND_DETAILS
-         "`kind` is capability (a fact of the GPU: floatTargets, r11g11b10, sampledDepth, computeShaders), engine "
-         "(linearColor, hdrOutput) or effect (one per PostProcess effect: ssao, ssr, fog, sunShafts, exposure, "
+         "`kind` is capability (a fact of the GPU: floatTargets, r11g11b10, sampledDepth, computeShaders, "
+         "float32Targets), engine "
+         "(linearColor, hdrOutput, and the lighting rows of M73: clusteredLights, areaLights, lightCookies, "
+         "iesProfiles, "
+         "cascadedShadows, pointShadows, spotShadows, contactShadows, environmentMap, reflectionProbes, physicalSky, "
+         "lightmaps, lightProbes, volumetricFog, decals, subsurface, realtimeGI, clearCoat, sheen, anisotropy, "
+         "transmission) or effect (one per PostProcess effect: ssao, ssr, fog, sunShafts, exposure, "
          "depthOfField, motionBlur, radialBlur, lensDistortion, chromaticAberration, bloom, tonemap, colorGrading, "
          "vignette, sharpen, outline, pixelate, posterize, filmGrain, colorFilter); `backends` says on which backends "
          "the feature can ever run. `status` is \"supported\", \"planned (<milestone>)\" for an engine feature or "
          "effect the "
-         "renderer does not draw (none today), or one sentence that names the backend or the missing GPU capability. "
+         "renderer does not draw (the M73 lighting rows today), or one sentence that names the backend or the missing "
+         "GPU capability. "
          "hdrOutput "
          "is true when the display the window showed its last frame on can show HDR in an encoding the renderer writes "
          "(EDR on Metal, scRGB or HDR10 on D3D11), whatever the scene asks; its status otherwise says why (the "
@@ -678,7 +685,7 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
          "did-you-mean); `unavailable` without graphics (graphics=false). The same answer is Renderer::supports(name) "
          "in C++.",
          parse_schema(R"({"type":"object","properties":{
-               "feature":{"type":"string","description":"One feature name (floatTargets, r11g11b10, sampledDepth, computeShaders, linearColor, hdrOutput, or a post effect such as bloom or ssao). Omitted: every feature."}}})"),
+               "feature":{"type":"string","description":"One feature name (floatTargets, r11g11b10, sampledDepth, computeShaders, float32Targets, linearColor, hdrOutput, a lighting feature of M73 such as cascadedShadows, or a post effect such as bloom or ssao). Omitted: every feature."}}})"),
          true, "game"},
         [&I](const Json& a) {
             check_args_known(a, {"feature"}, "render.supports");

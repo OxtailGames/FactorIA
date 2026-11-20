@@ -6,6 +6,22 @@ Older versions, one file per minor version with its patch releases: [0.31](chang
 
 ## Unreleased
 
+### M73: 3D lighting of a leading engine
+
+- **The base of M73 (P0), no visible change:** the mesh shaders' lights and shadow lookup moved into three shared files
+  (`light_data.glsl`, `light_loop.glsl`, `shadow_common.glsl`; the pictures are pixel-identical and the twin fixtures of the
+  custom materials were regenerated); the texture slots of the mesh fragment shader are a table with static asserts (at most 16
+  units, the material keeps views 6..9; docs/design/ARCHITECTURE_RENDERING_LIGHTING.md); and the fields the next steps read exist
+  already, each saying "No effect yet: M73.x brings it": `Light` (`type: "area"`, `innerAngle`, `shape`, `size`, `cookie`, `ies`,
+  `shadowResolution`, `shadowBias`, `shadowNormalBias`, `shadowFilter`, `shadowSoftness`, `shadowDistance`, `mode`, `volumetric`),
+  `SceneSettings` (`shadowCascades`, `shadowCascadeSplit`, `shadowCascadeBlend`, `shadowDistance`, `shadowAtlasSize`,
+  `contactShadows`, `environmentMap`, `environmentIntensity`, `environmentRotation`, `skyModel`) and `MeshRenderer` (`lightmapScale`,
+  `contributeGI`, `receiveGI`, `clearcoat`, `clearcoatRoughness`, `sheenColor`, `sheenRoughness`, `anisotropy`,
+  `anisotropyRotation`, `specular`, `ior`, `transmission`, `thickness`, `attenuationColor`, `attenuationDistance`, `subsurface`).
+  The defaults keep today's look and are not written to a scene file, so scenes made before load and save as they did; an area
+  light shines like a point light until M73.1. `render.supports` lists 21 lighting features, all `planned (M73)` until their step
+  lands, and the capability `float32Targets` (R32F and RGBA32F render and sample). docs/rendering/RENDERING_LIGHTING.md.
+
 ## 0.32.0
 
 Every renderer takes a custom shader: sprites, shapes, tilemaps, text, particles and vfx, the sky and UI images use the same `fragment()`/`vertex()` snippets as meshes, with per-sprite values that keep batching. Post-process materials are passes of the M71 stack, placed around the built-in effects and after the tonemap, and can read the frame before. Mesh materials can be full shaders with their own passes and light loop. Compute materials run on D3D11, Metal and GL 4.3 (a clear refusal on GLES3 and WebGL2) and write buffers and images that meshes and sprites draw thousands of times in one draw. The Graph panel edits node graphs for mesh, sprite and post materials, with a live preview that writes the same JSON and snippet an AI writes.

@@ -438,6 +438,106 @@ constexpr int kMaterialEnvView = kMaterialVsFirstView + kMaxMaterialTextures,
 // Such a material takes the model matrix of its entity from the vertex uniform block kMeshInstanceBaseUniform (one
 // entity draws many GPU instances).
 constexpr int kMaxMeshBuffers = 4, kMeshBufferFirstView = 16, kMeshInstanceBaseUniform = 6;
+
+// ---- The texture slots of the mesh fragment shader: the plan for all of M73 (docs/design/ARCHITECTURE_RENDERING_LIGHTING.md) ----
+// GLES3 and WebGL2 guarantee 16 texture units per stage (32 combined) and sokol has kMeshSamplerSlots = 12 sampler slots, so the
+// lighting of M73 cannot give every feature its own texture: the packages pack their data into the few slots below, and none
+// renumbers another's. A package that needs a slot takes the row of this table (it already has its number), a package that needs
+// one more than the table has packs its data into a row or changes the table together with the static_asserts below.
+//   - The material keeps its four views (6..9) and samplers (2..5); its vertex-stage copies (views 10..13, samplers 6..9) are in the
+//     VERTEX stage and do not count against the fragment units.
+//   - Views 16..23 are the read-only storage buffers of a mesh material (kMeshBufferFirstView, M72.4; GL 4.3 / Metal / D3D11 only,
+//     they are not texture units). The new views of M73 therefore start at 24.
+//   - Data read with texelFetch needs no sampler (sampler -1). Every linear, clamped atlas shares sampler 10 (today's env sampler).
+//   - Phases: 0 = today, 1 = M73.1, M73.2, M73.4 and M73.5 landed while the sky is still the two cubes, 2 = M73.3 landed: the
+//     irradiance cube is retired by M73.3a (9 spherical-harmonics vec4 in the light data texture), the prefiltered cube by the probe
+//     atlas (same view 14). The screen slot waits for that: contact shadows (M73.2c) and transmission (M73.6b) read it, so they
+//     follow M73.3a, or they pack what they need into another row.
+// Reused today's slots: view 1 (the shadow map becomes the shadow atlas, same nearest sampler 1), view 14 (the sky cube becomes the
+// reflection-probe atlas) and sampler 10. Freed: view 15 (the irradiance cube).
+inline constexpr int kMeshSamplerSlots = 12, kMeshMaxFragmentUnits = 16;
+inline constexpr int kMeshNewViewFirst = kMeshBufferFirstView + 2 * kMaxMeshBuffers;  // 24: after the storage buffers
+inline constexpr int kMeshLinearClampSampler = 10;
+struct MeshFragmentView {
+    const char* name;           // the name in the shader (or the planned one)
+    int view;                   // sokol view slot
+    int sampler;                // sokol sampler slot, -1 when the data is read with texelFetch
+    int firstPhase, lastPhase;  // the phases (see above) in which the slot is bound
+    const char* what;           // what it holds and which package brings it
+};
+inline constexpr MeshFragmentView kMeshFragmentViews[] = {
+    {"fa_tex", 0, 0, 0, 2, "base color (today)"},
+    {"fa_shadow_tex", 1, 1, 0, 2,
+     "today the single directional shadow map; from M73.2 the shadow atlas (cascades, spot and point faces), same "
+     "slot"},
+    {"fa_normal_tex", 2, 0, 0, 2, "normal map (today)"},
+    {"fa_mr_tex", 3, 0, 0, 2, "metallic-roughness map (today)"},
+    {"fa_occlusion_tex", 4, 0, 0, 2, "occlusion map (today)"},
+    {"fa_emissive_tex", 5, 0, 0, 2, "emissive map (today)"},
+    {"material texture 0", 6, 2, 0, 2, "a custom material's textures (today): views 6..9, samplers 2..5"},
+    {"material texture 1", 7, 3, 0, 2, "(see above)"},
+    {"material texture 2", 8, 4, 0, 2, "(see above)"},
+    {"material texture 3", 9, 5, 0, 2, "(see above)"},
+    {"fa_env_tex", 14, 10, 0, 1,
+     "the baked sky of a sky material, prefiltered cube (today); M73.3 replaces it by the probe atlas"},
+    {"fa_irr_tex", 15, 10, 0, 1,
+     "its irradiance cube (today); M73.3a replaces it by spherical harmonics in the light data texture"},
+    {"fa_probe_atlas", 14, 10, 2, 2,
+     "M73.3b/c: reflection probes and the sky, octahedral 2D, prefiltered by roughness (replaces fa_env_tex)"},
+    {"fa_light_data", 24, -1, 1, 2,
+     "M73.1a: RGBA32F, texelFetch: the lights, the clusters' light lists, the decals, the sky's SH"},
+    {"fa_light_atlas", 25, 10, 1, 2, "M73.1b: light cookies and IES profiles, one RGBA8 atlas"},
+    {"fa_lightmap", 26, 10, 1, 2, "M73.4a: the baked lightmap atlas (RGBA16F or RGBE8), UV2 of the mesh"},
+    {"fa_decal_atlas", 27, 10, 1, 2,
+     "M73.5b: the albedo/normal textures of the projected decals (their transforms are in fa_light_data)"},
+    {"fa_screen_tex", 28, 10, 2, 2,
+     "M73.2c / M73.6b: the prepass depth for contact shadows, the opaque color for transmission"},
+};
+inline constexpr int kMeshFragmentViewCount = int(sizeof(kMeshFragmentViews) / sizeof(kMeshFragmentViews[0]));
+
+// How many fragment texture units a mesh program binds in a phase (0, 1 or 2).
+constexpr int mesh_fragment_units(int phase) {
+    int n = 0;
+    for (const MeshFragmentView& v : kMeshFragmentViews)
+        if (v.firstPhase <= phase && phase <= v.lastPhase) ++n;
+    return n;
+}
+// True when no two slots bound in the same phase share a view, every view is below sokol's 32 and outside the storage buffers'
+// range (16..23), every sampler is below 12, and a slot M73 adds takes a view from 24 up (the one exception: the probe atlas takes
+// over view 14 of the sky cube).
+constexpr bool mesh_fragment_views_valid() {
+    for (int i = 0; i < kMeshFragmentViewCount; ++i) {
+        const MeshFragmentView& a = kMeshFragmentViews[i];
+        if (a.view < 0 || a.view >= SG_MAX_VIEW_BINDSLOTS || a.sampler >= kMeshSamplerSlots ||
+            a.firstPhase > a.lastPhase)
+            return false;
+        const bool storageRange = a.view >= kMeshBufferFirstView && a.view < kMeshNewViewFirst;
+        if (storageRange) return false;
+        // The views of M73 (not today's) start after the storage buffers.
+        if (a.firstPhase > 0 && a.view < kMeshNewViewFirst && !(a.view == 14 && a.firstPhase == 2)) return false;
+        for (int j = i + 1; j < kMeshFragmentViewCount; ++j) {
+            const MeshFragmentView& b = kMeshFragmentViews[j];
+            const bool overlap = a.firstPhase <= b.lastPhase && b.firstPhase <= a.lastPhase;
+            if (overlap && a.view == b.view) return false;
+        }
+    }
+    return true;
+}
+static_assert(mesh_fragment_views_valid(), "kMeshFragmentViews: two slots share a view, or a slot is out of range");
+static_assert(mesh_fragment_units(0) <= kMeshMaxFragmentUnits && mesh_fragment_units(1) <= kMeshMaxFragmentUnits &&
+                  mesh_fragment_units(2) <= kMeshMaxFragmentUnits,
+              "the mesh fragment shader would bind more than the 16 texture units GLES3 and WebGL2 guarantee: pack "
+              "data into a slot");
+// The slots of today are the ones the shaders and the material tooling already use.
+static_assert(kMeshFragmentViews[0].view == 0 && kMeshFragmentViews[1].view == 1 && kMeshFragmentViews[5].view == 5 &&
+                  kMeshFragmentViews[6].view == kMaterialFirstView &&
+                  kMeshFragmentViews[9].view == kMaterialFirstView + kMaxMaterialTextures - 1 &&
+                  kMeshFragmentViews[6].sampler == kMaterialFirstSampler &&
+                  kMeshFragmentViews[10].view == kMaterialEnvView &&
+                  kMeshFragmentViews[11].view == kMaterialEnvIrrView &&
+                  kMeshFragmentViews[10].sampler == kMaterialEnvSampler &&
+                  kMeshFragmentViews[10].sampler == kMeshLinearClampSampler,
+              "kMeshFragmentViews no longer matches today's slots (mesh_common.glsl, fa/tooling/shaders.h)");
 // A sprite material's textures are bound twice as well: the fragment stage reads texture i at kMaterialSpriteFirstView
 // + i, the vertex stage (vertex() may sample it, as fa_vs_<name>) at kMaterialSpriteVsFirstView + i, the samplers
 // likewise.

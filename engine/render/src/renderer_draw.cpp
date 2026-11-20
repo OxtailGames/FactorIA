@@ -811,7 +811,9 @@ void Renderer::Impl::collect_lights(DrawContext& ctx) {
             } else {
                 Vec3 d = normalize(m.transform_dir(kForward));
                 ld.pos = Vec4{m.translation(), l.range};
-                ld.color = Vec4{col, l.type == LightType::Point ? 1.0f : 2.0f};
+                ld.color =
+                    Vec4{col, l.type == LightType::Spot ? 2.0f
+                                                        : 1.0f};  // an area light shines like a point light until M73.1
                 ld.dir = Vec4{d, std::cos(radians(l.spotAngle))};
                 // Relevance to the camera: bright and close first (the light's own range scales the fall-off).
                 const float r2 = std::max(l.range * l.range, 1e-4f);
