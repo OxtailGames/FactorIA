@@ -1300,6 +1300,8 @@ void Editor::play() {
         playSnapshot_ = snapshot_scene(world());
         engine_->begin_load_trace();   // the session's loading section and first-use order start with the scene's load
         restore_scene(playSnapshot_);  // fresh instantiate: scripts and physics start clean
+        engine_->set_play_world(
+            true);  // a command that writes scene data (lightmap.bake_status apply) skips it: Stop throws it away
         reset_feel_choices();
         engine_->input()
             .discard_pending_edges();  // nothing advanced the views while editing: old taps are not the first step's
@@ -1326,6 +1328,7 @@ void Editor::step_once() {
         playSnapshot_ = snapshot_scene(world());
         engine_->begin_load_trace();
         restore_scene(playSnapshot_);
+        engine_->set_play_world(true);
         reset_feel_choices();
         engine_->input().discard_pending_edges();
         play_ = PlayState::Paused;
@@ -1346,6 +1349,7 @@ void Editor::stop() {
     engine_->input().release_all();
     play_ = PlayState::Edit;
     stepPending_ = 0;
+    engine_->set_play_world(false);
     restore_scene(playSnapshot_);
     playSnapshot_ = Json();
     reset_feel_choices();

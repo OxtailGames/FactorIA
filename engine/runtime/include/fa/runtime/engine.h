@@ -194,6 +194,12 @@ public:
     bool input_recording() const;
     std::size_t input_recording_frames() const;  // frames recorded so far
 
+    // True while the world is a Play session's copy of the scene (the editor sets it from Play to Stop, also while paused): what a
+    // command writes into it is thrown away at Stop. A command that edits the scene's own data (SceneSettings.lightmaps after a bake)
+    // refuses or skips its write then, and says so.
+    bool play_world() const;
+    void set_play_world(bool on);
+
     // State
     bool paused() const;
     void set_paused(bool paused);

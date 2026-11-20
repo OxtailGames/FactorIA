@@ -2,7 +2,9 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <functional>
+#include <unordered_map>
 
 #include "fa/core/log.h"
 #include "render_jobs.h"
@@ -228,6 +230,9 @@ void RenderScene::build(World& world, Assets& assets, Entity scopeRoot, bool wan
         }
     });
     rjobs::run("render.mesh_cull", split, [&](const jobs::Chunk& c) {
+        std::unordered_map<std::uint64_t, std::size_t>
+            probeCache;  // snapped node -> the mesh of this chunk that read it
+        constexpr std::size_t kProbeCacheMax = 4096;
         for (std::size_t i = c.begin; i < c.end; ++i) {
             SceneMesh& sm = meshes_[i];
             const MeshRenderer& mr = *sm.mr;
@@ -247,7 +252,26 @@ void RenderScene::build(World& world, Assets& assets, Entity scopeRoot, bool wan
                 // A mesh without a lightmap (a moving object, lightmapScale 0, a skinned mesh) receives the baked probes at the centre of its
                 // box, or at the MeshRenderer.probeAnchor entity.
                 const Vec3 at = probe_point(world, mr, sm.model, sm.bmin, sm.bmax);
-                probeLights_[i] = std::isfinite(at.x) ? probe_light_at(*probes, at) : ProbeLight{};
+                if (std::isfinite(at.x)) {
+                    // probe_light_at is a pure function of the snapped point, so a mesh on a node an earlier mesh of this chunk
+                    // already read gets that result (a field of coins is a few lookups): the same value, whatever the order.
+                    const std::int64_t kx = std::int64_t(std::llround(at.x / kProbeSnap)),
+                                       ky = std::int64_t(std::llround(at.y / kProbeSnap)),
+                                       kz = std::int64_t(std::llround(at.z / kProbeSnap));
+                    const bool cacheable =
+                        std::fabs(at.x) < 1.0e5f && std::fabs(at.y) < 1.0e5f && std::fabs(at.z) < 1.0e5f;
+                    const std::uint64_t key = (std::uint64_t(kx & 0x1fffff) << 42) |
+                                              (std::uint64_t(ky & 0x1fffff) << 21) | std::uint64_t(kz & 0x1fffff);
+                    auto hit = cacheable ? probeCache.find(key) : probeCache.end();
+                    if (hit != probeCache.end()) {
+                        probeLights_[i] = probeLights_[hit->second];
+                    } else {
+                        probeLights_[i] = probe_light_at(*probes, at);
+                        if (cacheable && probeCache.size() < kProbeCacheMax) probeCache.emplace(key, i);
+                    }
+                } else {
+                    probeLights_[i] = ProbeLight{};
+                }
                 if (probeLights_[i].coverage > 0.0f) {
                     sm.probe = &probeLights_[i];
                     sm.probeKey = probe_light_key(probeLights_[i]);
