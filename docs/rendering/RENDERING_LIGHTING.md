@@ -78,7 +78,7 @@ Image-based light (the sky or the `environmentMap`) gets the layers too, by appr
 geometric normal with F0 0.04 (the pre-filtered mip of `clearcoatRoughness`); the sheen adds the environment along the normal at
 `sheenRoughness`, tinted by `sheenColor` and by a table of the sheen's directional albedo (a 7 x 9 table, worst error 0.06, mean 0.003;
 `tools/shaders/sheen_albedo.py` makes it); the anisotropic reflection bends the reflected direction toward the stretch (the bent normal
-of Filament). They are not the path-traced truth; they are right in the sense that matters, a layer reflects its sky and never adds energy.
+of McAuley 2015). They are not the path-traced truth; they are right in the sense that matters, a layer reflects its sky and never adds energy.
 
 ### Layers from a glTF model
 

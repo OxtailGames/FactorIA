@@ -113,7 +113,7 @@ and ior 1.5 with specular 1 is F0 0.04 exactly.
 
 **Image-based light (approximations).** Coat: the environment along the geometric normal at the coat's roughness, with F0 0.04 and
 `fa_env_brdf`. Sheen: the environment along the normal at the sheen roughness times `sheenColor` times `E`. Anisotropy: the reflection
-vector is bent toward the tangent (Filament's bent normal) before the lookup. None of them is energy-conserving beyond what the formulas
+vector is bent toward the tangent (the bent normal of McAuley 2015) before the lookup. None of them is energy-conserving beyond what the formulas
 above give.
 
 **The textures.** `pack_layer_textures` (`engine/render/src/layer_textures.cpp`, called by `prepare_material` in `assets.cpp` for both

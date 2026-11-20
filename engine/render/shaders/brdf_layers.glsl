@@ -111,7 +111,7 @@ FaLayers fa_layers_setup(in SurfaceInput i, in Surface s, vec3 n, vec3 v, float 
         L.coat_alpha = cr * cr;
         L.coat_a2 = L.coat_alpha * L.coat_alpha;
         L.coat_ndv = max(dot(L.nc, v), 1e-4);
-        L.keep = 1.0 - coat * (0.04 + 0.96 * pow(1.0 - L.coat_ndv, 5.0));
+        L.keep = 1.0 - coat * (0.04 + 0.96 * pow(clamp(1.0 - L.coat_ndv, 0.0, 1.0), 5.0));
         L.on = true;
     }
 
@@ -156,7 +156,7 @@ FaLayers fa_layers_setup(in SurfaceInput i, in Surface s, vec3 n, vec3 v, float 
 }
 
 // What the layers add to the image-based lighting (the sky), without the occlusion: the base layer's reflection with the
-// dielectric f0 / f90 (and, with anisotropy, the normal bent toward the view along the stretch direction, Filament's approximation),
+// dielectric f0 / f90 (and, with anisotropy, the normal bent toward the view along the stretch direction, the bent normal of McAuley 2015, "Rendering the World of Far Cry 4"),
 // scaled by base_scale; the sheen as the environment seen along the normal at the sheen roughness, times the sheen colour and the
 // sheen's albedo (an approximation: there is no sheen-filtered environment); the coat as a mirror-like reflection of the
 // environment along the geometric normal with the coat's roughness and the environment BRDF of f0 0.04.
@@ -183,27 +183,37 @@ vec3 fa_layers_ibl(in FaLayers L, vec3 n, vec3 v, vec3 f0, float roughness) {
 @end
 
 @block fa_layers_light
-// The anisotropic GGX distribution and the height-correlated visibility with it (Khronos' glTF sample viewer, after Heitz; at and ab
-// are the alphas along the tangent and the bitangent).
+// Anisotropic GGX (Burley 2012, "Physically-Based Shading at Disney"; Heitz 2014, "Understanding the Masking-Shadowing Function in
+// Microfacet-Based BRDFs"). at and ab are the roughness alphas along the tangent and the bitangent; t, b and n are the components
+// of a direction in the frame (tangent, bitangent, normal).
+// Distribution: D = 1 / (pi at ab q^2) with q = (h.t / at)^2 + (h.b / ab)^2 + (h.n)^2.
 float fa_d_ggx_aniso(float ndh, float tdh, float bdh, float at, float ab) {
-    float a2 = at * ab;
-    vec3 f = vec3(ab * tdh, at * bdh, a2 * ndh);
-    float w2 = a2 / dot(f, f);
-    return a2 * w2 * w2 / FA_PI;
+    float qt = tdh / at;
+    float qb = bdh / ab;
+    float q = qt * qt + qb * qb + ndh * ndh;
+    return 1.0 / (FA_PI * at * ab * q * q);
 }
+// Heitz's Lambda of a direction: (sqrt(1 + (at^2 t^2 + ab^2 b^2) / n^2) - 1) / 2.
+float fa_lambda_ggx_aniso(float n, float t, float b, float at, float ab) {
+    float n2 = max(n * n, 1e-8);
+    return 0.5 * (sqrt(1.0 + (at * at * t * t + ab * ab * b * b) / n2) - 1.0);
+}
+// The visibility G2 / (4 n.l n.v) with the height-correlated masking-shadowing G2 = 1 / (1 + Lambda(v) + Lambda(l)).
 float fa_v_ggx_aniso(float ndl, float ndv, float tdv, float bdv, float tdl, float bdl, float at, float ab) {
-    float ggxv = ndl * length(vec3(at * tdv, ab * bdv, ndv));
-    float ggxl = ndv * length(vec3(at * tdl, ab * bdl, ndl));
-    return clamp(0.5 / max(ggxv + ggxl, 1e-4), 0.0, 1.0);
+    float lam_v = fa_lambda_ggx_aniso(ndv, tdv, bdv, at, ab);
+    float lam_l = fa_lambda_ggx_aniso(ndl, tdl, bdl, at, ab);
+    return clamp(1.0 / (4.0 * max(ndl * ndv, 1e-4) * (1.0 + lam_v + lam_l)), 0.0, 1.0);
 }
-// The sheen distribution of Estevez and Kulla ("Charlie") and Ashikhmin's visibility; alpha is the sheen roughness squared.
+// The sheen lobe of Estevez and Kulla 2017 ("Production Friendly Microfacet Sheen BRDF"): the inverted-Gaussian distribution
+// D = (2 + 1 / alpha) sin(theta_h)^(1 / alpha) / (2 pi) and their visibility V = 1 / (4 (n.l + n.v - n.l n.v)); alpha is the sheen
+// roughness squared. sin(theta_h) is kept above 0.01 so the power stays finite at the pole of the half vector.
 float fa_d_charlie(float alpha, float ndh) {
     float inv_a = 1.0 / alpha;
-    float sin2h = max(1.0 - ndh * ndh, 0.0078125);
-    return (2.0 + inv_a) * pow(sin2h, inv_a * 0.5) / (2.0 * FA_PI);
+    float sin_h = sqrt(max(1.0 - ndh * ndh, 1e-4));
+    return (2.0 + inv_a) * pow(sin_h, inv_a) / (2.0 * FA_PI);
 }
 float fa_v_ashikhmin(float ndl, float ndv) {
-    return clamp(1.0 / (4.0 * (ndl + ndv - ndl * ndv)), 0.0, 1.0);
+    return clamp(1.0 / (4.0 * max(ndl + ndv - ndl * ndv, 1e-4)), 0.0, 1.0);
 }
 
 // The BRDF of one light with the layers on, times the cosine of the incidence (the coat's own for the coat lobe), to be multiplied by
@@ -212,7 +222,7 @@ float fa_v_ashikhmin(float ndl, float ndv) {
 vec3 fa_layers_light(in FaLayers L, vec3 diffuse_color, vec3 f0, vec3 n, vec3 v, vec3 l, vec3 h, float ndl, float ndv,
                      float ndh, float vdh, float alpha, float a2) {
     float lit_ok = step(0.0001, ndl);
-    vec3 fres = f0 + (vec3(L.f90) - f0) * pow(1.0 - vdh, 5.0);
+    vec3 fres = f0 + (vec3(L.f90) - f0) * pow(clamp(1.0 - vdh, 0.0, 1.0), 5.0);
     float d_ggx;
     float vis;
     if (L.aniso != 0.0) {
@@ -235,7 +245,7 @@ vec3 fa_layers_light(in FaLayers L, vec3 diffuse_color, vec3 f0, vec3 n, vec3 v,
         float dd = cdh * cdh * (L.coat_a2 - 1.0) + 1.0;
         float d_c = L.coat_a2 / (FA_PI * dd * dd);
         float vis_c = 0.5 / max(mix(2.0 * cdl * L.coat_ndv, cdl + L.coat_ndv, L.coat_alpha), 1e-4);
-        float f_c = 0.04 + 0.96 * pow(1.0 - vdh, 5.0);
+        float f_c = 0.04 + 0.96 * pow(clamp(1.0 - vdh, 0.0, 1.0), 5.0);
         result += vec3(L.coat * f_c * (d_c * vis_c * FA_PI) * step(0.0001, cdl) * cdl);
     }
     return result;
