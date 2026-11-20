@@ -246,8 +246,8 @@ metal_macos (`tools/common/tests`, the fixtures `spritebuf*`). Read only: the GL
 ## The sky material lights the meshes (M72 P15)
 
 `engine/render/src/renderer_env.{h,cpp}` (`Environment`) bakes the sky program of the scene's sky material into a prefiltered cube
-(128 x 128, 5 mips, GGX per mip) and an irradiance cube (8 x 8); the design, the pass count (60) and the format fallback are in
-the header comment. `mesh_common.glsl` and `mesh_full_common.glsl` declare them (views 14 and 15, sampler 10; `fa_env_sky.w` is 1
+(128 x 128, 5 mips, GGX per mip; a sixth, 4 x 4 mip holds the sky's nine spherical-harmonics coefficients, the diffuse ambient); the design, the pass count (60) and the format fallback are in
+the header comment. `mesh_common.glsl` and `mesh_full_common.glsl` declare it (view 14, sampler 10; `fa_env_sky.w` is 1
 when they are bound, `fa_env_horizon.w` the top mip) and `fa_environment()` and the new `fa_ambient_light(n)` read them, else the
 analytic gradient and `fa_ambient.rgb` as before. Without a sky material the pixels and the draw calls are the same as before: no
 pass, no environment image; only `blank_view()` makes a 1x1 black cube and a sampler at the first mesh draw (the built-in mesh

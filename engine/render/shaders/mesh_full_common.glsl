@@ -134,9 +134,9 @@ layout(binding=25) uniform texture2D fa_full_light_atlas;
 layout(binding=27) uniform texture2D fa_full_decal_tex;
 #define FA_DECAL_TEX fa_full_decal_tex
 #define FA_DECAL_SMP fa_env_smp
-// The baked sky of a sky material (as mesh_common.glsl's fa_fs_head: views 14 and 15, sampler 10; used while fa_env_sky.w is 1).
+// The baked sky of a sky material (as mesh_common.glsl's fa_fs_head: view 14, sampler 10; mips 0..4 the reflection, mip 5 the SH of the
+// ambient; used while fa_env_sky.w is 1 or 2).
 layout(binding=14) uniform textureCube fa_env_tex;
-layout(binding=15) uniform textureCube fa_irr_tex;
 layout(binding=10) uniform sampler fa_env_smp;
 
 // A copy of mesh_common.glsl's fa_mesh_fs_params (a test compares them): the same CPU struct fills both.
@@ -182,6 +182,7 @@ layout(binding=1) uniform fa_mesh_fs_params {
 @include_block fa_types
 // The light uniform block and fa_light_sample (light_data.glsl), the same declaration as the engine's own meshes; the shadow lookup
 // fa_shadow_sun (shadow_common.glsl).
+@include_block fa_cube_face
 @include_block fa_light_data
 @include_block fa_decals
 @include_block fa_shadow_common
@@ -246,7 +247,7 @@ LightSample fa_light(int li, vec3 world_pos, vec3 gn, vec4 coord) {
         ls.shadow = fa_shadow(coord, gn, ls.direction);
         ls.color = ls.color * ls.shadow;
     } else if (ls.type != 0 && ls.attenuation > 0.0) {
-        ls.shadow = fa_shadow_local(li, world_pos, gn, ls.direction);
+        ls.shadow = fa_shadow_local(li, fa_light_texel(fa_light_base(li)).xyz, world_pos, gn, ls.direction);
         ls.color = ls.color * ls.shadow;
     }
     return ls;
