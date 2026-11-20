@@ -1,7 +1,7 @@
 {
   "format": "factoria.shader/1",
   "engine": "0.32.0",
-  "template": "3f04eb2500e94ae71e0a181842711a9aa88b274de217da5e447d082533d6d425",
+  "template": "ec571f7df6ebcd6b8e540d92ba5bb2b19c6b0b33ef134d5541e8df34e8adf190",
   "slang": "glsl430",
   "params": [
     "tint"

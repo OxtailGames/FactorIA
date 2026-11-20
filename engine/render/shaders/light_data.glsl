@@ -112,6 +112,22 @@ int fa_cluster_index(int slot, int n) {
 }
 @end
 
+// ---- Spherical harmonics (M73.3a; docs/design/ARCHITECTURE_RENDERING_LIGHTING.md, "The sky's spherical harmonics") ----
+// The diffuse light (irradiance divided by pi) a surface facing n receives from a radiance given as nine RGB coefficients of the real
+// spherical harmonics of bands 0..2 (the order and constants of ShL2 / sh_basis() in fa/scene/lightmap_bake.h: Y00, y, z, x, xy, yz,
+// 3z^2 - 1, xz, x^2 - y^2): the radiance's coefficients times the clamped cosine's (1, 2/3, 1/4 per band; the 1/pi is in them). A radiance
+// of one colour L gives L toward every n. L2 can undershoot below zero on the side opposite a strong light; the result is clamped at 0.
+// The sky's coefficients come from fa_sky_sh_coef (mesh_common.glsl), the light probes of M73.4d read theirs from the light data texture.
+@block fa_sh
+vec3 fa_sh_eval(vec3 c[9], vec3 n) {
+    vec3 r = c[0] * 0.282094792;
+    r += c[1] * (0.325735008 * n.y) + c[2] * (0.325735008 * n.z) + c[3] * (0.325735008 * n.x);
+    r += c[4] * (0.273137108 * n.x * n.y) + c[5] * (0.273137108 * n.y * n.z) + c[6] * (0.078847891 * (3.0 * n.z * n.z - 1.0));
+    r += c[7] * (0.273137108 * n.x * n.z) + c[8] * (0.136568554 * (n.x * n.x - n.y * n.y));
+    return max(r, vec3(0.0));
+}
+@end
+
 // ---- Projected decals (M73.5b; docs/design/ARCHITECTURE_RENDERING_LIGHTING.md, "Decals") ----
 // The decal region of the data texture starts at texel fa_counts.y (0 = the view has no decals):
 //   +0  (decal count, atlas width, atlas height, first texel of the decal indices)
