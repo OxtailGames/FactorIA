@@ -142,7 +142,15 @@ float fa_shadow_local(int li, vec3 world, vec3 n, vec3 l) {
     float texel_m = tinfo.x * max(dot(r3, vec4(world, 1.0)), 1e-3);
     float nl = clamp(dot(n, l), 0.0, 1.0);
     float sin_t = sqrt(1.0 - nl * nl);
-    float slope = min(sin_t / max(nl, 0.2), 4.0);
+    float pw0 = max(dot(r3, vec4(world, 1.0)), 1e-3);
+    // The depth that is compared is the distance along the tile's AXIS, so how much it changes per texel across the surface is measured
+    // against the axis, not against the light's ray: with a = the axis (the xyz of row 3) and r = the ray from the light divided by
+    // pw0 (its component along the axis is 1), a plane of normal n has dw/dtexel = texel_m * sqrt(1 - (n.a)^2) / |n.r|. A surface that
+    // faces the light at a cube face's diagonal has up to 0.5 where the angle between n and l says 0; one square to the axis has 0.
+    vec3 axis = r3.xyz;
+    float na = clamp(dot(n, axis), -1.0, 1.0);
+    float nr = abs(dot(n, world - fa_light_texel(li * 4).xyz)) / pw0;
+    float slope = min(sqrt(1.0 - na * na) / max(nr, 0.2), 4.0);
     float nbias = h1.y > 0.0 ? h1.y : 1.5 * texel_m;
     vec4 wp = vec4(world + n * (nbias * sin_t), 1.0);
     float pw = dot(r3, wp);  // the receiver's distance along the tile's axis, in metres

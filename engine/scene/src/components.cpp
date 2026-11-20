@@ -1970,15 +1970,21 @@ void register_builtin_components(TypeRegistry& r) {
         .range(0, 1000000)
         .field("lightmapScale", &MeshRenderer::lightmapScale,
                "Resolution of this mesh in the baked lightmap, as a multiple of the scene's lightmap density (1 = the "
-               "scene's). 0 keeps it out of the lightmap. No effect yet: M73.4 brings the lightmaps "
-               "(docs/rendering/RENDERING_LIGHTING.md).")
+               "scene's). The lightmap.bake command gives the mesh that many texels per metre of its surface "
+               "(16 per metre times this, capped by the page size); 0 keeps it out of the bake, and an entity the "
+               "bake left out is lit as without a lightmap. Has no effect on its own: the bake writes the result into "
+               "the scene's lightmap manifest (SceneSettings.lightmaps, docs/rendering/RENDERING_LIGHTING.md, "
+               "\"Lightmaps\").")
         .range(0, 100)
         .field("contributeGI", &MeshRenderer::contributeGI,
                "Whether the surface bounces light onto others in a lightmap bake and in the realtime global "
                "illumination. No effect yet: M73.4 brings the bake and M73.5 the realtime GI.")
         .field("receiveGI", &MeshRenderer::receiveGI,
-               "Whether the surface is lit by the baked lightmap, the light probes and the realtime global "
-               "illumination. No effect yet: M73.4 brings it.")
+               "Whether the surface is lit by the baked lightmap (when the manifest of SceneSettings.lightmaps has an "
+               "entry for this entity: the baked irradiance replaces the ambient light and the sky's diffuse "
+               "light, and lights with mode baked are skipped on it). false = the entity ignores its lightmap entry "
+               "and is lit in realtime, and a bake leaves it out as a receiver. The light probes and the realtime "
+               "global illumination (M73.4d, M73.5) read it too.")
         .field("clearcoat", &MeshRenderer::clearcoat,
                "Strength 0..1 of a clear coat layer over the surface (car paint, lacquer; glTF "
                "KHR_materials_clearcoat). 0 = none. A glTF model with the extension brings its own value; a value here "
@@ -2121,9 +2127,13 @@ void register_builtin_components(TypeRegistry& r) {
             "the scene's SceneSettings.shadowDistance; when that is 0 too, a point or spot light has no limit.")
         .range(0, 100000)
         .enum_field("mode", &Light::mode, {"realtime", "baked", "mixed"},
-                    "realtime (default): lit every frame. baked: its light is computed once into the lightmaps and "
-                    "the light probes and costs nothing at run time. mixed: baked indirect light plus realtime "
-                    "direct light and shadows. No effect yet: M73.4 brings it.")
+                    "realtime (default): lit every frame. baked: its light is computed once into the lightmaps "
+                    "(lightmap.bake) and an entity lit by a lightmap no longer gets it at run time; an entity with no "
+                    "lightmap entry is still lit by it every frame, so nothing goes dark before the bake (with "
+                    "castShadows, a point or spot light of this mode gets a shadow map only while a mesh with no "
+                    "lightmap is within its range: the lightmapped ones skip it). mixed: "
+                    "lit every frame like a realtime light, with shadows (its bounce light in the lightmaps and the "
+                    "light probes for moving objects: M73.4c and M73.4d).")
         .field("volumetric", &Light::volumetric,
                "Strength 0..10 of this light's shafts in the volumetric fog (SceneSettings.fogDensity must be above "
                "0). 0 (default) = no shafts. No effect yet: M73.5 brings it.")
@@ -4087,10 +4097,70 @@ void register_builtin_components(TypeRegistry& r) {
         .field("environmentRotation", &SceneSettings::environmentRotation,
                "Degrees the environment map is turned around the up axis. No effect yet: M73.3 brings it.")
         .range(-360, 360)
-        .enum_field("skyModel", &SceneSettings::skyModel, {"gradient", "physical"},
-                    "gradient (default): the skyColor and horizonColor gradient. physical: a sun and an atmosphere "
-                    "computed from the directional light, with clouds. A skyMaterial or an environmentMap takes the "
-                    "place of both. No effect yet: M73.3 brings it.");
+        .enum_field(
+            "skyModel", &SceneSettings::skyModel, {"gradient", "physical"},
+            "gradient (default): the skyColor and horizonColor gradient. physical: a sky computed from the sun, the "
+            "air and the clouds (the sky* and cloud* fields below). The sun is the directional light the renderer "
+            "puts first: the one with castShadows, else the brightest directional light; its direction, colour and "
+            "intensity drive the sky, so turning the "
+            "light turns the sun across it, and the same sky lights and reflects in every mesh (image-based "
+            "lighting: rebuilt in one frame after a big change, over three frames while the sun or the clouds move "
+            "slowly). Without a directional light the sun stands overhead. A skyMaterial takes the place of the "
+            "physical sky. render.supports {\"feature\": \"physicalSky\"} says whether the GPU can (it needs RGBA16F "
+            "render targets); where it cannot, the gradient is drawn.")
+        .field("skySunSize", &SceneSettings::skySunSize,
+               "Physical sky: angular diameter of the sun disc in degrees, 0.1..10. 0.53 (default) is the real sun; "
+               "a larger disc is easier to see in a small window. Only used with skyModel physical.")
+        .range(0.1f, 10)
+        .field("skyTurbidity", &SceneSettings::skyTurbidity,
+               "Physical sky: how much dust and haze (aerosols) the air holds, 1..10. 1 is very clean air with a deep "
+               "blue sky, 2 (default) a clear day, 6 and more a hazy white-yellow sky with a big glow around the "
+               "sun. Only used with skyModel physical.")
+        .range(1, 10)
+        .field("skyGroundAlbedo", &SceneSettings::skyGroundAlbedo,
+               "Physical sky: the colour of the ground the atmosphere sees below the horizon (it lights the air near "
+               "the horizon and the lower half of the reflections). Default grey 0.3; snow is 0.8, dark soil 0.15. "
+               "Alpha is ignored. Only used with skyModel physical.")
+        .field("skyExposure", &SceneSettings::skyExposure,
+               "Physical sky: multiplier of the sky's brightness, of the light it gives the meshes (image-based "
+               "lighting) and of the sun disc, 0..16. At 1 (default) the sky is as bright as the sun's light says: "
+               "the sky is scaled by the colour times the intensity of the sun light, so the sky and a surface facing "
+               "the sun keep the proportion they have in a real noon (the sky is much dimmer than the sun-lit "
+               "surface). Only used with skyModel physical.")
+        .range(0, 16)
+        .field("skyTintsSun", &SceneSettings::skyTintsSun,
+               "Physical sky: true (default) multiplies the colour of the sun (the directional light the sky follows) "
+               "by what "
+               "the air and the clouds let through, relative to a noon sun: a sun on the horizon turns orange and "
+               "dim, a sun behind a thick cloud cover turns weak, and the colour you chose is the colour of the "
+               "sun at noon. false keeps the light exactly as authored (the sky still follows its direction). "
+               "Only used with skyModel physical.")
+        .field("cloudCoverage", &SceneSettings::cloudCoverage,
+               "Physical sky: how much of the sky the clouds cover, 0..1. 0 is a clear sky, 0.25 (default) a few "
+               "clouds, 1 a full overcast. The directional light also weakens with it (skyTintsSun), and the "
+               "clouds shade the image-based lighting. Only used with skyModel physical.")
+        .range(0, 1)
+        .field("cloudDensity", &SceneSettings::cloudDensity,
+               "Physical sky: how thick and dark the clouds are, 0..1: 0.2 thin white wisps, 0.6 (default) "
+               "cumulus, 1 heavy grey clouds with dark bellies. Only used with skyModel physical.")
+        .range(0, 1)
+        .field("cloudAltitude", &SceneSettings::cloudAltitude,
+               "Physical sky: height of the cloud layer above the camera ground in metres, 300..12000 (default "
+               "2500). Higher clouds look smaller and finer. The layer follows the viewing direction, not the "
+               "camera position (like a skybox). Only used with skyModel physical.")
+        .range(300, 12000)
+        .field("cloudWind", &SceneSettings::cloudWind,
+               "Physical sky: metres per second [x, z] the clouds drift along the world axes (beyond 1000 it is "
+               "clamped). The drift follows the game clock (never the wall clock), so a replay shows the same sky. "
+               "[0, 0] stands still. Only used with skyModel physical.")
+        .asset_field("lightmaps", &SceneSettings::lightmaps, "any",
+                     "The scene's baked lightmap: a *.lightmap.json manifest (written by the lightmap.bake command, "
+                     "next to its .hdr pages) that says, per entity, which rectangle of which page lights it. The "
+                     "renderer loads it with the scene and reloads it when a file changes; an entity listed in it "
+                     "(and with MeshRenderer.receiveGI) is lit by the baked irradiance instead of the ambient "
+                     "light, and lights with mode baked stop lighting it. \"\" (default) = no lightmap. A missing "
+                     "or invalid manifest is reported (render.assets) and the scene is drawn without it. "
+                     "docs/rendering/RENDERING_LIGHTING.md, \"Lightmaps\".");
 }
 
 void ensure_builtin_components() {

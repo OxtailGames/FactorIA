@@ -11,7 +11,7 @@ M73 brings the lighting of a leading engine to FactorIA in six steps: many light
 **What is there today (M73.1a, M73.2a, M73.2b): the fields, many lights and the shadows of the sun, of point lights and of spot lights.** Every field below is reflected,
 validated, saved in the scene and read back, and shows up in `docs.components` and in the typings, so a scene, a prefab or a tool can
 set it. The renderer reads `innerAngle`, the shadow fields of the directional light and of the scene (the "Brought by" column says
-`drawn` for them), and lights a view with up to 1024 lights at once (see "Many lights"); it does not read the other fields yet: a
+`drawn` for them), and lights a view with up to 1024 lights at once (see "Many lights"); it does not read the other fields yet (except the sky fields, `skyModel` and the rows after it, which M73-P3d draws: see "The physical sky"): a
 scene with only those set looks exactly as it does without them, except that a Light of `type: "area"` shines like a point light of
 the same `range` until M73.1b. The doc string of each field says which step brings it.
 The defaults are what the engine did before, so a scene made before M73 loads, looks and saves as it did (a default is never written
@@ -53,7 +53,7 @@ range makes the lists long.
 | `shadowBias`, `shadowNormalBias` | metres, 0..1 | 0 (the engine's own: 1.5 texels of the map) | drawn (M73.2a, M73.2b) |
 | `shadowFilter`, `shadowSoftness` | `pcf`, `hard`, `pcss`; 0..10 | `pcf`, 1 | drawn (M73.2a, M73.2b) |
 | `shadowDistance` | metres, 0..100000 | 0 (the scene's) | drawn (M73.2a, M73.2b: fades out and limits point and spot lights) |
-| `mode` | `realtime`, `baked`, `mixed` | `realtime` | M73.4 |
+| `mode` | `realtime`, `baked`, `mixed` | `realtime` | M73.4a: `baked` lights stop lighting lightmapped entities (see "Lightmaps"); `mixed`: M73.4d |
 | `volumetric` | 0..10 | 0 | M73.5 |
 
 ## Scene settings
@@ -66,14 +66,54 @@ range makes the lists long.
 | `shadowAtlasSize` | 512..8192 texels per side, the most the atlas may have | 4096 | drawn (M73.2a) |
 | `contactShadows` | bool | false | M73.2 (needs a GPU that can sample the depth) |
 | `environmentMap`, `environmentIntensity`, `environmentRotation` | an HDR image; 0..100; degrees | none, 1, 0 | M73.3 |
-| `skyModel` | `gradient`, `physical` | `gradient` | M73.3 |
+| `skyModel` | `gradient`, `physical` | `gradient` | M73-P3d (drawn, see "The physical sky") |
+| `lightmaps` | a `.lightmap.json` file | none | M73.4a |
+| `skySunSize`, `skyTurbidity`, `skyExposure` | degrees 0.1..10; 1..10; 0..16 | 0.53, 2, 1 | M73-P3d |
+| `skyGroundAlbedo`, `skyTintsSun` | colour; bool | grey 0.3, true | M73-P3d |
+| `cloudCoverage`, `cloudDensity`, `cloudAltitude`, `cloudWind` | 0..1; 0..1; metres 300..12000; metres per second [x, z] | 0.25, 0.6, 2500, [8, 3] | M73-P3d |
+
+## The physical sky
+
+`SceneSettings.skyModel = "physical"` replaces the colour gradient with a sky computed from physics: a sun with a disc, an atmosphere
+(Rayleigh scattering of the air, Mie scattering of dust and haze, absorption of ozone, plus an approximation of the light that
+scatters more than once) and a layer of clouds. It is drawn as the background of every perspective camera that clears, and the same
+sky is baked into the image-based lighting, so the reflections of a metal ball and the ambient light of every mesh follow it: a
+mirror under a blue sky with a few clouds shows both, and a sun that sets turns the whole scene orange and then dark blue.
+
+- **The sun** is the directional light the renderer puts first (its slot 0): the one with `castShadows`, else the brightest directional
+  light (a point or spot light never is the sun). Its direction, colour and intensity drive the sky, so turning the light (a day cycle) moves the sun across the sky.
+  Without a directional light the sun stands overhead. The sky is scaled by the colour times the intensity of that light.
+- **The light tints with the sky** (`skyTintsSun`, on by default): the colour of the light is multiplied by what the air lets through of
+  a sun at that height, relative to a sun overhead, so a sun on the horizon is orange and weak and a sun below it gives no light, and
+  by what the clouds let through on average (`cloudCoverage`, `cloudDensity`: up to 92 % less under a full heavy overcast). The colour
+  you chose for the light is the colour at noon. Switch it off to keep the light exactly as authored. Limits: the clouds shade the sun
+  light as one number for the whole scene (a cloud over the camera does not cast a moving shadow on the ground), the sun's shadow map
+  is not changed, and the ambient light of the clouds' shade is the baked sky, not a per-pixel term.
+- **Where it sits.** Where a sky material draws the sky (`skyMaterial`), the material wins and the physical sky is not drawn. A camera
+  with `lighting: "studio"` or an orthographic camera shows no sky, as before. The sky is a function of the viewing direction only, like
+  a skybox: the observer is 10 m above a flat ground, wherever the camera stands, and the clouds are a layer at `cloudAltitude` above that.
+- **Clouds** are a procedural layer (a noise of five octaves), covering the sky by `cloudCoverage`, thick by `cloudDensity`, drifting
+  along `cloudWind` with the **game clock** (`world.time()`, never the wall clock: a replay or a fixed step shows the same sky, and a
+  paused game freezes the clouds).
+- **When the lighting is rebuilt.** The picture itself follows the sun and the clock every frame. The baked environment is rebuilt in one
+  frame the first time, when the air, the sun's colour, the exposure or the clouds' shape change, and when the sun moved more than a
+  degree since the last bake; a sun that moves slowly (a day cycle) and drifting clouds rebuild it in three slices over three frames,
+  a third of the work each, so no frame pays for all of it. The environment sees the sun rounded to a quarter of a degree and the
+  clock to 2 s steps (only while the clouds drift), so it is the same at 30 and at 144 fps; the meshes follow the sun with that step.
+- **What it costs.** On Metal (Apple M-series, 320 x 180, the test "what the tables and a bake cost" prints the numbers for your
+  machine): a frame in which nothing changed only draws the sky as one full-screen triangle (0.4 ms for the whole frame here); the first frame and a change of `skyTurbidity` or
+  `skyGroundAlbedo` draw two small tables of the air (about 5 ms for both on that GPU, and never again until one of those changes); a
+  sun that moves a bit every frame adds about 1.6 ms (the sliced bake); a whole bake adds about 3.7 ms. The images take about 330 KB (half
+  floats). The Direct3D 11 and OpenGL numbers were not measured on this host.
+- **Where the GPU cannot.** The tables are RGBA16F render targets that filter. Without them `render.supports` answers false for
+  `physicalSky` with that reason, and a scene that asks for the physical sky draws the gradient (an error is logged once).
 
 ## MeshRenderer
 
 | Field | Values | Default | Brought by |
 |---|---|---|---|
-| `lightmapScale` | 0..100 | 1 | M73.4 |
-| `contributeGI`, `receiveGI` | bool | true, true | M73.4 (bake), M73.5 (realtime GI) |
+| `lightmapScale` | 0..100 | 1 | M73.4a (0 = never lightmapped); the bake's texel density: M73.4c |
+| `contributeGI`, `receiveGI` | bool | true, true | `receiveGI`: M73.4a (false = ignores its lightmap entry); `contributeGI`: M73.4c (bake), M73.5 (realtime GI) |
 | `clearcoat`, `clearcoatRoughness` | 0..1 | 0, 0.03 | drawn (M73.6a), see "The material layers" |
 | `sheenColor`, `sheenRoughness` | colour; 0..1 | black, 0.5 | drawn (M73.6a) |
 | `anisotropy`, `anisotropyRotation` | -1..1; degrees | 0, 0 | drawn (M73.6a) |
@@ -119,9 +159,12 @@ casts from many lights shares one image and one pass.
   channel times `intensity`) scaled by `range^2 / (range^2 + distance^2)` with the distance from the light to the camera; equal scores keep the
   order of the scene, so the result depends on the scene only and never on time. A map is `shadowResolution` texels per side (64..2048,
   rounded down to a power of two); with 0 it is 1024 (512 per face of a cube) while the camera is within the light's `range` and halves each
-  time the camera is twice as far, never under 64. When the atlas is full the largest maps are halved, the least important light's first,
-  and when even that is not enough the least important light loses its shadow whole (a point light never has some of its faces only). A
-  frame also holds at most 64 maps in all, the sun's cascades included. The sun's cascades are shrunk and dropped last. A light that loses
+  time the camera is twice as far, never under 64. When the atlas is full the largest maps of the point and spot lights are halved, the least
+  important light's first, and when even that is not enough the least important light loses its shadow whole (a point light never has
+  some of its faces only). The sun's cascades keep the size they asked for until every local map is at its minimum (64) and no local
+  light is left to drop: they are shrunk and dropped last. A frame also holds at most 64 maps in all, the sun's cascades included. A baked
+  light (`mode` baked) with `castShadows` gets a map only while a mesh that is not lit by a lightmap (and receives shadows) is within its
+  `range`: its shadows are in the lightmaps, a lightmapped surface skips the light, so the map would only serve the moving objects. A light that loses
   its shadow is lit as if `castShadows` were off, and the engine warns once, naming the fixes: raise `shadowAtlasSize`, lower
   `shadowResolution`, set `shadowDistance` or turn `castShadows` off on the lights that matter less.
 - **Distance.** `Light.shadowDistance` (else `SceneSettings.shadowDistance`; 0 in both = no limit) fades the shadow out between 75% and 100%
@@ -129,7 +172,8 @@ casts from many lights shares one image and one pass.
   range reaches no shadow caster costs nothing either, and a scene without local casters is drawn exactly as before.
 - **Filters and bias.** `pcf`, `hard` and `pcss` work as for the sun, with the same code. `shadowBias` and `shadowNormalBias` are metres;
   0 picks 1.5 texels of the map at the surface's distance from the light (a texel of a perspective map grows with the distance), which
-  suits most scenes. `shadowSoftness` is the angular size of the light for `pcss` (the penumbra a larger light casts).
+  suits most scenes; the slope term of the bias follows how the surface leans against the map's axis, so a surface facing the light
+  at the corner of a cube face does not shadow itself. `shadowSoftness` is the angular size of the light for `pcss` (the penumbra a larger light casts).
 - **Cost.** Each tile is drawn with the casters whose box meets the light's range and the tile's view (a cube face only draws what is in
   its view), and every one of those draws counts in `stats.drawCalls`; `stats.shadowCasters` counts the meshes that
   cast into any map. The atlas has only the size the maps of the frame need (at most `shadowAtlasSize`; 4096 x 4096 is 64 MB of `R32F`, plus its depth
@@ -182,14 +226,53 @@ Not packed: `clearcoatNormalTexture` (the coat follows the geometric normal), `s
 tangent turned by `anisotropyRotation`); a texture file that cannot be read (`its factor alone is used`), and a set whose packed size would pass
 4096 x 4096. An editable mesh (`mesh.*` commands, a model converted to a mesh) keeps only the factors: its textures are not carried.
 
+## Lightmaps
+
+A lightmap is light computed once and stored in an image: the diffuse light of the sun, the lights of mode `baked` and the sky, with the
+bounces between surfaces, so a static level looks lit by global illumination for the price of one texture read. M73.4a is the part that
+draws it; the `lightmap.bake` command that writes the files comes with M73.4c, so until then the files are made by tools that use the
+baker (docs/design/ARCHITECTURE_BAKING.md, repository only, not in the binary) or by hand.
+
+**What you set.** `SceneSettings.lightmaps` is the project path of a manifest (`scenes/level.lightmap.json`). It lists, for each entity
+(by its stable id), the mesh it was baked for, the page (a Radiance `.hdr` next to it) and the rectangle of the page that is its
+lightmap. The renderer loads it with the scene and reads it again when a file changes on disk, so a new bake shows up without a restart.
+An entity is lit by its lightmap when it is listed, has `MeshRenderer.receiveGI` on and `lightmapScale` above 0, and is not skinned.
+
+**What it looks like.** The baked light **replaces** the ambient light and the sky's diffuse light on that surface (it already holds
+them); the sky's reflections stay, and so do realtime lights. A light with `mode: "baked"` does not light a lightmapped entity at run time
+(its light is in the page) but does light every entity that has no lightmap entry, so a scene shows no dark objects before it is
+baked. `mode: "mixed"` and `realtime` lights are drawn as always. An entity that is not listed, or whose page or mesh cannot be used,
+is drawn exactly as without lightmaps.
+
+**Lightmap UVs.** A lightmap needs every triangle to have its own place in the unit square. The model's second UV set (glTF
+`TEXCOORD_1`) is used when every part has it (it must be inside 0..1 without overlap: author it that way); any other mesh, the
+primitives included, gets a generated unwrap (xatlas, with a gutter between the charts), the same on every platform and run and kept in
+memory with the mesh (nothing is written next to the model). A mesh with more than 250,000 triangles and no `TEXCOORD_1` cannot be
+unwrapped: give it one or use a lower-poly mesh for the bake. The unwrap splits vertices along the seams of its charts, so a
+lightmapped entity is drawn from vertices of its own, and it is not batched with other entities.
+
+**Files.** The manifest is JSON (`version`, `uvVersion`, `settingsHash`, `pages`, `entities`); a page is a Radiance `.hdr` whose first row
+is the top, with page uv (0, 0) at the top-left; a texel is the irradiance divided by pi (what a white diffuse surface shows) in linear
+colour. The page uv of a lightmap uv is `uv * (sx, sy) + (ox, oy)` of the entity's `scaleOffset`. Mistakes are named with the file and the
+JSON pointer, with what to change, and the scene is drawn without the lightmap: an unknown key, a page that is missing, an entry whose
+mesh is not the one that was baked (the model changed: bake again, `render.assets` lists it as `lightmap-stale`).
+
+**With your own materials.** The engine's own mesh shader and a custom mesh material that lists `"uv1"` in `vertexAttributes` (docs/SHADERS.md) are lightmapped; on a lightmapped entity that material's `uv1` is the lightmap UV, not the model's second UV set, so a
+material that textures with `uv1` should not be on a lightmapped entity (set `receiveGI` to false there). A full-shader material and a
+material that reads compute buffers are never lightmapped. A material that does not list `"uv1"` is not lightmapped either: it has
+no place to get the UV from.
+
+**The texel density.** `lightmap_texels_per_meter` (C++, `fa/scene/lightmap_manifest.h`) gives the density the bake will use for an entity:
+16 texels per metre times `MeshRenderer.lightmapScale`, 0 when the scale is 0.
+
 ## Asking what the renderer draws: render.supports
 
 `render.supports` (C++ `Renderer::supports(name)`) answers for each lighting feature below with `false` and the status `planned (M73)`
-until its step lands; then it follows the GPU (`cascadedShadows` does, and `clusteredLights` is `true` on every backend that draws). A game that wants a feature checks it first and falls back, so it never relies on
+until its step lands; then it follows the GPU (`cascadedShadows` does, `physicalSky` is true wherever the GPU renders to RGBA16F and filters it, and `clusteredLights` is `true` on every backend that draws). A game that wants a feature checks it first and falls back, so it never relies on
 what is not drawn.
 
 `clusteredLights`, `areaLights`, `lightCookies`, `iesProfiles` (M73.1); `cascadedShadows`, `pointShadows`, `spotShadows`,
-`contactShadows` (M73.2); `environmentMap`, `reflectionProbes`, `physicalSky` (M73.3); `lightmaps`, `lightProbes` (M73.4);
+`contactShadows` (M73.2); `environmentMap`, `reflectionProbes`, `physicalSky` (M73.3); `lightmaps` (M73.4a), `lightProbes` (M73.4d);
 `volumetricFog`, `decals`, `subsurface`, `realtimeGI` (M73.5); `clearCoat`, `sheen`, `anisotropy` (M73.6a, drawn: they follow the
 backend, which every one supports) and `transmission` (M73.6b).
 

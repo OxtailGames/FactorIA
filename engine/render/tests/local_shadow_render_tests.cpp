@@ -73,7 +73,9 @@ TEST_CASE("local shadows: a spot light's shadow is drawn from one tile of the at
     w.get<Light>(lamp)->castShadows = false;
     const Image plain = g.render(w);
     const RenderStats without = g.renderer.stats();
-    CHECK(with.shadowCasters == 3);  // the floor and the two pillars: the wall is outside the cone of the spot
+    CHECK(with.shadowCasters ==
+          4);  // the floor, the two pillars, and the wall's lower edge: it is 0.8 degrees outside the cone,
+    // inside the guard band of the tile (conservative: a caster there is drawn, and shades nothing)
     CHECK(with.drawCalls > without.drawCalls);
     CHECK(differing(shadowed, plain, 60, 180) > 150);  // the pillars' shadows fall on the floor
     expect_golden(shadowed, "3d_shadows_spot");
@@ -181,4 +183,32 @@ TEST_CASE("local shadows: more lights than the atlas holds lose their shadows in
     });
     const Image c = g.render(w);
     CHECK(differing(a, c, 0, a.height, 0.0f) > 0);
+}
+
+TEST_CASE("local shadows: a surface facing a point light at the diagonal of a cube face does not shadow itself") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    if (!g.renderer.supports("pointShadows")) return;
+    World w;
+    add_camera(w, {0, 2, 9}, {4.2f, 0.8f, 0});
+    w.settings().ambientLight = Color{0.05f, 0.05f, 0.06f, 1};
+    // The lamp is at (0, 5, 0) and the panel 6 m away along (1, -1, 0): the boundary of the +X and -Y faces, 45 degrees off both axes.
+    // The panel's normal points at the lamp, so the angle between the normal and the light is 0 while the depth the tile compares (the
+    // distance along the axis) still changes, by sin(45) cos(45) = 0.5 texel per texel; the map is small (128) so that texel is wide.
+    // A guard against acne at the corners of the faces: the slope is measured against the axis (fa_shadow_local).
+    const Entity lamp = add_local(w, LightType::Point, {0, 5, 0}, {0, 0, 0}, 14);
+    w.get<Light>(lamp)->shadowResolution = 128;
+    Entity panel = add_mesh(w, "plane", {4.2f, 0.76f, 0}, Color::hex(0xc8c8c8), {5, 1, 5});
+    w.get<Transform>(panel)->rotation = {0, 0, 45};
+    const Image shadowed = g.render(w);
+    CHECK(g.renderer.stats().shadowCasters == 1);
+    w.get<Light>(lamp)->castShadows = false;
+    const Image plain = g.render(w);
+    w.get<Light>(lamp)->intensity = 0.0f;
+    const Image dark = g.render(w);
+    const int panelPixels = differing(plain, dark, 0, plain.height, 0.1f);    // what the lamp lights
+    const int acne = differing(shadowed, plain, 0, shadowed.height, 0.008f);  // what its shadow changes
+    MESSAGE("panel pixels lit by the lamp: " << panelPixels << ", changed by its shadow map: " << acne);
+    CHECK(panelPixels > 2000);
+    CHECK(acne < panelPixels / 100);
 }

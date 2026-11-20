@@ -82,7 +82,7 @@ LocalShadowPlan plan_local_shadows(int atlasMax, const std::vector<ShadowTileReq
         for (std::size_t k = 0; k < kept.size(); ++k) {
             const int tiles = kept[k].cube ? kCubeFaces : 1;
             for (int f = 0; f < tiles; ++f)
-                requests.push_back({kept[k].wanted, kLocalShadowMinTile, kLocalShadowPriority + int(k)});
+                requests.push_back({kept[k].wanted, kLocalShadowMinTile, kLocalShadowPriority + int(k), 1});
         }
         plan.atlas = layout_shadow_atlas(atlasMax, requests);
         std::vector<Ranked> next;
