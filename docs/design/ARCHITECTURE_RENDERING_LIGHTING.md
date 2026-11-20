@@ -302,7 +302,7 @@ the cube the sky was drawn into, and the prefilter and the irradiance that follo
   bake, never sliced: nothing moves slowly). `skyMaterial` still wins the background: `mat` is null while an HDRI lights, so the sky material
   is drawn by the main pass and not baked.
 
-Highlights: see the user page. The two limits are `kHdriMaxValue` (60000, on the CPU, so the half never overflows to infinity) and `kHdriTapLimit` (64, per
+Highlights: see the user page. After the gain (`environmentIntensity`, up to 100) `env_out` in env.glsl and the background in hdri.glsl limit the brightest channel to 65000, colour kept, because the cubes and the scene target are RGBA16F (max 65504); the GPU test "a sun at the largest value times a big intensity" guards it (Metal turns an infinity into white, so it is D3D11 and GL that it catches). The two limits are `kHdriMaxValue` (60000, on the CPU, so the half never overflows to infinity before the gain) and `kHdriTapLimit` (64, per
 sample of the blurred levels and the irradiance, in the shader). Not done here: a picture as a light source that casts shadows (the sun of
 the picture does not cast a shadow: place a directional light), several maps blended, a cube map or a mirror-ball file, a map per camera or per
 area (reflection probes, M73.3). The tests are `engine/render/tests/hdri_tests.cpp` (the CPU half, the orientation and the rotation, the

@@ -65,6 +65,17 @@ vec3 env_tap_limited(vec3 d) {
     return t;
 }
 
+// The cubes are RGBA16F, whose largest value is 65504: a texel of 60000 times a brightness of 4 would be infinity, and infinity is NaN
+// after the tone mapping. The brightest channel is limited to 65000 with the colour kept (the same rule the CPU applies to the file).
+// Anything under that is returned unchanged, so a scene that has no gain is bit-identical.
+vec3 env_out(vec3 c) {
+    float m = max(max(c.r, c.g), c.b);
+    if (m > 65000.0) {
+        c *= 65000.0 / m;
+    }
+    return c;
+}
+
 // An orthonormal basis around n: t and b.
 void env_basis(vec3 n, out vec3 t, out vec3 b) {
     vec3 up = abs(n.y) < 0.999 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0);
@@ -77,7 +88,7 @@ void env_basis(vec3 n, out vec3 t, out vec3 b) {
 @fs fs_copy
 @include_block env_common
 void main() {
-    frag_color = vec4(env_tap(normalize(dir)) * p.w, 1.0);
+    frag_color = vec4(env_out(env_tap(normalize(dir)) * p.w), 1.0);
 }
 @end
 
@@ -107,7 +118,7 @@ void main() {
             weight += ndl;
         }
     }
-    frag_color = vec4((weight > 0.0 ? sum / weight : env_tap_limited(n)) * p.w, 1.0);
+    frag_color = vec4(env_out((weight > 0.0 ? sum / weight : env_tap_limited(n)) * p.w), 1.0);
 }
 @end
 
@@ -129,7 +140,7 @@ void main() {
         vec3 l = t * (sin_t * cos(phi)) + b * (sin_t * sin(phi)) + n * cos_t;
         sum += env_tap_limited(l);
     }
-    frag_color = vec4(sum / float(max(count, 1)) * p.w, 1.0);
+    frag_color = vec4(env_out(sum / float(max(count, 1)) * p.w), 1.0);
 }
 @end
 

@@ -422,6 +422,44 @@ TEST_CASE("environment map: a file that cannot be used is one error, and the sce
     }
 }
 
+TEST_CASE("environment map: a sun at the largest value times a big intensity is never infinity, in the background or in the mirror") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    if (!supported(g)) {
+        MESSAGE("environmentMap is not supported on this GPU: not run");
+        return;
+    }
+    // Every texel is 60000 (the largest the file keeps): times 4 it is over the 65504 of a half float, which is infinity in the cubes and in an
+    // RGBA16F scene target, and NaN after the tone mapping. The brightest channel is limited with the colour kept, so the picture stays white.
+    write_file("assets/hdri_sun.hdr", hdr_bytes(16, 8, [](int, int) { return Vec3{1.0e6f, 1.0e6f, 1.0e6f}; }));
+    // The picture is darkened by 2^-17 on its way to the screen: a value that is 65000 (the limit) or 60000 (intensity 1, no limit) comes out
+    // a mid grey, while an infinity would stay infinity, white, whatever a GPU does with it on the way.
+    auto shot = [&](float intensity) {
+        EnvScene s;
+        s.mesh({0, 0, -4}, 2.0f, 1.0f, 0.05f);  // a mirror
+        auto& post = s.w.add<PostProcess>(s.cam);
+        post.tonemapEnabled = true;
+        post.tonemapMode = TonemapMode::Neutral;
+        post.exposureEnabled = true;
+        post.exposureMode = ExposureMode::Manual;
+        post.exposureEv = -17.0f;
+        s.w.settings().colorSpace = ColorSpace::Linear;
+        s.w.settings().environmentMap = "assets/hdri_sun.hdr";
+        s.w.settings().environmentIntensity = intensity;
+        return g.render(s.w);
+    };
+    const Image reference = shot(1.0f), big = shot(4.0f);
+    const int cx = big.width / 2 - 14, cy = big.height / 2 - 14;
+    for (const auto& at : {std::pair<int, int>{4, 4}, std::pair<int, int>{cx, cy}}) {
+        CAPTURE(at.first);
+        const Color a = reference.pixel(at.first, at.second), b = big.pixel(at.first, at.second);
+        CHECK(a.r < 0.97f);  // the reference is a grey, not white: the test can tell
+        CHECK(std::fabs(a.r - b.r) < 0.06f);
+        CHECK(std::fabs(a.g - b.g) < 0.06f);
+        CHECK(std::fabs(a.b - b.b) < 0.06f);
+    }
+}
+
 TEST_CASE("environment map: the same picture bakes to the same lighting every time") {
     Gfx& g = gfx();
     REQUIRE(g.ok);

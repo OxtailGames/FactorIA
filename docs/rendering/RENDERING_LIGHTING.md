@@ -139,7 +139,7 @@ mesh: the ambient light, and what a metal or glossy surface reflects, come from 
 - **Highlights.** A photograph of the sun holds values a million times the sky's. The file's NaN and negative values become 0; a texel above 60000
   (the half float holds 65504) is scaled down to it with its colour kept, after the shrinking. The bake takes the sky's own number of samples (32 to 128 a
   pixel, whatever the picture), so the cost does not depend on the file; and so a sun does not leave fireflies, one sample of the blurred levels and of the ambient
-  light is limited to 64 (its brightest channel, colour kept). The mirror level and the background are not limited. The cost: a sun is
+  light is limited to 64 (its brightest channel, colour kept). The mirror level and the background show the picture as it is, except that `environmentIntensity` can push a sun past what the half float holds: after the gain the brightest channel is limited to 65000, colour kept, so a sun never becomes infinity (and a black spot after the tone mapping). The cost: a sun is
   a little dimmer in the ambient light and in rough reflections than its energy says, sharp in a smooth mirror. Never time- or CPU-dependent: the same file gives the same pixels.
 - **When the lighting is baked.** In one frame, when the map, the rotation or the intensity change, when the file changes on disk (hot
   reload) and the first time; a frame in which none changed draws only the background. It is the bake of the sky (60 small passes), not a second one:

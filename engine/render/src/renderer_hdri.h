@@ -10,7 +10,8 @@
 // The brightness environmentIntensity multiplies the background and the lighting of whichever sky gives them.
 //
 // Looking after the highlights: the picture holds at most kHdriMaxValue per channel (hdri.h). The mirror level of the prefiltered cube
-// and the background show it as it is; the rougher levels and the irradiance limit one sample to kHdriTapLimit (the brightest channel,
+// and the background show it as it is (after the gain environmentIntensity the brightest channel is limited to 65000, the colour kept, in
+// env.glsl and hdri.glsl, so a half float never overflows to infinity); the rougher levels and the irradiance limit one sample to kHdriTapLimit (the brightest channel,
 // the colour kept) so a sun a thousand times brighter than the sky does not leave a speckle of fireflies in 32 samples a pixel. The
 // number of samples is the sky's own (32 / 64 and 128), so the cost of a bake does not depend on the picture.
 #pragma once

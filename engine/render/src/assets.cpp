@@ -912,7 +912,16 @@ const HdriAsset* Assets::hdri(const std::string& pathIn) {
                 key, what);
         return true;
     };
-    auto image = hdri_load(key);
+    // Only a file that cannot be read, or whose pixels do not decode, may be one that is still being written: the header and the layout
+    // are the same on the second try, so those errors are final at once (no retry warning before an error that cannot change).
+    auto bytes = fs::read_bytes(key);
+    if (!bytes) {
+        if (retry_once("could not be read: " + bytes.error().message)) return nullptr;
+        return fail("environment map " + bytes.error().message, bytes.error().hint);
+    }
+    if (auto check = hdri_check(bytes->data(), bytes->size(), key); !check)
+        return fail("environment map " + check.error().message, check.error().hint);
+    auto image = hdri_from_bytes(bytes->data(), bytes->size(), key);
     if (!image) {
         const std::string message = image.error().message, hint = image.error().hint;
         if (retry_once("did not load: " + message)) return nullptr;

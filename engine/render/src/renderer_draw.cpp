@@ -162,6 +162,7 @@ struct Renderer::Impl::DrawContext {
     // What the next bake of this job does with the sky (Environment::set_look): SceneSettings.environmentIntensity, and the limit
     // of one sample of the convolutions (an HDRI's, 0 for any other sky).
     float envGain = 1.0f, envTap = 0.0f;
+    float envRotation = 0.0f;  // degrees, finite and inside (-360, 360): what the key and both draws of the HDRI use
     // plan_env: the HDRI the main pass draws as the background (SceneSettings.environmentMap with environmentBackground, no sky material),
     // null when it draws anything else.
     const HdriAsset* hdriMain = nullptr;
@@ -1390,6 +1391,8 @@ void Renderer::Impl::plan_env(DrawContext& ctx) {
     // environmentIntensity multiplies the background of an HDRI and the lighting of any sky (a value that is not a number is 1).
     ctx.envGain =
         std::isfinite(ctx.ss.environmentIntensity) ? std::clamp(ctx.ss.environmentIntensity, 0.0f, 100.0f) : 1.0f;
+    // The rotation is made safe once: a script can write any number (NaN, 1e30), and the key and the drawing must agree.
+    ctx.envRotation = std::isfinite(ctx.ss.environmentRotation) ? std::fmod(ctx.ss.environmentRotation, 360.0f) : 0.0f;
     const Frame& fr = ctx.fr;
     if (!ctx.doMainPass || !fr.wantWorld || fr.cam.studio) return;
     // The environment map (renderer_hdri.h says who decides what): an HDRI that loaded lights the meshes whatever the background is.
@@ -1417,13 +1420,13 @@ void Renderer::Impl::plan_env(DrawContext& ctx) {
     if (hdri) {
         // The cube starts as the picture itself (rotated, in the scene's colour space, brightness 1): the bake's gain applies it later.
         sky.hdri = hdri;
-        sky.hdriRotation = ctx.ss.environmentRotation;
+        sky.hdriRotation = ctx.envRotation;
         sky.linear = fr.linear;
         ctx.envTap = kHdriTapLimit;
         mix(std::hash<std::string>{}(hdri->path));
         mix(hdri->serial);
         mix(hdri->image.id);
-        mixf(std::isfinite(sky.hdriRotation) ? std::clamp(sky.hdriRotation, -360.0f, 360.0f) : 0.0f);
+        mixf(sky.hdriRotation);
         mix(sky.linear ? 1 : 0);
         if (phys) {  // the main pass may still draw the physical sky (environmentBackground off): its state is the frame's
             PhysicalSkyState st;
@@ -2454,7 +2457,7 @@ void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
             SkyDraw sky;
             if (ctx.hdriMain) {
                 sky.hdri = ctx.hdriMain;
-                sky.hdriRotation = ss.environmentRotation;
+                sky.hdriRotation = ctx.envRotation;
                 sky.hdriGain = ctx.envGain;
                 sky.linear = fr.linear;
             } else if (ctx.physMainOn) {
