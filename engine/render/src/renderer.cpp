@@ -37,6 +37,8 @@ Json RenderStats::to_json() const {
                 {"volumetricLights", volumetricLights},
                 {"volumetricLightsDropped", volumetricLightsDropped},
                 {"contactShadowLights", contactShadowLights},
+                {"subsurfaceCameras", subsurfaceCameras},
+                {"subsurfaceDraws", subsurfaceDraws},
                 {"decals", decals},
                 {"decalsDropped", decalsDropped},
                 {"decalClusterClipped", decalClusterClipped},
@@ -429,6 +431,7 @@ void Renderer::shutdown() {
         im.sceneFx.release();
         im.fogFx.release();
         im.volFx.release();
+        im.sssFx.release();
         im.ramps.destroy();
         im.assets.reset();
         im.destroy_targets();
